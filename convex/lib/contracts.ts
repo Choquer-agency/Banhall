@@ -30,6 +30,9 @@ export const domainErrorCodes = [
   "REVIEW_DECISION_REQUIRED",
   // Story 1 (CAP-1/2/4): Brief edit error when version stale
   "BRIEF_STALE",
+  // Decision 65, stage 2: a run or review asked for while the project is
+  // still being set up from its intake draft.
+  "PROJECT_SETTING_UP",
 ] as const;
 
 export type DomainErrorCode = (typeof domainErrorCodes)[number];

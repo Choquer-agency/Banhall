@@ -1,3 +1,4 @@
+import { requireProjectSetUp } from "./lib/intakeDrafts";
 import {
   query,
   mutation,
@@ -42,6 +43,8 @@ export const startPdReview = mutation({
   },
   handler: async (ctx, args) => {
     const { user } = await requireReportEditAccess(ctx, args.projectId);
+    // Decision 65, stage 2: not while the project is still being set up.
+    await requireProjectSetUp(ctx, args.projectId);
     requireAnthropicConfigured("review");
     const excludedSources = await validatedExcludedSources(ctx, args.projectId, args);
     if (excludedSources?.documentIds.includes(args.documentId)) {

@@ -5,48 +5,61 @@
  * While the writer sets up a new project, the page saves each transcript
  * and supporting document it has read (and the original file) to a draft
  * only its signed-in creator can see. The draft's Brief is prepared once
- * readable transcript text and the client name exist and edits have
- * settled for 2 seconds (convex/briefPreparations.ts, through the stage 1
- * service, limits and kill switch). Confirming promotes the draft into the
- * real project from the saved sources, with an exact source-key link for
- * each row, so the project's run can adopt the prepared Brief.
+ * readable transcript text and the client name exist, the names have stayed
+ * unchanged for 5 seconds and edits have settled for 2 seconds
+ * (convex/briefPreparations.ts, through the stage 1 service, limits and
+ * kill switch). Confirming promotes the draft into the real project from
+ * the saved sources, with an exact source-key link for each row, so the
+ * project's run can adopt the prepared Brief.
  *
  * Nothing here writes a project, a generation, an owner or a workflow
  * stage before promotion, and promotion writes the project exactly as
  * `createProject` does (`insertNewProject`). A draft expires 24 hours after
  * its last edit and 7 days after it was made; Discard, expiry and
  * promotion fence its pending work, and its content is purged in bounded
- * batches.
+ * batches. Source text lives in `intakeSourceTexts`, so reading a draft's
+ * sources never reads their text.
  */
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { domainError } from "./lib/contracts";
-import { sha256 } from "./lib/contracts";
-import { requireCapability } from "./lib/roleCapabilities";
+import { domainError, sha256 } from "./lib/contracts";
+import { requireCapability, userMayEditReport } from "./lib/roleCapabilities";
 import { getCurrentUserOrNull } from "./lib/auth";
 import { briefPreparationEnabled } from "./appSettings";
 import { transcriptSourceFormatValidator, transcriptSpeakerRoleValidator } from "./lib/transcriptValidators";
 import {
+  CLOSED_DRAFT_KEEP_MS,
+  INTAKE_SPEAKER_SAMPLE_TURNS,
+  MAX_DRAFTS_PER_DAY,
   MAX_EXCLUDED_SOURCE_KEYS,
   MAX_INTAKE_DOCUMENT_CHARS,
+  MAX_INTAKE_DOCUMENT_TEXT_CHARS,
   MAX_INTAKE_DOCUMENTS,
   MAX_OPEN_DRAFTS_PER_USER,
-  INTAKE_SPEAKER_SAMPLE_TURNS,
+  MAX_SPEAKER_CALLS_PER_DAY,
   buildIntakeStructure,
+  deleteSourceText,
   draftExpiresAt,
   draftPlaceholderMap,
   listDraftSources,
   listIntakeSpeakers,
+  mergedAway,
+  namesSettleAt,
   parseIntakeTurns,
+  readSourceText,
   requestIntakePreparation,
   requireOwnDraft,
   requireSourceKey,
+  speakerModelKey,
   touchDraft,
+  userMayCreateProject,
+  writeSourceText,
 } from "./lib/intakeDrafts";
 import {
   MAX_TOTAL_TRANSCRIPT_CHARS,
+  MAX_TRANSCRIPT_FILE_BYTES,
   MAX_TRANSCRIPTS_PER_PROJECT,
   newStructureBuildId,
   requireTranscriptTextWithinCap,
@@ -58,27 +71,40 @@ import {
   deleteStorageIfUnreferenced,
   isStorageReferenced,
   requireFreshUpload,
-  requireNotClaimedByAnother,
+  uploadClaimFor,
 } from "./lib/storage";
 import { deriveProcessingStatus } from "../shared/documentStatus";
+import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
+import { firmDayNumber } from "../shared/firmTime";
 import { insertNewProject } from "./projects";
 import { endPreparation, purgePreparationContent } from "./briefPreparations";
 import { MAX_BRIEF_ENTRY_ROWS } from "./lib/generations/brief";
-import { MAX_TRANSCRIPT_FILE_BYTES } from "./lib/transcripts";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
 
 /** Characters one promotion step installs; the rest follow in the next step. */
 const PROMOTION_STEP_CHARS = 1_500_000;
-/** A transcript this short has its turns built inside the promotion step. */
+/** A transcript this short has its first turns built inside the promotion step. */
 const INLINE_STRUCTURE_CHARS = 150_000;
+/** How often a promotion waiting on its transcripts' turn builds looks again. */
+const PROMOTION_RECHECK_MS = 500;
+/**
+ * How long promotion waits for the turn builds before it lets the project
+ * be used anyway (the run then derives its own Brief if the key misses).
+ */
+const PROMOTION_STRUCTURE_WAIT_MS = 3 * 60 * 1000;
+/** A promotion this old is resumed, or ended, by the sweep. */
+const STUCK_PROMOTION_MS = 10 * 60 * 1000;
+/** An original may still reach a promoted project's row this long after promotion. */
+const LATE_ORIGINAL_MS = 60 * 60 * 1000;
 /** Rows one purge step deletes. */
 const INTAKE_PURGE_ROWS = 200;
-/** Drafts one sweep looks at. */
+/** Drafts one sweep looks at, per kind. */
 const INTAKE_SWEEP_DRAFTS = 20;
 const MAX_LABEL_CHARS = 300;
 const MAX_CLIENT_NAME_CHARS = 200;
 const MAX_INTERVIEWEES = 50;
 const MAX_INTERVIEWEE_CHARS = 120;
+const MAX_LINKS_READ = MAX_TRANSCRIPTS_PER_PROJECT + MAX_INTAKE_DOCUMENTS + 10;
 
 const fileTypeValidator = v.union(
   v.literal("txt"),
@@ -106,7 +132,24 @@ async function requireCreator(ctx: MutationCtx): Promise<Doc<"users">> {
   return user;
 }
 
-/** Ends a draft's preparations that have not produced anything anyone may adopt. */
+/** The caller's counts for today, made when missing. */
+async function dailyCounts(ctx: MutationCtx, userId: Id<"users">, now: number): Promise<Doc<"intakeDailyCounts">> {
+  const firmDay = firmDayNumber(now);
+  const row = await ctx.db
+    .query("intakeDailyCounts")
+    .withIndex("by_userId_and_firmDay", (q) => q.eq("userId", userId).eq("firmDay", firmDay))
+    .unique();
+  if (row) return row;
+  const id = await ctx.db.insert("intakeDailyCounts", { userId, firmDay, drafts: 0, speakerCalls: 0 });
+  return (await ctx.db.get(id))!;
+}
+
+/**
+ * Ends a draft's preparations that have not produced anything anyone may
+ * adopt: a queued one is cancelled; a running or ready one becomes
+ * obsolete, so its late writes are dropped and its call holds the slot
+ * until it ends, as a superseded attempt does.
+ */
 async function fenceDraftPreparations(
   ctx: MutationCtx,
   draftId: Id<"intakeDrafts">,
@@ -120,28 +163,33 @@ async function fenceDraftPreparations(
     for (const row of rows) {
       // A promoted draft's preparation belongs to its project now.
       if (row.projectId) continue;
-      // A running attempt becomes obsolete, as a superseded one does: its
-      // late writes are dropped and its call holds the slot until it ends.
       await endPreparation(ctx, row, status === "queued" ? "cancelled" : "obsolete", reason);
     }
   }
 }
 
 /**
- * Starts a draft for the signed-in creator. A person may hold a few open
- * drafts (tabs); past that the oldest is discarded.
+ * Starts a draft for the signed-in creator: at most MAX_DRAFTS_PER_DAY a
+ * firm day. A person may hold a few open drafts (tabs); past that the one
+ * edited longest ago is discarded.
  */
 export const createIntakeDraft = mutation({
   args: {},
   returns: v.id("intakeDrafts"),
   handler: async (ctx): Promise<Id<"intakeDrafts">> => {
     const user = await requireCreator(ctx);
+    const now = Date.now();
+    const counts = await dailyCounts(ctx, user._id, now);
+    if (counts.drafts >= MAX_DRAFTS_PER_DAY) {
+      domainError("INVALID_STATE", "You have started a lot of new projects today. Files are saved when you start instead.");
+    }
+    await ctx.db.patch(counts._id, { drafts: counts.drafts + 1 });
     const open = await ctx.db
       .query("intakeDrafts")
       .withIndex("by_ownerId_and_status", (q) => q.eq("ownerId", user._id).eq("status", "open"))
       .take(MAX_OPEN_DRAFTS_PER_USER + 1);
-    const now = Date.now();
-    for (const old of open.slice(0, Math.max(0, open.length - MAX_OPEN_DRAFTS_PER_USER + 1))) {
+    const oldestEditFirst = [...open].sort((a, b) => a.lastEditedAt - b.lastEditedAt);
+    for (const old of oldestEditFirst.slice(0, Math.max(0, open.length - MAX_OPEN_DRAFTS_PER_USER + 1))) {
       await closeDraft(ctx, old, "discarded");
     }
     return await ctx.db.insert("intakeDrafts", {
@@ -155,23 +203,32 @@ export const createIntakeDraft = mutation({
   },
 });
 
-/** Discards or expires an open draft: its work is fenced and its content purged. */
+/** Discards or expires a draft: its work is fenced and its content purged. */
 async function closeDraft(ctx: MutationCtx, draft: Doc<"intakeDrafts">, status: "discarded" | "expired") {
-  if (draft.status !== "open") return;
+  if (draft.status !== "open" && draft.status !== "promoting") return;
   await ctx.db.patch(draft._id, { status, endedAt: Date.now() });
   await fenceDraftPreparations(ctx, draft._id, "draft_closed");
   await ctx.scheduler.runAfter(0, intakeDraftRefs.purgeIntakeDraft, { draftId: draft._id });
 }
 
 /** Schedules a draft transcript's turn and speaker build. */
-async function scheduleIntakeStructure(ctx: MutationCtx, sourceId: Id<"intakeSources">) {
-  await ctx.scheduler.runAfter(0, intakeDraftRefs.buildIntakeSourceStructure, { sourceId });
+async function scheduleIntakeStructure(
+  ctx: MutationCtx,
+  sourceId: Id<"intakeSources">,
+  options: { resetModelRoles?: boolean } = {}
+) {
+  await ctx.scheduler.runAfter(0, intakeDraftRefs.buildIntakeSourceStructure, {
+    sourceId,
+    ...(options.resetModelRoles ? { resetModelRoles: true } : {}),
+  });
 }
 
 /**
  * Saves one readable transcript or supporting document under its source
  * key, or updates it (a new position, category or text). Transcript text
- * is capped as a project's is; the turn and speaker build starts at once.
+ * is capped as a project's is, and all document text at 3,000,000
+ * characters; the text goes to chunked rows and the turn and speaker
+ * build starts at once.
  */
 export const saveIntakeSource = mutation({
   args: {
@@ -207,23 +264,34 @@ export const saveIntakeSource = mutation({
       .unique();
     if (existing && existing.kind !== args.kind) domainError("INVALID_INPUT", "A source cannot change kind");
     // The caps from the draft's counters: no other source's text is read.
+    const previousLength = existing?.contentLength ?? 0;
     const transcriptCount = (draft.transcriptCount ?? 0) + (args.kind === "transcript" && !existing ? 1 : 0);
     const transcriptChars =
-      (draft.transcriptChars ?? 0) + (args.kind === "transcript" ? args.content.length - (existing?.content.length ?? 0) : 0);
+      (draft.transcriptChars ?? 0) + (args.kind === "transcript" ? args.content.length - previousLength : 0);
     const documentCount = (draft.documentCount ?? 0) + (args.kind === "document" && !existing ? 1 : 0);
+    const documentChars =
+      (draft.documentChars ?? 0) + (args.kind === "document" ? args.content.length - previousLength : 0);
     if (transcriptCount > MAX_TRANSCRIPTS_PER_PROJECT || transcriptChars > MAX_TOTAL_TRANSCRIPT_CHARS) {
       domainError("INVALID_INPUT", "A project takes at most 20 transcripts and 2,000k characters of transcript text");
     }
     if (documentCount > MAX_INTAKE_DOCUMENTS) {
       domainError("INVALID_INPUT", `A new project takes at most ${MAX_INTAKE_DOCUMENTS} supporting documents`);
     }
+    if (documentChars > MAX_INTAKE_DOCUMENT_TEXT_CHARS) {
+      domainError(
+        "INVALID_INPUT",
+        "A new project takes at most 3,000k characters of supporting document text. Remove a file to add this one."
+      );
+    }
     const now = Date.now();
-    const contentHash = existing?.content === args.content ? existing.contentHash : await sha256(args.content);
+    const contentHash = await sha256(args.content);
+    const textChanged = !existing || existing.contentHash !== contentHash;
     const fields = {
       position: args.position,
       label,
-      content: args.content,
       contentHash,
+      contentLength: args.content.length,
+      hasText: args.content.trim().length > 0,
       ...(args.kind === "transcript"
         ? { sourceFormat: args.sourceFormat }
         : {
@@ -235,29 +303,32 @@ export const saveIntakeSource = mutation({
           }),
       updatedAt: now,
     };
-    let sourceId: Id<"intakeSources">;
-    const textChanged = !existing || existing.content !== args.content;
+    let source: { _id: Id<"intakeSources">; draftId: Id<"intakeDrafts"> };
     if (existing) {
-      sourceId = existing._id;
+      source = existing;
       if (textChanged && args.kind === "transcript") {
         // New text: the old speakers described other turns.
         for (const row of await listIntakeSpeakers(ctx, existing._id)) await ctx.db.delete(row._id);
       }
       await ctx.db.patch(existing._id, {
         ...fields,
-        ...(textChanged ? { parserVersion: undefined, speakerNames: undefined, speakerModel: undefined } : {}),
+        ...(textChanged
+          ? { parserVersion: undefined, speakerNames: undefined, speakerModel: undefined, speakerModelKey: undefined }
+          : {}),
       });
     } else {
-      sourceId = await ctx.db.insert("intakeSources", {
+      const id = await ctx.db.insert("intakeSources", {
         draftId: draft._id,
         sourceKey,
         kind: args.kind,
         ...fields,
         createdAt: now,
       });
+      source = { _id: id, draftId: draft._id };
     }
-    const touched = await touchDraft(ctx, draft, { transcriptCount, transcriptChars, documentCount });
-    if (args.kind === "transcript" && textChanged) await scheduleIntakeStructure(ctx, sourceId);
+    if (textChanged) await writeSourceText(ctx, source, args.content);
+    const touched = await touchDraft(ctx, draft, { transcriptCount, transcriptChars, documentCount, documentChars });
+    if (args.kind === "transcript" && textChanged) await scheduleIntakeStructure(ctx, source._id);
     await requestIntakePreparation(ctx, touched, "source_saved");
     return null;
   },
@@ -279,8 +350,9 @@ export const removeIntakeSource = mutation({
     const transcript = source.kind === "transcript";
     const touched = await touchDraft(ctx, draft, {
       transcriptCount: Math.max(0, (draft.transcriptCount ?? 0) - (transcript ? 1 : 0)),
-      transcriptChars: Math.max(0, (draft.transcriptChars ?? 0) - (transcript ? source.content.length : 0)),
+      transcriptChars: Math.max(0, (draft.transcriptChars ?? 0) - (transcript ? source.contentLength : 0)),
       documentCount: Math.max(0, (draft.documentCount ?? 0) - (transcript ? 0 : 1)),
+      documentChars: Math.max(0, (draft.documentChars ?? 0) - (transcript ? 0 : source.contentLength)),
       excludedSourceKeys: (draft.excludedSourceKeys ?? []).filter((key) => key !== source.sourceKey),
     });
     await requestIntakePreparation(ctx, touched, "source_removed");
@@ -288,79 +360,99 @@ export const removeIntakeSource = mutation({
   },
 });
 
-/** Deletes a source, its speakers and (when nothing else holds it) its original file. */
+/** Deletes a source, its text, its speakers and (when nothing else holds it) its original file. */
 async function deleteSource(ctx: MutationCtx, source: Doc<"intakeSources">): Promise<void> {
   for (const row of await listIntakeSpeakers(ctx, source._id)) await ctx.db.delete(row._id);
+  await deleteSourceText(ctx, source._id);
   await ctx.db.delete(source._id);
   if (source.storageId) await deleteStorageIfUnreferenced(ctx, source.storageId);
 }
 
 /**
- * Attaches an uploaded original file to a saved source. The file must be a
- * fresh upload nothing holds and no one else claimed. After promotion it
- * goes straight to the project row the source became (an upload still in
- * flight when the writer confirmed), unless that row already has one.
+ * Attaches an uploaded original file to a saved source whose text it came
+ * from (`contentHash`: an original of replaced text is refused). The file
+ * must be a fresh upload nothing holds and no one else claimed. While the
+ * draft is promoting, a source not yet installed takes it, and one already
+ * installed passes it to its project row; after promotion that happens
+ * only within an hour, while the project is live and the caller may edit
+ * it. A file that cannot be attached (the draft was discarded or expired,
+ * the text changed, the row already has one) is deleted when the caller
+ * claimed it, and false comes back; nobody else's upload is ever deleted.
  */
 export const attachIntakeOriginal = mutation({
   args: {
     draftId: v.id("intakeDrafts"),
     sourceKey: v.string(),
     storageId: v.id("_storage"),
+    contentHash: v.string(),
     mimeType: v.optional(v.string()),
   },
   returns: v.boolean(),
   handler: async (ctx, args): Promise<boolean> => {
     const user = await requireCreator(ctx);
-    const draft = await requireOwnDraft(ctx, user, args.draftId, ["open", "promoting", "promoted"]);
+    const draft = await ctx.db.get(args.draftId);
+    if (!draft || draft.ownerId !== user._id) domainError("NOT_FOUND", "This setup is no longer available");
     const sourceKey = requireSourceKey(args.sourceKey);
     await requireFreshUpload(ctx, args.storageId);
-    if (await isStorageReferenced(ctx, args.storageId)) {
+    const claim = await uploadClaimFor(ctx, args.storageId);
+    if ((claim && claim.userId !== user._id) || (await isStorageReferenced(ctx, args.storageId))) {
       domainError("INVALID_INPUT", "The uploaded file is already in use. Upload it again.");
     }
-    await requireNotClaimedByAnother(ctx, args.storageId, user._id);
+    const release = async (): Promise<false> => {
+      if (claim?.userId === user._id) await ctx.storage.delete(args.storageId);
+      return false;
+    };
+    const now = Date.now();
+    const open = draft.status === "open" && draft.expiresAt > now;
+    if (!open && draft.status !== "promoting" && draft.status !== "promoted") return await release();
     const mimeType = args.mimeType?.slice(0, 200);
+    const size = (await ctx.db.system.get("_storage", args.storageId))?.size ?? 0;
     const link = await ctx.db
       .query("intakeSourceLinks")
       .withIndex("by_draftId_and_sourceKey", (q) => q.eq("draftId", draft._id).eq("sourceKey", sourceKey))
       .unique();
     if (link) {
+      // The project's row: only soon after promotion, on a live project the
+      // caller may still edit, when the row has no original yet.
+      if (draft.status === "promoted" && now > (draft.promotedAt ?? 0) + LATE_ORIGINAL_MS) return await release();
+      const project = await ctx.db.get(link.projectId);
+      if (!project || project.deletionStartedAt !== undefined || !(await userMayEditReport(ctx, user, project))) {
+        return await release();
+      }
       if (link.transcriptId) {
         const transcript = await ctx.db.get(link.transcriptId);
-        const metadata = await ctx.db.system.get("_storage", args.storageId);
-        if (transcript && !transcript.originalStorageId && (metadata?.size ?? 0) <= MAX_TRANSCRIPT_FILE_BYTES) {
+        if (
+          transcript &&
+          !transcript.originalStorageId &&
+          transcript.contentHash === args.contentHash &&
+          size <= MAX_TRANSCRIPT_FILE_BYTES
+        ) {
           await ctx.db.patch(transcript._id, { originalStorageId: args.storageId });
           return true;
         }
       } else if (link.projectDocumentId) {
         const document = await ctx.db.get(link.projectDocumentId);
-        if (document && !document.storageId) {
+        if (document && !document.storageId && (await sha256(document.content)) === args.contentHash) {
           await ctx.db.patch(document._id, { storageId: args.storageId, ...(mimeType ? { mimeType } : {}) });
           return true;
         }
       }
-      await ctx.storage.delete(args.storageId);
-      return false;
+      return await release();
     }
-    if (draft.status !== "open") {
-      await ctx.storage.delete(args.storageId);
-      return false;
-    }
+    if (!open && draft.status !== "promoting") return await release();
     const source = await ctx.db
       .query("intakeSources")
       .withIndex("by_draftId_and_sourceKey", (q) => q.eq("draftId", draft._id).eq("sourceKey", sourceKey))
       .unique();
-    if (!source) {
-      await ctx.storage.delete(args.storageId);
-      return false;
-    }
-    if (source.kind === "transcript") {
-      const metadata = await ctx.db.system.get("_storage", args.storageId);
-      if ((metadata?.size ?? 0) > MAX_TRANSCRIPT_FILE_BYTES) domainError("INVALID_INPUT", "A transcript file can be at most 25 MB");
+    if (!source || source.contentHash !== args.contentHash) return await release();
+    if (source.kind === "transcript" && size > MAX_TRANSCRIPT_FILE_BYTES) {
+      await release();
+      domainError("INVALID_INPUT", "A transcript file can be at most 25 MB");
     }
     const previous = source.storageId;
-    await ctx.db.patch(source._id, { storageId: args.storageId, ...(mimeType ? { mimeType } : {}), updatedAt: Date.now() });
+    await ctx.db.patch(source._id, { storageId: args.storageId, ...(mimeType ? { mimeType } : {}), updatedAt: now });
     if (previous && previous !== args.storageId) await deleteStorageIfUnreferenced(ctx, previous);
-    await touchDraft(ctx, draft);
+    if (open) await touchDraft(ctx, draft);
     return true;
   },
 });
@@ -368,8 +460,9 @@ export const attachIntakeOriginal = mutation({
 /**
  * The names the placeholder map and the speaker rules read, as the project
  * will carry them: the client name, the interviewer and the interviewees.
- * A changed interviewer or interviewee list rebuilds the speakers; the
- * first client name lets the speaker model call and the preparation run.
+ * Any change restarts the 5-second settle the speaker model call and the
+ * paid Brief wait for; a changed interviewer or interviewee list rebuilds
+ * the speakers, and a changed client name asks the speaker model again.
  */
 export const updateIntakeContext = mutation({
   args: {
@@ -394,18 +487,20 @@ export const updateIntakeContext = mutation({
     const rolesChanged =
       interviewerUserId !== draft.interviewerUserId ||
       JSON.stringify(interviewees) !== JSON.stringify(draft.interviewees ?? []);
-    const firstClientName = !draft.clientName?.trim() && clientName.length > 0;
-    const changed = rolesChanged || clientName !== (draft.clientName ?? "");
-    if (!changed) return null;
+    const clientChanged = clientName !== (draft.clientName ?? "");
+    if (!rolesChanged && !clientChanged) return null;
+    const now = Date.now();
     const touched = await touchDraft(ctx, draft, {
       clientName: clientName || undefined,
       interviewerUserId,
       interviewees: interviewees.length ? interviewees : undefined,
+      contextChangedAt: now,
     });
-    if (rolesChanged || firstClientName) {
-      for (const source of await listDraftSources(ctx, draft._id)) {
-        if (source.kind === "transcript") await scheduleIntakeStructure(ctx, source._id);
-      }
+    // The speakers are built again with the new names; roles the model
+    // placed for the old names are asked for again once the names settle.
+    for (const source of await listDraftSources(ctx, draft._id)) {
+      if (source.kind !== "transcript") continue;
+      await scheduleIntakeStructure(ctx, source._id, { resetModelRoles: source.speakerModelKey !== undefined });
     }
     await requestIntakePreparation(ctx, touched, "identity_changed");
     return null;
@@ -441,8 +536,8 @@ export const discardIntakeDraft = mutation({
     const user = await getCurrentUserOrNull(ctx);
     if (!user) return null;
     const draft = await ctx.db.get(args.draftId);
-    // Someone else's, or already promoted or ended: nothing to do, and
-    // nothing said about whether it exists.
+    // Someone else's, or already promoting, promoted or ended: nothing to
+    // do, and nothing said about whether it exists.
     if (!draft || draft.ownerId !== user._id || draft.status !== "open") return null;
     await closeDraft(ctx, draft, "discarded");
     return null;
@@ -489,28 +584,75 @@ export const getIntakeDraft = query({
 });
 
 /**
- * A draft transcript's turn and speaker build, then the model's look at
- * speakers the rules could not place once the client name the call's
- * placeholders hide exists (and preparation is on).
+ * Asks the speaker model about a draft transcript's labels the rules could
+ * not place, when it is due: only for names that have stayed unchanged for
+ * NAMES_SETTLE_MS (else it is scheduled for then), with preparation on and
+ * the owner still allowed to create projects, within MAX_SPEAKER_CALLS_PER_DAY
+ * a firm day, and once per names and text (`speakerModelKey`).
  */
+async function askSpeakersIfDue(ctx: MutationCtx, draft: Doc<"intakeDrafts">, sourceId: Id<"intakeSources">) {
+  const source = await ctx.db.get(sourceId);
+  if (!source || source.kind !== "transcript" || source.parserVersion !== TRANSCRIPT_PARSER_VERSION) return;
+  const rows = await listIntakeSpeakers(ctx, source._id);
+  const needsModel = rows.some((row) => row.roleSource === "heuristic" && needsModelRole(row));
+  if (!needsModel) {
+    if (source.speakerModel === "needed") await ctx.db.patch(source._id, { speakerModel: undefined });
+    return;
+  }
+  const key = await speakerModelKey(ctx, draft, source);
+  if (source.speakerModel !== "needed" && source.speakerModel !== undefined && source.speakerModelKey === key) return;
+  const now = Date.now();
+  const owner = await ctx.db.get(draft.ownerId);
+  if (!draft.clientName?.trim() || !(await briefPreparationEnabled(ctx)) || !userMayCreateProject(owner)) {
+    await ctx.db.patch(source._id, { speakerModel: "needed", speakerModelKey: undefined });
+    return;
+  }
+  const settleAt = namesSettleAt(draft);
+  if (now < settleAt) {
+    await ctx.db.patch(source._id, { speakerModel: "needed", speakerModelKey: undefined });
+    await ctx.scheduler.runAfter(settleAt - now, intakeDraftRefs.askIntakeSpeakers, { sourceId: source._id });
+    return;
+  }
+  const counts = await dailyCounts(ctx, draft.ownerId, now);
+  if (counts.speakerCalls >= MAX_SPEAKER_CALLS_PER_DAY) {
+    // Over the day's cap the rules' roles stand, as after a failed call.
+    await ctx.db.patch(source._id, { speakerModel: "failed", speakerModelKey: key });
+    return;
+  }
+  await ctx.db.patch(counts._id, { speakerCalls: counts.speakerCalls + 1 });
+  await ctx.db.patch(source._id, { speakerModel: "pending", speakerModelKey: key });
+  await ctx.scheduler.runAfter(0, internal.ai.condense.classifyIntakeSpeakerRoles, { sourceId: source._id, key });
+}
+
+/** A draft transcript's turn and speaker build, then the speaker model look when due. */
 export const buildIntakeSourceStructure = internalMutation({
-  args: { sourceId: v.id("intakeSources") },
+  args: { sourceId: v.id("intakeSources"), resetModelRoles: v.optional(v.boolean()) },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     const source = await ctx.db.get(args.sourceId);
     if (!source || source.kind !== "transcript") return null;
     const draft = await ctx.db.get(source.draftId);
     if (!draft || draft.status !== "open") return null;
-    const { needsModel } = await buildIntakeStructure(ctx, draft, source);
-    const settled = source.speakerModel === "done" || source.speakerModel === "failed" || source.speakerModel === "pending";
-    if (!needsModel) {
-      if (source.speakerModel === "needed") await ctx.db.patch(source._id, { speakerModel: undefined });
-    } else if (!settled) {
-      const canAsk = Boolean(draft.clientName?.trim()) && (await briefPreparationEnabled(ctx));
-      await ctx.db.patch(source._id, { speakerModel: canAsk ? "pending" : "needed" });
-      if (canAsk) await ctx.scheduler.runAfter(0, internal.ai.condense.classifyIntakeSpeakerRoles, { sourceId: source._id });
-    }
+    // Roles the model placed for other names are asked for again.
+    const reset = args.resetModelRoles === true && source.speakerModelKey !== (await speakerModelKey(ctx, draft, source));
+    await buildIntakeStructure(ctx, draft, source, { resetModelRoles: reset });
+    await askSpeakersIfDue(ctx, draft, source._id);
     await requestIntakePreparation(ctx, draft, "structure_ready");
+    return null;
+  },
+});
+
+/** The speaker model look, once the names have settled (scheduled). */
+export const askIntakeSpeakers = internalMutation({
+  args: { sourceId: v.id("intakeSources") },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const source = await ctx.db.get(args.sourceId);
+    if (!source) return null;
+    const draft = await ctx.db.get(source.draftId);
+    if (!draft || draft.status !== "open") return null;
+    await askSpeakersIfDue(ctx, draft, source._id);
+    await requestIntakePreparation(ctx, draft, "speakers_changed");
     return null;
   },
 });
@@ -519,19 +661,22 @@ export const buildIntakeSourceStructure = internalMutation({
  * What the one speaker-role model call needs for a draft transcript, the
  * way `transcripts.speakerRoleInput` builds it for a project's: each label
  * the rules left below the threshold with up to three of its turns, and
- * the draft's placeholder map.
+ * the draft's placeholder map. Null (the call is not made) when the ask is
+ * no longer this one, the draft closed, preparation was switched off or
+ * the owner may no longer create projects.
  */
 export const intakeSpeakerRoleInput = internalQuery({
-  args: { sourceId: v.id("intakeSources") },
+  args: { sourceId: v.id("intakeSources"), key: v.string() },
   handler: async (ctx, args) => {
     const source = await ctx.db.get(args.sourceId);
-    if (!source || source.speakerModel !== "pending") return null;
+    if (!source || source.speakerModel !== "pending" || source.speakerModelKey !== args.key) return null;
     const draft = await ctx.db.get(source.draftId);
     if (!draft || draft.status !== "open" || !draft.clientName?.trim()) return null;
+    if (!(await briefPreparationEnabled(ctx)) || !userMayCreateProject(await ctx.db.get(draft.ownerId))) return null;
     const rows = await listIntakeSpeakers(ctx, source._id);
     const unplaced = rows.filter((row) => row.roleSource === "heuristic" && needsModelRole(row));
     if (unplaced.length === 0) return null;
-    const turns = parseIntakeTurns(source).turns.slice(0, INTAKE_SPEAKER_SAMPLE_TURNS);
+    const turns = parseIntakeTurns(await readSourceText(ctx, source._id), source).turns.slice(0, INTAKE_SPEAKER_SAMPLE_TURNS);
     const samples = unplaced.map((row) => ({
       label: row.label,
       lines: turns
@@ -543,6 +688,7 @@ export const intakeSpeakerRoleInput = internalQuery({
     }));
     return {
       ownerId: draft.ownerId,
+      contentHash: source.contentHash,
       samples,
       placeholders: await draftPlaceholderMap(ctx, draft, [source], samples.flatMap((sample) => sample.lines)),
     };
@@ -552,18 +698,23 @@ export const intakeSpeakerRoleInput = internalQuery({
 /**
  * Stores the model's roles on a draft transcript, as
  * `transcripts.recordModelSpeakerRoles` does for a project's: only labels
- * still holding a rule-based role move, and "unknown" changes nothing.
+ * still holding a rule-based role move, and "unknown" changes nothing. An
+ * answer for other names or other text (its key and hash no longer the
+ * source's) is dropped.
  */
 export const recordIntakeSpeakerRoles = internalMutation({
   args: {
     sourceId: v.id("intakeSources"),
+    key: v.string(),
+    contentHash: v.optional(v.string()),
     roles: v.array(v.object({ label: v.string(), role: transcriptSpeakerRoleValidator, confidence: v.number() })),
     failed: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     const source = await ctx.db.get(args.sourceId);
-    if (!source || source.speakerModel !== "pending") return null;
+    if (!source || source.speakerModel !== "pending" || source.speakerModelKey !== args.key) return null;
+    if (args.contentHash !== undefined && args.contentHash !== source.contentHash) return null;
     const draft = await ctx.db.get(source.draftId);
     if (!draft || draft.status !== "open") return null;
     const rows = await listIntakeSpeakers(ctx, source._id);
@@ -596,29 +747,35 @@ const newProjectFieldsValidator = v.object({
   projectNumber: v.optional(v.string()),
 });
 
-const promotionReceiptValidator = v.object({
-  projectId: v.id("projects"),
-  complete: v.boolean(),
-  sources: v.array(
-    v.object({
-      sourceKey: v.string(),
-      kind: v.union(v.literal("transcript"), v.literal("document")),
-      transcriptId: v.optional(v.id("transcripts")),
-      projectDocumentId: v.optional(v.id("projectDocuments")),
-    })
-  ),
-});
+const promotionReceiptValidator = v.union(
+  // The draft's project was erased part way: the draft ended; no project.
+  v.object({ ended: v.literal(true) }),
+  v.object({
+    projectId: v.id("projects"),
+    complete: v.boolean(),
+    sources: v.array(
+      v.object({
+        sourceKey: v.string(),
+        kind: v.union(v.literal("transcript"), v.literal("document")),
+        transcriptId: v.optional(v.id("transcripts")),
+        projectDocumentId: v.optional(v.id("projectDocuments")),
+      })
+    ),
+  })
+);
 
-type PromotionReceipt = {
-  projectId: Id<"projects">;
-  complete: boolean;
-  sources: Array<{
-    sourceKey: string;
-    kind: "transcript" | "document";
-    transcriptId?: Id<"transcripts">;
-    projectDocumentId?: Id<"projectDocuments">;
-  }>;
-};
+type PromotionReceipt =
+  | { ended: true }
+  | {
+      projectId: Id<"projects">;
+      complete: boolean;
+      sources: Array<{
+        sourceKey: string;
+        kind: "transcript" | "document";
+        transcriptId?: Id<"transcripts">;
+        projectDocumentId?: Id<"projectDocuments">;
+      }>;
+    };
 
 /**
  * Confirm: the draft becomes the project, once. `sourceKeys` is what the
@@ -626,9 +783,11 @@ type PromotionReceipt = {
  * one it lists that is not saved is refused (the page then saves it the
  * old way). The project is created as `createProject` creates it, then the
  * saved sources are installed in bounded steps with an exact source-key
- * link each. A repeated confirm, or a crash part way, resumes the same
- * project: the draft holds its project from the first step on. The
- * receipt maps every source key to the project row it became.
+ * link each; the promotion is complete once every transcript's turns are
+ * built too, so the run reads the speaker evidence the preparation read.
+ * A repeated confirm resumes the same project; one after the project was
+ * erased part way ends the draft and builds nothing. The receipt maps
+ * every source key to the project row it became.
  */
 export const promoteIntakeDraft = mutation({
   args: {
@@ -641,7 +800,13 @@ export const promoteIntakeDraft = mutation({
   handler: async (ctx, args): Promise<PromotionReceipt> => {
     const user = await requireCreator(ctx);
     const draft = await requireOwnDraft(ctx, user, args.draftId, ["open", "promoting", "promoted"]);
-    if (draft.projectId) return await continuePromotion(ctx, draft._id);
+    if (draft.status !== "open") {
+      if (!draft.projectId) {
+        await closeDraft(ctx, draft, "discarded");
+        return { ended: true };
+      }
+      return await continuePromotion(ctx, draft._id, { schedule: false });
+    }
     if (args.commandId.length === 0 || args.commandId.length > 64) domainError("INVALID_INPUT", "Invalid command");
     if (args.sourceKeys.length > MAX_TRANSCRIPTS_PER_PROJECT + MAX_INTAKE_DOCUMENTS) {
       domainError("INVALID_INPUT", "Too many files");
@@ -658,24 +823,30 @@ export const promoteIntakeDraft = mutation({
     for (const source of sources) if (!wanted.has(source.sourceKey)) await deleteSource(ctx, source);
 
     const projectId = await insertNewProject(ctx, user, { ...args.project, mode: "generate" });
+    const now = Date.now();
     await ctx.db.patch(draft._id, {
       status: "promoting",
       projectId,
       promotionCommandId: args.commandId,
-      lastEditedAt: Date.now(),
+      promotionStartedAt: now,
+      lastEditedAt: now,
     });
-    return await continuePromotion(ctx, draft._id);
+    return await continuePromotion(ctx, draft._id, { schedule: true });
   },
 });
 
-/** Background resume of a promotion the page did not finish (a closed tab, a crash). */
+/** Background promotion steps: installs, then waits on the turn builds, until complete. */
 export const continueIntakePromotion = internalMutation({
   args: { draftId: v.id("intakeDrafts") },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     const draft = await ctx.db.get(args.draftId);
-    if (!draft || draft.status !== "promoting" || !draft.projectId) return null;
-    await continuePromotion(ctx, draft._id);
+    if (!draft || draft.status !== "promoting") return null;
+    if (!draft.projectId) {
+      await closeDraft(ctx, draft, "discarded");
+      return null;
+    }
+    await continuePromotion(ctx, draft._id, { schedule: true });
     return null;
   },
 });
@@ -686,71 +857,112 @@ function comparePosition(a: Doc<"intakeSources">, b: Doc<"intakeSources">): numb
   return a._id < b._id ? -1 : a._id > b._id ? 1 : 0;
 }
 
+async function promotionReceipt(
+  ctx: MutationCtx,
+  draftId: Id<"intakeDrafts">,
+  projectId: Id<"projects">,
+  complete: boolean
+): Promise<PromotionReceipt> {
+  const links = await ctx.db
+    .query("intakeSourceLinks")
+    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+    .take(MAX_LINKS_READ);
+  return {
+    projectId,
+    complete,
+    sources: links
+      .filter((link) => link.draftId === draftId)
+      .map((link) => ({
+        sourceKey: link.sourceKey,
+        kind: link.kind,
+        ...(link.transcriptId ? { transcriptId: link.transcriptId } : {}),
+        ...(link.projectDocumentId ? { projectDocumentId: link.projectDocumentId } : {}),
+      })),
+  };
+}
+
 /**
  * One bounded promotion step: installs the next sources in order (every
  * transcript, then every document, as the preparation froze them) until
- * PROMOTION_STEP_CHARS, then either schedules the next step or finishes.
+ * PROMOTION_STEP_CHARS; once all are in, moves the draft's preparations to
+ * the project and waits until every installed transcript's turns are built
+ * (at most PROMOTION_STRUCTURE_WAIT_MS), then completes. Only the
+ * background chain (`schedule`) schedules the next step, so a page that
+ * polls never starts a second chain. A project erased part way ends the
+ * draft and purges it.
  */
-async function continuePromotion(ctx: MutationCtx, draftId: Id<"intakeDrafts">): Promise<PromotionReceipt> {
+async function continuePromotion(
+  ctx: MutationCtx,
+  draftId: Id<"intakeDrafts">,
+  options: { schedule: boolean }
+): Promise<PromotionReceipt> {
   const draft = (await ctx.db.get(draftId))!;
   const projectId = draft.projectId!;
-  const receipt = async (complete: boolean): Promise<PromotionReceipt> => {
-    const links = await ctx.db
-      .query("intakeSourceLinks")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .take(MAX_TRANSCRIPTS_PER_PROJECT + MAX_INTAKE_DOCUMENTS + 10);
-    return {
-      projectId,
-      complete,
-      sources: links
-        .filter((link) => link.draftId === draft._id)
-        .map((link) => ({
-          sourceKey: link.sourceKey,
-          kind: link.kind,
-          ...(link.transcriptId ? { transcriptId: link.transcriptId } : {}),
-          ...(link.projectDocumentId ? { projectDocumentId: link.projectDocumentId } : {}),
-        })),
-    };
-  };
-  if (draft.status === "promoted") return await receipt(true);
+  if (draft.status === "promoted") return await promotionReceipt(ctx, draft._id, projectId, true);
   const project = await ctx.db.get(projectId);
-  if (!project || project.deletionStartedAt !== undefined) domainError("NOT_FOUND", "Project not found");
+  if (!project || project.deletionStartedAt !== undefined) {
+    await closeDraft(ctx, draft, "discarded");
+    return { ended: true };
+  }
   const owner = (await ctx.db.get(draft.ownerId))!;
   const sources = await listDraftSources(ctx, draft._id);
   const transcripts = sources.filter((row) => row.kind === "transcript").sort(comparePosition);
   const documents = sources.filter((row) => row.kind === "document").sort(comparePosition);
+  const merged = mergedAway(sources);
   let budget = PROMOTION_STEP_CHARS;
   let installed = 0;
   let pending = false;
   for (const [index, source] of [...transcripts, ...documents].entries()) {
     if (source.transcriptId || source.projectDocumentId) continue;
-    if (installed > 0 && source.content.length > budget) {
+    if (installed > 0 && source.contentLength > budget) {
       pending = true;
       break;
     }
-    budget -= source.content.length;
+    budget -= source.contentLength;
     installed += 1;
     if (source.kind === "transcript") {
       await installTranscript(ctx, draft, projectId, source, index);
     } else {
-      await installDocument(ctx, draft, projectId, owner, source);
+      const earlier = merged.get(source._id);
+      const target = earlier ? (await ctx.db.get(earlier._id))?.projectDocumentId : undefined;
+      if (target) await linkMergedDocument(ctx, draft, projectId, source, target);
+      else await installDocument(ctx, draft, projectId, owner, source);
     }
   }
   if (pending) {
-    await ctx.scheduler.runAfter(0, intakeDraftRefs.continueIntakePromotion, { draftId: draft._id });
-    return await receipt(false);
+    if (options.schedule) {
+      await ctx.scheduler.runAfter(0, intakeDraftRefs.continueIntakePromotion, { draftId: draft._id });
+    }
+    return await promotionReceipt(ctx, draft._id, projectId, false);
   }
-  await finishPromotion(ctx, draft, projectId);
-  return await receipt(true);
+  await moveDraftPreparations(ctx, draft, projectId);
+  // Complete once every installed transcript's turns are built by the
+  // current parser, so the run's speaker evidence matches the preparation's.
+  const now = Date.now();
+  let built = true;
+  for (const source of transcripts) {
+    const transcript = (await ctx.db.get(source._id))?.transcriptId;
+    const row = transcript ? await ctx.db.get(transcript) : null;
+    if (row && (row.parserVersion !== TRANSCRIPT_PARSER_VERSION || row.structureBuildId !== undefined)) built = false;
+  }
+  if (!built && now < (draft.promotionStartedAt ?? now) + PROMOTION_STRUCTURE_WAIT_MS) {
+    if (options.schedule) {
+      await ctx.scheduler.runAfter(PROMOTION_RECHECK_MS, intakeDraftRefs.continueIntakePromotion, { draftId: draft._id });
+    }
+    return await promotionReceipt(ctx, draft._id, projectId, false);
+  }
+  await ctx.db.patch(draft._id, { status: "promoted", promotedAt: now, endedAt: now });
+  await ctx.scheduler.runAfter(0, intakeDraftRefs.purgeIntakeDraft, { draftId: draft._id });
+  return await promotionReceipt(ctx, draft._id, projectId, true);
 }
 
 /**
  * A draft transcript becomes a project transcript: its text, label, list
  * position, format and original file, and the roles the model placed. Its
- * turns are built right here when it is short enough (the run then finds
- * the same speaker evidence the draft's preparation read), otherwise by
- * the usual scheduled build. The model is asked again only if the draft's
- * own look did not finish.
+ * turn build starts right here when it is short enough and is otherwise
+ * scheduled; promotion completes only once it has finished. The model is
+ * asked again only if the draft's own look did not finish, or the draft's
+ * speakers were not built by the current parser.
  */
 async function installTranscript(
   ctx: MutationCtx,
@@ -760,9 +972,10 @@ async function installTranscript(
   position: number
 ): Promise<void> {
   const now = Date.now();
+  const content = await readSourceText(ctx, source._id);
   const transcriptId = await ctx.db.insert("transcripts", {
     projectId,
-    content: source.content,
+    content,
     label: source.label,
     position,
     contentHash: source.contentHash,
@@ -783,8 +996,12 @@ async function installTranscript(
       ...(row.sampleTurnIndex !== undefined ? { sampleTurnIndex: row.sampleTurnIndex } : {}),
     });
   }
-  const modelRoles = source.speakerModel !== "done" && source.speakerModel !== undefined;
-  if (source.content.length <= INLINE_STRUCTURE_CHARS) {
+  const modelRoles =
+    source.parserVersion !== TRANSCRIPT_PARSER_VERSION ||
+    source.speakerModel === "needed" ||
+    source.speakerModel === "pending" ||
+    source.speakerModel === "failed";
+  if (content.length <= INLINE_STRUCTURE_CHARS) {
     const step = await buildStructureStep(ctx, transcriptId, 0, undefined, { modelRoles });
     if (step.kind === "continue") {
       await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
@@ -826,9 +1043,10 @@ async function installDocument(
   source: Doc<"intakeSources">
 ): Promise<void> {
   const now = Date.now();
+  const content = await readSourceText(ctx, source._id);
   const derived = deriveProcessingStatus({
     fileName: source.label,
-    content: source.content,
+    content,
     extractionFailed: source.extractionOutcome === "failed",
     intake: source.intake,
   });
@@ -836,7 +1054,7 @@ async function installDocument(
     projectId,
     fileName: source.label,
     fileType: source.fileType ?? "other",
-    content: source.content,
+    content,
     ...(source.storageId ? { storageId: source.storageId } : {}),
     ...(source.mimeType ? { mimeType: source.mimeType } : {}),
     ...(source.category ? { category: source.category } : {}),
@@ -859,16 +1077,45 @@ async function installDocument(
 }
 
 /**
- * The last promotion step: the draft's live or ready preparations move to
- * the project (their frozen rows now name the project's transcripts and
- * files through the links, so the run's adoption maps them exactly), a
- * queued one ends, and the draft's now redundant content is purged.
+ * A second file with the same name and the same text as an earlier one
+ * merges into that file's row, as `documents.uploadDocument` merges it;
+ * its original fills the row if the row has none.
  */
-async function finishPromotion(ctx: MutationCtx, draft: Doc<"intakeDrafts">, projectId: Id<"projects">) {
+async function linkMergedDocument(
+  ctx: MutationCtx,
+  draft: Doc<"intakeDrafts">,
+  projectId: Id<"projects">,
+  source: Doc<"intakeSources">,
+  projectDocumentId: Id<"projectDocuments">
+): Promise<void> {
+  const document = await ctx.db.get(projectDocumentId);
+  if (document && !document.storageId && source.storageId) {
+    await ctx.db.patch(projectDocumentId, {
+      storageId: source.storageId,
+      ...(source.mimeType ? { mimeType: source.mimeType } : {}),
+    });
+  }
+  await ctx.db.insert("intakeSourceLinks", {
+    draftId: draft._id,
+    projectId,
+    sourceKey: source.sourceKey,
+    kind: "document",
+    projectDocumentId,
+    createdAt: Date.now(),
+  });
+  await ctx.db.patch(source._id, { projectDocumentId });
+}
+
+/**
+ * The draft's live or ready preparations move to the project (their frozen
+ * rows then name the project's transcripts and files through the links, so
+ * the run's adoption maps them exactly), and a queued one ends. Idempotent.
+ */
+async function moveDraftPreparations(ctx: MutationCtx, draft: Doc<"intakeDrafts">, projectId: Id<"projects">) {
   const links = await ctx.db
     .query("intakeSourceLinks")
     .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-    .take(MAX_TRANSCRIPTS_PER_PROJECT + MAX_INTAKE_DOCUMENTS + 10);
+    .take(MAX_LINKS_READ);
   const byKey = new Map(links.filter((link) => link.draftId === draft._id).map((link) => [link.sourceKey, link]));
   for (const status of ["ready", "running"] as const) {
     const rows = await ctx.db
@@ -907,17 +1154,14 @@ async function finishPromotion(ctx: MutationCtx, draft: Doc<"intakeDrafts">, pro
     .withIndex("by_intakeDraftId_and_status", (q) => q.eq("intakeDraftId", draft._id).eq("status", "queued"))
     .take(10);
   for (const row of queued) await endPreparation(ctx, row, "cancelled", "promoted");
-  const now = Date.now();
-  await ctx.db.patch(draft._id, { status: "promoted", promotedAt: now, endedAt: now });
-  await ctx.scheduler.runAfter(0, intakeDraftRefs.purgeIntakeDraft, { draftId: draft._id });
 }
 
 /**
- * Deletes a closed draft's content in bounded batches: speaker rows,
+ * Deletes a closed draft's content in bounded batches: speaker rows, text,
  * sources (with an original file nothing else holds: a promoted draft's
  * files belong to the project now and stay), the content of its
  * preparations that did not move to a project, and the names on the
- * draft. The draft row stays, content-free.
+ * draft. The draft row stays, content-free, until CLOSED_DRAFT_KEEP_MS.
  */
 export const purgeIntakeDraft = internalMutation({
   args: { draftId: v.id("intakeDrafts") },
@@ -934,6 +1178,14 @@ export const purgeIntakeDraft = internalMutation({
     for (const row of speakers) await ctx.db.delete(row._id);
     budget -= speakers.length;
     if (budget > 0) {
+      const texts = await ctx.db
+        .query("intakeSourceTexts")
+        .withIndex("by_draftId", (q) => q.eq("draftId", draft._id))
+        .take(Math.min(budget, 20));
+      for (const row of texts) await ctx.db.delete(row._id);
+      budget -= texts.length;
+    }
+    if (budget > 0) {
       const sources = await ctx.db
         .query("intakeSources")
         .withIndex("by_draftId_and_position", (q) => q.eq("draftId", draft._id))
@@ -941,15 +1193,20 @@ export const purgeIntakeDraft = internalMutation({
       for (const source of sources) await deleteSource(ctx, source);
       budget -= sources.length;
     }
+    // Only preparations whose content is still there, through an index, so
+    // rows past the first batch are reached too (review Fable P2-4).
+    const unpurged = async () =>
+      (
+        await ctx.db
+          .query("briefPreparations")
+          .withIndex("by_intakeDraftId_and_contentPurgedAt", (q) =>
+            q.eq("intakeDraftId", draft._id).eq("contentPurgedAt", undefined)
+          )
+          .take(50)
+      ).filter((row) => !row.projectId && row.status !== "queued" && row.status !== "running");
     if (budget > 0) {
-      const preparations = await ctx.db
-        .query("briefPreparations")
-        .withIndex("by_intakeDraftId", (q) => q.eq("intakeDraftId", draft._id))
-        .take(50);
-      for (const preparation of preparations) {
+      for (const preparation of await unpurged()) {
         if (budget <= 0) break;
-        if (preparation.projectId || preparation.contentPurgedAt) continue;
-        if (preparation.status === "queued" || preparation.status === "running") continue;
         const done = await purgePreparationContent(ctx, preparation, budget);
         budget -= Math.max(1, done.deleted);
       }
@@ -957,22 +1214,12 @@ export const purgeIntakeDraft = internalMutation({
     if (budget > 0) {
       const leftover =
         (await ctx.db.query("intakeSourceSpeakers").withIndex("by_draftId", (q) => q.eq("draftId", draft._id)).first()) ??
+        (await ctx.db.query("intakeSourceTexts").withIndex("by_draftId", (q) => q.eq("draftId", draft._id)).first()) ??
         (await ctx.db
           .query("intakeSources")
           .withIndex("by_draftId_and_position", (q) => q.eq("draftId", draft._id))
           .first());
-      const preparationLeft = (
-        await ctx.db
-          .query("briefPreparations")
-          .withIndex("by_intakeDraftId", (q) => q.eq("intakeDraftId", draft._id))
-          .take(50)
-      ).some(
-        (row) =>
-          !row.projectId &&
-          !row.contentPurgedAt &&
-          (row.status === "ready" || row.status === "failed" || row.status === "obsolete" || row.status === "cancelled")
-      );
-      if (!leftover && !preparationLeft) {
+      if (!leftover && (await unpurged()).length === 0) {
         await ctx.db.patch(draft._id, {
           contentPurgedAt: Date.now(),
           clientName: undefined,
@@ -990,20 +1237,37 @@ export const purgeIntakeDraft = internalMutation({
 
 /**
  * Every 15 minutes: open drafts past their expiry are expired (their work
- * fenced) and every closed draft whose content is not yet purged gets its
- * purge, so expired content is gone within the hour.
+ * fenced); a promotion stuck for 10 minutes is resumed when its project is
+ * live and otherwise ended and purged; every closed draft whose content is
+ * not yet purged gets its purge, so expired content is gone within the
+ * hour; content-free closed drafts older than 30 days are deleted.
  */
 export const sweepIntakeDrafts = internalMutation({
   args: {},
-  returns: v.object({ expired: v.number(), purging: v.number() }),
-  handler: async (ctx): Promise<{ expired: number; purging: number }> => {
+  returns: v.object({ expired: v.number(), purging: v.number(), stuck: v.number(), deleted: v.number() }),
+  handler: async (ctx): Promise<{ expired: number; purging: number; stuck: number; deleted: number }> => {
     const now = Date.now();
     const due = await ctx.db
       .query("intakeDrafts")
       .withIndex("by_status_and_expiresAt", (q) => q.eq("status", "open").lte("expiresAt", now))
       .take(INTAKE_SWEEP_DRAFTS);
     for (const draft of due) await closeDraft(ctx, draft, "expired");
+    const stuck = await ctx.db
+      .query("intakeDrafts")
+      .withIndex("by_status_and_promotionStartedAt", (q) =>
+        q.eq("status", "promoting").lte("promotionStartedAt", now - STUCK_PROMOTION_MS)
+      )
+      .take(INTAKE_SWEEP_DRAFTS);
+    for (const draft of stuck) {
+      const project = draft.projectId ? await ctx.db.get(draft.projectId) : null;
+      if (project && project.deletionStartedAt === undefined) {
+        await ctx.scheduler.runAfter(0, intakeDraftRefs.continueIntakePromotion, { draftId: draft._id });
+      } else {
+        await closeDraft(ctx, draft, "discarded");
+      }
+    }
     let purging = 0;
+    let deleted = 0;
     for (const status of ["expired", "discarded", "promoted"] as const) {
       const rows = await ctx.db
         .query("intakeDrafts")
@@ -1013,8 +1277,21 @@ export const sweepIntakeDrafts = internalMutation({
         await ctx.scheduler.runAfter(0, intakeDraftRefs.purgeIntakeDraft, { draftId: draft._id });
         purging += 1;
       }
+      // Content-free rows kept 30 days, then deleted. A promoted draft's
+      // links stay with its project (the key names it by the draft's id).
+      const old = await ctx.db
+        .query("intakeDrafts")
+        .withIndex("by_status_and_contentPurgedAt", (q) =>
+          q.eq("status", status).gt("contentPurgedAt", 0).lte("contentPurgedAt", now - CLOSED_DRAFT_KEEP_MS)
+        )
+        .take(INTAKE_SWEEP_DRAFTS);
+      for (const draft of old) {
+        await ctx.db.delete(draft._id);
+        deleted += 1;
+      }
     }
     if (due.length === INTAKE_SWEEP_DRAFTS) await ctx.scheduler.runAfter(0, intakeDraftRefs.sweepIntakeDrafts, {});
-    return { expired: due.length, purging };
+    return { expired: due.length, purging, stuck: stuck.length, deleted };
   },
 });
+

@@ -54,6 +54,7 @@ import { internal } from "../../_generated/api";
 import { requireInternalActor } from "../auth";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
 import { requireReportEditAccess } from "../roleCapabilities";
+import { requireProjectSetUp } from "../intakeDrafts";
 import { assertFrozenSourceBijection, resolveFrozenSourceId } from "../seedRevisions";
 import { startSummaryRecoveryRef } from "./seedStage";
 import { transitionGeneration } from "../generationTransitions";
@@ -488,6 +489,9 @@ export async function requestGenerationHandler(
   // new latest report with no selection step), so starting one is a
   // report.editProse act, not just internal access (audit 2026-09-25, a2 P1-1).
   const { project, user } = await requireReportEditAccess(ctx, args.projectId);
+  // Decision 65, stage 2: not while the project is still being set up from
+  // its intake draft (its sources and speaker evidence are still arriving).
+  await requireProjectSetUp(ctx, project._id);
   const latestReport = await ctx.db
     .query("reports")
     .withIndex("by_projectId", (q) => q.eq("projectId", project._id))

@@ -3231,8 +3231,15 @@ export default defineSchema({
     runAt: v.number(),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
     // Why a queued row is not starting yet.
+    // `names`: a draft's names changed less than 5 seconds ago (stage 2).
     waitingFor: v.optional(
-      v.union(v.literal("structure"), v.literal("speakers"), v.literal("slot"), v.literal("uploads"))
+      v.union(
+        v.literal("structure"),
+        v.literal("speakers"),
+        v.literal("slot"),
+        v.literal("uploads"),
+        v.literal("names")
+      )
     ),
     deferrals: v.optional(v.number()),
     // Waits for uploads still arriving, counted apart from `deferrals`.
@@ -3291,7 +3298,9 @@ export default defineSchema({
     .index("by_intakeDraftId", ["intakeDraftId"])
     .index("by_intakeDraftId_and_status", ["intakeDraftId", "status"])
     .index("by_intakeDraftId_and_key", ["intakeDraftId", "key"])
-    .index("by_intakeDraftId_and_firmDay", ["intakeDraftId", "firmDay"]),
+    .index("by_intakeDraftId_and_firmDay", ["intakeDraftId", "firmDay"])
+    // The draft purge reads only rows whose content is still there.
+    .index("by_intakeDraftId_and_contentPurgedAt", ["intakeDraftId", "contentPurgedAt"]),
 
   // The evidence one preparation froze (convex/lib/briefEvidence.ts), the
   // rows its entries cite. Deleted with the project and by the purge.
@@ -3424,6 +3433,12 @@ export default defineSchema({
     transcriptCount: v.optional(v.number()),
     transcriptChars: v.optional(v.number()),
     documentCount: v.optional(v.number()),
+    documentChars: v.optional(v.number()),
+    // When the client name, interviewer or interviewees last changed: the
+    // speaker model call and the paid Brief wait until they settle.
+    contextChangedAt: v.optional(v.number()),
+    // When promotion began, so the sweep can resume or end a stuck one.
+    promotionStartedAt: v.optional(v.number()),
     // Promotion: the one project this draft becomes, set once.
     projectId: v.optional(v.id("projects")),
     promotionCommandId: v.optional(v.string()),
@@ -3434,6 +3449,7 @@ export default defineSchema({
     .index("by_ownerId_and_status", ["ownerId", "status"])
     .index("by_status_and_expiresAt", ["status", "expiresAt"])
     .index("by_status_and_contentPurgedAt", ["status", "contentPurgedAt"])
+    .index("by_status_and_promotionStartedAt", ["status", "promotionStartedAt"])
     .index("by_projectId", ["projectId"]),
 
   // One readable transcript or supporting document of a draft, under the
@@ -3447,8 +3463,12 @@ export default defineSchema({
     position: v.number(),
     // A transcript's label, or a document's file name.
     label: v.string(),
-    content: v.string(),
+    // The text lives in `intakeSourceTexts` (chunked), so reading a draft's
+    // sources never reads their text.
     contentHash: v.string(),
+    contentLength: v.number(),
+    // Whether the text holds anything but whitespace (a project skips blank files).
+    hasText: v.boolean(),
     sourceFormat: v.optional(transcriptSourceFormatValidator),
     // Set by the draft's turn and speaker build (current parser version).
     parserVersion: v.optional(v.string()),
@@ -3458,6 +3478,9 @@ export default defineSchema({
     speakerModel: v.optional(
       v.union(v.literal("needed"), v.literal("pending"), v.literal("done"), v.literal("failed"))
     ),
+    // The names and text the model look was asked (or answered) for: a
+    // later change of either asks again.
+    speakerModelKey: v.optional(v.string()),
     fileType: v.optional(
       v.union(
         v.literal("txt"),
@@ -3509,6 +3532,25 @@ export default defineSchema({
   })
     .index("by_sourceId_and_label", ["sourceId", "label"])
     .index("by_draftId", ["draftId"]),
+
+  // A draft source's text, in chunks well under the 1 MiB document limit.
+  intakeSourceTexts: defineTable({
+    sourceId: v.id("intakeSources"),
+    draftId: v.id("intakeDrafts"),
+    index: v.number(),
+    text: v.string(),
+  })
+    .index("by_sourceId_and_index", ["sourceId", "index"])
+    .index("by_draftId", ["draftId"]),
+
+  // Per user and firm day: drafts started and speaker model calls made for
+  // drafts, against their daily caps.
+  intakeDailyCounts: defineTable({
+    userId: v.id("users"),
+    firmDay: v.number(),
+    drafts: v.number(),
+    speakerCalls: v.number(),
+  }).index("by_userId_and_firmDay", ["userId", "firmDay"]),
 
   // The exact source-key link a promotion writes: this draft source became
   // this transcript or file of the project. Content-free; the preparation

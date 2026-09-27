@@ -33,6 +33,9 @@ export const HANDLED_REFUSAL_CODES: ReadonlySet<string> = new Set([
   "GENERATION_ACTIVE",
   "STALE_REVISION",
   "BRIEF_STALE",
+  // Decision 65, stage 2: a run or review asked for while the new project
+  // is still being set up from its intake draft; the page says so plainly.
+  "PROJECT_SETTING_UP",
 ]);
 
 /**

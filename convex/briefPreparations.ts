@@ -58,6 +58,7 @@ import type { CitationSpeaker } from "./lib/citationSpeakers";
 import {
   INTAKE_DEBOUNCE_MS,
   draftPlaceholderMap,
+  namesSettleAt,
   preparationSpeakerReader,
   selectDraftEvidence,
   userMayCreateProject,
@@ -215,7 +216,7 @@ export async function endPreparation(
 async function deferPreparation(
   ctx: MutationCtx,
   preparation: Preparation,
-  waitingFor: "slot" | "uploads" | "structure" | "speakers",
+  waitingFor: "slot" | "uploads" | "structure" | "speakers" | "names",
   delayMs: number,
   options: { evidenceRead: boolean }
 ): Promise<void> {
@@ -233,6 +234,7 @@ async function deferPreparation(
         uploads: "uploads_unsettled",
         structure: "structure_unsettled",
         speakers: "speakers_unsettled",
+        names: "names_unsettled",
       }[waitingFor]
     );
     return;
@@ -495,9 +497,15 @@ async function readDraftEvidence(
     await endPreparation(ctx, preparation, "cancelled", "cooldown");
     return null;
   }
-  // No paid call before the client name the placeholders hide exists.
+  // No paid call before the client name the placeholders hide exists, nor
+  // before the names have stayed unchanged for NAMES_SETTLE_MS (a half-typed
+  // client name is never the map).
   if (!draft.clientName?.trim()) {
     await endPreparation(ctx, preparation, "cancelled", "masking_context");
+    return null;
+  }
+  if (now < namesSettleAt(draft)) {
+    await deferPreparation(ctx, preparation, "names", namesSettleAt(draft) - now, { evidenceRead: false });
     return null;
   }
   const evidence = await selectDraftEvidence(ctx, draft);

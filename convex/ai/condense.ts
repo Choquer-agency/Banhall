@@ -352,13 +352,14 @@ export const classifySpeakerRoles = internalAction({
  * failure leaves the rule-based roles, as for a project.
  */
 export const classifyIntakeSpeakerRoles = internalAction({
-  args: { sourceId: v.id("intakeSources") },
+  args: { sourceId: v.id("intakeSources"), key: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
     startActionDeadline(ctx);
     const input = await ctx.runQuery(intakeDraftRefs.intakeSpeakerRoleInput, args);
     if (!input || input.samples.length === 0) {
-      await ctx.runMutation(intakeDraftRefs.recordIntakeSpeakerRoles, { ...args, roles: [] });
+      // Nothing to ask (or no longer allowed): the rules' roles stand.
+      await ctx.runMutation(intakeDraftRefs.recordIntakeSpeakerRoles, { ...args, roles: [], failed: input === null });
       return null;
     }
     try {
@@ -370,10 +371,15 @@ export const classifyIntakeSpeakerRoles = internalAction({
         model,
         samples: input.samples.map((sample) => ({ label: sample.label, lines: sample.lines })),
       });
-      await ctx.runMutation(intakeDraftRefs.recordIntakeSpeakerRoles, { ...args, roles });
+      await ctx.runMutation(intakeDraftRefs.recordIntakeSpeakerRoles, { ...args, contentHash: input.contentHash, roles });
     } catch (error) {
       console.warn("Intake speaker roles were left to the rules", describeGenerationFailure(error));
-      await ctx.runMutation(intakeDraftRefs.recordIntakeSpeakerRoles, { ...args, roles: [], failed: true });
+      await ctx.runMutation(intakeDraftRefs.recordIntakeSpeakerRoles, {
+        ...args,
+        contentHash: input.contentHash,
+        roles: [],
+        failed: true,
+      });
     }
     return null;
   },

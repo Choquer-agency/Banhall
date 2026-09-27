@@ -44,6 +44,7 @@ import {
 import { inferSpeakerRoles, needsModelRole } from "./transcriptSpeakers";
 import {
   placeholderMapFrom,
+  storedNamesAreCurrent,
   transcriptNamesToHide,
   type PlaceholderIdentity,
 } from "./transcriptPlaceholders";
@@ -57,6 +58,7 @@ import {
   type SpeakerCheckSource,
 } from "./citationSpeakers";
 import type { TranscriptSpeakerRole } from "./transcriptValidators";
+import { firmNames } from "./firmNames";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -78,6 +80,24 @@ export const MAX_EXCLUDED_SOURCE_KEYS = 250;
 export const INTAKE_SPEAKER_SAMPLE_TURNS = 400;
 /** Characters of a document a draft may hold, the frozen cut plus room. */
 export const MAX_INTAKE_DOCUMENT_CHARS = 900_000;
+/** Characters of supporting document text one draft may hold in all. */
+export const MAX_INTAKE_DOCUMENT_TEXT_CHARS = 3_000_000;
+/** Characters of text one stored chunk takes at most. */
+export const TEXT_CHUNK_CHARS = 200_000;
+/** UTF-8 bytes one stored chunk takes at most, well under the 1 MiB document limit. */
+export const MAX_TEXT_CHUNK_BYTES = 900_000;
+/**
+ * How long the client name, interviewer and interviewees must stay
+ * unchanged before a model sees text masked with them (review 2026-09-26,
+ * Fable P2-1): a half-typed client name is never the map.
+ */
+export const NAMES_SETTLE_MS = 5_000;
+/** Drafts one person may start per firm day. */
+export const MAX_DRAFTS_PER_DAY = 30;
+/** Speaker model calls one person's drafts may make per firm day. */
+export const MAX_SPEAKER_CALLS_PER_DAY = 60;
+/** How long a closed, content-free draft row is kept before it is deleted. */
+export const CLOSED_DRAFT_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 
 export { MAX_TOTAL_TRANSCRIPT_CHARS };
 
@@ -154,7 +174,55 @@ export async function draftIdentity(ctx: Ctx, draft: Doc<"intakeDrafts">): Promi
   };
 }
 
-/** Every source of a draft, in position order. */
+/**
+ * Stores a source's text in chunks of at most TEXT_CHUNK_CHARS characters
+ * and MAX_TEXT_CHUNK_BYTES UTF-8 bytes, replacing what it held.
+ */
+export async function writeSourceText(
+  ctx: MutationCtx,
+  source: { _id: Id<"intakeSources">; draftId: Id<"intakeDrafts"> },
+  text: string
+): Promise<void> {
+  await deleteSourceText(ctx, source._id);
+  const encoder = new TextEncoder();
+  let index = 0;
+  let at = 0;
+  while (at < text.length) {
+    let end = Math.min(text.length, at + TEXT_CHUNK_CHARS);
+    // Never split a surrogate pair, and shrink a chunk whose bytes run over.
+    const cut = () => {
+      const code = text.charCodeAt(end - 1);
+      if (end < text.length && code >= 0xd800 && code <= 0xdbff) end -= 1;
+    };
+    cut();
+    while (encoder.encode(text.slice(at, end)).length > MAX_TEXT_CHUNK_BYTES) {
+      end = at + Math.floor((end - at) / 2);
+      cut();
+    }
+    await ctx.db.insert("intakeSourceTexts", { sourceId: source._id, draftId: source.draftId, index, text: text.slice(at, end) });
+    index += 1;
+    at = end;
+  }
+}
+
+/** A source's whole text. */
+export async function readSourceText(ctx: Ctx, sourceId: Id<"intakeSources">): Promise<string> {
+  const chunks = await ctx.db
+    .query("intakeSourceTexts")
+    .withIndex("by_sourceId_and_index", (q) => q.eq("sourceId", sourceId))
+    .take(100);
+  return chunks.map((chunk) => chunk.text).join("");
+}
+
+export async function deleteSourceText(ctx: MutationCtx, sourceId: Id<"intakeSources">): Promise<void> {
+  const chunks = await ctx.db
+    .query("intakeSourceTexts")
+    .withIndex("by_sourceId_and_index", (q) => q.eq("sourceId", sourceId))
+    .take(100);
+  for (const chunk of chunks) await ctx.db.delete(chunk._id);
+}
+
+/** Every source of a draft, in position order: metadata only, never text. */
 export async function listDraftSources(ctx: Ctx, draftId: Id<"intakeDrafts">): Promise<Doc<"intakeSources">[]> {
   return await ctx.db
     .query("intakeSources")
@@ -188,18 +256,18 @@ export async function selectDraftEvidence(ctx: Ctx, draft: Doc<"intakeDrafts">):
   const excluded = new Set(draft.excludedSourceKeys ?? []);
   const sources = await listDraftSources(ctx, draft._id);
   const transcripts = sources
-    .filter((row) => row.kind === "transcript" && row.content.trim() !== "")
+    .filter((row) => row.kind === "transcript" && row.hasText)
     .sort(compareSources)
     .slice(0, MAX_TRANSCRIPTS_PER_PROJECT);
   const readTranscripts = transcripts.filter((row) => !excluded.has(row.sourceKey));
-  const documents = sources
-    .filter((row) => row.kind === "document")
-    .sort(compareSources)
+  const documents = mergedDocuments(sources)
     .slice(0, FROZEN_DOCUMENT_ROWS)
-    .filter((row) => row.content.trim() !== "" && !excluded.has(row.sourceKey));
+    .filter((row) => row.hasText && !excluded.has(row.sourceKey));
   const fields: FrozenSourceFields[] = [];
+  // Only the rows the Brief reads are loaded.
   for (const row of readTranscripts) {
-    const content = row.content.slice(0, FROZEN_TRANSCRIPT_CHARS);
+    const text = await readSourceText(ctx, row._id);
+    const content = text.slice(0, FROZEN_TRANSCRIPT_CHARS);
     fields.push({
       kind: "transcript",
       intakeSourceId: row._id,
@@ -207,12 +275,13 @@ export async function selectDraftEvidence(ctx: Ctx, draft: Doc<"intakeDrafts">):
       label: row.label,
       content,
       contentHash: await sha256(content),
-      truncated: content.length !== row.content.length,
-      originalLength: row.content.length,
+      truncated: content.length !== text.length,
+      originalLength: text.length,
     });
   }
   for (const row of documents) {
-    const content = row.content.slice(0, FROZEN_DOCUMENT_CHARS);
+    const text = await readSourceText(ctx, row._id);
+    const content = text.slice(0, FROZEN_DOCUMENT_CHARS);
     fields.push({
       kind: "project_document",
       intakeSourceId: row._id,
@@ -220,12 +289,64 @@ export async function selectDraftEvidence(ctx: Ctx, draft: Doc<"intakeDrafts">):
       label: `${row.category ?? "other"}:${row.label}`,
       content,
       contentHash: await sha256(content),
-      truncated: content.length !== row.content.length,
-      originalLength: row.content.length,
+      truncated: content.length !== text.length,
+      originalLength: text.length,
       ...(row.uploaderRole ? { uploaderRole: row.uploaderRole } : {}),
     });
   }
   return { transcripts, readTranscripts, fields };
+}
+
+/**
+ * A draft's documents in the order promotion installs them, with a second
+ * file of the same name and the same text left out: promotion links it to
+ * the first file's row, as `documents.uploadDocument` merges such a file
+ * (a file with no text is never merged).
+ */
+export function mergedDocuments(sources: readonly Doc<"intakeSources">[]): Doc<"intakeSources">[] {
+  const seen = new Set<string>();
+  const out: Doc<"intakeSources">[] = [];
+  for (const row of sources.filter((source) => source.kind === "document").sort(compareSources)) {
+    const key = `${row.label}\u0000${row.contentHash}`;
+    if (row.hasText && seen.has(key)) continue;
+    if (row.hasText) seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+/** Documents promotion links to an earlier file's row instead of installing, by source id. */
+export function mergedAway(sources: readonly Doc<"intakeSources">[]): Map<Id<"intakeSources">, Doc<"intakeSources">> {
+  const first = new Map<string, Doc<"intakeSources">>();
+  const out = new Map<Id<"intakeSources">, Doc<"intakeSources">>();
+  for (const row of sources.filter((source) => source.kind === "document").sort(compareSources)) {
+    if (!row.hasText) continue;
+    const key = `${row.label}\u0000${row.contentHash}`;
+    const earlier = first.get(key);
+    if (earlier) out.set(row._id, earlier);
+    else first.set(key, row);
+  }
+  return out;
+}
+
+/**
+ * What the speaker model look is keyed to: the names that mask its call
+ * (the draft's and the firm's) and the text's hash. A change of either
+ * asks again (review 2026-09-26, Fable P2-1).
+ */
+export async function speakerModelKey(
+  ctx: Ctx,
+  draft: Doc<"intakeDrafts">,
+  source: Pick<Doc<"intakeSources">, "contentHash">
+): Promise<string> {
+  return await sha256(
+    JSON.stringify({ names: await draftIdentity(ctx, draft), firms: await firmNames(ctx), text: source.contentHash })
+  );
+}
+
+/** Whether the draft's names have stayed unchanged for NAMES_SETTLE_MS; else when they will have. */
+export function namesSettleAt(draft: Pick<Doc<"intakeDrafts">, "contextChangedAt">): number {
+  return (draft.contextChangedAt ?? 0) + NAMES_SETTLE_MS;
 }
 
 /** A draft transcript's speaker rows. */
@@ -252,9 +373,12 @@ export async function draftPlaceholderMap(
   const names: Array<{ people: string[]; organizations: string[]; phrases: string[] }> = [];
   for (const source of transcripts) {
     const rows = await listIntakeSpeakers(ctx, source._id);
+    const stored = { ...source, structureBuildId: undefined };
+    // The text is read only when the build's kept names cannot be used.
+    const content = storedNamesAreCurrent(stored) ? "" : await readSourceText(ctx, source._id);
     names.push(
       transcriptNamesToHide(
-        { ...source, structureBuildId: undefined },
+        { ...stored, content },
         rows.map((row) => row.label)
       )
     );
@@ -268,13 +392,13 @@ export async function draftPlaceholderMap(
  */
 export async function intakeSpeakerView(
   ctx: Ctx,
-  source: { intakeSourceId: Id<"intakeSources">; content: string; contentHash: string }
+  source: { intakeSourceId: Id<"intakeSources">; contentHash: string }
 ): Promise<{ ready: boolean; parserVersion: string | null; roles: Array<[string, string]> }> {
   const row = await ctx.db.get(source.intakeSourceId);
+  // A draft transcript is never cut (it is within the frozen cap), so its
+  // frozen row is its whole text: the hashes are equal.
   const ready =
-    row !== null &&
-    row.parserVersion === TRANSCRIPT_PARSER_VERSION &&
-    (row.contentHash === source.contentHash || row.content.startsWith(source.content));
+    row !== null && row.parserVersion === TRANSCRIPT_PARSER_VERSION && row.contentHash === source.contentHash;
   const roles: Array<[string, string]> = ready
     ? (await listIntakeSpeakers(ctx, source.intakeSourceId)).map((speaker) => [speaker.label, evidenceRole(speaker)])
     : [];
@@ -283,12 +407,15 @@ export async function intakeSpeakerView(
 }
 
 /** The turns the draft text parses into, as the project's build would store them. */
-export function parseIntakeTurns(source: Pick<Doc<"intakeSources">, "content" | "sourceFormat">): {
+export function parseIntakeTurns(
+  content: string,
+  source: Pick<Doc<"intakeSources">, "sourceFormat">
+): {
   text: string;
   cues: boolean;
   turns: TranscriptTurn[];
 } {
-  const text = frozenSlice(source.content);
+  const text = frozenSlice(content);
   const cues = isCueRender(source.sourceFormat, text);
   return { text, cues, turns: parseTranscriptTurns(text, { cues }) };
 }
@@ -301,17 +428,17 @@ export function parseIntakeTurns(source: Pick<Doc<"intakeSources">, "content" | 
  */
 export function intakeSpeakerReader(ctx: Ctx) {
   const loaded = new Map<string, Promise<{ turns: TranscriptTurn[]; roles: Map<string, TranscriptSpeakerRole> } | null>>();
-  const load = (sourceId: Id<"intakeSources">, contentHash: string, content: string) => {
+  const load = (sourceId: Id<"intakeSources">, contentHash: string) => {
     const key = `${sourceId}|${contentHash}`;
     let pending = loaded.get(key);
     if (!pending) {
       pending = (async () => {
         const row = await ctx.db.get(sourceId);
         if (!row || row.parserVersion !== TRANSCRIPT_PARSER_VERSION) return null;
-        if (row.contentHash !== contentHash && !row.content.startsWith(content)) return null;
+        if (row.contentHash !== contentHash) return null;
         const rows = await listIntakeSpeakers(ctx, sourceId);
         return {
-          turns: parseIntakeTurns(row).turns,
+          turns: parseIntakeTurns(await readSourceText(ctx, sourceId), row).turns,
           roles: new Map(rows.map((speaker) => [speaker.label, evidenceRole(speaker)])),
         };
       })();
@@ -325,7 +452,7 @@ export function intakeSpeakerReader(ctx: Ctx) {
     endOffset: number,
     movedFrom?: MovedFrom
   ): Promise<CitationSpeaker> => {
-    const structure = await load(source.intakeSourceId, source.contentHash, source.content);
+    const structure = await load(source.intakeSourceId, source.contentHash);
     if (!structure) return "unchecked";
     return await spanVerdict(
       async (start, end) => {
@@ -384,9 +511,10 @@ export function preparationSpeakerReader(ctx: Ctx) {
 export async function buildIntakeStructure(
   ctx: MutationCtx,
   draft: Doc<"intakeDrafts">,
-  source: Doc<"intakeSources">
+  source: Doc<"intakeSources">,
+  options: { resetModelRoles?: boolean } = {}
 ): Promise<{ needsModel: boolean }> {
-  const { text, cues, turns } = parseIntakeTurns(source);
+  const { text, cues, turns } = parseIntakeTurns(await readSourceText(ctx, source._id), source);
   const guesses = inferSpeakerRoles(turns, await speakerRoleContext(ctx, await draftIdentity(ctx, draft)));
   const kept = guesses.slice(0, MAX_SPEAKERS_PER_TRANSCRIPT);
   const labels = new Set(guesses.map((guess) => guess.label));
@@ -400,7 +528,10 @@ export async function buildIntakeStructure(
       turnCount: guess.turnCount,
       ...(guess.sampleTurnIndex !== undefined ? { sampleTurnIndex: guess.sampleTurnIndex } : {}),
     };
-    if (row && row.roleSource !== "heuristic") {
+    // The names changed: the model's roles were asked for other names and
+    // are asked again (review 2026-09-26, Fable P2-1).
+    const keep = row && (row.roleSource === "consultant" || (row.roleSource === "model" && !options.resetModelRoles));
+    if (row && keep) {
       await ctx.db.patch(row._id, counts);
       continue;
     }
@@ -476,4 +607,25 @@ export async function requestIntakePreparation(
     revision: 1,
   });
   await ctx.db.patch(preparationId, { scheduledJobId });
+}
+
+/**
+ * Whether a private intake draft is still becoming this project (its
+ * promotion has not completed): a run or a PD review waits for it
+ * (`PROJECT_SETTING_UP`), so it reads every source and the speaker
+ * evidence the draft's preparation read.
+ */
+export async function projectIsSettingUp(ctx: Ctx, projectId: Id<"projects">): Promise<boolean> {
+  const draft = await ctx.db
+    .query("intakeDrafts")
+    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+    .first();
+  return draft?.status === "promoting";
+}
+
+/** The refusal a run or review asked for while the project is still being set up. */
+export async function requireProjectSetUp(ctx: Ctx, projectId: Id<"projects">): Promise<void> {
+  if (await projectIsSettingUp(ctx, projectId)) {
+    domainError("PROJECT_SETTING_UP", "This project is still being set up. Try again in a moment.");
+  }
 }

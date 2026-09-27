@@ -133,18 +133,32 @@ export async function preparationDay(
     .withIndex("by_triggeredBy_and_firmDay", (q) => q.eq("triggeredBy", args.userId).eq("firmDay", args.firmDay))
     .take(LIMIT_READ_ROWS);
   const scope = args.scope;
-  const projectRows =
-    "projectId" in scope
-      ? await ctx.db
-          .query("briefPreparations")
-          .withIndex("by_projectId_and_firmDay", (q) => q.eq("projectId", scope.projectId).eq("firmDay", args.firmDay))
-          .take(LIMIT_READ_ROWS)
-      : await ctx.db
-          .query("briefPreparations")
-          .withIndex("by_intakeDraftId_and_firmDay", (q) =>
-            q.eq("intakeDraftId", scope.intakeDraftId).eq("firmDay", args.firmDay)
-          )
-          .take(LIMIT_READ_ROWS);
+  let projectRows: Doc<"briefPreparations">[];
+  if ("projectId" in scope) {
+    projectRows = await ctx.db
+      .query("briefPreparations")
+      .withIndex("by_projectId_and_firmDay", (q) => q.eq("projectId", scope.projectId).eq("firmDay", args.firmDay))
+      .take(LIMIT_READ_ROWS);
+    // A project promoted from an intake draft also counts what the draft's
+    // preparations spent that day and did not bring along (tenth amendment).
+    const link = await ctx.db
+      .query("intakeSourceLinks")
+      .withIndex("by_projectId", (q) => q.eq("projectId", scope.projectId))
+      .first();
+    if (link) {
+      const draftRows = await ctx.db
+        .query("briefPreparations")
+        .withIndex("by_intakeDraftId_and_firmDay", (q) => q.eq("intakeDraftId", link.draftId).eq("firmDay", args.firmDay))
+        .take(LIMIT_READ_ROWS);
+      projectRows = [...projectRows, ...draftRows.filter((row) => row.projectId === undefined)];
+    }
+  } else {
+    // A draft is held to $0.50 for its whole life, not per day.
+    projectRows = await ctx.db
+      .query("briefPreparations")
+      .withIndex("by_intakeDraftId", (q) => q.eq("intakeDraftId", scope.intakeDraftId))
+      .take(LIMIT_READ_ROWS);
+  }
   const counted = (row: Doc<"briefPreparations">) => row._id !== args.excluding && row.dispatchedAt !== undefined;
   return {
     userStarts: userRows.filter(counted).length,

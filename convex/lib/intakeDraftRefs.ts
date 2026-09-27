@@ -42,6 +42,7 @@ export const intakeDraftRefs = {
   getIntakeDraft: ref<typeof intake.getIntakeDraft>("intakeDrafts:getIntakeDraft"),
   promoteIntakeDraft: ref<typeof intake.promoteIntakeDraft>("intakeDrafts:promoteIntakeDraft"),
   buildIntakeSourceStructure: ref<typeof intake.buildIntakeSourceStructure>("intakeDrafts:buildIntakeSourceStructure"),
+  askIntakeSpeakers: ref<typeof intake.askIntakeSpeakers>("intakeDrafts:askIntakeSpeakers"),
   intakeSpeakerRoleInput: ref<typeof intake.intakeSpeakerRoleInput>("intakeDrafts:intakeSpeakerRoleInput"),
   recordIntakeSpeakerRoles: ref<typeof intake.recordIntakeSpeakerRoles>("intakeDrafts:recordIntakeSpeakerRoles"),
   continueIntakePromotion: ref<typeof intake.continueIntakePromotion>("intakeDrafts:continueIntakePromotion"),

@@ -15,6 +15,9 @@ import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { anthropicToolSse, sseResponse } from "./anthropicSse.fixture";
+import { sha256 } from "./lib/contracts";
+import { firmDayNumber } from "../shared/firmTime";
+import { preparationDay } from "./lib/briefPreparationBudget";
 import { BRIEF_REQUEST } from "./lib/briefRequest";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
 import { INTAKE_DEBOUNCE_MS, INTAKE_IDLE_MS, INTAKE_LIFETIME_MS } from "./lib/intakeDrafts";
@@ -193,6 +196,14 @@ async function draftPreparations(s: Setup, draftId: Id<"intakeDrafts">): Promise
   );
 }
 
+/** Runs everything scheduled over the next half minute, step by step. */
+async function drain(s: Setup, steps = 50) {
+  for (let step = 0; step < steps; step += 1) {
+    vi.advanceTimersByTime(600);
+    await s.t.finishInProgressScheduledFunctions();
+  }
+}
+
 /** A draft with one transcript and one file, prepared. */
 async function preparedDraft(s: Setup) {
   const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
@@ -204,12 +215,14 @@ async function preparedDraft(s: Setup) {
 }
 
 async function promote(s: Setup, draftId: Id<"intakeDrafts">, sourceKeys: string[], commandId = "command-1") {
-  return await s.writer.mutation(intakeDraftRefs.promoteIntakeDraft, {
+  const receipt = await s.writer.mutation(intakeDraftRefs.promoteIntakeDraft, {
     draftId,
     commandId,
     sourceKeys,
     project: { title: "Cold seal", clientName: "Acme Seals", interviewees: ["Priya Raman"] },
   });
+  if ("ended" in receipt) throw new Error("The draft ended");
+  return receipt;
 }
 
 async function reserve(
@@ -534,28 +547,31 @@ describe("promotion and adoption", () => {
     expect(first.complete).toBe(false);
     expect(first.sources.length).toBeGreaterThan(0);
     expect(first.sources.length).toBeLessThan(4);
-    // The page retries (or a new tab confirms): the same project, finished.
+    // The page retries (or a new tab confirms): the same project. It is
+    // complete only once every transcript's turns are built.
     const second = await promote(s, draftId, keys, "command-b");
     expect(second.projectId).toBe(first.projectId);
-    expect(second.complete).toBe(true);
+    expect(second.complete).toBe(false);
     expect(second.sources.map((row) => row.sourceKey).sort()).toEqual([...keys].sort());
+    await expect(reserve(s, first.projectId)).rejects.toThrow(/still being set up/);
+    await drain(s);
     const third = await promote(s, draftId, keys, "command-c");
-    expect(third).toEqual(second);
+    expect(third.complete).toBe(true);
+    expect(third.projectId).toBe(first.projectId);
     const projects = await s.t.run(async (ctx) => ctx.db.query("projects").collect());
     expect(projects).toHaveLength(1);
     const transcripts = await s.t.run(async (ctx) =>
       ctx.db.query("transcripts").withIndex("by_projectId", (q) => q.eq("projectId", first.projectId)).collect()
     );
     expect(transcripts.map((row) => row.position).sort()).toEqual([0, 1, 2, 3]);
+    expect(transcripts.every((row) => row.parserVersion === TRANSCRIPT_PARSER_VERSION && !row.structureBuildId)).toBe(true);
 
-    // A crash after the first step: the scheduled step finishes it alone.
+    // A crash after the first step: the scheduled steps finish it alone.
     const other = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
     for (const [index, key] of keys.entries()) await saveTranscript(s, other, key, long(index + 10), index, `Call ${index + 1}`);
     const partial = await promote(s, other, keys, "command-d");
     expect(partial.complete).toBe(false);
-    await s.t.finishInProgressScheduledFunctions();
-    vi.advanceTimersByTime(10);
-    await s.t.finishInProgressScheduledFunctions();
+    await drain(s);
     const draft = await s.t.run(async (ctx) => ctx.db.get(other));
     expect(draft?.status).toBe("promoted");
     const links = await s.t.run(async (ctx) =>
@@ -601,9 +617,15 @@ describe("promotion and adoption", () => {
 });
 
 describe("originals", () => {
-  async function upload(s: Setup, text: string) {
-    return await s.t.run(async (ctx) => ctx.storage.store(new Blob([text], { type: "text/plain" })));
+  /** A fresh upload, claimed by the writer as the page claims it. */
+  async function upload(s: Setup, text: string, claimedBy: Id<"users"> | null = s.userId) {
+    return await s.t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new Blob([text], { type: "text/plain" }));
+      if (claimedBy) await ctx.db.insert("uploadClaims", { storageId, userId: claimedBy, claimedAt: Date.now() });
+      return storageId;
+    });
   }
+  const files = (s: Setup) => s.t.run(async (ctx) => (await ctx.db.system.query("_storage").collect()).map((file) => file._id));
 
   test("an original saved during intake moves to the project; one landing after confirming goes to its row", async () => {
     const s = await setup();
@@ -613,42 +635,137 @@ describe("originals", () => {
     const transcriptFile = await upload(s, "transcript bytes");
     expect(
       await s.writer.mutation(intakeDraftRefs.attachIntakeOriginal, {
-        draftId, sourceKey: "transcript-key-1", storageId: transcriptFile, mimeType: "text/plain",
+        draftId, sourceKey: "transcript-key-1", storageId: transcriptFile, contentHash: await sha256(TRANSCRIPT), mimeType: "text/plain",
       })
     ).toBe(true);
     // Another user cannot attach a file to it.
-    const stranger = await upload(s, "someone else");
+    const stranger = await upload(s, "someone else", s.outsiderId);
     await expect(
-      s.outsider.mutation(intakeDraftRefs.attachIntakeOriginal, { draftId, sourceKey: "document-key-1", storageId: stranger })
+      s.outsider.mutation(intakeDraftRefs.attachIntakeOriginal, {
+        draftId, sourceKey: "document-key-1", storageId: stranger, contentHash: await sha256(DOCUMENT),
+      })
     ).rejects.toThrow(/no longer available/);
     const receipt = await promote(s, draftId, ["transcript-key-1", "document-key-1"]);
     const documentFile = await upload(s, "document bytes");
     expect(
       await s.writer.mutation(intakeDraftRefs.attachIntakeOriginal, {
-        draftId, sourceKey: "document-key-1", storageId: documentFile, mimeType: "text/plain",
+        draftId, sourceKey: "document-key-1", storageId: documentFile, contentHash: await sha256(DOCUMENT), mimeType: "text/plain",
       })
     ).toBe(true);
     // The purge of the promoted draft keeps the files the project holds.
-    await s.t.finishInProgressScheduledFunctions();
-    vi.advanceTimersByTime(10);
-    await s.t.finishInProgressScheduledFunctions();
+    await drain(s, 3);
     const state = await s.t.run(async (ctx) => {
       const byKey = new Map(receipt.sources.map((row) => [row.sourceKey, row]));
       return {
         transcript: await ctx.db.get(byKey.get("transcript-key-1")!.transcriptId!),
         document: await ctx.db.get(byKey.get("document-key-1")!.projectDocumentId!),
-        files: await ctx.db.system.query("_storage").collect(),
         sources: await ctx.db.query("intakeSources").collect(),
+        texts: await ctx.db.query("intakeSourceTexts").collect(),
         draft: await ctx.db.get(draftId),
       };
     });
     expect(state.transcript?.originalStorageId).toBe(transcriptFile);
     expect(state.document?.storageId).toBe(documentFile);
-    expect(state.files.map((file) => file._id)).toEqual(expect.arrayContaining([transcriptFile, documentFile]));
+    expect(await files(s)).toEqual(expect.arrayContaining([transcriptFile, documentFile]));
     expect(state.sources).toHaveLength(0);
+    expect(state.texts).toHaveLength(0);
     expect(state.draft).toMatchObject({ status: "promoted" });
     expect(state.draft?.contentPurgedAt).toBeDefined();
     expect(state.draft?.clientName).toBeUndefined();
+  });
+
+  test("an original of replaced text is refused and its file deleted (Replace file)", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveDocument(s, draftId, "document-key-1");
+    // The writer replaced the file: the saved text changed before the
+    // first file's upload finished.
+    await saveDocument(s, draftId, "document-key-1", "cold-soak.txt", "Replaced cold soak log.");
+    const stale = await upload(s, "old bytes");
+    expect(
+      await s.writer.mutation(intakeDraftRefs.attachIntakeOriginal, {
+        draftId, sourceKey: "document-key-1", storageId: stale, contentHash: await sha256(DOCUMENT),
+      })
+    ).toBe(false);
+    expect(await files(s)).not.toContain(stale);
+    const fresh = await upload(s, "new bytes");
+    expect(
+      await s.writer.mutation(intakeDraftRefs.attachIntakeOriginal, {
+        draftId, sourceKey: "document-key-1", storageId: fresh, contentHash: await sha256("Replaced cold soak log."),
+      })
+    ).toBe(true);
+  });
+
+  test("an upload that lands after Discard is deleted when the caller claimed it, and nobody else's upload is ever deleted", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveDocument(s, draftId, "document-key-1");
+    await s.writer.mutation(intakeDraftRefs.discardIntakeDraft, { draftId });
+    const mine = await upload(s, "late bytes");
+    expect(
+      await s.writer.mutation(intakeDraftRefs.attachIntakeOriginal, {
+        draftId, sourceKey: "document-key-1", storageId: mine, contentHash: await sha256(DOCUMENT),
+      })
+    ).toBe(false);
+    expect(await files(s)).not.toContain(mine);
+    // An unclaimed file with a wrong key is left alone.
+    const other = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    const unclaimed = await upload(s, "someone's bytes", null);
+    expect(
+      await s.writer.mutation(intakeDraftRefs.attachIntakeOriginal, {
+        draftId: other, sourceKey: "missing-key-1", storageId: unclaimed, contentHash: "x",
+      })
+    ).toBe(false);
+    expect(await files(s)).toContain(unclaimed);
+  });
+
+  test("while promoting, a source not yet installed takes its original; after promotion only within the hour and with edit access", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    const long = Array.from({ length: 14000 }, (_, line) => `Priya Raman: Line ${line} of the rig call.`).join("\n\n").slice(0, 450_000);
+    const keys = ["long-key-1", "long-key-2", "long-key-3", "long-key-4"];
+    for (const [index, key] of keys.entries()) await saveTranscript(s, draftId, key, `${long.slice(0, 440_000)} ${index}`, index, `Call ${index}`);
+    const first = await promote(s, draftId, keys);
+    expect(first.complete).toBe(false);
+    const waiting = keys.find((key) => !first.sources.some((row) => row.sourceKey === key))!;
+    const text = `${long.slice(0, 440_000)} ${keys.indexOf(waiting)}`;
+    const file = await upload(s, "rig bytes");
+    expect(
+      await s.writer.mutation(intakeDraftRefs.attachIntakeOriginal, {
+        draftId, sourceKey: waiting, storageId: file, contentHash: await sha256(text),
+      })
+    ).toBe(true);
+    await drain(s);
+    const receipt = await promote(s, draftId, keys);
+    const installed = receipt.sources.find((row) => row.sourceKey === waiting)!;
+    expect((await s.t.run(async (ctx) => ctx.db.get(installed.transcriptId!)))?.originalStorageId).toBe(file);
+
+    // An hour after promotion a late original no longer reaches the row.
+    const late = keys.find((key) => key !== waiting)!;
+    vi.setSystemTime(Date.now() + 61 * 60 * 1000);
+    const tooLate = await upload(s, "too late");
+    expect(
+      await s.writer.mutation(intakeDraftRefs.attachIntakeOriginal, {
+        draftId, sourceKey: late, storageId: tooLate, contentHash: await sha256(`${long.slice(0, 440_000)} ${keys.indexOf(late)}`),
+      })
+    ).toBe(false);
+    expect(await files(s)).not.toContain(tooLate);
+  });
+
+  test("after promotion a late original needs a live project the caller may still edit", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, draftId, "transcript-key-1");
+    const receipt = await promote(s, draftId, ["transcript-key-1"]);
+    // Ownership moved to someone else: the former creator may not edit.
+    await s.t.run(async (ctx) => ctx.db.patch(receipt.projectId, { ownerId: s.outsiderId }));
+    const file = await upload(s, "bytes");
+    expect(
+      await s.writer.mutation(intakeDraftRefs.attachIntakeOriginal, {
+        draftId, sourceKey: "transcript-key-1", storageId: file, contentHash: await sha256(TRANSCRIPT),
+      })
+    ).toBe(false);
+    expect((await s.t.run(async (ctx) => ctx.db.get(receipt.sources[0].transcriptId!)))?.originalStorageId).toBeUndefined();
   });
 });
 
@@ -673,7 +790,11 @@ describe("retention", () => {
     const s = await setup();
     const draftId = await preparedDraft(s);
     const file = await s.t.run(async (ctx) => ctx.storage.store(new Blob(["bytes"])));
-    await s.writer.mutation(intakeDraftRefs.attachIntakeOriginal, { draftId, sourceKey: "document-key-1", storageId: file });
+    expect(
+      await s.writer.mutation(intakeDraftRefs.attachIntakeOriginal, {
+        draftId, sourceKey: "document-key-1", storageId: file, contentHash: await sha256(DOCUMENT),
+      })
+    ).toBe(true);
     const before = await contentLeft(s, draftId);
     expect(before.frozen).toBeGreaterThan(0);
     expect(before.facts).toBeGreaterThan(0);
@@ -794,5 +915,313 @@ describe("Duplicate copy receipt", () => {
       expect(copy.projectId).toBe(toId);
       expect(copy.content).toBe(row.sourceId === firstId ? source.first.content : source.second.content);
     }
+  });
+});
+
+describe("review fixes (2026-09-26, Opus 5.5 and Fable 5.1)", () => {
+  const lines = (count: number, words = "about the cold soak rig and the seal") =>
+    Array.from({ length: count }, (_, line) => `${line % 2 ? "Dana Whitfield" : "Priya Raman"}: Line ${line} ${words}.`).join("\n\n");
+
+  test("a transcript over 400 turns and one over 150,000 characters: promotion waits for their turn builds, then the run adopts (O-P2-2)", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    const many = lines(460, "rig");
+    const long = lines(2600);
+    expect(long.length).toBeGreaterThan(150_000);
+    await saveTranscript(s, draftId, "many-turns-key", many, 0, "Many turns");
+    await saveTranscript(s, draftId, "long-text-key", long, 1, "Long call");
+    await setContext(s, draftId);
+    await drain(s);
+    const [prepared] = await draftPreparations(s, draftId);
+    expect([prepared.status, prepared.endedReason, many.length + long.length]).toEqual(["ready", undefined, many.length + long.length]);
+    const first = await promote(s, draftId, ["many-turns-key", "long-text-key"]);
+    expect(first.complete).toBe(false);
+    await expect(reserve(s, first.projectId)).rejects.toThrow(/still being set up/);
+    await drain(s);
+    const done = await promote(s, draftId, ["many-turns-key", "long-text-key"]);
+    expect(done.complete).toBe(true);
+    const generationId = await reserve(s, done.projectId);
+    const calls = briefRequests.length;
+    expect((await adoptAtStart(s, generationId)).kind).toBe("adopted");
+    expect(briefRequests).toHaveLength(calls);
+  });
+
+  test("the refusal while setting up carries its own code (O-P2-5)", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, draftId, "long-text-key", lines(3600), 0, "Long call");
+    const first = await promote(s, draftId, ["long-text-key"]);
+    expect(first.complete).toBe(false);
+    const error = await reserve(s, first.projectId).catch((caught: unknown) => caught);
+    expect((error as { data?: { code?: string } }).data?.code).toBe("PROJECT_SETTING_UP");
+  });
+
+  test("confirming before the draft's speakers were built asks the model on the project (O-P2-4)", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, draftId, "transcript-key-1", UNCERTAIN);
+    // No scheduled work has run: the draft's build never ran.
+    const receipt = await promote(s, draftId, ["transcript-key-1"]);
+    const jobs = await s.t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(
+      jobs.filter((job) => job.name.includes("classifySpeakerRoles") && job.state.kind === "pending").map((job) => job.args[0])
+    ).toEqual([{ transcriptId: receipt.sources[0].transcriptId }]);
+  });
+
+  test("a project erased part way ends the draft, purges it, and a repeat confirm builds nothing (O-P2-6, Fable P2-3)", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    const keys = ["long-key-1", "long-key-2", "long-key-3", "long-key-4"];
+    for (const [index, key] of keys.entries()) {
+      await saveTranscript(s, draftId, key, lines(12_000).slice(0, 440_000) + ` ${index}`, index, `Call ${index}`);
+    }
+    const file = await s.t.run(async (ctx) => ctx.storage.store(new Blob(["bytes"])));
+    await s.writer.mutation(intakeDraftRefs.attachIntakeOriginal, {
+      draftId, sourceKey: "long-key-4", storageId: file, contentHash: await sha256(lines(12_000).slice(0, 440_000) + " 3"),
+    });
+    const first = await promote(s, draftId, keys);
+    expect(first.complete).toBe(false);
+    // The new project is deleted before the rest is installed.
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(first.projectId, { deletionStartedAt: Date.now() });
+    });
+    await drain(s);
+    const state = await s.t.run(async (ctx) => ({
+      draft: (await ctx.db.get(draftId))!,
+      sources: (await ctx.db.query("intakeSources").collect()).filter((row) => row.draftId === draftId),
+      texts: (await ctx.db.query("intakeSourceTexts").withIndex("by_draftId", (q) => q.eq("draftId", draftId)).collect()),
+      files: (await ctx.db.system.query("_storage").collect()).map((row) => row._id),
+    }));
+    expect(state.draft.status).toBe("discarded");
+    expect(state.draft.contentPurgedAt).toBeDefined();
+    expect(state.sources).toHaveLength(0);
+    expect(state.texts).toHaveLength(0);
+    expect(state.files).not.toContain(file);
+    await expect(promote(s, draftId, keys)).rejects.toThrow(/no longer available/);
+    expect(await s.t.run(async (ctx) => (await ctx.db.query("projects").collect()).length)).toBe(1);
+  });
+
+  test("a promotion whose project was detached by erasure ends on a repeat confirm, and the sweep ends a stuck one (O-P2-6)", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, draftId, "long-text-key", lines(3600), 0, "Long call");
+    const first = await promote(s, draftId, ["long-text-key"]);
+    // Erasure detached the project from the draft (projectScopedTables).
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(draftId, { projectId: undefined });
+      await ctx.db.delete(first.projectId);
+    });
+    const again = await s.writer.mutation(intakeDraftRefs.promoteIntakeDraft, {
+      draftId, commandId: "again", sourceKeys: ["long-text-key"], project: { title: "Cold seal", clientName: "Acme Seals" },
+    });
+    expect(again).toEqual({ ended: true });
+    expect(await s.t.run(async (ctx) => (await ctx.db.query("projects").collect()).length)).toBe(0);
+
+    // A stuck promotion (its chain lost) is resumed by the sweep when its project is live.
+    const other = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, other, "long-text-key", lines(3600), 0, "Long call");
+    const stuck = await promote(s, other, ["long-text-key"]);
+    await s.t.run(async (ctx) => {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
+        if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+      }
+    });
+    vi.setSystemTime(Date.now() + 11 * 60 * 1000);
+    expect((await s.t.mutation(intakeDraftRefs.sweepIntakeDrafts, {})).stuck).toBe(1);
+    await drain(s);
+    await drain(s);
+    expect((await s.t.run(async (ctx) => ctx.db.get(other)))?.status).toBe("promoted");
+    expect((await promote(s, other, ["long-text-key"])).projectId).toBe(stuck.projectId);
+  });
+
+  test("names must settle for 5 seconds: typing Acm then Acme Robotics sends only the full masked name (Fable P2-1)", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, draftId, "transcript-key-1", `${UNCERTAIN}\n\nSpeaker 2: Acme Robotics built the rig in Leduc.`);
+    await drain(s, 3);
+    await s.writer.mutation(intakeDraftRefs.updateIntakeContext, { draftId, clientName: "Acm", interviewees: [] });
+    vi.advanceTimersByTime(1_000);
+    await s.t.finishInProgressScheduledFunctions();
+    await s.writer.mutation(intakeDraftRefs.updateIntakeContext, { draftId, clientName: "Acme Robotics", interviewees: [] });
+    await drain(s, 20);
+    expect(speakerRequests).toHaveLength(1);
+    expect(briefRequests).toHaveLength(1);
+    for (const request of [...speakerRequests, ...briefRequests]) {
+      expect(JSON.stringify(request.body)).not.toContain("Acme Robotics");
+    }
+    // A later change of the names asks the speaker model again.
+    await s.writer.mutation(intakeDraftRefs.updateIntakeContext, { draftId, clientName: "Acme Robotics Ltd", interviewees: [] });
+    await drain(s, 20);
+    expect(speakerRequests).toHaveLength(2);
+  });
+
+  test("an old speaker answer never lands on new text or other names", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, draftId, "transcript-key-1", UNCERTAIN);
+    const sourceId = await s.t.run(async (ctx) => {
+      const source = (await ctx.db.query("intakeSources").collect())[0];
+      await ctx.db.patch(source._id, { speakerModel: "pending", speakerModelKey: "key-now" });
+      return source._id;
+    });
+    await s.t.mutation(intakeDraftRefs.recordIntakeSpeakerRoles, {
+      sourceId, key: "key-before", roles: [{ label: "Speaker 2", role: "client", confidence: 0.9 }],
+    });
+    await s.t.mutation(intakeDraftRefs.recordIntakeSpeakerRoles, {
+      sourceId, key: "key-now", contentHash: "other-text", roles: [{ label: "Speaker 2", role: "client", confidence: 0.9 }],
+    });
+    expect((await s.t.run(async (ctx) => ctx.db.get(sourceId)))?.speakerModel).toBe("pending");
+  });
+
+  test("speaker model calls stop at 60 a day and the Brief still goes ahead", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) =>
+      ctx.db.insert("intakeDailyCounts", {
+        userId: s.userId, firmDay: firmDayNumber(Date.now()), drafts: 0, speakerCalls: 60,
+      })
+    );
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, draftId, "transcript-key-1", UNCERTAIN);
+    await setContext(s, draftId);
+    await drain(s, 20);
+    expect(speakerRequests).toHaveLength(0);
+    expect((await draftPreparations(s, draftId))[0]?.status).toBe("ready");
+  });
+
+  test("drafts: 30 a day, and past 10 open the least recently edited one is discarded (O-P1-1)", async () => {
+    const s = await setup();
+    const drafts: Id<"intakeDrafts">[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      drafts.push(await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {}));
+      vi.advanceTimersByTime(1_000);
+    }
+    // The first draft is edited: now the second is the least recently edited.
+    await saveTranscript(s, drafts[0], "transcript-key-1");
+    await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    const statuses = await s.t.run(async (ctx) => Promise.all(drafts.map(async (id) => (await ctx.db.get(id))?.status)));
+    expect(statuses[0]).toBe("open");
+    expect(statuses[1]).toBe("discarded");
+    await s.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("intakeDailyCounts")
+        .withIndex("by_userId_and_firmDay", (q) => q.eq("userId", s.userId).eq("firmDay", firmDayNumber(Date.now())))
+        .unique();
+      await ctx.db.patch(row!._id, { drafts: 30 });
+    });
+    await expect(s.writer.mutation(intakeDraftRefs.createIntakeDraft, {})).rejects.toThrow(/a lot of new projects today/);
+  });
+
+  test("large documents: text is chunked, reads skip it, and all document text is capped at 3,000,000 characters (Fable P2-2)", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    const big = (letter: string) => `${letter} `.repeat(449_999) + "é";
+    for (const [index, letter] of ["a", "b", "c"].entries()) {
+      await saveDocument(s, draftId, `big-doc-key-${index}`, `big-${index}.txt`, big(letter), 1000 + index);
+    }
+    await expect(saveDocument(s, draftId, "big-doc-key-3", "big-3.txt", "A".repeat(400_000), 1003)).rejects.toThrow(
+      /at most 3,000k characters of supporting document text/
+    );
+    const chunks = await s.t.run(async (ctx) => ctx.db.query("intakeSourceTexts").withIndex("by_draftId", (q) => q.eq("draftId", draftId)).collect());
+    expect(chunks.length).toBe(15);
+    expect(chunks.every((chunk) => new TextEncoder().encode(chunk.text).length <= 900_000)).toBe(true);
+    // The owner's view lists the files without their text.
+    expect((await s.writer.query(intakeDraftRefs.getIntakeDraft, { draftId }))?.sources).toHaveLength(3);
+    await saveTranscript(s, draftId, "transcript-key-1");
+    const receipt = await promote(s, draftId, ["transcript-key-1", "big-doc-key-0", "big-doc-key-1", "big-doc-key-2"]);
+    await drain(s, 5);
+    const done = await promote(s, draftId, ["transcript-key-1", "big-doc-key-0", "big-doc-key-1", "big-doc-key-2"]);
+    expect([receipt.complete || done.complete, done.sources.map((row) => row.sourceKey).sort()]).toEqual([
+      true,
+      ["big-doc-key-0", "big-doc-key-1", "big-doc-key-2", "transcript-key-1"],
+    ]);
+    const stored = await s.t.run(async (ctx) => ctx.db.get(done.sources.find((row) => row.sourceKey === "big-doc-key-1")!.projectDocumentId!));
+    expect(stored?.content).toBe(big("b"));
+  });
+
+  test("a second file with the same name and text merges into the first, as uploads do", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, draftId, "transcript-key-1");
+    await saveDocument(s, draftId, "document-key-1");
+    await saveDocument(s, draftId, "document-key-2", "cold-soak.txt", DOCUMENT, 1001);
+    await setContext(s, draftId);
+    await drain(s);
+    const receipt = await promote(s, draftId, ["transcript-key-1", "document-key-1", "document-key-2"]);
+    const ids = receipt.sources.filter((row) => row.kind === "document").map((row) => row.projectDocumentId);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(1);
+    const generationId = await reserve(s, receipt.projectId);
+    expect((await adoptAtStart(s, generationId)).kind).toBe("adopted");
+  });
+
+  test("the draft purge reaches preparations past the first 50 (Fable P2-4)", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await s.t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 60; index += 1) {
+        const preparationId = await ctx.db.insert("briefPreparations", {
+          intakeDraftId: draftId, status: "obsolete", revision: 1, runAt: now, triggeredBy: s.userId,
+          triggerReason: "source_saved", createdAt: now, updatedAt: now, endedAt: now, storylineText: `Storyline ${index}`,
+        });
+        await ctx.db.insert("briefPreparationSources", {
+          preparationId, intakeDraftId: draftId, kind: "transcript", label: "l", content: "c", contentHash: "h",
+          truncated: false, originalLength: 1, capturedAt: now,
+        });
+      }
+    });
+    await s.writer.mutation(intakeDraftRefs.discardIntakeDraft, { draftId });
+    await drain(s, 10);
+    const left = await s.t.run(async (ctx) => ({
+      sources: await ctx.db.query("briefPreparationSources").withIndex("by_intakeDraftId", (q) => q.eq("intakeDraftId", draftId)).collect(),
+      unpurged: (await ctx.db.query("briefPreparations").withIndex("by_intakeDraftId", (q) => q.eq("intakeDraftId", draftId)).collect())
+        .filter((row) => row.contentPurgedAt === undefined),
+      draft: await ctx.db.get(draftId),
+    }));
+    expect(left.sources).toHaveLength(0);
+    expect(left.unpurged).toHaveLength(0);
+    expect(left.draft?.contentPurgedAt).toBeDefined();
+  });
+
+  test("content-free closed drafts are deleted after 30 days", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await s.writer.mutation(intakeDraftRefs.discardIntakeDraft, { draftId });
+    await drain(s, 3);
+    expect((await s.t.run(async (ctx) => ctx.db.get(draftId)))?.contentPurgedAt).toBeDefined();
+    vi.setSystemTime(Date.now() + 31 * 24 * 60 * 60 * 1000);
+    await s.t.mutation(intakeDraftRefs.sweepIntakeDrafts, {});
+    expect(await s.t.run(async (ctx) => ctx.db.get(draftId))).toBeNull();
+  });
+
+  test("a draft holds $0.50 for its whole life, and its spend that day counts toward the promoted project", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    // Earlier days' spend on this draft.
+    await s.t.run(async (ctx) =>
+      ctx.db.insert("briefPreparations", {
+        intakeDraftId: draftId, status: "failed", revision: 1, runAt: 0, triggeredBy: s.userId, triggerReason: "x",
+        createdAt: 0, updatedAt: 0, dispatchedAt: 1, firmDay: firmDayNumber(Date.now()) - 3, reservedUsd: 0.49,
+      })
+    );
+    await saveTranscript(s, draftId, "transcript-key-1");
+    await setContext(s, draftId);
+    await drain(s);
+    const rows = await draftPreparations(s, draftId);
+    expect(rows.find((row) => row.triggerReason !== "x")).toMatchObject({ status: "cancelled", endedReason: "project_budget" });
+    expect(briefRequests).toHaveLength(0);
+    const day = await s.t.run(async (ctx) => {
+      const today = firmDayNumber(Date.now());
+      await ctx.db.insert("briefPreparations", {
+        intakeDraftId: draftId, status: "obsolete", revision: 1, runAt: 0, triggeredBy: s.userId, triggerReason: "y",
+        createdAt: 0, updatedAt: 0, dispatchedAt: 1, firmDay: today, reservedUsd: 0.3,
+      });
+      return today;
+    });
+    const receipt = await promote(s, draftId, ["transcript-key-1"]);
+    const spent = await s.t.run(async (ctx) =>
+      preparationDay(ctx, { userId: s.userId, scope: { projectId: receipt.projectId }, firmDay: day })
+    );
+    expect(spent.projectUsd).toBeCloseTo(0.3, 10);
   });
 });

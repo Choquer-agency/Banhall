@@ -17,6 +17,10 @@ describe("isHandledRefusalLog", () => {
     expect(isHandledRefusalLog(convexLog("seeds:decide", { code: "STALE_REVISION", message: "x" }))).toBe(true);
     expect(isHandledRefusalLog(convexLog("brief:update", { code: "BRIEF_STALE", message: "x" }))).toBe(true);
     expect(isHandledRefusalLog(convexLog("generations:startSomething", { code: "GENERATION_ACTIVE", message: "x" }, "A"))).toBe(true);
+    // Decision 65, stage 2: a run or review while the project is still being set up.
+    const settingUp = { code: "PROJECT_SETTING_UP", message: "This project is still being set up. Try again in a moment." };
+    expect(isHandledRefusalLog(convexLog("generations:requestGeneration", settingUp))).toBe(true);
+    expect(isHandledRefusalLog(convexLog("pdReviews:startPdReview", settingUp))).toBe(true);
   });
 
   it("leaves unexpected failures and other lines to the crash toast", () => {

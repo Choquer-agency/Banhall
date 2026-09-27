@@ -128,7 +128,7 @@ const holders: Record<(typeof STORAGE_REFERENCE_FIELDS)[number], (ctx: MutationC
     });
     return await ctx.db.insert("intakeSources", {
       draftId, sourceKey: `sweep-${Math.random().toString(36).slice(2, 12)}`, kind: "document", position: 0,
-      label: "notes.txt", content: "Notes.", contentHash: "hash", storageId, createdAt: 1, updatedAt: 1,
+      label: "notes.txt", contentHash: "hash", contentLength: 6, hasText: true, storageId, createdAt: 1, updatedAt: 1,
     });
   },
 };

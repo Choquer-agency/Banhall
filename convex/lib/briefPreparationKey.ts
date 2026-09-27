@@ -93,9 +93,13 @@ async function keyNames(ctx: Ctx, scope: BriefKeyScope) {
     .query("intakeSourceLinks")
     .withIndex("by_projectId", (q) => q.eq("projectId", scope.projectId))
     .take(MAX_KEY_LINKS);
+  // Links in the order promotion wrote them: a file merged into an earlier
+  // one (same name and text) keeps the earlier source's key.
   for (const link of links) {
-    if (link.transcriptId) byTranscript.set(link.transcriptId, link.sourceKey);
-    if (link.projectDocumentId) byDocument.set(link.projectDocumentId, link.sourceKey);
+    if (link.transcriptId && !byTranscript.has(link.transcriptId)) byTranscript.set(link.transcriptId, link.sourceKey);
+    if (link.projectDocumentId && !byDocument.has(link.projectDocumentId)) {
+      byDocument.set(link.projectDocumentId, link.sourceKey);
+    }
   }
   return {
     scope: (links.length > 0 ? { intakeDraftId: links[0].draftId } : { projectId: scope.projectId }) as Record<
