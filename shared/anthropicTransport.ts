@@ -18,7 +18,7 @@
  *
  * On `direct`, the OpenRouter transport is also the credit fallback (owner
  * decision 64, shared/anthropicCreditFallback.ts): a direct call refused
- * because the Anthropic account is out of credit is sent here instead,
+ * for billing (credit ran out or a payment failed) is sent here instead,
  * chat included.
  *
  * Pure: no Convex runtime imports.

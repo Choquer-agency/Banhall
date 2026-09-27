@@ -7,7 +7,7 @@
  * freeze before its first call, and which failures count against a model.
  */
 import { convexTest } from "convex-test";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import schema from "../schema";
 import { internal } from "../_generated/api";
 import fixture from "../../shared/__fixtures__/openrouter-models-2026-09-24.json";
@@ -32,6 +32,12 @@ import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import type { GenerationMessageParams } from "./openrouterCore";
 import { generateStructured } from "./structured";
 import { guardProviderNetwork } from "../../tests/providerNetworkGuard";
+
+// The credit latch read (decision 64) runs before each Anthropic request;
+// load its module first so a cold import cannot race the fake clock.
+beforeAll(async () => {
+  await import("../providerCredit");
+});
 
 guardProviderNetwork();
 

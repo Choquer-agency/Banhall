@@ -13,7 +13,7 @@
  *   is reported as aborted, not timed out.
  */
 import { convexTest } from "convex-test";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
@@ -22,6 +22,12 @@ import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai
 import { openRouterChatCompletion } from "./ai/openrouter";
 import { citationsExtractor } from "./ai/transcriptFactsAgent";
 import { instrumentedAnthropic } from "./ai/instrument";
+
+// The credit latch read (decision 64) runs before each Anthropic request;
+// load its module first so a cold import cannot race the fake clock.
+beforeAll(async () => {
+  await import("./providerCredit");
+});
 
 const modules = import.meta.glob("./**/*.ts");
 type T = ReturnType<typeof convexTest<typeof schema.tables>>;

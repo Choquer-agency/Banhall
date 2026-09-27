@@ -85,24 +85,26 @@ export const latchDirectCredit = internalMutation({
 });
 
 /**
- * The probe failed for a reason other than credit (a rate limit, say): the
- * latch stays, and the next call may try direct again.
+ * The probe failed for a reason other than billing (a rate limit, overload,
+ * a timeout; lead decision, 2026-09-26): the latch stays, its claim is
+ * released and the cool-down restarts, so the next probe waits the full
+ * cool-down. The call itself goes through OpenRouter.
  */
 export const releaseProbe = internalMutation({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
     const row = await latchRow(ctx);
-    if (row?.probeStartedAt !== undefined) {
-      await ctx.db.patch("anthropicCreditLatch", row._id, { probeStartedAt: undefined });
-    }
+    if (row) await ctx.db.patch("anthropicCreditLatch", row._id, { latchedAt: Date.now(), probeStartedAt: undefined });
     return null;
   },
 });
 
 /**
- * The probe went through on direct: the account has credit again. Clears
- * the latch and resolves its notice, which no longer holds.
+ * Direct works again: the probe went through, or a direct call succeeded
+ * on a deployment with no fallback left (its OpenRouter key was removed
+ * while the latch stood). Clears the latch and resolves its notice, which
+ * no longer holds.
  */
 export const clearDirectCreditLatch = internalMutation({
   args: {},

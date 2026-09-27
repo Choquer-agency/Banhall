@@ -1,14 +1,17 @@
 /**
- * Direct Anthropic first, OpenRouter when the direct account is out of
- * credit (owner decision 64, 2026-09-26).
+ * Direct Anthropic first, OpenRouter when the direct account cannot be
+ * billed (owner decision 64, 2026-09-26).
  *
- * Direct stays the default transport. When a direct call is refused
- * because the Anthropic account has no credit left, the same request goes
+ * Direct stays the default transport. When a direct call is refused for
+ * billing (the credit ran out, or a payment failed), the same request goes
  * through the Anthropic-pinned OpenRouter transport (shared/
  * anthropicTransport.ts) inside the same attempt. A deployment-wide latch
- * then sends later calls straight to OpenRouter; after
- * CREDIT_LATCH_COOLDOWN_MS one call tries direct again, and a direct
- * success clears the latch.
+ * then sends later calls straight to OpenRouter. After
+ * CREDIT_LATCH_COOLDOWN_MS one call (the probe) tries direct again: a
+ * success clears the latch; a failure of any kind sends that same call
+ * through OpenRouter and restarts the cool-down (lead decision, 2026-09-26).
+ * A model with no OpenRouter id never takes part: its calls go direct and
+ * fail as before.
  *
  * Pure: no Convex runtime imports.
  */
@@ -25,33 +28,35 @@ export const CREDIT_PROBE_CLAIM_MS = 10 * 60_000;
 /** The Alerts board source for the notice (convex/errorReports.ts). */
 export const ANTHROPIC_CREDIT_NOTICE_SOURCE = "anthropic-credit";
 
-/** Raised once per latch. */
+/** Raised once per latch (lead decision, 2026-09-26: covers both billing causes). */
 export const ANTHROPIC_CREDIT_NOTICE =
-  "Anthropic credit ran out. Banhall is using OpenRouter until it is topped up. " +
-  "It tries Anthropic again every 15 minutes and goes back to it by itself once a call works.";
+  "Anthropic refused calls for billing (credit ran out or a payment failed). " +
+  "Banhall is using OpenRouter until it is fixed. " +
+  "It tries Anthropic again every 15 minutes and switches back by itself once a call works.";
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
 }
 
 /**
- * Whether a direct Anthropic answer says the account is out of credit, from
- * its HTTP status and parsed JSON body. Anthropic's error shape is
+ * Whether a direct Anthropic answer refuses the call for billing, from its
+ * HTTP status and parsed JSON body. Anthropic's error shape is
  * `{type: "error", error: {type, message}, request_id}`
  * (https://platform.claude.com/docs/en/api/errors, "Error shapes").
  *
- * Out of credit:
- * - 402 `billing_error`: "There's an issue with your billing or payment
+ * Refused for billing:
+ * - Any 402 `billing_error`: "There's an issue with your billing or payment
  *   information" (https://platform.claude.com/docs/en/api/errors, "HTTP
- *   errors"). A 402 without a readable body counts too: on the direct API
- *   402 is only ever this.
+ *   errors"). That covers a declined card as well as an empty balance
+ *   (lead decision, 2026-09-26). A 402 without a readable body counts too:
+ *   on the direct API 402 is only ever this.
  * - The older answer for an empty prepaid balance: 400
  *   `invalid_request_error` whose message says "Your credit balance is too
  *   low to access the Anthropic API". The current docs no longer print this
  *   message; normalizeProviderError has matched "credit balance" since
  *   before this change, and it is matched here the same way.
  *
- * Never out of credit, so never a fallback: 429 `rate_limit_error` (a rate
+ * Never a billing refusal, so never a fallback: 429 `rate_limit_error` (a rate
  * limit, and also the tier spend cap, `error.details.error_code`
  * `enforced_spend_limit_reached`, which is a limit, not a balance:
  * https://platform.claude.com/docs/en/api/rate-limits, "Reaching your

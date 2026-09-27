@@ -25,12 +25,13 @@ import {
   type AnthropicCapability,
 } from "../lib/providerConfig";
 import { isAnthropicCreditError } from "../../shared/anthropicCreditFallback";
-import { directCreditRoute, latchDirectCredit, settleDirectCall } from "./anthropicCredit";
+import { clearStaleLatch, directCreditRoute, latchDirectCredit, settleDirectCall } from "./anthropicCredit";
 import {
   isOpenRouterInFlightBudget,
   markOpenRouterError,
   openRouterAnthropicBody,
   openRouterAnthropicCharge,
+  openRouterAnthropicRequestId,
 } from "../../shared/anthropicTransport";
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
@@ -617,17 +618,20 @@ export function streamedBody(wire: unknown, viaOpenRouter: boolean): Record<stri
  * and the provider that served it.
  *
  * On the direct transport with an OpenRouter key set (owner decision 64,
- * 2026-09-26), a direct call refused because the Anthropic account is out
- * of credit (shared/anthropicCreditFallback.ts) is sent again, inside the
- * same call, exactly as the `openrouter` transport would send it, and the
- * caller sees that answer. The refusal sets the deployment-wide latch
- * (convex/ai/anthropicCredit.ts), so later calls go straight to OpenRouter
- * until a direct try after the cool-down works. The refused direct attempt
- * is billed nothing and records nothing: no usage row and no outcome, so it
- * never counts toward rollback, cut-offs or error totals. The usage row
- * records the transport that answered. Rate limits, overload, auth errors
- * and every other error never fall back. Without an OpenRouter key the
- * refusal fails the call, as before.
+ * 2026-09-26), a direct call refused for billing (the credit ran out or a
+ * payment failed; shared/anthropicCreditFallback.ts) is sent again, inside
+ * the same call, exactly as the `openrouter` transport would send it, and
+ * the caller sees that answer. The refusal sets the deployment-wide latch
+ * (convex/ai/anthropicCredit.ts), so later calls go straight to OpenRouter.
+ * After the cool-down one call (the probe) tries direct: a success clears
+ * the latch; a failure of any kind sends that call through OpenRouter and
+ * restarts the cool-down. The failed direct attempt is billed nothing and
+ * records nothing: no usage row and no outcome, so it never counts toward
+ * rollback, cut-offs or error totals. The usage row records the transport
+ * that answered. Outside a probe, rate limits, overload, auth errors and
+ * every other error never fall back. A model with no OpenRouter id, or a
+ * deployment without an OpenRouter key, fails as before; on the latter a
+ * successful direct call also clears a latch left behind (clearStaleLatch).
  */
 export function instrumentedAnthropic(
   ctx: ActionCtx,
@@ -706,9 +710,14 @@ export function instrumentedAnthropic(
                 );
           return viaOpenRouter ? await sendViaOpenRouter(sendRequest, deadline) : await sendRequest();
         };
+        // The billing fallback (decision 64) only for a model OpenRouter
+        // lists; any other model's call goes direct and fails as before.
+        const requested = args[0] && typeof args[0] === "object" ? (args[0] as { model?: unknown }).model : undefined;
+        const fallbackForCall =
+          creditFallback && typeof requested === "string" && openRouterAnthropicRequestId(requested) !== undefined;
         let viaOpenRouter = forcedOpenRouter;
         let response: unknown;
-        if (!creditFallback) {
+        if (!fallbackForCall) {
           response = await sendOn(forcedOpenRouter ? "openrouter" : "direct");
         } else {
           const route = await directCreditRoute(ctx);
@@ -716,18 +725,22 @@ export function instrumentedAnthropic(
             viaOpenRouter = true;
             response = await sendOn("openrouter");
           } else {
-            let refusedForCredit = false;
+            // Refused for billing, or (lead decision, 2026-09-26) a probe
+            // that failed in any way: the call goes through OpenRouter.
+            let reroute = false;
             try {
               response = await sendOn("direct");
             } catch (error) {
-              if (!isAnthropicCreditError(error)) {
+              if (isAnthropicCreditError(error)) {
+                await latchDirectCredit(ctx, route);
+              } else if (route === "probe") {
                 await settleDirectCall(ctx, route, false);
+              } else {
                 throw error;
               }
-              refusedForCredit = true;
+              reroute = true;
             }
-            if (refusedForCredit) {
-              await latchDirectCredit(ctx, route);
+            if (reroute) {
               viaOpenRouter = true;
               response = await sendOn("openrouter");
             } else {
@@ -801,6 +814,9 @@ export function instrumentedAnthropic(
             ...(charge.servedProvider ? { servedProvider: charge.servedProvider } : {}),
           });
         }
+        // Direct worked on a deployment with no fallback: clear a latch its
+        // removed OpenRouter key left behind (at most one read per cool-down).
+        if (!forcedOpenRouter && !creditFallback) await clearStaleLatch(ctx);
         return response;
       };
     },

@@ -27,6 +27,8 @@ function runAction<R>(t: TestConvex, body: (ctx: ActionCtx) => Promise<R>): Prom
 
 beforeAll(async () => {
   await import("../modelCatalog");
+  // The credit latch read (decision 64) runs before each Anthropic request.
+  await import("../providerCredit");
 });
 
 beforeEach(() => {

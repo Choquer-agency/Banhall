@@ -13,20 +13,30 @@
  * same call; the latch then sends later calls straight to OpenRouter until
  * one direct try after the cool-down works.
  */
+import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
-import { streamText } from "ai";
+import { makeFunctionReference } from "convex/server";
+import { APICallError, streamText } from "ai";
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import schema from "../schema";
 import type { ActionCtx } from "../_generated/server";
 import { instrumentedAnthropic } from "./instrument";
 import type { GenerationClient } from "./openrouterCore";
 import { modelFaultCode, normalizeProviderError, withOutcomeRecording } from "./providers";
-import { chatTurnModel } from "./chatAgentV2";
+import {
+  CHAT_MAX_OUTPUT_TOKENS,
+  CHAT_PROVIDER_OPTIONS,
+  buildChatTools,
+  chatTurnModel,
+  reportChatAgent,
+} from "./chatAgentV2";
+import { resetStaleLatchCheck } from "./anthropicCredit";
 import { anthropicToolSse, sseResponse } from "../anthropicSse.fixture";
 import {
   ANTHROPIC_CREDIT_NOTICE,
   ANTHROPIC_CREDIT_NOTICE_SOURCE,
   CREDIT_LATCH_COOLDOWN_MS,
+  CREDIT_PROBE_CLAIM_MS,
 } from "../../shared/anthropicCreditFallback";
 
 const modules = import.meta.glob("../**/*.ts");
@@ -51,6 +61,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  resetStaleLatchCheck();
   vi.useFakeTimers();
   vi.setSystemTime(Date.parse("2026-09-26T12:00:00Z"));
   vi.stubEnv("ANTHROPIC_API_KEY", ANTHROPIC_KEY);
@@ -109,7 +120,11 @@ type Sent = { url: string; headers: Record<string, string>; body: Record<string,
  * Stubs `fetch`: each request is answered by the next reply for its host
  * (direct or OpenRouter), the last one repeating.
  */
-function stubHosts(direct: Array<() => Response>, openRouter: Array<() => Response>): Sent[] {
+function stubHosts(
+  direct: Array<() => Response>,
+  openRouter: Array<() => Response>,
+  answered: Response[] = []
+): Sent[] {
   const sent: Sent[] = [];
   const next = { direct: 0, openRouter: 0 };
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
@@ -118,9 +133,10 @@ function stubHosts(direct: Array<() => Response>, openRouter: Array<() => Respon
     request.headers.forEach((value, name) => { headers[name] = value; });
     sent.push({ url: request.url, headers, body: JSON.parse(await request.text()) as Record<string, unknown> });
     if (request.url === DIRECT_URL) {
-      const answer = direct[Math.min(next.direct, direct.length - 1)];
+      const answer = direct[Math.min(next.direct, direct.length - 1)]();
       next.direct += 1;
-      return answer();
+      answered.push(answer);
+      return answer;
     }
     if (request.url === OPENROUTER_URL) {
       const answer = openRouter[Math.min(next.openRouter, openRouter.length - 1)];
@@ -137,14 +153,19 @@ async function settle<R>(promise: Promise<R>): Promise<{ ok: true; value: R } | 
 }
 
 /** One section-draft call through the production outcome recording. */
-async function call(t: TestConvex, options: { maxRetries?: number } = {}) {
-  const result = settle(runAction(t, async (ctx) => {
-    const client = withOutcomeRecording(ctx, "claude-sonnet-5", "credit-contract",
+async function call(
+  t: TestConvex,
+  options: { maxRetries?: number; model?: string; wrapCtx?: (ctx: ActionCtx) => ActionCtx } = {}
+) {
+  const model = options.model ?? PARAMS.model;
+  const result = settle(runAction(t, async (actionCtx) => {
+    const ctx = options.wrapCtx ? options.wrapCtx(actionCtx) : actionCtx;
+    const client = withOutcomeRecording(ctx, model, "credit-contract",
       instrumentedAnthropic(ctx, {
         callSite: "credit-contract",
         ...(options.maxRetries !== undefined ? { clientOptions: { maxRetries: options.maxRetries } } : {}),
       }) as unknown as GenerationClient);
-    const response = await client.messages.create(PARAMS as never);
+    const response = await client.messages.create({ ...PARAMS, model } as never);
     return response.content.map((block) => ("text" in block ? block.text : "")).join("");
   }));
   await vi.advanceTimersByTimeAsync(30_000);
@@ -161,6 +182,23 @@ const notices = (t: TestConvex) =>
 const outcomes = (t: TestConvex) => t.run((ctx) => ctx.db.query("modelCallOutcomes").collect());
 const usageRows = (t: TestConvex) => t.run((ctx) => ctx.db.query("aiUsage").collect());
 const urls = (sent: Sent[]) => sent.map((request) => request.url);
+
+/** A latch as another action left it, with its open notice. */
+async function seedLatch(t: TestConvex, latch: { latchedAt: number; probeStartedAt?: number }) {
+  await t.run(async (ctx) => {
+    const noticeId = await ctx.db.insert("errorReports", {
+      kind: "auto",
+      reportType: "bug",
+      message: ANTHROPIC_CREDIT_NOTICE,
+      source: ANTHROPIC_CREDIT_NOTICE_SOURCE,
+      url: "/alerts",
+      breadcrumbs: [],
+      status: "open",
+      createdAt: latch.latchedAt,
+    });
+    await ctx.db.insert("anthropicCreditLatch", { key: "direct", ...latch, noticeId });
+  });
+}
 
 // ─── Fallback inside the same call ──────────────────────────────────────────
 
@@ -288,24 +326,71 @@ describe("the latch", () => {
     expect(urls(sent)).toEqual([OPENROUTER_URL]);
   });
 
-  test("a probe that fails for another reason does not fall back and frees the probe; the latch stays", async () => {
+  test("a probe that fails for another reason goes through OpenRouter and restarts the cool-down (lead decision)", async () => {
     const t = convexTest(schema, modules);
     stubHosts([BILLING_402], [OPENROUTER_OK]);
     await call(t);
     const { latchedAt } = (await latch(t))[0];
-    vi.setSystemTime(latchedAt + CREDIT_LATCH_COOLDOWN_MS);
+    const probedAt = latchedAt + CREDIT_LATCH_COOLDOWN_MS;
+    vi.setSystemTime(probedAt);
     const sent = stubHosts([anthropicError(429, "rate_limit_error", "Rate limited")], [OPENROUTER_OK]);
-    const outcome = await call(t, { maxRetries: 0 });
-    expect(outcome.ok).toBe(false);
-    if (!outcome.ok) expect(normalizeProviderError(outcome.error).code).toBe("rate_limited");
-    expect(urls(sent)).toEqual([DIRECT_URL]);
+    expect(await call(t, { maxRetries: 0 })).toEqual({ ok: true, value: "OpenRouter answer." });
+    expect(urls(sent)).toEqual([DIRECT_URL, OPENROUTER_URL]);
+    // The failed probe is no model failure; only the answer counts.
+    expect((await outcomes(t)).map((row) => row.outcome)).toEqual(["success", "success"]);
     const [row] = await latch(t);
     expect(row.probeStartedAt).toBeUndefined();
-    // The next call probes again.
-    const next = stubHosts([DIRECT_OK], [OPENROUTER_OK]);
+    expect(row.latchedAt).toBeGreaterThanOrEqual(probedAt);
+    // The next try waits a full cool-down again.
+    vi.setSystemTime(probedAt + CREDIT_LATCH_COOLDOWN_MS - 60_000);
+    const cooling = stubHosts([DIRECT_OK], [OPENROUTER_OK]);
     await call(t);
-    expect(urls(next)).toEqual([DIRECT_URL]);
+    expect(urls(cooling)).toEqual([OPENROUTER_URL]);
+    expect(await notices(t)).toHaveLength(1);
+  });
+
+  test("a probe whose direct stream breaks goes through OpenRouter as well", async () => {
+    const t = convexTest(schema, modules);
+    await seedLatch(t, { latchedAt: Date.now() - CREDIT_LATCH_COOLDOWN_MS });
+    const sent = stubHosts([() => { throw new TypeError("fetch failed"); }], [OPENROUTER_OK]);
+    expect(await call(t, { maxRetries: 0 })).toEqual({ ok: true, value: "OpenRouter answer." });
+    expect(urls(sent)).toEqual([DIRECT_URL, OPENROUTER_URL]);
+    expect(await latch(t)).toHaveLength(1);
+  });
+
+  test("a stale probe claim (its action died) lets the next call probe, and a direct success clears the latch", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await seedLatch(t, { latchedAt: now - 2 * CREDIT_LATCH_COOLDOWN_MS, probeStartedAt: now - CREDIT_PROBE_CLAIM_MS });
+    const sent = stubHosts([DIRECT_OK], [OPENROUTER_OK]);
+    expect(await call(t)).toEqual({ ok: true, value: "Direct answer." });
+    expect(urls(sent)).toEqual([DIRECT_URL]);
     expect(await latch(t)).toEqual([]);
+    expect(await notices(t)).toMatchObject([{ status: "resolved" }]);
+  });
+
+  test("racing probe claims: exactly one wins", async () => {
+    const t = convexTest(schema, modules);
+    await seedLatch(t, { latchedAt: Date.now() - CREDIT_LATCH_COOLDOWN_MS });
+    const claimProbe = makeFunctionReference<"mutation", Record<string, never>, "direct" | "openrouter" | "probe">(
+      "providerCredit:claimProbe"
+    );
+    const claims = await Promise.all([t.mutation(claimProbe, {}), t.mutation(claimProbe, {}), t.mutation(claimProbe, {})]);
+    expect([...claims].sort()).toEqual(["openrouter", "openrouter", "probe"]);
+  });
+
+  test("a latch that cannot be read sends the call direct", async () => {
+    const t = convexTest(schema, modules);
+    await seedLatch(t, { latchedAt: Date.now() });
+    const sent = stubHosts([DIRECT_OK], [OPENROUTER_OK]);
+    const failingReads = (ctx: ActionCtx): ActionCtx => ({
+      ...ctx,
+      runQuery: async () => {
+        throw new Error("synthetic read failure");
+      },
+    }) as ActionCtx;
+    expect(await call(t, { wrapCtx: failingReads })).toEqual({ ok: true, value: "Direct answer." });
+    expect(urls(sent)).toEqual([DIRECT_URL]);
   });
 });
 
@@ -351,6 +436,62 @@ describe("other refusals never fall back", () => {
     expect(urls(sent)).toEqual([DIRECT_URL]);
     expect(await latch(t)).toEqual([]);
     expect(await notices(t)).toEqual([]);
+  });
+
+  test("an error inside a direct stream that already started does not fall back", async () => {
+    const t = convexTest(schema, modules);
+    const sse =
+      `event: message_start\ndata: ${JSON.stringify({
+        type: "message_start",
+        message: { id: "msg_s", type: "message", role: "assistant", model: "claude-sonnet-5", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 5, output_tokens: 1 } },
+      })}\n\n` +
+      `event: error\ndata: ${JSON.stringify({ type: "error", error: { type: "billing_error", message: "There's an issue with your billing or payment information." } })}\n\n`;
+    const sent = stubHosts([() => sseResponse(sse)], [OPENROUTER_OK]);
+    const result = settle(runAction(t, async (ctx) => {
+      const client = instrumentedAnthropic(ctx, { callSite: "credit-contract", clientOptions: { maxRetries: 0 } }) as unknown as GenerationClient;
+      const stream = client.messages.createStreaming;
+      if (!stream) throw new Error("the instrumented client cannot stream");
+      return await stream(PARAMS as never, {});
+    }));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect((await result).ok).toBe(false);
+    expect(urls(sent)).toEqual([DIRECT_URL]);
+    expect(await latch(t)).toEqual([]);
+  });
+
+  test("a model with no OpenRouter id fails as before and ignores the latch", async () => {
+    const t = convexTest(schema, modules);
+    const sent = stubHosts([BILLING_402], [OPENROUTER_OK]);
+    const outcome = await call(t, { model: "claude-mythos-5-1" });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(normalizeProviderError(outcome.error).code).toBe("billing");
+    expect(urls(sent)).toEqual([DIRECT_URL]);
+    expect(await latch(t)).toEqual([]);
+
+    await seedLatch(t, { latchedAt: Date.now() });
+    const latched = stubHosts([DIRECT_OK], [OPENROUTER_OK]);
+    expect(await call(t, { model: "claude-mythos-5-1" })).toEqual({ ok: true, value: "Direct answer." });
+    expect(urls(latched)).toEqual([DIRECT_URL]);
+    expect(await latch(t)).toHaveLength(1);
+  });
+
+  test("with the OpenRouter key removed while latched, a direct success clears the latch and resolves its notice, looking once per cool-down", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    const t = convexTest(schema, modules);
+    await seedLatch(t, { latchedAt: Date.now() - 60_000 });
+    const sent = stubHosts([DIRECT_OK], [OPENROUTER_OK]);
+    expect(await call(t)).toEqual({ ok: true, value: "Direct answer." });
+    expect(urls(sent)).toEqual([DIRECT_URL]);
+    expect(await latch(t)).toEqual([]);
+    expect(await notices(t)).toMatchObject([{ status: "resolved" }]);
+
+    // Within the cool-down this isolate does not look again.
+    await seedLatch(t, { latchedAt: Date.now() });
+    await call(t);
+    expect(await latch(t)).toHaveLength(1);
+    vi.setSystemTime(Date.now() + CREDIT_LATCH_COOLDOWN_MS);
+    await call(t);
+    expect(await latch(t)).toEqual([]);
   });
 
   test("ANTHROPIC_TRANSPORT=openrouter still sends everything to OpenRouter, never direct", async () => {
@@ -406,7 +547,7 @@ test("a streamed call (the Brief) falls back to an OpenRouter stream and still r
 
 // ─── Chat (AI SDK) ──────────────────────────────────────────────────────────
 
-function chatSse(text: string, usage: Record<string, unknown> = {}): string {
+function chatSse(text: string, options: { usage?: Record<string, unknown>; provider?: string } = {}): string {
   const events: Array<{ type: string } & Record<string, unknown>> = [
     {
       type: "message_start",
@@ -419,42 +560,78 @@ function chatSse(text: string, usage: Record<string, unknown> = {}): string {
         stop_reason: null,
         stop_sequence: null,
         usage: { input_tokens: 30, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        ...(options.provider ? { provider: options.provider } : {}),
       },
     },
     { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
     { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
     { type: "content_block_stop", index: 0 },
-    { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 5, ...usage } },
+    {
+      type: "message_delta",
+      delta: { stop_reason: "end_turn", stop_sequence: null },
+      usage: { output_tokens: 5, ...options.usage },
+    },
     { type: "message_stop" },
   ];
   return events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
 }
 
-async function chatTurn(t: TestConvex): Promise<string> {
+function chatConvex(): TestConvex {
+  const t = convexTest(schema, modules);
+  agentTest.register(t);
+  return t;
+}
+
+/**
+ * One chat turn exactly as streamChatReply sends it: the production agent,
+ * tools, provider options and output ceiling, the turn's model and usage
+ * handler (chatTurnModel). Returns the reply, or the stream's error.
+ */
+async function chatTurn(t: TestConvex): Promise<{ text: string; errors: unknown[] }> {
+  const errors: unknown[] = [];
   const text = await runAction(t, async (ctx) => {
-    const { model, usageHandler } = chatTurnModel(ctx, "claude-sonnet-5");
-    const result = streamText({ model, messages: [{ role: "user", content: "Tighten paragraph 3." }] });
-    const answer = await result.text;
-    await usageHandler(ctx, {
-      threadId: "thread-credit",
-      userId: undefined,
-      agentName: "report-editor",
-      model: "claude-sonnet-5",
-      provider: "anthropic.messages",
-      usage: await result.usage,
-      providerMetadata: await result.providerMetadata,
-    });
-    return answer;
+    const { threadId } = await reportChatAgent.createThread(ctx, {});
+    const turn = chatTurnModel(ctx, "claude-sonnet-5");
+    const result = await reportChatAgent.streamText(
+      ctx,
+      { threadId },
+      {
+        model: turn.model,
+        system: "You edit SR&ED reports.",
+        prompt: "Tighten paragraph 3.",
+        tools: buildChatTools(false),
+        providerOptions: CHAT_PROVIDER_OPTIONS,
+        maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
+        maxRetries: 0,
+        onError: ({ error }) => {
+          errors.push(error);
+        },
+      },
+      { saveStreamDeltas: false, usageHandler: turn.usageHandler }
+    );
+    await result.consumeStream();
+    return errors.length ? "" : await result.text;
   });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
-  return text;
+  return { text, errors };
+}
+
+/** A body without the tools' eager_input_streaming, which only direct gets. */
+function withoutEagerStreaming(body: Record<string, unknown>): Record<string, unknown> {
+  const tools = (body.tools as Array<Record<string, unknown>>).map(({ eager_input_streaming: _eager, ...tool }) => tool);
+  return { ...body, tools };
 }
 
 describe("the report chat assistant", () => {
-  test("a direct credit refusal streams the turn from OpenRouter and records its transport and charge", async () => {
-    const t = convexTest(schema, modules);
-    const sent = stubHosts([BILLING_402], [() => sseResponse(chatSse("Tightened.", { cost: 0.0031 }))]);
-    expect(await chatTurn(t)).toBe("Tightened.");
+  test.each([
+    ["402 billing_error", BILLING_402],
+    ["400 credit balance is too low", CREDIT_400],
+  ])("%s: the turn streams from OpenRouter with the same body minus eager tool streaming", async (_name, refusal) => {
+    const t = chatConvex();
+    const sent = stubHosts([refusal], [
+      () => sseResponse(chatSse("Tightened.", { usage: { cost: 0.0031 }, provider: "Anthropic" })),
+    ]);
+    expect(await chatTurn(t)).toEqual({ text: "Tightened.", errors: [] });
     expect(urls(sent)).toEqual([DIRECT_URL, OPENROUTER_URL]);
     const [direct, routed] = sent;
     expect(direct.headers["x-api-key"]).toBe(ANTHROPIC_KEY);
@@ -462,43 +639,112 @@ describe("the report chat assistant", () => {
     expect(routed.headers.authorization).toBe(`Bearer ${OPENROUTER_KEY}`);
     expect(routed.headers["http-referer"]).toBe("https://banhall.app");
     expect(JSON.stringify(routed)).not.toContain(ANTHROPIC_KEY);
-    expect(routed.body.model).toBe("anthropic/claude-sonnet-5");
-    expect(routed.body.provider).toEqual({ only: ["anthropic"], allow_fallbacks: false });
-    expect({ ...routed.body, model: direct.body.model, provider: undefined }).toEqual({ ...direct.body, provider: undefined });
+
+    // The AI SDK asks direct for eager tool-input streaming on every tool;
+    // the fallback drops it, as the OpenRouter transport never sends it.
+    const directTools = direct.body.tools as Array<Record<string, unknown>>;
+    expect(directTools.length).toBeGreaterThan(0);
+    expect(directTools.every((tool) => tool.eager_input_streaming === true)).toBe(true);
+    expect(JSON.stringify(routed.body)).not.toContain("eager_input_streaming");
+    // Thinking (display omitted) and the top-level cache_control pass
+    // through unchanged, as on the OpenRouter transport.
+    expect(direct.body.thinking).toEqual({ type: "adaptive", display: "omitted" });
+    expect(direct.body.cache_control).toEqual({ type: "ephemeral" });
+    expect(routed.body).toEqual({
+      ...withoutEagerStreaming(direct.body),
+      model: "anthropic/claude-sonnet-5",
+      provider: { only: ["anthropic"], allow_fallbacks: false },
+    });
+
     expect(await usageRows(t)).toMatchObject([
-      { callSite: "chat_v2", model: "claude-sonnet-5", transport: "openrouter", costUsd: 0.0031, costSource: "native" },
+      {
+        callSite: "chat_v2",
+        model: "claude-sonnet-5",
+        transport: "openrouter",
+        servedProvider: "Anthropic",
+        costUsd: 0.0031,
+        costSource: "native",
+      },
     ]);
     expect(await notices(t)).toHaveLength(1);
 
     // The next turn skips direct.
-    const next = stubHosts([DIRECT_OK], [() => sseResponse(chatSse("Again."))]);
-    expect(await chatTurn(t)).toBe("Again.");
+    const next = stubHosts([() => sseResponse(chatSse("Wrong."))], [() => sseResponse(chatSse("Again."))]);
+    expect((await chatTurn(t)).text).toBe("Again.");
     expect(urls(next)).toEqual([OPENROUTER_URL]);
   });
 
+  test("the refused direct answer's body is released before the fallback", async () => {
+    const t = chatConvex();
+    const answered: Response[] = [];
+    stubHosts([BILLING_402], [() => sseResponse(chatSse("Tightened."))], answered);
+    expect((await chatTurn(t)).text).toBe("Tightened.");
+    expect(answered).toHaveLength(1);
+    expect(answered[0].bodyUsed).toBe(true);
+  });
+
+  test("an OpenRouter failure names OpenRouter, not api.anthropic.com", async () => {
+    const t = chatConvex();
+    stubHosts([BILLING_402], [anthropicError(402, "billing_error", "Insufficient credits")]);
+    const { errors } = await chatTurn(t);
+    expect(errors).toHaveLength(1);
+    const error = errors[0];
+    expect(APICallError.isInstance(error)).toBe(true);
+    if (APICallError.isInstance(error)) {
+      expect(error.url).toBe(OPENROUTER_URL);
+      expect(error.statusCode).toBe(402);
+      expect(error.message).toContain("OpenRouter");
+      expect(error.requestBodyValues).toEqual({});
+    }
+  });
+
+  test("a probe turn goes direct and clears the latch; a failed probe turn goes through OpenRouter", async () => {
+    const t = chatConvex();
+    await seedLatch(t, { latchedAt: Date.now() - CREDIT_LATCH_COOLDOWN_MS });
+    const probe = stubHosts([() => sseResponse(chatSse("Direct."))], [() => sseResponse(chatSse("Wrong."))]);
+    expect((await chatTurn(t)).text).toBe("Direct.");
+    expect(urls(probe)).toEqual([DIRECT_URL]);
+    expect(await latch(t)).toEqual([]);
+    expect((await usageRows(t))[0].transport).toBeUndefined();
+
+    await seedLatch(t, { latchedAt: Date.now() - CREDIT_LATCH_COOLDOWN_MS });
+    const failed = stubHosts(
+      [anthropicError(529, "overloaded_error", "Overloaded")],
+      [() => sseResponse(chatSse("Rerouted."))]
+    );
+    expect((await chatTurn(t)).text).toBe("Rerouted.");
+    expect(urls(failed)).toEqual([DIRECT_URL, OPENROUTER_URL]);
+    const [row] = await latch(t);
+    expect(row.latchedAt).toBe(Date.now());
+    expect(row.probeStartedAt).toBeUndefined();
+  });
+
   test("a direct turn records no transport; a rate limit does not fall back", async () => {
-    const t = convexTest(schema, modules);
+    const t = chatConvex();
     const sent = stubHosts([() => sseResponse(chatSse("Direct."))], [() => sseResponse(chatSse("Wrong."))]);
-    expect(await chatTurn(t)).toBe("Direct.");
+    expect((await chatTurn(t)).text).toBe("Direct.");
     expect(urls(sent)).toEqual([DIRECT_URL]);
     const [row] = await usageRows(t);
     expect(row.transport).toBeUndefined();
+    expect(row.servedProvider).toBeUndefined();
     expect(row.costSource).toBe("estimated");
 
     const limited = stubHosts([anthropicError(429, "rate_limit_error", "Rate limited")], [() => sseResponse(chatSse("Wrong."))]);
-    const errors: unknown[] = [];
-    await runAction(t, async (ctx) => {
-      const { model } = chatTurnModel(ctx, "claude-sonnet-5");
-      const result = streamText({
-        model,
-        maxRetries: 0,
-        messages: [{ role: "user", content: "Hi." }],
-        onError: ({ error }) => { errors.push(error); },
-      });
-      await result.consumeStream();
-    });
+    const { errors } = await chatTurn(t);
     expect(errors).toHaveLength(1);
     expect(urls(limited)).toEqual([DIRECT_URL]);
+    expect(await latch(t)).toEqual([]);
+  });
+
+  test("a chat model with no OpenRouter id keeps the plain provider", async () => {
+    const t = chatConvex();
+    await runAction(t, async (ctx) => {
+      const turn = chatTurnModel(ctx, "claude-mythos-5-1");
+      const sent = stubHosts([BILLING_402], [() => sseResponse(chatSse("Wrong."))]);
+      const result = streamText({ model: turn.model, maxRetries: 0, prompt: "Hi.", onError: () => {} });
+      await result.consumeStream();
+      expect(urls(sent)).toEqual([DIRECT_URL]);
+    });
     expect(await latch(t)).toEqual([]);
   });
 });

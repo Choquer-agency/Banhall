@@ -55,9 +55,9 @@ import { safeErrorDetails } from "../lib/safeErrorDetails";
 import { anthropicCacheWrite1hTokens } from "./instrument";
 import { ACTION_REQUEST_WINDOW_MS } from "./actionDeadline";
 import { roleModelEntryRef } from "../lib/modelCatalogRefs";
-import { creditFallbackFetch } from "./anthropicCredit";
+import { creditFallbackFetch, type ChatServedState } from "./anthropicCredit";
 import { openRouterCreditFallbackKey } from "../lib/providerConfig";
-import { openRouterAnthropicCharge } from "../../shared/anthropicTransport";
+import { openRouterAnthropicCharge, openRouterAnthropicRequestId } from "../../shared/anthropicTransport";
 
 // ─── Agent-based chat (BNH-10 P2) ────────────────────────────────────────────
 // Parallel-run replacement for chatAgent.ts. The @convex-dev/agent component
@@ -504,7 +504,7 @@ export const CHAT_PROVIDER_OPTIONS = {
  * finishReason "length" — so this leaves real headroom for a dense report edit
  * rather than trimming to the smallest plausible number.
  */
-const CHAT_MAX_OUTPUT_TOKENS = 16384;
+export const CHAT_MAX_OUTPUT_TOKENS = 16384;
 
 /**
  * Model-history bound for report chat (audit finding 22): the newest 30
@@ -612,19 +612,20 @@ export const reportChatAgent = new Agent(components.agent, {
   tools: CHAT_TOOLS,
   // BNH-16: durably log billed usage for every model step without turning a
   // successful streamed response into a chat failure.
-  usageHandler: chatUsageHandler(() => "direct"),
+  usageHandler: chatUsageHandler({ transport: "direct" }),
   // Reply → tool call → short lead-in; searchBrain adds a hop. 5 is headroom.
   stopWhen: stepCountIs(5),
 });
 
 /**
- * The chat usage row for one model step. `servedBy` says where the step's
+ * The chat usage row for one model step. `served` says where the step's
  * request went (decision 64): a step answered through OpenRouter records
- * the transport and OpenRouter's exact charge when its usage carries one
- * (the AI SDK passes Anthropic's raw usage through, unknown fields
- * included), otherwise the price-table estimate.
+ * the transport, the provider OpenRouter reports and OpenRouter's exact
+ * charge when its usage carries one (the AI SDK passes Anthropic's raw
+ * usage through, unknown fields included), otherwise the price-table
+ * estimate.
  */
-function chatUsageHandler(servedBy: () => "direct" | "openrouter"): UsageHandler {
+function chatUsageHandler(served: Readonly<ChatServedState>): UsageHandler {
   return async (ctx, { threadId, userId, model, usage, providerMetadata }) => {
     const cacheCreationInputTokens =
       usage.inputTokenDetails.cacheWriteTokens ?? 0;
@@ -645,7 +646,7 @@ function chatUsageHandler(servedBy: () => "direct" | "openrouter"): UsageHandler
           cacheCreationInputTokens -
           cacheReadInputTokens
       );
-    const viaOpenRouter = servedBy() === "openrouter";
+    const viaOpenRouter = served.transport === "openrouter";
     const charge = viaOpenRouter ? openRouterAnthropicCharge({ usage: providerMetadata?.anthropic?.usage }) : {};
     try {
       await ctx.runMutation(internal.aiUsage.queueUsage, {
@@ -664,6 +665,7 @@ function chatUsageHandler(servedBy: () => "direct" | "openrouter"): UsageHandler
           : {}),
         ...(viaOpenRouter ? { transport: "openrouter" as const } : {}),
         ...(charge.costUsd !== undefined ? { costUsd: charge.costUsd } : {}),
+        ...(viaOpenRouter && served.servedProvider ? { servedProvider: served.servedProvider } : {}),
         createdAt: Date.now(),
       });
     } catch (error) {
@@ -673,24 +675,22 @@ function chatUsageHandler(servedBy: () => "direct" | "openrouter"): UsageHandler
 }
 
 /**
- * The chat model for one turn and its usage handler. With an OpenRouter
- * key on the direct transport the model's HTTP transport carries the
- * credit fallback, and the handler records where each step went. Without
- * one it is exactly the provider chat always used.
+ * The chat model for one turn, its usage handler and where its requests
+ * went. With an OpenRouter key and a model OpenRouter lists, the model's
+ * HTTP transport carries the billing fallback (decision 64). Otherwise it
+ * is exactly the provider chat always used.
  */
 export function chatTurnModel(
   ctx: Pick<ActionCtx, "runQuery" | "runMutation">,
   modelId: string
-): { model: ReturnType<typeof anthropic>; usageHandler: UsageHandler } {
+): { model: ReturnType<typeof anthropic>; usageHandler: UsageHandler; served: Readonly<ChatServedState> } {
+  const served: ChatServedState = { transport: "direct" };
   const authToken = openRouterCreditFallbackKey();
-  if (!authToken) return { model: anthropic(modelId), usageHandler: chatUsageHandler(() => "direct") };
-  let servedBy: "direct" | "openrouter" = "direct";
-  const provider = createAnthropic({
-    fetch: creditFallbackFetch(ctx, authToken, (transport) => {
-      servedBy = transport;
-    }),
-  });
-  return { model: provider(modelId), usageHandler: chatUsageHandler(() => servedBy) };
+  if (!authToken || !openRouterAnthropicRequestId(modelId)) {
+    return { model: anthropic(modelId), usageHandler: chatUsageHandler(served), served };
+  }
+  const provider = createAnthropic({ fetch: creditFallbackFetch(ctx, authToken, served) });
+  return { model: provider(modelId), usageHandler: chatUsageHandler(served), served };
 }
 
 /**
@@ -731,6 +731,8 @@ export const streamChatReply = internalAction({
     if (!start.shouldRun) return;
 
     const toolCallIds = new Set<string>();
+    // Where the turn's latest model request went, for the failure log.
+    let served: Readonly<ChatServedState> | undefined;
 
     try {
       // Explicit annotations break api-graph type circularity (TS7006 cascade).
@@ -806,6 +808,7 @@ export const streamChatReply = internalAction({
       // fails its turn here instead of waiting for the reaper.
       const abortSignal = AbortSignal.timeout(chatStreamTimeoutMs(startedAt, Date.now()));
       const turnModel = chatTurnModel(ctx, chatModel.gateway === "anthropic" ? chatModel.id : MODEL);
+      served = turnModel.served;
 
       const result = await reportChatAgent.streamText(
         ctx,
@@ -867,7 +870,12 @@ export const streamChatReply = internalAction({
         endedAt: Date.now(),
         stepCount: toolCallIds.size,
       });
-      console.error("report chat response failed", { threadId: args.agentThreadId, ...safeErrorDetails(error) });
+      console.error("report chat response failed", {
+        threadId: args.agentThreadId,
+        // Decision 64: a turn the billing fallback sent to OpenRouter says so.
+        ...(served?.transport === "openrouter" ? { transport: "openrouter" as const } : {}),
+        ...safeErrorDetails(error),
+      });
       if (finish.status !== "failed") return;
 
       await saveMessage(ctx, components.agent, {

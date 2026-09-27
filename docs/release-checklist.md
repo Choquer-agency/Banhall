@@ -55,14 +55,21 @@ On the Convex deployment (dashboard, Settings, Environment Variables, or `npx co
 | `BETTER_AUTH_COOKIE_PREFIX` | **Unset.** A value renames the sign-in cookies and signs everyone out. |
 | `ANTHROPIC_TRANSPORT` | Unset or `direct`, until the owner finishes the OpenRouter account steps under owner decision 30 in `docs/product-domain.md`. |
 | `ANTHROPIC_API_KEY` | Set. Chat always uses it, whatever the transport. |
-| `OPENROUTER_API_KEY` | Set (OpenAI and Google models, research, the model catalog). |
-| `OPENROUTER_ANTHROPIC_API_KEY` | Only when `ANTHROPIC_TRANSPORT=openrouter`. |
+| `OPENROUTER_API_KEY` | Set (OpenAI and Google models, research, the model catalog). On a `direct` deployment it is also the billing fallback for Anthropic calls, chat included, unless `OPENROUTER_ANTHROPIC_API_KEY` is set (owner decision 64 in `docs/product-domain.md`). |
+| `OPENROUTER_ANTHROPIC_API_KEY` | Recommended on every deployment: a dedicated key for Anthropic traffic, used when `ANTHROPIC_TRANSPORT=openrouter` and, on `direct`, by the billing fallback (decision 64). Without it both use `OPENROUTER_API_KEY`. |
 | `VOYAGE_API_KEY` | Set (Brain search). |
 | `SITE_URL` | The production app URL. |
 | `BETTER_AUTH_SECRET` | Set, and never the development value. |
 | `BETTER_AUTH_TRUSTED_ORIGINS` | Only for origins beyond the built-in `https://banhall.vercel.app`. |
 | `AUTH_PROXY_SECRET` | Set, at least 32 characters, the same value as on Vercel. Set it on Vercel first (below), then here. |
 | `BRAIN_CONTEXTUAL`, `AA_API_KEY`, `MS_*`, `INGEST_API_KEY` | Only if the feature is used. |
+
+The billing fallback (decision 64) sends Anthropic calls through OpenRouter whenever direct Anthropic refuses them for billing, so the OpenRouter account must be ready for Anthropic traffic even while `ANTHROPIC_TRANSPORT` is `direct`:
+
+- The key it uses (`OPENROUTER_ANTHROPIC_API_KEY`, else `OPENROUTER_API_KEY`) must allow the `anthropic` provider. If that key has a guardrail with a provider allowlist, `anthropic` must be on it; a dedicated `OPENROUTER_ANTHROPIC_API_KEY` whose guardrail allows the Anthropic provider only is preferred. Otherwise every fallback is refused (403).
+- Leave ZDR off for Anthropic, in the account setting and in every guardrail, and keep `anthropic` out of any ignored-providers list. Otherwise the pinned request finds no endpoint (404).
+- Keep "Input & Output Logging" and "OpenRouter Use of Inputs/Outputs" off, and keep enough OpenRouter credit for a fallback to run.
+- The fallback raises one Alerts board notice (source `anthropic-credit`) and clears it by itself once direct Anthropic answers again. If the OpenRouter key is removed while the notice is open, the next successful direct call clears it.
 
 On Vercel (Project, Settings, Environment Variables, Production):
 

@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import schema from "./schema";
@@ -8,6 +8,12 @@ import type { Id } from "./_generated/dataModel";
 import { FACTS_VERSION } from "./lib/transcriptFacts";
 import { SPEAKER_ROLES_REQUEST, SPEAKER_ROLES_SCHEMA, SPEAKER_ROLES_SYSTEM_PROMPT } from "./ai/speakerRolesAgent";
 import { sha256 } from "./lib/contracts";
+
+// The credit latch read (decision 64) runs before or after each Anthropic
+// request; load its module first so a cold import cannot race the fake clock.
+beforeAll(async () => {
+  await import("./providerCredit");
+});
 
 const modules = import.meta.glob("./**/*.ts");
 

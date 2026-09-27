@@ -19,7 +19,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { convexTest } from "convex-test";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import schema from "../schema";
 import type { ActionCtx } from "../_generated/server";
@@ -29,6 +29,12 @@ import { OutputLimitError, type GenerationClient } from "./openrouterCore";
 import { normalizeProviderError, withOutcomeRecording } from "./providers";
 import { STRUCTURED_OUTPUT_PROGRAM, generateStructured } from "./structured";
 import { compressSection } from "./pipeline";
+
+// The credit latch read (decision 64) runs before each Anthropic request;
+// load its module first so a cold import cannot race the fake clock.
+beforeAll(async () => {
+  await import("../providerCredit");
+});
 
 const modules = import.meta.glob("../**/*.ts");
 type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;

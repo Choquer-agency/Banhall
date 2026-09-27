@@ -7,13 +7,19 @@
  * extracted inside it, the fallback when extraction fails, and the flag off.
  */
 import { convexTest } from "convex-test";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { runSeedDraftingInputs } from "./seedStartup.fixture";
 import schema from "./schema";
 import { allGenerationProgress } from "./lib/generationProgress";
 import type { Id } from "./_generated/dataModel";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
+
+// The credit latch read (decision 64) runs before or after each Anthropic
+// request; load its module first so a cold import cannot race the fake clock.
+beforeAll(async () => {
+  await import("./providerCredit");
+});
 
 const modules = import.meta.glob("./**/*.ts");
 

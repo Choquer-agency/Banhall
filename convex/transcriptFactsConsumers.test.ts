@@ -7,11 +7,17 @@
  * none (decision 26: it streams, so it cannot restore placeholders yet).
  */
 import { convexTest } from "convex-test";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import { PD_REVIEW_FACTS_HEADING } from "./ai/reviewAgent";
+
+// The credit latch read (decision 64) runs before or after each Anthropic
+// request; load its module first so a cold import cannot race the fake clock.
+beforeAll(async () => {
+  await import("./providerCredit");
+});
 
 const modules = import.meta.glob("./**/*.ts");
 type T = ReturnType<typeof convexTest<typeof schema.tables>>;
