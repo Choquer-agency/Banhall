@@ -31,6 +31,7 @@ import {
   currentYearTranscripts,
   decideInputMode,
   type FrozenEvidence,
+  type FrozenSourceFields,
   frozenPlaceholders,
   frozenSourceFields,
   frozenTranscriptChars,
@@ -53,7 +54,15 @@ import {
   reservePreparationUsd,
 } from "./lib/briefPreparationBudget";
 import { firmDayNumber } from "../shared/firmTime";
-import { citationSpeakerReader, type CitationSpeaker } from "./lib/citationSpeakers";
+import type { CitationSpeaker } from "./lib/citationSpeakers";
+import {
+  INTAKE_DEBOUNCE_MS,
+  draftPlaceholderMap,
+  preparationSpeakerReader,
+  selectDraftEvidence,
+  userMayCreateProject,
+} from "./lib/intakeDrafts";
+import type { PlaceholderEntry } from "./lib/deidentify";
 import { citationSpeakerValidator } from "./lib/generations/brief";
 import { validateCitation } from "./lib/citations";
 import { domainError } from "./lib/contracts";
@@ -101,6 +110,55 @@ const MAX_PREPARATION_SOURCES = 200;
 type Preparation = Doc<"briefPreparations">;
 
 /**
+ * Whose evidence a preparation reads: a project, or (stage 2) a private
+ * New project intake draft. A promoted draft's preparation belongs to its
+ * project.
+ */
+export type PreparationScope = { projectId: Id<"projects"> } | { intakeDraftId: Id<"intakeDrafts"> };
+
+export function scopeOf(row: Pick<Preparation, "projectId" | "intakeDraftId">): PreparationScope {
+  if (row.projectId) return { projectId: row.projectId };
+  if (row.intakeDraftId) return { intakeDraftId: row.intakeDraftId };
+  throw new Error("A Brief preparation has no scope");
+}
+
+/** A scope's preparations with one status, newest last unless `order` says otherwise. */
+async function scopeRows(
+  ctx: { db: QueryCtx["db"] },
+  scope: PreparationScope,
+  status: Preparation["status"],
+  limit: number,
+  order: "asc" | "desc" = "asc"
+): Promise<Preparation[]> {
+  return "projectId" in scope
+    ? await ctx.db
+        .query("briefPreparations")
+        .withIndex("by_projectId_and_status", (q) => q.eq("projectId", scope.projectId).eq("status", status))
+        .order(order)
+        .take(limit)
+    : await ctx.db
+        .query("briefPreparations")
+        .withIndex("by_intakeDraftId_and_status", (q) => q.eq("intakeDraftId", scope.intakeDraftId).eq("status", status))
+        .order(order)
+        .take(limit);
+}
+
+/** A scope's preparations with one key, newest first. */
+async function scopeKeyRows(ctx: { db: QueryCtx["db"] }, scope: PreparationScope, key: string): Promise<Preparation[]> {
+  return "projectId" in scope
+    ? await ctx.db
+        .query("briefPreparations")
+        .withIndex("by_projectId_and_key", (q) => q.eq("projectId", scope.projectId).eq("key", key))
+        .order("desc")
+        .take(20)
+    : await ctx.db
+        .query("briefPreparations")
+        .withIndex("by_intakeDraftId_and_key", (q) => q.eq("intakeDraftId", scope.intakeDraftId).eq("key", key))
+        .order("desc")
+        .take(20);
+}
+
+/**
  * Releases every generation waiting on this preparation and schedules its
  * continuation, which adopts the result or derives its own Brief once.
  */
@@ -130,7 +188,7 @@ async function hasWaiters(ctx: MutationCtx, preparationId: Id<"briefPreparations
 }
 
 /** Ends a preparation that will not (or no longer may) finish. */
-async function endPreparation(
+export async function endPreparation(
   ctx: MutationCtx,
   preparation: Preparation,
   status: "cancelled" | "obsolete" | "failed",
@@ -165,7 +223,7 @@ async function deferPreparation(
   const deferrals = (preparation.deferrals ?? 0) + (uploads ? 0 : 1);
   const uploadWaits = (preparation.uploadWaits ?? 0) + (uploads ? 1 : 0);
   if (deferrals > MAX_DEFERRALS || uploadWaits > MAX_UPLOAD_WAITS) {
-    if (options.evidenceRead && preparation.projectId) await obsoleteReady(ctx, preparation.projectId);
+    if (options.evidenceRead) await obsoleteReady(ctx, scopeOf(preparation));
     await endPreparation(
       ctx,
       preparation,
@@ -213,12 +271,9 @@ async function speakersPending(
   return false;
 }
 
-/** Marks a project's ready rows obsolete, except the ones with `keepKey`. */
-async function obsoleteReady(ctx: MutationCtx, projectId: Id<"projects">, keepKey?: string): Promise<void> {
-  const ready = await ctx.db
-    .query("briefPreparations")
-    .withIndex("by_projectId_and_status", (q) => q.eq("projectId", projectId).eq("status", "ready"))
-    .take(20);
+/** Marks a scope's ready rows obsolete, except the ones with `keepKey`. */
+async function obsoleteReady(ctx: MutationCtx, scope: PreparationScope, keepKey?: string): Promise<void> {
+  const ready = await scopeRows(ctx, scope, "ready", 20);
   for (const row of ready) {
     if (keepKey !== undefined && row.key === keepKey) continue;
     await endPreparation(ctx, row, "obsolete", "superseded");
@@ -243,22 +298,18 @@ export function callStillRunning(row: Preparation, now: number): boolean {
  */
 async function callInFlight(
   ctx: MutationCtx,
-  scope: { projectId: Id<"projects"> } | { userId: Id<"users"> },
+  scope: PreparationScope | { userId: Id<"users"> },
   now: number
 ): Promise<boolean> {
   for (const status of ["running", "obsolete"] as const) {
     const rows =
-      "projectId" in scope
+      "userId" in scope
         ? await ctx.db
-            .query("briefPreparations")
-            .withIndex("by_projectId_and_status", (q) => q.eq("projectId", scope.projectId).eq("status", status))
-            .order("desc")
-            .take(20)
-        : await ctx.db
             .query("briefPreparations")
             .withIndex("by_triggeredBy_and_status", (q) => q.eq("triggeredBy", scope.userId).eq("status", status))
             .order("desc")
-            .take(20);
+            .take(20)
+        : await scopeRows(ctx, scope, status, 20, "desc");
     if (rows.some((row) => (status === "running" ? true : callStillRunning(row, now)))) return true;
   }
   return false;
@@ -272,12 +323,8 @@ export const COOLDOWN_FAILURE_CODES: ReadonlySet<string> = new Set([
   "provider_config",
 ]);
 
-async function inCooldown(ctx: MutationCtx, projectId: Id<"projects">, now: number): Promise<boolean> {
-  const failed = await ctx.db
-    .query("briefPreparations")
-    .withIndex("by_projectId_and_status", (q) => q.eq("projectId", projectId).eq("status", "failed"))
-    .order("desc")
-    .take(5);
+async function inCooldown(ctx: MutationCtx, scope: PreparationScope, now: number): Promise<boolean> {
+  const failed = await scopeRows(ctx, scope, "failed", 5, "desc");
   return failed.some(
     (row) =>
       row.failureCode !== undefined &&
@@ -312,10 +359,191 @@ function providerReady(gateway: "anthropic" | "openrouter"): boolean {
     : anthropicConfiguration("generation").state === "configured";
 }
 
+/** What a scope's own checks hand the shared claim, once they read the evidence. */
+type ReadEvidence = {
+  scope: PreparationScope;
+  fields: FrozenSourceFields[];
+  inputMode: "full" | "digest";
+  transcriptFacts: boolean;
+  placeholders: () => Promise<PlaceholderEntry[]>;
+};
+
+/**
+ * A project's eligibility and evidence (stage 1). Null when the start ended
+ * or was pushed back here.
+ */
+async function readProjectEvidence(
+  ctx: MutationCtx,
+  preparation: Preparation,
+  projectId: Id<"projects">,
+  now: number
+): Promise<ReadEvidence | null> {
+  const project = await ctx.db.get(projectId);
+  if (!project || project.deletionStartedAt !== undefined) {
+    await endPreparation(ctx, preparation, "cancelled", "project_gone");
+    return null;
+  }
+  if (effectiveProjectType(project) !== "writing") {
+    await endPreparation(ctx, preparation, "cancelled", "not_writing");
+    return null;
+  }
+  if (!preparationStageAllows(project)) {
+    await endPreparation(ctx, preparation, "cancelled", "stage");
+    return null;
+  }
+  // Authority is the triggering editor's, checked again now.
+  if (!(await userMayEditReport(ctx, await ctx.db.get(preparation.triggeredBy), project))) {
+    await endPreparation(ctx, preparation, "cancelled", "not_authorized");
+    return null;
+  }
+  const scope = { projectId: project._id };
+  // After a billing, authentication or provider-configuration failure the
+  // project waits PREPARATION_COOLDOWN_MS before it pays again.
+  if (await inCooldown(ctx, scope, now)) {
+    await endPreparation(ctx, preparation, "cancelled", "cooldown");
+    return null;
+  }
+
+  // A run already going derives or adopts its own Brief. Checked before
+  // the evidence is read, as is a batch of files still arriving: waiting
+  // for the rest of it reads no text (the start runs again after the
+  // batch's last change, or every PREPARATION_DEBOUNCE_MS).
+  if (await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES)) {
+    await endPreparation(ctx, preparation, "cancelled", "generation_active");
+    return null;
+  }
+  const uploads = await ctx.db
+    .query("documentUploadAttempts")
+    .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+    .order("desc")
+    .take(50);
+  if (uploads.some((row) => row.status === "in_progress" && row.updatedAt > now - UPLOAD_SETTLE_MS)) {
+    await deferPreparation(ctx, preparation, "uploads", PREPARATION_DEBOUNCE_MS, { evidenceRead: false });
+    return null;
+  }
+
+  // From here on the start has read the evidence: however it ends, a
+  // ready copy made from older evidence is not kept (it may hold text the
+  // project no longer has).
+  const evidence = await selectFrozenEvidence(ctx, project._id);
+  const cancel = async (reason: string) => {
+    await obsoleteReady(ctx, scope);
+    await endPreparation(ctx, preparation, "cancelled", reason);
+    return null;
+  };
+  // Historical ports from ingestion are never prepared.
+  if (await isIngestionPort(ctx, project._id, evidence)) return await cancel("ingestion_port");
+  const readable = evidence.transcripts.filter((row) => row.content.trim() !== "");
+  const current = (await currentYearTranscripts(ctx, project, evidence.transcripts)).filter(
+    (row) => row.content.trim() !== ""
+  );
+  if (current.length === 0) return await cancel("no_transcript");
+  // Speaker evidence must be settled: wait for the turn build, rechecking
+  // every STRUCTURE_RECHECK_MS (an intake build also asks when it ends).
+  const unsettled = readable.filter(
+    (row) => row.parserVersion !== TRANSCRIPT_PARSER_VERSION || row.structureBuildId !== undefined
+  );
+  if (unsettled.length > 0) {
+    for (const row of unsettled) await scheduleStructureRebuildIfStale(ctx, row);
+    await deferPreparation(ctx, preparation, "structure", STRUCTURE_RECHECK_MS, { evidenceRead: true });
+    return null;
+  }
+  // A new transcript's uncertain speakers go to the model right after its
+  // turns are built, and the answer changes the key: wait for it (bounded;
+  // recordModelSpeakerRoles asks again), rather than pay twice.
+  if ((preparation.deferrals ?? 0) < MAX_DEFERRALS && (await speakersPending(ctx, readable, now))) {
+    await deferPreparation(ctx, preparation, "speakers", PREPARATION_DEBOUNCE_MS, { evidenceRead: true });
+    return null;
+  }
+  const inputMode = decideInputMode(frozenTranscriptChars(evidence));
+  const factsMode = await transcriptFactsMode(ctx);
+  return {
+    scope,
+    fields: await frozenSourceFields(evidence),
+    inputMode,
+    transcriptFacts:
+      evidence.transcripts.length > 0 && (factsMode === "all" || (factsMode === "long" && inputMode === "digest")),
+    placeholders: async () => await frozenPlaceholders(ctx, project, evidence),
+  };
+}
+
+/**
+ * A private intake draft's eligibility and evidence (stage 2, the tenth
+ * amendment): the owner's draft, still open, with the client name the
+ * placeholder map needs, and every transcript's speakers settled. Null
+ * when the start ended or was pushed back here.
+ */
+async function readDraftEvidence(
+  ctx: MutationCtx,
+  preparation: Preparation,
+  draftId: Id<"intakeDrafts">,
+  now: number
+): Promise<ReadEvidence | null> {
+  const draft = await ctx.db.get(draftId);
+  if (!draft || draft.status !== "open" || draft.expiresAt <= now) {
+    await endPreparation(ctx, preparation, "cancelled", "draft_closed");
+    return null;
+  }
+  // Authority is the owner's, checked again now: an active internal role
+  // that may create projects.
+  if (draft.ownerId !== preparation.triggeredBy || !userMayCreateProject(await ctx.db.get(draft.ownerId))) {
+    await endPreparation(ctx, preparation, "cancelled", "not_authorized");
+    return null;
+  }
+  const scope = { intakeDraftId: draft._id };
+  if (await inCooldown(ctx, scope, now)) {
+    await endPreparation(ctx, preparation, "cancelled", "cooldown");
+    return null;
+  }
+  // No paid call before the client name the placeholders hide exists.
+  if (!draft.clientName?.trim()) {
+    await endPreparation(ctx, preparation, "cancelled", "masking_context");
+    return null;
+  }
+  const evidence = await selectDraftEvidence(ctx, draft);
+  const cancel = async (reason: string) => {
+    await obsoleteReady(ctx, scope);
+    await endPreparation(ctx, preparation, "cancelled", reason);
+    return null;
+  };
+  if (evidence.readTranscripts.length === 0) return await cancel("no_transcript");
+  // Every transcript's speakers feed the placeholder map, left-out ones too.
+  if (evidence.transcripts.some((row) => row.parserVersion !== TRANSCRIPT_PARSER_VERSION)) {
+    await deferPreparation(ctx, preparation, "structure", INTAKE_DEBOUNCE_MS, { evidenceRead: true });
+    return null;
+  }
+  if (
+    (preparation.deferrals ?? 0) < MAX_DEFERRALS &&
+    evidence.transcripts.some((row) => row.speakerModel === "needed" || row.speakerModel === "pending")
+  ) {
+    await deferPreparation(ctx, preparation, "speakers", INTAKE_DEBOUNCE_MS, { evidenceRead: true });
+    return null;
+  }
+  const inputMode = decideInputMode(
+    evidence.fields.reduce((total, field) => total + (field.kind === "transcript" ? field.content.length : 0), 0)
+  );
+  const factsMode = await transcriptFactsMode(ctx);
+  return {
+    scope,
+    fields: evidence.fields,
+    inputMode,
+    transcriptFacts:
+      evidence.readTranscripts.length > 0 && (factsMode === "all" || (factsMode === "long" && inputMode === "digest")),
+    placeholders: async () =>
+      await draftPlaceholderMap(
+        ctx,
+        draft,
+        evidence.transcripts,
+        evidence.fields.map((field) => field.content)
+      ),
+  };
+}
+
 /**
  * The debounced start: every eligibility rule and limit, then the claim.
  * Freezes the evidence, the placeholder map and the planning model, and
- * reserves the spend, in one transaction with the claim.
+ * reserves the spend, in one transaction with the claim. A project's and a
+ * draft's own checks differ; the key, the limits and the claim are shared.
  */
 export const startBriefPreparation = internalMutation({
   args: { preparationId: v.id("briefPreparations"), revision: v.number() },
@@ -328,89 +556,21 @@ export const startBriefPreparation = internalMutation({
       await endPreparation(ctx, preparation, "cancelled", "disabled");
       return null;
     }
-    const project = await ctx.db.get(preparation.projectId);
-    if (!project || project.deletionStartedAt !== undefined) {
-      await endPreparation(ctx, preparation, "cancelled", "project_gone");
-      return null;
-    }
-    if (effectiveProjectType(project) !== "writing") {
-      await endPreparation(ctx, preparation, "cancelled", "not_writing");
-      return null;
-    }
-    if (!preparationStageAllows(project)) {
-      await endPreparation(ctx, preparation, "cancelled", "stage");
-      return null;
-    }
-    // Authority is the triggering editor's, checked again now.
-    if (!(await userMayEditReport(ctx, await ctx.db.get(preparation.triggeredBy), project))) {
-      await endPreparation(ctx, preparation, "cancelled", "not_authorized");
-      return null;
-    }
-    // After a billing, authentication or provider-configuration failure the
-    // project waits PREPARATION_COOLDOWN_MS before it pays again.
-    if (await inCooldown(ctx, project._id, now)) {
-      await endPreparation(ctx, preparation, "cancelled", "cooldown");
-      return null;
-    }
-
-    // A run already going derives or adopts its own Brief. Checked before
-    // the evidence is read, as is a batch of files still arriving: waiting
-    // for the rest of it reads no text (the start runs again after the
-    // batch's last change, or every PREPARATION_DEBOUNCE_MS).
-    if (await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES)) {
-      await endPreparation(ctx, preparation, "cancelled", "generation_active");
-      return null;
-    }
-    const uploads = await ctx.db
-      .query("documentUploadAttempts")
-      .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
-      .order("desc")
-      .take(50);
-    if (uploads.some((row) => row.status === "in_progress" && row.updatedAt > now - UPLOAD_SETTLE_MS)) {
-      await deferPreparation(ctx, preparation, "uploads", PREPARATION_DEBOUNCE_MS, { evidenceRead: false });
-      return null;
-    }
-
-    // From here on the start has read the evidence: however it ends, a
-    // ready copy made from older evidence is not kept (it may hold text the
-    // project no longer has).
-    const evidence = await selectFrozenEvidence(ctx, project._id);
+    const read = preparation.projectId
+      ? await readProjectEvidence(ctx, preparation, preparation.projectId, now)
+      : preparation.intakeDraftId
+        ? await readDraftEvidence(ctx, preparation, preparation.intakeDraftId, now)
+        : null;
+    if (!read) return null;
+    const { scope, fields, inputMode } = read;
     const cancel = async (reason: string) => {
-      await obsoleteReady(ctx, project._id);
+      await obsoleteReady(ctx, scope);
       await endPreparation(ctx, preparation, "cancelled", reason);
       return null;
     };
-    // Historical ports from ingestion are never prepared.
-    if (await isIngestionPort(ctx, project._id, evidence)) return await cancel("ingestion_port");
-    const readable = evidence.transcripts.filter((row) => row.content.trim() !== "");
-    const current = (await currentYearTranscripts(ctx, project, evidence.transcripts)).filter(
-      (row) => row.content.trim() !== ""
-    );
-    if (current.length === 0) return await cancel("no_transcript");
-    // Speaker evidence must be settled: wait for the turn build, rechecking
-    // every STRUCTURE_RECHECK_MS (an intake build also asks when it ends).
-    const unsettled = readable.filter(
-      (row) => row.parserVersion !== TRANSCRIPT_PARSER_VERSION || row.structureBuildId !== undefined
-    );
-    if (unsettled.length > 0) {
-      for (const row of unsettled) await scheduleStructureRebuildIfStale(ctx, row);
-      await deferPreparation(ctx, preparation, "structure", STRUCTURE_RECHECK_MS, { evidenceRead: true });
-      return null;
-    }
-    // A new transcript's uncertain speakers go to the model right after its
-    // turns are built, and the answer changes the key: wait for it (bounded;
-    // recordModelSpeakerRoles asks again), rather than pay twice.
-    if ((preparation.deferrals ?? 0) < MAX_DEFERRALS && (await speakersPending(ctx, readable, now))) {
-      await deferPreparation(ctx, preparation, "speakers", PREPARATION_DEBOUNCE_MS, { evidenceRead: true });
-      return null;
-    }
-    // Stage 1 prepares the full-text representation only: digests and fact
-    // packs are later work, and such a run derives its own Brief.
-    const inputMode = decideInputMode(frozenTranscriptChars(evidence));
-    const factsMode = await transcriptFactsMode(ctx);
-    const transcriptFacts =
-      evidence.transcripts.length > 0 && (factsMode === "all" || (factsMode === "long" && inputMode === "digest"));
-    if (inputMode !== "full" || transcriptFacts) return await cancel("representation");
+    // Stage 1 and 2 prepare the full-text representation only: digests and
+    // fact packs are later work, and such a run derives its own Brief.
+    if (inputMode !== "full" || read.transcriptFacts) return await cancel("representation");
 
     // The planning role (decision 43), frozen for this preparation only.
     const modelFreeze = await freezeModelsForGeneration(ctx, [await defaultModelId(ctx)], now);
@@ -420,11 +580,10 @@ export const startBriefPreparation = internalMutation({
     const pricing = await preparationPricing(ctx, route.model);
     if (!pricing) return await cancel("pricing_unknown");
 
-    const placeholders = await frozenPlaceholders(ctx, project, evidence);
-    const fields = await frozenSourceFields(evidence);
+    const placeholders = await read.placeholders();
     if (fields.length > MAX_PREPARATION_SOURCES) return await cancel("too_many_sources");
     const key = await briefPreparationKey(ctx, {
-      projectId: project._id,
+      scope,
       sources: fields,
       placeholders,
       inputMode,
@@ -433,42 +592,32 @@ export const startBriefPreparation = internalMutation({
       writerModel: MODEL,
     });
     // The same key already prepared or preparing: nothing to buy.
-    const same = await ctx.db
-      .query("briefPreparations")
-      .withIndex("by_projectId_and_key", (q) => q.eq("projectId", project._id).eq("key", key))
-      .order("desc")
-      .take(20);
+    const same = await scopeKeyRows(ctx, scope, key);
     if (same.some((row) => row.status === "ready" || row.status === "running")) {
-      await obsoleteReady(ctx, project._id, key);
+      await obsoleteReady(ctx, scope, key);
       await endPreparation(ctx, preparation, "cancelled", "duplicate");
       return null;
     }
     // Older keys are obsolete now. One a run is waiting on keeps running for
     // that run (its dependency is immutable); no new run can adopt it.
-    await obsoleteReady(ctx, project._id, key);
-    const running = await ctx.db
-      .query("briefPreparations")
-      .withIndex("by_projectId_and_status", (q) => q.eq("projectId", project._id).eq("status", "running"))
-      .take(20);
-    for (const row of running) {
+    await obsoleteReady(ctx, scope, key);
+    for (const row of await scopeRows(ctx, scope, "running", 20)) {
       if (row._id === preparation._id || (await hasWaiters(ctx, row._id))) continue;
       await endPreparation(ctx, row, "obsolete", "superseded");
     }
-    // One call in flight per project and per user, an obsolete attempt's
-    // call included until it ends.
-    if (
-      (await callInFlight(ctx, { projectId: project._id }, now)) ||
-      (await callInFlight(ctx, { userId: preparation.triggeredBy }, now))
-    ) {
+    // One call in flight per project (or draft) and per user, an obsolete
+    // attempt's call included until it ends.
+    if ((await callInFlight(ctx, scope, now)) || (await callInFlight(ctx, { userId: preparation.triggeredBy }, now))) {
       await deferPreparation(ctx, preparation, "slot", SLOT_RETRY_MS, { evidenceRead: true });
       return null;
     }
     // At most 20 paid starts per user per firm day; spend reserved before
-    // the call against $0.50 per project and $5 per user per firm day.
+    // the call against $0.50 per project (or draft) and $5 per user per
+    // firm day.
     const firmDay = firmDayNumber(now);
     const reservedUsd = reservePreparationUsd(pricing, route.model, buildBriefUserMessage(fields).length);
     const refusal = preparationLimitRefusal(
-      await preparationDay(ctx, { userId: preparation.triggeredBy, projectId: project._id, firmDay }),
+      await preparationDay(ctx, { userId: preparation.triggeredBy, scope, firmDay }),
       reservedUsd
     );
     if (refusal) {
@@ -479,7 +628,7 @@ export const startBriefPreparation = internalMutation({
     for (const field of fields) {
       await ctx.db.insert("briefPreparationSources", {
         preparationId: preparation._id,
-        projectId: project._id,
+        ...scope,
         ...field,
         capturedAt: now,
       });
@@ -512,6 +661,30 @@ export const startBriefPreparation = internalMutation({
   },
 });
 
+/** The scope fields a preparation's content rows carry. */
+function scopeFields(preparation: Preparation): { projectId?: Id<"projects">; intakeDraftId?: Id<"intakeDrafts"> } {
+  return {
+    ...(preparation.projectId ? { projectId: preparation.projectId } : {}),
+    ...(preparation.intakeDraftId ? { intakeDraftId: preparation.intakeDraftId } : {}),
+  };
+}
+
+/**
+ * Whether the user who asked may still keep the result: report-edit
+ * authority on the project, or, for a draft not yet promoted, its owner
+ * still allowed to create projects.
+ */
+async function triggererMayKeep(ctx: MutationCtx, preparation: Preparation): Promise<boolean> {
+  const user = await ctx.db.get(preparation.triggeredBy);
+  if (preparation.projectId) {
+    const project = await ctx.db.get(preparation.projectId);
+    return project !== null && (await userMayEditReport(ctx, user, project));
+  }
+  if (!preparation.intakeDraftId) return false;
+  const draft = await ctx.db.get(preparation.intakeDraftId);
+  return draft !== null && draft.ownerId === preparation.triggeredBy && userMayCreateProject(user);
+}
+
 /** The live attempt, or null: the fence every write after the claim uses. */
 async function liveAttempt(
   ctx: { db: QueryCtx["db"] },
@@ -521,9 +694,23 @@ async function liveAttempt(
   const preparation = await ctx.db.get(preparationId);
   if (!preparation || preparation.status !== "running" || preparation.attemptId !== attemptId) return null;
   if ((preparation.leaseExpiresAt ?? 0) < Date.now()) return null;
-  const project = await ctx.db.get(preparation.projectId);
-  if (!project || project.deletionStartedAt !== undefined) return null;
+  if (!(await scopeLive(ctx, preparation))) return null;
   return preparation;
+}
+
+/**
+ * Whether the preparation's scope still takes writes: a project not being
+ * deleted, or an intake draft still open (or being promoted). A discarded
+ * or expired draft fences every late write.
+ */
+async function scopeLive(ctx: { db: QueryCtx["db"] }, preparation: Preparation): Promise<boolean> {
+  if (preparation.projectId) {
+    const project = await ctx.db.get(preparation.projectId);
+    return project !== null && project.deletionStartedAt === undefined;
+  }
+  if (!preparation.intakeDraftId) return false;
+  const draft = await ctx.db.get(preparation.intakeDraftId);
+  return draft !== null && (draft.status === "open" || draft.status === "promoting");
 }
 
 async function preparationSources(ctx: { db: QueryCtx["db"] }, preparationId: Id<"briefPreparations">) {
@@ -574,7 +761,7 @@ export const getPreparationCitationSpeakers = internalQuery({
     if (args.spans.length > MAX_CITATION_SPEAKER_SPANS) {
       return domainError("INVALID_INPUT", `At most ${MAX_CITATION_SPEAKER_SPANS} citation spans can be checked at once`);
     }
-    const speakerOf = citationSpeakerReader(ctx);
+    const speakerOf = preparationSpeakerReader(ctx);
     const verdicts: CitationSpeaker[] = [];
     for (const span of args.spans) {
       const source = await ctx.db.get(span.sourceId);
@@ -611,7 +798,7 @@ export const appendPreparationFacts = internalMutation({
     for (const fact of args.facts.slice(0, READING_FACTS_PER_WRITE)) {
       await ctx.db.insert("briefPreparationFacts", {
         preparationId: preparation._id,
-        projectId: preparation.projectId,
+        ...scopeFields(preparation),
         attemptId: args.attemptId,
         seq,
         chip: fact.chip.slice(0, 40),
@@ -695,9 +882,9 @@ export const completePreparation = internalMutation({
     await settleAttemptEnd(ctx, args.preparationId, args.attemptId);
     if (!preparation) return null;
     // Authority again before anything is kept: an editor who lost it (or a
-    // deactivated account) publishes nothing. The spend stays recorded.
-    const project = await ctx.db.get(preparation.projectId);
-    if (!project || !(await userMayEditReport(ctx, await ctx.db.get(preparation.triggeredBy), project))) {
+    // deactivated account, or a draft owner who may no longer create
+    // projects) publishes nothing. The spend stays recorded.
+    if (!(await triggererMayKeep(ctx, preparation))) {
       await endPreparation(ctx, preparation, "cancelled", "not_authorized");
       return null;
     }
@@ -705,7 +892,7 @@ export const completePreparation = internalMutation({
       await endPreparation(ctx, preparation, "failed", "too_many_entries");
       return null;
     }
-    const speakerOf = citationSpeakerReader(ctx);
+    const speakerOf = preparationSpeakerReader(ctx);
     const sources = new Map<string, Doc<"briefPreparationSources"> | null>();
     let droppedEntryCount = args.upstreamDroppedEntryCount;
     const kept: typeof args.entries = [];
@@ -726,7 +913,7 @@ export const completePreparation = internalMutation({
     for (const entry of kept) {
       await ctx.db.insert("briefPreparationEntries", {
         preparationId: preparation._id,
-        projectId: preparation.projectId,
+        ...scopeFields(preparation),
         group: entry.group,
         text: entry.text,
         ...(entry.reason ? { reason: entry.reason } : {}),
@@ -895,7 +1082,7 @@ export const purgeStalePreparations = internalMutation({
 });
 
 /** Deletes up to `budget` content rows of one preparation; clears it when none remain. */
-async function purgePreparationContent(
+export async function purgePreparationContent(
   ctx: MutationCtx,
   preparation: Preparation,
   budget: number

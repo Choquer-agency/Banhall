@@ -889,7 +889,7 @@ export const runBriefPreparation = internalAction({
         route,
         {
           callSite: "preparation:brief",
-          projectId: run.projectId,
+          ...(run.projectId ? { projectId: run.projectId } : {}),
           userId: run.triggeredBy,
           preparation: { briefPreparationId: args.preparationId, attemptId: args.attemptId },
         },

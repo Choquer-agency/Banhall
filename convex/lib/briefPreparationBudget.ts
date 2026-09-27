@@ -72,16 +72,24 @@ export function reservePreparationUsd(
 
 /**
  * What one preparation holds against the limits: nothing before it was
- * dispatched; its settled usage once it is ready and a usage row has
- * landed; otherwise the larger of its reservation and its usage so far (a
- * failed, cut or obsolete call may have cost money nobody reported).
+ * dispatched; its settled usage once it completed and a usage row has
+ * landed, whether it is still ready or was made obsolete since (the tenth
+ * amendment: its cost is known, so a later edit in the start dialog is not
+ * refused on a cost that was never spent); otherwise the larger of its
+ * reservation and its usage so far (a failed, cut or cancelled call may
+ * have cost money nobody reported).
  */
 export function preparationCharge(
-  preparation: Pick<Doc<"briefPreparations">, "status" | "dispatchedAt" | "reservedUsd" | "usageCostUsd" | "usageCalls">
+  preparation: Pick<
+    Doc<"briefPreparations">,
+    "status" | "dispatchedAt" | "reservedUsd" | "usageCostUsd" | "usageCalls" | "completedAt"
+  >
 ): number {
   if (preparation.dispatchedAt === undefined) return 0;
   const used = preparation.usageCostUsd ?? 0;
-  if (preparation.status === "ready" && (preparation.usageCalls ?? 0) > 0) return used;
+  const completed =
+    preparation.status === "ready" || (preparation.status === "obsolete" && preparation.completedAt !== undefined);
+  if (completed && (preparation.usageCalls ?? 0) > 0) return used;
   return Math.max(preparation.reservedUsd ?? 0, used);
 }
 
@@ -102,22 +110,41 @@ export async function settlePreparationUsage(
 export type PreparationDay = {
   userStarts: number;
   userUsd: number;
+  /** The project's, or a private intake draft's (stage 2), spend. */
   projectUsd: number;
 };
 
-/** One user's and one project's preparation spend and starts on a firm day. */
+/**
+ * One user's and one project's (or intake draft's) preparation spend and
+ * starts on a firm day. A draft is held to the project cap: it is the
+ * project the writer is still setting up.
+ */
 export async function preparationDay(
   ctx: Ctx,
-  args: { userId: Id<"users">; projectId: Id<"projects">; firmDay: number; excluding?: Id<"briefPreparations"> }
+  args: {
+    userId: Id<"users">;
+    scope: { projectId: Id<"projects"> } | { intakeDraftId: Id<"intakeDrafts"> };
+    firmDay: number;
+    excluding?: Id<"briefPreparations">;
+  }
 ): Promise<PreparationDay> {
   const userRows = await ctx.db
     .query("briefPreparations")
     .withIndex("by_triggeredBy_and_firmDay", (q) => q.eq("triggeredBy", args.userId).eq("firmDay", args.firmDay))
     .take(LIMIT_READ_ROWS);
-  const projectRows = await ctx.db
-    .query("briefPreparations")
-    .withIndex("by_projectId_and_firmDay", (q) => q.eq("projectId", args.projectId).eq("firmDay", args.firmDay))
-    .take(LIMIT_READ_ROWS);
+  const scope = args.scope;
+  const projectRows =
+    "projectId" in scope
+      ? await ctx.db
+          .query("briefPreparations")
+          .withIndex("by_projectId_and_firmDay", (q) => q.eq("projectId", scope.projectId).eq("firmDay", args.firmDay))
+          .take(LIMIT_READ_ROWS)
+      : await ctx.db
+          .query("briefPreparations")
+          .withIndex("by_intakeDraftId_and_firmDay", (q) =>
+            q.eq("intakeDraftId", scope.intakeDraftId).eq("firmDay", args.firmDay)
+          )
+          .take(LIMIT_READ_ROWS);
   const counted = (row: Doc<"briefPreparations">) => row._id !== args.excluding && row.dispatchedAt !== undefined;
   return {
     userStarts: userRows.filter(counted).length,

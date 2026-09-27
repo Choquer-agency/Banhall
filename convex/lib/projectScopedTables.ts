@@ -118,6 +118,11 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "briefPreparationEntries", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "briefPreparationSources", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "briefPreparations", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-09-26 (tenth, decision 65): the source-key links a promotion
+  // wrote go with the project; the promoted intake draft row outlives it,
+  // content-free, until the intake purge (it is not the project's).
+  { table: "intakeSourceLinks", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "intakeDrafts", field: "projectId", disposition: "detach", index: "by_projectId" },
   { table: "generationSources", field: "projectId", disposition: "delete", index: "by_projectId_and_generationId" },
   { table: "generationSectionRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationCandidateRuns", field: "projectId", disposition: "delete", index: "by_projectId" },

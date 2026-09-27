@@ -1,12 +1,22 @@
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 import { refreshCatalogRef } from "./lib/modelCatalogRefs";
+import { intakeDraftRefs } from "./lib/intakeDraftRefs";
 import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
 
 const crons = cronJobs();
 
 // Decision 65: a failed, obsolete or cancelled Brief preparation's content
 // is deleted 24 hours after it ended, in bounded batches.
+// Decision 65, stage 2: private intake drafts expire 24 hours after their
+// last edit (7 days at most); their content is purged within the hour.
+crons.interval(
+  "expire and purge intake drafts",
+  { minutes: 15 },
+  intakeDraftRefs.sweepIntakeDrafts,
+  {}
+);
+
 crons.interval(
   "purge stale Brief preparations",
   { hours: 1 },

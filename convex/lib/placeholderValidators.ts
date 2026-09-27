@@ -17,3 +17,18 @@ export const placeholderEntryValidator = v.object({
 });
 
 export const placeholderMapValidator = v.array(placeholderEntryValidator);
+
+/**
+ * The names a transcript's turn build keeps beside its speaker rows for
+ * placeholder maps (`transcripts.speakerNames`), and the same for a
+ * private intake draft's transcript (decision 65, stage 2), so both are
+ * masked from the same names.
+ */
+export const storedSpeakerNamesValidator = v.object({
+  parserVersion: v.string(),
+  otherNames: v.array(v.string()),
+  organizations: v.array(v.string()),
+  // Parser v8 (2026-09-26): weak labels (lowercase, no case) seen on one
+  // line only, hidden as written.
+  looseLabels: v.optional(v.array(v.string())),
+});

@@ -109,6 +109,9 @@ export type FrozenSourceFields = {
   kind: "transcript" | "project_document";
   transcriptId?: Id<"transcripts">;
   projectDocumentId?: Id<"projectDocuments">;
+  /** A private intake draft's row (decision 65, stage 2): its source and stable key. */
+  intakeSourceId?: Id<"intakeSources">;
+  sourceKey?: string;
   label: string;
   content: string;
   contentHash: string;

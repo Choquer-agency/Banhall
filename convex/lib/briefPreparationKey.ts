@@ -37,11 +37,15 @@ import { resolveGenerationStep } from "./generationSteps";
 import type { ModelFreeze } from "./modelCatalogValidators";
 import type { PlaceholderMap } from "./deidentify";
 import { MODEL } from "../../shared/generationModels";
+import { intakeSpeakerView } from "./intakeDrafts";
 
 type Ctx = QueryCtx | MutationCtx;
 
-/** The manifest's own shape. */
-export const BRIEF_PREPARATION_KEY_VERSION = 1;
+/**
+ * The manifest's own shape. 2: the scope and each row's identity read a
+ * promoted intake draft's source-key links (decision 65, stage 2).
+ */
+export const BRIEF_PREPARATION_KEY_VERSION = 2;
 export { BRIEF_DERIVATION_VERSION } from "./briefDerivationPolicy";
 
 /** The fields of one frozen row the key reads, from either table. */
@@ -59,7 +63,65 @@ export type BriefKeySource = Pick<
   | "uploaderRole"
   | "factsVersion"
   | "factSpans"
->;
+> & {
+  /** A private intake draft's row (decision 65, stage 2). */
+  intakeSourceId?: Id<"intakeSources">;
+  sourceKey?: string;
+};
+
+/** Whose evidence a key describes: a project, or a private intake draft. */
+export type BriefKeyScope = { projectId: Id<"projects"> } | { intakeDraftId: Id<"intakeDrafts"> };
+
+/** Source-key links one key read may take (every transcript and file of a promoted draft). */
+const MAX_KEY_LINKS = 300;
+
+/**
+ * How the key names the scope and each row. A project promoted from an
+ * intake draft is named by its draft, and each transcript or file the
+ * promotion installed by its source key (`intakeSourceLinks`), so the
+ * draft's preparation and the project's run name the same evidence the
+ * same way; anything added later keeps its own id. Only the exact link
+ * maps a row: equal text never does.
+ */
+async function keyNames(ctx: Ctx, scope: BriefKeyScope) {
+  const byTranscript = new Map<string, string>();
+  const byDocument = new Map<string, string>();
+  if (!("projectId" in scope)) {
+    return { scope: { intakeDraftId: scope.intakeDraftId } as Record<string, string>, byTranscript, byDocument };
+  }
+  const links = await ctx.db
+    .query("intakeSourceLinks")
+    .withIndex("by_projectId", (q) => q.eq("projectId", scope.projectId))
+    .take(MAX_KEY_LINKS);
+  for (const link of links) {
+    if (link.transcriptId) byTranscript.set(link.transcriptId, link.sourceKey);
+    if (link.projectDocumentId) byDocument.set(link.projectDocumentId, link.sourceKey);
+  }
+  return {
+    scope: (links.length > 0 ? { intakeDraftId: links[0].draftId } : { projectId: scope.projectId }) as Record<
+      string,
+      string
+    >,
+    byTranscript,
+    byDocument,
+  };
+}
+
+function rowIdentity(
+  source: Pick<BriefKeySource, "sourceKey" | "transcriptId" | "projectDocumentId">,
+  names: { byTranscript: Map<string, string>; byDocument: Map<string, string> }
+): string | null {
+  if (source.sourceKey) return `intake:${source.sourceKey}`;
+  if (source.transcriptId) {
+    const key = names.byTranscript.get(source.transcriptId);
+    return key ? `intake:${key}` : `transcript:${source.transcriptId}`;
+  }
+  if (source.projectDocumentId) {
+    const key = names.byDocument.get(source.projectDocumentId);
+    return key ? `intake:${key}` : `document:${source.projectDocumentId}`;
+  }
+  return null;
+}
 
 /**
  * The speaker evidence a transcript row is checked against (owner decision
@@ -99,7 +161,7 @@ export async function speakerEvidenceView(
 }
 
 export type BriefKeyInput = {
-  projectId: Id<"projects">;
+  scope: BriefKeyScope;
   /** Every frozen row the Brief reads, in frozen order. */
   sources: readonly BriefKeySource[];
   placeholders: PlaceholderMap;
@@ -123,21 +185,30 @@ export async function briefKeyManifest(ctx: Ctx, input: BriefKeyInput) {
     writerModel: input.writerModel || MODEL,
   });
   const entry = input.freeze?.entries.find((item) => item.id === route.model) ?? null;
-  const speakers: SpeakerEvidenceView[] = [];
+  const names = await keyNames(ctx, input.scope);
+  const speakers: Array<Omit<SpeakerEvidenceView, "transcriptId"> & { source: string | null }> = [];
   for (const source of input.sources) {
     if (source.kind !== "transcript") continue;
+    const identity = rowIdentity(source, names);
+    if (!source.transcriptId && source.intakeSourceId) {
+      const view = await intakeSpeakerView(ctx, { ...source, intakeSourceId: source.intakeSourceId });
+      speakers.push({ source: identity, contentHash: source.contentHash, ...view });
+      continue;
+    }
     const view = await speakerEvidenceView(ctx, source);
-    if (view) speakers.push(view);
+    if (!view) continue;
+    const { transcriptId, ...rest } = view;
+    void transcriptId;
+    speakers.push({ source: identity, ...rest });
   }
   return {
     keyVersion: BRIEF_PREPARATION_KEY_VERSION,
     derivation: await sha256(stableSerialize(BRIEF_DERIVATION_CONSTANTS as unknown as JsonValue)),
-    scope: { projectId: input.projectId },
+    scope: names.scope,
     sources: await Promise.all(
       input.sources.map(async (source) => ({
         kind: source.kind,
-        transcriptId: source.transcriptId ?? null,
-        projectDocumentId: source.projectDocumentId ?? null,
+        source: rowIdentity(source, names),
         digestId: source.digestId ?? null,
         label: source.label,
         contentHash: source.contentHash,
@@ -191,7 +262,7 @@ export async function generationBriefKey(
   sources: readonly BriefKeySource[]
 ): Promise<string> {
   return await briefPreparationKey(ctx, {
-    projectId: generation.projectId,
+    scope: { projectId: generation.projectId },
     sources,
     placeholders: generation.placeholders ?? [],
     inputMode: generation.inputMode ?? null,

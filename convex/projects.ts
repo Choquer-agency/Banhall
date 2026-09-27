@@ -977,6 +977,68 @@ export const createProject = mutation({
         "New projects are initially owned by the person creating them"
       );
     }
+    const transcripts = await resolveTranscriptInputs(ctx, args.transcripts);
+    const projectId = await insertNewProject(ctx, writer, args);
+
+    const transcriptIds: Id<"transcripts">[] = [];
+    for (const [position, transcript] of transcripts.entries()) {
+      const transcriptId =
+        transcript.kind === "copy"
+          ? await copyTranscriptRow(ctx, transcript.source, {
+              projectId,
+              position,
+            })
+          : await insertTranscriptRow(ctx, {
+              projectId,
+              content: transcript.content,
+              label: transcript.label,
+              position,
+              ...(transcript.sourceFormat ? { sourceFormat: transcript.sourceFormat } : {}),
+              ...(transcript.originalStorageId
+                ? { originalStorageId: transcript.originalStorageId }
+                : {}),
+            });
+      if (transcriptId) transcriptIds.push(transcriptId);
+    }
+
+    // Decision 65: prepare once the intake settles (the wizard's file saves
+    // push the start back). A duplicate is left alone: its files are copied
+    // afterwards, with no completion boundary to wait for yet.
+    if (transcriptIds.length > 0 && transcripts.every((transcript) => transcript.kind !== "copy")) {
+      await requestBriefPreparation(ctx, projectId, { userId: writer._id, reason: "project_created" });
+    }
+    return { projectId, transcriptIds };
+  },
+});
+
+/** The project fields a new project is created with (createProject, intake promotion). */
+export type NewProjectFields = {
+  title: string;
+  sredTitle?: string;
+  clientName: string;
+  interviewerUserId?: Id<"users">;
+  interviewees?: string[];
+  tagIds?: Id<"tags">[];
+  fiscalYearEnd?: number;
+  industry?: string;
+  scienceCode?: string;
+  projectNumber?: string;
+  mode?: "generate" | "review";
+  projectType?: Doc<"projects">["projectType"];
+};
+
+/**
+ * Validates and inserts a new project for its authenticated creator, the
+ * one way a project is born (`createProject`, and since 2026-09-26 the
+ * promotion of a private intake draft): intake stage, the creator as
+ * `createdBy` and initial Owner, the creation events and the company row.
+ * The caller has already checked `project.create` and an active role.
+ */
+export async function insertNewProject(
+  ctx: MutationCtx,
+  writer: Doc<"users">,
+  args: NewProjectFields
+): Promise<Id<"projects">> {
     const interviewer = args.interviewerUserId
       ? await getTeamRosterMemberOrNull(ctx, args.interviewerUserId)
       : null;
@@ -999,7 +1061,6 @@ export const createProject = mutation({
       normalizeProjectNumberInput(args.projectNumber)
     );
     const industry = await validatedIndustry(ctx, args.industry);
-    const transcripts = await resolveTranscriptInputs(ctx, args.transcripts);
 
     const now = Date.now();
     const shareToken = generateShareToken();
@@ -1073,37 +1134,8 @@ export const createProject = mutation({
       1,
       "intake"
     );
-
-    const transcriptIds: Id<"transcripts">[] = [];
-    for (const [position, transcript] of transcripts.entries()) {
-      const transcriptId =
-        transcript.kind === "copy"
-          ? await copyTranscriptRow(ctx, transcript.source, {
-              projectId,
-              position,
-            })
-          : await insertTranscriptRow(ctx, {
-              projectId,
-              content: transcript.content,
-              label: transcript.label,
-              position,
-              ...(transcript.sourceFormat ? { sourceFormat: transcript.sourceFormat } : {}),
-              ...(transcript.originalStorageId
-                ? { originalStorageId: transcript.originalStorageId }
-                : {}),
-            });
-      if (transcriptId) transcriptIds.push(transcriptId);
-    }
-
-    // Decision 65: prepare once the intake settles (the wizard's file saves
-    // push the start back). A duplicate is left alone: its files are copied
-    // afterwards, with no completion boundary to wait for yet.
-    if (transcriptIds.length > 0 && transcripts.every((transcript) => transcript.kind !== "copy")) {
-      await requestBriefPreparation(ctx, projectId, { userId: writer._id, reason: "project_created" });
-    }
-    return { projectId, transcriptIds };
-  },
-});
+    return projectId;
+}
 
 
 

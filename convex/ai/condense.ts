@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { classifySpeakerRolesCall } from "./speakerRolesAgent";
+import { intakeDraftRefs } from "../lib/intakeDraftRefs";
 import { withPlaceholders } from "./placeholderClient";
 import {
   callSlots,
@@ -337,6 +338,42 @@ export const classifySpeakerRoles = internalAction({
       });
     } catch (error) {
       console.warn("Speaker roles were left to the rules", describeGenerationFailure(error));
+    }
+    return null;
+  },
+});
+
+/**
+ * The same one structured_helper call for a private intake draft's
+ * transcript (decision 65, stage 2), so the roles are settled before the
+ * draft's Brief is prepared and move to the project at promotion instead
+ * of being asked for again. Only once the client name the placeholders
+ * hide exists; attributed to the draft's owner, not to a project. A
+ * failure leaves the rule-based roles, as for a project.
+ */
+export const classifyIntakeSpeakerRoles = internalAction({
+  args: { sourceId: v.id("intakeSources") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    startActionDeadline(ctx);
+    const input = await ctx.runQuery(intakeDraftRefs.intakeSpeakerRoleInput, args);
+    if (!input || input.samples.length === 0) {
+      await ctx.runMutation(intakeDraftRefs.recordIntakeSpeakerRoles, { ...args, roles: [] });
+      return null;
+    }
+    try {
+      const { client, model } = await clientForRole(ctx, "structured_helper", {
+        callSite: "transcript:speakers",
+        userId: input.ownerId,
+      });
+      const roles = await classifySpeakerRolesCall(withPlaceholders(client, input.placeholders), {
+        model,
+        samples: input.samples.map((sample) => ({ label: sample.label, lines: sample.lines })),
+      });
+      await ctx.runMutation(intakeDraftRefs.recordIntakeSpeakerRoles, { ...args, roles });
+    } catch (error) {
+      console.warn("Intake speaker roles were left to the rules", describeGenerationFailure(error));
+      await ctx.runMutation(intakeDraftRefs.recordIntakeSpeakerRoles, { ...args, roles: [], failed: true });
     }
     return null;
   },

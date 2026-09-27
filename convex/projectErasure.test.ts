@@ -418,6 +418,14 @@ async function seedProjectRows(
     await ctx.db.insert("briefPreparationWaiters", {
       preparationId, projectId, generationId, attemptId: "attempt-1", status: "waiting", registeredAt: now,
     });
+    // 2026-09-26 (tenth): the draft this project was promoted from and its
+    // source-key link. The link goes; the draft row is detached.
+    const intakeDraftId = await ctx.db.insert("intakeDrafts", {
+      ownerId: userId, status: "promoted", createdAt: now, lastEditedAt: now, expiresAt: now, projectId, promotedAt: now,
+    });
+    await ctx.db.insert("intakeSourceLinks", {
+      draftId: intakeDraftId, projectId, sourceKey: "erasure-key-1", kind: "transcript", createdAt: now,
+    });
     // One schema-populated row in every seed table proves both the AD-33 shape
     // and the registry-driven purge. These rows exercise optional references;
     // they are not intended to model one semantically valid workflow episode.
@@ -510,6 +518,7 @@ async function seedProjectRows(
     // Detach rows.
     byRef["aiUsage.projectId"] = await ctx.db.insert("aiUsage", { projectId, callSite: "chat", model: "m", inputTokens: 1, outputTokens: 1, costUsd: 0, createdAt: now });
     byRef["brainFeedbackQueue.projectId"] = await ctx.db.insert("brainFeedbackQueue", { fromUserId: "u", projectId, body: "b", status: "pending", createdAt: now });
+    byRef["intakeDrafts.projectId"] = intakeDraftId;
     // A fully populated port record: the document link and stamp die with the project, the actor stays.
     byRef["ingestionItems.portedProjectId"] = await ctx.db.insert("ingestionItems", {
       driveItemId: `d-${projectId}`, path: "/p", name: "n", docKind: "pd", size: 1, lastModifiedAt: now, contentHash: "h",

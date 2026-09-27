@@ -567,7 +567,8 @@ export function preparationClientForStep(
   route: StepRoute,
   meta: {
     callSite: string;
-    projectId: Id<"projects">;
+    /** Absent for a private intake draft's preparation (stage 2). */
+    projectId?: Id<"projects">;
     userId?: string;
     preparation: PreparationAttribution;
   },

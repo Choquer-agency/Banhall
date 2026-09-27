@@ -38,7 +38,7 @@ type Ctx = QueryCtx | MutationCtx;
 /** Names the role rules match labels against. */
 export async function speakerRoleContext(
   ctx: Ctx,
-  project: Doc<"projects">
+  project: Pick<Doc<"projects">, "interviewer" | "writer" | "interviewees">
 ): Promise<SpeakerRoleContext> {
   const roster = await listTeamRoster(ctx);
   const named = (name: string | undefined): name is string => !!name && name.trim().length >= 2;
@@ -176,7 +176,7 @@ export const MAX_STORED_SPEAKER_NAMES = 200;
  * kept here with the other names (review 2026-09-25). Undefined when there
  * are too many, so a map parses the text instead.
  */
-function storedSpeakerNames(
+export function storedSpeakerNames(
   text: string,
   cues: boolean,
   rowLabels: readonly string[]

@@ -121,6 +121,16 @@ const holders: Record<(typeof STORAGE_REFERENCE_FIELDS)[number], (ctx: MutationC
     ctx.db.insert("transcripts", { projectId, content: "Dana: Hi.", createdAt: 1, originalStorageId: storageId }),
   "users.imageStorageId": (ctx, storageId) =>
     ctx.db.insert("users", { authId: `sweep-photo-${Math.random()}`, role: "writer", imageStorageId: storageId }),
+  "intakeSources.storageId": async (ctx, storageId) => {
+    const ownerId = await ctx.db.insert("users", { authId: `sweep-intake-${Math.random()}`, role: "writer" });
+    const draftId = await ctx.db.insert("intakeDrafts", {
+      ownerId, status: "open", createdAt: 1, lastEditedAt: 1, expiresAt: Number.MAX_SAFE_INTEGER,
+    });
+    return await ctx.db.insert("intakeSources", {
+      draftId, sourceKey: `sweep-${Math.random().toString(36).slice(2, 12)}`, kind: "document", position: 0,
+      label: "notes.txt", content: "Notes.", contentHash: "hash", storageId, createdAt: 1, updatedAt: 1,
+    });
+  },
 };
 
 function ingestionItem(files: { storageId?: Id<"_storage">; textStorageId?: Id<"_storage"> }) {

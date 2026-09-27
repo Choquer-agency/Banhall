@@ -106,7 +106,7 @@ async function fixture() {
     },
   ];
   const input: BriefKeyInput = {
-    projectId: ids.projectId,
+    scope: { projectId: ids.projectId },
     sources,
     placeholders: [{ token: "[PERSON_1]", value: "Priya" }],
     inputMode: "full",
@@ -122,7 +122,7 @@ describe("briefPreparationKey", () => {
   test("is stable for the same evidence and policy, and versioned", async () => {
     const { input, key } = await fixture();
     const first = await key(input);
-    expect(first).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(first).toMatch(/^v2:[0-9a-f]{64}$/);
     expect(await key({ ...input, sources: input.sources.map((source) => ({ ...source })) })).toBe(first);
   });
 
@@ -169,7 +169,8 @@ describe("briefPreparationKey", () => {
       ["facts", { ...input, transcriptFacts: true }],
       ["planning model", { ...input, freeze: freeze("claude-opus-5-5") }],
       ["step policy", { ...input, freeze: freeze("claude-sonnet-5", null) }],
-      ["project scope", { ...input, projectId: "k57bogusproject" as Id<"projects"> }],
+      ["project scope", { ...input, scope: { projectId: "k57bogusproject" as Id<"projects"> } }],
+      ["draft scope", { ...input, scope: { intakeDraftId: "k57bogusdraft" as Id<"intakeDrafts"> } }],
     ];
     const keys = new Set<string>([base]);
     for (const [name, variant] of variants) {
@@ -210,7 +211,7 @@ describe("the derivation bundle", () => {
   test("is in the key", async () => {
     const source = await import("./lib/briefPreparationKey");
     expect(Object.keys(await source.briefKeyManifest({ db: {} } as never, {
-      projectId: "p" as Id<"projects">,
+      scope: { intakeDraftId: "d" as Id<"intakeDrafts"> },
       sources: [],
       placeholders: [],
       inputMode: "full",

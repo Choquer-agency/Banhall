@@ -155,16 +155,42 @@ export function citationSpeakerReader(ctx: Ctx) {
   ): Promise<CitationSpeaker> => {
     const transcript = await ready(source);
     if (!transcript) return "unchecked";
-    const here = await touched(transcript, startOffset, endOffset);
-    if (!here) return "unchecked";
-    const verdict = speakerOfRoles(here.roles);
-    if (!movedFrom || verdict === "excluded") return verdict;
-    const there = await touched(transcript, movedFrom.startOffset, movedFrom.endOffset);
-    if (!there || here.first === undefined || there.first === undefined) return "excluded";
-    const near =
-      here.first <= there.last! + RELOCATION_TURNS && here.last! >= there.first - RELOCATION_TURNS;
-    return near ? verdict : "excluded";
+    return await spanVerdict(
+      (start, end) => touched(transcript, start, end),
+      startOffset,
+      endOffset,
+      movedFrom
+    );
   };
+}
+
+/** The roles and turn indexes one span touches, or null when unchecked. */
+export type TouchedTurns = (
+  startOffset: number,
+  endOffset: number
+) => Promise<{ roles: TranscriptSpeakerRole[]; first?: number; last?: number } | null>;
+
+/**
+ * The verdict for a span, and for a quote moved to it from `movedFrom`
+ * (within RELOCATION_TURNS turns, otherwise `excluded`), over any turn
+ * store: the stored turns of a project transcript, or the turns parsed from
+ * a private intake draft's text (decision 65, stage 2).
+ */
+export async function spanVerdict(
+  touched: TouchedTurns,
+  startOffset: number,
+  endOffset: number,
+  movedFrom?: MovedFrom
+): Promise<CitationSpeaker> {
+  const here = await touched(startOffset, endOffset);
+  if (!here) return "unchecked";
+  const verdict = speakerOfRoles(here.roles);
+  if (!movedFrom || verdict === "excluded") return verdict;
+  const there = await touched(movedFrom.startOffset, movedFrom.endOffset);
+  if (!there || here.first === undefined || there.first === undefined) return "excluded";
+  const near =
+    here.first <= there.last! + RELOCATION_TURNS && here.last! >= there.first - RELOCATION_TURNS;
+  return near ? verdict : "excluded";
 }
 
 export type SpeakerReader = ReturnType<typeof citationSpeakerReader>;

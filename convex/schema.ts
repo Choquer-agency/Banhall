@@ -43,7 +43,7 @@ import {
   modelFreezeValidator,
   modelRoleValidator,
 } from "./lib/modelCatalogValidators";
-import { placeholderMapValidator } from "./lib/placeholderValidators";
+import { placeholderMapValidator, storedSpeakerNamesValidator } from "./lib/placeholderValidators";
 
 const seedRoleIdValidator = v.union(
   ...PD_SUBSECTIONS.map((subsection) => v.literal(subsection.roleId))
@@ -690,16 +690,7 @@ export default defineSchema({
     // placeholder map built at generation start reads them instead of
     // parsing the text again. Absent when too many to keep; then the text
     // is parsed.
-    speakerNames: v.optional(
-      v.object({
-        parserVersion: v.string(),
-        otherNames: v.array(v.string()),
-        organizations: v.array(v.string()),
-        // Parser v8 (2026-09-26): weak labels (lowercase, no case) seen on
-        // one line only, hidden as written.
-        looseLabels: v.optional(v.array(v.string())),
-      })
-    ),
+    speakerNames: v.optional(storedSpeakerNamesValidator),
     archivedAt: v.optional(v.number()),
     supersededById: v.optional(v.id("transcripts")),
     // 2026-09-25 widen (duplicate copy scope): the row a duplicate copied
@@ -3221,7 +3212,11 @@ export default defineSchema({
   // -> ready | failed; queued, running or ready -> obsolete; queued ->
   // cancelled. One attempt per row; `attemptId` fences every write.
   briefPreparations: defineTable({
-    projectId: v.id("projects"),
+    // One scope: the project, or (stage 2, tenth amendment) a private New
+    // project intake draft. A draft's preparation gets its project here
+    // when the draft is promoted; `intakeDraftId` stays for the key scope.
+    projectId: v.optional(v.id("projects")),
+    intakeDraftId: v.optional(v.id("intakeDrafts")),
     status: v.union(
       v.literal("queued"),
       v.literal("running"),
@@ -3292,16 +3287,25 @@ export default defineSchema({
     .index("by_triggeredBy_and_firmDay", ["triggeredBy", "firmDay"])
     .index("by_triggeredBy_and_status", ["triggeredBy", "status"])
     .index("by_status_and_contentPurgedAt_and_endedAt", ["status", "contentPurgedAt", "endedAt"])
-    .index("by_status_and_contentExpiresAt", ["status", "contentExpiresAt"]),
+    .index("by_status_and_contentExpiresAt", ["status", "contentExpiresAt"])
+    .index("by_intakeDraftId", ["intakeDraftId"])
+    .index("by_intakeDraftId_and_status", ["intakeDraftId", "status"])
+    .index("by_intakeDraftId_and_key", ["intakeDraftId", "key"])
+    .index("by_intakeDraftId_and_firmDay", ["intakeDraftId", "firmDay"]),
 
   // The evidence one preparation froze (convex/lib/briefEvidence.ts), the
   // rows its entries cite. Deleted with the project and by the purge.
   briefPreparationSources: defineTable({
     preparationId: v.id("briefPreparations"),
-    projectId: v.id("projects"),
+    projectId: v.optional(v.id("projects")),
+    intakeDraftId: v.optional(v.id("intakeDrafts")),
     kind: v.union(v.literal("transcript"), v.literal("project_document")),
     transcriptId: v.optional(v.id("transcripts")),
     projectDocumentId: v.optional(v.id("projectDocuments")),
+    // A draft's frozen row names its intake source; promotion adds the
+    // project's transcript or file id through the exact source-key link.
+    intakeSourceId: v.optional(v.id("intakeSources")),
+    sourceKey: v.optional(v.string()),
     label: v.string(),
     content: v.string(),
     contentHash: v.string(),
@@ -3311,12 +3315,14 @@ export default defineSchema({
     capturedAt: v.number(),
   })
     .index("by_preparationId", ["preparationId"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_intakeDraftId", ["intakeDraftId"]),
 
   // A ready preparation's validated entries, citing its own frozen rows.
   briefPreparationEntries: defineTable({
     preparationId: v.id("briefPreparations"),
-    projectId: v.id("projects"),
+    projectId: v.optional(v.id("projects")),
+    intakeDraftId: v.optional(v.id("intakeDrafts")),
     group: v.union(
       v.literal("storyline"),
       v.literal("claimExclusion"),
@@ -3347,13 +3353,15 @@ export default defineSchema({
     exactExcerpt: v.string(),
   })
     .index("by_preparationId", ["preparationId"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_intakeDraftId", ["intakeDraftId"]),
 
   // Display-only facts streamed by one preparation attempt, the same shape
   // as generationReadingFacts. Never generation input.
   briefPreparationFacts: defineTable({
     preparationId: v.id("briefPreparations"),
-    projectId: v.id("projects"),
+    projectId: v.optional(v.id("projects")),
+    intakeDraftId: v.optional(v.id("intakeDrafts")),
     attemptId: v.string(),
     seq: v.number(),
     chip: v.string(),
@@ -3364,7 +3372,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_preparationId_and_attemptId_and_seq", ["preparationId", "attemptId", "seq"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_intakeDraftId", ["intakeDraftId"]),
 
   // A Step-by-step start waiting on a running preparation with its key.
   // The preparation's completion, failure or lease expiry releases every
@@ -3383,6 +3392,136 @@ export default defineSchema({
     .index("by_preparationId_and_status", ["preparationId", "status"])
     .index("by_generationId", ["generationId"])
     .index("by_projectId", ["projectId"]),
+
+  // 2026-09-26 (tenth, decision 65): Brief preparation, stage 2. A signed-in
+  // creator's private New project intake: what the page has read so far,
+  // saved while the writer finishes setting up, so the Brief can be
+  // prepared before the project exists and confirming does not upload
+  // anything on its critical path. Only the owner reads or changes it; no
+  // project, generation, owner or workflow row exists until promotion.
+  // Expires 24 hours after its last edit and 7 days after it was made.
+  intakeDrafts: defineTable({
+    ownerId: v.id("users"),
+    status: v.union(
+      v.literal("open"),
+      v.literal("promoting"),
+      v.literal("promoted"),
+      v.literal("discarded"),
+      v.literal("expired")
+    ),
+    createdAt: v.number(),
+    lastEditedAt: v.number(),
+    expiresAt: v.number(),
+    // The names the placeholder map and the speaker rules read, as the
+    // project will carry them. Cleared when the content is purged.
+    clientName: v.optional(v.string()),
+    interviewerUserId: v.optional(v.id("users")),
+    interviewees: v.optional(v.array(v.string())),
+    // The start dialog's leave-out list while it is open (source keys).
+    excludedSourceKeys: v.optional(v.array(v.string())),
+    // Readable transcripts saved, so an edit can tell without reading text.
+    transcriptCount: v.optional(v.number()),
+    // Promotion: the one project this draft becomes, set once.
+    projectId: v.optional(v.id("projects")),
+    promotionCommandId: v.optional(v.string()),
+    promotedAt: v.optional(v.number()),
+    endedAt: v.optional(v.number()),
+    contentPurgedAt: v.optional(v.number()),
+  })
+    .index("by_ownerId_and_status", ["ownerId", "status"])
+    .index("by_status_and_expiresAt", ["status", "expiresAt"])
+    .index("by_status_and_contentPurgedAt", ["status", "contentPurgedAt"])
+    .index("by_projectId", ["projectId"]),
+
+  // One readable transcript or supporting document of a draft, under the
+  // stable source key the page gave it. Text is immutable per key: a
+  // change is a new key. `storageId` is the original file, moved to the
+  // project row at promotion (never copied).
+  intakeSources: defineTable({
+    draftId: v.id("intakeDrafts"),
+    sourceKey: v.string(),
+    kind: v.union(v.literal("transcript"), v.literal("document")),
+    position: v.number(),
+    // A transcript's label, or a document's file name.
+    label: v.string(),
+    content: v.string(),
+    contentHash: v.string(),
+    sourceFormat: v.optional(transcriptSourceFormatValidator),
+    // Set by the draft's turn and speaker build (current parser version).
+    parserVersion: v.optional(v.string()),
+    speakerNames: v.optional(storedSpeakerNamesValidator),
+    // The model's look at speakers the rules could not place.
+    // needed: waiting for the client name the call's placeholders hide.
+    speakerModel: v.optional(
+      v.union(v.literal("needed"), v.literal("pending"), v.literal("done"), v.literal("failed"))
+    ),
+    fileType: v.optional(
+      v.union(
+        v.literal("txt"),
+        v.literal("md"),
+        v.literal("pdf"),
+        v.literal("docx"),
+        v.literal("msg"),
+        v.literal("eml"),
+        v.literal("xlsx"),
+        v.literal("image"),
+        v.literal("other")
+      )
+    ),
+    category: v.optional(
+      v.union(
+        v.literal("previous_pd"),
+        v.literal("scoping_notes"),
+        v.literal("writer_notes"),
+        v.literal("background"),
+        v.literal("other")
+      )
+    ),
+    intake: v.optional(v.union(v.literal("file"), v.literal("pasted"))),
+    extractionOutcome: v.optional(v.union(v.literal("ok"), v.literal("failed"))),
+    uploaderRole: v.optional(v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))),
+    storageId: v.optional(v.id("_storage")),
+    mimeType: v.optional(v.string()),
+    // Promotion: the project row this source became.
+    transcriptId: v.optional(v.id("transcripts")),
+    projectDocumentId: v.optional(v.id("projectDocuments")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_draftId_and_sourceKey", ["draftId", "sourceKey"])
+    .index("by_draftId_and_position", ["draftId", "position"])
+    .index("by_storageId", ["storageId"]),
+
+  // A draft transcript's speaker roles, the shape of transcriptSpeakers.
+  // Turns are not stored: they are parsed from the text when needed.
+  intakeSourceSpeakers: defineTable({
+    sourceId: v.id("intakeSources"),
+    draftId: v.id("intakeDrafts"),
+    label: v.string(),
+    role: transcriptSpeakerRoleValidator,
+    roleSource: v.union(v.literal("heuristic"), v.literal("model"), v.literal("consultant")),
+    confidence: v.number(),
+    turnCount: v.number(),
+    sampleTurnIndex: v.optional(v.number()),
+  })
+    .index("by_sourceId_and_label", ["sourceId", "label"])
+    .index("by_draftId", ["draftId"]),
+
+  // The exact source-key link a promotion writes: this draft source became
+  // this transcript or file of the project. Content-free; the preparation
+  // key reads it so a draft's preparation and the project's run name the
+  // same sources the same way, and adoption maps citations through it.
+  intakeSourceLinks: defineTable({
+    draftId: v.id("intakeDrafts"),
+    projectId: v.id("projects"),
+    sourceKey: v.string(),
+    kind: v.union(v.literal("transcript"), v.literal("document")),
+    transcriptId: v.optional(v.id("transcripts")),
+    projectDocumentId: v.optional(v.id("projectDocuments")),
+    createdAt: v.number(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_draftId_and_sourceKey", ["draftId", "sourceKey"]),
 
   // Round 2 (F2, decision 57): the facts "Reading the interview" shows while
   // the Step-by-step Brief is written, located on the frozen transcript as

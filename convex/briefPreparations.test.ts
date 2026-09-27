@@ -679,6 +679,18 @@ describe("fenced writes", () => {
   });
 });
 
+describe("what a preparation holds against the limits", () => {
+  test("a completed preparation counts its settled usage, even once obsolete; an unfinished one its reservation", () => {
+    const base = { dispatchedAt: 1, reservedUsd: 0.24, usageCostUsd: 0.02, usageCalls: 1 };
+    expect(preparationCharge({ ...base, status: "ready", completedAt: 2 })).toBeCloseTo(0.02, 10);
+    expect(preparationCharge({ ...base, status: "obsolete", completedAt: 2 })).toBeCloseTo(0.02, 10);
+    expect(preparationCharge({ ...base, status: "obsolete" })).toBeCloseTo(0.24, 10);
+    expect(preparationCharge({ ...base, status: "failed", completedAt: undefined })).toBeCloseTo(0.24, 10);
+    expect(preparationCharge({ ...base, status: "obsolete", completedAt: 2, usageCalls: 0 })).toBeCloseTo(0.24, 10);
+    expect(preparationCharge({ status: "queued", reservedUsd: 0.24 })).toBe(0);
+  });
+});
+
 describe("the verified source mapping", () => {
   const row = (id: string, fields: Partial<Doc<"briefPreparationSources">> = {}) =>
     ({

@@ -16,6 +16,13 @@ type CopyPlan = {
 };
 
 type CopyResult = {
+  /**
+   * The exact receipt (decision 65, stage 2): each copied file's source row
+   * and the row it became, so the start dialog's leave-out list and any
+   * lineage map by identity, never by file name and category.
+   */
+  documents: Array<{ sourceId: Id<"projectDocuments">; documentId: Id<"projectDocuments"> }>;
+  previousYearReportId?: Id<"projectDocuments">;
   documentsCopied: number;
   filesCopied: number;
   transcriptOriginalsCopied: number;
@@ -106,6 +113,11 @@ export async function copyProjectContentBetween(
   }
 
   return {
+    documents: plan.documents.map((document) => ({
+      sourceId: document.sourceId,
+      documentId: document.documentId,
+    })),
+    ...(plan.previousYearReportId ? { previousYearReportId: plan.previousYearReportId } : {}),
     documentsCopied: plan.documents.length,
     filesCopied: storageCopies.length,
     transcriptOriginalsCopied: transcriptCopies.length,

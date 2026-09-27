@@ -82,15 +82,37 @@ export async function projectPlaceholderMap(
   transcripts: readonly Doc<"transcripts">[],
   texts: readonly string[] = []
 ): Promise<PlaceholderMap> {
+  const names: Array<{ people: string[]; organizations: string[]; phrases: string[] }> = [];
+  for (const transcript of transcripts) {
+    const rows = await listSpeakerRows(ctx, transcript._id);
+    names.push(transcriptNamesToHide(transcript, rows.map((row) => row.label)));
+  }
+  return await placeholderMapFrom(ctx, project, names, texts);
+}
+
+/** The names on the record a placeholder map hides, as the project carries them. */
+export type PlaceholderIdentity = Pick<Doc<"projects">, "clientName" | "interviewer" | "writer" | "interviewees">;
+
+/**
+ * The map from the record's names, the firm's own names and each
+ * transcript's names in list order (`transcriptNamesToHide`). Shared by a
+ * project and a private intake draft (decision 65, stage 2), so the same
+ * names and texts give the same map whichever holds them.
+ */
+export async function placeholderMapFrom(
+  ctx: Ctx,
+  identity: PlaceholderIdentity,
+  transcriptNames: ReadonlyArray<{
+    people: readonly string[];
+    organizations: readonly string[];
+    phrases: readonly string[];
+  }>,
+  texts: readonly string[] = []
+): Promise<PlaceholderMap> {
   const labels: string[] = [];
   const organizations: string[] = [];
   const phrases: string[] = [];
-  for (const transcript of transcripts) {
-    const rows = await listSpeakerRows(ctx, transcript._id);
-    const names = transcriptNamesToHide(
-      transcript,
-      rows.map((row) => row.label)
-    );
+  for (const names of transcriptNames) {
     labels.push(...names.people);
     organizations.push(...names.organizations);
     phrases.push(...names.phrases);
@@ -99,10 +121,10 @@ export async function projectPlaceholderMap(
   // unless set) are hidden in every masked call, as the client's are.
   const firms = await firmNames(ctx);
   const map = buildPlaceholderMap({
-    clientName: project.clientName,
+    clientName: identity.clientName,
     companies: organizations,
     firms,
-    people: [project.interviewer, project.writer, ...(project.interviewees ?? []), ...labels],
+    people: [identity.interviewer, identity.writer, ...(identity.interviewees ?? []), ...labels],
     phrases,
   });
   return avoidTokenCollisions(map, [...texts, ...labels, ...organizations, ...firms, ...phrases]);
