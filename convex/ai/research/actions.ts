@@ -15,6 +15,7 @@ import {
 import { callOpenRouterResearch } from "./openrouter";
 import { startActionDeadline } from "../actionDeadline";
 import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../../shared/humanProse";
+import { dropPlaceholderTokens, pseudonymize, restorePlaceholdersDeep } from "../../lib/deidentify";
 
 const externalProviderValidator = v.union(
   v.literal("gpt"),
@@ -113,7 +114,11 @@ export const collectBrainEvidence = internalAction({
       const outcome = await searchBrainExemplars(ctx, {
         ...(context.project.industry ? { industry: context.project.industry } : {}),
         ...(context.project.scienceCode ? { scienceCode: context.project.scienceCode } : {}),
-        query: `${context.session.instruction}\n${context.session.selectedText}`,
+        // Names dropped (decision 26): the query leaves for the embedding
+        // service and should match on the technology, never the client.
+        query: dropPlaceholderTokens(
+          pseudonymize(`${context.session.instruction}\n${context.session.selectedText}`, context.session.placeholders ?? [])
+        ),
         k: 3,
         docType: "pd",
         projectId: context.project._id,
@@ -240,23 +245,30 @@ export const reviewResearch = internalAction({
             `## ${run.provider === "gpt" ? RESEARCH_PROVIDER_LABELS.gpt : RESEARCH_PROVIDER_LABELS.perplexity}\n${cap(run.responseText ?? "", 38_000)}`
         )
         .join("\n\n");
+      // Decision 26 (audit wave 2): the reviewer reads the session's
+      // placeholders, not names, in the passage, the project excerpts and
+      // the memos; its answer is restored before anything is stored.
+      const placeholders = context.session.placeholders ?? [];
       const result = await callOpenRouterResearch(ctx, {
         provider: "reviewer",
         model: RESEARCH_MODELS.reviewer,
         system: REVIEWER_SYSTEM,
-        prompt: [
-          `## Writer's instruction\n${context.session.instruction || "Research and safely strengthen the selected passage."}`,
-          `## Selected passage\n${context.session.selectedText}`,
-          `## Nearby report context\n${context.session.surroundingContext || "No nearby context supplied."}`,
-          `## Independent external research\n${providerReports}`,
-          `## Evidence catalog\nUse only these keys in claims.sourceKeys.\n${catalog.text || "No project/source excerpts were captured."}`,
-          "Return the required JSON object. The answer should be concise and useful to a report writer; do not expose internal chain-of-thought.",
-        ].join("\n\n"),
+        prompt: pseudonymize(
+          [
+            `## Writer's instruction\n${context.session.instruction || "Research and safely strengthen the selected passage."}`,
+            `## Selected passage\n${context.session.selectedText}`,
+            `## Nearby report context\n${context.session.surroundingContext || "No nearby context supplied."}`,
+            `## Independent external research\n${providerReports}`,
+            `## Evidence catalog\nUse only these keys in claims.sourceKeys.\n${catalog.text || "No project/source excerpts were captured."}`,
+            "Return the required JSON object. The answer should be concise and useful to a report writer; do not expose internal chain-of-thought.",
+          ].join("\n\n"),
+          placeholders
+        ),
         sessionId: context.session._id,
         projectId: context.project._id,
         userId: context.user._id,
       });
-      const reviewed = parseReviewerResult(result.text);
+      const reviewed = restorePlaceholdersDeep(parseReviewerResult(result.text), placeholders);
       const claims = reviewed.claims.map((claim) => {
         // Brain passages teach voice and structure; they are never evidence for
         // a factual claim. Enforce that boundary after model output as well as

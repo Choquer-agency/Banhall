@@ -1995,6 +1995,13 @@ export default defineSchema({
     // Redacted prompt shared with external research providers. Private project
     // documents are only supplied to the final reviewer.
     externalBrief: v.string(),
+    // 2026-09-26 (audit wave 2): the name placeholder map the brief and the
+    // reviewer's prompt were masked with; every reviewer output is restored
+    // with it. Absent on sessions started before, and when placeholders are
+    // switched off.
+    placeholders: v.optional(
+      v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()) }))
+    ),
     reportRevisionNumber: v.number(),
     status: v.union(
       v.literal("queued"),

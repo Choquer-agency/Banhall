@@ -8,6 +8,7 @@ import {
   openRouterUsage,
   type ChatCompletionsResponse,
 } from "../openrouterCore";
+import { pseudonymize, type PlaceholderMap } from "../../lib/deidentify";
 
 export const RESEARCH_MODELS = {
   gpt: "openai/gpt-5.6-sol",
@@ -68,10 +69,18 @@ export type ExternalBriefInput = {
   scienceCode?: string;
   fiscalYear?: string;
   knownNames: string[];
+  /**
+   * The project's name placeholder map (decision 26, audit wave 2): record
+   * names, every transcript speaker with first and last name parts, and
+   * the firm's own names become tokens first; `knownNames` then catches
+   * what the map's exact case missed.
+   */
+  placeholders?: PlaceholderMap;
 };
 
 export function buildExternalBrief(input: ExternalBriefInput): string {
-  const redact = (value: string) => redactExternalText(value, input.knownNames);
+  const redact = (value: string) =>
+    redactExternalText(pseudonymize(value, input.placeholders ?? []), input.knownNames);
   const metadata = [
     input.projectTitle ? `Project topic: ${redact(input.projectTitle)}` : null,
     input.industry ? `Industry: ${redact(input.industry)}` : null,

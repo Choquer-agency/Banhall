@@ -19,6 +19,10 @@ import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireOpenRouterConfigured } from "./lib/providerConfig";
 import { scrubBannedWordsUnlessWaived } from "./lib/reportEdits";
 import { getEffectiveWriterStyle } from "./writerProfiles";
+import { transcriptPlaceholdersEnabled } from "./appSettings";
+import { firmNames } from "./lib/firmNames";
+import { listProjectTranscripts } from "./lib/transcripts";
+import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { researchWorkflowManager } from "./ai/research/manager";
 import {
   MAX_CONTEXT_TEXT,
@@ -117,11 +121,25 @@ export const startResearch = mutation({
       domainError("INVALID_INPUT", "Research is already running for this report");
     }
 
+    // Decision 26 (audit wave 2): the same placeholder map as generation
+    // calls, with every transcript speaker, first and last name parts and
+    // the firm's names, frozen on the session so the reviewer's prompt is
+    // masked with it and its answer restored.
+    const placeholders = (await transcriptPlaceholdersEnabled(ctx))
+      ? [
+          ...(await projectPlaceholderMap(ctx, project, await listProjectTranscripts(ctx, project._id), [
+            selectedText,
+            surroundingContext,
+            instruction,
+          ])),
+        ]
+      : [];
     const knownNames = [
       project.clientName,
       project.writer,
       project.interviewer,
       ...(project.interviewees ?? []),
+      ...(await firmNames(ctx)),
     ].filter((name): name is string => Boolean(name?.trim()));
     const externalBrief = buildExternalBrief({
       selectedText,
@@ -132,6 +150,7 @@ export const startResearch = mutation({
       scienceCode: project.scienceCode,
       fiscalYear: fiscalYearLabel(project),
       knownNames,
+      placeholders,
     });
     const now = Date.now();
     const sessionId = await ctx.db.insert("researchSessions", {
@@ -144,6 +163,7 @@ export const startResearch = mutation({
       surroundingContext,
       instruction,
       externalBrief,
+      ...(placeholders.length > 0 ? { placeholders } : {}),
       reportRevisionNumber: report.revisionNumber ?? 0,
       status: "queued",
       createdAt: now,
