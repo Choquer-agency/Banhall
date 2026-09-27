@@ -95,6 +95,7 @@ import type * as http from "../http.js";
 import type * as ingestion from "../ingestion.js";
 import type * as ingestionPort from "../ingestionPort.js";
 import type * as ingestionSync from "../ingestionSync.js";
+import type * as intakeDrafts from "../intakeDrafts.js";
 import type * as invites from "../invites.js";
 import type * as learning from "../learning.js";
 import type * as learningHealth from "../learningHealth.js";
@@ -155,6 +156,8 @@ import type * as lib_generations_seedGuards from "../lib/generations/seedGuards.
 import type * as lib_generations_seedStage from "../lib/generations/seedStage.js";
 import type * as lib_glossaryMatcher from "../lib/glossaryMatcher.js";
 import type * as lib_ingestionClassify from "../lib/ingestionClassify.js";
+import type * as lib_intakeDraftRefs from "../lib/intakeDraftRefs.js";
+import type * as lib_intakeDrafts from "../lib/intakeDrafts.js";
 import type * as lib_learningAdmission from "../lib/learningAdmission.js";
 import type * as lib_learningHealthReads from "../lib/learningHealthReads.js";
 import type * as lib_lineLimits from "../lib/lineLimits.js";
@@ -344,6 +347,7 @@ declare const fullApi: ApiFromModules<{
   ingestion: typeof ingestion;
   ingestionPort: typeof ingestionPort;
   ingestionSync: typeof ingestionSync;
+  intakeDrafts: typeof intakeDrafts;
   invites: typeof invites;
   learning: typeof learning;
   learningHealth: typeof learningHealth;
@@ -404,6 +408,8 @@ declare const fullApi: ApiFromModules<{
   "lib/generations/seedStage": typeof lib_generations_seedStage;
   "lib/glossaryMatcher": typeof lib_glossaryMatcher;
   "lib/ingestionClassify": typeof lib_ingestionClassify;
+  "lib/intakeDraftRefs": typeof lib_intakeDraftRefs;
+  "lib/intakeDrafts": typeof lib_intakeDrafts;
   "lib/learningAdmission": typeof lib_learningAdmission;
   "lib/learningHealthReads": typeof lib_learningHealthReads;
   "lib/lineLimits": typeof lib_lineLimits;
