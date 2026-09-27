@@ -124,8 +124,8 @@ export function matchGlossaryTerms(
 }
 
 /** A rule-based glossary match resolved to the frozen source row it cites. */
-export interface GlossarySourceMatch extends MatchedTerm {
-  sourceId: Id<"generationSources">;
+export interface GlossarySourceMatch<I extends string = Id<"generationSources">> extends MatchedTerm {
+  sourceId: I;
   sourceContentHash: string;
 }
 
@@ -136,12 +136,14 @@ export interface GlossarySourceMatch extends MatchedTerm {
  * most one entry per canonical term: the first occurrence found, in source
  * order, so a common term doesn't flood the Brief with a row per mention.
  */
-export function matchGlossaryTermsAcrossSources(
+export function matchGlossaryTermsAcrossSources<
+  S extends Pick<Doc<"generationSources">, "content" | "contentHash"> & { _id: string },
+>(
   glossaryTerms: GlossaryTerm[],
-  sources: Array<Pick<Doc<"generationSources">, "_id" | "content" | "contentHash">>
-): GlossarySourceMatch[] {
+  sources: S[]
+): GlossarySourceMatch<S["_id"]>[] {
   const seenCanonicalTerms = new Set<string>();
-  const results: GlossarySourceMatch[] = [];
+  const results: GlossarySourceMatch<S["_id"]>[] = [];
   for (const source of sources) {
     const matches = matchGlossaryTerms(glossaryTerms, source.content);
     for (const match of matches) {
@@ -169,7 +171,7 @@ export function matchGlossaryTermsAcrossSources(
  */
 export function flaggedGlossaryTerms(
   glossaryTerms: GlossaryTerm[],
-  sources: Array<Pick<Doc<"generationSources">, "_id" | "content" | "contentHash">>
+  sources: Array<Pick<Doc<"generationSources">, "content" | "contentHash"> & { _id: string }>
 ): GlossaryTerm[] {
   const matchedCanonicalTerms = new Set(
     matchGlossaryTermsAcrossSources(glossaryTerms, sources).map((m) => m.canonicalTerm)

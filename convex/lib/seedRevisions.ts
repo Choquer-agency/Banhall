@@ -727,7 +727,7 @@ const KIND_ORDER: Readonly<Record<SeedContextItemKind, number>> = {
 };
 
 type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
+export type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
 
 function isJsonObject(value: JsonValue): value is { readonly [key: string]: JsonValue } {
   return typeof value === "object" && value !== null && !Array.isArray(value);

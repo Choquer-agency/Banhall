@@ -81,7 +81,8 @@ export function boundQuote(text: string): string {
   return clean.length <= READING_QUOTE_CHARS ? clean : `${clean.slice(0, READING_QUOTE_CHARS - 3).trimEnd()}...`;
 }
 
-type SourceRow = Pick<Doc<"generationSources">, "_id" | "kind" | "label" | "content">;
+/** A frozen evidence row: a generation's source or a Brief preparation's (decision 65). */
+type SourceRow = Pick<Doc<"generationSources">, "kind" | "label" | "content"> & { _id: string };
 
 const HONORIFIC = /^(dr|mr|mrs|ms|mx|prof)\.?$/i;
 
@@ -103,7 +104,7 @@ export function speakerPlace(speaker: string, line: number): string {
 }
 
 /** "Priya, line 18"; "{transcript label}, line 18" with no speaker; a document's file name. */
-export function placeOf(source: SourceRow, citation: Pick<Citation, "startOffset" | "endOffset">) {
+export function placeOf(source: SourceRow, citation: Pick<Citation<string>, "startOffset" | "endOffset">) {
   if (source.kind !== "transcript") {
     const colon = source.label.indexOf(":");
     return { sourceLabel: colon >= 0 ? source.label.slice(colon + 1) : source.label };
@@ -150,18 +151,34 @@ export type ReadingFactsCtx = Pick<ActionCtx, "runMutation">;
  * pace allows, not when the next entry happens to complete. Located entries
  * only, each quote once.
  */
-export function createReadingFactsCollector(options: {
-  ctx: ReadingFactsCtx;
-  generationId: Id<"generations">;
-  append: FunctionReference<"mutation", "internal", { generationId: Id<"generations">; facts: ReadingFact[] }, null>;
-  sources: readonly SourceRow[];
-  writerStoryline: boolean;
-  placeholders: PlaceholderMap;
-  /** Where a quote sits, owner decision 25 applied; null when it does not locate. */
-  locate: (quote: string, glossary: boolean) => Promise<Citation | null>;
-  now?: () => number;
-}) {
+/**
+ * Where collected facts go: a generation's display rows (`append`), or any
+ * other fenced writer (`write`), such as a Brief preparation's own display
+ * rows (decision 65), which carry the preparation attempt.
+ */
+export type ReadingFactsTarget =
+  | {
+      ctx: ReadingFactsCtx;
+      generationId: Id<"generations">;
+      append: FunctionReference<"mutation", "internal", { generationId: Id<"generations">; facts: ReadingFact[] }, null>;
+    }
+  | { write: (facts: ReadingFact[]) => Promise<unknown> };
+
+export function createReadingFactsCollector(
+  options: ReadingFactsTarget & {
+    sources: readonly SourceRow[];
+    writerStoryline: boolean;
+    placeholders: PlaceholderMap;
+    /** Where a quote sits, owner decision 25 applied; null when it does not locate. */
+    locate: (quote: string, glossary: boolean) => Promise<Citation<string> | null>;
+    now?: () => number;
+  }
+) {
   const now = options.now ?? Date.now;
+  const write = async (facts: ReadingFact[]) => {
+    if ("write" in options) await options.write(facts);
+    else await options.ctx.runMutation(options.append, { generationId: options.generationId, facts });
+  };
   const scanner = new PartialJsonItems();
   const byId = new Map(options.sources.map((source) => [source._id as string, source]));
   const seen = new Set<string>();
@@ -176,7 +193,7 @@ export function createReadingFactsCollector(options: {
       const batch = pending.slice(0, READING_FACTS_PER_WRITE);
       pending = pending.slice(READING_FACTS_PER_WRITE);
       lastFlush = now();
-      await options.ctx.runMutation(options.append, { generationId: options.generationId, facts: batch });
+      await write(batch);
     }
   };
 

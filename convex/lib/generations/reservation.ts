@@ -22,19 +22,11 @@ import {
 import { domainError, sha256 } from "../contracts";
 import { resolveCompareModels, randomComparePair } from "../../ai/model";
 import {
-  TRANSCRIPT_BUDGET_CHARS,
-  listProjectTranscripts,
-  FROZEN_TRANSCRIPT_CHARS,
   scheduleStructureRebuildIfStale,
-  transcriptLabel,
   MAX_TRANSCRIPTS_PER_PROJECT,
 } from "../transcripts";
 import type { Doc, Id } from "../../_generated/dataModel";
-import {
-  defaultModelId,
-  transcriptPlaceholdersEnabled,
-  transcriptFactsMode,
-} from "../../appSettings";
+import { defaultModelId, transcriptFactsMode } from "../../appSettings";
 import { normalizeCraScienceCode } from "../../../shared/craScienceCodes";
 import {
   isPreviousYearDocument,
@@ -42,14 +34,20 @@ import {
   PREVIOUS_YEAR_ONLY_REASON,
   PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE,
 } from "../../../shared/previousYear";
-import { dashboardFiscalYear } from "../../../shared/dashboardProjection";
 import {
   requireAnthropicConfigured,
   requireOpenRouterConfigured,
 } from "../providerConfig";
 import { findActiveGeneration } from "../activeGeneration";
 import { ACTIVE_GENERATION_STATUSES } from "../../../shared/generationTransitions";
-import { projectPlaceholderMap } from "../transcriptPlaceholders";
+import {
+  currentYearTranscripts,
+  decideInputMode,
+  frozenPlaceholders,
+  frozenSourceFields,
+  frozenTranscriptChars,
+  selectFrozenEvidence,
+} from "../briefEvidence";
 import { appendGenerationProgress } from "../generationProgress";
 import { refreshProjectGenerationActivity } from "../dashboardProjection";
 import { internal } from "../../_generated/api";
@@ -235,45 +233,10 @@ export async function validatedCompareModelIds(
 /**
  * Whether a generation feeds the model the full frozen transcript text or a
  * stored digest per transcript. Pure and total over the combined frozen
- * character count, so the boundary is one testable line rather than a
- * condition spread across the reserve mutation and the pipeline.
+ * character count (convex/lib/briefEvidence.ts, shared with the Brief
+ * preparation since 2026-09-26).
  */
-export function decideInputMode(totalChars: number): "full" | "digest" {
-  return totalChars > TRANSCRIPT_BUDGET_CHARS ? "digest" : "full";
-}
-
-/**
- * Decision 42, lead note of 2026-09-25: a transcript a duplicate copied from
- * a project with an earlier fiscal year is last year's transcript, not a
- * current-year source. Every other transcript counts, including a copy whose
- * original row is gone or whose fiscal years are not both set.
- */
-async function currentYearTranscriptCount(
-  ctx: MutationCtx,
-  project: Doc<"projects">,
-  transcripts: Doc<"transcripts">[]
-): Promise<number> {
-  const year = dashboardFiscalYear(project.fiscalYearEnd);
-  if (year === null) return transcripts.length;
-  const sourceYears = new Map<Id<"projects">, number | null>();
-  let count = 0;
-  for (const transcript of transcripts) {
-    const original = transcript.copiedFromTranscriptId
-      ? await ctx.db.get(transcript.copiedFromTranscriptId)
-      : null;
-    if (!original) {
-      count += 1;
-      continue;
-    }
-    if (!sourceYears.has(original.projectId)) {
-      const source = await ctx.db.get(original.projectId);
-      sourceYears.set(original.projectId, dashboardFiscalYear(source?.fiscalYearEnd));
-    }
-    const sourceYear = sourceYears.get(original.projectId) ?? null;
-    if (sourceYear === null || year <= sourceYear) count += 1;
-  }
-  return count;
-}
+export { decideInputMode } from "../briefEvidence";
 
 export async function reserveGeneration(
   ctx: MutationCtx,
@@ -306,16 +269,16 @@ export async function reserveGeneration(
       : (explicitSingleModelId ?? (await defaultModelId(ctx)));
   const retried = retryOfGenerationId ? await ctx.db.get(retryOfGenerationId) : null;
   const retriedFreeze = retried?.modelFreeze;
-  const excludedTranscripts = new Set<Id<"transcripts">>(excludedSources?.transcriptIds ?? []);
   const excludedDocuments = new Set<Id<"projectDocuments">>(excludedSources?.documentIds ?? []);
-  const projectTranscripts = await listProjectTranscripts(ctx, project._id);
   // The source rules below and the frozen sources run on what remains after
-  // the leave-out list (decision 56).
-  const transcripts = projectTranscripts.filter((row) => !excludedTranscripts.has(row._id));
+  // the leave-out list (decision 56). Shared with the Brief preparation
+  // (decision 65), so both freeze the same bytes in the same order.
+  const evidence = await selectFrozenEvidence(ctx, project._id, excludedSources);
+  const { transcripts } = evidence;
   // Jul 17 meeting: some engagements have no interview at all (spreadsheet
   // only, drawings, a single email). A transcript-less generation is allowed
   // as long as there's at least one readable context document to work from.
-  if ((await currentYearTranscriptCount(ctx, project, transcripts)) === 0) {
+  if ((await currentYearTranscripts(ctx, project, transcripts)).length === 0) {
     const docs = await ctx.db
       .query("projectDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
@@ -398,19 +361,6 @@ export async function reserveGeneration(
     requireOpenRouterConfigured();
   }
 
-  const frozenTranscripts = transcripts.map((row) => ({
-    row,
-    content: row.content.slice(0, FROZEN_TRANSCRIPT_CHARS),
-  }));
-  const documents = await ctx.db
-    .query("projectDocuments")
-    .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
-    .take(50);
-  const frozenDocuments = documents.flatMap((document) =>
-    document.archived || !document.content.trim() || excludedDocuments.has(document._id)
-      ? []
-      : [{ document, content: document.content.slice(0, 200_000) }]
-  );
   // Owner decision 26: every generation-owned provider call reads
   // placeholders, never names; the map is frozen here so every call of this
   // generation (and its cached prefixes) sees the same bytes. The speakers'
@@ -420,25 +370,13 @@ export async function reserveGeneration(
   // their transcript was saved sent the speakers' names). It is checked
   // against every text the calls will send, so a source that already holds
   // placeholder-style tokens never has them restored into names.
-  const placeholders = (await transcriptPlaceholdersEnabled(ctx))
-    ? [
-        ...(await projectPlaceholderMap(
-          ctx,
-          project,
-          // Every current transcript, left-out ones included, so a speaker
-          // named in a kept document is still hidden (decision 26).
-          projectTranscripts,
-          [
-            ...frozenTranscripts.map((item) => item.content),
-            ...frozenDocuments.map((item) => item.content),
-            ...(writerSuppliedStoryline ? [writerSuppliedStoryline] : []),
-          ]
-        )),
-      ]
-    : [];
-  const inputMode = decideInputMode(
-    frozenTranscripts.reduce((total, item) => total + item.content.length, 0)
+  const placeholders = await frozenPlaceholders(
+    ctx,
+    project,
+    evidence,
+    writerSuppliedStoryline ? [writerSuppliedStoryline] : []
   );
+  const inputMode = decideInputMode(frozenTranscriptChars(evidence));
   // Owner decision 27: fact packs for long transcripts (`long`), small
   // projects too only once the offline evaluation passes (`all`). Frozen
   // here; with facts missing or failed the generation falls back to today's
@@ -487,34 +425,11 @@ export async function reserveGeneration(
     startedAt: now,
   });
   await appendGenerationProgress(ctx, { _id: generationId, projectId: project._id }, initialProgress, now);
-  for (const { row, content } of frozenTranscripts) {
+  for (const fields of await frozenSourceFields(evidence)) {
     await ctx.db.insert("generationSources", {
       generationId,
       projectId: project._id,
-      kind: "transcript",
-      transcriptId: row._id,
-      label: transcriptLabel(row),
-      content,
-      contentHash: await sha256(content),
-      truncated: content.length !== row.content.length,
-      originalLength: row.content.length,
-      capturedAt: now,
-    });
-  }
-  for (const { document, content } of frozenDocuments) {
-    await ctx.db.insert("generationSources", {
-      generationId,
-      projectId: project._id,
-      kind: "project_document",
-      projectDocumentId: document._id,
-      label: `${document.category ?? "other"}:${document.fileName}`,
-      content,
-      contentHash: await sha256(content),
-      truncated: content.length !== document.content.length,
-      originalLength: document.content.length,
-      // CAP-3: trust is pinned to the reservation, never re-read live.
-      // Absent (legacy document rows) means client trust downstream.
-      ...(document.uploaderRole ? { uploaderRole: document.uploaderRole } : {}),
+      ...fields,
       capturedAt: now,
     });
   }
