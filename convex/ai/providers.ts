@@ -159,7 +159,8 @@ export const SEED_ANTHROPIC_OPTIONS = {
  * action; each section is its own scheduled action (orderedGeneration.ts
  * generateOrderedSection) whose worst case is ORDERED_SECTION_ACTION_SLOTS:
  * one draft + the compression squeezes + one Self-check (its answer and at
- * most one structured retry: 2 requests) + at most one repair + the
+ * most one structured retry or Summary follow-up: 2 requests) + at most one
+ * repair + the
  * compression squeezes again on the repair (2026-09-28, second) = 8.
  * Finalize adds consistency + (QA || chronology) = 2.
  * Iterative's one-shot ghost still runs the five-slot chain above. Since
@@ -175,7 +176,8 @@ export const SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE = 5;
 export const ORDERED_SECTION_ACTION_SLOTS = {
   section: 1,
   compression: COMPRESSION_REQUEST.squeezes.length,
-  // One structured call: its answer and at most one structured retry.
+  // Its answer and at most one more request: the structured retry, or in
+  // Summary mode (single attempts) the one follow-up for missing labels.
   selfCheck: 2,
   repair: 1,
   repairCompression: COMPRESSION_REQUEST.squeezes.length,

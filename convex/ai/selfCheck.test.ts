@@ -1715,6 +1715,37 @@ describe("deterministic Self-check rules", () => {
         finalText: "The coating held its transmission.",
       }).rows.find((row) => row.instruction === "Storyline");
     expect(modelRow(false)).toMatchObject({ repaired: true });
+    // "Not checked" rows (2026-09-28) are never repaired, so never shortened.
+    const notCheckedRow = assembleSectionNotes({
+      section: "246",
+      before,
+      after: before,
+      verdicts: [{ check: "storyline", instruction: "Storyline", outcome: "not_applied", reason: "Not checked.", notChecked: true }],
+      modelCheck: { ok: true },
+      storylineQuestion: null,
+      repair: { attempted: true, succeeded: true, shortened: true },
+      finalText: "The coating held its transmission.",
+    }).rows.find((row) => row.instruction === "Storyline");
+    expect(notCheckedRow).toMatchObject({ reason: "Not checked.", repaired: false });
+    const notCheckedPlan = planComplianceNoteDrafts({
+      section: "246",
+      summaryVersionId,
+      checks: [{
+        itemId: item,
+        roleId: "specific_advancements",
+        mergedItemIds: [item],
+        instruction: "cover",
+        confirmedExclusion: false,
+        wording: ["The coating held 87 percent transmission after 38 days."],
+        relationshipReferences: [],
+        sourceReferences: [],
+      }],
+      verdicts: [{ itemId: item, mergedItemIds: [item], outcome: "not_applied", reason: "Not checked.", actionableRepair: false }],
+      repairSucceeded: true,
+      repairShortened: true,
+      coverageCheckSucceeded: true,
+    });
+    expect(notCheckedPlan[0]).toMatchObject({ reason: "Not checked.", repaired: false });
     expect(modelRow(true)).toMatchObject({
       repaired: false,
       reason: "Drifts.; repaired, then shortened to fit the Line limit, so not re-verified",
