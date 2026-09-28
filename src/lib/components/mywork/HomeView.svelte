@@ -126,10 +126,12 @@
     data-work-panel
     class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-[10px] border border-line bg-surface"
   >
-    <div class="flex flex-1 flex-col gap-10 px-4 pb-6 pt-5 sm:px-6 xl:flex-row xl:gap-8">
-      <!-- A1, A4: the tables keep the board's 752px from 1280px up, so
-           collapsing the rail shifts Home left instead of widening it. -->
-      <div data-home-tables class="min-w-0 flex-1 xl:max-w-[752px]">
+    <!-- Owner direction 2026-09-28 (overrides the A1, A4 fixed 752px): the
+         tables take every pixel the window gives them, Continue working
+         keeps its 384px column at the panel's right edge, and the sides use
+         the shared page gutter, so nothing is stranded on a wide screen. -->
+    <div class="flex flex-1 flex-col gap-10 page-gutter pb-6 pt-5 xl:flex-row xl:gap-8">
+      <div data-home-tables class="min-w-0 flex-1">
         <HomeProjectTable
           id="home-with-you"
           label="With you"

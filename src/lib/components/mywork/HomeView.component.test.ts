@@ -313,20 +313,34 @@ describe("Home", () => {
     expect(table("home-with-you").querySelector<HTMLElement>("[data-home-column-header]")!.getBoundingClientRect().height).toBe(36);
   });
 
-  it("keeps the board widths when the panel grows, so a collapsed rail shifts Home left (A4)", async () => {
+  it.each([
+    [1440, 900],
+    [1920, 1080],
+    [2560, 1440],
+  ])("grows the tables with a %ipx window and keeps Continue working at the right edge (owner, 2026-09-28)", async (width, height) => {
     seed();
     __setPaginatedRows("myWork:listAssignedToMe", [assigned("a")]);
     __setQueryData("myWork:listRecentProjects", [live("r1")]);
     __setQueryData("myWork:getContinueWorking", summary("r1"));
-    // No rail in this mount: the panel is as wide as a collapsed-rail Home.
     await mount([{ id: "proj-r1", title: "Project r1", openedAt: Date.now() - 12 * MINUTE }]);
+    await browserPage.viewport(width, height);
 
     await expect.poll(() => document.querySelector("[data-home-continue-card]")).not.toBeNull();
+    const panel = document.querySelector<HTMLElement>("[data-home-panel]")!.getBoundingClientRect();
     const tables = document.querySelector<HTMLElement>("[data-home-tables]")!.getBoundingClientRect();
-    expect(Math.round(tables.width)).toBe(752);
     const column = document.querySelector<HTMLElement>("[data-home-continue]")!.parentElement!.getBoundingClientRect();
+    // Sides come from the shared --page-gutter token (2.25rem from 1024px up).
+    const gutter = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--page-gutter")) * 16;
+    expect(gutter).toBe(36);
+    expect(Math.round(tables.left - panel.left)).toBe(gutter + 1);
+    expect(Math.round(panel.right - column.right)).toBe(gutter + 1);
+    // Tables fill everything between the gutter and the fixed right column.
     expect(Math.round(column.left - tables.right)).toBe(32);
     expect(Math.round(column.width)).toBe(384);
+    expect(Math.round(tables.width)).toBe(Math.round(panel.width) - 2 - 2 * gutter - 32 - 384);
+    // The rows stretch with their table.
+    const withYou = table("home-with-you").querySelector("table")!.getBoundingClientRect();
+    expect(Math.round(withYou.width)).toBe(Math.round(tables.width));
   });
 
   it("shows no second table and reads no workspace projects without local history (decision 55)", async () => {

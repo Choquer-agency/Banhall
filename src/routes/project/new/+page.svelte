@@ -2546,12 +2546,15 @@
             </nav>
             {/if}
 
+            <!-- The form keeps its E1 854px measure; from 1536px up it centres
+                 in the space left of the side panel instead of hugging the
+                 left edge with a strip of empty panel beside it. -->
             <div
               bind:this={formColumn}
               data-form-column
               class={`flex w-full flex-col ${
                 layout === "desktop"
-                  ? "max-w-[854px] gap-[22px] px-10 py-6"
+                  ? "max-w-[854px] gap-[22px] px-10 py-6 2xl:mx-auto"
                   : layout === "tablet"
                     ? "gap-[22px] px-8 pt-7 pb-7"
                     : "gap-[18px] px-4 pt-[18px] pb-6"

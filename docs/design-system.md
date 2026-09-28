@@ -1074,6 +1074,21 @@ The owner asked for the round 2 screens to match the Paper boards exactly.
   28px sans; its `rounded-sm`, `rounded-md` and `rounded-card` are 6, 8 and
   12px. Translate by value: the app's utilities with the same names differ.
 
+### 2026-09-28 amendment - wide screens (owner direction)
+
+The owner reviewed the app on a 27 inch (2560px) screen. This overrides the
+fixed board widths where they left content stranded.
+
+- **Use the width.** Round 2 pages fill their work panel. Tables, lists and
+  dashboards grow with the window; only long prose keeps a reading width
+  (`max-w-3xl`, for example the What's new entries and admin explanations).
+- **Home.** The tables take all the width left of "Continue working", which
+  keeps its 384px column at the panel's right edge. The panel's sides use
+  `page-gutter`. The A1 and A4 fixed 752px tables are retired.
+- **Forms with a side panel.** A form that keeps a measure (New project's
+  854px column) centres in its space from `2xl` up instead of hugging the
+  left edge.
+
 ## Panel motion (2026-08-10)
 
 Floating panels animate with a shadcn-style **pop** (owner direction,

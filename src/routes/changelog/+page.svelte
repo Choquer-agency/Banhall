@@ -170,7 +170,8 @@
                     {/if}
                   </span>
                 </div>
-                <div class="chat-markdown mt-3 text-sm leading-relaxed text-ink-secondary">
+                <!-- Long prose keeps a reading measure while the card runs the panel's full width. -->
+                <div class="chat-markdown mt-3 max-w-3xl text-sm leading-relaxed text-ink-secondary">
                   <Streamdown content={entry.body} />
                 </div>
               </article>
