@@ -127,6 +127,12 @@ export type SelfCheckSummary = {
    */
   modelCheckDetail?: string;
   /**
+   * Why the coverage-only Self-check of the final text failed as a whole
+   * (2026-09-28, run 4): the same diagnostic as modelCheckDetail. Never
+   * model text.
+   */
+  finalCoverageCheckDetail?: string;
+  /**
    * Why the Summary Self-check's Storyline question was withheld: the fields
    * that needed clipping, with byte counts. Never model text.
    */

@@ -217,6 +217,26 @@ export const FINAL_COVERAGE_NOT_CHECKED_REASON =
 
 type PlanVerdicts = ModelSelfCheckResult["planVerdicts"];
 
+/**
+ * The Compliance Note row for a final coverage check that failed as a whole,
+ * worded like the "Model Self-check" row: the failure kind and the stored
+ * diagnostic, never model text (2026-09-28, run 4).
+ */
+export function finalCoverageFailureNoteDraft(
+  section: SectionNumber,
+  reason: string,
+  detail: string
+): ComplianceNoteDraft {
+  return noteDraft({
+    section,
+    source: "deterministic",
+    instruction: "Final coverage Self-check",
+    outcome: "not_applied",
+    tier: "none",
+    reason: `Final coverage Self-check failed (${reason}${detail ? `: ${detail}` : ""}); plan rows not checked on the final text`,
+  });
+}
+
 function planVerdictFor(
   verdicts: PlanVerdicts,
   check: Pick<PlanCheck, "itemId" | "skippedRoleId">
@@ -679,7 +699,10 @@ export async function draftCheckedSection(input: {
   // saw, a coverage-only Self-check on the frozen checking model checks the
   // final text; nothing changes the text after it. Unchanged text makes no
   // call, and a first check that failed as a whole stays unavailable.
-  let finalCoverage: { ok: true; verdicts: PlanVerdicts } | { ok: false } | undefined;
+  let finalCoverage:
+    | { ok: true; verdicts: PlanVerdicts }
+    | { ok: false; reason: string; detail: string }
+    | undefined;
   if (
     payload.summaryVersionId &&
     claim.planChecks.length > 0 &&
@@ -701,10 +724,14 @@ export async function draftCheckedSection(input: {
         ),
       };
     } catch (error) {
+      // Stored beside modelCheckDetail with the same diagnostic: the clause,
+      // positions, byte counts and app-supplied ids, never model text.
+      const reason = normalizeProviderError(error).code;
+      const detail = selfCheckFailureDiagnostic(error);
       console.warn(
-        `generation:selfCheck:${section}: final coverage Self-check failed (${normalizeProviderError(error).code}): ${selfCheckFailureDiagnostic(error)}`
+        `generation:selfCheck:${section}: final coverage Self-check failed (${reason}): ${detail}`
       );
-      finalCoverage = { ok: false };
+      finalCoverage = { ok: false, reason, detail };
     }
   }
 
@@ -747,6 +774,9 @@ export async function draftCheckedSection(input: {
       ...(finalCoverage ? { finalCoverage } : {}),
     });
     rows.push(...planRows);
+    if (finalCoverage && !finalCoverage.ok) {
+      rows.push(finalCoverageFailureNoteDraft(section, finalCoverage.reason, finalCoverage.detail));
+    }
     rows.push(...leftOutQuoteNoteDrafts({ section, checks: claim.planChecks }));
   }
   const initialPlanFailures = planVerdicts.filter((verdict) => {
@@ -764,6 +794,9 @@ export async function draftCheckedSection(input: {
     ...baseSummary,
     failedChecks: baseSummary.failedChecks + initialPlanFailures,
     remainingFailures: baseSummary.remainingFailures + finalPlanFailures,
+    ...(finalCoverage && !finalCoverage.ok
+      ? { finalCoverageCheckDetail: finalCoverage.detail }
+      : {}),
     ...(payload.summaryVersionId
       ? {
           planCoverage: {

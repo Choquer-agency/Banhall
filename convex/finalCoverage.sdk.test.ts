@@ -345,6 +345,8 @@ describe("coverage is checked on the final text (real SDK, fetch stubbed)", () =
     expect(rowFor(result, "prior_year_status")).toMatchObject({ outcome: "applied", repaired: false });
     expect(rowFor(result, "prior_year_status").paragraphIndex).toBeUndefined();
     expect(result.notes.some((note) => note.reason.includes("not reverified"))).toBe(false);
+    expect(JSON.parse(result.selfCheck)).not.toHaveProperty("finalCoverageCheckDetail");
+    expect(result.notes.some((note) => note.instruction === "Final coverage Self-check")).toBe(false);
     expect(JSON.parse(result.selfCheck)).toMatchObject({
       planCoverage: { status: "complete", applied: 3, total: 3 },
     });
@@ -430,8 +432,23 @@ describe("coverage is checked on the final text (real SDK, fetch stubbed)", () =
       expect(row.paragraphIndex).toBeUndefined();
     }
     // The first check itself ran, so the Section's Self-check stays ok.
-    expect(JSON.parse(result.selfCheck)).toMatchObject({
+    const summary = JSON.parse(result.selfCheck);
+    expect(summary).toMatchObject({
+      modelCheck: "ok",
       planCoverage: { status: "incomplete", applied: 0, total: 3 },
+    });
+    expect(summary).not.toHaveProperty("modelCheckDetail");
+    // Why it failed is stored beside modelCheckDetail and shown on its own
+    // row, like the Model Self-check row (2026-09-28, run 4).
+    const detail = "1 of 1 verdicts invalid; first plan verdict 1: itemId of 12 escaped bytes matches no plan check";
+    expect(summary.finalCoverageCheckDetail).toBe(detail);
+    expect(summary.finalCoverageCheckDetail).not.toContain("item-unknown");
+    expect(summary.finalCoverageCheckDetail).not.toContain("Covered.");
+    expect(result.notes.find((note) => note.instruction === "Final coverage Self-check")).toMatchObject({
+      source: "deterministic",
+      outcome: "not_applied",
+      tier: "none",
+      reason: `Final coverage Self-check failed (unknown: ${detail}); plan rows not checked on the final text`,
     });
   });
 

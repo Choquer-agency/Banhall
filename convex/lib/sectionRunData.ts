@@ -47,6 +47,10 @@ export const selfCheckSummaryValidator = v.object({
   // "request refused before the call: ...") only, never model text (plan
   // coverage, 2026-09-25).
   modelCheckDetail: v.optional(v.string()),
+  // Why the coverage-only Self-check of a repaired Section's final text
+  // failed as a whole: the same diagnostic and cap as modelCheckDetail,
+  // never model text (2026-09-28, run 4).
+  finalCoverageCheckDetail: v.optional(v.string()),
   // Why the Summary Self-check's Storyline question was withheld: field names
   // and byte counts only, never model text (2026-09-25).
   storylineQuestionWithheld: v.optional(v.string()),
@@ -183,6 +187,7 @@ const SELF_CHECK_KEYS = [
   "remainingFailures",
   "modelCheck",
   "modelCheckDetail",
+  "finalCoverageCheckDetail",
   "storylineQuestionWithheld",
   "planCoverage",
 ] as const;
@@ -196,6 +201,7 @@ export function toSelfCheckSummaryData(value: unknown): SelfCheckSummaryData | u
     remainingFailures,
     modelCheck,
     modelCheckDetail,
+    finalCoverageCheckDetail,
     storylineQuestionWithheld,
     planCoverage,
   } = value;
@@ -206,6 +212,7 @@ export function toSelfCheckSummaryData(value: unknown): SelfCheckSummaryData | u
     !isFiniteNumber(remainingFailures) ||
     (modelCheck !== "ok" && modelCheck !== "failed") ||
     (modelCheckDetail !== undefined && typeof modelCheckDetail !== "string") ||
+    (finalCoverageCheckDetail !== undefined && typeof finalCoverageCheckDetail !== "string") ||
     (storylineQuestionWithheld !== undefined && typeof storylineQuestionWithheld !== "string")
   ) {
     return undefined;
@@ -236,6 +243,7 @@ export function toSelfCheckSummaryData(value: unknown): SelfCheckSummaryData | u
     remainingFailures,
     modelCheck,
     ...(typeof modelCheckDetail === "string" ? { modelCheckDetail } : {}),
+    ...(typeof finalCoverageCheckDetail === "string" ? { finalCoverageCheckDetail } : {}),
     ...(typeof storylineQuestionWithheld === "string" ? { storylineQuestionWithheld } : {}),
     ...(coverage ? { planCoverage: coverage } : {}),
   };

@@ -127,6 +127,20 @@ describe("strict typed conversion", () => {
     expect(toSelfCheckSummaryData({ ...failed, modelCheckDetail: 5 })).toBeUndefined();
   });
 
+  it("keeps the final coverage check's failure detail in the typed copy (2026-09-28, run 4)", () => {
+    const failed = {
+      ...SELF_CHECK,
+      planCoverage: { status: "incomplete" as const, applied: 0, total: 5 },
+      finalCoverageCheckDetail:
+        "1 of 1 verdicts invalid; first plan verdict 1 (item item-a): mergedItemIds has 1 ids, expected [item-a, item-b] in that order",
+    };
+    expect(toSelfCheckSummaryData(failed)).toEqual(failed);
+    expect(sectionRunTypedFields({ selfCheck: JSON.stringify(failed) })).toEqual({ selfCheckData: failed });
+    expect(toSelfCheckSummaryData({ ...failed, finalCoverageCheckDetail: 5 })).toBeUndefined();
+    // Rows written before the field existed read as before.
+    expect(toSelfCheckSummaryData(SELF_CHECK)).not.toHaveProperty("finalCoverageCheckDetail");
+  });
+
   it("keeps the reason a Storyline question was withheld in the typed copy", () => {
     const withheld = {
       ...SELF_CHECK,

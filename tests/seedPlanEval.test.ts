@@ -762,6 +762,31 @@ describe("first contact fixes", () => {
     expect(partial.evidence).toBe('244: 1 label and 0 plan checks "Not checked" of 3');
   });
 
+  it("names a failed final coverage check in the Self-check evidence and the pack", () => {
+    const fixture = byCase("withdrawn_feedback");
+    const c = baseCollected();
+    c.summary!.items = [summaryItem("i1", "overall_advancement", "s1")];
+    const finalReason =
+      "Final coverage Self-check failed (unknown: 2 of 3 verdicts invalid; first plan verdict 1 (item i1): mergedItemIds has 1 ids, expected [i1, i2] in that order); plan rows not checked on the final text";
+    c.complianceNotes = [
+      { section: "246", paragraphIndex: null, source: "model", instruction: "Storyline", outcome: "applied", tier: "none", reason: "Matches the Storyline.", repaired: false, planRef: null },
+      cover("i1", "246", ["i1"], { outcome: "not_applied", reason: "Not checked: the plan coverage Self-check of the final text did not complete." }),
+      { section: "246", paragraphIndex: null, source: "deterministic", instruction: "Final coverage Self-check", outcome: "not_applied", tier: "none", reason: finalReason, repaired: false, planRef: null },
+    ];
+    const checks = runChecks(fixture, c, emptyRunLog(fixture.id, 0));
+    const ran = checks.find((item) => item.id === "self-check-ran")!;
+    // The first check ran; the final check's failure is named, not failed here.
+    expect(ran.status).toBe("pass");
+    expect(ran.evidence).toContain(`246: "Final coverage Self-check failed (unknown: 2 of 3 verdicts invalid`);
+    expect(ran.evidence).toContain("mergedItemIds has 1 ids, expected [i1, i2] in that order");
+    expect(checks.find((item) => item.id === "coverage-applied")?.status).toBe("fail");
+    const text = renderFixturePack({ fixture, log: emptyRunLog(fixture.id, 0), collected: c, checks }, {
+      date: "2026-09-28", deployment: "local", commit: "abc1234", reviewer: "reviewer@example.com",
+    });
+    expect(text).toContain("Final coverage Self-check failed (unknown: 2 of 3 verdicts invalid");
+    expect(DASHES.test(text)).toBe(false);
+  });
+
   it("re-renders an earlier results.json with the current checks and no deployment", () => {
     expect(deploymentRefusal(parseArgs(["--render", "results.json"]), { CONVEX_DEPLOY_KEY: "x" })).toBeNull();
     expect(() => parseArgs(["--render", "a.json", "--cleanup"])).toThrow(/cannot be combined/);

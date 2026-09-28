@@ -1513,6 +1513,10 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
   // checked" on its own row; a Section where every one is not checked did
   // not run the check in any useful sense either.
   const selfCheckFailures = c.complianceNotes.filter((note) => note.instruction === "Model Self-check" && note.outcome !== "applied");
+  // 2026-09-28 (run 4): the coverage-only check of a repaired Section's final
+  // text records why it failed on its own row. The first check did run, so it
+  // is named here without failing this check; its plan rows are "Not checked".
+  const finalCoverageFailures = c.complianceNotes.filter((note) => note.instruction === "Final coverage Self-check" && note.outcome !== "applied");
   const notChecked = notCheckedCounts(c);
   const nothingChecked = notChecked.filter((row) => row.total > 0 && row.labels + row.planChecks === row.total);
   const partlyChecked = notChecked.filter((row) => row.labels + row.planChecks > 0 && !nothingChecked.includes(row));
@@ -1525,6 +1529,7 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
         ...selfCheckFailures.map((note) => `${note.section}: ${quote(note.reason, 120)}`),
         ...nothingChecked.map((row) => `${row.section}: every label and plan check is "Not checked" (${row.total})`),
         ...partlyChecked.map((row) => `${row.section}: ${notCheckedText(row)}`),
+        ...finalCoverageFailures.map((note) => `${note.section}: ${quote(note.reason, 240)}`),
       ].join("; ") || "no Self-check failure recorded",
     ),
   );

@@ -4494,6 +4494,66 @@ describe("seed Summary sign-off and recovery", () => {
     expect(calls244.filter(isFinalCoverageRequest)).toHaveLength(finalChecks);
   });
 
+  it("stores why the final coverage check failed beside modelCheckDetail and on its own row", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    configureSummaryActionProvider({
+      draftText: "Final specific_advancements wording. Exact checked bytes.",
+      repairText: "Final specific_advancements wording. The final bytes changed.",
+    });
+    const answerFirstCheck = network.create.getMockImplementation()!;
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (!isFinalCoverageRequest(params)) return await answerFirstCheck(params);
+      // The final answer's only verdict names an item nobody supplied.
+      return {
+        content: [{
+          type: "tool_use",
+          id: "failed-final-coverage",
+          name: params.tool_choice!.name,
+          input: {
+            verdicts: [],
+            planVerdicts: [{ itemId: "not-a-signed-off-item", mergedItemIds: [], paragraph: 1, outcome: "applied", reason: "Covered." }],
+          },
+        }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+    await runNextSectionAction(s, s.generationId);
+    const requests = network.create.mock.calls.map(([params]) => params as GenerationMessageParams);
+    expect(requests.filter(isFinalCoverageRequest)).toHaveLength(1);
+    const state = await s.t.run(async (ctx) => ({
+      rows: await ctx.db.query("complianceNotes")
+        .withIndex("by_generationId_and_section", (q) =>
+          q.eq("generationId", s.generationId).eq("section", "246"))
+        .take(40),
+      run: (await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(4)).find((row) => row.section === "s246"),
+    }));
+    const detail = "1 of 1 verdicts invalid; first plan verdict 1: itemId of 21 escaped bytes matches no plan check";
+    // The typed copy on the Section run row carries it (schema-validated).
+    expect(state.run?.selfCheckData).toMatchObject({
+      modelCheck: "ok",
+      finalCoverageCheckDetail: detail,
+      planCoverage: { status: "incomplete" },
+    });
+    expect(state.run?.selfCheckData).not.toHaveProperty("modelCheckDetail");
+    expect(JSON.parse(state.run?.selfCheck ?? "{}").finalCoverageCheckDetail).toBe(detail);
+    expect(state.rows.find((row) => row.instruction === "Final coverage Self-check")).toMatchObject({
+      source: "deterministic",
+      outcome: "not_applied",
+      reason: `Final coverage Self-check failed (unknown: ${detail}); plan rows not checked on the final text`,
+    });
+    for (const row of state.rows) expect(row.reason).not.toContain("not-a-signed-off-item");
+    expect(state.rows.filter((row) => row.planRef && row.tier !== "conflict").every((row) =>
+      row.reason === "Not checked: the plan coverage Self-check of the final text did not complete."
+    )).toBe(true);
+  });
+
   it("exposes complete plan coverage only when every final durable plan row is applied", async () => {
     const s = await decisionFixture();
     await makeReady(s);
