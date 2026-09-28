@@ -240,6 +240,7 @@ import type * as reviewFromProject from "../reviewFromProject.js";
 import type * as reviews from "../reviews.js";
 import type * as scienceCodeSuggestions from "../scienceCodeSuggestions.js";
 import type * as seed from "../seed.js";
+import type * as seedPlanEval from "../seedPlanEval.js";
 import type * as seedRuns from "../seedRuns.js";
 import type * as seeds from "../seeds.js";
 import type * as snapshots from "../snapshots.js";
@@ -493,6 +494,7 @@ declare const fullApi: ApiFromModules<{
   reviews: typeof reviews;
   scienceCodeSuggestions: typeof scienceCodeSuggestions;
   seed: typeof seed;
+  seedPlanEval: typeof seedPlanEval;
   seedRuns: typeof seedRuns;
   seeds: typeof seeds;
   snapshots: typeof snapshots;
