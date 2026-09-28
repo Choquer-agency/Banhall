@@ -172,8 +172,8 @@ function hostSubsection(shownBatchId: string | null = null) {
   };
 }
 
-function seedHostQueries() {
-  __setQueryData("projects:getProject", {
+function projectFixture() {
+  return {
     _id: "project-seed-host",
     title: "Adaptive controller",
     sredTitle: "Adaptive control under load",
@@ -194,7 +194,11 @@ function seedHostQueries() {
     updatedAt: 1,
     shareToken: "seed-host-token",
     activeGenerationId: "generation-seed-host",
-  });
+  };
+}
+
+function seedHostQueries() {
+  __setQueryData("projects:getProject", projectFixture());
   __setQueryData("projects:getProjectEditAccess", { canEditDetails: true });
   __setQueryData("users:getCurrentUser", {
     _id: "writer-1",
@@ -604,10 +608,12 @@ describe("Seed project hosts", () => {
     expect(document.body.textContent).not.toContain("Completed Seed report.");
   });
 
-  it.each([
+  const HOSTS = [
     ["current", CurrentProjectPage],
     ["preview", PreviewProjectPage],
-  ] as const)("lists the shared modes, Step by step first, in the %s host's selector (story 8)", async (_host, Page) => {
+  ] as const;
+
+  function oneTranscript() {
     __setQueryData("generations:getLatestGeneration", null);
     __setQueryData("transcripts:listTranscripts", [{
       _id: "transcript-seed-host",
@@ -617,12 +623,86 @@ describe("Seed project hosts", () => {
       charCount: 72,
       wordCount: 11,
     }]);
+  }
+
+  const modeRadios = (group: Element) => [...group.querySelectorAll<HTMLElement>('[role="radio"]')];
+
+  it.each(HOSTS)("lists the shared modes, Step by step first and selected, in the %s host's selector (story 8)", async (_host, Page) => {
+    oneTranscript();
     await render(Page, {});
     const group = await browserPage.getByRole("radiogroup", { name: "Draft generation mode" }).element();
-    const radios = [...group.querySelectorAll('[role="radio"]')];
+    const radios = modeRadios(group);
     expect(radios.map((radio) => radio.textContent?.trim())).toEqual(GENERATION_MODES.map((mode) => mode.label));
     expect(radios.map((radio) => radio.textContent?.trim())).toEqual(["Step by step", "Single draft", "Compare two drafts"]);
+    expect(radios.map((radio) => radio.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
+    expect(group.textContent).not.toContain("Recommended");
+
+    await browserPage.getByRole("button", { name: "Generate Report", exact: true }).click();
+    expect(__mutationCalls("generations:requestGeneration")).toEqual([{
+      projectId: "project-seed-host",
+      lengthTarget: "standard",
+      candidateMode: "iterative",
+    }]);
   });
+
+  it.each(HOSTS)("keeps a Review PD project's comparison draft in Compare in the %s host (story 8)", async (_host, Page) => {
+    oneTranscript();
+    __setQueryData("projects:getProject", { ...projectFixture(), mode: "review" });
+    await render(Page, {});
+    await expect.element(browserPage.getByRole("button", { name: "Generate Report", exact: true })).toBeVisible();
+    expect(document.querySelector('[role="radiogroup"][aria-label="Draft generation mode"]')).toBeNull();
+    await browserPage.getByRole("button", { name: "Generate Report", exact: true }).click();
+    expect(__mutationCalls("generations:requestGeneration")).toEqual([{
+      projectId: "project-seed-host",
+      lengthTarget: "standard",
+      candidateMode: "compare",
+    }]);
+  });
+
+  /** Labels whose text leaves its button, or a button or group cut off by the viewport or a clipping ancestor. */
+  function clippedModeLabels(group: HTMLElement): string[] {
+    const within = (inner: DOMRect, outer: DOMRect) =>
+      inner.left >= outer.left - 0.5 && inner.right <= outer.right + 0.5 &&
+      inner.top >= outer.top - 0.5 && inner.bottom <= outer.bottom + 0.5;
+    // Horizontal bounds only: a vertical scroller may hold the group below its fold.
+    const clippers: Array<{ left: number; right: number }> = [{ left: 0, right: window.innerWidth }];
+    for (let node = group.parentElement; node; node = node.parentElement) {
+      if (node === document.documentElement || node === document.body) continue;
+      if (getComputedStyle(node).overflowX !== "visible") clippers.push(node.getBoundingClientRect());
+    }
+    const insideClip = (box: DOMRect, clip: { left: number; right: number }) =>
+      box.left >= clip.left - 0.5 && box.right <= clip.right + 0.5;
+    return modeRadios(group).flatMap((radio) => {
+      const box = radio.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(radio);
+      const text = range.getBoundingClientRect();
+      const clipped =
+        radio.scrollWidth > radio.clientWidth ||
+        radio.scrollHeight > radio.clientHeight ||
+        !within(text, box) ||
+        !within(box, group.getBoundingClientRect()) ||
+        clippers.some((clip) => !insideClip(box, clip));
+      return clipped ? [radio.textContent?.trim() ?? ""] : [];
+    });
+  }
+
+  it.each(HOSTS.flatMap(([host, Page]) => [1024, 390].map((width) => [host, width, Page] as const)))(
+    "fits every mode label in the %s host's compact selector at %ipx (story 8)",
+    async (host, width, Page) => {
+      await browserPage.viewport(width, 900);
+      oneTranscript();
+      await render(Page, {});
+      const locator = browserPage.getByRole("radiogroup", { name: "Draft generation mode" });
+      const group = (await locator.element()) as HTMLElement;
+      group.scrollIntoView({ block: "center" });
+      await expect.element(locator).toBeVisible();
+      expect(modeRadios(group)).toHaveLength(3);
+      expect(clippedModeLabels(group)).toEqual([]);
+      await browserPage.screenshot({ path: `../../../../.vitest-attachments/story-8/${host}-${width}.png` });
+      await locator.screenshot({ path: `../../../../.vitest-attachments/story-8/${host}-${width}-selector.png` });
+    },
+  );
 
   it("requests an iterative run and follows the mounted host through initialization into Seeds", async () => {
     __setQueryData("generations:getLatestGeneration", null);

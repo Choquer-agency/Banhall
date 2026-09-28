@@ -982,7 +982,11 @@
   // string (not the literal union) so it can bind:value into SelectInput;
   // the items list gates the values. Cast where the mutation needs the union.
   let lengthTarget = $state<string>("standard");
-  let candidateMode = $state<GenerationModeId>("compare");
+  // Story 8: the selector starts on the first, recommended mode (Step by
+  // step). A Review PD project hides the selector and has always drafted
+  // its comparison PD in Compare, so it still sends Compare.
+  let candidateMode = $state<GenerationModeId>(GENERATION_MODES[0].id);
+  const requestMode = $derived<GenerationModeId>(project?.mode === "review" ? "compare" : candidateMode);
   let singleModelId = $state<string>("");
   // Model catalog: the random compare fill draws from the selectable set.
   const modelCapabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
@@ -1016,11 +1020,11 @@
       await generateReport({
         projectId,
         lengthTarget: lengthTarget as "concise" | "standard" | "full",
-        candidateMode,
-        ...(candidateMode !== "compare" && singleModelId
+        candidateMode: requestMode,
+        ...(requestMode !== "compare" && singleModelId
           ? { singleModelId }
           : {}),
-        ...(candidateMode === "compare"
+        ...(requestMode === "compare"
           ? (() => {
               const pair = comparePairFromSlots(
                 compareSlotA,
@@ -2979,10 +2983,10 @@
                 This project already has a generated test
               </h3>
               <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
-                {#if candidateMode === "single"}
+                {#if requestMode === "single"}
                   Re-running generates one fresh draft and adds it directly as a
                   new report version.
-                {:else if candidateMode === "iterative"}
+                {:else if requestMode === "iterative"}
                   Re-running plans the report idea by idea. You sign off the plan,
                   then it is drafted and added as a new report version.
                 {:else}
