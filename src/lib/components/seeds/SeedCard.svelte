@@ -311,6 +311,30 @@
     }
   }
 
+  // Owner, 2026-09-28: a click anywhere on the card body toggles it like the
+  // checkbox, which stays the one accessible control and tab stop. Clicks on
+  // anything interactive inside (tools, quotes and their hover card, links,
+  // fields, the feedback box) keep their own behaviour, as does a drag that
+  // selects text.
+  const cardToggles = $derived(canEdit && !busy && !editing);
+  const OWN_BEHAVIOUR =
+    'button, a, input, textarea, select, label, [role="button"], [role="checkbox"], [role="menuitem"], [contenteditable], [data-seed-quote], [data-seed-feedback-box], [data-seed-footer]';
+  function toggleFromCard(event: MouseEvent) {
+    if (!cardToggles || event.defaultPrevented || event.button !== 0) return;
+    const target = event.target;
+    if (!(target instanceof Element) || target.closest(OWN_BEHAVIOUR)) return;
+    const selection = window.getSelection();
+    const cardBody = event.currentTarget instanceof Node ? event.currentTarget : null;
+    if (
+      selection &&
+      selection.rangeCount > 0 &&
+      !selection.isCollapsed &&
+      cardBody &&
+      (cardBody.contains(selection.anchorNode) || cardBody.contains(selection.focusNode))
+    ) return;
+    void onSelect(!item.selected);
+  }
+
   // Card tools (board 3.1): 28px tiles, 14px strokes in secondary ink.
   const tile =
     "inline-flex size-7 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11";
@@ -552,11 +576,16 @@
   <!-- The card's own body, and its hover group: revised seeds sit outside
        it, so hovering or focusing one never reveals this card's tools, and
        the reverse. A card beside it in the same row may stretch it. -->
+  <!-- The body's click is a pointer shortcut for the checkbox, which keeps
+       the keyboard and screen reader contract; the body is not a control. -->
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div
     class={`group/seed flex flex-1 flex-col ${
       nested ? `px-3 pt-2.5 ${below ? "pb-2" : "pb-2.5"}` : `px-4 pt-3.5 ${below ? "pb-3" : "pb-3.5"}`
-    }`}
+    } ${cardToggles ? "cursor-pointer" : ""}`}
     data-seed-body
+    data-card-toggles={cardToggles || undefined}
+    onclick={toggleFromCard}
   >
   <div class={`flex items-start ${nested ? "gap-2.5" : "gap-3"}`}>
     <div class="pt-0.5">
@@ -656,7 +685,7 @@
       {/if}
 
       {#if feedback && canEdit}
-        <div class="mt-1 rounded-lg border border-line-soft bg-canvas p-3">
+        <div class="mt-1 cursor-auto rounded-lg border border-line-soft bg-canvas p-3" data-seed-feedback-box>
           <textarea
             bind:this={feedbackField}
             aria-label="Tell it what to change"

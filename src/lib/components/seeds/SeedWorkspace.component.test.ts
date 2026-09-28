@@ -4288,3 +4288,109 @@ describe("snappy ticks (owner, 2026-09-28)", () => {
     expect(readPending()).toBeNull();
   });
 });
+
+describe("click anywhere on a card (owner, 2026-09-28)", () => {
+  function cardProps(overrides: Record<string, unknown> = {}) {
+    return {
+      generationId: String(generationId),
+      roleId: "company_context",
+      seedStageVersion: 7,
+      item: seed({ selected: false, bullets: ["Measured output remained stable. Tests covered three load bands."] }),
+      canEdit: true,
+      onSelect: vi.fn(async () => true),
+      onEdit: vi.fn(async () => false),
+      onRestore: vi.fn(async () => true),
+      onFeedback: vi.fn(async () => false),
+      onDraftChange: vi.fn(),
+      ...overrides,
+    };
+  }
+  const body = () => document.querySelector<HTMLElement>("[data-seed-body]")!;
+  const plainText = () => [...document.querySelectorAll<HTMLElement>("[data-seed-body] li span")].find((span) => span.textContent?.includes("Tests covered"))!;
+
+  it("toggles from the card body like the checkbox, which stays the one control and tab stop", async () => {
+    const props = cardProps();
+    await render(SeedCard, props);
+    await page.elementLocator(body()).click({ position: { x: 200, y: 8 } });
+    expect(props.onSelect).toHaveBeenCalledTimes(1);
+    expect(props.onSelect).toHaveBeenLastCalledWith(true);
+
+    // The checkbox still toggles once, not twice through the card.
+    await page.getByRole("checkbox", { name: "Select seed", exact: true }).click();
+    expect(props.onSelect).toHaveBeenCalledTimes(2);
+
+    // Keyboard and screen readers: only the checkbox is a control.
+    expect(body().hasAttribute("tabindex")).toBe(false);
+    expect(body().getAttribute("role")).toBeNull();
+    (page.getByRole("checkbox", { name: "Select seed", exact: true }).element() as HTMLElement).focus();
+    await userEvent.keyboard(" ");
+    expect(props.onSelect).toHaveBeenCalledTimes(3);
+  });
+
+  it("toggles a selected card off from its body", async () => {
+    const props = cardProps({ item: seed({ selected: true, bullets: ["Measured output remained stable. Tests covered three load bands."] }) });
+    await render(SeedCard, props);
+    plainText().click();
+    expect(props.onSelect).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps the behaviour of tools, quotes and text selection inside the card", async () => {
+    const props = cardProps();
+    await render(SeedCard, props);
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect.element(page.getByRole("textbox", { name: "Bullet 1" })).toBeVisible();
+    // While editing, the body does nothing.
+    body().click();
+    await page.getByRole("button", { name: "Cancel editing", exact: true }).click();
+    await page.getByRole("button", { name: "Give feedback", exact: true }).click();
+    await expect.element(page.getByRole("menuitem", { name: "Shorter", exact: true })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    const quote = document.querySelector<HTMLElement>("[data-exact-quote]");
+    expect(quote).not.toBeNull();
+    await page.elementLocator(quote!).click();
+    await expect.poll(() => document.querySelector("[data-quote-card]")).not.toBeNull();
+    (document.querySelector("[data-quote-card]") as HTMLElement).click();
+    expect(props.onSelect).not.toHaveBeenCalled();
+
+    // A drag that selects text is not a click on the card.
+    const range = document.createRange();
+    range.selectNodeContents(plainText());
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    plainText().click();
+    expect(props.onSelect).not.toHaveBeenCalled();
+    window.getSelection()!.removeAllRanges();
+    plainText().click();
+    expect(props.onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not toggle for a reader or while the card's decisions are unavailable", async () => {
+    const reader = cardProps({ canEdit: false });
+    const view = await render(SeedCard, reader);
+    expect(body().dataset.cardToggles).toBeUndefined();
+    expect(body().className).not.toContain("cursor-pointer");
+    plainText().click();
+    expect(reader.onSelect).not.toHaveBeenCalled();
+    view.unmount();
+    document.body.innerHTML = "";
+
+    const waiting = cardProps({ busy: true });
+    await render(SeedCard, waiting);
+    plainText().click();
+    expect(waiting.onSelect).not.toHaveBeenCalled();
+  });
+
+  it("toggles a card in the workspace with the same instant pick as its checkbox", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({ items: [seed({ selected: false })] }));
+    __setMutationResult("seeds:select", new Promise(() => {}));
+    await render(SeedWorkspace, workspaceProps());
+    await expect.element(page.getByRole("checkbox", { name: "Select seed", exact: true })).toBeEnabled();
+    const card = document.querySelector<HTMLElement>('[data-seed-id="seed-1"]')!;
+    card.querySelector<HTMLElement>("[data-seed-body] li span")!.click();
+    await expect.poll(() => card.dataset.selected).toBe("true");
+    expect(__mutationCalls("seeds:select")).toEqual([
+      { generationId, roleId: "company_context", seedId: "seed-1", selected: true, expectedSeedStageVersion: 7 },
+    ]);
+  });
+});
