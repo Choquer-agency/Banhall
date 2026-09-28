@@ -517,3 +517,92 @@ describe("coverage is checked on the final text (real SDK, fetch stubbed)", () =
     }
   });
 });
+
+// Release suite run 6 (withdrawn-feedback, Line 246): the first check's
+// answer sent planVerdicts as a string, so the whole check failed ("Self-check
+// call failed (unknown: response failed validation: planVerdicts
+// invalid_type)") and every plan row read "did not complete". Now the list is
+// read as empty and its plan checks asked for once, in the first check and in
+// the final coverage check alike (2026-09-28, fifth).
+describe("a plan verdict list sent as a string is asked for again (real SDK, fetch stubbed)", () => {
+  const asString = (answers: PlanAnswer[]) => ({ raw: { verdicts: [], planVerdicts: JSON.stringify(answers) } });
+
+  it("the first check asks once for every plan check and records the follow-up's verdicts", async () => {
+    const sent = installFetch({
+      checks: [
+        asString([skipHonoured, workplanCovered(1), hypothesisCovered(2)]),
+        [skipHonoured, workplanCovered(1), hypothesisCovered(2)],
+      ],
+    });
+    const result = await draft();
+
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "selfCheck"]);
+    expect(sent[2]!.user).toContain(
+      "Return exactly 3 planVerdicts, one for each plan check below:\n" +
+        `- skippedRoleId prior_year_status\n- itemId ${ITEM_WORKPLAN}\n- itemId ${ITEM_HYPOTHESIS}`
+    );
+    expect(planRows(result).every((row) => row.outcome === "applied")).toBe(true);
+    const summary = JSON.parse(result.selfCheck);
+    expect(summary).toMatchObject({ modelCheck: "ok", planCoverage: { status: "complete", applied: 3, total: 3 } });
+    expect(summary).not.toHaveProperty("modelCheckDetail");
+    expect(result.notes.some((note) => note.reason.includes("did not complete"))).toBe(false);
+  });
+
+  it("the run 6 shape: a follow-up that sends a string again leaves each plan row not checked, and the check still ran", async () => {
+    const answers = [skipHonoured, workplanCovered(1), hypothesisCovered(2)];
+    const sent = installFetch({ checks: [asString(answers), asString(answers)] });
+    const result = await draft();
+
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "selfCheck"]);
+    expect(rowFor(result, ITEM_HYPOTHESIS)).toMatchObject({
+      outcome: "not_applied",
+      reason: PLAN_ITEM_NOT_CHECKED_REASON,
+    });
+    expect(rowFor(result, "prior_year_status").reason).toMatch(/^Not checked: /);
+    const summary = JSON.parse(result.selfCheck);
+    expect(summary).toMatchObject({ modelCheck: "ok", planCoverage: { status: "incomplete", applied: 0, total: 3 } });
+    expect(result.notes.some((note) => note.reason.includes("did not complete"))).toBe(false);
+    // Not checked is never a prose defect: no repair.
+    expect(sent.some((request) => request.stage === "repair")).toBe(false);
+  });
+
+  it("the final coverage check asks once for every plan check and records the follow-up's verdicts", async () => {
+    const sent = installFetch({
+      repair: REPAIRED,
+      checks: [
+        [skipHonoured, workplanCovered(1), hypothesisMissing],
+        asString([skipHonoured, workplanCovered(1), hypothesisCovered(2)]),
+        [skipHonoured, workplanCovered(1), hypothesisCovered(2)],
+      ],
+    });
+    const result = await draft();
+
+    expect(sent.map((request) => request.stage)).toEqual([
+      "section",
+      "selfCheck",
+      "repair",
+      "finalCoverage",
+      "finalCoverage",
+    ]);
+    expect(schemaOf(sent[4]!).planVerdicts?.maxItems).toBe(3);
+    expect(result.draftText).toBe(REPAIRED);
+    expect(rowFor(result, ITEM_HYPOTHESIS)).toMatchObject({ outcome: "applied", paragraphIndex: 1, repaired: true });
+    const summary = JSON.parse(result.selfCheck);
+    expect(summary).toMatchObject({ planCoverage: { status: "complete", applied: 3, total: 3 } });
+    expect(summary).not.toHaveProperty("finalCoverageCheckDetail");
+  });
+
+  it("an answer with neither list still fails the whole check, and says why", async () => {
+    const sent = installFetch({
+      checks: [{ raw: { verdicts: "[]", planVerdicts: JSON.stringify([skipHonoured, workplanCovered(1)]) } }],
+    });
+    const result = await draft();
+
+    // One attempt: nothing in the answer could be read, so no follow-up.
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
+    const detail = "response failed validation: (root) neither verdicts nor planVerdicts is a list";
+    expect(JSON.parse(result.selfCheck)).toMatchObject({ modelCheckDetail: detail });
+    expect(planRows(result).every((row) =>
+      row.outcome === "not_applied" && row.reason === "The plan coverage Self-check did not complete.")).toBe(true);
+  });
+});

@@ -663,6 +663,10 @@ export const generationPromptProgram = {
         // plan check asked for in the follow-up; only an answer with more
         // invalid verdicts than valid ones is rejected whole.
         invalidVerdicts: "dropped-and-asked-for-unless-most-are-invalid",
+        // 2026-09-28 (fifth, run 6): a verdict list that is missing or not a
+        // list is read as empty and its checks asked for in the follow-up;
+        // an answer with neither list is still rejected whole.
+        unreadableLists: "read-as-empty-and-asked-for-unless-neither-is-a-list",
         // 2026-09-28 (second, edited terms): the Line's edited terms are
         // allowed word for word; an objection to one as invented is set aside.
         editedTerms: "allowed-word-for-word-invention-objections-set-aside",

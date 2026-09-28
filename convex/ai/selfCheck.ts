@@ -102,6 +102,11 @@ type RawSelfCheck = {
   malformed?: string[];
   /** Summary only: why a Storyline question failed its schema. */
   malformedQuestion?: string;
+  /**
+   * Summary only (2026-09-28, fifth): a verdict list that was missing or not
+   * a list, read as empty, by name and JSON type, never model text.
+   */
+  unreadableLists?: string[];
 };
 type RawPlanVerdict = {
   itemId?: string;
@@ -199,26 +204,44 @@ function failedPathOf(error: z.ZodError): string {
   return `${issue && issue.path.length > 0 ? issue.path.join(".") : "(item)"} ${issue?.code ?? "invalid"}`;
 }
 
+/** The JSON type of a value, for logs: never the value itself. */
+function jsonTypeOf(value: unknown): string {
+  return value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+}
+
+/**
+ * 2026-09-28 (fifth, run 6): a verdict list that is missing or not a list
+ * (run 6 sent planVerdicts as a string) is read as empty, so each of its
+ * labels or plan checks counts as missing and goes to the one follow-up.
+ */
+function summaryListOf(value: unknown, name: string, unreadable: string[]): unknown[] {
+  if (Array.isArray(value)) return value;
+  unreadable.push(value === undefined ? `${name} missing` : `${name} ${jsonTypeOf(value)}, not a list`);
+  return [];
+}
+
 /**
  * 2026-09-28, run 4: the answer's root must have its shape, but each
  * verdict is decoded on its own, so one malformed verdict is dropped (and
  * counted as invalid) instead of failing the whole answer. A malformed
- * Storyline question is dropped the same way.
+ * Storyline question is dropped the same way. 2026-09-28 (fifth): a verdict
+ * list that is missing or not a list is read as empty (summaryListOf).
  */
 function decodeSummaryItems(value: {
-  verdicts: unknown[];
-  planVerdicts: unknown[];
+  verdicts?: unknown;
+  planVerdicts?: unknown;
   storylineQuestion?: unknown;
 }): RawSelfCheck {
   const malformed: string[] = [];
+  const unreadableLists: string[] = [];
   const verdicts: RawVerdict[] = [];
-  value.verdicts.forEach((candidate, index) => {
+  summaryListOf(value.verdicts, "verdicts", unreadableLists).forEach((candidate, index) => {
     const parsed = summaryVerdictOutputSchema.safeParse(candidate);
     if (parsed.success) verdicts.push({ ...parsed.data, position: index + 1 });
     else malformed.push(`ordinary verdict ${index + 1}: ${failedPathOf(parsed.error)}`);
   });
   const planVerdicts: RawPlanVerdict[] = [];
-  value.planVerdicts.forEach((candidate, index) => {
+  summaryListOf(value.planVerdicts, "planVerdicts", unreadableLists).forEach((candidate, index) => {
     const parsed = summaryPlanVerdictOutputSchema.safeParse(candidate);
     if (parsed.success) planVerdicts.push({ ...parsed.data, position: index + 1 });
     else malformed.push(`plan verdict ${index + 1}: ${failedPathOf(parsed.error)}`);
@@ -236,14 +259,24 @@ function decodeSummaryItems(value: {
     ...(storylineQuestion !== undefined ? { storylineQuestion } : {}),
     ...(malformed.length > 0 ? { malformed } : {}),
     ...(malformedQuestion ? { malformedQuestion } : {}),
+    ...(unreadableLists.length > 0 ? { unreadableLists } : {}),
   };
 }
 
+/**
+ * The root must be an object with no unknown property, and at least one of
+ * its verdict lists must be a list: an answer with neither holds nothing to
+ * read and is rejected whole (2026-09-28, fifth).
+ */
 const decodedSummaryPlanSelfCheckOutputSchema = z.object({
-  verdicts: z.array(z.unknown()),
-  planVerdicts: z.array(z.unknown()),
+  verdicts: z.unknown().optional(),
+  planVerdicts: z.unknown().optional(),
   storylineQuestion: z.unknown().optional(),
-}).strict().transform(decodeSummaryItems);
+}).strict()
+  .refine((value) => Array.isArray(value.verdicts) || Array.isArray(value.planVerdicts), {
+    message: "neither verdicts nor planVerdicts is a list",
+  })
+  .transform(decodeSummaryItems);
 
 /**
  * Real reasons run 90 to 280 bytes while the reservations allow 64 (reason)
@@ -770,6 +803,14 @@ function validateSummaryOutput(args: {
     planChecks,
     includeStorylineQuestion: args.allowStorylineQuestion,
   });
+  // 2026-09-28 (fifth): a list read as empty is not an invalid verdict; its
+  // labels and plan checks count as missing below.
+  if (raw.unreadableLists?.length) {
+    console.warn(
+      `${SELF_CHECK_REQUEST.toolName}: read ${raw.unreadableLists.join(" and ")} as an empty list; ` +
+        "its labels and plan checks count as missing"
+    );
+  }
   const problems: string[] = [...(raw.malformed ?? [])];
   const ordinaryByLabel = new Map(ordinaryChecks.map((check) => [check.label, check]));
   const seenLabels = new Set<string>();
@@ -919,7 +960,12 @@ function validateSummaryOutput(args: {
       }; their labels and plan checks count as missing: ${problems.join("; ")}`
     );
   }
-  const { malformed: _malformed, malformedQuestion: _malformedQuestion, ...rest } = raw;
+  const {
+    malformed: _malformed,
+    malformedQuestion: _malformedQuestion,
+    unreadableLists: _unreadableLists,
+    ...rest
+  } = raw;
   const kept: RawSelfCheck = { ...rest, verdicts, planVerdicts, storylineQuestion };
   // A dropped question carries no clipping marker either.
   if (!storylineQuestion) delete kept.storylineQuestionClipped;
@@ -1031,7 +1077,10 @@ function followUpMessage(data: string, gap: SummaryCoverageGap): string {
  * one by one; the verdicts the first answer gave are kept. An invalid verdict
  * is dropped and its label or plan check counts as missing (2026-09-28,
  * run 4); only a first answer with more invalid verdicts than valid ones, or
- * one that is unreadable or cut off, rejects the whole check.
+ * one that is unreadable or cut off, rejects the whole check. A verdict list
+ * that is missing or not a list is read as empty, so everything it should
+ * have held is asked for in the follow-up (2026-09-28, fifth); an answer
+ * with neither list is unreadable.
  */
 async function completeSummarySelfCheck(
   client: GenerationClient,
@@ -1112,7 +1161,12 @@ async function completeSummarySelfCheck(
       console.warn(`${tool}: the follow-up repeated ${dropped} verdicts the first answer gave; dropped`);
     }
     const followUpAnswer = validateSummaryOutput({
-      raw: { verdicts, planVerdicts, ...(answer.malformed ? { malformed: answer.malformed } : {}) },
+      raw: {
+        verdicts,
+        planVerdicts,
+        ...(answer.malformed ? { malformed: answer.malformed } : {}),
+        ...(answer.unreadableLists ? { unreadableLists: answer.unreadableLists } : {}),
+      },
       ordinaryChecks: gap.labels,
       planChecks: gap.plans,
       allowStorylineQuestion: false,

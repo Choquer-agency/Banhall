@@ -26,6 +26,7 @@ import {
   PLAN_ITEM_NOT_CHECKED_REASON,
   PLAN_SKIP_NOT_CHECKED_REASON,
   runModelSelfCheck,
+  selfCheckFailureDiagnostic,
   SKIP_BREAK_UNLOCATED_REASON,
   summaryChecklist,
   type ModelSelfCheckResult,
@@ -811,5 +812,132 @@ describe("one garbled label no longer fails the Self-check (real SDK, fetch stub
     ]);
     // The plan rows keep their verdicts: nothing about the plan failed.
     expect(result.planVerdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
+  });
+});
+
+// Release suite run 6 (withdrawn-feedback, Line 246): "Self-check call failed
+// (unknown: response failed validation: planVerdicts invalid_type)". The
+// answer sent planVerdicts as a string, not a list, which counted as an
+// unreadable answer, so all 5 plan rows read "did not complete". Now a list
+// that is missing or not a list is read as empty and everything it should
+// have held is asked for in the one follow-up (2026-09-28, fifth).
+describe("a verdict list of the wrong type is asked for again (real SDK, fetch stubbed)", () => {
+  it("reads planVerdicts sent as a string as empty and asks once for every plan check", async () => {
+    const input = inputFor(CASE_246);
+    const ordinary = ordinaryOf(input);
+    const plans = input.planChecks ?? [];
+    expect(plans).toHaveLength(5);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { result, bodies } = await runThroughSdk(input, [
+        { verdicts: ordinary.map(verdictFor), planVerdicts: JSON.stringify(plans.map(planVerdictFor)) },
+        { verdicts: [], planVerdicts: plans.map(planVerdictFor) },
+      ]);
+
+      expect(bodies).toHaveLength(2);
+      const [first, followUp] = bodies as [WireBody, WireBody];
+      expect(userOf(followUp)).toBe(
+        `${dataOf(first, ordinary, plans)}\n\n${FOLLOW_UP_TEXT}\n\n` +
+          `${checklistLines([], plans)}\n\n${EMPTY_VERDICTS}`
+      );
+      expect(schemaOf(followUp).planVerdicts.maxItems).toBe(5);
+      const logged = warn.mock.calls.map((call) => call.join(" ")).join("\n");
+      expect(logged).toContain("submit_self_check: read planVerdicts string, not a list as an empty list");
+      expect(logged).toContain("no verdict for 0 of 19 labels and 5 of 5 plan checks; asking once for them");
+      expect(logged).not.toContain("Covered.");
+      expect(result.verdicts).toHaveLength(19);
+      expect(result.verdicts.every((verdict) => verdict.outcome === "applied" && !verdict.notChecked))
+        .toBe(true);
+      expect(result.planVerdicts.map((verdict) => [verdict.itemId, verdict.outcome]))
+        .toEqual(plans.map((check) => [check.itemId, "applied"]));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("reads a missing verdicts list as empty and asks once for every label", async () => {
+    const input = inputFor(CASE_244);
+    const ordinary = ordinaryOf(input);
+    const plans = input.planChecks ?? [];
+    const { result, bodies } = await runThroughSdk(input, [
+      { planVerdicts: plans.map(planVerdictFor) },
+      { verdicts: ordinary.map(verdictFor), planVerdicts: [] },
+    ]);
+
+    expect(bodies).toHaveLength(2);
+    const [first, followUp] = bodies as [WireBody, WireBody];
+    expect(userOf(followUp)).toBe(
+      `${dataOf(first, ordinary, plans)}\n\n${FOLLOW_UP_TEXT}\n\n` +
+        `${checklistLines(ordinary, [])}\n\n${EMPTY_PLAN_VERDICTS}`
+    );
+    expect(result.verdicts).toHaveLength(17);
+    expect(result.verdicts.some((verdict) => verdict.notChecked)).toBe(false);
+    expect(result.planVerdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
+  });
+
+  it("records every plan check as not checked, never as covered, when the follow-up sends a string again", async () => {
+    const input = inputFor(CASE_246);
+    const ordinary = ordinaryOf(input);
+    const plans = input.planChecks ?? [];
+    const asString = JSON.stringify(plans.map(planVerdictFor));
+    const { result, bodies } = await runThroughSdk(input, [
+      { verdicts: ordinary.map(verdictFor), planVerdicts: asString },
+      { verdicts: [], planVerdicts: asString },
+    ]);
+
+    expect(bodies).toHaveLength(2);
+    expect(result.verdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
+    expect(result.planVerdicts).toEqual(plans.map((check) => ({
+      itemId: check.itemId,
+      mergedItemIds: [check.itemId],
+      outcome: "not_applied",
+      reason: PLAN_ITEM_NOT_CHECKED_REASON,
+      actionableRepair: false,
+    })));
+  });
+
+  it("still rejects an answer with neither list, and one whose root is not an object", async () => {
+    const input = inputFor(CASE_246);
+    const ordinary = ordinaryOf(input);
+    const plans = input.planChecks ?? [];
+    const diagnosticFor = async (answer: unknown) => {
+      const t = convexTest(schema, modules);
+      let calls = 0;
+      vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => {
+        calls += 1;
+        return toolAnswer(answer);
+      }));
+      const diagnostic = await runAction(t, async (ctx) => {
+        try {
+          await runModelSelfCheck(
+            instrumentedAnthropic(ctx, { callSite: "self-check-coverage" }) as unknown as GenerationClient,
+            input
+          );
+          return null;
+        } catch (error) {
+          return selfCheckFailureDiagnostic(error);
+        }
+      });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      return { diagnostic, calls };
+    };
+    // One attempt, no follow-up: nothing in the answer could be read.
+    expect(await diagnosticFor({
+      verdicts: JSON.stringify(ordinary.map(verdictFor)),
+      planVerdicts: JSON.stringify(plans.map(planVerdictFor)),
+    })).toEqual({
+      diagnostic: "response failed validation: (root) neither verdicts nor planVerdicts is a list",
+      calls: 1,
+    });
+    expect(await diagnosticFor({ storylineQuestion: null })).toEqual({
+      diagnostic: "response failed validation: (root) neither verdicts nor planVerdicts is a list",
+      calls: 1,
+    });
+    // An unknown property still makes the root unreadable.
+    expect((await diagnosticFor({
+      verdicts: ordinary.map(verdictFor),
+      planVerdicts: plans.map(planVerdictFor),
+      notes: "extra",
+    })).diagnostic).toMatch(/^response failed validation: \(root\) unrecognized_keys/);
   });
 });
