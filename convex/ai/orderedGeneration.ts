@@ -153,26 +153,28 @@ type PlanCheck = {
 
 /**
  * 2026-09-27 (third): one row per signed-off item whose quotes marked for a
- * check were left out of the drafting evidence. Its wording and support
- * status were drafted as signed off. No planRef, so plan coverage counts
- * are unchanged.
+ * check were left out of the drafting evidence, naming the idea by its
+ * wording (review P3-9), never an id. Its wording and support status were
+ * drafted as signed off. No planRef, so plan coverage counts are unchanged.
  */
 export function leftOutQuoteNoteDrafts(args: {
   section: SectionNumber;
   checks: readonly PlanCheck[];
 }): ComplianceNoteDraft[] {
-  return args.checks.flatMap((check) =>
-    check.itemId && check.quotesLeftOut
-      ? [noteDraft({
-          section: args.section,
-          source: "deterministic",
-          instruction: `Leave quotes marked for a check out of signed-off Summary item ${check.itemId}'s evidence`,
-          outcome: "applied",
-          tier: "none",
-          reason: `${check.quotesLeftOut} ${check.quotesLeftOut === 1 ? "quote was" : "quotes were"} marked "Needs a check" (the line may not back the item), so the draft did not use ${check.quotesLeftOut === 1 ? "it" : "them"} as evidence. The item's wording and support status were used as signed off.`,
-        })]
-      : []
-  );
+  return args.checks.flatMap((check) => {
+    const count = check.quotesLeftOut ?? 0;
+    if (!check.itemId || count === 0) return [];
+    const wording = check.wording.join(" ").trim();
+    const idea = wording.length > 120 ? `${wording.slice(0, 119).trimEnd()}...` : wording;
+    return [noteDraft({
+      section: args.section,
+      source: "deterministic",
+      instruction: `Leave out quotes marked for a check from the evidence for the idea "${idea}"`,
+      outcome: "applied",
+      tier: "none",
+      reason: `${count} ${count === 1 ? "quote was" : "quotes were"} marked as possibly not backing this idea, so the draft did not use ${count === 1 ? "it" : "them"} as evidence. The idea's wording and support status were used as signed off. "Use it anyway" on the idea card before sign-off keeps a quote as evidence.`,
+    })];
+  });
 }
 
 function sameUtf8Bytes(left: string, right: string): boolean {

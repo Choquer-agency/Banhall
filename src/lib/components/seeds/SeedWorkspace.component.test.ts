@@ -1521,7 +1521,7 @@ describe("Seed workspace", () => {
     await underline.hover();
     await expect.element(page.getByRole("group", { name: "Quoted line" })).toBeVisible();
     const hoverNote = document.querySelector<HTMLElement>("[data-quote-card] [data-quote-support-check]");
-    expect(hoverNote?.textContent).toBe("Needs a check: this line may not back the seed");
+    expect(hoverNote?.textContent).toBe("This quote may not back this idea, so the draft will not use it as evidence.");
     expect(Number(getComputedStyle(hoverNote!).fontWeight)).toBeLessThanOrEqual(500);
     await page.getByRole("heading", { name: "Company and context", exact: true }).hover();
     await expect.poll(() => document.querySelector("[data-quote-card]")).toBeNull();
@@ -1529,11 +1529,50 @@ describe("Seed workspace", () => {
     await quotesButton().click();
     const listed = () => document.querySelector<HTMLElement>('[data-seed-quotes="seed-1"]');
     await expect.poll(() => listed()?.querySelector("[data-quote-support-check]")?.textContent).toBe(
-      "Needs a check: this line may not back the seed"
+      "This quote may not back this idea, so the draft will not use it as evidence."
     );
     // The quote itself is still shown, never hidden or blocked.
     expect(listed()?.querySelector("blockquote")?.textContent?.trim()).toBe("“Measured output remained stable.”");
     expect(listed()?.querySelector("[data-quote-speaker-check]")).toBeNull();
+    await userEvent.keyboard("{Escape}");
+  });
+
+  it("keeps a seed's marked quotes as evidence with Use it anyway, from the hover card and from Quoted lines (review P3-9)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    const quoted = {
+      ...seed().provenance[0],
+      _id: "provenance-quoted" as Id<"seedProvenance">,
+      exactExcerpt: "the control loop stabilized output",
+      needsQuoteCheck: true,
+    };
+    const unrelated = { ...seed().provenance[0], needsQuoteCheck: true };
+    __setQueryData("seeds:getSubsection", subsection({ items: [seed({ provenance: [quoted, unrelated] })] }));
+    await render(SeedWorkspace, workspaceProps());
+
+    await page.getByRole("button", { name: "The control loop stabilized output", exact: true }).hover();
+    const card = page.getByRole("group", { name: "Quoted line" });
+    await expect.element(card).toBeVisible();
+    const hoverAction = card.getByRole("button", { name: "Use it anyway", exact: true });
+    expect(Number(getComputedStyle(hoverAction.element()).fontWeight)).toBeLessThanOrEqual(500);
+    await hoverAction.click();
+    await expect.poll(() => __mutationCalls("seeds:useQuotesAnyway")).toEqual([
+      { generationId, roleId: "company_context", seedId: "seed-1", expectedSeedStageVersion: 7 },
+    ]);
+
+    await quotesButton().click();
+    const listed = page.elementLocator(document.querySelector<HTMLElement>('[data-seed-quotes="seed-1"]')!);
+    await listed.getByRole("button", { name: "Use it anyway", exact: true }).click();
+    await expect.poll(() => __mutationCalls("seeds:useQuotesAnyway")).toHaveLength(2);
+    await userEvent.keyboard("{Escape}");
+  });
+
+  it("offers no Use it anyway to a reader who cannot edit", async () => {
+    __setQueryData("seeds:getOutline", outline(false));
+    __setQueryData("seeds:getSubsection", subsection({ canEdit: false, items: [seed({ provenance: [{ ...seed().provenance[0], needsQuoteCheck: true }] })] }));
+    await render(SeedWorkspace, workspaceProps());
+    await quotesButton().click();
+    await expect.poll(() => document.querySelector('[data-seed-quotes="seed-1"] [data-quote-support-check]')).not.toBeNull();
+    expect(document.querySelector("[data-quote-use-anyway]")).toBeNull();
     await userEvent.keyboard("{Escape}");
   });
 

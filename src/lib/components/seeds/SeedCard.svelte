@@ -8,7 +8,7 @@
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import { isLongForSeed, MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
   import { describeSource, EMPTY_SOURCE_ATTRIBUTION } from "./attribution";
-  import { citationSpeakerLine, QUOTE_CHECK_NOTE, SPEAKER_CHECK_NOTE, type QuoteCitation } from "./citations";
+  import { citationSpeakerLine, QUOTE_CHECK_NOTE, QUOTE_USE_ANYWAY, SPEAKER_CHECK_NOTE, type QuoteCitation } from "./citations";
   import { findExactQuoteSpans, segmentBullet } from "./exactQuote";
   import { MAX_CARD_TAGS, seedTagStyle } from "./seedTags";
   import SeedQuote from "./SeedQuote.svelte";
@@ -33,6 +33,7 @@
     onEdit,
     onRestore,
     onFeedback,
+    onUseQuotes,
     draft,
     onDraftChange,
     onOpenSource,
@@ -54,6 +55,8 @@
     onEdit: (bullets: string[], expectedSeedStageVersion: number) => Promise<boolean>;
     onRestore: () => Promise<boolean>;
     onFeedback: (instruction: string, expectedSeedStageVersion: number) => Promise<boolean>;
+    /** Keeps this seed's quotes the quote check marked (2026-09-27, third). */
+    onUseQuotes?: () => Promise<boolean>;
     draft?: SeedLocalDraft;
     onDraftChange: (update: SeedDraftUpdate) => void;
     /** Opens a quoted source in its transcript, where the host has a route. */
@@ -323,6 +326,7 @@
         citation={item.provenance[segment.citationIndex]}
         {sourceAttribution}
         {onOpenSource}
+        onUseQuotes={onUseQuotes && canEdit && !busy ? () => void onUseQuotes() : undefined}
       />
     {:else}{segment.text}{/if}
   {/each}
@@ -401,7 +405,13 @@
                       <span class="min-w-0 flex-1 text-ink-faint">
                         {#if speakerLine}<span class="block">{speakerLine}</span>{/if}
                         {#if citation.needsSpeakerCheck}<span class="block text-ink-muted" data-quote-speaker-check>{SPEAKER_CHECK_NOTE}</span>{/if}
-                        {#if citation.needsQuoteCheck}<span class="block text-ink-muted" data-quote-support-check>{QUOTE_CHECK_NOTE}</span>{/if}
+                        {#if citation.needsQuoteCheck}<span class="block text-ink-muted" data-quote-support-check>{QUOTE_CHECK_NOTE}</span>{#if onUseQuotes && canEdit}<button
+                            type="button"
+                            class="shrink-0 rounded text-[11px] leading-[14px] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:text-ink-faint disabled:no-underline"
+                            data-quote-use-anyway
+                            disabled={busy}
+                            onclick={() => void onUseQuotes()}
+                          >{QUOTE_USE_ANYWAY}</button>{/if}{/if}
                         <span
                           class={source.attributed ? "block" : "block italic"}
                           data-quote-source

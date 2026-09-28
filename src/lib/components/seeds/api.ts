@@ -26,6 +26,7 @@ import type {
   select,
   skip,
   unskip,
+  useQuotesAnyway,
   withdrawFeedback,
 } from "../../../../convex/seeds";
 
@@ -71,6 +72,7 @@ export const seedsApi = {
   restoreWording: mutationReference<typeof restoreWording>("seeds:restoreWording"),
   giveFeedback: mutationReference<typeof giveFeedback>("seeds:giveFeedback"),
   withdrawFeedback: mutationReference<typeof withdrawFeedback>("seeds:withdrawFeedback"),
+  useQuotesAnyway: mutationReference<typeof useQuotesAnyway>("seeds:useQuotesAnyway"),
   regenerate: mutationReference<typeof regenerate>("seeds:regenerate"),
   restoreBatch: mutationReference<typeof restoreBatch>("seeds:restoreBatch"),
   markBatchViewed: mutationReference<typeof markBatchViewed>("seeds:markBatchViewed"),

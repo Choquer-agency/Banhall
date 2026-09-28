@@ -361,6 +361,83 @@ async function seedBatch(
   );
 }
 
+describe("Use it anyway (2026-09-27, third amendment, review P3-9)", () => {
+  async function markedFixture() {
+    const fixture = await approvalFixture({ roleId: "company_context" });
+    const rowIds = await fixture.t.run(async (ctx) => {
+      const insert = (exactExcerpt: string, needsQuoteCheck: boolean) =>
+        ctx.db.insert("seedProvenance", {
+          seedId: fixture.seedId,
+          projectId: fixture.projectId,
+          generationId: fixture.generationId,
+          sourceId: fixture.sourceId,
+          sourceContentHash: "hash",
+          startOffset: 0,
+          endOffset: exactExcerpt.length,
+          exactExcerpt,
+          ...(needsQuoteCheck ? { needsQuoteCheck: true } : {}),
+        });
+      return [await insert("Marked line one.", true), await insert("Marked line two.", true), await insert("Clean line.", false)];
+    });
+    const version = (await fixture.t.run((ctx) => ctx.db.get(fixture.generationId)))?.seedStageVersion ?? 0;
+    return { fixture, rowIds, version };
+  }
+
+  test("keeps the Seed's marked quotes as evidence and records the decision", async () => {
+    const { fixture, rowIds, version } = await markedFixture();
+    const result = await fixture.writer.mutation(api.seeds.useQuotesAnyway, {
+      generationId: fixture.generationId,
+      roleId: "company_context",
+      expectedSeedStageVersion: version,
+      seedId: fixture.seedId,
+    });
+    expect(result.seedStageVersion).toBe(version + 1);
+    const state = await fixture.t.run(async (ctx) => ({
+      rows: await Promise.all(rowIds.map((id) => ctx.db.get(id))),
+      events: await ctx.db
+        .query("seedDecisionEvents")
+        .withIndex("by_generationId_and_at", (q) => q.eq("generationId", fixture.generationId))
+        .collect(),
+    }));
+    expect(state.rows.map((row) => row?.needsQuoteCheck)).toEqual([undefined, undefined, undefined]);
+    expect(state.events.filter((event) => event.kind === "quotesConfirmed")).toEqual([
+      expect.objectContaining({ roleId: "company_context", seedId: fixture.seedId, actorUserId: expect.any(String) }),
+    ]);
+    // Nothing left to keep: a second click writes nothing.
+    const again = await fixture.writer.mutation(api.seeds.useQuotesAnyway, {
+      generationId: fixture.generationId,
+      roleId: "company_context",
+      expectedSeedStageVersion: version + 1,
+      seedId: fixture.seedId,
+    });
+    expect(again.seedStageVersion).toBe(version + 1);
+  });
+
+  test("refuses a person without edit access, and a stale stage version, changing nothing", async () => {
+    const { fixture, rowIds, version } = await markedFixture();
+    await fixture.t.run((ctx) => ctx.db.insert("users", { authId: "seed-approval-outsider", role: "writer" }));
+    await expect(
+      fixture.t.withIdentity({ subject: "seed-approval-outsider" }).mutation(api.seeds.useQuotesAnyway, {
+        generationId: fixture.generationId,
+        roleId: "company_context",
+        expectedSeedStageVersion: version,
+        seedId: fixture.seedId,
+      })
+    ).rejects.toThrow(/NOT_AUTHORIZED|not authorized|Only the project owner/i);
+    await fixture.t.run((ctx) => ctx.db.patch(fixture.generationId, { seedStageVersion: version + 2 }));
+    await expect(
+      fixture.writer.mutation(api.seeds.useQuotesAnyway, {
+        generationId: fixture.generationId,
+        roleId: "company_context",
+        expectedSeedStageVersion: version + 5,
+        seedId: fixture.seedId,
+      })
+    ).rejects.toThrow(/STALE_REVISION/);
+    const rows = await fixture.t.run((ctx) => Promise.all(rowIds.map((id) => ctx.db.get(id))));
+    expect(rows.map((row) => row?.needsQuoteCheck ?? false)).toEqual([true, true, false]);
+  });
+});
+
 describe("public seed approval", () => {
   test("provides a fenced server challenge when card projection is truncated", async () => {
     const fixture = await approvalFixture();

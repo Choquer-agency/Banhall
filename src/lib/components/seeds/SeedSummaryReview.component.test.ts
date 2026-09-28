@@ -1754,7 +1754,9 @@ describe("Seed Summary Review", () => {
       await userEvent.hover(quote);
       await expect.poll(() => view.container.querySelector("[data-quote-card]")).not.toBeNull();
       const card = view.container.querySelector<HTMLElement>("[data-quote-card]")!;
-      expect(card.querySelector("[data-quote-support-check]")?.textContent).toBe("Needs a check: this line may not back the seed");
+      expect(card.querySelector("[data-quote-support-check]")?.textContent).toBe("This quote may not back this idea, so the draft will not use it as evidence.");
+      // The Summary Review shows the note only; the action lives on the idea card.
+      expect(card.querySelector("[data-quote-use-anyway]")).toBeNull();
       expect(card.querySelector("[data-quote-speaker-check]")).toBeNull();
       expect(card.querySelector("[data-quote-text]")?.textContent).toBe("“We run four sites”");
     });

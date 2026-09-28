@@ -3858,16 +3858,84 @@ describe("seed Summary sign-off and recovery", () => {
       };
     });
     expect(row?.items).toContainEqual(expect.objectContaining({ itemId: item._id, wording: item.bullets }));
+    // The row names the idea in plain words, never an id (review P3-9).
     expect(notes.filter((note) => note.instruction.includes("marked for a check"))).toEqual([
       expect.objectContaining({
         source: "deterministic",
         outcome: "applied",
-        instruction: `Leave quotes marked for a check out of signed-off Summary item ${item._id}'s evidence`,
+        instruction: `Leave out quotes marked for a check from the evidence for the idea "${item.bullets.join(" ")}"`,
         reason:
-          '1 quote was marked "Needs a check" (the line may not back the item), so the draft did not use it as evidence. The item\'s wording and support status were used as signed off.',
+          '1 quote was marked as possibly not backing this idea, so the draft did not use it as evidence. The idea\'s wording and support status were used as signed off. "Use it anyway" on the idea card before sign-off keeps a quote as evidence.',
       }),
     ]);
+    expect(
+      notes.some((note) => note.instruction.includes("marked for a check") && note.instruction.includes(item._id))
+    ).toBe(false);
     expect(notes.find((note) => note.instruction.includes("marked for a check"))?.planRef).toBeUndefined();
+  });
+
+  it("drafts an item whose quotes are all marked from its wording alone, and says how many were left out", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const marked = ["First marked line.", "Second marked line."];
+    const advancementId = await s.t.run(async (ctx) => {
+      const advancement = (await ctx.db.query("seeds")
+        .withIndex("by_generationId_and_roleId", (q) =>
+          q.eq("generationId", s.generationId).eq("roleId", "specific_advancements"))
+        .take(10))[0];
+      if (!advancement) throw new Error("Missing advancement fixture");
+      // Only marked quotes: any fixture quote on this Seed is marked too.
+      for (const row of await ctx.db.query("seedProvenance")
+        .withIndex("by_seedId", (q) => q.eq("seedId", advancement._id)).collect()) {
+        await ctx.db.patch(row._id, { needsQuoteCheck: true });
+      }
+      for (const exactExcerpt of marked) {
+        await ctx.db.insert("seedProvenance", {
+          seedId: advancement._id,
+          projectId: s.projectId,
+          generationId: s.generationId,
+          sourceId: s.sourceId,
+          sourceContentHash: "source-hash",
+          startOffset: 0,
+          endOffset: exactExcerpt.length,
+          exactExcerpt,
+          needsQuoteCheck: true,
+        });
+      }
+      return advancement._id;
+    });
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    configureSummaryActionProvider({
+      draftText: "A checked paragraph.",
+      repairText: "A repaired checked paragraph.",
+    });
+    const request = await runNextSectionAction(s, s.generationId);
+    const item = await s.t.run(async (ctx) => {
+      const generation = await ctx.db.get(s.generationId);
+      return (await ctx.db.query("summaryItems")
+        .withIndex("by_summaryVersionId_and_order", (q) =>
+          q.eq("summaryVersionId", generation!.summaryVersionId!))
+        .take(50)).find((candidate) => candidate.seedId === advancementId)!;
+    });
+    const row = providerContentPlanRows(request).find(
+      (entry) => entry.kind === "cover" && entry.roleId === "specific_advancements"
+    );
+    expect(row?.items).toContainEqual(expect.objectContaining({ itemId: item._id, wording: item.bullets }));
+    expect(
+      (row?.sourceReferences as Array<{ originatingItemId: string }> | undefined)?.filter(
+        (reference) => reference.originatingItemId === item._id
+      )
+    ).toEqual([]);
+    for (const line of marked) expect(JSON.stringify(request)).not.toContain(line);
+    const notes = await s.t.run((ctx) => ctx.db.query("complianceNotes")
+      .withIndex("by_generationId_and_section", (q) => q.eq("generationId", s.generationId))
+      .collect());
+    const leftOut = notes.filter((note) => note.instruction.includes("marked for a check"));
+    expect(leftOut).toHaveLength(1);
+    expect(leftOut[0].reason).toMatch(/^\d+ quotes were marked as possibly not backing this idea, so the draft did not use them as evidence\./);
   });
 
   it("suppresses only the confirmed exclusion repair while an unrelated repair still runs once", async () => {

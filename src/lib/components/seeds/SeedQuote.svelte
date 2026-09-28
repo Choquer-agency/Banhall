@@ -16,18 +16,21 @@
    */
   import { onDestroy, tick } from "svelte";
   import { describeSource, type SeedSourceAttribution } from "./attribution";
-  import { citationSpeakerLine, QUOTE_CHECK_NOTE, SPEAKER_CHECK_NOTE, type QuoteCitation } from "./citations";
+  import { citationSpeakerLine, QUOTE_CHECK_NOTE, QUOTE_USE_ANYWAY, SPEAKER_CHECK_NOTE, type QuoteCitation } from "./citations";
 
   let {
     text,
     citation,
     sourceAttribution,
     onOpenSource,
+    onUseQuotes,
   }: {
     text: string;
     citation: QuoteCitation;
     sourceAttribution: SeedSourceAttribution;
     onOpenSource?: (citation: QuoteCitation) => void;
+    /** Keeps the seed's quotes the quote check marked; absent where no one may. */
+    onUseQuotes?: () => void;
   } = $props();
 
   const uid = $props.id();
@@ -190,7 +193,14 @@
         class="block text-[11px] leading-[14px] text-ink-muted"
         data-quote-speaker-check>{SPEAKER_CHECK_NOTE}</span>{/if}{#if citation.needsQuoteCheck}<span
         class="block text-[11px] leading-[14px] text-ink-muted"
-        data-quote-support-check>{QUOTE_CHECK_NOTE}</span>{/if}<span
+        data-quote-support-check>{QUOTE_CHECK_NOTE}</span>{#if onUseQuotes}<button
+          type="button"
+          class="shrink-0 rounded text-[11px] leading-[14px] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:text-ink-faint disabled:no-underline self-start"
+          data-quote-use-anyway
+          onclick={() => {
+            hide();
+            onUseQuotes();
+          }}>{QUOTE_USE_ANYWAY}</button>{/if}{/if}<span
         class="flex items-end gap-3 text-[11px] leading-[14px]"
       ><span class="min-w-0 flex-1 text-ink-faint">{#if speakerLine && source.attributed}<span
               data-quote-speaker>{speakerLine}</span> in <span

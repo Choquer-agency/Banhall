@@ -137,6 +137,7 @@
   const selectSeed = useMutation(seedsApi.select);
   const editSeed = useMutation(seedsApi.edit);
   const restoreWording = useMutation(seedsApi.restoreWording);
+  const useQuotesAnyway = useMutation(seedsApi.useQuotesAnyway);
   const giveFeedback = useMutation(seedsApi.giveFeedback);
   const withdrawFeedback = useMutation(seedsApi.withdrawFeedback);
   const regenerate = useMutation(seedsApi.regenerate);
@@ -565,6 +566,8 @@
       )}
     onRestore={() =>
       mutate(() => restoreWording({ ...common(), seedId: item.seedId }), "Original wording restored.")}
+    onUseQuotes={() =>
+      mutate(() => useQuotesAnyway({ ...common(), seedId: item.seedId }), "The draft will use this seed's quotes as evidence.")}
     onFeedback={(instruction, expectedSeedStageVersion) =>
       mutate(
         () => giveFeedback({

@@ -83,7 +83,10 @@ const seedRoleEventKindValidator = v.union(
   v.literal("unskip"),
   v.literal("approve"),
   v.literal("staleOpened"),
-  v.literal("staleDisposed")
+  v.literal("staleDisposed"),
+  // 2026-09-27 (third) widen: the writer kept a Seed's quotes the quote
+  // check marked ("Use it anyway").
+  v.literal("quotesConfirmed")
 );
 const seedDecisionEventOptionalFields = {
   batchId: v.optional(v.id("seedBatches")),

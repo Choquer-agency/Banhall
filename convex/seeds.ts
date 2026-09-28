@@ -482,6 +482,32 @@ export const giveFeedback = mutation({
     };
   },
 });
+/**
+ * 2026-09-27 (third, review P3-9): "Use it anyway". The writer keeps the
+ * quotes of one Seed that the quote check marked, so drafting uses them as
+ * evidence again. A person's decision under the decision fence and edit
+ * access, recorded as a decision event; no AI path calls it. Nothing marked
+ * is a no-op.
+ */
+export const useQuotesAnyway = mutation({
+  args: { ...common, seedId: v.id("seeds") },
+  handler: async (ctx, args) => {
+    const f = await decisionFence(ctx, args);
+    editable(f.row);
+    const seed = await seedOf(ctx, f.row, args.seedId);
+    const rows = await ctx.db
+      .query("seedProvenance")
+      .withIndex("by_seedId", (q) => q.eq("seedId", seed._id))
+      .take(129);
+    const marked = rows.filter((row) => row.needsQuoteCheck === true);
+    if (marked.length === 0)
+      return { seedStageVersion: f.generation.seedStageVersion ?? 0 };
+    for (const row of marked) await ctx.db.patch(row._id, { needsQuoteCheck: undefined });
+    await bumpSeedStageVersion(ctx, args.generationId);
+    await appendSeedRoleEvent(ctx, f.row, "quotesConfirmed", f.user._id, { seedId: seed._id });
+    return { seedStageVersion: await currentVersion(ctx, args.generationId) };
+  },
+});
 export const withdrawFeedback = mutation({
   args: { ...common, feedbackRequestId: v.id("seedFeedbackRequests") },
   handler: async (ctx, args) => {
