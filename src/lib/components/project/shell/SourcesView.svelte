@@ -88,7 +88,7 @@
         <ul class="mt-2 divide-y divide-line-soft border-y border-line-soft">
           {#each active as doc (doc._id)}
             <li class="flex min-h-11 items-center gap-3 py-2 text-[0.8125rem]">
-              <FileTextIcon size={16} aria-hidden="true" class="shrink-0 text-ink-muted" />
+              <FileTextIcon size="1rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
               {#if doc.url}
                 <a href={doc.url} target="_blank" rel="noopener noreferrer" class="min-w-0 flex-1 truncate text-ink hover:text-primary-selected hover:underline">{doc.fileName}</a>
               {:else}
@@ -106,7 +106,7 @@
         <ul class="mt-2 divide-y divide-line-soft border-y border-line-soft">
           {#each archived as doc (doc._id)}
             <li class="flex min-h-11 items-center gap-3 py-2 text-[0.8125rem] text-ink-muted">
-              <FileTextIcon size={16} aria-hidden="true" class="shrink-0" />
+              <FileTextIcon size="1rem" aria-hidden="true" class="shrink-0" />
               <span class="min-w-0 flex-1 truncate">{doc.fileName}</span>
             </li>
           {/each}

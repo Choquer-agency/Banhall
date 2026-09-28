@@ -77,9 +77,9 @@
           }`}
         >
           {#if mode.id === "list"}
-            <ListBulletsIcon size={15} weight="regular" aria-hidden="true" />
+            <ListBulletsIcon size="0.9375rem" weight="regular" aria-hidden="true" />
           {:else}
-            <KanbanIcon size={15} weight="regular" aria-hidden="true" />
+            <KanbanIcon size="0.9375rem" weight="regular" aria-hidden="true" />
           {/if}
         </button>
       {/snippet}

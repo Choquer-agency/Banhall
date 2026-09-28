@@ -536,7 +536,7 @@
   <div data-projects-toolbar class="flex min-h-12 shrink-0 items-center gap-2 border-b border-workspace-rail-line bg-canvas px-2 py-2 sm:px-3">
     {#if externalSearch === undefined}
       <div class="relative min-w-0 sm:max-w-[19rem]" role="search">
-        <MagnifyingGlassIcon class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" size={15} weight="regular" aria-hidden="true" />
+        <MagnifyingGlassIcon class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" size="0.9375rem" weight="regular" aria-hidden="true" />
         <input
           bind:this={searchElement}
           bind:value={searchInput}
@@ -584,7 +584,7 @@
             align="end"
           >
             {#snippet icon()}
-              <StackSimpleIcon size={15} weight="regular" aria-hidden="true" />
+              <StackSimpleIcon size="0.9375rem" weight="regular" aria-hidden="true" />
             {/snippet}
             {#snippet chip()}
               {#if effectiveGroup === "client"}

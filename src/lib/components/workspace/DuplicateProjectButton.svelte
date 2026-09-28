@@ -66,7 +66,7 @@
         }}
         class={`relative z-10 flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-surface hover:text-ink focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy group-hover/project:opacity-100 group-focus-within/project:opacity-100 motion-reduce:transition-none pointer-coarse:opacity-100 pointer-coarse:before:absolute pointer-coarse:before:-inset-2 pointer-coarse:before:content-[''] ${className}`}
       >
-        <CopyIcon size={15} aria-hidden="true" />
+        <CopyIcon size="0.9375rem" aria-hidden="true" />
       </button>
     {/snippet}
   </Tooltip>

@@ -74,7 +74,7 @@
   <Tooltip text={openAlerts ? `Alerts, ${openAlerts} open` : "Alerts"}>
     {#snippet children({ props })}
       <a {...props} href={resolve("/alerts")} aria-label="Alerts" class={linkClass("/alerts")}>
-        <BellIcon size={18} weight="regular" aria-hidden="true" />
+        <BellIcon size="1.125rem" weight="regular" aria-hidden="true" />
         {@render badge(openAlerts, "bg-red-500")}
       </a>
     {/snippet}
@@ -83,7 +83,7 @@
   <Tooltip text="Feature requests">
     {#snippet children({ props })}
       <a {...props} href={resolve("/requests")} aria-label="Feature requests" class={linkClass("/requests")}>
-        <LightbulbIcon size={18} weight="regular" aria-hidden="true" />
+        <LightbulbIcon size="1.125rem" weight="regular" aria-hidden="true" />
       </a>
     {/snippet}
   </Tooltip>
@@ -91,7 +91,7 @@
   <Tooltip text={unseenChangelog ? `What's new, ${unseenChangelog} unread` : "What's new"}>
     {#snippet children({ props })}
       <a {...props} href={resolve("/changelog")} aria-label="What's new" class={linkClass("/changelog")}>
-        <MegaphoneIcon size={18} weight="regular" aria-hidden="true" />
+        <MegaphoneIcon size="1.125rem" weight="regular" aria-hidden="true" />
         {@render badge(unseenChangelog, "bg-primary")}
       </a>
     {/snippet}

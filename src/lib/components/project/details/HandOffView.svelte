@@ -130,7 +130,7 @@
                 <span class="text-ink-faint">Choose a person</span>
               {/if}
             </span>
-            <CaretDownIcon size={12} aria-hidden="true" class="shrink-0 text-ink-muted" />
+            <CaretDownIcon size="0.75rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
           </button>
         {/snippet}
       </Popover.Trigger>
@@ -145,7 +145,7 @@
           <Command.Root shouldFilter={false} loop label="People">
             <div class="px-2 pb-1 pt-2">
               <div class="field-control-shell flex h-[2.125rem] items-center gap-2 rounded-md px-2.5">
-                <MagnifyingGlassIcon size={14} aria-hidden="true" class="pointer-events-none shrink-0 text-ink-muted" />
+                <MagnifyingGlassIcon size="0.875rem" aria-hidden="true" class="pointer-events-none shrink-0 text-ink-muted" />
                 <Command.Input
                   bind:value={query}
                   placeholder="Search people"
@@ -173,7 +173,7 @@
                       <PersonAvatar initials={member.initials} seed={String(member.userId)} isYou={member.isYou} />
                       <span class="min-w-0 flex-1 truncate">{member.label}{member.isYou ? " (you)" : ""}</span>
                       {#if member.userId === assigneeId}
-                        <CheckIcon size={14} aria-hidden="true" class="shrink-0 text-primary-selected" />
+                        <CheckIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-primary-selected" />
                       {/if}
                     </Command.Item>
                   {:else}
@@ -201,7 +201,7 @@
                 <span class="text-ink-faint">No stage available</span>
               {/if}
             </span>
-            <CaretDownIcon size={12} aria-hidden="true" class="shrink-0 text-ink-muted" />
+            <CaretDownIcon size="0.75rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
           </button>
         {/snippet}
       </Popover.Trigger>
@@ -231,7 +231,7 @@
                   {option.current ? "keep current" : option.move === "reason" ? "asks for a reason" : ""}
                 </span>
                 {#if option.stage === stage}
-                  <CheckIcon size={14} aria-hidden="true" class="shrink-0 text-primary-selected" />
+                  <CheckIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-primary-selected" />
                 {/if}
               </button>
             {/each}

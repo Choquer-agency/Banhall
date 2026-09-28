@@ -230,11 +230,11 @@
                       class={`group/fiscal grid min-h-11 w-full grid-cols-[1rem_minmax(0,1fr)_1rem] items-center gap-2 px-3 text-left text-xs font-medium transition-colors duration-[240ms] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:min-h-8 ${unrecordedFiscalYear ? "text-ink-muted" : fiscalOpen ? "text-ink" : "text-ink-secondary"} ${fiscalOpen ? "bg-chrome/70" : "bg-surface hover:bg-workspace-rail-hover active:bg-chrome"}`}
                     >
                       {#if unrecordedFiscalYear}
-                        <FolderDashedIcon size={15} weight="regular" class="shrink-0 text-ink-faint" aria-hidden="true" />
+                        <FolderDashedIcon size="0.9375rem" weight="regular" class="shrink-0 text-ink-faint" aria-hidden="true" />
                       {:else if fiscalOpen}
-                        <FolderOpenIcon size={15} weight="regular" class="shrink-0 text-ink-secondary" aria-hidden="true" />
+                        <FolderOpenIcon size="0.9375rem" weight="regular" class="shrink-0 text-ink-secondary" aria-hidden="true" />
                       {:else}
-                        <FolderIcon size={15} weight="regular" class="shrink-0 text-ink-muted" aria-hidden="true" />
+                        <FolderIcon size="0.9375rem" weight="regular" class="shrink-0 text-ink-muted" aria-hidden="true" />
                       {/if}
                       <span class="min-w-0 truncate">{fiscalGroup.label}</span>
                       <DisclosureChevron open={fiscalOpen} tone="neutral" class="h-3.5 w-3.5 justify-self-end duration-[240ms] [transition-timing-function:cubic-bezier(0.16,1,0.3,1)]" />

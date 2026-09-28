@@ -95,7 +95,7 @@
       >
         {tab.label}
         {#if tab.done}
-          <CheckIcon size={12} weight="bold" aria-hidden="true" class="text-primary-selected" />
+          <CheckIcon size="0.75rem" weight="bold" aria-hidden="true" class="text-primary-selected" />
           <span class="sr-only">, done</span>
         {/if}
         {#if tab.status}
@@ -124,7 +124,7 @@
             onclick={onToggleFullWidth}
             class={`${toggleClass(fullWidth)} max-lg:hidden`}
           >
-            <ArrowsHorizontalIcon size={16} aria-hidden="true" />
+            <ArrowsHorizontalIcon size="1rem" aria-hidden="true" />
           </button>
         {/snippet}
       </Tooltip>

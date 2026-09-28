@@ -103,7 +103,7 @@
         aria-describedby={blockedReason ? "sources-transcripts-blocked" : undefined}
         onclick={() => pick(null)}
       >
-        <PlusIcon size={14} aria-hidden="true" />
+        <PlusIcon size="0.875rem" aria-hidden="true" />
         Add transcript
       </button>
     {/if}
@@ -118,7 +118,7 @@
     <ul class="mt-2 divide-y divide-line-soft border-y border-line-soft">
       {#each transcripts as transcript (transcript._id)}
         <li class="flex min-h-11 items-center gap-3 py-2 text-[0.8125rem]" data-transcript-row={transcript._id}>
-          <MicrophoneIcon size={16} aria-hidden="true" class="shrink-0 text-ink-muted" />
+          <MicrophoneIcon size="1rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
           <span class="min-w-0 flex-1">
             <span class="block truncate text-ink">{transcript.label}</span>
             <span class="block text-xs text-ink-muted" data-transcript-meta>
@@ -135,7 +135,7 @@
                 data-transcript-menu={transcript._id}
                 class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
               >
-                <DotsThreeIcon size={18} weight="bold" aria-hidden="true" />
+                <DotsThreeIcon size="1.125rem" weight="bold" aria-hidden="true" />
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
                 <DropdownMenu.Content

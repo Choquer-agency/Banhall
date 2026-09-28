@@ -99,7 +99,7 @@
     <div data-stage-step={step.move} class="flex flex-col gap-3">
       <div class="flex flex-wrap items-center gap-2">
         <StageChip stage={data.stage} />
-        <ArrowRightIcon size={14} aria-hidden="true" class="text-ink-muted" />
+        <ArrowRightIcon size="0.875rem" aria-hidden="true" class="text-ink-muted" />
         <StageChip stage={step.stage} />
       </div>
       {#if step.move === "reason"}
@@ -178,7 +178,7 @@
         </Popover.Portal>
       </Popover.Root>
       <Button variant="secondary" size="xs" class="w-full gap-1.5" disabled={!canHandOff || busy} onclick={onOpenHandOff} data-details-hand-off>
-        <ArrowRightIcon size={14} aria-hidden="true" />
+        <ArrowRightIcon size="0.875rem" aria-hidden="true" />
         Hand off
       </Button>
     </div>

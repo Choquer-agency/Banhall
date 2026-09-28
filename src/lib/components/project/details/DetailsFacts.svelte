@@ -249,7 +249,7 @@
           <span class="min-w-0 flex-1 truncate">
             {#if data.industry}{industryLabel(data.industry)}{:else}{@render notSet()}{/if}
           </span>
-          <PencilSimpleIcon size={13} aria-hidden="true" class={hoverIcon} />
+          <PencilSimpleIcon size="0.8125rem" aria-hidden="true" class={hoverIcon} />
         </button>
       {:else}
         <span class="truncate">{#if data.industry}{industryLabel(data.industry)}{:else}{@render notSet()}{/if}</span>
@@ -269,7 +269,7 @@
             {@render notSet()}
           {/if}
         </span>
-        <CalendarBlankIcon size={14} aria-hidden="true" class="shrink-0 text-ink-muted" />
+        <CalendarBlankIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
       {/snippet}
       {#if editable}
         <DatePicker
@@ -321,7 +321,7 @@
               aria-label="Edit science code"
             >
               {@render scienceValue()}
-              <CaretDownIcon size={12} aria-hidden="true" class={`absolute right-2 top-1/2 -translate-y-1/2 ${hoverIcon}`} />
+              <CaretDownIcon size="0.75rem" aria-hidden="true" class={`absolute right-2 top-1/2 -translate-y-1/2 ${hoverIcon}`} />
             </button>
           {/snippet}
         </ScienceCodePicker>
@@ -356,7 +356,7 @@
           <span class="min-w-0 flex-1 truncate">
             {#if data.projectNumber}{data.projectNumber}{:else}{@render notSet()}{/if}
           </span>
-          <PencilSimpleIcon size={13} aria-hidden="true" class={hoverIcon} />
+          <PencilSimpleIcon size="0.8125rem" aria-hidden="true" class={hoverIcon} />
         </button>
       {:else}
         <span class="truncate">{#if data.projectNumber}{data.projectNumber}{:else}{@render notSet()}{/if}</span>

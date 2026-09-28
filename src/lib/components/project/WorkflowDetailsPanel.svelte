@@ -147,7 +147,7 @@
           </span>
         </span>
         <span class="text-xs font-semibold text-primary-selected">Change</span>
-        <ArrowRightIcon size={16} weight="regular" aria-hidden="true" class="shrink-0 text-ink-faint transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
+        <ArrowRightIcon size="1rem" weight="regular" aria-hidden="true" class="shrink-0 text-ink-faint transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
       </button>
     {:else}
       <div class="flex min-h-14 items-center rounded-lg bg-gray-50 px-3">
@@ -263,7 +263,7 @@
           class="flex min-h-11 w-full items-center gap-2 rounded-lg px-1 text-left transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
         >
           <span class="text-label">Activity</span>
-          <CaretDownIcon size={16} weight="regular" aria-hidden="true" class={`ml-auto shrink-0 transition-transform motion-reduce:transition-none ${activityOpen ? "rotate-180 text-primary" : "text-ink-faint"}`} />
+          <CaretDownIcon size="1rem" weight="regular" aria-hidden="true" class={`ml-auto shrink-0 transition-transform motion-reduce:transition-none ${activityOpen ? "rotate-180 text-primary" : "text-ink-faint"}`} />
         </button>
       </h3>
       {#if activityOpen}

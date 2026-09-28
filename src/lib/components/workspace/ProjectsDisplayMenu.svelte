@@ -71,7 +71,7 @@
     data-projects-display-trigger
     class="inline-flex h-11 min-w-0 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-ink-secondary transition-colors hover:bg-chrome/70 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:h-7"
   >
-    <SlidersHorizontalIcon size={15} weight="regular" aria-hidden="true" class="shrink-0" />
+    <SlidersHorizontalIcon size="0.9375rem" weight="regular" aria-hidden="true" class="shrink-0" />
     <span class="truncate">Display</span>
   </DropdownMenu.Trigger>
 

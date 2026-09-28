@@ -137,7 +137,7 @@
           {#each LOCKED_RULES as rule (rule.title)}
             <li class="flex items-start gap-3 py-3">
               <LockSimpleIcon
-                size={16}
+                size="1rem"
                 weight="bold"
                 aria-hidden="true"
                 class="mt-0.5 flex-none text-gray-400"

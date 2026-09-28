@@ -77,7 +77,7 @@
       <Command.Root shouldFilter={false} loop disableInitialScroll label="Science code" bind:value={highlighted} class="flex max-h-[min(24rem,calc(100dvh-8rem))] flex-col">
         <div class="shrink-0 px-2 pb-1 pt-2">
           <div class="field-control-shell flex h-[2.125rem] items-center gap-2 rounded-md px-2.5">
-            <MagnifyingGlassIcon size={14} aria-hidden="true" class="pointer-events-none shrink-0 text-ink-muted" />
+            <MagnifyingGlassIcon size="0.875rem" aria-hidden="true" class="pointer-events-none shrink-0 text-ink-muted" />
             <Command.Input
               bind:value={query}
               placeholder="Search by name or code"
@@ -103,7 +103,7 @@
                       <span class="w-[3.25rem] shrink-0 font-mono text-xs text-ink-muted">{item.code}</span>
                       <span class="min-w-0 flex-1">{item.label}</span>
                       {#if item.code === value}
-                        <CheckIcon size={14} aria-label="Current code" class="shrink-0 text-primary-selected" />
+                        <CheckIcon size="0.875rem" aria-label="Current code" class="shrink-0 text-primary-selected" />
                       {/if}
                     </Command.Item>
                   {/each}

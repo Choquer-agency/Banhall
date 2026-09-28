@@ -115,7 +115,7 @@
 
 {#snippet searchField(assign: (el: HTMLInputElement) => void, withHint: boolean)}
   <div class="relative w-full">
-    <MagnifyingGlassIcon class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" size={15} weight="regular" aria-hidden="true" />
+    <MagnifyingGlassIcon class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" size="0.9375rem" weight="regular" aria-hidden="true" />
     <input
       use:assign
       type="search"
@@ -170,7 +170,7 @@
       }}
       class="flex h-11 w-11 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-workspace-rail-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none md:hidden"
     >
-      <MagnifyingGlassIcon size={18} weight="regular" aria-hidden="true" />
+      <MagnifyingGlassIcon size="1.125rem" weight="regular" aria-hidden="true" />
     </button>
 
     {#if showNewProject}
@@ -179,7 +179,7 @@
         size="xs"
         class="min-h-11 min-w-11 gap-1.5 motion-reduce:transition-none sm:min-h-0 sm:min-w-0"
       >
-        <PlusIcon size={15} weight="bold" aria-hidden="true" />
+        <PlusIcon size="0.9375rem" weight="bold" aria-hidden="true" />
         <span class="hidden sm:inline">New project</span>
         <span class="sr-only sm:hidden">New project</span>
       </Button>

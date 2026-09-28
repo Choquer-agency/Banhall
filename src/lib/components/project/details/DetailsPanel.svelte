@@ -139,7 +139,7 @@
         onclick={() => (view = "details")}
         class={iconButton}
       >
-        <CaretLeftIcon size={16} aria-hidden="true" />
+        <CaretLeftIcon size="1rem" aria-hidden="true" />
       </button>
       <h2 id={`${componentId}-title`} class="text-[0.8125rem] font-medium leading-[1.125rem] text-ink">Hand off</h2>
     {:else}
@@ -151,7 +151,7 @@
       onclick={() => void leaveDetails(onClose)}
       class={`ml-auto ${iconButton}`}
     >
-      <XIcon size={14} aria-hidden="true" />
+      <XIcon size="0.875rem" aria-hidden="true" />
     </button>
   </header>
 
@@ -232,7 +232,7 @@
         out:fade={{ duration: motionDuration(300) }}
         class="absolute inset-x-0 bottom-0 flex h-10 items-center gap-2.5 rounded-[0.625rem] border border-line bg-surface px-3.5 text-[0.8125rem] leading-[1.125rem] text-ink shadow-toast"
       >
-        <CheckIcon size={14} weight="bold" aria-hidden="true" class="shrink-0 text-primary-selected" />
+        <CheckIcon size="0.875rem" weight="bold" aria-hidden="true" class="shrink-0 text-primary-selected" />
         <span class="min-w-0 truncate">{shown.text}</span>
       </p>
     {/each}

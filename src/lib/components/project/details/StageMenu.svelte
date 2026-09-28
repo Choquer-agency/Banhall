@@ -75,7 +75,7 @@
             <span class="flex-1"></span>
           {/if}
           {#if option.current}
-            <CheckIcon size={14} aria-hidden="true" class="shrink-0 text-primary-selected" />
+            <CheckIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-primary-selected" />
           {/if}
         </button>
       {/each}

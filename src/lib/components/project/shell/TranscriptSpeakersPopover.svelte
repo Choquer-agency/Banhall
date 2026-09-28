@@ -118,7 +118,7 @@
                             class="inline-flex h-8 w-32 shrink-0 cursor-pointer items-center justify-between gap-1 rounded-lg bg-chrome px-2.5 text-xs text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none"
                           >
                             <span class={speaker.role === "unknown" ? "text-ink-muted" : ""}>{roleLabel(speaker.role)}</span>
-                            <CaretDownIcon size={12} aria-hidden="true" class="text-ink-muted" />
+                            <CaretDownIcon size="0.75rem" aria-hidden="true" class="text-ink-muted" />
                           </Select.Trigger>
                           <Select.Portal>
                             <Select.Content
@@ -134,7 +134,7 @@
                                 >
                                   {#snippet children({ selected })}
                                     {item.label}
-                                    {#if selected}<CheckIcon size={12} aria-hidden="true" />{/if}
+                                    {#if selected}<CheckIcon size="0.75rem" aria-hidden="true" />{/if}
                                   {/snippet}
                                 </Select.Item>
                               {/each}

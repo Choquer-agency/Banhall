@@ -91,7 +91,7 @@
     }}
     class="inline-flex min-h-7 max-w-full items-center gap-1 text-left text-xs font-medium leading-4 text-primary transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir pointer-coarse:min-h-11"
   >
-    <PlusIcon size={13} weight="regular" aria-hidden="true" class="shrink-0" />
+    <PlusIcon size="0.8125rem" weight="regular" aria-hidden="true" class="shrink-0" />
     Set fiscal year-end
   </button>
 {:else}
@@ -108,7 +108,7 @@
       aria-label="Edit fiscal year-end"
       class="flex size-7 shrink-0 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir pointer-coarse:size-11"
     >
-      <PencilSimpleIcon size={14} weight="regular" aria-hidden="true" />
+      <PencilSimpleIcon size="0.875rem" weight="regular" aria-hidden="true" />
     </button>
   </div>
 {/if}
