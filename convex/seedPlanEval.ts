@@ -360,6 +360,9 @@ export const collect = internalQuery({
         model: batch.model,
         slot: batch.slot,
         failed: batch.status === "failed",
+        // 2026-09-28 (fourth): why a Batch failed, so a suite report shows it.
+        error: batch.error ?? null,
+        errorDetail: batch.errorDetail ?? null,
       })),
       seeds: seeds.map((seed) => ({
         seedId: seed._id,

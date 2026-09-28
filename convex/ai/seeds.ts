@@ -18,7 +18,7 @@ import type {
 } from "../seedRuns";
 import type { GenerationClient } from "./openrouterCore";
 import { MalformedOutputError, OutputLimitError, messageText } from "./openrouterCore";
-import { generateStructured } from "./structured";
+import { StructuredValidationError, generateStructured } from "./structured";
 import { startActionDeadline } from "./actionDeadline";
 import {
   clientForStep,
@@ -241,8 +241,10 @@ function seedIssueHints(mode: SeedBatchMode): Record<SeedValidationIssueCode, st
     INVALID_TAG_COUNT: "use one or two tags",
     INVALID_TAG: "use only the allowed tags",
     DUPLICATE_TAG: "a tag is repeated",
+    // 2026-09-28 (fourth): names the block that lists the allowed ids and
+    // why a link cannot be found, since the repair never sees its answer.
     INVALID_ADVANCEMENT_REFERENCE:
-      "copy uncertaintySeedId and experimentSeedIds from the frozen selections",
+      "use only FROZEN ADVANCEMENT LINKS ids and write from linked experiments",
     INVALID_PROVENANCE: "",
     INVALID_BATCH_SIZE: `return ${min} to ${max} valid Seeds`,
     INSUFFICIENT_TAG_DIVERSITY: "use at least two different tags",
@@ -338,6 +340,8 @@ function validatedBatchSchema(args: {
    * offsets on frozen rows before the Seed contract byte-checks them.
    */
   factSources?: readonly FactSource[];
+  /** Told each rejected answer's validation, the last one last. */
+  onRejected?: (result: BatchValidationResult) => void;
 }): z.ZodType<ValidatedSeedBatch> {
   const references: SeedReference[] = args.snapshot.items
     .filter((item) => item.kind === "selection")
@@ -361,6 +365,7 @@ function validatedBatchSchema(args: {
         frozenSources: args.sources,
       });
       if (!result.ok) {
+        args.onRejected?.(result);
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: seedRepairSummary(result, seeds.length, args.mode),
@@ -373,6 +378,23 @@ function validatedBatchSchema(args: {
         seedIndexes: result.seedIndexes,
       };
     });
+}
+
+/**
+ * 2026-09-28 (fourth): why a Batch's answers failed the Seed contract, when
+ * the writer can act on it. "advancement_links": the last answer's Seeds
+ * linked ids outside the frozen uncertainty and experiment selections.
+ */
+export type SeedFailureDetail = "advancement_links";
+
+function failureDetail(
+  error: unknown,
+  lastRejection: BatchValidationResult | undefined
+): SeedFailureDetail | undefined {
+  if (!(error instanceof StructuredValidationError) || !lastRejection) return undefined;
+  return lastRejection.issues.some((issue) => issue.code === "INVALID_ADVANCEMENT_REFERENCE")
+    ? "advancement_links"
+    : undefined;
 }
 
 function failureCode(error: unknown):
@@ -411,6 +433,7 @@ export const generateBatch = internalAction({
     await registerGenerationModels(ctx, claim.batch.generationId).catch(() => null);
 
     let requestsMade = 0;
+    let lastRejection: BatchValidationResult | undefined;
     try {
       const mode = claim.batch.operation === "feedback" ? "feedback" : "batch";
       const sources: FrozenSeedSource[] = claim.input.sources.map((source) => ({
@@ -447,7 +470,7 @@ export const generateBatch = internalAction({
           contentHash: source.contentHash,
           ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
         })),
-        projection: seedPromptProjection(claim.context),
+        projection: seedPromptProjection(claim.context, claim.batch.roleId),
         writerSettings: claim.input.writerSettings,
         lengthTarget: claim.input.lengthTarget,
       });
@@ -530,6 +553,9 @@ export const generateBatch = internalAction({
           snapshot: claim.context,
           sources,
           ...(factSources ? { factSources } : {}),
+          onRejected: (result) => {
+            lastRejection = result;
+          },
         }),
       });
 
@@ -567,11 +593,13 @@ export const generateBatch = internalAction({
         seedsDropped: output.dropped,
       });
     } catch (error) {
+      const detail = failureDetail(error, lastRejection);
       await ctx.runMutation(failAttemptRef, {
         batchId: claim.batch.batchId,
         attemptId: claim.batch.attemptId,
         requestsMade,
         errorCode: failureCode(error),
+        ...(detail ? { errorDetail: detail } : {}),
       });
     }
     return null;

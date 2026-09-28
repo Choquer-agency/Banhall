@@ -33,6 +33,7 @@ import { numberParagraphs } from "./qaAgent";
 import { CHARS_PER_LINE, LINE_LIMITS, wordBudget } from "../lib/lineLimits";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
 import {
+  SEED_ADVANCEMENT_LINK_RULES,
   SEED_PROMPT_PROGRAM,
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
@@ -267,10 +268,10 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     );
     expect(generationPromptProgram.templates.seeds.roles).toHaveLength(13);
     expect(SEED_PROMPT_PROGRAM.user.guidance).toContain(
-      "when the frozen predecessor decisions include experimentation selections"
+      "when the request has a FROZEN ADVANCEMENT LINKS block"
     );
     expect(SEED_PROMPT_PROGRAM.user.guidance).toContain(
-      "When there are no frozen experiment selections, omit both link fields."
+      "When there is no FROZEN ADVANCEMENT LINKS block, omit both link fields."
     );
     expect(
       generationPromptProgram.templates.seeds.roles.find(
@@ -335,7 +336,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     );
     // The same link rules as the offsets guidance.
     expect(SEED_PROMPT_PROGRAM.user.factGuidance).toContain(
-      "When there are no frozen experiment selections, omit both link fields."
+      "When there is no FROZEN ADVANCEMENT LINKS block, omit both link fields."
     );
     expect(generationPromptProgram.calls.transcriptFacts).toMatchObject({
       systemTemplate: FACTS_SYSTEM_PROMPT,
@@ -361,8 +362,19 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     expect(changedGuidance).not.toBe(current);
   });
 
+  it("versions the advancement link rules (2026-09-28, fourth amendment)", () => {
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-28.4");
+    expect(SEED_PROMPT_PROGRAM.user.blocks.advancementLinks).toBe("FROZEN ADVANCEMENT LINKS");
+    expect(SEED_PROMPT_PROGRAM.user.order).toContain("{{runtime.advancementLinks}}");
+    for (const guidance of [SEED_PROMPT_PROGRAM.user.guidance, SEED_PROMPT_PROGRAM.user.factGuidance]) {
+      expect(guidance).toContain(SEED_ADVANCEMENT_LINK_RULES);
+      expect(guidance).toContain("Write each advancement as knowledge gained from the experiments it links.");
+      expect(guidance).not.toMatch(/[\u2013\u2014]/);
+    }
+  });
+
   it("versions the Seed quote rules (2026-09-27, third amendment)", async () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-27.3");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-28.4");
     expect(SEED_PROMPT_PROGRAM.request.quoteRepair.opening).toContain("Some quotes may not back their idea card.");
     expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.quoteRepair)).not.toMatch(/[\u2013\u2014]/);
     expect(generationPromptProgram.templates.seeds.scaffolds.version).toBe(SEED_PROMPT_PROGRAM.version);

@@ -95,6 +95,8 @@ const failureCodeValidator = v.union(
   v.literal("GENERATION_TERMINATED")
 );
 
+const failureDetailValidator = v.literal("advancement_links");
+
 type SeedFailureCode =
   | "PROVIDER_FAILED"
   | "INVALID_OUTPUT"
@@ -746,6 +748,7 @@ async function failSeedAttempt(
     batch: Doc<"seedBatches">;
     requestsMade: number;
     errorCode: SeedFailureCode;
+    errorDetail?: "advancement_links";
     actorSystem?: boolean;
     bumpVersion?: boolean;
   }
@@ -763,6 +766,7 @@ async function failSeedAttempt(
     status: "failed",
     completedAt: now,
     error: args.errorCode,
+    ...(args.errorDetail ? { errorDetail: args.errorDetail } : {}),
   });
   const [generation, project] = await Promise.all([
     ctx.db.get(current.generationId),
@@ -791,11 +795,23 @@ async function failSeedAttempt(
       wasGenerating && failures >= 3 && !subsection.shownBatchId
         ? "failed"
         : restored;
+    // 2026-09-28 (fourth): answers that keep breaking the Seed contract are
+    // counted apart, so the step can say why instead of only "failed".
+    const invalidOutputStreak =
+      args.errorCode === "INVALID_OUTPUT"
+        ? {
+            failures: (subsection.invalidOutputStreak?.failures ?? 0) + 1,
+            ...(args.errorDetail ? { detail: args.errorDetail } : {}),
+          }
+        : args.errorCode === "GENERATION_TERMINATED"
+          ? subsection.invalidOutputStreak
+          : undefined;
     await ctx.db.patch(subsection._id, {
       pendingBatchId: undefined,
       priorState: undefined,
       pendingApprovalReasons: undefined,
       consecutiveFailures: failures,
+      invalidOutputStreak,
       state: nextState,
     });
     if (
@@ -862,6 +878,7 @@ export const failAttempt = internalMutation({
     attemptId: v.string(),
     requestsMade: v.number(),
     errorCode: failureCodeValidator,
+    errorDetail: v.optional(failureDetailValidator),
   },
   handler: async (ctx, args) => {
     const batch = await ctx.db.get(args.batchId);
@@ -870,6 +887,7 @@ export const failAttempt = internalMutation({
       batch,
       requestsMade: args.requestsMade,
       errorCode: args.errorCode,
+      ...(args.errorDetail ? { errorDetail: args.errorDetail } : {}),
     });
   },
 });
@@ -1171,6 +1189,7 @@ export const completeAttempt = internalMutation({
       pendingApprovalReasons: undefined,
       state: subsection.state === "generating" ? "in_progress" : subsection.state,
       consecutiveFailures: 0,
+      invalidOutputStreak: undefined,
       ...(batch.operation === "feedback" ? {} : { shownBatchId: batch._id }),
     });
     await bumpSeedStageVersion(ctx, generation._id);

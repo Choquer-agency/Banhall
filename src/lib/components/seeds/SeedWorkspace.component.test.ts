@@ -733,6 +733,29 @@ describe("Seed workspace", () => {
     await expect.element(page.getByText("The last attempt failed. Showing the previous seeds.")).not.toBeInTheDocument();
   });
 
+  it("says why when answers keep breaking the Seed rules (2026-09-28, fourth amendment)", async () => {
+    const empty = { state: "failed" as const, items: [], shownBatchId: null, approvalChallenge: null };
+    const links =
+      "The AI kept linking advancements to work you did not select. Each advancement must come from an experiment you selected in Experimentation / Iterations. Try again, or select the experiments these advancements came from.";
+    const rules = "The AI kept writing seeds that break the seed rules, so none could be shown. Try again.";
+    const view = await render(
+      SeedSubsectionPane,
+      paneProps(subsection({ ...empty, lastAttemptFailed: true, repeatedInvalidOutput: "advancement_links" }))
+    );
+    await expect.element(page.getByText("Writing seeds for this step failed.")).toBeVisible();
+    await expect.element(page.getByText(links)).toBeVisible();
+
+    const shown = subsection();
+    await view.rerender(paneProps({ ...shown, lastAttemptFailed: true, repeatedInvalidOutput: "seed_rules" }));
+    await expect.element(page.getByText("The last attempt failed. Showing the previous seeds.")).toBeVisible();
+    await expect.element(page.getByText(rules)).toBeVisible();
+    await expect.element(page.getByText(links)).not.toBeInTheDocument();
+
+    // One failure, or none, says nothing more.
+    await view.rerender(paneProps({ ...shown, lastAttemptFailed: true }));
+    await expect.element(page.getByText(rules)).not.toBeInTheDocument();
+  });
+
   it("rechecks edit capability at dispatch, so a revocation landing before an interaction dispatches sends nothing (A3, R6-08)", async () => {
     __setQueryData("seeds:listBatches", {
       page: [{

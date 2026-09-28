@@ -841,6 +841,206 @@ describe("seed Node action request boundary", () => {
     });
   });
 
+  // Release suite run 5 (2026-09-28, "Corrected then withdrawn Feedback"):
+  // the writer kept only the two failed tests in Experimentation, and the
+  // later tests that produced the knowledge showed up only in the sources
+  // and in an Advancement to science selection. Every Batch for Subsection
+  // 11 then came back with 1 or 2 of 5 Seeds valid, the rest linked to ids
+  // outside the frozen selections, answer and repair alike.
+  const withdrawnFeedbackDecisions: PriorDecision[] = [
+    { roleId: "company_context", bullets: ["Marrowby Finishing builds robotic deburring cells for cast brackets."] },
+    { roleId: "active_uncertainties", bullets: ["It was unknown whether 2D images could separate burr shadow from glare."] },
+    { roleId: "active_uncertainties", bullets: ["No model related burr height, spindle force and edge radius."] },
+    { roleId: "experimentation", bullets: ["Test 1 used a fixed 20 newton force and rejected 14 percent of brackets."] },
+    { roleId: "experimentation", bullets: ["Test 2 used single-angle 2D vision and glare caused a 0.18 millimetre error."] },
+    { roleId: "experimentation", bullets: ["Test 3 used two-angle lighting and met the accuracy target."], selected: false },
+    { roleId: "experimentation", bullets: ["Test 4 found a knee in the force to burr height curve."], selected: false },
+    { roleId: "overall_advancement", bullets: ["Test 3 met the accuracy target and Test 4 mapped force to radius."] },
+  ];
+
+  function advancement(text: string, tag: ProviderSeed["tags"][number], links: Pick<ProviderSeed, "uncertaintySeedId" | "experimentSeedIds">): ProviderSeed {
+    return { bullets: [text], tags: [tag], provenance: [], ...links };
+  }
+
+  /** The failing answer's shape: two Seeds linked right, three not. */
+  function withdrawnFeedbackAnswer(ids: Id<"seeds">[]) {
+    const [, uncertaintyA, uncertaintyB, testOne, testTwo, testThree, , overall] = ids;
+    return {
+      seeds: [
+        advancement("A fixed contact force cannot cover burr heights from 0.1 to 1.2 millimetres.", "conservative", { uncertaintySeedId: uncertaintyB, experimentSeedIds: [testOne!] }),
+        advancement("Single-angle 2D images cannot separate burr shadow from glare on machined faces.", "technical", { uncertaintySeedId: uncertaintyA, experimentSeedIds: [testTwo!] }),
+        // Linked to the Advancement to science selection that describes Tests 3 and 4.
+        advancement("Two-angle lighting separates burr shadow from glare within the accuracy target.", "detailed", { uncertaintySeedId: uncertaintyA, experimentSeedIds: [overall!] }),
+        // Linked to a test the writer did not select.
+        advancement("The force to burr height curve has a knee near 0.6 millimetres.", "technical", { uncertaintySeedId: uncertaintyB, experimentSeedIds: [testThree!] }),
+        // No links at all.
+        advancement("Capping force on thin flanges removes chatter.", "aggressive", {}),
+      ],
+    };
+  }
+
+  function linkedAnswer(ids: Id<"seeds">[]) {
+    const [, uncertaintyA, uncertaintyB, testOne, testTwo] = ids;
+    return {
+      seeds: [
+        advancement("A fixed contact force cannot cover burr heights from 0.1 to 1.2 millimetres.", "conservative", { uncertaintySeedId: uncertaintyB, experimentSeedIds: [testOne!] }),
+        advancement("Single-angle 2D images cannot separate burr shadow from glare on machined faces.", "technical", { uncertaintySeedId: uncertaintyA, experimentSeedIds: [testTwo!] }),
+        advancement("Burr height must be measured per edge before force can be set, since one setting fails.", "detailed", { uncertaintySeedId: uncertaintyB, experimentSeedIds: [testOne!, testTwo!] }),
+      ],
+    };
+  }
+
+  it("lists the only ids an advancement may link and repairs an answer linked outside them", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, {
+      targetRoleId: "specific_advancements",
+      decisions: withdrawnFeedbackDecisions,
+    });
+    const ids = fixture.decisions.map((decision) => decision.seedId);
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return requests.length === 1
+          ? providerResponse(withdrawnFeedbackAnswer(ids), 1)
+          : providerResponse(linkedAnswer(ids), 2);
+      })
+    );
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(requests).toHaveLength(2);
+    const first = requestText((await requests[0]!.json()).messages[0].content);
+    const block = first.split("--- BEGIN [FROZEN ADVANCEMENT LINKS] ---\n")[1]?.split("\n--- END [FROZEN ADVANCEMENT LINKS] ---")[0];
+    expect(JSON.parse(block ?? "null")).toEqual({
+      experimentSeedIds: [ids[3], ids[4]],
+      uncertaintySeedIds: [ids[1], ids[2]],
+    });
+    expect(first).toContain("Write each advancement as knowledge gained from the experiments it links.");
+    const second = requestText((await requests[1]!.json()).messages[0].content);
+    expect(second).toContain(
+      "Your previous tool output was invalid: (root): 2 of 5 Seeds valid; return 3 to 5 valid Seeds; use only FROZEN ADVANCEMENT LINKS ids and write from linked experiments (Seeds 3, 4, 5)."
+    );
+    const persisted = await t.run((ctx) =>
+      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+    );
+    expect(persisted).toHaveLength(3);
+    for (const seed of persisted) {
+      expect([ids[1], ids[2]]).toContain(seed.uncertaintySeedId);
+      for (const id of seed.experimentSeedIds ?? []) expect([ids[3], ids[4]]).toContain(id);
+    }
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
+  });
+
+  it("sends no link block to other steps or to advancements without a selected experiment", async () => {
+    const t = convexTest(schema, modules);
+    const other = await dispatchedAttempt(t, {
+      targetRoleId: "project_status",
+      decisions: withdrawnFeedbackDecisions,
+    });
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse({ seeds: validSeeds }, requests.length);
+      })
+    );
+    await t.action(generateBatchRef, { batchId: other.batchId });
+    const unlinked = await dispatchedAttempt(t, {
+      targetRoleId: "specific_advancements",
+      decisions: withdrawnFeedbackDecisions.filter((decision) => decision.roleId !== "experimentation"),
+    });
+    await t.action(generateBatchRef, { batchId: unlinked.batchId });
+
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      const text = requestText((await request.json()).messages[0].content);
+      expect(text).not.toContain("--- BEGIN [FROZEN ADVANCEMENT LINKS] ---");
+    }
+  });
+
+  it("says why after two attempts in a row link advancements outside the selections", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, {
+      targetRoleId: "specific_advancements",
+      decisions: withdrawnFeedbackDecisions,
+    });
+    const ids = fixture.decisions.map((decision) => decision.seedId);
+    const transport = vi.fn<typeof fetch>(async () => providerResponse(withdrawnFeedbackAnswer(ids), 1));
+    vi.stubGlobal("fetch", transport);
+    const writer = t.withIdentity({ subject: "seed-dispatch-specific_advancements" });
+    const pane = () =>
+      writer.query(api.seeds.getSubsection, { generationId: fixture.generationId, roleId: "specific_advancements" });
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+      status: "failed",
+      error: "INVALID_OUTPUT",
+      errorDetail: "advancement_links",
+      requestsMade: 2,
+    });
+    // One failure says only that it failed.
+    expect(await pane()).toMatchObject({ lastAttemptFailed: true });
+    expect(await pane()).not.toHaveProperty("repeatedInvalidOutput");
+
+    const again = await t.mutation(dispatchRef, {
+      generationId: fixture.generationId,
+      roleId: "specific_advancements",
+      operation: "retry",
+      commandId: "withdrawn-feedback-again",
+      actorUserId: fixture.userId,
+    });
+    if (again.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${again.kind}`);
+    await t.action(generateBatchRef, { batchId: again.batchId });
+
+    expect(await pane()).toMatchObject({ lastAttemptFailed: true, repeatedInvalidOutput: "advancement_links" });
+    const subsection = await t.run((ctx) => ctx.db.get(fixture.subsectionId));
+    expect(subsection).toMatchObject({ invalidOutputStreak: { failures: 2, detail: "advancement_links" } });
+
+    // A good answer clears it.
+    transport.mockImplementation(async () => providerResponse(linkedAnswer(ids), 3));
+    const third = await t.mutation(dispatchRef, {
+      generationId: fixture.generationId,
+      roleId: "specific_advancements",
+      operation: "retry",
+      commandId: "withdrawn-feedback-fixed",
+      actorUserId: fixture.userId,
+    });
+    if (third.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${third.kind}`);
+    await t.action(generateBatchRef, { batchId: third.batchId });
+    const cleared = await pane();
+    expect(cleared).not.toHaveProperty("repeatedInvalidOutput");
+    expect(cleared).not.toHaveProperty("lastAttemptFailed");
+    expect((await t.run((ctx) => ctx.db.get(fixture.subsectionId)))?.invalidOutputStreak).toBeUndefined();
+  });
+
+  it("names the Seed rules, not the links, when answers keep breaking other rules", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, { targetRoleId: "company_context", decisions: [] });
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => providerResponse({ seeds: [] }, 1)));
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+    const again = await t.mutation(dispatchRef, {
+      generationId: fixture.generationId,
+      roleId: "company_context",
+      operation: "retry",
+      commandId: "seed-rules-again",
+      actorUserId: fixture.userId,
+    });
+    if (again.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${again.kind}`);
+    await t.action(generateBatchRef, { batchId: again.batchId });
+
+    expect(await t.run((ctx) => ctx.db.get(again.batchId))).not.toHaveProperty("errorDetail");
+    expect(
+      await t
+        .withIdentity({ subject: "seed-dispatch-company_context" })
+        .query(api.seeds.getSubsection, { generationId: fixture.generationId, roleId: "company_context" })
+    ).toMatchObject({ lastAttemptFailed: true, repeatedInvalidOutput: "seed_rules" });
+  });
+
   it("makes no HTTP request when the queued dispatch lease has expired", async () => {
     const t = convexTest(schema, modules);
     const fixture = await dispatchedAttempt(t, {
@@ -1001,7 +1201,7 @@ describe("seed Node action request boundary", () => {
       "batch"
     );
     expect(mixed).toBe(
-      "0 of 5 Seeds valid; return 3 to 5 valid Seeds; copy uncertaintySeedId and experimentSeedIds from the frozen selections (Seeds 1, 2, 3, 4, 5); a bullet is over 25 words (Seeds 1, 4); use a plain hyphen (Seed 5); use at least two different tags"
+      "0 of 5 Seeds valid; return 3 to 5 valid Seeds; use only FROZEN ADVANCEMENT LINKS ids and write from linked experiments (Seeds 1, 2, 3, 4, 5); a bullet is over 25 words (Seeds 1, 4); use a plain hyphen (Seed 5); use at least two different tags"
     );
 
     // A variety rule can be the only reason the batch failed, so it stays
@@ -1109,7 +1309,7 @@ describe("seed Node action request boundary", () => {
       "feedback"
     );
     expect(marked).toBe(
-      "0 of 3 Seeds valid; return 1 to 3 valid Seeds; use one or two bullets (Seeds 1, 2); a bullet is over 25 words (Seeds 2, 3); copy uncertaintySeedId and experimentSeedIds from the frozen selections (Seeds 2, 3); more issues omitted"
+      "0 of 3 Seeds valid; return 1 to 3 valid Seeds; use one or two bullets (Seeds 1, 2); a bullet is over 25 words (Seeds 2, 3); use only FROZEN ADVANCEMENT LINKS ids and write from linked experiments (Seeds 2, 3); more issues omitted"
     );
     expect(bytes(marked)).toBeLessThanOrEqual(reserved);
 
@@ -1148,7 +1348,7 @@ describe("seed Node action request boundary", () => {
     );
     expect(summary.startsWith("0 of 8 Seeds valid; return 3 to 5 valid Seeds; wrong fields or tag (Seeds 1, 2, 3, 4, 5, 6, 7, 8)")).toBe(true);
     expect(summary.endsWith("; more issues omitted")).toBe(true);
-    expect(summary).not.toContain("copy uncertaintySeedId");
+    expect(summary).not.toContain("FROZEN ADVANCEMENT LINKS");
     expect(
       new TextEncoder().encode(`(root): ${summary}`).byteLength
     ).toBeLessThanOrEqual(SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes);

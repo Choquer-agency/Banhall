@@ -436,6 +436,12 @@ export async function getSubsectionData(
     // A failed attempt restores the prior state until the third failure, so
     // an empty step says the last attempt failed instead of "no seeds yet".
     ...(row.consecutiveFailures > 0 ? { lastAttemptFailed: true as const } : {}),
+    // 2026-09-28 (fourth): two or more failed attempts in a row whose
+    // answers broke the Seed contract, and why when the writer can act on
+    // it, so the step says more than "failed".
+    ...(row.consecutiveFailures > 0 && (row.invalidOutputStreak?.failures ?? 0) >= 2
+      ? { repeatedInvalidOutput: row.invalidOutputStreak?.detail ?? ("seed_rules" as const) }
+      : {}),
     approvalChallenge,
     seedStageVersion: state.generation.seedStageVersion ?? 0,
     truncated,

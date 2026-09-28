@@ -25,6 +25,7 @@ import {
 import { DRAFTING_INPUTS_LEASE_MS } from "./lib/generations/draftingInputs";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
 import { SEED_QUOTE_RULES } from "./ai/promptDefinitions";
+import { withPinnedAdvancementLinkRules } from "./seedLinkRules.fixture";
 import { ActionTimeBudgetError } from "./ai/actionDeadline";
 import { decisionFixture } from "./seedDecision.fixture";
 
@@ -311,7 +312,11 @@ async function requestHashes(
     const body = cap === undefined ? params : { ...params, max_tokens: cap };
     // The Seed quote rules (2026-09-27, third amendment) are the only bytes
     // the seed request gained since the pins; they are taken out here.
-    firstByTool.set(name, maskIds(JSON.stringify(body).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), "")));
+    // The link sentence changed on 2026-09-28 (fourth); the pins hold the old one.
+    firstByTool.set(
+      name,
+      maskIds(withPinnedAdvancementLinkRules(JSON.stringify(body)).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
+    );
   }
   const result: Record<string, string> = {};
   for (const [name, body] of [...firstByTool.entries()].sort()) {

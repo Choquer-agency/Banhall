@@ -1277,6 +1277,16 @@ export default defineSchema({
     // Bounded causal evidence while a pending attempt temporarily hides approval.
     pendingApprovalReasons: v.optional(v.array(seedRoleIdValidator)),
     consecutiveFailures: v.number(),
+    // 2026-09-28 (fourth) widen: the run of failed attempts in a row whose
+    // answers broke the Seed contract (INVALID_OUTPUT), and why the last one
+    // did when the writer can act on it. Absent when the last attempt
+    // succeeded or failed another way; the step then says why after two.
+    invalidOutputStreak: v.optional(
+      v.object({
+        failures: v.number(),
+        detail: v.optional(v.literal("advancement_links")),
+      })
+    ),
     activeStaleEpisodeId: v.optional(v.id("seedStaleEpisodes")),
     approvedBy: v.optional(v.id("users")),
     approvedAt: v.optional(v.number()),
@@ -1334,6 +1344,9 @@ export default defineSchema({
     settledAt: v.optional(v.number()),
     seedsDropped: v.optional(v.number()),
     error: v.optional(v.string()),
+    // 2026-09-28 (fourth) widen: with error INVALID_OUTPUT, why the last
+    // answer broke the Seed contract when the writer can act on it.
+    errorDetail: v.optional(v.literal("advancement_links")),
   })
     .index("by_generationId_and_roleId", ["generationId", "roleId"])
     .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])

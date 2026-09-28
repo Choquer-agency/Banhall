@@ -19,6 +19,7 @@ import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import { STRUCTURED_OUTPUT_PROGRAM } from "./structured";
 import type { GenerationTextBlock } from "./openrouterCore";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
+import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { readsFactPacks } from "../lib/seedFacts";
 import {
   MAX_SEED_PROMPT_UTF8_BYTES,
@@ -660,6 +661,11 @@ export type SeedPromptProjection = {
   feedback: string;
   /** Canonical JSON produced by snapshotPromptProjection, when applicable. */
   target?: string;
+  /**
+   * 2026-09-28 (fourth): for specific advancements with frozen experiment
+   * selections, the only ids each link may use, as canonical JSON.
+   */
+  advancementLinks?: string;
 };
 
 export type SeedTrustedContextInput = {
@@ -707,7 +713,31 @@ function seedSnapshotOf(
   return { v: 1, items: [...items] };
 }
 
-export function seedPromptProjection(snapshot: SeedContextSnapshot) {
+/**
+ * 2026-09-28 (fourth): the ids Subsection 11's links may use, the same set
+ * the Seed contract accepts (frozen selections of active_uncertainties and
+ * experimentation). Null for any other role, or with no frozen experiment,
+ * where the Seeds carry no links.
+ */
+export function seedAdvancementLinkIds(
+  snapshot: SeedContextSnapshot,
+  roleId: PdSubsectionRoleId
+): { uncertaintySeedIds: string[]; experimentSeedIds: string[] } | null {
+  if (roleId !== "specific_advancements") return null;
+  const idsOf = (linkedRoleId: PdSubsectionRoleId) =>
+    snapshot.items.flatMap((item) =>
+      item.kind === "selection" && item.roleId === linkedRoleId ? [item.seedId] : []
+    );
+  const experimentSeedIds = idsOf("experimentation");
+  if (experimentSeedIds.length === 0) return null;
+  return { uncertaintySeedIds: idsOf("active_uncertainties"), experimentSeedIds };
+}
+
+export function seedPromptProjection(
+  snapshot: SeedContextSnapshot,
+  roleId?: PdSubsectionRoleId
+) {
+  const links = roleId ? seedAdvancementLinkIds(snapshot, roleId) : null;
   const decisions = snapshot.items.filter(
     (item) =>
       item.kind === "selection" ||
@@ -722,6 +752,7 @@ export function seedPromptProjection(snapshot: SeedContextSnapshot) {
     ...(target.length > 0
       ? { target: snapshotPromptProjection(seedSnapshotOf(target)) }
       : {}),
+    ...(links ? { advancementLinks: stableSeedPromptJson(links) } : {}),
   };
 }
 
@@ -842,6 +873,9 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     prompt.modeLabels[input.mode],
     seedBlock(prompt.blocks.objective, input.objective),
     seedBlock(prompt.blocks.decisions, input.projection.decisions),
+    ...(input.projection.advancementLinks !== undefined
+      ? [seedBlock(prompt.blocks.advancementLinks, input.projection.advancementLinks)]
+      : []),
     seedBlock(prompt.blocks.feedback, input.projection.feedback),
     seedBlock(
       prompt.blocks.target,

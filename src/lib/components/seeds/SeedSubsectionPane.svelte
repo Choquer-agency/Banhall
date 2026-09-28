@@ -147,6 +147,17 @@
   const unskip = useMutation(seedsApi.unskip);
   const approve = useMutation(seedsApi.approve);
 
+  // 2026-09-28 (fourth): after two or more answers in a row broke the Seed
+  // rules, say why instead of only "failed".
+  const REPEATED_INVALID_OUTPUT = {
+    advancement_links:
+      "The AI kept linking advancements to work you did not select. Each advancement must come from an experiment you selected in Experimentation / Iterations. Try again, or select the experiments these advancements came from.",
+    seed_rules: "The AI kept writing seeds that break the seed rules, so none could be shown. Try again.",
+  } as const;
+  const repeatedFailure = $derived(
+    data.repeatedInvalidOutput ? REPEATED_INVALID_OUTPUT[data.repeatedInvalidOutput] : null
+  );
+
   let busy = $state(false);
   let error = $state<string | null>(null);
   let announcement = $state("");
@@ -934,6 +945,7 @@
         {#if data.items.length === 0 && !data.pendingBatchId && (data.lastAttemptFailed || data.state === "failed")}
           <div role="status" class="rounded-[10px] border border-dashed border-line p-6 text-center" data-seed-empty="failed">
             <p class="text-body text-ink-secondary">Writing seeds for this step failed.</p>
+            {#if repeatedFailure}<p class="mt-2 text-body text-ink-secondary" data-seed-repeated-failure>{repeatedFailure}</p>{/if}
             {#if canEdit && data.state !== "skipped"}
               <Button class="mt-3" size="sm" variant="secondary" disabled={busy} onclick={regenerateCurrent}>Try again</Button>
             {/if}
@@ -966,6 +978,7 @@
             <p role="status" class="mb-2.5 text-body text-ink-secondary" data-seed-last-attempt="failed">
               The last attempt failed. Showing the previous seeds.
             </p>
+            {#if repeatedFailure}<p class="mb-2.5 text-body text-ink-secondary" data-seed-repeated-failure>{repeatedFailure}</p>{/if}
           {/if}
           <!-- One keyed list in ranked order; each card is placed on the grid,
                so a card keeps its parent, focus and local state. -->
