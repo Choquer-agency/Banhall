@@ -83,6 +83,7 @@
     GENERATION_MODES,
     RERUN_CONFIRM,
     generationMode,
+    isGenerationModeId,
     type GenerationModeId,
   } from "../../../../shared/generationModes";
   import { pickerModels } from "$lib/modelPicker";
@@ -698,14 +699,21 @@
   // BNH-52: a completed test never re-runs silently — confirm modal first,
   // then the mutation is called with force. Prior results stay (report
   // versions + "generated" snapshots + generation rows are never deleted).
-  let confirmRegenerate = $state<"transcript" | "review" | null>(null);
+  let confirmRegenerate = $state<"transcript" | "review" | "brief" | null>(null);
   const requiresRegenerationConfirmation = $derived(
     Boolean(report) ||
       generation?.status === "completed" ||
       generation?.status === "awaiting_selection"
   );
 
-  async function runGenerate(source: "transcript" | "review", force: boolean) {
+  // Story 8: "Regenerate with this Brief" re-runs in the mode of the run the
+  // Brief came from; the shared default only when that mode is unknown.
+  function modeFor(source: "transcript" | "review" | "brief"): GenerationModeId {
+    return source === "brief" ? (briefRunMode ?? GENERATION_MODES[0].id) : requestMode;
+  }
+
+  async function runGenerate(source: "transcript" | "review" | "brief", force: boolean) {
+    const mode = modeFor(source);
     confirmRegenerate = null;
     generationError = "";
     if (source === "review") {
@@ -721,11 +729,11 @@
       await generateReport({
         projectId,
         lengthTarget: lengthTarget as "concise" | "standard" | "full",
-        candidateMode: requestMode,
-        ...(requestMode !== "compare" && singleModelId
+        candidateMode: mode,
+        ...(mode !== "compare" && singleModelId
           ? { singleModelId }
           : {}),
-        ...(requestMode === "compare"
+        ...(mode === "compare"
           ? (() => {
               const pair = comparePairFromSlots(
                 compareSlotA,
@@ -751,6 +759,14 @@
       return;
     }
     runGenerate("transcript", false);
+  }
+
+  function handleRegenerateFromBrief() {
+    if (requiresRegenerationConfirmation) {
+      confirmRegenerate = "brief";
+      return;
+    }
+    runGenerate("brief", false);
   }
 
   function handleGenerateFromReview() {
@@ -1133,6 +1149,19 @@
       generationQ.data?._id ??
       null
   );
+  // The mode of the run the Brief came from: the latest run's when it is that
+  // run, otherwise read from its own generation row. Null while unknown.
+  const briefRunQ = useQuery(api.generations.getGeneration, () =>
+    auth.isAuthenticated && briefGenerationId && briefGenerationId !== generation?._id
+      ? { generationId: briefGenerationId }
+      : "skip"
+  );
+  const briefRunMode = $derived.by((): GenerationModeId | null => {
+    const mode = briefGenerationId && briefGenerationId === generation?._id
+      ? generation?.candidateMode
+      : briefRunQ.data?.candidateMode;
+    return isGenerationModeId(mode) ? mode : null;
+  });
   const briefQ = useQuery(api.briefs.getBrief, () =>
     auth.isAuthenticated && briefGenerationId ? { generationId: briefGenerationId } : "skip"
   );
@@ -1699,7 +1728,7 @@
                 {projectId}
                 open={briefOpen}
                 onClose={() => (briefOpen = false)}
-                onRegenerate={handleRegenerate}
+                onRegenerate={handleRegenerateFromBrief}
               />
             {/if}
             <!-- BNH-47: QA review — shared rail card (in flow; exactly one
@@ -1906,7 +1935,7 @@
                 {RERUN_CONFIRM.title}
               </h3>
               <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
-                {generationMode(requestMode).rerun}
+                {generationMode(modeFor(regenSource)).rerun}
                 {RERUN_CONFIRM.keeps}
               </p>
             </div>

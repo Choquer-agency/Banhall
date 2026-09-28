@@ -2,11 +2,13 @@ import { beforeEach, expect, it } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import CurrentProjectPage from "./CurrentProjectPage.svelte";
+import PreviewProjectPage from "./PreviewProjectPage.svelte";
 import { __resetPage, __setPageParams } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
 import {
   __activeQueryArgs,
+  __mutationCalls,
   __resetConvexStub,
   __setPaginatedRows,
   __setQueryData,
@@ -250,4 +252,96 @@ it("keeps the rail and the progress panel on one generation during a regeneratio
   await expect.poll(() => __activeQueryArgs("briefs:getBrief").length).toBeGreaterThan(0);
   const args = __activeQueryArgs("briefs:getBrief").map((entry) => JSON.stringify(entry));
   expect(new Set(args)).toEqual(new Set([JSON.stringify({ generationId: "generation-2" })]));
+});
+
+// Story 8: "Regenerate with this Brief" re-runs in the mode of the run the
+// Brief came from, and the confirmation says what that mode does.
+const RERUN_LINE = {
+  iterative: "You pick and approve the ideas step by step, then Banhall writes a new version of the report from your plan.",
+  single: "Banhall writes one new draft and adds it as a new version of the report.",
+  compare: "Banhall writes two new drafts and adds the one you keep as a new version of the report.",
+} as const;
+
+async function regenerateFromBrief(expected: keyof typeof RERUN_LINE) {
+  await page.viewport(1440, 1000);
+  __setQueryData("briefs:getBrief", { ...brief, editedSinceGeneration: true, regenerationDisabled: false });
+  localStorage.setItem("banhall_brief_open", "1");
+  await render(CurrentProjectPage);
+  await page.getByRole("button", { name: "Regenerate with this Brief", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "This project already has a report" });
+  await expect.element(dialog).toBeVisible();
+  expect(dialog.element().textContent?.replace(/\s+/g, " ")).toContain(RERUN_LINE[expected]);
+  expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
+  await dialog.getByRole("button", { name: "Re-run generation", exact: true }).click();
+  await expect.poll(() => __mutationCalls("generations:requestGeneration")).toEqual([{
+    projectId: "project-1",
+    lengthTarget: "standard",
+    candidateMode: expected,
+    confirmRegeneration: true,
+  }]);
+}
+
+it("regenerates with the Brief in the mode of its run when that run is the latest (story 8)", async () => {
+  __setQueryData("generations:getLatestGeneration", {
+    _id: "generation-1",
+    status: "completed",
+    candidateMode: "single",
+    startedAt: 1,
+    completedAt: 2,
+    progressLog: [],
+  });
+  await regenerateFromBrief("single");
+  // The latest run already names the mode: no extra read of its row.
+  expect(__activeQueryArgs("generations:getGeneration")).not.toContainEqual({ generationId: "generation-1" });
+});
+
+it("reads the mode from the Brief's own run when a newer run exists (story 8)", async () => {
+  // The report (and so the Brief) came from generation-1, a Compare run; a
+  // later Single draft failed without replacing the report.
+  __setQueryData("generations:getLatestGeneration", {
+    _id: "generation-3",
+    status: "failed",
+    candidateMode: "single",
+    startedAt: 3,
+    progressLog: [],
+  });
+  __setQueryData("generations:getGeneration", {
+    _id: "generation-1",
+    status: "completed",
+    candidateMode: "compare",
+    startedAt: 1,
+    progressLog: [],
+  });
+  await regenerateFromBrief("compare");
+  expect(__activeQueryArgs("generations:getGeneration")).toContainEqual({ generationId: "generation-1" });
+});
+
+it("falls back to the shared default, Step by step, when the Brief's run mode is unknown (story 8)", async () => {
+  __setQueryData("generations:getLatestGeneration", {
+    _id: "generation-3",
+    status: "failed",
+    candidateMode: "single",
+    startedAt: 3,
+    progressLog: [],
+  });
+  __setQueryData("generations:getGeneration", null);
+  await regenerateFromBrief("iterative");
+});
+
+it("offers no Brief regenerate on the preview project page, so it can never send the wrong mode (story 8)", async () => {
+  await page.viewport(1440, 1000);
+  __setQueryData("briefs:getBrief", { ...brief, editedSinceGeneration: true, regenerationDisabled: false });
+  __setQueryData("generations:getLatestGeneration", {
+    _id: "generation-1",
+    status: "completed",
+    candidateMode: "single",
+    startedAt: 1,
+    completedAt: 2,
+    progressLog: [],
+  });
+  localStorage.setItem("banhall_brief_open", "1");
+  await render(PreviewProjectPage);
+  await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+  expect(page.getByRole("button", { name: "Regenerate with this Brief", exact: true }).elements()).toHaveLength(0);
+  expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
 });
