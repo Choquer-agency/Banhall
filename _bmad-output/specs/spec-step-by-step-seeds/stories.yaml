@@ -153,8 +153,9 @@
   title: Mode relabel, shared selector list and documentation
   description: >-
     CAP-1 relabel: the mode-selector list moves to shared/generationModes.ts and
-    all three selectors import it, the label becomes Step by step with the hint "Decide the ideas first, then generate the PD" and the mode is listed first; changelog
-    entry per docs/changelog-guidelines.md. Spine AD-41.
+    all three selectors import it, the label becomes Step by step with the hint "Pick the ideas first. We write after." and the mode is listed first; changelog
+    entry per docs/changelog-guidelines.md. Spine AD-41. The hint follows round 2
+    board E1, which governs the mode copy where it and this spec differ.
   spec_checkpoint: false
   done_checkpoint: true
   invoke_dev_with: >-

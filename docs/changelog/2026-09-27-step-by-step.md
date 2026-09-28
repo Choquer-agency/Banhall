@@ -8,4 +8,4 @@ Step by step lets you decide what the PD says before any of it is written. Pick 
 - Read the whole plan on one page, fix any line, then sign off. Banhall writes sections 242, 244 and 246 from the plan you signed off.
 
 ### Improved
-- Step by step is listed first wherever you choose how to write a PD. The project page now uses the same mode names and order as New project, where Step by step is marked Recommended.
+- Step by step is listed first and picked for you wherever you choose how to write a PD. The project page now uses the same mode names and order as New project, where Step by step is marked Recommended.
