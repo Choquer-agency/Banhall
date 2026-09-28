@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canJudgeQuote,
   contentWords,
   excerptSupportsSeed,
   quoteCheckIssues,
@@ -193,5 +194,71 @@ describe("quoteCheckIssues", () => {
       { bullets: ["A customer caps surface heat sources at thirty-five degrees during installs."], provenance: [citation("cap", { sourceId: "source-2" })] },
     ];
     expect(quoteCheckIssues(seeds, { reuse: true })).toEqual([]);
+  });
+});
+
+describe("word forms, numbers and units (review P3-6)", () => {
+  it.each([
+    ["cure", "curing"],
+    ["cure", "cured"],
+    ["bake", "baking"],
+    ["mix", "mixed"],
+    ["run", "running"],
+    ["tap", "tapped"],
+    ["fill", "filled"],
+    ["12", "twelve"],
+    ["23", "twenty-three"],
+    ["fibre", "fiber"],
+    ["millimetres", "mm"],
+  ])("reads %s and %s as one word", (left, right) => {
+    expect(contentWords(left)).toEqual(contentWords(right));
+  });
+
+  it("reads degree signs, percent signs and glued units as words", () => {
+    expect(sharedContentWords("Bonds cured at 5 degrees Celsius held 15 MPa.", "cure at 5°C holds 15MPa")).toBe(6);
+    expect(sharedContentWords("Retention stayed above eighty percent.", "retention above 80%")).toBe(3);
+  });
+
+  it("keeps different words apart", () => {
+    expect(sharedContentWords("The process was slow.", "The procedure was slow.")).toBe(1);
+    expect(contentWords("speed")).toEqual(["speed"]);
+  });
+});
+
+describe("quotes the word check cannot judge are never marked (review P2-3)", () => {
+  // Fictional lines from a made-up Lyon bonding interview.
+  const french = "Nous collons les supports à cinq degrés et la colle durcit en deux jours.";
+  const chinese = "我们在五度下粘接支架，胶水两天后固化。";
+  const english = "Brackets were bonded at five degrees and the adhesive cured in two days.";
+
+  it("does not judge a French quote behind an English card", () => {
+    expect(canJudgeQuote(english, french)).toBe(false);
+    expect(quoteCheckIssues([{ bullets: [english], provenance: [citation("cap", {})].map((item) => ({ ...item, exactExcerpt: french })) }], { reuse: true })).toEqual([]);
+  });
+
+  it("still judges a French quote behind a French card", () => {
+    const card = "Les supports sont collés à cinq degrés et la colle durcit en deux jours.";
+    expect(canJudgeQuote(card, french)).toBe(true);
+    expect(excerptSupportsSeed(card, french)).toBe(true);
+    expect(canJudgeQuote("Nous testons les capteurs sur les mâts et les tours.", french)).toBe(true);
+    expect(excerptSupportsSeed("Nous testons les capteurs sur les mâts et les tours.", french)).toBe(false);
+  });
+
+  it("does not judge a Chinese quote, behind an English or a Chinese card", () => {
+    expect(canJudgeQuote(english, chinese)).toBe(false);
+    expect(canJudgeQuote("支架在五度下粘接。", chinese)).toBe(false);
+    const seeds = [
+      { bullets: [english], provenance: [{ ...citation("cap"), exactExcerpt: chinese }] },
+      { bullets: ["支架在五度下粘接。"], provenance: [{ ...citation("cap"), exactExcerpt: chinese }] },
+    ];
+    expect(quoteCheckIssues(seeds, { reuse: true })).toEqual([]);
+  });
+
+  it("does not judge a quote with no usable words", () => {
+    expect(canJudgeQuote(english, "and so, we did it")).toBe(false);
+    expect(canJudgeQuote(english, "12:30")).toBe(false);
+    expect(
+      quoteCheckIssues([{ bullets: [english], provenance: [{ ...citation("cap"), exactExcerpt: "and so, we did it" }] }], { reuse: true })
+    ).toEqual([]);
   });
 });
