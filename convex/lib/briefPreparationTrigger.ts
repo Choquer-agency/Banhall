@@ -32,7 +32,18 @@ export type PreparationTriggerReason =
   | "speakers_changed"
   | "structure_ready"
   | "identity_changed"
-  | "fiscal_year_changed";
+  | "fiscal_year_changed"
+  // 2026-09-27 (fourth): the project page's start dialog leave-out list.
+  | "selection_changed";
+
+/**
+ * How long a project's start dialog leave-out list (2026-09-27, fourth)
+ * stays with its preparations: a new queued row takes it over from the
+ * row before it while it is this fresh, so an evidence change while the
+ * dialog is open still prepares exactly the ticked files. Older, it no
+ * longer applies (a tab closed with the dialog open).
+ */
+export const SELECTION_FRESH_MS = 10 * 60 * 1000;
 
 /**
  * Workflow stages in which a project may be prepared: the writing stages.
@@ -56,35 +67,36 @@ export function preparationStageAllows(project: Pick<Doc<"projects">, "workflowS
  * editor whose change this is. A system change (a finished intake turn
  * build or speaker classification) passes none and only follows up work
  * someone asked for recently: a queued or running row, or a row made ready
- * today (firm day). It never starts spend on its own.
+ * today (firm day). It never starts spend on its own. Returns the queued
+ * row, or null when nothing was queued.
  */
 export async function requestBriefPreparation(
   ctx: MutationCtx,
   projectId: Id<"projects">,
   trigger: { userId?: Id<"users">; reason: PreparationTriggerReason },
   delayMs: number = PREPARATION_DEBOUNCE_MS
-): Promise<void> {
-  if (!(await briefPreparationEnabled(ctx))) return;
+): Promise<Id<"briefPreparations"> | null> {
+  if (!(await briefPreparationEnabled(ctx))) return null;
   const project = await ctx.db.get(projectId);
-  if (!project || project.deletionStartedAt !== undefined) return;
-  if (effectiveProjectType(project) !== "writing" || !preparationStageAllows(project)) return;
+  if (!project || project.deletionStartedAt !== undefined) return null;
+  if (effectiveProjectType(project) !== "writing" || !preparationStageAllows(project)) return null;
   const now = Date.now();
   const queued = await ctx.db
     .query("briefPreparations")
     .withIndex("by_projectId_and_status", (q) => q.eq("projectId", projectId).eq("status", "queued"))
     .first();
+  const latest = await ctx.db
+    .query("briefPreparations")
+    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+    .order("desc")
+    .first();
   let triggeredBy = trigger.userId ?? queued?.triggeredBy;
   if (!triggeredBy) {
-    const latest = await ctx.db
-      .query("briefPreparations")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .order("desc")
-      .first();
     const recent =
       latest !== null &&
       (latest.status === "running" ||
         (latest.status === "ready" && latest.firmDay === firmDayNumber(now)));
-    if (!recent) return;
+    if (!recent) return null;
     triggeredBy = latest.triggeredBy;
   }
   if (queued) {
@@ -105,8 +117,17 @@ export async function requestBriefPreparation(
       waitingFor: undefined,
       updatedAt: now,
     });
-    return;
+    return queued._id;
   }
+  // A start dialog leave-out list set a moment ago still applies.
+  const selection =
+    latest?.selectionAt !== undefined && latest.selectionAt > now - SELECTION_FRESH_MS
+      ? {
+          ...(latest.excludedTranscriptIds ? { excludedTranscriptIds: latest.excludedTranscriptIds } : {}),
+          ...(latest.excludedDocumentIds ? { excludedDocumentIds: latest.excludedDocumentIds } : {}),
+          selectionAt: latest.selectionAt,
+        }
+      : {};
   const preparationId = await ctx.db.insert("briefPreparations", {
     projectId,
     status: "queued",
@@ -114,6 +135,7 @@ export async function requestBriefPreparation(
     runAt: now + delayMs,
     triggeredBy,
     triggerReason: trigger.reason,
+    ...selection,
     createdAt: now,
     updatedAt: now,
   });
@@ -122,4 +144,5 @@ export async function requestBriefPreparation(
     revision: 1,
   });
   await ctx.db.patch(preparationId, { scheduledJobId });
+  return preparationId;
 }

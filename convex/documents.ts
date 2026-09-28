@@ -218,6 +218,11 @@ export const uploadDocument = mutation({
   },
 });
 
+function countContentWords(text: string): number {
+  const trimmed = text.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
+}
+
 export const listDocuments = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
@@ -246,6 +251,8 @@ export const listDocuments = query({
           category: d.category ?? null,
           createdAt: d.createdAt,
           sizeChars: d.content.length,
+          // The project page's start dialog names each file's length (2026-09-27, fourth).
+          wordCount: countContentWords(d.content),
           hasFile: !!d.storageId,
           mimeType: d.mimeType ?? null,
           url: d.storageId ? await ctx.storage.getUrl(d.storageId) : null,

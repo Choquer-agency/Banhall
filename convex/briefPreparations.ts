@@ -19,12 +19,12 @@
  * generation.
  */
 import { v } from "convex/values";
-import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { briefPreparationEnabled, defaultModelId, transcriptFactsMode } from "./appSettings";
 import { effectiveProjectType } from "../shared/projectTypes";
-import { userMayEditReport } from "./lib/roleCapabilities";
+import { requireReportEditAccess, userMayEditReport } from "./lib/roleCapabilities";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import { ACTIVE_GENERATION_STATUSES } from "../shared/generationTransitions";
 import {
@@ -61,6 +61,7 @@ import {
   namesSettleAt,
   pendingReadsWait,
   preparationSpeakerReader,
+  projectIsSettingUp,
   selectDraftEvidence,
   userMayCreateProject,
 } from "./lib/intakeDrafts";
@@ -74,7 +75,13 @@ import {
   MAX_CITATION_SPEAKER_SPANS,
   MAX_BRIEF_ENTRY_ROWS,
 } from "./lib/generations/brief";
-import { PREPARATION_DEBOUNCE_MS, preparationStageAllows } from "./lib/briefPreparationTrigger";
+import {
+  PREPARATION_DEBOUNCE_MS,
+  SELECTION_FRESH_MS,
+  preparationStageAllows,
+  requestBriefPreparation,
+} from "./lib/briefPreparationTrigger";
+import { validatedExcludedSources } from "./lib/generations/reservation";
 
 /** How long one attempt may run: the action limit plus room to write. */
 export const PREPARATION_LEASE_MS = 11 * 60 * 1000;
@@ -447,8 +454,12 @@ async function readProjectEvidence(
 
   // From here on the start has read the evidence: however it ends, a
   // ready copy made from older evidence is not kept (it may hold text the
-  // project no longer has).
-  const evidence = await selectFrozenEvidence(ctx, project._id);
+  // project no longer has). The start dialog's leave-out list (2026-09-27,
+  // fourth) applies as it does to the run.
+  const evidence = await selectFrozenEvidence(ctx, project._id, {
+    transcriptIds: preparation.excludedTranscriptIds ?? [],
+    documentIds: preparation.excludedDocumentIds ?? [],
+  });
   const cancel = async (reason: string) => {
     await obsoleteReady(ctx, scope);
     await endPreparation(ctx, preparation, "cancelled", reason);
@@ -495,6 +506,12 @@ async function readProjectEvidence(
  * amendment): the owner's draft, still open, with the client name the
  * placeholder map needs, and every transcript's speakers settled. Null
  * when the start ended or was pushed back here.
+ *
+ * A start the writer confirmed (2026-09-27, fourth: Start was pressed while
+ * it was queued) may also run while the draft is being promoted, since the
+ * promotion carries it to the project, and it no longer waits for the names
+ * to settle or for files being read: at Start the names are final and the
+ * page has waited for every ticked file.
  */
 async function readDraftEvidence(
   ctx: MutationCtx,
@@ -503,7 +520,11 @@ async function readDraftEvidence(
   now: number
 ): Promise<ReadEvidence | null> {
   const draft = await ctx.db.get(draftId);
-  if (!draft || draft.status !== "open" || draft.expiresAt <= now) {
+  const confirmed = preparation.confirmedAt !== undefined;
+  const live =
+    draft !== null &&
+    ((draft.status === "open" && draft.expiresAt > now) || (confirmed && draft.status === "promoting"));
+  if (!draft || !live) {
     await endPreparation(ctx, preparation, "cancelled", "draft_closed");
     return null;
   }
@@ -525,7 +546,7 @@ async function readDraftEvidence(
     await endPreparation(ctx, preparation, "cancelled", "masking_context");
     return null;
   }
-  if (now < namesSettleAt(draft)) {
+  if (!confirmed && now < namesSettleAt(draft)) {
     await deferPreparation(ctx, preparation, "names", namesSettleAt(draft) - now, { evidenceRead: false });
     return null;
   }
@@ -534,7 +555,7 @@ async function readDraftEvidence(
   // and start over when they land. A count not refreshed for 90 seconds (a
   // closed tab) stops counting, and 3 minutes after the first wait the
   // start prepares with what is saved. Checked before reading any text.
-  const readsDelay = pendingReadsWait(draft, preparation, now);
+  const readsDelay = confirmed ? null : pendingReadsWait(draft, preparation, now);
   if (readsDelay !== null) {
     await deferPreparation(ctx, preparation, "reads", readsDelay, { evidenceRead: false });
     return null;
@@ -595,115 +616,227 @@ export const startBriefPreparation = internalMutation({
   handler: async (ctx, args): Promise<null> => {
     const preparation = await ctx.db.get(args.preparationId);
     if (!preparation || preparation.status !== "queued" || preparation.revision !== args.revision) return null;
-    const now = Date.now();
-    if (!(await briefPreparationEnabled(ctx))) {
-      await endPreparation(ctx, preparation, "cancelled", "disabled");
-      return null;
-    }
-    const read = preparation.projectId
-      ? await readProjectEvidence(ctx, preparation, preparation.projectId, now)
-      : preparation.intakeDraftId
-        ? await readDraftEvidence(ctx, preparation, preparation.intakeDraftId, now)
-        : null;
-    if (!read) return null;
-    const { scope, fields, inputMode } = read;
-    const cancel = async (reason: string) => {
-      await obsoleteReady(ctx, scope);
-      await endPreparation(ctx, preparation, "cancelled", reason);
-      return null;
-    };
-    // Stage 1 and 2 prepare the full-text representation only: digests and
-    // fact packs are later work, and such a run derives its own Brief.
-    if (inputMode !== "full" || read.transcriptFacts) return await cancel("representation");
+    await runPreparationStart(ctx, preparation, { woken: args.woken === true });
+    return null;
+  },
+});
 
-    // The planning role (decision 43), frozen for this preparation only.
-    const modelFreeze = await freezeModelsForGeneration(ctx, [await defaultModelId(ctx)], now);
-    const route = resolveGenerationStep({ freeze: modelFreeze, step: "brief", writerModel: MODEL });
-    const entry = modelFreeze.entries.find((item) => item.id === route.model);
-    if (!entry || !providerReady(entry.gateway)) return await cancel("provider_unavailable");
-    const pricing = await preparationPricing(ctx, route.model);
-    if (!pricing) return await cancel("pricing_unknown");
+/**
+ * One start of a queued preparation: the scope's own checks, then the key,
+ * the limits and the claim. Run by the scheduled start, and at once when the
+ * writer presses Start while the row is queued (`confirmQueuedPreparation`),
+ * with every check and limit the same.
+ */
+async function runPreparationStart(
+  ctx: MutationCtx,
+  preparation: Preparation,
+  options: { woken: boolean }
+): Promise<null> {
+  const now = Date.now();
+  if (!(await briefPreparationEnabled(ctx))) {
+    await endPreparation(ctx, preparation, "cancelled", "disabled");
+    return null;
+  }
+  const read = preparation.projectId
+    ? await readProjectEvidence(ctx, preparation, preparation.projectId, now)
+    : preparation.intakeDraftId
+      ? await readDraftEvidence(ctx, preparation, preparation.intakeDraftId, now)
+      : null;
+  if (!read) return null;
+  const { scope, fields, inputMode } = read;
+  const cancel = async (reason: string) => {
+    await obsoleteReady(ctx, scope);
+    await endPreparation(ctx, preparation, "cancelled", reason);
+    return null;
+  };
+  // Stage 1 and 2 prepare the full-text representation only: digests and
+  // fact packs are later work, and such a run derives its own Brief.
+  if (inputMode !== "full" || read.transcriptFacts) return await cancel("representation");
 
-    const placeholders = await read.placeholders();
-    if (fields.length > MAX_PREPARATION_SOURCES) return await cancel("too_many_sources");
-    const key = await briefPreparationKey(ctx, {
-      scope,
-      sources: fields,
-      placeholders,
-      inputMode,
-      transcriptFacts: false,
-      freeze: modelFreeze,
-      writerModel: MODEL,
-    });
-    // The same key already prepared or preparing: nothing to buy.
-    const same = await scopeKeyRows(ctx, scope, key);
-    if (same.some((row) => row.status === "ready" || row.status === "running")) {
-      await obsoleteReady(ctx, scope, key);
-      await endPreparation(ctx, preparation, "cancelled", "duplicate");
-      return null;
-    }
-    // Older keys are obsolete now. One a run is waiting on keeps running for
-    // that run (its dependency is immutable); no new run can adopt it.
+  // The planning role (decision 43), frozen for this preparation only.
+  const modelFreeze = await freezeModelsForGeneration(ctx, [await defaultModelId(ctx)], now);
+  const route = resolveGenerationStep({ freeze: modelFreeze, step: "brief", writerModel: MODEL });
+  const entry = modelFreeze.entries.find((item) => item.id === route.model);
+  if (!entry || !providerReady(entry.gateway)) return await cancel("provider_unavailable");
+  const pricing = await preparationPricing(ctx, route.model);
+  if (!pricing) return await cancel("pricing_unknown");
+
+  const placeholders = await read.placeholders();
+  if (fields.length > MAX_PREPARATION_SOURCES) return await cancel("too_many_sources");
+  const key = await briefPreparationKey(ctx, {
+    scope,
+    sources: fields,
+    placeholders,
+    inputMode,
+    transcriptFacts: false,
+    freeze: modelFreeze,
+    writerModel: MODEL,
+  });
+  // The same key already prepared or preparing: nothing to buy.
+  const same = await scopeKeyRows(ctx, scope, key);
+  if (same.some((row) => row.status === "ready" || row.status === "running")) {
     await obsoleteReady(ctx, scope, key);
-    for (const row of await scopeRows(ctx, scope, "running", 20)) {
-      if (row._id === preparation._id || (await hasWaiters(ctx, row._id))) continue;
-      await endPreparation(ctx, row, "obsolete", "superseded");
-    }
-    // One call in flight per project (or draft) and per user, an obsolete
-    // attempt's call included until it ends.
-    if ((await callInFlight(ctx, scope, now)) || (await callInFlight(ctx, { userId: preparation.triggeredBy }, now))) {
-      await deferPreparation(ctx, preparation, "slot", SLOT_RETRY_MS, {
-        evidenceRead: true,
-        uncounted: args.woken === true,
-      });
-      return null;
-    }
-    // At most 20 paid starts per user per firm day; spend reserved before
-    // the call against $0.50 per project (or draft) and $5 per user per
-    // firm day.
-    const firmDay = firmDayNumber(now);
-    const reservedUsd = reservePreparationUsd(pricing, route.model, buildBriefUserMessage(fields).length);
-    const refusal = preparationLimitRefusal(
-      await preparationDay(ctx, { userId: preparation.triggeredBy, scope, firmDay }),
-      reservedUsd
-    );
-    if (refusal) {
-      await endPreparation(ctx, preparation, "cancelled", refusal);
-      return null;
-    }
+    await endPreparation(ctx, preparation, "cancelled", "duplicate");
+    return null;
+  }
+  // Older keys are obsolete now. One a run is waiting on keeps running for
+  // that run (its dependency is immutable); no new run can adopt it.
+  await obsoleteReady(ctx, scope, key);
+  for (const row of await scopeRows(ctx, scope, "running", 20)) {
+    if (row._id === preparation._id || (await hasWaiters(ctx, row._id))) continue;
+    await endPreparation(ctx, row, "obsolete", "superseded");
+  }
+  // One call in flight per project (or draft) and per user, an obsolete
+  // attempt's call included until it ends.
+  if ((await callInFlight(ctx, scope, now)) || (await callInFlight(ctx, { userId: preparation.triggeredBy }, now))) {
+    await deferPreparation(ctx, preparation, "slot", SLOT_RETRY_MS, {
+      evidenceRead: true,
+      uncounted: options.woken,
+    });
+    return null;
+  }
+  // At most 20 paid starts per user per firm day; spend reserved before
+  // the call against $0.50 per project (or draft) and $5 per user per
+  // firm day.
+  const firmDay = firmDayNumber(now);
+  const reservedUsd = reservePreparationUsd(pricing, route.model, buildBriefUserMessage(fields).length);
+  const refusal = preparationLimitRefusal(
+    await preparationDay(ctx, { userId: preparation.triggeredBy, scope, firmDay }),
+    reservedUsd
+  );
+  if (refusal) {
+    await endPreparation(ctx, preparation, "cancelled", refusal);
+    return null;
+  }
 
-    for (const field of fields) {
-      await ctx.db.insert("briefPreparationSources", {
-        preparationId: preparation._id,
-        ...scope,
-        ...field,
-        capturedAt: now,
-      });
+  for (const field of fields) {
+    await ctx.db.insert("briefPreparationSources", {
+      preparationId: preparation._id,
+      ...scope,
+      ...field,
+      capturedAt: now,
+    });
+  }
+  const attemptId = crypto.randomUUID();
+  const actionJobId = await ctx.scheduler.runAfter(0, internal.ai.brief.runBriefPreparation, {
+    preparationId: preparation._id,
+    attemptId,
+  });
+  await ctx.db.patch(preparation._id, {
+    status: "running",
+    attemptId,
+    actionJobId,
+    leaseExpiresAt: now + PREPARATION_LEASE_MS,
+    key,
+    modelFreeze,
+    planningModel: route.model,
+    placeholders,
+    dispatchedAt: now,
+    firmDay,
+    reservedUsd,
+    waitingFor: undefined,
+    updatedAt: now,
+  });
+  await ctx.scheduler.runAfter(PREPARATION_LEASE_MS, internal.briefPreparations.expirePreparationLease, {
+    preparationId: preparation._id,
+    attemptId,
+  });
+  return null;
+}
+
+/**
+ * The writer pressed Start while this preparation was queued (2026-09-27,
+ * fourth): it starts now instead of after the rest of its quiet period.
+ * Every eligibility check and limit still applies, so a start that must
+ * wait (the running slot is taken, speakers are still being placed) waits
+ * as usual; a draft's promotion carries it to the project meanwhile.
+ */
+export async function confirmQueuedPreparation(ctx: MutationCtx, queued: Preparation): Promise<void> {
+  if (queued.status !== "queued") return;
+  const now = Date.now();
+  if (queued.scheduledJobId && queued.runAt > now) await ctx.scheduler.cancel(queued.scheduledJobId);
+  await ctx.db.patch(queued._id, {
+    revision: queued.revision + 1,
+    runAt: now,
+    scheduledJobId: undefined,
+    confirmedAt: now,
+    waitingFor: undefined,
+    updatedAt: now,
+  });
+  await runPreparationStart(ctx, (await ctx.db.get(queued._id))!, { woken: false });
+}
+
+/** The leave-out list a project's next preparation reads: the queued row's, or a fresh one before it. */
+async function currentProjectSelection(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  now: number
+): Promise<{ transcriptIds: string[]; documentIds: string[] }> {
+  const queued = await scopeRows(ctx, { projectId }, "queued", 1);
+  const latest =
+    queued[0] ??
+    (await ctx.db
+      .query("briefPreparations")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .order("desc")
+      .first());
+  const fresh = latest?.selectionAt !== undefined && (queued[0] !== undefined || latest.selectionAt > now - SELECTION_FRESH_MS);
+  return {
+    transcriptIds: fresh ? [...(latest?.excludedTranscriptIds ?? [])].sort() : [],
+    documentIds: fresh ? [...(latest?.excludedDocumentIds ?? [])].sort() : [],
+  };
+}
+
+/**
+ * The project page's start dialog (2026-09-27, fourth): its leave-out list
+ * while it is open, so a matching preparation starts for exactly the
+ * ticked files (after 2 quiet seconds, as on New project), and `confirm`
+ * when the writer presses Start on a Step-by-step run, which sends a queued
+ * preparation at once so the run can wait on it. The caller must be able to
+ * start a run (report edit access); nothing is asked while the project is
+ * still being set up. Opening the dialog with every file ticked, when no
+ * list is set, asks nothing.
+ */
+export const setProjectStartSelection = mutation({
+  args: {
+    projectId: v.id("projects"),
+    excludedTranscriptIds: v.array(v.id("transcripts")),
+    excludedDocumentIds: v.array(v.id("projectDocuments")),
+    confirm: v.optional(v.boolean()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const { project, user } = await requireReportEditAccess(ctx, args.projectId);
+    if (await projectIsSettingUp(ctx, project._id)) return null;
+    // Foreign ids are refused and gone ones ignored, as the run's own lists.
+    const excluded = await validatedExcludedSources(ctx, project._id, {
+      excludeTranscriptIds: args.excludedTranscriptIds,
+      excludeDocumentIds: args.excludedDocumentIds,
+    });
+    const next = {
+      transcriptIds: [...new Set(excluded?.transcriptIds ?? [])].sort(),
+      documentIds: [...new Set(excluded?.documentIds ?? [])].sort(),
+    };
+    const now = Date.now();
+    const current = await currentProjectSelection(ctx, project._id, now);
+    if (JSON.stringify(current) !== JSON.stringify(next)) {
+      const queuedId = await requestBriefPreparation(
+        ctx,
+        project._id,
+        { userId: user._id, reason: "selection_changed" },
+        INTAKE_DEBOUNCE_MS
+      );
+      if (queuedId) {
+        await ctx.db.patch(queuedId, {
+          excludedTranscriptIds: next.transcriptIds.length ? (next.transcriptIds as Id<"transcripts">[]) : undefined,
+          excludedDocumentIds: next.documentIds.length ? (next.documentIds as Id<"projectDocuments">[]) : undefined,
+          selectionAt: now,
+        });
+      }
     }
-    const attemptId = crypto.randomUUID();
-    const actionJobId = await ctx.scheduler.runAfter(0, internal.ai.brief.runBriefPreparation, {
-      preparationId: preparation._id,
-      attemptId,
-    });
-    await ctx.db.patch(preparation._id, {
-      status: "running",
-      attemptId,
-      actionJobId,
-      leaseExpiresAt: now + PREPARATION_LEASE_MS,
-      key,
-      modelFreeze,
-      planningModel: route.model,
-      placeholders,
-      dispatchedAt: now,
-      firmDay,
-      reservedUsd,
-      waitingFor: undefined,
-      updatedAt: now,
-    });
-    await ctx.scheduler.runAfter(PREPARATION_LEASE_MS, internal.briefPreparations.expirePreparationLease, {
-      preparationId: preparation._id,
-      attemptId,
-    });
+    if (!args.confirm) return null;
+    const queued = await scopeRows(ctx, { projectId: project._id }, "queued", 1);
+    if (queued[0]) await confirmQueuedPreparation(ctx, queued[0]);
     return null;
   },
 });

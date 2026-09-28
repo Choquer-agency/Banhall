@@ -21,7 +21,7 @@
  * sources never reads their text.
  */
 import { v } from "convex/values";
-import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { domainError, sha256 } from "./lib/contracts";
@@ -80,7 +80,7 @@ import { deriveProcessingStatus } from "../shared/documentStatus";
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import { firmDayNumber } from "../shared/firmTime";
 import { insertNewProject } from "./projects";
-import { endPreparation, purgePreparationContent } from "./briefPreparations";
+import { confirmQueuedPreparation, endPreparation, purgePreparationContent } from "./briefPreparations";
 import { MAX_BRIEF_ENTRY_ROWS } from "./lib/generations/brief";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
 
@@ -95,6 +95,14 @@ const PROMOTION_RECHECK_MS = 1_500;
  * be used anyway (the run then derives its own Brief if the key misses).
  */
 const PROMOTION_STRUCTURE_WAIT_MS = 3 * 60 * 1000;
+/**
+ * How long promotion waits for a preparation the writer confirmed at Start
+ * (2026-09-27, fourth) that could not dispatch yet (its running slot was
+ * still held by the reading it replaced), so the run finds it running and
+ * waits on it rather than reading from scratch. A stopped reading frees the
+ * slot within about 2 seconds.
+ */
+export const PROMOTION_CONFIRMED_WAIT_MS = 45 * 1000;
 /** A promotion this old is resumed, or ended, by the sweep. */
 const STUCK_PROMOTION_MS = 10 * 60 * 1000;
 /**
@@ -533,10 +541,18 @@ export const updateIntakeContext = mutation({
 /**
  * The start dialog's leave-out list while it is open (decision 56): a
  * matching preparation starts for the files still ticked, without holding
- * up the confirmation.
+ * up the confirmation. `confirm` (2026-09-27, fourth) is the final list at
+ * Start on a Step-by-step run, sent just before the promotion: a queued
+ * preparation starts at once instead of after the rest of its quiet
+ * period, and the promotion carries it to the project so the run waits on
+ * it instead of reading from scratch.
  */
 export const setIntakeSelection = mutation({
-  args: { draftId: v.id("intakeDrafts"), excludedSourceKeys: v.array(v.string()) },
+  args: {
+    draftId: v.id("intakeDrafts"),
+    excludedSourceKeys: v.array(v.string()),
+    confirm: v.optional(v.boolean()),
+  },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     const user = await requireCreator(ctx);
@@ -544,9 +560,16 @@ export const setIntakeSelection = mutation({
     if (args.excludedSourceKeys.length > MAX_EXCLUDED_SOURCE_KEYS) domainError("INVALID_INPUT", "Too many files to leave out");
     const keys = [...new Set(args.excludedSourceKeys.map(requireSourceKey))].sort();
     const current = [...(draft.excludedSourceKeys ?? [])].sort();
-    if (JSON.stringify(keys) === JSON.stringify(current)) return null;
-    const touched = await touchDraft(ctx, draft, { excludedSourceKeys: keys.length ? keys : undefined });
-    await requestIntakePreparation(ctx, touched, "selection_changed");
+    if (JSON.stringify(keys) !== JSON.stringify(current)) {
+      const touched = await touchDraft(ctx, draft, { excludedSourceKeys: keys.length ? keys : undefined });
+      await requestIntakePreparation(ctx, touched, "selection_changed");
+    }
+    if (!args.confirm) return null;
+    const queued = await ctx.db
+      .query("briefPreparations")
+      .withIndex("by_intakeDraftId_and_status", (q) => q.eq("intakeDraftId", draft._id).eq("status", "queued"))
+      .first();
+    if (queued) await confirmQueuedPreparation(ctx, queued);
     return null;
   },
 });
@@ -656,6 +679,99 @@ export const getIntakeDraft = query({
       expiresAt: draft.expiresAt,
       sources: sources.map((row) => ({ sourceKey: row.sourceKey, kind: row.kind, hasOriginal: Boolean(row.storageId) })),
     };
+  },
+});
+
+/** The caller's own open draft for a read, or null: anyone else, and a draft that ended or expired. */
+async function ownOpenDraftOrNull(
+  ctx: QueryCtx,
+  draftId: Id<"intakeDrafts">
+): Promise<Doc<"intakeDrafts"> | null> {
+  const user = await getCurrentUserOrNull(ctx);
+  if (!userMayCreateProject(user)) return null;
+  const draft = await ctx.db.get(draftId);
+  if (!draft || draft.ownerId !== user._id || draft.status !== "open" || draft.expiresAt <= Date.now()) return null;
+  if (draft.contentPurgedAt !== undefined) return null;
+  return draft;
+}
+
+/**
+ * What a reload of New project brings back (2026-09-27, fourth): the saved
+ * sources as the page sent them (never their text), the names and the
+ * start dialog's leave-out list. Only the owner's open draft; null for
+ * anyone else and for a draft that ended or expired. Reading it is not an
+ * edit: the draft's idle expiry does not move.
+ */
+export const restoreIntakeDraft = query({
+  args: { draftId: v.id("intakeDrafts") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      clientName: v.string(),
+      interviewerUserId: v.union(v.id("users"), v.null()),
+      interviewees: v.array(v.string()),
+      excludedSourceKeys: v.array(v.string()),
+      sources: v.array(
+        v.object({
+          sourceKey: v.string(),
+          kind: v.union(v.literal("transcript"), v.literal("document")),
+          position: v.number(),
+          label: v.string(),
+          contentLength: v.number(),
+          sourceFormat: v.optional(transcriptSourceFormatValidator),
+          fileType: v.optional(fileTypeValidator),
+          category: v.optional(categoryValidator),
+          intake: v.optional(v.union(v.literal("file"), v.literal("pasted"))),
+          extractionOutcome: v.optional(v.union(v.literal("ok"), v.literal("failed"))),
+          hasOriginal: v.boolean(),
+        })
+      ),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const draft = await ownOpenDraftOrNull(ctx, args.draftId);
+    if (!draft) return null;
+    const sources = await listDraftSources(ctx, draft._id);
+    return {
+      clientName: draft.clientName ?? "",
+      interviewerUserId: draft.interviewerUserId ?? null,
+      interviewees: draft.interviewees ?? [],
+      excludedSourceKeys: draft.excludedSourceKeys ?? [],
+      sources: sources.map((row) => ({
+        sourceKey: row.sourceKey,
+        kind: row.kind,
+        position: row.position,
+        label: row.label,
+        contentLength: row.contentLength,
+        ...(row.sourceFormat ? { sourceFormat: row.sourceFormat } : {}),
+        ...(row.fileType ? { fileType: row.fileType } : {}),
+        ...(row.category ? { category: row.category } : {}),
+        ...(row.intake ? { intake: row.intake } : {}),
+        ...(row.extractionOutcome ? { extractionOutcome: row.extractionOutcome } : {}),
+        hasOriginal: Boolean(row.storageId),
+      })),
+    };
+  },
+});
+
+/**
+ * One saved source's text, for the page restoring the owner's open draft
+ * after a reload (2026-09-27, fourth): it holds the text in memory again,
+ * as before the reload, never in browser storage. One source per read, so
+ * a read stays within one source's cap. Null for anyone else.
+ */
+export const getIntakeSourceText = query({
+  args: { draftId: v.id("intakeDrafts"), sourceKey: v.string() },
+  returns: v.union(v.null(), v.object({ content: v.string() })),
+  handler: async (ctx, args) => {
+    const draft = await ownOpenDraftOrNull(ctx, args.draftId);
+    if (!draft) return null;
+    const source = await ctx.db
+      .query("intakeSources")
+      .withIndex("by_draftId_and_sourceKey", (q) => q.eq("draftId", draft._id).eq("sourceKey", requireSourceKey(args.sourceKey)))
+      .unique();
+    if (!source) return null;
+    return { content: await readSourceText(ctx, source._id) };
   },
 });
 
@@ -1013,9 +1129,11 @@ async function continuePromotion(
     }
     return await promotionReceipt(ctx, draft._id, projectId, false);
   }
-  await moveDraftPreparations(ctx, draft, projectId);
+  await moveDraftPreparations(ctx, draft, projectId, { final: false });
   // Complete once every installed transcript's turns are built by the
-  // current parser, so the run's speaker evidence matches the preparation's.
+  // current parser, so the run's speaker evidence matches the preparation's,
+  // and a preparation confirmed at Start has dispatched (2026-09-27, fourth),
+  // so the run waits on it.
   const now = Date.now();
   // Each transcript's link records when its turn build finished, so the
   // wait reads the links only, never the transcripts' text.
@@ -1024,12 +1142,24 @@ async function continuePromotion(
     .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
     .take(MAX_LINKS_READ);
   const built = links.every((link) => link.draftId !== draft._id || link.kind !== "transcript" || link.builtAt !== undefined);
-  if (!built && now < (draft.promotionStartedAt ?? now) + PROMOTION_STRUCTURE_WAIT_MS) {
+  const startedAt = draft.promotionStartedAt ?? now;
+  const confirmedQueued = (
+    await ctx.db
+      .query("briefPreparations")
+      .withIndex("by_intakeDraftId_and_status", (q) => q.eq("intakeDraftId", draft._id).eq("status", "queued"))
+      .take(10)
+  ).some((row) => row.confirmedAt !== undefined && !row.projectId);
+  if (
+    (!built && now < startedAt + PROMOTION_STRUCTURE_WAIT_MS) ||
+    (confirmedQueued && now < startedAt + PROMOTION_CONFIRMED_WAIT_MS)
+  ) {
     if (options.schedule) {
       await ctx.scheduler.runAfter(PROMOTION_RECHECK_MS, intakeDraftRefs.continueIntakePromotion, { draftId: draft._id });
     }
     return await promotionReceipt(ctx, draft._id, projectId, false);
   }
+  // What is still queued now ends (a confirmed start that never dispatched).
+  await moveDraftPreparations(ctx, draft, projectId, { final: true });
   await ctx.db.patch(draft._id, { status: "promoted", promotedAt: now, endedAt: now });
   await ctx.scheduler.runAfter(0, intakeDraftRefs.purgeIntakeDraft, { draftId: draft._id });
   return await promotionReceipt(ctx, draft._id, projectId, true);
@@ -1191,9 +1321,17 @@ async function linkMergedDocument(
 /**
  * The draft's live or ready preparations move to the project (their frozen
  * rows then name the project's transcripts and files through the links, so
- * the run's adoption maps them exactly), and a queued one ends. Idempotent.
+ * the run's adoption maps them exactly), and a queued one ends, except one
+ * the writer confirmed at Start (2026-09-27, fourth), which is kept until
+ * the promotion's last step (`final`) so it can still dispatch and move.
+ * Idempotent.
  */
-async function moveDraftPreparations(ctx: MutationCtx, draft: Doc<"intakeDrafts">, projectId: Id<"projects">) {
+async function moveDraftPreparations(
+  ctx: MutationCtx,
+  draft: Doc<"intakeDrafts">,
+  projectId: Id<"projects">,
+  options: { final: boolean }
+) {
   const links = await ctx.db
     .query("intakeSourceLinks")
     .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -1235,7 +1373,9 @@ async function moveDraftPreparations(ctx: MutationCtx, draft: Doc<"intakeDrafts"
     .query("briefPreparations")
     .withIndex("by_intakeDraftId_and_status", (q) => q.eq("intakeDraftId", draft._id).eq("status", "queued"))
     .take(10);
-  for (const row of queued) await endPreparation(ctx, row, "cancelled", "promoted");
+  for (const row of queued) {
+    if (options.final || row.confirmedAt === undefined) await endPreparation(ctx, row, "cancelled", "promoted");
+  }
 }
 
 /**

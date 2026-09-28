@@ -3258,6 +3258,16 @@ export default defineSchema({
     // start stops waiting 3 minutes after it).
     readsWaits: v.optional(v.number()),
     readsWaitStartedAt: v.optional(v.number()),
+    // 2026-09-27 (fourth) widen: the writer pressed Start while this row
+    // was queued, so it was sent at once (no debounce, no names or reads
+    // wait) and a draft's promotion carries it to the project.
+    confirmedAt: v.optional(v.number()),
+    // 2026-09-27 (fourth) widen: a project's start dialog leave-out list
+    // (decision 56), so the preparation reads exactly the ticked files, and
+    // when it was set (a new queued row takes it over while it is fresh).
+    excludedTranscriptIds: v.optional(v.array(v.id("transcripts"))),
+    excludedDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
+    selectionAt: v.optional(v.number()),
     // The report editor whose evidence change asked for it; rechecked
     // before the paid call.
     triggeredBy: v.id("users"),
