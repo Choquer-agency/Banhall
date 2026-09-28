@@ -192,6 +192,7 @@ import type * as lib_seedDecisionWrites from "../lib/seedDecisionWrites.js";
 import type * as lib_seedDispatch from "../lib/seedDispatch.js";
 import type * as lib_seedFacts from "../lib/seedFacts.js";
 import type * as lib_seedLearningHealth from "../lib/seedLearningHealth.js";
+import type * as lib_seedQuoteSupport from "../lib/seedQuoteSupport.js";
 import type * as lib_seedReaders from "../lib/seedReaders.js";
 import type * as lib_seedReadiness from "../lib/seedReadiness.js";
 import type * as lib_seedRevisions from "../lib/seedRevisions.js";
@@ -446,6 +447,7 @@ declare const fullApi: ApiFromModules<{
   "lib/seedDispatch": typeof lib_seedDispatch;
   "lib/seedFacts": typeof lib_seedFacts;
   "lib/seedLearningHealth": typeof lib_seedLearningHealth;
+  "lib/seedQuoteSupport": typeof lib_seedQuoteSupport;
   "lib/seedReaders": typeof lib_seedReaders;
   "lib/seedReadiness": typeof lib_seedReadiness;
   "lib/seedRevisions": typeof lib_seedRevisions;
