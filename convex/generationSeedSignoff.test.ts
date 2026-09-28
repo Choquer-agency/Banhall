@@ -38,6 +38,7 @@ import {
 } from "./ai/openrouterCore";
 import { currentPromptVersion } from "./ai/promptProgram";
 import { summaryPlanSelfCheckSchemaFor } from "./ai/selfCheck";
+import { summarizeSlotUsage } from "./ai/instrument";
 import { SECTION_246_REQUEST } from "./ai/section246Agent";
 import type {
   getOutline,
@@ -5612,6 +5613,11 @@ describe("seed Summary sign-off and recovery", () => {
     const run = state.runs.find((row) => row.section === "s246");
     expect(run?.status).toBe("drafted");
     expect(run?.selfCheck).toContain('"modelCheck":"ok"');
+    // Two Self-check requests stay within the recorded allowance.
+    const slotCounts: Record<string, number> =
+      run?.slotCountsData ?? JSON.parse(run?.slotCounts ?? "{}");
+    expect(slotCounts["selfCheck:246"]).toBe(2);
+    expect(summarizeSlotUsage(slotCounts).overrun).not.toContain("selfCheck:246");
   });
 
   it("keeps an origin-to-current source bijection through two recovery generations", async () => {

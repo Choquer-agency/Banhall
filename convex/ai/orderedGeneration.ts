@@ -358,9 +358,11 @@ type SectionCompletion = {
 /**
  * Draft, Self-check and (at most once) repair one section. Worst case:
  * draft 1 + compression 2 + Self-check 1 + repair 1 = 5 sequential calls
- * (providers.ts ORDERED_SECTION_ACTION_SLOTS). The Self-check slot holds its
- * structured repair, or in Summary mode its one follow-up for missing
- * labels (2026-09-28). Shared by the ordered chain
+ * (providers.ts ORDERED_SECTION_ACTION_SLOTS). The Self-check may send a
+ * second request, its structured repair or in Summary mode its one
+ * follow-up for missing labels (2026-09-28): the recorded allowance is 2
+ * (instrument.ts GENERATION_SLOT_ALLOWANCES) and the action deadline bounds
+ * its time. Shared by the ordered chain
  * and the seed redraft so both draft under the same rules. Throws on a
  * failed draft; the caller records the failure.
  */

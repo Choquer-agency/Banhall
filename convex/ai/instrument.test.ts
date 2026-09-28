@@ -557,7 +557,7 @@ describe("AD-27 generation call slots", () => {
   it("reports per-slot counts and every slot over its allowance", () => {
     const summary = summarizeSlotUsage({
       "generation:section:242": 1,
-      "selfCheck:242": 2,
+      "selfCheck:242": 3,
       "generation:repair:242": 1,
       "compression:244": 2,
       "generation:compression:246": 3,
@@ -568,7 +568,7 @@ describe("AD-27 generation call slots", () => {
     });
     expect(summary.counts).toEqual({
       "section:242": 1,
-      "selfCheck:242": 2,
+      "selfCheck:242": 3,
       "repair:242": 1,
       "compression:244": 2,
       "compression:246": 3,
@@ -578,6 +578,8 @@ describe("AD-27 generation call slots", () => {
     });
     expect(summary.overrun).toEqual(["brief", "compression:246", "selfCheck:242"]);
     expect(summarizeSlotUsage({ "section:244": 1, "selfCheck:244": 1, consistency: 1 }).overrun).toEqual([]);
+    // A Self-check and its one repair or Summary follow-up (2026-09-28).
+    expect(summarizeSlotUsage({ "selfCheck:244": 2 }).overrun).toEqual([]);
   });
 
   it("declares the settings-document classifier slot with an allowance of one, recorded not enforced (story 3)", () => {

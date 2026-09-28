@@ -174,7 +174,9 @@ export const GENERATION_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
   settings: 1,
   consistency: 1,
   section: 1,
-  selfCheck: 1,
+  // 2026-09-28: the Self-check's structured repair, or in Summary mode its
+  // one follow-up for labels the first answer missed.
+  selfCheck: 2,
   repair: 1,
   compression: COMPRESSION_REQUEST.squeezes.length,
   seeds: 2,
