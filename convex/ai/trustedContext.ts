@@ -773,7 +773,7 @@ export function stableSeedPromptJson(value: unknown): string {
   return JSON.stringify(normalize(value));
 }
 
-function seedBlock(label: string, rawContent: string): string {
+export function seedBlock(label: string, rawContent: string): string {
   const delimiters = SEED_PROMPT_PROGRAM.user.delimiters;
   const content = neutralizeMarkers(rawContent);
   return `${delimiters.beginPrefix}${label}${delimiters.suffix}${delimiters.contentPrefix}${content}${delimiters.contentSuffix}${delimiters.endPrefix}${label}${delimiters.suffix}`;

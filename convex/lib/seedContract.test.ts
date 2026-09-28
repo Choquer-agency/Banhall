@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { findExactQuoteSpans } from "../../shared/exactQuote";
 import {
   MAX_BATCH_SEEDS,
   MAX_BULLET_WORDS,
@@ -675,6 +676,28 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
     expect(result.seedIndexes).toEqual([1, 2, 3]);
     expect(quotes.issues).toEqual([{ code: "CITATION_UNRELATED", seedIndex: 1, citationIndex: 0 }]);
     expect(result.seedIndexes[quotes.issues[0].seedIndex]).toBe(2);
+  });
+
+  it("underlines a phrase reused from a transcript line with a dash, once the dash becomes a comma (review P3-7)", () => {
+    const dashed = "The bond \u2014 once cured \u2014 held at minus five degrees for a week.";
+    const dashedSources = [{ sourceId: "dashed", content: dashed, contentHash: "sha256:dashed" }];
+    const quote = { sourceId: "dashed", startOffset: 0, endOffset: dashed.length, exactExcerpt: dashed };
+    const clean = "The bond, once cured, held at minus five degrees in winter trials.";
+    const copied = "The bond \u2014 once cured \u2014 held at minus five degrees.";
+    const result = validateBatch({
+      roleId: "company_context",
+      mode: "feedback",
+      seeds: [
+        candidate([clean], ["technical"], { provenance: [quote] }),
+        candidate([copied], ["detailed"], { provenance: [quote] }),
+      ],
+      frozenSources: dashedSources,
+    });
+    // The copied dash is still refused; the recast phrase passes and underlines.
+    expect(result.seeds.map((seed) => seed.bullets[0])).toEqual([clean]);
+    expect(result.issues.map((issue) => issue.code)).toContain("BULLET_TYPOGRAPHIC_DASH");
+    expect(withQuoteChecks(result.seeds, "feedback").issues).toEqual([]);
+    expect(findExactQuoteSpans(clean, [dashed]).length).toBe(1);
   });
 
   it("lets the Revised Seeds of one Feedback request share their line", () => {

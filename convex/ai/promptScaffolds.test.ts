@@ -362,14 +362,18 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("versions the Seed quote rules (2026-09-27, third amendment)", async () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-27.2");
-    expect(SEED_PROMPT_PROGRAM.request.quoteRepair.opening).toBe("\n\nSome quotes may not back their idea.");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-27.3");
+    expect(SEED_PROMPT_PROGRAM.request.quoteRepair.opening).toContain("Some quotes may not back their idea card.");
     expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.quoteRepair)).not.toMatch(/[\u2013\u2014]/);
     expect(generationPromptProgram.templates.seeds.scaffolds.version).toBe(SEED_PROMPT_PROGRAM.version);
     for (const guidance of [SEED_PROMPT_PROGRAM.user.guidance, SEED_PROMPT_PROGRAM.user.factGuidance]) {
       expect(guidance).toContain("reuse a short phrase of four or more words from the cited");
       expect(guidance).toMatch(/Do not cite the same (fact or )?excerpt on two Seeds unless both claims come from it\./);
       expect(guidance).not.toMatch(/[\u2013\u2014]/);
+      // Review P3-7: a reused phrase may change punctuation; the dash rule holds.
+      expect(guidance).toContain(
+        "A reused phrase may change its punctuation, and the dash rule still applies: a dash in the source becomes a comma, a colon or a plain hyphen."
+      );
     }
     expect(generationPromptProgram.calls.seeds.schemaPolicy.quoteCheck).toMatchObject({
       onIssue: "one-soft-repair-within-the-two-attempts-then-keep-and-mark-needsQuoteCheck",

@@ -159,24 +159,59 @@ describe("generateStructured", () => {
       toolName: "submit",
       description: "submit",
       validate: z.object({ quote: z.string() }),
-      softRepair: (value: { quote: string }) => (value.quote === "weak" ? "\n\nQuote the line that backs it." : null),
+      softRepair: {
+        ask: (value: { quote: string }, answer: unknown) =>
+          value.quote === "weak" ? `\n\nQuote the line that backs it. Earlier: ${JSON.stringify(answer)}` : null,
+      },
     };
 
-    it("spends the one repair on a valid answer it asks to improve and returns the repaired one", async () => {
+    it("spends the one repair on a valid answer, with its own text and the earlier answer, and returns the repaired one", async () => {
       const client = clientWith([{ quote: "weak" }, { quote: "strong" }]);
       await expect(generateStructured(client, opts)).resolves.toEqual({ quote: "strong" });
       expect(client.messages.create).toHaveBeenCalledTimes(2);
       const second = vi.mocked(client.messages.create).mock.calls[1][0];
       // Its own text, not the invalid-output scaffold.
-      expect(second.messages[0].content).toBe("user\n\nQuote the line that backs it.");
+      expect(second.messages[0].content).toBe('user\n\nQuote the line that backs it. Earlier: {"quote":"weak"}');
     });
 
     it("may decide asynchronously", async () => {
       const client = clientWith([{ quote: "weak" }, { quote: "strong" }]);
-      const softRepair = vi.fn(async (value: { quote: string }) => (value.quote === "weak" ? "\n\nAgain." : null));
-      await expect(generateStructured(client, { ...opts, softRepair })).resolves.toEqual({ quote: "strong" });
-      expect(softRepair).toHaveBeenCalledTimes(1);
+      const ask = vi.fn(async (value: { quote: string }) => (value.quote === "weak" ? "\n\nAgain." : null));
+      await expect(generateStructured(client, { ...opts, softRepair: { ask } })).resolves.toEqual({ quote: "strong" });
+      expect(ask).toHaveBeenCalledTimes(1);
       expect(client.messages.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the first answer when the repaired one is not better", async () => {
+      const client = clientWith([{ quote: "weak" }, { quote: "worse" }]);
+      const keepRepaired = vi.fn(async (_first: { quote: string }, repaired: { quote: string }) => repaired.quote === "strong");
+      await expect(generateStructured(client, { ...opts, softRepair: { ...opts.softRepair, keepRepaired } })).resolves.toEqual({
+        quote: "weak",
+      });
+      expect(keepRepaired).toHaveBeenCalledWith({ quote: "weak" }, { quote: "worse" });
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("treats an error while asking as no repair", async () => {
+      const client = clientWith([{ quote: "weak" }, { quote: "strong" }]);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const ask = vi.fn(async () => {
+        throw new Error("read failed");
+      });
+      await expect(generateStructured(client, { ...opts, softRepair: { ask } })).resolves.toEqual({ quote: "weak" });
+      expect(client.messages.create).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("read failed");
+      warn.mockRestore();
+    });
+
+    it("keeps the first answer when judging the repaired one fails", async () => {
+      const client = clientWith([{ quote: "weak" }, { quote: "strong" }]);
+      const keepRepaired = vi.fn(async () => {
+        throw new Error("read failed");
+      });
+      await expect(generateStructured(client, { ...opts, softRepair: { ...opts.softRepair, keepRepaired } })).resolves.toEqual({
+        quote: "weak",
+      });
     });
 
     it("sends a hard repair its own scaffold after a soft repair's answer fails validation", async () => {

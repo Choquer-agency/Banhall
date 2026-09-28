@@ -1197,27 +1197,19 @@ export const completeAttempt = internalMutation({
 });
 
 /**
- * 2026-09-27 (third): whether a writer waits on this Batch. Only a prefetch
- * nobody has opened is unwatched; the server's first Batch, a writer's
- * open, retry, regenerate and feedback always have someone waiting.
+ * 2026-09-27 (third): what a Seed action needs to decide on its quote
+ * repair, in one read. `writerWaiting`: only a prefetch nobody has opened
+ * or landed on is unwatched; the server's first Batch, a writer's open,
+ * retry, regenerate and feedback always have someone waiting. `checked`: the
+ * speaker check (owner decision 25) for each citation of each Seed given,
+ * as completeAttempt will apply it, so the quote check never judges a
+ * quote this check drops. Reads only the cited frozen rows of this
+ * generation; a citation of another row is left to completeAttempt, which
+ * refuses it.
  */
-export const isWriterWaiting = internalQuery({
-  args: { batchId: v.id("seedBatches") },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const batch = await ctx.db.get(args.batchId);
-    return !batch || batch.operation !== "prefetch" || batch.writerWaitingAt !== undefined;
-  },
-});
-
-/**
- * 2026-09-27 (third): the speaker check (owner decision 25) for a Seed
- * action's answer, so its quote check never judges a quote this check will
- * drop. Reads only the cited frozen rows of this generation; a citation of
- * another row is left to completeAttempt, which refuses it.
- */
-export const checkCitationSpeakers = internalQuery({
+export const quoteRepairContext = internalQuery({
   args: {
+    batchId: v.id("seedBatches"),
     generationId: v.id("generations"),
     seeds: v.array(
       v.object({
@@ -1232,15 +1224,20 @@ export const checkCitationSpeakers = internalQuery({
       })
     ),
   },
-  returns: v.array(
-    v.array(
-      v.union(
-        v.null(),
-        v.object({ startOffset: v.number(), endOffset: v.number(), needsSpeakerCheck: v.boolean() })
+  returns: v.object({
+    writerWaiting: v.boolean(),
+    checked: v.array(
+      v.array(
+        v.union(
+          v.null(),
+          v.object({ startOffset: v.number(), endOffset: v.number(), needsSpeakerCheck: v.boolean() })
+        )
       )
-    )
-  ),
+    ),
+  }),
   handler: async (ctx, args) => {
+    const batch = await ctx.db.get(args.batchId);
+    const writerWaiting = !batch || batch.operation !== "prefetch" || batch.writerWaitingAt !== undefined;
     const sources = new Map<string, Doc<"generationSources">>();
     for (const seed of args.seeds) {
       for (const citation of seed.provenance) {
@@ -1250,11 +1247,11 @@ export const checkCitationSpeakers = internalQuery({
       }
     }
     const reader = citationSpeakerReader(ctx);
-    const result = [];
+    const checked = [];
     for (const seed of args.seeds) {
-      result.push(await checkedCitations(reader, seed.provenance, sources));
+      checked.push(await checkedCitations(reader, seed.provenance, sources));
     }
-    return result;
+    return { writerWaiting, checked };
   },
 });
 

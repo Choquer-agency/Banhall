@@ -29,6 +29,7 @@ import { resolveGenerationCall, stepRequestFields } from "../lib/generationSteps
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import {
   buildSeedPrompt,
+  seedBlock,
   seedPromptProjection,
 } from "./trustedContext";
 import {
@@ -100,14 +101,10 @@ const failAttemptRef = makeFunctionReference<
   FunctionReturnType<FailAttemptRef>
 >("seedRuns:failAttempt");
 
-const isWriterWaitingRef = makeFunctionReference<
-  "query",
-  { batchId: Id<"seedBatches"> },
-  boolean
->("seedRuns:isWriterWaiting");
-const checkCitationSpeakersRef = makeFunctionReference<
+const quoteRepairContextRef = makeFunctionReference<
   "query",
   {
+    batchId: Id<"seedBatches">;
     generationId: Id<"generations">;
     seeds: Array<{
       provenance: Array<{
@@ -118,54 +115,73 @@ const checkCitationSpeakersRef = makeFunctionReference<
       }>;
     }>;
   },
-  Array<Array<{ startOffset: number; endOffset: number; needsSpeakerCheck: boolean } | null>>
->("seedRuns:checkCitationSpeakers");
+  {
+    writerWaiting: boolean;
+    checked: Array<Array<{ startOffset: number; endOffset: number; needsSpeakerCheck: boolean } | null>>;
+  }
+>("seedRuns:quoteRepairContext");
 
 /**
- * The speaker check (owner decision 25) on an answer before its quotes are
- * judged, as completeAttempt will apply it, so a quote it drops never asks
- * for a repair (lead answer 3).
+ * 2026-09-27 (third): one answer's quote issues as completeAttempt will
+ * find them (after the speaker check outside facts mode, lead answer 3),
+ * and whether a writer now waits on the Batch, in one read.
  */
-async function speakerCheckedSeeds(
+async function quoteReview(
   ctx: ActionCtx,
-  generationId: Id<"generations">,
-  seeds: readonly ValidatedSeedCandidate[]
-): Promise<ValidatedSeedCandidate[]> {
-  const checked = await ctx.runQuery(checkCitationSpeakersRef, {
-    generationId,
-    seeds: seeds.map((seed) => ({
-      provenance: seed.provenance.map((citation) => ({
-        sourceId: validatedId<"generationSources">(citation.sourceId),
-        startOffset: citation.startOffset,
-        endOffset: citation.endOffset,
-        exactExcerpt: citation.exactExcerpt,
-      })),
-    })),
+  args: {
+    batchId: Id<"seedBatches">;
+    generationId: Id<"generations">;
+    seeds: readonly ValidatedSeedCandidate[];
+    factMode: boolean;
+    mode: SeedBatchMode;
+  }
+): Promise<{ writerWaiting: boolean; issues: QuoteCheckIssue[] }> {
+  const context = await ctx.runQuery(quoteRepairContextRef, {
+    batchId: args.batchId,
+    generationId: args.generationId,
+    seeds: args.factMode
+      ? []
+      : args.seeds.map((seed) => ({
+          provenance: seed.provenance.map((citation) => ({
+            sourceId: validatedId<"generationSources">(citation.sourceId),
+            startOffset: citation.startOffset,
+            endOffset: citation.endOffset,
+            exactExcerpt: citation.exactExcerpt,
+          })),
+        })),
   });
-  return seeds.map((seed, index) => withCheckedSpeakers(seed, checked[index] ?? []).seed);
+  const checked = args.factMode
+    ? [...args.seeds]
+    : args.seeds.map((seed, index) => withCheckedSpeakers(seed, context.checked[index] ?? []).seed);
+  return { writerWaiting: context.writerWaiting, issues: withQuoteChecks(checked, args.mode).issues };
 }
 
 /**
  * 2026-09-27 (third): the soft quote repair's text, or null when every
- * quote backs its Seed. Cards are named by their place in the model's
- * answer (`seedIndexes` maps a kept Seed back to it), never by their words.
+ * quote backs its Seed. The earlier answer goes back as delimited data, so
+ * "idea card 2" names something the model can see; cards are named by
+ * their place in that answer (`seedIndexes` maps a kept Seed back to it),
+ * never by their words. Fact mode asks for fact ids.
  */
-export function seedQuoteRepairText(
-  issues: readonly QuoteCheckIssue[],
-  seedIndexes: readonly number[]
-): string | null {
+export function seedQuoteRepairText(args: {
+  issues: readonly QuoteCheckIssue[];
+  seedIndexes: readonly number[];
+  citationMode: "offsets" | "facts";
+  answer: unknown;
+}): string | null {
   const cards = (code: QuoteCheckIssue["code"]) =>
-    [...new Set(issues.filter((issue) => issue.code === code).map((issue) => (seedIndexes[issue.seedIndex] ?? issue.seedIndex) + 1))]
+    [...new Set(args.issues.filter((issue) => issue.code === code).map((issue) => (args.seedIndexes[issue.seedIndex] ?? issue.seedIndex) + 1))]
       .sort((left, right) => left - right);
-  const list = (numbers: number[]) => `${numbers.length === 1 ? "card" : "cards"} ${numbers.join(", ")}.`;
+  const list = (numbers: number[]) => `${numbers.length === 1 ? "idea card" : "idea cards"} ${numbers.join(", ")}.`;
   const unrelated = cards("CITATION_UNRELATED");
   const reused = cards("CITATION_REUSED");
   if (unrelated.length === 0 && reused.length === 0) return null;
   const text = SEED_PROMPT_PROGRAM.request.quoteRepair;
   return [
     text.opening,
-    unrelated.length > 0 ? `${text.unrelated}${list(unrelated)}` : "",
-    reused.length > 0 ? `${text.reused}${list(reused)}` : "",
+    seedBlock(text.earlierAnswerLabel, JSON.stringify(args.answer)),
+    unrelated.length > 0 ? `${text.unrelated[args.citationMode]}${list(unrelated)}` : "",
+    reused.length > 0 ? `${text.reused[args.citationMode]}${list(reused)}` : "",
     text.closing,
   ].join("");
 }
@@ -462,6 +478,33 @@ export const generateBatch = internalAction({
           requestsMade += 1;
         }
       );
+      const review = (seeds: readonly ValidatedSeedCandidate[]) =>
+        quoteReview(ctx, {
+          batchId: claim.batch.batchId,
+          generationId: claim.batch.generationId,
+          seeds,
+          factMode,
+          mode,
+        });
+      const quoteRepair = () => {
+        let firstIssues = 0;
+        return {
+          ask: async (batch: ValidatedSeedBatch, answer: unknown) => {
+            const first = await review(batch.seeds);
+            if (first.writerWaiting) return null;
+            firstIssues = first.issues.length;
+            return seedQuoteRepairText({
+              issues: first.issues,
+              seedIndexes: batch.seedIndexes,
+              citationMode: factMode ? "facts" : "offsets",
+              answer,
+            });
+          },
+          keepRepaired: async (first: ValidatedSeedBatch, repaired: ValidatedSeedBatch) =>
+            repaired.seeds.length >= first.seeds.length &&
+            (await review(repaired.seeds)).issues.length < firstIssues,
+        };
+      };
       const output = await generateStructured<ValidatedSeedBatch>(client, {
         system: request.system,
         user: request.userBlocks,
@@ -476,25 +519,10 @@ export const generateBatch = internalAction({
         attempts: 2,
         // 2026-09-27 (third, lead answer 1): only a prefetch nobody waits
         // on may spend the one repair on its quotes. Every other Batch keeps
-        // its first answer, and completeAttempt marks those quotes.
-        ...(claim.batch.operation === "prefetch"
-          ? {
-              softRepair: async (batch: ValidatedSeedBatch) => {
-                const text = seedQuoteRepairText(
-                  withQuoteChecks(
-                    factMode ? batch.seeds : await speakerCheckedSeeds(ctx, claim.batch.generationId, batch.seeds),
-                    mode
-                  ).issues,
-                  batch.seedIndexes
-                );
-                // Asked last: an open may have joined this prefetch meanwhile.
-                if (!text || (await ctx.runQuery(isWriterWaitingRef, { batchId: claim.batch.batchId }))) {
-                  return null;
-                }
-                return text;
-              },
-            }
-          : {}),
+        // its first answer, and completeAttempt marks those quotes. The
+        // repaired answer is kept only when it has fewer quote issues and
+        // no fewer Seeds (review P2-2).
+        ...(claim.batch.operation === "prefetch" ? { softRepair: quoteRepair() } : {}),
         validate: validatedBatchSchema({
           roleId: claim.batch.roleId,
           mode,

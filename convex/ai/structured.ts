@@ -135,15 +135,19 @@ export async function generateStructured<T>(
      */
     onPartialToolInput?: (json: string) => void;
     /**
-     * 2026-09-27 (third): asks for the repair on an answer that passed
-     * `validate` but falls short (a Seed citing a line that does not back
-     * it). Returns the whole text appended for the repair, with its own
-     * opening (not the invalid-output scaffold), or null to accept. Asked
-     * once, and only while a repair attempt is left. The answer is kept and
-     * returned if the repair fails in any way, so it never turns a usable
-     * answer into a failure; the repaired answer is returned as it is.
+     * 2026-09-27 (third): a repair for an answer that passed `validate` but
+     * falls short (a Seed citing a line that does not back it). `ask` gets
+     * the validated answer and the tool input as the model sent it, and
+     * returns the whole text appended for the repair, with its own opening
+     * (not the invalid-output scaffold), or null to accept; an error there
+     * means no repair. Asked once, and only while a repair attempt is left.
+     * The first answer is kept and returned if the repair fails in any way,
+     * or if `keepRepaired` says the valid repaired answer is not better.
      */
-    softRepair?: (value: T) => string | null | Promise<string | null>;
+    softRepair?: {
+      ask: (value: T, answer: unknown) => string | null | Promise<string | null>;
+      keepRepaired?: (first: T, repaired: T) => boolean | Promise<boolean>;
+    };
   }
 ): Promise<T> {
   // The answer a soft repair set aside, returned if the repair fails.
@@ -167,13 +171,25 @@ async function structuredAttempts<T>(
   // Set when the soft repair asked for the next attempt: its own text.
   let softRepairText: string | null = null;
   // A valid answer is returned unless the soft repair asks for another.
-  const askedSoftRepair = async (value: T, lastAttempt: boolean): Promise<boolean> => {
+  const askedSoftRepair = async (value: T, answer: unknown, lastAttempt: boolean): Promise<boolean> => {
     if (kept.answer || lastAttempt || !opts.softRepair) return false;
-    const text = await opts.softRepair(value);
+    let text: string | null;
+    try {
+      text = await opts.softRepair.ask(value, answer);
+    } catch (error) {
+      console.warn(`${opts.toolName}: soft repair skipped (${error instanceof Error ? error.name : "error"})`);
+      return false;
+    }
     if (!text) return false;
     softRepairText = text;
     kept.answer = { value };
     return true;
+  };
+  // After a soft repair: the repaired answer, or the first when it is not better.
+  const settled = async (value: T): Promise<T> => {
+    const first = kept.answer;
+    if (!first || !opts.softRepair?.keepRepaired) return value;
+    return (await opts.softRepair.keepRepaired(first.value, value)) ? value : first.value;
   };
 
   // A forced tool call can still omit required JSON fields. Retry once with
@@ -282,7 +298,7 @@ async function structuredAttempts<T>(
     const asReturned = opts.validate.safeParse(block.input);
     if (asReturned.success) {
       await settle({ ok: true });
-      if (!(await askedSoftRepair(asReturned.data, lastAttempt))) return asReturned.data;
+      if (!(await askedSoftRepair(asReturned.data, block.input, lastAttempt))) return await settled(asReturned.data);
       continue;
     }
 
@@ -295,7 +311,7 @@ async function structuredAttempts<T>(
         : opts.validate.safeParse(unwrapped);
     if (parsed.success) {
       await settle({ ok: true });
-      if (!(await askedSoftRepair(parsed.data, lastAttempt))) return parsed.data;
+      if (!(await askedSoftRepair(parsed.data, block.input, lastAttempt))) return await settled(parsed.data);
       continue;
     }
     await settle({ ok: false, code: "invalid_output" });
