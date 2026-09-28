@@ -151,4 +151,59 @@ describe("generateStructured", () => {
     ).rejects.toThrow(/truncated/);
     expect(create).toHaveBeenCalledTimes(2);
   });
+
+  describe("soft repair (2026-09-27, third amendment)", () => {
+    const opts = {
+      system: "system",
+      user: "user",
+      toolName: "submit",
+      description: "submit",
+      validate: z.object({ quote: z.string() }),
+      softRepair: (value: { quote: string }) => (value.quote === "weak" ? "quote the line that backs it" : null),
+    };
+
+    it("spends the one repair on a valid answer it asks to improve and returns the repaired one", async () => {
+      const client = clientWith([{ quote: "weak" }, { quote: "strong" }]);
+      await expect(generateStructured(client, opts)).resolves.toEqual({ quote: "strong" });
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+      const second = vi.mocked(client.messages.create).mock.calls[1][0];
+      expect(second.messages[0].content).toContain(
+        "Your previous tool output was invalid: quote the line that backs it."
+      );
+    });
+
+    it("returns the repaired answer as it is, without asking again", async () => {
+      const client = clientWith([{ quote: "weak" }, { quote: "weak" }, { quote: "strong" }]);
+      await expect(generateStructured(client, { ...opts, attempts: 3 })).resolves.toEqual({ quote: "weak" });
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the first answer when the repair returns an invalid shape", async () => {
+      const client = clientWith([{ quote: "weak" }, { other: "missing" }]);
+      await expect(generateStructured(client, opts)).resolves.toEqual({ quote: "weak" });
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the first answer when the repair request fails", async () => {
+      const create = vi
+        .fn()
+        .mockResolvedValueOnce({ content: [{ type: "tool_use", id: "tool-0", name: "submit", input: { quote: "weak" } }] })
+        .mockRejectedValueOnce(Object.assign(new Error("OpenRouter request failed with status 529: overloaded"), { status: 529 }));
+      const client: GenerationClient = { messages: { create } };
+      await expect(generateStructured(client, opts)).resolves.toEqual({ quote: "weak" });
+      expect(create).toHaveBeenCalledTimes(2);
+    });
+
+    it("never asks on the last attempt, so a hard repair is not spent twice", async () => {
+      const client = clientWith([{ other: "missing" }, { quote: "weak" }]);
+      await expect(generateStructured(client, opts)).resolves.toEqual({ quote: "weak" });
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("accepts a good first answer in one request", async () => {
+      const client = clientWith([{ quote: "strong" }]);
+      await expect(generateStructured(client, opts)).resolves.toEqual({ quote: "strong" });
+      expect(client.messages.create).toHaveBeenCalledTimes(1);
+    });
+  });
 });

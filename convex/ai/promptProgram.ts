@@ -326,6 +326,12 @@ const SEED_SCHEMA_POLICY = {
     sources: "fact-pack-replaces-its-transcript-and-digest",
     citations: "fact-id-or-document-excerpt-resolved-to-verified-offsets",
   },
+  // 2026-09-27 (third): convex/lib/seedQuoteSupport.ts.
+  quoteCheck: {
+    related: "shares-at-least-2-meaningful-words-and-a-third-of-the-smaller-side",
+    reuse: "fresh-batch-only-owner-quotes-or-shares-most-others-must-quote-word-for-word",
+    onIssue: "one-soft-repair-within-the-two-attempts-then-keep-and-mark-needsQuoteCheck",
+  },
 } as const;
 
 const derivedWordBudgets = Object.keys(LINE_LIMITS).flatMap((section) =>

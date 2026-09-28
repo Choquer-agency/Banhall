@@ -134,11 +134,45 @@ export async function generateStructured<T>(
      * else. Repairs and validation are unchanged and never stream.
      */
     onPartialToolInput?: (json: string) => void;
+    /**
+     * 2026-09-27 (third): asks for the repair on an answer that passed
+     * `validate` but falls short (a Seed citing a line that does not back
+     * it). Returns the repair note, or null to accept. Asked once, and only
+     * while a repair attempt is left. The answer is kept and returned if the
+     * repair fails in any way, so it never turns a usable answer into a
+     * failure; the repaired answer is returned as it is.
+     */
+    softRepair?: (value: T) => string | null;
   }
+): Promise<T> {
+  // The answer a soft repair set aside, returned if the repair fails.
+  const kept: { answer?: { value: T } } = {};
+  try {
+    return await structuredAttempts(rawClient, opts, kept);
+  } catch (error) {
+    if (kept.answer) return kept.answer.value;
+    throw error;
+  }
+}
+
+async function structuredAttempts<T>(
+  rawClient: GenerationClient | Anthropic,
+  opts: Parameters<typeof generateStructured<T>>[1],
+  kept: { answer?: { value: T } }
 ): Promise<T> {
   const client = rawClient as GenerationClient;
   const attempts = opts.attempts ?? STRUCTURED_OUTPUT_PROGRAM.attempts;
   let validationSummary = "";
+  let softRepairAsked = false;
+  // A valid answer is returned unless the soft repair asks for another.
+  const repairNote = (value: T, lastAttempt: boolean): string | null => {
+    if (softRepairAsked || lastAttempt || !opts.softRepair) return null;
+    const note = opts.softRepair(value);
+    if (!note) return null;
+    softRepairAsked = true;
+    kept.answer = { value };
+    return note;
+  };
 
   // A forced tool call can still omit required JSON fields. Retry once with
   // the concrete validation feedback; accepting a partial object would let a
@@ -243,7 +277,10 @@ export async function generateStructured<T>(
     const asReturned = opts.validate.safeParse(block.input);
     if (asReturned.success) {
       await settle({ ok: true });
-      return asReturned.data;
+      const note = repairNote(asReturned.data, lastAttempt);
+      if (note === null) return asReturned.data;
+      validationSummary = note;
+      continue;
     }
 
     const unwrapped = opts.encodedJsonRecovery === false
@@ -255,7 +292,10 @@ export async function generateStructured<T>(
         : opts.validate.safeParse(unwrapped);
     if (parsed.success) {
       await settle({ ok: true });
-      return parsed.data;
+      const note = repairNote(parsed.data, lastAttempt);
+      if (note === null) return parsed.data;
+      validationSummary = note;
+      continue;
     }
     await settle({ ok: false, code: "invalid_output" });
 

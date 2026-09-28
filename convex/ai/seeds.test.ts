@@ -12,6 +12,7 @@ import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import { seedToolSchema } from "../lib/seedContract";
 import { seedRepairSummary } from "./seeds";
+import { findExactQuoteSpans } from "../../shared/exactQuote";
 import type { SeedValidationIssueCode as SeedIssueCode } from "../lib/seedContract";
 
 const modules = Object.fromEntries(
@@ -1268,5 +1269,209 @@ describe("seed Node action request boundary", () => {
       outputTokens: 40,
     });
     expect(after.usage[0]?.projectId).toBeUndefined();
+  });
+});
+
+describe("idea card quotes support their card (2026-09-27, third amendment)", () => {
+  // A fictional frozen interview, one line per claim, like the live test's
+  // Northwind transcript.
+  const lines = [
+    "Northwind is a test and instrumentation company that installs sensor packages on towers.",
+    "Customers ban drilling because a hole in a coated mast starts corrosion or cracks.",
+    "Adhesive data sheets assume a cure at room temperature, usually twenty-three degrees.",
+  ];
+  const content = lines.join("\n");
+  type QuoteTest = ReturnType<typeof convexTest<typeof schema.tables>>;
+
+  async function quoteAttempt(t: QuoteTest) {
+    const fixture = await seedAttempt(t);
+    const sourceId = await t.run(async (ctx) => {
+      const source = (await ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", fixture.generationId))
+        .collect())[0];
+      await ctx.db.patch(source._id, { content, originalLength: content.length });
+      return source._id;
+    });
+    return { ...fixture, sourceId };
+  }
+
+  function cite(sourceId: string, line: number) {
+    const startOffset = content.indexOf(lines[line]);
+    return { sourceId, startOffset, endOffset: startOffset + lines[line].length, exactExcerpt: lines[line] };
+  }
+
+  // Each card quotes the line it cites (the run where all first cards
+  // underlined).
+  function goodSeeds(sourceId: string) {
+    return [
+      { bullets: [lines[0]], tags: ["high_level"], provenance: [cite(sourceId, 0)] },
+      { bullets: ["Customers ban drilling because a hole in a coated mast starts corrosion."], tags: ["technical"], provenance: [cite(sourceId, 1)] },
+      { bullets: [lines[2]], tags: ["detailed"], provenance: [cite(sourceId, 2)] },
+    ];
+  }
+
+  // The second card cites the company line for a claim about drilling, and
+  // the third reuses the first card's excerpt without quoting it (the run
+  // where no first card underlined).
+  function badSeeds(sourceId: string) {
+    return [
+      { bullets: [lines[0]], tags: ["high_level"], provenance: [cite(sourceId, 0)] },
+      { bullets: ["Customers ban drilling because a hole in a coated mast starts corrosion."], tags: ["technical"], provenance: [cite(sourceId, 0)] },
+      { bullets: ["Northwind sensor packages for towers need a bonded mount."], tags: ["detailed"], provenance: [cite(sourceId, 0)] },
+    ];
+  }
+
+  async function storedCitations(t: QuoteTest, batchId: Id<"seedBatches">) {
+    return await t.run(async (ctx) => {
+      const seeds = await ctx.db
+        .query("seeds")
+        .withIndex("by_batchId", (q) => q.eq("batchId", batchId))
+        .collect();
+      return await Promise.all(
+        seeds
+          .sort((left, right) => left.order - right.order)
+          .map(async (seed) => ({
+            bullets: seed.bullets,
+            support: seed.support,
+            provenance: await ctx.db
+              .query("seedProvenance")
+              .withIndex("by_seedId", (q) => q.eq("seedId", seed._id))
+              .collect(),
+          }))
+      );
+    });
+  }
+
+  it("asks every Batch for the line that backs each Seed and a short phrase from it", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await quoteAttempt(t);
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse({ seeds: goodSeeds(fixture.sourceId) }, 1);
+      })
+    );
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(requests).toHaveLength(1);
+    const user = requestText((await requests[0]!.json()).messages[0].content);
+    expect(user).toContain("Each Seed cites the words that back its own claim, not a neighbouring or related line");
+    expect(user).toContain("not from a Brief entry's excerpt unless that is the span that backs the Seed");
+    expect(user).toContain("reuse a short phrase of four or more words from the cited excerpt word for word");
+    expect(user).toContain("Do not cite the same excerpt on two Seeds unless both claims come from it.");
+    const stored = await storedCitations(t, fixture.batchId);
+    expect(stored).toHaveLength(3);
+    for (const seed of stored) {
+      expect(seed.support).toBe("source_supported");
+      expect(seed.provenance.map((citation) => citation.needsQuoteCheck)).toEqual([undefined]);
+      // The card underlines: its words hold an exact span of the excerpt.
+      expect(findExactQuoteSpans(seed.bullets[0], [seed.provenance[0].exactExcerpt])).toHaveLength(1);
+    }
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 1 });
+  });
+
+  it("spends the one repair on an unrelated and a reused quote and stores the repaired Batch", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await quoteAttempt(t);
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse(
+          { seeds: requests.length === 1 ? badSeeds(fixture.sourceId) : goodSeeds(fixture.sourceId) },
+          requests.length
+        );
+      })
+    );
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(requests).toHaveLength(2);
+    const first = requestText((await requests[0]!.json()).messages[0].content);
+    const second = requestText((await requests[1]!.json()).messages[0].content);
+    expect(second).toContain(first);
+    expect(second).toContain(
+      "Your previous tool output was invalid: 3 of 3 Seeds valid; cite the words that back the Seed and reuse a short phrase of them (Seed 2); cite a different line on each Seed unless both claims come from it (Seed 3)."
+    );
+    // The note names Seeds by position only, never their words.
+    expect(second.split("Your previous tool output was invalid")[1]).not.toContain("bonded mount");
+    const stored = await storedCitations(t, fixture.batchId);
+    expect(stored.map((seed) => seed.provenance[0].exactExcerpt)).toEqual(lines);
+    expect(stored.flatMap((seed) => seed.provenance).some((citation) => citation.needsQuoteCheck)).toBe(false);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
+  });
+
+  it("keeps a Batch whose repair still misquotes, with those quotes marked for a check", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await quoteAttempt(t);
+    const transport = vi.fn<typeof fetch>(async () => providerResponse({ seeds: badSeeds(fixture.sourceId) }, 1));
+    vi.stubGlobal("fetch", transport);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(transport).toHaveBeenCalledTimes(2);
+    const stored = await storedCitations(t, fixture.batchId);
+    expect(stored).toHaveLength(3);
+    expect(stored.map((seed) => seed.support)).toEqual(["source_supported", "source_supported", "source_supported"]);
+    expect(stored.map((seed) => seed.provenance.map((citation) => citation.needsQuoteCheck ?? false))).toEqual([
+      [false],
+      [true],
+      [true],
+    ]);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+      status: "shown",
+      requestsMade: 2,
+      seedsDropped: 0,
+    });
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).toContain("2 citation(s) marked for a quote check");
+    expect(logged).not.toContain("bonded mount");
+  });
+
+  it("keeps the first Batch, marked, when the repair answer is unusable", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await quoteAttempt(t);
+    let request = 0;
+    const transport = vi.fn<typeof fetch>(async () => {
+      request += 1;
+      return providerResponse({ seeds: request === 1 ? badSeeds(fixture.sourceId) : [] }, request);
+    });
+    vi.stubGlobal("fetch", transport);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(transport).toHaveBeenCalledTimes(2);
+    const stored = await storedCitations(t, fixture.batchId);
+    expect(stored.map((seed) => seed.bullets[0])).toEqual(badSeeds(fixture.sourceId).map((seed) => seed.bullets[0]));
+    expect(stored.map((seed) => seed.provenance[0].needsQuoteCheck ?? false)).toEqual([false, true, true]);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
+  });
+
+  it("spends no quote repair when the shape repair already used the second request", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await quoteAttempt(t);
+    let request = 0;
+    const transport = vi.fn<typeof fetch>(async () => {
+      request += 1;
+      return providerResponse({ seeds: request === 1 ? [] : badSeeds(fixture.sourceId) }, request);
+    });
+    vi.stubGlobal("fetch", transport);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(transport).toHaveBeenCalledTimes(2);
+    const stored = await storedCitations(t, fixture.batchId);
+    expect(stored.map((seed) => seed.provenance[0].needsQuoteCheck ?? false)).toEqual([false, true, true]);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
   });
 });

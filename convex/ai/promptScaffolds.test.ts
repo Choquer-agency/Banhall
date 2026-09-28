@@ -361,6 +361,31 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     expect(changedGuidance).not.toBe(current);
   });
 
+  it("versions the Seed quote rules (2026-09-27, third amendment)", async () => {
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-27.1");
+    expect(generationPromptProgram.templates.seeds.scaffolds.version).toBe(SEED_PROMPT_PROGRAM.version);
+    for (const guidance of [SEED_PROMPT_PROGRAM.user.guidance, SEED_PROMPT_PROGRAM.user.factGuidance]) {
+      expect(guidance).toContain("reuse a short phrase of four or more words from the cited");
+      expect(guidance).toMatch(/Do not cite the same (fact or )?excerpt on two Seeds unless both claims come from it\./);
+      expect(guidance).not.toMatch(/[\u2013\u2014]/);
+    }
+    expect(generationPromptProgram.calls.seeds.schemaPolicy.quoteCheck).toMatchObject({
+      onIssue: "one-soft-repair-within-the-two-attempts-then-keep-and-mark-needsQuoteCheck",
+    });
+    const current = await hashPromptProgram(generationPromptProgram);
+    const changedVersion = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          scaffolds: { ...SEED_PROMPT_PROGRAM, version: "seeds.previous" },
+        },
+      },
+    });
+    expect(changedVersion).not.toBe(current);
+  });
+
   it("declares the settings-document classifier with the PSOS-50 prompt, request and schema verbatim (story 3, AD-27)", async () => {
     expect(generationPromptProgram.calls.settingsAnalysis).toEqual({
       kind: "structured",

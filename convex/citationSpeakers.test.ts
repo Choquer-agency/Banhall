@@ -433,20 +433,22 @@ async function runSeeds(t: TestConvex, batchId: Id<"seedBatches">, seeds: unknow
 
 function seedsCiting(sourceId: Id<"generationSources">) {
   const cite = (span: { startOffset: number; endOffset: number; exactExcerpt: string }) => ({ sourceId, ...span });
+  // Each bullet shares words with every line it cites, so the quote check
+  // (2026-09-27, third amendment) asks for no repair here.
   return [
     {
-      bullets: ["The team asked whether an off-the-shelf adhesive would do."],
+      bullets: ["The team asked why it could not just buy a low-temperature adhesive."],
       tags: ["technical"],
       provenance: [cite(at(QUESTION))],
     },
     {
-      bullets: ["No supplier adhesive held above 80 degrees in service."],
+      bullets: ["No supplier adhesive held above 80 degrees in service, so the bond line fails at the standard cure."],
       tags: ["detailed"],
       // The echo is cited at the interviewer's words; the client said them too.
       provenance: [cite(at(CLIENT)), cite(ECHO_INTERVIEWER)],
     },
     {
-      bullets: ["Peel strength was logged after every batch."],
+      bullets: ["Peel strength was logged after every batch, and the supplier samples failed the peel test."],
       tags: ["conservative"],
       provenance: [cite(at(UNKNOWN)), cite(at(OTHER))],
     },

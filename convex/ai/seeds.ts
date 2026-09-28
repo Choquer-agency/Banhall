@@ -42,6 +42,7 @@ import {
   MAX_FEEDBACK_SEEDS,
   MIN_BATCH_SEEDS,
   MIN_FEEDBACK_SEEDS,
+  QUOTE_ISSUE_CODES,
   seedToolSchema,
   validateBatch,
   type BatchValidationResult,
@@ -61,6 +62,11 @@ import {
 type ValidatedSeedBatch = {
   seeds: ValidatedSeedCandidate[];
   dropped: number;
+  /**
+   * 2026-09-27 (third): the repair note when a citation does not back its
+   * Seed or repeats another Seed's excerpt; null when every quote passed.
+   */
+  quoteRepair: string | null;
 };
 
 // Convex 1.41 defines this utility in server/api but does not re-export it
@@ -282,6 +288,9 @@ function validatedBatchSchema(args: {
       return {
         seeds: result.seeds,
         dropped: result.dropped,
+        quoteRepair: result.issues.some((issue) => QUOTE_ISSUE_CODES.has(issue.code))
+          ? seedRepairSummary(result, seeds.length, args.mode)
+          : null,
       };
     });
 }
@@ -401,6 +410,10 @@ export const generateBatch = internalAction({
         maxTokens: SEED_PROMPT_PROGRAM.request.maxTokens,
         model: claim.batch.model,
         attempts: 2,
+        // 2026-09-27 (third): a Batch whose quotes do not back their Seeds
+        // spends the one repair; if the repair fails, the first Batch is
+        // kept and completeAttempt marks those quotes for a check.
+        softRepair: (batch) => batch.quoteRepair,
         validate: validatedBatchSchema({
           roleId: claim.batch.roleId,
           mode,

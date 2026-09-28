@@ -25,7 +25,9 @@ import {
   CONSISTENCY_REQUEST,
   COMPRESSION_REQUEST,
   ORDERED_PROMPT_SCAFFOLDS,
+  SEED_FACT_QUOTE_RULES,
   SEED_PROMPT_PROGRAM,
+  SEED_QUOTE_RULES,
   SELF_CHECK_REQUEST,
 } from "./ai/promptDefinitions";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
@@ -263,6 +265,19 @@ const withoutBriefStream = (json: Record<string, unknown>) => {
     tools: (rest.tools as Array<Record<string, unknown>>).map(({ eager_input_streaming: _eager, ...tool }) => tool),
   };
 };
+/**
+ * The Seed quote rules (2026-09-27, third amendment) are the only bytes a
+ * Seed request gained since the pins; taking them out gives the pinned body.
+ */
+const withoutQuoteRules = (json: Record<string, unknown>) => {
+  if (toolOf(json) !== "submit_seed_batch") return json;
+  let body = JSON.stringify(json);
+  for (const rules of [SEED_QUOTE_RULES, SEED_FACT_QUOTE_RULES]) {
+    body = body.replace(JSON.stringify(rules).slice(1, -1), "");
+  }
+  return JSON.parse(body) as Record<string, unknown>;
+};
+const asPinned = (json: Record<string, unknown>) => withoutQuoteRules(withoutBriefStream(json));
 function expectBriefStreaming(sent: Sent[], streamed: boolean) {
   const briefs = sent.filter((request) => toolOf(request.json) === "submit_generation_brief");
   expect(briefs.length).toBeGreaterThan(0);
@@ -683,7 +698,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       const { wire } = await run(`${mode}:${SONNET}`, "current");
       const pinned = PINNED_771AF202[`${mode}:${SONNET}`];
       expectBriefStreaming(wire.sent, mode === "seeds");
-      const now = await stagesOf(wire.sent, withoutBriefStream);
+      const now = await stagesOf(wire.sent, asPinned);
       const { compression: pinnedCompression, ...pinnedRest } = pinned;
       const { compression, ...rest } = now;
       expect(rest).toEqual(pinnedRest);
@@ -705,7 +720,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     async (mode) => {
       const { wire } = await run(`${mode}:${OPUS}`, "current");
       expectBriefStreaming(wire.sent, mode === "seeds");
-      const now = await stagesOf(wire.sent, withoutBriefStream);
+      const now = await stagesOf(wire.sent, asPinned);
       const sonnet = PINNED_771AF202[`${mode}:${SONNET}`];
       const before = PINNED_771AF202[`${mode}:${OPUS}`];
       for (const stage of [...PLANNING_STAGES, ...CHECKING_STAGES].filter((name) => name in sonnet)) {
@@ -743,7 +758,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     async (scenario) => {
       const { wire } = await run(scenario, "beforeStepRouting");
       expectBriefStreaming(wire.sent, scenario.startsWith("seeds"));
-      expect(await stagesOf(wire.sent, withoutBriefStream)).toEqual(PINNED_771AF202[scenario]);
+      expect(await stagesOf(wire.sent, asPinned)).toEqual(PINNED_771AF202[scenario]);
     }
   );
 

@@ -24,6 +24,7 @@ import {
 } from "./seedStartup.fixture";
 import { DRAFTING_INPUTS_LEASE_MS } from "./lib/generations/draftingInputs";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
+import { SEED_QUOTE_RULES } from "./ai/promptDefinitions";
 import { ActionTimeBudgetError } from "./ai/actionDeadline";
 import { decisionFixture } from "./seedDecision.fixture";
 
@@ -308,7 +309,9 @@ async function requestHashes(
     };
     const cap = maxTokens[name];
     const body = cap === undefined ? params : { ...params, max_tokens: cap };
-    firstByTool.set(name, maskIds(JSON.stringify(body)));
+    // The Seed quote rules (2026-09-27, third amendment) are the only bytes
+    // the seed request gained since the pins; they are taken out here.
+    firstByTool.set(name, maskIds(JSON.stringify(body).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), "")));
   }
   const result: Record<string, string> = {};
   for (const [name, body] of [...firstByTool.entries()].sort()) {
@@ -441,7 +444,8 @@ describe("reordered Step-by-step start (decision 32)", () => {
     // Brief, analysis and retrieval brief hashes were recaptured on the
     // integration branch after the cut-off fix raised their output caps
     // (16,000 / 16,000 / 2,048 tokens); the next test proves that with the
-    // old caps put back they are the 9bed95c0 hashes exactly.
+    // old caps put back they are the 9bed95c0 hashes exactly. requestHashes
+    // takes out the Seed quote rules added since (2026-09-27, third).
     expect(await requestHashes()).toEqual({
       submit_generation_brief: "768cad27ddf4db91f8237ad51714fdab8cdc5b0826a54a83cc3eba516c57434e",
       submit_retrieval_brief: "5ff41dc8effa6c1d3debffd0657f07c741a25549cd8bfe83863ea1ff0e4939a5",
