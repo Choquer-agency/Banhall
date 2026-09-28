@@ -59,8 +59,43 @@ Faces: **Geist** (UI — default sans since 2026-08-10, replacing DM Sans), **Ge
 | `.text-label` | 11 · 600 · caps · +0.08em · ink-muted | Eyebrows, column headers |
 | `.text-data` | 12 · mono · tabular-nums | Numbers, ids, dates, scores |
 
-Supporting sizes stay Tailwind (`text-xs`/`text-sm`); arbitrary `text-[Npx]`
-values are legacy — replace on touch.
+Supporting sizes stay Tailwind (`text-xs`/`text-sm`). Where a board needs an
+exact size, write it in rem (`text-[0.8125rem]` for 13px), never px; see the
+next section.
+
+## Sizes scale with the root (2026-09-28)
+
+The boards are drawn at 1440 wide with a 16px root. On a 27 inch screen
+(2560 wide) at 100% zoom those exact pixel sizes read as tiny, so every size
+is rem and the root grows on wide windows:
+
+- **Sizes are rem.** Font sizes, line heights, widths, heights, padding,
+  margins, gaps, insets and radii are rem at 16px per rem (13px is
+  `0.8125rem`), in classes (`text-[0.8125rem]`, `leading-[1.125rem]`,
+  `w-[8.5rem]`), in CSS and in style attributes. Tailwind's own scale
+  (`h-11`, `p-4`, `max-w-7xl`) is already rem.
+- **The root scales above 1600px.** `html` in `layout.css` is 16px up to a
+  1600px wide window, then grows 1px per 240px to 20px at 2560px and stops:
+  `clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%)`. At 1440 every
+  computed size equals the board; at 1920 the UI is 1.083x; at 2560 1.25x,
+  with the boards' proportions. Media query breakpoints do not move (they
+  read the browser default, not the root). Browser zoom and a larger browser
+  default still apply on top.
+- **Hairlines stay px.** 1px and 0.5px lines, border, outline and ring
+  widths, outline offsets, shadows, text decoration, blur, CSS transforms and
+  gradient stops stay px, as do `9999px` pill radii and media or container
+  conditions (`min-[880px]:`).
+- **Board pixels in script render as rem.** A size held in script (a
+  resizable pane width, an icon or avatar `size`, a dialog `top`) stays a
+  board pixel number and renders through `boardRem()` from
+  `$lib/rootScale`; pointer and window math converts back with
+  `rootScale()`. Measured positions (menus anchored to a rect, comment
+  offsets, a measured bar height) stay px.
+- **Tooling.** `node scripts/px-to-rem.mjs` converts px sizes under `src/`
+  and is safe to re-run (a second run changes nothing); `--check` lists what
+  it would change. `tests/pxToRem.test.ts` fails when a new px size lands in
+  `src/`. A CSS line that must keep a px value that is not a size carries the
+  comment `/* px-to-rem: keep */`.
 
 ## Surfaces & structure
 

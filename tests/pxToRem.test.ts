@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 // Plain-JS codemod module: JSDoc-typed, so it checks like any other import.
 import {
   convertClassTokens,
   convertCss,
+  listSourceFiles,
   pxToRem,
   transformSource,
 } from "../scripts/px-to-rem.mjs";
@@ -90,3 +93,15 @@ describe("px-to-rem codemod", () => {
   });
 });
 
+describe("pixel size guard", () => {
+  // Fails when a pixel size lands in src/ (for example a new text-[13px] or a
+  // padding: 10px in a <style> block). Fix: `node scripts/px-to-rem.mjs`.
+  test("src/ has no pixel sizes the codemod would convert", () => {
+    const src = fileURLToPath(new URL("../src", import.meta.url));
+    const offenders = listSourceFiles(src).filter((file) => {
+      const text = readFileSync(file, "utf8");
+      return transformSource(text, file) !== text;
+    });
+    expect(offenders.map((file) => file.slice(src.length - 3))).toEqual([]);
+  });
+});
