@@ -30,9 +30,9 @@ describe("next round trip", () => {
     expect(loginHref(null)).toBe("/login");
   });
 
-  it("goes to the dashboard without a usable next", () => {
-    expect(afterLoginPath(new URLSearchParams())).toBe("/dashboard");
-    expect(afterLoginPath(new URLSearchParams("next="))).toBe("/dashboard");
+  it("goes to Home without a usable next", () => {
+    expect(afterLoginPath(new URLSearchParams())).toBe("/my-work");
+    expect(afterLoginPath(new URLSearchParams("next="))).toBe("/my-work");
   });
 });
 
@@ -64,7 +64,7 @@ describe("next validation", () => {
     `/${"a".repeat(2048)}`,
   ])("rejects %j", (raw) => {
     expect(safeNextPath(raw)).toBeNull();
-    expect(afterLoginPath(new URLSearchParams({ next: raw }))).toBe("/dashboard");
+    expect(afterLoginPath(new URLSearchParams({ next: raw }))).toBe("/my-work");
   });
 
   it("keeps same-origin paths, normalising dot segments", () => {
@@ -75,7 +75,7 @@ describe("next validation", () => {
   });
 
   it("rejects a foreign next that arrives encoded in the query", () => {
-    expect(afterLoginPath(new URLSearchParams("next=https%3A%2F%2Fevil.example"))).toBe("/dashboard");
-    expect(afterLoginPath(new URLSearchParams("next=%2F%2Fevil.example"))).toBe("/dashboard");
+    expect(afterLoginPath(new URLSearchParams("next=https%3A%2F%2Fevil.example"))).toBe("/my-work");
+    expect(afterLoginPath(new URLSearchParams("next=%2F%2Fevil.example"))).toBe("/my-work");
   });
 });

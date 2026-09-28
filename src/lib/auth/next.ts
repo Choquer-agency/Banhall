@@ -9,8 +9,12 @@
 
 export const LOGIN_PATH = "/login";
 
-/** Where sign-in lands without a usable `next`. */
-export const DEFAULT_AFTER_LOGIN_PATH = "/dashboard";
+/**
+ * Where sign-in lands without a usable `next`: Home's canonical URL. Not the
+ * /dashboard compatibility entry, which would add a redirect hop on the way
+ * to Home (the 2026-09-28 sign-in flash).
+ */
+export const DEFAULT_AFTER_LOGIN_PATH = "/my-work";
 
 const NEXT_PARAM = "next";
 const MAX_NEXT_LENGTH = 2048;

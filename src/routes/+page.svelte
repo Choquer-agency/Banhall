@@ -6,10 +6,11 @@
 
   const auth = useAuth();
 
-  // Route authenticated users to their workspace and everyone else to sign in.
+  // Route authenticated users straight to Home's canonical URL (never via the
+  // /dashboard compatibility entry) and everyone else to sign in.
   $effect(() => {
     if (auth.isLoading) return;
-    void goto(resolve(auth.isAuthenticated ? "/dashboard" : "/login"), {
+    void goto(resolve(auth.isAuthenticated ? "/my-work" : "/login"), {
       replaceState: true,
     });
   });

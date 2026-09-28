@@ -86,22 +86,22 @@ describe("/login", () => {
     await expect.poll(() => __navigationCalls).toEqual([{ kind: "goto", url: "/project/p1?tab=report" }]);
   });
 
-  it("ignores a foreign next and goes to the dashboard", async () => {
+  it("ignores a foreign next and goes to Home", async () => {
     __setPageUrl("/login?next=https%3A%2F%2Fevil.example%2Fphish");
     __setAuthState({ isAuthenticated: true });
     render(LoginPage);
 
-    await expect.poll(() => __navigationCalls).toEqual([{ kind: "goto", url: "/dashboard" }]);
+    await expect.poll(() => __navigationCalls).toEqual([{ kind: "goto", url: "/my-work" }]);
   });
 
-  it("goes to the dashboard without next, and not while the session is still loading", async () => {
+  it("goes to Home without next, and not while the session is still loading", async () => {
     __setAuthState({ isLoading: true, isAuthenticated: false });
     render(LoginPage);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(__navigationCalls).toEqual([]);
 
     __setAuthState({ isLoading: false, isAuthenticated: true });
-    await expect.poll(() => __navigationCalls).toEqual([{ kind: "goto", url: "/dashboard" }]);
+    await expect.poll(() => __navigationCalls).toEqual([{ kind: "goto", url: "/my-work" }]);
   });
 
   it("shows the J1 layout and copy without the old brand panel", async () => {

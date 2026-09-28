@@ -8,11 +8,11 @@
   // - `?workspace=current` always wins — the access query is never even
   //   subscribed (shouldQueryWorkspaceAccess), including mid-load and on
   //   query error, on every gated route.
-  // - A route that passes a `current` snippet (the /dashboard compatibility
-  //   entry) mounts it immediately while the decision is loading by default —
-  //   the current dashboard is the rollback surface and must never flash away.
-  //   Query-heavy two-subtree routes may set `currentWhileLoading={false}` to
-  //   mount neither experience until the server decision settles.
+  // - A route that passes a `current` snippet mounts it immediately while the
+  //   decision is loading by default. Every route that passes one sets
+  //   `currentWhileLoading={false}` and mounts neither experience until the
+  //   server decision settles; /dashboard does too since 2026-09-28, so a
+  //   preview user never sees the current dashboard flash before Home.
   // - A route that instead passes `currentHref` (the canonical /projects and
   //   /my-work routes) renders a neutral loading state while the decision is
   //   pending and soft-redirects (replaceState) only once the decision is
@@ -50,7 +50,7 @@
     previewHref?: string | null;
     /** Soft-redirect target when current resolves and no `current` snippet exists. */
     currentHref?: string | null;
-    /** Keep true for rollback surfaces; utility pages set false to avoid a light→dark preview flash. */
+    /** False mounts neither subtree until the decision settles (every app route; no current-to-preview flash). */
     currentWhileLoading?: boolean;
   } = $props();
 

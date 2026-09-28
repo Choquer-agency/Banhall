@@ -252,6 +252,14 @@ These decisions provide defaults so implementation does not invent product behav
 
 ## Approved amendments
 
+### 2026-09-28 - Sign-in lands on Home with no current-dashboard flash
+
+Presentation-only amendment to the 2026-08-06 canonical-URL clause. **No domain vocabulary, workflow transition, permission, query-semantic, or storage change.**
+
+- **Default sign-in destination:** a sign-in without a usable `?next=`, and a signed-in visit to `/`, go straight to `/my-work` (Home's canonical URL) instead of the `/dashboard` compatibility entry. Users outside the cohort still reach the current dashboard through the existing `/my-work` soft-redirect to `/dashboard?view=my_work`.
+- **`/dashboard` while the decision loads:** the compatibility entry now shows the gate's neutral loading state while the rollout decision is pending (and in the server render), like every other gated route, instead of mounting the current dashboard first. Once the decision settles it behaves exactly as recorded: preview users soft-navigate to the canonical route, users outside the cohort and access errors mount the current dashboard, and `?workspace=current` still wins at once, including mid-load.
+- **Approval:** product owner, 2026-09-28 ("On sign-in the screen briefly flashes the very old dashboard before the round 2 Home appears. That must never happen.").
+
 ### 2026-08-17 — Open workflow transition matrix
 
 Domain amendment replacing the 47-edge explicit transition matrix with an
