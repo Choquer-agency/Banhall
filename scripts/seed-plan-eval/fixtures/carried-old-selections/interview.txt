@@ -1,0 +1,87 @@
+Tamsin Okafor: Thanks for making the time, both of you. I'd like to walk through the graded filter work from fiscal 2026, so July 1 2025 to June 30 2026. Before we get into the technical side, Rolf, can you give me a quick picture of Brackenridge Kilnworks and where this project sits?
+
+Rolf Aberline: Sure. We're Brackenridge Kilnworks Ltd., about 60 people, and our plant is in Dunmore Falls, Ontario. We've made foam-ceramic filters for metal foundries for a little over twenty years. The core process is replication: you take a polyurethane sponge, coat it with a ceramic slurry, squeeze out the excess, dry it, and fire it so the sponge burns out and you're left with a ceramic copy of the foam. Most of our volume is alumina-based filters for aluminium foundries, in the 10, 20 and 30 pores per inch range. Our engineering group is five people, and Ines runs the process side.
+
+Ines Castellanos: I've been here six years. Before that I was at a refractory brick maker, so firing curves and shrinkage are home turf for me.
+
+Tamsin Okafor: So what was the practical problem you were trying to solve?
+
+Rolf Aberline: Honestly, there were two, and we still argue about which one was the real driver. The first is breakage. Our standard filters crack during the pour. When 720 C aluminium hits a filter that's sitting at shop temperature, the face takes a big thermal shock, and on larger filters, the 50 mm thick ones, we were seeing cracks and sometimes pieces breaking off into the casting. Our field return data for fiscal 2025 showed about 3.8 percent of filters from two big customers had visible cracking after use, and a handful had fragments show up in the castings. That's a quality and liability problem for them and for us.
+
+Ines Castellanos: And the second is capture. The thin-wall casting customers, people making housings with 2 to 3 mm walls, need the fine oxide films and inclusions out of the metal. A coarse filter lets small inclusions through. A fine filter catches them but chokes the flow, and in thin walls you can't afford slow filling or you get misruns. So for them the goal is raising capture of fine inclusions, roughly the 20 to 80 micron range, without killing flow.
+
+Tamsin Okafor: Rolf, you said you argue about it. Which one would you say the project was really about?
+
+Rolf Aberline: I'd say breakage. That's what started the budget conversation. A filter that breaks is worse than a filter that lets a few inclusions through, because now you've added ceramic to the metal.
+
+Ines Castellanos: I'd push back a little. The breakage numbers got the project approved, but most of the testing time went into capture, because that's what the thin-wall customers were asking for and it's where the gradient idea came from in the first place. The coarse face helps with shock, sure, but the whole point of grading was to put the fine structure where it catches the small stuff.
+
+Rolf Aberline: Fair. Let's say both. The gradient was supposed to fix both at once: a coarser, tougher entry face that takes the shock and holds back the big dross, and a finer exit layer that catches the fine oxides.
+
+Tamsin Okafor: That's helpful. What did the industry do before, and why didn't that work for you?
+
+Ines Castellanos: The standard answer is to stack two filters, a coarse one on top of a fine one, or to buy a thicker fine filter. Stacking doubles the cost and you get a gap between the two pieces where metal can bypass. Thicker fine filters crack worse because thermal stress goes up with thickness, and priming is harder, meaning the metal takes longer to push through at the start. We also tried simply dipping a finished coarse filter in a second slurry to clog up the bottom half, back in 2023. That made a skin, not a gradient. It spalled off in about a third of the pours.
+
+Rolf Aberline: There's published work on graded ceramic foams, but it's mostly lab scale, small discs, often made by gel casting or freeze casting, not sponge replication. Nobody we could find had made a replicated foam with a continuous pore gradient through a 50 mm part and fired it at production scale. And the question of how that behaves under a real aluminium pour, we couldn't find anything.
+
+Tamsin Okafor: So what were you trying to learn, in technical terms?
+
+Ines Castellanos: Three things. First, whether we could bond sponge templates of different pore sizes, or grade a single template, and get it through firing without the layers separating. Different pore sizes pick up different amounts of slurry, so they shrink differently in firing. We didn't know if the shrinkage mismatch would tear the part apart at the interface. Second, whether a gradient could raise capture of fine inclusions while keeping the flow rate and priming head close to our standard 20 ppi filter. Third, how the graded layers behave under thermal shock, because the interface between layers could either stop cracks or start them. We didn't know which.
+
+Tamsin Okafor: Why couldn't you just calculate the answer?
+
+Ines Castellanos: The shrinkage depends on slurry loading per strut, and loading depends on pore size, slurry viscosity and how hard the rollers squeeze. We had data for uniform filters, but not for a part where those change across 50 mm. And the stress at the interface depends on the strut geometry on both sides, which we can't model well because the struts are hollow after the sponge burns out. The thermal shock question is the same. We could guess, but the literature on graded interfaces goes both ways depending on the material.
+
+Tamsin Okafor: Walk me through the plan.
+
+Rolf Aberline: We laid it out in August 2025. Phase one was making graded green bodies that survive firing. Phase two was lab flow and capture testing on the ones that survived. Phase three was thermal shock and burst testing, then a pour trial at a customer foundry. We budgeted about nine months and one dedicated technician plus Ines at roughly half time.
+
+Tamsin Okafor: And did you have a hypothesis going in?
+
+Ines Castellanos: Yes. If we use a two-zone sponge template, 10 ppi on the entry side and 30 ppi on the exit side, and adjust slurry viscosity so both zones pick up a similar slurry mass per unit volume, then linear firing shrinkage across the interface will stay within 0.5 percent of each other and the part will survive firing without delamination. And then, if it survives, it should capture at least 30 percent more fine inclusions than our 20 ppi filter at a flow rate no worse than 10 percent lower.
+
+Tamsin Okafor: Good. Let's go through the trials.
+
+Ines Castellanos: Trial one was September 2025. We bonded a 10 ppi and a 30 ppi sponge sheet together with a polyurethane adhesive, each 25 mm, and coated them with our standard alumina slurry at about 2,400 mPa.s. We made 24 filters, 75 by 75 by 50 mm, and fired them on our standard curve, 1,580 C peak with a 2 hour hold. Eighteen of the 24 delaminated at the bond line. When we measured the ones that survived, the 30 ppi side had shrunk 1.4 percent more than the 10 ppi side. The finer sponge picked up way more slurry per volume, as we feared.
+
+Tamsin Okafor: What did you change?
+
+Ines Castellanos: Two things. We cut the slurry viscosity on the fine side by dipping in two stages: the whole part in a thinner slurry, around 1,500 mPa.s, then only the coarse half in the thicker 2,400 slurry. And we replaced the adhesive, which left a burnout gap, with a thermal bond where we fuse the sponges together. That was trial two, October to November 2025. We made 40 parts. Delamination dropped to 9 of 40, about 22 percent. The shrinkage mismatch was down to 0.7 percent. Better, but still not good enough for production.
+
+Rolf Aberline: That's where the firing curve came in.
+
+Ines Castellanos: Right. For trial three, December 2025 into January 2026, we kept the two-stage dip and changed the firing. We added a slow ramp of 1 C per minute between 1,100 and 1,350 C, which is where most of the sintering shrinkage happens, and a 45 minute hold at 1,350. The idea was to let both zones shrink more evenly before the final densification. We fired 36 parts. Only 2 delaminated, about 6 percent, and the mismatch measured 0.4 percent. That met our 0.5 percent target. The cost is about 3 hours more kiln time per load.
+
+Tamsin Okafor: And that settled the first uncertainty?
+
+Ines Castellanos: Mostly. We learned that the shrinkage mismatch is driven more by slurry mass per volume than by pore size itself, and that a slower ramp through the sintering window takes up the remaining difference. We also learned that the adhesive bond was never going to work because it burns out before the ceramic sinters. That's knowledge we didn't have.
+
+Tamsin Okafor: What about capture and flow?
+
+Ines Castellanos: Trial four, February 2026. We built a flow rig with 50 kg of A356 aluminium per run, poured at 720 C, and measured time to prime, flow rate, and then we sectioned the filters and did inclusion counts on the metal downstream using a pressure filtration test. We compared our standard 20 ppi, our standard 30 ppi and the graded filter, 6 pours each. The 20 ppi flowed at about 4.1 kg per second. The 30 ppi flowed at 2.9 kg per second and needed a 30 percent higher priming head. The graded filter flowed at 3.8 kg per second, so 7 percent below the 20 ppi, and captured 41 percent more inclusions in the 20 to 80 micron range than the 20 ppi.
+
+Rolf Aberline: That was the result that got the thin-wall customers excited.
+
+Ines Castellanos: But the first version had a problem. In 2 of the 6 graded pours, the fine side started to choke near the end of the pour, because the inclusions build a cake on the fine face. So we tried a thinner fine zone, 15 mm instead of 25 mm, in trial five in March 2026, 8 pours. Flow held at 3.9 kg per second across the full 50 kg, no choking, and capture was 36 percent above the 20 ppi. Slightly lower capture, but no choking. We decided the 15 mm fine layer was the better trade.
+
+Tamsin Okafor: And thermal shock?
+
+Rolf Aberline: That's the one I cared about. Trial six, April 2026. We did quench tests in the lab, heating filters to 700 C and dropping them into room temperature water, then crushing them to measure residual strength. And we did burst tests where we pour metal onto a cold filter with a 300 mm head. Standard 20 ppi filters kept about 55 percent of their strength after the quench. The graded ones kept 68 percent. In the burst test, 3 of 20 standard 50 mm filters cracked. 1 of 20 graded filters cracked, and that crack stopped at the interface, it didn't go through.
+
+Ines Castellanos: That was the real surprise for me. We half expected the interface to be a weak plane that would start cracks. Instead, on the parts that survived firing well, it acts like a crack arrester. On the parts with more mismatch, the ones from trial two we kept for comparison, 4 of 10 cracked right along the interface. So the interface is only helpful if you get the shrinkage mismatch under control. That links the first and third uncertainties together.
+
+Tamsin Okafor: So what would you say were the advancements?
+
+Ines Castellanos: One, a way to make a replicated foam with a two-zone pore gradient survive firing: equalise slurry mass per volume with a two-stage dip, fuse the templates, and slow the ramp through the sintering window. Two, knowing that a 15 mm fine exit layer gives a real gain in fine inclusion capture without choking, where a 25 mm layer chokes. Three, knowing that a well-matched graded interface improves thermal shock resistance and stops cracks, but a poorly matched one makes it worse.
+
+Tamsin Okafor: What's the status now?
+
+Rolf Aberline: We ran a pour trial at one customer foundry in May and June 2026, 200 filters, and saw no breakage and a drop in their X-ray rejects on thin-wall housings from 6.2 percent to 4.5 percent. That's promising but it's one foundry and one alloy. What's still open is whether the gradient works at 30 mm thickness, which is our biggest volume, and whether we can grade continuously instead of in two zones. Those are for fiscal 2027.
+
+Ines Castellanos: Also the kiln time. Three extra hours per load isn't viable at full volume. We want to see if a different slurry binder lets us shorten the slow ramp.
+
+Tamsin Okafor: And the business side?
+
+Rolf Aberline: If it holds up, it gives us a filter that we can sell as both tougher and cleaner, which is a spot none of our competitors cover. The two thin-wall customers have asked for pricing. Internally we've already changed our dip line to support the two-stage coat, and that change has helped our uniform filters too, because it tightened our slurry pick-up control.
+
+Tamsin Okafor: Great. Thanks, both of you. I'll draft and send questions if anything is unclear.

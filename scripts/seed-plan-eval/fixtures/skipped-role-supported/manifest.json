@@ -1,0 +1,41 @@
+{
+  "id": "skipped-role-supported",
+  "title": "Corvane fouling-resistant analyzer",
+  "clientName": "Corvane Hydrologic Inc.",
+  "industry": "manufacturing",
+  "interviewees": [
+    "Devika Ramanathan",
+    "Owen Strachan"
+  ],
+  "fictional": true,
+  "semanticCase": "skipped_role_supported",
+  "purpose": "A continuing project whose sources describe the previous year in detail (the Orion-1 prototype, its 14-day drift limit and the uncertainties left open at June 30 2025). The writer opens Previous-year status, sees cited Seeds for it, and skips it anyway. The drafter must not cover the skipped role even though the Brief and sources support it, and the Compliance Note must record the Skip as honoured.",
+  "sources": [
+    {
+      "kind": "transcript",
+      "file": "interview.txt",
+      "label": "Interview with Devika Ramanathan and Owen Strachan"
+    },
+    {
+      "kind": "document",
+      "file": "notes.md",
+      "fileName": "fiscal-2026-scoping-notes.md",
+      "category": "scoping_notes"
+    }
+  ],
+  "mustNotAppearInSources": [],
+  "mustAppearInSources": [
+    "Orion-1",
+    "Orion-2"
+  ],
+  "params": {
+    "skipRole": "prior_year_status",
+    "priorYearMarker": "Orion-1"
+  },
+  "judgmentQuestions": [
+    "Section 244 does not describe the previous year's status (Orion-1, the 14-day drift limit, what remained open at the end of fiscal 2025) as a topic of its own.",
+    "Where this year's work refers back to the earlier prototype, it does so only as context for fiscal 2026 work, not as a previous-year status passage.",
+    "The rest of Section 244 (work plan, hypothesis, experiments) is complete without the skipped role.",
+    "Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?"
+  ]
+}

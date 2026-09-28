@@ -1,0 +1,41 @@
+{
+  "id": "changed-advancement-links",
+  "title": "Marrowgate cold-water biofilter control",
+  "clientName": "Marrowgate Aquatics Inc.",
+  "industry": "life-sciences",
+  "interviewees": [
+    "Tomas Reinholt",
+    "Farah Okonkwo-Lind"
+  ],
+  "fictional": true,
+  "semanticCase": "changed_advancement_links",
+  "purpose": "The writer selects three uncertainties and several experiments, approves Specific technological advancements, then unticks the uncertainty most advancements link to. Approving the old advancements must be refused as unlinked; the writer regenerates, drops the unlinked items and selects advancements linked to the remaining uncertainties. When two signed-off advancements share one uncertainty they must be drafted as one advancement with facets, and the Compliance Note must name the merge.",
+  "sources": [
+    {
+      "kind": "transcript",
+      "file": "interview.txt",
+      "label": "Interview with Tomas Reinholt and Farah Okonkwo-Lind"
+    },
+    {
+      "kind": "document",
+      "file": "notes.md",
+      "fileName": "biofilter-trial-summary.md",
+      "category": "scoping_notes"
+    }
+  ],
+  "mustNotAppearInSources": [],
+  "mustAppearInSources": [
+    "ammonia",
+    "start-up"
+  ],
+  "params": {
+    "uncertainties": 3,
+    "experiments": 3
+  },
+  "judgmentQuestions": [
+    "Section 246 does not claim an advancement for the uncertainty the writer dropped.",
+    "The advancements that share one uncertainty are drafted as one advancement with facets, not as two separate claims.",
+    "Each drafted advancement matches an uncertainty in Section 242 and an experiment in Section 244.",
+    "Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?"
+  ]
+}

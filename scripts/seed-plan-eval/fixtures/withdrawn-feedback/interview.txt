@@ -1,0 +1,83 @@
+Lionel Achterberg: Thanks for sitting down with me. I want to cover the vision-guided deburring work for fiscal 2026, July 1 2025 to June 30 2026. Hana, can you start by telling me about Tessrow and your role?
+
+Hana Mizrahi: Sure. Tessrow Robotics Corp. is in Grandbois, Quebec. We're 45 people. We design and build robotic finishing cells, so grinding, sanding, polishing and deburring, mostly for aerospace and some medical parts. We integrate industrial arms with our own tooling, fixturing and control software. I'm a controls engineer, I've been here five years, and I handle the force control and the vision integration.
+
+Callum Oyelaran: I'm the manufacturing engineer. I've been here eight years. I look after process development and I'm the one who spends most of the time in the pilot cell in Bay 4 running parts.
+
+Lionel Achterberg: What was the practical problem?
+
+Callum Oyelaran: One of our aerospace customers casts aluminium brackets, A357, about 180 by 90 millimetres, with a lot of edges. After casting and machining, the burrs along the parting lines and machined edges vary a lot. Some edges have almost nothing, maybe 0.1 millimetres. Others have burrs up to 1.2 millimetres. The spec asks for an edge radius of 0.2 to 0.5 millimetres on every edge, no sharp edges and no over-rounding. Right now they deburr by hand, three people per shift, and they still reject about 9 percent of brackets at inspection.
+
+Lionel Achterberg: And why couldn't a standard robot deburring cell handle that?
+
+Hana Mizrahi: A standard cell runs a fixed path at a fixed force. That works when the burr is consistent. Here, if you set the force high enough to take off a 1.2 millimetre burr, you over-round the edges that only had 0.1. If you set it low, you leave burrs. Our deburring tool is a floating head, a pneumatic spindle that floats radially so it can follow the edge, and you set its contact force with air pressure. It's good at following the part, but on its own it doesn't know how big the burr is.
+
+Callum Oyelaran: The other standard answer is to scan every edge with a 3D laser profiler. That gives you burr height, but a full scan of one bracket takes about 90 seconds, and the customer's takt time is 4 minutes per bracket total, including load and unload. So it eats too much of the cycle. We also looked at touch probing. Too slow as well.
+
+Lionel Achterberg: So what did you set out to learn?
+
+Hana Mizrahi: Two main things. First, whether we could estimate burr height from 2D camera images, which are fast, accurately enough to set the contact force on the floating head edge by edge. Nobody we talked to had done burr height from 2D on cast aluminium, because the surface is shiny in places and dull in others and the burr is small compared to the part. We didn't know if the error would be small enough to be useful, or fast enough. Second, whether changing the force on the floating head per edge would actually hold the edge radius inside 0.2 to 0.5 millimetres across normal casting variation, because the part's position, wall stiffness and burr shape all change from one bracket to the next.
+
+Lionel Achterberg: What made that uncertain rather than just a matter of tuning?
+
+Hana Mizrahi: For the vision, it's physics we couldn't pin down on paper. The burr shows up as a small shadow or bright line depending on lighting angle, and the relationship between what you see and the actual height depends on the burr shape, which varies. For the force, the material removal rate of the floating head depends on force, feed rate, abrasive wear and the stiffness of the edge itself. Thin flanges on the bracket flex under load. We had no model that said: this burr, this force, this radius. We needed to find out whether a relationship existed that was stable enough to control.
+
+Lionel Achterberg: What was your plan?
+
+Callum Oyelaran: We set it up in the pilot cell in Bay 4 starting in August 2025. Step one, a baseline with fixed force. Step two, develop and check the 2D burr height estimate against a laser profiler. Step three, build a map from burr height to floating head force and test it on real brackets. Step four, run longer trials to see how it held up with casting variation and abrasive wear. The customer sent us 1,200 brackets from three casting lots for the year.
+
+Lionel Achterberg: Who was working on it, and roughly how much time?
+
+Hana Mizrahi: I was on it about 60 percent of my time. Callum was about half time, and we had a technician, Marius, running parts and doing the profiler measurements, close to full time from October onward. We also pulled in one of our software developers for about three months when we moved the image processing onto the GPU.
+
+Lionel Achterberg: Before we get to the hypothesis, can you tell me a bit more about the floating head itself? Is it something you designed?
+
+Callum Oyelaran: The floating head is a purchased pneumatic unit, but we modified it. Out of the box it has a single pressure regulator, so you set one force for the whole program. We added a fast proportional valve so the controller can change the pressure, and so the force, between edges. The response time from command to stable force is about 80 milliseconds. That was one of the first things we had to check, because if the floating head can't change force quickly between edges, the whole per-edge idea falls apart. We did that check in August and it was fine for edges longer than about 15 millimetres, which is most of them on this bracket.
+
+Hana Mizrahi: On the short edges, under 15 millimetres, we just use the force from the previous edge or the higher of the two, whichever keeps us safe on burr removal. That's a small number of edges, six out of 38 on this part.
+
+Lionel Achterberg: What was the hypothesis?
+
+Hana Mizrahi: If we can estimate burr height per edge from 2D images to within 0.1 millimetres RMS, in under 120 milliseconds per edge, and set the floating head contact force from that estimate, then we can hold edge radius within 0.2 to 0.5 millimetres on at least 97 percent of edges and bring bracket reject rate below 3 percent, inside a 4 minute cycle.
+
+Lionel Achterberg: Let's go through the tests.
+
+Callum Oyelaran: Test one was the baseline, September 2025. We ran 120 brackets through the pilot cell in Bay 4 with the floating head at a fixed 20 newtons and a fixed path. Cycle time was 3 minutes 10 seconds. Reject rate at the customer's inspection criteria was 14 percent. About two thirds of the rejects were leftover burrs on the high-burr edges, the rest were over-rounded edges above 0.5 millimetres on edges that had small burrs. So fixed force was worse than hand deburring.
+
+Hana Mizrahi: Test two was the first vision setup, October to November 2025. One 12 megapixel camera with a low-angle ring light. We imaged 400 edges, then measured the same edges with a laser profiler as the reference. The error was 0.18 millimetres RMS, and processing took about 210 milliseconds per edge. Both too slow and too rough. The main problem was reflections on the machined faces. They made some burrs look much taller than they were.
+
+Lionel Achterberg: Did you consider going to a 3D camera at that point?
+
+Hana Mizrahi: We did. We borrowed a structured light 3D camera for two weeks in November. Its depth resolution at our working distance was about 0.2 millimetres, which is no better than what we already had, and each capture took around 400 milliseconds. So it didn't solve either problem, and it would have added a lot of cost to the cell. That pushed us back toward getting more out of 2D.
+
+Lionel Achterberg: How did you adapt?
+
+Hana Mizrahi: Test three, December 2025. We went to two shots per edge with the light at two angles, 15 degrees and 60 degrees, and used the difference between the two images. The shadow from the burr changes with angle but the reflection from the flat face changes differently, so you can separate them. We also moved the image processing to the GPU and cropped to a region around each edge from the CAD path. On the same 400 edges, error dropped to 0.07 millimetres RMS and processing to 95 milliseconds per edge. That met both targets.
+
+Callum Oyelaran: Then test four, January to February 2026, was the force map. We took 60 test coupons cut from scrap brackets with burrs from 0.1 to 1.2 millimetres and ran the floating head at forces from 8 to 40 newtons, measuring the resulting edge radius. We found it's not linear. From 0.1 to about 0.6 millimetres of burr, force needs to go from about 10 to 22 newtons. Above 0.6 millimetres, it needs to go up faster, to about 34 newtons at 1.2 millimetres. We built a lookup table from that and ran 300 brackets through the pilot cell in Bay 4.
+
+Lionel Achterberg: Results?
+
+Callum Oyelaran: Reject rate fell to 4.3 percent. Cycle time was 3 minutes 50 seconds, inside the 4 minutes. 96.1 percent of edges were in the radius window. Close to the hypothesis but not there. When we looked at the rejects, most were on the thin flanges, the 2.5 millimetre walls. At forces above about 28 newtons the flange flexed, the floating head lost contact for a moment, and it chattered. That left a wavy edge with a radius outside the window.
+
+Hana Mizrahi: So test five, March to April 2026, was about the flanges. We tried two things. First, capping force at 26 newtons on the thin flanges and slowing the feed rate from 40 to 25 millimetres per second instead, so the tool dwells longer. Second, using a second pass on those edges. The slower feed worked better than the second pass. With the capped force and slower feed, chatter went away on the flanges. We ran 360 brackets from the second and third casting lots. Reject rate was 2.6 percent. 97.8 percent of edges were in the radius window. Cycle time went up to 3 minutes 58 seconds, which is right at the limit.
+
+Lionel Achterberg: Did abrasive wear come into it?
+
+Callum Oyelaran: It did. Over about 150 brackets, the removal rate of the floating head dropped as the abrasive wore, and radius values drifted smaller. In test six, May 2026, we added a correction. Every 25 brackets the cell deburrs a reference coupon and images it, and the force table gets scaled up to match. Over 240 brackets the reject rate stayed at 2.4 percent, with no drift trend across the run.
+
+Lionel Achterberg: So what did you learn? What are the advancements?
+
+Hana Mizrahi: One, burr height on cast aluminium can be estimated from 2D images to about 0.07 millimetres RMS, fast enough for per-edge control, if you use two lighting angles and difference the images to separate burr shadow from surface reflection. A single-angle setup can't get there. Two, the relationship between burr height and the floating head force needed to hit a target radius is non-linear with a knee near 0.6 millimetres, and we've mapped it for A357. Three, on thin walls force can't just keep going up; you have to trade force for dwell time or the floating head chatters. Four, abrasive wear can be tracked with a periodic reference coupon rather than a fixed replacement schedule.
+
+Lionel Achterberg: What's the status and what's still open?
+
+Callum Oyelaran: We're still running parts in the pilot cell in Bay 4. We haven't shipped a production cell yet. We're at the edge of the cycle time, so any extra step would push us over. Open questions are whether this transfers to other alloys and other bracket designs without redoing the whole force map, and whether burr height can be estimated on internal edges that the camera can't see straight on. About 8 percent of edges on the next bracket family are internal. That's planned for fiscal 2027.
+
+Hana Mizrahi: And we want to see if we can cut the GPU time further so we have more room for the slower feed on flanges.
+
+Lionel Achterberg: How has it changed the business?
+
+Callum Oyelaran: The customer has agreed to buy a production cell if we hold under 3 percent rejects over a 1,000 bracket acceptance run, which is scheduled for the fall. That would replace three manual deburring positions per shift for them. For us it's a new product line, adaptive deburring, and the vision and force mapping method is something we can offer on other cells. We've also reused the two-angle imaging in a polishing cell quote already.
+
+Lionel Achterberg: Great. Thanks to you both.

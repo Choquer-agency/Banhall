@@ -1,0 +1,95 @@
+Beatrix Nwachukwu: Thanks for making the time. We're looking at fiscal 2026, so July 1 2025 to June 30 2026. Anders, could you start with a bit about Quillmere and what your team does?
+
+Anders Kowalczyk: Sure. Quillmere Analytics Ltd. is based in Carrow, Saskatchewan. We're 25 people. We build controllers and analytics software for grain dryers, mostly the continuous-flow tower and mixed-flow dryers you see on larger farms and at elevators. Our controller sits on the dryer, reads the temperature and moisture sensors, and runs the burner and the discharge rate. Then we have a cloud side that collects the data and gives operators alerts and reports. I'm the CTO. I've been here since we started in 2017. There are eight of us in engineering.
+
+Rosalind Tiwari: I'm the data scientist. I joined in 2023. Before that I did condition monitoring for pumps at a mining company, so anomaly detection on industrial sensors is my background.
+
+Beatrix Nwachukwu: Before we get into the technical project, I want to make sure I understand everything your team worked on this year, so we know what's in and what's out.
+
+Anders Kowalczyk: Good idea, because it was a busy year. The main technical project is the anomaly detection model for burner controllers. That's the one we're claiming. But there were three other things that took a fair bit of time, and I want to be clear we are not claiming any of them.
+
+Beatrix Nwachukwu: Go ahead.
+
+Anders Kowalczyk: First, the migration of our customer billing portal to a new cloud host. That took two people about six weeks in the fall. It was routine IT work. We moved it to a different provider for cost reasons, followed their migration guide, and it went fine. There was nothing uncertain about it. We are not claiming it.
+
+Beatrix Nwachukwu: Understood.
+
+Anders Kowalczyk: Second, the redesign of the dashboard colours and layout. Customers found the old dashboard cluttered, so our front-end developer reworked the colours, fonts and panel layout over about two months in the winter. That's cosmetic. It's not technological, it didn't involve any new knowledge. We are not claiming it.
+
+Anders Kowalczyk: And third, customer training sessions. We ran 22 training sessions for dealers and farm operators across Saskatchewan and Manitoba in the spring. That's a business activity, sales and support. We are not claiming that either.
+
+Beatrix Nwachukwu: That's very clear, thank you. So let's focus on the anomaly detection model. What's the practical problem?
+
+Rosalind Tiwari: Grain dryers have burner faults: flame instability, fuel valve sticking, igniter problems, and process faults like a plugged column where grain stops moving and overheats. Those can lead to fires. A dryer fire can cost a farm several hundred thousand dollars and it happens every harvest somewhere. Operators want an early warning, ideally 15 minutes or more before the fault becomes dangerous, so they can shut down and check.
+
+Anders Kowalczyk: The problem is the sensors. Grain dryers are dusty, hot and wet. Thermocouples and RTDs in the plenum drift as they get coated in fines. Moisture sensors drift even worse. Over a harvest season, we see temperature sensors drift 1 to 3 degrees C per month and moisture sensors drift up to 1.5 percentage points per month. Any anomaly model trained on clean data starts flagging drift as anomalies, and operators get flooded with false alarms and turn it off.
+
+Beatrix Nwachukwu: What had you tried before, or what's standard practice?
+
+Rosalind Tiwari: The standard is fixed threshold alarms: plenum over a set temperature, that kind of thing. They're late, because by the time plenum temperature crosses the threshold the fault is well along. In fiscal 2025 we tried a basic unsupervised model, an isolation forest on the raw sensor readings. In the lab it looked good. In the field, after six weeks the false alarm rate was over 2 per dryer per day. The usual fixes are to retrain often or to recalibrate the sensors, but farms won't recalibrate mid-harvest, and retraining on drifted data teaches the model that drift is normal, which can hide real slow faults.
+
+Beatrix Nwachukwu: So what were you trying to learn?
+
+Rosalind Tiwari: Whether we could build a model that tells the difference between slow sensor drift and real faults that also develop slowly, like a column gradually plugging, without having labelled examples of drift. And whether we could keep false alarms low without losing detection lead time. Those two pull against each other. Anything that makes the model more tolerant of slow change also makes it slower to see slow faults.
+
+Anders Kowalczyk: And there's a third uncertainty, which is data. We have lots of normal operating data, but real faults are rare. Across all our customers we had 11 documented faults with good data from the 2024 season. We didn't know if that was enough to validate anything.
+
+Beatrix Nwachukwu: Why couldn't that be solved with known methods?
+
+Rosalind Tiwari: There are drift-compensation methods in the literature, but most assume you have a trusted reference sensor or periodic calibration. We have neither. And the physics of a dryer is coupled. Burner output, air flow, grain flow, ambient conditions and grain moisture all interact. We didn't know if we could separate sensor bias from real process change in that coupled system with the sensors we have.
+
+Beatrix Nwachukwu: What was your plan?
+
+Rosalind Tiwari: We started in July 2025. Phase one, rebuild the baseline and measure how it fails under drift. Phase two, try training with synthetic drift. Phase three, a physics-based residual model with online bias tracking. Phase four, shadow-mode trials on customer dryers during the fall 2025 harvest, then analysis over the winter and spring.
+
+Beatrix Nwachukwu: Who worked on it and how much time went in?
+
+Anders Kowalczyk: Rosalind was on it almost full time. I spent maybe 30 percent of my time, mostly on the dryer physics and the controller side. One of our embedded developers, Tobias, spent about four months getting the model to run on the controller itself, because a lot of our customers have poor cell coverage and we can't rely on the cloud for a safety alert. And our field technician helped set up the shadow trials during harvest.
+
+Beatrix Nwachukwu: How did you define a false alarm and lead time? I want to make sure the numbers mean the same thing throughout.
+
+Rosalind Tiwari: A false alarm is any alert where the operator log and our review of the data show no fault within the following two hours. We count them per dryer per day of operation, so days the dryer is shut down don't count. Lead time is the time from our alert to the point where the fault would have triggered the existing hard-limit alarm, or to the operator's manual shutdown, whichever came first. We picked those definitions in July 2025 before we ran anything, so we couldn't move the goalposts later.
+
+Beatrix Nwachukwu: And your hypothesis?
+
+Rosalind Tiwari: If we compute anomaly scores on the residuals of a physics-based energy balance, meaning what plenum temperature should be given fuel rate, air flow and ambient temperature, and we track each sensor's bias online using redundancy between sensors, then false alarms will stay below 0.25 per dryer per day with drift up to 3 degrees C per month, while keeping a median detection lead time of at least 15 minutes on burner and column faults.
+
+Beatrix Nwachukwu: Let's go through the experiments.
+
+Rosalind Tiwari: Experiment one, July to August 2025. We rebuilt the isolation forest baseline and trained it on 2024 data from 14 dryers, roughly 11,000 dryer-hours at one-minute resolution. Then we tested it on held-out data with drift added at 1, 2 and 3 degrees C per month. At zero drift the false alarm rate was 0.3 per dryer-day. At 2 degrees per month it was 1.4 per day by week four. At 3 degrees it was 2.6. It caught 9 of the 11 real faults with a median lead time of 9 minutes. So that confirmed the problem.
+
+Beatrix Nwachukwu: And experiment two?
+
+Rosalind Tiwari: Training with synthetic drift, August 2025. We injected random slow drift into the training data, 0.5 to 3 degrees C per month on temperatures and up to 1.5 points per month on moisture, so the model would learn to ignore it. False alarms dropped to 0.6 per dryer-day at 2 degrees drift. But detection fell apart. It caught only 6 of 11 faults, and it missed all three column-plugging faults. Those develop over 30 to 60 minutes, and the model had learned to treat slow rises as drift. So that confirmed the trade-off in the worst way.
+
+Anders Kowalczyk: That's when we changed direction completely.
+
+Rosalind Tiwari: Experiment three, September 2025. We built an energy balance model for the dryer. Given fuel flow, fan speed, ambient temperature and humidity, it predicts plenum temperature and exhaust temperature. We fit it per dryer on the first 48 hours of the season. The anomaly score is the residual between measured and predicted. For drift, we have two plenum sensors on most dryers and the ambient sensor. We run a Kalman filter that estimates a slow bias for each sensor, limited to change no faster than 4 degrees C per month, and it only updates bias when the energy balance and the redundant sensors agree the process is steady. On the 2024 data with injected drift of 3 degrees per month, false alarms were 0.18 per dryer-day. It caught 10 of 11 faults, including all three column plugs, with a median lead time of 22 minutes.
+
+Beatrix Nwachukwu: That's a big jump. What was the one it missed?
+
+Rosalind Tiwari: An igniter fault on a dryer with only one plenum sensor. Without the redundant sensor, the bias tracker can't separate drift from process change, so we had to set it very conservatively, and the fault got absorbed. That told us redundancy matters more than we thought.
+
+Beatrix Nwachukwu: And the field trial?
+
+Rosalind Tiwari: Experiment four. Shadow mode on 9 customer dryers during the fall 2025 harvest, October 6 to November 21. Shadow mode means the model runs and logs alerts but doesn't show them to operators. Seven dryers had two plenum sensors, two had one. On the seven with redundancy, false alarms averaged 0.21 per dryer-day, and measured drift reached 2.7 degrees C per month on one dryer. On the two single-sensor dryers it was 0.64. There were four real events in the trial, two burner flame instability events and two plugging events. The model flagged all four, with lead times of 14, 19, 26 and 31 minutes.
+
+Anders Kowalczyk: The 14 minute one was a flame event, just under target.
+
+Rosalind Tiwari: Experiment five, January to March 2026, was about the single-sensor dryers. We tried using exhaust temperature as a second, indirect reference for plenum bias through the energy balance. On the fall data, the false alarm rate on those two dryers dropped from 0.64 to 0.33 per day. Better, but still above target.
+
+Beatrix Nwachukwu: So what are the advancements?
+
+Rosalind Tiwari: One, we showed that training on synthetic drift is the wrong approach for this problem, because it hides slow faults. Two, anomaly detection on energy balance residuals, with bias tracked online from redundant sensors, keeps false alarms around 0.2 per dryer-day under drift up to about 3 degrees C per month, and gives detection lead times around 20 minutes. Three, we learned that sensor redundancy is the deciding factor, and we've quantified what you lose without it. Four, exhaust temperature can partly stand in for a second plenum sensor.
+
+Beatrix Nwachukwu: Status and next steps?
+
+Anders Kowalczyk: The model is running in shadow mode on the same nine dryers for spring drying. We still need a full season with alerts live. Open items are the single-sensor dryers, flame events where lead time is marginal, and moisture sensor drift, which we haven't handled as well as temperature. We want to add fiscal 2027 work on the moisture side.
+
+Beatrix Nwachukwu: And the business outcome?
+
+Anders Kowalczyk: It lets us sell early fault warning as a feature, which none of our competitors have in a form that works through a harvest. We've also changed our hardware recommendation to include a second plenum sensor as standard. Two elevator customers have asked to be first on the live release.
+
+Beatrix Nwachukwu: Great. And just to confirm, the claim is the anomaly model only, not the billing portal move, the dashboard colours and layout, or the training sessions.
+
+Anders Kowalczyk: That's right. Only the anomaly detection work.

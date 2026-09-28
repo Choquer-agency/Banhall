@@ -1,0 +1,46 @@
+{
+  "id": "carried-old-selections",
+  "title": "Brackenridge graded foam filters",
+  "clientName": "Brackenridge Kilnworks Ltd.",
+  "industry": "manufacturing",
+  "interviewees": [
+    "Rolf Aberline",
+    "Ines Castellanos"
+  ],
+  "fictional": true,
+  "semanticCase": "carried_old_selections",
+  "purpose": "The writer approves through Experimentation, then switches the goal framing (from filter breakage to fine-inclusion capture, both supported by the sources). Every approved successor goes Stale. The writer regenerates Technological uncertainties but keeps the older selections and must Confirm and approve them as carried; the other Stale steps are confirmed the same way. Company / Context carries a writer edit with a term that is in no source, which must reach the drafted Section 242, and that edited item is writer-asserted.",
+  "sources": [
+    {
+      "kind": "transcript",
+      "file": "interview.txt",
+      "label": "Interview with Rolf Aberline and Ines Castellanos"
+    },
+    {
+      "kind": "document",
+      "file": "notes.md",
+      "fileName": "graded-filter-trial-log.md",
+      "category": "scoping_notes"
+    }
+  ],
+  "mustNotAppearInSources": [
+    "cascade-fired",
+    "lattice"
+  ],
+  "mustAppearInSources": [
+    "thermal shock",
+    "inclusion"
+  ],
+  "params": {
+    "editedTerm": "cascade-fired lattice",
+    "editSentence": "The team calls the graded structure the cascade-fired lattice.",
+    "switchRole": "goal_problem",
+    "regenerateRole": "active_uncertainties"
+  },
+  "judgmentQuestions": [
+    "Section 242 states the goal the writer switched to, not the first framing, and the carried uncertainties still read as consistent with it.",
+    "The carried uncertainty selections are drafted faithfully, even though their Seeds were produced before the goal change.",
+    "The edited term \"cascade-fired lattice\" is used naturally in Section 242, and the writer-asserted wording is presented without invented evidence.",
+    "Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?"
+  ]
+}

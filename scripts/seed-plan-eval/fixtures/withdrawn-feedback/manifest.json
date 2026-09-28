@@ -1,0 +1,47 @@
+{
+  "id": "withdrawn-feedback",
+  "title": "Tessrow adaptive deburring cell",
+  "clientName": "Tessrow Robotics Corp.",
+  "industry": "manufacturing",
+  "interviewees": [
+    "Hana Mizrahi",
+    "Callum Oyelaran"
+  ],
+  "fictional": true,
+  "semanticCase": "withdrawn_feedback",
+  "purpose": "On Company / Context the writer gives two Feedback instructions. The first (call the tool the compliant spindle, never the floating head) stays active, and its Revised Seed replaces the original. The second (call the pilot cell the Kestrel line) is a correction the writer withdraws before approving. The withdrawn instruction must never be sent again or reach the plan or the report; the active one must reach Subsection 9's Decision Set and be respected there (the CAP-4 harness case).",
+  "sources": [
+    {
+      "kind": "transcript",
+      "file": "interview.txt",
+      "label": "Interview with Hana Mizrahi and Callum Oyelaran"
+    },
+    {
+      "kind": "document",
+      "file": "notes.md",
+      "fileName": "deburring-test-memo.md",
+      "category": "scoping_notes"
+    }
+  ],
+  "mustNotAppearInSources": [
+    "compliant spindle",
+    "Kestrel"
+  ],
+  "mustAppearInSources": [
+    "floating head",
+    "pilot cell in Bay 4"
+  ],
+  "params": {
+    "keptInstruction": "Call the deburring tool the compliant spindle, never the floating head, here and in every later step.",
+    "keptTerm": "compliant spindle",
+    "replacedTerm": "floating head",
+    "withdrawnInstruction": "Call the pilot cell in Bay 4 the Kestrel line.",
+    "withdrawnTerm": "Kestrel"
+  },
+  "judgmentQuestions": [
+    "Nothing in the Seeds after the withdrawal, the plan or the report calls the pilot cell the Kestrel line.",
+    "Subsection 9's Seeds and Section 244 call the tool the compliant spindle, as the active Feedback asked.",
+    "The experiments in Section 244 match the sources (burr heights, forces, cycle times, reject rates) despite the renamed tool.",
+    "Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?"
+  ]
+}
