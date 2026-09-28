@@ -274,7 +274,7 @@
    breakpoints are not affected (they read the browser default, not this).
    JS that sizes things in board pixels reads the ratio from rootScale(). */
 html {
-  font-size: clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%);
+  font-size: clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%); /* px-to-rem: keep */
 }
 
 .workspace-rail-control {

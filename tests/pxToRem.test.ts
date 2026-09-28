@@ -61,6 +61,13 @@ describe("px-to-rem codemod", () => {
     );
   });
 
+  test("leaves a line marked px-to-rem: keep as it is", () => {
+    const css = "html {\n  font-size: clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%); /* px-to-rem: keep */\n  padding: 8px;\n}";
+    expect(convertCss(css)).toBe(
+      "html {\n  font-size: clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%); /* px-to-rem: keep */\n  padding: 0.5rem;\n}"
+    );
+  });
+
   test("rewrites static Svelte style attributes but never runtime expressions", () => {
     const source = [
       '<div style="left: calc(680px + 2rem); width: 256px; box-shadow: 0 0 2px red" style:height="12px"></div>',

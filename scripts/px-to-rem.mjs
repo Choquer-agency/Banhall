@@ -24,6 +24,8 @@
 //     min-[880px]: and [@media(min-height:640px)]:, and @media preludes).
 //   - Anything computed at runtime: style={...} expressions and template
 //     strings with ${...}px, canvas and SVG attributes are never touched.
+//   - Any CSS line carrying the marker comment "px-to-rem: keep" (the root
+//     font size in layout.css, whose 1600px is a window width).
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { join, extname, relative, resolve } from "node:path";
@@ -127,10 +129,14 @@ const DECLARATION = /(^|[{;\s])(--[\w-]+|[a-zA-Z-]+)(\s*:\s*)([^;{}]*?)(?=\s*(?:
 export function convertCss(css, { toEnd = false } = {}) {
   /** @type {string[]} */
   const comments = [];
-  const masked = css.replace(/\/\*[\s\S]*?\*\//g, (comment) => {
-    comments.push(comment);
+  /** @param {string} kept */
+  const hold = (kept) => {
+    comments.push(kept);
     return `\u0000${comments.length - 1}\u0000`;
-  });
+  };
+  const masked = css
+    .replace(/^.*px-to-rem: keep.*$/gm, hold)
+    .replace(/\/\*[\s\S]*?\*\//g, hold);
   const pattern = toEnd ? DECLARATION : new RegExp(DECLARATION.source.replace("|$", ""), "g");
   const converted = masked.replace(pattern, (match, lead, property, colon, value) => {
     if (!value.includes("px")) return match;
