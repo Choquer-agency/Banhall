@@ -11,6 +11,7 @@ import { isParseAbort } from "$lib/spreadsheetClient";
 import { CONTEXT_CATEGORIES, type ContextCategoryId } from "$lib/contextCategories";
 import { readTranscriptFile, type ReadTranscript } from "$lib/transcriptUpload";
 import { detectPdSections, sectionsFoundLabel, type DetectedPdSection } from "../../../../shared/pdSectionDetect";
+import type { FileType, RestoredDocument } from "./intakePlan";
 
 /** A supporting document's chip: one of the five categories, or (Review a
  * written PD only) a transcript, which is stored as a transcript. */
@@ -49,6 +50,12 @@ export type SupportingDoc = {
   error: string | null;
   sections: DetectedPdSection[];
   words: number;
+  /**
+   * A file brought back after a reload (2026-09-27, fourth): its text is in
+   * `parsed` and saved in the draft, with the file type it was saved with;
+   * there is no File to read or upload again.
+   */
+  restored?: { fileType: FileType } | null;
 };
 
 export type ParseFile = (file: File, options: ParseOptions) => Promise<ParsedDocument>;
@@ -202,6 +209,47 @@ export class SupportingDocs {
     return id;
   }
 
+  /**
+   * Files a reload brought back (2026-09-27, fourth), ahead of anything
+   * added meanwhile: ready at once, with the text the draft holds. Returns
+   * their ids, in order.
+   */
+  restore(entries: readonly RestoredDocument[]): string[] {
+    const now = Date.now();
+    const restored = entries.map((entry): SupportingDoc => {
+      const id = `doc-${this.#seq++}`;
+      const content = entry.pastedText ?? entry.body;
+      return {
+        id,
+        name: entry.name,
+        file: null,
+        pastedText: entry.pastedText,
+        category: entry.category,
+        categoryTouched: true,
+        year: entry.year ?? this.#defaultYear(),
+        status: entry.failed ? "failed" : "ready",
+        progress: null,
+        startedAt: now,
+        finishedAt: now,
+        parsed:
+          entry.pastedText === null && !entry.failed
+            ? { fileName: entry.name, fileType: entry.fileType as ParsedDocument["fileType"], content: entry.body }
+            : null,
+        transcript: null,
+        error: entry.failed ? "We could not read this file." : null,
+        sections: entry.category === "previous_pd" ? detectPdSections(content) : [],
+        words: countWords(content),
+        restored: entry.pastedText === null ? { fileType: entry.fileType } : null,
+      };
+    });
+    for (const doc of restored) {
+      this.#track(doc.id);
+      this.#settle(doc.id);
+    }
+    this.items = [...restored, ...this.items];
+    return restored.map((doc) => doc.id);
+  }
+
   remove(id: string) {
     this.#controllers.get(id)?.abort();
     this.#controllers.delete(id);
@@ -229,6 +277,7 @@ export class SupportingDocs {
       error: null,
       sections: [],
       words: 0,
+      restored: null,
     });
     this.#track(id);
     void this.#read(id);

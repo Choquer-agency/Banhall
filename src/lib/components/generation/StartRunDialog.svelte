@@ -155,6 +155,7 @@
     activeRun = null,
     onOpenActiveRun,
     onSelectionChange,
+    initialExcluded = [],
   }: {
     open?: boolean;
     mode: StartRunMode;
@@ -179,6 +180,11 @@
      * Confirming never waits for it.
      */
     onSelectionChange?: (excluded: StartRunExcluded) => void;
+    /**
+     * 2026-09-27 (fourth): ids unticked when it opens (a choice a reload
+     * brought back). Every other file starts ticked.
+     */
+    initialExcluded?: string[];
   } = $props();
 
   const unticked = new SvelteSet<string>();
@@ -202,6 +208,20 @@
   );
   const runCopy = $derived(activeRun ? activeRunCopy(activeRun, Date.now()) : null);
   const copy = $derived(START_RUN_COPY[mode]);
+
+  // Opened by the host (bind:open) as well as from inside: the choice it
+  // opens with is every file ticked, less `initialExcluded`.
+  let wasOpen = false;
+  $effect.pre(() => {
+    const isOpen = open;
+    untrack(() => {
+      if (isOpen && !wasOpen) {
+        unticked.clear();
+        for (const id of initialExcluded) unticked.add(id);
+      }
+      wasOpen = isOpen;
+    });
+  });
 
   $effect(() => {
     if (!open || !onSelectionChange) return;
@@ -236,6 +256,7 @@
     if (isOpen) {
       confirmedClose = false;
       unticked.clear();
+      for (const id of initialExcluded) unticked.add(id);
     } else if (!confirmedClose) {
       onCancel?.();
     }

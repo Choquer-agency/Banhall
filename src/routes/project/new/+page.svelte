@@ -5,7 +5,7 @@
   import { resolve } from "$app/paths";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { toast } from "svelte-sonner";
-  import { useAction, useMutation, useQuery } from "convex-svelte";
+  import { useAction, useConvexClient, useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -78,7 +78,7 @@
   } from "$lib/transcriptUpload";
   import { comparePairFromSlots } from "../../../../shared/generationModels";
   import type { GenerationModeId } from "../../../../shared/generationModes";
-  import { modelLabelFor, pickerModels, defaultModelIdFor } from "$lib/modelPicker";
+  import { pickerModels } from "$lib/modelPicker";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
@@ -116,7 +116,13 @@
     type IntakeCalls,
   } from "$lib/components/project-new/intakeDraft.svelte";
   import { intakeDraftRefs } from "../../../../convex/lib/intakeDraftRefs";
-  import { newSourceKey, noteSourceKey, plannedIntakeSources } from "$lib/components/project-new/intakePlan";
+  import {
+    newSourceKey,
+    noteSourceKey,
+    plannedIntakeSources,
+    restoredIntake,
+  } from "$lib/components/project-new/intakePlan";
+  import { startRunModels } from "$lib/components/generation/startRunSources";
   import { markStartConfirmed, markStartReserved } from "$lib/perf/startTimings";
 
   const extractionLifetime = new AbortController();
@@ -625,7 +631,131 @@
     const keys = supportingFiles.filter((doc) => doc.status === "reading").map((doc) => sourceKeyFor(doc.id));
     intake.setReading({ keys, unkeyed: transcriptsReading });
   });
-  onMount(() => intake.discardLeftover());
+  // ─── A reload brings the draft back (2026-09-27, fourth) ──────────────────
+  // The draft this tab left open is picked up again: its saved files show as
+  // saved (their text is read back from the draft; originals already there
+  // are not uploaded again), with the names and the file choice it holds.
+  // A second tab that copied the id starts its own draft instead.
+  const convex = useConvexClient();
+  let restored = $state(false);
+  /** Start dialog ids a reload brought back unticked, for its next opening. */
+  let restoredExclusion = $state<string[]>([]);
+
+  async function loadDraft(draftId: Id<"intakeDrafts">) {
+    const view = await convex.query(intakeDraftRefs.restoreIntakeDraft, { draftId });
+    if (!view) return null;
+    const texts = new Map<string, string>();
+    const queue = [...view.sources];
+    // One source per read, a few at a time.
+    const reader = async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        const read = await convex.query(intakeDraftRefs.getIntakeSourceText, { draftId, sourceKey: next.sourceKey });
+        if (read) texts.set(next.sourceKey, read.content);
+      }
+    };
+    await Promise.all([reader(), reader(), reader(), reader()]);
+    return { view, texts };
+  }
+
+  function applyDraft(
+    draftId: Id<"intakeDrafts">,
+    loaded: NonNullable<Awaited<ReturnType<typeof loadDraft>>>
+  ) {
+    const { view, texts } = loaded;
+    const built = restoredIntake(view.sources, texts);
+    const idByKey = new Map<string, string>();
+    const items: TranscriptItem[] = built.transcripts.map((transcript) => {
+      const id = `t-${transcriptItemSeq++}`;
+      sourceKeys.set(id, transcript.sourceKey);
+      idByKey.set(transcript.sourceKey, `t:${id}`);
+      return {
+        id,
+        label: transcript.label,
+        wordCount: countWords(transcript.content),
+        charCount: transcript.content.length,
+        ...(transcript.format ? { format: transcript.format } : {}),
+        source: { kind: transcript.pasted ? "paste" : "upload", content: transcript.content },
+      };
+    });
+    transcriptItems = [...items, ...transcriptItems];
+    const docIds = docs.restore(built.documents);
+    docIds.forEach((id, index) => {
+      sourceKeys.set(id, built.documents[index].sourceKey);
+      idByKey.set(built.documents[index].sourceKey, `d:${id}`);
+    });
+    for (const [year, note] of built.yearNotes) if (!(yearNotes.get(year) ?? "").trim()) yearNotes.set(year, note);
+    // Only what the draft holds comes back; a field typed meanwhile stays.
+    if (!clientName.trim()) clientName = view.clientName;
+    if (!interviewerUserId && view.interviewerUserId) interviewerUserId = view.interviewerUserId;
+    if (!interviewees.length) interviewees = [...view.interviewees];
+    restoredExclusion = view.excludedSourceKeys.flatMap((key) => idByKey.get(key) ?? []);
+    intake.adopt({
+      draftId,
+      sources: built.saved,
+      context: {
+        clientName: view.clientName,
+        ...(view.interviewerUserId ? { interviewerUserId: view.interviewerUserId } : {}),
+        interviewees: view.interviewees,
+      },
+      selection: view.excludedSourceKeys,
+    });
+    restored = built.saved.length > 0 || view.clientName !== "";
+  }
+
+  async function pickUpLeftover() {
+    const current = intake;
+    const pending = (async () => {
+      const draftId = await current.claimLeftover();
+      if (!draftId) return;
+      // Review a written PD and duplicates keep no draft: it goes, as before.
+      if (!intakeWanted) {
+        current.dropClaimed(draftId, { discard: true });
+        return;
+      }
+      let loaded: Awaited<ReturnType<typeof loadDraft>> = null;
+      try {
+        loaded = await loadDraft(draftId);
+      } catch (error) {
+        console.error("Could not bring back the setup", error);
+      }
+      if (!loaded || current !== intake || current.closed || !intakeWanted) {
+        // Ended (expired, promoted), unreadable, or the page moved on: a
+        // new draft starts with the next file, and this one is left alone.
+        current.dropClaimed(draftId, { discard: false });
+        return;
+      }
+      applyDraft(draftId, loaded);
+    })();
+    current.holdUntil(pending);
+    await pending;
+  }
+  onMount(() => void pickUpLeftover());
+
+  /** Start over: the draft is discarded and the page is empty again. */
+  function startOver() {
+    intake.discard();
+    intake = makeIntake();
+    restored = false;
+    restoredExclusion = [];
+    transcriptItems = [];
+    transcriptProblems = [];
+    pasteDraft = "";
+    pasteOpen = false;
+    for (const doc of [...docs.items]) docs.remove(doc.id);
+    yearNotes.clear();
+    sourceKeys.clear();
+    title = "";
+    sredTitle = "";
+    clientName = "";
+    projectNumber = "";
+    interviewerUserId = "";
+    interviewees = [];
+    intervieweeDraft = "";
+    selectedTagIds = [];
+    fiscalYearEnd = "";
+    industry = "";
+    scienceCode = "";
+  }
   const transcriptReceipt = (item: { id: string; source: { kind: string } }) =>
     intakeActive && item.source.kind !== "copy" ? sourceKeyFor(item.id) : null;
 
@@ -1011,36 +1141,16 @@
   });
 
   const capabilities = $derived(modelCapabilitiesQ.data);
-  const pickedModelLabel = $derived(
-    modelLabelFor(singleModelId || defaultModelIdFor(capabilities), capabilities)
+  // The same model line as the project pages' start (2026-09-27, fourth).
+  const dialogModels = $derived(
+    startRunModels({
+      mode: mode === "review" ? "review" : candidateMode,
+      capabilities,
+      singleModelId,
+      compareSlotA,
+      compareSlotB,
+    })
   );
-  const dialogModels = $derived.by(() => {
-    if (mode === "review") {
-      return {
-        title: capabilities?.pdReviewModelLabel ?? "The review model",
-        line: "Reviews the draft, you get a feedback report",
-      };
-    }
-    if (candidateMode === "iterative") {
-      const planning = capabilities?.planningModelLabel ?? pickedModelLabel;
-      return {
-        title: planning,
-        line:
-          planning === pickedModelLabel
-            ? "Writes the ideas and the report."
-            : `Writes the ideas. ${pickedModelLabel} writes the report.`,
-      };
-    }
-    if (candidateMode === "single") return { title: pickedModelLabel, line: "Writes the draft, about 3 minutes" };
-    const slot = (id: string) => (id ? modelLabelFor(id, capabilities) : "a random model");
-    return {
-      title:
-        !compareSlotA && !compareSlotB
-          ? "Two random models"
-          : `${slot(compareSlotA)} and ${slot(compareSlotB)}`.replace(/^a random/, "A random"),
-      line: "One draft each, you keep the better one",
-    };
-  });
 
   function transcriptMeta(item: { wordCount: number; format?: TranscriptSourceFormat }) {
     return `${item.wordCount.toLocaleString("en-US")} words`;
@@ -1111,6 +1221,7 @@
 
   function confirmStart(excluded: StartRunExcluded) {
     startOpen = false;
+    restoredExclusion = [];
     void commit(excluded);
   }
 
@@ -1352,7 +1463,28 @@
         savedOwn.push(doc.name);
         return "stored_text";
       }
-      const file = doc.file!;
+      // A file a reload brought back has its text but no File (2026-09-27,
+      // fourth): its text is saved as it was read.
+      if (!doc.file) {
+        const current = docs.get(doc.id) ?? doc;
+        const content = current.parsed?.content ?? "";
+        const hasText = content.trim().length > 0;
+        const id = await withUploadTimeout(
+          uploadDocument({
+            projectId,
+            fileName: doc.name,
+            fileType: current.restored?.fileType ?? current.parsed?.fileType ?? guessFileType(doc.name),
+            content: hasText ? prefix + content : "",
+            source: "context_input",
+            category,
+            extractionOutcome: current.status === "failed" ? "failed" : "ok",
+          })
+        );
+        if (leftOut.has(`d:${doc.id}`) && id) excludeDocumentIds.push(id);
+        savedOwn.push(doc.name);
+        return hasText ? "stored_text" : "stored_empty";
+      }
+      const file = doc.file;
       const attemptKey = createRequestId();
       try {
         await docs.whenRead([doc.id]);
@@ -1505,7 +1637,12 @@
       };
       let outcome: Awaited<ReturnType<typeof intake.promote>>;
       try {
-        outcome = await intake.promote(promotion);
+        // A Step-by-step run can wait on the head start: the final file
+        // choice goes with the promotion (2026-09-27, fourth).
+        outcome = await intake.promote(
+          promotion,
+          candidateMode === "iterative" ? { confirmSelection: intakeKeysFor(excluded) } : {}
+        );
       } catch {
         // The first call failed, so no project was made: the draft goes and
         // the old path saves everything (it reports a real refusal itself).
@@ -2409,6 +2546,20 @@
                 </div>
                 {@render modeSwitch()}
               </header>
+              {#if restored && intakeActive && !intake.closed}
+                <div data-intake-restored>
+                  <StatusCallout
+                    tone="success"
+                    layout="inline"
+                    title="Your setup is back"
+                    role="status"
+                    secondaryAction={{ label: "Start over", onclick: startOver }}
+                    onDismiss={() => (restored = false)}
+                  >
+                    The files, names and file choice you had before the page reloaded are saved.
+                  </StatusCallout>
+                </div>
+              {/if}
 
               <NewProjectSection id="section-project" number="01" title="Project" helper={layout === "phone" ? undefined : "The basics"} compact={layout === "phone"} gap={layout === "phone" ? "12px" : "14px"}>
                 <div class={`grid ${
@@ -3018,10 +3169,12 @@
         validate={validateExcluded}
         onConfirm={confirmStart}
         onCancel={() => {
+          restoredExclusion = [];
           onDialogSelection({ transcriptIds: [], documentIds: [] });
           openRunningProject();
         }}
         onSelectionChange={onDialogSelection}
+        initialExcluded={restoredExclusion}
         {activeRun}
         onOpenActiveRun={openRunningProject}
         returnFocus={() => lastStartTrigger}

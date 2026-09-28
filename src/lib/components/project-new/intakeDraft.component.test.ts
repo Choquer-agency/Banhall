@@ -318,3 +318,126 @@ describe("IntakeDraftSync", () => {
     });
   });
 });
+
+describe("a reload picks the draft up again (2026-09-27, fourth)", () => {
+  const transcript: IntakeSourceDesc = {
+    sourceKey: "transcript-key-1",
+    kind: "transcript",
+    position: 0,
+    label: "Interview",
+    content: "Interviewer: Hi.",
+    sourceFormat: "txt",
+    file: null,
+  };
+
+  it("the page that gets the lock picks it up and sends nothing again for what the draft holds", async () => {
+    const calls = fakeCalls();
+    const storage = memoryStorage();
+    storage.setItem(INTAKE_DRAFT_STORAGE_KEY, "draft-left");
+    const held: string[] = [];
+    const sync = new IntakeDraftSync({
+      calls: calls as unknown as IntakeCalls,
+      uploadOriginal: async () => undefined,
+      storage,
+      delayMs: 1,
+      holdLock: async (name) => {
+        held.push(name);
+        return () => undefined;
+      },
+    });
+    const draftId = await sync.claimLeftover();
+    expect(draftId).toBe("draft-left");
+    expect(held).toEqual(["banhall:intake-draft:draft-left"]);
+    sync.adopt({
+      draftId: draftId!,
+      sources: [transcript],
+      context: { clientName: "Acme Seals", interviewees: ["Priya Raman"] },
+      selection: ["document-key-9"],
+    });
+    sync.reconcile([{ ...transcript }]);
+    sync.setContext({ clientName: "Acme Seals", interviewees: ["Priya Raman"] });
+    sync.setSelection(["document-key-9"]);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(calls.saveIntakeSource).not.toHaveBeenCalled();
+    expect(calls.updateIntakeContext).not.toHaveBeenCalled();
+    expect(calls.setIntakeSelection).not.toHaveBeenCalled();
+    expect(calls.createIntakeDraft).not.toHaveBeenCalled();
+    expect(sync.receipts.get("transcript-key-1")).toBe("saved");
+    // A change after the pick-up is saved to the same draft.
+    sync.reconcile([{ ...transcript, label: "Morning interview" }]);
+    await expect.poll(() => calls.saveIntakeSource.mock.calls.length).toBe(1);
+    expect(calls.saveIntakeSource.mock.calls[0][0]).toMatchObject({ draftId: "draft-left", label: "Morning interview" });
+  });
+
+  it("a second tab finds the lock held: it forgets the id, discards nothing and makes its own draft", async () => {
+    const calls = fakeCalls({ createIntakeDraft: vi.fn(async () => "draft-own") });
+    const storage = memoryStorage();
+    storage.setItem(INTAKE_DRAFT_STORAGE_KEY, "draft-other-tab");
+    const sync = new IntakeDraftSync({
+      calls: calls as unknown as IntakeCalls,
+      uploadOriginal: async () => undefined,
+      storage,
+      delayMs: 1,
+      holdLock: async (name) => (name.endsWith("draft-other-tab") ? null : () => undefined),
+    });
+    expect(await sync.claimLeftover()).toBeNull();
+    expect(storage.getItem(INTAKE_DRAFT_STORAGE_KEY)).toBeNull();
+    sync.reconcile([transcript]);
+    await expect.poll(() => calls.saveIntakeSource.mock.calls.length).toBe(1);
+    expect(calls.saveIntakeSource.mock.calls[0][0]).toMatchObject({ draftId: "draft-own" });
+    expect(calls.discardIntakeDraft).not.toHaveBeenCalled();
+    expect(storage.getItem(INTAKE_DRAFT_STORAGE_KEY)).toBe("draft-own");
+  });
+
+  it("a new draft waits for a pick-up still on its way instead of making a second one", async () => {
+    const calls = fakeCalls();
+    const storage = memoryStorage();
+    storage.setItem(INTAKE_DRAFT_STORAGE_KEY, "draft-left");
+    const sync = new IntakeDraftSync({
+      calls: calls as unknown as IntakeCalls,
+      uploadOriginal: async () => undefined,
+      storage,
+      delayMs: 1,
+      holdLock: async () => () => undefined,
+    });
+    const loading = deferred<void>();
+    sync.holdUntil(
+      (async () => {
+        const draftId = await sync.claimLeftover();
+        await loading.promise;
+        sync.adopt({ draftId: draftId!, sources: [], context: { clientName: "", interviewees: [] }, selection: [] });
+      })()
+    );
+    sync.reconcile([transcript]);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(calls.saveIntakeSource).not.toHaveBeenCalled();
+    loading.resolve();
+    await expect.poll(() => calls.saveIntakeSource.mock.calls.length).toBe(1);
+    expect(calls.saveIntakeSource.mock.calls[0][0]).toMatchObject({ draftId: "draft-left" });
+    expect(calls.createIntakeDraft).not.toHaveBeenCalled();
+  });
+
+  it("a Step-by-step confirm sends the final file choice with confirm just before the promotion", async () => {
+    const order: string[] = [];
+    const calls = fakeCalls({
+      setIntakeSelection: vi.fn(async () => void order.push("selection")),
+      promoteIntakeDraft: vi.fn(async () => {
+        order.push("promote");
+        return { projectId: "project-1", complete: true, sources: [] };
+      }),
+    });
+    const sync = new IntakeDraftSync({ calls: calls as unknown as IntakeCalls, uploadOriginal: async () => undefined, delayMs: 1 });
+    sync.reconcile([transcript]);
+    await expect.poll(() => sync.draftId).toBe("draft-1");
+    sync.setSelection(["document-key-2"]);
+    // Pressed within the quiet period: the waiting change is not sent late.
+    await sync.promote(
+      { commandId: "c-1", sourceKeys: ["transcript-key-1"], project: { title: "Cold seal", clientName: "Acme Seals" } },
+      { confirmSelection: ["document-key-2"] }
+    );
+    expect(order).toEqual(["selection", "promote"]);
+    expect(calls.setIntakeSelection.mock.calls).toEqual([
+      [{ draftId: "draft-1", excludedSourceKeys: ["document-key-2"], confirm: true }],
+    ]);
+  });
+});

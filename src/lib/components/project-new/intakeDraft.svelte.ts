@@ -13,6 +13,13 @@
  * ends here too: nothing more is sent, its receipts go, and confirming
  * takes the old path. Only the draft's opaque id is kept in session
  * storage, never its text.
+ *
+ * A reload brings the draft back (2026-09-27, fourth): the tab that holds
+ * a draft holds a Web Lock named after it for as long as the page lives, so
+ * a reloaded page (whose old page let go of the lock) claims it and picks
+ * the draft up, while a second tab that copied the id (Duplicate tab) finds
+ * the lock taken, forgets the id and starts its own draft. Another tab's
+ * live draft is never discarded or written to.
  */
 import { SvelteMap } from "svelte/reactivity";
 import { untrack } from "svelte";
@@ -43,6 +50,45 @@ export const PROMOTION_POLL_MS = 1_000;
 export const MAX_PROMOTION_STEPS = 210;
 /** After that, the start is finished in the background for this long. */
 export const BACKGROUND_PROMOTION_MS = 30 * 60 * 1000;
+
+/** How long a reloaded page waits for the lock its old page held to be let go. */
+export const LEFTOVER_LOCK_WAIT_MS = 1_500;
+
+/** The Web Lock a page holds for the draft it owns. */
+export function intakeDraftLockName(draftId: string): string {
+  return `banhall:intake-draft:${draftId}`;
+}
+
+/**
+ * Holds a Web Lock until the returned release is called, waiting at most
+ * `waitMs` for it. Null when another page holds it that long, or when the
+ * browser has no Web Locks (then a reload cannot tell itself from a second
+ * tab, so nothing is picked up).
+ */
+export type HoldLock = (name: string, waitMs: number) => Promise<(() => void) | null>;
+
+export const holdWebLock: HoldLock = async (name, waitMs) => {
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  if (!locks) return null;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  return await new Promise<(() => void) | null>((resolve) => {
+    locks
+      .request(name, { signal: AbortSignal.timeout(waitMs) }, async () => {
+        resolve(release);
+        await held;
+      })
+      .catch(() => resolve(null));
+  });
+};
+
+/** A draft a reload brings back: its saved sources, names and leave-out list. */
+export type RestoredDraft = {
+  draftId: Id<"intakeDrafts">;
+  sources: IntakeSourceDesc[];
+  context: IntakeContext;
+  selection: string[];
+};
 
 /** The polling a new sync uses unless told otherwise; component tests shorten it. */
 export const intakePolling = { pollMs: PROMOTION_POLL_MS, maxSteps: MAX_PROMOTION_STEPS };
@@ -184,6 +230,11 @@ export class IntakeDraftSync {
   /** The page is gone: no timer is set and nothing is sent any more. */
   #disposed = false;
   #refreshMs: number;
+  #holdLock: HoldLock;
+  /** Lets go of the draft's lock (the page is gone, or the draft ended). */
+  #releaseLock: (() => void) | null = null;
+  /** A reload's pick-up still on its way: a new draft is not made meanwhile. */
+  #restoring: Promise<unknown> | null = null;
 
   constructor(options: {
     calls: IntakeCalls;
@@ -199,6 +250,8 @@ export class IntakeDraftSync {
     maxPromotionSteps?: number;
     /** Test seam: how often a count above zero is sent again. */
     refreshMs?: number;
+    /** Test seam: the lock that tells a reload from a second tab. */
+    holdLock?: HoldLock;
   }) {
     this.#calls = options.calls;
     this.#uploadOriginal = options.uploadOriginal;
@@ -209,17 +262,66 @@ export class IntakeDraftSync {
     this.#pollMs = options.pollMs ?? intakePolling.pollMs;
     this.#maxSteps = options.maxPromotionSteps ?? intakePolling.maxSteps;
     this.#refreshMs = options.refreshMs ?? PENDING_READS_REFRESH_MS;
+    this.#holdLock = options.holdLock ?? holdWebLock;
   }
 
   /**
-   * A draft left open by an earlier visit (a reload) cannot be picked up
-   * again, so it is discarded now rather than left for the 24-hour expiry.
+   * The draft an earlier page of this tab left open (a reload), claimed for
+   * this page: its id once this page holds its lock, or null. A second tab
+   * that copied the id finds the lock held by the page that owns the draft:
+   * it forgets the id and starts its own draft later, touching nothing.
    */
-  discardLeftover(): void {
+  async claimLeftover(): Promise<Id<"intakeDrafts"> | null> {
     const leftover = this.#readStorage();
-    if (!leftover || leftover === this.draftId) return;
+    if (!leftover || this.draftId) return null;
+    const release = await this.#holdLock(intakeDraftLockName(leftover), LEFTOVER_LOCK_WAIT_MS);
+    if (!release || this.#disposed || this.closed || this.draftId) {
+      release?.();
+      // Another page owns it (or this one ended first): never ours to touch.
+      if (!release) this.#removeStorage();
+      return null;
+    }
+    this.#releaseLock = release;
+    return leftover;
+  }
+
+  /** A claimed leftover that is not picked up: let go of it, and discard it when asked. */
+  dropClaimed(draftId: Id<"intakeDrafts">, options: { discard: boolean }): void {
+    this.#releaseLock?.();
+    this.#releaseLock = null;
     this.#removeStorage();
-    void this.#calls.discardIntakeDraft({ draftId: leftover }).catch(() => undefined);
+    if (options.discard) void this.#calls.discardIntakeDraft({ draftId }).catch(() => undefined);
+  }
+
+  /** New drafts wait for a reload's pick-up still on its way. */
+  holdUntil(pending: Promise<unknown>): void {
+    this.#restoring = pending.finally(() => {
+      if (this.#restoring === pending) this.#restoring = null;
+    });
+  }
+
+  /**
+   * Picks the claimed draft up again: its saved sources count as saved (the
+   * page lists the same ones, so nothing is sent again), and its names and
+   * leave-out list as sent. Call it in the same step the page brings its
+   * state back, so the draft never sees the page without them.
+   */
+  adopt(restored: RestoredDraft): void {
+    if (this.closed || this.draftId) return;
+    this.draftId = restored.draftId;
+    this.#writeStorage(restored.draftId);
+    untrack(() => {
+      for (const desc of restored.sources) {
+        this.#wanted.set(desc.sourceKey, desc);
+        this.#sent.set(desc.sourceKey, desc);
+        this.#attempted.set(desc.sourceKey, desc);
+        this.receipts.set(desc.sourceKey, "saved");
+      }
+    });
+    this.#context = restored.context;
+    this.#contextSent = JSON.stringify(restored.context);
+    this.#selection = [...restored.selection].sort();
+    this.#selectionSent = JSON.stringify(this.#selection);
   }
 
   /** Brings the draft in line with what the page has read. */
@@ -359,11 +461,14 @@ export class IntakeDraftSync {
    * polled again, and after every poll the page opens that project either
    * way; the page never falls back to making another project.
    */
-  async promote(args: {
-    commandId: string;
-    sourceKeys: string[];
-    project: Parameters<IntakeCalls["promoteIntakeDraft"]>[0]["project"];
-  }): Promise<PromotionOutcome> {
+  async promote(
+    args: {
+      commandId: string;
+      sourceKeys: string[];
+      project: Parameters<IntakeCalls["promoteIntakeDraft"]>[0]["project"];
+    },
+    options: { confirmSelection?: string[] } = {}
+  ): Promise<PromotionOutcome> {
     const draftId = this.draftId;
     if (!draftId) throw new Error("No intake draft to promote");
     this.#promoting = true;
@@ -373,6 +478,16 @@ export class IntakeDraftSync {
     }
     // The promotion clears the count on the server; nothing more is sent.
     this.#stopPending();
+    // A Step-by-step start (2026-09-27, fourth): the final leave-out list
+    // goes just before the promotion, while the draft is still open (the
+    // client keeps the order), so a head start still queued goes at once and
+    // the promotion carries it to the project.
+    if (options.confirmSelection) {
+      const excludedSourceKeys = [...options.confirmSelection].sort();
+      void this.#calls
+        .setIntakeSelection({ draftId, excludedSourceKeys, confirm: true })
+        .catch((error: unknown) => console.error("Could not send the file choice at Start", error));
+    }
     const call = () => this.#calls.promoteIntakeDraft({ draftId, ...args });
     let first: Awaited<ReturnType<typeof call>>;
     try {
@@ -399,6 +514,8 @@ export class IntakeDraftSync {
       }
     }
     this.#removeStorage();
+    this.#releaseLock?.();
+    this.#releaseLock = null;
     return receipt.complete ? { kind: "complete", receipt } : { kind: "pending", receipt };
   }
 
@@ -437,9 +554,11 @@ export class IntakeDraftSync {
     if (draftId) void this.#calls.discardIntakeDraft({ draftId }).catch(() => undefined);
   }
 
-  /** The page is gone: no timer fires any more. */
+  /** The page is gone: no timer fires any more, and the draft's lock is let go. */
   dispose(): void {
     this.#disposed = true;
+    this.#releaseLock?.();
+    this.#releaseLock = null;
     for (const timer of this.#timers.values()) clearTimeout(timer);
     this.#timers.clear();
     if (this.#contextTimer) clearTimeout(this.#contextTimer);
@@ -449,9 +568,9 @@ export class IntakeDraftSync {
     this.#stopPending();
   }
 
-  /** Whether a draft was made, or is being made. */
+  /** Whether a draft was made, or is being made (or picked up again). */
   get started(): boolean {
-    return this.draftId !== null || this.#creating !== null;
+    return this.draftId !== null || this.#creating !== null || this.#restoring !== null;
   }
 
   /** Original uploads still on their way (they finish after a confirm too). */
@@ -478,6 +597,8 @@ export class IntakeDraftSync {
   }
 
   async #ensureDraft(): Promise<Id<"intakeDrafts"> | null> {
+    // A reload's draft being picked up is the draft, once it is back.
+    if (this.#restoring) await this.#restoring.catch(() => undefined);
     if (this.draftId) return this.draftId;
     if (this.closed) return null;
     this.#creating ??= (async () => {
@@ -495,6 +616,12 @@ export class IntakeDraftSync {
         }
         this.draftId = draftId;
         this.#writeStorage(draftId);
+        // This page owns the draft: a reload may pick it up, a second tab not.
+        void this.#holdLock(intakeDraftLockName(draftId), LEFTOVER_LOCK_WAIT_MS).then((release) => {
+          if (!release) return;
+          if (this.#disposed || this.#releaseLock) release();
+          else this.#releaseLock = release;
+        });
         if (this.#context) this.setContext(this.#context);
         if (this.#selection.length) this.setSelection(this.#selection);
         untrack(() => this.#pendingChanged());

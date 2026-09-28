@@ -78,7 +78,7 @@
   }`}
 >
   <span class="flex size-10 shrink-0 items-center justify-center">
-    <FileIcon name={doc.file?.name ?? "notes.txt"} size={40} />
+    <FileIcon name={doc.file?.name ?? (doc.pastedText !== null ? "notes.txt" : doc.name)} size={40} />
   </span>
   <div class={`flex min-w-0 flex-1 flex-col ${compact ? "gap-1" : "gap-1.5"}`}>
     <p data-supporting-name class={`truncate text-[13px] leading-[18px] font-medium ${failed ? "text-danger-ink" : "text-ink"}`} title={doc.name}>{doc.name}</p>

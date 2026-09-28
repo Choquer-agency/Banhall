@@ -372,3 +372,14 @@ describe("StartRunDialog selection while open (decision 65, stage 2)", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 });
+
+describe("StartRunDialog choice a reload brought back (2026-09-27, fourth)", () => {
+  it("opens with those files unticked and reports that list, not an empty one", async () => {
+    const onSelectionChange = vi.fn();
+    await render(StartRunDialog, props({ onSelectionChange, initialExcluded: ["d1"] }));
+    await expect.poll(() => onSelectionChange.mock.calls.length).toBeGreaterThan(0);
+    expect(onSelectionChange.mock.calls.every(([excluded]) => JSON.stringify(excluded) === JSON.stringify({ transcriptIds: [], documentIds: ["d1"] }))).toBe(true);
+    expect(q('[data-start-run-row="d1"]')?.dataset.ticked).toBe("false");
+    expect(q('[data-start-run-row="t2"]')?.dataset.ticked).toBe("true");
+  });
+});

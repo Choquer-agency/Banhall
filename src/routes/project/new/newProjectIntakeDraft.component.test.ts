@@ -6,11 +6,14 @@ import NewProjectPage from "./+page.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
+  __callOrder,
+  __clientQueryCalls,
   __mutationCalls,
   __resetConvexStub,
   __setMutationError,
   __setMutationResult,
   __setQueryData,
+  __setQueryDataForArgs,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
 import {
@@ -217,10 +220,177 @@ describe("saved while the writer sets up", () => {
     expect(sessionStorage.getItem(INTAKE_DRAFT_STORAGE_KEY)).toBeNull();
   });
 
-  it("discards a draft an earlier visit left open (a reload)", async () => {
+  it("a reload whose draft has ended starts a fresh one and discards nothing", async () => {
     sessionStorage.setItem(INTAKE_DRAFT_STORAGE_KEY, "draft-left-over");
+    __setQueryData("intakeDrafts:restoreIntakeDraft", null);
     await render(NewProjectPage, {});
-    await expect.poll(() => __mutationCalls("intakeDrafts:discardIntakeDraft")).toEqual([{ draftId: "draft-left-over" }]);
+    await expect.poll(() => __clientQueryCalls("intakeDrafts:restoreIntakeDraft")).toEqual([{ draftId: "draft-left-over" }]);
+    await expect.poll(() => sessionStorage.getItem(INTAKE_DRAFT_STORAGE_KEY)).toBeNull();
+    expect(__mutationCalls("intakeDrafts:discardIntakeDraft")).toEqual([]);
+    await fillBasics("Cold seal", "Acme Seals");
+    await pasteTranscript();
+    await expect.poll(() => saves().length).toBe(1);
+    expect(__mutationCalls("intakeDrafts:createIntakeDraft")).toHaveLength(1);
+  });
+});
+
+describe("a reload brings the draft back (2026-09-27, fourth)", () => {
+  const NOTES = "Cold soak log: 400 cycles at minus 30 degrees.";
+  const REPORT = "Last year's 242 section.";
+  const REPORT_TEXT = `[Previous-year report \u2014 fiscal 2024]\nNote: Claim cut by 20%\n\n${REPORT}`;
+  const VIEW = {
+    clientName: "Acme Seals",
+    interviewerUserId: null,
+    interviewees: ["Priya Raman"],
+    excludedSourceKeys: ["document-key-soak"],
+    sources: [
+      { sourceKey: "transcript-key-1", kind: "transcript", position: 0, label: "Morning interview.docx", contentLength: TRANSCRIPT.length, sourceFormat: "txt", hasOriginal: true },
+      { sourceKey: "document-key-soak", kind: "document", position: 1001, label: "Soak.pdf", contentLength: NOTES.length, fileType: "pdf", category: "background", intake: "file", extractionOutcome: "ok", hasOriginal: true },
+      { sourceKey: "document-key-report", kind: "document", position: 1000, label: "FY2024 PD.docx", contentLength: REPORT_TEXT.length, fileType: "docx", category: "previous_pd", intake: "file", extractionOutcome: "ok", hasOriginal: false },
+    ],
+  };
+
+  function seedDraft(draftId = "draft-left") {
+    sessionStorage.setItem(INTAKE_DRAFT_STORAGE_KEY, draftId);
+    __setQueryDataForArgs("intakeDrafts:restoreIntakeDraft", { draftId }, VIEW);
+    const texts: Record<string, string> = {
+      "transcript-key-1": TRANSCRIPT,
+      "document-key-soak": NOTES,
+      "document-key-report": REPORT_TEXT,
+    };
+    for (const [sourceKey, content] of Object.entries(texts)) {
+      __setQueryDataForArgs("intakeDrafts:getIntakeSourceText", { draftId, sourceKey }, { content });
+    }
+  }
+
+  it("shows the saved files with their chips and word counts, the names and the file choice, and sends nothing again", async () => {
+    __setMutationResult("intakeDrafts:reportIntakePendingReads", null);
+    seedDraft();
+    await render(NewProjectPage, {});
+    await expect.poll(() => text(document.querySelector("[data-intake-restored]"))).toContain("Your setup is back");
+    const transcript = document.querySelector("[data-transcript-item]");
+    expect(text(transcript)).toContain("Morning interview.docx");
+    expect(text(transcript)).toContain(`${TRANSCRIPT.trim().split(/\s+/).length} words`);
+    const cards = [...document.querySelectorAll<HTMLElement>("[data-supporting-card]")];
+    // In SR&ED weight order, as they were saved.
+    expect(cards.map((card) => text(card.querySelector("[data-supporting-name]")))).toEqual(["FY2024 PD.docx", "Soak.pdf"]);
+    expect(cards.map((card) => text(card.querySelector("[data-category-chip]")))).toEqual([
+      "Previous-year reports",
+      "Background research",
+    ]);
+    expect(text(cards[1])).toContain("9 words");
+    expect(text(cards[0])).toContain("4 words");
+    expect(document.querySelector<HTMLInputElement>("#clientName")!.value).toBe("Acme Seals");
+    expect(text(document.body)).toContain("Priya Raman");
+    // Fields the draft does not hold stay empty.
+    expect(document.querySelector<HTMLInputElement>("#title")!.value).toBe("");
+    // The year's note came back from the report's header.
+    expect([...document.querySelectorAll<HTMLInputElement>("[data-year-notes] input")].map((input) => input.value)).toEqual([
+      "Claim cut by 20%",
+    ]);
+    // Saved files show nothing extra, and nothing is saved or uploaded again.
+    expect(document.querySelector("[data-save-receipt]")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(saves()).toEqual([]);
+    expect(__mutationCalls("intakeDrafts:createIntakeDraft")).toEqual([]);
+    expect(__mutationCalls("intakeDrafts:updateIntakeContext")).toEqual([]);
+    expect(__mutationCalls("intakeDrafts:attachIntakeOriginal")).toEqual([]);
+    expect(__mutationCalls("intakeDrafts:discardIntakeDraft")).toEqual([]);
+    expect(sessionStorage.getItem(INTAKE_DRAFT_STORAGE_KEY)).toBe("draft-left");
+
+    // The file choice is kept: the left-out file opens unticked, and
+    // opening sends nothing, since the draft already holds that choice.
+    setInputValue("#title", "Cold seal");
+    await openStartDialog();
+    const rows = [...document.querySelectorAll<HTMLElement>("[data-start-run-row]")];
+    expect(rows.map((row) => [row.querySelector("[data-start-run-name]")?.textContent, row.dataset.ticked])).toEqual([
+      ["Morning interview.docx", "true"],
+      ["FY2024 PD.docx", "true"],
+      ["Soak.pdf", "false"],
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(__mutationCalls("intakeDrafts:setIntakeSelection")).toEqual([]);
+
+    // Confirming promotes the same draft, the choice confirmed first.
+    __setMutationResult("intakeDrafts:setIntakeSelection", null);
+    __setMutationResult("intakeDrafts:promoteIntakeDraft", {
+      projectId: "project-back",
+      complete: true,
+      sources: [
+        { sourceKey: "transcript-key-1", kind: "transcript", transcriptId: "transcript-back" },
+        { sourceKey: "document-key-soak", kind: "document", projectDocumentId: "document-soak" },
+        { sourceKey: "document-key-report", kind: "document", projectDocumentId: "document-report" },
+      ],
+    });
+    confirmButton()!.click();
+    await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
+    expect(__mutationCalls("intakeDrafts:setIntakeSelection")).toEqual([
+      { draftId: "draft-left", excludedSourceKeys: ["document-key-soak"], confirm: true },
+    ]);
+    expect(__mutationCalls("intakeDrafts:promoteIntakeDraft")).toEqual([
+      expect.objectContaining({
+        draftId: "draft-left",
+        sourceKeys: ["transcript-key-1", "document-key-report", "document-key-soak"],
+        project: { title: "Cold seal", clientName: "Acme Seals", interviewees: ["Priya Raman"] },
+      }),
+    ]);
+    const order = __callOrder().filter((name) => name === "intakeDrafts:setIntakeSelection" || name === "intakeDrafts:promoteIntakeDraft");
+    expect(order).toEqual(["intakeDrafts:setIntakeSelection", "intakeDrafts:promoteIntakeDraft"]);
+    expect(__mutationCalls("generations:requestGeneration")[0]).toEqual({
+      projectId: "project-back",
+      candidateMode: "iterative",
+      excludeDocumentIds: ["document-soak"],
+    });
+    expect(__mutationCalls("projects:createProject")).toEqual([]);
+    expect(__mutationCalls("documents:uploadDocument")).toEqual([]);
+  });
+
+  it("a second tab with the same draft id starts its own draft and never touches the other tab's", async () => {
+    seedDraft("draft-other-tab");
+    // The first tab holds the draft's lock for as long as it lives.
+    let letGo!: () => void;
+    const holding = new Promise<void>((resolve) => (letGo = resolve));
+    await new Promise<void>((granted) => {
+      void navigator.locks.request("banhall:intake-draft:draft-other-tab", async () => {
+        granted();
+        await holding;
+      });
+    });
+    try {
+      await render(NewProjectPage, {});
+      await expect.poll(() => sessionStorage.getItem(INTAKE_DRAFT_STORAGE_KEY), { timeout: 4_000 }).toBeNull();
+      expect(__clientQueryCalls("intakeDrafts:restoreIntakeDraft")).toEqual([]);
+      expect(document.querySelector("[data-intake-restored]")).toBeNull();
+      await fillBasics("Cold seal", "Acme Seals");
+      await pasteTranscript();
+      await expect.poll(() => saves().length).toBe(1);
+      expect(saves()[0]).toMatchObject({ draftId: "draft-1" });
+      expect(__mutationCalls("intakeDrafts:discardIntakeDraft")).toEqual([]);
+      expect(sessionStorage.getItem(INTAKE_DRAFT_STORAGE_KEY)).toBe("draft-1");
+    } finally {
+      letGo();
+    }
+  });
+
+  it("Start over discards the draft and empties the page", async () => {
+    seedDraft();
+    await render(NewProjectPage, {});
+    await expect.poll(() => document.querySelector("[data-intake-restored]")).not.toBeNull();
+    const startOver = [...document.querySelectorAll<HTMLButtonElement>("[data-intake-restored] button")].find(
+      (button) => button.textContent?.trim() === "Start over"
+    )!;
+    startOver.click();
+    await expect.poll(() => __mutationCalls("intakeDrafts:discardIntakeDraft")).toEqual([{ draftId: "draft-left" }]);
+    await expect.poll(() => document.querySelector("[data-transcript-item]")).toBeNull();
+    expect(document.querySelectorAll("[data-supporting-card]")).toHaveLength(0);
+    expect(document.querySelector<HTMLInputElement>("#clientName")!.value).toBe("");
+    expect(document.querySelector("[data-intake-restored]")).toBeNull();
+    expect(sessionStorage.getItem(INTAKE_DRAFT_STORAGE_KEY)).toBeNull();
+    // What is added next goes to a new draft.
+    await fillBasics("Cold seal", "Acme Seals");
+    await pasteTranscript();
+    await expect.poll(() => saves().length).toBe(1);
+    expect(saves()[0]).toMatchObject({ draftId: "draft-1" });
   });
 });
 

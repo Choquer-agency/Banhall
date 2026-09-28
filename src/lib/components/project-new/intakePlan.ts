@@ -12,7 +12,7 @@ import { previousYearNoteText, previousYearReportHeader } from "../../../../shar
 import type { ContextCategoryId } from "$lib/contextCategories";
 import type { TranscriptSourceFormat } from "../../../../shared/transcriptParse";
 
-type FileType = "txt" | "md" | "pdf" | "docx" | "msg" | "eml" | "xlsx" | "image" | "other";
+export type FileType = "txt" | "md" | "pdf" | "docx" | "msg" | "eml" | "xlsx" | "image" | "other";
 
 export type IntakeSourceDesc = {
   sourceKey: string;
@@ -88,18 +88,23 @@ export function plannedIntakeSources(input: {
       });
       continue;
     }
-    if (!doc.file) continue;
+    // A file brought back after a reload has its text but no File.
+    if (!doc.file && !doc.restored) continue;
     const content = doc.parsed?.content ?? "";
     const hasText = content.trim().length > 0;
     if (category === "previous_pd" && hasText) carried.add(doc.year);
+    const name = doc.file?.name ?? doc.name;
     sources.push({
       sourceKey: input.keyFor(doc.id),
       kind: "document",
       position: position++,
-      label: doc.file.name,
+      label: name,
       // Only extracted text gets the header: an empty file stays empty.
       content: hasText ? prefix + content : "",
-      fileType: (doc.parsed?.fileType as FileType | undefined) ?? (guessFileType(doc.file.name) as FileType),
+      fileType:
+        doc.restored?.fileType ??
+        (doc.parsed?.fileType as FileType | undefined) ??
+        (guessFileType(name) as FileType),
       category,
       intake: "file",
       extractionOutcome: doc.status === "failed" ? "failed" : "ok",
@@ -121,4 +126,132 @@ export function plannedIntakeSources(input: {
     });
   }
   return sources;
+}
+
+/** One saved source as a reload reads it back (`intakeDrafts.restoreIntakeDraft`). */
+export type RestoredSource = {
+  sourceKey: string;
+  kind: "transcript" | "document";
+  position: number;
+  label: string;
+  sourceFormat?: TranscriptSourceFormat;
+  fileType?: FileType;
+  category?: ContextCategoryId;
+  intake?: "file" | "pasted";
+  extractionOutcome?: "ok" | "failed";
+  hasOriginal: boolean;
+};
+
+const REPORT_HEADER = /^\[Previous-year report \u2014 fiscal (\d+)\]\n(?:Note: ([^\n]*)\n)?\n/;
+const NOTE_TEXT = /^\[Previous-year note \u2014 fiscal (\d+)\]\n\n([\s\S]*)$/;
+
+/**
+ * A saved previous-year report's text split back into its fiscal year, its
+ * note and the report's own text (the page writes `previousYearPrefix`).
+ * Null when the text does not start with the header (an empty file).
+ */
+export function splitPreviousYearText(content: string): { year: number; note: string; body: string } | null {
+  const match = REPORT_HEADER.exec(content);
+  if (!match) return null;
+  return { year: Number(match[1]), note: match[2] ?? "", body: content.slice(match[0].length) };
+}
+
+/** A saved previous-year note no report carried, back to its year and note. */
+export function splitPreviousYearNote(content: string): { year: number; note: string } | null {
+  const match = NOTE_TEXT.exec(content);
+  return match ? { year: Number(match[1]), note: match[2] } : null;
+}
+
+/** A transcript brought back after a reload, as the page lists it. */
+export type RestoredTranscript = {
+  sourceKey: string;
+  label: string;
+  content: string;
+  format?: TranscriptSourceFormat;
+  pasted: boolean;
+};
+
+/** A supporting document brought back after a reload, as the page lists it. */
+export type RestoredDocument = {
+  sourceKey: string;
+  name: string;
+  category: ContextCategoryId;
+  year: number | null;
+  /** Pasted text, or null for a file. */
+  pastedText: string | null;
+  /** A file's text without its previous-year header. */
+  body: string;
+  fileType: FileType;
+  failed: boolean;
+};
+
+/**
+ * What a reload brings back (2026-09-27, fourth), from the saved sources
+ * and their text: the transcripts in list order, the documents in saved
+ * order (with each previous-year report's year, and the year's note split
+ * off its header), the notes by year, and the sources exactly as the draft
+ * holds them, so nothing is saved again. Pure, so the page and its tests
+ * build the same thing.
+ */
+export function restoredIntake(
+  sources: readonly RestoredSource[],
+  texts: ReadonlyMap<string, string>
+): {
+  transcripts: RestoredTranscript[];
+  documents: RestoredDocument[];
+  yearNotes: Map<number, string>;
+  saved: IntakeSourceDesc[];
+} {
+  const ordered = [...sources].filter((source) => texts.has(source.sourceKey)).sort((a, b) => a.position - b.position);
+  const yearNotes = new Map<number, string>();
+  const transcripts: RestoredTranscript[] = [];
+  const documents: RestoredDocument[] = [];
+  const saved: IntakeSourceDesc[] = [];
+  for (const source of ordered) {
+    const content = texts.get(source.sourceKey)!;
+    saved.push({
+      sourceKey: source.sourceKey,
+      kind: source.kind,
+      position: source.position,
+      label: source.label,
+      content,
+      ...(source.sourceFormat ? { sourceFormat: source.sourceFormat } : {}),
+      ...(source.fileType ? { fileType: source.fileType } : {}),
+      ...(source.category ? { category: source.category } : {}),
+      ...(source.intake ? { intake: source.intake } : {}),
+      ...(source.extractionOutcome ? { extractionOutcome: source.extractionOutcome } : {}),
+      file: null,
+    });
+    if (source.kind === "transcript") {
+      transcripts.push({
+        sourceKey: source.sourceKey,
+        label: source.label,
+        content,
+        ...(source.sourceFormat ? { format: source.sourceFormat } : {}),
+        pasted: /^Pasted transcript \d+$/.test(source.label),
+      });
+      continue;
+    }
+    const category = source.category ?? "other";
+    if (category === "previous_pd" && source.sourceKey.startsWith("prevyear-note-")) {
+      const note = splitPreviousYearNote(content);
+      if (note) yearNotes.set(note.year, note.note);
+      continue;
+    }
+    const split = category === "previous_pd" ? splitPreviousYearText(content) : null;
+    if (split?.note) yearNotes.set(split.year, split.note);
+    const body = split ? split.body : content;
+    const pasted = source.intake === "pasted";
+    documents.push({
+      sourceKey: source.sourceKey,
+      name: source.label,
+      category,
+      year: split?.year ?? null,
+      pastedText: pasted ? body : null,
+      body,
+      fileType: source.fileType ?? "other",
+      failed: source.extractionOutcome === "failed",
+    });
+  }
+  return { transcripts, documents, yearNotes, saved };
 }
