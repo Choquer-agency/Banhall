@@ -243,6 +243,26 @@ async function hasQueuedPrefetch(
   return false;
 }
 
+/**
+ * 2026-09-27 (third): a writer now waits on this Batch. A queued or running
+ * prefetch is marked so it never spends the quote repair (ai/seeds.ts);
+ * anything else already counts as waited on. Idempotent.
+ */
+export async function markWriterWaiting(
+  ctx: Pick<MutationCtx, "db">,
+  batchId: Id<"seedBatches"> | undefined
+): Promise<void> {
+  if (!batchId) return;
+  const batch = await ctx.db.get(batchId);
+  if (
+    batch?.operation === "prefetch" &&
+    (batch.status === "queued" || batch.status === "running") &&
+    batch.writerWaitingAt === undefined
+  ) {
+    await ctx.db.patch(batch._id, { writerWaitingAt: Date.now() });
+  }
+}
+
 /** Plain transaction helper so Story 3 can dispatch inside a decision write. */
 export async function dispatchSeedAttempt(
   ctx: MutationCtx,
@@ -256,12 +276,7 @@ export async function dispatchSeedAttempt(
 
   if (args.operation === "open") {
     if (subsection.pendingBatchId) {
-      // 2026-09-27 (third): a writer now waits on a running prefetch, so it
-      // must not spend the quote repair (ai/seeds.ts).
-      const pending = await ctx.db.get(subsection.pendingBatchId);
-      if (pending?.operation === "prefetch" && pending.writerWaitingAt === undefined) {
-        await ctx.db.patch(pending._id, { writerWaitingAt: Date.now() });
-      }
+      await markWriterWaiting(ctx, subsection.pendingBatchId);
       return { kind: "reused", batchId: subsection.pendingBatchId };
     }
     if (subsection.shownBatchId) {

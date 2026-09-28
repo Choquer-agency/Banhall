@@ -4,7 +4,7 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { ConvexError } from "convex/values";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { PD_SUBSECTIONS } from "../../../../shared/pdSubsections";
+import { PD_SUBSECTIONS, stepAfterApproval } from "../../../../shared/pdSubsections";
 import {
   __activeQueryArgs,
   __clientQueryCalls,
@@ -3257,6 +3257,37 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     await render(SeedWorkspace, workspaceProps({ onReviewSummary }));
     await page.getByRole("button", { name: "Approve and continue", exact: true }).click();
     await expect.poll(() => onReviewSummary.mock.calls.length).toBe(1);
+  });
+
+  it("lands after approval on the step the approve mutation marks as waited on, with no open of its own (2026-09-27, third)", async () => {
+    // The next step's prefetch is still running: the workspace never opens
+    // it, so only the approve mutation can mark it as waited on, and it
+    // marks the step stepAfterApproval names, the one shown here.
+    __setQueryData("seeds:getOutline", {
+      ...outline(),
+      rows: outline().rows.map((row) =>
+        row.roleId === "goal_problem"
+          ? { ...row, state: "generating", pendingBatchId: "prefetch-goal", shownBatchId: null, selectedCount: 0 }
+          : row
+      ),
+    });
+    __setQueryData("seeds:getSubsection", subsection({ approvalChallenge: cleanChallenge() }));
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "goal_problem" }, subsection({
+      roleId: "goal_problem",
+      state: "generating",
+      items: [],
+      shownBatchId: null,
+      pendingBatchId: "prefetch-goal" as Id<"seedBatches">,
+      approvalChallenge: null,
+    }));
+    const view = await render(SeedWorkspace, workspaceProps());
+    const footer = () => page.elementLocator(view.container.querySelector<HTMLElement>("[data-outline-footer]")!);
+    await footer().getByRole("button", { name: "Approve and continue", exact: true }).click();
+    expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: "company_context" })]);
+    await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
+    expect(stepAfterApproval("company_context", () => true)).toBe("goal_problem");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(__mutationCalls("seeds:open")).toEqual([]);
   });
 
   it("does not advance a step the writer opened while an earlier approval was pending", async () => {

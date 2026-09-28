@@ -340,3 +340,18 @@ export function pdSubsectionRoleList(
     .map((subsection) => pdSubsectionRoleLabel(subsection.roleId, audience))
     .join(separator);
 }
+
+/**
+ * The step "Approve and continue" lands on: the next step in order, or the
+ * first undecided step before it once the last is done, or null (the
+ * Summary). Shared by the workspace and the approve mutation, which marks a
+ * prefetch there as waited on (2026-09-27, third amendment).
+ */
+export function stepAfterApproval(
+  approvedRoleId: PdSubsectionRoleId,
+  undecided: (roleId: PdSubsectionRoleId) => boolean
+): PdSubsectionRoleId | null {
+  const order = PD_SUBSECTIONS.map((definition) => definition.roleId);
+  const index = order.indexOf(approvedRoleId);
+  return order[index + 1] ?? order.slice(0, index).find(undecided) ?? null;
+}

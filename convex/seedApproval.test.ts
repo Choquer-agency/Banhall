@@ -10,6 +10,7 @@ import {
   type RegisteredQuery,
 } from "convex/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import type {
@@ -1330,6 +1331,94 @@ describe("public seed approval", () => {
       status: "queued",
     });
     expect(state.fartherBatches).toEqual([]);
+  });
+
+  // 2026-09-27 (third, P1-1): "Approve and continue" lands on the next step
+  // at once and skips its open while a Batch is pending, so approval marks
+  // a prefetch there as waited on; it never spends the quote repair.
+  test("marks the prefetch on the step the writer lands on as waited on", async () => {
+    const fixture = await approvalFixture({ roleId: "company_context" });
+    await fixture.t.run(async (ctx) => {
+      const successorId = fixture.subsectionIds.goal_problem;
+      if (!successorId) throw new Error("Missing goal_problem subsection");
+      const snapshot = await loadSeedDispatchSnapshot(ctx, {
+        generationId: fixture.generationId,
+        roleId: "goal_problem",
+      });
+      await ctx.db.patch(successorId, { currentContextRevision: snapshot.contextRevision });
+    });
+    await approveExact(fixture);
+    const batches = await fixture.t.run((ctx) =>
+      ctx.db
+        .query("seedBatches")
+        .withIndex("by_generationId_and_roleId", (query) =>
+          query.eq("generationId", fixture.generationId).eq("roleId", "goal_problem"),
+        )
+        .take(2),
+    );
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toMatchObject({ operation: "prefetch", writerWaitingAt: expect.any(Number) });
+  });
+
+  test("leaves a prefetch on a step the writer does not land on free to repair", async () => {
+    const fixture = await approvalFixture({ roleId: "company_context" });
+    await fixture.t.run(async (ctx) => {
+      // The next step is already in progress, so the writer lands there and
+      // the prefetch goes to the first untouched step after it.
+      const nextId = fixture.subsectionIds.goal_problem;
+      const fartherId = fixture.subsectionIds.passive_limitations;
+      if (!nextId || !fartherId) throw new Error("Missing subsections");
+      await ctx.db.patch(nextId, { state: "in_progress" });
+      const snapshot = await loadSeedDispatchSnapshot(ctx, {
+        generationId: fixture.generationId,
+        roleId: "passive_limitations",
+      });
+      await ctx.db.patch(fartherId, { currentContextRevision: snapshot.contextRevision });
+    });
+    await approveExact(fixture);
+    const farther = await fixture.t.run((ctx) =>
+      ctx.db
+        .query("seedBatches")
+        .withIndex("by_generationId_and_roleId", (query) =>
+          query.eq("generationId", fixture.generationId).eq("roleId", "passive_limitations"),
+        )
+        .take(2),
+    );
+    expect(farther).toHaveLength(1);
+    expect(farther[0].operation).toBe("prefetch");
+    expect(farther[0].writerWaitingAt).toBeUndefined();
+  });
+
+  test("marks a running prefetch waited on when an open behind the stage version finds it", async () => {
+    const fixture = await approvalFixture({ roleId: "company_context" });
+    const prefetchId = await seedBatch(fixture, {
+      roleId: "goal_problem",
+      operation: "prefetch",
+      status: "running",
+      key: "behind-open-prefetch",
+    });
+    const version = await fixture.t.run(async (ctx) => {
+      const subsectionId = fixture.subsectionIds.goal_problem;
+      if (!subsectionId) throw new Error("Missing goal_problem subsection");
+      await ctx.db.patch(subsectionId, {
+        state: "generating",
+        priorState: "untouched",
+        pendingBatchId: prefetchId,
+      });
+      const generation = await ctx.db.get(fixture.generationId);
+      await ctx.db.patch(fixture.generationId, { seedStageVersion: (generation?.seedStageVersion ?? 0) + 3 });
+      return (generation?.seedStageVersion ?? 0) + 3;
+    });
+    const result = await fixture.writer.mutation(api.seeds.open, {
+      generationId: fixture.generationId,
+      roleId: "goal_problem",
+      expectedSeedStageVersion: version - 1,
+      commandId: "open:behind-writer",
+    });
+    expect(result).toMatchObject({ kind: "reused", batchId: prefetchId });
+    await expect(fixture.t.run((ctx) => ctx.db.get(prefetchId))).resolves.toMatchObject({
+      writerWaitingAt: expect.any(Number),
+    });
   });
 
   test("does not prefetch when approval exhausts the successor chain", async () => {

@@ -6,6 +6,7 @@
   import {
     PD_SUBSECTIONS,
     pdSubsectionStepSubtitle,
+    stepAfterApproval,
     type PdSubsectionRoleId,
   } from "../../../../shared/pdSubsections";
   import { useStableQuery } from "$lib/stableQuery.svelte";
@@ -498,13 +499,11 @@
    * step before it once the last is done, or the Summary when none is left. */
   function continueAfterApproval(approvedRoleId: PdSubsectionRoleId) {
     if (disposed || !ownerMatches() || activeRoleId !== approvedRoleId) return;
-    const order = PD_SUBSECTIONS.map((definition) => definition.roleId);
-    const index = order.indexOf(approvedRoleId);
-    const undecided = (roleId: PdSubsectionRoleId) => {
+    // The approve mutation marks a prefetch on this same step as waited on.
+    const next = stepAfterApproval(approvedRoleId, (roleId) => {
       const row = outline?.rows.find((candidate) => candidate.roleId === roleId);
       return !row || (row.state !== "approved" && row.state !== "skipped");
-    };
-    const next = order[index + 1] ?? order.slice(0, index).find(undecided);
+    });
     if (next) void openRoleFromOutline(next);
     else onReviewSummary();
   }

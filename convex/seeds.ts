@@ -9,6 +9,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   PD_SUBSECTIONS,
+  stepAfterApproval,
   type PdSubsectionRoleId,
 } from "../shared/pdSubsections";
 import { requireCurrentUser, requireInternalProjectAccess } from "./lib/auth";
@@ -49,6 +50,7 @@ import {
 import { bumpSeedStageVersion } from "./generations";
 import {
   dispatchSeedAttempt,
+  markWriterWaiting,
   restoreSeedBatch,
   terminateSeedRoleAttempt,
 } from "./seedRuns";
@@ -532,6 +534,8 @@ async function dispatchHandler(
     // server's first Batch may already have failed before this open, so
     // its last attempt answers too, as a current open would.
     const existing = f.row.pendingBatchId ?? f.row.shownBatchId;
+    // 2026-09-27 (third): this writer now waits on a running prefetch.
+    if (operation === "open") await markWriterWaiting(ctx, f.row.pendingBatchId);
     if (existing)
       return {
         kind: "reused" as const,
@@ -864,6 +868,22 @@ export const approve = mutation({
       } catch (error) {
         if (!isPrefetchOverflow(error)) throw error;
       }
+    }
+    // 2026-09-27 (third, P1-1): "Approve and continue" lands on this step at
+    // once and its open is skipped while a Batch is pending, so a prefetch
+    // there is waited on from now and never spends the quote repair.
+    const landing = stepAfterApproval(args.roleId, (roleId) => {
+      const row = state.subsections.find((s) => s.roleId === roleId);
+      return !row || (row.state !== "approved" && row.state !== "skipped");
+    });
+    if (landing) {
+      const landingRow = await ctx.db
+        .query("seedSubsections")
+        .withIndex("by_generationId_and_roleId", (q) =>
+          q.eq("generationId", args.generationId).eq("roleId", landing),
+        )
+        .unique();
+      await markWriterWaiting(ctx, landingRow?.pendingBatchId);
     }
     await bumpSeedStageVersion(ctx, args.generationId);
     return { seedStageVersion: await currentVersion(ctx, args.generationId) };
