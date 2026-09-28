@@ -38,3 +38,42 @@ export function preloadProjectPage(load: () => Promise<unknown> = loadPreviewPro
   const handle = window.setTimeout(run, 200);
   return () => window.clearTimeout(handle);
 }
+
+/** True for a same-origin link to a project page (not New project or the questionnaire). */
+export function isProjectPageLink(anchor: HTMLAnchorElement, origin = window.location.origin): boolean {
+  if (anchor.target && anchor.target !== "_self") return false;
+  let url: URL;
+  try {
+    url = new URL(anchor.href, origin);
+  } catch {
+    return false;
+  }
+  return url.origin === origin && /^\/project\/(?!new\/?$|questionnaire\/?$)[^/]+\/?$/.test(url.pathname);
+}
+
+/**
+ * Starts loading the project page as soon as a pointer rests on, a finger
+ * touches, or the keyboard focuses a link to a project, so the click opens
+ * a page whose code is already there. One listener on the root covers
+ * every table row, card and recent link. Returns the removal.
+ */
+export function preloadOnProjectLinkIntent(
+  root: Document | HTMLElement = document,
+  load: () => Promise<unknown> = loadPreviewProjectPage
+): () => void {
+  let started = false;
+  const onIntent = (event: Event) => {
+    if (started || !(event.target instanceof Element)) return;
+    const anchor = event.target.closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement) || !isProjectPageLink(anchor)) return;
+    started = true;
+    void load().catch(() => {
+      started = false;
+    });
+  };
+  const events = ["pointerover", "focusin", "touchstart"] as const;
+  for (const type of events) root.addEventListener(type, onIntent, { capture: true, passive: true });
+  return () => {
+    for (const type of events) root.removeEventListener(type, onIntent, { capture: true });
+  };
+}

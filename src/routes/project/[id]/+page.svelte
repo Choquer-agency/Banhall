@@ -15,6 +15,15 @@
   // project opened by a signed-in person; it keeps any title, stage and
   // client a link click already recorded.
   const auth = useAuth();
+
+  // The report workspace code starts loading with the session check and the
+  // workspace decision instead of after them: a cold open used to wait for
+  // both before asking for it (2026-09-28 load measurement).
+  $effect(() => {
+    if (page.url.searchParams.get("workspace") === "current") return;
+    void loadPreviewProjectPage().catch(() => undefined);
+  });
+
   let recordedId: string | null = null;
   $effect(() => {
     const id = page.params.id;

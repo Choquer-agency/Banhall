@@ -48,6 +48,7 @@
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import { resolveDashboardView, type DashboardView } from "$lib/dashboard/viewMode";
+  import { preloadOnProjectLinkIntent, preloadProjectPage } from "$lib/components/project/projectPageModules";
   import {
     loadRecentProjects,
     persistRecentProjects,
@@ -69,6 +70,17 @@
   let { view = null }: { view?: DashboardView | null } = $props();
 
   const auth = useAuth();
+  // Home and Projects are where projects open from: their code loads once
+  // the browser is idle, or sooner when a project link is hovered, touched
+  // or focused, so opening a project never waits on it.
+  $effect(() => {
+    const cancelIdle = preloadProjectPage();
+    const stopIntent = preloadOnProjectLinkIntent();
+    return () => {
+      cancelIdle();
+      stopIntent();
+    };
+  });
   const configQ = useQuery(api.myWork.getViewConfig, () => (auth.isAuthenticated ? {} : "skip"));
   // /my-work and /projects are separate routes, so navigating remounts this
   // component and the view-config subscription restarts at `undefined` for a
