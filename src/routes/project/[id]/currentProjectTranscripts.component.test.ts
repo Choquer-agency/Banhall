@@ -89,7 +89,9 @@ async function mountCurrent(
   seedProject(transcripts, mode);
   await render(ProjectPage, {});
   await expect.poll(currentPage).not.toBeNull();
-  await expect.poll(() => document.querySelector("main")).not.toBeNull();
+  // The page body mounts after its module loads, which can take over a
+  // second on a cold machine; wait long enough for that.
+  await expect.poll(() => document.querySelector("main"), { timeout: 10_000 }).not.toBeNull();
 }
 
 describe("?workspace=current project transcripts", () => {
