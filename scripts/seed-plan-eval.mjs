@@ -29,6 +29,11 @@
 //   --out DIR            pack root (default _bmad-output/test-artifacts/seed-plan-eval)
 //   --cleanup            delete every "Release eval - " project the reviewer owns, then stop
 //
+// A scripted action refused by the per-user limits (RATE_LIMITED) is waited
+// out: the script prints what it waits for, sleeps the refusal's retryAfter
+// plus a few seconds and retries the same action, up to 45 minutes of
+// waiting per run. It never bypasses or changes the limits.
+//
 // Never production: energized-salamander-237 and any "prod" deployment are
 // always refused, a non-local deployment needs --allow-cloud-dev, and a
 // CONVEX_DEPLOY_KEY in the environment is refused so --deployment alone
@@ -156,10 +161,14 @@ try {
     console.log(`Note: ${existing.length} earlier release eval project(s) exist; --cleanup deletes them.`);
   }
 
+  // One allowance for the whole invocation: a RATE_LIMITED refusal is waited
+  // out (retryAfter plus a few seconds) and the same action retried, up to
+  // 45 minutes of waiting in all. The limits are never bypassed or changed.
+  const rateLimitBudget = evalModule.rateLimitBudget();
   const results = [];
   for (const fixture of fixtures) {
     console.log(`\n=== ${fixture.id} ===`);
-    const { log, collected } = await evalModule.runFixture(fixture, driver, { singleBaseline: options.singleBaseline });
+    const { log, collected } = await evalModule.runFixture(fixture, driver, { singleBaseline: options.singleBaseline, rateLimitBudget });
     const checks = evalModule.runChecks(fixture, collected, log);
     results.push({ fixture: { ...fixture, dir: undefined, texts: undefined }, log, collected, checks });
     const failed = checks.filter((item) => item.status === "fail");
@@ -195,6 +204,7 @@ try {
     console.log(`${r.fixture.id}: ${requests.reserved} seed-stage requests, $${cost.totalUsd.toFixed(2)} (seed stage $${cost.seedStageUsd.toFixed(2)})`);
   }
   console.log(`Cost from aiUsage: $${total.toFixed(2)} in all.`);
+  if (rateLimitBudget.waitedMs) console.log(`Waited ${evalModule.formatWait(rateLimitBudget.waitedMs)} in all for rate limits.`);
   console.log("Every fixture must be judged pass by the reviewing manager before release (docs/release-checklist.md).");
   exitCode = results.some((r) => r.log.error) ? 1 : 0;
 } catch (error) {

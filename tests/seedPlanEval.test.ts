@@ -14,6 +14,10 @@ import {
   distribution,
   emptyRunLog,
   exclusionBullet,
+  formatWait,
+  rateLimitBudget,
+  rateLimitRetryAfterMs,
+  waitOutRateLimits,
   latencySamples,
   linkedAdvancements,
   loadFixtures,
@@ -28,6 +32,7 @@ import {
   usageCost,
   validateFixture,
   writePack,
+  RATE_LIMIT_MARGIN_MS,
   type Collected,
   type EvalDriver,
   type Fixture,
@@ -563,5 +568,121 @@ describe("runner", () => {
     expect(created[1]).toMatchObject({ name: "documents:uploadDocument", projectId: "project-1", fileType: "md", intake: "pasted" });
     expect(created[2]).toMatchObject({ name: "generations:requestGeneration", projectId: "project-1", candidateMode: "iterative" });
     expect(log.error).toBe("stop here");
+  });
+});
+
+describe("rate limits", () => {
+  const limited = (retryAfter: number | undefined, scope = "user") =>
+    parseConvexError(
+      `Uncaught ConvexError: ${JSON.stringify({
+        ...(retryAfter === undefined ? {} : { retryAfter }),
+        scope,
+        code: "RATE_LIMITED",
+        message: "You have started a lot of runs in the last hour. Try again in 5 minutes.",
+      })}\n`,
+    );
+  /** A fake clock: sleeping only advances time and records the wait. */
+  function fakeClock() {
+    const state = { now: 0, sleeps: [] as number[], lines: [] as string[] };
+    return {
+      state,
+      sleep: async (ms: number) => {
+        state.sleeps.push(ms);
+        state.now += ms;
+      },
+      log: (line: string) => state.lines.push(line),
+    };
+  }
+
+  it("reads retryAfter from a RATE_LIMITED refusal only", () => {
+    expect(rateLimitRetryAfterMs(limited(300))).toBe(300_000);
+    expect(rateLimitRetryAfterMs(limited(undefined))).toBe(60_000);
+    expect(rateLimitRetryAfterMs(parseConvexError('Uncaught ConvexError: {"code":"STALE_REVISION","message":"x"}\n'))).toBeNull();
+    expect(rateLimitRetryAfterMs(new Error("RATE_LIMITED"))).toBeNull();
+    expect(formatWait(305_000)).toBe("5 min 5 s");
+    expect(formatWait(120_000)).toBe("2 min");
+    expect(formatWait(9_400)).toBe("9 s");
+  });
+
+  it("waits retryAfter plus a margin and retries the same action", async () => {
+    const clock = fakeClock();
+    const budget = rateLimitBudget();
+    let calls = 0;
+    const result = await waitOutRateLimits(
+      "seeds:regenerate",
+      async () => {
+        calls += 1;
+        if (calls <= 2) throw limited(calls === 1 ? 300 : 90);
+        return "done";
+      },
+      clock,
+      budget,
+    );
+    expect(result).toBe("done");
+    expect(calls).toBe(3);
+    expect(clock.state.sleeps).toEqual([300_000 + RATE_LIMIT_MARGIN_MS, 90_000 + RATE_LIMIT_MARGIN_MS]);
+    expect(budget.waitedMs).toBe(400_000);
+    expect(clock.state.lines[0]).toBe(
+      'Rate limited: seeds:regenerate was refused by the user limit ("You have started a lot of runs in the last hour. Try again in 5 minutes."). Waiting 5 min 5 s, then trying the same action again; 39 min 55 s of this run\'s 45 min allowance will be left.',
+    );
+    expect(clock.state.lines).toHaveLength(2);
+  });
+
+  it("stops once the run's 45-minute allowance would be passed", async () => {
+    const clock = fakeClock();
+    const budget = rateLimitBudget();
+    let calls = 0;
+    await expect(
+      waitOutRateLimits("seeds:open", async () => {
+        calls += 1;
+        throw limited(1_200);
+      }, clock, budget),
+    ).rejects.toThrow(
+      "seeds:open is still refused by the user limit. Waiting 20 min 5 s more would pass this run's 45 min allowance (40 min 10 s already spent waiting), so the run stops here. The limits were not changed.",
+    );
+    expect(calls).toBe(3);
+    expect(clock.state.sleeps).toEqual([1_205_000, 1_205_000]);
+    expect(clock.state.now).toBe(2_410_000);
+    expect(budget.waitedMs).toBeLessThanOrEqual(45 * 60_000);
+  });
+
+  it("passes other refusals straight through without waiting", async () => {
+    const clock = fakeClock();
+    await expect(
+      waitOutRateLimits("seeds:approve", async () => {
+        throw parseConvexError('Uncaught ConvexError: {"code":"INVALID_STATE","message":"The seed stage is closed"}\n');
+      }, clock, rateLimitBudget()),
+    ).rejects.toThrow("The seed stage is closed");
+    expect(clock.state.sleeps).toEqual([]);
+  });
+
+  it("shares one allowance across the run and logs the wait in the run log", async () => {
+    const clock = fakeClock();
+    const budget = rateLimitBudget();
+    budget.waitedMs = 44 * 60_000;
+    const calls: string[] = [];
+    const driver: EvalDriver = {
+      mutation: async (name) => {
+        calls.push(name);
+        if (name === "projects:createProject" && calls.length === 1) throw limited(30, "project");
+        throw new Error("stop here");
+      },
+      query: async () => null,
+      internal: async () => null,
+      now: () => clock.state.now,
+      sleep: clock.sleep,
+      log: () => undefined,
+    };
+    const { log } = await runFixture(byCase("withdrawn_feedback"), driver, { rateLimitBudget: budget });
+    expect(calls).toEqual(["projects:createProject", "projects:createProject"]);
+    expect(clock.state.sleeps).toEqual([35_000]);
+    expect(budget.waitedMs).toBe(44 * 60_000 + 35_000);
+    expect(log.lines.some((line) => line.includes("Rate limited: projects:createProject was refused by the project limit"))).toBe(true);
+    expect(log.error).toBe("stop here");
+
+    const exhausted = rateLimitBudget();
+    exhausted.waitedMs = 45 * 60_000;
+    const again = await runFixture(byCase("withdrawn_feedback"), { ...driver, mutation: async () => { throw limited(30); } }, { rateLimitBudget: exhausted });
+    expect(again.log.error).toMatch(/would pass this run's 45 min allowance/);
   });
 });

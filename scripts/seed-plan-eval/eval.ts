@@ -578,6 +578,74 @@ export function parseConvexError(raw: string): EvalCallError {
   return new EvalCallError(output.trim() || "Convex call failed", null, null, null);
 }
 
+// ─── Waiting out the per-user limits ────────────────────────────────────────
+
+/** How long one run may spend waiting out RATE_LIMITED refusals, in all. */
+export const RATE_LIMIT_WAIT_BUDGET_MS = 45 * 60_000;
+/** Added to the server's retryAfter so the bucket has surely refilled. */
+export const RATE_LIMIT_MARGIN_MS = 5_000;
+/** Used when a RATE_LIMITED refusal carries no retryAfter. */
+export const RATE_LIMIT_DEFAULT_RETRY_MS = 60_000;
+
+/** The run's shared allowance; one per invocation, across every fixture. */
+export type RateLimitBudget = { totalMs: number; waitedMs: number };
+
+export function rateLimitBudget(totalMs: number = RATE_LIMIT_WAIT_BUDGET_MS): RateLimitBudget {
+  return { totalMs, waitedMs: 0 };
+}
+
+/** The server's retryAfter (whole seconds) in ms, or null when not RATE_LIMITED. */
+export function rateLimitRetryAfterMs(error: unknown): number | null {
+  if (!(error instanceof EvalCallError) || error.code !== "RATE_LIMITED") return null;
+  const data = error.data as { retryAfter?: unknown } | null;
+  const seconds = typeof data?.retryAfter === "number" && Number.isFinite(data.retryAfter) && data.retryAfter > 0 ? data.retryAfter : null;
+  return seconds === null ? RATE_LIMIT_DEFAULT_RETRY_MS : Math.ceil(seconds * 1000);
+}
+
+export function formatWait(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const secondsLeft = total % 60;
+  if (!minutes) return `${secondsLeft} s`;
+  return secondsLeft ? `${minutes} min ${secondsLeft} s` : `${minutes} min`;
+}
+
+/**
+ * Run an action; when the server refuses it with RATE_LIMITED, wait the
+ * refusal's retryAfter plus a margin and run the same action again, until
+ * the run's allowance is spent. The limits themselves are never bypassed or
+ * changed: the script only waits, as a writer would.
+ */
+export async function waitOutRateLimits<T>(
+  label: string,
+  action: () => Promise<T>,
+  clock: { sleep(ms: number): Promise<void>; log(line: string): void },
+  budget: RateLimitBudget,
+): Promise<T> {
+  for (;;) {
+    try {
+      return await action();
+    } catch (error) {
+      const retryAfterMs = rateLimitRetryAfterMs(error);
+      if (retryAfterMs === null) throw error;
+      const waitMs = retryAfterMs + RATE_LIMIT_MARGIN_MS;
+      const leftMs = budget.totalMs - budget.waitedMs;
+      const scope = ((error as EvalCallError).data as { scope?: unknown } | null)?.scope;
+      const whose = typeof scope === "string" ? `${scope} limit` : "limit";
+      if (waitMs > leftMs) {
+        throw new Error(
+          `${label} is still refused by the ${whose}. Waiting ${formatWait(waitMs)} more would pass this run's ${formatWait(budget.totalMs)} allowance (${formatWait(budget.waitedMs)} already spent waiting), so the run stops here. The limits were not changed.`,
+        );
+      }
+      clock.log(
+        `Rate limited: ${label} was refused by the ${whose} ("${(error as EvalCallError).message}"). Waiting ${formatWait(waitMs)}, then trying the same action again; ${formatWait(leftMs - waitMs)} of this run's ${formatWait(budget.totalMs)} allowance will be left.`,
+      );
+      budget.waitedMs += waitMs;
+      await clock.sleep(waitMs);
+    }
+  }
+}
+
 export type EvalDriver = {
   /** A public mutation, as the reviewer. */
   mutation(name: string, args: Record<string, unknown>): Promise<unknown>;
@@ -731,9 +799,10 @@ function commandId(fixtureId: string, label: string, counter: number): string {
 export async function runFixture(
   fixture: Fixture,
   driver: EvalDriver,
-  options: { timeouts?: Timeouts; singleBaseline?: boolean } = {},
+  options: { timeouts?: Timeouts; singleBaseline?: boolean; rateLimitBudget?: RateLimitBudget } = {},
 ): Promise<{ log: RunLog; collected: Collected | null }> {
   const timeouts = options.timeouts ?? DEFAULT_TIMEOUTS;
+  const budget = options.rateLimitBudget ?? rateLimitBudget();
   const log = emptyRunLog(fixture.id, driver.now());
   const say = (line: string) => {
     const stamped = `${new Date(driver.now()).toISOString()} ${line}`;
@@ -742,6 +811,10 @@ export async function runFixture(
   };
   let counter = 0;
   const next = () => (counter += 1);
+  /** Every scripted action: a public mutation as the reviewer, waiting out
+   * RATE_LIMITED refusals within the run's allowance. */
+  const act = (name: string, args: Record<string, unknown>): Promise<unknown> =>
+    waitOutRateLimits(name, () => driver.mutation(name, args), { sleep: driver.sleep, log: say }, budget);
 
   const waitFor = async <T>(label: string, limitMs: number, probe: () => Promise<T | null>): Promise<T> => {
     const deadline = driver.now() + limitMs;
@@ -763,7 +836,7 @@ export async function runFixture(
     for (let attempt = 0; ; attempt += 1) {
       const { seedStageVersion } = await outline();
       try {
-        return await driver.mutation(name, { generationId, roleId: role, expectedSeedStageVersion: seedStageVersion, ...args });
+        return await act(name, { generationId, roleId: role, expectedSeedStageVersion: seedStageVersion, ...args });
       } catch (error) {
         if (error instanceof EvalCallError && error.code === "STALE_REVISION" && attempt < 4) continue;
         throw error;
@@ -858,7 +931,7 @@ export async function runFixture(
       expectedSeedStageVersion: seedStageVersion,
     })) as { approvalChallenge: Challenge; seedStageVersion: number };
     const challenge = review.approvalChallenge;
-    await driver.mutation("seeds:approve", {
+    await act("seeds:approve", {
       generationId,
       roleId: role,
       expectedSeedStageVersion: review.seedStageVersion,
@@ -1124,7 +1197,7 @@ export async function runFixture(
           const current = await outline();
           if (current.draftingInputs.status === "failed") {
             say("drafting inputs failed; Try again");
-            await driver.mutation("generations:retryDraftingInputs", { generationId });
+            await act("generations:retryDraftingInputs", { generationId });
             return null;
           }
           if (!current.readiness.ready) {
@@ -1135,7 +1208,7 @@ export async function runFixture(
           }
           return current.draftingInputs.status === "ready" ? current : null;
         });
-        await driver.mutation("generations:signOffSeedStage", { generationId, expectedSeedStageVersion: ready.seedStageVersion });
+        await act("generations:signOffSeedStage", { generationId, expectedSeedStageVersion: ready.seedStageVersion });
         say("signed off; waiting for the report");
         const done = await waitFor("the report", timeouts.reportMs, async () => {
           const state = (await driver.internal("seedPlanEval:progress", { generationId })) as {
@@ -1155,7 +1228,7 @@ export async function runFixture(
     const transcripts = fixture.sources
       .filter((source) => source.kind === "transcript")
       .map((source) => ({ content: fixture.texts[source.file], label: source.label ?? source.file }));
-    const projectId = (await driver.mutation("projects:createProject", {
+    const projectId = (await act("projects:createProject", {
       title: releaseEvalProjectTitle(fixture.title),
       clientName: fixture.clientName,
       ...(fixture.industry ? { industry: fixture.industry } : {}),
@@ -1166,7 +1239,7 @@ export async function runFixture(
     say(`created project ${projectId}`);
     for (const source of fixture.sources.filter((candidate) => candidate.kind === "document")) {
       const fileName = source.fileName ?? source.file;
-      await driver.mutation("documents:uploadDocument", {
+      await act("documents:uploadDocument", {
         projectId,
         fileName,
         fileType: fileName.endsWith(".md") ? "md" : "txt",
@@ -1177,7 +1250,7 @@ export async function runFixture(
       });
       say(`added document ${fileName}`);
     }
-    await driver.mutation("generations:requestGeneration", { projectId, candidateMode: "iterative" });
+    await act("generations:requestGeneration", { projectId, candidateMode: "iterative" });
     const latest = await waitFor("the generation", timeouts.pollMs * 30, async () =>
       (await driver.internal("seedPlanEval:latestGeneration", { projectId })) as { generationId: string } | null,
     );
@@ -1197,7 +1270,7 @@ export async function runFixture(
     for (const step of buildPlan(fixture)) await perform(step);
 
     if (options.singleBaseline) {
-      await driver.mutation("generations:requestGeneration", {
+      await act("generations:requestGeneration", {
         projectId,
         candidateMode: "single",
         confirmRegeneration: true,
