@@ -16,10 +16,19 @@ export type QuoteCitation = {
    * "Needs a check" note, never hidden or blocked.
    */
   needsSpeakerCheck?: boolean;
+  /**
+   * The quoted words share too few words with the Seed, or repeat another
+   * Seed's quote (2026-09-27, third amendment): shown with a gray "Needs a
+   * check" note, never hidden or blocked.
+   */
+  needsQuoteCheck?: boolean;
 };
 
 /** The note under a quote whose speaker is not confirmed yet. */
 export const SPEAKER_CHECK_NOTE = "Needs a check: speaker not confirmed";
+
+/** The note under a quote that may not back its seed. */
+export const QUOTE_CHECK_NOTE = "Needs a check: this line may not back the seed";
 
 /** "Priya, line 18", "Priya", "Line 18", or null; never a made-up attribution. */
 export function citationSpeakerLine(citation: QuoteCitation): string | null {

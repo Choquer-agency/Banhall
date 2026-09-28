@@ -1505,6 +1505,48 @@ describe("Seed workspace", () => {
     await expect.element(history.getByText("Load bands held within tolerance.", { exact: true })).toBeVisible();
   });
 
+  it("notes a quote that may not back its seed, in gray, under the underline and under Quoted lines (2026-09-27, third amendment)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    const quoted = {
+      ...seed().provenance[0],
+      _id: "provenance-quoted" as Id<"seedProvenance">,
+      exactExcerpt: "the control loop stabilized output",
+      needsQuoteCheck: true,
+    };
+    const unrelated = { ...seed().provenance[0], needsQuoteCheck: true };
+    __setQueryData("seeds:getSubsection", subsection({ items: [seed({ provenance: [quoted, unrelated] })] }));
+    await render(SeedWorkspace, workspaceProps());
+
+    const underline = page.getByRole("button", { name: "The control loop stabilized output", exact: true });
+    await underline.hover();
+    await expect.element(page.getByRole("group", { name: "Quoted line" })).toBeVisible();
+    const hoverNote = document.querySelector<HTMLElement>("[data-quote-card] [data-quote-support-check]");
+    expect(hoverNote?.textContent).toBe("Needs a check: this line may not back the seed");
+    expect(Number(getComputedStyle(hoverNote!).fontWeight)).toBeLessThanOrEqual(500);
+    await page.getByRole("heading", { name: "Company and context", exact: true }).hover();
+    await expect.poll(() => document.querySelector("[data-quote-card]")).toBeNull();
+
+    await quotesButton().click();
+    const listed = () => document.querySelector<HTMLElement>('[data-seed-quotes="seed-1"]');
+    await expect.poll(() => listed()?.querySelector("[data-quote-support-check]")?.textContent).toBe(
+      "Needs a check: this line may not back the seed"
+    );
+    // The quote itself is still shown, never hidden or blocked.
+    expect(listed()?.querySelector("blockquote")?.textContent?.trim()).toBe("“Measured output remained stable.”");
+    expect(listed()?.querySelector("[data-quote-speaker-check]")).toBeNull();
+    await userEvent.keyboard("{Escape}");
+  });
+
+  it("shows no quote note on a quote that backs its seed", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection());
+    await render(SeedWorkspace, workspaceProps());
+    await quotesButton().click();
+    await expect.poll(() => document.querySelector('[data-seed-quotes="seed-1"] blockquote')).not.toBeNull();
+    expect(document.querySelector("[data-quote-support-check]")).toBeNull();
+    await userEvent.keyboard("{Escape}");
+  });
+
   it("issues no further history or approval-review query after the keyed pane is destroyed during a delayed page", async () => {
     let release: ((value: unknown) => void) | undefined;
     __setQueryData("seeds:listBatches", new Promise<unknown>((resolve) => { release = resolve; }));

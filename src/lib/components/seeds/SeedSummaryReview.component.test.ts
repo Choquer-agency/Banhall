@@ -1742,6 +1742,23 @@ describe("Seed Summary Review", () => {
       expect(await noteFor("seed-b")).toBeNull();
     });
 
+    it("notes a quote that may not back its seed, in gray, without hiding it (2026-09-27, third amendment)", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([
+        withFields(item("seed-a", "company_context", "We run four sites across Ontario today."), {
+          provenance: [{ sourceId: "source-1", exactExcerpt: "We run four sites", line: 7, needsQuoteCheck: true }],
+        }),
+      ]));
+      const view = await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      const quote = view.container.querySelector<HTMLElement>('[data-summary-item="seed-a"] [data-exact-quote]')!;
+      await userEvent.hover(quote);
+      await expect.poll(() => view.container.querySelector("[data-quote-card]")).not.toBeNull();
+      const card = view.container.querySelector<HTMLElement>("[data-quote-card]")!;
+      expect(card.querySelector("[data-quote-support-check]")?.textContent).toBe("Needs a check: this line may not back the seed");
+      expect(card.querySelector("[data-quote-speaker-check]")).toBeNull();
+      expect(card.querySelector("[data-quote-text]")?.textContent).toBe("“We run four sites”");
+    });
+
     it("links the open step instead of listing role ids, through the workspace's own open-step record", async () => {
       __setQueryData("seeds:getOutline", outline(false));
       __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Plain server wording.")]));

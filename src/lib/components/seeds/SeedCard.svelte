@@ -8,7 +8,7 @@
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import { isLongForSeed, MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
   import { describeSource, EMPTY_SOURCE_ATTRIBUTION } from "./attribution";
-  import { citationSpeakerLine, SPEAKER_CHECK_NOTE, type QuoteCitation } from "./citations";
+  import { citationSpeakerLine, QUOTE_CHECK_NOTE, SPEAKER_CHECK_NOTE, type QuoteCitation } from "./citations";
   import { findExactQuoteSpans, segmentBullet } from "./exactQuote";
   import { MAX_CARD_TAGS, seedTagStyle } from "./seedTags";
   import SeedQuote from "./SeedQuote.svelte";
@@ -401,6 +401,7 @@
                       <span class="min-w-0 flex-1 text-ink-faint">
                         {#if speakerLine}<span class="block">{speakerLine}</span>{/if}
                         {#if citation.needsSpeakerCheck}<span class="block text-ink-muted" data-quote-speaker-check>{SPEAKER_CHECK_NOTE}</span>{/if}
+                        {#if citation.needsQuoteCheck}<span class="block text-ink-muted" data-quote-support-check>{QUOTE_CHECK_NOTE}</span>{/if}
                         <span
                           class={source.attributed ? "block" : "block italic"}
                           data-quote-source
