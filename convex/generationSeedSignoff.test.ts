@@ -5566,8 +5566,13 @@ describe("seed Summary sign-off and recovery", () => {
       : `- skippedRoleId ${omitted?.skippedRoleId}`;
     // The follow-up names only the omitted plan check, in text and schema.
     expect(providerUser(followUp!).endsWith(
-      `Return exactly 1 planVerdicts, one for each plan check below:\n${omittedLine}`
+      `Return exactly 1 planVerdict, one for each plan check below:\n${omittedLine}\n\n` +
+        "Return an empty verdicts list: every label already has its verdict."
     )).toBe(true);
+    // The first request's full list is not repeated.
+    expect(providerUser(followUp!)).not.toContain(
+      `Return exactly ${checks.length} planVerdicts, one for each plan check below:`
+    );
     expect(followUp!.tools?.[0]?.input_schema).toMatchObject({
       properties: { planVerdicts: { minItems: 1, maxItems: 1 }, verdicts: { maxItems: 0 } },
     });

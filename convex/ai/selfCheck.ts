@@ -365,7 +365,8 @@ function summaryOrdinaryChecks(input: SelfCheckModelInput): SummaryOrdinaryCheck
   });
 }
 
-export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
+/** The instruction line and data blocks, without the Summary checklist. */
+function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
   const hasSummaryPlan = Boolean(input.planChecks?.length);
   const ordinary = hasSummaryPlan ? summaryOrdinaryChecks(input) : [];
   const blocks = [
@@ -426,9 +427,13 @@ export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
     }
     blocks.push(serialized);
   }
-  const message = `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}`;
-  if (!hasSummaryPlan) return message;
-  const checklist = summaryChecklist(ordinary, input.planChecks ?? []);
+  return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}`;
+}
+
+export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
+  const message = buildSelfCheckDataMessage(input);
+  if (!input.planChecks?.length) return message;
+  const checklist = summaryChecklist(summaryOrdinaryChecks(input), input.planChecks);
   return checklist
     ? `${message}${SUMMARY_PLAN_SELF_CHECK_REQUEST.checklist.separator}${checklist}`
     : message;
@@ -452,14 +457,20 @@ export function summaryChecklist(
   const parts: string[] = [];
   if (ordinary.length > 0) {
     parts.push([
-      fillRuntime(list.ordinaryIntro, { count: String(ordinary.length) }),
+      fillRuntime(list.ordinaryIntro, {
+        count: String(ordinary.length),
+        noun: ordinary.length === 1 ? list.ordinaryNoun.one : list.ordinaryNoun.other,
+      }),
       ...ordinary.map((check) =>
         fillRuntime(list.ordinaryLine, { label: check.label, check: check.check })),
     ].join(list.lineSeparator));
   }
   if (planChecks.length > 0) {
     parts.push([
-      fillRuntime(list.planIntro, { count: String(planChecks.length) }),
+      fillRuntime(list.planIntro, {
+        count: String(planChecks.length),
+        noun: planChecks.length === 1 ? list.planNoun.one : list.planNoun.other,
+      }),
       ...planChecks.map((check) =>
         check.itemId
           ? fillRuntime(list.itemLine, { id: check.itemId })
@@ -856,10 +867,29 @@ export const PLAN_SKIP_NOT_CHECKED_REASON =
   "Not checked: the plan coverage Self-check gave no verdict for this Skip.";
 
 /**
+ * The follow-up request: the data blocks, the follow-up text and only what
+ * is missing. A side with nothing missing is asked for as an empty list.
+ */
+function followUpMessage(data: string, gap: SummaryCoverageGap): string {
+  const followUp = SUMMARY_PLAN_SELF_CHECK_REQUEST.missingFollowUp;
+  const separator = SUMMARY_PLAN_SELF_CHECK_REQUEST.checklist.separator;
+  const empty = [
+    ...(gap.labels.length === 0 ? [followUp.emptyVerdicts] : []),
+    ...(gap.plans.length === 0 ? [followUp.emptyPlanVerdicts] : []),
+  ];
+  return [
+    `${data}${followUp.prefix}`,
+    summaryChecklist(gap.labels, gap.plans),
+    ...empty,
+  ].join(separator);
+}
+
+/**
  * The Summary Self-check (2026-09-28). The first answer must cover every
  * listed label and plan check. When it misses some, one follow-up asks for
  * only those, in place of the structured repair this check otherwise skips,
- * and the answers are merged. Whatever is still missing, or everything the
+ * and the answers are merged; a follow-up verdict for something the first
+ * answer already covered is dropped. Whatever is still missing, or everything the
  * first answer missed when the follow-up fails, comes back as not checked,
  * one by one; the verdicts the first answer gave are kept. An invalid first
  * answer still rejects the whole check.
@@ -869,6 +899,8 @@ async function completeSummarySelfCheck(
   input: SelfCheckModelInput,
   args: {
     user: string;
+    /** The data blocks without the first request's checklist. */
+    data: string;
     ordinaryChecks: readonly SummaryOrdinaryCheck[];
     planChecks: readonly SelfCheckPlanCheck[];
     actualParagraphCount: number;
@@ -914,15 +946,30 @@ async function completeSummarySelfCheck(
   let followUp: RawSelfCheck;
   let stillMissing: SummaryCoverageGap;
   try {
-    const answer = await ask(
-      `${args.user}${SUMMARY_PLAN_SELF_CHECK_REQUEST.missingFollowUp.prefix}` +
-        `${SUMMARY_PLAN_SELF_CHECK_REQUEST.checklist.separator}${summaryChecklist(gap.labels, gap.plans)}`,
-      gap.labels,
-      gap.plans
+    const answer = await ask(followUpMessage(args.data, gap), gap.labels, gap.plans);
+    // A verdict for a label or plan check the first answer already covered
+    // is dropped, not a reason to set the follow-up aside; anything else
+    // unasked for (an unknown label or id) still is. The follow-up answers
+    // for coverage only: a Storyline question comes from the first answer.
+    const answeredLabels = new Set(
+      args.ordinaryChecks
+        .filter((check) => !gap.labels.includes(check))
+        .map((check) => check.label)
     );
-    // The follow-up answers for coverage only; a Storyline question comes
-    // from the first answer or not at all.
-    followUp = { verdicts: answer.verdicts, planVerdicts: answer.planVerdicts ?? [] };
+    const answeredPlans = new Set(
+      args.planChecks.filter((check) => !gap.plans.includes(check)).map(planRefOf)
+    );
+    const verdicts = answer.verdicts.filter((verdict) => !answeredLabels.has(verdict.instruction));
+    const planVerdicts = (answer.planVerdicts ?? []).filter((verdict) =>
+      (verdict.itemId === undefined) === (verdict.skippedRoleId === undefined) ||
+      !answeredPlans.has(planRefOf(verdict)));
+    const dropped =
+      answer.verdicts.length - verdicts.length +
+      (answer.planVerdicts ?? []).length - planVerdicts.length;
+    if (dropped > 0) {
+      console.warn(`${tool}: the follow-up repeated ${dropped} verdicts the first answer gave; dropped`);
+    }
+    followUp = { verdicts, planVerdicts };
     stillMissing = assertValidSummaryOutput({
       raw: followUp,
       ordinaryChecks: gap.labels,
@@ -968,6 +1015,7 @@ export async function runModelSelfCheck(
   const { raw, notChecked } = hasSummaryPlan
     ? await completeSummarySelfCheck(client, input, {
         user,
+        data: buildSelfCheckDataMessage(input),
         ordinaryChecks,
         planChecks: input.planChecks ?? [],
         actualParagraphCount: count,

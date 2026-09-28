@@ -1032,9 +1032,9 @@ describe("Self-check before display (CAP-9)", () => {
     }
 
     // An omitted row no longer rejects the whole response (2026-09-28): one
-    // follow-up asks for it. Here the follow-up repeats the whole answer,
-    // labels nobody asked for, so it is unusable and only the omitted row
-    // is recorded as not checked.
+    // follow-up asks for it. Here the follow-up repeats the whole answer:
+    // the repeats of rows already answered are dropped, the omitted row is
+    // still missing and is recorded as not checked.
     for (const [name, mutate] of [
       ["omitted ordinary row", (response: typeof valid) => { response.verdicts.pop(); }],
       ["omitted plan row", (response: typeof valid) => { response.planVerdicts.pop(); }],

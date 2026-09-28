@@ -26,6 +26,7 @@ import {
   PLAN_ITEM_NOT_CHECKED_REASON,
   PLAN_SKIP_NOT_CHECKED_REASON,
   runModelSelfCheck,
+  summaryChecklist,
   type ModelSelfCheckResult,
   type SelfCheckModelInput,
   type SelfCheckPlanCheck,
@@ -56,6 +57,9 @@ const FOLLOW_UP_TEXT =
   "Your previous answer gave no verdict for the labels and plan checks listed below. " +
   "Return verdicts for only these, under the same rules. " +
   "Do not repeat verdicts you already gave and leave out storylineQuestion.";
+const EMPTY_VERDICTS = "Return an empty verdicts list: every label already has its verdict.";
+const EMPTY_PLAN_VERDICTS =
+  "Return an empty planVerdicts list: every plan check already has its verdict.";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -290,6 +294,18 @@ async function runThroughSdk(
   return { result, bodies };
 }
 
+/** A request's data blocks: the user text before its closing checklist. */
+function dataOf(
+  body: WireBody,
+  ordinary: readonly SummaryOrdinaryCheck[],
+  plans: readonly SelfCheckPlanCheck[]
+): string {
+  const closing = `\n\n${checklistLines(ordinary, plans)}`;
+  const user = userOf(body);
+  if (!user.endsWith(closing)) throw new Error("Request does not end with its checklist");
+  return user.slice(0, -closing.length);
+}
+
 function checklistLines(
   ordinary: readonly SummaryOrdinaryCheck[],
   plans: readonly SelfCheckPlanCheck[]
@@ -297,13 +313,13 @@ function checklistLines(
   return [
     ...(ordinary.length
       ? [[
-          `Return exactly ${ordinary.length} verdicts in verdicts, one for each label below, even when nothing in the section bears on the label:`,
+          `Return exactly ${ordinary.length} ${ordinary.length === 1 ? "verdict" : "verdicts"} in verdicts, one for each label below, even when nothing in the section bears on the label:`,
           ...ordinary.map((check) => `- ${check.label} (check ${check.check})`),
         ].join("\n")]
       : []),
     ...(plans.length
       ? [[
-          `Return exactly ${plans.length} planVerdicts, one for each plan check below:`,
+          `Return exactly ${plans.length} ${plans.length === 1 ? "planVerdict" : "planVerdicts"}, one for each plan check below:`,
           ...plans.map((check) =>
             check.itemId ? `- itemId ${check.itemId}` : `- skippedRoleId ${check.skippedRoleId}`),
         ].join("\n")]
@@ -374,10 +390,14 @@ describe("Summary plan coverage Self-check through the SDK boundary", () => {
 
     expect(bodies).toHaveLength(2);
     const [first, followUp] = bodies as [WireBody, WireBody];
-    // The follow-up repeats the request and names only what is missing.
+    // The follow-up repeats the data blocks, not the full list, and names
+    // only what is missing.
+    const data = dataOf(first, ordinary, plans);
+    expect(data).toContain("[P1] Kestrel Instruments builds in-line water analyzers");
     expect(userOf(followUp)).toBe(
-      `${userOf(first)}\n\n${FOLLOW_UP_TEXT}\n\n${checklistLines(missing, missingPlans)}`
+      `${data}\n\n${FOLLOW_UP_TEXT}\n\n${checklistLines(missing, missingPlans)}`
     );
+    expect(userOf(followUp)).not.toContain("Return exactly 22 verdicts");
     expect(followUp.system).toEqual(first.system);
     expect(followUp.model).toBe(MODEL);
     const toolSchema = schemaOf(followUp);
@@ -417,7 +437,7 @@ describe("Summary plan coverage Self-check through the SDK boundary", () => {
     // One follow-up only.
     expect(bodies).toHaveLength(2);
     expect(userOf(bodies[1]!).endsWith(
-      "Return exactly 1 planVerdicts, one for each plan check below:\n- skippedRoleId prior_year_status"
+      "Return exactly 1 planVerdict, one for each plan check below:\n- skippedRoleId prior_year_status"
     )).toBe(true);
     expect(result.verdicts).toHaveLength(17);
     const notChecked = result.verdicts.filter((verdict) => verdict.notChecked);
@@ -451,8 +471,15 @@ describe("Summary plan coverage Self-check through the SDK boundary", () => {
       verdicts: ordinary.slice(0, 8).map(verdictFor),
       planVerdicts: plans.slice(0, 4).map(planVerdictFor),
     };
-    // The follow-up repeats the first answer: labels nobody asked for.
-    const { result, bodies } = await runThroughSdk(input, [firstAnswer, firstAnswer]);
+    // The follow-up answers everything missing, plus a label nobody
+    // supplied: the whole follow-up is set aside.
+    const { result, bodies } = await runThroughSdk(input, [firstAnswer, {
+      verdicts: [
+        ...ordinary.slice(8).map(verdictFor),
+        { ...verdictFor(ordinary[1]!), instruction: "confidence:C99" },
+      ],
+      planVerdicts: [planVerdictFor(plans[4]!, 4)],
+    }]);
 
     expect(bodies).toHaveLength(2);
     expect(result.verdicts).toHaveLength(19);
@@ -468,6 +495,75 @@ describe("Summary plan coverage Self-check through the SDK boundary", () => {
       reason: PLAN_ITEM_NOT_CHECKED_REASON,
       actionableRepair: false,
     });
+  });
+
+  it("drops re-sent verdicts for plan checks already answered and merges the missing labels", async () => {
+    const input = inputFor(CASE_244);
+    const ordinary = ordinaryOf(input);
+    const plans = input.planChecks ?? [];
+    const allPlanVerdicts = plans.map(planVerdictFor);
+    const { result, bodies } = await runThroughSdk(input, [
+      // Every plan verdict, ten of 17 labels.
+      { verdicts: ordinary.slice(0, 10).map(verdictFor), planVerdicts: allPlanVerdicts },
+      // The follow-up sends the seven missing labels and every plan verdict
+      // again, one of them now not applied.
+      {
+        verdicts: ordinary.slice(10).map(verdictFor),
+        planVerdicts: allPlanVerdicts.map((verdict, index) =>
+          index === 1 ? { ...verdict, outcome: "not_applied", reason: "Changed its mind." } : verdict),
+      },
+    ]);
+
+    expect(bodies).toHaveLength(2);
+    const [first, followUp] = bodies as [WireBody, WireBody];
+    expect(userOf(followUp)).toBe(
+      `${dataOf(first, ordinary, plans)}\n\n${FOLLOW_UP_TEXT}\n\n` +
+        `${checklistLines(ordinary.slice(10), [])}\n\n${EMPTY_PLAN_VERDICTS}`
+    );
+    expect(schemaOf(followUp).planVerdicts.maxItems).toBe(0);
+    // The labels merge; the first answer's plan verdicts stand, once each.
+    expect(result.verdicts).toHaveLength(17);
+    expect(result.verdicts.some((verdict) => verdict.notChecked)).toBe(false);
+    expect(result.verdicts.map((verdict) => verdict.instruction))
+      .toEqual(ordinary.map((check) => check.instruction));
+    expect(result.planVerdicts).toHaveLength(plans.length);
+    expect(result.planVerdicts.every((verdict) =>
+      verdict.outcome === "applied" && verdict.reason !== "Changed its mind.")).toBe(true);
+  });
+
+  it("asks for an empty verdicts list when only plan checks are missing", async () => {
+    const input = inputFor(CASE_242);
+    const ordinary = ordinaryOf(input);
+    const plans = input.planChecks ?? [];
+    const { result, bodies } = await runThroughSdk(input, [
+      { verdicts: ordinary.map(verdictFor), planVerdicts: plans.slice(0, 5).map(planVerdictFor) },
+      { verdicts: [], planVerdicts: [planVerdictFor(plans[5]!, 5)] },
+    ]);
+
+    const [first, followUp] = bodies as [WireBody, WireBody];
+    expect(userOf(followUp)).toBe(
+      `${dataOf(first, ordinary, plans)}\n\n${FOLLOW_UP_TEXT}\n\n` +
+        `${checklistLines([], plans.slice(5))}\n\n${EMPTY_VERDICTS}`
+    );
+    expect(userOf(followUp)).toContain("Return exactly 1 planVerdict, one for each plan check below:");
+    expect(schemaOf(followUp).verdicts.maxItems).toBe(0);
+    expect(result.planVerdicts.map((verdict) => verdict.outcome))
+      .toEqual(plans.map(() => "applied"));
+  });
+
+  it("words each count in the singular or the plural", () => {
+    const ordinary = ordinaryOf(inputFor(CASE_242));
+    const plans = planChecksFor(CASE_242);
+    expect(summaryChecklist(ordinary.slice(0, 1), plans.slice(0, 1))).toBe(
+      "Return exactly 1 verdict in verdicts, one for each label below, even when nothing in the section bears on the label:\n" +
+        "- storyline (check storyline)\n\n" +
+        "Return exactly 1 planVerdict, one for each plan check below:\n- itemId item-242-1"
+    );
+    expect(summaryChecklist(ordinary.slice(0, 2), plans.slice(0, 2))).toBe(
+      "Return exactly 2 verdicts in verdicts, one for each label below, even when nothing in the section bears on the label:\n" +
+        "- storyline (check storyline)\n- confidence:C1 (check confidence)\n\n" +
+        "Return exactly 2 planVerdicts, one for each plan check below:\n- itemId item-242-1\n- itemId item-242-2"
+    );
   });
 
   it.each(REVIEWER_CASES)(
@@ -491,8 +587,9 @@ describe("Summary plan coverage Self-check through the SDK boundary", () => {
       expect(userOf(first)).toContain(
         `Return exactly ${fixture.labels} verdicts in verdicts, one for each label below`
       );
+      // No plan check is missing, so that list is asked for empty.
       expect(userOf(followUp).endsWith(
-        `\n\n${checklistLines(ordinary.slice(fixture.returned), [])}`
+        `\n\n${checklistLines(ordinary.slice(fixture.returned), [])}\n\n${EMPTY_PLAN_VERDICTS}`
       )).toBe(true);
       expect(schemaOf(followUp).planVerdicts.maxItems).toBe(0);
       expect(result.verdicts).toHaveLength(fixture.labels);

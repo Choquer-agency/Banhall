@@ -467,7 +467,7 @@ export const SUMMARY_PLAN_SELF_CHECK_SCHEMA = {
     planVerdicts: {
       type: "array",
       maxItems: MAX_SUMMARY_PLAN_VERDICTS,
-      description: "Exactly one verdict for every signed-off plan item and Skip requirement supplied.",
+      description: "Exactly one verdict for each plan item and Skip listed at the end of the request.",
       items: {
         type: "object",
         additionalProperties: false,
@@ -560,21 +560,29 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     separator: "\n\n",
     lineSeparator: "\n",
     ordinaryIntro:
-      "Return exactly {{runtime.count}} verdicts in verdicts, one for each label below, even when nothing in the section bears on the label:",
+      "Return exactly {{runtime.count}} {{runtime.noun}} in verdicts, one for each label below, even when nothing in the section bears on the label:",
+    ordinaryNoun: { one: "verdict", other: "verdicts" },
     ordinaryLine: "- {{runtime.label}} (check {{runtime.check}})",
     planIntro:
-      "Return exactly {{runtime.count}} planVerdicts, one for each plan check below:",
+      "Return exactly {{runtime.count}} {{runtime.noun}}, one for each plan check below:",
+    planNoun: { one: "planVerdict", other: "planVerdicts" },
     itemLine: "- itemId {{runtime.id}}",
     skipLine: "- skippedRoleId {{runtime.id}}",
   },
   /**
    * The one follow-up for an answer that missed labels, sent in place of the
-   * structured repair the Summary Self-check otherwise skips. It names only
-   * the missing labels and plan checks.
+   * structured repair the Summary Self-check otherwise skips. It repeats the
+   * data blocks (the Section text included) but not the first request's full
+   * list, names only the missing labels and plan checks, and says which list
+   * comes back empty.
    */
   missingFollowUp: {
     prefix:
       "\n\nYour previous answer gave no verdict for the labels and plan checks listed below. Return verdicts for only these, under the same rules. Do not repeat verdicts you already gave and leave out storylineQuestion.",
+    emptyVerdicts:
+      "Return an empty verdicts list: every label already has its verdict.",
+    emptyPlanVerdicts:
+      "Return an empty planVerdicts list: every plan check already has its verdict.",
   },
 } as const;
 
