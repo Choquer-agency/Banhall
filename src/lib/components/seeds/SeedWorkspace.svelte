@@ -365,8 +365,13 @@
   const outline = $derived(
     outlineQ.data && outlineQ.data.generationId === generationId ? outlineQ.data : null
   );
+  // The subscription depends on whether an Outline exists, never on the
+  // Outline read itself: every tick updates the Outline, and re-running the
+  // args dropped this subscription and its local result for a round trip, so
+  // the pane flashed "Waiting for the live read" with decisions off.
+  const outlineLoaded = $derived(!!outline);
   const subsectionQ = useStableQuery(seedsApi.getSubsection, () =>
-    !readsPaused && outline && ownerMatches() ? { generationId, roleId: activeRoleId } : "skip"
+    !readsPaused && outlineLoaded && ownerMatches() ? { generationId, roleId: activeRoleId } : "skip"
   );
   const subsection = $derived(
     subsectionQ.data &&

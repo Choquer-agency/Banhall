@@ -16,7 +16,9 @@ import {
   __setQueryData,
   __setQueryDataForArgs,
   __setQueryError,
+  __useRealQuery,
 } from "$lib/test/convex-svelte-stub.svelte";
+import SeedWorkspaceSubscriptionHarness from "$lib/test/SeedWorkspaceSubscriptionHarness.svelte";
 import { captureOwner } from "$lib/test/captureOwner";
 import { reactiveValue } from "$lib/test/reactiveValue.svelte";
 import SeedWorkspace from "./SeedWorkspace.svelte";
@@ -4186,5 +4188,103 @@ describe("board match (F3 to F5)", () => {
     expect(body.color).toBe("rgb(184, 201, 198)");
     expect(toast.querySelector<HTMLElement>('[data-ai-mark="aurora"]')!.getBoundingClientRect().width).toBe(18);
     expect(toast.querySelector('button[aria-label="Dismiss"] svg path')!.getAttribute("d")).toBe("M18 6 6 18M6 6l12 12");
+  });
+});
+
+describe("snappy ticks (owner, 2026-09-28)", () => {
+  const unticked = () => subsection({ items: [seed({ selected: false })] });
+  const readPending = () => document.querySelector("[data-subsection-read-pending]");
+  const skeleton = () => document.querySelector("[data-subsection-skeleton]");
+
+  it("flips the tick at once, shows no loading state while the server confirms, and keeps the server's answer", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", unticked());
+    let answer: ((value: unknown) => void) | undefined;
+    __setMutationResult("seeds:select", new Promise((resolve) => { answer = resolve; }));
+    await render(SeedWorkspace, workspaceProps());
+    const box = page.getByRole("checkbox", { name: "Select seed", exact: true });
+    await expect.element(box).toBeEnabled();
+
+    await box.click();
+    // At once: checked, still enabled, and nothing loads or remounts.
+    const card = document.querySelector<HTMLElement>('[data-seed-id="seed-1"]')!;
+    expect(card.dataset.selected).toBe("true");
+    await expect.element(page.getByRole("checkbox", { name: "Deselect seed", exact: true })).toBeEnabled();
+    expect(readPending()).toBeNull();
+    expect(skeleton()).toBeNull();
+    expect(__mutationCalls("seeds:select")).toEqual([
+      { generationId, roleId: "company_context", seedId: "seed-1", selected: true, expectedSeedStageVersion: 7 },
+    ]);
+    // The Outline updates before the answer (the server bumped the version).
+    __setQueryData("seeds:getOutline", { ...outline(), seedStageVersion: 8 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(readPending()).toBeNull();
+    expect(document.querySelector('[data-seed-id="seed-1"]')).toBe(card);
+
+    // As in Convex, the live read carries the pick before the answer lands.
+    __setQueryData("seeds:getSubsection", subsection({ items: [seed({ selected: true })], seedStageVersion: 8 }));
+    answer?.({ seedStageVersion: 8 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector('[data-seed-id="seed-1"]')).toBe(card);
+    expect(card.dataset.selected).toBe("true");
+    expect(readPending()).toBeNull();
+  });
+
+  it("rolls a refused tick back and says why in plain words", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", unticked());
+    __setMutationError("seeds:select", new ConvexError({ code: "STALE_REVISION", message: "Seed decisions changed; refresh and retry" }));
+    await render(SeedWorkspace, workspaceProps());
+    await page.getByRole("checkbox", { name: "Select seed", exact: true }).click();
+    await expect.poll(() => document.querySelector<HTMLElement>('[data-seed-id="seed-1"]')?.dataset.selected).toBe("false");
+    await expect.element(page.getByRole("alert")).toBeVisible();
+    expect(document.body.textContent).toContain("Decisions changed in another session.");
+  });
+
+  it("sends picks one at a time against the version the previous answer left", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    const clean = { ...subsection().approvalChallenge!, carriedSeedIds: [], exclusionEntryIds: [], changedRoleIds: [], shownBatchOutdated: false, exclusions: [] };
+    __setQueryData("seeds:getSubsection", subsection({
+      approvalChallenge: clean,
+      items: [seed({ selected: true }), seed({ seedId: "seed-2" as Id<"seeds">, selected: false, bullets: ["Second Seed wording."] }), seed({ seedId: "seed-3" as Id<"seeds">, selected: false, bullets: ["Third Seed wording."] })],
+    }));
+    let answer: ((value: unknown) => void) | undefined;
+    __setMutationResult("seeds:select", new Promise((resolve) => { answer = resolve; }));
+    await render(SeedWorkspace, workspaceProps());
+    const boxes = page.getByRole("checkbox", { name: "Select seed", exact: true });
+    await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true }).first()).toBeEnabled();
+    await boxes.first().click();
+    await boxes.last().click();
+    // Both show at once; only the first is on its way.
+    expect([...document.querySelectorAll<HTMLElement>("[data-seed-id]")].map((card) => card.dataset.selected)).toEqual(["true", "true", "true"]);
+    expect(__mutationCalls("seeds:select")).toHaveLength(1);
+    // Approval waits until every pick is answered.
+    await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true }).first()).toBeDisabled();
+
+    __setQueryData("seeds:getSubsection", subsection({
+      approvalChallenge: clean,
+      items: [seed({ selected: true }), seed({ seedId: "seed-2" as Id<"seeds">, selected: true, bullets: ["Second Seed wording."] }), seed({ seedId: "seed-3" as Id<"seeds">, selected: false, bullets: ["Third Seed wording."] })],
+      seedStageVersion: 8,
+    }));
+    __setMutationResult("seeds:select", { seedStageVersion: 9 });
+    answer?.({ seedStageVersion: 8 });
+    await expect.poll(() => __mutationCalls("seeds:select")).toHaveLength(2);
+    expect(__mutationCalls("seeds:select")[0]).toMatchObject({ seedId: "seed-2", selected: true, expectedSeedStageVersion: 7 });
+    expect(__mutationCalls("seeds:select")[1]).toMatchObject({ seedId: "seed-3", selected: true, expectedSeedStageVersion: 8 });
+  });
+
+  it("keeps one live Subsection subscription through a tick and the Outline update it causes", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __useRealQuery("seeds:getSubsection");
+    const events: Array<"subscribe" | "unsubscribe"> = [];
+    await render(SeedWorkspaceSubscriptionHarness, { props: { generationId, projectId, subsection: unticked(), events } });
+    await page.getByRole("checkbox", { name: "Select seed", exact: true }).click();
+    expect(events).toEqual(["subscribe"]);
+    for (const version of [8, 9, 10]) {
+      __setQueryData("seeds:getOutline", { ...outline(), seedStageVersion: version });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(events).toEqual(["subscribe"]);
+    expect(readPending()).toBeNull();
   });
 });

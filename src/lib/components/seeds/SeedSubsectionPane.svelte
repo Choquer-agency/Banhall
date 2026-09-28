@@ -180,6 +180,43 @@
     expectedSeedStageVersion: data.seedStageVersion,
   });
 
+  // A tick shows at once (owner, 2026-09-28): the writer's pick is held here
+  // until the server answers, then the live read takes over; a refusal rolls
+  // it back and says why. Picks are sent one at a time, each against the
+  // decision version the previous answer left, so the server fence is kept.
+  type PendingPick = { selected: boolean; token: number };
+  let pendingPicks = $state<Record<string, PendingPick>>({});
+  let pickToken = 0;
+  let pickQueue: Promise<unknown> = Promise.resolve();
+  const picksPending = $derived(Object.keys(pendingPicks).length > 0);
+  function withPick(item: SeedCardData): SeedCardData {
+    const pick = pendingPicks[String(item.seedId)];
+    return pick && pick.selected !== item.selected ? { ...item, selected: pick.selected } : item;
+  }
+  function pick(seedId: SeedCardData["seedId"], selected: boolean): Promise<boolean> {
+    if (!canEdit) return Promise.resolve(false);
+    const key = String(seedId);
+    const token = ++pickToken;
+    pendingPicks = { ...pendingPicks, [key]: { selected, token } };
+    const settle = () => {
+      if (pendingPicks[key]?.token !== token) return;
+      const { [key]: _settled, ...rest } = pendingPicks;
+      pendingPicks = rest;
+    };
+    const sent = pickQueue.then(async () => {
+      if (destroyed) return false;
+      const saved = await mutate(
+        () => selectSeed({ ...common(), seedId, selected }),
+        selected ? "Seed selected." : "Seed deselected.",
+        false
+      );
+      if (!destroyed) settle();
+      return saved;
+    });
+    pickQueue = sent;
+    return sent;
+  }
+
   const currentScope = () => `${generationId}:${data.roleId}:${data.seedStageVersion}`;
   const approvalChallenge = $derived(data.approvalChallenge ?? historyApprovalReview?.approvalChallenge ?? null);
   const challengeKey = $derived(
@@ -392,7 +429,7 @@
   // short, their selected count is only a lower bound until the complete
   // server review of the current scope returns its own count (A4); that
   // review count is invalidated with its scope and with every replacement.
-  const selectedCount = $derived(data.items.filter((item) => item.selected).length);
+  const selectedCount = $derived(data.items.filter((item) => withPick(item).selected).length);
   const approvalSelectedCount = $derived(historyApprovalReview?.selectedCount ?? selectedCount);
   const selectedCountComplete = $derived(!data.truncated || historyApprovalReview !== null);
 
@@ -402,6 +439,8 @@
   );
   const approvalDisabled = $derived(
     busy ||
+      // A pick the server has not answered yet changes the approval challenge.
+      picksPending ||
       // Round 2 (F3): nothing to approve while the step's ideas are written.
       !!data.pendingBatchId ||
       !approvalChallenge ||
@@ -570,7 +609,7 @@
     generationId={String(generationId)}
     roleId={data.roleId}
     seedStageVersion={data.seedStageVersion}
-    {item}
+    item={withPick(item)}
     {canEdit}
     {busy}
     {nested}
@@ -582,11 +621,7 @@
     draft={ownDraft(item.seedId)}
     {below}
     onDraftChange={(update) => onDraftChange(item.seedId, update)}
-    onSelect={(selected) =>
-      mutate(
-        () => selectSeed({ ...common(), seedId: item.seedId, selected }),
-        selected ? "Seed selected." : "Seed deselected."
-      )}
+    onSelect={(selected) => pick(item.seedId, selected)}
     onEdit={(bullets, expectedSeedStageVersion) =>
       mutate(
         () => editSeed({ ...common(), expectedSeedStageVersion, seedId: item.seedId, bullets }),
