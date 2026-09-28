@@ -9,7 +9,7 @@
 
 <script lang="ts">
   import { onDestroy, tick, untrack } from "svelte";
-  import { pushState } from "$app/navigation";
+  import { pushState, replaceState } from "$app/navigation";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { page } from "$app/state";
   import { useConvexClient, useQuery, useMutation } from "convex-svelte";
@@ -40,9 +40,11 @@
   import SeedWorkspace from "$lib/components/seeds/SeedWorkspace.svelte";
   import SeedSummaryReview from "$lib/components/seeds/SeedSummaryReview.svelte";
   import SeedInitializationRecovery from "$lib/components/seeds/SeedInitializationRecovery.svelte";
+  import { seedsApi } from "$lib/components/seeds/api";
   import {
     focusSummaryReturnTrigger,
     SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID,
+    SEED_SUMMARY_TAB_ID,
   } from "$lib/components/seeds/summaryFocus";
   import {
     focusGenerationProgress,
@@ -1064,8 +1066,24 @@
   $effect(() => {
     seedSummaryRequested = page.url.searchParams.get("view") === "summary";
   });
+  // Owner decision 2026-09-28 (sixth): while seeding, a Summary URL or state
+  // refused by a current Outline read (a step not done) opens the Plan.
+  const seeding = $derived(isSeedWorkflow && generation?.seedPhase === "seeding");
+  const seedOutlineQ = useQuery(seedsApi.getOutline, () =>
+    auth.isAuthenticated && seeding && generation ? { generationId: generation._id } : "skip"
+  );
+  const seedOutline = $derived(
+    seedOutlineQ.data && seedOutlineQ.data.generationId === generation?._id ? seedOutlineQ.data : undefined
+  );
+  const seedPlanReady = $derived(Boolean(seeding && seedOutline?.readiness?.ready));
+  const seedSummaryRefused = $derived(seeding && !!seedOutline && !seedOutline.readiness?.ready);
+  $effect(() => {
+    if (!seedSummaryRefused || !seedSummaryRequested) return;
+    untrack(() => setSeedSummary(false, "replace"));
+  });
   const seedSummaryOpen = $derived(
     seedSummaryRequested &&
+      !seedSummaryRefused &&
       (isSeedWorkflow ||
         (reportGenerationQ.data?.gatedWorkflow === "seeds" && !!reportGenerationQ.data.summaryVersionId))
   );
@@ -1082,7 +1100,7 @@
   );
   const showSeedSummary = $derived(
     seedSummaryRequested &&
-      ((isSeedWorkflow && generation?.seedPhase === "seeding") ||
+      ((seeding && !seedSummaryRefused) ||
         (!showIterativeStepper &&
           generation?.status !== "awaiting_selection" &&
           !(isSeedWorkflow &&
@@ -1198,11 +1216,11 @@
       project?.mode !== "review"
   );
 
-  function setSeedSummary(open: boolean) {
+  function setSeedSummary(open: boolean, history: "push" | "replace" = "push") {
     const url = new URL(page.url);
     if (open) url.searchParams.set("view", "summary");
     else if (url.searchParams.get("view") === "summary") url.searchParams.delete("view");
-    pushState(`${url.pathname}${url.search}`, {});
+    (history === "replace" ? replaceState : pushState)(`${url.pathname}${url.search}`, {});
     seedSummaryRequested = open;
   }
 
@@ -1472,6 +1490,24 @@
             Cancel iterative draft
           </button>
         {/if}
+        {#if showSeedWorkspace}
+          <!-- This host has no tabs: its Summary entry sits here, locked like
+               the preview host's Summary tab until every step is done. -->
+          <button
+            type="button"
+            id={SEED_SUMMARY_TAB_ID}
+            disabled={!seedPlanReady}
+            title={seedPlanReady ? undefined : "Available when every step is done"}
+            aria-describedby={seedPlanReady ? undefined : "seed-summary-locked-reason"}
+            onclick={() => setSeedSummary(true)}
+            class="px-2 text-xs text-gray-600 transition-colors hover:text-gray-900 disabled:cursor-default disabled:opacity-50"
+          >
+            Summary
+          </button>
+          {#if !seedPlanReady}
+            <span id="seed-summary-locked-reason" class="sr-only">Available when every step is done</span>
+          {/if}
+        {/if}
         {#if report && !awaitingSelection && !showIterativeStepper && !showSeedSummary && !showSeedWorkspace && !showSeedRecovery && !showSeedDrafting}
             {#if reportGenerationQ.data?.gatedWorkflow === "seeds" && reportGenerationQ.data.summaryVersionId}
               <IconAction
@@ -1632,7 +1668,7 @@
             generationId={generation._id}
             {projectId}
             userId={user?._id ?? "anonymous"}
-            onReviewSummary={() => setSeedSummary(true)}
+            onOpenSummary={() => setSeedSummary(true)}
           />
         {/key}
       </div>

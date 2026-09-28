@@ -266,6 +266,26 @@ function seedHostQueries() {
   });
 }
 
+/** The Summary entry: the preview page's Summary tab, or the current page's
+ * header Summary action. Both carry this id (owner decision 2026-09-28 sixth:
+ * no workspace "Review summary" button). */
+const summaryEntry = () => document.getElementById("seed-summary-tab") as HTMLButtonElement | null;
+async function openSummary() {
+  await expect.poll(() => summaryEntry()?.disabled).toBe(false);
+  await browserPage.elementLocator(summaryEntry()!).click();
+}
+
+/** The host's Outline with every step done except `lastRoleId`. */
+function lastStepOutline(lastRoleId: string, ready: boolean) {
+  const outline = hostOutline({ ready, complete: true, blockingRoleIds: ready ? [] : [lastRoleId] });
+  return {
+    ...outline,
+    rows: outline.rows.map((row) =>
+      ready || row.roleId !== lastRoleId ? { ...row, state: "approved" } : row
+    ),
+  };
+}
+
 async function assertConnectedJourney(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
   const mounted = await render(Component, {});
   await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
@@ -275,8 +295,9 @@ async function assertConnectedJourney(Component: typeof CurrentProjectPage | typ
   await browserPage.getByRole("textbox", { name: "Bullet 1" }).fill("Workspace draft survives the Summary.");
 
   // A7: keyboard entry moves focus to the Summary heading after rendering.
-  const reviewTrigger = browserPage.getByRole("button", { name: "Review summary", exact: true });
-  (reviewTrigger.element() as HTMLElement).focus();
+  expect(browserPage.getByRole("button", { name: "Review summary" }).elements()).toHaveLength(0);
+  await expect.poll(() => summaryEntry()?.disabled).toBe(false);
+  summaryEntry()!.focus();
   await userEvent.keyboard("{Enter}");
   await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
   await expect.poll(() => document.activeElement?.id).toBe("summary-review-title");
@@ -292,7 +313,7 @@ async function assertConnectedJourney(Component: typeof CurrentProjectPage | typ
   const browserUrl = new URL(window.location.href);
   window.dispatchEvent(new PopStateEvent("popstate"));
   await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
-  await expect.poll(() => document.activeElement?.id).toBe("seed-review-summary-trigger");
+  await expect.poll(() => document.activeElement?.id).toBe("seed-summary-tab");
   browserUrl.searchParams.set("view", "summary");
   window.history.pushState({}, "", browserUrl);
   window.dispatchEvent(new PopStateEvent("popstate"));
@@ -303,13 +324,13 @@ async function assertConnectedJourney(Component: typeof CurrentProjectPage | typ
   browserUrl.searchParams.delete("view");
   window.history.replaceState({}, "", browserUrl);
 
-  // Returning by keyboard restores focus to the recreated Review summary
-  // trigger without losing either local draft.
+  // Returning by keyboard restores focus to the Summary entry without losing
+  // either local draft.
   const backToWorkspace = browserPage.getByRole("button", { name: "Back to plan", exact: true });
   (backToWorkspace.element() as HTMLElement).focus();
   await userEvent.keyboard("{Enter}");
   await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
-  await expect.poll(() => document.activeElement?.id).toBe("seed-review-summary-trigger");
+  await expect.poll(() => document.activeElement?.id).toBe("seed-summary-tab");
   await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Workspace draft survives the Summary.");
 
   __setQueryData("users:getCurrentUser", {
@@ -330,7 +351,7 @@ async function assertConnectedJourney(Component: typeof CurrentProjectPage | typ
     email: "writer@example.test",
   });
   await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Workspace draft survives the Summary.");
-  await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
+  await openSummary();
   await browserPage.getByRole("button", { name: "Edit", exact: true }).click();
   await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Summary draft survives the workspace.");
   mounted.unmount();
@@ -419,65 +440,154 @@ describe("Seed project hosts", () => {
     await assertConnectedJourney(PreviewProjectPage);
   });
 
-  async function assertOpenStepLink(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
-    // Board 3.3: a not-ready Summary links its open step; the workspace
-    // restores that step from its own per-user, per-generation record.
-    // The plan only offers "Review summary" once it is ready (or on a reopened
-    // step), so a not-ready Summary is entered through its URL, as the Summary
-    // tab does.
+  async function assertLockedDeepLink(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
+    // Owner decision 2026-09-28 (sixth): a Summary URL while a step is not
+    // done opens the Plan instead, and the refused URL is replaced so Back
+    // never returns to it.
     __setQueryData("seeds:getOutline", hostOutline({ ready: false, complete: true, blockingRoleIds: ["goal_problem"] }));
     __setPageUrl("/project/project-seed-host?view=summary");
     const browserUrl = new URL(window.location.href);
     browserUrl.searchParams.set("view", "summary");
     window.history.replaceState({}, "", browserUrl);
     const mounted = await render(Component, {});
-    await expect.element(summarySignOffButton()).toBeDisabled();
-    await browserPage.getByRole("button", { name: "1 step still open: open Goal / Problem" }).click();
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
-    expect(localStorage.getItem("seeds.openRole:writer-1:generation-seed-host")).toBe("goal_problem");
-    await expect.poll(() => __activeQueryArgs("seeds:getSubsection")).toContainEqual(
-      expect.objectContaining({ generationId: "generation-seed-host", roleId: "goal_problem" })
-    );
-    expect(__navigationCalls.at(-1)).toEqual({ kind: "pushState", url: "/project/project-seed-host" });
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
+    expect(__navigationCalls).toContainEqual({ kind: "replaceState", url: "/project/project-seed-host" });
+    expect(__navigationCalls.filter((call) => call.kind === "pushState")).toEqual([]);
+    const entry = summaryEntry()!;
+    expect(entry.disabled).toBe(true);
+    expect(entry.title).toBe("Available when every step is done");
+    expect(document.getElementById(entry.getAttribute("aria-describedby")!)?.textContent).toBe("Available when every step is done");
+
+    // Browser history back to the Summary URL is refused the same way.
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     mounted.unmount();
   }
 
-  it("gives the preview Summary tab its own id and returns focus to the control that opened the Summary", async () => {
+  it("opens the Plan for a Summary URL while a step is not done in the current host", async () => {
+    await assertLockedDeepLink(CurrentProjectPage);
+  });
+
+  it("opens the Plan for a Summary URL while a step is not done in the preview host", async () => {
+    await assertLockedDeepLink(PreviewProjectPage);
+  });
+
+  it("locks the preview Summary tab until every step is done, with no Review summary button", async () => {
+    __setQueryData("seeds:getOutline", hostOutline({ ready: false, complete: true, blockingRoleIds: ["goal_problem"] }));
     await render(PreviewProjectPage, {});
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
-    const trigger = browserPage.getByRole("button", { name: "Review summary", exact: true });
-    await expect.element(trigger).toBeVisible();
+    expect(browserPage.getByRole("button", { name: "Review summary" }).elements()).toHaveLength(0);
+    expect(document.getElementById("seed-review-summary-trigger")).toBeNull();
     const tab = document.querySelector<HTMLButtonElement>('[data-panel-tab="summary"]')!;
-    // The tab and the workspace trigger are two controls with two ids.
     expect(tab.id).toBe("seed-summary-tab");
-    expect(document.querySelectorAll("#seed-summary-tab")).toHaveLength(1);
-    expect(document.querySelectorAll("#seed-review-summary-trigger")).toHaveLength(1);
-    expect(document.getElementById("seed-review-summary-trigger")).toBe(trigger.element());
     expect(document.querySelectorAll("#seed-signed-off-summary-trigger")).toHaveLength(0);
+
+    // Locked: greyed and disabled like the Report tab, not focusable, not
+    // clickable, and it says why.
+    const report = document.querySelector<HTMLButtonElement>('[data-panel-tab="report"]')!;
+    expect(tab.disabled).toBe(true);
+    expect(report.disabled).toBe(true);
+    expect(tab.className).toBe(report.className);
+    expect(tab.title).toBe("Available when every step is done");
+    expect(document.getElementById(tab.getAttribute("aria-describedby")!)?.textContent).toBe("Available when every step is done");
+    expect(tab.textContent).not.toContain("Ready");
+    tab.focus();
+    expect(document.activeElement).not.toBe(tab);
+    tab.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
+    expect(__navigationCalls).toEqual([]);
+
+    // Every step done: the tab unlocks and opens the Summary.
+    __setQueryData("seeds:getOutline", hostOutline());
+    await expect.poll(() => tab.disabled).toBe(false);
+    expect(tab.hasAttribute("title")).toBe(false);
+    expect(tab.hasAttribute("aria-describedby")).toBe(false);
+    expect(tab.textContent).toContain("Ready");
 
     // Opened from the tab: leaving the Summary returns focus to the tab.
     tab.focus();
     await userEvent.keyboard("{Enter}");
     await expect.poll(() => document.activeElement?.id).toBe("summary-review-title");
-    expect(document.querySelectorAll("#seed-summary-tab")).toHaveLength(1);
     await browserPage.getByRole("button", { name: "Back to plan", exact: true }).click();
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
     await expect.poll(() => document.activeElement?.id).toBe("seed-summary-tab");
-
-    // Opened from the workspace trigger: focus returns to that trigger.
-    (trigger.element() as HTMLElement).focus();
-    await userEvent.keyboard("{Enter}");
-    await expect.poll(() => document.activeElement?.id).toBe("summary-review-title");
-    await browserPage.getByRole("button", { name: "Back to plan", exact: true }).click();
-    await expect.poll(() => document.activeElement?.id).toBe("seed-review-summary-trigger");
   });
 
-  it("opens the Summary's open step in the current host's workspace", async () => {
-    await assertOpenStepLink(CurrentProjectPage);
+  it("still takes the writer to the Summary after the last step is approved in the preview host", async () => {
+    const lastRoleId = PD_SUBSECTIONS.at(-1)!.roleId;
+    __setQueryData("seeds:getOutline", lastStepOutline(lastRoleId, false));
+    __setQueryData("seeds:getSubsection", {
+      ...hostSubsection("batch-host-1"),
+      roleId: lastRoleId,
+      items: hostSubsection().items.map((item) => ({ ...item, roleId: lastRoleId })),
+      approvalChallenge: {
+        approvalChallenge: "challenge-last",
+        carriedSeedIds: [],
+        exclusionEntryIds: [],
+        changedRoleIds: [],
+        shownBatchOutdated: false,
+        exclusions: [],
+        contributionHashes: [],
+      },
+    });
+    localStorage.setItem("seeds.openRole:writer-1:generation-seed-host", lastRoleId);
+    let finishApproval: ((value: unknown) => void) | undefined;
+    __setMutationResult("seeds:approve", new Promise((resolve) => { finishApproval = resolve; }));
+    await render(PreviewProjectPage, {});
+    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    expect(summaryEntry()!.disabled).toBe(true);
+
+    await browserPage.getByRole("button", { name: "Approve and continue", exact: true }).click();
+    expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: lastRoleId })]);
+    // As in Convex, the live Outline reflects the approval before the
+    // mutation resolves.
+    __setQueryData("seeds:getOutline", lastStepOutline(lastRoleId, true));
+    finishApproval?.(null);
+    await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
+    expect(__navigationCalls).toContainEqual({ kind: "pushState", url: "/project/project-seed-host?view=summary" });
+    expect(summaryEntry()!.disabled).toBe(false);
   });
 
-  it("opens the Summary's open step in the preview host's workspace", async () => {
-    await assertOpenStepLink(PreviewProjectPage);
+  it("locks the Summary again while a reopened step is not done and unlocks it once the step is confirmed", async () => {
+    await render(PreviewProjectPage, {});
+    await openSummary();
+    await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
+
+    // A step reopened and changed: it is not done again.
+    const reopened = hostOutline({ ready: false, complete: true, blockingRoleIds: ["goal_problem"] });
+    __setQueryData("seeds:getOutline", {
+      ...reopened,
+      rows: reopened.rows.map((row) =>
+        row.roleId === "goal_problem" ? { ...row, state: "in_progress", approvedAt: 1_700_000_000_000 } : { ...row, state: "approved" }
+      ),
+    });
+    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
+    expect(__navigationCalls.at(-1)).toEqual({ kind: "replaceState", url: "/project/project-seed-host" });
+    await expect.poll(() => summaryEntry()?.disabled).toBe(true);
+    // Focus leaves the locked Summary for the Plan tab, not the page body.
+    await expect.poll(() => document.activeElement?.id).toBe("seed-plan-tab");
+
+    // Confirmed: every step is done again and the tab opens the Summary.
+    __setQueryData("seeds:getOutline", hostOutline());
+    await openSummary();
+    await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
+  });
+
+  it("offers the current host's Summary action only once every step is done", async () => {
+    __setQueryData("seeds:getOutline", hostOutline({ ready: false, complete: true, blockingRoleIds: ["goal_problem"] }));
+    await render(CurrentProjectPage, {});
+    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    expect(browserPage.getByRole("button", { name: "Review summary" }).elements()).toHaveLength(0);
+    await expect.poll(() => summaryEntry()?.disabled).toBe(true);
+    expect(summaryEntry()!.title).toBe("Available when every step is done");
+    __setQueryData("seeds:getOutline", hostOutline());
+    await openSummary();
+    await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
   });
 
   it("removes every Seed mutation control from read-only initialization, workspace, and recovery", async () => {
@@ -795,7 +905,7 @@ describe("Seed project hosts", () => {
       candidatesDone: 0,
     });
     await render(Component, {});
-    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
+    await openSummary();
     await confirmSummarySignOff();
     expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{
       generationId: "generation-seed-host",
@@ -1664,7 +1774,7 @@ describe("Seed project hosts", () => {
       __setMutationResult("generations:signOffSeedStage", null);
     }
     const mounted = await render(Component, {});
-    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
+    await openSummary();
     // By keyboard: the bar's primary opens the confirm, whose primary starts it.
     (summarySignOffButton().element() as HTMLElement).focus();
     await userEvent.keyboard("{Enter}");
@@ -1687,10 +1797,10 @@ describe("Seed project hosts", () => {
       seedCanEdit: true,
     };
     if (ordering === "command-first") {
-      // The accepted command closed the review first: the recreated workspace
-      // trigger takes focus until drafting replaces it.
+      // The accepted command closed the review first: the Summary entry
+      // takes focus until drafting replaces it.
       await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
-      await expect.poll(() => document.activeElement?.id).toBe("seed-review-summary-trigger");
+      await expect.poll(() => document.activeElement?.id).toBe("seed-summary-tab");
     }
     __setQueryData("generations:getLatestGeneration", drafting);
     if (progress === "pending") {
@@ -1783,7 +1893,7 @@ describe("Seed project hosts", () => {
     });
     __setMutationResult("generations:signOffSeedStage", null);
     const mounted = await render(Component, {});
-    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
+    await openSummary();
     await expect.poll(() => document.activeElement?.id).toBe("summary-review-title");
 
     let trigger: () => void;
@@ -1794,7 +1904,7 @@ describe("Seed project hosts", () => {
       // The accepted command closes the review first (its return focus is
       // the ordinary, legitimate move); drafting then schedules its own.
       await confirmSummarySignOff();
-      await expect.poll(() => document.activeElement?.id).toBe("seed-review-summary-trigger");
+      await expect.poll(() => document.activeElement?.id).toBe("seed-summary-tab");
       trigger = () => __setQueryData("generations:getLatestGeneration", {
         _id: "generation-seed-host",
         status: "running",
@@ -1846,7 +1956,7 @@ describe("Seed project hosts", () => {
     }
 
     // The replacement page renders the element the obsolete move would target.
-    const target = transition === "summary-return" ? "seed-review-summary-trigger" : "generation-progress-heading";
+    const target = transition === "summary-return" ? "seed-summary-tab" : "generation-progress-heading";
     await expect.poll(() => document.getElementById(target)).not.toBeNull();
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(document.activeElement?.id).not.toBe(target);
@@ -1953,7 +2063,7 @@ describe("Seed project hosts", () => {
     await browserPage.getByRole("textbox", { name: "Bullet 1" }).fill("Submitted workspace wording.");
     await browserPage.getByRole("button", { name: "Save wording", exact: true }).click();
     await expect.element(browserPage.getByRole("button", { name: "Saving…", exact: true })).toBeDisabled();
-    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
+    await openSummary();
     await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
 
     // Summary: a pending edit save, then back to the workspace.
@@ -1974,7 +2084,7 @@ describe("Seed project hosts", () => {
     await browserPage.getByRole("textbox", { name: "Tell it what to change" }).fill("Independent workspace instruction.");
 
     // The recreated Summary: newer wording plus an independent item draft.
-    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
+    await openSummary();
     await browserPage.getByRole("button", { name: "Edit", exact: true }).first().click();
     await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Submitted Summary wording.");
     await browserPage.getByRole("textbox", { name: "Bullet 1" }).fill("Submitted Summary wording. Newer.");
@@ -1990,7 +2100,7 @@ describe("Seed project hosts", () => {
     await browserPage.getByRole("button", { name: "Back to plan", exact: true }).click();
     await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Submitted workspace wording. Newer.");
     await expect.element(browserPage.getByRole("textbox", { name: "Tell it what to change" })).toHaveValue("Independent workspace instruction.");
-    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
+    await openSummary();
     await browserPage.getByRole("button", { name: "Edit", exact: true }).first().click();
     await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Submitted Summary wording. Newer.");
     await browserPage.getByRole("button", { name: "Edit", exact: true }).click();
@@ -2018,7 +2128,7 @@ describe("Seed project hosts", () => {
     let accept: ((value: unknown) => void) | undefined;
     __setMutationResult("generations:signOffSeedStage", new Promise((resolve) => { accept = resolve; }));
     const mounted = await render(Component, {});
-    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
+    await openSummary();
     await confirmSummarySignOff();
     expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{
       generationId: "generation-seed-host",

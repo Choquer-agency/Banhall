@@ -204,7 +204,7 @@ function storeDrafts(drafts: Record<string, SeedLocalDraft>, generation: Id<"gen
 }
 
 function workspaceProps(overrides: Record<string, unknown> = {}) {
-  return { generationId, projectId, userId: "writer-1", onReviewSummary: vi.fn(), ...overrides };
+  return { generationId, projectId, userId: "writer-1", onOpenSummary: vi.fn(), ...overrides };
 }
 
 /** A lazily rejecting read: it fails only when awaited, so a seeded refusal
@@ -3294,12 +3294,12 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
       items: [seed({ seedId: "seed-goal" as Id<"seeds">, roleId: "goal_problem", bullets: ["Goal Seed wording."] })],
       approvalChallenge: cleanChallenge(),
     }));
-    const onReviewSummary = vi.fn();
-    const view = await render(SeedWorkspace, workspaceProps({ onReviewSummary }));
+    const onOpenSummary = vi.fn();
+    const view = await render(SeedWorkspace, workspaceProps({ onOpenSummary }));
     const footer = () => page.elementLocator(view.container.querySelector<HTMLElement>("[data-outline-footer]")!);
     await expect.element(footer().getByRole("button", { name: "Approve and continue", exact: true })).toBeEnabled();
-    // Not ready and not reopened: approval is the only action.
-    expect(footer().getByRole("button", { name: "Review summary", exact: true }).elements()).toHaveLength(0);
+    // Approval is the footer's only action: the Summary opens from the host tab.
+    expect(footer().getByRole("button").elements()).toHaveLength(1);
     await footer().getByRole("button", { name: "Approve and continue", exact: true }).click();
     expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: "company_context", approvalChallenge: "challenge-exact" })]);
     await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
@@ -3318,9 +3318,9 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
       items: [seed({ seedId: "seed-last" as Id<"seeds">, roleId: "goal_improvements" })],
       approvalChallenge: cleanChallenge(),
     }));
-    await render(SeedWorkspace, workspaceProps({ onReviewSummary }));
+    await render(SeedWorkspace, workspaceProps({ onOpenSummary }));
     await page.getByRole("button", { name: "Approve and continue", exact: true }).click();
-    await expect.poll(() => onReviewSummary.mock.calls.length).toBe(1);
+    await expect.poll(() => onOpenSummary.mock.calls.length).toBe(1);
   });
 
   it("lands after approval on the step the approve mutation marks as waited on, with no open of its own (2026-09-27, third)", async () => {
@@ -3364,8 +3364,8 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     }));
     let finishApproval: ((value: unknown) => void) | undefined;
     __setMutationResult("seeds:approve", new Promise((resolve) => { finishApproval = resolve; }));
-    const onReviewSummary = vi.fn();
-    const view = await render(SeedWorkspace, workspaceProps({ onReviewSummary }));
+    const onOpenSummary = vi.fn();
+    const view = await render(SeedWorkspace, workspaceProps({ onOpenSummary }));
     const footer = () => page.elementLocator(view.container.querySelector<HTMLElement>("[data-outline-footer]")!);
     await footer().getByRole("button", { name: "Approve and continue", exact: true }).click();
     expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: "company_context" })]);
@@ -3378,27 +3378,23 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     // Step one's continuation must not move the writer on from Goal / Problem.
     await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
     expect(__activeQueryArgs("seeds:getSubsection")).not.toContainEqual({ generationId, roleId: "passive_limitations" });
-    expect(onReviewSummary).not.toHaveBeenCalled();
+    expect(onOpenSummary).not.toHaveBeenCalled();
   });
 
-  it("stacks Confirm and approve above Review summary on a reopened step and confirms it in place", async () => {
+  it("shows only Confirm and approve on a reopened step and confirms it in place, with no Review summary button (2026-09-28 sixth)", async () => {
     const rows = outline().rows.map((row) =>
       row.roleId === "company_context" ? { ...row, state: "in_progress", approvedAt: 1_700_000_000_000 } : row
     );
     __setQueryData("seeds:getOutline", { ...outline(), rows });
     __setQueryData("seeds:getSubsection", subsection({ approvalChallenge: cleanChallenge() }));
-    const onReviewSummary = vi.fn();
-    const view = await render(SeedWorkspace, workspaceProps({ onReviewSummary }));
+    const onOpenSummary = vi.fn();
+    const view = await render(SeedWorkspace, workspaceProps({ onOpenSummary }));
     const footerElement = () => view.container.querySelector<HTMLElement>("[data-outline-footer]")!;
     const confirm = page.elementLocator(footerElement()).getByRole("button", { name: "Confirm and approve", exact: true });
-    const review = page.elementLocator(footerElement()).getByRole("button", { name: "Review summary", exact: true });
     await expect.element(confirm).toBeEnabled();
-    await expect.element(review).toBeVisible();
-    const confirmRect = (confirm.element() as HTMLElement).getBoundingClientRect();
-    const reviewRect = (review.element() as HTMLElement).getBoundingClientRect();
-    expect(confirmRect.bottom).toBeLessThanOrEqual(reviewRect.top);
-    expect(Math.round(confirmRect.width)).toBe(Math.round(reviewRect.width));
-    expect(review.element().id).toBe("seed-review-summary-trigger");
+    expect(page.elementLocator(footerElement()).getByRole("button").elements()).toHaveLength(1);
+    expect(page.getByRole("button", { name: "Review summary" }).elements()).toHaveLength(0);
+    expect(document.getElementById("seed-review-summary-trigger")).toBeNull();
     // The helper line says why the step is open again.
     expect(document.querySelector("[data-step-helper]")?.textContent).toContain("Reopened from the summary.");
     expect(page.getByRole("button", { name: "Approve and continue", exact: true }).elements()).toHaveLength(0);
@@ -3406,10 +3402,10 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     await confirm.click();
     expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: "company_context" })]);
     await new Promise((resolve) => setTimeout(resolve, 100));
-    // Confirmed in place: the step stays open and the Summary is one click away.
+    // Confirmed in place: the step stays open and the workspace never opens
+    // the Summary itself (the host's Summary tab unlocks instead).
     await expect.element(page.getByRole("heading", { name: "Company and context", exact: true })).toBeVisible();
-    await review.click();
-    expect(onReviewSummary).toHaveBeenCalledTimes(1);
+    expect(onOpenSummary).not.toHaveBeenCalled();
 
     // Without `approvedAt` (older DTOs), an approved step is reopened too.
     view.unmount();
@@ -3419,7 +3415,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
       rows: outline().rows.map((row) => (row.roleId === "company_context" ? { ...row, state: "approved" } : row)),
     });
     __setQueryData("seeds:getSubsection", subsection({ state: "approved", approvalChallenge: cleanChallenge() }));
-    await render(SeedWorkspace, workspaceProps({ onReviewSummary }));
+    await render(SeedWorkspace, workspaceProps({ onOpenSummary }));
     await expect.element(page.getByRole("button", { name: "Confirm and approve", exact: true })).toBeVisible();
     expect(document.querySelector('[data-step-chip="approved"]')?.textContent).toBe("Approved");
   });

@@ -9,7 +9,7 @@
 
 <script lang="ts">
   import { onDestroy, tick, untrack } from "svelte";
-  import { goto, pushState } from "$app/navigation";
+  import { goto, pushState, replaceState } from "$app/navigation";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { resolve } from "$app/paths";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
@@ -34,7 +34,8 @@
   import SeedInitializationRecovery from "$lib/components/seeds/SeedInitializationRecovery.svelte";
   import { seedsApi } from "$lib/components/seeds/api";
   import {
-    focusSummaryOpener,
+    focusSummaryReturnTrigger,
+    SEED_PLAN_TAB_ID,
     SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID,
     SEED_SUMMARY_TAB_ID,
   } from "$lib/components/seeds/summaryFocus";
@@ -1344,8 +1345,29 @@
   $effect(() => {
     seedSummaryRequested = page.url.searchParams.get("view") === "summary";
   });
+  const seeding = $derived(isSeedWorkflow && generation?.seedPhase === "seeding");
+  const seedOutlineQ = useQuery(seedsApi.getOutline, () =>
+    auth.isAuthenticated && seeding && generation ? { generationId: generation._id } : "skip"
+  );
+  // This run's Outline only; a read for a replaced generation says nothing.
+  const seedOutline = $derived(
+    seedOutlineQ.data && seedOutlineQ.data.generationId === generation?._id ? seedOutlineQ.data : undefined
+  );
+  // Every step is done by the rule sign-off uses (the server's readiness).
+  const planReady = $derived(Boolean(seeding && seedOutline?.readiness?.ready));
+  // Owner decision 2026-09-28 (sixth): while seeding, the Summary opens only
+  // once every step is done. A Summary URL or state refused by a current
+  // Outline read opens the Plan instead; until that read arrives the Summary
+  // tab stays disabled and a Summary URL waits (the review loads the same read).
+  const seedSummaryLocked = $derived(seeding && !planReady);
+  const seedSummaryRefused = $derived(seeding && !!seedOutline && !seedOutline.readiness?.ready);
+  $effect(() => {
+    if (!seedSummaryRefused || !seedSummaryRequested) return;
+    untrack(() => setSeedSummary(false, "replace"));
+  });
   const seedSummaryOpen = $derived(
     seedSummaryRequested &&
+      !seedSummaryRefused &&
       (isSeedWorkflow ||
         (reportGenerationQ.data?.gatedWorkflow === "seeds" && !!reportGenerationQ.data.summaryVersionId))
   );
@@ -1362,7 +1384,7 @@
   );
   const showSeedSummary = $derived(
     seedSummaryRequested &&
-      ((isSeedWorkflow && generation?.seedPhase === "seeding") ||
+      ((seeding && !seedSummaryRefused) ||
         (!showIterativeStepper &&
           generation?.status !== "awaiting_selection" &&
           !(isSeedWorkflow &&
@@ -1440,13 +1462,8 @@
   // callback never focuses a replacement page, and a newer transition
   // supersedes an older one still waiting to render.
   let seedFocusToken = 0;
-  // Which control opened Summary Review, so leaving it returns focus there:
-  // the panel toolbar's Summary tab, or the workspace "Review summary"
-  // trigger (also the destination after a browser-history return).
-  let summaryOpener: "tab" | "trigger" = "trigger";
   function scheduleSeedFocus(transition: "return" | "drafting") {
     const token = ++seedFocusToken;
-    const opener = summaryOpener;
     const owner = {
       projectId: String(projectId),
       userId: user?._id ?? "anonymous",
@@ -1465,7 +1482,7 @@
         // coincides with it.
         focusGenerationProgress();
       } else if (transition === "return" && !showSeedSummary) {
-        focusSummaryOpener(opener);
+        focusSummaryReturnTrigger();
       }
     });
   }
@@ -1547,11 +1564,13 @@
   );
   const openTranscript = $derived(openTranscriptQ.data);
 
-  function setSeedSummary(open: boolean) {
+  /** A refused Summary is replaced rather than pushed, so Back never
+   * returns to a Summary that is still locked. */
+  function setSeedSummary(open: boolean, history: "push" | "replace" = "push") {
     const url = new URL(page.url);
     if (open) url.searchParams.set("view", "summary");
     else if (url.searchParams.get("view") === "summary") url.searchParams.delete("view");
-    pushState(`${url.pathname}${url.search}`, {});
+    (history === "replace" ? replaceState : pushState)(`${url.pathname}${url.search}`, {});
     seedSummaryRequested = open;
   }
 
@@ -1798,10 +1817,6 @@
   // Sources. Tabs map onto the existing surfaces: Summary is still the
   // `?view=summary` state with its focus and fencing rules.
   const seedMode = $derived(isSeedWorkflow || reportGenerationQ.data?.gatedWorkflow === "seeds");
-  const seeding = $derived(isSeedWorkflow && generation?.seedPhase === "seeding");
-  const seedOutlineQ = useQuery(seedsApi.getOutline, () =>
-    auth.isAuthenticated && seeding && generation ? { generationId: generation._id } : "skip"
-  );
   // Board 3.6: below the large breakpoint the seed stage puts the Details
   // toggle beside the Outline/Seeds switch, so the toolbar drops its own.
   // While the panel covers the narrow screen, the toolbar toggle returns so
@@ -1812,11 +1827,10 @@
   const seedDetailsInPaneSwitch = $derived(
     showSeedWorkspace &&
       !sourcesOpen &&
-      seedOutlineQ.data?.generationId === generation?._id &&
+      !!seedOutline &&
       !desktopAssistant &&
       !(detailsOpen && sidePanelOnScreen)
   );
-  const planReady = $derived(Boolean(seeding && seedOutlineQ.data?.readiness?.ready));
   const signedOffSummaryAvailable = $derived(
     Boolean(report) &&
       !awaitingSelection &&
@@ -1867,13 +1881,16 @@
     const sources: PanelTab = { id: "sources", label: "Sources", count: sourceCount || null };
     if (!seedMode) return [{ id: "report", label: "Report" }, sources];
     return [
-      { id: "plan", label: "Plan", done: seedSignedOff || planReady, disabled: !seeding },
+      { id: "plan", label: "Plan", done: seedSignedOff || planReady, disabled: !seeding, triggerId: SEED_PLAN_TAB_ID },
       {
         id: "summary",
         label: "Summary",
         done: seedSignedOff,
-        status: seeding && planReady ? "Ready" : null,
-        disabled: !(seeding || signedOffSummaryAvailable || showSeedSummary || showSeedRecovery),
+        status: planReady ? "Ready" : null,
+        disabled: seeding
+          ? seedSummaryLocked
+          : !(signedOffSummaryAvailable || showSeedSummary || showSeedRecovery),
+        disabledReason: seeding ? "Available when every step is done" : undefined,
         ...(signedOffSummaryAvailable
           ? { triggerId: SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID, ariaLabel: "Signed-off Summary" }
           : { triggerId: SEED_SUMMARY_TAB_ID }),
@@ -1894,10 +1911,8 @@
     }
     sourcesOpen = false;
     if (id === "summary") {
-      if (!showSeedSummary && !showSeedRecovery) {
-        summaryOpener = "tab";
-        setSeedSummary(true);
-      }
+      if (seedSummaryLocked) return;
+      if (!showSeedSummary && !showSeedRecovery) setSeedSummary(true);
       return;
     }
     if (id === "report") mobileWorkspaceView = "report";
@@ -2397,10 +2412,7 @@
             userId={user?._id ?? "anonymous"}
             requestedRoleId={page.url.searchParams.get("step")}
             hostVisible={mainPaneVisible && !sourcesOpen}
-            onReviewSummary={() => {
-              summaryOpener = "trigger";
-              setSeedSummary(true);
-            }}
+            onOpenSummary={() => setSeedSummary(true)}
           >
             {#snippet paneSwitchEnd()}
               <!-- Board 3.6: the page's Details toggle beside the switch. -->

@@ -20,7 +20,6 @@
   import IdeasReadyToast from "./IdeasReadyToast.svelte";
   import { seedSourceLabel, type SeedSourceAttribution } from "./attribution";
   import type { QuoteCitation } from "./citations";
-  import { SEED_REVIEW_SUMMARY_TRIGGER_ID } from "./summaryFocus";
   import { approvalButtonClass } from "./approvalStyles";
   import type { SeedDraftUpdate, SeedLocalDraft } from "./types";
   import { seedsApi } from "./api";
@@ -31,7 +30,7 @@
     generationId,
     projectId,
     userId,
-    onReviewSummary,
+    onOpenSummary,
     onOpenSource = undefined,
     hostVisible = true,
     paneSwitchEnd = undefined,
@@ -40,7 +39,10 @@
     generationId: Id<"generations">;
     projectId: Id<"projects">;
     userId: string;
-    onReviewSummary: () => void;
+    /** Opens the Summary once the last step is approved. The Summary has no
+     * other way in from the workspace: the host's Summary tab opens it once
+     * every step is done (owner decision 2026-09-28 sixth). */
+    onOpenSummary: () => void;
     /** False while the host keeps this workspace mounted but hidden (another
      * tab, the side panel on a narrow screen), so drafts survive while no
      * Batch counts as viewed. */
@@ -480,12 +482,6 @@
       pendingOnScreen = null;
     });
   });
-  // "Review summary" sits under approval when the step is reopened, when the
-  // server says every step is decided, or for a reader who cannot approve.
-  const reviewSummaryShown = $derived(
-    !!outline && (reopened || outline.readiness.ready || !outline.canEdit)
-  );
-
   /** Lets the mounted pane hand over its approval actions; the returned
    * function removes them only while they are still the registered ones. */
   function registerApproval(actions: Snippet<["outline" | "bar"]>) {
@@ -505,7 +501,7 @@
       return !row || (row.state !== "approved" && row.state !== "skipped");
     });
     if (next) void openRoleFromOutline(next);
-    else onReviewSummary();
+    else onOpenSummary();
   }
 
   function openBrief() {
@@ -984,14 +980,6 @@
       <Button class={approvalButtonClass(layout)} disabled>
         {reopened ? "Confirm and approve" : "Approve and continue"}
       </Button>
-    {/if}
-    {#if reviewSummaryShown}
-      <Button
-        id={SEED_REVIEW_SUMMARY_TRIGGER_ID}
-        variant="secondary"
-        class={approvalButtonClass(layout)}
-        onclick={onReviewSummary}
-      >Review summary</Button>
     {/if}
   </div>
 {/snippet}

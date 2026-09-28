@@ -16,6 +16,9 @@
     /** Count badge (Sources). */
     count?: number | null;
     disabled?: boolean;
+    /** Why a disabled tab is unavailable: its hover title and accessible
+     * description (the Summary before every step is done). */
+    disabledReason?: string;
     /** DOM id for focus-return contracts (the signed-off Summary trigger). */
     triggerId?: string;
     /** Accessible name when it must say more than the label. */
@@ -83,6 +86,7 @@
   <nav aria-label="Project views" class="flex min-w-0 items-stretch gap-5 overflow-x-auto">
     {#each tabs as tab (tab.id)}
       {@const active = tab.id === activeTab}
+      {@const reason = tab.disabled ? tab.disabledReason : undefined}
       <button
         type="button"
         id={tab.triggerId}
@@ -90,6 +94,8 @@
         aria-current={active ? "page" : undefined}
         aria-label={tab.ariaLabel}
         disabled={tab.disabled}
+        title={reason}
+        aria-describedby={reason ? `panel-tab-reason-${tab.id}` : undefined}
         onclick={() => onSelectTab(tab.id)}
         class={`relative flex shrink-0 items-center gap-1.5 text-xs leading-4 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir disabled:cursor-default disabled:opacity-50 pointer-coarse:min-h-11 ${active ? "font-medium text-ink" : "text-ink-secondary hover:text-ink"}`}
       >
@@ -108,6 +114,9 @@
           <span aria-hidden="true" class="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-primary-selected"></span>
         {/if}
       </button>
+      {#if reason}
+        <span id={`panel-tab-reason-${tab.id}`} class="sr-only">{reason}</span>
+      {/if}
     {/each}
   </nav>
 
