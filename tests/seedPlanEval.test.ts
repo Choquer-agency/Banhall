@@ -20,6 +20,7 @@ import {
   waitOutRateLimits,
   latencySamples,
   linkedAdvancements,
+  notCheckedCounts,
   loadFixtures,
   parseArgs,
   parseConvexError,
@@ -714,6 +715,51 @@ describe("first contact fixes", () => {
     const clean = runChecks(fixture, baseCollected(), emptyRunLog(fixture.id, 0));
     expect(clean.find((item) => item.id === "self-check-ran")?.status).toBe("pass");
     expect(clean.find((item) => item.id === "locked-rules")?.status).toBe("pass");
+  });
+
+  it("fails the Self-check when every label and plan check of a Section is not checked, and counts them per Section", () => {
+    const fixture = byCase("skipped_role_supported");
+    const c = baseCollected();
+    c.summary!.items = [summaryItem("i1", "company_context", "s1"), summaryItem("i2", "workplan", "s2")];
+    const label = (section: string, instruction: string, reason: string, outcome = "applied") => ({
+      section, paragraphIndex: null, source: "model", instruction, outcome, tier: "none", reason, repaired: false, planRef: null,
+    });
+    const notCheckedItem = { outcome: "not_applied", reason: "Not checked: the plan coverage Self-check gave no verdict for this item." };
+    const notCheckedLabel = "Not checked: the Self-check gave no verdict for this check.";
+    c.complianceNotes = [
+      // 242: nothing checked at all.
+      label("242", "Storyline", notCheckedLabel, "not_applied"),
+      label("242", "Confidence Map: Coupon result.", notCheckedLabel, "not_applied"),
+      cover("i1", "242", ["i1"], notCheckedItem),
+      // 244: one label not checked, the rest checked.
+      label("244", "Storyline", "Matches the Storyline."),
+      label("244", "Glossary Term: fouling rig", notCheckedLabel, "not_applied"),
+      label("244", "Storyline", "Storyline question raised in the Brief: Which result holds? (not repaired)", "not_applied"),
+      label("244", "Consistency pass (contradiction)", "section contradiction detected", "not_applied"),
+      cover("i2", "244"),
+    ];
+    const checks = runChecks(fixture, c, emptyRunLog(fixture.id, 0));
+    const ran = checks.find((item) => item.id === "self-check-ran")!;
+    expect(ran.status).toBe("fail");
+    expect(ran.evidence).toContain('242: every label and plan check is "Not checked" (3)');
+    expect(ran.evidence).toContain('244: 1 label and 0 plan checks "Not checked" of 3');
+    expect(notCheckedCounts(c)).toEqual([
+      { section: "242", labels: 2, planChecks: 1, total: 3 },
+      { section: "244", labels: 1, planChecks: 0, total: 3 },
+    ]);
+    const text = renderFixturePack({ fixture, log: emptyRunLog(fixture.id, 0), collected: c, checks }, {
+      date: "2026-09-28", deployment: "local", commit: "abc1234", reviewer: "reviewer@example.com",
+    });
+    expect(text).toContain("## Not checked by the Self-check");
+    expect(text).toContain('- Line 242: 2 labels and 1 plan check "Not checked" of 3.');
+    expect(text).toContain('- Line 244: 1 label and 0 plan checks "Not checked" of 3.');
+    expect(DASHES.test(text)).toBe(false);
+
+    // Some rows not checked is named but does not fail the check by itself.
+    c.complianceNotes = c.complianceNotes.filter((note) => note.section === "244");
+    const partial = runChecks(fixture, c, emptyRunLog(fixture.id, 0)).find((item) => item.id === "self-check-ran")!;
+    expect(partial.status).toBe("pass");
+    expect(partial.evidence).toBe('244: 1 label and 0 plan checks "Not checked" of 3');
   });
 
   it("re-renders an earlier results.json with the current checks and no deployment", () => {

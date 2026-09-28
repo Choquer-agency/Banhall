@@ -1509,13 +1509,23 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
   );
   // The model Self-check is what records plan coverage; when it fails, every
   // coverage row above says "did not complete", so name the cause plainly.
+  // Since 2026-09-28 a label or plan check it gave no verdict for is "Not
+  // checked" on its own row; a Section where every one is not checked did
+  // not run the check in any useful sense either.
   const selfCheckFailures = c.complianceNotes.filter((note) => note.instruction === "Model Self-check" && note.outcome !== "applied");
+  const notChecked = notCheckedCounts(c);
+  const nothingChecked = notChecked.filter((row) => row.total > 0 && row.labels + row.planChecks === row.total);
+  const partlyChecked = notChecked.filter((row) => row.labels + row.planChecks > 0 && !nothingChecked.includes(row));
   checks.push(
     check(
       "self-check-ran",
       "The model Self-check ran on every Section",
-      selfCheckFailures.length === 0,
-      selfCheckFailures.length ? selfCheckFailures.map((note) => `${note.section}: ${quote(note.reason, 120)}`).join("; ") : "no Self-check failure recorded",
+      selfCheckFailures.length === 0 && nothingChecked.length === 0,
+      [
+        ...selfCheckFailures.map((note) => `${note.section}: ${quote(note.reason, 120)}`),
+        ...nothingChecked.map((row) => `${row.section}: every label and plan check is "Not checked" (${row.total})`),
+        ...partlyChecked.map((row) => `${row.section}: ${notCheckedText(row)}`),
+      ].join("; ") || "no Self-check failure recorded",
     ),
   );
   const lockedBreaches = c.complianceNotes.filter((note) => note.tier === "locked" && note.outcome !== "applied");
@@ -1547,6 +1557,49 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
   );
   void fixture;
   return checks;
+}
+
+const NOT_CHECKED_PREFIX = "Not checked:";
+
+export type NotCheckedCount = {
+  section: string;
+  /** Ordinary labels (Storyline, Confidence Map, Glossary, instructions) not checked. */
+  labels: number;
+  /** Plan items and Skips not checked. */
+  planChecks: number;
+  /** Every label and plan check row the Self-check was asked about. */
+  total: number;
+};
+
+/**
+ * Per Section, the Compliance Note rows the Self-check gave no verdict for
+ * (2026-09-28). Label rows are the model rows other than consistency
+ * findings and Storyline question notes; plan rows carry a plan reference.
+ */
+export function notCheckedCounts(c: Collected): NotCheckedCount[] {
+  const sections = [...new Set(c.complianceNotes.map((note) => note.section))].sort();
+  return sections.map((section) => {
+    const rows = c.complianceNotes.filter((note) => note.section === section);
+    const labelRows = rows.filter(
+      (note) =>
+        !note.planRef &&
+        note.source === "model" &&
+        !note.instruction.startsWith("Consistency pass") &&
+        !note.reason.startsWith("Storyline question"),
+    );
+    const planRows = rows.filter((note) => note.planRef);
+    const notChecked = (note: { reason: string }) => note.reason.startsWith(NOT_CHECKED_PREFIX);
+    return {
+      section,
+      labels: labelRows.filter(notChecked).length,
+      planChecks: planRows.filter(notChecked).length,
+      total: labelRows.length + planRows.length,
+    };
+  });
+}
+
+function notCheckedText(row: NotCheckedCount): string {
+  return `${row.labels} ${row.labels === 1 ? "label" : "labels"} and ${row.planChecks} plan ${row.planChecks === 1 ? "check" : "checks"} "Not checked" of ${row.total}`;
 }
 
 function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[] {
@@ -2063,6 +2116,17 @@ export function renderFixturePack(result: FixtureResult, context: PackContext): 
         `| ${note.section} | ${cell(note.instruction)} | ${note.outcome} | ${note.tier} | ${note.planRef && note.planRef.mergedItemIds.length > 1 ? note.planRef.mergedItemIds.length : ""} | ${cell(note.reason)} |`,
       );
     }
+    const notChecked = notCheckedCounts(c);
+    lines.push(
+      "",
+      "## Not checked by the Self-check",
+      "",
+      "Labels (Storyline, Confidence Map, Glossary, instructions) and plan checks (items and Skips) the Self-check gave no verdict for, even after its one follow-up.",
+      "",
+      ...(notChecked.length
+        ? notChecked.map((row) => `- Line ${row.section}: ${notCheckedText(row)}.`)
+        : ["- No Compliance Note rows."]),
+    );
     const samples = latencySamples(c, log);
     const requests = seedRequestCount(c);
     const cost = usageCost(c);
