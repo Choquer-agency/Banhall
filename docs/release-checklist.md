@@ -38,7 +38,7 @@ Start a local deployment of the release commit with the model keys set. Then, in
 
 ```bash
 node scripts/seed-plan-eval.mjs --dry-run
-node scripts/seed-plan-eval.mjs --deployment <local deployment> --as <reviewer email> --confirm-spend
+node scripts/seed-plan-eval.mjs --deployment local --as <reviewer email> --confirm-spend
 ```
 
 `--as` names the internal account the suite acts as. The script refuses production, and it refuses a cloud deployment unless you add `--allow-cloud-dev`. Every project it creates is named "Release eval - <fixture>". It writes a judging pack to `_bmad-output/test-artifacts/seed-plan-eval/<date>/`: one file per fixture with the signed-off plan, the drafted Sections, the Compliance Note and the automatic checks, and a `summary.md` with the timings and request counts.

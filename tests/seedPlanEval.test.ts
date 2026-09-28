@@ -182,6 +182,9 @@ describe("deployment guard", () => {
     expect(run(["--deployment", "local-e2e", "--as", "reviewer@example.com"])).toMatch(/--confirm-spend/);
     expect(run(["--deployment", "local-e2e", "--confirm-spend"])).toMatch(/--as/);
     expect(run(["--deployment", "local-e2e", "--as", "reviewer@example.com", "--cleanup"])).toBeNull();
+    // The Convex CLI names the local backend plainly "local".
+    expect(run(["--deployment", "local", "--as", "reviewer@example.com", "--confirm-spend"])).toBeNull();
+    expect(run(["--deployment", "localhost-otter-1", "--as", "reviewer@example.com", "--confirm-spend"])).toMatch(/--allow-cloud-dev/);
   });
 
   it("never runs against production and needs a flag for any cloud deployment", () => {

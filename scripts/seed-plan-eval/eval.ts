@@ -516,9 +516,9 @@ export function parseArgs(argv: readonly string[]): EvalOptions {
   return options;
 }
 
-/** A local deployment (`npx convex dev --local`, or an anonymous one). */
+/** A local deployment: `local` (the CLI's name for the local backend), `local-*`, or an anonymous one. */
 export function isLocalDeployment(name: string): boolean {
-  return /^(local|anonymous)-[a-z0-9-]+$/.test(name);
+  return /^(local|anonymous)(-[a-z0-9-]+)?$/.test(name);
 }
 
 /**
@@ -530,7 +530,7 @@ export function isLocalDeployment(name: string): boolean {
 export function deploymentRefusal(options: EvalOptions, env: Record<string, string | undefined>): string | null {
   if (options.dryRun) return null;
   const name = options.deployment?.trim();
-  if (!name) return "Name the deployment with --deployment (for example --deployment local-e2e).";
+  if (!name) return "Name the deployment with --deployment (for example --deployment local).";
   const lowered = name.toLowerCase();
   if (PRODUCTION_DEPLOYMENTS.includes(lowered) || lowered === "prod" || lowered.startsWith("prod/") || /(^|[^a-z])prod(uction)?([^a-z]|$)/.test(lowered)) {
     return `Refusing ${name}: the suite never runs against production.`;

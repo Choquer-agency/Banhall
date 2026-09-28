@@ -14,9 +14,9 @@
 // Billable: every fixture makes real model calls on the chosen deployment.
 //
 //   node scripts/seed-plan-eval.mjs --dry-run
-//   node scripts/seed-plan-eval.mjs --deployment local-e2e --as reviewer@example.com --confirm-spend
-//   node scripts/seed-plan-eval.mjs --deployment local-e2e --as reviewer@example.com --confirm-spend --fixture withdrawn-feedback
-//   node scripts/seed-plan-eval.mjs --deployment local-e2e --as reviewer@example.com --cleanup
+//   node scripts/seed-plan-eval.mjs --deployment local --as reviewer@example.com --confirm-spend
+//   node scripts/seed-plan-eval.mjs --deployment local --as reviewer@example.com --confirm-spend --fixture withdrawn-feedback
+//   node scripts/seed-plan-eval.mjs --deployment local --as reviewer@example.com --cleanup
 //
 // Options:
 //   --dry-run            validate the fixtures and print each scripted session; no Convex call, no model call
