@@ -25,6 +25,7 @@ import {
   parseConvexError,
   renderFixturePack,
   renderSummary,
+  rerenderResults,
   reservePackDir,
   runChecks,
   runFixture,
@@ -552,7 +553,8 @@ describe("runner", () => {
       mutation: async (name, args) => {
         created.push({ name, ...args });
         if (name === "generations:requestGeneration") throw new Error("stop here");
-        return name === "projects:createProject" ? "project-1" : "document-1";
+        // The real mutation returns the new ids as an object.
+        return name === "projects:createProject" ? { projectId: "project-1", transcriptIds: ["t-1"] } : "document-1";
       },
       query: async () => null,
       internal: async () => null,
@@ -687,5 +689,58 @@ describe("rate limits", () => {
     exhausted.waitedMs = 45 * 60_000;
     const again = await runFixture(byCase("withdrawn_feedback"), { ...driver, mutation: async () => { throw limited(30); } }, { rateLimitBudget: exhausted });
     expect(again.log.error).toMatch(/would pass this run's 45 min allowance/);
+  });
+});
+
+describe("first contact fixes", () => {
+  it("names a failed Self-check and a Locked Rule breach, and groups repeated reasons", () => {
+    const fixture = byCase("skipped_role_supported");
+    const c = baseCollected();
+    c.summary!.items = [summaryItem("i1", "company_context", "s1"), summaryItem("i2", "goal_problem", "s2")];
+    const didNotComplete = { outcome: "not_applied", reason: "The plan coverage Self-check did not complete." };
+    c.complianceNotes = [
+      cover("i1", "242", ["i1"], didNotComplete),
+      cover("i2", "242", ["i2"], didNotComplete),
+      { section: "242", paragraphIndex: null, source: "deterministic", instruction: "Model Self-check", outcome: "not_applied", tier: "none", reason: "Self-check call failed (unknown: 9 ordinary verdicts for 22 labels); deterministic checks only", repaired: false, planRef: null },
+      { section: "246", paragraphIndex: null, source: "deterministic", instruction: "Locked Rule: Line 246 holds at most 350 words and 50 form lines", outcome: "not_applied", tier: "locked", reason: "cap breach at 440/350 words, 45/50 lines; repair failed", repaired: false, planRef: null },
+    ];
+    const checks = runChecks(fixture, c, emptyRunLog(fixture.id, 0));
+    const find = (id: string) => checks.find((item) => item.id === id)!;
+    expect(find("coverage-applied")).toMatchObject({ status: "fail", evidence: '2 row(s) in 242: "The plan coverage Self-check did not complete."' });
+    expect(find("self-check-ran")).toMatchObject({ status: "fail" });
+    expect(find("self-check-ran").evidence).toContain("9 ordinary verdicts for 22 labels");
+    expect(find("locked-rules")).toMatchObject({ status: "fail" });
+    expect(find("locked-rules").evidence).toContain("440/350 words");
+    const clean = runChecks(fixture, baseCollected(), emptyRunLog(fixture.id, 0));
+    expect(clean.find((item) => item.id === "self-check-ran")?.status).toBe("pass");
+    expect(clean.find((item) => item.id === "locked-rules")?.status).toBe("pass");
+  });
+
+  it("re-renders an earlier results.json with the current checks and no deployment", () => {
+    expect(deploymentRefusal(parseArgs(["--render", "results.json"]), { CONVEX_DEPLOY_KEY: "x" })).toBeNull();
+    expect(() => parseArgs(["--render", "a.json", "--cleanup"])).toThrow(/cannot be combined/);
+    const fixture = byCase("skipped_role_supported");
+    const log = emptyRunLog(fixture.id, 0);
+    const saved = {
+      context: { date: "2026-09-28", deployment: "local", commit: "abc1234", reviewer: "reviewer@example.com" },
+      results: [{ fixture: { ...fixture, dir: undefined, texts: undefined } as never, log, collected: baseCollected(), checks: [] }],
+    };
+    const { results } = rerenderResults(saved, fixtures);
+    expect(results[0].checks.some((item) => item.id === "self-check-ran")).toBe(true);
+    expect("texts" in results[0].fixture).toBe(false);
+  });
+
+  it("stops plainly when createProject returns no project id", async () => {
+    const driver: EvalDriver = {
+      mutation: async () => ({ transcriptIds: [] }),
+      query: async () => null,
+      internal: async () => null,
+      now: () => 0,
+      sleep: async () => undefined,
+      log: () => undefined,
+    };
+    const { log } = await runFixture(byCase("skipped_role_supported"), driver);
+    expect(log.error).toBe('projects:createProject returned no projectId ({"transcriptIds":[]})');
+    expect(log.projectId).toBeNull();
   });
 });

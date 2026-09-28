@@ -28,6 +28,7 @@
 //   --single-baseline    after each fixture, run Single mode on the same project for the CAP-14 comparison
 //   --out DIR            pack root (default _bmad-output/test-artifacts/seed-plan-eval)
 //   --cleanup            delete every "Release eval - " project the reviewer owns, then stop
+//   --render FILE        rebuild a judging pack from an earlier results.json with the current checks; no Convex or model call
 //
 // A scripted action refused by the per-user limits (RATE_LIMITED) is waited
 // out: the script prints what it waits for, sleeps the refusal's retryAfter
@@ -39,10 +40,17 @@
 // CONVEX_DEPLOY_KEY in the environment is refused so --deployment alone
 // chooses the target.
 import { spawn, execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 
-const root = process.cwd();
+// The suite's code, fixtures and default pack folder come from the checkout
+// this script lives in; `npx convex run` runs in the current directory, so
+// its project config and .env.local choose the local backend. Running this
+// script from another checkout's directory leaves that checkout untouched.
+const root = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
+const convexDir = process.cwd();
 
 function convexRun(deployment, functionName, args, identity) {
   const env = { ...process.env };
@@ -50,7 +58,7 @@ function convexRun(deployment, functionName, args, identity) {
   const argv = ["run", "--deployment", deployment, functionName, JSON.stringify(args)];
   if (identity) argv.push("--identity", JSON.stringify(identity));
   return new Promise((resolve, reject) => {
-    const child = spawn(path.join(root, "node_modules/.bin/convex"), argv, { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(path.join(root, "node_modules/.bin/convex"), argv, { cwd: convexDir, env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk));
@@ -70,6 +78,7 @@ function convexRun(deployment, functionName, args, identity) {
 }
 
 const server = await createServer({
+  root,
   configFile: false,
   cacheDir: path.join(root, "node_modules/.vite-seed-plan-eval"),
   server: { middlewareMode: true, watch: null },
@@ -101,13 +110,24 @@ try {
     if (problems.length) invalid += 1;
   }
 
+  if (options.render) {
+    const saved = JSON.parse(readFileSync(path.resolve(convexDir, options.render), "utf8"));
+    const { context, results } = evalModule.rerenderResults(saved, fixtures);
+    const packRoot = path.resolve(options.out ?? path.join(root, "_bmad-output/test-artifacts/seed-plan-eval"));
+    const dir = evalModule.reservePackDir(packRoot, context.date);
+    const written = evalModule.writePack(dir, results, context);
+    console.log(`Re-rendered ${results.length} fixture(s) from ${options.render} with no Convex or model call:`);
+    for (const file of written) console.log(`  ${path.relative(root, file)}`);
+    throw null;
+  }
+
   if (options.dryRun) {
     for (const fixture of fixtures) {
       console.log(`\n${fixture.id}: scripted session`);
       evalModule.buildPlan(fixture).forEach((step, i) => console.log(`  ${String(i + 1).padStart(2)}. ${evalModule.describeStep(step)}`));
     }
     const wouldRefuse = evalModule.deploymentRefusal({ ...options, dryRun: false }, process.env);
-    console.log(`\nDry run: no Convex call and no model call was made. A real run with these options ${wouldRefuse ? `would be refused: ${wouldRefuse}` : `would run on ${options.deployment}`}.`);
+    console.log(`\nDry run: no Convex call and no model call was made. A real run with these options ${wouldRefuse ? `would be refused: ${wouldRefuse.replace(/\.$/, "")}` : `would run on ${options.deployment}`}.`);
     exitCode = invalid ? 1 : 0;
     throw null;
   }
@@ -177,7 +197,7 @@ try {
   }
 
   const date = new Date().toLocaleDateString("en-CA");
-  const commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
+  const commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   const context = { date, deployment, commit, reviewer: options.as };
   const packRoot = path.resolve(options.out ?? path.join(root, "_bmad-output/test-artifacts/seed-plan-eval"));
   const dir = evalModule.reservePackDir(packRoot, date);

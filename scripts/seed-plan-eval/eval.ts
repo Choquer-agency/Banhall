@@ -468,6 +468,7 @@ export const PRODUCTION_DEPLOYMENTS = ["energized-salamander-237"];
 export type EvalOptions = {
   dryRun: boolean;
   cleanup: boolean;
+  render: string | null;
   deployment: string | null;
   confirmSpend: boolean;
   allowCloudDev: boolean;
@@ -482,6 +483,7 @@ export function parseArgs(argv: readonly string[]): EvalOptions {
   const options: EvalOptions = {
     dryRun: false,
     cleanup: false,
+    render: null,
     deployment: null,
     confirmSpend: false,
     allowCloudDev: false,
@@ -501,6 +503,7 @@ export function parseArgs(argv: readonly string[]): EvalOptions {
     switch (arg) {
       case "--dry-run": options.dryRun = true; break;
       case "--cleanup": options.cleanup = true; break;
+      case "--render": options.render = value(i, arg); i += 1; break;
       case "--confirm-spend": options.confirmSpend = true; break;
       case "--allow-cloud-dev": options.allowCloudDev = true; break;
       case "--single-baseline": options.singleBaseline = true; break;
@@ -512,7 +515,9 @@ export function parseArgs(argv: readonly string[]): EvalOptions {
       default: throw new Error(`Unknown option ${arg}`);
     }
   }
-  if (options.dryRun && options.cleanup) throw new Error("--dry-run and --cleanup cannot be combined");
+  if ([options.dryRun, options.cleanup, options.render !== null].filter(Boolean).length > 1) {
+    throw new Error("--dry-run, --cleanup and --render cannot be combined");
+  }
   return options;
 }
 
@@ -528,7 +533,7 @@ export function isLocalDeployment(name: string): boolean {
  * because it can point the CLI somewhere other than --deployment.
  */
 export function deploymentRefusal(options: EvalOptions, env: Record<string, string | undefined>): string | null {
-  if (options.dryRun) return null;
+  if (options.dryRun || options.render !== null) return null;
   const name = options.deployment?.trim();
   if (!name) return "Name the deployment with --deployment (for example --deployment local).";
   const lowered = name.toLowerCase();
@@ -1228,13 +1233,16 @@ export async function runFixture(
     const transcripts = fixture.sources
       .filter((source) => source.kind === "transcript")
       .map((source) => ({ content: fixture.texts[source.file], label: source.label ?? source.file }));
-    const projectId = (await act("projects:createProject", {
+    // projects.createProject returns { projectId, transcriptIds }.
+    const created = (await act("projects:createProject", {
       title: releaseEvalProjectTitle(fixture.title),
       clientName: fixture.clientName,
       ...(fixture.industry ? { industry: fixture.industry } : {}),
       ...(fixture.interviewees?.length ? { interviewees: fixture.interviewees } : {}),
       transcripts,
-    })) as string;
+    })) as { projectId?: unknown } | null;
+    const projectId = typeof created?.projectId === "string" ? created.projectId : null;
+    if (!projectId) throw new Error(`projects:createProject returned no projectId (${JSON.stringify(created)})`);
     log.projectId = projectId;
     say(`created project ${projectId}`);
     for (const source of fixture.sources.filter((candidate) => candidate.kind === "document")) {
@@ -1496,7 +1504,27 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
       "coverage-applied",
       "Every plan item is recorded as covered (conflicts aside)",
       !!c.summary && notCovered.length === 0,
-      notCovered.length ? notCovered.map((note) => `${note.section}: ${quote(note.reason, 100)}`).join("; ") : "all coverage rows applied",
+      notCovered.length ? groupedReasons(notCovered) : "all coverage rows applied",
+    ),
+  );
+  // The model Self-check is what records plan coverage; when it fails, every
+  // coverage row above says "did not complete", so name the cause plainly.
+  const selfCheckFailures = c.complianceNotes.filter((note) => note.instruction === "Model Self-check" && note.outcome !== "applied");
+  checks.push(
+    check(
+      "self-check-ran",
+      "The model Self-check ran on every Section",
+      selfCheckFailures.length === 0,
+      selfCheckFailures.length ? selfCheckFailures.map((note) => `${note.section}: ${quote(note.reason, 120)}`).join("; ") : "no Self-check failure recorded",
+    ),
+  );
+  const lockedBreaches = c.complianceNotes.filter((note) => note.tier === "locked" && note.outcome !== "applied");
+  checks.push(
+    check(
+      "locked-rules",
+      "Every Locked Rule held (CRA line and word limits)",
+      lockedBreaches.length === 0,
+      lockedBreaches.length ? lockedBreaches.map((note) => `${note.section}: ${quote(note.reason, 120)}`).join("; ") : "no Locked Rule breach recorded",
     ),
   );
   const skipped = c.summary?.skippedRoleIds ?? [];
@@ -1822,6 +1850,20 @@ function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[
   return checks;
 }
 
+/** Identical reasons collapse to one entry with a count. */
+function groupedReasons(notes: ReadonlyArray<{ section: string; reason: string }>): string {
+  const groups = new Map<string, { sections: Set<string>; count: number }>();
+  for (const note of notes) {
+    const group = groups.get(note.reason) ?? { sections: new Set<string>(), count: 0 };
+    group.sections.add(note.section);
+    group.count += 1;
+    groups.set(note.reason, group);
+  }
+  return [...groups.entries()]
+    .map(([reason, group]) => `${group.count} row(s) in ${[...group.sections].join(", ")}: ${quote(reason, 100)}`)
+    .join("; ");
+}
+
 function writerAssertedCoverage(c: Collected, itemId: string | null): Check {
   const row = itemId ? c.complianceNotes.find((note) => note.planRef?.itemId === itemId) : undefined;
   return check(
@@ -2097,6 +2139,27 @@ export function reservePackDir(root: string, date: string): string {
     }
   }
   throw new Error(`No free pack folder under ${root}`);
+}
+
+/**
+ * Rebuild a pack from an earlier run's results.json with today's checks and
+ * rendering, without any Convex or model call. The fixture manifests come
+ * from the current fixtures folder when they still exist.
+ */
+export function rerenderResults(
+  saved: { context: PackContext; results: FixtureResult[] },
+  fixtures: readonly FixtureManifest[],
+): { context: PackContext; results: FixtureResult[] } {
+  return {
+    context: saved.context,
+    results: saved.results.map((result) => {
+      const fixture = fixtures.find((candidate) => candidate.id === result.fixture.id) ?? result.fixture;
+      const { dir: _dir, texts: _texts, ...manifest } = fixture as Fixture;
+      void _dir;
+      void _texts;
+      return { ...result, fixture: manifest, checks: runChecks(manifest, result.collected, result.log) };
+    }),
+  };
 }
 
 export function writePack(dir: string, results: readonly FixtureResult[], context: PackContext): string[] {
