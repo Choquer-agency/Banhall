@@ -47,6 +47,7 @@ import {
   sectionMetrics,
   wordBudget,
   LINE_LIMITS,
+  WORD_CAPS,
   CHARS_PER_LINE,
   type LengthTarget,
   type SectionKey,
@@ -107,8 +108,21 @@ export function lengthBudgetBlock(section: SectionKey, target: LengthTarget): st
   return `${LENGTH_BUDGET_SCAFFOLD.prefix}${lines}${LENGTH_BUDGET_SCAFFOLD.linesToChars}${CHARS_PER_LINE}${LENGTH_BUDGET_SCAFFOLD.charsToWords}${words}${LENGTH_BUDGET_SCAFFOLD.suffix}`;
 }
 
-/** BNH-45: compression pass for a section that overflows the form.
- * `squeeze` < 1 tightens the word ask on retry. */
+/**
+ * The word target of one compression pass (2026-09-28, second): the
+ * section's length budget, never above `capHeadroom` of its Locked word cap,
+ * times the pass's squeeze (< 1 tightens the ask on retry).
+ */
+export function compressionTargetWords(
+  section: SectionKey,
+  target: LengthTarget,
+  squeeze = 1
+): number {
+  const ceiling = Math.floor(WORD_CAPS[section] * COMPRESSION_REQUEST.capHeadroom);
+  return Math.round(Math.min(wordBudget(section, target), ceiling) * squeeze);
+}
+
+/** BNH-45: compression pass for a section that overflows the form. */
 export async function compressSection(
   anthropic: GenerationClient,
   modelId: string,
@@ -118,7 +132,8 @@ export async function compressSection(
   squeeze = 1
 ): Promise<string> {
   const m = sectionMetrics(text, section);
-  const words = Math.round(wordBudget(section, target) * squeeze);
+  const words = compressionTargetWords(section, target, squeeze);
+  const scaffold = COMPRESSION_REQUEST.userScaffold;
   let response: GenerationResponse;
   try {
     response = await anthropic.messages.create({
@@ -128,7 +143,7 @@ export async function compressSection(
       messages: [
         {
           role: "user",
-          content: `${COMPRESSION_REQUEST.userScaffold.prefix}${m.lines}${COMPRESSION_REQUEST.userScaffold.linesToWords}${m.words}${COMPRESSION_REQUEST.userScaffold.wordsToLimit}${m.limit}${COMPRESSION_REQUEST.userScaffold.limitToChars}${CHARS_PER_LINE}${COMPRESSION_REQUEST.userScaffold.charsToTarget}${words}${COMPRESSION_REQUEST.userScaffold.targetToText}${text}`,
+          content: `${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToTarget}${words}${scaffold.targetToText}${text}`,
         },
       ],
     });
@@ -181,11 +196,59 @@ export function buildStyleGuidance(
 }
 
 /**
+ * How far `text` is from its Locked limits: the larger of its word and line
+ * ratios to the caps (at most 1 when it is within both).
+ */
+export function limitOverage(text: string, key: SectionKey): number {
+  const metrics = sectionMetrics(text, key);
+  return Math.max(metrics.words / metrics.wordCap, metrics.lines / metrics.limit);
+}
+
+/** What the compression passes left: the text kept, how many passes ran and whether it is still over. */
+export type LimitFit = { text: string; passes: number; overLimit: boolean };
+
+/**
  * BNH-45 enforcement: still over the form limit after the budgeted draft →
  * up to two compression passes for the offending section; the second asks for
- * 15% fewer words (models routinely land a hair over on the first squeeze —
+ * 15% fewer words (models routinely land a hair over on the first squeeze;
  * e2e saw a 51/50). Output is re-scrubbed for banned words each pass.
+ *
+ * 2026-09-28 (second): each pass is measured before it is kept. A pass that
+ * comes back no closer to the limits (or empty after the scrub) never
+ * replaces the text it was given, so the result is the best attempt, and the
+ * next pass works from that. Nothing is ever cut to fit: a Section still over
+ * after every pass keeps the model's own best text and says so.
  */
+export async function compressWithinLimit(
+  anthropicFor: (callSite: string) => GenerationClient,
+  modelId: string,
+  key: SectionKey,
+  text: string,
+  lengthTarget: LengthTarget,
+  styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES
+): Promise<LimitFit> {
+  let best = text;
+  let passes = 0;
+  for (const squeeze of COMPRESSION_REQUEST.squeezes) {
+    if (!sectionMetrics(best, key).overLimit) break;
+    const compressed = await compressSection(
+      anthropicFor(`generation:compression:${key.slice(1)}`),
+      modelId,
+      key,
+      best,
+      lengthTarget,
+      squeeze
+    );
+    passes += 1;
+    // PSOS-49: a bannedWords waiver exempts this writer from the scrub;
+    // re-scrubbing here would sneak the house vocabulary back in.
+    const out = scrubBannedWordsUnlessWaived(compressed, styleOverrides.bannedWords);
+    if (out.trim() && limitOverage(out, key) < limitOverage(best, key)) best = out;
+  }
+  return { text: best, passes, overLimit: sectionMetrics(best, key).overLimit };
+}
+
+/** compressWithinLimit for callers that only need the text. */
 export async function compressToFit(
   anthropicFor: (callSite: string) => GenerationClient,
   modelId: string,
@@ -194,22 +257,9 @@ export async function compressToFit(
   lengthTarget: LengthTarget,
   styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): Promise<string> {
-  let out = text;
-  for (const squeeze of COMPRESSION_REQUEST.squeezes) {
-    if (!sectionMetrics(out, key).overLimit) return out;
-    const compressed = await compressSection(
-      anthropicFor(`generation:compression:${key.slice(1)}`),
-      modelId,
-      key,
-      out,
-      lengthTarget,
-      squeeze
-    );
-    // PSOS-49: a bannedWords waiver exempts this writer from the scrub —
-    // re-scrubbing here would sneak the house vocabulary back in.
-    out = scrubBannedWordsUnlessWaived(compressed, styleOverrides.bannedWords);
-  }
-  return out;
+  return (
+    await compressWithinLimit(anthropicFor, modelId, key, text, lengthTarget, styleOverrides)
+  ).text;
 }
 
 export function toContextDocs(

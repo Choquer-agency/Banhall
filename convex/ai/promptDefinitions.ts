@@ -185,23 +185,32 @@ export const SEED_PROMPT_PROGRAM = {
   },
 } as const;
 
+/**
+ * The compression pass (BNH-45). 2026-09-28 (second): the request names both
+ * Locked limits, lines and words, with the section's own count of each, so
+ * a Section under its line limit but over its word cap is told which limit
+ * it breaks; and it asks for a target below the cap (`capHeadroom`), since a
+ * model routinely lands a little over the target it was given.
+ */
 export const COMPRESSION_REQUEST = {
   system:
-    "You compress SR&ED report sections to fit CRA form limits. Preserve every distinct technical claim, uncertainty, iteration, and result; cut repetition, filler, and scene-setting. Never invent content. [GAP: …] markers must be preserved verbatim: never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs). Return ONLY the compressed section text.\n\n" + RULES_HUMAN_PROSE,
+    "You compress SR&ED report sections to fit CRA form limits. The line and word limits are hard: a section over either one cannot be filed. Keep every distinct technical claim, uncertainty, iteration, and result the limit allows; cut repetition, filler, and scene-setting first, then state supporting detail more briefly. Never invent content. [GAP: …] markers must be preserved verbatim: never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs), and end every paragraph on a complete sentence. Return ONLY the compressed section text.\n\n" + RULES_HUMAN_PROSE,
   userScaffold: {
     prefix: "This section is ",
-    linesToWords: " lines / ",
-    wordsToLimit: " words, but the CRA field allows only ",
+    linesToWords: " lines and ",
+    wordsToLimit: " words, but the CRA field allows at most ",
     limitToChars: " lines of ",
-    charsToTarget:
-      " characters (blank lines between paragraphs each cost one line). Rewrite it to AT MOST ",
+    charsToCap:
+      " characters (blank lines between paragraphs each cost one line) and at most ",
+    capToTarget: " words. Rewrite it to AT MOST ",
     targetToText:
-      " words while preserving all technical substance. Merge paragraphs where natural; fewer paragraph breaks save lines.\n\n",
+      " words while preserving the technical substance. Merge paragraphs where natural; fewer paragraph breaks save lines.\n\n",
     runtimeSentinels: [
       "{{runtime.currentLines}}",
       "{{runtime.currentWords}}",
       "{{runtime.lineLimit}}",
       "{{runtime.charsPerLine}}",
+      "{{runtime.wordCap}}",
       "{{runtime.targetWords}}",
       "{{runtime.sectionText}}",
     ],
@@ -211,6 +220,8 @@ export const COMPRESSION_REQUEST = {
   modelSelector: { kind: "candidate" },
   thinking: { kind: "omitted" },
   squeezes: [1, 0.85],
+  /** The share of the Locked word cap a compression aims for at most. */
+  capHeadroom: 0.9,
 } as const;
 
 export const STYLE_GUIDANCE_SCAFFOLDS = {

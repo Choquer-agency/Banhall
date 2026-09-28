@@ -55,6 +55,9 @@ import {
 } from "./lib/generationSteps";
 import { runSeedDraftingInputs } from "./seedStartup.fixture";
 import { anthropicToolSse, sseResponse } from "./anthropicSse.fixture";
+import { compressionTargetWords } from "./ai/pipeline";
+import { wordBudget } from "./lib/lineLimits";
+import { RULES_HUMAN_PROSE } from "../shared/humanProse";
 
 const modules = import.meta.glob("./**/*.ts");
 type T = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -277,7 +280,35 @@ const withoutQuoteRules = (json: Record<string, unknown>) => {
   }
   return JSON.parse(body) as Record<string, unknown>;
 };
-const asPinned = (json: Record<string, unknown>) => withoutQuoteRules(withoutBriefStream(json));
+/**
+ * 2026-09-28 (second): the compression request names the word cap beside the
+ * line limit and asks for a target below the cap. Putting back the wording
+ * and the target it had on 771af202 gives the pinned body, so nothing else
+ * in it moved. Every compression in this fixture is a first pass.
+ */
+const COMPRESSION_SYSTEM_771AF202 =
+  "You compress SR&ED report sections to fit CRA form limits. Preserve every distinct technical claim, uncertainty, iteration, and result; cut repetition, filler, and scene-setting. Never invent content. [GAP: …] markers must be preserved verbatim: never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs). Return ONLY the compressed section text.\n\n";
+const COMPRESSION_USER_NOW =
+  /^This section is (\d+) lines and (\d+) words, but the CRA field allows at most (\d+) lines of (\d+) characters \(blank lines between paragraphs each cost one line\) and at most (\d+) words\. Rewrite it to AT MOST (\d+) words while preserving the technical substance\. Merge paragraphs where natural; fewer paragraph breaks save lines\.\n\n([\s\S]*)$/;
+const withoutLengthFix = (json: Record<string, unknown>) => {
+  if (stageOf(json) !== "compression") return json;
+  const systemNow = COMPRESSION_REQUEST.system.slice(0, -RULES_HUMAN_PROSE.length);
+  const body = JSON.stringify(json).replace(
+    JSON.stringify(systemNow).slice(1, -1),
+    JSON.stringify(COMPRESSION_SYSTEM_771AF202).slice(1, -1)
+  );
+  const edited = JSON.parse(body) as { messages: Array<{ role: string; content: Array<{ text: string }> }> };
+  const block = edited.messages[0].content[0];
+  const match = COMPRESSION_USER_NOW.exec(block.text);
+  if (!match) throw new Error("Unexpected compression request wording");
+  const [, lines, words, limit, chars, cap, target, text] = match;
+  const key = cap === "700" ? "s244" : "s242";
+  expect(Number(target)).toBe(compressionTargetWords(key, "standard"));
+  block.text = `This section is ${lines} lines / ${words} words, but the CRA field allows only ${limit} lines of ${chars} characters (blank lines between paragraphs each cost one line). Rewrite it to AT MOST ${wordBudget(key, "standard")} words while preserving all technical substance. Merge paragraphs where natural; fewer paragraph breaks save lines.\n\n${text}`;
+  return edited as unknown as Record<string, unknown>;
+};
+const asPinned = (json: Record<string, unknown>) =>
+  withoutLengthFix(withoutQuoteRules(withoutBriefStream(json)));
 function expectBriefStreaming(sent: Sent[], streamed: boolean) {
   const briefs = sent.filter((request) => toolOf(request.json) === "submit_generation_brief");
   expect(briefs.length).toBeGreaterThan(0);
@@ -705,7 +736,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       if (mode === "single") {
         // The compression bodies are the pinned ones plus `thinking: {type: "disabled"}`.
         expect(compression.hash).not.toBe(pinnedCompression.hash);
-        expect(await stagesOf(wire.sent.filter((request) => stageOf(request.json) === "compression"), withoutThinking)).toEqual({
+        expect(await stagesOf(wire.sent.filter((request) => stageOf(request.json) === "compression"), (json) => withoutThinking(asPinned(json)))).toEqual({
           compression: pinnedCompression,
         });
         for (const request of wire.sent.filter((item) => stageOf(item.json) === "compression")) {

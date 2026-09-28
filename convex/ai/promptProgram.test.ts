@@ -957,7 +957,7 @@ describe("chain failure paths never strand a candidate", () => {
     expect((await generationOf(t, generationId)).status).toBe("failed");
   });
 
-  it("a compression pass the banned-word scrub empties fails the section instead of persisting an empty body", async () => {
+  it("a compression pass the banned-word scrub empties never replaces the draft it was given (2026-09-28, second)", async () => {
     const t = convexTest(schema, modules);
     const { generationId } = await fixture(t, { mode: "single" });
     // Over the 350-word cap, so compressToFit's first squeeze actually runs.
@@ -982,16 +982,23 @@ describe("chain failure paths never strand a candidate", () => {
     });
     await t.action(internal.ai.pipeline.generateReport, { generationId });
     await runCandidates(t);
-    expect(await drainChain(t)).toEqual(["242"]);
+    await drainChain(t);
 
+    // The emptied passes are measured and dropped: the Section keeps the
+    // model's own draft for its Self-check (whose Locked breach its repair
+    // then fixes), and the chain goes on.
     const rows = await sectionRowsOf(t, generationId);
     expect(rows.map((row) => [row.section, row.status])).toEqual([
-      ["s242", "failed"],
-      ["s244", "failed"],
-      ["s246", "failed"],
+      ["s242", "drafted"],
+      ["s244", "drafted"],
+      ["s246", "drafted"],
     ]);
-    expect(rows[0].error).toContain("empty after compression");
-    expect((await generationOf(t, generationId)).status).toBe("failed");
+    expect(rows[0].draftText?.trim()).toBeTruthy();
+    const repairs = network.create.mock.calls.filter(
+      ([params]) => isRepair(userText(params)) && userText(params).includes(long)
+    );
+    expect(repairs).toHaveLength(1);
+    expect((await generationOf(t, generationId)).status).toBe("completed");
   });
 
   it("a failed model Self-check call never blocks a section: deterministic checks only, recorded per section", async () => {
