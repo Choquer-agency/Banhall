@@ -39,7 +39,7 @@ import {
 import { currentPromptVersion } from "./ai/promptProgram";
 import { summaryPlanSelfCheckSchemaFor } from "./ai/selfCheck";
 import { summarizeSlotUsage } from "./ai/instrument";
-import { COMPRESSION_REQUEST } from "./ai/promptDefinitions";
+import { COMPRESSION_REQUEST, SUMMARY_PLAN_SELF_CHECK_REQUEST } from "./ai/promptDefinitions";
 import { SECTION_246_REQUEST } from "./ai/section246Agent";
 import type {
   getOutline,
@@ -212,6 +212,17 @@ function providerPlanChecksBlock(params: GenerationMessageParams): string {
   return providerUser(params).match(
     /--- BEGIN \[CONTENT PLAN CHECKS\] ---\n[\s\S]*?\n--- END \[CONTENT PLAN CHECKS\] ---/
   )?.[0] ?? "";
+}
+
+/** 2026-09-28 (third): the coverage-only Self-check of a repaired final text. */
+function isFinalCoverageRequest(params: GenerationMessageParams): boolean {
+  return params.tool_choice?.name === "submit_self_check" &&
+    providerUser(params).includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+}
+
+/** The first Self-check of a Section, not its final coverage check. */
+function isFirstSelfCheckRequest(params: GenerationMessageParams): boolean {
+  return params.tool_choice?.name === "submit_self_check" && !isFinalCoverageRequest(params);
 }
 
 function providerPlanChecks(params: GenerationMessageParams): ProviderPlanCheck[] {
@@ -4077,8 +4088,10 @@ describe("seed Summary sign-off and recovery", () => {
     expect(providerUser(repair!)).not.toContain(
       'remove the excluded claim "Final specific_advancements wording."'
     );
-    expect(requests.filter((params) =>
-      params.tool_choice?.name === "submit_self_check")).toHaveLength(1);
+    expect(requests.filter(isFirstSelfCheckRequest)).toHaveLength(1);
+    // The accepted repair changed the text, so its coverage is checked once
+    // more on the final text (2026-09-28, third).
+    expect(requests.filter(isFinalCoverageRequest)).toHaveLength(1);
     const conflict = await s.t.run(async (ctx) =>
       (await ctx.db.query("complianceNotes")
         .withIndex("by_generationId_and_section", (q) =>
@@ -4164,8 +4177,8 @@ describe("seed Summary sign-off and recovery", () => {
     expect(repairedItemId).toBeDefined();
     const requests = network.create.mock.calls.map(([params]) =>
       params as GenerationMessageParams);
-    expect(requests.filter((params) =>
-      params.tool_choice?.name === "submit_self_check")).toHaveLength(1);
+    expect(requests.filter(isFirstSelfCheckRequest)).toHaveLength(1);
+    expect(requests.filter(isFinalCoverageRequest)).toHaveLength(1);
     const repairs = requests.filter((params) =>
       !params.tool_choice && providerUser(params).includes("Self-check repair"));
     expect(repairs).toHaveLength(1);
@@ -4179,7 +4192,9 @@ describe("seed Summary sign-off and recovery", () => {
           q.eq("generationId", s.generationId).eq("section", "246"))
         .take(30));
     const planRow = rows.find((row) => row.planRef?.itemId === repairedItemId);
-    expect(planRow).toMatchObject({ outcome: "not_applied", repaired: true });
+    // The final text's coverage check still finds the item not applied, so
+    // the row records that and is not marked repaired (2026-09-28, third).
+    expect(planRow).toMatchObject({ outcome: "not_applied", repaired: false });
     expect(planRow?.reason.endsWith("…")).toBe(true);
     expect(utf8Bytes(planRow?.reason ?? "")).toBeLessThanOrEqual(64);
     const ordinaryRow = rows.find((row) =>
@@ -4232,12 +4247,14 @@ describe("seed Summary sign-off and recovery", () => {
     await runNextSectionAction(s, s.generationId);
     const requests = network.create.mock.calls.map(([params]) =>
       params as GenerationMessageParams);
-    const selfChecks = requests.filter((params) =>
-      params.tool_choice?.name === "submit_self_check");
+    const selfChecks = requests.filter(isFirstSelfCheckRequest);
     const repairs = requests.filter((params) =>
       !params.tool_choice && providerUser(params).includes("Self-check repair"));
     expect(selfChecks).toHaveLength(1);
     expect(repairs).toHaveLength(1);
+    // A first check that failed as a whole stays unavailable: no coverage
+    // check of the final text (2026-09-28, third).
+    expect(requests.filter(isFinalCoverageRequest)).toHaveLength(0);
     const repairPrompt = providerUser(repairs[0]!);
     expect(repairPrompt).toContain(
       'remove the excluded claim "Unconfirmed excluded claim."'
@@ -4375,20 +4392,21 @@ describe("seed Summary sign-off and recovery", () => {
     });
   });
 
+  // 2026-09-28 (third): a changed repair gets a coverage-only Self-check on
+  // its final text, whose verdicts the rows record; a byte-identical repair
+  // keeps the first check's verdicts and makes no extra call.
   it.each([
     {
-      name: "changed repair invalidates applied coverage",
+      name: "changed repair gets its coverage checked on the final text",
       repairText: "Final specific_advancements wording. The final bytes changed.",
-      expectedOutcome: "not_applied",
-      keepsParagraph: false,
+      finalChecks: 1,
     },
     {
       name: "byte-identical repair preserves applied coverage",
       repairText: "Final specific_advancements wording. Exact checked bytes.",
-      expectedOutcome: "applied",
-      keepsParagraph: true,
+      finalChecks: 0,
     },
-  ])("$name", async ({ repairText, expectedOutcome, keepsParagraph }) => {
+  ])("$name", async ({ repairText, finalChecks }) => {
     const s = await decisionFixture();
     await makeReady(s);
     await s.writer.mutation(api.generations.signOffSeedStage, {
@@ -4428,14 +4446,10 @@ describe("seed Summary sign-off and recovery", () => {
         continue;
       }
       if (!row) throw new Error("Missing durable 246 plan row");
-      expect(row.outcome).toBe(expectedOutcome);
-      if (keepsParagraph) {
-        // A Skip is honoured by absence and carries no paragraph.
-        expect(row.paragraphIndex).toBe(check.skippedRoleId ? undefined : 0);
-      } else {
-        expect(row.paragraphIndex).toBeUndefined();
-        expect(row.reason).toContain("Final coverage was not reverified");
-      }
+      expect(row.outcome).toBe("applied");
+      // A Skip is honoured by absence and carries no paragraph.
+      expect(row.paragraphIndex).toBe(check.skippedRoleId ? undefined : 0);
+      expect(row.reason).toBe("Covered.");
     }
     const persistedSummary = JSON.parse(state246.run?.selfCheck ?? "{}") as {
       failedChecks?: number;
@@ -4447,9 +4461,8 @@ describe("seed Summary sign-off and recovery", () => {
       failedChecks: 2,
       planCoverage: { status: "incomplete" },
     });
-    expect(persistedSummary.remainingFailures).toBe(
-      keepsParagraph ? 1 : rows246.length
-    );
+    // Only the confirmed conflict stays not applied.
+    expect(persistedSummary.remainingFailures).toBe(1);
     expect((await exposedProgress(s)).some((line) =>
       line.includes("Self-check: repair attempted; plan coverage incomplete")
     )).toBe(true);
@@ -4473,16 +4486,12 @@ describe("seed Summary sign-off and recovery", () => {
         ? candidate.planRef?.itemId === check.itemId
         : candidate.planRef?.skippedRoleId === check.skippedRoleId);
       expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
-      expect(row?.outcome).toBe(expectedOutcome);
-      if (keepsParagraph) expect(row?.paragraphIndex).toBe(check.skippedRoleId ? undefined : 0);
-      else {
-        expect(row?.paragraphIndex).toBeUndefined();
-        expect(row?.reason).toContain("Final coverage was not reverified");
-      }
+      expect(row?.outcome).toBe("applied");
+      expect(row?.paragraphIndex).toBe(check.skippedRoleId ? undefined : 0);
     }
-    expect(network.create.mock.calls.filter(([params]) =>
-      (params as GenerationMessageParams).tool_choice?.name === "submit_self_check"
-    )).toHaveLength(1);
+    const calls244 = network.create.mock.calls.map(([params]) => params as GenerationMessageParams);
+    expect(calls244.filter(isFirstSelfCheckRequest)).toHaveLength(1);
+    expect(calls244.filter(isFinalCoverageRequest)).toHaveLength(finalChecks);
   });
 
   it("exposes complete plan coverage only when every final durable plan row is applied", async () => {
@@ -5301,12 +5310,14 @@ describe("seed Summary sign-off and recovery", () => {
     await runNextSectionAction(s, s.generationId);
     const requests = network.create.mock.calls.map(([params]) =>
       params as GenerationMessageParams);
-    const selfChecks = requests.filter((params) =>
-      params.tool_choice?.name === "submit_self_check");
+    const selfChecks = requests.filter(isFirstSelfCheckRequest);
     const repairs = requests.filter((params) =>
       !params.tool_choice && providerUser(params).includes("Self-check repair"));
     expect(selfChecks).toHaveLength(1);
     expect(repairs).toHaveLength(1);
+    // The repair changed the text, so the final text's coverage is checked
+    // once, and it again names no valid paragraph for the target.
+    expect(requests.filter(isFinalCoverageRequest)).toHaveLength(1);
     const repairPrompt = providerUser(repairs[0]!);
     expect(repairPrompt).toContain(
       'remove the excluded claim "Independent excluded claim."'

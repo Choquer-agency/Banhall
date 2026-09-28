@@ -453,6 +453,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
       structuredPolicy: "single-attempt-then-missing-labels-follow-up",
       encodedJsonRecovery: "disabled",
+      finalCoverage: "plan-verdicts-only-on-the-changed-final-text",
     });
     expect(generationPromptProgram.templates.seeds.summaryPlan).toEqual({
       drafting: FROZEN_SUMMARY_PLAN_SCAFFOLD,

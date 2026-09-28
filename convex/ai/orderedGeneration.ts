@@ -42,6 +42,7 @@ import {
 } from "./pipeline";
 import {
   runConsistencyPass,
+  runFinalCoverageSelfCheck,
   runModelSelfCheck,
   selfCheckFailureDiagnostic,
   type ModelSelfCheckResult,
@@ -209,17 +210,38 @@ function sameUtf8Bytes(left: string, right: string): boolean {
     leftBytes.every((byte, index) => byte === rightBytes[index]);
 }
 
-/** Convert the one Self-check response into one AD-37 row per item/Skip. */
+/** Compliance Note reason when the final text's coverage check failed. */
+export const FINAL_COVERAGE_NOT_CHECKED_REASON =
+  "Not checked: the plan coverage Self-check of the final text did not complete.";
+
+type PlanVerdicts = ModelSelfCheckResult["planVerdicts"];
+
+function planVerdictFor(
+  verdicts: PlanVerdicts,
+  check: Pick<PlanCheck, "itemId" | "skippedRoleId">
+): PlanVerdicts[number] | undefined {
+  return verdicts.find((verdict) =>
+    check.itemId ? verdict.itemId === check.itemId : verdict.skippedRoleId === check.skippedRoleId
+  );
+}
+
+/**
+ * Convert the Self-check response into one AD-37 row per item/Skip. When an
+ * accepted repair changed the checked text, `finalCoverage` carries the
+ * coverage-only Self-check of the final text (2026-09-28, third), and the
+ * rows record its verdicts: a row is marked repaired only when the first
+ * check sent it to the repair and the final check found it applied.
+ */
 export function planComplianceNoteDrafts(args: {
   section: SectionNumber;
   summaryVersionId: Id<"summaryVersions">;
   checks: PlanCheck[];
-  verdicts: ModelSelfCheckResult["planVerdicts"];
+  verdicts: PlanVerdicts;
   repairSucceeded?: boolean;
   /** The accepted repair was then shortened by compression (review P2-1). */
   repairShortened?: boolean;
   coverageCheckSucceeded?: boolean;
-  finalCoverageNotReverified?: boolean;
+  finalCoverage?: { ok: true; verdicts: PlanVerdicts } | { ok: false };
 }): ComplianceNoteDraft[] {
   return args.verdicts.flatMap((verdict) => {
     const expected = args.checks.find((check) =>
@@ -229,44 +251,65 @@ export function planComplianceNoteDrafts(args: {
     );
     if (!expected) return [];
     const conflict = expected.confirmedExclusion;
-    const invalidated =
+    const sentToRepair =
       !conflict &&
-      args.finalCoverageNotReverified === true &&
-      verdict.outcome === "applied";
-    const repairable =
-      !conflict &&
-      !invalidated &&
       verdict.outcome === "not_applied" &&
       verdict.actionableRepair !== false &&
       args.coverageCheckSucceeded !== false &&
       (args.repairSucceeded ?? false);
+    const planRef = {
+      summaryVersionId: args.summaryVersionId,
+      ...(expected.itemId ? { itemId: expected.itemId } : {}),
+      ...(expected.skippedRoleId ? { skippedRoleId: expected.skippedRoleId } : {}),
+      mergedItemIds: expected.mergedItemIds,
+    };
+    const instruction = expected.instruction === "skip"
+      ? `Omit signed-off role ${expected.skippedRoleId}`
+      : `Cover signed-off Summary item ${expected.itemId}`;
+    if (conflict) {
+      return [noteDraft({
+        section: args.section,
+        source: "model",
+        instruction,
+        outcome: "not_applied",
+        tier: "conflict",
+        reason: "The writer confirmed a Brief Claim Exclusion conflict at sign-off.",
+        repaired: false,
+        planRef,
+      })];
+    }
+    if (args.finalCoverage) {
+      // The final text's own verdict, or not checked when that check failed
+      // or gave none; the first verdict described text that is gone.
+      const final = args.finalCoverage.ok
+        ? planVerdictFor(args.finalCoverage.verdicts, expected)
+        : undefined;
+      return [noteDraft({
+        section: args.section,
+        ...(final?.paragraphIndex === undefined ? {} : { paragraphIndex: final.paragraphIndex }),
+        source: "model",
+        instruction,
+        outcome: final?.outcome ?? "not_applied",
+        tier: "none",
+        reason: final?.reason ?? FINAL_COVERAGE_NOT_CHECKED_REASON,
+        repaired: sentToRepair && final?.outcome === "applied",
+        planRef,
+      })];
+    }
     // A repair compression then changed was never checked again.
-    const notReverified = repairable && args.repairShortened === true;
+    const notReverified = sentToRepair && args.repairShortened === true;
     return [noteDraft({
       section: args.section,
-      ...(conflict || invalidated || verdict.paragraphIndex === undefined
-        ? {}
-        : { paragraphIndex: verdict.paragraphIndex }),
+      ...(verdict.paragraphIndex === undefined ? {} : { paragraphIndex: verdict.paragraphIndex }),
       source: "model",
-      instruction: expected.instruction === "skip"
-        ? `Omit signed-off role ${expected.skippedRoleId}`
-        : `Cover signed-off Summary item ${expected.itemId}`,
-      outcome: conflict || invalidated ? "not_applied" : verdict.outcome,
-      tier: conflict ? "conflict" : "none",
-      reason: conflict
-        ? "The writer confirmed a Brief Claim Exclusion conflict at sign-off."
-        : invalidated
-          ? "Final coverage was not reverified after an accepted repair changed the exact checked Section text."
-          : notReverified
-            ? `${verdict.reason}; repaired, then shortened to fit the Line limit, so not re-verified`
-            : verdict.reason,
-      repaired: repairable && !notReverified,
-      planRef: {
-        summaryVersionId: args.summaryVersionId,
-        ...(expected.itemId ? { itemId: expected.itemId } : {}),
-        ...(expected.skippedRoleId ? { skippedRoleId: expected.skippedRoleId } : {}),
-        mergedItemIds: expected.mergedItemIds,
-      },
+      instruction,
+      outcome: verdict.outcome,
+      tier: "none",
+      reason: notReverified
+        ? `${verdict.reason}; repaired, then shortened to fit the Line limit, so not re-verified`
+        : verdict.reason,
+      repaired: sentToRepair && !notReverified,
+      planRef,
     })];
   });
 }
@@ -373,6 +416,15 @@ type SectionClaim = Exclude<
   { stopped: true }
 >;
 
+/**
+ * The clients one Section drafts and checks with: chainClientFactory in
+ * production, keyed by call site, with the model each call site must carry.
+ */
+type SectionClients = ((
+  callSite: string,
+  learningDigestIds?: Id<"learningDigests">[]
+) => GenerationClient) & { modelFor: (callSite: string) => string };
+
 /** What one drafted, Self-checked Section persists (slot counts aside). */
 type SectionCompletion = {
   draftText: string;
@@ -391,17 +443,19 @@ type SectionCompletion = {
  * Draft, Self-check and (at most once) repair one section. Worst case:
  * draft 1 + compression 2 + Self-check 2 (its answer plus one structured
  * retry, or in Summary mode its one follow-up for missing labels,
- * 2026-09-28) + repair 1 + compression of the repair 2 = 8 sequential calls
- * (providers.ts ORDERED_SECTION_ACTION_SLOTS); the action deadline bounds
- * their time. Shared by the ordered chain
+ * 2026-09-28) + repair 1 + compression of the repair 2 + the coverage-only
+ * Self-check of the final text 2 (its answer and one follow-up, Summary mode
+ * only, when the repair changed the text, 2026-09-28 third) = 10 sequential
+ * calls (providers.ts ORDERED_SECTION_ACTION_SLOTS); the action deadline
+ * bounds their time. Shared by the ordered chain
  * and the seed redraft so both draft under the same rules. Throws on a
  * failed draft; the caller records the failure.
  */
-async function draftCheckedSection(input: {
+export async function draftCheckedSection(input: {
   claim: SectionClaim;
   payload: OrderedPayload;
   section: SectionNumber;
-  clientFor: ReturnType<typeof chainClientFactory>;
+  clientFor: SectionClients;
 }): Promise<SectionCompletion> {
   const { claim, payload, section, clientFor } = input;
   const analysis = parseTranscriptAnalysis(payload.analysis);
@@ -618,8 +672,39 @@ async function draftCheckedSection(input: {
     }
   }
 
-  const finalCoverageNotReverified =
-    repair.succeeded && !sameUtf8Bytes(text, finalText);
+  // 2026-09-28 (third): the coverage record describes the final text. When
+  // an accepted repair (and its compression) changed the text the Self-check
+  // saw, a coverage-only Self-check on the frozen checking model checks the
+  // final text; nothing changes the text after it. Unchanged text makes no
+  // call, and a first check that failed as a whole stays unavailable.
+  let finalCoverage: { ok: true; verdicts: PlanVerdicts } | { ok: false } | undefined;
+  if (
+    payload.summaryVersionId &&
+    claim.planChecks.length > 0 &&
+    modelCheck.ok &&
+    !sameUtf8Bytes(text, finalText)
+  ) {
+    try {
+      finalCoverage = {
+        ok: true,
+        verdicts: await runFinalCoverageSelfCheck(
+          clientFor(`generation:selfCheck:${section}`),
+          {
+            section,
+            text: finalText,
+            model: clientFor.modelFor(`generation:selfCheck:${section}`),
+            planChecks: claim.planChecks,
+            planChecksBlock: claim.planChecksBlock,
+          }
+        ),
+      };
+    } catch (error) {
+      console.warn(
+        `generation:selfCheck:${section}: final coverage Self-check failed (${normalizeProviderError(error).code}): ${selfCheckFailureDiagnostic(error)}`
+      );
+      finalCoverage = { ok: false };
+    }
+  }
 
   // The question is stored only when it cites a Confidence Map entry of
   // this Brief; the note must not claim a question the Brief never got.
@@ -657,7 +742,7 @@ async function draftCheckedSection(input: {
       repairSucceeded: repair.succeeded,
       repairShortened: repair.shortened === true,
       coverageCheckSucceeded: modelCheck.ok,
-      finalCoverageNotReverified,
+      ...(finalCoverage ? { finalCoverage } : {}),
     });
     rows.push(...planRows);
     rows.push(...leftOutQuoteNoteDrafts({ section, checks: claim.planChecks }));

@@ -180,24 +180,26 @@ describe("seed provider HTTP policy", () => {
 // each one's worst case must stay inside the same five-slot bound, and the
 // per-slot budget arithmetic above is unchanged by the split.
 describe("ordered section action budget (AD-24/AD-27)", () => {
-  it("worst case is one draft + the compression squeezes + one Self-check with its structured retry + one repair + the squeezes on the repair", () => {
+  it("worst case is one draft + the compression squeezes + one Self-check with its structured retry + one repair + the squeezes on the repair + the final coverage check with its follow-up", () => {
     expect(ORDERED_SECTION_ACTION_SLOTS).toEqual({
       section: 1,
       compression: COMPRESSION_REQUEST.squeezes.length,
       selfCheck: 2,
       repair: 1,
       repairCompression: COMPRESSION_REQUEST.squeezes.length,
+      finalCoverage: 2,
     });
     const worstCase =
       ORDERED_SECTION_ACTION_SLOTS.section +
       ORDERED_SECTION_ACTION_SLOTS.compression +
       ORDERED_SECTION_ACTION_SLOTS.selfCheck +
       ORDERED_SECTION_ACTION_SLOTS.repair +
-      ORDERED_SECTION_ACTION_SLOTS.repairCompression;
-    // 1 + 2 + 2 + 1 + 2 (review P3-1): the action deadline, not the slot
-    // count, bounds the wall time.
-    expect(worstCase).toBe(1 + 2 * COMPRESSION_REQUEST.squeezes.length + 2 + 1);
-    expect(worstCase).toBe(8);
+      ORDERED_SECTION_ACTION_SLOTS.repairCompression +
+      ORDERED_SECTION_ACTION_SLOTS.finalCoverage;
+    // 1 + 2 + 2 + 1 + 2 + 2 (review P3-1, 2026-09-28 third): the action
+    // deadline, not the slot count, bounds the wall time.
+    expect(worstCase).toBe(1 + 2 * COMPRESSION_REQUEST.squeezes.length + 2 + 1 + 2);
+    expect(worstCase).toBe(10);
   });
 
   it("keeps the per-action slot arithmetic: one slot, every attempt plus the reserve, fits the action", () => {

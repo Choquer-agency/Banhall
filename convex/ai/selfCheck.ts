@@ -55,7 +55,9 @@ import {
  * client factory, labelled `generation:selfCheck:<n>` and
  * `generation:consistency`. Both use the `two-attempt-repair` structured
  * policy, except the Summary Self-check: one attempt, plus at most one
- * follow-up for labels its answer missed (2026-09-28). Repair of the prose is never done here: it is the section agent
+ * follow-up for labels its answer missed (2026-09-28), and, when a repair
+ * changed the checked text, the same for a coverage-only check of the final
+ * text (2026-09-28, third). Repair of the prose is never done here: it is the section agent
  * itself, re-run with the repair guidance (orderedGeneration.ts).
  */
 
@@ -353,6 +355,11 @@ export type SelfCheckModelInput = {
   model: string;
   planChecks?: SelfCheckPlanCheck[];
   planChecksBlock?: string;
+  /**
+   * 2026-09-28 (third): plan verdicts only, on the final text. Set only by
+   * runFinalCoverageSelfCheck, whose input carries no ordinary labels.
+   */
+  coverageOnly?: boolean;
 };
 
 function summaryOrdinaryChecks(input: SelfCheckModelInput): SummaryOrdinaryCheck[] {
@@ -433,10 +440,14 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
 export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
   const message = buildSelfCheckDataMessage(input);
   if (!input.planChecks?.length) return message;
+  const separator = SUMMARY_PLAN_SELF_CHECK_REQUEST.checklist.separator;
   const checklist = summaryChecklist(summaryOrdinaryChecks(input), input.planChecks);
-  return checklist
-    ? `${message}${SUMMARY_PLAN_SELF_CHECK_REQUEST.checklist.separator}${checklist}`
-    : message;
+  const parts = [
+    message,
+    ...(input.coverageOnly ? [SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction] : []),
+    ...(checklist ? [checklist] : []),
+  ];
+  return parts.join(separator);
 }
 
 function fillRuntime(template: string, values: Record<string, string>): string {
@@ -487,7 +498,8 @@ export function summaryChecklist(
  */
 export function summaryPlanSelfCheckSchemaFor(
   ordinary: readonly Pick<SummaryOrdinaryCheck, "label">[],
-  planChecks: readonly { itemId?: string; skippedRoleId?: string }[]
+  planChecks: readonly { itemId?: string; skippedRoleId?: string }[],
+  options: { coverageOnly?: boolean } = {}
 ) {
   const base = SUMMARY_PLAN_SELF_CHECK_SCHEMA;
   const labels = ordinary.map((check) => check.label);
@@ -495,10 +507,13 @@ export function summaryPlanSelfCheckSchemaFor(
   const skipIds = planChecks.flatMap((check) =>
     check.skippedRoleId ? [check.skippedRoleId] : []);
   const plan = base.properties.planVerdicts;
+  // The final coverage check (2026-09-28, third) never asks a Storyline
+  // question, so its schema has no place for one.
+  const { storylineQuestion: _question, ...withoutQuestion } = base.properties;
   return {
     ...base,
     properties: {
-      ...base.properties,
+      ...(options.coverageOnly ? withoutQuestion : base.properties),
       verdicts: {
         ...base.properties.verdicts,
         minItems: labels.length,
@@ -925,10 +940,9 @@ async function completeSummarySelfCheck(
       user,
       toolName: SELF_CHECK_REQUEST.toolName,
       description: SELF_CHECK_REQUEST.toolDescription,
-      schema: summaryPlanSelfCheckSchemaFor(
-        ordinary,
-        plans
-      ) as unknown as Anthropic.Tool.InputSchema,
+      schema: summaryPlanSelfCheckSchemaFor(ordinary, plans, {
+        coverageOnly: input.coverageOnly === true,
+      }) as unknown as Anthropic.Tool.InputSchema,
       maxTokens: SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens,
       model: input.model,
       validate: summaryPlanSelfCheckOutputSchema,
@@ -1160,6 +1174,41 @@ export async function runModelSelfCheck(
       : null,
     ...(withheld ? { storylineQuestionWithheld: withheld } : {}),
   };
+}
+
+/**
+ * 2026-09-28 (third): the coverage-only Self-check of a Section's final text,
+ * run when an accepted repair (and its compression) changed the text the
+ * first Self-check saw. Plan verdicts only: no ordinary labels, no Storyline
+ * question. The same Summary rules, frozen checking model and single
+ * attempt, with the same one follow-up for plan checks the answer missed;
+ * whatever is still missing comes back as not checked. Throws when the check
+ * fails as a whole, as runModelSelfCheck does.
+ */
+export async function runFinalCoverageSelfCheck(
+  client: GenerationClient,
+  input: {
+    section: SectionNumber;
+    text: string;
+    model: string;
+    planChecks: SelfCheckPlanCheck[];
+    planChecksBlock?: string;
+  }
+): Promise<ModelSelfCheckResult["planVerdicts"]> {
+  if (input.planChecks.length === 0) return [];
+  const result = await runModelSelfCheck(client, {
+    section: input.section,
+    text: input.text,
+    storylineText: "",
+    confidenceMap: [],
+    glossaryCandidates: [],
+    rules: [],
+    model: input.model,
+    planChecks: input.planChecks,
+    planChecksBlock: input.planChecksBlock,
+    coverageOnly: true,
+  });
+  return result.planVerdicts;
 }
 
 export type ConsistencyInput = {

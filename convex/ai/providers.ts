@@ -160,8 +160,10 @@ export const SEED_ANTHROPIC_OPTIONS = {
  * generateOrderedSection) whose worst case is ORDERED_SECTION_ACTION_SLOTS:
  * one draft + the compression squeezes + one Self-check (its answer and at
  * most one structured retry or Summary follow-up: 2 requests) + at most one
- * repair + the
- * compression squeezes again on the repair (2026-09-28, second) = 8.
+ * repair + the compression squeezes again on the repair (2026-09-28,
+ * second) + in Summary mode, when the repair changed the checked text, the
+ * coverage-only Self-check of the final text (its answer and one follow-up:
+ * 2 requests, 2026-09-28 third) = 10.
  * Finalize adds consistency + (QA || chronology) = 2.
  * Iterative's one-shot ghost still runs the five-slot chain above. Since
  * 2026-09-25 each of these actions runs under its action deadline (see
@@ -181,6 +183,9 @@ export const ORDERED_SECTION_ACTION_SLOTS = {
   selfCheck: 2,
   repair: 1,
   repairCompression: COMPRESSION_REQUEST.squeezes.length,
+  // 2026-09-28 (third): plan verdicts on the final text, its answer and the
+  // one follow-up for plan checks it missed.
+  finalCoverage: 2,
 } as const;
 
 

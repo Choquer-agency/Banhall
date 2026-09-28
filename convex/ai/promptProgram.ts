@@ -449,6 +449,9 @@ export const generationPromptProgram = {
             // 2026-09-28 (second): the repair is compressed like the
             // draft, and kept only if it is no further over a Locked limit.
             "conditionalCompressionOfTheRepair",
+            // 2026-09-28 (third): in Summary mode, plan verdicts on the
+            // final text when the repair changed the checked text.
+            "conditionalFinalCoverageSelfCheck",
           ],
           gate: "none",
         },
@@ -654,6 +657,7 @@ export const generationPromptProgram = {
         schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
         structuredPolicy: "single-attempt-then-missing-labels-follow-up",
         encodedJsonRecovery: "disabled",
+        finalCoverage: "plan-verdicts-only-on-the-changed-final-text",
       },
     },
     // Story 2 (CAP-9): the repair is the section agent itself, re-run once

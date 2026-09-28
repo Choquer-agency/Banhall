@@ -626,6 +626,16 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     emptyPlanVerdicts:
       "Return an empty planVerdicts list: every plan check already has its verdict.",
   },
+  /**
+   * 2026-09-28 (third): the coverage-only check of a Section's final text,
+   * sent when an accepted repair changed the text the first Self-check saw.
+   * Its data blocks are the Section text and the plan checks only; this line
+   * comes before the plan list. Its tool schema has no storylineQuestion.
+   */
+  finalCoverage: {
+    instruction:
+      "This check covers the content plan only, on the section's final text. Return an empty verdicts list and leave out storylineQuestion.",
+  },
 } as const;
 
 export const CONSISTENCY_REQUEST = {
