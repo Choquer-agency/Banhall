@@ -4240,8 +4240,70 @@ describe("snappy ticks (owner, 2026-09-28)", () => {
     await render(SeedWorkspace, workspaceProps());
     await page.getByRole("checkbox", { name: "Select seed", exact: true }).click();
     await expect.poll(() => document.querySelector<HTMLElement>('[data-seed-id="seed-1"]')?.dataset.selected).toBe("false");
-    await expect.element(page.getByRole("alert")).toBeVisible();
-    expect(document.body.textContent).toContain("Decisions changed in another session.");
+    await expect.poll(() => document.querySelector("[data-pick-refusals]")?.textContent).toContain(
+      'Your tick on "The control loop stabilized output." was not saved: decisions changed in another session. Try it again.'
+    );
+  });
+
+  it("keeps a refused pick's message when a later pick of another seed succeeds (review P2-2)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({ items: [seed({ selected: false }), seed({ seedId: "seed-2" as Id<"seeds">, selected: false, bullets: ["Second Seed wording."] })] }));
+    __setMutationError("seeds:select", new ConvexError({ code: "INVALID_STATE", message: "Unskip this subsection before changing its decisions" }));
+    await render(SeedWorkspace, workspaceProps());
+    await page.getByRole("checkbox", { name: "Select seed", exact: true }).first().click();
+    const refusals = () => document.querySelector("[data-pick-refusals]")?.textContent ?? "";
+    await expect.poll(refusals).toContain('Your tick on "The control loop stabilized output." was not saved');
+    __setMutationResult("seeds:select", { seedStageVersion: 8 });
+    await page.getByRole("checkbox", { name: "Select seed", exact: true }).last().click();
+    await expect.poll(() => __mutationCalls("seeds:select")).toHaveLength(2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(refusals()).toContain('Your tick on "The control loop stabilized output." was not saved');
+    // Picking that seed again successfully clears its message.
+    await page.getByRole("checkbox", { name: "Select seed", exact: true }).first().click();
+    await expect.poll(() => document.querySelector("[data-pick-refusals]")).toBeNull();
+  });
+
+  it("finishes queued picks after the pane closes, each on the version the previous answer returned (review P2-1)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({ items: [seed({ selected: false }), seed({ seedId: "seed-2" as Id<"seeds">, selected: false, bullets: ["Second Seed wording."] })] }));
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "goal_problem" }, subsection({
+      roleId: "goal_problem",
+      items: [seed({ seedId: "seed-goal" as Id<"seeds">, roleId: "goal_problem", bullets: ["Goal Seed wording."] })],
+    }));
+    let answer: ((value: unknown) => void) | undefined;
+    __setMutationResult("seeds:select", new Promise((resolve) => { answer = resolve; }));
+    await render(SeedWorkspace, workspaceProps());
+    const boxes = page.getByRole("checkbox", { name: "Select seed", exact: true });
+    await boxes.first().click();
+    await boxes.last().click();
+    expect(__mutationCalls("seeds:select")).toHaveLength(1);
+    // The writer opens another step while the first answer is on its way.
+    await page.getByRole("navigation", { name: "PD subsections" }).getByRole("button", { name: /Goal \/ Problem/ }).click();
+    await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
+    // The other step's decisions wait for the queued picks.
+    await expect.element(page.getByRole("button", { name: "Regenerate", exact: true })).toBeDisabled();
+    __setMutationResult("seeds:select", { seedStageVersion: 9 });
+    answer?.({ seedStageVersion: 8 });
+    await expect.poll(() => __mutationCalls("seeds:select")).toHaveLength(2);
+    expect(__mutationCalls("seeds:select")[1]).toEqual({
+      generationId, roleId: "company_context", seedId: "seed-2", selected: true, expectedSeedStageVersion: 8,
+    });
+    await expect.element(page.getByRole("button", { name: "Regenerate", exact: true })).toBeEnabled();
+  });
+
+  it("holds every other decision while a pick is on its way (review P2-3)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({ items: [seed({ selected: false, edited: true })] }));
+    let answer: ((value: unknown) => void) | undefined;
+    __setMutationResult("seeds:select", new Promise((resolve) => { answer = resolve; }));
+    await render(SeedWorkspace, workspaceProps());
+    await page.getByRole("checkbox", { name: "Select seed", exact: true }).click();
+    await expect.element(page.getByRole("button", { name: "Regenerate", exact: true })).toBeDisabled();
+    await expect.element(page.getByRole("button", { name: "Restore original wording", exact: true })).toBeDisabled();
+    answer?.({ seedStageVersion: 8 });
+    await expect.element(page.getByRole("button", { name: "Regenerate", exact: true })).toBeEnabled();
+    await expect.element(page.getByRole("button", { name: "Restore original wording", exact: true })).toBeEnabled();
+    expect(__mutationCalls("seeds:regenerate")).toEqual([]);
   });
 
   it("sends picks one at a time against the version the previous answer left", async () => {
@@ -4383,10 +4445,56 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     expect(waiting.onSelect).not.toHaveBeenCalled();
   });
 
+  it("ignores the click that ends a double or triple click (review P2-4)", async () => {
+    const props = cardProps();
+    await render(SeedCard, props);
+    for (const detail of [2, 3]) {
+      plainText().dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail }));
+    }
+    expect(props.onSelect).not.toHaveBeenCalled();
+    plainText().dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 }));
+    expect(props.onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores the click that closes an open menu (review P2-4)", async () => {
+    const props = cardProps();
+    await render(SeedCard, props);
+    await page.getByRole("button", { name: "Give feedback", exact: true }).click();
+    await expect.element(page.getByRole("menuitem", { name: "Shorter", exact: true })).toBeVisible();
+    await page.elementLocator(body()).click({ position: { x: 200, y: 8 } });
+    await expect.poll(() => document.querySelector("[data-menu-content]")).toBeNull();
+    expect(props.onSelect).not.toHaveBeenCalled();
+    // With nothing open, the next body click toggles.
+    await page.elementLocator(body()).click({ position: { x: 200, y: 8 } });
+    expect(props.onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("changes a pick on an approved step only through its checkbox (review P2-4)", async () => {
+    const props = cardProps({ bodyToggles: false });
+    await render(SeedCard, props);
+    expect(body().dataset.cardToggles).toBeUndefined();
+    expect(body().className).not.toContain("cursor-pointer");
+    plainText().click();
+    expect(props.onSelect).not.toHaveBeenCalled();
+    await page.getByRole("checkbox", { name: "Select seed", exact: true }).click();
+    expect(props.onSelect).toHaveBeenCalledWith(true);
+  });
+
+  it("does not change a pick from a body click on an approved step in the workspace (review P2-4)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({ state: "approved", items: [seed({ selected: true })] }));
+    await render(SeedWorkspace, workspaceProps());
+    await expect.element(page.getByRole("checkbox", { name: "Deselect seed", exact: true })).toBeEnabled();
+    document.querySelector<HTMLElement>('[data-seed-id="seed-1"] [data-seed-body] li span')!.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(__mutationCalls("seeds:select")).toEqual([]);
+  });
+
   it("toggles a card in the workspace with the same instant pick as its checkbox", async () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSubsection", subsection({ items: [seed({ selected: false })] }));
-    __setMutationResult("seeds:select", new Promise(() => {}));
+    let answer: ((value: unknown) => void) | undefined;
+    __setMutationResult("seeds:select", new Promise((resolve) => { answer = resolve; }));
     await render(SeedWorkspace, workspaceProps());
     await expect.element(page.getByRole("checkbox", { name: "Select seed", exact: true })).toBeEnabled();
     const card = document.querySelector<HTMLElement>('[data-seed-id="seed-1"]')!;
@@ -4395,6 +4503,9 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     expect(__mutationCalls("seeds:select")).toEqual([
       { generationId, roleId: "company_context", seedId: "seed-1", selected: true, expectedSeedStageVersion: 7 },
     ]);
+    // The run's pick queue drains before the next test.
+    answer?.({ seedStageVersion: 8 });
+    await expect.poll(() => card.dataset.selected).toBe("false");
   });
 });
 

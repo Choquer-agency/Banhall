@@ -29,6 +29,8 @@
     item,
     canEdit,
     busy = false,
+    waiting = false,
+    bodyToggles = true,
     sourceAttribution = EMPTY_SOURCE_ATTRIBUTION,
     onSelect,
     onEdit,
@@ -51,6 +53,13 @@
     item: SeedCardData;
     canEdit: boolean;
     busy?: boolean;
+    /** Picks are still on their way: every other decision on the card waits
+     * for them (review P2-3); the checkbox itself keeps working. */
+    waiting?: boolean;
+    /** Whether a click on the card body changes the pick. False on an
+     * approved step, where only the checkbox does, so a stray click cannot
+     * reopen the step and mark later steps for review (review P2-4). */
+    bodyToggles?: boolean;
     sourceAttribution?: SeedSourceAttribution;
     onSelect: (selected: boolean) => Promise<boolean>;
     onEdit: (bullets: string[], expectedSeedStageVersion: number) => Promise<boolean>;
@@ -229,7 +238,7 @@
   }
 
   async function sendPreset(instruction: string) {
-    if (!canEdit || sendingPreset) return;
+    if (!canEdit || waiting || sendingPreset) return;
     sendingPreset = true;
     try {
       await onFeedback(instruction, seedStageVersion);
@@ -239,7 +248,7 @@
   }
 
   async function saveEdit() {
-    if (!canEdit || !edit || editStale || savingEdit || !edit.bulletOne.trim()) return;
+    if (!canEdit || waiting || !edit || editStale || savingEdit || !edit.bulletOne.trim()) return;
     const submitted = { ...edit };
     const commit = onDraftChange;
     savingEdit = true;
@@ -259,7 +268,7 @@
   }
 
   async function sendFeedback() {
-    if (!canEdit || !feedback || feedbackStale || sendingFeedback || !feedback.instruction.trim()) return;
+    if (!canEdit || waiting || !feedback || feedbackStale || sendingFeedback || !feedback.instruction.trim()) return;
     const submitted = { ...feedback };
     const commit = onDraftChange;
     sendingFeedback = true;
@@ -318,11 +327,22 @@
   // anything interactive inside (tools, quotes and their hover card, links,
   // fields, the feedback box) keep their own behaviour, as does a drag that
   // selects text.
-  const cardToggles = $derived(canEdit && !busy && !editing);
+  const cardToggles = $derived(canEdit && bodyToggles && !busy && !editing);
   const OWN_BEHAVIOUR =
     'button, a, input, textarea, select, label, [role="button"], [role="checkbox"], [role="menuitem"], [contenteditable], [data-seed-quote], [data-seed-feedback-box], [data-seed-footer]';
+  // Open menus, popovers and quote cards: a click that closes one is not a
+  // pick. Recorded at pointerdown, before the layer closes (review P2-4).
+  const OPEN_LAYERS = "[data-menu-content], [data-popover-content], [data-quote-card], [data-seed-quotes]";
+  let dismissingLayer = false;
+  function notePointerDown() {
+    dismissingLayer = feedbackMenuOpen || quotesOpen || document.querySelector(OPEN_LAYERS) !== null;
+  }
   function toggleFromCard(event: MouseEvent) {
-    if (!cardToggles || event.defaultPrevented || event.button !== 0) return;
+    const dismissed = dismissingLayer;
+    dismissingLayer = false;
+    if (!cardToggles || dismissed || event.defaultPrevented || event.button !== 0) return;
+    // The last click of a double or triple click selects a word or a line.
+    if (event.detail > 1) return;
     const target = event.target;
     if (!(target instanceof Element) || target.closest(OWN_BEHAVIOUR)) return;
     const selection = window.getSelection();
@@ -353,7 +373,7 @@
         citation={item.provenance[segment.citationIndex]}
         {sourceAttribution}
         {onOpenSource}
-        onUseQuotes={onUseQuotes && canEdit && !busy ? () => void onUseQuotes() : undefined}
+        onUseQuotes={onUseQuotes && canEdit && !busy && !waiting ? () => void onUseQuotes() : undefined}
       />
     {:else}{segment.text}{/if}
   {/each}
@@ -429,7 +449,7 @@
                             type="button"
                             class="shrink-0 rounded text-[0.6875rem] leading-[0.875rem] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:text-ink-faint disabled:no-underline"
                             data-quote-use-anyway
-                            disabled={busy}
+                            disabled={busy || waiting}
                             onclick={() => void onUseQuotes()}
                           >{QUOTE_USE_ANYWAY}</button>{/if}{/if}
                         <span
@@ -468,7 +488,7 @@
               type="button"
               aria-label={savingEdit ? "Saving…" : "Save wording"}
               class="inline-flex size-7 items-center justify-center rounded-[0.4375rem] bg-action-primary text-white transition-colors hover:bg-action-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11"
-              disabled={savingEdit || !edit?.bulletOne.trim() || editStale}
+              disabled={savingEdit || waiting || !edit?.bulletOne.trim() || editStale}
               onclick={saveEdit}
             ><IconCheck size={14} strokeWidth={2.2} /></button>
           {/snippet}
@@ -517,7 +537,7 @@
             >
               <p class="px-2 pt-1.5 pb-3 text-[0.625rem] leading-3 font-medium tracking-[0.04em] text-ink-faint uppercase" id={`seed-feedback-menu-${uid}`}>Revise this seed</p>
               {#each FEEDBACK_PRESETS as preset (preset.label)}
-                <DropdownMenu.Item class={menuItem} disabled={sendingPreset} onSelect={() => void sendPreset(preset.instruction)}>
+                <DropdownMenu.Item class={menuItem} disabled={sendingPreset || waiting} onSelect={() => void sendPreset(preset.instruction)}>
                   <svg class="size-3 shrink-0 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     {#if preset.label === "More specific"}<path d="M4 12h16M12 4v16" />
                     {:else if preset.label === "Shorter"}<path d="M5 12h14" />
@@ -580,6 +600,7 @@
     } ${cardToggles ? "cursor-pointer" : ""}`}
     data-seed-body
     data-card-toggles={cardToggles || undefined}
+    onpointerdowncapture={notePointerDown}
     onclick={toggleFromCard}
   >
   <div class={`flex items-start ${nested ? "gap-2.5" : "gap-3"}`}>
@@ -661,7 +682,7 @@
                       type="button"
                       aria-label="Restore original wording"
                       class="-mt-px inline-flex size-[1.375rem] shrink-0 items-center justify-center rounded-[0.3125rem] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11"
-                      disabled={busy}
+                      disabled={busy || waiting}
                       onclick={onRestore}
                     ><IconRegenerate size={13} strokeWidth={1.8} /></button>
                   {/snippet}
@@ -713,7 +734,7 @@
             <Button
               size="sm"
               onclick={sendFeedback}
-              disabled={sendingFeedback || !feedback.instruction.trim() || feedbackStale}
+              disabled={sendingFeedback || waiting || !feedback.instruction.trim() || feedbackStale}
             >{sendingFeedback ? "Sending…" : "Send feedback"}</Button>
           </div>
         </div>

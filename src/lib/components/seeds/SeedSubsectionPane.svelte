@@ -30,6 +30,7 @@
     SeedSubsectionData,
   } from "./types";
   import { seedsApi } from "./api";
+  import { enqueuePick, queuedPicks } from "./pickQueue.svelte";
   import { detectPlatform, isModEnter, isTypingTarget, shortcutHint } from "$lib/shell/shortcuts";
 
   let {
@@ -192,39 +193,58 @@
 
   // A tick shows at once (owner, 2026-09-28): the writer's pick is held here
   // until the server answers, then the live read takes over; a refusal rolls
-  // it back and says why. Picks are sent one at a time, each against the
-  // decision version the previous answer left, so the server fence is kept.
+  // it back and says why. Picks go through the run's queue (pickQueue), one
+  // at a time and each against the version the previous answer returned, so
+  // the server fence is kept and a queued pick still lands after this pane
+  // closes (opening another step, Review each).
   type PendingPick = { selected: boolean; token: number };
   let pendingPicks = $state<Record<string, PendingPick>>({});
   let pickToken = 0;
-  let pickQueue: Promise<unknown> = Promise.resolve();
-  const picksPending = $derived(Object.keys(pendingPicks).length > 0);
+  // Refused picks stay listed, one per seed, until that seed is picked again
+  // successfully or the writer takes another decision (review P2-2): a later
+  // pick of another seed never erases them.
+  let pickRefusals = $state<Record<string, string>>({});
+  const runKey = $derived(String(generationId));
+  // Any pick of this run on its way, from this pane or one closed before it.
+  // Every other decision writer waits for them (review P2-3).
+  const picksPending = $derived(Object.keys(pendingPicks).length > 0 || queuedPicks(runKey) > 0);
   function withPick(item: SeedCardData): SeedCardData {
     const pick = pendingPicks[String(item.seedId)];
     return pick && pick.selected !== item.selected ? { ...item, selected: pick.selected } : item;
   }
-  function pick(seedId: SeedCardData["seedId"], selected: boolean): Promise<boolean> {
-    if (!canEdit) return Promise.resolve(false);
+  async function pick(seedId: SeedCardData["seedId"], selected: boolean, wording: string): Promise<boolean> {
+    if (!canEdit) return false;
     const key = String(seedId);
     const token = ++pickToken;
     pendingPicks = { ...pendingPicks, [key]: { selected, token } };
-    const settle = () => {
-      if (pendingPicks[key]?.token !== token) return;
+    // The pick's own step and run, fixed now: the save outlives this pane.
+    const target = { generationId, roleId: data.roleId };
+    const knownVersion = () => data.seedStageVersion;
+    const outcome = await enqueuePick(String(target.generationId), knownVersion, (expectedSeedStageVersion) => {
+      // A3: capability is rechecked at dispatch while this pane is open.
+      if (!destroyed && !canEdit) throw new Error(PICK_NOT_SENT);
+      return selectSeed({ ...target, expectedSeedStageVersion, seedId, selected });
+    });
+    if (destroyed) return outcome.ok;
+    if (pendingPicks[key]?.token === token) {
       const { [key]: _settled, ...rest } = pendingPicks;
       pendingPicks = rest;
-    };
-    const sent = pickQueue.then(async () => {
-      if (destroyed) return false;
-      const saved = await mutate(
-        () => selectSeed({ ...common(), seedId, selected }),
-        selected ? "Seed selected." : "Seed deselected.",
-        false
-      );
-      if (!destroyed) settle();
-      return saved;
-    });
-    pickQueue = sent;
-    return sent;
+    }
+    if (outcome.ok) {
+      announcement = selected ? "Seed selected." : "Seed deselected.";
+      if (key in pickRefusals) {
+        const { [key]: _cleared, ...rest } = pickRefusals;
+        pickRefusals = rest;
+      }
+    } else if (!(outcome.error instanceof Error && outcome.error.message === PICK_NOT_SENT)) {
+      const idea = wording.length > 60 ? `${wording.slice(0, 57).trimEnd()}...` : wording;
+      const why =
+        userErrorCode(outcome.error) === "STALE_REVISION"
+          ? "decisions changed in another session"
+          : userErrorMessage(outcome.error, "the server did not save it").replace(/\.$/, "");
+      pickRefusals = { ...pickRefusals, [key]: `Your ${selected ? "tick" : "untick"} on "${idea}" was not saved: ${why}. Try it again.` };
+    }
+    return outcome.ok;
   }
 
   const currentScope = () => `${generationId}:${data.roleId}:${data.seedStageVersion}`;
@@ -284,6 +304,8 @@
     untrack(() => onRecoverSources(missing));
   });
 
+  const PICK_NOT_SENT = "pick-not-sent";
+
   function commandId(kind: string) {
     return `${kind}:${crypto.randomUUID()}`;
   }
@@ -299,8 +321,11 @@
     // rendered. A revocation that lands between an interaction and its
     // dispatch sends nothing; the caller keeps its local text.
     if (!canEdit) return false;
+    // Every other decision waits for queued picks (review P2-3).
+    if (picksPending) return false;
     if (exclusive) busy = true;
     error = null;
+    pickRefusals = {};
     try {
       await action();
       announcement = success;
@@ -652,6 +677,8 @@
     item={withPick(item)}
     {canEdit}
     {busy}
+    waiting={picksPending}
+    bodyToggles={data.state !== "approved"}
     {nested}
     {showOriginal}
     {sourceAttribution}
@@ -661,7 +688,7 @@
     draft={ownDraft(item.seedId)}
     {below}
     onDraftChange={(update) => onDraftChange(item.seedId, update)}
-    onSelect={(selected) => pick(item.seedId, selected)}
+    onSelect={(selected) => pick(item.seedId, selected, item.bullets[0] ?? "")}
     onEdit={(bullets, expectedSeedStageVersion) =>
       mutate(
         () => editSeed({ ...common(), expectedSeedStageVersion, seedId: item.seedId, bullets }),
@@ -703,7 +730,7 @@
           <button
             type="button"
             class="shrink-0 rounded text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50 pointer-coarse:min-h-11"
-            disabled={busy}
+            disabled={busy || picksPending}
             onclick={() => void mutate(
               () => withdrawFeedback({ ...common(), feedbackRequestId: group.requestId }),
               "Feedback withdrawn."
@@ -766,7 +793,7 @@
                 type="button"
                 aria-label={data.state === "failed" ? "Retry" : "Regenerate"}
                 class="inline-flex size-11 shrink-0 items-center justify-center rounded-[0.625rem] border border-line bg-chrome text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50"
-                disabled={busy}
+                disabled={busy || picksPending}
                 aria-disabled={regenerateWaiting || undefined}
                 data-regenerate-waiting={regenerateWaiting || undefined}
                 onclick={regenerateCurrent}
@@ -835,7 +862,7 @@
               variant="secondary"
               size="sm"
               class="h-9 gap-2"
-              disabled={busy}
+              disabled={busy || picksPending}
               aria-disabled={regenerateWaiting || undefined}
               data-regenerate-waiting={regenerateWaiting || undefined}
               onclick={regenerateCurrent}
@@ -878,7 +905,7 @@
                 {#if canEdit && kind === "optional"}
                   <DropdownMenu.Item
                     class="flex h-9 w-full cursor-default items-center rounded-md px-2.5 text-sm text-ink outline-none data-[highlighted]:bg-gray-50 data-[disabled]:opacity-50 pointer-coarse:h-11"
-                    disabled={busy}
+                    disabled={busy || picksPending}
                     onSelect={() => void mutate(
                       () => (data.state === "skipped" ? unskip : skip)(common()),
                       data.state === "skipped" ? "Step restored." : "Step skipped."
@@ -974,6 +1001,11 @@
 
     <div class="pt-4">
       {#if error}<p role="alert" class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">{error}</p>{/if}
+      {#if Object.keys(pickRefusals).length}
+        <div role="alert" class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" data-pick-refusals>
+          {#each Object.entries(pickRefusals) as [seedId, message] (seedId)}<p>{message}</p>{/each}
+        </div>
+      {/if}
       <p class="sr-only" aria-live="polite">{announcement}</p>
       {#if data.truncated && historyReviewRefused}
         <p class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">
@@ -1059,7 +1091,7 @@
             <p class="text-body text-ink-secondary">Writing seeds for this step failed.</p>
             {#if repeatedFailure}<p class="mt-2 text-body text-ink-secondary" data-seed-repeated-failure>{repeatedFailure}</p>{/if}
             {#if canEdit && data.state !== "skipped"}
-              <Button class="mt-3" size="sm" variant="secondary" disabled={busy} onclick={regenerateCurrent}>Try again</Button>
+              <Button class="mt-3" size="sm" variant="secondary" disabled={busy || picksPending} onclick={regenerateCurrent}>Try again</Button>
             {/if}
           </div>
         {:else if data.items.length === 0 && data.pendingBatchId}
@@ -1136,7 +1168,7 @@
                       class="ml-auto"
                       variant="ghost"
                       size="sm"
-                      disabled={busy}
+                      disabled={busy || picksPending}
                       onclick={() => void mutate(
                         () => restoreBatch({ ...common(), batchId: row.batch._id }),
                         "Previous Batch restored."
