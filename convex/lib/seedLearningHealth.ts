@@ -296,6 +296,9 @@ export async function readSeedLearningHealth(
     confirmedOnly: 0,
   };
   const resolvedStaleMs: number[] = [];
+  // 2026-09-28 (seventh): approvals by how they came about, so a bulk
+  // "Keep all" or a one-step "Keep as is" is never read as a reviewed one.
+  const approvals = { reviewed: 0, keptOne: 0, keptAll: 0, unrecorded: 0 };
 
   for (const event of periodEventRead.rows) {
     const state = await cohort(event.generationId);
@@ -363,6 +366,10 @@ export async function readSeedLearningHealth(
     if (event.kind === "feedbackWithdrawn") feedback.withdrawals += 1;
 
     if (event.kind === "approve") {
+      if (event.approvalSource === "reviewed") approvals.reviewed += 1;
+      else if (event.approvalSource === "keepStep") approvals.keptOne += 1;
+      else if (event.approvalSource === "keepAll") approvals.keptAll += 1;
+      else approvals.unrecorded += 1;
       const roleFeedback = await feedbackForRole(event.generationId, event.roleId);
       for (const request of roleFeedback) {
         if (request.firstApproveExposure?.approveEventId === event._id) {
@@ -529,6 +536,7 @@ export async function readSeedLearningHealth(
       },
     },
     regenerates,
+    approvals,
     stale: {
       ...stale,
       resolvedDurationMs: summarizeDistribution(resolvedStaleMs),

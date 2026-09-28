@@ -743,7 +743,10 @@ async function recordSeedApproval(
     state,
     challenge,
     selectedRows,
+    source,
   }: {
+    /** Whether the writer reviewed and approved, or kept (2026-09-28 seventh). */
+    source: "reviewed" | "keepStep" | "keepAll";
     userId: Id<"users">;
     row: Doc<"seedSubsections">;
     state: Awaited<ReturnType<typeof loadSeedDecisionState>>;
@@ -775,6 +778,44 @@ async function recordSeedApproval(
       `Approval snapshot for ${row.roleId} exceeds the document processing budget`,
       { reason: "SEED_PROCESSING_LIMIT" },
     );
+  // Every read happens before the first write, so a step that does not fit
+  // the read budget is refused whole (Keep all names it and goes on).
+  let episodeFacts: {
+    freshAttemptCompleted: boolean;
+    freshSeedsInSnapshot: boolean;
+    olderSelectionsConfirmed: boolean;
+  } | null = null;
+  if (row.activeStaleEpisodeId) {
+    const episode = await ctx.db.get(row.activeStaleEpisodeId);
+    const fresh = await state.budget.list(
+      ctx.db
+        .query("seedBatches")
+        .withIndex("by_generationId_and_roleId", (q) =>
+          q.eq("generationId", row.generationId).eq("roleId", row.roleId),
+        ),
+      SEED_DECISION_COLLECTION_ROWS,
+    );
+    if (!fresh.complete)
+      domainError(
+        "INVALID_INPUT",
+        `Stale episode for ${row.roleId} exceeds the read budget`,
+        { reason: "SEED_PROCESSING_LIMIT" },
+      );
+    const batches = fresh.rows.filter(
+      (b) =>
+        b.completedAt !== undefined &&
+        b.completedAt > (episode?.openedAt ?? Infinity) &&
+        b.consumedContextRevision === row.currentContextRevision &&
+        (b.status === "shown" || b.status === "superseded"),
+    );
+    episodeFacts = {
+      freshAttemptCompleted: batches.length > 0,
+      freshSeedsInSnapshot: selected.some((s) =>
+        batches.some((b) => b._id === s.batchId),
+      ),
+      olderSelectionsConfirmed: challenge.carriedSeedIds.length > 0,
+    };
+  }
   await ctx.db.patch(row._id, {
     state: "approved",
     pendingApprovalReasons: undefined,
@@ -794,6 +835,7 @@ async function recordSeedApproval(
     userId,
     {
       confirmed: challenge.carriedSeedIds.length > 0,
+      approvalSource: source,
       snapshot,
       contributionHashes: challenge.contributionHashes,
     },
@@ -826,37 +868,7 @@ async function recordSeedApproval(
         eligibleScore: { approveEventId, selected: responseSelected },
       });
   }
-  if (row.activeStaleEpisodeId) {
-    const episode = await ctx.db.get(row.activeStaleEpisodeId);
-    const fresh = await state.budget.list(
-      ctx.db
-        .query("seedBatches")
-        .withIndex("by_generationId_and_roleId", (q) =>
-          q.eq("generationId", row.generationId).eq("roleId", row.roleId),
-        ),
-      SEED_DECISION_COLLECTION_ROWS,
-    );
-    if (!fresh.complete)
-      domainError(
-        "INVALID_INPUT",
-        `Stale episode for ${row.roleId} exceeds the read budget`,
-        { reason: "SEED_PROCESSING_LIMIT" },
-      );
-    const batches = fresh.rows.filter(
-      (b) =>
-        b.completedAt !== undefined &&
-        b.completedAt > (episode?.openedAt ?? Infinity) &&
-        b.consumedContextRevision === row.currentContextRevision &&
-        (b.status === "shown" || b.status === "superseded"),
-    );
-    await disposeSeedEpisode(ctx, row, "resolved", {
-      freshAttemptCompleted: batches.length > 0,
-      freshSeedsInSnapshot: selected.some((s) =>
-        batches.some((b) => b._id === s.batchId),
-      ),
-      olderSelectionsConfirmed: challenge.carriedSeedIds.length > 0,
-    });
-  }
+  if (episodeFacts) await disposeSeedEpisode(ctx, row, "resolved", episodeFacts);
   return { approveEventId };
 }
 export const approve = mutation({
@@ -900,6 +912,7 @@ export const approve = mutation({
         "Approval challenge or acknowledgments changed; refresh before approving",
       );
     const { approveEventId } = await recordSeedApproval(ctx, {
+      source: "reviewed",
       userId: f.user._id,
       row: f.row,
       state,
@@ -952,18 +965,21 @@ export const approve = mutation({
 export type SeedKeepRefusal =
   | "NO_SELECTION"
   | "UNLINKED_ADVANCEMENT"
-  | "CLAIM_EXCLUSION";
+  | "CLAIM_EXCLUSION"
+  | "READ_LIMIT";
 /**
  * 2026-09-28 (seventh, owner): "Keep as is" (`scope: "step"`, the step
  * itself) and "Keep all" (`scope: "later"`, every later step) approve steps
  * that an earlier change marked for review, keeping their selections as
  * they are. Each kept step records the same approval as confirming carried
- * selections (approve event, confirmed), under the normal decision fence and
- * edit access. Nothing is regenerated and no selection changes. A step is
- * left for the writer, and named, when it has no selection, when its
- * advancements no longer link selected work, or when a selection matches a
- * Claim Exclusion (that needs its own acknowledgment). A retry after an
- * earlier answer finds nothing left to keep and succeeds without writing.
+ * selections (approve event, confirmed, with its `approvalSource`), under
+ * the normal decision fence and edit access. Nothing is regenerated and no
+ * selection changes. A step is left for the writer, and named, when it has
+ * no selection, when its advancements no longer link selected work, when a
+ * selection matches a Claim Exclusion (that needs its own acknowledgment),
+ * or when it does not fit the read budget; the others are kept. A request
+ * made against older decisions is refused only when a step it names could
+ * still be kept; otherwise it answers what is left without writing.
  */
 export const keep = mutation({
   args: {
@@ -987,17 +1003,12 @@ export const keep = mutation({
         (row): row is Doc<"seedSubsections"> =>
           !!row && isSeedSubsectionStale(row),
       );
-    if (f.behind) {
-      if (targets.length)
-        domainError("STALE_REVISION", "Seed decisions changed; refresh and retry");
-      return {
-        seedStageVersion: await currentVersion(ctx, args.generationId),
-        kept: [] as PdSubsectionRoleId[],
-        needsAttention: [] as Array<{ roleId: PdSubsectionRoleId; reason: SeedKeepRefusal }>,
-      };
-    }
-    const kept: PdSubsectionRoleId[] = [];
     const needsAttention: Array<{ roleId: PdSubsectionRoleId; reason: SeedKeepRefusal }> = [];
+    const keepable: Array<{
+      row: Doc<"seedSubsections">;
+      selectedRows: typeof state.selectionRows;
+      challenge: Awaited<ReturnType<typeof buildSeedApprovalChallenge>>;
+    }> = [];
     const unlinked = unlinkedAdvancementIds(state).length > 0;
     for (const row of targets) {
       const selectedRows = state.selectionRows.filter(
@@ -1011,25 +1022,55 @@ export const keep = mutation({
         needsAttention.push({ roleId: row.roleId, reason: "UNLINKED_ADVANCEMENT" });
         continue;
       }
-      const challenge = await buildSeedApprovalChallenge(ctx, state, row);
+      let challenge;
+      try {
+        challenge = await buildSeedApprovalChallenge(ctx, state, row);
+      } catch (error) {
+        if (!isPrefetchOverflow(error)) throw error;
+        needsAttention.push({ roleId: row.roleId, reason: "READ_LIMIT" });
+        continue;
+      }
       if (challenge.exclusionEntryIds.length) {
         needsAttention.push({ roleId: row.roleId, reason: "CLAIM_EXCLUSION" });
         continue;
       }
-      await recordSeedApproval(ctx, {
-        userId: f.user._id,
-        row,
-        state,
-        challenge,
-        selectedRows,
-      });
+      keepable.push({ row, selectedRows, challenge });
+    }
+    if (f.behind) {
+      if (keepable.length)
+        domainError("STALE_REVISION", "Seed decisions changed; refresh and retry");
+      return {
+        seedStageVersion: await currentVersion(ctx, args.generationId),
+        kept: [] as PdSubsectionRoleId[],
+        needsAttention,
+      };
+    }
+    const kept: PdSubsectionRoleId[] = [];
+    for (const { row, selectedRows, challenge } of keepable) {
+      try {
+        await recordSeedApproval(ctx, {
+          source: args.scope === "step" ? "keepStep" : "keepAll",
+          userId: f.user._id,
+          row,
+          state,
+          challenge,
+          selectedRows,
+        });
+      } catch (error) {
+        // Refused before its first write: the step stays marked and named.
+        if (!isPrefetchOverflow(error)) throw error;
+        needsAttention.push({ roleId: row.roleId, reason: "READ_LIMIT" });
+        continue;
+      }
       kept.push(row.roleId);
     }
     if (kept.length) await bumpSeedStageVersion(ctx, args.generationId);
     return {
       seedStageVersion: await currentVersion(ctx, args.generationId),
       kept,
-      needsAttention,
+      needsAttention: PD_SUBSECTIONS.flatMap((r) =>
+        needsAttention.filter((entry) => entry.roleId === r.roleId),
+      ),
     };
   },
 });

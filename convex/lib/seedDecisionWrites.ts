@@ -35,6 +35,7 @@ type EventFields = Partial<
     | "staleEpisodeId"
     | "editRatio"
     | "confirmed"
+    | "approvalSource"
     | "snapshot"
   >
 >;

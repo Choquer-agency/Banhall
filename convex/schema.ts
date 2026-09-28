@@ -107,6 +107,12 @@ const seedDecisionEventOptionalFields = {
   staleEpisodeId: v.optional(v.id("seedStaleEpisodes")),
   editRatio: v.optional(v.number()),
   confirmed: v.optional(v.boolean()),
+  // 2026-09-28 (seventh): how an approve came about: the writer's reviewed
+  // Approve or Confirm, "Keep as is" on one step, or "Keep all". Absent on
+  // approvals recorded before it existed.
+  approvalSource: v.optional(
+    v.union(v.literal("reviewed"), v.literal("keepStep"), v.literal("keepAll"))
+  ),
   snapshot: v.optional(
     v.object({
       items: v.array(

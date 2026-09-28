@@ -856,4 +856,45 @@ describe("AD-39 seed learning health", () => {
       responseNotAvailable: 1,
     });
   });
+
+  test("counts approvals by how they came about (2026-09-28 seventh)", async () => {
+    const fixture = await insertWorkedTrace();
+    const baseline = await fixture.admin.query(api.learningHealth.getSeedHealth, {
+      start: P1,
+      end: P2,
+      gatedWorkflow: "seeds",
+    });
+    await fixture.t.run(async (ctx) => {
+      for (const [roleId, approvalSource] of [
+        ["goal_problem", "reviewed"],
+        ["experimentation", "keepStep"],
+        ["hypothesis", "keepAll"],
+      ] as const) {
+        await ctx.db.insert("seedDecisionEvents", {
+          projectId: fixture.projectId,
+          generationId: fixture.generationId,
+          kind: "approve",
+          roleId,
+          at: P1 + 30 * MINUTE,
+          actorUserId: fixture.ids.writerId,
+          confirmed: approvalSource !== "reviewed",
+          approvalSource,
+        });
+      }
+    });
+    const result = await fixture.admin.query(api.learningHealth.getSeedHealth, {
+      start: P1,
+      end: P2,
+      gatedWorkflow: "seeds",
+    });
+    expect(result.approvals).toEqual({
+      reviewed: baseline.approvals.reviewed + 1,
+      keptOne: baseline.approvals.keptOne + 1,
+      keptAll: baseline.approvals.keptAll + 1,
+      // Approvals recorded before the source existed stay apart.
+      unrecorded: baseline.approvals.unrecorded,
+    });
+    expect(baseline.approvals.unrecorded).toBeGreaterThan(0);
+  });
 });
+
