@@ -1400,6 +1400,10 @@ export default defineSchema({
     // 2026-09-25 widen: the cited turn's speaker had no role when the Seed
     // was written, so the quote needs a speaker check (decisions 24, 25).
     needsSpeakerCheck: v.optional(v.boolean()),
+    // 2026-09-27 (third) widen: the cited words share too few meaningful
+    // words with the Seed, or repeat another Seed's excerpt, so the quote
+    // needs a check. Absent on older rows.
+    needsQuoteCheck: v.optional(v.boolean()),
   })
     .index("by_seedId", ["seedId"])
     .index("by_generationId_and_seedId", ["generationId", "seedId"])

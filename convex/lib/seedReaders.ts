@@ -726,6 +726,8 @@ type SummaryCitation = {
   line?: number;
   /** 2026-09-25: the cited turn's speaker had no role (decision 24). */
   needsSpeakerCheck?: boolean;
+  /** 2026-09-27 (third): the quote may not back the Seed. */
+  needsQuoteCheck?: boolean;
 };
 
 async function summaryCitations(
@@ -755,6 +757,7 @@ async function summaryCitations(
       ...(citation.speaker !== undefined ? { speaker: citation.speaker } : {}),
       ...(citation.line !== undefined ? { line: citation.line } : {}),
       ...(citation.needsSpeakerCheck ? { needsSpeakerCheck: true } : {}),
+      ...(citation.needsQuoteCheck ? { needsQuoteCheck: true } : {}),
     });
   }
   return { provenance, provenanceTruncated: !read.complete };

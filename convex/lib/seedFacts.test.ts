@@ -149,7 +149,7 @@ describe("a Seed cites a fact by id and gets verbatim offsets", () => {
     const { seeds, unresolved } = resolveFactCitations(
       [
         {
-          ...bullet("A feeder test was planned."),
+          ...bullet("A feeder test will run the ramp forecaster."),
           provenance: [
             // Copied with its line break flattened: still the verbatim span.
             { sourceId: "src-doc", exactExcerpt: "run the ramp   forecaster" },

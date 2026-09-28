@@ -39,6 +39,7 @@ import {
 import {
   SEED_TAGS,
   locateCitations,
+  QUOTE_ISSUE_CODES,
   validateBatch,
   type CitationLocation,
   type FrozenSeedSource,
@@ -974,6 +975,11 @@ export const completeAttempt = internalMutation({
     if (factDropped > 0) {
       console.warn(`Seed batch ${batch._id}: ${factDropped} citation(s) outside the frozen fact spans were dropped`);
     }
+    // 2026-09-27 (third): kept and marked for a check, never dropped.
+    const quoteChecks = validation.issues.filter((issue) => QUOTE_ISSUE_CODES.has(issue.code)).length;
+    if (quoteChecks > 0) {
+      console.warn(`Seed batch ${batch._id}: ${quoteChecks} citation(s) marked for a quote check`);
+    }
     if (!validation.ok) {
       return await failSeedAttempt(ctx, {
         batch,
@@ -1114,6 +1120,7 @@ export const completeAttempt = internalMutation({
           exactExcerpt: citation.exactExcerpt,
           ...locations.get(citation),
           ...(citation.needsSpeakerCheck ? { needsSpeakerCheck: true } : {}),
+          ...(citation.needsQuoteCheck ? { needsQuoteCheck: true } : {}),
           ...(factMode ? factStamp(factSources, citation) : null),
         });
       }

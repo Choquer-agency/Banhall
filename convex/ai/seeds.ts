@@ -134,7 +134,8 @@ function countedClient(client: GenerationClient, onRequest: () => void): Generat
 /**
  * One actionable hint per validator rule, built from the validator's own
  * limits. The Record is exhaustive, so a new issue code fails the build until
- * it has a hint. INVALID_PROVENANCE never blocks a Seed, so it has none.
+ * it has a hint. INVALID_PROVENANCE never blocks a Seed, so it has none; the
+ * quote codes never block either, but they ask for the soft repair.
  */
 function seedIssueHints(mode: SeedBatchMode): Record<SeedValidationIssueCode, string> {
   const [min, max] =
@@ -156,6 +157,8 @@ function seedIssueHints(mode: SeedBatchMode): Record<SeedValidationIssueCode, st
     INVALID_BATCH_SIZE: `return ${min} to ${max} valid Seeds`,
     INSUFFICIENT_TAG_DIVERSITY: "use at least two different tags",
     INSUFFICIENT_FORM_DIVERSITY: "mix one-bullet and two-bullet Seeds",
+    CITATION_UNRELATED: "cite the words that back the Seed and reuse a short phrase of them",
+    CITATION_REUSED: "cite a different line on each Seed unless both claims come from it",
   };
 }
 
