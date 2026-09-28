@@ -192,13 +192,6 @@
     if (opening) void requestTranscriptFacts({ transcriptId }).catch(() => {});
   }
 
-  // Metadata only above; the body of the one open transcript below. A project
-  // with ten interviews costs ten rows of a few hundred bytes, not ten bodies.
-  const openTranscriptQ = useQuery(api.transcripts.getTranscriptContent, () =>
-    auth.isAuthenticated && openTranscriptId
-      ? { transcriptId: openTranscriptId }
-      : "skip"
-  );
   const documentsQ = useQuery(api.documents.listDocuments, () =>
     auth.isAuthenticated ? { projectId } : "skip"
   );
@@ -385,7 +378,6 @@
   setProposalSectionSource(() => report?.content);
   const generation = $derived(generationQ.data);
   const transcripts = $derived(transcriptsQ.data ?? []);
-  const openTranscript = $derived(openTranscriptQ.data);
   const user = $derived(userQ.data);
   // Same authority as publishForReview: project.setStage (the current
   // Owner, a Manager or an Admin), never createdBy.
@@ -1541,6 +1533,18 @@
       !showSeedRecovery &&
       !showFailedGeneration
   );
+
+  // Metadata only above; the body of the one open transcript below. A project
+  // with ten interviews costs ten rows of a few hundred bytes, not ten bodies.
+  // The body shows only in the intake context pane, so a plan, summary or
+  // report never reads it (2026-09-28: the Plan tab subscribed a full
+  // transcript it did not draw).
+  const openTranscriptQ = useQuery(api.transcripts.getTranscriptContent, () =>
+    auth.isAuthenticated && showIntakeWorkbench && openTranscriptId
+      ? { transcriptId: openTranscriptId }
+      : "skip"
+  );
+  const openTranscript = $derived(openTranscriptQ.data);
 
   function setSeedSummary(open: boolean) {
     const url = new URL(page.url);
