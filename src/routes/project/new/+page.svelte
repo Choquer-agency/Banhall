@@ -638,6 +638,10 @@
   // A second tab that copied the id starts its own draft instead.
   const convex = useConvexClient();
   let restored = $state(false);
+  /** Files the old page was still reading when it reloaded; never saved. */
+  let restoredUnread = $state(0);
+  /** Originals a reload found in the draft: they live only there until promotion. */
+  let restoredOriginals = 0;
   /** Start dialog ids a reload brought back unticked, for its next opening. */
   let restoredExclusion = $state<string[]>([]);
 
@@ -698,8 +702,11 @@
         interviewees: view.interviewees,
       },
       selection: view.excludedSourceKeys,
+      originalsMissing: built.originalsMissing,
     });
-    restored = built.saved.length > 0 || view.clientName !== "";
+    restoredUnread = view.pendingReads;
+    restoredOriginals = view.sources.filter((source) => source.hasOriginal).length;
+    restored = built.saved.length > 0 || view.clientName !== "" || view.pendingReads > 0;
   }
 
   async function pickUpLeftover() {
@@ -719,9 +726,10 @@
         console.error("Could not bring back the setup", error);
       }
       if (!loaded || current !== intake || current.closed || !intakeWanted) {
-        // Ended (expired, promoted), unreadable, or the page moved on: a
-        // new draft starts with the next file, and this one is left alone.
-        current.dropClaimed(draftId, { discard: false });
+        // Ended, unreadable, or the writer switched to Review meanwhile: the
+        // lock proves this page owns it, so it is discarded (review P3-3),
+        // and a new draft starts with the next file.
+        current.dropClaimed(draftId, { discard: true });
         return;
       }
       applyDraft(draftId, loaded);
@@ -736,6 +744,8 @@
     intake.discard();
     intake = makeIntake();
     restored = false;
+    restoredUnread = 0;
+    restoredOriginals = 0;
     restoredExclusion = [];
     transcriptItems = [];
     transcriptProblems = [];
@@ -766,7 +776,11 @@
     );
   }
   function onDialogSelection(excluded: StartRunExcluded) {
-    if (intakeActive && !intake.closed) intake.setSelection(intakeKeysFor(excluded));
+    // Only a Step-by-step run waits on the head start, so only its ticks ask
+    // for one (review P3-5); the others only count files still being read.
+    if (intakeActive && !intake.closed) {
+      intake.setSelection(intakeKeysFor(excluded), { send: candidateMode === "iterative" });
+    }
   }
 
   // Transcript chips belong to Review a written PD; back in Write a new PD a
@@ -1646,7 +1660,12 @@
       } catch {
         // The first call failed, so no project was made: the draft goes and
         // the old path saves everything (it reports a real refusal itself).
+        // Originals a reload brought back live only in the draft: say so
+        // rather than lose them quietly (review P3-7).
         intake.discard();
+        if (restoredOriginals > 0) {
+          toast.info("The project is saved from the text of your files. The original files from before the reload were not kept.");
+        }
         return "fallback";
       }
       extractionLifetime.signal.throwIfAborted();
@@ -2255,6 +2274,9 @@
        draft, or one that did not reach it, says so; saved ones stay quiet. -->
   {#if key && intake.receipts.get(key) === "saving"}
     <span class="shrink-0 text-xs leading-4 text-ink-muted" data-save-receipt="saving">Saving</span>
+  {:else if key && intake.receipts.get(key) !== "failed" && intake.originals.get(key) === "missing"}
+    <!-- 2026-09-27 (fourth): a reload brought it back without its original. -->
+    <span class="shrink-0 text-xs leading-4 text-ink-muted" data-save-receipt="original-missing">Original not saved; the text is kept</span>
   {:else if key && (intake.receipts.get(key) === "failed" || intake.originals.get(key) === "failed")}
     <span class="relative z-10 flex shrink-0 items-center gap-2" role="status">
       <span class="text-xs leading-4 text-danger-ink-muted" data-save-receipt="failed">
@@ -2556,7 +2578,10 @@
                     secondaryAction={{ label: "Start over", onclick: startOver }}
                     onDismiss={() => (restored = false)}
                   >
-                    The files, names and file choice you had before the page reloaded are saved.
+                    Check the files below before you start.{#if restoredUnread > 0}{" "}<span data-intake-restored-unread>
+                        {restoredUnread === 1
+                          ? "1 file was still being read when the page reloaded. Add it again."
+                          : `${restoredUnread} files were still being read when the page reloaded. Add them again.`}</span>{/if}
                   </StatusCallout>
                 </div>
               {/if}

@@ -2,7 +2,9 @@
  * The project page's start dialog leave-out list, sent to the server
  * (2026-09-27, fourth) the way New project sends a draft's: a moment after
  * each change of ticks while the dialog is open, so a preparation of
- * exactly the ticked files starts; cleared on Cancel; and, at Start on a
+ * exactly the ticked files starts; on Cancel the queued start for them ends
+ * (nothing is spent); only a Step-by-step dialog asks at all, since only
+ * that run waits on a head start (review P3-5); and, at Start on a
  * Step-by-step run, sent once more with `confirm` just before the run is
  * requested, so a queued preparation goes at once and the run waits on it.
  * The Convex client runs one client's mutations in the order they were
@@ -24,7 +26,7 @@ function serialize(excluded: StartRunExcluded): string {
 }
 
 export class ProjectStartSelection {
-  #send: (excluded: StartRunExcluded, confirm: boolean) => Promise<unknown>;
+  #send: (excluded: StartRunExcluded, flags: { confirm?: boolean; cancel?: boolean }) => Promise<unknown>;
   #delayMs: number;
   #timer: ReturnType<typeof setTimeout> | null = null;
   #latest: StartRunExcluded = { transcriptIds: [], documentIds: [] };
@@ -33,7 +35,7 @@ export class ProjectStartSelection {
   #disposed = false;
 
   constructor(options: {
-    send: (excluded: StartRunExcluded, confirm: boolean) => Promise<unknown>;
+    send: (excluded: StartRunExcluded, flags: { confirm?: boolean; cancel?: boolean }) => Promise<unknown>;
     delayMs?: number;
   }) {
     this.#send = options.send;
@@ -51,9 +53,16 @@ export class ProjectStartSelection {
     }, this.#delayMs);
   }
 
-  /** Cancel: nothing is left out any more. */
+  /** Cancel: a queued start for the unticked files ends, and nothing is left out any more. */
   cancel(): void {
-    this.change({ transcriptIds: [], documentIds: [] });
+    if (this.#timer) clearTimeout(this.#timer);
+    this.#timer = null;
+    this.#latest = { transcriptIds: [], documentIds: [] };
+    if (this.#disposed || this.#sent === NOTHING) return;
+    this.#sent = NOTHING;
+    void this.#send(this.#latest, { cancel: true }).catch((error: unknown) =>
+      console.error("Could not clear the file choice for the head start", error)
+    );
   }
 
   /** Start on a Step-by-step run: the final list, sent now with `confirm`. */
@@ -83,7 +92,7 @@ export class ProjectStartSelection {
     const previous = this.#sent;
     this.#sent = serialized;
     try {
-      await this.#send(excluded, confirm);
+      await this.#send(excluded, confirm ? { confirm: true } : {});
     } catch (error) {
       // The head start is best effort; the run carries its own list.
       if (this.#sent === serialized) this.#sent = previous;

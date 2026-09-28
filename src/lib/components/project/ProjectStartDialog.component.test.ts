@@ -149,7 +149,7 @@ for (const [name, Page] of [["preview", PreviewProjectPage], ["current", Current
       ]);
     });
 
-    it("Cancel clears the list, and nothing is started", async () => {
+    it("Cancel ends the head start for the unticked files, and nothing is started", async () => {
       await openDialog();
       await dialog().getByRole("checkbox", { name: "Use Priya interview.docx", exact: true }).click();
       await expect.poll(() => selections().length).toBe(1);
@@ -157,9 +157,17 @@ for (const [name, Page] of [["preview", PreviewProjectPage], ["current", Current
       await expect.element(dialog()).not.toBeInTheDocument();
       await expect.poll(selections).toEqual([
         { projectId: "project-start", excludedTranscriptIds: ["transcript-1"], excludedDocumentIds: [] },
-        { projectId: "project-start", excludedTranscriptIds: [], excludedDocumentIds: [] },
+        { projectId: "project-start", excludedTranscriptIds: [], excludedDocumentIds: [], cancel: true },
       ]);
       expect(requests()).toEqual([]);
+    });
+
+    it("Cancel with nothing unticked asks nothing", async () => {
+      await openDialog();
+      await dialog().getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect.element(dialog()).not.toBeInTheDocument();
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      expect(selections()).toEqual([]);
     });
 
     it("keeps the page's refusals: a rate limit shows its message, and a head start that fails never blocks the run", async () => {
@@ -182,8 +190,9 @@ for (const [name, Page] of [["preview", PreviewProjectPage], ["current", Current
       quiet.mockRestore();
     });
 
-    it("a compare run sends no confirm and keeps its leave-out list", async () => {
+    it("a compare run asks for no head start and keeps its leave-out list", async () => {
       await render(Page, {});
+      await page.getByRole("radio", { name: "Compare two drafts", exact: true }).click();
       await page.getByRole("button", { name: "Generate Report", exact: true }).click();
       const compare = page.getByRole("dialog", { name: "Choose what the drafts come from" });
       await expect.element(compare).toBeVisible();
@@ -196,7 +205,46 @@ for (const [name, Page] of [["preview", PreviewProjectPage], ["current", Current
         excludeDocumentIds: ["document-cold"],
       }]);
       await new Promise((resolve) => setTimeout(resolve, 450));
-      expect(selections().some((call) => (call as { confirm?: boolean }).confirm)).toBe(false);
+      // Its ticks never ask for a head start: that run would not use one.
+      expect(selections()).toEqual([]);
     });
+
+    it("unticked files are carried through the Re-run generation confirmation", async () => {
+      // A finished run: a re-run asks first.
+      __setQueryData("generations:getLatestGeneration", {
+        _id: "generation-done", status: "completed", candidateMode: "single", startedAt: now, completedAt: now,
+      });
+      await openDialog();
+      await dialog().getByRole("checkbox", { name: "Use cold-soak.txt", exact: true }).click();
+      await dialog().getByRole("button", { name: "Start with 2 files", exact: true }).click();
+      const rerun = page.getByRole("dialog", { name: "This project already has a report" });
+      await expect.element(rerun).toBeVisible();
+      expect(requests()).toEqual([]);
+      await rerun.getByRole("button", { name: "Re-run generation", exact: true }).click();
+      await expect.poll(requests).toEqual([{
+        projectId: "project-start",
+        lengthTarget: "standard",
+        candidateMode: "iterative",
+        excludeDocumentIds: ["document-cold"],
+        confirmRegeneration: true,
+      }]);
+      expect(selections().at(-1)).toEqual({
+        projectId: "project-start", excludedTranscriptIds: [], excludedDocumentIds: ["document-cold"], confirm: true,
+      });
+    });
+
+    for (const [code, message] of [
+      ["GENERATION_ACTIVE", "A run is already going on this project. Try again when it finishes."],
+      ["PROJECT_SETTING_UP", "This project is still being set up. Try again in a moment."],
+    ] as const) {
+      it(`shows the ${code} refusal on the page after the dialog`, async () => {
+        __setMutationError("generations:requestGeneration", new ConvexError({ code, message }));
+        await openDialog();
+        await dialog().getByRole("button", { name: "Start with 3 files", exact: true }).click();
+        await expect.poll(() => requests().length).toBe(1);
+        await expect.element(page.getByText(message, { exact: true })).toBeVisible();
+        await expect.element(dialog()).not.toBeInTheDocument();
+      });
+    }
   });
 }

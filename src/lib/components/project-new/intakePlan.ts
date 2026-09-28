@@ -25,6 +25,8 @@ export type IntakeSourceDesc = {
   category?: ContextCategoryId;
   intake?: "file" | "pasted";
   extractionOutcome?: "ok" | "failed";
+  /** A previous-year report's fiscal year (2026-09-27, fourth). */
+  fiscalYear?: number;
   /** The original file, saved to the draft once the text is. */
   file?: File | null;
 };
@@ -85,6 +87,7 @@ export function plannedIntakeSources(input: {
         fileType: "txt",
         category,
         intake: "pasted",
+        ...(category === "previous_pd" ? { fiscalYear: doc.year } : {}),
       });
       continue;
     }
@@ -108,6 +111,7 @@ export function plannedIntakeSources(input: {
       category,
       intake: "file",
       extractionOutcome: doc.status === "failed" ? "failed" : "ok",
+      ...(category === "previous_pd" ? { fiscalYear: doc.year } : {}),
       file: doc.file,
     });
   }
@@ -139,6 +143,7 @@ export type RestoredSource = {
   category?: ContextCategoryId;
   intake?: "file" | "pasted";
   extractionOutcome?: "ok" | "failed";
+  fiscalYear?: number;
   hasOriginal: boolean;
 };
 
@@ -183,6 +188,8 @@ export type RestoredDocument = {
   body: string;
   fileType: FileType;
   failed: boolean;
+  /** A file saved without its original (it had not reached the draft). */
+  originalMissing: boolean;
 };
 
 /**
@@ -201,12 +208,15 @@ export function restoredIntake(
   documents: RestoredDocument[];
   yearNotes: Map<number, string>;
   saved: IntakeSourceDesc[];
+  /** Source keys of files whose original was not saved (their text is). */
+  originalsMissing: string[];
 } {
   const ordered = [...sources].filter((source) => texts.has(source.sourceKey)).sort((a, b) => a.position - b.position);
   const yearNotes = new Map<number, string>();
   const transcripts: RestoredTranscript[] = [];
   const documents: RestoredDocument[] = [];
   const saved: IntakeSourceDesc[] = [];
+  const originalsMissing: string[] = [];
   for (const source of ordered) {
     const content = texts.get(source.sourceKey)!;
     saved.push({
@@ -220,15 +230,18 @@ export function restoredIntake(
       ...(source.category ? { category: source.category } : {}),
       ...(source.intake ? { intake: source.intake } : {}),
       ...(source.extractionOutcome ? { extractionOutcome: source.extractionOutcome } : {}),
+      ...(source.fiscalYear !== undefined ? { fiscalYear: source.fiscalYear } : {}),
       file: null,
     });
     if (source.kind === "transcript") {
+      const pasted = /^Pasted transcript \d+$/.test(source.label);
+      if (!pasted && !source.hasOriginal) originalsMissing.push(source.sourceKey);
       transcripts.push({
         sourceKey: source.sourceKey,
         label: source.label,
         content,
         ...(source.sourceFormat ? { format: source.sourceFormat } : {}),
-        pasted: /^Pasted transcript \d+$/.test(source.label),
+        pasted,
       });
       continue;
     }
@@ -242,16 +255,20 @@ export function restoredIntake(
     if (split?.note) yearNotes.set(split.year, split.note);
     const body = split ? split.body : content;
     const pasted = source.intake === "pasted";
+    const originalMissing = !pasted && !source.hasOriginal;
+    if (originalMissing) originalsMissing.push(source.sourceKey);
     documents.push({
       sourceKey: source.sourceKey,
       name: source.label,
       category,
-      year: split?.year ?? null,
+      // A report with no text has no header: its stored year keeps it.
+      year: source.fiscalYear ?? split?.year ?? null,
       pastedText: pasted ? body : null,
       body,
       fileType: source.fileType ?? "other",
       failed: source.extractionOutcome === "failed",
+      originalMissing,
     });
   }
-  return { transcripts, documents, yearNotes, saved };
+  return { transcripts, documents, yearNotes, saved, originalsMissing };
 }

@@ -220,13 +220,13 @@ describe("saved while the writer sets up", () => {
     expect(sessionStorage.getItem(INTAKE_DRAFT_STORAGE_KEY)).toBeNull();
   });
 
-  it("a reload whose draft has ended starts a fresh one and discards nothing", async () => {
+  it("a reload whose draft could not be brought back discards it (this page holds its lock) and starts fresh", async () => {
     sessionStorage.setItem(INTAKE_DRAFT_STORAGE_KEY, "draft-left-over");
     __setQueryData("intakeDrafts:restoreIntakeDraft", null);
     await render(NewProjectPage, {});
     await expect.poll(() => __clientQueryCalls("intakeDrafts:restoreIntakeDraft")).toEqual([{ draftId: "draft-left-over" }]);
     await expect.poll(() => sessionStorage.getItem(INTAKE_DRAFT_STORAGE_KEY)).toBeNull();
-    expect(__mutationCalls("intakeDrafts:discardIntakeDraft")).toEqual([]);
+    await expect.poll(() => __mutationCalls("intakeDrafts:discardIntakeDraft")).toEqual([{ draftId: "draft-left-over" }]);
     await fillBasics("Cold seal", "Acme Seals");
     await pasteTranscript();
     await expect.poll(() => saves().length).toBe(1);
@@ -243,10 +243,11 @@ describe("a reload brings the draft back (2026-09-27, fourth)", () => {
     interviewerUserId: null,
     interviewees: ["Priya Raman"],
     excludedSourceKeys: ["document-key-soak"],
+    pendingReads: 0,
     sources: [
       { sourceKey: "transcript-key-1", kind: "transcript", position: 0, label: "Morning interview.docx", contentLength: TRANSCRIPT.length, sourceFormat: "txt", hasOriginal: true },
       { sourceKey: "document-key-soak", kind: "document", position: 1001, label: "Soak.pdf", contentLength: NOTES.length, fileType: "pdf", category: "background", intake: "file", extractionOutcome: "ok", hasOriginal: true },
-      { sourceKey: "document-key-report", kind: "document", position: 1000, label: "FY2024 PD.docx", contentLength: REPORT_TEXT.length, fileType: "docx", category: "previous_pd", intake: "file", extractionOutcome: "ok", hasOriginal: false },
+      { sourceKey: "document-key-report", kind: "document", position: 1000, label: "FY2024 PD.docx", contentLength: REPORT_TEXT.length, fileType: "docx", category: "previous_pd", intake: "file", extractionOutcome: "ok", fiscalYear: 2024, hasOriginal: false },
     ],
   };
 
@@ -288,8 +289,11 @@ describe("a reload brings the draft back (2026-09-27, fourth)", () => {
     expect([...document.querySelectorAll<HTMLInputElement>("[data-year-notes] input")].map((input) => input.value)).toEqual([
       "Claim cut by 20%",
     ]);
-    // Saved files show nothing extra, and nothing is saved or uploaded again.
-    expect(document.querySelector("[data-save-receipt]")).toBeNull();
+    // Saved files show nothing extra, and nothing is saved or uploaded again;
+    // the report saved without its original says so.
+    expect(document.querySelector('[data-save-receipt]:not([data-save-receipt="original-missing"])')).toBeNull();
+    expect(text(cards[0])).toContain("Original not saved; the text is kept");
+    expect(text(cards[1])).not.toContain("Original not saved");
     await new Promise((resolve) => setTimeout(resolve, 900));
     expect(saves()).toEqual([]);
     expect(__mutationCalls("intakeDrafts:createIntakeDraft")).toEqual([]);
@@ -370,6 +374,68 @@ describe("a reload brings the draft back (2026-09-27, fourth)", () => {
     } finally {
       letGo();
     }
+  });
+
+  it("says how many files were still being read, sends this page's own count, and shows files whose original was not saved", async () => {
+    __setMutationResult("intakeDrafts:reportIntakePendingReads", null);
+    seedDraft();
+    __setQueryDataForArgs("intakeDrafts:restoreIntakeDraft", { draftId: "draft-left" }, {
+      ...VIEW,
+      pendingReads: 2,
+      sources: VIEW.sources.map((source) => ({ ...source, hasOriginal: source.sourceKey === "document-key-report" })),
+    });
+    await render(NewProjectPage, {});
+    await expect.poll(() => text(document.querySelector("[data-intake-restored]"))).toContain(
+      "Your setup is back Check the files below before you start. 2 files were still being read when the page reloaded. Add them again."
+    );
+    // The old page's count is not this page's: a fresh zero goes out (review P3-2).
+    await expect.poll(() => __mutationCalls("intakeDrafts:reportIntakePendingReads")).toEqual([{ draftId: "draft-left", count: 0 }]);
+    // A file and a transcript saved without their originals say so; the report had its original.
+    const missing = [...document.querySelectorAll('[data-save-receipt="original-missing"]')].map((node) => text(node));
+    expect(missing).toEqual(["Original not saved; the text is kept", "Original not saved; the text is kept"]);
+    expect(text(document.querySelector("[data-transcript-item]"))).toContain("Original not saved; the text is kept");
+    expect(saves()).toEqual([]);
+  });
+
+  it("an empty previous-year report keeps its year and the year's note, and nothing is removed from the draft (review P3-1)", async () => {
+    sessionStorage.setItem(INTAKE_DRAFT_STORAGE_KEY, "draft-empty-report");
+    const draftId = "draft-empty-report";
+    __setQueryDataForArgs("intakeDrafts:restoreIntakeDraft", { draftId }, {
+      clientName: "Acme Seals", interviewerUserId: null, interviewees: [], excludedSourceKeys: [], pendingReads: 0,
+      sources: [
+        { sourceKey: "transcript-key-1", kind: "transcript", position: 0, label: "Morning interview.docx", contentLength: TRANSCRIPT.length, sourceFormat: "txt", hasOriginal: true },
+        { sourceKey: "report-key-empty", kind: "document", position: 1000, label: "FY2023 scan.pdf", contentLength: 0, fileType: "pdf", category: "previous_pd", intake: "file", extractionOutcome: "ok", fiscalYear: 2023, hasOriginal: true },
+        { sourceKey: "prevyear-note-2023", kind: "document", position: 1001, label: "Previous-year note (FY 2023)", contentLength: 40, fileType: "txt", category: "previous_pd", intake: "pasted", hasOriginal: false },
+      ],
+    });
+    __setQueryDataForArgs("intakeDrafts:getIntakeSourceText", { draftId, sourceKey: "transcript-key-1" }, { content: TRANSCRIPT });
+    __setQueryDataForArgs("intakeDrafts:getIntakeSourceText", { draftId, sourceKey: "report-key-empty" }, { content: "" });
+    __setQueryDataForArgs("intakeDrafts:getIntakeSourceText", { draftId, sourceKey: "prevyear-note-2023" }, {
+      content: "[Previous-year note \u2014 fiscal 2023]\n\nThe rig was retired.",
+    });
+    await render(NewProjectPage, {});
+    await expect.poll(() => document.querySelector("[data-intake-restored]")).not.toBeNull();
+    await expect.poll(() => [...document.querySelectorAll<HTMLInputElement>("[data-year-notes] input")].map((input) => input.value)).toEqual([
+      "The rig was retired.",
+    ]);
+    expect(text(document.querySelector("[data-year-notes]"))).toContain("FY 2023");
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(__mutationCalls("intakeDrafts:removeIntakeSource")).toEqual([]);
+    expect(saves()).toEqual([]);
+  });
+
+  it("a Single draft dialog asks for no head start while it is open, and Start sends no confirm (review P3-5)", async () => {
+    __setMutationResult("intakeDrafts:setIntakeSelection", null);
+    seedDraft();
+    await render(NewProjectPage, {});
+    await expect.poll(() => document.querySelector("[data-intake-restored]")).not.toBeNull();
+    setInputValue("#title", "Cold seal");
+    await page.getByRole("radio", { name: /Single draft/ }).click();
+    await openStartDialog();
+    const rows = [...document.querySelectorAll<HTMLElement>("[data-start-run-row]")];
+    rows.find((row) => row.dataset.kind === "transcript")!.querySelector<HTMLElement>("[data-start-run-check]")!.click();
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(__mutationCalls("intakeDrafts:setIntakeSelection")).toEqual([]);
   });
 
   it("Start over discards the draft and empties the page", async () => {

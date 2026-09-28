@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { ConvexError } from "convex/values";
-import { IntakeDraftSync, INTAKE_DRAFT_STORAGE_KEY, textHash, type IntakeCalls } from "./intakeDraft.svelte";
+import {
+  IntakeDraftSync,
+  INTAKE_DRAFT_STORAGE_KEY,
+  textHash,
+  timeoutSignal,
+  type IntakeCalls,
+} from "./intakeDraft.svelte";
 import type { IntakeSourceDesc } from "./intakePlan";
 
 /**
@@ -439,5 +445,26 @@ describe("a reload picks the draft up again (2026-09-27, fourth)", () => {
     expect(calls.setIntakeSelection.mock.calls).toEqual([
       [{ draftId: "draft-1", excludedSourceKeys: ["document-key-2"], confirm: true }],
     ]);
+  });
+
+  it("after a pick-up this page's own count of files still being read goes out once, fresh (review P3-2)", async () => {
+    const calls = fakeCalls();
+    const sync = new IntakeDraftSync({ calls: calls as unknown as IntakeCalls, uploadOriginal: async () => undefined, delayMs: 1 });
+    sync.adopt({ draftId: "draft-left" as never, sources: [transcript], context: { clientName: "", interviewees: [] }, selection: [] });
+    await expect.poll(() => calls.reportIntakePendingReads.mock.calls.length).toBe(1);
+    expect(calls.reportIntakePendingReads.mock.calls[0][0]).toEqual({ draftId: "draft-left", count: 0 });
+    sync.dispose();
+  });
+
+  it("the lock wait works without AbortSignal.timeout (Safari 15.4 to 15.6, review P3-4)", async () => {
+    const original = AbortSignal.timeout;
+    try {
+      (AbortSignal as unknown as { timeout?: unknown }).timeout = undefined;
+      const signal = timeoutSignal(20);
+      expect(signal.aborted).toBe(false);
+      await expect.poll(() => signal.aborted).toBe(true);
+    } finally {
+      AbortSignal.timeout = original;
+    }
   });
 });

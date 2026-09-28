@@ -192,12 +192,12 @@
   // start of exactly the ticked files, as on New project.
   const setProjectStartSelection = useMutation(api.briefPreparations.setProjectStartSelection);
   const startSelection = new ProjectStartSelection({
-    send: (excluded, confirm) =>
+    send: (excluded, flags) =>
       setProjectStartSelection({
         projectId,
         excludedTranscriptIds: excluded.transcriptIds as Id<"transcripts">[],
         excludedDocumentIds: excluded.documentIds as Id<"projectDocuments">[],
-        ...(confirm ? { confirm: true } : {}),
+        ...flags,
       }),
   });
   onDestroy(() => startSelection.dispose());
@@ -1996,7 +1996,10 @@
       validate={(excluded) => projectStartProblem(excluded, transcriptsQ.data ?? [], documentsQ.data ?? [])}
       onConfirm={confirmStart}
       onCancel={() => startSelection.cancel()}
-      onSelectionChange={(excluded) => startSelection.change(excluded)}
+      onSelectionChange={(excluded) => {
+        // Only a Step-by-step run waits on a head start (review P3-5).
+        if (startMode === "iterative") startSelection.change(excluded);
+      }}
       returnFocus={() => startTrigger}
     />
 

@@ -136,6 +136,7 @@ describe("restoredIntake (2026-09-27, fourth: a reload brings the draft back)", 
         ...(source.category ? { category: source.category } : {}),
         ...(source.intake ? { intake: source.intake } : {}),
         ...(source.extractionOutcome ? { extractionOutcome: source.extractionOutcome } : {}),
+        ...(source.fiscalYear !== undefined ? { fiscalYear: source.fiscalYear } : {}),
         hasOriginal: true,
       })),
       texts
@@ -200,5 +201,15 @@ describe("restoredIntake (2026-09-27, fourth: a reload brings the draft back)", 
     });
     expect(splitPreviousYearText(`${previousYearPrefix(2022, "")}Body text.`)).toEqual({ year: 2022, note: "", body: "Body text." });
     expect(splitPreviousYearText("No header here.")).toBeNull();
+  });
+
+  it("a previous-year report with no text keeps its stored year, so its note stays with it (review P3-1)", () => {
+    const back = restoredIntake(
+      [{ sourceKey: "report-key-empty", kind: "document", position: 1000, label: "FY2023 scan.pdf", fileType: "pdf", category: "previous_pd", intake: "file", extractionOutcome: "ok", fiscalYear: 2023, hasOriginal: false }],
+      new Map([["report-key-empty", ""]])
+    );
+    expect(back.documents[0]).toMatchObject({ year: 2023, body: "", originalMissing: true });
+    expect(back.saved[0]).toMatchObject({ fiscalYear: 2023, content: "" });
+    expect(back.originalsMissing).toEqual(["report-key-empty"]);
   });
 });

@@ -55,7 +55,7 @@
     saveState?: "saving" | "saved" | "failed" | null;
     /** Why the save failed, in plain words, when it is a cap. */
     saveMessage?: string | null;
-    originalState?: "uploading" | "saved" | "failed" | null;
+    originalState?: "uploading" | "saved" | "failed" | "missing" | null;
     onRetrySave?: () => void;
   } = $props();
 
@@ -183,6 +183,9 @@
             </button>
           {/if}
         </div>
+      {:else if originalState === "missing"}
+        <!-- 2026-09-27 (fourth): a reload brought the file back without its original. -->
+        <span class="text-xs leading-4 text-ink-muted" data-save-receipt="original-missing">Original not saved; the text is kept</span>
       {/if}
     {/if}
   </div>

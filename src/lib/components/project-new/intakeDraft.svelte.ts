@@ -67,18 +67,33 @@ export function intakeDraftLockName(draftId: string): string {
  */
 export type HoldLock = (name: string, waitMs: number) => Promise<(() => void) | null>;
 
+/**
+ * An abort signal that fires after `ms`. Safari 15.4 to 15.6 has Web Locks
+ * but no `AbortSignal.timeout`, so it falls back to a controller and a timer.
+ */
+export function timeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(ms);
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(new DOMException("The lock wait timed out", "TimeoutError")), ms);
+  return controller.signal;
+}
+
 export const holdWebLock: HoldLock = async (name, waitMs) => {
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
   if (!locks) return null;
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
   return await new Promise<(() => void) | null>((resolve) => {
-    locks
-      .request(name, { signal: AbortSignal.timeout(waitMs) }, async () => {
-        resolve(release);
-        await held;
-      })
-      .catch(() => resolve(null));
+    try {
+      locks
+        .request(name, { signal: timeoutSignal(waitMs) }, async () => {
+          resolve(release);
+          await held;
+        })
+        .catch(() => resolve(null));
+    } catch {
+      resolve(null);
+    }
   });
 };
 
@@ -88,13 +103,16 @@ export type RestoredDraft = {
   sources: IntakeSourceDesc[];
   context: IntakeContext;
   selection: string[];
+  /** Source keys whose original file did not reach the draft. */
+  originalsMissing?: string[];
 };
 
 /** The polling a new sync uses unless told otherwise; component tests shorten it. */
 export const intakePolling = { pollMs: PROMOTION_POLL_MS, maxSteps: MAX_PROMOTION_STEPS };
 
 export type SaveState = "saving" | "saved" | "failed";
-export type OriginalState = "uploading" | "saved" | "failed";
+/** `missing`: a reload brought the file back without its original (2026-09-27, fourth). */
+export type OriginalState = "uploading" | "saved" | "failed" | "missing";
 
 export type IntakeContext = {
   clientName: string;
@@ -165,6 +183,7 @@ function sameSource(a: IntakeSourceDesc, b: IntakeSourceDesc): boolean {
     a.category === b.category &&
     a.intake === b.intake &&
     a.extractionOutcome === b.extractionOutcome &&
+    a.fiscalYear === b.fiscalYear &&
     (a.file ?? null) === (b.file ?? null)
   );
 }
@@ -317,11 +336,21 @@ export class IntakeDraftSync {
         this.#attempted.set(desc.sourceKey, desc);
         this.receipts.set(desc.sourceKey, "saved");
       }
+      for (const key of restored.originalsMissing ?? []) this.originals.set(key, "missing");
     });
     this.#context = restored.context;
     this.#contextSent = JSON.stringify(restored.context);
     this.#selection = [...restored.selection].sort();
     this.#selectionSent = JSON.stringify(this.#selection);
+    // The count the old page sent is not this page's (review P3-2): this
+    // page's count goes out once, fresh.
+    this.#pendingSent = -1;
+    untrack(() => this.#pendingChanged());
+  }
+
+  /** Files a reload brought back whose original did not reach the draft. */
+  get restoredOriginalsMissing(): number {
+    return untrack(() => [...this.originals.values()].filter((state) => state === "missing").length);
   }
 
   /** Brings the draft in line with what the page has read. */
@@ -417,11 +446,15 @@ export class IntakeDraftSync {
     });
   }
 
-  /** The start dialog's leave-out list, by source key. */
-  setSelection(excludedSourceKeys: string[]): void {
+  /**
+   * The start dialog's leave-out list, by source key. `send: false` (a run
+   * that never waits on the head start, review P3-5) only keeps it for the
+   * count of files still being read.
+   */
+  setSelection(excludedSourceKeys: string[], options: { send?: boolean } = {}): void {
     this.#selection = [...excludedSourceKeys].sort();
     untrack(() => this.#pendingChanged());
-    if (this.closed || this.#promoting || !this.draftId) return;
+    if (options.send === false || this.closed || this.#promoting || !this.draftId) return;
     if (this.#selectionTimer) clearTimeout(this.#selectionTimer);
     this.#selectionTimer = setTimeout(() => void this.#sendSelection(), this.#delayMs);
   }
@@ -670,6 +703,7 @@ export class IntakeDraftSync {
           ...(desc.category ? { category: desc.category } : {}),
           ...(desc.intake ? { intake: desc.intake } : {}),
           ...(desc.extractionOutcome ? { extractionOutcome: desc.extractionOutcome } : {}),
+          ...(desc.fiscalYear !== undefined ? { fiscalYear: desc.fiscalYear } : {}),
         });
         this.#sent.set(key, desc);
         this.messages.delete(key);
