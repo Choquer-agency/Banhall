@@ -341,7 +341,11 @@ const generateBatchRef = makeFunctionReference<"action", { batchId: Id<"seedBatc
 );
 const seedModel = "claude-sonnet-5";
 
-async function seedBatch(t: TestConvex, f: Awaited<ReturnType<typeof meridian>>) {
+async function seedBatch(
+  t: TestConvex,
+  f: Awaited<ReturnType<typeof meridian>>,
+  operation: "open" | "prefetch" = "open"
+) {
   return await t.run(async (ctx) => {
     const now = Date.now();
     const briefId = await ctx.db.insert("generationBriefs", {
@@ -374,7 +378,7 @@ async function seedBatch(t: TestConvex, f: Awaited<ReturnType<typeof meridian>>)
       projectId: f.projectId,
       generationId: f.generationId,
       roleId: "active_uncertainties",
-      operation: "open",
+      operation,
       dedupeKey: "meridian-dedupe",
       commandId: "meridian-command",
       attemptId: "meridian-attempt",
@@ -395,7 +399,7 @@ async function seedBatch(t: TestConvex, f: Awaited<ReturnType<typeof meridian>>)
   });
 }
 
-async function runSeeds(t: TestConvex, batchId: Id<"seedBatches">, seeds: unknown[]) {
+async function runSeeds(t: TestConvex, batchId: Id<"seedBatches">, seeds: unknown[], requests = 1) {
   const transport = vi.fn<typeof fetch>(async () =>
     Response.json({
       id: "msg_meridian_seeds",
@@ -411,7 +415,7 @@ async function runSeeds(t: TestConvex, batchId: Id<"seedBatches">, seeds: unknow
   vi.stubGlobal("fetch", transport);
   await t.action(generateBatchRef, { batchId });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
-  expect(transport).toHaveBeenCalledTimes(1);
+  expect(transport).toHaveBeenCalledTimes(requests);
   return await t.run(async (ctx) => {
     const rows = await ctx.db
       .query("seeds")
@@ -486,6 +490,34 @@ describe("Seeds keep only client turns as evidence outside facts mode", () => {
       speaker: "Robin Chen",
       needsSpeakerCheck: true,
     });
+  });
+
+  // 2026-09-27 (third, lead answer 3): the speaker check runs before the
+  // quote check, so a quote it drops never asks for the quote repair.
+  it("spends no quote repair on an interviewer's line the speaker check drops", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    const batchId = await seedBatch(t, f, "prefetch");
+    const seeds = seedsCiting(f.sourceId);
+    // The first card's only quote is the interviewer's question, and it does
+    // not back the card either; the speaker check drops it first.
+    seeds[0] = { ...seeds[0], bullets: ["Peel tests ran on every batch of the new formulation."] };
+    const stored = await runSeeds(t, batchId, seeds, 1);
+    expect(stored[0].provenance).toEqual([]);
+    expect(stored[0].seed.support).toBe("writer_asserted");
+    expect(stored.flatMap((row) => row.provenance).some((row) => row.needsQuoteCheck)).toBe(false);
+  });
+
+  it("still spends the quote repair on a client's line that does not back its card", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    const batchId = await seedBatch(t, f, "prefetch");
+    const seeds = seedsCiting(f.sourceId);
+    seeds[1] = { ...seeds[1], bullets: ["Peel tests ran on every batch of the new formulation."] };
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The provider answers the same both times, so the repaired answer is kept, marked.
+    const stored = await runSeeds(t, batchId, seeds, 2);
+    expect(stored[1].provenance.map((row) => row.needsQuoteCheck ?? false)).toEqual([true, true]);
   });
 
   it("leaves a transcript without stored turns exactly as before", async () => {

@@ -159,7 +159,7 @@ describe("generateStructured", () => {
       toolName: "submit",
       description: "submit",
       validate: z.object({ quote: z.string() }),
-      softRepair: (value: { quote: string }) => (value.quote === "weak" ? "quote the line that backs it" : null),
+      softRepair: (value: { quote: string }) => (value.quote === "weak" ? "\n\nQuote the line that backs it." : null),
     };
 
     it("spends the one repair on a valid answer it asks to improve and returns the repaired one", async () => {
@@ -167,9 +167,24 @@ describe("generateStructured", () => {
       await expect(generateStructured(client, opts)).resolves.toEqual({ quote: "strong" });
       expect(client.messages.create).toHaveBeenCalledTimes(2);
       const second = vi.mocked(client.messages.create).mock.calls[1][0];
-      expect(second.messages[0].content).toContain(
-        "Your previous tool output was invalid: quote the line that backs it."
-      );
+      // Its own text, not the invalid-output scaffold.
+      expect(second.messages[0].content).toBe("user\n\nQuote the line that backs it.");
+    });
+
+    it("may decide asynchronously", async () => {
+      const client = clientWith([{ quote: "weak" }, { quote: "strong" }]);
+      const softRepair = vi.fn(async (value: { quote: string }) => (value.quote === "weak" ? "\n\nAgain." : null));
+      await expect(generateStructured(client, { ...opts, softRepair })).resolves.toEqual({ quote: "strong" });
+      expect(softRepair).toHaveBeenCalledTimes(1);
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("sends a hard repair its own scaffold after a soft repair's answer fails validation", async () => {
+      const client = clientWith([{ quote: "weak" }, { other: "missing" }, { quote: "strong" }]);
+      await expect(generateStructured(client, { ...opts, attempts: 3 })).resolves.toEqual({ quote: "strong" });
+      const third = vi.mocked(client.messages.create).mock.calls[2][0];
+      expect(third.messages[0].content).toContain("Your previous tool output was invalid");
+      expect(third.messages[0].content).not.toContain("Quote the line that backs it.");
     });
 
     it("returns the repaired answer as it is, without asking again", async () => {

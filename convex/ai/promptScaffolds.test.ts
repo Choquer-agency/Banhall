@@ -362,7 +362,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("versions the Seed quote rules (2026-09-27, third amendment)", async () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-27.1");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-27.2");
+    expect(SEED_PROMPT_PROGRAM.request.quoteRepair.opening).toBe("\n\nSome quotes may not back their idea.");
+    expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.quoteRepair)).not.toMatch(/[\u2013\u2014]/);
     expect(generationPromptProgram.templates.seeds.scaffolds.version).toBe(SEED_PROMPT_PROGRAM.version);
     for (const guidance of [SEED_PROMPT_PROGRAM.user.guidance, SEED_PROMPT_PROGRAM.user.factGuidance]) {
       expect(guidance).toContain("reuse a short phrase of four or more words from the cited");

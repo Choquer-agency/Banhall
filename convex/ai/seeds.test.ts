@@ -11,7 +11,8 @@ import { emptySelectionRevision } from "../lib/seedRevisions";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import { seedToolSchema } from "../lib/seedContract";
-import { seedRepairSummary } from "./seeds";
+import { seedQuoteRepairText, seedRepairSummary } from "./seeds";
+import { STRUCTURED_OUTPUT_PROGRAM } from "./structured";
 import { findExactQuoteSpans } from "../../shared/exactQuote";
 import type { SeedValidationIssueCode as SeedIssueCode } from "../lib/seedContract";
 
@@ -985,6 +986,7 @@ describe("seed Node action request boundary", () => {
       {
         ok: false,
         seeds: [],
+        seedIndexes: [],
         dropped: 5,
         issues: [
           ...linkIssues,
@@ -1009,6 +1011,7 @@ describe("seed Node action request boundary", () => {
       {
         ok: false,
         seeds: Array.from({ length: 4 }, () => ({}) as never),
+        seedIndexes: [0, 1, 2, 3],
         dropped: 1,
         issues: [
           { code: "BULLET_TYPOGRAPHIC_DASH", message: "dash", seedIndex: 1 },
@@ -1026,6 +1029,7 @@ describe("seed Node action request boundary", () => {
       {
         ok: false,
         seeds: [],
+        seedIndexes: [],
         dropped: 0,
         issues: [{ code: "INVALID_BATCH_SIZE", message: "size" }],
       },
@@ -1038,6 +1042,7 @@ describe("seed Node action request boundary", () => {
       {
         ok: false,
         seeds: [],
+        seedIndexes: [],
         dropped: 0,
         issues: [
           { code: "INSUFFICIENT_TAG_DIVERSITY", message: "tags" },
@@ -1061,6 +1066,7 @@ describe("seed Node action request boundary", () => {
     const failed = (issues: ReturnType<typeof at>[]) => ({
       ok: false,
       seeds: [],
+      seedIndexes: [],
       dropped: 0,
       issues,
     });
@@ -1134,6 +1140,7 @@ describe("seed Node action request boundary", () => {
       {
         ok: false,
         seeds: [],
+        seedIndexes: [],
         dropped: 5,
         issues: [...issues, { code: "INVALID_BATCH_SIZE", message: "size" }],
       },
@@ -1282,8 +1289,9 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
   ];
   const content = lines.join("\n");
   type QuoteTest = ReturnType<typeof convexTest<typeof schema.tables>>;
+  type Waited = "open" | "server" | "retry" | "regenerate";
 
-  async function quoteAttempt(t: QuoteTest) {
+  async function quoteAttempt(t: QuoteTest, operation: Waited | "prefetch" = "open") {
     const fixture = await seedAttempt(t);
     const sourceId = await t.run(async (ctx) => {
       const source = (await ctx.db
@@ -1291,6 +1299,11 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
         .withIndex("by_generationId", (q) => q.eq("generationId", fixture.generationId))
         .collect())[0];
       await ctx.db.patch(source._id, { content, originalLength: content.length });
+      await ctx.db.patch(fixture.batchId, {
+        operation: operation === "server" ? "open" : operation,
+        roleOpen: operation === "open" || operation === "server",
+        ...(operation === "server" ? { startedBy: "server" as const } : {}),
+      });
       return source._id;
     });
     return { ...fixture, sourceId };
@@ -1322,6 +1335,9 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
     ];
   }
 
+  const QUOTE_REPAIR =
+    "\n\nSome quotes may not back their idea. For each card listed, cite the line that supports it and reuse a short phrase of it word for word: card 2. Cite a different line on each card unless both claims come from it: card 3. Return the complete tool object with every Seed.";
+
   async function storedCitations(t: QuoteTest, batchId: Id<"seedBatches">) {
     return await t.run(async (ctx) => {
       const seeds = await ctx.db
@@ -1343,17 +1359,27 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
     });
   }
 
-  it("asks every Batch for the line that backs each Seed and a short phrase from it", async () => {
-    const t = convexTest(schema, modules);
-    const fixture = await quoteAttempt(t);
+  function answering(sourceId: string, answers: Array<"good" | "bad" | "unusable">, onRequest?: (request: number) => Promise<void>) {
     const requests: Request[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
-        return providerResponse({ seeds: goodSeeds(fixture.sourceId) }, 1);
+        await onRequest?.(requests.length);
+        const answer = answers[Math.min(requests.length, answers.length) - 1];
+        return providerResponse(
+          { seeds: answer === "good" ? goodSeeds(sourceId) : answer === "bad" ? badSeeds(sourceId) : [] },
+          requests.length
+        );
       })
     );
+    return requests;
+  }
+
+  it("asks every Batch for the line that backs each Seed and a short phrase from it", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await quoteAttempt(t);
+    const requests = answering(fixture.sourceId, ["good"]);
 
     await t.action(generateBatchRef, { batchId: fixture.batchId });
 
@@ -1374,104 +1400,149 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
     expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 1 });
   });
 
-  it("spends the one repair on an unrelated and a reused quote and stores the repaired Batch", async () => {
+  it.each(["server", "open", "retry", "regenerate"] as const)(
+    "never spends a repair on quotes when a writer waits (%s): one request, the quotes marked",
+    async (operation) => {
+      const t = convexTest(schema, modules);
+      const fixture = await quoteAttempt(t, operation);
+      const requests = answering(fixture.sourceId, ["bad", "good"]);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+      expect(requests).toHaveLength(1);
+      const stored = await storedCitations(t, fixture.batchId);
+      expect(stored.map((seed) => seed.bullets[0])).toEqual(badSeeds(fixture.sourceId).map((seed) => seed.bullets[0]));
+      expect(stored.map((seed) => seed.support)).toEqual(["source_supported", "source_supported", "source_supported"]);
+      expect(stored.map((seed) => seed.provenance.map((citation) => citation.needsQuoteCheck ?? false))).toEqual([
+        [false],
+        [true],
+        [true],
+      ]);
+      expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+        status: "shown",
+        requestsMade: 1,
+        seedsDropped: 0,
+      });
+      const logged = JSON.stringify(warn.mock.calls);
+      expect(logged).toContain("2 citation(s) marked for a quote check");
+      expect(logged).not.toContain("bonded mount");
+    }
+  );
+
+  it("lets a prefetch nobody waits on spend the one repair, with its own opening line, and stores the repaired Batch", async () => {
     const t = convexTest(schema, modules);
-    const fixture = await quoteAttempt(t);
-    const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof fetch>(async (input, init) => {
-        requests.push(new Request(input, init));
-        return providerResponse(
-          { seeds: requests.length === 1 ? badSeeds(fixture.sourceId) : goodSeeds(fixture.sourceId) },
-          requests.length
-        );
-      })
-    );
+    const fixture = await quoteAttempt(t, "prefetch");
+    const requests = answering(fixture.sourceId, ["bad", "good"]);
 
     await t.action(generateBatchRef, { batchId: fixture.batchId });
 
     expect(requests).toHaveLength(2);
     const first = requestText((await requests[0]!.json()).messages[0].content);
     const second = requestText((await requests[1]!.json()).messages[0].content);
-    expect(second).toContain(first);
-    expect(second).toContain(
-      "Your previous tool output was invalid: 3 of 3 Seeds valid; cite the words that back the Seed and reuse a short phrase of them (Seed 2); cite a different line on each Seed unless both claims come from it (Seed 3)."
-    );
-    // The note names Seeds by position only, never their words.
-    expect(second.split("Your previous tool output was invalid")[1]).not.toContain("bonded mount");
+    expect(second).toBe(`${first}${QUOTE_REPAIR}`);
+    expect(second).not.toContain("Your previous tool output was invalid");
+    // The note names cards by position only, never their words.
+    expect(second.slice(first.length)).not.toContain("bonded mount");
     const stored = await storedCitations(t, fixture.batchId);
     expect(stored.map((seed) => seed.provenance[0].exactExcerpt)).toEqual(lines);
     expect(stored.flatMap((seed) => seed.provenance).some((citation) => citation.needsQuoteCheck)).toBe(false);
     expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
   });
 
-  it("keeps a Batch whose repair still misquotes, with those quotes marked for a check", async () => {
+  it("keeps a prefetch whose repair still misquotes, with those quotes marked", async () => {
     const t = convexTest(schema, modules);
-    const fixture = await quoteAttempt(t);
-    const transport = vi.fn<typeof fetch>(async () => providerResponse({ seeds: badSeeds(fixture.sourceId) }, 1));
-    vi.stubGlobal("fetch", transport);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fixture = await quoteAttempt(t, "prefetch");
+    const requests = answering(fixture.sourceId, ["bad", "bad"]);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await t.action(generateBatchRef, { batchId: fixture.batchId });
 
-    expect(transport).toHaveBeenCalledTimes(2);
+    expect(requests).toHaveLength(2);
     const stored = await storedCitations(t, fixture.batchId);
-    expect(stored).toHaveLength(3);
-    expect(stored.map((seed) => seed.support)).toEqual(["source_supported", "source_supported", "source_supported"]);
-    expect(stored.map((seed) => seed.provenance.map((citation) => citation.needsQuoteCheck ?? false))).toEqual([
-      [false],
-      [true],
-      [true],
-    ]);
+    expect(stored.map((seed) => seed.provenance[0].needsQuoteCheck ?? false)).toEqual([false, true, true]);
     expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
       status: "shown",
       requestsMade: 2,
       seedsDropped: 0,
     });
-    const logged = JSON.stringify(warn.mock.calls);
-    expect(logged).toContain("2 citation(s) marked for a quote check");
-    expect(logged).not.toContain("bonded mount");
   });
 
-  it("keeps the first Batch, marked, when the repair answer is unusable", async () => {
+  it("keeps a prefetch's first Batch, marked, when the repair answer is unusable", async () => {
     const t = convexTest(schema, modules);
-    const fixture = await quoteAttempt(t);
-    let request = 0;
-    const transport = vi.fn<typeof fetch>(async () => {
-      request += 1;
-      return providerResponse({ seeds: request === 1 ? badSeeds(fixture.sourceId) : [] }, request);
-    });
-    vi.stubGlobal("fetch", transport);
+    const fixture = await quoteAttempt(t, "prefetch");
+    const requests = answering(fixture.sourceId, ["bad", "unusable"]);
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     await t.action(generateBatchRef, { batchId: fixture.batchId });
 
-    expect(transport).toHaveBeenCalledTimes(2);
+    expect(requests).toHaveLength(2);
     const stored = await storedCitations(t, fixture.batchId);
     expect(stored.map((seed) => seed.bullets[0])).toEqual(badSeeds(fixture.sourceId).map((seed) => seed.bullets[0]));
     expect(stored.map((seed) => seed.provenance[0].needsQuoteCheck ?? false)).toEqual([false, true, true]);
     expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
   });
 
-  it("spends no quote repair when the shape repair already used the second request", async () => {
+  it("spends no repair on a prefetch a writer opened while it ran", async () => {
     const t = convexTest(schema, modules);
-    const fixture = await quoteAttempt(t);
-    let request = 0;
-    const transport = vi.fn<typeof fetch>(async () => {
-      request += 1;
-      return providerResponse({ seeds: request === 1 ? [] : badSeeds(fixture.sourceId) }, request);
+    const fixture = await quoteAttempt(t, "prefetch");
+    const requests = answering(fixture.sourceId, ["bad", "good"], async (request) => {
+      if (request !== 1) return;
+      // The writer opens the step while the first answer is on its way.
+      const opened = await t.mutation(dispatchRef, {
+        generationId: fixture.generationId,
+        roleId: "active_uncertainties",
+        operation: "open",
+        commandId: "writer-opens-prefetched-step",
+      });
+      expect(opened).toEqual({ kind: "reused", batchId: fixture.batchId });
     });
-    vi.stubGlobal("fetch", transport);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(requests).toHaveLength(1);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+      status: "shown",
+      requestsMade: 1,
+      writerWaitingAt: expect.any(Number),
+    });
+    const stored = await storedCitations(t, fixture.batchId);
+    expect(stored.map((seed) => seed.provenance[0].needsQuoteCheck ?? false)).toEqual([false, true, true]);
+  });
+
+  it("spends no quote repair when a shape repair already used the second request", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await quoteAttempt(t, "prefetch");
+    const requests = answering(fixture.sourceId, ["unusable", "bad"]);
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     await t.action(generateBatchRef, { batchId: fixture.batchId });
 
-    expect(transport).toHaveBeenCalledTimes(2);
+    expect(requests).toHaveLength(2);
     const stored = await storedCitations(t, fixture.batchId);
     expect(stored.map((seed) => seed.provenance[0].needsQuoteCheck ?? false)).toEqual([false, true, true]);
     expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
+  });
+
+  it("names cards by their place in the answer and fits the reserved repair bytes", () => {
+    const every = [0, 1, 2, 3, 4].flatMap((seedIndex) => [
+      { code: "CITATION_UNRELATED" as const, seedIndex, citationIndex: 0 },
+      { code: "CITATION_REUSED" as const, seedIndex, citationIndex: 1 },
+    ]);
+    const text = seedQuoteRepairText(every, [0, 1, 2, 3, 4])!;
+    expect(text).toContain("cards 1, 2, 3, 4, 5.");
+    const reserve =
+      new TextEncoder().encode(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix).byteLength +
+      new TextEncoder().encode(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix).byteLength +
+      SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes;
+    expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(reserve);
+    // A Seed dropped before the check keeps the others' numbers.
+    expect(seedQuoteRepairText([{ code: "CITATION_UNRELATED", seedIndex: 0, citationIndex: 0 }], [2])).toBe(
+      "\n\nSome quotes may not back their idea. For each card listed, cite the line that supports it and reuse a short phrase of it word for word: card 3. Return the complete tool object with every Seed."
+    );
+    expect(seedQuoteRepairText([], [0, 1, 2])).toBeNull();
   });
 });

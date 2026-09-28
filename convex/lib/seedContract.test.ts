@@ -12,6 +12,7 @@ import {
   speakerOfTranscriptLine,
   validateBatch,
   validateSeed,
+  withQuoteChecks,
   type SeedCandidate,
 } from "./seedContract";
 
@@ -613,48 +614,49 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
   ];
   const tags: SeedCandidate["tags"][] = [["high_level"], ["technical"], ["detailed"], ["conservative"]];
 
+  function checked(mode: "batch" | "feedback", seeds: SeedCandidate[]) {
+    const result = validateBatch({ roleId: "company_context", mode, seeds, frozenSources: sources });
+    return { result, quotes: withQuoteChecks(result.seeds, mode) };
+  }
+
   it("keeps a good Batch unmarked", () => {
-    const result = validateBatch({
-      roleId: "company_context",
-      mode: "batch",
-      seeds: bullets.slice(0, 3).map((bullet, index) => candidate([bullet], tags[index], { provenance: [cite(index)] })),
-      frozenSources: sources,
-    });
+    const { result, quotes } = checked(
+      "batch",
+      bullets.slice(0, 3).map((bullet, index) => candidate([bullet], tags[index], { provenance: [cite(index)] }))
+    );
     expect(result.ok).toBe(true);
-    expect(result.issues).toEqual([]);
-    expect(result.seeds.flatMap((seed) => seed.provenance).some((citation) => citation.needsQuoteCheck)).toBe(false);
+    expect(quotes.issues).toEqual([]);
+    expect(quotes.seeds).toEqual(result.seeds);
   });
 
   it("marks an unrelated line and a reused excerpt, drops nothing, and stays source-supported", () => {
-    const result = validateBatch({
-      roleId: "company_context",
-      mode: "batch",
-      seeds: [
-        candidate([bullets[0]], tags[0], { provenance: [cite(0)] }),
-        // Cites the company line for a claim about drilling.
-        candidate([bullets[1]], tags[1], { provenance: [cite(0)] }),
-        candidate([bullets[2]], tags[2], { provenance: [cite(2)] }),
-        // Reuses the data sheet line for a claim it does not quote.
-        candidate(["Room-temperature cure assumptions in data sheets do not fit outdoor installs.", "Winter sites run colder than the tested range."], tags[3], {
-          provenance: [cite(2)],
-        }),
-      ],
-      frozenSources: sources,
-    });
+    const { result, quotes } = checked("batch", [
+      candidate([bullets[0]], tags[0], { provenance: [cite(0)] }),
+      // Cites the company line for a claim about drilling.
+      candidate([bullets[1]], tags[1], { provenance: [cite(0)] }),
+      candidate([bullets[2]], tags[2], { provenance: [cite(2)] }),
+      // Reuses the data sheet line for a claim it does not quote.
+      candidate(["Room-temperature cure assumptions in data sheets do not fit outdoor installs.", "Winter sites run colder than the tested range."], tags[3], {
+        provenance: [cite(2)],
+      }),
+    ]);
     expect(result.ok).toBe(true);
-    expect(result.seeds).toHaveLength(4);
     expect(result.dropped).toBe(0);
-    expect(result.issues).toEqual([
-      expect.objectContaining({ code: "CITATION_UNRELATED", seedIndex: 1 }),
-      expect.objectContaining({ code: "CITATION_REUSED", seedIndex: 3 }),
+    // validateBatch itself never judges quotes: the speaker check runs first.
+    expect(result.issues).toEqual([]);
+    expect(result.seeds.flatMap((seed) => seed.provenance).some((citation) => citation.needsQuoteCheck)).toBe(false);
+    expect(quotes.issues).toEqual([
+      { code: "CITATION_UNRELATED", seedIndex: 1, citationIndex: 0 },
+      { code: "CITATION_REUSED", seedIndex: 3, citationIndex: 0 },
     ]);
-    expect(result.seeds.map((seed) => seed.provenance.map((citation) => citation.needsQuoteCheck ?? false))).toEqual([
+    expect(quotes.seeds).toHaveLength(4);
+    expect(quotes.seeds.map((seed) => seed.provenance.map((citation) => citation.needsQuoteCheck ?? false))).toEqual([
       [false],
       [true],
       [false],
       [true],
     ]);
-    expect(result.seeds.map((seed) => seed.support)).toEqual([
+    expect(quotes.seeds.map((seed) => seed.support)).toEqual([
       "source_supported",
       "source_supported",
       "source_supported",
@@ -662,37 +664,27 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
     ]);
   });
 
-  it("reports a quote issue at the Seed's place in the model's answer, after a dropped Seed", () => {
-    const result = validateBatch({
-      roleId: "company_context",
-      mode: "batch",
-      seeds: [
-        candidate(["One sentence. Then another one."], tags[0]),
-        candidate([bullets[0]], tags[0], { provenance: [cite(0)] }),
-        candidate([bullets[1]], tags[1], { provenance: [cite(3)] }),
-        candidate([bullets[2]], tags[2], { provenance: [cite(2)] }),
-      ],
-      frozenSources: sources,
-    });
-    expect(result.ok).toBe(true);
-    expect(result.issues.filter((issue) => issue.code === "CITATION_UNRELATED")).toEqual([
-      expect.objectContaining({ seedIndex: 2 }),
+  it("maps each kept Seed back to its place in the model's answer, after a dropped Seed", () => {
+    const { result, quotes } = checked("batch", [
+      candidate(["One sentence. Then another one."], tags[0]),
+      candidate([bullets[0]], tags[0], { provenance: [cite(0)] }),
+      candidate([bullets[1]], tags[1], { provenance: [cite(3)] }),
+      candidate([bullets[2]], tags[2], { provenance: [cite(2)] }),
     ]);
+    expect(result.ok).toBe(true);
+    expect(result.seedIndexes).toEqual([1, 2, 3]);
+    expect(quotes.issues).toEqual([{ code: "CITATION_UNRELATED", seedIndex: 1, citationIndex: 0 }]);
+    expect(result.seedIndexes[quotes.issues[0].seedIndex]).toBe(2);
   });
 
   it("lets the Revised Seeds of one Feedback request share their line", () => {
-    const result = validateBatch({
-      roleId: "company_context",
-      mode: "feedback",
-      seeds: [
-        candidate([bullets[1]], ["technical"], { provenance: [cite(1)] }),
-        candidate(["A hole in a coated mast starts corrosion, so customers ban drilling."], ["conservative"], {
-          provenance: [cite(1)],
-        }),
-      ],
-      frozenSources: sources,
-    });
+    const { result, quotes } = checked("feedback", [
+      candidate([bullets[1]], ["technical"], { provenance: [cite(1)] }),
+      candidate(["A hole in a coated mast starts corrosion, so customers ban drilling."], ["conservative"], {
+        provenance: [cite(1)],
+      }),
+    ]);
     expect(result.ok).toBe(true);
-    expect(result.issues).toEqual([]);
+    expect(quotes.issues).toEqual([]);
   });
 });

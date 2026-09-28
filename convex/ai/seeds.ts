@@ -9,7 +9,7 @@ import {
   type FunctionReturnType,
   type RegisteredMutation,
 } from "convex/server";
-import { internalAction } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
 import type { Id, TableNames } from "../_generated/dataModel";
 import type {
   claimAttempt,
@@ -42,9 +42,10 @@ import {
   MAX_FEEDBACK_SEEDS,
   MIN_BATCH_SEEDS,
   MIN_FEEDBACK_SEEDS,
-  QUOTE_ISSUE_CODES,
   seedToolSchema,
   validateBatch,
+  withCheckedSpeakers,
+  withQuoteChecks,
   type BatchValidationResult,
   type FrozenSeedSource,
   type SeedBatchMode,
@@ -52,6 +53,7 @@ import {
   type SeedValidationIssueCode,
   type ValidatedSeedCandidate,
 } from "../lib/seedContract";
+import type { QuoteCheckIssue } from "../lib/seedQuoteSupport";
 import {
   readsFactPacks,
   resolveFactCitations,
@@ -62,11 +64,8 @@ import {
 type ValidatedSeedBatch = {
   seeds: ValidatedSeedCandidate[];
   dropped: number;
-  /**
-   * 2026-09-27 (third): the repair note when a citation does not back its
-   * Seed or repeats another Seed's excerpt; null when every quote passed.
-   */
-  quoteRepair: string | null;
+  /** Each Seed's place in the model's answer, 0-based. */
+  seedIndexes: number[];
 };
 
 // Convex 1.41 defines this utility in server/api but does not re-export it
@@ -100,6 +99,76 @@ const failAttemptRef = makeFunctionReference<
   FunctionArgs<FailAttemptRef>,
   FunctionReturnType<FailAttemptRef>
 >("seedRuns:failAttempt");
+
+const isWriterWaitingRef = makeFunctionReference<
+  "query",
+  { batchId: Id<"seedBatches"> },
+  boolean
+>("seedRuns:isWriterWaiting");
+const checkCitationSpeakersRef = makeFunctionReference<
+  "query",
+  {
+    generationId: Id<"generations">;
+    seeds: Array<{
+      provenance: Array<{
+        sourceId: Id<"generationSources">;
+        startOffset: number;
+        endOffset: number;
+        exactExcerpt: string;
+      }>;
+    }>;
+  },
+  Array<Array<{ startOffset: number; endOffset: number; needsSpeakerCheck: boolean } | null>>
+>("seedRuns:checkCitationSpeakers");
+
+/**
+ * The speaker check (owner decision 25) on an answer before its quotes are
+ * judged, as completeAttempt will apply it, so a quote it drops never asks
+ * for a repair (lead answer 3).
+ */
+async function speakerCheckedSeeds(
+  ctx: ActionCtx,
+  generationId: Id<"generations">,
+  seeds: readonly ValidatedSeedCandidate[]
+): Promise<ValidatedSeedCandidate[]> {
+  const checked = await ctx.runQuery(checkCitationSpeakersRef, {
+    generationId,
+    seeds: seeds.map((seed) => ({
+      provenance: seed.provenance.map((citation) => ({
+        sourceId: validatedId<"generationSources">(citation.sourceId),
+        startOffset: citation.startOffset,
+        endOffset: citation.endOffset,
+        exactExcerpt: citation.exactExcerpt,
+      })),
+    })),
+  });
+  return seeds.map((seed, index) => withCheckedSpeakers(seed, checked[index] ?? []).seed);
+}
+
+/**
+ * 2026-09-27 (third): the soft quote repair's text, or null when every
+ * quote backs its Seed. Cards are named by their place in the model's
+ * answer (`seedIndexes` maps a kept Seed back to it), never by their words.
+ */
+export function seedQuoteRepairText(
+  issues: readonly QuoteCheckIssue[],
+  seedIndexes: readonly number[]
+): string | null {
+  const cards = (code: QuoteCheckIssue["code"]) =>
+    [...new Set(issues.filter((issue) => issue.code === code).map((issue) => (seedIndexes[issue.seedIndex] ?? issue.seedIndex) + 1))]
+      .sort((left, right) => left - right);
+  const list = (numbers: number[]) => `${numbers.length === 1 ? "card" : "cards"} ${numbers.join(", ")}.`;
+  const unrelated = cards("CITATION_UNRELATED");
+  const reused = cards("CITATION_REUSED");
+  if (unrelated.length === 0 && reused.length === 0) return null;
+  const text = SEED_PROMPT_PROGRAM.request.quoteRepair;
+  return [
+    text.opening,
+    unrelated.length > 0 ? `${text.unrelated}${list(unrelated)}` : "",
+    reused.length > 0 ? `${text.reused}${list(reused)}` : "",
+    text.closing,
+  ].join("");
+}
 
 function validatedId<TableName extends TableNames>(value: string): Id<TableName> {
   return value as Id<TableName>;
@@ -140,8 +209,7 @@ function countedClient(client: GenerationClient, onRequest: () => void): Generat
 /**
  * One actionable hint per validator rule, built from the validator's own
  * limits. The Record is exhaustive, so a new issue code fails the build until
- * it has a hint. INVALID_PROVENANCE never blocks a Seed, so it has none; the
- * quote codes never block either, but they ask for the soft repair.
+ * it has a hint. INVALID_PROVENANCE never blocks a Seed, so it has none.
  */
 function seedIssueHints(mode: SeedBatchMode): Record<SeedValidationIssueCode, string> {
   const [min, max] =
@@ -163,8 +231,6 @@ function seedIssueHints(mode: SeedBatchMode): Record<SeedValidationIssueCode, st
     INVALID_BATCH_SIZE: `return ${min} to ${max} valid Seeds`,
     INSUFFICIENT_TAG_DIVERSITY: "use at least two different tags",
     INSUFFICIENT_FORM_DIVERSITY: "mix one-bullet and two-bullet Seeds",
-    CITATION_UNRELATED: "cite the words that back the Seed and reuse a short phrase of them",
-    CITATION_REUSED: "cite a different line on each Seed unless both claims come from it",
   };
 }
 
@@ -288,9 +354,7 @@ function validatedBatchSchema(args: {
       return {
         seeds: result.seeds,
         dropped: result.dropped,
-        quoteRepair: result.issues.some((issue) => QUOTE_ISSUE_CODES.has(issue.code))
-          ? seedRepairSummary(result, seeds.length, args.mode)
-          : null,
+        seedIndexes: result.seedIndexes,
       };
     });
 }
@@ -410,10 +474,27 @@ export const generateBatch = internalAction({
         maxTokens: SEED_PROMPT_PROGRAM.request.maxTokens,
         model: claim.batch.model,
         attempts: 2,
-        // 2026-09-27 (third): a Batch whose quotes do not back their Seeds
-        // spends the one repair; if the repair fails, the first Batch is
-        // kept and completeAttempt marks those quotes for a check.
-        softRepair: (batch) => batch.quoteRepair,
+        // 2026-09-27 (third, lead answer 1): only a prefetch nobody waits
+        // on may spend the one repair on its quotes. Every other Batch keeps
+        // its first answer, and completeAttempt marks those quotes.
+        ...(claim.batch.operation === "prefetch"
+          ? {
+              softRepair: async (batch: ValidatedSeedBatch) => {
+                const text = seedQuoteRepairText(
+                  withQuoteChecks(
+                    factMode ? batch.seeds : await speakerCheckedSeeds(ctx, claim.batch.generationId, batch.seeds),
+                    mode
+                  ).issues,
+                  batch.seedIndexes
+                );
+                // Asked last: an open may have joined this prefetch meanwhile.
+                if (!text || (await ctx.runQuery(isWriterWaitingRef, { batchId: claim.batch.batchId }))) {
+                  return null;
+                }
+                return text;
+              },
+            }
+          : {}),
         validate: validatedBatchSchema({
           roleId: claim.batch.roleId,
           mode,

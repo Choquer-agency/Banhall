@@ -298,25 +298,37 @@ export async function checkSeedSpeakers(
   let dropped = 0;
   const checkedSeeds: ValidatedSeedCandidate[] = [];
   for (const seed of seeds) {
-    const checked: CheckedSeedCitation[] = [];
-    for (const citation of seed.provenance) {
-      const source = sources.get(citation.sourceId);
-      const kept = source ? await evidenceSpan(speakerOf, source, citation) : null;
-      checked.push(
-        kept
-          ? {
-              startOffset: kept.startOffset,
-              endOffset: kept.endOffset,
-              needsSpeakerCheck: kept.speaker === "needs_check",
-            }
-          : source
-            ? null
-            : { startOffset: citation.startOffset, endOffset: citation.endOffset, needsSpeakerCheck: false }
-      );
-    }
-    const result = withCheckedSpeakers(seed, checked);
+    const result = withCheckedSpeakers(seed, await checkedCitations(speakerOf, seed.provenance, sources));
     dropped += result.dropped;
     checkedSeeds.push(result.seed);
   }
   return { seeds: checkedSeeds, dropped };
+}
+
+/**
+ * The speaker check's verdict for each citation of one Seed, in order, for
+ * withCheckedSpeakers. A citation of a source not given passes unchanged.
+ */
+export async function checkedCitations(
+  speakerOf: SpeakerReader,
+  provenance: ReadonlyArray<{ sourceId: string; startOffset: number; endOffset: number; exactExcerpt: string }>,
+  sources: ReadonlyMap<string, SpeakerCheckSource>
+): Promise<CheckedSeedCitation[]> {
+  const checked: CheckedSeedCitation[] = [];
+  for (const citation of provenance) {
+    const source = sources.get(citation.sourceId);
+    const kept = source ? await evidenceSpan(speakerOf, source, citation) : null;
+    checked.push(
+      kept
+        ? {
+            startOffset: kept.startOffset,
+            endOffset: kept.endOffset,
+            needsSpeakerCheck: kept.speaker === "needs_check",
+          }
+        : source
+          ? null
+          : { startOffset: citation.startOffset, endOffset: citation.endOffset, needsSpeakerCheck: false }
+    );
+  }
+  return checked;
 }

@@ -1,7 +1,7 @@
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { isDashClean } from "../../shared/humanProse";
 import { speakerOfTranscriptLine, speakersAtOffsets } from "../../shared/transcriptParse";
-import { quoteCheckIssues } from "./seedQuoteSupport";
+import { quoteCheckIssues, type QuoteCheckIssue } from "./seedQuoteSupport";
 
 export const SEED_TAGS = [
   "conservative",
@@ -97,19 +97,7 @@ export type SeedValidationIssueCode =
   | "INVALID_PROVENANCE"
   | "INVALID_BATCH_SIZE"
   | "INSUFFICIENT_TAG_DIVERSITY"
-  | "INSUFFICIENT_FORM_DIVERSITY"
-  | "CITATION_UNRELATED"
-  | "CITATION_REUSED";
-
-/**
- * Quote issues never fail a Seed or a Batch: the citation is kept and
- * marked `needsQuoteCheck`. The Seed action asks for its one repair on them
- * (seeds.ts) and keeps the first answer if the repair fails.
- */
-export const QUOTE_ISSUE_CODES: ReadonlySet<SeedValidationIssueCode> = new Set([
-  "CITATION_UNRELATED",
-  "CITATION_REUSED",
-]);
+  | "INSUFFICIENT_FORM_DIVERSITY";
 
 export type SeedValidationIssue = {
   code: SeedValidationIssueCode;
@@ -124,6 +112,8 @@ export type SeedValidationResult =
 export type BatchValidationResult = {
   ok: boolean;
   seeds: ValidatedSeedCandidate[];
+  /** Each kept Seed's place in the model's answer, 0-based. */
+  seedIndexes: number[];
   dropped: number;
   issues: SeedValidationIssue[];
 };
@@ -586,26 +576,6 @@ export function validateBatch(args: {
     }
   });
 
-  // 2026-09-27 (third): each citation must back its own Seed. A citation
-  // that does not is marked, never dropped, so no Seed or Batch is lost.
-  for (const quoteIssue of quoteCheckIssues(seeds, { reuse: args.mode === "batch" })) {
-    const seed = seeds[quoteIssue.seedIndex];
-    seeds[quoteIssue.seedIndex] = {
-      ...seed,
-      provenance: seed.provenance.map((citation, index) =>
-        index === quoteIssue.citationIndex ? { ...citation, needsQuoteCheck: true as const } : citation
-      ),
-    };
-    issues.push({
-      code: quoteIssue.code,
-      message:
-        quoteIssue.code === "CITATION_UNRELATED"
-          ? "Seed citation shares too few words with the Seed it supports"
-          : "Seed citation repeats an excerpt another Seed in the Batch cites",
-      seedIndex: inputIndexes[quoteIssue.seedIndex],
-    });
-  }
-
   const min = args.mode === "batch" ? MIN_BATCH_SEEDS : MIN_FEEDBACK_SEEDS;
   const max = args.mode === "batch" ? MAX_BATCH_SEEDS : MAX_FEEDBACK_SEEDS;
   if (seeds.length < min || seeds.length > max) {
@@ -641,9 +611,37 @@ export function validateBatch(args: {
   return {
     ok: !issues.some((issue) => batchIssueCodes.has(issue.code)),
     seeds,
+    seedIndexes: inputIndexes,
     dropped: args.seeds.length - seeds.length,
     issues,
   };
+}
+
+/**
+ * 2026-09-27 (third): each citation must back its own Seed
+ * (seedQuoteSupport.ts). Runs after the speaker check, so a quote that check
+ * drops is never judged. A citation that fails is kept and marked
+ * `needsQuoteCheck`, never dropped, so no Seed or Batch is lost. Reuse is
+ * looked for in a fresh Batch only. Pure.
+ */
+export function withQuoteChecks(
+  seeds: readonly ValidatedSeedCandidate[],
+  mode: SeedBatchMode
+): { seeds: ValidatedSeedCandidate[]; issues: QuoteCheckIssue[] } {
+  const issues = quoteCheckIssues(seeds, { reuse: mode === "batch" });
+  const marked = seeds.map((seed, seedIndex) => {
+    const flagged = new Set(
+      issues.filter((issue) => issue.seedIndex === seedIndex).map((issue) => issue.citationIndex)
+    );
+    if (flagged.size === 0) return seed;
+    return {
+      ...seed,
+      provenance: seed.provenance.map((citation, index) =>
+        flagged.has(index) ? { ...citation, needsQuoteCheck: true as const } : citation
+      ),
+    };
+  });
+  return { seeds: marked, issues };
 }
 
 export type SeedToolInputSchema = {

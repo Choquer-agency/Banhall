@@ -1320,6 +1320,9 @@ export default defineSchema({
     slot: v.string(),
     promptVersion: v.string(),
     roleOpen: v.optional(v.boolean()),
+    // 2026-09-27 (third) widen: a writer's open found this prefetch still
+    // running and now waits on it, so it never spends the quote repair.
+    writerWaitingAt: v.optional(v.number()),
     // Owner decision 65: "server" marks the first Batch the server started
     // when the seed stage opened; absent means a person or a prefetch asked.
     startedBy: v.optional(v.literal("server")),

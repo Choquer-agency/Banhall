@@ -137,12 +137,13 @@ export async function generateStructured<T>(
     /**
      * 2026-09-27 (third): asks for the repair on an answer that passed
      * `validate` but falls short (a Seed citing a line that does not back
-     * it). Returns the repair note, or null to accept. Asked once, and only
-     * while a repair attempt is left. The answer is kept and returned if the
-     * repair fails in any way, so it never turns a usable answer into a
-     * failure; the repaired answer is returned as it is.
+     * it). Returns the whole text appended for the repair, with its own
+     * opening (not the invalid-output scaffold), or null to accept. Asked
+     * once, and only while a repair attempt is left. The answer is kept and
+     * returned if the repair fails in any way, so it never turns a usable
+     * answer into a failure; the repaired answer is returned as it is.
      */
-    softRepair?: (value: T) => string | null;
+    softRepair?: (value: T) => string | null | Promise<string | null>;
   }
 ): Promise<T> {
   // The answer a soft repair set aside, returned if the repair fails.
@@ -163,15 +164,16 @@ async function structuredAttempts<T>(
   const client = rawClient as GenerationClient;
   const attempts = opts.attempts ?? STRUCTURED_OUTPUT_PROGRAM.attempts;
   let validationSummary = "";
-  let softRepairAsked = false;
+  // Set when the soft repair asked for the next attempt: its own text.
+  let softRepairText: string | null = null;
   // A valid answer is returned unless the soft repair asks for another.
-  const repairNote = (value: T, lastAttempt: boolean): string | null => {
-    if (softRepairAsked || lastAttempt || !opts.softRepair) return null;
-    const note = opts.softRepair(value);
-    if (!note) return null;
-    softRepairAsked = true;
+  const askedSoftRepair = async (value: T, lastAttempt: boolean): Promise<boolean> => {
+    if (kept.answer || lastAttempt || !opts.softRepair) return false;
+    const text = await opts.softRepair(value);
+    if (!text) return false;
+    softRepairText = text;
     kept.answer = { value };
-    return note;
+    return true;
   };
 
   // A forced tool call can still omit required JSON fields. Retry once with
@@ -179,7 +181,10 @@ async function structuredAttempts<T>(
   // malformed analysis fail much later after more paid generation work.
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const lastAttempt = attempt === attempts - 1;
-    const repair = `${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix}${validationSummary}${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix}`;
+    const repair =
+      softRepairText ??
+      `${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix}${validationSummary}${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix}`;
+    softRepairText = null;
     const user: GenerationMessageContent =
       attempt === 0
         ? opts.user
@@ -277,9 +282,7 @@ async function structuredAttempts<T>(
     const asReturned = opts.validate.safeParse(block.input);
     if (asReturned.success) {
       await settle({ ok: true });
-      const note = repairNote(asReturned.data, lastAttempt);
-      if (note === null) return asReturned.data;
-      validationSummary = note;
+      if (!(await askedSoftRepair(asReturned.data, lastAttempt))) return asReturned.data;
       continue;
     }
 
@@ -292,9 +295,7 @@ async function structuredAttempts<T>(
         : opts.validate.safeParse(unwrapped);
     if (parsed.success) {
       await settle({ ok: true });
-      const note = repairNote(parsed.data, lastAttempt);
-      if (note === null) return parsed.data;
-      validationSummary = note;
+      if (!(await askedSoftRepair(parsed.data, lastAttempt))) return parsed.data;
       continue;
     }
     await settle({ ok: false, code: "invalid_output" });

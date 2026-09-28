@@ -2,6 +2,7 @@ import { makeFunctionReference } from "convex/server";
 import { v } from "convex/values";
 import {
   internalMutation,
+  internalQuery,
   type MutationCtx,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -15,7 +16,7 @@ import { domainError } from "./lib/contracts";
 import { notifyIdeasReady } from "./lib/generations/notifications";
 import { resolveGenerationStep } from "./lib/generationSteps";
 import { reconcileRestoredSeedApproval } from "./lib/seedDecisionWrites";
-import { checkSeedSpeakers, citationSpeakerReader } from "./lib/citationSpeakers";
+import { checkSeedSpeakers, checkedCitations, citationSpeakerReader } from "./lib/citationSpeakers";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
 import {
   SEED_ATTEMPT_LEASE_MS,
@@ -39,8 +40,8 @@ import {
 import {
   SEED_TAGS,
   locateCitations,
-  QUOTE_ISSUE_CODES,
   validateBatch,
+  withQuoteChecks,
   type CitationLocation,
   type FrozenSeedSource,
   type SeedReferenceContext,
@@ -255,6 +256,12 @@ export async function dispatchSeedAttempt(
 
   if (args.operation === "open") {
     if (subsection.pendingBatchId) {
+      // 2026-09-27 (third): a writer now waits on a running prefetch, so it
+      // must not spend the quote repair (ai/seeds.ts).
+      const pending = await ctx.db.get(subsection.pendingBatchId);
+      if (pending?.operation === "prefetch" && pending.writerWaitingAt === undefined) {
+        await ctx.db.patch(pending._id, { writerWaitingAt: Date.now() });
+      }
       return { kind: "reused", batchId: subsection.pendingBatchId };
     }
     if (subsection.shownBatchId) {
@@ -975,11 +982,6 @@ export const completeAttempt = internalMutation({
     if (factDropped > 0) {
       console.warn(`Seed batch ${batch._id}: ${factDropped} citation(s) outside the frozen fact spans were dropped`);
     }
-    // 2026-09-27 (third): kept and marked for a check, never dropped.
-    const quoteChecks = validation.issues.filter((issue) => QUOTE_ISSUE_CODES.has(issue.code)).length;
-    if (quoteChecks > 0) {
-      console.warn(`Seed batch ${batch._id}: ${quoteChecks} citation(s) marked for a quote check`);
-    }
     if (!validation.ok) {
       return await failSeedAttempt(ctx, {
         batch,
@@ -1027,6 +1029,13 @@ export const completeAttempt = internalMutation({
       if (speakerChecked.dropped > 0) {
         console.warn(`Seed batch ${batch._id}: ${speakerChecked.dropped} citation(s) of interviewer or other speakers' words were dropped`);
       }
+    }
+    // 2026-09-27 (third): after the speaker check, so a dropped quote is
+    // never judged. A quote that may not back its Seed is kept and marked.
+    const quoteChecked = withQuoteChecks(checkedSeeds, batch.operation === "feedback" ? "feedback" : "batch");
+    checkedSeeds = quoteChecked.seeds;
+    if (quoteChecked.issues.length > 0) {
+      console.warn(`Seed batch ${batch._id}: ${quoteChecked.issues.length} citation(s) marked for a quote check`);
     }
 
     const preparedSeeds = checkedSeeds.map((seed) => ({
@@ -1169,6 +1178,68 @@ export const completeAttempt = internalMutation({
       await notifyIdeasReady(ctx, generation, batch.roleId);
     }
     return { kind: "completed" as const, seeds: validation.seeds.length };
+  },
+});
+
+/**
+ * 2026-09-27 (third): whether a writer waits on this Batch. Only a prefetch
+ * nobody has opened is unwatched; the server's first Batch, a writer's
+ * open, retry, regenerate and feedback always have someone waiting.
+ */
+export const isWriterWaiting = internalQuery({
+  args: { batchId: v.id("seedBatches") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const batch = await ctx.db.get(args.batchId);
+    return !batch || batch.operation !== "prefetch" || batch.writerWaitingAt !== undefined;
+  },
+});
+
+/**
+ * 2026-09-27 (third): the speaker check (owner decision 25) for a Seed
+ * action's answer, so its quote check never judges a quote this check will
+ * drop. Reads only the cited frozen rows of this generation; a citation of
+ * another row is left to completeAttempt, which refuses it.
+ */
+export const checkCitationSpeakers = internalQuery({
+  args: {
+    generationId: v.id("generations"),
+    seeds: v.array(
+      v.object({
+        provenance: v.array(
+          v.object({
+            sourceId: v.id("generationSources"),
+            startOffset: v.number(),
+            endOffset: v.number(),
+            exactExcerpt: v.string(),
+          })
+        ),
+      })
+    ),
+  },
+  returns: v.array(
+    v.array(
+      v.union(
+        v.null(),
+        v.object({ startOffset: v.number(), endOffset: v.number(), needsSpeakerCheck: v.boolean() })
+      )
+    )
+  ),
+  handler: async (ctx, args) => {
+    const sources = new Map<string, Doc<"generationSources">>();
+    for (const seed of args.seeds) {
+      for (const citation of seed.provenance) {
+        if (sources.has(citation.sourceId)) continue;
+        const source = await ctx.db.get(citation.sourceId);
+        if (source && source.generationId === args.generationId) sources.set(citation.sourceId, source);
+      }
+    }
+    const reader = citationSpeakerReader(ctx);
+    const result = [];
+    for (const seed of args.seeds) {
+      result.push(await checkedCitations(reader, seed.provenance, sources));
+    }
+    return result;
   },
 });
 
