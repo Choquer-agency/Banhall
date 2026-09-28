@@ -135,11 +135,11 @@
 </svelte:head>
 
 {#if inviteQ.isLoading}
-  <AuthLayout width={380} footer={false}>
+  <AuthLayout width={380}>
     <div class="flex justify-center py-8"><Spinner /></div>
   </AuthLayout>
 {:else if submitting}
-  <AuthLayout width={380} footer={false}>
+  <AuthLayout width={380}>
     <div class="flex flex-col items-center py-8 text-center" role="status" aria-live="polite">
       <Spinner />
       <h1 class="mt-4 text-title">{redirecting ? "Account created" : "Creating your account..."}</h1>
@@ -149,7 +149,7 @@
     </div>
   </AuthLayout>
 {:else if expired}
-  <AuthLayout width={440} footer={false}>
+  <AuthLayout width={440}>
     <div data-invite-expired class="flex flex-col gap-5">
       <AuthHeading
         title="Your invite has expired"
@@ -192,7 +192,7 @@
   </AuthLayout>
 {:else if !invite}
   <!-- Revoked, replaced by a resend, already used or unknown. -->
-  <AuthLayout width={380} footer={false}>
+  <AuthLayout width={380}>
     <div data-invite-unavailable class="flex flex-col gap-5">
       <AuthHeading
         title="This invite link isn't valid"
@@ -205,7 +205,7 @@
     </div>
   </AuthLayout>
 {:else if signedIn}
-  <AuthLayout width={380} footer={false}>
+  <AuthLayout width={380}>
     <div data-invite-signed-in class="flex flex-col items-center gap-5">
       <AuthHeading title="You're already signed in" subtitle={`Sign out first to accept this invite for ${invite.email}.`} />
       <button
@@ -216,7 +216,7 @@
     </div>
   </AuthLayout>
 {:else}
-  <AuthLayout width={380} footer={false}>
+  <AuthLayout width={380}>
     {#snippet banner()}
       <InviteBanner inviter={invite.inviter} role={invite.role} expiresAt={invite.expiresAt} />
     {/snippet}

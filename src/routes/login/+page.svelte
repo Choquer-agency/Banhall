@@ -187,9 +187,10 @@
       <AuthHeading
         title={known.firstName ? `Welcome back, ${known.firstName}` : "Welcome back"}
         subtitle="You were signed out. Sign back in to keep going."
+        serif={false}
       />
     {:else}
-      <AuthHeading title="Sign in" subtitle="Use your @banhall.com email." />
+      <AuthHeading title="Sign in" serif={false} />
     {/if}
 
     <!-- J1: Email and Password 14px apart. J3: the account card, then the

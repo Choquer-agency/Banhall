@@ -107,9 +107,12 @@ describe("/login", () => {
   it("shows the J1 layout and copy without the old brand panel", async () => {
     render(LoginPage);
     await expect.poll(() => document.querySelector("h1")?.textContent).toBe("Sign in");
-    expect(document.body.textContent).toContain("Use your @banhall.com email.");
-    expect(document.body.textContent).toContain("Banhall Consulting Ltd.");
-    expect(document.body.textContent).toContain("Need access? Ask your team for an invite.");
+    // Owner, 2026-09-28: sans heading, no subtitle, no footer.
+    expect(getComputedStyle(document.querySelector("h1")!).fontFamily).not.toContain("Georgia");
+    expect(document.body.textContent).not.toContain("Use your @banhall.com email.");
+    expect(document.body.textContent).not.toContain("Banhall Consulting Ltd.");
+    expect(document.body.textContent).not.toContain("Need access? Ask your team for an invite.");
+    expect(document.querySelector("footer")).toBeNull();
     expect(document.querySelector("#email")?.getAttribute("placeholder")).toBe("you@banhall.com");
     expect(document.querySelector("#password")?.getAttribute("placeholder")).toBe("Enter your password");
     expect(document.querySelector('[data-auth-column]')?.getAttribute("style")).toContain("max-width: 360px");
@@ -235,7 +238,7 @@ describe("/login", () => {
     onLine.mockRestore();
   });
 
-  it("fills the phone width and keeps only the invite line in the footer (J8)", async () => {
+  it("fills the phone width with no footer (J8)", async () => {
     await page.viewport(390, 844);
     try {
       render(LoginPage);
@@ -247,16 +250,13 @@ describe("/login", () => {
       expect(Math.round(logo.height)).toBe(56);
       expect(Math.round(logo.top)).toBe(96);
       expect(Math.round(column.getBoundingClientRect().top - logo.bottom)).toBe(28);
-      const footer = [...document.querySelectorAll("footer span")].filter(
-        (el) => getComputedStyle(el).display !== "none",
-      );
-      expect(footer.map((el) => el.textContent)).toEqual(["Need access? Ask your team for an invite."]);
+      expect(document.querySelector("footer")).toBeNull();
     } finally {
       await page.viewport(1280, 800);
     }
   });
 
-  it("draws J1 at the board sizes: 64px logo, 44px fields, 46px button and the footer 32px from the bottom", async () => {
+  it("draws J1 at the board sizes: 64px logo, 44px fields and a 46px button", async () => {
     await page.viewport(1440, 900);
     try {
       render(LoginPage);
@@ -270,10 +270,8 @@ describe("/login", () => {
       expect(getComputedStyle(field).borderTopColor).toBe("rgb(218, 229, 227)");
       const button = document.querySelector<HTMLElement>('button[type="submit"]')!;
       expect(button.getBoundingClientRect().height).toBe(46);
-      const footer = document.querySelector<HTMLElement>("[data-auth-footer]")!;
-      expect(Math.round(window.innerHeight - footer.getBoundingClientRect().bottom)).toBe(32);
-      expect(footer.textContent).toContain("Banhall Consulting Ltd.");
-      // The column is centred in the whole page, not above the footer.
+      expect(document.querySelector("[data-auth-footer]")).toBeNull();
+      // The column is centred in the whole page.
       const main = document.querySelector("main")!.getBoundingClientRect();
       expect(Math.round(main.height)).toBe(900);
     } finally {
