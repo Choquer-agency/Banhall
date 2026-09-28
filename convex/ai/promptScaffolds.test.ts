@@ -451,7 +451,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       systemTemplate: SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
       requestScaffold: SUMMARY_PLAN_SELF_CHECK_REQUEST,
       schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
-      structuredPolicy: "single-attempt-no-repair",
+      structuredPolicy: "single-attempt-then-missing-labels-follow-up",
       encodedJsonRecovery: "disabled",
     });
     expect(generationPromptProgram.templates.seeds.summaryPlan).toEqual({
@@ -505,7 +505,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
           ...generationPromptProgram.calls.selfCheck,
           summaryPlan: {
             ...generationPromptProgram.calls.selfCheck.summaryPlan,
-            structuredPolicy: "changed-policy" as "single-attempt-no-repair",
+            structuredPolicy: "changed-policy" as "single-attempt-then-missing-labels-follow-up",
           },
         },
       },

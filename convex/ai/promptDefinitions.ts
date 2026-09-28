@@ -549,6 +549,33 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
   blockLabel: "CONTENT PLAN CHECKS",
   blockSeparator: "\n",
   maxTokens: SUMMARY_PLAN_SELF_CHECK_MAX_TOKENS,
+  /**
+   * 2026-09-28 (release suite finding): the request ends with every label
+   * and plan reference the answer must cover, with their counts, and the
+   * tool schema lists the same values. Before, the labels were only prefixes
+   * inside the data blocks and the model returned about one verdict per
+   * finding (9 for 22 labels).
+   */
+  checklist: {
+    separator: "\n\n",
+    lineSeparator: "\n",
+    ordinaryIntro:
+      "Return exactly {{runtime.count}} verdicts in verdicts, one for each label below, even when nothing in the section bears on the label:",
+    ordinaryLine: "- {{runtime.label}} (check {{runtime.check}})",
+    planIntro:
+      "Return exactly {{runtime.count}} planVerdicts, one for each plan check below:",
+    itemLine: "- itemId {{runtime.id}}",
+    skipLine: "- skippedRoleId {{runtime.id}}",
+  },
+  /**
+   * The one follow-up for an answer that missed labels, sent in place of the
+   * structured repair the Summary Self-check otherwise skips. It names only
+   * the missing labels and plan checks.
+   */
+  missingFollowUp: {
+    prefix:
+      "\n\nYour previous answer gave no verdict for the labels and plan checks listed below. Return verdicts for only these, under the same rules. Do not repeat verdicts you already gave and leave out storylineQuestion.",
+  },
 } as const;
 
 export const CONSISTENCY_REQUEST = {

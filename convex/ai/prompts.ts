@@ -1143,7 +1143,8 @@ Rules:
 export const SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT = `${SELF_CHECK_SYSTEM_PROMPT}
 
 Signed-off content plan (Summary mode). These rules replace any rule above that conflicts with them:
-- Return exactly one ordinary verdict for each supplied label, such as [storyline] or [confidence:C1]. Never return one verdict per paragraph.
+- Return exactly one ordinary verdict for each supplied label, such as [storyline] or [confidence:C1]. The end of the request lists every label and how many there are. Never return one verdict per paragraph, and never return verdicts only for the problems you found.
+- A label nothing in the section bears on still gets its verdict: a Confidence Map entry the section never mentions, a Glossary candidate whose concept is absent, or a writer instruction that does not bear on this section is applied, with paragraph 0 and a reason such as "Not mentioned in the section."
 - Copy the label exactly into verdict.instruction, without the square brackets. Never copy the instruction text there.
 - Set paragraph to the one paragraph that holds the evidence, or 0 when the verdict concerns the whole section.
 - Keep reason to one short clause of at most about 60 characters, such as "P3 hedges the figure."

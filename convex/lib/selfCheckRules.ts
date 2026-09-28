@@ -47,6 +47,11 @@ export type ModelVerdict = {
    * repair call uses when clipping shortened the stored text. Never stored.
    */
   repairText?: string;
+  /**
+   * Summary only (2026-09-28): the Self-check gave no verdict for this label,
+   * even after its one follow-up. Recorded as not_applied, never repaired.
+   */
+  notChecked?: true;
 };
 
 /** One finding from the assembled-draft consistency pass. */
@@ -424,7 +429,7 @@ export function repairIssues(
     .filter((entry) => entry.repairable && entry.row.outcome === "not_applied")
     .map((entry) => entry.guidance ?? entry.row.reason);
   for (const verdict of verdicts) {
-    if (verdict.outcome !== "not_applied") continue;
+    if (verdict.outcome !== "not_applied" || verdict.notChecked) continue;
     const fix = verdict.repairText ?? (verdict.repairGuidance?.trim() || verdict.reason);
     const where =
       verdict.paragraphIndex === undefined
@@ -508,6 +513,11 @@ export function assembleSectionNotes(input: {
     };
     if (verdict.outcome === "applied") {
       rows.push(noteDraft({ ...base, outcome: "applied", reason: verdict.reason || "applied" }));
+      continue;
+    }
+    if (verdict.notChecked) {
+      // No verdict means no failure to repair: recorded as it is.
+      rows.push(noteDraft({ ...base, tier: "none", outcome: "not_applied", reason: verdict.reason }));
       continue;
     }
     let outcome: "applied" | "not_applied" = "not_applied";

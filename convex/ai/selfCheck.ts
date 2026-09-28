@@ -54,7 +54,8 @@ import {
  * called by convex/ai/orderedGeneration.ts through the action's counting
  * client factory, labelled `generation:selfCheck:<n>` and
  * `generation:consistency`. Both use the `two-attempt-repair` structured
- * policy. Repair of the prose is never done here: it is the section agent
+ * policy, except the Summary Self-check: one attempt, plus at most one
+ * follow-up for labels its answer missed (2026-09-28). Repair of the prose is never done here: it is the section agent
  * itself, re-run with the repair guidance (orderedGeneration.ts).
  */
 
@@ -425,7 +426,104 @@ export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
     }
     blocks.push(serialized);
   }
-  return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}`;
+  const message = `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}`;
+  if (!hasSummaryPlan) return message;
+  const checklist = summaryChecklist(ordinary, input.planChecks ?? []);
+  return checklist
+    ? `${message}${SUMMARY_PLAN_SELF_CHECK_REQUEST.checklist.separator}${checklist}`
+    : message;
+}
+
+function fillRuntime(template: string, values: Record<string, string>): string {
+  return template.replace(/\{\{runtime\.(\w+)\}\}/g, (match, key: string) =>
+    values[key] ?? match);
+}
+
+/**
+ * The closing list of every ordinary label and plan check an answer must
+ * cover, with their counts (2026-09-28). Labels and ids are only ever the
+ * ones this app supplied.
+ */
+export function summaryChecklist(
+  ordinary: readonly SummaryOrdinaryCheck[],
+  planChecks: readonly SelfCheckPlanCheck[]
+): string {
+  const list = SUMMARY_PLAN_SELF_CHECK_REQUEST.checklist;
+  const parts: string[] = [];
+  if (ordinary.length > 0) {
+    parts.push([
+      fillRuntime(list.ordinaryIntro, { count: String(ordinary.length) }),
+      ...ordinary.map((check) =>
+        fillRuntime(list.ordinaryLine, { label: check.label, check: check.check })),
+    ].join(list.lineSeparator));
+  }
+  if (planChecks.length > 0) {
+    parts.push([
+      fillRuntime(list.planIntro, { count: String(planChecks.length) }),
+      ...planChecks.map((check) =>
+        check.itemId
+          ? fillRuntime(list.itemLine, { id: check.itemId })
+          : fillRuntime(list.skipLine, { id: check.skippedRoleId ?? "" })),
+    ].join(list.lineSeparator));
+  }
+  return parts.join(list.separator);
+}
+
+/**
+ * The Summary tool schema for one request: the answer must hold exactly one
+ * verdict per listed label and plan check, and each label and id is one of
+ * the values listed (2026-09-28). The static schema stays the base.
+ */
+export function summaryPlanSelfCheckSchemaFor(
+  ordinary: readonly Pick<SummaryOrdinaryCheck, "label">[],
+  planChecks: readonly { itemId?: string; skippedRoleId?: string }[]
+) {
+  const base = SUMMARY_PLAN_SELF_CHECK_SCHEMA;
+  const labels = ordinary.map((check) => check.label);
+  const itemIds = planChecks.flatMap((check) => (check.itemId ? [check.itemId] : []));
+  const skipIds = planChecks.flatMap((check) =>
+    check.skippedRoleId ? [check.skippedRoleId] : []);
+  const plan = base.properties.planVerdicts;
+  return {
+    ...base,
+    properties: {
+      ...base.properties,
+      verdicts: {
+        ...base.properties.verdicts,
+        minItems: labels.length,
+        maxItems: labels.length,
+        items: {
+          ...base.properties.verdicts.items,
+          properties: {
+            ...base.properties.verdicts.items.properties,
+            instruction: {
+              ...base.properties.verdicts.items.properties.instruction,
+              ...(labels.length > 0 ? { enum: labels } : {}),
+            },
+          },
+        },
+      },
+      planVerdicts: {
+        ...plan,
+        minItems: planChecks.length,
+        maxItems: planChecks.length,
+        items: {
+          ...plan.items,
+          properties: {
+            ...plan.items.properties,
+            itemId: {
+              ...plan.items.properties.itemId,
+              ...(itemIds.length > 0 ? { enum: itemIds } : {}),
+            },
+            skippedRoleId: {
+              ...plan.items.properties.skippedRoleId,
+              ...(skipIds.length > 0 ? { enum: skipIds } : {}),
+            },
+          },
+        },
+      },
+    },
+  };
 }
 
 export type ModelSelfCheckResult = {
@@ -502,13 +600,30 @@ function overLimit(field: string, value: string, maximum: number): string | null
   return bytes > maximum ? `${field} is ${bytes} escaped bytes, limit ${maximum}` : null;
 }
 
-function assertCompleteSummaryOutput(args: {
+/** The labels and plan checks an answer gave no verdict for. */
+type SummaryCoverageGap = {
+  labels: SummaryOrdinaryCheck[];
+  plans: SelfCheckPlanCheck[];
+};
+
+function planRefOf(check: { itemId?: string; skippedRoleId?: string }): string {
+  return check.itemId ? `item:${check.itemId}` : `skip:${check.skippedRoleId ?? ""}`;
+}
+
+/**
+ * Rejects the whole answer for any verdict that is invalid: a label or id
+ * nobody supplied, a repeat, a wrong check kind, a paragraph out of range or
+ * a field over its limit. A label or plan check with no verdict at all is no
+ * longer a rejection (2026-09-28): it is returned, so the caller can ask once
+ * for it and record what is still missing as not checked.
+ */
+function assertValidSummaryOutput(args: {
   raw: RawSelfCheck;
   ordinaryChecks: readonly SummaryOrdinaryCheck[];
   planChecks: readonly SelfCheckPlanCheck[];
   allowStorylineQuestion: boolean;
   actualParagraphCount: number;
-}): void {
+}): SummaryCoverageGap {
   const { raw, ordinaryChecks, planChecks } = args;
   summarySelfCheckWorstCaseResponse({
     ordinaryChecks,
@@ -527,12 +642,6 @@ function assertCompleteSummaryOutput(args: {
     );
   }
   const ordinaryByLabel = new Map(ordinaryChecks.map((check) => [check.label, check]));
-  if (raw.verdicts.length !== ordinaryByLabel.size) {
-    throw new SummarySelfCheckRejection(
-      "Summary Self-check omitted an ordinary verdict",
-      `${raw.verdicts.length} ordinary verdicts for ${ordinaryByLabel.size} labels`
-    );
-  }
   const seenLabels = new Set<string>();
   raw.verdicts.forEach((verdict, index) => {
     const expected = ordinaryByLabel.get(verdict.instruction);
@@ -573,12 +682,6 @@ function assertCompleteSummaryOutput(args: {
     if (fieldProblem) throw invalid(fieldProblem);
     seenLabels.add(verdict.instruction);
   });
-  if (rawPlans.length !== planChecks.length) {
-    throw new SummarySelfCheckRejection(
-      "Summary Self-check omitted a plan verdict",
-      `${rawPlans.length} plan verdicts for ${planChecks.length} plan checks`
-    );
-  }
   const seenPlanRefs = new Set<string>();
   rawPlans.forEach((verdict, index) => {
     const ref = verdict.itemId
@@ -685,6 +788,10 @@ function assertCompleteSummaryOutput(args: {
       );
     }
   }
+  return {
+    labels: ordinaryChecks.filter((check) => !seenLabels.has(check.label)),
+    plans: planChecks.filter((check) => !seenPlanRefs.has(planRefOf(check))),
+  };
 }
 
 const MAX_SELF_CHECK_DIAGNOSTIC_CHARS = 300;
@@ -740,7 +847,116 @@ function exactPlanParagraphIndex(
     : undefined;
 }
 
-/** One structured Self-check call for one drafted section. */
+/** Compliance Note reasons for a label or plan check with no verdict. */
+export const NOT_CHECKED_REASON =
+  "Not checked: the Self-check gave no verdict for this check.";
+export const PLAN_ITEM_NOT_CHECKED_REASON =
+  "Not checked: the plan coverage Self-check gave no verdict for this item.";
+export const PLAN_SKIP_NOT_CHECKED_REASON =
+  "Not checked: the plan coverage Self-check gave no verdict for this Skip.";
+
+/**
+ * The Summary Self-check (2026-09-28). The first answer must cover every
+ * listed label and plan check. When it misses some, one follow-up asks for
+ * only those, in place of the structured repair this check otherwise skips,
+ * and the answers are merged. Whatever is still missing, or everything the
+ * first answer missed when the follow-up fails, comes back as not checked,
+ * one by one; the verdicts the first answer gave are kept. An invalid first
+ * answer still rejects the whole check.
+ */
+async function completeSummarySelfCheck(
+  client: GenerationClient,
+  input: SelfCheckModelInput,
+  args: {
+    user: string;
+    ordinaryChecks: readonly SummaryOrdinaryCheck[];
+    planChecks: readonly SelfCheckPlanCheck[];
+    actualParagraphCount: number;
+  }
+): Promise<{ raw: RawSelfCheck; notChecked: SummaryCoverageGap }> {
+  const ask = (
+    user: string,
+    ordinary: readonly SummaryOrdinaryCheck[],
+    plans: readonly SelfCheckPlanCheck[]
+  ) =>
+    generateStructured<RawSelfCheck>(client, {
+      system: SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
+      user,
+      toolName: SELF_CHECK_REQUEST.toolName,
+      description: SELF_CHECK_REQUEST.toolDescription,
+      schema: summaryPlanSelfCheckSchemaFor(
+        ordinary,
+        plans
+      ) as unknown as Anthropic.Tool.InputSchema,
+      maxTokens: SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens,
+      model: input.model,
+      validate: summaryPlanSelfCheckOutputSchema,
+      attempts: 1,
+      encodedJsonRecovery: false,
+    });
+  const first = await ask(args.user, args.ordinaryChecks, args.planChecks);
+  const gap = assertValidSummaryOutput({
+    raw: first,
+    ordinaryChecks: args.ordinaryChecks,
+    planChecks: args.planChecks,
+    allowStorylineQuestion:
+      input.storylineText.trim().length > 0 && input.confidenceMap.length > 0,
+    actualParagraphCount: args.actualParagraphCount,
+  });
+  if (gap.labels.length === 0 && gap.plans.length === 0) {
+    return { raw: first, notChecked: gap };
+  }
+  const tool = SELF_CHECK_REQUEST.toolName;
+  console.warn(
+    `${tool}: no verdict for ${gap.labels.length} of ${args.ordinaryChecks.length} labels ` +
+      `and ${gap.plans.length} of ${args.planChecks.length} plan checks; asking once for them`
+  );
+  let followUp: RawSelfCheck;
+  let stillMissing: SummaryCoverageGap;
+  try {
+    const answer = await ask(
+      `${args.user}${SUMMARY_PLAN_SELF_CHECK_REQUEST.missingFollowUp.prefix}` +
+        `${SUMMARY_PLAN_SELF_CHECK_REQUEST.checklist.separator}${summaryChecklist(gap.labels, gap.plans)}`,
+      gap.labels,
+      gap.plans
+    );
+    // The follow-up answers for coverage only; a Storyline question comes
+    // from the first answer or not at all.
+    followUp = { verdicts: answer.verdicts, planVerdicts: answer.planVerdicts ?? [] };
+    stillMissing = assertValidSummaryOutput({
+      raw: followUp,
+      ordinaryChecks: gap.labels,
+      planChecks: gap.plans,
+      allowStorylineQuestion: false,
+      actualParagraphCount: args.actualParagraphCount,
+    });
+  } catch (error) {
+    console.warn(
+      `${tool}: the follow-up for missing labels failed (${selfCheckFailureDiagnostic(error)}); ` +
+        `${gap.labels.length} labels and ${gap.plans.length} plan checks recorded as not checked`
+    );
+    return { raw: first, notChecked: gap };
+  }
+  if (stillMissing.labels.length > 0 || stillMissing.plans.length > 0) {
+    console.warn(
+      `${tool}: still no verdict for ${stillMissing.labels.length} labels and ` +
+        `${stillMissing.plans.length} plan checks; recorded as not checked`
+    );
+  }
+  return {
+    raw: {
+      ...first,
+      verdicts: [...first.verdicts, ...followUp.verdicts],
+      planVerdicts: [...(first.planVerdicts ?? []), ...(followUp.planVerdicts ?? [])],
+    },
+    notChecked: stillMissing,
+  };
+}
+
+/**
+ * One structured Self-check call for one drafted section; in Summary mode,
+ * at most one follow-up for labels the first answer missed.
+ */
 export async function runModelSelfCheck(
   client: GenerationClient,
   input: SelfCheckModelInput
@@ -748,36 +964,27 @@ export async function runModelSelfCheck(
   const hasSummaryPlan = Boolean(input.planChecks?.length);
   const ordinaryChecks = hasSummaryPlan ? summaryOrdinaryChecks(input) : [];
   const count = sectionParagraphs(input.text).length;
-  const raw = await generateStructured<RawSelfCheck>(client, {
-    system: hasSummaryPlan
-      ? SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT
-      : SELF_CHECK_SYSTEM_PROMPT,
-    user: buildSelfCheckUserMessage(input),
-    toolName: SELF_CHECK_REQUEST.toolName,
-    description: SELF_CHECK_REQUEST.toolDescription,
-    schema: (hasSummaryPlan
-      ? SUMMARY_PLAN_SELF_CHECK_SCHEMA
-      : SELF_CHECK_SCHEMA) as unknown as Anthropic.Tool.InputSchema,
-    maxTokens: hasSummaryPlan
-      ? SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens
-      : SELF_CHECK_REQUEST.maxTokens,
-    model: input.model,
-    validate: hasSummaryPlan
-      ? summaryPlanSelfCheckOutputSchema
-      : selfCheckOutputSchema,
-    ...(hasSummaryPlan ? { attempts: 1 } : {}),
-    ...(hasSummaryPlan ? { encodedJsonRecovery: false } : {}),
-  });
-  if (hasSummaryPlan) {
-    assertCompleteSummaryOutput({
-      raw,
-      ordinaryChecks,
-      planChecks: input.planChecks ?? [],
-      allowStorylineQuestion:
-        input.storylineText.trim().length > 0 && input.confidenceMap.length > 0,
-      actualParagraphCount: count,
-    });
-  }
+  const user = buildSelfCheckUserMessage(input);
+  const { raw, notChecked } = hasSummaryPlan
+    ? await completeSummarySelfCheck(client, input, {
+        user,
+        ordinaryChecks,
+        planChecks: input.planChecks ?? [],
+        actualParagraphCount: count,
+      })
+    : {
+        raw: await generateStructured<RawSelfCheck>(client, {
+          system: SELF_CHECK_SYSTEM_PROMPT,
+          user,
+          toolName: SELF_CHECK_REQUEST.toolName,
+          description: SELF_CHECK_REQUEST.toolDescription,
+          schema: SELF_CHECK_SCHEMA as unknown as Anthropic.Tool.InputSchema,
+          maxTokens: SELF_CHECK_REQUEST.maxTokens,
+          model: input.model,
+          validate: selfCheckOutputSchema,
+        }),
+        notChecked: { labels: [], plans: [] } satisfies SummaryCoverageGap,
+      };
   const verdicts: ModelVerdict[] = raw.verdicts
     .slice(0, SELF_CHECK_REQUEST.maxVerdicts)
     .map((verdict) => {
@@ -806,6 +1013,17 @@ export async function runModelSelfCheck(
         ...(repairText ? { repairText } : {}),
       };
     });
+  // A label with no verdict is recorded on its own, never as applied, and
+  // never sent to the repair: nothing says the section fails it.
+  for (const check of notChecked.labels) {
+    verdicts.push({
+      check: check.check,
+      instruction: check.instruction,
+      outcome: "not_applied",
+      reason: NOT_CHECKED_REASON,
+      notChecked: true,
+    });
+  }
   // A clipped Storyline question is withheld: "Use the section's evidence"
   // would make its shortened alternative the whole Storyline. The coverage
   // verdicts above are complete and stay.
@@ -843,16 +1061,18 @@ export async function runModelSelfCheck(
         mergedItemIds: [...expected.mergedItemIds],
         ...(applied ? { paragraphIndex } : {}),
         outcome: applied ? "applied" as const : "not_applied" as const,
-        reason: evidenceDowngraded
-          ? "Applied plan verdict did not identify valid paragraph evidence."
-          : verdict?.reason.trim() ||
-            (verdict
-              ? "Plan verdict was not applied."
-              : "Self-check omitted the plan verdict."),
+        reason: !verdict
+          ? expected.itemId
+            ? PLAN_ITEM_NOT_CHECKED_REASON
+            : PLAN_SKIP_NOT_CHECKED_REASON
+          : evidenceDowngraded
+            ? "Applied plan verdict did not identify valid paragraph evidence."
+            : verdict.reason.trim() || "Plan verdict was not applied.",
         ...(!evidenceDowngraded && verdict?.repairGuidance?.trim()
           ? { repairGuidance: verdict.repairGuidance.trim() }
           : {}),
-        ...(evidenceDowngraded
+        // A plan check with no verdict is not checked: not a prose defect.
+        ...(evidenceDowngraded || !verdict
           ? { actionableRepair: false }
           : verdict?.outcome === "not_applied"
             ? { actionableRepair: true }

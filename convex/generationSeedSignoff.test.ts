@@ -37,7 +37,7 @@ import {
   type GenerationMessageParams,
 } from "./ai/openrouterCore";
 import { currentPromptVersion } from "./ai/promptProgram";
-import { SUMMARY_PLAN_SELF_CHECK_SCHEMA } from "./ai/promptDefinitions";
+import { summaryPlanSelfCheckSchemaFor } from "./ai/selfCheck";
 import { SECTION_246_REQUEST } from "./ai/section246Agent";
 import type {
   getOutline,
@@ -5370,7 +5370,6 @@ describe("seed Summary sign-off and recovery", () => {
     "malformed adapter output",
     "invalid field type",
     "omitted required field",
-    "omitted plan verdicts",
     "oversized raw extras",
     "oversized nested extras",
     "encoded root",
@@ -5427,16 +5426,14 @@ describe("seed Summary sign-off and recovery", () => {
               ...validInput,
               unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1),
             }
-          : failureMode === "omitted plan verdicts"
-            ? { ...validInput, planVerdicts: planVerdicts.slice(1) }
-            : failureMode === "encoded root"
-              ? JSON.stringify(validInput)
-              : failureMode === "oversized encoded root"
-                ? encodedSummaryInputAtRawBytes(
-                    validInput,
-                    MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1
-                  )
-                : validInput;
+          : failureMode === "encoded root"
+            ? JSON.stringify(validInput)
+            : failureMode === "oversized encoded root"
+              ? encodedSummaryInputAtRawBytes(
+                  validInput,
+                  MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1
+                )
+              : validInput;
         return {
           content: [{
             type: "tool_use",
@@ -5512,6 +5509,104 @@ describe("seed Summary sign-off and recovery", () => {
     }
     expect(state.runs.find((row) => row.section === "s246")?.status).toBe("drafted");
     expect(state.runs.find((row) => row.section === "s244")?.status).toBe("drafted");
+  });
+
+  it("asks once for omitted plan verdicts and records what is still missing as not checked, item by item", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (params.tool_choice?.name === "submit_self_check") {
+        const followUp = providerUser(params).includes(
+          "Your previous answer gave no verdict for the labels and plan checks listed below."
+        );
+        const checks = providerPlanChecks(params);
+        // The first answer drops the first plan check; the follow-up
+        // returns nothing, so that check stays without a verdict.
+        return {
+          content: [{
+            type: "tool_use",
+            id: followUp ? "summary-follow-up" : "summary-short",
+            name: params.tool_choice.name,
+            input: followUp
+              ? { verdicts: [], planVerdicts: [] }
+              : {
+                  verdicts: providerOrdinaryVerdicts(params),
+                  planVerdicts: checks.slice(1).map((check) => ({
+                    ...(check.itemId ? { itemId: check.itemId } : {}),
+                    ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+                    mergedItemIds: [...check.mergedItemIds],
+                    paragraph: 1,
+                    outcome: "applied",
+                    reason: "Covered.",
+                  })),
+                },
+          }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      return {
+        content: [{ type: "text", text: "Final specific_advancements wording. Draft text." }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+    await runNextSectionAction(s, s.generationId);
+    const selfCheckRequests = network.create.mock.calls
+      .map(([params]) => params as GenerationMessageParams)
+      .filter((params) => params.tool_choice?.name === "submit_self_check");
+    expect(selfCheckRequests).toHaveLength(2);
+    const [first, followUp] = selfCheckRequests;
+    const checks = providerPlanChecks(first!);
+    const [omitted, ...answered] = checks;
+    const omittedLine = omitted?.itemId
+      ? `- itemId ${omitted.itemId}`
+      : `- skippedRoleId ${omitted?.skippedRoleId}`;
+    // The follow-up names only the omitted plan check, in text and schema.
+    expect(providerUser(followUp!).endsWith(
+      `Return exactly 1 planVerdicts, one for each plan check below:\n${omittedLine}`
+    )).toBe(true);
+    expect(followUp!.tools?.[0]?.input_schema).toMatchObject({
+      properties: { planVerdicts: { minItems: 1, maxItems: 1 }, verdicts: { maxItems: 0 } },
+    });
+    expect(network.create.mock.calls.filter(([params]) =>
+      !(params as GenerationMessageParams).tool_choice &&
+      providerUser(params as GenerationMessageParams).includes("Self-check repair")
+    )).toHaveLength(0);
+    const state = await s.t.run(async (ctx) => ({
+      rows: (await ctx.db.query("complianceNotes")
+        .withIndex("by_generationId_and_section", (q) =>
+          q.eq("generationId", s.generationId).eq("section", "246"))
+        .take(40)),
+      runs: await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(4),
+    }));
+    const planRows = state.rows.filter((row) => row.planRef);
+    expect(planRows).toHaveLength(checks.length);
+    const rowFor = (check: ProviderPlanCheck) => planRows.find((row) =>
+      check.itemId
+        ? row.planRef?.itemId === check.itemId
+        : row.planRef?.skippedRoleId === check.skippedRoleId);
+    expect(rowFor(omitted!)).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: omitted?.itemId
+        ? "Not checked: the plan coverage Self-check gave no verdict for this item."
+        : "Not checked: the plan coverage Self-check gave no verdict for this Skip.",
+    });
+    for (const check of answered) {
+      expect(rowFor(check)).toMatchObject(check.confirmedExclusion
+        ? { outcome: "not_applied", tier: "conflict" }
+        : { outcome: "applied", reason: "Covered." });
+    }
+    // The check itself completed: no whole-check failure row.
+    expect(state.rows.some((row) => row.instruction === "Model Self-check")).toBe(false);
+    const run = state.runs.find((row) => row.section === "s246");
+    expect(run?.status).toBe("drafted");
+    expect(run?.selfCheck).toContain('"modelCheck":"ok"');
   });
 
   it("keeps an origin-to-current source bijection through two recovery generations", async () => {
@@ -5693,7 +5788,12 @@ describe("seed Summary sign-off and recovery", () => {
     expect(providerUser(initialSelfCheck!)).toContain("Second advancement facet.");
     expect(JSON.stringify(initialSelfCheck!.system)).toContain("Signed-off content plan");
     expect(initialSelfCheck!.tools?.[0]?.input_schema).toEqual(
-      SUMMARY_PLAN_SELF_CHECK_SCHEMA
+      summaryPlanSelfCheckSchemaFor(
+        providerOrdinaryVerdicts(initialSelfCheck!).map((verdict) => ({
+          label: verdict.instruction,
+        })),
+        providerPlanChecks(initialSelfCheck!)
+      )
     );
     expect(network.create.mock.calls.filter(([params]) =>
       (params as GenerationMessageParams).tool_choice?.name === "submit_self_check"

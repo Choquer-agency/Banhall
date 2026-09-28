@@ -28,12 +28,19 @@ import {
 } from "./promptDefinitions";
 import { SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE } from "./providers";
 import { sectionMetrics } from "../lib/lineLimits";
-import { assembleSectionNotes, runDeterministicSelfCheck } from "../lib/selfCheckRules";
+import {
+  assembleSectionNotes,
+  repairIssues,
+  runDeterministicSelfCheck,
+} from "../lib/selfCheckRules";
 import type { OrderedProfileContext } from "../lib/orderedChain";
 import { planComplianceNoteDrafts } from "./orderedGeneration";
 import {
+  NOT_CHECKED_REASON,
+  PLAN_SKIP_NOT_CHECKED_REASON,
   runModelSelfCheck,
   selfCheckFailureDiagnostic,
+  summaryPlanSelfCheckSchemaFor,
   type SelfCheckPlanCheck,
 } from "./selfCheck";
 import {
@@ -613,7 +620,7 @@ describe("Self-check before display (CAP-9)", () => {
       expect(accepted.create).toHaveBeenCalledTimes(1);
       const [request] = accepted.create.mock.calls[0];
       expect(request.tools?.[0]).toMatchObject({
-        input_schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+        input_schema: summaryPlanSelfCheckSchemaFor([{ label: "storyline" }], [check]),
       });
       const properties = SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties;
       const boundedProviderFields = [
@@ -995,12 +1002,10 @@ describe("Self-check before display (CAP-9)", () => {
     expect(accepted.create).toHaveBeenCalledTimes(1);
 
     const malformed: Array<[string, (response: typeof valid) => void]> = [
-      ["omitted ordinary row", (response) => { response.verdicts.pop(); }],
       ["omitted ordinary reason", (response) => { Reflect.deleteProperty(response.verdicts[0], "reason"); }],
       ["omitted Skip merge array", (response) => { Reflect.deleteProperty(response.planVerdicts[2], "mergedItemIds"); }],
       ["duplicate ordinary row", (response) => { response.verdicts[4] = { ...response.verdicts[0] }; }],
       ["unknown ordinary label", (response) => { response.verdicts[0].instruction = "unknown"; }],
-      ["omitted plan row", (response) => { response.planVerdicts.pop(); }],
       ["duplicate plan row", (response) => { response.planVerdicts[2] = { ...response.planVerdicts[0] }; }],
       ["unknown plan reference", (response) => { response.planVerdicts[0].itemId = "unknown-item"; }],
       ["incomplete merge ids", (response) => { response.planVerdicts[0].mergedItemIds = ["item-a"]; }],
@@ -1024,6 +1029,29 @@ describe("Self-check before display (CAP-9)", () => {
       const rejected = await execute(response);
       await expect(rejected.result, name).rejects.toThrow();
       expect(rejected.create, name).toHaveBeenCalledTimes(1);
+    }
+
+    // An omitted row no longer rejects the whole response (2026-09-28): one
+    // follow-up asks for it. Here the follow-up repeats the whole answer,
+    // labels nobody asked for, so it is unusable and only the omitted row
+    // is recorded as not checked.
+    for (const [name, mutate] of [
+      ["omitted ordinary row", (response: typeof valid) => { response.verdicts.pop(); }],
+      ["omitted plan row", (response: typeof valid) => { response.planVerdicts.pop(); }],
+    ] as const) {
+      const response = structuredClone(valid);
+      mutate(response);
+      const omitted = await execute(response);
+      const value = await omitted.result;
+      expect(omitted.create, name).toHaveBeenCalledTimes(2);
+      expect(value.verdicts, name).toHaveLength(valid.verdicts.length);
+      expect(value.planVerdicts, name).toHaveLength(valid.planVerdicts.length);
+      const notChecked = [
+        ...value.verdicts.filter((verdict) => verdict.notChecked),
+        ...value.planVerdicts.filter((verdict) => verdict.reason.startsWith("Not checked")),
+      ];
+      expect(notChecked, name).toHaveLength(1);
+      expect(notChecked[0]?.outcome, name).toBe("not_applied");
     }
 
     // An overlong escaped free-text field no longer rejects the whole
@@ -1502,6 +1530,84 @@ describe("deterministic Self-check rules", () => {
     expect(reasonFor(true)).toContain("Storyline question raised in the Brief: Which result holds?");
     expect(reasonFor(false)).toContain("Storyline question not recorded in the Brief");
     expect(reasonFor(false)).not.toContain("raised in the Brief");
+  });
+
+  it("records a label or plan check with no verdict as not checked, never repaired and never covered", () => {
+    const before = runDeterministicSelfCheck({
+      section: "244",
+      text: "Text.",
+      brief: null,
+      profile: PROFILE,
+      isFirstInOrder: false,
+    });
+    const verdicts = [
+      {
+        check: "confidence" as const,
+        instruction: "Confidence Map: The Tessel drift figure is partial.",
+        outcome: "not_applied" as const,
+        reason: NOT_CHECKED_REASON,
+        notChecked: true as const,
+      },
+      {
+        paragraphIndex: 0,
+        check: "glossary" as const,
+        instruction: "Glossary Term: fouling rig",
+        outcome: "not_applied" as const,
+        reason: "P1 says test tank.",
+        repairGuidance: "Say fouling rig in paragraph 1.",
+      },
+    ];
+    // Only the real finding goes to the repair.
+    expect(repairIssues(before, verdicts)).toEqual(["Paragraph 1: Say fouling rig in paragraph 1."]);
+    const { rows } = assembleSectionNotes({
+      section: "244",
+      before,
+      after: before,
+      verdicts,
+      modelCheck: { ok: true },
+      storylineQuestion: null,
+      repair: { attempted: true, succeeded: true },
+      finalText: "Text.",
+    });
+    const notChecked = rows.find((row) => row.instruction.startsWith("Confidence Map:"));
+    expect(notChecked).toMatchObject({
+      outcome: "not_applied",
+      tier: "none",
+      reason: NOT_CHECKED_REASON,
+      repaired: false,
+    });
+    expect(notChecked).not.toHaveProperty("paragraphIndex");
+
+    const summaryVersionId = "summary" as Id<"summaryVersions">;
+    const planRows = planComplianceNoteDrafts({
+      section: "244",
+      summaryVersionId,
+      checks: [{
+        skippedRoleId: "prior_year_status",
+        roleId: "prior_year_status",
+        mergedItemIds: [],
+        instruction: "skip",
+        confirmedExclusion: false,
+        wording: [],
+        relationshipReferences: [],
+        sourceReferences: [],
+      }],
+      verdicts: [{
+        skippedRoleId: "prior_year_status",
+        mergedItemIds: [],
+        outcome: "not_applied",
+        reason: PLAN_SKIP_NOT_CHECKED_REASON,
+        actionableRepair: false,
+      }],
+      repairSucceeded: true,
+      coverageCheckSucceeded: true,
+    });
+    expect(planRows).toEqual([expect.objectContaining({
+      instruction: "Omit signed-off role prior_year_status",
+      outcome: "not_applied",
+      reason: PLAN_SKIP_NOT_CHECKED_REASON,
+      repaired: false,
+    })]);
   });
 
   it("writes one plan row per item and Skip, retains merges, and never repairs confirmed exclusions", () => {
