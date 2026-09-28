@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, untrack, type Snippet } from "svelte";
+  import { boardRem } from "$lib/rootScale";
   import { useConvexClient, useMutation } from "convex-svelte";
   import { DropdownMenu } from "bits-ui";
   import { IconInfo, IconMore, IconRegenerate } from "$lib/components/icons";
@@ -461,7 +462,7 @@
     columns === 1
       ? undefined
       : columns === 2
-        ? "grid-template-columns:repeat(2,minmax(0,412px))"
+        ? `grid-template-columns:repeat(2,minmax(0,${boardRem(412)}))`
         : `grid-template-columns:repeat(${columns},minmax(0,1fr))`
   );
   const gridName = $derived(["one", "two", "three", "four", "five", "six"][columns - 1] ?? String(columns));

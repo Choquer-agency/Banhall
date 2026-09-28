@@ -1125,7 +1125,7 @@
          while the first read arrives, so the plan never flashes a blank
          pane with centred text. -->
     <div class="flex min-h-0 flex-1" role="status" aria-label="Loading Seed workspace" data-seed-workspace-skeleton>
-      <div class="hidden min-h-0 flex-none flex-col gap-4 border-r border-line-soft px-5 pt-5 lg:flex lg:w-[var(--seed-outline-width)]" style={`--seed-outline-width: ${outlineWidth}px`} aria-hidden="true">
+      <div class="hidden min-h-0 flex-none flex-col gap-4 border-r border-line-soft px-5 pt-5 lg:flex lg:w-[var(--seed-outline-width)]" style={`--seed-outline-width: ${boardRem(outlineWidth)}`} aria-hidden="true">
         <div class="flex items-center justify-between">
           <span class="h-3 w-16 rounded-[0.3125rem] bg-skeleton-line"></span>
           <span class="h-3 w-12 rounded-[0.3125rem] bg-skeleton-line"></span>

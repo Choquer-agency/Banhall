@@ -6,6 +6,7 @@
 </script>
 
 <script lang="ts">
+  import { boardRem } from "$lib/rootScale";
   /**
    * A quiet skeleton of a round 2 work panel while a page loads: grey blocks
    * in the page's own layout (table rows for Home and Projects, label and
@@ -80,7 +81,7 @@
          plan's columns (two 412px, then as many 400px as fit). -->
     <div class="flex h-10 shrink-0 items-center gap-5 border-b border-line-soft px-5">
       {#each [28, 52, 44, 50] as width (width)}
-        <span class={`${bar} h-3`} style:width={`${width}px`}></span>
+        <span class={`${bar} h-3`} style:width={boardRem(width)}></span>
       {/each}
     </div>
     <div class="flex min-h-0 flex-1">
