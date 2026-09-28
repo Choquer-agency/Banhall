@@ -60,7 +60,7 @@
         aria-label={collapsed ? "Expand navigation rail" : "Collapse navigation rail"}
         aria-expanded={!collapsed}
         onclick={toggleRail}
-        class={`group hidden size-9 shrink-0 items-center justify-center rounded-[7px] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 ${focusOutline} motion-reduce:transition-none lg:flex pointer-coarse:size-11`}
+        class={`group hidden size-9 shrink-0 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 ${focusOutline} motion-reduce:transition-none lg:flex pointer-coarse:size-11`}
       >
         <AnimatedSidebarToggleIcon direction={collapsed ? "expand" : "collapse"} size={16} />
       </button>

@@ -84,7 +84,7 @@
       {/each}
     </div>
     <div class="flex min-h-0 flex-1">
-      <div data-skeleton-outline class="hidden w-[300px] flex-none flex-col gap-4 border-r border-line-soft px-5 pt-5 lg:flex">
+      <div data-skeleton-outline class="hidden w-[18.75rem] flex-none flex-col gap-4 border-r border-line-soft px-5 pt-5 lg:flex">
         <div class="flex items-center justify-between">
           <span class={`${bar} h-4 w-16`}></span>
           <span class={`${bar} h-3 w-12`}></span>
@@ -100,11 +100,11 @@
         <span class={`${bar} h-3 w-24`}></span>
         <span class={`${bar} h-6 w-72 max-w-full`}></span>
         <span class={`${bar} h-3 w-[28rem] max-w-full`}></span>
-        <div data-skeleton-cards class="mt-5 grid grid-cols-1 gap-2.5 @min-[800px]:grid-cols-[repeat(2,minmax(0,412px))] @min-[1220px]:grid-cols-3 @min-[1630px]:grid-cols-4">
+        <div data-skeleton-cards class="mt-5 grid grid-cols-1 gap-2.5 @min-[800px]:grid-cols-[repeat(2,minmax(0,25.75rem))] @min-[1220px]:grid-cols-3 @min-[1630px]:grid-cols-4">
           {#each [0, 1, 2, 3] as card (card)}
-            <div class="flex h-[170px] flex-col gap-3 rounded-xl border border-line-soft p-4">
+            <div class="flex h-[10.625rem] flex-col gap-3 rounded-xl border border-line-soft p-4">
               <div class="flex gap-1.5">
-                <span class={`${bar} h-5 w-[84px]`}></span>
+                <span class={`${bar} h-5 w-[5.25rem]`}></span>
                 <span class={`${bar} h-5 w-16`}></span>
               </div>
               {#each [0.92, 0.76, 0.6] as width (width)}
