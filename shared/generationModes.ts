@@ -25,6 +25,8 @@ export type GenerationMode = {
   runLabel: string;
   /** Shows the "Recommended" label. */
   recommended: boolean;
+  /** What re-running does in this mode, in the re-run confirmation. */
+  rerun: string;
 };
 
 export const GENERATION_MODES: ReadonlyArray<GenerationMode> = [
@@ -35,6 +37,7 @@ export const GENERATION_MODES: ReadonlyArray<GenerationMode> = [
     shortHint: "Pick the ideas first. We write after.",
     runLabel: "Step by step run",
     recommended: true,
+    rerun: "You pick and approve the ideas step by step, then Banhall writes a new version of the report from your plan.",
   },
   {
     id: "single",
@@ -43,6 +46,7 @@ export const GENERATION_MODES: ReadonlyArray<GenerationMode> = [
     shortHint: "One full draft",
     runLabel: "Single draft",
     recommended: false,
+    rerun: "Banhall writes one new draft and adds it as a new version of the report.",
   },
   {
     id: "compare",
@@ -51,8 +55,21 @@ export const GENERATION_MODES: ReadonlyArray<GenerationMode> = [
     shortHint: "Two drafts, keep one",
     runLabel: "Compare run",
     recommended: false,
+    rerun: "Banhall writes two new drafts and adds the one you keep as a new version of the report.",
   },
 ];
+
+/**
+ * The re-run confirmation around the mode's `rerun` line (project page, when
+ * the project already has a report). A re-run never changes the current
+ * report: each finished run adds a new report version, and the report page
+ * shows the newest (reservation.ts, candidates.ts createGeneratedReportArtifacts).
+ */
+export const RERUN_CONFIRM = {
+  title: "This project already has a report",
+  keeps: "Your current report stays as it is until the new version is created, and earlier versions stay in version history.",
+  confirm: "Re-run generation",
+} as const;
 
 export function isGenerationModeId(value: unknown): value is GenerationModeId {
   return typeof value === "string" && (GENERATION_MODE_IDS as readonly string[]).includes(value);

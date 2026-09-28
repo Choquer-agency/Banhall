@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import CurrentProjectPage from "./CurrentProjectPage.svelte";
+import PreviewProjectPage from "./PreviewProjectPage.svelte";
 import { __resetPage, __setPageParams, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
@@ -25,6 +26,13 @@ const content = JSON.stringify({ type: "doc", content: [
 ] });
 const now = Date.UTC(2026, 8, 5, 12);
 type ReviewState = "completed" | "running" | "failed" | "unreadable" | "absent";
+// The re-run confirmation's words, as a writer reads them (story 8).
+const RERUN_COPY = {
+  iterative: "You pick and approve the ideas step by step, then Banhall writes a new version of the report from your plan.",
+  single: "Banhall writes one new draft and adds it as a new version of the report.",
+  compare: "Banhall writes two new drafts and adds the one you keep as a new version of the report.",
+} as const;
+const RERUN_KEEPS = "Your current report stays as it is until the new version is created, and earlier versions stay in version history.";
 
 function seed({ mode = "review", report = true, transcript = true, review = "completed" }: {
   mode?: "review" | "generate"; report?: boolean; transcript?: boolean; review?: ReviewState;
@@ -160,15 +168,17 @@ describe("Current project comparison review feedback", () => {
     disabledButton.click();
     expect(requests()).toEqual([]);
     expect(generationEvents()).toEqual([]);
-    await expect.element(page.getByRole("dialog", { name: "This project already has a generated test" })).not.toBeInTheDocument();
+    await expect.element(page.getByRole("dialog", { name: "This project already has a report" })).not.toBeInTheDocument();
   });
 
   it("preserves confirmation and cancellation, surfaces failure, and retries generation", async () => {
     await mount();
     const button = page.getByRole("button", { name: "Generate PD for comparison", exact: true });
     await button.click();
-    const dialog = page.getByRole("dialog", { name: "This project already has a generated test" });
+    const dialog = page.getByRole("dialog", { name: "This project already has a report" });
     await expect.element(dialog).toBeVisible();
+    // A Review PD project always drafts its comparison PD in Compare (story 8).
+    expect(dialog.element().textContent?.replace(/\s+/g, " ")).toContain(`${RERUN_COPY.compare} ${RERUN_KEEPS}`);
     expect(requests()).toEqual([]);
     expect(generationEvents()).toEqual([]);
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -198,6 +208,51 @@ describe("Current project comparison review feedback", () => {
     await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
     expect(editor().textContent).toContain(draft);
     expect(__mutationCalls("reports:updateReportContent")).toEqual([]);
+  });
+
+  it("explains each mode's re-run in plain words and keeps the current report (story 8)", async () => {
+    // No report yet, but a completed run: the transcript selector shows and a
+    // re-run still asks first (requiresRegenerationConfirmation).
+    await mount({ mode: "generate", review: "absent", report: false });
+    __setQueryData("generations:getLatestGeneration", {
+      _id: "generation-q4", status: "completed", candidateMode: "single", startedAt: now, completedAt: now,
+    });
+    const generate = page.getByRole("button", { name: "Generate Report", exact: true });
+    const dialog = page.getByRole("dialog", { name: "This project already has a report" });
+    const modes = page.getByRole("radiogroup", { name: "Draft generation mode" });
+    for (const [label, mode] of [["Step by step", "iterative"], ["Single draft", "single"], ["Compare two drafts", "compare"]] as const) {
+      await modes.getByRole("radio", { name: label, exact: true }).click();
+      await generate.click();
+      await expect.element(dialog).toBeVisible();
+      const text = dialog.element().textContent?.replace(/\s+/g, " ") ?? "";
+      expect(text).toContain(`${RERUN_COPY[mode]} ${RERUN_KEEPS}`);
+      expect(text).not.toMatch(/[\u2013\u2014]/);
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect.element(dialog).not.toBeInTheDocument();
+    }
+    expect(requests()).toEqual([]);
+
+    await modes.getByRole("radio", { name: "Step by step", exact: true }).click();
+    await generate.click();
+    await dialog.getByRole("button", { name: "Re-run generation", exact: true }).click();
+    await expect.poll(requests).toEqual([{ projectId: "project-q4", lengthTarget: "standard",
+      candidateMode: "iterative", confirmRegeneration: true }]);
+    expect(__mutationCalls("reports:updateReportContent")).toEqual([]);
+  });
+
+  it("shows the same re-run words in the preview host (story 8)", async () => {
+    seed();
+    __setPageUrl("/project/project-q4");
+    await page.viewport(1440, 1000);
+    await render(PreviewProjectPage);
+    await page.getByRole("button", { name: "Generate PD for comparison", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "This project already has a report" });
+    await expect.element(dialog).toBeVisible();
+    const text = dialog.element().textContent?.replace(/\s+/g, " ") ?? "";
+    expect(text).toContain(`${RERUN_COPY.compare} ${RERUN_KEEPS}`);
+    expect(text).not.toMatch(/[\u2013\u2014]/);
+    await expect.element(dialog.getByRole("button", { name: "Re-run generation", exact: true })).toBeVisible();
+    expect(requests()).toEqual([]);
   });
 
   it("keeps one current feedback panel as intake becomes a draft and its review changes", async () => {

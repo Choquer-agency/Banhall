@@ -99,7 +99,12 @@
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
   import { comparePairFromSlots } from "../../../../shared/generationModels";
-  import { GENERATION_MODES, type GenerationModeId } from "../../../../shared/generationModes";
+  import {
+    GENERATION_MODES,
+    RERUN_CONFIRM,
+    generationMode,
+    type GenerationModeId,
+  } from "../../../../shared/generationModes";
   import { pickerModels } from "$lib/modelPicker";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
@@ -2967,7 +2972,7 @@
       />
     {/if}
 
-    <!-- BNH-52: confirm re-running an already-generated test -->
+    <!-- BNH-52: confirm a re-run when the project already has a report; copy in shared/generationModes.ts -->
     {#if confirmRegenerate}
       {@const regenSource = confirmRegenerate}
       <div transition:overlayFade class="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 px-4" role="dialog" aria-modal="true" aria-labelledby="regen-title">
@@ -2980,20 +2985,11 @@
             </span>
             <div>
               <h3 id="regen-title" class="text-base font-semibold text-gray-900">
-                This project already has a generated test
+                {RERUN_CONFIRM.title}
               </h3>
               <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
-                {#if requestMode === "single"}
-                  Re-running generates one fresh draft and adds it directly as a
-                  new report version.
-                {:else if requestMode === "iterative"}
-                  Re-running plans the report idea by idea. You sign off the plan,
-                  then it is drafted and added as a new report version.
-                {:else}
-                  Re-running generates two fresh candidate drafts and adds a new
-                  report version after you select one.
-                {/if}
-                Previous results are preserved in version history; nothing is deleted.
+                {generationMode(requestMode).rerun}
+                {RERUN_CONFIRM.keeps}
               </p>
             </div>
           </div>
@@ -3010,7 +3006,7 @@
               onclick={() => runGenerate(regenSource, true)}
               class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
             >
-              Re-run generation
+              {RERUN_CONFIRM.confirm}
             </button>
           </div>
         </div>

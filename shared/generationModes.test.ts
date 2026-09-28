@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   GENERATION_MODES,
   GENERATION_MODE_IDS,
+  RERUN_CONFIRM,
   generationMode,
   isGenerationModeId,
 } from "./generationModes";
@@ -22,6 +23,12 @@ function sourceFiles(dir = join(root, "src")): string[] {
 }
 
 const read = (path: string) => readFileSync(join(root, path), "utf8");
+
+/** Every string the module owns: selector copy and the re-run confirmation. */
+const allCopy = () => [
+  ...GENERATION_MODES.flatMap((mode) => [mode.label, mode.hint, mode.shortHint, mode.runLabel, mode.rerun]),
+  ...Object.values(RERUN_CONFIRM),
+];
 
 const importsSharedList = (source: string) =>
   /import\s*\{[^}]*\bGENERATION_MODES\b[^}]*\}\s*from\s*["'](?:\.\.\/)+shared\/generationModes["']/.test(source);
@@ -59,9 +66,21 @@ describe("the shared generation mode list", () => {
     expect(isGenerationModeId(undefined)).toBe(false);
   });
 
+  it("explains each re-run in plain words and says the current report is kept", () => {
+    expect(GENERATION_MODES.map((mode) => [mode.id, mode.rerun])).toEqual([
+      ["iterative", "You pick and approve the ideas step by step, then Banhall writes a new version of the report from your plan."],
+      ["single", "Banhall writes one new draft and adds it as a new version of the report."],
+      ["compare", "Banhall writes two new drafts and adds the one you keep as a new version of the report."],
+    ]);
+    expect(RERUN_CONFIRM).toEqual({
+      title: "This project already has a report",
+      keeps: "Your current report stays as it is until the new version is created, and earlier versions stay in version history.",
+      confirm: "Re-run generation",
+    });
+  });
+
   it("uses plain hyphens only", () => {
-    const copy = GENERATION_MODES.flatMap((mode) => [mode.label, mode.hint, mode.shortHint, mode.runLabel]);
-    for (const text of copy) expect(text).not.toMatch(/[\u2013\u2014\u00b7]/);
+    for (const text of allCopy()) expect(text).not.toMatch(/[\u2010-\u2015\u2212\u00b7]/);
   });
 });
 
@@ -85,7 +104,7 @@ describe("every mode selector imports the shared list (spine AD-41)", () => {
   });
 
   it("no source file defines its own mode list or mode copy", () => {
-    const copy = GENERATION_MODES.flatMap((mode) => [mode.label, mode.hint, mode.shortHint, mode.runLabel]);
+    const copy = allCopy();
     const quoted = new RegExp(
       `["'\`](?:${[...new Set(copy)].map((text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})["'\`]`
     );
