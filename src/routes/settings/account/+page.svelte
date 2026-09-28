@@ -1,11 +1,11 @@
 <script lang="ts">
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
   // /settings/account (round 2, I1 and I1b): Photo, Name, Email, Role,
   // Signed in and Password rows. Photo and name are staged together and saved
   // by the one save bar; the password change keeps its own action because it
   // is a credential change, not part of the form.
   import { beforeNavigate } from "$app/navigation";
   import Input from "$lib/components/ui/Input.svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import RoleChip from "$lib/components/ui/RoleChip.svelte";
   import SettingsRow from "$lib/components/settings/SettingsRow.svelte";
   import SettingsSaveBar from "$lib/components/settings/SettingsSaveBar.svelte";
@@ -182,7 +182,7 @@
 <svelte:head><title>Account - Settings</title></svelte:head>
 
 {#if meQ.data === undefined}
-  <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
+  <WorkspacePanelSkeleton layout="fields" label="Loading your account" />
 {:else}
   {@const me = meQ.data}
   <div data-settings-account class="flex flex-col gap-6">

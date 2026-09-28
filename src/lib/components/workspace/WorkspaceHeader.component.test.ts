@@ -39,6 +39,12 @@ describe("WorkspaceHeader", () => {
     expect(heading?.parentElement?.textContent).toContain("30+");
   });
 
+  it("sets the page title at weight 500, the round 2 maximum", async () => {
+    await render(WorkspaceHeader, baseProps());
+    const heading = document.querySelector<HTMLElement>("header h1")!;
+    expect(getComputedStyle(heading).fontWeight).toBe("500");
+  });
+
   it("omits the count node entirely when no truthful count exists", async () => {
     await render(WorkspaceHeader, baseProps({ count: null }));
 

@@ -1,8 +1,8 @@
 <script lang="ts">
   /**
    * One Settings row (I1, I3): a 280px label column (label plus an optional
-   * muted hint), 24px gap, the control on the right; 16px vertical padding
-   * and a `line-soft` hairline below. Stacks below 768px.
+   * muted hint), 24px gap, the control on the right (at most 40rem wide); 16px
+   * vertical padding and a `line-soft` hairline below. Stacks below 768px.
    */
   import type { Snippet } from "svelte";
 
@@ -39,7 +39,9 @@
       <span class="text-[13px] leading-[18px] text-ink-muted">{hint}</span>
     {/if}
   </div>
-  <div class="min-w-0 flex-1">
+  <!-- The field column stops at 40rem so inputs keep a readable width on a
+       wide screen while the row's hairline runs the form's full width. -->
+  <div data-settings-field class="min-w-0 flex-1 md:max-w-[40rem]">
     {@render children()}
   </div>
 </div>

@@ -1,8 +1,8 @@
 <script lang="ts">
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
   // /settings/notifications (round 2, I3): which in-app notifications you
   // get. Each switch saves at once, so this tab has no save bar. The board's
   // Email column is not built: there is no email provider yet (decision 54).
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import Switch from "$lib/components/ui/Switch.svelte";
   import SettingsRow from "$lib/components/settings/SettingsRow.svelte";
   import { useMutation, useQuery } from "convex-svelte";
@@ -65,7 +65,7 @@
 <svelte:head><title>Notifications - Settings</title></svelte:head>
 
 {#if settingsQ.data === undefined}
-  <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
+  <WorkspacePanelSkeleton layout="fields" label="Loading notification settings" />
 {:else}
   {@const settings = settingsQ.data}
   <div data-settings-notifications class="flex flex-col">

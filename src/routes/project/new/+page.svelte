@@ -1,4 +1,5 @@
 <script lang="ts">
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   import { isParseAbort } from "$lib/spreadsheetClient";
   import { onDestroy, onMount, untrack } from "svelte";
   import { afterNavigate, beforeNavigate, goto } from "$app/navigation";
@@ -2480,9 +2481,7 @@
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="New project" icon={IconFolder} breadcrumb={{ label: "Projects", href: resolve("/projects") }} />
 {:else}
   <!-- Round 2 (E1): one page inside the workspace chrome: the folder tile,
        the "Projects /" breadcrumb and a flush work panel the page lays out. -->

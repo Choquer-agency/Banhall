@@ -1,7 +1,9 @@
 <script lang="ts">
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import { IconShield } from "$lib/components/icons";
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import Button from "$lib/components/ui/Button.svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { resolve } from "$app/paths";
@@ -305,7 +307,7 @@
 </script>
 
 {#snippet spinner()}
-  <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
+  <WorkspacePanelSkeleton layout="list" label="Loading imports" />
 {/snippet}
 
 {#snippet sheetRow(item: Item, selectable: boolean)}
@@ -450,7 +452,7 @@
   </div>
 {/snippet}
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas"><Spinner /></div>
+  <WorkspaceLoadingShell layout="page" title="OneDrive import" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}
   <AdminWorkspacePage title="OneDrive import" description="Review historical PDs and transcripts before anything enters the Brain." flush>
     {#if stats === null}

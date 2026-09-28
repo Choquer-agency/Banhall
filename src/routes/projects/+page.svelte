@@ -14,7 +14,7 @@
   });
 </script>
 
-<WorkspaceGate {currentHref}>
+<WorkspaceGate {currentHref} pendingLayout="projects" pendingTitle="Projects">
   {#snippet preview()}
     <WorkspaceDashboard view="all_projects" />
   {/snippet}

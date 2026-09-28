@@ -1,9 +1,9 @@
 <script lang="ts">
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
   // /settings/writing (round 2, I2): how many areas the writer's
   // instructions cover, a Preview with and without them, the instructions,
   // what they cover, and where the writer's preferences win over the house
   // rules. Everything is staged and saved together from the save bar.
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import SettingsSaveBar from "$lib/components/settings/SettingsSaveBar.svelte";
   import CoverageSummaryCard from "$lib/components/settings/writing/CoverageSummaryCard.svelte";
   import StylePreviewCard from "$lib/components/settings/writing/StylePreviewCard.svelte";
@@ -221,7 +221,7 @@
 <svelte:head><title>Writing preferences - Settings</title></svelte:head>
 
 {#if profileQ.data === undefined}
-  <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
+  <WorkspacePanelSkeleton layout="fields" label="Loading writing preferences" />
 {:else}
   <div data-writing-preferences class="flex flex-col gap-6">
     <CoverageSummaryCard {covered} bind:enabled onEdit={() => (editorOpen = true)} />

@@ -1,6 +1,9 @@
 <script lang="ts">
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import { resolve } from "$app/paths";
+  import { IconShield } from "$lib/components/icons";
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery, useMutation, useConvexClient } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -132,9 +135,7 @@
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="Models" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}
   <AdminWorkspacePage
     title="Models"
@@ -161,9 +162,7 @@
       {/if}
 
       {#if stats === undefined}
-        <div class="flex min-h-[55vh] items-center justify-center">
-          <Spinner />
-        </div>
+        <WorkspacePanelSkeleton layout="list" label="Loading models" />
       {:else if stats === null}
         <p class="mt-8 text-sm text-gray-400">Sign in to view model stats.</p>
       {:else}

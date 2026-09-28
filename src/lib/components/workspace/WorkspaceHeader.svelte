@@ -138,7 +138,7 @@
   <WorkspaceShellControls tone="light" {onOpenNavigation} {railHidden} {onToggleRail} />
 
   <div class="flex min-w-0 items-baseline gap-2">
-    <h1 class="truncate text-[0.875rem] font-semibold tracking-[-0.01em] text-ink">{title}</h1>
+    <h1 class="truncate text-[0.875rem] font-medium tracking-[-0.01em] text-ink">{title}</h1>
     {#if count}
       <span class="text-[0.8125rem] text-ink-muted">{count}</span>
     {/if}

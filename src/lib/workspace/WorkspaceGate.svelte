@@ -28,7 +28,9 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import type { Snippet } from "svelte";
   import { api } from "../../../convex/_generated/api";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
+  import type { PageIcon } from "$lib/components/shell/pageIcon";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import type { PanelSkeletonLayout } from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
   import {
     resolveWorkspaceRouteState,
     shouldQueryWorkspaceAccess,
@@ -41,6 +43,9 @@
     previewHref = null,
     currentHref = null,
     currentWhileLoading = true,
+    pendingLayout = "page",
+    pendingTitle = "",
+    pendingIcon = undefined,
   }: {
     /** Rendered when the preview experience is resolved (omit to redirect via previewHref). */
     preview?: Snippet;
@@ -52,6 +57,11 @@
     currentHref?: string | null;
     /** False mounts neither subtree until the decision settles (every app route; no current-to-preview flash). */
     currentWhileLoading?: boolean;
+    /** While pending, the round 2 shell shows a skeleton of this page shape... */
+    pendingLayout?: PanelSkeletonLayout;
+    /** ...under a top bar with this title and page icon. */
+    pendingTitle?: string;
+    pendingIcon?: PageIcon;
   } = $props();
 
   const auth = useAuth();
@@ -87,17 +97,16 @@
 </script>
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <!-- data-workspace-gate-pending distinguishes the two visually identical
-       auth and redirect states without introducing a second sign-in surface.
-       Unauthenticated users are sent directly to the canonical login page. -->
-  <div
-    class="flex flex-1 items-center justify-center bg-canvas"
-    role="status"
-    aria-label={auth.isLoading ? "Checking your session" : "Opening sign in"}
+  <!-- data-workspace-gate-pending distinguishes the auth and redirect states.
+       Checking the session draws the round 2 shell with a skeleton panel;
+       a signed-out visitor on the way to /login gets the plain canvas. -->
+  <WorkspaceLoadingShell
+    layout={pendingLayout}
+    title={pendingTitle}
+    icon={pendingIcon}
+    label={auth.isLoading ? "Checking your session" : "Opening sign in"}
     data-workspace-gate-pending={auth.isLoading ? "auth" : "redirect"}
-  >
-    <Spinner />
-  </div>
+  />
 {:else if routeState === "preview" && preview}
   <div class="contents" data-dashboard-experience="preview">
     {@render preview()}
@@ -111,14 +120,13 @@
   </div>
 {:else}
   <!-- Neutral decision/redirect surface for routes without a matching
-       subtree — same loading treatment the dashboard route always used. -->
-  <div
-    class="flex flex-1 items-center justify-center bg-canvas"
-    role="status"
-    aria-label="Loading workspace"
+       subtree: the round 2 shell with a skeleton of the page (2026-09-28),
+       never a lone spinner. -->
+  <WorkspaceLoadingShell
+    layout={pendingLayout}
+    title={pendingTitle}
+    icon={pendingIcon}
     data-workspace-gate-pending="decision"
     data-workspace-gate-route-state={routeState}
-  >
-    <Spinner />
-  </div>
+  />
 {/if}

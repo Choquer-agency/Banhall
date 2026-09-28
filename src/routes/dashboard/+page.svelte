@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { IconHome } from "$lib/components/icons";
   // /dashboard is the permanent compatibility entry. Current overrides and
   // access errors mount the current dashboard. While the access decision
   // loads (and in the server render) the gate shows its neutral loading
@@ -11,6 +12,8 @@
   import CurrentDashboard from "$lib/components/dashboard/CurrentDashboard.svelte";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
 
+  // While pending, draw the shell of the page the user is headed to.
+  const toProjects = $derived(page.url.searchParams.get("view") === "all_projects");
   const previewHref = $derived.by(() => {
     const url = new URL(page.url);
     const view = url.searchParams.get("view");
@@ -20,7 +23,13 @@
   });
 </script>
 
-<WorkspaceGate {previewHref} currentWhileLoading={false}>
+<WorkspaceGate
+  {previewHref}
+  currentWhileLoading={false}
+  pendingLayout={toProjects ? "projects" : "home"}
+  pendingTitle={toProjects ? "Projects" : "Home"}
+  pendingIcon={toProjects ? undefined : IconHome}
+>
   {#snippet current()}
     <CurrentDashboard />
   {/snippet}

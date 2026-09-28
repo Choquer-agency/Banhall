@@ -1,4 +1,8 @@
 <script lang="ts">
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import { resolve } from "$app/paths";
+  import { IconShield } from "$lib/components/icons";
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
@@ -95,16 +99,14 @@
 </script>
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="House rules" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}
   <AdminWorkspacePage
     title="House rules"
     description="The organization's PD writing rulebook: what every report must follow, and which house-style rules writers may override."
   >
     {#if currentUserQ.data === undefined}
-      <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
+      <WorkspacePanelSkeleton layout="list" label="Loading house rules" />
     {:else if !isAdmin}
       <p class="text-sm text-gray-500">
         House rules are available to administrators only.
@@ -175,7 +177,7 @@
         </div>
 
         {#if configQ.data === undefined}
-          <div class="flex min-h-[20vh] items-center justify-center"><Spinner /></div>
+          <WorkspacePanelSkeleton layout="list" label="Loading house rules" />
         {:else}
           <div class="mt-4 flex flex-col gap-4">
             {#each STYLE_OVERRIDE_KEYS as key (key)}

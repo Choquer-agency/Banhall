@@ -2,7 +2,8 @@
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import { IconHome } from "$lib/components/icons";
 
   const auth = useAuth();
 
@@ -16,6 +17,6 @@
   });
 </script>
 
-<div class="flex flex-1 items-center justify-center">
-  <Spinner />
-</div>
+<!-- Signed-in visitors land on Home: draw its shell while the session
+     settles. A signed-out visitor gets the plain canvas on the way to /login. -->
+<WorkspaceLoadingShell layout="home" title="Home" icon={IconHome} />

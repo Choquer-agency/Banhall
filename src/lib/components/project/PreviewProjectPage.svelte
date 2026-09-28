@@ -22,6 +22,8 @@
   import ProjectStateBadge from "$lib/components/dashboard/ProjectStateBadge.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import { IconFolder } from "$lib/components/icons";
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
   import ReadingInterview from "$lib/components/generation/reading/ReadingInterview.svelte";
   import GenerationStatusChip from "$lib/components/generation/GenerationStatusChip.svelte";
@@ -1991,9 +1993,14 @@
      report cohorts apart even while both sit in identical loading DOM. The
      frozen CurrentProjectPage must never carry this marker. -->
 {#if auth.isLoading || !auth.isAuthenticated || project === undefined}
-  <div class="flex flex-1 items-center justify-center bg-canvas" data-report-cohort="preview">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell
+    layout="page"
+    title=""
+    icon={IconFolder}
+    breadcrumb={{ label: "Projects", href: workspaceHref("/projects") }}
+    label="Loading report workspace"
+    data-report-cohort="preview"
+  />
 {:else if project === null}
   <div class="flex flex-1 flex-col items-center justify-center gap-2 bg-canvas" data-report-cohort="preview">
     <h1 class="text-title text-gray-600">Project not found</h1>

@@ -1,7 +1,8 @@
 <script lang="ts">
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import { IconShield } from "$lib/components/icons";
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import { resolve } from "$app/paths";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import DailySpendChart from "$lib/components/admin/DailySpendChart.svelte";
   import SpendBars from "$lib/components/admin/SpendBars.svelte";
   import DateRangePicker from "$lib/components/ui/DateRangePicker.svelte";
@@ -105,9 +106,7 @@
 </script>
 
 {#if auth.isLoading || !auth.isAuthenticated || accessQ.data !== true || data === undefined || data === null}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="AI usage and cost" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}
   <AdminWorkspacePage
     title="AI usage and cost"

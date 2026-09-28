@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { IconHome } from "$lib/components/icons";
   // /my-work is the canonical daily workspace destination. Current overrides
   // and access errors soft-redirect to /dashboard?view=my_work, preserving
   // other params. WorkspaceGate stays neutral while access is loading.
@@ -14,7 +15,7 @@
   });
 </script>
 
-<WorkspaceGate {currentHref}>
+<WorkspaceGate {currentHref} pendingLayout="home" pendingTitle="Home" pendingIcon={IconHome}>
   {#snippet preview()}
     <WorkspaceDashboard view="my_work" />
   {/snippet}

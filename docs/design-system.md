@@ -1099,6 +1099,22 @@ fixed board widths where they left content stranded.
   wordmark; collapsed, it shows icons only with no logo, search first, in
   line with the top bar. This overrides boards A4 and A5 and decision 62's
   collapsed-rail mark.
+- **Loading.** A round 2 page never loads behind a lone centred spinner or
+  "Loading" text. `WorkspaceLoadingShell` draws the real rail and the page's
+  top bar at once and fills the panel with `WorkspacePanelSkeleton`, a quiet
+  pulsing block layout of the page: table rows for Home (`home`) and
+  Projects (`projects`), label and field rows for Settings (`form`), a
+  heading and cards elsewhere (`page`). It covers the session check, the
+  rollout decision (`WorkspaceGate` `pendingLayout`, `pendingTitle`,
+  `pendingIcon`) and each page's own first load. Inside a drawn page, the
+  content-only shapes `fields` and `list` replace in-panel spinners. The
+  skeleton carries `role="status"` and a label; a signed-out visitor on the
+  way to sign in gets the plain canvas.
+- **Form widths.** Pages fill the window; their forms do not. Settings tab
+  content stops at 64rem and every `SettingsRow` field column at 40rem.
+  Dialogs (Team invite) keep their fixed widths.
+- **Title weight.** Top bar titles are weight 500 (the Projects toolbar title
+  was 600).
 
 ## Panel motion (2026-08-10)
 

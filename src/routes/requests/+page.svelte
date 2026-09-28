@@ -1,10 +1,11 @@
 <script lang="ts">
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
   import { IconLightbulb } from "$lib/components/icons";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -46,7 +47,7 @@
         {/if}
 
         {#if requestsQ.data === undefined}
-          <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
+          <WorkspacePanelSkeleton layout="list" label="Loading feature requests" />
         {:else if requests.length === 0}
           <p class="mt-10 text-sm text-ink-faint">
             No feature requests yet — use the flag button on any page to submit one.
@@ -91,11 +92,9 @@
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="Feature requests" icon={IconLightbulb} />
 {:else}
-  <WorkspaceGate currentWhileLoading={false}>
+  <WorkspaceGate currentWhileLoading={false} pendingTitle="Feature requests" pendingIcon={IconLightbulb}>
     {#snippet current()}
       <div class="flex flex-1 flex-col bg-canvas">
         <AppNav breadcrumbs={[{ label: "Feature requests" }]} />

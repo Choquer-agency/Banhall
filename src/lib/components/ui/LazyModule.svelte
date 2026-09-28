@@ -3,11 +3,13 @@
   import Spinner from "./Spinner.svelte";
   import Button from "./Button.svelte";
 
-  let { load, active = true, label, children }: {
+  let { load, active = true, label, children, pending = undefined }: {
     load: () => Promise<{ default: T }>;
     active?: boolean;
     label: string;
     children: Snippet<[T]>;
+    /** Replaces the inline spinner while the module loads (route-level loaders). */
+    pending?: Snippet;
   } = $props();
 
   let request = $state.raw<Promise<{ default: T }> | null>(null);
@@ -19,9 +21,13 @@
 
 {#if request}
   {#await request}
+    {#if pending}
+      {@render pending()}
+    {:else}
     <div class="flex items-center justify-center gap-2 p-4 text-sm text-ink-muted" role="status" aria-label={`Loading ${label}`}>
       <Spinner size="sm" /> Loading {label}…
     </div>
+    {/if}
   {:then module}
     {@render children(module.default)}
   {:catch}

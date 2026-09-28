@@ -1,4 +1,5 @@
 <script lang="ts">
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   // Settings shell: auth guard + one chrome for every /settings/* page.
   // Sections are real routes; this layout owns the round 2 tabs (workspace
   // experience, I1 to I5: full width, no sub-rail) or the inline nav column
@@ -11,7 +12,6 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import PageContainer from "$lib/components/ui/PageContainer.svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import SettingsTabs from "$lib/components/settings/SettingsTabs.svelte";
@@ -57,11 +57,9 @@
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="form" title="Settings" icon={IconGear} />
 {:else}
-  <WorkspaceGate currentWhileLoading={false}>
+  <WorkspaceGate currentWhileLoading={false} pendingLayout="form" pendingTitle="Settings" pendingIcon={IconGear}>
     {#snippet current()}
       <div class="flex flex-1 flex-col bg-canvas">
         <AppNav breadcrumbs={[{ label: "Settings" }, { label: active.label }]} />
@@ -73,7 +71,10 @@
           </p>
           <div class="mt-8 grid items-start gap-8 md:grid-cols-[11.5rem_minmax(0,1fr)]">
             {@render sectionNav()}
-            <div class="min-w-0">{@render pageContent()}</div>
+            <!-- Forms keep a comfortable width on wide screens (lead,
+                 2026-09-28): the panel fills the window, the tab content
+                 stops at 64rem and each field column at 40rem (SettingsRow). -->
+            <div data-settings-content class="min-w-0 max-w-[64rem]">{@render pageContent()}</div>
           </div>
         </PageContainer>
       </div>
@@ -86,7 +87,10 @@
               <h2 data-settings-title class="font-serif text-[28px] font-normal leading-[34px] text-ink">Settings</h2>
               <SettingsTabs tabs={links} activeKey={active.key} />
             </div>
-            <div class="min-w-0">{@render pageContent()}</div>
+            <!-- Forms keep a comfortable width on wide screens (lead,
+                 2026-09-28): the panel fills the window, the tab content
+                 stops at 64rem and each field column at 40rem (SettingsRow). -->
+            <div data-settings-content class="min-w-0 max-w-[64rem]">{@render pageContent()}</div>
           </div>
         {/snippet}
       </WorkspaceChrome>

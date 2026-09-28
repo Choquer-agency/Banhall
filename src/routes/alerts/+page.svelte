@@ -1,10 +1,11 @@
 <script lang="ts">
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
   import { IconWarning } from "$lib/components/icons";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { useStableQuery } from "$lib/stableQuery.svelte";
@@ -84,9 +85,7 @@
 
       <div class="mt-6 space-y-2">
         {#if reports === undefined}
-          <div class="flex min-h-[55vh] items-center justify-center">
-            <Spinner />
-          </div>
+          <WorkspacePanelSkeleton layout="list" label="Loading alerts" />
         {:else if filtered.length === 0}
           <div class="mt-16 text-center">
             <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-chrome">
@@ -122,11 +121,9 @@
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="Alerts" icon={IconWarning} />
 {:else}
-  <WorkspaceGate currentWhileLoading={false}>
+  <WorkspaceGate currentWhileLoading={false} pendingTitle="Alerts" pendingIcon={IconWarning}>
     {#snippet current()}
       <div class="flex flex-1 flex-col bg-canvas">
         <AppNav breadcrumbs={[{ label: "Alerts" }]} />

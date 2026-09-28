@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { IconFolder } from "$lib/components/icons";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
@@ -21,7 +24,8 @@
   });
 </script>
 
-<WorkspaceGate currentWhileLoading={false}>
+<!-- While pending: the shell with "Projects /" and a skeleton panel. -->
+<WorkspaceGate currentWhileLoading={false} pendingTitle="" pendingIcon={IconFolder}>
   {#snippet current()}
     <LazyModule load={loadCurrentProjectPage} label="report workspace">
       {#snippet children(CurrentProjectPage)}
@@ -31,6 +35,9 @@
   {/snippet}
   {#snippet preview()}
     <LazyModule load={loadPreviewProjectPage} label="report workspace">
+      {#snippet pending()}
+        <WorkspaceLoadingShell layout="page" title="" icon={IconFolder} breadcrumb={{ label: "Projects", href: resolve("/projects") }} label="Loading report workspace" />
+      {/snippet}
       {#snippet children(PreviewProjectPage)}
         <PreviewProjectPage />
       {/snippet}

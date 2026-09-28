@@ -1,6 +1,9 @@
 <script lang="ts">
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import { resolve } from "$app/paths";
+  import { IconShield } from "$lib/components/icons";
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { userErrorMessage } from "$lib/errors";
@@ -323,9 +326,7 @@
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="Project tags" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}
   <AdminWorkspacePage
     title="Project tags"
@@ -344,7 +345,7 @@
       {/if}
     {/snippet}
       {#if currentUserQ.data === undefined}
-        <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
+        <WorkspacePanelSkeleton layout="list" label="Loading project tags" />
       {:else if !isAdmin}
         <p class="text-sm text-gray-500">
           Tag management is available to administrators only.
@@ -402,7 +403,7 @@
 
         <div class="lg:col-start-1 lg:row-start-1">
           {#if tagsQ.data === undefined}
-            <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
+            <WorkspacePanelSkeleton layout="list" label="Loading project tags" />
           {:else if tags.length === 0}
             <div class="card flex flex-col items-center gap-2 px-6 py-10 text-center">
               <p class="text-sm text-gray-600">No tags yet.</p>

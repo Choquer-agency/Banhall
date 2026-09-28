@@ -1,4 +1,7 @@
 <script lang="ts">
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import { resolve } from "$app/paths";
+  import { IconShield } from "$lib/components/icons";
   /**
    * AD-29 (story 6, CAP-16): the Paired Comparison recorder and the SM-1/SM-2
    * readout.
@@ -354,9 +357,7 @@
 </script>
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="Paired comparisons" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}
   <AdminWorkspacePage
     title="Paired comparisons"
