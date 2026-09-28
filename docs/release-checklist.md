@@ -30,7 +30,22 @@ VERIFY_COMPONENT=1 bash scripts/loop-verify.sh
 
 **Check:** both runs end green. The second also runs the browser component tests (install Chromium once with `npx playwright install chromium`).
 
-### 3. Back up production and scan it for bare placeholders
+### 3. Judge the Step by step release suite
+
+The suite runs five fictional projects through Step by step, one for each case the release must get right: carried old selections, a skipped role the Brief supports, a Feedback correction that was withdrawn, a selection that matches a Claim Exclusion, and changed advancement links. It makes real model calls, so it costs money; the script prints the cost from `aiUsage`.
+
+Start a local deployment of the release commit with the model keys set. Then, in a shell without `CONVEX_DEPLOY_KEY` (the script refuses to run with one):
+
+```bash
+node scripts/seed-plan-eval.mjs --dry-run
+node scripts/seed-plan-eval.mjs --deployment <local deployment> --as <reviewer email> --confirm-spend
+```
+
+`--as` names the internal account the suite acts as. The script refuses production, and it refuses a cloud deployment unless you add `--allow-cloud-dev`. Every project it creates is named "Release eval - <fixture>". It writes a judging pack to `_bmad-output/test-artifacts/seed-plan-eval/<date>/`: one file per fixture with the signed-off plan, the drafted Sections, the Compliance Note and the automatic checks, and a `summary.md` with the timings and request counts.
+
+**Check:** the reviewing manager reads each fixture file, answers its questions and records pass in its Verdict field and in `summary.md`. Every fixture must pass before release. A failed automatic check is a lead for the judge, not a verdict. If a fixture stopped part way, run it again with `--fixture <id>`. When the pack is judged, delete the projects with the same command and `--cleanup` in place of `--confirm-spend`.
+
+### 4. Back up production and scan it for bare placeholders
 
 Since 2026-09-25, a model answer that echoes a bare id such as `CLIENT_1` or `PERSON_2` is restored into the current project's names (`docs/product-domain.md`, "Bare placeholders"). A bare id already stored in old data would then turn into a real name the next time it passes through a model. Find those before deploying.
 
@@ -46,7 +61,7 @@ This reads every table, including the Brain chunks the `rag` component stores. T
 
 **Check:** `grep` prints nothing. The pattern skips bracketed tokens such as `[CLIENT_1]`, which the restore already handles. On a hit, open the file, find the row, and replace each bare id with the real name or remove it, by hand in the Convex dashboard, before you deploy. Keep the export zip until the release is signed off.
 
-### 4. Set the environment variables
+### 5. Set the environment variables
 
 On the Convex deployment (dashboard, Settings, Environment Variables, or `npx convex env set NAME value`):
 
@@ -92,15 +107,15 @@ npx convex env list
 
 ## The deploy
 
-### 5. Deploy the Convex functions and schema
+### 6. Deploy the Convex functions and schema
 
 ```bash
 npx convex deploy
 ```
 
-**Check:** the command ends with the deployed URL and no schema errors. In the dashboard, Functions lists `transcripts:backfillTranscriptStructure` and the four backfills of step 6.
+**Check:** the command ends with the deployed URL and no schema errors. In the dashboard, Functions lists `transcripts:backfillTranscriptStructure` and the four backfills of step 7.
 
-### 6. Run the phase 4 backfills
+### 7. Run the phase 4 backfills
 
 Each is idempotent, reschedules itself until done, and can run in any order. Try each with a dry run first:
 
@@ -116,7 +131,7 @@ The command prints only the first page; later pages run as scheduled functions. 
 
 **Check:** in the dashboard, Schedules shows no pending run of these four functions, and the last log line of each returned `isDone: true`. Then spot-check the data: every `generations` row has `outputsInArtifactsAt`; no `generations` row has a non-empty `progressLog` without `progressLogCopiedAt`. Open one old report and one new one: the progress lines, the QA panel, the chronology and the section scores all show.
 
-### 7. Rebuild transcript structure for parser v9
+### 8. Rebuild transcript structure for parser v9
 
 Run it right after the deploy, before anyone starts a Step by step draft. It makes no model call. Parser v8 reads lowercase, email and non-Latin speaker labels (`docs/product-domain.md`, "2026-09-26 (ninth)"); parser v9 reads a metadata heading above the exchange ("Project: ...") as text ("2026-09-26 (eleventh)"). If v7 or v8 was never deployed, this one run covers them too.
 
@@ -132,13 +147,13 @@ What the bump does until then, and after:
 - **Brief preparations start again.** `BRIEF_DERIVATION_VERSION` is 4, so a Brief prepared before the deploy is not adopted; the run prepares or derives its own.
 - **Fact runs go stale.** Every stored fact run belongs to the old parser version. With `transcripts.factsMode` set to `long` or `all`, the next request or generation for each transcript extracts facts again: one paid model call per transcript. With `off` (the default) nothing is re-extracted.
 
-### 8. Deploy the app
+### 9. Deploy the app
 
 Merge to `main` (Vercel's git integration builds it) or promote the preview in Vercel.
 
 **Check:** the Vercel production deployment is Ready, and the build stamp in the app shows this release's build time.
 
-### 9. Refresh the model catalog
+### 10. Refresh the model catalog
 
 Sign in as an admin, open `/admin/models` and click **Refresh now**. This retires models removed from the list (Fable 5.1) before the daily 08:45 UTC refresh would.
 
@@ -148,7 +163,7 @@ On the same page, ask the owner for the firm's name and its short forms and ente
 
 ## After the deploy
 
-### 10. Smoke checks
+### 11. Smoke checks
 
 Sign in on the production URL, then:
 
@@ -160,7 +175,7 @@ Sign in on the production URL, then:
 6. **Chat:** ask the report chat one question; it answers.
 7. **Admin pages:** `/admin/models` loads with today's refresh, and `/admin/learning` shows Learning health.
 8. **Crons:** in the dashboard, Schedules, Cron Jobs lists "recover stale report generations", "recover stale PD reviews", "recover stale post-QA passes" (every 10 minutes), "recover stale chat turns" (every 2 minutes), "reconcile stalled oversight rebuilds", "resume stalled My work backfills" (every 5 minutes), and the daily "refresh QA calibration digest", "refresh draft style digest", "refresh model catalog", "release unreferenced files" and "prune old error reports".
-9. **Logs:** the Convex logs show no new errors in the first 15 minutes. In particular, after the sign-in in item 1 there is no error starting "AUTH_PROXY_SECRET"; if there is one, the secret is missing or too short on Convex (step 4). A different value on Vercel is not logged, so copy both from the same source.
+9. **Logs:** the Convex logs show no new errors in the first 15 minutes. In particular, after the sign-in in item 1 there is no error starting "AUTH_PROXY_SECRET"; if there is one, the secret is missing or too short on Convex (step 5). A different value on Vercel is not logged, so copy both from the same source.
 
 **Check:** every item passes. If one fails, roll back (below).
 
@@ -169,4 +184,4 @@ Sign in on the production URL, then:
 - **App:** in Vercel, promote the previous production deployment.
 - **Convex functions:** check out the previous release commit, run `npm ci`, then `npx convex deploy`. The phase 4 schema only widened, so older code still reads the data, but generations created after the release show no progress log or QA scorecard under the older code (`docs/product-domain.md`, "2026-09-25 (second)", Rollback).
 - **Transport:** if `ANTHROPIC_TRANSPORT` was switched to `openrouter`, set it back to `direct`.
-- **Data:** restore from the step 3 export only as a last resort, with `npx convex import --replace-all banhall-before-release.zip`; it drops everything written since the export.
+- **Data:** restore from the step 4 export only as a last resort, with `npx convex import --replace-all banhall-before-release.zip`; it drops everything written since the export.
