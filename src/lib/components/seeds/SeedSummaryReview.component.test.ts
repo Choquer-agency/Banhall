@@ -1761,29 +1761,19 @@ describe("Seed Summary Review", () => {
       expect(card.querySelector("[data-quote-text]")?.textContent).toBe("“We run four sites”");
     });
 
-    it("links the open step instead of listing role ids, through the workspace's own open-step record", async () => {
+    it("names open steps as a status with no link to a step (owner, 2026-09-28)", async () => {
       __setQueryData("seeds:getOutline", outline(false));
       __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Plain server wording.")]));
       const onClose = vi.fn();
       const view = await render(SeedSummaryReview, { generationId, userId: "writer-1", onClose });
-      const link = page.getByRole("button", { name: "1 step still open: open Goal / Problem" });
-      await expect.element(link).toBeVisible();
+      const status = () => view.container.querySelector<HTMLElement>("[data-summary-readiness=blocked]");
+      await expect.poll(() => status()?.textContent ?? "").toContain("1 step still open");
+      expect(status()!.querySelector("button, a")).toBeNull();
+      expect(page.getByRole("button", { name: /still open/ }).elements()).toHaveLength(0);
       expect(view.container.textContent).not.toContain("goal_problem");
-      expect(view.container.textContent).not.toContain("Ready to sign off");
       await expect.element(signOffButton()).toBeDisabled();
-      await link.click();
-      expect(localStorage.getItem(`seeds.openRole:writer-1:${generationId}`)).toBe("goal_problem");
-      expect(onClose).toHaveBeenCalledTimes(1);
-
-      // A host that opens steps itself is called instead; nothing is stored.
-      view.unmount();
-      localStorage.clear();
-      const onOpenStep = vi.fn();
-      await render(SeedSummaryReview, { generationId, userId: "writer-1", onClose, onOpenStep });
-      await page.getByRole("button", { name: "1 step still open: open Goal / Problem" }).click();
-      expect(onOpenStep).toHaveBeenCalledWith("goal_problem");
       expect(localStorage.getItem(`seeds.openRole:writer-1:${generationId}`)).toBeNull();
-      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onClose).not.toHaveBeenCalled();
     });
 
     it("shows a borderless Version chip with a tooltip only from version 2", async () => {

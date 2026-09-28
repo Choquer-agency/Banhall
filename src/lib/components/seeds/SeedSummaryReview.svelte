@@ -32,7 +32,6 @@
     focusHeadingOnMount = false,
     onClose,
     onSignedOff,
-    onOpenStep,
     onOpenSource,
   }: {
     generationId: Id<"generations">;
@@ -48,11 +47,6 @@
     /** An accepted sign-off, named by its submitting owner so the host can
      * fence the completion to that generation and its own lifetime (A5/A7). */
     onSignedOff?: (submitted: { generationId: Id<"generations">; userId: string }) => void;
-    /** Opens one planning step in the workspace. Without it, "n steps still
-     * open" records the step as this user's open step for this generation
-     * (the workspace's own `seeds.openRole` restore) and returns through
-     * `onClose`. */
-    onOpenStep?: (roleId: string) => void;
     /** Opens a cited source; the quote card shows "Open in transcript" only
      * when the host provides it. */
     onOpenSource?: (sourceId: string) => void;
@@ -777,22 +771,6 @@
   );
   const roleTitle = (roleId: string) =>
     PD_SUBSECTIONS.find((definition) => definition.roleId === roleId)?.title ?? roleId;
-  const canOpenStep = $derived(!readOnly && (!!onOpenStep || !!onClose));
-
-  /** Opens the first open step in the plan, for this user and generation only. */
-  function openBlockingStep(roleId: string) {
-    if (onOpenStep) {
-      onOpenStep(roleId);
-      return;
-    }
-    try {
-      // The workspace restores its open step from this same record.
-      localStorage.setItem(`seeds.openRole:${userId}:${generationId}`, roleId);
-    } catch {
-      // Navigation state only: the workspace then opens its default step.
-    }
-    onClose?.();
-  }
 
   const modelName = $derived(settings ? modelLabel(settings.modelId) : "");
 
@@ -1176,16 +1154,9 @@
         {@const stepLabel = `${count} ${count === 1 ? "step" : "steps"} still open`}
         <div class="flex items-center gap-2.5" data-summary-readiness="blocked">
           <span class="size-2 shrink-0 rounded-full bg-stale-dot" aria-hidden="true"></span>
-          {#if canOpenStep}
-            <button
-              type="button"
-              aria-label={`${stepLabel}: open ${roleTitle(blockingRoleIds[0])}`}
-              class="rounded text-[0.875rem] leading-5 font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-              onclick={() => openBlockingStep(blockingRoleIds[0])}
-            >{stepLabel}</button>
-          {:else}
-            <p class="text-[0.875rem] leading-5 font-medium text-ink" title={blockingRoleIds.map(roleTitle).join(", ")}>{stepLabel}</p>
-          {/if}
+          <!-- A status only: the host opens the Summary once every step is
+               done (owner decision 2026-09-28 sixth), so it links no step. -->
+          <p class="text-[0.875rem] leading-5 font-medium text-ink" title={blockingRoleIds.map(roleTitle).join(", ")}>{stepLabel}</p>
         </div>
       {/if}
       {#if editedItems.length > 0}
