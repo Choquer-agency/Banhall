@@ -12,6 +12,7 @@
 //   - Tailwind arbitrary values on size utilities in any source file
 //     (text-[13px], leading-[18px], w-[136px], gap-[10px], rounded-[10px],
 //     grid-cols-[104px_minmax(0,1fr)], max-h-[min(760px,...)], ...).
+//   - Literal size={N} on icons imported from phosphor-svelte (size="Nrem").
 //   - Size declarations (font-size, line-height, width, padding, margin,
 //     gap, inset, border-radius, ...) in .css files, Svelte <style> blocks,
 //     static style="..." attributes and static style:prop="..." directives.
@@ -160,7 +161,34 @@ function convertSvelte(source) {
     /(\sstyle:([a-z-]+)(?:\|important)?=")([^"{}]*)(")/g,
     (_, open, property, value, close) => `${open}${convertDeclaration(property, value)}${close}`
   );
-  return out;
+  return convertPhosphorSizes(out);
+}
+
+/**
+ * Phosphor icons (phosphor-svelte) render their numeric size as px svg
+ * attributes. On a component imported from phosphor-svelte, a literal
+ * size={14} becomes size="0.875rem" so the icon scales with the root.
+ * @param {string} source
+ * @returns {string}
+ */
+export function convertPhosphorSizes(source) {
+  /** @type {string[]} */
+  const names = [];
+  for (const [, list] of source.matchAll(/import\s*\{([^}]+)\}\s*from\s*"phosphor-svelte(?:\/[^"]*)?"/g)) {
+    for (const part of list.split(",")) {
+      const local = part.split(/\s+as\s+/).pop()?.trim();
+      if (local && /^[A-Z]\w*$/.test(local)) names.push(local);
+    }
+  }
+  for (const [, local] of source.matchAll(/import\s+([A-Z]\w*)\s+from\s*"phosphor-svelte\/[^"]*"/g)) names.push(local);
+  if (!names.length) return source;
+  const tag = new RegExp(`<(?:${names.join("|")})\\b[^<>]*?>`, "g");
+  return source.replace(tag, (element) =>
+    element.replace(/(\ssize=)\{(\d*\.?\d+)\}/, (match, attr, digits) => {
+      const rem = pxToRem(Number(digits));
+      return rem === null ? match : `${attr}"${rem}"`;
+    })
+  );
 }
 
 /**

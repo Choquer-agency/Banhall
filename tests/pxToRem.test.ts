@@ -86,6 +86,23 @@ describe("px-to-rem codemod", () => {
     );
   });
 
+  test("sizes phosphor-svelte icons in rem and leaves other components alone", () => {
+    const source = [
+      '<script>import { CheckIcon, CaretDownIcon as Caret } from "phosphor-svelte";</script>',
+      '<CheckIcon size={12} weight="bold" />',
+      "<Caret\n  size={14}\n  class=\"x\" />",
+      "<Other size={12} />",
+    ].join("\n");
+    expect(transformSource(source, "x.svelte")).toBe(
+      [
+        '<script>import { CheckIcon, CaretDownIcon as Caret } from "phosphor-svelte";</script>',
+        '<CheckIcon size="0.75rem" weight="bold" />',
+        "<Caret\n  size=\"0.875rem\"\n  class=\"x\" />",
+        "<Other size={12} />",
+      ].join("\n")
+    );
+  });
+
   test("is idempotent", () => {
     const source = '<p class="text-[13px] leading-[18px]" style="width: 136px"></p><style>.x { gap: 10px; }</style>';
     const once = transformSource(source, "x.svelte");
