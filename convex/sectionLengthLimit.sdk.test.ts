@@ -32,7 +32,13 @@ import { SECTION_244_REQUEST } from "./ai/section244Agent";
 import { SECTION_246_REQUEST } from "./ai/section246Agent";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { planLengthBudgetBlock } from "./ai/orderedGeneration";
-import { compressionLoss, compressionTargetWords } from "./ai/pipeline";
+import {
+  compressionLoss,
+  compressionTargetWords,
+  endedMidSentence,
+  finalCutTargetWords,
+  withinFinalCutReach,
+} from "./ai/pipeline";
 import { draftWordTarget, sectionMetrics } from "./lib/lineLimits";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -600,15 +606,20 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
 
     const run = await runSingle({
       drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": DRAFT_246 },
-      // Draft passes: closer, then longer (never kept). Repair passes: a
-      // little shorter than the repair, still further over than `closest`.
-      compressions: [closest, longer, repairedShorter, repaired],
+      // Draft passes: closer, then longer (never kept); `closest` is within
+      // 10 percent of the cap, so the targeted pass follows and comes back
+      // longer too (2026-09-28, fifth). Repair passes: a little shorter than
+      // the repair, still further over than `closest` and more than 10
+      // percent over, so no targeted pass.
+      compressions: [closest, longer, longer, repairedShorter, repaired],
       repairs: { "246": repaired },
     });
     const compressions = run.sent.filter((request) => request.stage === "compression");
-    expect(compressions).toHaveLength(4);
+    expect(compressions).toHaveLength(5);
+    expect(compressions[2].user.startsWith(COMPRESSION_REQUEST.finalCut.userScaffold.prefix)).toBe(true);
+    expect(compressions[2].user).toContain(`Cut at least ${words(closest) - 332} words, so that it ends at 332 words or fewer`);
     // The repair's compressions keep its fixes; the length guidance is not one.
-    expect(compressions[2].user.startsWith(COMPRESSION_REQUEST.mustKeep.prefix)).toBe(false);
+    expect(compressions[3].user.startsWith(COMPRESSION_REQUEST.mustKeep.prefix)).toBe(false);
     expect(run.sent.filter((request) => request.stage === "repair:246")).toHaveLength(1);
     const repairRequest = run.sent.find((request) => request.stage === "repair:246");
     expect(repairRequest?.user).toContain(`Shorten Line 246 to at most 350 words and 50 form lines (now ${words(closest)} words`);
@@ -623,13 +634,13 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     );
     // Only the passes on the kept text count (review P3-6).
     expect(locked.reason).toContain(
-      "still over after 2 shortening passes. The text was not cut to fit: shorten Line 246 to 350 words and 50 lines before filing"
+      "still over after 3 shortening passes. The text was not cut to fit: shorten Line 246 to 350 words and 50 lines before filing"
     );
     expect(JSON.parse(run.row("246").selfCheck ?? "null")).toMatchObject({
       status: "repair_failed",
       repairAttempted: true,
     });
-    expect(JSON.parse(run.row("246").slotCounts ?? "null")).toMatchObject({ "compression:246": 4, "repair:246": 1 });
+    expect(JSON.parse(run.row("246").slotCounts ?? "null")).toMatchObject({ "compression:246": 5, "repair:246": 1 });
     expectOtherLinesUnchanged(run);
   });
 
@@ -693,6 +704,114 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
       new RegExp(`repair not used \\(the repaired text came out at ${words(line246(10))}/350 words, .*; compression of the repair failed \\([A-Za-z_]+\\)\\)$`)
     );
     expect(run.locked("246")).toEqual([expect.objectContaining({ outcome: "applied" })]);
+    expectOtherLinesUnchanged(run);
+  });
+
+  // 2026-09-28 (fifth, release suite run 6): "skipped-role-supported" shipped
+  // Line 246 at 355 of 350 words, 36 of 50 lines, after the repair's two
+  // shortening passes. line246(9) is that shape: 354 words, 36 lines.
+  const RUN6_246 = line246(9);
+  const CUT_246 = line246(8);
+
+  it("the run 6 shape: a small overage is within reach of the targeted pass, which aims 5 percent under the cap", () => {
+    expect(sectionMetrics(RUN6_246, "s246")).toMatchObject({ words: 354, lines: 36, overLimit: true });
+    expect(sectionMetrics(CUT_246, "s246").overLimit).toBe(false);
+    expect(finalCutTargetWords("s246", { words: 354, lines: 36 })).toBe(332);
+    expect(finalCutTargetWords("s242", { words: 360, lines: 40 })).toBe(332);
+    expect(finalCutTargetWords("s244", { words: 712, lines: 80 })).toBe(665);
+    // Over on lines: the words that fit the lines, 5 percent under.
+    expect(finalCutTargetWords("s246", { words: 300, lines: 55 })).toBe(259);
+    const at = (words: number, lines: number) =>
+      withinFinalCutReach({ overLimit: words > 350 || lines > 50, words, wordCap: 350, lines, limit: 50 });
+    expect(at(355, 36)).toBe(true);
+    expect(at(385, 36)).toBe(true);
+    expect(at(386, 36)).toBe(false);
+    expect(at(300, 55)).toBe(true);
+    expect(at(300, 56)).toBe(false);
+    expect(at(350, 50)).toBe(false);
+  });
+
+  it("run 6: a repair still a little over after its two passes gets one targeted pass that must cut the stated words, and fits", async () => {
+    const run = await runSingle({
+      drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": FIT_246 },
+      // The repair's two passes come back barely shorter, as in run 6; the
+      // targeted pass cuts two supporting sentences.
+      compressions: [line246(10), RUN6_246, CUT_246],
+      repairs: { "246": DRAFT_246 },
+      verdictsFor: verdictFor246,
+    });
+    const compressions = run.sent.filter((request) => request.stage === "compression");
+    expect(compressions).toHaveLength(3);
+    expect(compressions[1].user).toContain("AT MOST 252 words");
+    // The same content guards: the fix stays a Must keep line, the system
+    // prompt is the compression prompt, and the request names the cut.
+    expect(compressions[2].user).toBe(
+      `${COMPRESSION_REQUEST.mustKeep.prefix}- Paragraph 1: Tie the paragraph to the field trial.\n\n` +
+        "This section is still over the CRA limit after the earlier shortening passes: it is 36 lines and 354 words, and the CRA field allows at most 50 lines of 78 characters (blank lines between paragraphs each cost one line) and at most 350 words. " +
+        "Cut at least 22 words, so that it ends at 332 words or fewer: that is what it is over by, plus about 5 percent headroom. Take the words from whole phrases, clauses or sentences of the least important supporting detail, not by trimming single words here and there. Leave everything else as it is, and end every paragraph on a complete sentence.\n\n" +
+        RUN6_246
+    );
+    expect(textOf(compressions[2].json.system)).toBe(textOf(compressions[0].json.system));
+    expect(compressions[2].json.model).toBe(SONNET);
+    expect(run.row("246").draftText).toBe(CUT_246);
+    expect(run.locked("246")).toEqual([
+      expect.objectContaining({
+        outcome: "applied",
+        reason: `within cap at ${words(CUT_246)}/350 words, ${sectionMetrics(CUT_246, "s246").lines}/50 lines`,
+      }),
+    ]);
+    expect(JSON.parse(run.row("246").slotCounts ?? "null")).toMatchObject({ "compression:246": 3, "repair:246": 1 });
+    expectOtherLinesUnchanged(run);
+  });
+
+  it("a draft still a little over after its two passes gets the targeted pass too; one that fits stops there", async () => {
+    const run = await runSingle({
+      drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": DRAFT_246 },
+      compressions: [line246(10), RUN6_246, CUT_246],
+    });
+    const compressions = run.sent.filter((request) => request.stage === "compression");
+    expect(compressions).toHaveLength(3);
+    // No Must keep list before the repair.
+    expect(compressions[2].user.startsWith(COMPRESSION_REQUEST.finalCut.userScaffold.prefix)).toBe(true);
+    expect(run.row("246").draftText).toBe(CUT_246);
+    expect(run.sent.filter((request) => request.stage === "repair:246")).toEqual([]);
+    expect(run.locked("246")).toEqual([expect.objectContaining({ outcome: "applied" })]);
+    expectOtherLinesUnchanged(run);
+  });
+
+  it("a targeted pass that ends a paragraph mid-sentence, or drops the [GAP] marker, is not kept; the text is never clipped", async () => {
+    const paragraphs = CUT_246.split("\n\n");
+    paragraphs[1] = paragraphs[1].replace(/ \S+ \S+\.$/, "");
+    const clipped = paragraphs.join("\n\n");
+    expect(endedMidSentence(RUN6_246, clipped)).toBe("ended paragraph 2 mid-sentence");
+    expect(endedMidSentence(RUN6_246, CUT_246)).toBeNull();
+    // A [GAP] marker or a closing quote ends a paragraph as well as a full stop.
+    expect(endedMidSentence("One. [GAP: two]", "One. [GAP: two]")).toBeNull();
+    // A text whose paragraphs already ended oddly is left to the other guards.
+    expect(endedMidSentence("One and", "One")).toBeNull();
+    expect(compressionLoss(RUN6_246, clipped, "s246", 332)).toBeNull();
+
+    const run = await runSingle({
+      drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": DRAFT_246 },
+      // Draft: two passes to 354 words, then a clipped targeted pass. Repair
+      // (asked to shorten, echoes the draft): the same, with a targeted pass
+      // that drops the [GAP] marker.
+      compressions: [
+        line246(10), RUN6_246, clipped,
+        line246(10), RUN6_246, CUT_246.replace(` ${GAP}`, ""),
+      ],
+    });
+    expect(run.sent.filter((request) => request.stage === "compression")).toHaveLength(6);
+    // The best whole text stays, byte for byte.
+    expect(run.row("246").draftText).toBe(RUN6_246);
+    const [locked] = run.locked("246");
+    expect(locked).toMatchObject({ outcome: "not_applied", tier: "locked" });
+    expect(locked.reason).toContain("cap breach at 354/350 words, 36/50 lines");
+    expect(locked.reason).toContain(
+      "still over after 3 shortening passes. The text was not cut to fit: shorten Line 246 to 350 words and 50 lines before filing"
+    );
+    // 6 compression requests: within the ordered allowance, no overrun.
+    expect(JSON.parse(run.row("246").slotCounts ?? "null")).toMatchObject({ "compression:246": 6, "repair:246": 1 });
     expectOtherLinesUnchanged(run);
   });
 

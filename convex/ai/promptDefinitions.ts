@@ -275,6 +275,42 @@ export const COMPRESSION_REQUEST = {
    * dropped content rather than wording, and is not kept.
    */
   targetFloor: 0.6,
+  /**
+   * 2026-09-28 (fifth, release suite run 6): the ordered chain's one
+   * targeted pass after the squeezes, sent only when the best text is still
+   * over a Locked limit by at most `maxOverage` of it. It asks for a stated
+   * number of words cut, down to `capHeadroom` of the cap (the overage plus
+   * about 5 percent), with the same system prompt and the same content
+   * guards. A pass that ends a paragraph mid-sentence is not kept.
+   */
+  finalCut: {
+    maxOverage: 0.1,
+    capHeadroom: 0.95,
+    userScaffold: {
+      prefix: "This section is still over the CRA limit after the earlier shortening passes: it is ",
+      linesToWords: " lines and ",
+      wordsToLimit: " words, and the CRA field allows at most ",
+      limitToChars: " lines of ",
+      charsToCap:
+        " characters (blank lines between paragraphs each cost one line) and at most ",
+      capToCut: " words. Cut at least ",
+      cutToTarget: " words, so that it ends at ",
+      targetToText:
+        " words or fewer: that is what it is over by, plus about 5 percent headroom. Take the words from whole phrases, clauses or sentences of the least important supporting detail, not by trimming single words here and there. Leave everything else as it is, and end every paragraph on a complete sentence.\n\n",
+      runtimeSentinels: [
+        "{{runtime.mustKeep}}",
+        "{{runtime.exactTerms}}",
+        "{{runtime.currentLines}}",
+        "{{runtime.currentWords}}",
+        "{{runtime.lineLimit}}",
+        "{{runtime.charsPerLine}}",
+        "{{runtime.wordCap}}",
+        "{{runtime.cutWords}}",
+        "{{runtime.targetWords}}",
+        "{{runtime.sectionText}}",
+      ],
+    },
+  },
 } as const;
 
 export const STYLE_GUIDANCE_SCAFFOLDS = {

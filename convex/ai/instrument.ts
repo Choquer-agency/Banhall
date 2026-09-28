@@ -185,7 +185,9 @@ export const GENERATION_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
 
 /**
  * The ordered chain's allowances (2026-09-28, second): each Section's
- * compression slot also covers the squeezes on its repair. Its Self-check
+ * compression slot also covers the squeezes on its repair, and each of the
+ * two compressions may add one targeted pass when the text is still at most
+ * 10 percent over (2026-09-28, fifth), so 6 in all. Its Self-check
  * slot also covers the coverage-only Self-check of the final text, with its
  * one follow-up, when a repair changed the checked text (2026-09-28, third).
  * The one-shot and Section-by-section paths never repair, so they keep the
@@ -194,7 +196,7 @@ export const GENERATION_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
 export const ORDERED_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
   ...GENERATION_SLOT_ALLOWANCES,
   selfCheck: GENERATION_SLOT_ALLOWANCES.selfCheck * 2,
-  compression: COMPRESSION_REQUEST.squeezes.length * 2,
+  compression: (COMPRESSION_REQUEST.squeezes.length + 1) * 2,
 };
 
 /** Throws on a `generation:*` label that is not a declared slot. */

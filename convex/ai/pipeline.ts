@@ -189,18 +189,84 @@ export async function compressSection(
   const cut = Math.max(m.words - words, 1);
   const cutPercent = Math.max(Math.round((cut / Math.max(m.words, 1)) * 100), 1);
   const scaffold = COMPRESSION_REQUEST.userScaffold;
+  return await requestCompression(
+    anthropic,
+    modelId,
+    text,
+    `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToTarget}${words}${scaffold.targetToCut}${cut}${scaffold.cutToPercent}${cutPercent}${scaffold.percentToText}${text}`
+  );
+}
+
+/**
+ * 2026-09-28 (fifth): the targeted pass's word target, `finalCut.capHeadroom`
+ * of the Locked word cap (332 for Lines 242 and 246, 665 for Line 244), or of
+ * the words that fit the Line's lines when it is over on lines.
+ */
+export function finalCutTargetWords(
+  section: SectionKey,
+  current: { words: number; lines: number }
+): number {
+  const headroom = COMPRESSION_REQUEST.finalCut.capHeadroom;
+  let words = Math.floor(WORD_CAPS[section] * headroom);
+  if (current.lines > LINE_LIMITS[section]) {
+    words = Math.min(
+      words,
+      Math.floor(((current.words * LINE_LIMITS[section]) / current.lines) * headroom)
+    );
+  }
+  return words;
+}
+
+/**
+ * 2026-09-28 (fifth): whether the targeted pass applies: the text is over a
+ * Locked limit, and over each limit by at most `finalCut.maxOverage` of it.
+ */
+export function withinFinalCutReach(metrics: {
+  overLimit: boolean;
+  words: number;
+  wordCap: number;
+  lines: number;
+  limit: number;
+}): boolean {
+  const reach = 1 + COMPRESSION_REQUEST.finalCut.maxOverage;
+  return metrics.overLimit && metrics.words <= metrics.wordCap * reach && metrics.lines <= metrics.limit * reach;
+}
+
+/** 2026-09-28 (fifth): the one targeted pass, asking for a stated cut. */
+async function finalCutSection(
+  anthropic: GenerationClient,
+  modelId: string,
+  section: SectionKey,
+  text: string,
+  mustKeep: readonly string[],
+  exactTerms: readonly string[]
+): Promise<string> {
+  const m = sectionMetrics(text, section);
+  const words = finalCutTargetWords(section, m);
+  const cut = Math.max(m.words - words, 1);
+  const scaffold = COMPRESSION_REQUEST.finalCut.userScaffold;
+  return await requestCompression(
+    anthropic,
+    modelId,
+    text,
+    `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToCut}${cut}${scaffold.cutToTarget}${words}${scaffold.targetToText}${text}`
+  );
+}
+
+/** One compression request; a cut-off or empty answer returns `text` as given. */
+async function requestCompression(
+  anthropic: GenerationClient,
+  modelId: string,
+  text: string,
+  content: string
+): Promise<string> {
   let response: GenerationResponse;
   try {
     response = await anthropic.messages.create({
       model: modelId,
       max_tokens: COMPRESSION_REQUEST.maxTokens,
       system: COMPRESSION_REQUEST.system,
-      messages: [
-        {
-          role: "user",
-          content: `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToTarget}${words}${scaffold.targetToCut}${cut}${scaffold.cutToPercent}${cutPercent}${scaffold.percentToText}${text}`,
-        },
-      ],
+      messages: [{ role: "user", content }],
     });
   } catch (error) {
     // The OpenRouter adapter throws on a cut-off answer; treat it exactly
@@ -359,6 +425,13 @@ export type LimitFit = {
  * and is returned as `error`, with the best text so far. Nothing is ever cut
  * to fit: a Section still over after every pass keeps the model's own best
  * text and says so.
+ *
+ * 2026-09-28 (fifth, release suite run 6): with `finalCut` (the ordered
+ * chain), when the best text after the squeezes is still over a Locked limit
+ * by at most 10 percent of it, one more targeted pass asks for a stated
+ * number of words cut (finalCutSection), measured and guarded like the
+ * others; it is also not kept when it ends a paragraph mid-sentence. So a
+ * call makes at most `squeezes.length + 1` requests.
  */
 export async function compressWithinLimit(
   anthropicFor: (callSite: string) => GenerationClient,
@@ -368,10 +441,28 @@ export async function compressWithinLimit(
   lengthTarget: LengthTarget,
   styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES,
   mustKeep: readonly string[] = [],
-  exactTerms: readonly string[] = []
+  exactTerms: readonly string[] = [],
+  options: { finalCut?: boolean } = {}
 ): Promise<LimitFit> {
   let best = text;
   let passes = 0;
+  const callSite = `generation:compression:${key.slice(1)}`;
+  // A pass's answer replaces `best` only when it is closer to the limits
+  // and keeps the required content.
+  const keep = (compressed: string, targetWords: number, finalCut: boolean) => {
+    // PSOS-49: a bannedWords waiver exempts this writer from the scrub;
+    // re-scrubbing here would sneak the house vocabulary back in.
+    const out = scrubBannedWordsUnlessWaived(compressed, styleOverrides.bannedWords);
+    if (!out.trim() || limitOverage(out, key) >= limitOverage(best, key)) return;
+    const loss =
+      compressionLoss(best, out, key, targetWords, mustKeep, exactTerms) ??
+      (finalCut ? endedMidSentence(best, out) : null);
+    if (loss) {
+      console.warn(`${callSite}: pass ${passes} not kept: it ${loss}`);
+      return;
+    }
+    best = out;
+  };
   for (const squeeze of COMPRESSION_REQUEST.squeezes) {
     const metrics = sectionMetrics(best, key);
     if (!metrics.overLimit) break;
@@ -379,7 +470,7 @@ export async function compressWithinLimit(
     try {
       passes += 1;
       compressed = await compressSection(
-        anthropicFor(`generation:compression:${key.slice(1)}`),
+        anthropicFor(callSite),
         modelId,
         key,
         best,
@@ -391,25 +482,36 @@ export async function compressWithinLimit(
     } catch (error) {
       return { text: best, passes, overLimit: metrics.overLimit, error };
     }
-    // PSOS-49: a bannedWords waiver exempts this writer from the scrub;
-    // re-scrubbing here would sneak the house vocabulary back in.
-    const out = scrubBannedWordsUnlessWaived(compressed, styleOverrides.bannedWords);
-    if (!out.trim() || limitOverage(out, key) >= limitOverage(best, key)) continue;
-    const loss = compressionLoss(
-      best,
-      out,
-      key,
-      compressionTargetWords(key, lengthTarget, squeeze, metrics),
-      mustKeep,
-      exactTerms
-    );
-    if (loss) {
-      console.warn(`generation:compression:${key.slice(1)}: pass ${passes} not kept: it ${loss}`);
-      continue;
+    keep(compressed, compressionTargetWords(key, lengthTarget, squeeze, metrics), false);
+  }
+  const metrics = sectionMetrics(best, key);
+  if (options.finalCut && withinFinalCutReach(metrics)) {
+    let compressed: string;
+    try {
+      passes += 1;
+      compressed = await finalCutSection(anthropicFor(callSite), modelId, key, best, mustKeep, exactTerms);
+    } catch (error) {
+      return { text: best, passes, overLimit: true, error };
     }
-    best = out;
+    keep(compressed, finalCutTargetWords(key, metrics), true);
   }
   return { text: best, passes, overLimit: sectionMetrics(best, key).overLimit };
+}
+
+/** Where a paragraph may end: sentence punctuation, a closing quote or bracket. */
+const PARAGRAPH_END_RE = /[.!?:;)\]"'”’]$/;
+
+/**
+ * 2026-09-28 (fifth): why a targeted pass ended a paragraph mid-sentence,
+ * or null. Only a paragraph end the input never had counts, so a text whose
+ * paragraphs already end oddly is judged by its other guards.
+ */
+export function endedMidSentence(input: string, output: string): string | null {
+  const ends = (text: string) =>
+    text.split(/\n\s*\n/).map((paragraph) => paragraph.trim()).filter(Boolean);
+  if (!ends(input).every((paragraph) => PARAGRAPH_END_RE.test(paragraph))) return null;
+  const position = ends(output).findIndex((paragraph) => !PARAGRAPH_END_RE.test(paragraph));
+  return position < 0 ? null : `ended paragraph ${position + 1} mid-sentence`;
 }
 
 /** compressWithinLimit for callers that only need the text. */

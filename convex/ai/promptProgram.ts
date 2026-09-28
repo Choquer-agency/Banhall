@@ -640,6 +640,8 @@ export const generationPromptProgram = {
       systemTemplate: COMPRESSION_REQUEST.system,
       request: COMPRESSION_REQUEST,
       model: { kind: "generation-step", step: "compression", beforeStepRouting: { kind: "candidate" } },
+      // 2026-09-28 (fifth, release suite run 6): the ordered chain only.
+      finalCut: "ordered-chain-one-targeted-pass-when-at-most-10-percent-over",
     },
     // Story 2 (CAP-9, AD-25/27): one structured Self-check per section.
     selfCheck: {

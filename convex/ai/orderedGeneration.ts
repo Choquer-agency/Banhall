@@ -504,15 +504,16 @@ type SectionCompletion = {
 
 /**
  * Draft, Self-check and (at most once) repair one section. Worst case:
- * draft 1 + compression 2 + Self-check 2 (its answer plus one structured
- * retry, or in Summary mode its one follow-up for missing labels,
- * 2026-09-28) + repair 1 + compression of the repair 2 + the coverage-only
- * Self-check of the final text 2 (its answer and one follow-up, Summary mode
- * only, when the repair changed the text, 2026-09-28 third) = 10 sequential
- * calls (providers.ts ORDERED_SECTION_ACTION_SLOTS); the action deadline
- * bounds their time. Shared by the ordered chain
- * and the seed redraft so both draft under the same rules. Throws on a
- * failed draft; the caller records the failure.
+ * draft 1 + compression 3 (two squeezes and, when the text is still at most
+ * 10 percent over, one targeted pass, 2026-09-28 fifth) + Self-check 2 (its
+ * answer plus one structured retry, or in Summary mode its one follow-up for
+ * missing labels, 2026-09-28) + repair 1 + compression of the repair 3 + the
+ * coverage-only Self-check of the final text 2 (its answer and one
+ * follow-up, Summary mode only, when the repair changed the text, 2026-09-28
+ * third) = 12 sequential calls (providers.ts ORDERED_SECTION_ACTION_SLOTS);
+ * the action deadline bounds their time. Shared by the ordered chain and
+ * the seed redraft so both draft under the same rules. Throws on a failed
+ * draft; the caller records the failure.
  */
 export async function draftCheckedSection(input: {
   claim: SectionClaim;
@@ -580,7 +581,8 @@ export async function draftCheckedSection(input: {
     lengthTarget,
     styleOverrides,
     coverItems,
-    claim.editedTerms
+    claim.editedTerms,
+    { finalCut: true }
   );
   if (firstFit.error !== undefined) {
     if (firstFit.text === text) throw firstFit.error;
@@ -713,7 +715,8 @@ export async function draftCheckedSection(input: {
           lengthTarget,
           styleOverrides,
           [...coverItems, ...fixes],
-          claim.editedTerms
+          claim.editedTerms,
+          { finalCut: true }
         );
         // CAP-13: a repair never removes a writer's edited term the checked
         // draft held (release suite run 4).

@@ -158,12 +158,13 @@ export const SEED_ANTHROPIC_OPTIONS = {
  * Story 2 (AD-24): single/compare candidates no longer run that chain in one
  * action; each section is its own scheduled action (orderedGeneration.ts
  * generateOrderedSection) whose worst case is ORDERED_SECTION_ACTION_SLOTS:
- * one draft + the compression squeezes + one Self-check (its answer and at
- * most one structured retry or Summary follow-up: 2 requests) + at most one
- * repair + the compression squeezes again on the repair (2026-09-28,
- * second) + in Summary mode, when the repair changed the checked text, the
+ * one draft + the compression squeezes and at most one targeted pass
+ * (2026-09-28 fifth: 3 requests) + one Self-check (its answer and at most
+ * one structured retry or Summary follow-up: 2 requests) + at most one
+ * repair + the same compression again on the repair (2026-09-28, second) +
+ * in Summary mode, when the repair changed the checked text, the
  * coverage-only Self-check of the final text (its answer and one follow-up:
- * 2 requests, 2026-09-28 third) = 10.
+ * 2 requests, 2026-09-28 third) = 12.
  * Finalize adds consistency + (QA || chronology) = 2.
  * Iterative's one-shot ghost still runs the five-slot chain above. Since
  * 2026-09-25 each of these actions runs under its action deadline (see
@@ -177,12 +178,14 @@ export const SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE = 5;
 /** Worst-case sequential provider calls inside one ordered section action. */
 export const ORDERED_SECTION_ACTION_SLOTS = {
   section: 1,
-  compression: COMPRESSION_REQUEST.squeezes.length,
+  // The squeezes and, when the text is still at most 10 percent over, one
+  // targeted pass (2026-09-28, fifth).
+  compression: COMPRESSION_REQUEST.squeezes.length + 1,
   // Its answer and at most one more request: the structured retry, or in
   // Summary mode (single attempts) the one follow-up for missing labels.
   selfCheck: 2,
   repair: 1,
-  repairCompression: COMPRESSION_REQUEST.squeezes.length,
+  repairCompression: COMPRESSION_REQUEST.squeezes.length + 1,
   // 2026-09-28 (third): plan verdicts on the final text, its answer and the
   // one follow-up for plan checks it missed.
   finalCoverage: 2,
