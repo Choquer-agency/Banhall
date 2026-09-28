@@ -24,6 +24,7 @@
     loadRailPreferences,
     persistRailPreferences,
   } from "$lib/workspace/railPreferences";
+  import { setRailControl } from "$lib/workspace/railControl";
 
   let {
     kind,
@@ -131,7 +132,7 @@
   // (ui-design-final.md section 3, board 3.5); the preference applies from
   // 1280px up.
   let tablet = $state(false);
-  // H1, H3: the tablet rail keeps its expand toggle. Expanding lays the full
+  // H1, H3: the tablet rail keeps an expand toggle (in the top bar). Expanding lays the full
   // rail over the page for the moment (the column stays icons-only, so the
   // content never reflows) and never touches the persisted preference.
   let tabletExpanded = $state(false);
@@ -151,6 +152,14 @@
     if (tablet) tabletExpanded = !tabletExpanded;
     else railHidden = !railHidden;
   }
+  // The collapse and expand control lives in the page's top bar, not the rail
+  // (owner direction 2026-09-28); WorkspaceShellControls reads it from here.
+  setRailControl({
+    get collapsed() {
+      return railCollapsed;
+    },
+    toggle: toggleRail,
+  });
 
   // The overlaid rail closes on any navigation (links, back and forward),
   // before the page changes under it.
@@ -172,8 +181,8 @@
       if (event.key !== "Escape" || !panel?.contains(document.activeElement)) return;
       tabletExpanded = false;
       // After the frame, so the tooltip of the button that just went away has
-      // closed before the expand toggle takes focus.
-      requestAnimationFrame(() => panel.querySelector<HTMLElement>("[data-rail-toggle]")?.focus());
+      // closed before the top bar's expand toggle takes focus.
+      requestAnimationFrame(() => shell.querySelector<HTMLElement>("[data-rail-toggle]")?.focus());
     };
     shell.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
@@ -222,7 +231,6 @@
           {myWorkHref}
           {projectsHref}
           onFocusSearch={() => (commandPaletteOpen = true)}
-          onToggleRail={toggleRail}
         />
       </div>
       <!-- Pointer/keyboard resize applies to the expanded desktop rail only. -->

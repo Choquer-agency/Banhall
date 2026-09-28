@@ -11,7 +11,7 @@
 
   /**
    * The square Banhall mark (decision 62): the logo's "a" ring with its teal
-   * triangle. Use it where only a square fits (the collapsed rail); keep
+   * triangle. Use it where only a square fits (the favicon); keep
    * `BanhallLogo` or `BanhallRailMark` wherever the wordmark has room. Fir ring
    * on light backgrounds, white on dark. An empty `label` makes it decorative.
    */

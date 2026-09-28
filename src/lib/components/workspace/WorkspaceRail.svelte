@@ -17,7 +17,6 @@
     IconWarning,
   } from "$lib/components/icons";
   import { api } from "../../../../convex/_generated/api";
-  import AnimatedSidebarToggleIcon from "$lib/components/workspace/AnimatedSidebarToggleIcon.svelte";
   import { displayName } from "$lib/displayName";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import Avatar from "$lib/components/ui/Avatar.svelte";
@@ -52,7 +51,6 @@
     projectsHref,
     onFocusSearch,
     onNavigate,
-    onToggleRail = null,
   }: {
     variant?: "rail" | "drawer";
     /** Desktop collapsed rail: icons only (the drawer always renders expanded). */
@@ -63,8 +61,6 @@
     projectsHref: string;
     onFocusSearch: () => void;
     onNavigate?: () => void;
-    /** Collapse (expanded) or expand (collapsed) the desktop rail; null hides the toggle. */
-    onToggleRail?: (() => void) | null;
   } = $props();
 
   // Only the desktop rail collapses; the drawer always renders expanded.
@@ -122,7 +118,6 @@
   const bottomGroups = $derived(groups.filter((group) => group.id === "developer" || group.id === "other"));
 
   const platform = detectPlatform();
-  const collapseHint = shortcutHint("collapseRail", platform);
   const searchHint = shortcutHint("search", platform);
 
   // B1, B2: the Admin group opens by itself on any admin page; elsewhere it
@@ -185,6 +180,9 @@
   developers, Other (What's new, Settings) at the bottom, then the identity
   row that opens the account menu (D1). Search lives in the collapsed rail
   and the command palette (Cmd K); Flag an issue moved to the account menu.
+  Owner direction 2026-09-28: the mark shows in the expanded rail only, and
+  the collapse and expand control lives in the page's top bar
+  (WorkspaceShellControls), never here.
 -->
 <!-- Board icons: 15px in the expanded rail, 17px tiles collapsed, stroke 1.5. -->
 {#snippet itemIcon(id: RailItemId, className: string = "")}
@@ -380,34 +378,10 @@
   class={`flex h-full min-h-0 flex-col bg-workspace-shell text-ink ${variant === "drawer" ? "pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[env(safe-area-inset-top)]" : "pb-2.5"}`}
 >
   {#if collapsed}
-    <div class="flex min-h-0 flex-1 flex-col items-center gap-0.5">
-      <a
-        href={myWorkHref}
-        aria-label="Banhall home"
-        onclick={onNavigate}
-        class="mb-1.5 mt-3.5 flex h-7 items-center rounded-[7px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
-      >
-        <BanhallRailMark collapsed />
-      </a>
-      {#if onToggleRail}
-        <Tooltip text="Expand the rail" hint={collapseHint} side="right" delayDuration={300}>
-          {#snippet children({ props })}
-            <button
-              {...props}
-              type="button"
-              data-rail-toggle
-              data-rail-direction="expand"
-              aria-controls="workspace-rail"
-              aria-label="Expand navigation rail"
-              aria-expanded="false"
-              onclick={onToggleRail}
-              class={`group ${iconRow} ${idleRow}`}
-            >
-              <AnimatedSidebarToggleIcon direction="expand" size={17} />
-            </button>
-          {/snippet}
-        </Tooltip>
-      {/if}
+    <!-- Owner direction 2026-09-28 (overrides A4, A5 and decision 62's
+         collapsed mark): icons only, no logo. The expand control sits in the
+         page's top bar; search lines up with it in the 56px bar row. -->
+    <div class="flex min-h-0 flex-1 flex-col items-center gap-0.5 pt-2.5">
       <Tooltip text="Search" hint={searchHint} side="right" delayDuration={300}>
         {#snippet children({ props })}
           <button
@@ -458,26 +432,6 @@
         >
           <BanhallRailMark />
         </a>
-        <div class="flex-1"></div>
-        {#if variant === "rail" && onToggleRail}
-          <Tooltip text="Collapse the rail" hint={collapseHint} side="bottom" delayDuration={300}>
-            {#snippet children({ props })}
-              <button
-                {...props}
-                type="button"
-                data-rail-toggle
-                data-rail-direction="collapse"
-                aria-controls="workspace-rail"
-                aria-label="Collapse navigation rail"
-                aria-expanded="true"
-                onclick={onToggleRail}
-                class="group flex size-6 shrink-0 items-center justify-center rounded-[5px] p-0 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
-              >
-                <AnimatedSidebarToggleIcon direction="collapse" size={16} />
-              </button>
-            {/snippet}
-          </Tooltip>
-        {/if}
       </div>
     </div>
 

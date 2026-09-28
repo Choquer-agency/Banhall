@@ -160,20 +160,62 @@ describe("Home in the workspace shell", () => {
       .not.toBeNull();
   });
 
-  it("puts the expand control in the collapsed rail, not Home's top bar (round 2, A4)", async () => {
-    localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: true }));
+  it.each([
+    ["expanded", false, "collapse"],
+    ["collapsed", true, "expand"],
+  ])("puts the rail control at the left edge of Home's top bar, beside the title, while %s (owner, 2026-09-28)", async (_state, hidden, direction) => {
+    localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden }));
     __setPageUrl("/my-work");
     seedHome();
     await browserPage.viewport(1440, 900);
     await render(WorkspaceDashboard, { view: "my_work" });
 
     await expect.poll(() => document.querySelector("[data-home-top-bar]")).not.toBeNull();
-    expect(document.querySelector("nav[data-rail-collapsed]")).not.toBeNull();
-    expect(document.querySelector('nav[data-rail-collapsed] button[data-rail-direction="expand"]')).not.toBeNull();
-    expect(document.querySelector('[data-home-top-bar] button[data-rail-direction="expand"]')).toBeNull();
+    expect(document.querySelector("nav[data-rail-collapsed]") !== null).toBe(hidden);
+    expect(document.querySelector("#workspace-rail [data-rail-toggle]")).toBeNull();
+    const toggles = document.querySelectorAll<HTMLButtonElement>("[data-rail-toggle]");
+    expect(toggles).toHaveLength(1);
+    const toggle = toggles[0];
+    expect(toggle.closest("[data-home-top-bar]")).not.toBeNull();
+    expect(toggle.dataset.railDirection).toBe(direction);
+    expect(toggle.getAttribute("aria-expanded")).toBe(String(!hidden));
+    // First visible control in the bar, then the page tile and the title.
+    const bar = document.querySelector<HTMLElement>("[data-home-top-bar]")!;
+    const visible = [...bar.querySelectorAll<HTMLElement>("button, a, h1, [data-home-page-icon]")].filter(
+      (element) => element.getClientRects().length > 0
+    );
+    expect(visible[0]).toBe(toggle);
+    expect(visible[1]).toBe(bar.querySelector("[data-home-page-icon]"));
+    expect(visible[2]).toBe(bar.querySelector("h1"));
+    const rail = document.getElementById("workspace-rail")!.getBoundingClientRect();
+    await expect
+      .poll(() => Math.round(toggle.getBoundingClientRect().left - rail.right), { timeout: 2000 })
+      .toBeLessThanOrEqual(24);
+    // Clicking it flips the rail and the control, and the choice is saved.
+    toggle.click();
+    await expect.poll(() => document.querySelector<HTMLElement>("[data-rail-toggle]")?.dataset.railDirection)
+      .toBe(direction === "collapse" ? "expand" : "collapse");
+    expect(JSON.parse(localStorage.getItem(RAIL_PREFERENCES_KEY)!).hidden).toBe(!hidden);
   });
 
-  it("A4 with decisions 59 and 62: the collapsed rail shows the logo mark and Home has no checkboxes", async () => {
+  it("toggles the rail from the top bar with the existing shortcut and shows the hint in the tooltip", async () => {
+    __setPageUrl("/my-work");
+    seedHome();
+    await browserPage.viewport(1440, 900);
+    await render(WorkspaceDashboard, { view: "my_work" });
+    await expect.poll(() => document.querySelector("[data-rail-toggle]")).not.toBeNull();
+
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "\\", metaKey: true, ctrlKey: true, bubbles: true }));
+    await expect.poll(() => document.querySelector<HTMLElement>("[data-rail-toggle]")?.dataset.railDirection).toBe("expand");
+    expect(document.querySelector("nav[data-rail-collapsed]")).not.toBeNull();
+
+    const toggle = document.querySelector<HTMLButtonElement>("[data-rail-toggle]")!;
+    toggle.focus();
+    await expect.poll(() => document.querySelector("[data-tooltip-hint]")?.textContent).toBeTruthy();
+    expect(document.body.textContent).toContain("Expand the rail");
+  });
+
+  it("A4 with decision 59 and the owner's 2026-09-28 rail: the collapsed rail shows no logo and Home has no checkboxes", async () => {
     localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: true }));
     __setPageUrl("/my-work");
     seedHome();
@@ -187,9 +229,8 @@ describe("Home in the workspace shell", () => {
     screen.container.style.cssText = "display:flex;flex-direction:column;min-height:100vh;";
 
     await expect.poll(() => document.querySelectorAll('[data-home-table="home-with-you"] tbody tr').length).toBe(3);
-    const mark = document.querySelector<SVGSVGElement>('nav[data-rail-collapsed] [data-banhall-rail-mark="collapsed"]')!;
-    expect(mark.dataset.logoMark).toBe("dark");
-    expect(mark.getBoundingClientRect()).toMatchObject({ width: 28, height: 28 });
+    const rail = document.querySelector<HTMLElement>("nav[data-rail-collapsed]")!;
+    expect(rail.querySelector("[data-banhall-rail-mark], svg[data-logo-mark], img")).toBeNull();
     const home = document.querySelector<HTMLElement>("[data-home-panel]")!;
     expect(home.querySelector('input[type="checkbox"], [role="checkbox"]')).toBeNull();
     expect(home.querySelector('[data-home-table="home-with-you"] [data-home-column-header]')!.children).toHaveLength(4);

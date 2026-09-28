@@ -39,10 +39,12 @@ describe("BanhallRailMark", () => {
     expect(image.getBoundingClientRect().top - box.top).toBeCloseTo(-5.24, 1);
   });
 
-  it("is the 28px square logo mark in the collapsed rail, not the boards' B tile (A4, A5, decision 62)", async () => {
-    await render(BanhallRailMark, { collapsed: true });
-    const mark = document.body.querySelector<SVGSVGElement>("[data-banhall-rail-mark]")!;
-    expect(mark.dataset.banhallRailMark).toBe("collapsed");
+});
+
+describe("LogoMark on light", () => {
+  it("is the 28px square mark with the logo's own colours (decision 62, the favicon)", async () => {
+    await render(LogoMark, { size: 28 });
+    const mark = document.body.querySelector<SVGSVGElement>("svg[data-logo-mark]")!;
     expect(mark.tagName.toLowerCase()).toBe("svg");
     expect(mark.dataset.logoMark).toBe("dark");
     expect(mark.getAttribute("role")).toBe("img");

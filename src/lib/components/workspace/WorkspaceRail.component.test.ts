@@ -95,9 +95,9 @@ describe("WorkspaceRail (round 2)", () => {
     expect(badge.className).toContain("bg-primary-selected");
   });
 
-  it("A1 to A3 values: muted 11px group labels, board icons at 15 / 1.5, and the 16px collapse glyph", async () => {
+  it("A1 to A3 values: muted 11px group labels and board icons at 15 / 1.5", async () => {
     seed("developerAdmin", { openAlerts: 4 });
-    await render(WorkspaceRail, baseProps({ onToggleRail: () => {} }));
+    await render(WorkspaceRail, baseProps());
     await expect.poll(() => item("alerts")).not.toBeNull();
     const labels = Array.from(nav().querySelectorAll<HTMLElement>("[data-rail-group-label]"));
     expect(labels.map((label) => label.textContent?.trim())).toEqual(["Workspace", "Manage", "Developer", "Other"]);
@@ -126,10 +126,8 @@ describe("WorkspaceRail (round 2)", () => {
     expect(chevron.getAttribute("stroke-width")).toBe("1.8");
     expect(chevron.querySelector("path")?.getAttribute("d")).toBe("m6 9 6 6 6-6");
     expect(getComputedStyle(chevron).color).toBe("rgb(107, 127, 123)");
-    const toggle = nav().querySelector<SVGElement>('[data-rail-toggle] svg[data-rail-toggle-icon="collapse"]')!;
-    expect(toggle.getAttribute("width")).toBe("16");
-    expect(toggle.querySelector("rect")).not.toBeNull();
-    expect(nav().querySelector('[data-rail-toggle] svg:not([data-rail-toggle-icon])')).toBeNull();
+    // The collapse control moved to the page's top bar (owner, 2026-09-28).
+    expect(nav().querySelector("[data-rail-toggle]")).toBeNull();
     // The identity row: 44px, name 12/16 in ink.
     const identity = nav().querySelector<HTMLElement>("[data-rail-identity]")!;
     expect(identity.getBoundingClientRect().height).toBe(44);
@@ -257,17 +255,18 @@ describe("WorkspaceRail (round 2)", () => {
 
   it("A4: the collapsed rail is icons only in board order, with tooltips' names and no role chip", async () => {
     seed("admin", { unseen: 3, failed: 1 });
-    await render(WorkspaceRail, baseProps({ collapsed: true, onToggleRail: () => {} }));
+    await render(WorkspaceRail, baseProps({ collapsed: true }));
     await expect.poll(() => item("admin")).not.toBeNull();
     const order = Array.from(nav().querySelectorAll<HTMLElement>("[data-rail-item], [data-rail-search], [data-rail-toggle]")).map(
       (element) => element.getAttribute("data-rail-item") ?? (element.hasAttribute("data-rail-search") ? "search" : "toggle")
     );
-    expect(order).toEqual(["toggle", "search", "home", "projects", "companies", "team", "admin", "changelog", "settings"]);
+    // Owner, 2026-09-28: no expand control here; it sits in the top bar.
+    expect(order).toEqual(["search", "home", "projects", "companies", "team", "admin", "changelog", "settings"]);
     for (const id of ["home", "projects", "companies", "team", "changelog", "settings"]) {
       expect(item(id)!.getAttribute("aria-label")).toBeTruthy();
       expect(item(id)!.getBoundingClientRect().width).toBe(36);
     }
-    // No labels: the mark is an image, so the avatar's initials are the only text.
+    // No labels and no logo: the avatar's initials are the only text.
     expect(nav().textContent?.replace(/\s+/g, " ").trim()).toBe("AA");
     expect(nav().querySelector("[data-role-chip]")).toBeNull();
     // What's new is a 7px dot here, not a count.
@@ -275,25 +274,25 @@ describe("WorkspaceRail (round 2)", () => {
     expect(item("changelog")!.querySelector("[data-rail-badge]")).toBeNull();
     expect(item("admin")!.querySelector("[data-rail-attention]")).not.toBeNull();
     expect(nav().querySelector<HTMLElement>("[data-rail-identity] [data-avatar]")!.getBoundingClientRect().width).toBe(30);
-    // A4: 17px icons at stroke 1.5, the 17px expand glyph and the search glass.
+    // A4: 17px icons at stroke 1.5 and the search glass.
     expect(item("home")!.querySelector("svg")!.getAttribute("width")).toBe("17");
     expect(item("home")!.querySelector("svg")!.getAttribute("stroke-width")).toBe("1.5");
-    expect(nav().querySelector('[data-rail-toggle] svg')!.getAttribute("width")).toBe("17");
     const search = nav().querySelector<SVGElement>("[data-rail-search] svg")!;
     expect(search.getAttribute("width")).toBe("17");
     expect(search.querySelector("path")?.getAttribute("d")).toBe("M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z M20 20l-4-4");
   });
 
-  it("A4: the collapsed rail starts with the 28px logo mark and ends 18px under the avatar", async () => {
+  it("collapsed, the rail shows no logo, starts with search in the top bar's row and ends 18px under the avatar", async () => {
     seed("consultant", { unseen: 2 });
-    await render(WorkspaceRail, baseProps({ collapsed: true, onToggleRail: () => {} }));
+    await render(WorkspaceRail, baseProps({ collapsed: true }));
     await expect.poll(() => item("settings")).not.toBeNull();
     nav().parentElement!.style.height = "900px";
     const top = nav().getBoundingClientRect().top;
-    const mark = nav().querySelector<SVGSVGElement>('[data-banhall-rail-mark="collapsed"]')!;
-    expect(mark.dataset.logoMark).toBe("dark");
-    expect(mark.getBoundingClientRect()).toMatchObject({ width: 28, height: 28 });
-    expect(mark.getBoundingClientRect().top - top).toBe(14);
+    // Owner, 2026-09-28: icons only, no logo (the favicon keeps the mark).
+    expect(nav().querySelector("[data-banhall-rail-mark], svg[data-logo-mark], img")).toBeNull();
+    expect(nav().querySelector('a[aria-label="Banhall home"]')).toBeNull();
+    // The 36px search tile is centred on the 56px top bar row: 10px down.
+    expect(nav().querySelector<HTMLElement>("[data-rail-search]")!.getBoundingClientRect().top - top).toBe(10);
     // Board A4 (2px column gap): avatar 852 to 882, Settings 795 to 831 and
     // What's new 757 to 793 on a 900 tall rail.
     const bottom = nav().getBoundingClientRect().bottom;
@@ -350,27 +349,26 @@ describe("WorkspaceRail (round 2)", () => {
     expect(item("alerts")!.querySelector("[data-rail-badge]")?.textContent?.trim()).toBe("4");
   });
 
-  it("collapse and expand toggles are wired, and search opens the palette from the collapsed rail", async () => {
+  it("renders no collapse or expand control in either state, and search opens the palette from the collapsed rail", async () => {
     seed("consultant");
-    const onToggleRail = vi.fn();
     const onFocusSearch = vi.fn();
-    const view = await render(WorkspaceRail, baseProps({ onToggleRail, onFocusSearch }));
-    const collapse = nav().querySelector<HTMLButtonElement>('[data-rail-toggle][data-rail-direction="collapse"]')!;
-    expect(collapse.getAttribute("aria-controls")).toBe("workspace-rail");
-    collapse.click();
-    expect(onToggleRail).toHaveBeenCalledOnce();
+    const view = await render(WorkspaceRail, baseProps({ onFocusSearch }));
+    await expect.poll(() => item("home")).not.toBeNull();
+    expect(nav().querySelector("[data-rail-toggle]")).toBeNull();
+    // The expanded rail keeps the full wordmark.
+    expect(nav().querySelector('[data-banhall-rail-mark="expanded"]')).not.toBeNull();
     view.unmount();
 
-    await render(WorkspaceRail, baseProps({ collapsed: true, onToggleRail, onFocusSearch }));
-    nav().querySelector<HTMLButtonElement>('[data-rail-toggle][data-rail-direction="expand"]')!.click();
-    expect(onToggleRail).toHaveBeenCalledTimes(2);
+    await render(WorkspaceRail, baseProps({ collapsed: true, onFocusSearch }));
+    await expect.poll(() => item("home")).not.toBeNull();
+    expect(nav().querySelector("[data-rail-toggle]")).toBeNull();
     nav().querySelector<HTMLButtonElement>("[data-rail-search]")!.click();
     expect(onFocusSearch).toHaveBeenCalledOnce();
   });
 
   it("does not render the desktop collapse control inside the mobile drawer and keeps 44px rows there", async () => {
     seed("consultant");
-    await render(WorkspaceRail, baseProps({ variant: "drawer", onToggleRail: () => {} }));
+    await render(WorkspaceRail, baseProps({ variant: "drawer" }));
     await expect.poll(() => item("home")).not.toBeNull();
     expect(document.querySelector("[data-rail-toggle]")).toBeNull();
     expect(item("home")!.className).toContain("min-h-11");
@@ -473,15 +471,15 @@ describe("WorkspaceRail (round 2)", () => {
 
   it("the keyboard reaches each row once, in order", async () => {
     seed("admin");
-    await render(WorkspaceRail, baseProps({ onToggleRail: () => {} }));
+    await render(WorkspaceRail, baseProps());
     await expect.poll(() => item("admin")).not.toBeNull();
     (nav().querySelector('a[aria-label="Banhall home"]') as HTMLElement).focus();
     const reached: string[] = [];
-    for (let step = 0; step < 9; step += 1) {
+    for (let step = 0; step < 8; step += 1) {
       await userEvent.keyboard("{Tab}");
       const active = document.activeElement as HTMLElement;
       reached.push(active.dataset.railItem ?? (active.hasAttribute("data-rail-toggle") ? "toggle" : active.hasAttribute("data-rail-identity") ? "identity" : "?"));
     }
-    expect(reached).toEqual(["toggle", "home", "projects", "companies", "team", "admin", "changelog", "settings", "identity"]);
+    expect(reached).toEqual(["home", "projects", "companies", "team", "admin", "changelog", "settings", "identity"]);
   });
 });

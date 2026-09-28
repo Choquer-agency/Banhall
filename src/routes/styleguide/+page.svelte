@@ -269,7 +269,7 @@
             <BanhallRailMark />
           </div>
           <div class="flex h-14 w-14 items-center justify-center rounded-lg bg-workspace-shell">
-            <BanhallRailMark collapsed />
+            <LogoMark />
           </div>
           <div class="flex h-14 w-14 items-center justify-center rounded-lg bg-fir">
             <LogoMark tone="white" />
@@ -277,7 +277,7 @@
         </div>
         <p class="mt-2 text-xs text-ink-muted">
           <code class="text-data">BanhallLogo</code> dark on light, white on dark, 52 to 64px tall.
-          <code class="text-data">BanhallRailMark</code> expanded and collapsed rail.
+          <code class="text-data">BanhallRailMark</code> the expanded rail; the collapsed rail shows no logo.
           <code class="text-data">LogoMark</code> the square mark, also the favicon.
         </p>
       </div>

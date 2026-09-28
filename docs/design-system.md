@@ -994,8 +994,9 @@ the dark workspace scope does not retint them. Live at `/styleguide`.
   backgrounds and `banhall-logo-white.png` on dark, 52 to 64px tall including
   the built-in padding. `ui/BanhallRailMark` replaces the boards' placeholder
   "B Banhall" at the top of the rail with the dark wordmark, padding clipped,
-  36px tall expanded. Where only a square fits (the collapsed rail, A4, A5),
-  it is `brand/LogoMark` (decision 62): the ring and teal triangle of the
+  36px tall expanded. The collapsed rail shows no logo (owner, 2026-09-28).
+  Where only a square fits (the favicon), it is `brand/LogoMark` (decision
+  62): the ring and teal triangle of the
   logo's "a" as inline SVG, 28px, fir `#0A3A38` ring (white on dark) and teal
   `#008186` triangle, both defined once in `brand/logoMark.ts`. The favicon is
   the same mark; a unit test keeps `src/lib/assets/favicon.svg` in sync.
@@ -1012,8 +1013,8 @@ Boards A1 to A5, B1 to B3, D1 to D5, I1, I1b, I3 to I5; decision 53. Live at
   identity row (avatar, name, `RoleChip size="sm"`) that opens the account
   menu. Rows 32px (44px in the touch drawer), group labels 11px in muted ink
   as the boards draw them (integration, 2026-09-26). Rail and frame use `workspace-shell`.
-  Collapsed (A4): 36px icon tiles with tooltips, the expand toggle and search
-  at the top, What's new as a 7px dot, Alerts as a red count, avatar 30px,
+  Collapsed (A4): 36px icon tiles with tooltips, search at the top (no logo
+  and no toggle since 2026-09-28), What's new as a 7px dot, Alerts as a red count, avatar 30px,
   no role chip. The Admin icon opens the A5 flyout (hover after 150ms, or
   Enter, Space, click). Expanded, Admin is a group with a chevron (down
   closed, up open) and eight 28px rows under a left rule; it opens by itself
@@ -1088,6 +1089,16 @@ fixed board widths where they left content stranded.
 - **Forms with a side panel.** A form that keeps a measure (New project's
   854px column) centres in its space from `2xl` up instead of hugging the
   left edge.
+- **Rail control.** The collapse and expand control sits at the left edge of
+  the page's top bar, before the page tile and title, in both rail states
+  (`WorkspaceShellControls`, fed by the shell through
+  `src/lib/workspace/railControl.ts`). It is a 36px ghost button with the
+  sidebar glyph, "Collapse the rail" or "Expand the rail" with the Mod \
+  hint in its tooltip, shown from 1024px up (the hamburger owns smaller
+  screens). The rail itself has no toggle. Expanded, the rail keeps the full
+  wordmark; collapsed, it shows icons only with no logo, search first, in
+  line with the top bar. This overrides boards A4 and A5 and decision 62's
+  collapsed-rail mark.
 
 ## Panel motion (2026-08-10)
 

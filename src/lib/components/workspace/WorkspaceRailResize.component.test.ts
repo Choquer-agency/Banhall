@@ -21,7 +21,8 @@ import {
  * Desktop rail ergonomics (2026-09-24 final UI: collapsing leaves an
  * icons-only column, board 1.2): pointer + keyboard
  * resize on the WAI-ARIA window-splitter separator, persistent
- * collapse/expand from the rail-owned toggle, width/hidden persistence
+ * collapse/expand from the top bar's toggle (owner direction 2026-09-28:
+ * the control sits beside the page title in both states), width/hidden persistence
  * (the `hidden` key now means "collapsed"), and expanded-width restore.
  * Mounted through the REAL WorkspaceDashboard host at a desktop viewport.
  */
@@ -158,8 +159,8 @@ describe("Workspace rail resize + hide/show", () => {
     toggle.click();
     await expect.poll(() => root.hasAttribute("data-rail-hidden")).toBe(true);
     // The collapsed rail stays usable (icons only) and the preference
-    // persists under the compatible `hidden` key; the collapsed rail itself
-    // provides the expand affordance (round 2, A4).
+    // persists under the compatible `hidden` key; the same top bar control
+    // now offers expand.
     expect(railAside()?.hasAttribute("inert")).toBe(false);
     expect(railAside()?.querySelector("[data-rail-collapsed]")).not.toBeNull();
     expect(storedPrefs()).toEqual({ width: 272, hidden: true, adminOpen: false });
@@ -214,12 +215,14 @@ describe("Workspace rail resize + hide/show", () => {
     const column = () => document.querySelector<HTMLElement>(".workspace-rail-column")!;
     const content = () => column().nextElementSibling as HTMLElement;
 
-    // H1, H3: the icons-only tablet rail draws the expand toggle under the mark.
+    // H1, H3 with the owner's 2026-09-28 move: the expand toggle sits in the
+    // page's top bar, not the icons-only rail.
     await expect.poll(() => railToggle()?.getAttribute("aria-label")).toBe("Expand navigation rail");
     const toggle = railToggle()!;
     expect(toggle.dataset.railDirection).toBe("expand");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(railAside()!.querySelector('a[aria-label="Banhall home"]')!.nextElementSibling?.contains(toggle)).toBe(true);
+    expect(railAside()!.contains(toggle)).toBe(false);
+    expect(toggle.closest("[data-workspace-page-header]")).not.toBeNull();
     const contentLeft = content().getBoundingClientRect().left;
 
     toggle.click();
@@ -236,7 +239,7 @@ describe("Workspace rail resize + hide/show", () => {
     expect(handle()).toBeNull();
     expect(storedPrefs()).toEqual({ width: 272, hidden: false, adminOpen: false });
 
-    // Its own collapse toggle closes it.
+    // The same top bar control (keyboard reachable under the overlay) closes it.
     expect(railToggle()?.getAttribute("aria-label")).toBe("Collapse navigation rail");
     railToggle()!.click();
     await expect.poll(() => railAside()?.querySelector("[data-rail-collapsed]")).not.toBeNull();
@@ -253,8 +256,9 @@ describe("Workspace rail resize + hide/show", () => {
     // Escape from inside it closes it and returns focus to the expand toggle.
     railToggle()!.click();
     await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(true);
-    railToggle()!.focus();
-    railToggle()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    const inside = railAside()!.querySelector<HTMLElement>('[data-rail-item="home"]')!;
+    inside.focus();
+    inside.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(false);
     await expect.poll(() => document.activeElement?.getAttribute("aria-label")).toBe("Expand navigation rail");
 
