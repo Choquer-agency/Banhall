@@ -3602,7 +3602,9 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
       const widths = [0, 1, 2, 3, 4].map((index) => Math.round(card(index).width));
       expect(new Set(widths).size).toBe(1);
       expect(widths[0]).toBeGreaterThanOrEqual(400);
-      expect(Math.round(card(1).left - card(0).right)).toBe(10);
+      // The 0.625rem gap (10px at a 16px root) grows with the root above 1600px.
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      expect(Math.round(card(1).left - card(0).right)).toBe(Math.round(0.625 * rem));
       const grid0 = view.container.querySelector<HTMLElement>("[data-seed-grid]")!.getBoundingClientRect();
       const lastInRow = grid === "three" ? card(2) : card(3);
       expect(Math.abs(Math.round(lastInRow.right - grid0.right))).toBeLessThanOrEqual(1);

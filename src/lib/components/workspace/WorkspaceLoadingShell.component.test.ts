@@ -95,8 +95,10 @@ describe("round 2 loading shell", () => {
     expect(rail()).not.toBeNull();
     expect(topBarTitle()).toBe("Settings");
     expectQuietSkeleton("form", 4);
+    // 40rem: 640px at a 16px root, 800px at 2560 where the root is 20px.
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
     for (const field of skeleton("form")!.querySelectorAll<HTMLElement>("[data-skeleton-field]")) {
-      expect(field.getBoundingClientRect().width).toBeLessThanOrEqual(640);
+      expect(field.getBoundingClientRect().width).toBeLessThanOrEqual(40 * rem);
     }
   });
 

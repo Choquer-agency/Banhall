@@ -54,22 +54,26 @@ describe("Settings forms on a 2560px screen", () => {
 
     const panel = document.querySelector<HTMLElement>("[data-work-panel]")!.getBoundingClientRect();
     expect(panel.width).toBeGreaterThan(2200);
-    // The heading and tabs sit in the panel; the content column stops at 64rem.
-    expect(document.querySelector<HTMLElement>("[data-settings-content]")!.getBoundingClientRect().width).toBe(1024);
-    expect(document.querySelector<HTMLElement>("[data-wide-child]")!.getBoundingClientRect().width).toBe(1024);
+    // The heading and tabs sit in the panel; the content column stops at
+    // 64rem, which grows with the root (20px at 2560, so 1280px).
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    expect(rem).toBe(20);
+    expect(document.querySelector<HTMLElement>("[data-settings-content]")!.getBoundingClientRect().width).toBe(64 * rem);
+    expect(document.querySelector<HTMLElement>("[data-wide-child]")!.getBoundingClientRect().width).toBe(64 * rem);
   });
 
   it("keeps each Account field column at 40rem or less", async () => {
     await render(AccountPage, {});
     await expect.poll(() => document.querySelectorAll("[data-settings-field]").length).toBeGreaterThan(3);
 
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
     for (const field of document.querySelectorAll<HTMLElement>("[data-settings-field]")) {
-      expect(field.getBoundingClientRect().width).toBeLessThanOrEqual(640);
+      expect(field.getBoundingClientRect().width).toBeLessThanOrEqual(40 * rem);
     }
     const names = [...document.querySelectorAll<HTMLInputElement>("[data-settings-name-input]")];
     expect(names).toHaveLength(2);
     for (const input of names) {
-      expect(input.getBoundingClientRect().width).toBeLessThanOrEqual(320);
+      expect(input.getBoundingClientRect().width).toBeLessThanOrEqual(20 * rem);
     }
   });
 });

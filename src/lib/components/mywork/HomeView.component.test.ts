@@ -329,15 +329,20 @@ describe("Home", () => {
     const panel = document.querySelector<HTMLElement>("[data-home-panel]")!.getBoundingClientRect();
     const tables = document.querySelector<HTMLElement>("[data-home-tables]")!.getBoundingClientRect();
     const column = document.querySelector<HTMLElement>("[data-home-continue]")!.parentElement!.getBoundingClientRect();
+    // The root is 16px up to a 1600px window, then grows to 20px at 2560
+    // (layout.css), so every rem below scales with it.
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    expect(rem).toBeCloseTo(width <= 1600 ? 16 : Math.min(20, 16 + (width - 1600) / 240), 3);
     // Sides come from the shared --page-gutter token (2.25rem from 1024px up).
-    const gutter = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--page-gutter")) * 16;
-    expect(gutter).toBe(36);
-    expect(Math.round(tables.left - panel.left)).toBe(gutter + 1);
-    expect(Math.round(panel.right - column.right)).toBe(gutter + 1);
-    // Tables fill everything between the gutter and the fixed right column.
-    expect(Math.round(column.left - tables.right)).toBe(32);
-    expect(Math.round(column.width)).toBe(384);
-    expect(Math.round(tables.width)).toBe(Math.round(panel.width) - 2 - 2 * gutter - 32 - 384);
+    const gutter = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--page-gutter")) * rem;
+    expect(gutter).toBeCloseTo(2.25 * rem, 3);
+    expect(Math.round(tables.left - panel.left)).toBe(Math.round(gutter + 1));
+    expect(Math.round(panel.right - column.right)).toBe(Math.round(gutter + 1));
+    // Tables fill everything between the gutter and the fixed right column
+    // (a 2rem gap and a 24rem column: 32 and 384 at 1440).
+    expect(Math.round(column.left - tables.right)).toBe(Math.round(2 * rem));
+    expect(Math.round(column.width)).toBe(Math.round(24 * rem));
+    expect(Math.abs(tables.width - (panel.width - 2 - 2 * gutter - 2 * rem - 24 * rem))).toBeLessThan(1);
     // The rows stretch with their table.
     const withYou = table("home-with-you").querySelector("table")!.getBoundingClientRect();
     expect(Math.round(withYou.width)).toBe(Math.round(tables.width));
