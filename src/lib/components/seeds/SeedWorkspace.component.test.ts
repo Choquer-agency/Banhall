@@ -1312,7 +1312,7 @@ describe("Seed workspace", () => {
     await expect.poll(() => __mutationCalls("seeds:markBatchViewed")).toHaveLength(1);
 
     await page.getByRole("navigation", { name: "PD subsections" }).getByRole("button", { name: /Goal \/ Problem/ }).click();
-    await expect.element(page.getByText("Loading subsection…", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("status", { name: "Loading subsection" })).toBeVisible();
     expect(document.body.textContent).not.toContain("The control loop stabilized output.");
     expect(page.getByRole("button", { name: "Edit", exact: true }).elements()).toHaveLength(0);
     expect(page.getByRole("checkbox").elements()).toHaveLength(0);
@@ -1347,7 +1347,7 @@ describe("Seed workspace", () => {
     await expect.element(page.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Generation A unsaved wording.");
 
     await view.rerender(workspaceProps({ generationId: otherGenerationId }));
-    await expect.element(page.getByText("Loading Seed workspace…", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("status", { name: "Loading Seed workspace" })).toBeVisible();
     expect(document.body.textContent).not.toContain("The control loop stabilized output.");
     expect(page.getByRole("textbox").elements()).toHaveLength(0);
 
@@ -1792,7 +1792,7 @@ describe("Seed workspace", () => {
 
     __setMutationResult("seeds:markBatchViewed", null);
     await view.rerender(workspaceProps({ generationId: otherGenerationId }));
-    await expect.element(page.getByText("Loading Seed workspace…", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("status", { name: "Loading Seed workspace" })).toBeVisible();
     await new Promise((resolve) => setTimeout(resolve, 700));
     expect(__mutationCalls("seeds:markBatchViewed")).toHaveLength(1);
   });

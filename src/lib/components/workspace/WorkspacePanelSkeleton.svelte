@@ -1,6 +1,6 @@
 <script lang="ts" module>
   /** The page shapes a loading work panel can take. */
-  export type PanelSkeletonLayout = "home" | "projects" | "form" | "page";
+  export type PanelSkeletonLayout = "home" | "projects" | "form" | "page" | "project";
   /** Content-only shapes for a page whose frame and heading are already drawn. */
   export type ContentSkeletonLayout = "fields" | "list";
 </script>
@@ -73,6 +73,47 @@
           <span class={`${bar} h-3 w-44`}></span>
         </div>
       {/each}
+    </div>
+  {:else if layout === "project"}
+    <!-- The project workspace (2026-09-28 load pass): the panel toolbar's
+         tabs, the 300px Outline column and the step's seed cards in the
+         plan's columns (two 412px, then as many 400px as fit). -->
+    <div class="flex h-10 shrink-0 items-center gap-5 border-b border-line-soft px-5">
+      {#each [28, 52, 44, 50] as width (width)}
+        <span class={`${bar} h-3`} style:width={`${width}px`}></span>
+      {/each}
+    </div>
+    <div class="flex min-h-0 flex-1">
+      <div data-skeleton-outline class="hidden w-[300px] flex-none flex-col gap-4 border-r border-line-soft px-5 pt-5 lg:flex">
+        <div class="flex items-center justify-between">
+          <span class={`${bar} h-4 w-16`}></span>
+          <span class={`${bar} h-3 w-12`}></span>
+        </div>
+        {#each [0.7, 0.58, 0.76, 0.64, 0.54, 0.72, 0.6, 0.68, 0.5, 0.74] as width, index (index)}
+          <div data-skeleton-row class="flex items-center gap-2.5">
+            <span class="size-4 shrink-0 rounded-full border border-line"></span>
+            <span class={`${bar} h-3`} style:width={`${width * 100}%`}></span>
+          </div>
+        {/each}
+      </div>
+      <div class="@container flex min-w-0 flex-1 flex-col gap-3 px-4 pt-6 sm:px-6 lg:px-10">
+        <span class={`${bar} h-3 w-24`}></span>
+        <span class={`${bar} h-6 w-72 max-w-full`}></span>
+        <span class={`${bar} h-3 w-[28rem] max-w-full`}></span>
+        <div data-skeleton-cards class="mt-5 grid grid-cols-1 gap-2.5 @min-[800px]:grid-cols-[repeat(2,minmax(0,412px))] @min-[1220px]:grid-cols-3 @min-[1630px]:grid-cols-4">
+          {#each [0, 1, 2, 3] as card (card)}
+            <div class="flex h-[170px] flex-col gap-3 rounded-xl border border-line-soft p-4">
+              <div class="flex gap-1.5">
+                <span class={`${bar} h-5 w-[84px]`}></span>
+                <span class={`${bar} h-5 w-16`}></span>
+              </div>
+              {#each [0.92, 0.76, 0.6] as width (width)}
+                <span class={`${bar} h-3`} style:width={`${width * 100}%`}></span>
+              {/each}
+            </div>
+          {/each}
+        </div>
+      </div>
     </div>
   {:else if layout === "form"}
     <div class="px-5 pb-12 pt-8 md:px-14">

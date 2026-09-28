@@ -46,6 +46,7 @@
     pendingLayout = "page",
     pendingTitle = "",
     pendingIcon = undefined,
+    pendingBreadcrumb = null,
   }: {
     /** Rendered when the preview experience is resolved (omit to redirect via previewHref). */
     preview?: Snippet;
@@ -62,6 +63,8 @@
     /** ...under a top bar with this title and page icon. */
     pendingTitle?: string;
     pendingIcon?: PageIcon;
+    /** ...and this parent link before the title ("Projects /"). */
+    pendingBreadcrumb?: { label: string; href: string } | null;
   } = $props();
 
   const auth = useAuth();
@@ -104,6 +107,7 @@
     layout={pendingLayout}
     title={pendingTitle}
     icon={pendingIcon}
+    breadcrumb={pendingBreadcrumb}
     label={auth.isLoading ? "Checking your session" : "Opening sign in"}
     data-workspace-gate-pending={auth.isLoading ? "auth" : "redirect"}
   />
@@ -126,6 +130,7 @@
     layout={pendingLayout}
     title={pendingTitle}
     icon={pendingIcon}
+    breadcrumb={pendingBreadcrumb}
     data-workspace-gate-pending="decision"
     data-workspace-gate-route-state={routeState}
   />

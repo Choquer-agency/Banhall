@@ -12,7 +12,6 @@
   import { useStableQuery } from "$lib/stableQuery.svelte";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
     import Button from "$lib/components/ui/Button.svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import * as Drawer from "$lib/components/ui/drawer/index.js";
   import BriefRailPanel from "$lib/components/brief/BriefRailPanel.svelte";
   import SeedOutline from "./SeedOutline.svelte";
@@ -996,6 +995,29 @@
   </div>
 {/snippet}
 
+<!-- A step's header and four seed cards as placeholders (the F3 skeleton
+     card shape), for a step whose first read has not arrived. -->
+{#snippet stepSkeleton()}
+  <div class="@container flex flex-col gap-3 px-4 pt-6 sm:px-6 lg:px-10" aria-hidden="true">
+    <span class="h-2.5 w-24 rounded-[5px] bg-skeleton-line"></span>
+    <span class="h-5 w-72 max-w-full rounded-[5px] bg-skeleton-line"></span>
+    <span class="h-2.5 w-[28rem] max-w-full rounded-[5px] bg-skeleton-line"></span>
+    <div class="mt-5 grid grid-cols-1 gap-2.5 @min-[800px]:grid-cols-2 @min-[1220px]:grid-cols-3 @min-[1630px]:grid-cols-4">
+      {#each [0, 1, 2, 3] as index (index)}
+        <div class="flex h-[170px] flex-col gap-3 rounded-xl border border-line-soft bg-surface p-4">
+          <div class="flex gap-1.5">
+            <span class="h-5 w-[84px] rounded-[5px] bg-skeleton-chip"></span>
+            <span class="h-5 w-16 rounded-[5px] bg-skeleton-chip"></span>
+          </div>
+          {#each ["92%", "76%", "60%"] as width (width)}
+            <span class="h-2.5 rounded-[5px] bg-skeleton-line" style={`width:${width}`}></span>
+          {/each}
+        </div>
+      {/each}
+    </div>
+  </div>
+{/snippet}
+
 {#snippet outlineFooter()}
   {@render approvalFooter("outline")}
 {/snippet}
@@ -1098,8 +1120,23 @@
       {@render readFailure("The Seed workspace could not load.", outlineError)}
     </div>
   {:else if !outline}
-    <div class="flex min-h-0 flex-1 items-center justify-center gap-2 text-body text-ink-muted">
-      <Spinner size="sm" /> Loading Seed workspace…
+    <!-- The Outline and the step draw as placeholders in their own places
+         while the first read arrives, so the plan never flashes a blank
+         pane with centred text. -->
+    <div class="flex min-h-0 flex-1" role="status" aria-label="Loading Seed workspace" data-seed-workspace-skeleton>
+      <div class="hidden min-h-0 flex-none flex-col gap-4 border-r border-line-soft px-5 pt-5 lg:flex lg:w-[var(--seed-outline-width)]" style={`--seed-outline-width: ${outlineWidth}px`} aria-hidden="true">
+        <div class="flex items-center justify-between">
+          <span class="h-3 w-16 rounded-[5px] bg-skeleton-line"></span>
+          <span class="h-3 w-12 rounded-[5px] bg-skeleton-line"></span>
+        </div>
+        {#each [70, 58, 76, 64, 54, 72, 60, 68, 50, 74] as width, index (index)}
+          <div class="flex items-center gap-2.5">
+            <span class="size-4 shrink-0 rounded-full border border-line"></span>
+            <span class="h-2.5 rounded-[5px] bg-skeleton-line" style={`width:${width}%`}></span>
+          </div>
+        {/each}
+      </div>
+      <div class="min-w-0 flex-1">{@render stepSkeleton()}</div>
     </div>
   {:else}
     <div class={`flex min-h-0 flex-1 ${dragging ? "select-none" : ""}`}>
@@ -1207,8 +1244,8 @@
             {@render readFailure(`${activeDefinition.title} could not load.`, subsectionError)}
           </div>
         {:else}
-          <div class="flex flex-1 items-center justify-center gap-2 text-body text-ink-muted">
-            <Spinner size="sm" /> Loading subsection…
+          <div class="min-h-0 flex-1" role="status" aria-label="Loading subsection" data-subsection-skeleton>
+            {@render stepSkeleton()}
           </div>
         {/if}
         {#if !largeViewport}

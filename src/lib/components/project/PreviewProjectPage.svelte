@@ -23,7 +23,8 @@
   import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
-  import { IconFolder } from "$lib/components/icons";
+  import { IconDocument } from "$lib/components/icons";
+  import { recentProjectTitle } from "$lib/workspace/recentProjects";
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
   import ReadingInterview from "$lib/components/generation/reading/ReadingInterview.svelte";
   import GenerationStatusChip from "$lib/components/generation/GenerationStatusChip.svelte";
@@ -1994,9 +1995,9 @@
      frozen CurrentProjectPage must never carry this marker. -->
 {#if auth.isLoading || !auth.isAuthenticated || project === undefined}
   <WorkspaceLoadingShell
-    layout="page"
-    title=""
-    icon={IconFolder}
+    layout="project"
+    title={recentProjectTitle(projectId)}
+    icon={IconDocument}
     breadcrumb={{ label: "Projects", href: workspaceHref("/projects") }}
     label="Loading report workspace"
     data-report-cohort="preview"

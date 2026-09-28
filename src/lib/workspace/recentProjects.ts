@@ -140,3 +140,13 @@ export function recordProjectOpen(
   persistRecentProjects(next);
   return next;
 }
+
+/**
+ * The title this browser last recorded for a project, for loading states
+ * that draw the top bar before the project itself arrives; "" when unknown.
+ */
+export function recentProjectTitle(id: string | undefined): string {
+  if (!id || typeof window === "undefined") return "";
+  const title = loadRecentProjects().find((project) => project.id === id)?.title ?? "";
+  return title === "Untitled project" ? "" : title;
+}

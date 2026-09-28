@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { IconFolder } from "$lib/components/icons";
+  import { IconDocument } from "$lib/components/icons";
   import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -7,7 +7,7 @@
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import LazyModule from "$lib/components/ui/LazyModule.svelte";
   import { loadCurrentProjectPage, loadPreviewProjectPage } from "$lib/components/project/projectPageModules";
-  import { recordProjectOpen } from "$lib/workspace/recentProjects";
+  import { recentProjectTitle, recordProjectOpen } from "$lib/workspace/recentProjects";
 
   // Broken behaviour #5: every open of a project page counts as recent, not
   // only workspace link clicks (a typed or pasted URL, back and forward, a
@@ -24,6 +24,12 @@
     void loadPreviewProjectPage().catch(() => undefined);
   });
 
+  // Every loading state draws the project workspace skeleton under the
+  // project's own top bar: "Projects /", the document tile and, for a
+  // project this browser opened before, its title.
+  const pendingTitle = $derived(recentProjectTitle(page.params.id));
+  const projectsCrumb = { label: "Projects", href: resolve("/projects") };
+
   let recordedId: string | null = null;
   $effect(() => {
     const id = page.params.id;
@@ -33,8 +39,14 @@
   });
 </script>
 
-<!-- While pending: the shell with "Projects /" and a skeleton panel. -->
-<WorkspaceGate currentWhileLoading={false} pendingTitle="" pendingIcon={IconFolder}>
+<!-- While pending: the shell with "Projects /" and the project skeleton. -->
+<WorkspaceGate
+  currentWhileLoading={false}
+  pendingLayout="project"
+  {pendingTitle}
+  pendingIcon={IconDocument}
+  pendingBreadcrumb={projectsCrumb}
+>
   {#snippet current()}
     <LazyModule load={loadCurrentProjectPage} label="report workspace">
       {#snippet children(CurrentProjectPage)}
@@ -45,7 +57,7 @@
   {#snippet preview()}
     <LazyModule load={loadPreviewProjectPage} label="report workspace">
       {#snippet pending()}
-        <WorkspaceLoadingShell layout="page" title="" icon={IconFolder} breadcrumb={{ label: "Projects", href: resolve("/projects") }} label="Loading report workspace" />
+        <WorkspaceLoadingShell layout="project" title={pendingTitle} icon={IconDocument} breadcrumb={projectsCrumb} label="Loading report workspace" />
       {/snippet}
       {#snippet children(PreviewProjectPage)}
         <PreviewProjectPage />
