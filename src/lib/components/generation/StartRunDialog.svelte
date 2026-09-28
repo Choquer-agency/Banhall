@@ -1,5 +1,11 @@
 <script lang="ts" module>
-  export type StartRunMode = "iterative" | "single" | "compare" | "review";
+  import {
+    generationMode,
+    isGenerationModeId,
+    type GenerationModeId,
+  } from "../../../../shared/generationModes";
+
+  export type StartRunMode = GenerationModeId | "review";
 
   export type StartRunSource = {
     id: string;
@@ -68,14 +74,8 @@
     generationId: string;
     requestedByName: string;
     isYou: boolean;
-    candidateMode: "iterative" | "single" | "compare";
+    candidateMode: GenerationModeId;
     startedAt: number;
-  };
-
-  const RUN_LABELS: Record<ActiveRun["candidateMode"], string> = {
-    iterative: "Step by step run",
-    single: "Single draft",
-    compare: "Compare run",
   };
 
   /** "just now", "12 min ago", "3 hours ago", "yesterday", then a date. */
@@ -92,7 +92,7 @@
   export function activeRunCopy(run: ActiveRun, now: number): { title: string; text: string } {
     return {
       title: run.isYou ? "You are already running this project" : `${run.requestedByName} is already running this project`,
-      text: `A ${RUN_LABELS[run.candidateMode]} started ${startedAgo(run.startedAt, now)}. One run at a time per project.`,
+      text: `A ${generationMode(run.candidateMode).runLabel} started ${startedAgo(run.startedAt, now)}. One run at a time per project.`,
     };
   }
 
@@ -109,7 +109,7 @@
       generationId: data.generationId,
       requestedByName: name,
       isYou: Boolean(currentUserName) && name === currentUserName,
-      candidateMode: mode === "iterative" || mode === "single" ? mode : "compare",
+      candidateMode: isGenerationModeId(mode) ? mode : "compare",
       startedAt: Number(data.startedAt) || Date.now(),
     };
   }

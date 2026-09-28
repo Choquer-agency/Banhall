@@ -1,49 +1,20 @@
-<script lang="ts" module>
-  export type WriteMode = "iterative" | "single" | "compare";
-
-  export const WRITE_MODES: ReadonlyArray<{
-    id: WriteMode;
-    label: string;
-    description: string;
-    shortDescription: string;
-    recommended?: boolean;
-  }> = [
-    {
-      id: "iterative",
-      label: "Step by step",
-      description: "Pick the ideas first. We write after.",
-      shortDescription: "Pick the ideas first. We write after.",
-      recommended: true,
-    },
-    {
-      id: "single",
-      label: "Single draft",
-      description: "One full draft, straight to the editor.",
-      shortDescription: "One full draft",
-    },
-    {
-      id: "compare",
-      label: "Compare two drafts",
-      description: "Two drafts. You keep the better one.",
-      shortDescription: "Two drafts, keep one",
-    },
-  ];
-</script>
-
 <script lang="ts">
   /**
    * "How should we write it?" (boards E1, H1, H2): three radio cards. The
    * selected card takes a 1.5px lagoon border (a 1px border plus a 0.5px
    * ring, since Chrome rounds a 1.5px border down to 1px on 1x screens), the
    * #F7FCFB fill and the filled radio. `layout="row"` is the tablet strip (H1): no radio dot, the
-   * short descriptions in 12px muted ink. `layout="phone"` (H2) stacks the
-   * cards and shows the description on the selected card only.
+   * short hints in 12px muted ink. `layout="phone"` (H2) stacks the
+   * cards and shows the hint on the selected card only. The modes, their
+   * order and copy come from the shared list (story 8).
    */
+  import { GENERATION_MODES, type GenerationModeId } from "../../../../shared/generationModes";
+
   let {
-    value = $bindable<WriteMode>("iterative"),
+    value = $bindable<GenerationModeId>("iterative"),
     layout = "stack",
   }: {
-    value?: WriteMode;
+    value?: GenerationModeId;
     layout?: "stack" | "row" | "phone";
   } = $props();
 
@@ -52,7 +23,7 @@
     if (!keys.includes(event.key)) return;
     event.preventDefault();
     const step = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
-    const next = WRITE_MODES[(index + step + WRITE_MODES.length) % WRITE_MODES.length];
+    const next = GENERATION_MODES[(index + step + GENERATION_MODES.length) % GENERATION_MODES.length];
     value = next.id;
     const group = (event.currentTarget as HTMLElement).parentElement;
     group?.querySelector<HTMLElement>(`[data-write-mode="${next.id}"]`)?.focus();
@@ -67,7 +38,7 @@
   data-write-mode-cards
   class={row ? "grid grid-cols-3 gap-2.5" : "flex flex-col gap-3"}
 >
-  {#each WRITE_MODES as mode, index (mode.id)}
+  {#each GENERATION_MODES as mode, index (mode.id)}
     {@const selected = value === mode.id}
     <button
       type="button"
@@ -110,9 +81,9 @@
           {/if}
         </span>
         {#if row}
-          <span data-write-mode-description class="text-xs leading-4 text-ink-muted">{mode.shortDescription}</span>
+          <span data-write-mode-description class="text-xs leading-4 text-ink-muted">{mode.shortHint}</span>
         {:else if layout === "stack" || selected}
-          <span data-write-mode-description class="text-[13px] leading-[18px] text-ink-secondary">{mode.description}</span>
+          <span data-write-mode-description class="text-[13px] leading-[18px] text-ink-secondary">{mode.hint}</span>
         {/if}
       </span>
     </button>

@@ -3,6 +3,7 @@
  * the writer should know before the start dialog opens. Pure, so every row
  * state and the blocking rule are unit-tested apart from the page.
  */
+import type { GenerationModeId } from "../../../../shared/generationModes";
 
 export type ChecklistState = "done" | "pending" | "reading" | "danger" | "warning";
 
@@ -168,7 +169,7 @@ export const startBlocked = (rows: readonly ChecklistRow[]) => rows.some((row) =
 /** Right-column start button label by mode (Single and Compare are proposed). */
 export function startButtonLabel(
   mode: "generate" | "review",
-  candidateMode: "iterative" | "single" | "compare"
+  candidateMode: GenerationModeId
 ): string {
   if (mode === "review") return "Start the review";
   switch (candidateMode) {

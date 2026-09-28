@@ -77,6 +77,7 @@
     uploadTranscriptOriginal,
   } from "$lib/transcriptUpload";
   import { comparePairFromSlots } from "../../../../shared/generationModels";
+  import type { GenerationModeId } from "../../../../shared/generationModes";
   import { modelLabelFor, pickerModels, defaultModelIdFor } from "$lib/modelPicker";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
@@ -156,7 +157,7 @@
   // BNH-39: write a new PD from a transcript, or review an existing written PD.
   let mode = $state<"generate" | "review">("generate");
   // Round 2 (E1): Step by step is the default; a card duplicate's drafts= still decides.
-  let candidateMode = $state<"compare" | "single" | "iterative">("iterative");
+  let candidateMode = $state<GenerationModeId>("iterative");
   let singleModelId = $state<string>("");
   // Model catalog: the selectable models, the writing role's default and the
   // planning and pd_review models the start dialog names (decision 52).

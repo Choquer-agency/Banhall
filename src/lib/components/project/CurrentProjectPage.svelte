@@ -79,6 +79,7 @@
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
   import { comparePairFromSlots } from "../../../../shared/generationModels";
+  import { GENERATION_MODES, type GenerationModeId } from "../../../../shared/generationModes";
   import { pickerModels } from "$lib/modelPicker";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
@@ -677,7 +678,7 @@
   // string (not the literal union) so it can bind:value into SelectInput;
   // the items list gates the values. Cast where the mutation needs the union.
   let lengthTarget = $state<string>("standard");
-  let candidateMode = $state<"compare" | "single" | "iterative">("compare");
+  let candidateMode = $state<GenerationModeId>("compare");
   let singleModelId = $state<string>("");
   // Model catalog: the random compare fill draws from the selectable set.
   const modelCapabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
@@ -2096,11 +2097,7 @@
                     role="radiogroup"
                     aria-label="Draft generation mode"
                   >
-                    {#each [
-                      { id: "compare", label: "Compare" },
-                      { id: "single", label: "Single draft" },
-                      { id: "iterative", label: "Step by step" },
-                    ] as const as opt (opt.id)}
+                    {#each GENERATION_MODES as opt (opt.id)}
                       <button
                         type="button"
                         role="radio"

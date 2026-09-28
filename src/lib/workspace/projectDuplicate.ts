@@ -7,10 +7,9 @@
  * Pure helpers only: no `$app` imports, so unit tests can load this module.
  */
 import { hasCapability, type CapabilityRole } from "../../../shared/capabilities";
+import { isGenerationModeId, type GenerationModeId } from "../../../shared/generationModes";
 
-/** The wizard's Drafts modes, in the order the wizard shows them. */
-export const DRAFT_MODE_IDS = ["compare", "single", "iterative"] as const;
-export type DraftModeId = (typeof DRAFT_MODE_IDS)[number];
+export type DraftModeId = GenerationModeId;
 
 /** The Drafts mode a card's Duplicate action asks the wizard to preselect. */
 export const DUPLICATE_DRAFT_MODE: DraftModeId = "iterative";
@@ -20,8 +19,7 @@ export const DUPLICATE_DRAFT_MODE: DraftModeId = "iterative";
  * accepted; anything else (missing, empty, mixed case, unknown) is ignored.
  */
 export function parseDraftModeParam(value: string | null | undefined): DraftModeId | null {
-  if (!value) return null;
-  return (DRAFT_MODE_IDS as readonly string[]).includes(value) ? (value as DraftModeId) : null;
+  return isGenerationModeId(value) ? value : null;
 }
 
 /** Query string for the wizard: `?from=<projectId>&drafts=<mode>`. */

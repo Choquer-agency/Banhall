@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { page as browserPage, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
+import { GENERATION_MODES } from "../../../../shared/generationModes";
 import { PD_SUBSECTIONS } from "../../../../shared/pdSubsections";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
@@ -601,6 +602,26 @@ describe("Seed project hosts", () => {
       numItems: 50,
     });
     expect(document.body.textContent).not.toContain("Completed Seed report.");
+  });
+
+  it.each([
+    ["current", CurrentProjectPage],
+    ["preview", PreviewProjectPage],
+  ] as const)("lists the shared modes, Step by step first, in the %s host's selector (story 8)", async (_host, Page) => {
+    __setQueryData("generations:getLatestGeneration", null);
+    __setQueryData("transcripts:listTranscripts", [{
+      _id: "transcript-seed-host",
+      label: "Controller interview.docx",
+      position: 0,
+      createdAt: 1,
+      charCount: 72,
+      wordCount: 11,
+    }]);
+    await render(Page, {});
+    const group = await browserPage.getByRole("radiogroup", { name: "Draft generation mode" }).element();
+    const radios = [...group.querySelectorAll('[role="radio"]')];
+    expect(radios.map((radio) => radio.textContent?.trim())).toEqual(GENERATION_MODES.map((mode) => mode.label));
+    expect(radios.map((radio) => radio.textContent?.trim())).toEqual(["Step by step", "Single draft", "Compare two drafts"]);
   });
 
   it("requests an iterative run and follows the mounted host through initialization into Seeds", async () => {
