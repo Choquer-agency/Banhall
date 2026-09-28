@@ -1568,7 +1568,7 @@ describe("Seed workspace", () => {
 
   it("offers no Use it anyway to a reader who cannot edit", async () => {
     __setQueryData("seeds:getOutline", outline(false));
-    __setQueryData("seeds:getSubsection", subsection({ canEdit: false, items: [seed({ provenance: [{ ...seed().provenance[0], needsQuoteCheck: true }] })] }));
+    __setQueryData("seeds:getSubsection", subsection({ items: [seed({ provenance: [{ ...seed().provenance[0], needsQuoteCheck: true }] })] }));
     await render(SeedWorkspace, workspaceProps());
     await quotesButton().click();
     await expect.poll(() => document.querySelector('[data-seed-quotes="seed-1"] [data-quote-support-check]')).not.toBeNull();
