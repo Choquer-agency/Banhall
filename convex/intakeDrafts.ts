@@ -41,6 +41,7 @@ import {
   MAX_OPEN_DRAFTS_PER_USER,
   MAX_SOURCE_TEXT_BYTES,
   MAX_SPEAKER_CALLS_PER_DAY,
+  PENDING_READS_STALE_MS,
   buildIntakeStructure,
   deleteSourceText,
   draftExpiresAt,
@@ -79,8 +80,14 @@ import {
 import { deriveProcessingStatus } from "../shared/documentStatus";
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import { firmDayNumber } from "../shared/firmTime";
+import { countTextWords } from "../shared/wordCount";
 import { insertNewProject } from "./projects";
-import { confirmQueuedPreparation, endPreparation, purgePreparationContent } from "./briefPreparations";
+import {
+  confirmQueuedPreparation,
+  endPreparation,
+  purgePreparationContent,
+  waitingOnOwnReading,
+} from "./briefPreparations";
 import { MAX_BRIEF_ENTRY_ROWS } from "./lib/generations/brief";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
 
@@ -97,10 +104,10 @@ const PROMOTION_RECHECK_MS = 1_500;
 const PROMOTION_STRUCTURE_WAIT_MS = 3 * 60 * 1000;
 /**
  * How long promotion waits for a preparation the writer confirmed at Start
- * (2026-09-27, fourth) that could not dispatch yet (its running slot was
- * still held by the reading it replaced), so the run finds it running and
- * waits on it rather than reading from scratch. A stopped reading frees the
- * slot within about 2 seconds.
+ * (2026-09-27, fourth) that could not dispatch yet because the reading it
+ * replaced in the same draft still holds the slot, so the run finds it
+ * running and waits on it rather than reading from scratch. A stopped
+ * reading frees the slot within about 2 seconds.
  */
 export const PROMOTION_CONFIRMED_WAIT_MS = 45 * 1000;
 /** A promotion this old is resumed, or ended, by the sweep. */
@@ -264,10 +271,15 @@ export const saveIntakeSource = mutation({
     category: v.optional(categoryValidator),
     intake: v.optional(v.union(v.literal("file"), v.literal("pasted"))),
     extractionOutcome: v.optional(v.union(v.literal("ok"), v.literal("failed"))),
+    // A previous-year report's fiscal year (2026-09-27, fourth).
+    fiscalYear: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     const user = await requireCreator(ctx);
+    if (args.fiscalYear !== undefined && (!Number.isInteger(args.fiscalYear) || args.fiscalYear < 1900 || args.fiscalYear > 2200)) {
+      domainError("INVALID_INPUT", "Invalid fiscal year");
+    }
     const draft = await requireOwnDraft(ctx, user, args.draftId);
     const sourceKey = requireSourceKey(args.sourceKey);
     const label = args.label.trim().slice(0, MAX_LABEL_CHARS);
@@ -330,6 +342,7 @@ export const saveIntakeSource = mutation({
             category: args.category,
             intake: args.intake,
             extractionOutcome: args.extractionOutcome,
+            fiscalYear: args.category === "previous_pd" ? args.fiscalYear : undefined,
             ...(user.role ? { uploaderRole: user.role } : {}),
           }),
       updatedAt: now,
@@ -711,6 +724,9 @@ export const restoreIntakeDraft = query({
       interviewerUserId: v.union(v.id("users"), v.null()),
       interviewees: v.array(v.string()),
       excludedSourceKeys: v.array(v.string()),
+      // Files the page was still reading when it reloaded (2026-09-27,
+      // second), while that count is fresh; they were never saved.
+      pendingReads: v.number(),
       sources: v.array(
         v.object({
           sourceKey: v.string(),
@@ -723,6 +739,7 @@ export const restoreIntakeDraft = query({
           category: v.optional(categoryValidator),
           intake: v.optional(v.union(v.literal("file"), v.literal("pasted"))),
           extractionOutcome: v.optional(v.union(v.literal("ok"), v.literal("failed"))),
+          fiscalYear: v.optional(v.number()),
           hasOriginal: v.boolean(),
         })
       ),
@@ -737,6 +754,10 @@ export const restoreIntakeDraft = query({
       interviewerUserId: draft.interviewerUserId ?? null,
       interviewees: draft.interviewees ?? [],
       excludedSourceKeys: draft.excludedSourceKeys ?? [],
+      pendingReads:
+        draft.pendingReads !== undefined && (draft.pendingReadsUpdatedAt ?? 0) > Date.now() - PENDING_READS_STALE_MS
+          ? draft.pendingReads
+          : 0,
       sources: sources.map((row) => ({
         sourceKey: row.sourceKey,
         kind: row.kind,
@@ -748,6 +769,7 @@ export const restoreIntakeDraft = query({
         ...(row.category ? { category: row.category } : {}),
         ...(row.intake ? { intake: row.intake } : {}),
         ...(row.extractionOutcome ? { extractionOutcome: row.extractionOutcome } : {}),
+        ...(row.fiscalYear !== undefined ? { fiscalYear: row.fiscalYear } : {}),
         hasOriginal: Boolean(row.storageId),
       })),
     };
@@ -1143,12 +1165,18 @@ async function continuePromotion(
     .take(MAX_LINKS_READ);
   const built = links.every((link) => link.draftId !== draft._id || link.kind !== "transcript" || link.builtAt !== undefined);
   const startedAt = draft.promotionStartedAt ?? now;
-  const confirmedQueued = (
-    await ctx.db
-      .query("briefPreparations")
-      .withIndex("by_intakeDraftId_and_status", (q) => q.eq("intakeDraftId", draft._id).eq("status", "queued"))
-      .take(10)
-  ).some((row) => row.confirmedAt !== undefined && !row.projectId);
+  // A confirmed start is waited for only while the reading it replaced in
+  // this draft still holds the slot (review P2-2); held by anything else
+  // (another draft or project, speakers still being placed), it ends now.
+  let confirmedQueued = false;
+  for (const row of await ctx.db
+    .query("briefPreparations")
+    .withIndex("by_intakeDraftId_and_status", (q) => q.eq("intakeDraftId", draft._id).eq("status", "queued"))
+    .take(10)) {
+    if (row.confirmedAt === undefined || row.projectId) continue;
+    if (await waitingOnOwnReading(ctx, row, now)) confirmedQueued = true;
+    else await endPreparation(ctx, row, "cancelled", "promoted");
+  }
   if (
     (!built && now < startedAt + PROMOTION_STRUCTURE_WAIT_MS) ||
     (confirmedQueued && now < startedAt + PROMOTION_CONFIRMED_WAIT_MS)
@@ -1267,6 +1295,7 @@ async function installDocument(
     fileName: source.label,
     fileType: source.fileType ?? "other",
     content,
+    wordCount: countTextWords(content),
     ...(source.storageId ? { storageId: source.storageId } : {}),
     ...(source.mimeType ? { mimeType: source.mimeType } : {}),
     ...(source.category ? { category: source.category } : {}),

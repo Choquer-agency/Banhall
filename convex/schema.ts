@@ -1875,6 +1875,9 @@ export default defineSchema({
       v.literal("other")
     ),
     content: v.string(),
+    // 2026-09-27 (fourth) widen: words in `content`, stored at upload for the
+    // start dialog; older rows are counted when listed.
+    wordCount: v.optional(v.number()),
     // Original file bytes in Convex storage (for preview/download).
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),
@@ -3544,6 +3547,9 @@ export default defineSchema({
     ),
     intake: v.optional(v.union(v.literal("file"), v.literal("pasted"))),
     extractionOutcome: v.optional(v.union(v.literal("ok"), v.literal("failed"))),
+    // 2026-09-27 (fourth) widen: a previous-year report's fiscal year, so a
+    // reload brings back a report with no text under its year and note.
+    fiscalYear: v.optional(v.number()),
     uploaderRole: v.optional(v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))),
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),

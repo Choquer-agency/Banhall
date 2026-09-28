@@ -91,6 +91,14 @@ export const PREPARATION_READY_CONTENT_MS = 7 * 24 * 60 * 60 * 1000;
 export const WAITER_DEADLINE_MS = 4 * 60 * 1000;
 /** How often a waiting run checks the preparation's call is still alive. */
 const WAITER_CHECK_MS = 60 * 1000;
+/**
+ * How long a project run waits on a preparation confirmed at Start that has
+ * not dispatched yet (2026-09-27, fourth, lead decision): its slot is still
+ * being freed by the reading it replaced.
+ */
+export const QUEUED_WAITER_DEADLINE_MS = 30 * 1000;
+/** The attempt a waiter names while its preparation is still queued. */
+export const QUEUED_ATTEMPT = "queued";
 /** How long a failed, obsolete or cancelled preparation keeps its content. */
 export const PREPARATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 /** Rows one purge transaction deletes. */
@@ -438,7 +446,12 @@ async function readProjectEvidence(
   // the evidence is read, as is a batch of files still arriving: waiting
   // for the rest of it reads no text (the start runs again after the
   // batch's last change, or every PREPARATION_DEBOUNCE_MS).
-  if (await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES)) {
+  // A run already going derives or adopts its own Brief, except the run
+  // that waits on this confirmed start (2026-09-27, fourth).
+  if (
+    !(await hasWaiters(ctx, preparation._id)) &&
+    (await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES))
+  ) {
     await endPreparation(ctx, preparation, "cancelled", "generation_active");
     return null;
   }
@@ -741,7 +754,62 @@ async function runPreparationStart(
     preparationId: preparation._id,
     attemptId,
   });
+  await bindQueuedWaiters(ctx, preparation._id, attemptId, now);
   return null;
+}
+
+/**
+ * Runs that started waiting while this preparation was still queued now wait
+ * on its attempt, as on any running one, with the usual deadline from its
+ * dispatch.
+ */
+async function bindQueuedWaiters(
+  ctx: MutationCtx,
+  preparationId: Id<"briefPreparations">,
+  attemptId: string,
+  now: number
+): Promise<void> {
+  const waiters = await ctx.db
+    .query("briefPreparationWaiters")
+    .withIndex("by_preparationId_and_status", (q) => q.eq("preparationId", preparationId).eq("status", "waiting"))
+    .take(50);
+  for (const waiter of waiters) {
+    if (waiter.attemptId !== QUEUED_ATTEMPT) continue;
+    const deadlineAt = now + WAITER_DEADLINE_MS;
+    await ctx.db.patch(waiter._id, { attemptId, deadlineAt });
+    const generation = await ctx.db.get(waiter.generationId);
+    if (generation?.briefPreparation?.preparationId === preparationId && generation.briefPreparation.state === "attached") {
+      await ctx.db.patch(generation._id, { briefPreparation: { ...generation.briefPreparation, attemptId } });
+    }
+  }
+}
+
+/**
+ * Whether a confirmed start is waiting only for the running slot held by
+ * the reading it replaced in its own draft or project (2026-09-27, fourth,
+ * review P2-2): a call of its own scope is in flight and every call of the
+ * user in flight is of that scope. Anything else (another draft or project
+ * holds the user's slot, speakers still being placed) is not worth holding
+ * a promotion for.
+ */
+export async function waitingOnOwnReading(ctx: MutationCtx, preparation: Preparation, now: number): Promise<boolean> {
+  if (preparation.status !== "queued" || preparation.waitingFor !== "slot") return false;
+  const sameScope = (row: Preparation) =>
+    preparation.intakeDraftId ? row.intakeDraftId === preparation.intakeDraftId : row.projectId === preparation.projectId;
+  const holds = (row: Preparation) =>
+    row._id !== preparation._id && (row.status === "running" || callStillRunning(row, now));
+  const userRows: Preparation[] = [];
+  for (const status of ["running", "obsolete"] as const) {
+    userRows.push(
+      ...(await ctx.db
+        .query("briefPreparations")
+        .withIndex("by_triggeredBy_and_status", (q) => q.eq("triggeredBy", preparation.triggeredBy).eq("status", status))
+        .order("desc")
+        .take(20))
+    );
+  }
+  const holding = userRows.filter(holds);
+  return holding.length > 0 && holding.every(sameScope);
 }
 
 /**
@@ -803,11 +871,42 @@ export const setProjectStartSelection = mutation({
     excludedTranscriptIds: v.array(v.id("transcripts")),
     excludedDocumentIds: v.array(v.id("projectDocuments")),
     confirm: v.optional(v.boolean()),
+    // Cancel (review P3-5): a queued start for the unticked files ends, so
+    // closing the dialog spends nothing, and the list no longer applies.
+    cancel: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     const { project, user } = await requireReportEditAccess(ctx, args.projectId);
     if (await projectIsSettingUp(ctx, project._id)) return null;
+    if (args.cancel) {
+      const now = Date.now();
+      for (const row of await scopeRows(ctx, { projectId: project._id }, "queued", 5)) {
+        if (row.selectionAt === undefined || (await hasWaiters(ctx, row._id))) continue;
+        if (row.triggerReason === "selection_changed") {
+          await endPreparation(ctx, row, "cancelled", "dialog_cancelled");
+        } else {
+          // An evidence change queued meanwhile reads every file again.
+          await ctx.db.patch(row._id, {
+            excludedTranscriptIds: undefined,
+            excludedDocumentIds: undefined,
+            selectionAt: undefined,
+            updatedAt: now,
+          });
+        }
+      }
+      const latest = await ctx.db
+        .query("briefPreparations")
+        .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+        .order("desc")
+        .take(5);
+      for (const row of latest) {
+        if (row.selectionAt !== undefined && row.selectionAt > now - SELECTION_FRESH_MS) {
+          await ctx.db.patch(row._id, { selectionAt: undefined });
+        }
+      }
+      return null;
+    }
     // Foreign ids are refused and gone ones ignored, as the run's own lists.
     const excluded = await validatedExcludedSources(ctx, project._id, {
       excludeTranscriptIds: args.excludedTranscriptIds,
@@ -1245,7 +1344,9 @@ export const checkBriefWaiter = internalMutation({
       return null;
     }
     const alive =
-      preparation !== null && preparation.status === "running" && preparation.attemptId === waiter.attemptId;
+      preparation !== null &&
+      ((preparation.status === "running" && preparation.attemptId === waiter.attemptId) ||
+        (preparation.status === "queued" && waiter.attemptId === QUEUED_ATTEMPT));
     const deadline = waiter.deadlineAt ?? now;
     if (alive && now < deadline) {
       await ctx.scheduler.runAfter(Math.min(WAITER_CHECK_MS, deadline - now), internal.briefPreparations.checkBriefWaiter, {

@@ -27,7 +27,12 @@ import { requireSeedInitialization } from "./seedGuards";
 import { MAX_BRIEF_ENTRY_ROWS, persistDerivedBriefHandler, readBriefSourceRows } from "./brief";
 import { generationBriefKey } from "../briefPreparationKey";
 import { briefPreparationEnabled } from "../../appSettings";
-import { PREPARATION_READY_CONTENT_MS, WAITER_DEADLINE_MS } from "../../briefPreparations";
+import {
+  PREPARATION_READY_CONTENT_MS,
+  QUEUED_ATTEMPT,
+  QUEUED_WAITER_DEADLINE_MS,
+  WAITER_DEADLINE_MS,
+} from "../../briefPreparations";
 import { validateCitation } from "../citations";
 import { citationSpeakerReader } from "../citationSpeakers";
 import { appendReadingFactsHandler, READING_FACTS_PER_WRITE, type ReadingFact } from "../readingFacts";
@@ -109,6 +114,47 @@ async function preparationForKey(
     .order("desc")
     .take(20);
   return rows.find((row) => row.status === "ready" || row.status === "running") ?? null;
+}
+
+/**
+ * A project run started while the preparation confirmed for exactly its
+ * files is still queued (2026-09-27, fourth, lead decision): its slot is
+ * still being freed by the reading it replaced. The run waits on it as on a
+ * running one, for at most QUEUED_WAITER_DEADLINE_MS before it dispatches;
+ * once it runs, the usual wait applies, and its key is checked at adoption
+ * as always. Null when there is no such preparation.
+ */
+async function attachToQueued(ctx: MutationCtx, generation: Doc<"generations">): Promise<PreparedBriefAdoption | null> {
+  const now = Date.now();
+  const sorted = (ids: readonly string[] | undefined) => JSON.stringify([...(ids ?? [])].sort());
+  const queued = (
+    await ctx.db
+      .query("briefPreparations")
+      .withIndex("by_projectId_and_status", (q) => q.eq("projectId", generation.projectId).eq("status", "queued"))
+      .take(5)
+  ).find(
+    (row) =>
+      row.confirmedAt !== undefined &&
+      row.confirmedAt > now - QUEUED_WAITER_DEADLINE_MS &&
+      sorted(row.excludedTranscriptIds) === sorted(generation.excludedSources?.transcriptIds) &&
+      sorted(row.excludedDocumentIds) === sorted(generation.excludedSources?.documentIds)
+  );
+  if (!queued) return null;
+  const deadlineAt = now + QUEUED_WAITER_DEADLINE_MS;
+  const waiterId = await ctx.db.insert("briefPreparationWaiters", {
+    preparationId: queued._id,
+    projectId: generation.projectId,
+    generationId: generation._id,
+    attemptId: QUEUED_ATTEMPT,
+    status: "waiting",
+    registeredAt: now,
+    deadlineAt,
+  });
+  await ctx.scheduler.runAfter(QUEUED_WAITER_DEADLINE_MS, internal.briefPreparations.checkBriefWaiter, { waiterId });
+  await ctx.db.patch(generation._id, {
+    briefPreparation: { preparationId: queued._id, attemptId: QUEUED_ATTEMPT, state: "attached", at: now },
+  });
+  return { kind: "attached" };
 }
 
 async function adopt(
@@ -256,7 +302,7 @@ export async function adoptPreparedBriefHandler(
             .query("briefPreparations")
             .withIndex("by_projectId_and_status", (q) => q.eq("projectId", generation.projectId).eq("status", "running"))
             .first());
-    if (!candidate) return { kind: "miss" };
+    if (!candidate) return (released ? null : await attachToQueued(ctx, generation)) ?? { kind: "miss" };
   }
   const sources = await readBriefSourceRows(ctx, generation._id);
   const key = await generationBriefKey(ctx, generation, sources);
@@ -270,6 +316,10 @@ export async function adoptPreparedBriefHandler(
     preparation.contentPurgedAt !== undefined ||
     (attached && preparation.attemptId !== attached.attemptId)
   ) {
+    if (!attached && !released) {
+      const waiting = await attachToQueued(ctx, generation);
+      if (waiting) return waiting;
+    }
     await releaseAttachment(ctx, generation);
     return { kind: "miss" };
   }

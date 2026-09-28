@@ -1,3 +1,4 @@
+import { countTextWords } from "../shared/wordCount";
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
@@ -187,6 +188,7 @@ export const uploadDocument = mutation({
       fileName: args.fileName,
       fileType: args.fileType,
       content: args.content,
+      wordCount: countTextWords(args.content),
       ...(args.storageId ? { storageId: args.storageId } : {}),
       ...(args.mimeType ? { mimeType: args.mimeType } : {}),
       ...(args.category ? { category: args.category } : {}),
@@ -218,11 +220,6 @@ export const uploadDocument = mutation({
   },
 });
 
-function countContentWords(text: string): number {
-  const trimmed = text.trim();
-  return trimmed ? trimmed.split(/\s+/).length : 0;
-}
-
 export const listDocuments = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
@@ -251,8 +248,9 @@ export const listDocuments = query({
           category: d.category ?? null,
           createdAt: d.createdAt,
           sizeChars: d.content.length,
-          // The project page's start dialog names each file's length (2026-09-27, fourth).
-          wordCount: countContentWords(d.content),
+          // The project page's start dialog names each file's length
+          // (2026-09-27, fourth): stored at upload, counted for older rows.
+          wordCount: d.wordCount ?? countTextWords(d.content),
           hasFile: !!d.storageId,
           mimeType: d.mimeType ?? null,
           url: d.storageId ? await ctx.storage.getUrl(d.storageId) : null,

@@ -36,6 +36,7 @@ import { clientForStep, resetGenerationModelCache, resetGenerationPlaceholderCac
 import { resolveGenerationStep } from "./lib/generationSteps";
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import { PROMOTION_CONFIRMED_WAIT_MS } from "./intakeDrafts";
+import { QUEUED_WAITER_DEADLINE_MS } from "./briefPreparations";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -323,6 +324,7 @@ describe("reload restores the draft", () => {
       interviewerUserId: null,
       interviewees: ["Priya Raman"],
       excludedSourceKeys: ["document-key-2"],
+      pendingReads: 0,
     });
     expect(restored!.sources.map((source) => [source.sourceKey, source.kind, source.position, source.label])).toEqual([
       ["transcript-key-1", "transcript", 0, "Interview"],
@@ -461,10 +463,10 @@ describe("last-second changes on New project", () => {
     expect((await row(s, confirmed._id)).status).toBe("ready");
   });
 
-  test("the promotion waits at most 45 seconds for a confirmed start, then ends it", async () => {
+  test("a confirmed start held by another draft's call is not waited for: it ends and the promotion completes at once (review P2-2)", async () => {
     const s = await setup();
     const draftId = await preparedDraft(s);
-    // A call of the same user's other draft holds the user's slot for good.
+    // A call of the same user's other draft holds the user's slot.
     await s.t.run(async (ctx) => {
       const other = await ctx.db.insert("intakeDrafts", {
         ownerId: s.userId, status: "open", createdAt: Date.now(), lastEditedAt: Date.now(),
@@ -481,12 +483,38 @@ describe("last-second changes on New project", () => {
     });
     const confirmed = (await draftPreparations(s, draftId)).find((prep) => prep.confirmedAt !== undefined)!;
     expect(confirmed).toMatchObject({ status: "queued", waitingFor: "slot" });
+    const done = await promote(s, draftId);
+    expect(done.complete).toBe(true);
+    expect(await row(s, confirmed._id)).toMatchObject({ status: "cancelled", endedReason: "promoted" });
+    expect(briefRequests).toHaveLength(1);
+  });
+
+  test("the promotion waits at most 45 seconds even for its own replaced reading, then ends the confirmed start", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, draftId, "transcript-key-1");
+    await saveDocument(s, draftId, "document-key-1", "cold-soak.txt", DOCUMENT, 1000);
+    await saveDocument(s, draftId, "document-key-2", "later-notes.txt", LATER, 1001);
+    await s.writer.mutation(intakeDraftRefs.updateIntakeContext, { draftId, clientName: "Acme Seals", interviewees: ["Priya Raman"] });
+    // Claimed; its call never ends within the test (its action is never run).
+    vi.advanceTimersByTime(6_000);
+    for (let step = 0; step < 4; step += 1) {
+      const queued = (await draftPreparations(s, draftId)).find((prep) => prep.status === "queued");
+      if (!queued) break;
+      await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId: queued._id, revision: queued.revision });
+    }
+    expect((await draftPreparations(s, draftId))[0].status).toBe("running");
+    await s.writer.mutation(intakeDraftRefs.setIntakeSelection, {
+      draftId, excludedSourceKeys: ["document-key-2"], confirm: true,
+    });
+    const confirmed = (await draftPreparations(s, draftId)).find((prep) => prep.confirmedAt !== undefined)!;
+    expect(confirmed).toMatchObject({ status: "queued", waitingFor: "slot" });
     expect((await promote(s, draftId)).complete).toBe(false);
     vi.advanceTimersByTime(PROMOTION_CONFIRMED_WAIT_MS + 1_000);
     const done = await promote(s, draftId, "command-2");
     expect(done.complete).toBe(true);
     expect(await row(s, confirmed._id)).toMatchObject({ status: "cancelled", endedReason: "promoted" });
-    expect(briefRequests).toHaveLength(1);
+    expect(briefRequests).toHaveLength(0);
   });
 
   test("a confirmed start keeps every limit: past the day's starts it is refused and nothing is dispatched", async () => {
@@ -598,9 +626,46 @@ describe("the project page start dialog", () => {
     expect(briefRequests).toHaveLength(2);
   });
 
-  test("a confirmed start that must wait for the slot is not sent past the limit, and ends once the run is going", async () => {
+  test("a run waits on a confirmed start still queued for its slot, which then dispatches, and adopts it (lead decision)", async () => {
     const s = await projectSetup();
-    // The user's slot is held by a call on another project.
+    // The project's earlier reading is claimed and its call is in flight.
+    await s.t.run(async (ctx) => requestBriefPreparation(ctx, s.projectId, { userId: s.userId, reason: "document_added" }));
+    vi.advanceTimersByTime(6_000);
+    const first = (await projectPreparations(s))[0];
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId: first._id, revision: first.revision });
+    expect((await row(s, first._id)).status).toBe("running");
+    // Unticked and started: the old reading is superseded, the new one waits for the slot.
+    await select(s, [s.laterId], true);
+    const confirmed = (await projectPreparations(s)).find((prep) => prep.confirmedAt !== undefined)!;
+    expect(confirmed).toMatchObject({ status: "queued", waitingFor: "slot" });
+    const generationId = await reserve(s, s.projectId, { excludeDocumentIds: [s.laterId] });
+    expect((await adoptAtStart(s, generationId)).kind).toBe("attached");
+    const waiter = await s.t.run(async (ctx) =>
+      ctx.db.query("briefPreparationWaiters").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).unique()
+    );
+    expect(waiter).toMatchObject({ preparationId: confirmed._id, attemptId: "queued", status: "waiting" });
+    // The old call ends, the slot frees and the confirmed start dispatches,
+    // though the run is going: the run waits on it.
+    await runDue(s);
+    await runDue(s);
+    const dispatched = await row(s, confirmed._id);
+    expect(dispatched.status).not.toBe("queued");
+    const bound = await s.t.run(async (ctx) => ({
+      waiter: await ctx.db.get(waiter!._id),
+      generation: await ctx.db.get(generationId),
+    }));
+    expect(bound.waiter?.attemptId).toBe(dispatched.attemptId);
+    expect(bound.generation?.briefPreparation?.attemptId).toBe(dispatched.attemptId);
+    await settle(s, 3);
+    expect((await row(s, confirmed._id)).status).toBe("ready");
+    // One call in all: the old one never called, the run paid for none.
+    expect(briefRequests).toHaveLength(1);
+    expect((await s.t.run(async (ctx) => ctx.db.get(generationId)))?.briefPreparation?.state).toBe("adopted");
+  });
+
+  test("a queued confirmed start that has not dispatched within 30 seconds lets the run go, which derives its own", async () => {
+    const s = await projectSetup();
+    // The user's slot is held by a call on another project that never ends here.
     await s.t.run(async (ctx) => {
       const other = await ctx.db.insert("projects", {
         title: "Other", clientName: "Other Co", status: "draft", projectType: "writing", ownerId: s.userId,
@@ -616,11 +681,71 @@ describe("the project page start dialog", () => {
     const confirmed = (await projectPreparations(s)).find((prep) => prep.confirmedAt !== undefined)!;
     expect(confirmed).toMatchObject({ status: "queued", waitingFor: "slot" });
     const generationId = await reserve(s, s.projectId, { excludeDocumentIds: [s.laterId] });
-    expect((await adoptAtStart(s, generationId)).kind).toBe("derived");
+    expect((await adoptAtStart(s, generationId)).kind).toBe("attached");
+    vi.advanceTimersByTime(QUEUED_WAITER_DEADLINE_MS + 1_000);
+    await s.t.finishInProgressScheduledFunctions();
+    const released = await s.t.run(async (ctx) =>
+      ctx.db.query("briefPreparationWaiters").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).unique()
+    );
+    expect(released?.status).toBe("released");
+    expect((await s.t.run(async (ctx) => ctx.db.get(generationId)))?.briefPreparation?.state).toBe("released");
+    // Its next look finds the run going with nobody waiting: it ends, unsent.
     vi.advanceTimersByTime(31_000);
     await s.t.finishInProgressScheduledFunctions();
     expect(await row(s, confirmed._id)).toMatchObject({ status: "cancelled", endedReason: "generation_active" });
+    expect((await row(s, confirmed._id)).dispatchedAt).toBeUndefined();
     // Only the run's own Brief was paid for.
     expect(briefRequests).toHaveLength(1);
+  });
+
+  test("Cancel spends nothing: the queued start for the unticked files ends, and a later change reads every file (review P3-5)", async () => {
+    const s = await projectSetup();
+    await select(s, [s.laterId]);
+    const queued = (await projectPreparations(s))[0];
+    expect(queued.status).toBe("queued");
+    await s.writer.mutation(api.briefPreparations.setProjectStartSelection, {
+      projectId: s.projectId, excludedTranscriptIds: [], excludedDocumentIds: [], cancel: true,
+    });
+    expect(await row(s, queued._id)).toMatchObject({ status: "cancelled", endedReason: "dialog_cancelled" });
+    await settle(s, 3);
+    expect(briefRequests).toHaveLength(0);
+    // The list no longer applies to the next evidence change.
+    await s.writer.mutation(api.documents.uploadDocument, {
+      projectId: s.projectId, fileName: "rig.txt", fileType: "txt", content: "Rig notes: the chamber held minus 30.",
+      source: "context_input", category: "background",
+    });
+    const next = (await projectPreparations(s)).find((prep) => prep.status === "queued")!;
+    expect(next.excludedDocumentIds).toBeUndefined();
+    // The uploaded file's words are stored with it.
+    const rig = await s.t.run(async (ctx) =>
+      (await ctx.db.query("projectDocuments").withIndex("by_projectId", (q) => q.eq("projectId", s.projectId)).collect()).find(
+        (document) => document.fileName === "rig.txt"
+      )
+    );
+    expect(rig?.wordCount).toBe(7);
+  });
+});
+
+describe("reload details (review P2-1, P3-1)", () => {
+  test("the count of files still being read comes back while it is fresh, and a report's fiscal year is kept", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await s.writer.mutation(intakeDraftRefs.saveIntakeSource, {
+      draftId, sourceKey: "report-key-1", kind: "document", position: 1000, label: "FY2023 PD.docx", content: "",
+      fileType: "docx", category: "previous_pd", intake: "file", extractionOutcome: "ok", fiscalYear: 2023,
+    });
+    await s.writer.mutation(intakeDraftRefs.reportIntakePendingReads, { draftId, count: 2 });
+    const fresh = await s.writer.query(intakeDraftRefs.restoreIntakeDraft, { draftId });
+    expect(fresh?.pendingReads).toBe(2);
+    expect(fresh?.sources[0]).toMatchObject({ sourceKey: "report-key-1", fiscalYear: 2023, contentLength: 0 });
+    await expect(
+      s.writer.mutation(intakeDraftRefs.saveIntakeSource, {
+        draftId, sourceKey: "report-key-2", kind: "document", position: 1001, label: "x.docx", content: "",
+        fileType: "docx", category: "previous_pd", intake: "file", extractionOutcome: "ok", fiscalYear: 20.5,
+      })
+    ).rejects.toThrow(/fiscal year/);
+    // A count not refreshed for 90 seconds (the old page is gone) is not reported.
+    vi.advanceTimersByTime(91_000);
+    expect((await s.writer.query(intakeDraftRefs.restoreIntakeDraft, { draftId }))?.pendingReads).toBe(0);
   });
 });
