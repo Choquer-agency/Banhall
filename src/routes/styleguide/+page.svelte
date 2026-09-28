@@ -168,7 +168,7 @@
       {/each}
       <div class="flex items-baseline gap-6 px-5 py-4">
         <code class="text-data w-28 flex-shrink-0 text-gray-500">font-serif</code>
-        <span class="font-serif text-[0.9375rem] leading-relaxed">Report prose — Georgia, reserved for the document editor and report previews.</span>
+        <span class="font-serif text-[0.9375rem] leading-relaxed">Report prose: Georgia, reserved for the document editor and report previews.</span>
       </div>
     </div>
 
