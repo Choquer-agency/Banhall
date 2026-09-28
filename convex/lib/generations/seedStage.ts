@@ -53,6 +53,7 @@ import { appendGenerationProgress } from "../generationProgress";
 import { isProjectDeleting } from "../projectDeletion";
 import { internal } from "../../_generated/api";
 import { SEED_DECISION_COLLECTION_ROWS } from "../seedDecisionState";
+import { editedTermsOf, MAX_EDITED_TERMS_PER_LINE } from "../editedTerms";
 
 export const generateOrderedSectionRef = makeFunctionReference<
   "action",
@@ -742,9 +743,15 @@ export async function loadFrozenSectionPlan(
     /** Quotes marked for a check that were left out of this item's evidence. */
     quotesLeftOut?: number;
   }>;
+  /**
+   * 2026-09-28 (second, edited terms): the writer's edited terms in this
+   * Line's COVER items (conflicts aside), kept word for word by drafting,
+   * compression and the repair.
+   */
+  editedTerms: string[];
 }> {
   if (!generation.summaryVersionId) {
-    return { planBlock: "", planChecksBlock: "", planChecks: [] };
+    return { planBlock: "", planChecksBlock: "", planChecks: [], editedTerms: [] };
   }
   const summary = await ctx.db.get(generation.summaryVersionId);
   if (!summary || summary.projectId !== generation.projectId) {
@@ -786,7 +793,30 @@ export async function loadFrozenSectionPlan(
     referencesBySeedId,
     sourceRefsByItemId,
   });
+  // An edited item's terms: what the writer changed or added compared with
+  // the model's original Seed (immutable). Items frozen before 2026-09-24
+  // lack the flag and compare wording, as the Summary reader does.
+  const itemsById = new Map(items.map((item) => [item._id, item] as const));
+  const editedTerms: string[] = [];
+  for (const check of plan.checks) {
+    if (check.instruction !== "cover" || check.confirmedExclusion) continue;
+    for (const itemId of check.mergedItemIds) {
+      const item = itemsById.get(itemId);
+      if (!item || item.edited === false) continue;
+      const seed = await ctx.db.get(item.seedId);
+      if (!seed || seed.projectId !== generation.projectId) continue;
+      if (item.edited === undefined && stableSerialize(item.bullets) === stableSerialize(seed.bullets)) {
+        continue;
+      }
+      for (const term of editedTermsOf(seed.bullets, item.bullets)) {
+        if (!editedTerms.some((known) => known.toLowerCase() === term.toLowerCase())) {
+          editedTerms.push(term);
+        }
+      }
+    }
+  }
   return {
+    editedTerms: editedTerms.slice(0, MAX_EDITED_TERMS_PER_LINE),
     planBlock: `\n\n${plan.block}`,
     planChecksBlock: plan.checksBlock,
     planChecks: plan.checks.map((check) => ({

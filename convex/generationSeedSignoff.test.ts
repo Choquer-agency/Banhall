@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
+import { loadFrozenSectionPlan } from "./lib/generations/seedStage";
 import {
   makeFunctionReference,
   type FunctionArgs,
@@ -1955,6 +1956,44 @@ describe("seed Summary sign-off and recovery", () => {
     for (const item of coverItems) expect(drafted?.draftText).toContain(item);
     expect(JSON.parse(drafted?.metrics ?? "null")).toMatchObject({ overLimit: false });
     vi.unstubAllEnvs();
+  });
+
+  it("freezes a writer's edited term with the Line it belongs to (2026-09-28 second, edited terms)", async () => {
+    const s = await productionInitializedFixture();
+    await makeReady(s);
+    // The writer adds a team term to the Company / Context Seed (fictional).
+    await s.t.run(async (ctx) => {
+      const selection = (await ctx.db.query("seedSelections")
+        .withIndex("by_generationId_and_roleId", (q) =>
+          q.eq("generationId", s.generationId).eq("roleId", "company_context"))
+        .take(5)).find((row) => row.selected);
+      if (!selection) throw new Error("Missing company_context selection");
+      await ctx.db.patch(selection._id, {
+        editedBullets: [
+          "Final company_context wording. The team calls the graded structure the cascade-fired lattice.",
+        ],
+        editedBy: s.userId,
+        editedAt: 6,
+      });
+    });
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const plans = await s.t.run(async (ctx) => {
+      const generation = await ctx.db.get(s.generationId);
+      if (!generation) throw new Error("Missing generation");
+      return {
+        s242: await loadFrozenSectionPlan(ctx, generation, "242"),
+        s244: await loadFrozenSectionPlan(ctx, generation, "244"),
+        s246: await loadFrozenSectionPlan(ctx, generation, "246"),
+      };
+    });
+    // Only the added term: not the plain words around it, and not the
+    // "Edited ... wording." changes makeReady makes to two other Seeds.
+    expect(plans.s242.editedTerms).toEqual(["cascade-fired lattice"]);
+    expect(plans.s244.editedTerms).toEqual([]);
+    expect(plans.s246.editedTerms).toEqual([]);
   });
 
   it("attributes initialization-to-sign-off program drift at the first provider boundary", async () => {

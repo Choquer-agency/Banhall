@@ -210,6 +210,16 @@ export const COMPRESSION_REQUEST = {
     itemSeparator: "\n",
     suffix: "\n\n",
   },
+  /**
+   * 2026-09-28 (second, edited terms): a writer's edited terms, kept word
+   * for word (a Must keep point keeps only its point). Only present when the
+   * Line has edited terms.
+   */
+  exactTerms: {
+    prefix:
+      "Writer's exact terms: keep each one word for word, exactly as written, not only its point: ",
+    suffix: ".\n\n",
+  },
   userScaffold: {
     prefix: "This section is ",
     linesToWords: " lines and ",
@@ -224,6 +234,7 @@ export const COMPRESSION_REQUEST = {
       " percent of it, while preserving the technical substance. Merge paragraphs where natural; fewer paragraph breaks save lines.\n\n",
     runtimeSentinels: [
       "{{runtime.mustKeep}}",
+      "{{runtime.exactTerms}}",
       "{{runtime.currentLines}}",
       "{{runtime.currentWords}}",
       "{{runtime.lineLimit}}",
@@ -331,7 +342,26 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
       "\n\n## Self-check repair (high priority)\nThe draft below failed its Self-check. Rewrite it to fix every issue listed and change nothing else: keep every supported technical claim, the paragraph structure, the length budget and the evidence rules. Hedge any fact the Confidence Map marks unresolved or unreliable; never state it flatly. Return ONLY the revised section text.\n\nIssues:\n",
     issuePrefix: "- ",
     issueSeparator: "\n",
+    // 2026-09-28 (second, edited terms): in release suite run 4 the
+    // Self-check called a writer's edited term invented and the repair
+    // removed it. Only present when the Line has edited terms.
+    exactTermsPrefix:
+      "\n\nKeep the writer's exact terms word for word, even where an issue above calls one unsupported or invented: ",
+    exactTermsSuffix: ".",
     draftPrefix: "\n\nDraft to revise:\n",
+  },
+  // 2026-09-28 (second, edited terms): the terms a writer changed or added
+  // in a signed-off Seed Selection (CAP-13), read before the Locked length.
+  editedTerms: {
+    prefix:
+      "\n\n# WRITER'S EXACT TERMS (use word for word)\nThe writer edited the plan to use these terms. Use each one in this Line exactly as written, word for word; never paraphrase, split or drop one, even where the Storyline or the sources do not use it: ",
+    suffix: ".",
+  },
+  /** How a list of exact terms is written in any request. */
+  exactTermList: {
+    termPrefix: "\"",
+    termSuffix: "\"",
+    separator: ", ",
   },
   // 2026-09-28 (second): a signed-off plan asks the drafter to cover every
   // item, which pushed a Line 246 draft 50 percent over its word cap. This
@@ -348,6 +378,7 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
   runtimeSentinels: [
     "{{runtime.draftedPriorSections}}",
     "{{runtime.selfCheckIssues}}",
+    "{{runtime.editedTerms}}",
     "{{runtime.sectionDraft}}",
     "{{runtime.wordCap}}",
     "{{runtime.lineLimit}}",

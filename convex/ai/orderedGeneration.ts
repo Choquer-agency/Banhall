@@ -35,6 +35,7 @@ import {
   buildStyleGuidance,
   compressWithinLimit,
   lengthBudgetBlock,
+  quotedTerms,
   limitOverage,
   type LimitFit,
   provenanceDrafts,
@@ -86,6 +87,7 @@ import {
   type ModelVerdict,
 } from "../lib/selfCheckRules";
 import { noteDraft, type ComplianceNoteDraft } from "../lib/complianceNote";
+import { containsTerm } from "../lib/editedTerms";
 import { generationPromptVersion } from "./promptProgram";
 import { forwardOrderedPayload } from "../lib/orderedPayloadStore";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
@@ -133,12 +135,39 @@ export function draftedPriorSectionsBlock(
   return `${scaffold.prefix}${body}`;
 }
 
-/** The repair instruction appended to the section agent's prompt. */
-export function repairGuidanceBlock(issues: string[], draft: string): string {
+/**
+ * The repair instruction appended to the section agent's prompt. A Line with
+ * edited terms (2026-09-28 second, edited terms) also tells the repair to
+ * keep them word for word, whatever an issue says about them.
+ */
+export function repairGuidanceBlock(
+  issues: string[],
+  draft: string,
+  editedTerms: readonly string[] = []
+): string {
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.repairGuidance;
+  const terms =
+    editedTerms.length > 0
+      ? `${scaffold.exactTermsPrefix}${quotedTerms(editedTerms)}${scaffold.exactTermsSuffix}`
+      : "";
   return `${scaffold.prefix}${issues
     .map((issue) => `${scaffold.issuePrefix}${issue}`)
-    .join(scaffold.issueSeparator)}${scaffold.draftPrefix}${draft}`;
+    .join(scaffold.issueSeparator)}${terms}${scaffold.draftPrefix}${draft}`;
+}
+
+/**
+ * 2026-09-28 (second, edited terms): the writer's edited terms, read after
+ * the plan and the Brief and before the Locked length. Empty without any.
+ */
+export function editedTermsBlock(editedTerms: readonly string[]): string {
+  if (editedTerms.length === 0) return "";
+  const scaffold = ORDERED_PROMPT_SCAFFOLDS.editedTerms;
+  return `${scaffold.prefix}${quotedTerms(editedTerms)}${scaffold.suffix}`;
+}
+
+/** Why a repair that dropped a writer's edited term was not used. */
+export function repairDroppedTermReason(term: string): string {
+  return `the repaired text dropped the writer's edited term "${term}", so the checked draft was kept`;
 }
 
 /**
@@ -263,6 +292,11 @@ export function planComplianceNoteDrafts(args: {
   repairShortened?: boolean;
   coverageCheckSucceeded?: boolean;
   finalCoverage?: { ok: true; verdicts: PlanVerdicts } | { ok: false };
+  /**
+   * 2026-09-28 (second, edited terms): why the repair came back but was not
+   * used, recorded on the rows that were sent to it.
+   */
+  repairNotUsedReason?: string;
 }): ComplianceNoteDraft[] {
   return args.verdicts.flatMap((verdict) => {
     const expected = args.checks.find((check) =>
@@ -319,6 +353,14 @@ export function planComplianceNoteDrafts(args: {
     }
     // A repair compression then changed was never checked again.
     const notReverified = sentToRepair && args.repairShortened === true;
+    const repairNotUsed =
+      !args.repairSucceeded &&
+      args.repairNotUsedReason !== undefined &&
+      verdict.outcome === "not_applied" &&
+      verdict.actionableRepair !== false &&
+      args.coverageCheckSucceeded !== false
+        ? `; repair not used (${args.repairNotUsedReason})`
+        : "";
     return [noteDraft({
       section: args.section,
       ...(verdict.paragraphIndex === undefined ? {} : { paragraphIndex: verdict.paragraphIndex }),
@@ -328,7 +370,7 @@ export function planComplianceNoteDrafts(args: {
       tier: "none",
       reason: notReverified
         ? `${verdict.reason}; repaired, then shortened to fit the Line limit, so not re-verified`
-        : verdict.reason,
+        : `${verdict.reason}${repairNotUsed}`,
       repaired: sentToRepair && !notReverified,
       planRef,
     })];
@@ -506,7 +548,7 @@ export async function draftCheckedSection(input: {
         // A signed-off plan run restates the Locked length last, after the
         // plan and the Brief (review P3-5).
         claim.planBlock
-          ? claim.briefBlock + planLengthBudgetBlock(key, lengthTarget)
+          ? claim.briefBlock + editedTermsBlock(claim.editedTerms) + planLengthBudgetBlock(key, lengthTarget)
           : claim.briefBlock,
         claim.planBlock
       ),
@@ -537,7 +579,8 @@ export async function draftCheckedSection(input: {
     text,
     lengthTarget,
     styleOverrides,
-    coverItems
+    coverItems,
+    claim.editedTerms
   );
   if (firstFit.error !== undefined) {
     if (firstFit.text === text) throw firstFit.error;
@@ -645,7 +688,7 @@ export async function draftCheckedSection(input: {
       // appended: a separate model interaction, never an inline edit.
       const repaired = await draftWith(
         `generation:repair:${section}`,
-        repairGuidanceBlock(issues, text)
+        repairGuidanceBlock(issues, text, claim.editedTerms)
       );
       if (repaired.trim()) {
         // 2026-09-28 (second): the repair is a whole new draft, so it is
@@ -653,7 +696,14 @@ export async function draftCheckedSection(input: {
         // the checked draft, keeping the COVER items and the fixes it was
         // made for (length guidance aside). A compression that fails here
         // (a provider error, the action deadline) keeps its best text so far.
-        const fixes = issues.filter((issue) => !issue.startsWith("Shorten "));
+        // A fix that names an edited term (to add it, or to call it
+        // invented) is not a Must keep point: the term itself is kept word
+        // for word as an exact term.
+        const fixes = issues.filter(
+          (issue) =>
+            !issue.startsWith("Shorten ") &&
+            !claim.editedTerms.some((term) => containsTerm(issue, term))
+        );
         const fit = await compressWithinLimit(
           clientFor,
           claim.model,
@@ -661,7 +711,13 @@ export async function draftCheckedSection(input: {
           repaired,
           lengthTarget,
           styleOverrides,
-          [...coverItems, ...fixes]
+          [...coverItems, ...fixes],
+          claim.editedTerms
+        );
+        // CAP-13: a repair never removes a writer's edited term the checked
+        // draft held (release suite run 4).
+        const droppedTerm = claim.editedTerms.find(
+          (term) => containsTerm(text, term) && !containsTerm(fit.text, term)
         );
         const failure =
           fit.error === undefined
@@ -676,6 +732,8 @@ export async function draftCheckedSection(input: {
           repair.notUsedReason = `${repairOverLimitReason(section, metrics.words, metrics.lines)}${
             failure ? `; ${failure}` : ""
           }`;
+        } else if (droppedTerm !== undefined) {
+          repair.notUsedReason = `${repairDroppedTermReason(droppedTerm)}${failure ? `; ${failure}` : ""}`;
         } else {
           finalText = fit.text;
           repair.succeeded = true;
@@ -769,6 +827,7 @@ export async function draftCheckedSection(input: {
       checks: claim.planChecks,
       verdicts: planVerdicts,
       repairSucceeded: repair.succeeded,
+      ...(repair.notUsedReason ? { repairNotUsedReason: repair.notUsedReason } : {}),
       repairShortened: repair.shortened === true,
       coverageCheckSucceeded: modelCheck.ok,
       ...(finalCoverage ? { finalCoverage } : {}),

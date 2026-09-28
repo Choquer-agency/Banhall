@@ -86,8 +86,10 @@ import { orderedProfileContextValidator } from "../lib/orderedChain";
 import {
   COMPRESSION_REQUEST,
   LENGTH_BUDGET_SCAFFOLD,
+  ORDERED_PROMPT_SCAFFOLDS,
   STYLE_GUIDANCE_SCAFFOLDS,
 } from "./promptDefinitions";
+import { containsTerm } from "../lib/editedTerms";
 
 export type { BrainExemplarBlocks };
 
@@ -155,6 +157,20 @@ function mustKeepBlock(mustKeep: readonly string[]): string {
     .join(scaffold.itemSeparator)}${scaffold.suffix}`;
 }
 
+/** A list of a writer's exact terms as every request writes it: "a", "b". */
+export function quotedTerms(terms: readonly string[]): string {
+  const list = ORDERED_PROMPT_SCAFFOLDS.exactTermList;
+  return terms.map((term) => `${list.termPrefix}${term}${list.termSuffix}`).join(list.separator);
+}
+
+/** 2026-09-28 (second, edited terms): the writer's exact terms, word for word. */
+function exactTermsBlock(exactTerms: readonly string[]): string {
+  const terms = exactTerms.map((term) => term.trim()).filter(Boolean);
+  if (terms.length === 0) return "";
+  const scaffold = COMPRESSION_REQUEST.exactTerms;
+  return `${scaffold.prefix}${quotedTerms(terms)}${scaffold.suffix}`;
+}
+
 /** BNH-45: compression pass for a section that overflows the form. */
 export async function compressSection(
   anthropic: GenerationClient,
@@ -163,7 +179,8 @@ export async function compressSection(
   text: string,
   target: LengthTarget,
   squeeze = 1,
-  mustKeep: readonly string[] = []
+  mustKeep: readonly string[] = [],
+  exactTerms: readonly string[] = []
 ): Promise<string> {
   const m = sectionMetrics(text, section);
   const words = compressionTargetWords(section, target, squeeze, m);
@@ -181,7 +198,7 @@ export async function compressSection(
       messages: [
         {
           role: "user",
-          content: `${mustKeepBlock(mustKeep)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToTarget}${words}${scaffold.targetToCut}${cut}${scaffold.cutToPercent}${cutPercent}${scaffold.percentToText}${text}`,
+          content: `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToTarget}${words}${scaffold.targetToCut}${cut}${scaffold.cutToPercent}${cutPercent}${scaffold.percentToText}${text}`,
         },
       ],
     });
@@ -272,17 +289,25 @@ function negationsIn(text: string): Set<string> {
  * it negates, that the text holds and a Must keep line also holds must still
  * appear somewhere in the pass; any other number or negation may go with the
  * detail it belongs to (the request forbids changing one). A pass under
- * `targetFloor` of its word target cut content, not wording.
+ * `targetFloor` of its word target cut content, not wording. A writer's
+ * edited term the text holds must still appear word for word (containsTerm;
+ * 2026-09-28 second, edited terms).
  */
 export function compressionLoss(
   input: string,
   output: string,
   key: SectionKey,
   targetWords: number,
-  mustKeep: readonly string[] = []
+  mustKeep: readonly string[] = [],
+  exactTerms: readonly string[] = []
 ): string | null {
   for (const match of input.matchAll(new RegExp(GAP_MARKER_RE.source, "gi"))) {
     if (!output.includes(match[0])) return `dropped the marker ${match[0]}`;
+  }
+  for (const term of exactTerms) {
+    if (containsTerm(input, term) && !containsTerm(output, term)) {
+      return `dropped the writer's term "${term}"`;
+    }
   }
   // A Self-check fix names where it applies ("Paragraph 2: ..."); that
   // label is not content the text must keep.
@@ -342,7 +367,8 @@ export async function compressWithinLimit(
   text: string,
   lengthTarget: LengthTarget,
   styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES,
-  mustKeep: readonly string[] = []
+  mustKeep: readonly string[] = [],
+  exactTerms: readonly string[] = []
 ): Promise<LimitFit> {
   let best = text;
   let passes = 0;
@@ -359,7 +385,8 @@ export async function compressWithinLimit(
         best,
         lengthTarget,
         squeeze,
-        mustKeep
+        mustKeep,
+        exactTerms
       );
     } catch (error) {
       return { text: best, passes, overLimit: metrics.overLimit, error };
@@ -373,7 +400,8 @@ export async function compressWithinLimit(
       out,
       key,
       compressionTargetWords(key, lengthTarget, squeeze, metrics),
-      mustKeep
+      mustKeep,
+      exactTerms
     );
     if (loss) {
       console.warn(`generation:compression:${key.slice(1)}: pass ${passes} not kept: it ${loss}`);

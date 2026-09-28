@@ -152,6 +152,9 @@ function claimFor(planChecks: FrozenSummaryPlanCheck[]) {
     planBlock: "--- BEGIN [SIGNED-OFF CONTENT PLAN] ---\n(fictional plan)\n--- END [SIGNED-OFF CONTENT PLAN] ---",
     planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks),
     planChecks,
+    // 2026-09-28 (second, edited terms): every claim carries its Line's
+    // edited terms; this plan has none.
+    editedTerms: [],
   } as unknown as Parameters<typeof draftCheckedSection>[0]["claim"];
 }
 
