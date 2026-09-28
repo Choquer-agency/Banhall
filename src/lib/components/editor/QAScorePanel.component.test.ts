@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import QAScorePanel from "./QAScorePanel.svelte";
 import TooltipProviderHarness from "$lib/test/TooltipProviderHarness.svelte";
+import { buildTiptapDocument } from "../../../../convex/lib/tiptapReport";
 
 function renderSide(props: Record<string, unknown>) {
   return render(TooltipProviderHarness, { props: { panel: QAScorePanel, panelProps: { variant: "side", ...props } } });
@@ -159,5 +160,40 @@ describe("QAScorePanel after a failed re-run (review f2 #1)", () => {
     const { container } = await renderSide({ rawQa: fullScorecard, lastRunAt: Date.now() });
     const meta = container.querySelector<HTMLElement>("[data-qa-score-meta]")!;
     expect(getComputedStyle(meta).color).toBe("rgb(107, 127, 123)");
+  });
+});
+
+describe("QAScorePanel line limits (2026-09-28, second)", () => {
+  const sentence = "The fitted trial compared a coated window with the uncoated control at 254 nanometres.";
+  const paragraphs = (count: number, each: number) =>
+    Array.from({ length: count }, () => Array.from({ length: each }, () => sentence).join(" ")).join("\n\n");
+
+  it("names a Line created over its CRA limit, with or without a scorecard, and nothing for Lines within it", async () => {
+    const reportContent = JSON.stringify(
+      buildTiptapDocument("Fouling-resistant analyzer", paragraphs(2, 3), paragraphs(3, 4), paragraphs(6, 5))
+    );
+    for (const props of [{ reportContent }, { reportContent, rawQa: scorecard }]) {
+      const { container, unmount } = await render(QAScorePanel, props);
+      const rows = [...container.querySelectorAll<HTMLElement>("[data-qa-line-limit]")];
+      expect(rows.map((row) => row.dataset.qaLineLimit)).toEqual(["246"]);
+      expect(rows[0].textContent?.trim()).toBe(
+        "Line 246 is over the CRA limit: 420 of 350 words, 41 of 50 lines. Shorten it before filing."
+      );
+      unmount();
+    }
+  });
+
+  it("reads the recorded counts before a report exists, and shows nothing once every Line fits", async () => {
+    const over = { words: 440, wordCap: 350, lines: 45, limit: 50, overLimit: true };
+    const within = { words: 300, wordCap: 350, lines: 30, limit: 50, overLimit: false };
+    const agentOutputs = JSON.stringify({ metrics: { s242: within, s244: { ...within, wordCap: 700, limit: 100 }, s246: over } });
+    const first = await render(QAScorePanel, { agentOutputs });
+    expect(first.container.querySelector("[data-qa-line-limit='246']")?.textContent).toContain("440 of 350 words, 45 of 50 lines");
+    first.unmount();
+    const fits = await render(QAScorePanel, {
+      reportContent: JSON.stringify(buildTiptapDocument("Fitted", paragraphs(1, 2), paragraphs(1, 2), paragraphs(1, 2))),
+      agentOutputs,
+    });
+    expect(fits.container.querySelector("[data-qa-line-limits]")).toBeNull();
   });
 });

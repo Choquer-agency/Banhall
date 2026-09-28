@@ -71,6 +71,7 @@
   import { qaBandColors } from "$lib/qa/qaBands";
   import { formatEdited } from "$lib/components/project/details/detailsFormat";
   import { canOverrideQaSeverity } from "../../../../shared/roles";
+  import { reportSectionMetrics, type ReportSectionKey } from "$lib/reportSections";
   import { userErrorMessage } from "$lib/errors";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -214,6 +215,33 @@
     }
 
     return { scorecard: null, unreadable: sawUnreadablePayload };
+  });
+
+  /**
+   * 2026-09-28 (second): every Line over its Locked CRA limit, measured on the
+   * report as it stands (or, before a report exists, on the drafted text the
+   * generation recorded), so a Line created over its limit is named here
+   * until the writer shortens it.
+   */
+  const lineLimitBreaches = $derived.by(() => {
+    type Measured = { words: number; wordCap: number; lines: number; limit: number; overLimit: boolean };
+    let measured: Partial<Record<ReportSectionKey, Measured>> = {};
+    if (reportContent) {
+      measured = reportSectionMetrics(reportContent);
+    } else if (agentOutputs) {
+      try {
+        const parsed: unknown = JSON.parse(agentOutputs);
+        if (typeof parsed === "object" && parsed !== null && "metrics" in parsed) {
+          measured = (parsed.metrics ?? {}) as Partial<Record<ReportSectionKey, Measured>>;
+        }
+      } catch {
+        // No recorded counts: nothing to name.
+      }
+    }
+    return (["s242", "s244", "s246"] as const).flatMap((key) => {
+      const metric = measured[key];
+      return metric?.overLimit === true ? [{ line: key.slice(1), ...metric }] : [];
+    });
   });
 
   const scorecard = $derived(scorecardState.scorecard);
@@ -491,6 +519,20 @@
 
   {#if runQaError}
     <p class="text-xs leading-4 text-red-700" role="alert" data-qa-run-error>{runQaError}</p>
+  {/if}
+
+  {#if lineLimitBreaches.length > 0}
+    <!-- Locked CRA limits: shown with or without a scorecard. -->
+    <div class="flex flex-col gap-2" data-qa-line-limits>
+      <p class="text-[11px] leading-4 font-medium text-ink-muted">Line limits</p>
+      <ul class="flex flex-col gap-1.5">
+        {#each lineLimitBreaches as breach (breach.line)}
+          <li class="rounded-md bg-red-100 px-3 py-2 text-xs leading-[18px] text-red-700" data-qa-line-limit={breach.line}>
+            Line {breach.line} is over the CRA limit: {breach.words} of {breach.wordCap} words, {breach.lines} of {breach.limit} lines. Shorten it before filing.
+          </li>
+        {/each}
+      </ul>
+    </div>
   {/if}
 
 {#if scorecard}
