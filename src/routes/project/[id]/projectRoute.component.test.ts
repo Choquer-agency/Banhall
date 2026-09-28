@@ -68,12 +68,12 @@ describe("/project/[id] route shape", () => {
     __setAuthState({ isLoading: true, isAuthenticated: false });
     await render(ProjectPage, {});
 
-    await expect.poll(() => document.querySelector('[data-workspace-gate-pending="auth"] [data-project-skeleton]')).not.toBeNull();
+    await expect.poll(() => document.querySelector('[data-workspace-gate-pending="auth"][data-panel-skeleton="project"]')).not.toBeNull();
     expect(document.querySelector("[data-workspace-chrome]")).not.toBeNull();
-    expect(document.querySelector("[data-project-skeleton-title]")?.textContent).toBe("Known project title");
+    expect(document.querySelector("[data-workspace-page-header] h1")?.textContent).toBe("Known project title");
 
     __setAuthState({ isLoading: false, isAuthenticated: true });
-    await expect.poll(() => document.querySelector('[data-workspace-gate-pending="decision"] [data-project-skeleton]')).not.toBeNull();
+    await expect.poll(() => document.querySelector('[data-workspace-gate-pending="decision"][data-panel-skeleton="project"]')).not.toBeNull();
     expect(__activeQueryCount("projects:getProject")).toBe(0);
   }, 60000);
 
