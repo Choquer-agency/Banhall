@@ -178,11 +178,19 @@ export const GENERATION_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
   // one follow-up for labels the first answer missed.
   selfCheck: 2,
   repair: 1,
-  // Per Section: the squeezes on the draft, then again on its repair
-  // (2026-09-28, second). Each compression slot is one Section's.
-  compression: COMPRESSION_REQUEST.squeezes.length * 2,
+  compression: COMPRESSION_REQUEST.squeezes.length,
   seeds: 2,
   seedFeedback: 2,
+};
+
+/**
+ * The ordered chain's allowances (2026-09-28, second): each Section's
+ * compression slot also covers the squeezes on its repair. The one-shot and
+ * Section-by-section paths never repair, so they keep the allowance above.
+ */
+export const ORDERED_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
+  ...GENERATION_SLOT_ALLOWANCES,
+  compression: COMPRESSION_REQUEST.squeezes.length * 2,
 };
 
 /** Throws on a `generation:*` label that is not a declared slot. */
@@ -207,7 +215,10 @@ export function generationSlotOf(label: string): string | null {
  * with or without the `generation:` prefix; unknown labels are counted under
  * their own key and never flagged. Pure.
  */
-export function summarizeSlotUsage(counts: Readonly<Record<string, number>>): {
+export function summarizeSlotUsage(
+  counts: Readonly<Record<string, number>>,
+  allowances: Readonly<Record<string, number>> = GENERATION_SLOT_ALLOWANCES
+): {
   counts: Record<string, number>;
   overrun: string[];
 } {
@@ -219,7 +230,7 @@ export function summarizeSlotUsage(counts: Readonly<Record<string, number>>): {
   }
   const overrun = Object.keys(merged)
     .filter((slot) => {
-      const allowance = GENERATION_SLOT_ALLOWANCES[slot.split(":")[0]];
+      const allowance = allowances[slot.split(":")[0]];
       return allowance !== undefined && merged[slot] > allowance;
     })
     .sort();

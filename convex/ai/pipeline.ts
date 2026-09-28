@@ -46,6 +46,7 @@ import {
 import {
   sectionMetrics,
   wordBudget,
+  GAP_MARKER_RE,
   LINE_LIMITS,
   WORD_CAPS,
   CHARS_PER_LINE,
@@ -111,15 +112,40 @@ export function lengthBudgetBlock(section: SectionKey, target: LengthTarget): st
 /**
  * The word target of one compression pass (2026-09-28, second): the
  * section's length budget, never above `capHeadroom` of its Locked word cap,
- * times the pass's squeeze (< 1 tightens the ask on retry).
+ * times the pass's squeeze (< 1 tightens the ask on retry). A section over
+ * its line limit (review P3-2) is also held to the words that fit its lines
+ * at its current words per line, with the same headroom, so a section over
+ * on lines alone is asked for fewer words than it has.
  */
 export function compressionTargetWords(
   section: SectionKey,
   target: LengthTarget,
-  squeeze = 1
+  squeeze = 1,
+  current?: { words: number; lines: number }
 ): number {
-  const ceiling = Math.floor(WORD_CAPS[section] * COMPRESSION_REQUEST.capHeadroom);
-  return Math.round(Math.min(wordBudget(section, target), ceiling) * squeeze);
+  let words = Math.min(
+    wordBudget(section, target),
+    Math.floor(WORD_CAPS[section] * COMPRESSION_REQUEST.capHeadroom)
+  );
+  if (current && current.lines > LINE_LIMITS[section]) {
+    words = Math.min(
+      words,
+      Math.floor(
+        ((current.words * LINE_LIMITS[section]) / current.lines) * COMPRESSION_REQUEST.capHeadroom
+      )
+    );
+  }
+  return Math.round(words * squeeze);
+}
+
+/** Review P2-1: the lines a compression must keep, as the request's opening block. */
+function mustKeepBlock(mustKeep: readonly string[]): string {
+  const items = mustKeep.map((line) => line.trim()).filter(Boolean);
+  if (items.length === 0) return "";
+  const scaffold = COMPRESSION_REQUEST.mustKeep;
+  return `${scaffold.prefix}${items
+    .map((line) => `${scaffold.itemPrefix}${line}`)
+    .join(scaffold.itemSeparator)}${scaffold.suffix}`;
 }
 
 /** BNH-45: compression pass for a section that overflows the form. */
@@ -129,10 +155,11 @@ export async function compressSection(
   section: SectionKey,
   text: string,
   target: LengthTarget,
-  squeeze = 1
+  squeeze = 1,
+  mustKeep: readonly string[] = []
 ): Promise<string> {
   const m = sectionMetrics(text, section);
-  const words = compressionTargetWords(section, target, squeeze);
+  const words = compressionTargetWords(section, target, squeeze, m);
   const scaffold = COMPRESSION_REQUEST.userScaffold;
   let response: GenerationResponse;
   try {
@@ -143,7 +170,7 @@ export async function compressSection(
       messages: [
         {
           role: "user",
-          content: `${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToTarget}${words}${scaffold.targetToText}${text}`,
+          content: `${mustKeepBlock(mustKeep)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToTarget}${words}${scaffold.targetToText}${text}`,
         },
       ],
     });
@@ -204,8 +231,54 @@ export function limitOverage(text: string, key: SectionKey): number {
   return Math.max(metrics.words / metrics.wordCap, metrics.lines / metrics.limit);
 }
 
-/** What the compression passes left: the text kept, how many passes ran and whether it is still over. */
-export type LimitFit = { text: string; passes: number; overLimit: boolean };
+const NUMBER_RE = /\d+(?:[.,]\d+)*/g;
+const NEGATION_RE = /\b(?:not|no|never|cannot|none|neither|nor|without)\b|n't\b/gi;
+
+function numbersIn(text: string): Set<string> {
+  // "1,200" and "1200" are the same number; a trailing comma is punctuation.
+  return new Set([...text.matchAll(NUMBER_RE)].map((match) => match[0].replace(/,/g, "")));
+}
+
+/**
+ * Review P2-1: why a compression pass dropped required content, or null when
+ * it kept it. A pass must keep every [GAP] marker verbatim, every number and
+ * every negation of the text it was given, and must not fall below
+ * `targetFloor` of its word target (content cut, not wording).
+ */
+export function compressionLoss(
+  input: string,
+  output: string,
+  key: SectionKey,
+  targetWords: number
+): string | null {
+  for (const match of input.matchAll(new RegExp(GAP_MARKER_RE.source, "gi"))) {
+    if (!output.includes(match[0])) return `dropped the marker ${match[0]}`;
+  }
+  const kept = numbersIn(output);
+  for (const number of numbersIn(input)) {
+    if (!kept.has(number)) return `dropped the number ${number}`;
+  }
+  const negationsIn = input.match(NEGATION_RE)?.length ?? 0;
+  const negationsOut = output.match(NEGATION_RE)?.length ?? 0;
+  if (negationsOut < negationsIn) {
+    return `dropped a negation (${negationsOut} of ${negationsIn} kept)`;
+  }
+  const words = sectionMetrics(output, key).words;
+  const floor = Math.floor(targetWords * COMPRESSION_REQUEST.targetFloor);
+  if (words < floor) return `came out at ${words} words, under the ${floor}-word floor`;
+  return null;
+}
+
+/**
+ * What the compression passes left: the text kept, how many passes were
+ * sent, whether it is still over, and the error that stopped them, if any.
+ */
+export type LimitFit = {
+  text: string;
+  passes: number;
+  overLimit: boolean;
+  error?: unknown;
+};
 
 /**
  * BNH-45 enforcement: still over the form limit after the budgeted draft →
@@ -214,10 +287,13 @@ export type LimitFit = { text: string; passes: number; overLimit: boolean };
  * e2e saw a 51/50). Output is re-scrubbed for banned words each pass.
  *
  * 2026-09-28 (second): each pass is measured before it is kept. A pass that
- * comes back no closer to the limits (or empty after the scrub) never
- * replaces the text it was given, so the result is the best attempt, and the
- * next pass works from that. Nothing is ever cut to fit: a Section still over
- * after every pass keeps the model's own best text and says so.
+ * comes back no closer to the limits, empty after the scrub, or missing
+ * required content (compressionLoss) never replaces the text it was given,
+ * so the result is the best attempt, and the next pass works from that. A
+ * pass that fails (a provider error, the action deadline) ends the passes
+ * and is returned as `error`, with the best text so far. Nothing is ever cut
+ * to fit: a Section still over after every pass keeps the model's own best
+ * text and says so.
  */
 export async function compressWithinLimit(
   anthropicFor: (callSite: string) => GenerationClient,
@@ -225,25 +301,44 @@ export async function compressWithinLimit(
   key: SectionKey,
   text: string,
   lengthTarget: LengthTarget,
-  styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES
+  styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES,
+  mustKeep: readonly string[] = []
 ): Promise<LimitFit> {
   let best = text;
   let passes = 0;
   for (const squeeze of COMPRESSION_REQUEST.squeezes) {
-    if (!sectionMetrics(best, key).overLimit) break;
-    const compressed = await compressSection(
-      anthropicFor(`generation:compression:${key.slice(1)}`),
-      modelId,
-      key,
-      best,
-      lengthTarget,
-      squeeze
-    );
-    passes += 1;
+    const metrics = sectionMetrics(best, key);
+    if (!metrics.overLimit) break;
+    let compressed: string;
+    try {
+      passes += 1;
+      compressed = await compressSection(
+        anthropicFor(`generation:compression:${key.slice(1)}`),
+        modelId,
+        key,
+        best,
+        lengthTarget,
+        squeeze,
+        mustKeep
+      );
+    } catch (error) {
+      return { text: best, passes, overLimit: metrics.overLimit, error };
+    }
     // PSOS-49: a bannedWords waiver exempts this writer from the scrub;
     // re-scrubbing here would sneak the house vocabulary back in.
     const out = scrubBannedWordsUnlessWaived(compressed, styleOverrides.bannedWords);
-    if (out.trim() && limitOverage(out, key) < limitOverage(best, key)) best = out;
+    if (!out.trim() || limitOverage(out, key) >= limitOverage(best, key)) continue;
+    const loss = compressionLoss(
+      best,
+      out,
+      key,
+      compressionTargetWords(key, lengthTarget, squeeze, metrics)
+    );
+    if (loss) {
+      console.warn(`generation:compression:${key.slice(1)}: pass ${passes} not kept: it ${loss}`);
+      continue;
+    }
+    best = out;
   }
   return { text: best, passes, overLimit: sectionMetrics(best, key).overLimit };
 }
@@ -257,9 +352,10 @@ export async function compressToFit(
   lengthTarget: LengthTarget,
   styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): Promise<string> {
-  return (
-    await compressWithinLimit(anthropicFor, modelId, key, text, lengthTarget, styleOverrides)
-  ).text;
+  const fit = await compressWithinLimit(anthropicFor, modelId, key, text, lengthTarget, styleOverrides);
+  // A pass that failed before any pass was kept fails the step, as before.
+  if (fit.error !== undefined && fit.text === text) throw fit.error;
+  return fit.text;
 }
 
 export function toContextDocs(

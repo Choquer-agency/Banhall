@@ -478,10 +478,16 @@ export function assembleSectionNotes(input: {
     succeeded: boolean;
     failureReason?: string;
     notUsedReason?: string;
+    /** The accepted repair was then shortened by compression (review P2-1). */
+    shortened?: boolean;
   };
   finalText: string;
-  /** Compression passes run on this Section, before and after any repair. */
-  compressionPasses?: number;
+  /**
+   * The compression passes sent on the text that was kept (the checked
+   * draft, or the repair when it was used), and the failure that stopped
+   * them, if any (review P2-2, P3-6).
+   */
+  compression?: { passes: number; failure?: string };
 }): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
   const { section, before, verdicts, repair } = input;
   const failedBefore = new Set(
@@ -516,12 +522,15 @@ export function assembleSectionNotes(input: {
   );
   if (lockedIndex >= 0) {
     const metrics = sectionMetrics(input.finalText, sectionKeyOf(section));
-    const passes = input.compressionPasses ?? 0;
+    const passes = input.compression?.passes ?? 0;
+    const failure = input.compression?.failure
+      ? ` (a shortening pass failed: ${input.compression.failure})`
+      : "";
     rows[lockedIndex] = {
       ...rows[lockedIndex],
       reason: `${rows[lockedIndex].reason}; still over after ${passes} shortening ${
         passes === 1 ? "pass" : "passes"
-      }. The text was not cut to fit: shorten Line ${section} to ${metrics.wordCap} words and ${metrics.limit} lines before filing`,
+      }${failure}. The text was not cut to fit: shorten Line ${section} to ${metrics.wordCap} words and ${metrics.limit} lines before filing`,
     };
   }
   let remainingFailures = finalEntries.filter(
@@ -563,6 +572,10 @@ export function assembleSectionNotes(input: {
           reason = `${reason}; repair failed`;
           remainingFailures += 1;
         }
+      } else if (repair.shortened) {
+        // Review P2-1: compression changed the repair after the fix.
+        repaired = false;
+        reason = `${reason}; repaired, then shortened to fit the Line limit, so not re-verified`;
       } else {
         reason = `${reason}; repaired (deterministic re-check only; not re-verified by the model)`;
       }

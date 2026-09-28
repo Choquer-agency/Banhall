@@ -39,6 +39,7 @@ import {
 import { currentPromptVersion } from "./ai/promptProgram";
 import { summaryPlanSelfCheckSchemaFor } from "./ai/selfCheck";
 import { summarizeSlotUsage } from "./ai/instrument";
+import { COMPRESSION_REQUEST } from "./ai/promptDefinitions";
 import { SECTION_246_REQUEST } from "./ai/section246Agent";
 import type {
   getOutline,
@@ -1844,12 +1845,104 @@ describe("seed Summary sign-off and recovery", () => {
     expect(after.candidates[0]?.ghost).toBeUndefined();
     expect(providerUser(firstRequest)).toContain(SECTION_246_REQUEST.userPrefix);
     expect(providerUser(firstRequest)).toContain("SIGNED-OFF CONTENT PLAN");
-    // 2026-09-28 (second): the Locked length is restated after the plan.
+    // 2026-09-28 (second): the Locked length is restated last, after the
+    // plan and the Brief (review P3-5).
     const user = providerUser(firstRequest);
     const lengthAt = user.indexOf(
       "# LENGTH (Locked Rule, outranks the plan)\nThis Line holds at most 350 words and 50 form lines. Write AT MOST "
     );
     expect(lengthAt).toBeGreaterThan(user.indexOf("--- END [SIGNED-OFF CONTENT PLAN] ---"));
+    expect(lengthAt).toBeGreaterThan(user.indexOf("--- END [GENERATION BRIEF] ---"));
+    expect(user.endsWith("give each item fewer words rather than go over.")).toBe(true);
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps every signed-off COVER item through compression of an over-limit Section (review P2-1)", async () => {
+    const s = await productionInitializedFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    // Supporting sentences only: no digits and no negations.
+    const support = (count: number) =>
+      Array.from({ length: count }, () =>
+        "The field notes describe how the prototype behaved across the exposure period and how the team read each result against the control."
+      ).join(" ");
+    const compressions: string[] = [];
+    network.create.mockReset().mockImplementation(async (params: GenerationMessageParams) => {
+      if (params.tool_choice) {
+        return {
+          content: [{
+            type: "tool_use",
+            id: "cover-check",
+            name: params.tool_choice.name,
+            input: {
+              verdicts: providerOrdinaryVerdicts(params),
+              planVerdicts: providerPlanChecks(params).map((check) => ({
+                ...(check.itemId ? { itemId: check.itemId } : {}),
+                ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+                mergedItemIds: check.mergedItemIds,
+                paragraph: 1,
+                outcome: "applied",
+                reason: "Covered.",
+              })),
+            },
+          }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      const user = providerUser(params);
+      const rawSystem: unknown = params.system;
+      const system = typeof rawSystem === "string"
+        ? rawSystem
+        : Array.isArray(rawSystem)
+          ? rawSystem.map((block: { text?: string }) => block.text ?? "").join("")
+          : "";
+      if (system === COMPRESSION_REQUEST.system) {
+        compressions.push(user);
+        // Keep every must-keep line, and enough supporting words for the floor.
+        const kept = user.startsWith(COMPRESSION_REQUEST.mustKeep.prefix)
+          ? user
+            .slice(COMPRESSION_REQUEST.mustKeep.prefix.length, user.indexOf(COMPRESSION_REQUEST.mustKeep.suffix))
+            .split(COMPRESSION_REQUEST.mustKeep.itemSeparator)
+            .map((line) => line.slice(COMPRESSION_REQUEST.mustKeep.itemPrefix.length))
+          : [];
+        const target = Number(/AT MOST (\d+) words/.exec(user)?.[1] ?? 0);
+        return {
+          content: [{ type: "text", text: [...kept, support(Math.ceil((target * 0.7) / 23))].join(" ") }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      return {
+        content: [{ type: "text", text: support(34) }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+    const draftRequest = await runNextSectionAction(s, s.generationId);
+    const selfCheckRequest = network.create.mock.calls
+      .map(([params]) => params as GenerationMessageParams)
+      .find((params) => params.tool_choice);
+    if (!selfCheckRequest) throw new Error("No Self-check request");
+    const coverItems = providerPlanChecks(selfCheckRequest)
+      .filter((check) => check.instruction === "cover" && !check.confirmedExclusion)
+      .map((check) => check.wording.join(" "));
+    expect(coverItems.length).toBeGreaterThan(0);
+    expect(providerUser(draftRequest)).toContain("SIGNED-OFF CONTENT PLAN");
+
+    expect(compressions).toHaveLength(1);
+    expect(compressions[0].startsWith(
+      `${COMPRESSION_REQUEST.mustKeep.prefix}${coverItems
+        .map((item) => `${COMPRESSION_REQUEST.mustKeep.itemPrefix}${item}`)
+        .join(COMPRESSION_REQUEST.mustKeep.itemSeparator)}${COMPRESSION_REQUEST.mustKeep.suffix}This section is `
+    )).toBe(true);
+    const drafted = await s.t.run(async (ctx) =>
+      (await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(4)).find((row) => row.status === "drafted"));
+    expect(drafted?.draftText).toBeDefined();
+    for (const item of coverItems) expect(drafted?.draftText).toContain(item);
+    expect(JSON.parse(drafted?.metrics ?? "null")).toMatchObject({ overLimit: false });
     vi.unstubAllEnvs();
   });
 

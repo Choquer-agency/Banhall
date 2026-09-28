@@ -190,11 +190,20 @@ export const SEED_PROMPT_PROGRAM = {
  * Locked limits, lines and words, with the section's own count of each, so
  * a Section under its line limit but over its word cap is told which limit
  * it breaks; and it asks for a target below the cap (`capHeadroom`), since a
- * model routinely lands a little over the target it was given.
+ * model routinely lands a little over the target it was given. `mustKeep`
+ * (review P2-1) opens the request with the signed-off plan's COVER items and
+ * the Self-check fixes a repair was made for, when there are any.
  */
 export const COMPRESSION_REQUEST = {
   system:
-    "You compress SR&ED report sections to fit CRA form limits. The line and word limits are hard: a section over either one cannot be filed. Keep every distinct technical claim, uncertainty, iteration, and result the limit allows; cut repetition, filler, and scene-setting first, then state supporting detail more briefly. Never invent content. [GAP: …] markers must be preserved verbatim: never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs), and end every paragraph on a complete sentence. Return ONLY the compressed section text.\n\n" + RULES_HUMAN_PROSE,
+    "You compress SR&ED report sections to fit CRA form limits. The line and word limits are hard: a section over either one cannot be filed. Preserve every distinct technical claim, number, negation, [GAP] marker and writer instruction; cut repetition, framing and filler first, then state supporting detail more briefly. Never invent content. [GAP: …] markers must be preserved verbatim: never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs), and end every paragraph on a complete sentence. Return ONLY the compressed section text.\n\n" + RULES_HUMAN_PROSE,
+  mustKeep: {
+    prefix:
+      "Must keep: the compressed section must still meet every line below (a signed-off plan item it covers, or a Self-check fix it was repaired for).\n",
+    itemPrefix: "- ",
+    itemSeparator: "\n",
+    suffix: "\n\n",
+  },
   userScaffold: {
     prefix: "This section is ",
     linesToWords: " lines and ",
@@ -206,6 +215,7 @@ export const COMPRESSION_REQUEST = {
     targetToText:
       " words while preserving the technical substance. Merge paragraphs where natural; fewer paragraph breaks save lines.\n\n",
     runtimeSentinels: [
+      "{{runtime.mustKeep}}",
       "{{runtime.currentLines}}",
       "{{runtime.currentWords}}",
       "{{runtime.lineLimit}}",
@@ -222,6 +232,11 @@ export const COMPRESSION_REQUEST = {
   squeezes: [1, 0.85],
   /** The share of the Locked word cap a compression aims for at most. */
   capHeadroom: 0.9,
+  /**
+   * Review P2-1: a pass whose text falls below this share of its word target
+   * dropped content rather than wording, and is not kept.
+   */
+  targetFloor: 0.6,
 } as const;
 
 export const STYLE_GUIDANCE_SCAFFOLDS = {
@@ -307,7 +322,8 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
   },
   // 2026-09-28 (second): a signed-off plan asks the drafter to cover every
   // item, which pushed a Line 246 draft 50 percent over its word cap. This
-  // block follows the plan so the Locked length is the last thing it reads.
+  // block follows the plan and the Brief, so the Locked length is the last
+  // thing the drafter reads.
   planLengthBudget: {
     prefix:
       "\n\n# LENGTH (Locked Rule, outranks the plan)\nThis Line holds at most ",

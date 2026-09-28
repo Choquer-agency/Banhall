@@ -17,6 +17,7 @@ import { anthropicCacheWrite1hTokens, instrumentedAnthropic, streamedBody } from
 import {
   GENERATION_CALL_SLOTS,
   GENERATION_SLOT_ALLOWANCES,
+  ORDERED_SLOT_ALLOWANCES,
   assertGenerationCallSite,
   mergeSlotCounts,
   summarizeSlotUsage,
@@ -559,8 +560,8 @@ describe("AD-27 generation call slots", () => {
       "generation:section:242": 1,
       "selfCheck:242": 3,
       "generation:repair:242": 1,
-      "compression:244": 4,
-      "generation:compression:246": 5,
+      "compression:244": 2,
+      "generation:compression:246": 3,
       consistency: 1,
       qa: 1,
       "generation:brief": 2,
@@ -570,8 +571,8 @@ describe("AD-27 generation call slots", () => {
       "section:242": 1,
       "selfCheck:242": 3,
       "repair:242": 1,
-      "compression:244": 4,
-      "compression:246": 5,
+      "compression:244": 2,
+      "compression:246": 3,
       consistency: 1,
       qa: 1,
       brief: 2,
@@ -580,6 +581,11 @@ describe("AD-27 generation call slots", () => {
     expect(summarizeSlotUsage({ "section:244": 1, "selfCheck:244": 1, consistency: 1 }).overrun).toEqual([]);
     // A Self-check and its one repair or Summary follow-up (2026-09-28).
     expect(summarizeSlotUsage({ "selfCheck:244": 2 }).overrun).toEqual([]);
+    // 2026-09-28 (second): only the ordered chain compresses a repair too.
+    expect(GENERATION_SLOT_ALLOWANCES.compression).toBe(2);
+    expect(ORDERED_SLOT_ALLOWANCES.compression).toBe(4);
+    expect(summarizeSlotUsage({ "compression:246": 4 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual([]);
+    expect(summarizeSlotUsage({ "compression:246": 5 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual(["compression:246"]);
   });
 
   it("declares the settings-document classifier slot with an allowance of one, recorded not enforced (story 3)", () => {

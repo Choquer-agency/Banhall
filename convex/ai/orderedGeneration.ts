@@ -36,6 +36,7 @@ import {
   compressWithinLimit,
   lengthBudgetBlock,
   limitOverage,
+  type LimitFit,
   provenanceDrafts,
   recordCandidateProvenance,
 } from "./pipeline";
@@ -48,6 +49,7 @@ import {
 import {
   generationSlotOf,
   mergeSlotCounts,
+  ORDERED_SLOT_ALLOWANCES,
   summarizeSlotUsage,
 } from "./instrument";
 import {
@@ -214,6 +216,8 @@ export function planComplianceNoteDrafts(args: {
   checks: PlanCheck[];
   verdicts: ModelSelfCheckResult["planVerdicts"];
   repairSucceeded?: boolean;
+  /** The accepted repair was then shortened by compression (review P2-1). */
+  repairShortened?: boolean;
   coverageCheckSucceeded?: boolean;
   finalCoverageNotReverified?: boolean;
 }): ComplianceNoteDraft[] {
@@ -229,6 +233,15 @@ export function planComplianceNoteDrafts(args: {
       !conflict &&
       args.finalCoverageNotReverified === true &&
       verdict.outcome === "applied";
+    const repairable =
+      !conflict &&
+      !invalidated &&
+      verdict.outcome === "not_applied" &&
+      verdict.actionableRepair !== false &&
+      args.coverageCheckSucceeded !== false &&
+      (args.repairSucceeded ?? false);
+    // A repair compression then changed was never checked again.
+    const notReverified = repairable && args.repairShortened === true;
     return [noteDraft({
       section: args.section,
       ...(conflict || invalidated || verdict.paragraphIndex === undefined
@@ -244,14 +257,10 @@ export function planComplianceNoteDrafts(args: {
         ? "The writer confirmed a Brief Claim Exclusion conflict at sign-off."
         : invalidated
           ? "Final coverage was not reverified after an accepted repair changed the exact checked Section text."
-          : verdict.reason,
-      repaired:
-        !conflict &&
-        !invalidated &&
-        verdict.outcome === "not_applied" &&
-        verdict.actionableRepair !== false &&
-        args.coverageCheckSucceeded !== false &&
-        (args.repairSucceeded ?? false),
+          : notReverified
+            ? `${verdict.reason}; repaired, then shortened to fit the Line limit, so not re-verified`
+            : verdict.reason,
+      repaired: repairable && !notReverified,
       planRef: {
         summaryVersionId: args.summaryVersionId,
         ...(expected.itemId ? { itemId: expected.itemId } : {}),
@@ -418,10 +427,12 @@ async function draftCheckedSection(input: {
         lengthBudgetBlock(key, lengthTarget),
         styleGuidance + extraGuidance,
         styleOverrides,
-        claim.briefBlock,
+        // A signed-off plan run restates the Locked length last, after the
+        // plan and the Brief (review P3-5).
         claim.planBlock
-          ? claim.planBlock + planLengthBudgetBlock(key, lengthTarget)
-          : claim.planBlock
+          ? claim.briefBlock + planLengthBudgetBlock(key, lengthTarget)
+          : claim.briefBlock,
+        claim.planBlock
       ),
       styleOverrides.bannedWords
     );
@@ -434,18 +445,33 @@ async function draftCheckedSection(input: {
     // section run rather than persisting an empty body.
     throw new Error("Section draft empty after the banned-word scrub");
   }
-  // A compression pass that comes back empty after the scrub, or no closer
-  // to the limits, never replaces the draft it was given.
+  // Review P2-1: the signed-off plan's COVER items stay in every
+  // compression, and the repair's fixes stay in the repair's.
+  const coverItems = claim.planChecks
+    .filter((planCheck) => planCheck.instruction === "cover" && !planCheck.confirmedExclusion)
+    .map((planCheck) => planCheck.wording.join(" "));
+  // A compression pass that comes back empty after the scrub, no closer to
+  // the limits or missing required content never replaces the draft it was
+  // given. A pass that fails keeps the best text so far; only a failure
+  // before any pass was kept fails the Section, as before (review P2-2).
   const firstFit = await compressWithinLimit(
     clientFor,
     claim.model,
     key,
     text,
     lengthTarget,
-    styleOverrides
+    styleOverrides,
+    coverItems
   );
+  if (firstFit.error !== undefined) {
+    if (firstFit.text === text) throw firstFit.error;
+    console.warn(
+      `generation:compression:${section}: a later pass failed (${normalizeProviderError(firstFit.error).code}); the best pass so far is kept`
+    );
+  }
   text = firstFit.text;
-  let compressionPasses = firstFit.passes;
+  // The fit whose text is kept, for the Locked row (review P3-6).
+  let keptFit: LimitFit = firstFit;
 
   const brief = claim.brief;
   const check = (draft: string): DeterministicSelfCheck =>
@@ -530,6 +556,7 @@ async function draftCheckedSection(input: {
     succeeded: boolean;
     failureReason?: string;
     notUsedReason?: string;
+    shortened?: boolean;
   } = {
     attempted: issues.length > 0,
     succeeded: false,
@@ -547,36 +574,39 @@ async function draftCheckedSection(input: {
       if (repaired.trim()) {
         // 2026-09-28 (second): the repair is a whole new draft, so it is
         // compressed and measured like the first one before it can replace
-        // the checked draft. A compression that fails here (a provider
-        // error, the action deadline) leaves the repair as it came.
-        let fit = {
-          text: repaired,
-          passes: 0,
-          overLimit: sectionMetrics(repaired, key).overLimit,
-        };
-        try {
-          fit = await compressWithinLimit(
-            clientFor,
-            claim.model,
-            key,
-            repaired,
-            lengthTarget,
-            styleOverrides
-          );
-        } catch (error) {
-          console.warn(
-            `generation:compression:${section}: compression after the repair failed (${normalizeProviderError(error).code}); the Locked limit decides which text is kept`
-          );
-        }
-        compressionPasses += fit.passes;
+        // the checked draft, keeping the COVER items and the fixes it was
+        // made for (length guidance aside). A compression that fails here
+        // (a provider error, the action deadline) keeps its best text so far.
+        const fixes = issues.filter((issue) => !issue.startsWith("Shorten "));
+        const fit = await compressWithinLimit(
+          clientFor,
+          claim.model,
+          key,
+          repaired,
+          lengthTarget,
+          styleOverrides,
+          [...coverItems, ...fixes]
+        );
+        const failure =
+          fit.error === undefined
+            ? undefined
+            : `compression of the repair failed (${normalizeProviderError(fit.error).code})`;
+        if (failure) console.warn(`generation:compression:${section}: ${failure}`);
+        // Ties go to the repair: it fixed the checked issues (review P3-3).
         if (fit.overLimit && limitOverage(fit.text, key) > limitOverage(text, key)) {
           // Locked Rules outrank every repaired issue: a repair further
           // over the limit than the checked draft is not used.
           const metrics = sectionMetrics(fit.text, key);
-          repair.notUsedReason = repairOverLimitReason(section, metrics.words, metrics.lines);
+          repair.notUsedReason = `${repairOverLimitReason(section, metrics.words, metrics.lines)}${
+            failure ? `; ${failure}` : ""
+          }`;
         } else {
           finalText = fit.text;
           repair.succeeded = true;
+          // Review P2-1: a repair the compression changed was not checked
+          // again by the model, so its fixes are not claimed as repaired.
+          repair.shortened = !sameUtf8Bytes(fit.text, repaired);
+          keptFit = fit;
           after = check(finalText);
         }
       } else {
@@ -609,7 +639,12 @@ async function draftCheckedSection(input: {
     ...(storylineQuestionWithheld ? { storylineQuestionWithheld } : {}),
     repair,
     finalText,
-    compressionPasses,
+    compression: {
+      passes: keptFit.passes,
+      ...(keptFit.error !== undefined
+        ? { failure: normalizeProviderError(keptFit.error).code }
+        : {}),
+    },
   });
   const rows = [...baseRows];
   let planRows: ComplianceNoteDraft[] = [];
@@ -620,6 +655,7 @@ async function draftCheckedSection(input: {
       checks: claim.planChecks,
       verdicts: planVerdicts,
       repairSucceeded: repair.succeeded,
+      repairShortened: repair.shortened === true,
       coverageCheckSucceeded: modelCheck.ok,
       finalCoverageNotReverified,
     });
@@ -940,7 +976,8 @@ export const finalizeOrderedCandidate = internalAction({
         claimDrafts: provenanceDrafts(drafted, input.transcript, analysis.useful_quotes, input.factQuotes),
       });
       const callBudget = summarizeSlotUsage(
-        mergeSlotCounts(...drafts.sections.map((row) => parseCounts(row.slotCounts)), slotCounts)
+        mergeSlotCounts(...drafts.sections.map((row) => parseCounts(row.slotCounts)), slotCounts),
+        ORDERED_SLOT_ALLOWANCES
       );
       const stoppedAfterSection = allDrafted
         ? undefined

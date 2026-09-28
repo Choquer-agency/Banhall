@@ -158,8 +158,9 @@ export const SEED_ANTHROPIC_OPTIONS = {
  * Story 2 (AD-24): single/compare candidates no longer run that chain in one
  * action; each section is its own scheduled action (orderedGeneration.ts
  * generateOrderedSection) whose worst case is ORDERED_SECTION_ACTION_SLOTS:
- * one draft + the compression squeezes + one Self-check + at most one repair
- * + the compression squeezes again on the repair (2026-09-28, second) = 7.
+ * one draft + the compression squeezes + one Self-check (its answer and at
+ * most one structured retry: 2 requests) + at most one repair + the
+ * compression squeezes again on the repair (2026-09-28, second) = 8.
  * Finalize adds consistency + (QA || chronology) = 2.
  * Iterative's one-shot ghost still runs the five-slot chain above. Since
  * 2026-09-25 each of these actions runs under its action deadline (see
@@ -174,7 +175,8 @@ export const SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE = 5;
 export const ORDERED_SECTION_ACTION_SLOTS = {
   section: 1,
   compression: COMPRESSION_REQUEST.squeezes.length,
-  selfCheck: 1,
+  // One structured call: its answer and at most one structured retry.
+  selfCheck: 2,
   repair: 1,
   repairCompression: COMPRESSION_REQUEST.squeezes.length,
 } as const;

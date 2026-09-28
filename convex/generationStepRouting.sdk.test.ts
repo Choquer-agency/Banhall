@@ -101,6 +101,17 @@ const LONG_DRAFT = Array.from({ length: 12 }, (_, index) =>
   "comparing each run against the predicted response and noting where the model and the plant disagreed under peak load conditions."
 ).join("\n\n");
 const SHORT_TEXT = "The team measured the control loop response across load bands.";
+/**
+ * Review P2-1 (2026-09-28, second): a compression must keep every number of
+ * its input and reach 60 percent of its word target, so the stub's
+ * compression keeps the draft's paragraph numbers and enough words. The
+ * pinned bodies carry SHORT_TEXT where this text now goes (asPinned).
+ */
+const COMPRESSED_TEXT =
+  "The team measured the control loop response across load bands in trials 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 and 12, recording every result in the lab notebook. " +
+  Array.from({ length: 9 }, () =>
+    "Each run compared the predicted response with the plant and noted where the model and the plant disagreed under peak load conditions."
+  ).join(" ");
 
 const ANSWERS: Record<string, unknown> = {
   submit_transcript_analysis: {
@@ -234,7 +245,7 @@ function installFetch(options: { hold?: Partial<Record<string, () => Promise<voi
       }
       return Response.json({
         ...base,
-        content: [{ type: "text", text: stage === "section" ? LONG_DRAFT : SHORT_TEXT }],
+        content: [{ type: "text", text: stage === "section" ? LONG_DRAFT : stage === "compression" ? COMPRESSED_TEXT : SHORT_TEXT }],
         stop_reason: "end_turn",
       });
     })
@@ -307,8 +318,16 @@ const withoutLengthFix = (json: Record<string, unknown>) => {
   block.text = `This section is ${lines} lines / ${words} words, but the CRA field allows only ${limit} lines of ${chars} characters (blank lines between paragraphs each cost one line). Rewrite it to AT MOST ${wordBudget(key, "standard")} words while preserving all technical substance. Merge paragraphs where natural; fewer paragraph breaks save lines.\n\n${text}`;
   return edited as unknown as Record<string, unknown>;
 };
+/** The stub's compression answer, where the pins carry SHORT_TEXT. */
+const withPinnedCompressionAnswer = (json: Record<string, unknown>) => {
+  const body = JSON.stringify(json);
+  const answer = JSON.stringify(COMPRESSED_TEXT).slice(1, -1);
+  return body.includes(answer)
+    ? (JSON.parse(body.split(answer).join(JSON.stringify(SHORT_TEXT).slice(1, -1))) as Record<string, unknown>)
+    : json;
+};
 const asPinned = (json: Record<string, unknown>) =>
-  withoutLengthFix(withoutQuoteRules(withoutBriefStream(json)));
+  withPinnedCompressionAnswer(withoutLengthFix(withoutQuoteRules(withoutBriefStream(json))));
 function expectBriefStreaming(sent: Sent[], streamed: boolean) {
   const briefs = sent.filter((request) => toolOf(request.json) === "submit_generation_brief");
   expect(briefs.length).toBeGreaterThan(0);
@@ -795,7 +814,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
 
   it("an always-thinking planning or checking model an admin assigned runs at low effort; the writer's Sonnet 5 is untouched", async () => {
     const { wire } = await runOneShot("single", SONNET, "current", { planning: OPUS, checking: OPUS });
-    const now = await stagesOf(wire.sent);
+    const now = await stagesOf(wire.sent, withPinnedCompressionAnswer);
     const pinned = PINNED_771AF202[`single:${SONNET}`];
     for (const stage of [...PLANNING_STAGES, ...CHECKING_STAGES].filter((name) => name in now)) {
       expect([stage, now[stage].models]).toEqual([stage, [OPUS]]);

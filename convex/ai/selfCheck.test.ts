@@ -1262,15 +1262,15 @@ describe("Self-check before display (CAP-9)", () => {
     expect(locked[0].reason).toContain(`cap breach at ${words}/350 words`);
     expect(locked[0].reason).toContain("repair failed");
     // 2026-09-28 (second): the breach says the text was kept whole and
-    // what the writer must do.
+    // what the writer must do; it counts the passes on the kept repair.
     expect(locked[0].reason).toContain(
-      "still over after 4 shortening passes. The text was not cut to fit: shorten Line 242 to 350 words and 50 lines before filing"
+      "still over after 2 shortening passes. The text was not cut to fit: shorten Line 242 to 350 words and 50 lines before filing"
     );
 
     const { selfCheck, slotCounts } = rowFor(sectionRows, "242");
     expect(selfCheck).toMatchObject({ status: "repair_failed", repairAttempted: true, remainingFailures: 1 });
-    // The ordered section action's worst case: draft + two squeezes +
-    // Self-check + one repair + two squeezes on the repair.
+    // Draft + two squeezes + Self-check + one repair + two squeezes on the
+    // repair (the Self-check's structured retry makes 8 the worst case).
     expect(slotCounts).toEqual({
       "section:242": 1,
       "compression:242": 4,
@@ -1665,6 +1665,60 @@ describe("deterministic Self-check rules", () => {
     expect(rows[1]).toMatchObject({ outcome: "not_applied", tier: "conflict", repaired: false, planRef: { itemId: second, mergedItemIds: [first, second] } });
     expect(rows[1].paragraphIndex).toBeUndefined();
     expect(rows[2]).toMatchObject({ outcome: "applied", planRef: { skippedRoleId: "project_status", mergedItemIds: [] } });
+  });
+
+  it("marks plan and model rows not re-verified when compression changed an accepted repair (review P2-1)", () => {
+    const summaryVersionId = "summary" as Id<"summaryVersions">;
+    const item = "item-1" as Id<"summaryItems">;
+    const planRows = (repairShortened: boolean) =>
+      planComplianceNoteDrafts({
+        section: "246",
+        summaryVersionId,
+        checks: [{
+          itemId: item,
+          roleId: "specific_advancements",
+          mergedItemIds: [item],
+          instruction: "cover",
+          confirmedExclusion: false,
+          wording: ["The coating held 87 percent transmission after 38 days."],
+          relationshipReferences: [],
+          sourceReferences: [],
+        }],
+        verdicts: [{ itemId: item, mergedItemIds: [item], paragraphIndex: 1, outcome: "not_applied", reason: "Missing the 38-day result." }],
+        repairSucceeded: true,
+        repairShortened,
+        coverageCheckSucceeded: true,
+      });
+    expect(planRows(false)[0]).toMatchObject({ outcome: "not_applied", repaired: true, reason: "Missing the 38-day result." });
+    expect(planRows(true)[0]).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: "Missing the 38-day result.; repaired, then shortened to fit the Line limit, so not re-verified",
+    });
+
+    const before = runDeterministicSelfCheck({
+      section: "246",
+      text: "The coating held its transmission.",
+      brief: null,
+      profile: PROFILE,
+      isFirstInOrder: false,
+    });
+    const modelRow = (shortened: boolean) =>
+      assembleSectionNotes({
+        section: "246",
+        before,
+        after: before,
+        verdicts: [{ check: "storyline", instruction: "Storyline", outcome: "not_applied", reason: "Drifts.", paragraphIndex: 0 }],
+        modelCheck: { ok: true },
+        storylineQuestion: null,
+        repair: { attempted: true, succeeded: true, shortened },
+        finalText: "The coating held its transmission.",
+      }).rows.find((row) => row.instruction === "Storyline");
+    expect(modelRow(false)).toMatchObject({ repaired: true });
+    expect(modelRow(true)).toMatchObject({
+      repaired: false,
+      reason: "Drifts.; repaired, then shortened to fit the Line limit, so not re-verified",
+    });
   });
 });
 

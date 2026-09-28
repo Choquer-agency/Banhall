@@ -25,7 +25,7 @@ import { SECTION_244_REQUEST } from "./ai/section244Agent";
 import { SECTION_246_REQUEST } from "./ai/section246Agent";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { planLengthBudgetBlock } from "./ai/orderedGeneration";
-import { compressionTargetWords } from "./ai/pipeline";
+import { compressionLoss, compressionTargetWords } from "./ai/pipeline";
 import { sectionMetrics } from "./lib/lineLimits";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -68,11 +68,40 @@ function sectionText(tag: string, count: number, sentences: number): string {
   ).join("\n\n");
 }
 
+/**
+ * Line 246 of a fictional analyzer project: the load-bearing sentences
+ * (numbers, negations, a [GAP] marker) every compression must keep.
+ */
+const GAP = "[GAP: confirm whether the day 90 coupon was sent for surface analysis]";
+const CORE_246 = [
+  "The team learned that a sol-gel silica coating with a fluorinated top layer held 87 percent transmission at 254 nanometres after 38 days in secondary effluent, above the 85 percent target. Uncoated control windows fell below 60 percent within 12 days.",
+  "Coupon screening compared four coating candidates against uncoated controls over 42 days, with transmission measured every 3 days. Two candidates did not survive chlorinated water past day 20, which showed that UV clarity alone was not enough.",
+  "The team also learned that biofilm is not a spectrally flat filter. Attenuation at 254 nanometres ran 1.8 times the attenuation at 365 nanometres, so a simple ratio correction could not compensate for fouling.",
+  "A correction keyed to accumulated reference loss held corrected drift under 2 percent to day 52 and day 55 on secondary effluent, against the 30-day target.",
+  `On chlorinated final effluent, one unit's coating lost 9 percent transmission between day 70 and day 90, and the cause was not established by year end. ${GAP}`,
+];
+/** Supporting sentences: no digits and no negations, so a pass may cut them. */
+const SUPPORT = [
+  "The field notes describe how the coated window behaved across the exposure period and how the team read each transmission reading against the control.",
+  "Each reading was logged beside the plant operating conditions so that reviewers could follow the reasoning behind every coating choice.",
+  "The engineers discussed these readings at the weekly review and agreed which coating variant deserved a longer exposure run.",
+];
+/** Line 246 with `support` supporting sentences spread across its paragraphs. */
+function line246(support: number): string {
+  return CORE_246.map((core, paragraph) => {
+    const extra = Array.from(
+      { length: Math.floor(support / CORE_246.length) + (paragraph < support % CORE_246.length ? 1 : 0) },
+      (_, index) => SUPPORT[(paragraph + index) % SUPPORT.length]
+    );
+    return [core, ...extra].join(" ");
+  }).join("\n\n");
+}
+
 const DRAFT_242 = sectionText("uncertainty", 2, 4);
 const DRAFT_244 = sectionText("work", 4, 5);
 /** The release suite's shape: under the 50-line limit, over the 350-word cap. */
-const DRAFT_246 = sectionText("advancement", 6, 4);
-const FIT_246 = sectionText("fitted", 4, 4);
+const DRAFT_246 = line246(14);
+const FIT_246 = line246(4);
 
 function words(text: string, line: Line = "246") {
   return sectionMetrics(text, `s${line}`).words;
@@ -82,14 +111,18 @@ function words(text: string, line: Line = "246") {
 
 type Script = {
   drafts: Record<Line, string>;
-  /** Compression answers for Line 246, in order; an empty queue echoes the text. */
-  compressions?: string[];
+  /**
+   * Compression answers for Line 246, in order; FAIL answers with an HTTP
+   * 400; an empty queue echoes the text.
+   */
+  compressions?: Array<string | typeof FAIL>;
   /** Repair answers per Line; absent echoes the draft being repaired. */
   repairs?: Partial<Record<Line, string>>;
   /** Self-check verdicts for the Section whose text includes the key. */
   verdictsFor?: (user: string) => unknown[];
 };
 type Sent = { stage: string; json: Record<string, unknown>; user: string };
+const FAIL = Symbol("fail");
 
 const TOOL_ANSWERS: Record<string, unknown> = {
   submit_transcript_analysis: {
@@ -189,7 +222,14 @@ function installFetch(script: Script): Sent[] {
       }
       let text: string;
       if (stage === "compression") {
-        text = compressions.shift() ?? user.split(COMPRESSION_REQUEST.userScaffold.targetToText)[1];
+        const next = compressions.shift();
+        if (next === FAIL) {
+          return Response.json(
+            { type: "error", error: { type: "invalid_request_error", message: "Synthetic refusal" } },
+            { status: 400 }
+          );
+        }
+        text = next ?? user.split(COMPRESSION_REQUEST.userScaffold.targetToText)[1];
       } else if (stage.startsWith("repair:")) {
         const line = stage.slice("repair:".length) as Line;
         text = script.repairs?.[line] ?? user.split(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.draftPrefix)[1];
@@ -300,7 +340,12 @@ async function runSingle(script: Script) {
     state.notes.filter(
       (note: Doc<"complianceNotes">) => note.section === line && note.tier === "locked"
     );
-  return { sent, row, locked };
+  const model = (line: Line, instruction: string) =>
+    state.notes.find(
+      (note: Doc<"complianceNotes">) =>
+        note.section === line && note.source === "model" && note.instruction === instruction
+    );
+  return { sent, row, locked, model };
 }
 
 function expectOtherLinesUnchanged(run: Awaited<ReturnType<typeof runSingle>>) {
@@ -321,14 +366,29 @@ function expectOtherLinesUnchanged(run: Awaited<ReturnType<typeof runSingle>>) {
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
+const storylineVerdict = [
+  {
+    paragraph: 1,
+    check: "storyline",
+    instruction: "Storyline",
+    outcome: "not_applied",
+    reason: "The paragraph drifts from the Storyline.",
+    repairGuidance: "Tie the paragraph to the field trial.",
+  },
+];
+/** One unmet verdict for Line 246 only, so only Line 246 is repaired. */
+const verdictFor246 = (user: string) => (user.includes(CORE_246[0]) ? storylineVerdict : []);
+
 describe("Step-by-step Sections stay within the line limits (real SDK, fetch stubbed)", () => {
   it("the fixture is the release suite's shape: Line 246 under its line limit but over its word cap", () => {
     const metrics = sectionMetrics(DRAFT_246, "s246");
     expect(metrics.lines).toBeLessThanOrEqual(50);
     expect(metrics.words).toBeGreaterThan(350);
     expect(sectionMetrics(FIT_246, "s246").overLimit).toBe(false);
+    expect(words(FIT_246)).toBeGreaterThan(Math.floor(315 * COMPRESSION_REQUEST.targetFloor));
     expect(sectionMetrics(DRAFT_242, "s242").overLimit).toBe(false);
     expect(sectionMetrics(DRAFT_244, "s244").overLimit).toBe(false);
+    expect(compressionLoss(DRAFT_246, FIT_246, "s246", 315)).toBeNull();
   });
 
   it("an over-limit Line 246 draft is compressed under the limit, and the other Lines are unchanged", async () => {
@@ -338,12 +398,16 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     });
     const compressions = run.sent.filter((request) => request.stage === "compression");
     expect(compressions).toHaveLength(1);
-    // The request names the word cap it breaks, with headroom under it.
+    // The request names the word cap it breaks, with headroom under it,
+    // and has nothing to list as must-keep (no plan, no repair yet).
     const { lines, words: draftWords } = sectionMetrics(DRAFT_246, "s246");
-    expect(compressions[0].user).toContain(
+    expect(compressions[0].user.startsWith(
       `This section is ${lines} lines and ${draftWords} words, but the CRA field allows at most 50 lines of 78 characters (blank lines between paragraphs each cost one line) and at most 350 words. Rewrite it to AT MOST ${compressionTargetWords("s246", "standard")} words`
-    );
+    )).toBe(true);
     expect(compressionTargetWords("s246", "standard")).toBe(315);
+    expect(textOf(compressions[0].json.system)).toContain(
+      "Preserve every distinct technical claim, number, negation, [GAP] marker and writer instruction; cut repetition, framing and filler first"
+    );
     expect(compressions[0].json.model).toBe(SONNET);
     expect(compressions[0].json.thinking).toEqual({ type: "disabled" });
 
@@ -359,11 +423,47 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     expectOtherLinesUnchanged(run);
   });
 
+  it.each([
+    ["the only [GAP] marker", FIT_246.replace(` ${GAP}`, ""), `dropped the marker ${GAP}`],
+    ["a number", FIT_246.replace("held 87 percent transmission", "held most of its transmission"), "dropped the number 87"],
+    ["a not", FIT_246.replace("biofilm is not a spectrally flat filter", "biofilm is a spectrally uneven filter"), "dropped a negation (4 of 5 kept)"],
+  ])("a pass that drops %s is not kept; the next pass that keeps it is", async (_label, broken, loss) => {
+    expect(compressionLoss(DRAFT_246, broken, "s246", 315)).toBe(loss);
+    const run = await runSingle({
+      drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": DRAFT_246 },
+      compressions: [broken, FIT_246],
+    });
+    const compressions = run.sent.filter((request) => request.stage === "compression");
+    expect(compressions).toHaveLength(2);
+    // The second pass works from the draft, not from the rejected pass.
+    expect(compressions[1].user).toContain(DRAFT_246);
+    expect(run.row("246").draftText).toBe(FIT_246);
+    expect(run.locked("246")).toEqual([expect.objectContaining({ outcome: "applied" })]);
+    expectOtherLinesUnchanged(run);
+  });
+
+  it("a pass under 60 percent of its word target cut content, not wording, and is not kept", () => {
+    const short = CORE_246.slice(0, 2).join("\n\n");
+    expect(compressionLoss(CORE_246.join("\n\n"), short, "s246", 315)).toMatch(/^dropped/);
+    const keepsEverything = CORE_246.join(" ");
+    expect(words(keepsEverything)).toBeLessThan(189);
+    expect(compressionLoss(CORE_246.join("\n\n"), keepsEverything, "s246", 315)).toBe(
+      `came out at ${words(keepsEverything)} words, under the 189-word floor`
+    );
+  });
+
+  it("a Line over on lines alone is asked for the words that fit its lines", () => {
+    expect(compressionTargetWords("s242", "standard", 1, { words: 300, lines: 60 })).toBe(225);
+    expect(compressionTargetWords("s242", "standard", 0.85, { words: 300, lines: 60 })).toBe(191);
+    // Within its lines: the word target alone.
+    expect(compressionTargetWords("s242", "standard", 1, { words: 400, lines: 45 })).toBe(315);
+  });
+
   it("a compression that cannot reach the limit keeps the best attempt whole and records the breach", async () => {
-    const closest = sectionText("closest", 6, 3) + " " + sectionText("closest tail", 1, 2);
-    const longer = sectionText("longer", 6, 4);
-    const repaired = sectionText("repaired", 7, 4);
-    const repairedShorter = sectionText("repaired shorter", 6, 4);
+    const closest = line246(10);
+    const longer = line246(12);
+    const repaired = line246(16);
+    const repairedShorter = line246(11);
     expect(words(closest)).toBeGreaterThan(350);
     expect(words(longer)).toBeGreaterThan(words(closest));
     expect(words(repairedShorter)).toBeGreaterThan(words(closest));
@@ -375,9 +475,11 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
       compressions: [closest, longer, repairedShorter, repaired],
       repairs: { "246": repaired },
     });
-    expect(run.sent.filter((request) => request.stage === "compression")).toHaveLength(4);
+    const compressions = run.sent.filter((request) => request.stage === "compression");
+    expect(compressions).toHaveLength(4);
+    // The repair's compressions keep its fixes; the length guidance is not one.
+    expect(compressions[2].user.startsWith(COMPRESSION_REQUEST.mustKeep.prefix)).toBe(false);
     expect(run.sent.filter((request) => request.stage === "repair:246")).toHaveLength(1);
-    // The Locked breach went to the repair as its first issue.
     const repairRequest = run.sent.find((request) => request.stage === "repair:246");
     expect(repairRequest?.user).toContain(`Shorten Line 246 to at most 350 words and 50 form lines (now ${words(closest)} words`);
 
@@ -389,8 +491,9 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     expect(locked.reason).toContain(
       `repair not used (the repaired text came out at ${words(repairedShorter)}/350 words`
     );
+    // Only the passes on the kept text count (review P3-6).
     expect(locked.reason).toContain(
-      "still over after 4 shortening passes. The text was not cut to fit: shorten Line 246 to 350 words and 50 lines before filing"
+      "still over after 2 shortening passes. The text was not cut to fit: shorten Line 246 to 350 words and 50 lines before filing"
     );
     expect(JSON.parse(run.row("246").selfCheck ?? "null")).toMatchObject({
       status: "repair_failed",
@@ -400,32 +503,66 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     expectOtherLinesUnchanged(run);
   });
 
-  it("a repair that comes back over the limit is compressed before it replaces the checked draft", async () => {
+  it("a repair that comes back over the limit is compressed, keeping its fixes, before it replaces the checked draft", async () => {
+    const fittedRepair = line246(5);
     const run = await runSingle({
       drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": FIT_246 },
-      compressions: [sectionText("fitted repair", 4, 4)],
+      compressions: [fittedRepair],
       repairs: { "246": DRAFT_246 },
-      verdictsFor: (user) =>
-        user.includes("fitted trial")
-          ? [
-              {
-                paragraph: 1,
-                check: "storyline",
-                instruction: "Storyline",
-                outcome: "not_applied",
-                reason: "The paragraph drifts from the Storyline.",
-                repairGuidance: "Tie the paragraph to the field trial.",
-              },
-            ]
-          : [],
+      verdictsFor: verdictFor246,
     });
     const compressions = run.sent.filter((request) => request.stage === "compression");
-    // Nothing to compress before the repair; one pass on the repair.
+    // Nothing to compress before the repair; one pass on the repair, which
+    // lists the fix it was made for as must-keep.
     expect(compressions).toHaveLength(1);
+    expect(compressions[0].user.slice(0, compressions[0].user.indexOf("This section is ") + 16)).toBe(
+      `${COMPRESSION_REQUEST.mustKeep.prefix}- Paragraph 1: Tie the paragraph to the field trial.\n\nThis section is `
+    );
     expect(compressions[0].user).toContain(DRAFT_246);
-    expect(run.row("246").draftText).toBe(sectionText("fitted repair", 4, 4));
+    expect(run.row("246").draftText).toBe(fittedRepair);
     expect(run.locked("246")).toEqual([expect.objectContaining({ outcome: "applied" })]);
     expect(JSON.parse(run.row("246").selfCheck ?? "null")).toMatchObject({ status: "repair_attempted" });
+    // Compression changed the repair after the fix: not claimed as repaired.
+    expect(run.model("246", "Storyline")).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: "The paragraph drifts from the Storyline.; repaired, then shortened to fit the Line limit, so not re-verified",
+    });
+    expectOtherLinesUnchanged(run);
+  });
+
+  it("a failed second pass keeps the first pass's text instead of failing the Section", async () => {
+    const closer = line246(10);
+    const run = await runSingle({
+      drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": DRAFT_246 },
+      // Draft: a closer pass, then a failure. Repair (the draft echoed):
+      // a failure before any pass.
+      compressions: [closer, FAIL, FAIL],
+    });
+    expect(run.row("246").status).toBe("drafted");
+    expect(run.row("246").draftText).toBe(closer);
+    const [locked] = run.locked("246");
+    expect(locked.outcome).toBe("not_applied");
+    expect(locked.reason).toMatch(/still over after 2 shortening passes \(a shortening pass failed: [A-Za-z_]+\)\. The text was not cut to fit/);
+    expect(JSON.parse(run.row("246").slotCounts ?? "null")).toMatchObject({ "compression:246": 3, "repair:246": 1 });
+    expectOtherLinesUnchanged(run);
+  });
+
+  it("a repair whose compression fails is judged on its best text, and the note says compression failed", async () => {
+    const run = await runSingle({
+      drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": FIT_246 },
+      compressions: [line246(10), FAIL],
+      repairs: { "246": DRAFT_246 },
+      verdictsFor: verdictFor246,
+    });
+    expect(run.sent.filter((request) => request.stage === "compression")).toHaveLength(2);
+    // The best compressed repair is still further over than the checked
+    // draft, so the checked draft is kept.
+    expect(run.row("246").draftText).toBe(FIT_246);
+    expect(run.model("246", "Storyline")?.reason).toMatch(
+      new RegExp(`repair not used \\(the repaired text came out at ${words(line246(10))}/350 words, .*; compression of the repair failed \\([A-Za-z_]+\\)\\)$`)
+    );
+    expect(run.locked("246")).toEqual([expect.objectContaining({ outcome: "applied" })]);
     expectOtherLinesUnchanged(run);
   });
 
