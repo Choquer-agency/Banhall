@@ -1,9 +1,42 @@
 import adapter from "@sveltejs/adapter-vercel";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import type { Config } from "@sveltejs/kit";
 import { cspDirectives } from "./shared/securityHeaders";
+
+/**
+ * Dev only: rewrites `import { XIcon } from "phosphor-svelte"` to one module
+ * per icon. Without it the dev server pre-bundles the whole icon set (40 MB)
+ * and a cold project open parsed all of it before the page could show
+ * (2026-09-28 load measurement). The build tree-shakes the barrel anyway.
+ * The package's own plugin parses the file as JavaScript, so it fails on
+ * .svelte sources that have not been compiled yet; this runs on the source
+ * text before the Svelte compiler instead.
+ */
+function phosphorDeepImports(): Plugin {
+  const barrel = /import\s*\{([^}]*)\}\s*from\s*["']phosphor-svelte["'];?/g;
+  return {
+    name: "banhall:phosphor-deep-imports",
+    apply: "serve",
+    enforce: "pre",
+    transform(code, id) {
+      if (id.includes("/node_modules/") || !/\.(svelte|ts|js)$/.test(id.split("?")[0]) || !code.includes("phosphor-svelte")) return;
+      const rewritten = code.replace(barrel, (_match, names: string) =>
+        names
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean)
+          .map((name) => {
+            const [imported, local = imported] = name.split(/\s+as\s+/);
+            return `import ${local} from "phosphor-svelte/lib/${imported}";`;
+          })
+          .join(" ")
+      );
+      return rewritten === code ? undefined : { code: rewritten, map: null };
+    },
+  };
+}
 
 type CspOption = NonNullable<NonNullable<Config["kit"]>["csp"]>;
 
@@ -31,12 +64,17 @@ export default defineConfig(({ command, mode }) => {
       allowedHosts: [".ts.net"],
     },
     preview: { port: 3001 },
+    // Icons load as the small source modules phosphorDeepImports points at;
+    // pre-bundling them made the optimizer find new icons page by page and
+    // reload the app each time.
+    optimizeDeps: { exclude: ["phosphor-svelte"] },
     ssr: {
       // Bundle packages that Node cannot load directly during SSR: the auth
       // adapter imports SvelteKit virtual modules; Sonner exports .svelte files.
       noExternal: ["@mmailaender/convex-better-auth-svelte", "svelte-sonner"],
     },
     plugins: [
+      phosphorDeepImports(),
       tailwindcss(),
       sveltekit({
         compilerOptions: {
