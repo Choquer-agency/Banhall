@@ -59,6 +59,24 @@ describe("/project/[id] route shape", () => {
     expect(__activeQueryCount("projects:getProject")).toBe(0);
   }, 60000);
 
+  it("draws the workspace skeleton with a known title, not a centred spinner, while it loads", async () => {
+    // 2026-09-28: the session check, the access decision and the page code
+    // load all show the real shell with placeholder blocks; a project opened
+    // before shows its title from this browser's recents at once.
+    localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify([{ id: "project-1", title: "Known project title" }]));
+    __setPageUrl("/project/project-1");
+    __setAuthState({ isLoading: true, isAuthenticated: false });
+    await render(ProjectPage, {});
+
+    await expect.poll(() => document.querySelector('[data-workspace-gate-pending="auth"] [data-project-skeleton]')).not.toBeNull();
+    expect(document.querySelector("[data-workspace-chrome]")).not.toBeNull();
+    expect(document.querySelector("[data-project-skeleton-title]")?.textContent).toBe("Known project title");
+
+    __setAuthState({ isLoading: false, isAuthenticated: true });
+    await expect.poll(() => document.querySelector('[data-workspace-gate-pending="decision"] [data-project-skeleton]')).not.toBeNull();
+    expect(__activeQueryCount("projects:getProject")).toBe(0);
+  }, 60000);
+
   it("renders exactly the current report when the access query fails", async () => {
     __setPageUrl("/project/project-1");
     __setQueryData("workspaceRollout:getAccess", { available: true });
