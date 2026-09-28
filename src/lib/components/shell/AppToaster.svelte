@@ -1,5 +1,5 @@
 <script module lang="ts">
-  /** Board C1, D3, D5: toast top 820 on a 900 tall board, a 39px card. */
+  /** Board C1, D3, D5: toast top 820 on a 900 tall board, a 39px card (board px, rendered as rem). */
   export const TOAST_BOTTOM_OFFSET = 41;
 </script>
 
@@ -12,6 +12,7 @@
    * card on the right. Errors stay red and warnings amber (layout.css).
    */
   import { Toaster } from "svelte-sonner";
+  import { boardRem } from "$lib/rootScale";
   import { IconClose } from "$lib/components/icons";
   import ToastCheckIcon from "./ToastCheckIcon.svelte";
 </script>
@@ -20,7 +21,7 @@
   richColors
   closeButton
   position="bottom-center"
-  offset={TOAST_BOTTOM_OFFSET}
+  offset={boardRem(TOAST_BOTTOM_OFFSET)}
   toastOptions={{ class: "font-sans" }}
 >
   {#snippet successIcon()}<ToastCheckIcon />{/snippet}

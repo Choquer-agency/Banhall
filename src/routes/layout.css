@@ -264,6 +264,19 @@
   --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
 }
 
+/* ─── Root scale (2026-09-28) ────────────────────────────────────────────────
+   Sizes are rem (scripts/px-to-rem.mjs), so the root font size scales the
+   whole UI. It stays at the browser default (16px) up to a 1600px wide
+   window, so every board drawn at 1440 renders at exactly its size, then
+   grows by 1px for every 240px of width to 125% at 2560px and stops there:
+   16px at 1600, 17.33px at 1920, 20px at 2560 and wider. Percent based, so
+   a larger browser default and browser zoom still apply on top. Media query
+   breakpoints are not affected (they read the browser default, not this).
+   JS that sizes things in board pixels reads the ratio from rootScale(). */
+html {
+  font-size: clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%);
+}
+
 .workspace-rail-control {
   box-shadow: var(--shadow-workspace-control);
 }

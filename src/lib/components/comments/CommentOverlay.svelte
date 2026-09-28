@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { rootScale } from "$lib/rootScale";
   import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -153,10 +154,10 @@
     class="fixed z-[80] w-72"
     style={`top: ${Math.min(
       (pendingHighlight.y ?? 120) + 8,
-      (typeof window !== "undefined" ? window.innerHeight : 800) - 240
+      (typeof window !== "undefined" ? window.innerHeight : 800) - 240 * rootScale()
     )}px; left: ${Math.min(
       pendingHighlight.x ?? 120,
-      (typeof window !== "undefined" ? window.innerWidth : 1200) - 304
+      (typeof window !== "undefined" ? window.innerWidth : 1200) - 304 * rootScale()
     )}px`}
   >
     <div class="rounded-lg border border-navy/20 bg-white p-3 shadow-lg">
@@ -184,10 +185,10 @@
     tabindex="-1"
     style={`top: ${Math.min(
       rect.top,
-      (typeof window !== "undefined" ? window.innerHeight : 800) - 200
+      (typeof window !== "undefined" ? window.innerHeight : 800) - 200 * rootScale()
     )}px; left: ${Math.min(
       rect.right + 12,
-      (typeof window !== "undefined" ? window.innerWidth : 1200) - 272
+      (typeof window !== "undefined" ? window.innerWidth : 1200) - 272 * rootScale()
     )}px`}
     onmouseenter={() => {
       if (hideTimer) clearTimeout(hideTimer);

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { boardRem } from "$lib/rootScale";
   import type { Role } from "../../../../shared/roles";
   import { ROLE_CHIP_LABELS, roleChipKind, type RoleChipKind } from "$lib/roles/roleChip";
 
@@ -50,7 +51,7 @@
   <span
     data-role-chip={resolved}
     class={`inline-flex shrink-0 items-center whitespace-nowrap font-medium ${sizeStyles[size]} ${toneStyles[resolved]} ${className}`}
-    style:border-radius={radius === undefined ? undefined : `${radius}px`}
+    style:border-radius={radius === undefined ? undefined : boardRem(radius)}
   >
     {label ?? ROLE_CHIP_LABELS[resolved]}
   </span>

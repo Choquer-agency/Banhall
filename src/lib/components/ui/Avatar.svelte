@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { boardRem } from "$lib/rootScale";
   /**
    * Round 2 avatar (rail identity 24px, collapsed rail 28px, identity menu
    * 32px, Settings photo 52px). Shows the profile photo when there is one,
@@ -49,9 +50,9 @@
   data-avatar-tone={imageUrl ? undefined : resolvedTone}
   aria-hidden="true"
   class={`inline-flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full leading-none text-white ${weight === "medium" ? "font-medium" : "font-normal"} ${imageUrl ? "bg-chrome" : toneClass[resolvedTone]} ${className}`}
-  style:width={`${size}px`}
-  style:height={`${size}px`}
-  style:font-size={`${fontSize}px`}
+  style:width={boardRem(size)}
+  style:height={boardRem(size)}
+  style:font-size={boardRem(fontSize)}
 >
   {#if imageUrl}
     <img src={imageUrl} alt="" class="h-full w-full object-cover" draggable="false" />

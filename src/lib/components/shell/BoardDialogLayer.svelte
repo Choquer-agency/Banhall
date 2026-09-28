@@ -8,19 +8,20 @@
    * The dialog itself must not shrink (`shrink-0`).
    */
   import type { Snippet } from "svelte";
+  import { boardRem } from "$lib/rootScale";
 
   let {
     top = undefined,
     class: className = "",
     children,
   }: {
-    /** The board's distance from the window's top edge to the dialog, in px. */
+    /** The board's distance from the window's top edge to the dialog, in board px (rendered as rem). */
     top?: number;
     class?: string;
     children: Snippet;
   } = $props();
 
-  const basis = $derived(top === undefined ? "0px" : `${top}px`);
+  const basis = $derived(top === undefined ? "0px" : boardRem(top));
 </script>
 
 <div

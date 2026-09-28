@@ -107,7 +107,7 @@ describe("Workspace rail resize + hide/show", () => {
     expect(storedPrefs()).toEqual({ width: RAIL_MIN_WIDTH, hidden: false, adminOpen: false });
     // The grid variable follows the committed width.
     expect(shellRoot()?.style.getPropertyValue("--workspace-rail-width").trim()).toBe(
-      `${RAIL_MIN_WIDTH}px`
+      `${RAIL_MIN_WIDTH / 16}rem`
     );
   });
 
@@ -124,13 +124,13 @@ describe("Workspace rail resize + hide/show", () => {
     expect(getComputedStyle(root).transitionProperty).toBe("none");
     // …and the live width lands on the CSS custom property directly.
     expect(root.style.getPropertyValue("--workspace-rail-width").trim()).toBe(
-      `${RAIL_DEFAULT_WIDTH + 24}px`
+      `${(RAIL_DEFAULT_WIDTH + 24) / 16}rem`
     );
 
     // Overshoot far past max: the live width clamps.
     separator.dispatchEvent(pointer("pointermove", 900));
     expect(root.style.getPropertyValue("--workspace-rail-width").trim()).toBe(
-      `${RAIL_MAX_WIDTH}px`
+      `${RAIL_MAX_WIDTH / 16}rem`
     );
 
     separator.dispatchEvent(pointer("pointerup", 900));
@@ -149,7 +149,7 @@ describe("Workspace rail resize + hide/show", () => {
     // Persisted width applied on mount.
     await expect
       .poll(() => root.style.getPropertyValue("--workspace-rail-width").trim())
-      .toBe("272px");
+      .toBe("17rem");
 
     const toggle = railToggle()!;
     expect(toggle.getAttribute("aria-label")).toBe("Collapse navigation rail");

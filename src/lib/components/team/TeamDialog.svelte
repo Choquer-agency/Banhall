@@ -10,6 +10,7 @@
 </script>
 
 <script lang="ts">
+  import { boardRem } from "$lib/rootScale";
   // Shared frame for the Team dialogs (C3 invite, C5 revoke, temporary
   // password): the board scrim, radius 16, the dialog shadow, header padding
   // 24/20/0/28, title 18/24 500, muted 14/20 subtitle and a 32px close button
@@ -82,7 +83,7 @@
               data-team-dialog
               data-pointer-opened={pointerOpened ? "" : undefined}
               onkeydown={() => (pointerOpened = false)}
-              style={`max-width:${width}px`}
+              style={`max-width:${boardRem(width)}`}
               class="pointer-events-auto flex max-h-[90vh] w-full shrink-0 flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-dialog sm:rounded-2xl"
             >
               <div class="flex items-start gap-4 pl-7 pr-5 pt-6">

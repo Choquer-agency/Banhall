@@ -17,6 +17,7 @@
   import { useConvexClient, useQuery, useMutation, useAction } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { overlayFade, modalPop } from "$lib/motion";
+  import { boardRem, rootScale } from "$lib/rootScale";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import ProjectStateBadge from "$lib/components/dashboard/ProjectStateBadge.svelte";
@@ -866,7 +867,7 @@
     function onMove(e: MouseEvent) {
       if (!dragging || !workspaceEl) return;
       const rect = workspaceEl.getBoundingClientRect();
-      sidePanelWidth = clampSidePanel(rect.right - e.clientX);
+      sidePanelWidth = clampSidePanel((rect.right - e.clientX) / rootScale());
     }
     function onUp() {
       if (dragging) {
@@ -2842,10 +2843,10 @@
           data-side-panel={sidePanelOpen ? railView : undefined}
           aria-label="Side panel"
           class={`relative min-h-0 flex-col overflow-hidden bg-surface ${sidePanelOpen && (mobileWorkspaceView === "assistant" || assistantFull) ? "flex w-full flex-1" : "hidden"} lg:flex lg:flex-none lg:w-[var(--side-panel-width)] ${dragging ? "" : "lg:transition-[width] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
-          style={`--side-panel-width: ${assistantFull ? "100%" : sidePanelOpen ? `${sidePanelWidth}px` : "0px"}`}
+          style={`--side-panel-width: ${assistantFull ? "100%" : sidePanelOpen ? boardRem(sidePanelWidth) : "0px"}`}
         >
           {#if detailsOpen && railView === "details"}
-            <div class="h-full" style={`min-width: ${SIDE_PANEL_MIN}px`}>
+            <div class="h-full" style={`min-width: ${boardRem(SIDE_PANEL_MIN)}`}>
               <DetailsPanel
                 bind:this={detailsPanel}
                 data={details.data}
@@ -2876,7 +2877,7 @@
           {#if report && user && reportActionsVisible}
             <!-- BNH-47: QA review (exactly one side surface in flow at a time) -->
             {#if railView === "qa"}
-              <div class="h-full" style={`min-width: ${SIDE_PANEL_MIN}px`}>
+              <div class="h-full" style={`min-width: ${boardRem(SIDE_PANEL_MIN)}`}>
                 <LazyModule load={() => import("$lib/components/qa/QARailPanel.svelte")} label="QA score">
                   {#snippet children(QARailPanel)}
                     <QARailPanel

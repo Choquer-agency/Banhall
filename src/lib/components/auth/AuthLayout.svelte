@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { boardRem } from "$lib/rootScale";
   // Round 2 signed-out frame (J1-J9). Wide screens: canvas, dark logo (64px)
   // centred above one column with 28px between (J1-J4, J6). With the invite
   // banner (J5) the column centres in the space below it with 48px bottom
@@ -25,7 +26,7 @@
     }`}
   >
     <BanhallLogo tone="dark" height={64} class={`w-auto sm:h-16 ${banner ? "h-[3.25rem]" : "h-14"}`} />
-    <div data-auth-column class="flex w-full flex-col gap-5" style={`max-width:${width}px`}>
+    <div data-auth-column class="flex w-full flex-col gap-5" style={`max-width:${boardRem(width)}`}>
       {@render children()}
     </div>
   </main>

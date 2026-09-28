@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { boardRem } from "$lib/rootScale";
   import {
     BANHALL_LOGO_ARTWORK,
     BANHALL_LOGO_SIZE,
@@ -17,7 +18,7 @@
   let { class: className = "" }: { class?: string } = $props();
 
   const scale = $derived(36 / BANHALL_LOGO_ARTWORK.height);
-  const px = (value: number) => `${Math.round(value * scale * 100) / 100}px`;
+  const px = (value: number) => boardRem(Math.round(value * scale * 100) / 100);
 </script>
 
 <span

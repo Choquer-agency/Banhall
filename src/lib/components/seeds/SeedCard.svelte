@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { boardRem } from "$lib/rootScale";
   import { tick, type Snippet } from "svelte";
   import { DropdownMenu, Popover } from "bits-ui";
   import { IconCheck, IconClose, IconComment, IconPencil, IconQuote, IconRegenerate } from "$lib/components/icons";
@@ -526,7 +527,7 @@
     class={`flex flex-wrap items-center gap-1.5 ${
       toolsInTagRow ? "relative pr-[var(--seed-tools)] pointer-coarse:min-h-11 pointer-coarse:pr-[var(--seed-tools-coarse)]" : ""
     }`}
-    style={toolsInTagRow ? `--seed-tools:${toolCount * 36}px;--seed-tools-coarse:${toolCount * 52}px` : undefined}
+    style={toolsInTagRow ? `--seed-tools:${boardRem(toolCount * 36)};--seed-tools-coarse:${boardRem(toolCount * 52)}` : undefined}
     data-seed-tag-row
   >
     {@render tagPills()}

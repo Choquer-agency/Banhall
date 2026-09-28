@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { boardRem } from "$lib/rootScale";
   /**
    * The Aurora conic AI mark (ui-design-final.md section 1): rounded square,
    * conic gradient with a soft glint, white glyph at 60% of the size.
@@ -32,7 +33,7 @@
     aria-label={label}
     aria-hidden={label ? undefined : "true"}
     class={`relative inline-block shrink-0 ${className}`}
-    style={`width:${size}px;height:${size}px`}
+    style={`width:${boardRem(size)};height:${boardRem(size)}`}
   >
     <span
       class="aurora-spin absolute inset-0 rounded-full"
@@ -47,7 +48,7 @@
     aria-label={label}
     aria-hidden={label ? undefined : "true"}
     class={`relative inline-flex shrink-0 items-center justify-center text-white ${className}`}
-    style={`width:${size}px;height:${size}px;border-radius:${radius}px;background:var(--aurora-glint),var(--aurora-conic);box-shadow:var(--aurora-shadow)`}
+    style={`width:${boardRem(size)};height:${boardRem(size)};border-radius:${boardRem(radius)};background:var(--aurora-glint),var(--aurora-conic);box-shadow:var(--aurora-shadow)`}
   >
     {#if glyph === "check"}
       <svg
@@ -62,7 +63,7 @@
         aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg
       >
     {:else}
-      <span style={`width:${glyphSize}px;height:${glyphSize}px`} class="inline-flex">
+      <span style={`width:${boardRem(glyphSize)};height:${boardRem(glyphSize)}`} class="inline-flex">
         <ChatIcon class="h-full w-full" />
       </span>
     {/if}

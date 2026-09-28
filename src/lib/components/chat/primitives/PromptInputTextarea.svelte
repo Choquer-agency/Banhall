@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { rootScale } from "$lib/rootScale";
   import type { Snippet } from "svelte";
   import type { HTMLTextareaAttributes } from "svelte/elements";
   import { cn } from "$lib/utils";
@@ -49,7 +50,7 @@
     const el = ref;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, ctx.maxHeight) + "px";
+    el.style.height = Math.min(el.scrollHeight, ctx.maxHeight * rootScale()) + "px";
   });
 
   function handleKeydown(

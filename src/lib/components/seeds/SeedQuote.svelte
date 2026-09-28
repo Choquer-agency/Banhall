@@ -15,6 +15,7 @@
    * bullet, so trailing words and punctuation stay beside the quote.
    */
   import { onDestroy, tick } from "svelte";
+  import { boardRem, rootScale } from "$lib/rootScale";
   import { describeSource, type SeedSourceAttribution } from "./attribution";
   import { citationSpeakerLine, QUOTE_CHECK_NOTE, QUOTE_USE_ANYWAY, SPEAKER_CHECK_NOTE, type QuoteCitation } from "./citations";
 
@@ -58,7 +59,7 @@
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
     const height = card?.offsetHeight ?? 120;
-    const width = Math.min(CARD_WIDTH, window.innerWidth - 16);
+    const width = Math.min(CARD_WIDTH * rootScale(), window.innerWidth - 16);
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
     const below = rect.bottom + 6;
     const top = below + height > window.innerHeight - 8 && rect.top - height - 6 > 8
@@ -186,7 +187,7 @@
       aria-label="Quoted line"
       data-quote-card
       class="fixed z-[90] flex flex-col gap-1.5 rounded-lg border border-line bg-surface px-3 py-2.5 text-left shadow-lg"
-      style={`top:${position.top}px;left:${position.left}px;width:min(${CARD_WIDTH}px, calc(100vw - 16px))`}
+      style={`top:${position.top}px;left:${position.left}px;width:min(${boardRem(CARD_WIDTH)}, calc(100vw - 16px))`}
       onpointerenter={clearTimer}
       onpointerleave={scheduleHide}
     ><span class="block font-serif text-[0.8125rem] leading-[1.125rem] text-ink" data-quote-text>“{citation.exactExcerpt}”</span>{#if citation.needsSpeakerCheck}<span

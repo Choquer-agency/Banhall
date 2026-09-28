@@ -11,6 +11,7 @@
   } from "../../../../shared/pdSubsections";
   import { useStableQuery } from "$lib/stableQuery.svelte";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
+  import { boardRem, rootScale } from "$lib/rootScale";
     import Button from "$lib/components/ui/Button.svelte";
   import * as Drawer from "$lib/components/ui/drawer/index.js";
   import BriefRailPanel from "$lib/components/brief/BriefRailPanel.svelte";
@@ -906,7 +907,7 @@
     const move = (moveEvent: PointerEvent) => {
       if (moveEvent.pointerId !== pointerId) return;
       const rect = host.getBoundingClientRect();
-      if (rect.width > 0) setOutlineWidth(moveEvent.clientX - rect.left);
+      if (rect.width > 0) setOutlineWidth((moveEvent.clientX - rect.left) / rootScale());
     };
     const finish = (endEvent: PointerEvent) => {
       if (endEvent.pointerId === pointerId) endDrag();
@@ -1143,7 +1144,7 @@
       <div
         bind:this={outlinePane}
         class={`${mobilePane === "outline" ? "block" : "hidden"} min-h-0 w-full flex-none border-r border-line-soft lg:block lg:w-[var(--seed-outline-width)]`}
-        style={`--seed-outline-width: ${outlineWidth}px`}
+        style={`--seed-outline-width: ${boardRem(outlineWidth)}`}
       >
         <SeedOutline
           rows={outline.rows}

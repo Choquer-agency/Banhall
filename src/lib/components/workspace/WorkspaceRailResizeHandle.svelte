@@ -13,6 +13,7 @@
     clampRailWidth,
     railWidthForKey,
   } from "$lib/workspace/railPreferences";
+  import { rootScale } from "$lib/rootScale";
 
   let {
     width,
@@ -30,6 +31,8 @@
   let dragging = $state(false);
   let startX = 0;
   let startWidth = 0;
+  // Screen pixels per board pixel for this drag (the width is in board px).
+  let scale = 1;
   let liveWidth = 0;
   let activePointerId: number | null = null;
 
@@ -40,6 +43,7 @@
     startX = event.clientX;
     startWidth = width;
     liveWidth = width;
+    scale = rootScale();
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
@@ -51,7 +55,7 @@
 
   function handlePointerMove(event: PointerEvent) {
     if (!dragging || event.pointerId !== activePointerId) return;
-    liveWidth = clampRailWidth(startWidth + (event.clientX - startX));
+    liveWidth = clampRailWidth(startWidth + (event.clientX - startX) / scale);
     onResize(liveWidth);
   }
 

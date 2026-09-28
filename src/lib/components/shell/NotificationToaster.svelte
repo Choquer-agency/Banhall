@@ -83,7 +83,7 @@
   <section
     aria-label="Notifications"
     data-notification-toaster
-    style:bottom={`${16 + stickyActionBarHeight()}px`}
+    style:bottom={`calc(1rem + ${stickyActionBarHeight()}px)`}
     class="pointer-events-none fixed right-4 z-[100] flex w-[min(22.5rem,calc(100vw-2rem))] flex-col-reverse gap-2"
   >
     {#each cards as row (row._id)}

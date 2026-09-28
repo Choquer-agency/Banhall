@@ -72,7 +72,7 @@ describe("round 2 icons", () => {
     let svg = plain.container.querySelector("svg")!;
     expect(svg).toBeInstanceOf(SVGSVGElement);
     expect(svg.getAttribute("viewBox")).toBe(viewBox);
-    expect(svg.getAttribute("width")).toBe(String(defaultSize));
+    expect(svg.getAttribute("width")).toBe(`${defaultSize / 16}rem`);
     expect(svg.getAttribute("stroke")).toBe("currentColor");
     expect(svg.getAttribute("fill")).toBe("none");
     expect(svg.getAttribute("aria-hidden")).toBe("true");

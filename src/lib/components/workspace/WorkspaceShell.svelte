@@ -3,6 +3,7 @@
   import { beforeNavigate } from "$app/navigation";
   import { IconClose } from "$lib/components/icons";
   import type { DashboardView } from "$lib/dashboard/viewMode";
+  import { boardRem } from "$lib/rootScale";
   import WorkspaceRail from "$lib/components/workspace/WorkspaceRail.svelte";
   import WorkspaceRailResizeHandle from "$lib/components/workspace/WorkspaceRailResizeHandle.svelte";
   import CommandPalette from "$lib/components/workspace/CommandPalette.svelte";
@@ -119,13 +120,13 @@
   // state (and storage) once on release.
   function applyLiveWidth(width: number) {
     resizing = true;
-    root?.style.setProperty("--workspace-rail-width", `${width}px`);
+    root?.style.setProperty("--workspace-rail-width", boardRem(width));
   }
 
   function commitWidth(width: number) {
     resizing = false;
     railWidth = clampRailWidth(width);
-    root?.style.setProperty("--workspace-rail-width", `${railWidth}px`);
+    root?.style.setProperty("--workspace-rail-width", boardRem(railWidth));
   }
 
   // Tablet widths (1024 to 1279px) keep the icons-only rail on screen
@@ -211,7 +212,7 @@
   data-rail-hidden={railHidden ? "" : undefined}
   data-rail-resizing={resizing ? "" : undefined}
   data-view-as={viewing ?? undefined}
-  style={`--workspace-rail-width: ${railWidth}px; --workspace-rail-collapsed-width: ${RAIL_COLLAPSED_WIDTH}px;`}
+  style={`--workspace-rail-width: ${boardRem(railWidth)}; --workspace-rail-collapsed-width: ${boardRem(RAIL_COLLAPSED_WIDTH)};`}
   class="workspace-shell-grid relative grid h-dvh grid-rows-[minmax(0,1fr)] overflow-hidden bg-workspace-shell text-ink lg:grid-cols-[var(--workspace-rail-collapsed-width)_minmax(0,1fr)] xl:grid-cols-[var(--workspace-rail-col)_minmax(0,1fr)]"
 >
   <div class={`workspace-rail-column relative hidden min-h-0 lg:block ${railOverlay ? "z-40" : ""}`}>

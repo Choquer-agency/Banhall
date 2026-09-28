@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { boardRem } from "$lib/rootScale";
   /** Round initial for a teammate; the viewer is always fir, others take a stable tone. */
   let {
     initials,
@@ -19,5 +20,5 @@
 <span
   aria-hidden="true"
   class={`inline-flex shrink-0 items-center justify-center rounded-full font-medium text-white ${tone}`}
-  style={`width:${size}px;height:${size}px;font-size:${Math.max(9, Math.round(size * 0.5))}px`}
+  style={`width:${boardRem(size)};height:${boardRem(size)};font-size:${boardRem(Math.max(9, Math.round(size * 0.5)))}`}
 >{(initials || "?").slice(0, 1).toUpperCase()}</span>

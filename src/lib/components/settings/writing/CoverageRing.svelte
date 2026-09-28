@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { boardRem } from "$lib/rootScale";
   // I2 ring: 72px, the AI gradient (teal, blue, violet, pink) drawn over the
   // covered share of the circle from the top, the aurora track for the rest,
   // and a 58px white centre with "3/6" in 15px/500.
@@ -14,10 +15,10 @@
   role="img"
   aria-label={`${covered} of ${total} areas covered`}
   class="relative flex shrink-0 items-center justify-center rounded-full"
-  style={`width:${size}px;height:${size}px;background-image:${ring}`}
+  style={`width:${boardRem(size)};height:${boardRem(size)};background-image:${ring}`}
 >
   <span
     class="relative flex items-center justify-center rounded-full bg-surface text-[0.9375rem] leading-[1.125rem] font-medium text-ink"
-    style={`width:${size - 14}px;height:${size - 14}px`}
+    style={`width:${boardRem(size - 14)};height:${boardRem(size - 14)}`}
   >{covered}/{total}</span>
 </div>
