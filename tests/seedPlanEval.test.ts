@@ -1,0 +1,567 @@
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { PD_SUBSECTIONS } from "../shared/pdSubsections";
+import { isReleaseEvalProjectTitle, releaseEvalProjectTitle } from "../shared/releaseEval";
+import {
+  SEMANTIC_CASES,
+  buildPlan,
+  chooseExclusion,
+  contentWordOverlap,
+  deploymentRefusal,
+  describeStep,
+  distribution,
+  emptyRunLog,
+  exclusionBullet,
+  latencySamples,
+  linkedAdvancements,
+  loadFixtures,
+  parseArgs,
+  parseConvexError,
+  renderFixturePack,
+  renderSummary,
+  reservePackDir,
+  runChecks,
+  runFixture,
+  seedRequestCount,
+  usageCost,
+  validateFixture,
+  writePack,
+  type Collected,
+  type EvalDriver,
+  type Fixture,
+  type RunLog,
+} from "../scripts/seed-plan-eval/eval";
+
+/**
+ * The release-blocking semantic suite (Step by step, CAP-13): the fixtures,
+ * the scripted sessions, the deployment guard, the automatic checks, the
+ * CAP-14 figures and the judging pack. The real run needs a deployment and
+ * paid model calls, so only the pure parts are exercised here.
+ */
+const FIXTURES = path.join(process.cwd(), "scripts/seed-plan-eval/fixtures");
+const fixtures = loadFixtures(FIXTURES);
+const byCase = (semanticCase: keyof typeof SEMANTIC_CASES) =>
+  fixtures.find((fixture) => fixture.semanticCase === semanticCase) as Fixture;
+
+const DASHES = /[\u2013\u2014]/;
+
+describe("fixtures", () => {
+  it("has one valid fixture per semantic case CAP-13 names", () => {
+    expect(fixtures.map((fixture) => fixture.semanticCase).sort()).toEqual(Object.keys(SEMANTIC_CASES).sort());
+    for (const fixture of fixtures) {
+      expect({ id: fixture.id, problems: validateFixture(fixture) }).toEqual({ id: fixture.id, problems: [] });
+    }
+  });
+
+  it("keeps every source file plain ASCII", () => {
+    for (const fixture of fixtures) {
+      for (const file of readdirSync(fixture.dir)) {
+        expect(/[^\x00-\x7F]/.test(readFileSync(path.join(fixture.dir, file), "utf8")), `${fixture.id}/${file}`).toBe(false);
+      }
+    }
+  });
+
+  it("refuses a fixture that breaks the rules", () => {
+    const base = byCase("carried_old_selections");
+    const transcript = base.sources[0].file;
+    const broken: Fixture = {
+      ...base,
+      fictional: false,
+      params: { ...base.params, editSentence: "No term here." },
+      texts: { ...base.texts, [transcript]: `${base.texts[transcript]} The cascade-fired lattice \u2014 again.` },
+    };
+    const problems = validateFixture(broken);
+    expect(problems).toContain("fictional must be true (never real client data)");
+    expect(problems).toContain("sources contain an em or en dash; use a plain hyphen");
+    expect(problems).toContain('"cascade-fired" must not appear in the sources');
+    expect(problems).toContain('"cascade-fired lattice" must not appear in the sources');
+    expect(problems).toContain("params.editSentence must contain params.editedTerm");
+
+    const short: Fixture = { ...base, texts: Object.fromEntries(Object.keys(base.texts).map((file) => [file, "Too short."])) };
+    expect(validateFixture(short).some((problem) => problem.includes("a fixture needs at least"))).toBe(true);
+
+    const skip = byCase("skipped_role_supported");
+    expect(validateFixture({ ...skip, params: { ...skip.params, skipRole: "hypothesis" } })).toContain(
+      "params.skipRole must be a optional Subsection",
+    );
+    const feedback = byCase("withdrawn_feedback");
+    expect(validateFixture({ ...feedback, params: { ...feedback.params, withdrawnInstruction: "x".repeat(301) } })).toContain(
+      "params.withdrawnInstruction exceeds 300 characters",
+    );
+  });
+});
+
+describe("scripted sessions", () => {
+  it("decides every Subsection and ends with sign-off", () => {
+    for (const fixture of fixtures) {
+      const plan = buildPlan(fixture);
+      expect(plan.at(-1)).toEqual({ op: "signOff" });
+      for (const role of PD_SUBSECTIONS) {
+        const decided = plan.some((step) => (step.op === "approve" || step.op === "skip") && step.role === role.roleId);
+        expect(decided, `${fixture.id} decides ${role.roleId}`).toBe(true);
+      }
+      for (const step of plan) {
+        const text = describeStep(step);
+        expect(text.length).toBeGreaterThan(5);
+        expect(DASHES.test(text)).toBe(false);
+      }
+    }
+  });
+
+  it("scripts each semantic case", () => {
+    const carried = buildPlan(byCase("carried_old_selections")).map((step) => step.op);
+    expect(carried.indexOf("switchSelection")).toBeLessThan(carried.indexOf("regenerate"));
+    expect(carried).toContain("reapproveStale");
+
+    const skipped = buildPlan(byCase("skipped_role_supported"));
+    const openAt = skipped.findIndex((step) => step.op === "open" && step.role === "prior_year_status");
+    const skipAt = skipped.findIndex((step) => step.op === "skip" && step.role === "prior_year_status");
+    expect(openAt).toBeGreaterThanOrEqual(0);
+    expect(skipAt).toBe(openAt + 1);
+
+    const feedback = buildPlan(byCase("withdrawn_feedback")).map((step) => step.op);
+    expect(feedback.indexOf("withdrawFeedback")).toBeLessThan(feedback.indexOf("approve"));
+
+    const exclusion = buildPlan(byCase("exclusion_conflict"));
+    expect(exclusion.some((step) => step.op === "approve" && step.expect === "exclusion")).toBe(true);
+
+    const links = buildPlan(byCase("changed_advancement_links")).map((step) => (step.op === "approve" ? `approve:${step.expect ?? ""}` : step.op));
+    expect(links.indexOf("deselectMostLinkedUncertainty")).toBeLessThan(links.indexOf("approve:unlinkedRefused"));
+    expect(links.indexOf("approve:unlinkedRefused")).toBeLessThan(links.indexOf("selectSharedAdvancements"));
+  });
+
+  it("builds edits and picks within the server's rules", () => {
+    expect(exclusionBullet("Billing portal migration to a new cloud host")).toBe(
+      "The work also covered this: Billing portal migration to a new cloud host",
+    );
+    expect(exclusionBullet("x".repeat(700))).toHaveLength(600);
+    const entries = [
+      { text: "Customer training sessions", exactExcerpt: "training" },
+      { text: "Moving the billing portal", exactExcerpt: "billing portal" },
+    ];
+    expect(chooseExclusion(entries, "billing")?.text).toBe("Moving the billing portal");
+    expect(chooseExclusion(entries, "nothing")?.text).toBe("Customer training sessions");
+    expect(chooseExclusion([], "billing")).toBeNull();
+
+    const item = (seedId: string, uncertaintySeedId: string | null, experimentSeedIds: string[]) => ({
+      seedId,
+      batchId: "b",
+      bullets: ["x"],
+      selected: false,
+      edited: false,
+      revisionOfSeedId: null,
+      feedbackRequestId: null,
+      uncertaintySeedId,
+      experimentSeedIds,
+    });
+    const picked = linkedAdvancements(
+      [item("a1", "u1", ["e1"]), item("a2", "u2", ["e1"]), item("a3", "u2", ["e2"]), item("a4", "u9", ["e1"]), item("a5", "u2", ["e9"])],
+      new Set(["u1", "u2"]),
+      new Set(["e1", "e2"]),
+      2,
+    );
+    expect(picked.map((candidate) => candidate.seedId)).toEqual(["a2", "a3"]);
+  });
+});
+
+describe("deployment guard", () => {
+  const run = (argv: string[], env: Record<string, string | undefined> = {}) => deploymentRefusal(parseArgs(argv), env);
+  const ok = ["--deployment", "local-e2e", "--as", "reviewer@example.com", "--confirm-spend"];
+
+  it("allows a paid run only on a named local deployment with every flag", () => {
+    expect(run(ok)).toBeNull();
+    expect(run(["--dry-run"])).toBeNull();
+    expect(run([])).toMatch(/--deployment/);
+    expect(run(["--deployment", "local-e2e", "--as", "reviewer@example.com"])).toMatch(/--confirm-spend/);
+    expect(run(["--deployment", "local-e2e", "--confirm-spend"])).toMatch(/--as/);
+    expect(run(["--deployment", "local-e2e", "--as", "reviewer@example.com", "--cleanup"])).toBeNull();
+  });
+
+  it("never runs against production and needs a flag for any cloud deployment", () => {
+    expect(run(["--deployment", "energized-salamander-237", "--as", "r@example.com", "--confirm-spend", "--allow-cloud-dev"])).toMatch(/production/);
+    expect(run(["--deployment", "prod", "--as", "r@example.com", "--confirm-spend", "--allow-cloud-dev"])).toMatch(/production/);
+    expect(run(["--deployment", "prod/banhall", "--as", "r@example.com", "--confirm-spend", "--allow-cloud-dev"])).toMatch(/production/);
+    expect(run(["--deployment", "happy-otter-123", "--as", "r@example.com", "--confirm-spend"])).toMatch(/--allow-cloud-dev/);
+    expect(run(["--deployment", "happy-otter-123", "--as", "r@example.com", "--confirm-spend", "--allow-cloud-dev"])).toBeNull();
+    expect(run(ok, { CONVEX_DEPLOY_KEY: "prod:secret" })).toMatch(/CONVEX_DEPLOY_KEY/);
+  });
+
+  it("rejects unknown or incomplete options", () => {
+    expect(() => parseArgs(["--deployment"])).toThrow(/needs a value/);
+    expect(() => parseArgs(["--yes"])).toThrow(/Unknown option/);
+    expect(() => parseArgs(["--dry-run", "--cleanup"])).toThrow(/cannot be combined/);
+    expect(parseArgs(["--fixture", "a", "--fixture", "b"]).fixtures).toEqual(["a", "b"]);
+  });
+
+  it("reads the domain error out of the CLI's failure output", () => {
+    const error = parseConvexError(
+      'Failed to run function "seeds:approve":\nError: [Request ID: abc] Server Error\nUncaught ConvexError: {"reason":"UNLINKED_ADVANCEMENT","code":"INVALID_STATE","message":"Advancement references must be active selections"}\n    at handler (../convex/seeds.ts:726:6)\n',
+    );
+    expect(error.code).toBe("INVALID_STATE");
+    expect(error.reason).toBe("UNLINKED_ADVANCEMENT");
+    expect(error.message).toBe("Advancement references must be active selections");
+    expect(parseConvexError("\u001b[31mboom\u001b[39m").code).toBeNull();
+  });
+
+  it("names every eval project with the release-eval prefix", () => {
+    expect(releaseEvalProjectTitle("Corvane")).toBe("Release eval - Corvane");
+    expect(isReleaseEvalProjectTitle("Release eval - Corvane")).toBe(true);
+    expect(isReleaseEvalProjectTitle("Release eval - ")).toBe(false);
+    expect(isReleaseEvalProjectTitle("Acme PD")).toBe(false);
+  });
+});
+
+// ─── Synthetic results for the checks and the pack ─────────────────────────
+
+function baseCollected(): Collected {
+  return {
+    project: { projectId: "p1", title: "Release eval - Test" },
+    generation: {
+      generationId: "g1",
+      status: "completed",
+      requestedAt: 0,
+      seedRequestsReserved: 17,
+      singleModelId: null,
+      summaryVersionId: "sv1",
+    },
+    subsections: [],
+    batches: [
+      { batchId: "b1", roleId: "company_context", operation: "open", status: "shown", queuedAt: 1_000, startedAt: 1_100, completedAt: 9_000, roleOpen: true, startedBy: "server", requestsMade: 1, seedsDropped: 0, consumedContextRevision: "r0", feedbackRequestId: null },
+      { batchId: "b2", roleId: "goal_problem", operation: "open", status: "shown", queuedAt: 20_000, startedAt: 20_100, completedAt: 30_000, roleOpen: true, startedBy: null, requestsMade: 1, seedsDropped: 0, consumedContextRevision: "r1", feedbackRequestId: null },
+    ],
+    seeds: [],
+    feedback: [],
+    batchContext: [],
+    events: [
+      { kind: "batchCompleted", at: 9_000, roleId: "company_context", actor: "system", batchId: "b1", seedId: null, feedbackRequestId: null, confirmed: null },
+      { kind: "batchViewed", at: 9_500, roleId: "company_context", actor: "user", batchId: "b1", seedId: null, feedbackRequestId: null, confirmed: null },
+      { kind: "batchCompleted", at: 30_000, roleId: "goal_problem", actor: "system", batchId: "b2", seedId: null, feedbackRequestId: null, confirmed: null },
+      { kind: "batchViewed", at: 31_000, roleId: "goal_problem", actor: "user", batchId: "b2", seedId: null, feedbackRequestId: null, confirmed: null },
+      { kind: "signOff", at: 100_000, roleId: null, actor: "user", batchId: null, seedId: null, feedbackRequestId: null, confirmed: null },
+    ],
+    summary: { summaryVersionId: "sv1", version: 1, skippedRoleIds: [], signedOffAt: 100_000, items: [] },
+    complianceNotes: [],
+    report: { reportId: "r1", generatedAt: 400_000, sections: { s242: "Section 242 text.", s244: "Section 244 text.", s246: "Section 246 text." } },
+    briefEntries: [],
+    usage: [
+      { callSite: "generation:seeds:company_context", model: "claude-sonnet-5", costUsd: 0.02, inputTokens: 1, outputTokens: 1 },
+      { callSite: "generation:seedFeedback:company_context", model: "claude-sonnet-5", costUsd: 0.01, inputTokens: 1, outputTokens: 1 },
+      { callSite: "generation:section:242", model: "claude-sonnet-5", costUsd: 0.5, inputTokens: 1, outputTokens: 1 },
+    ],
+    truncated: [],
+  };
+}
+
+type Item = NonNullable<Collected["summary"]>["items"][number];
+const summaryItem = (itemId: string, roleId: string, seedId: string, extra: Partial<Item> = {}): Item => ({
+  itemId,
+  roleId,
+  kind: PD_SUBSECTIONS.find((role) => role.roleId === roleId)?.kind ?? "standard",
+  order: 0,
+  seedId,
+  bullets: ["A plain bullet."],
+  support: "source_supported",
+  tags: ["technical"],
+  uncertaintySeedId: null,
+  experimentSeedIds: [],
+  confirmedExclusion: false,
+  edited: false,
+  ...extra,
+});
+const cover = (itemId: string, section: string, mergedItemIds: string[] = [itemId], extra: Partial<Collected["complianceNotes"][number]> = {}) => ({
+  section,
+  paragraphIndex: 0,
+  source: "model",
+  instruction: `Cover signed-off Summary item ${itemId}`,
+  outcome: "applied",
+  tier: "none",
+  reason: "Covered.",
+  repaired: false,
+  planRef: { itemId, skippedRoleId: null, mergedItemIds },
+  ...extra,
+});
+const status = (checks: ReturnType<typeof runChecks>, id: string) => checks.find((item) => item.id === id)?.status;
+
+describe("automatic checks", () => {
+  it("records a run that stopped early as a failed check", () => {
+    const log = { ...emptyRunLog("x", 0), error: "Timed out waiting for the seed stage" };
+    const checks = runChecks(byCase("skipped_role_supported"), null, log);
+    expect(checks).toEqual([expect.objectContaining({ id: "run-completed", status: "fail", evidence: "Timed out waiting for the seed stage" })]);
+  });
+
+  it("checks the carried-old-selections case", () => {
+    const fixture = byCase("carried_old_selections");
+    const c = baseCollected();
+    c.batches.push(
+      { batchId: "old5", roleId: "active_uncertainties", operation: "open", status: "superseded", queuedAt: 1, startedAt: 1, completedAt: 2, roleOpen: true, startedBy: null, requestsMade: 1, seedsDropped: 0, consumedContextRevision: "r-old", feedbackRequestId: null },
+      { batchId: "new5", roleId: "active_uncertainties", operation: "regenerate", status: "shown", queuedAt: 3, startedAt: 3, completedAt: 4, roleOpen: true, startedBy: null, requestsMade: 1, seedsDropped: 0, consumedContextRevision: "r-new", feedbackRequestId: null },
+    );
+    c.seeds.push(
+      { seedId: "u1", batchId: "old5", roleId: "active_uncertainties", bullets: ["Old uncertainty."], support: "source_supported", revisionOfSeedId: null, feedbackRequestId: null, uncertaintySeedId: null, experimentSeedIds: [] },
+      { seedId: "c1", batchId: "b1", roleId: "company_context", bullets: ["x"], support: "writer_asserted", revisionOfSeedId: null, feedbackRequestId: null, uncertaintySeedId: null, experimentSeedIds: [] },
+    );
+    c.summary!.items = [
+      summaryItem("i1", "company_context", "c1", { bullets: ["They work in ceramics. The team calls the graded structure the cascade-fired lattice."], support: "writer_asserted", edited: true }),
+      summaryItem("i2", "active_uncertainties", "u1"),
+    ];
+    c.complianceNotes = [cover("i1", "242"), cover("i2", "242")];
+    c.report!.sections.s242 = "Brackenridge built what the team calls the cascade-fired lattice, a graded filter.";
+    c.events.push(
+      { kind: "staleOpened", at: 50, roleId: "hypothesis", actor: "system", batchId: null, seedId: null, feedbackRequestId: null, confirmed: null },
+      { kind: "staleDisposed", at: 60, roleId: "hypothesis", actor: "system", batchId: null, seedId: null, feedbackRequestId: null, confirmed: null },
+      { kind: "approve", at: 70, roleId: "active_uncertainties", actor: "user", batchId: null, seedId: null, feedbackRequestId: null, confirmed: true },
+    );
+    const log: RunLog = {
+      ...emptyRunLog(fixture.id, 0),
+      edits: { editedTerm: { roleId: "company_context", seedId: "c1", bullets: ["..."] } },
+      approvals: [{ roleId: "active_uncertainties", at: 70, key: "carried", carriedSeedIds: ["u1"], exclusionEntryIds: [], changedRoleIds: ["goal_problem"] }],
+    };
+    const checks = runChecks(fixture, c, log);
+    for (const id of ["run-completed", "report-created", "three-sections", "coverage-listed", "coverage-applied", "edited-term-in-plan", "edited-term-drafted", "carried-confirmed", "carried-kept", "stale-episodes", "writer-asserted-covered"]) {
+      expect({ id, status: status(checks, id) }).toEqual({ id, status: "pass" });
+    }
+    c.report!.sections.s242 = "No sentinel here.";
+    expect(status(runChecks(fixture, c, log), "edited-term-drafted")).toBe("fail");
+  });
+
+  it("checks the skipped-role case", () => {
+    const fixture = byCase("skipped_role_supported");
+    const c = baseCollected();
+    c.batches.push({ batchId: "py", roleId: "prior_year_status", operation: "prefetch", status: "shown", queuedAt: 1, startedAt: 1, completedAt: 2, roleOpen: false, startedBy: null, requestsMade: 1, seedsDropped: 0, consumedContextRevision: "r", feedbackRequestId: null });
+    c.seeds.push({ seedId: "py1", batchId: "py", roleId: "prior_year_status", bullets: ["Orion-1 held calibration for 14 days."], support: "source_supported", revisionOfSeedId: null, feedbackRequestId: null, uncertaintySeedId: null, experimentSeedIds: [] });
+    c.summary!.skippedRoleIds = ["prior_year_status"];
+    c.complianceNotes = [
+      { section: "244", paragraphIndex: null, source: "model", instruction: "Omit signed-off role prior_year_status", outcome: "applied", tier: "none", reason: "Not covered.", repaired: false, planRef: { itemId: null, skippedRoleId: "prior_year_status", mergedItemIds: [] } },
+    ];
+    c.report!.sections.s244 = "This year the Orion-2 window coating was tested.";
+    const checks = runChecks(fixture, c, emptyRunLog(fixture.id, 0));
+    for (const id of ["skip-in-plan", "role-supported", "skip-honoured", "skip-not-drafted", "skips-listed"]) {
+      expect({ id, status: status(checks, id) }).toEqual({ id, status: "pass" });
+    }
+    c.report!.sections.s244 = "At the end of fiscal 2025 Orion-1 drifted after 14 days.";
+    expect(status(runChecks(fixture, c, emptyRunLog(fixture.id, 0)), "skip-not-drafted")).toBe("fail");
+  });
+
+  it("checks the withdrawn-feedback case", () => {
+    const fixture = byCase("withdrawn_feedback");
+    const c = baseCollected();
+    c.feedback = [
+      { feedbackRequestId: "fk", roleId: "company_context", targetSeedId: "s1", instruction: "kept", status: "active", withdrawnAt: null, batchId: "fbk" },
+      { feedbackRequestId: "fw", roleId: "company_context", targetSeedId: "s2", instruction: "withdrawn", status: "withdrawn", withdrawnAt: 500, batchId: "fbw" },
+    ];
+    c.batches.push(
+      { batchId: "fbw", roleId: "company_context", operation: "feedback", status: "shown", queuedAt: 400, startedAt: 400, completedAt: 450, roleOpen: true, startedBy: null, requestsMade: 1, seedsDropped: 0, consumedContextRevision: "r", feedbackRequestId: "fw" },
+      { batchId: "b9", roleId: "experimentation", operation: "open", status: "shown", queuedAt: 900, startedAt: 900, completedAt: 950, roleOpen: true, startedBy: null, requestsMade: 1, seedsDropped: 0, consumedContextRevision: "r", feedbackRequestId: null },
+    );
+    c.batchContext = [
+      { batchId: "fbw", roleId: "company_context", kind: "ownFeedback", sourceRoleId: "company_context", seedId: null, feedbackRequestId: "fw" },
+      { batchId: "b9", roleId: "experimentation", kind: "feedback", sourceRoleId: "company_context", seedId: null, feedbackRequestId: "fk" },
+    ];
+    c.seeds.push(
+      { seedId: "k1", batchId: "fbw", roleId: "company_context", bullets: ["The Kestrel line runs two shifts."], support: "source_supported", revisionOfSeedId: "s2", feedbackRequestId: "fw", uncertaintySeedId: null, experimentSeedIds: [] },
+      { seedId: "n1", batchId: "b9", roleId: "experimentation", bullets: ["The compliant spindle held 12 N."], support: "source_supported", revisionOfSeedId: null, feedbackRequestId: null, uncertaintySeedId: null, experimentSeedIds: [] },
+    );
+    const log: RunLog = {
+      ...emptyRunLog(fixture.id, 0),
+      feedback: {
+        kept: { roleId: "company_context", requestId: "fk", targetSeedId: "s1" },
+        withdrawn: { roleId: "company_context", requestId: "fw", targetSeedId: "s2", withdrawnAt: 500 },
+      },
+    };
+    const checks = runChecks(fixture, c, log);
+    for (const id of ["feedback-withdrawn", "withdrawn-never-sent", "withdrawn-term-absent", "kept-feedback-reaches-9", "kept-feedback-respected-9"]) {
+      expect({ id, status: status(checks, id) }).toEqual({ id, status: "pass" });
+    }
+    c.batchContext.push({ batchId: "b9", roleId: "experimentation", kind: "feedback", sourceRoleId: "company_context", seedId: null, feedbackRequestId: "fw" });
+    expect(status(runChecks(fixture, c, log), "withdrawn-never-sent")).toBe("fail");
+  });
+
+  it("checks the exclusion case", () => {
+    const fixture = byCase("exclusion_conflict");
+    const c = baseCollected();
+    const exclusionText = "Migration of the customer billing portal to a new cloud host";
+    c.briefEntries = [{ entryId: "x1", group: "claimExclusion", text: exclusionText, reason: "routine_engineering" }];
+    c.subsections = [
+      { roleId: "experimentation", kind: "multiple", state: "approved", currentContextRevision: "r", approvedContextRevision: "r", approvedWithConfirmation: false, exclusionAcknowledgedAt: 123 },
+    ];
+    c.summary!.items = [
+      summaryItem("i9", "experimentation", "e1", { confirmedExclusion: true, support: "writer_asserted", edited: true, bullets: ["Trial one.", exclusionBullet(exclusionText)] }),
+      summaryItem("i12", "project_status", "p1", { support: "writer_asserted", edited: true, bullets: ["The writer confirms a second field trial at the Ashgrove elevator is booked for spring 2027."] }),
+    ];
+    c.complianceNotes = [
+      cover("i9", "244", ["i9"], { tier: "conflict", outcome: "not_applied", paragraphIndex: null, reason: "The writer confirmed a Brief Claim Exclusion conflict at sign-off." }),
+      cover("i12", "246"),
+    ];
+    c.report!.sections.s244 = "The team also moved the customer billing portal to a new cloud host during the migration.";
+    c.report!.sections.s246 = "The writer reports that a second field trial at the Ashgrove elevator is booked.";
+    const log: RunLog = {
+      ...emptyRunLog(fixture.id, 0),
+      edits: {
+        exclusion: { roleId: "experimentation", seedId: "e1", bullets: [], exclusionEntryId: "x1", exclusionText },
+        writerAsserted: { roleId: "project_status", seedId: "p1", bullets: [] },
+      },
+      approvals: [{ roleId: "experimentation", at: 1, key: "exclusion", carriedSeedIds: [], exclusionEntryIds: ["x1"], changedRoleIds: [] }],
+    };
+    const checks = runChecks(fixture, c, log);
+    for (const id of ["brief-exclusions", "exclusion-warned", "exclusion-in-plan", "conflict-recorded", "exclusion-drafted", "writer-asserted-in-plan", "writer-asserted-covered", "coverage-applied"]) {
+      expect({ id, status: status(checks, id) }).toEqual({ id, status: "pass" });
+    }
+    expect(checks.find((item) => item.id === "writer-asserted-drafted")?.evidence).toContain("Ashgrove");
+    expect(contentWordOverlap(exclusionText, "nothing relevant")).toBe(0);
+  });
+
+  it("checks the changed-advancement-links case", () => {
+    const fixture = byCase("changed_advancement_links");
+    const c = baseCollected();
+    c.summary!.items = [
+      summaryItem("iu2", "active_uncertainties", "u2"),
+      summaryItem("ie1", "experimentation", "e1"),
+      summaryItem("ia1", "specific_advancements", "a1", { uncertaintySeedId: "u2", experimentSeedIds: ["e1"] }),
+      summaryItem("ia2", "specific_advancements", "a2", { uncertaintySeedId: "u2", experimentSeedIds: ["e1"] }),
+    ];
+    c.complianceNotes = [cover("iu2", "242"), cover("ie1", "244"), cover("ia1", "246", ["ia1", "ia2"]), cover("ia2", "246", ["ia1", "ia2"])];
+    const log: RunLog = {
+      ...emptyRunLog(fixture.id, 0),
+      removedUncertaintySeedId: "u1",
+      refusals: [{ roleId: "specific_advancements", key: "unlinked", code: "INVALID_STATE", reason: "UNLINKED_ADVANCEMENT" }],
+    };
+    const checks = runChecks(fixture, c, log);
+    for (const id of ["unlinked-refused", "links-valid", "removed-uncertainty-gone", "merge-named"]) {
+      expect({ id, status: status(checks, id) }).toEqual({ id, status: "pass" });
+    }
+    c.complianceNotes = [cover("iu2", "242"), cover("ie1", "244"), cover("ia1", "246"), cover("ia2", "246")];
+    expect(status(runChecks(fixture, c, log), "merge-named")).toBe("fail");
+    c.summary!.items[2] = summaryItem("ia1", "specific_advancements", "a1", { uncertaintySeedId: "u1", experimentSeedIds: ["e1"] });
+    const moved = runChecks(fixture, c, log);
+    expect(status(moved, "links-valid")).toBe("fail");
+    expect(status(moved, "removed-uncertainty-gone")).toBe("fail");
+  });
+});
+
+describe("CAP-14 figures", () => {
+  it("computes median and nearest-rank p95", () => {
+    expect(distribution([])).toEqual({ count: 0, medianMs: null, p95Ms: null });
+    expect(distribution([3, 1, 2])).toEqual({ count: 3, medianMs: 2, p95Ms: 3 });
+    expect(distribution([4, 1, 3, 2])).toEqual({ count: 4, medianMs: 2.5, p95Ms: 4 });
+    const hundred = Array.from({ length: 100 }, (_, i) => i + 1);
+    expect(distribution(hundred).p95Ms).toBe(95);
+    expect(distribution([-5, Number.NaN, 7]).count).toBe(1);
+  });
+
+  it("uses the learning-health definitions for the latency samples", () => {
+    const c = baseCollected();
+    const samples = latencySamples(c, { ...emptyRunLog("x", 0), singleBaseline: { generationId: "g2", requestedAt: 0, reportGeneratedAt: 250_000 } });
+    expect(samples.dispatchToResultMs).toEqual([8_000, 10_000]);
+    // The server's first Batch is no wait (decision 65); only b2 counts.
+    expect(samples.foregroundToFirstRenderMs).toEqual([11_000]);
+    expect(samples.signOffToReportMs).toEqual([300_000]);
+    expect(samples.singleModeRequestToReportMs).toEqual([250_000]);
+  });
+
+  it("counts seed-stage requests and cost from aiUsage", () => {
+    const c = baseCollected();
+    expect(seedRequestCount(c)).toEqual({ seeds: 1, feedback: 1, metered: 2, reserved: 17 });
+    const cost = usageCost(c);
+    expect(cost.totalUsd).toBeCloseTo(0.53);
+    expect(cost.seedStageUsd).toBeCloseTo(0.03);
+    expect(cost.models).toEqual(["claude-sonnet-5"]);
+  });
+});
+
+describe("judging pack", () => {
+  const context = { date: "2026-09-27", deployment: "local-e2e", commit: "abc1234", reviewer: "reviewer@example.com" };
+
+  it("renders blank judgment fields, the checks, the plan and the drafted text", () => {
+    const fixture = byCase("skipped_role_supported");
+    const c = baseCollected();
+    c.summary!.items = [summaryItem("i1", "company_context", "s1", { bullets: ["Corvane builds analyzers."] })];
+    c.summary!.skippedRoleIds = ["prior_year_status"];
+    const log = emptyRunLog(fixture.id, 0);
+    const checks = runChecks(fixture, c, log);
+    const text = renderFixturePack({ fixture, log, collected: c, checks }, context);
+    expect(text).toContain("# Release eval - Corvane fouling-resistant analyzer");
+    expect(text).toContain("- Verdict (pass or fail): \n");
+    expect(text).toContain("- Judged by: \n");
+    for (const question of fixture.judgmentQuestions) expect(text).toContain(question);
+    expect(text).toContain("| The Compliance Note lists every Skip as honoured or not | fail |");
+    expect(text).toContain("- Corvane builds analyzers.");
+    expect(text).toContain("Skipped by the writer. The drafter must not cover this role.");
+    expect(text).toContain("Section 244 text.");
+    expect(text).toContain("Dispatch to validated result: median 9.0 s");
+    expect(DASHES.test(text)).toBe(false);
+
+    const summary = renderSummary([{ fixture, log, collected: c, checks }], context);
+    expect(summary).toContain("| [skipped-role-supported](skipped-role-supported.md) | Skipped role supported by the Brief |");
+    expect(summary).toContain("placeholder 12 s: within");
+    expect(summary).toContain("Single-mode baseline not measured");
+    expect(DASHES.test(summary)).toBe(false);
+  });
+
+  it("reserves a fresh folder per run and never overwrites evidence", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "seed-plan-eval-"));
+    try {
+      const first = reservePackDir(root, "2026-09-27");
+      const second = reservePackDir(root, "2026-09-27");
+      expect(path.basename(first)).toBe("2026-09-27");
+      expect(path.basename(second)).toBe("2026-09-27-run2");
+      const fixture = byCase("withdrawn_feedback");
+      const log = emptyRunLog(fixture.id, 0);
+      const written = writePack(first, [{ fixture, log, collected: null, checks: runChecks(fixture, null, log) }], context);
+      expect(written.map((file) => path.basename(file))).toEqual(["withdrawn-feedback.md", "summary.md", "results.json"]);
+      expect(JSON.parse(readFileSync(path.join(first, "results.json"), "utf8")).context).toEqual(context);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runner", () => {
+  it("records a refused call and never throws", async () => {
+    const calls: string[] = [];
+    const driver: EvalDriver = {
+      mutation: async (name) => {
+        calls.push(name);
+        throw parseConvexError('Uncaught ConvexError: {"code":"NOT_AUTHORIZED","message":"An active internal role is required"}\n');
+      },
+      query: async () => null,
+      internal: async () => null,
+      now: () => 0,
+      sleep: async () => undefined,
+      log: () => undefined,
+    };
+    const { log, collected } = await runFixture(byCase("skipped_role_supported"), driver);
+    expect(calls).toEqual(["projects:createProject"]);
+    expect(log.error).toBe("An active internal role is required");
+    expect(collected).toBeNull();
+    expect(log.lines.at(-1)).toContain("stopped: An active internal role is required");
+  });
+
+  it("creates the project with the fixture's sources and the release-eval name", async () => {
+    const created: Array<Record<string, unknown>> = [];
+    const driver: EvalDriver = {
+      mutation: async (name, args) => {
+        created.push({ name, ...args });
+        if (name === "generations:requestGeneration") throw new Error("stop here");
+        return name === "projects:createProject" ? "project-1" : "document-1";
+      },
+      query: async () => null,
+      internal: async () => null,
+      now: () => 0,
+      sleep: async () => undefined,
+      log: () => undefined,
+    };
+    const fixture = byCase("exclusion_conflict");
+    const { log } = await runFixture(fixture, driver);
+    expect(created[0]).toMatchObject({
+      name: "projects:createProject",
+      title: "Release eval - Quillmere drift-tolerant burner anomaly model",
+      clientName: "Quillmere Analytics Ltd.",
+      transcripts: [{ content: fixture.texts["interview.txt"] }],
+    });
+    expect(created[1]).toMatchObject({ name: "documents:uploadDocument", projectId: "project-1", fileType: "md", intake: "pasted" });
+    expect(created[2]).toMatchObject({ name: "generations:requestGeneration", projectId: "project-1", candidateMode: "iterative" });
+    expect(log.error).toBe("stop here");
+  });
+});
