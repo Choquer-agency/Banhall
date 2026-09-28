@@ -262,7 +262,7 @@
   }
 
   // The same 8px inset, 104px label column and 12px gap as the facts above.
-  const rowClass = "grid min-h-[34px] grid-cols-[104px_minmax(0,1fr)] items-center gap-x-3 text-[13px]";
+  const rowClass = "grid min-h-[2.125rem] grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 text-[0.8125rem]";
   const quietButton =
     "rounded-md px-2 py-1 text-xs text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir pointer-coarse:min-h-11";
 </script>
@@ -332,7 +332,7 @@
       </a>
     </div>
   {/if}
-  <div class="grid grid-cols-[104px_minmax(0,1fr)] items-start gap-x-3 py-1.5 text-[13px]">
+  <div class="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-3 py-1.5 text-[0.8125rem]">
     <span class="pt-1 text-ink-muted">Tags{#if tagsSaving}<span class="sr-only"> saving</span>{/if}</span>
     <div class="min-w-0">
       <TagPicker allTags={tagsQ.data ?? []} bind:selectedTagIds label={null} onChange={handleTagsChange} readonly={!canEditDetails} />
@@ -353,7 +353,7 @@
 
   <section class="mt-3 border-t border-line-soft pt-3" aria-labelledby={`${componentId}-work`}>
     <div class="flex items-center gap-2">
-      <h3 id={`${componentId}-work`} class="text-[13px] text-ink-muted">Other work</h3>
+      <h3 id={`${componentId}-work`} class="text-[0.8125rem] text-ink-muted">Other work</h3>
       {#if canAssign}
         <button type="button" class={`ml-auto ${quietButton}`} onclick={openComposer}>Assign work</button>
       {/if}
@@ -361,14 +361,14 @@
     {#if workPanelQ.error}
       <p class="mt-2 text-xs text-red-700" role="alert">Open work is unavailable.</p>
     {:else if otherWork.length === 0}
-      <p class="mt-1.5 text-[13px] text-ink-faint">No other open work.</p>
+      <p class="mt-1.5 text-[0.8125rem] text-ink-faint">No other open work.</p>
     {:else}
       <ul class="mt-1.5 flex flex-col divide-y divide-line-soft">
         {#each otherWork as item (item.workItemId)}
           <li class="flex items-start gap-2 py-2">
             <PersonAvatar initials={item.assignee.initials} seed={String(item.assignee.userId)} />
             <div class="min-w-0 flex-1">
-              <p class="truncate text-[13px] text-ink">{item.assignee.label}</p>
+              <p class="truncate text-[0.8125rem] text-ink">{item.assignee.label}</p>
               <p class="text-xs text-ink-muted">{WORK_ITEM_KIND_LABELS[item.kind]}</p>
               {#if item.instructionsPreview}
                 <p class="mt-0.5 line-clamp-2 text-xs text-ink-secondary">{item.instructionsPreview}</p>
@@ -401,7 +401,7 @@
         aria-expanded={activityOpen}
         aria-controls={`${componentId}-activity-region`}
         onclick={() => (activityOpen = !activityOpen)}
-        class="flex min-h-9 w-full items-center gap-2 rounded-md px-0 text-left text-[13px] text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir"
+        class="flex min-h-9 w-full items-center gap-2 rounded-md px-0 text-left text-[0.8125rem] text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir"
       >
         Activity
         <DisclosureChevron open={activityOpen} tone="neutral" class="ml-auto size-3.5" />

@@ -10,11 +10,11 @@
 
 <div class="flex flex-col items-center gap-1.5 text-center">
   <h1
-    class={`text-[28px] leading-9 text-balance text-ink ${serif ? "font-serif" : "font-sans font-medium tracking-[-0.02em]"}`}
+    class={`text-[1.75rem] leading-9 text-balance text-ink ${serif ? "font-serif" : "font-sans font-medium tracking-[-0.02em]"}`}
   >
     {title}
   </h1>
   {#if subtitle}
-    <p class="text-[15px] leading-[22px] text-pretty text-ink-secondary">{subtitle}</p>
+    <p class="text-[0.9375rem] leading-[1.375rem] text-pretty text-ink-secondary">{subtitle}</p>
   {/if}
 </div>

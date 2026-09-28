@@ -84,7 +84,7 @@
         {#snippet children()}
           <div data-settings-frame class="flex flex-col gap-6">
             <div class="flex flex-col gap-3.5">
-              <h2 data-settings-title class="font-serif text-[28px] font-normal leading-[34px] text-ink">Settings</h2>
+              <h2 data-settings-title class="font-serif text-[1.75rem] font-normal leading-[2.125rem] text-ink">Settings</h2>
               <SettingsTabs tabs={links} activeKey={active.key} />
             </div>
             <!-- Forms keep a comfortable width on wide screens (lead,

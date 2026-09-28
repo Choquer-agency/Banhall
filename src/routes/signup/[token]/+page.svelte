@@ -167,12 +167,12 @@
             weight="medium"
           />
           <div class="flex min-w-0 flex-1 flex-col gap-px">
-            <span class="truncate text-[13px] leading-[18px] font-medium text-ink-secondary">{expired.inviter.name} invited you</span>
+            <span class="truncate text-[0.8125rem] leading-[1.125rem] font-medium text-ink-secondary">{expired.inviter.name} invited you</span>
             <span class="text-xs leading-4 text-ink-muted">
               Sent {firmShortDate(expired.sentAt)}. Expired {firmShortDate(expired.expiresAt)}.
             </span>
           </div>
-          <span class="flex h-5 shrink-0 items-center rounded-[5px] bg-gap-bg px-[7px] text-xs leading-4 font-medium text-warning-ink">Expired</span>
+          <span class="flex h-5 shrink-0 items-center rounded-[0.3125rem] bg-gap-bg px-[0.4375rem] text-xs leading-4 font-medium text-warning-ink">Expired</span>
         </div>
       {/if}
       <div class="flex flex-col gap-3">
@@ -180,10 +180,10 @@
           <a
             href={mailto}
             data-email-inviter
-            class="flex h-[46px] items-center justify-center rounded-[10px] bg-fir text-[15px] leading-5 font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            class="flex h-[2.875rem] items-center justify-center rounded-[0.625rem] bg-fir text-[0.9375rem] leading-5 font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
           >Email {inviterFirst} for a new invite</a>
         {/if}
-        <p class="flex justify-center gap-1 text-[13px] leading-[18px] text-ink-muted">
+        <p class="flex justify-center gap-1 text-[0.8125rem] leading-[1.125rem] text-ink-muted">
           Already joined?
           <a href={resolve("/login")} class="font-medium text-primary-selected hover:text-primary-dark">Sign in</a>
         </p>
@@ -198,7 +198,7 @@
         title="This invite link isn't valid"
         subtitle="It may have been revoked, replaced by a newer link, or already used. Ask your team for a new invite."
       />
-      <p class="flex justify-center gap-1 text-[13px] leading-[18px] text-ink-muted">
+      <p class="flex justify-center gap-1 text-[0.8125rem] leading-[1.125rem] text-ink-muted">
         Already joined?
         <a href={resolve("/login")} class="font-medium text-primary-selected hover:text-primary-dark">Sign in</a>
       </p>
@@ -211,7 +211,7 @@
       <button
         type="button"
         onclick={signOut}
-        class="flex h-[46px] w-full items-center justify-center rounded-[10px] bg-chrome text-[15px] leading-5 font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        class="flex h-[2.875rem] w-full items-center justify-center rounded-[0.625rem] bg-chrome text-[0.9375rem] leading-5 font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >Sign out</button>
     </div>
   </AuthLayout>
@@ -252,7 +252,7 @@
         type="submit"
         data-create-account
         disabled={!ready}
-        class="flex h-[46px] items-center justify-center rounded-[10px] bg-fir text-[15px] leading-5 font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        class="flex h-[2.875rem] items-center justify-center rounded-[0.625rem] bg-fir text-[0.9375rem] leading-5 font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
       >Create account and join</button>
     </form>
   </AuthLayout>

@@ -24,7 +24,7 @@
         : "gap-7 pb-8 pt-24 sm:py-12"
     }`}
   >
-    <BanhallLogo tone="dark" height={64} class={`w-auto sm:h-16 ${banner ? "h-[52px]" : "h-14"}`} />
+    <BanhallLogo tone="dark" height={64} class={`w-auto sm:h-16 ${banner ? "h-[3.25rem]" : "h-14"}`} />
     <div data-auth-column class="flex w-full flex-col gap-5" style={`max-width:${width}px`}>
       {@render children()}
     </div>

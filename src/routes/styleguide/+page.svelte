@@ -168,7 +168,7 @@
       {/each}
       <div class="flex items-baseline gap-6 px-5 py-4">
         <code class="text-data w-28 flex-shrink-0 text-gray-500">font-serif</code>
-        <span class="font-serif text-[15px] leading-relaxed">Report prose — Georgia, reserved for the document editor and report previews.</span>
+        <span class="font-serif text-[0.9375rem] leading-relaxed">Report prose — Georgia, reserved for the document editor and report previews.</span>
       </div>
     </div>
 
@@ -265,7 +265,7 @@
           <div class="rounded-lg bg-fir px-4 py-2">
             <BanhallLogo tone="white" height={56} />
           </div>
-          <div class="flex h-14 w-[200px] items-center gap-2 rounded-lg bg-workspace-shell px-3">
+          <div class="flex h-14 w-[12.5rem] items-center gap-2 rounded-lg bg-workspace-shell px-3">
             <BanhallRailMark />
           </div>
           <div class="flex h-14 w-14 items-center justify-center rounded-lg bg-workspace-shell">
@@ -305,13 +305,13 @@
           {#each statusFamilies as family (family.name)}
             <div class="flex items-center gap-3 rounded-lg border border-line px-3 py-2">
               <span class={`size-3 shrink-0 rounded-full ${family.solid}`} aria-hidden="true"></span>
-              <span class={`inline-flex h-5 items-center rounded-[5px] px-[7px] text-xs font-medium ${family.soft}`}>{family.name}</span>
+              <span class={`inline-flex h-5 items-center rounded-[0.3125rem] px-[0.4375rem] text-xs font-medium ${family.soft}`}>{family.name}</span>
               <span class="text-data text-ink-muted">{family.hex}</span>
             </div>
           {/each}
         </div>
         <div class="mt-3 flex items-center gap-3">
-          <span class="inline-flex h-5 items-center rounded-[5px] bg-recommended px-1.5 text-xs font-medium text-recommended-ink">Recommended</span>
+          <span class="inline-flex h-5 items-center rounded-[0.3125rem] bg-recommended px-1.5 text-xs font-medium text-recommended-ink">Recommended</span>
           <span class="text-data text-ink-muted">#BBF7D0 / #14532D</span>
         </div>
       </div>
@@ -400,7 +400,7 @@
       <div>
         <p class="text-label mb-2">Toast</p>
         <div class="flex flex-wrap items-center gap-3">
-          <div class="inline-flex items-center gap-3 rounded-[10px] bg-toast py-2.5 pl-3.5 pr-3 text-[13px] text-toast-ink shadow-toast-dark">
+          <div class="inline-flex items-center gap-3 rounded-[0.625rem] bg-toast py-2.5 pl-3.5 pr-3 text-[0.8125rem] text-toast-ink shadow-toast-dark">
             Now viewing as Consultant. Your own access is unchanged.
             <span class="font-medium text-primary-light">Undo</span>
           </div>

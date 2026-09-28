@@ -70,7 +70,7 @@
   {@const settings = settingsQ.data}
   <div data-settings-notifications class="flex flex-col">
     <div class="flex items-center gap-6 border-b border-line-soft pb-2">
-      <div class="hidden w-[280px] shrink-0 md:block"></div>
+      <div class="hidden w-[17.5rem] shrink-0 md:block"></div>
       <p class="w-20 shrink-0 text-xs leading-4 text-ink-muted">In the app</p>
     </div>
     {#each rows as row, index (row.key)}

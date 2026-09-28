@@ -95,7 +95,7 @@
       <Dialog.Content forceMount>
         {#snippet child({ props, open: isOpen })}
           {#if isOpen}
-            <div {...props} transition:modalPop class="card pointer-events-auto flex max-h-[min(760px,calc(100dvh-2rem))] w-full max-w-lg flex-col overflow-hidden p-0 shadow-xl">
+            <div {...props} transition:modalPop class="card pointer-events-auto flex max-h-[min(47.5rem,calc(100dvh-2rem))] w-full max-w-lg flex-col overflow-hidden p-0 shadow-xl">
               <div class="flex items-start justify-between gap-4 border-b border-line-soft px-5 py-4">
                 <div>
                   <Dialog.Title class="text-title">Transfer project ownership</Dialog.Title>

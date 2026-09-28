@@ -132,7 +132,7 @@
   </div>
 {/snippet}
 
-<header data-workspace-toolbar data-workspace-page-header class="flex h-[49px] shrink-0 items-center gap-2 border-b border-workspace-rail-line bg-canvas px-3 sm:px-4">
+<header data-workspace-toolbar data-workspace-page-header class="flex h-[3.0625rem] shrink-0 items-center gap-2 border-b border-workspace-rail-line bg-canvas px-3 sm:px-4">
   <!-- Shared drawer hamburger + desktop rail toggle: one a11y contract,
        owned by WorkspaceShellControls (dedup with WorkspaceChrome). -->
   <WorkspaceShellControls tone="light" {onOpenNavigation} {railHidden} {onToggleRail} />

@@ -76,7 +76,7 @@
   $effect(() => () => clearTimers());
 
   const item =
-    "flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-[13px] leading-[19px] text-ink-secondary outline-none transition-colors data-highlighted:bg-chrome data-highlighted:text-ink motion-reduce:transition-none pointer-coarse:h-11";
+    "flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-[0.8125rem] leading-[1.1875rem] text-ink-secondary outline-none transition-colors data-highlighted:bg-chrome data-highlighted:text-ink motion-reduce:transition-none pointer-coarse:h-11";
 </script>
 
 <DropdownMenu.Root
@@ -107,10 +107,10 @@
       }}
       onpointerenter={pointerEnter}
       onpointerleave={pointerLeave}
-      class="z-[80] w-[252px] rounded-xl border border-line bg-surface p-1.5 shadow-menu outline-none"
+      class="z-[80] w-[15.75rem] rounded-xl border border-line bg-surface p-1.5 shadow-menu outline-none"
     >
       <div data-admin-flyout-header class="flex items-center gap-2 px-2 pb-0.5 pt-1.5">
-        <p class="text-[13px] font-medium leading-[18px] text-ink">Admin</p>
+        <p class="text-[0.8125rem] font-medium leading-[1.125rem] text-ink">Admin</p>
         {#if attentionTotal > 0}
           <p data-admin-flyout-attention class="text-xs leading-4 text-warning-ink-muted">{attentionTotal} needs a look</p>
         {/if}
@@ -118,7 +118,7 @@
       {#each ADMIN_GROUPS as group, index (group.key)}
         <DropdownMenu.Group>
           <!-- A5: group headings in muted ink, 6px above the first and 12px above the rest. -->
-          <DropdownMenu.GroupHeading class={`px-2 pb-1 text-[11px] leading-4 text-ink-muted ${index === 0 ? "pt-1.5" : "pt-3"}`}>{group.label}</DropdownMenu.GroupHeading>
+          <DropdownMenu.GroupHeading class={`px-2 pb-1 text-[0.6875rem] leading-4 text-ink-muted ${index === 0 ? "pt-1.5" : "pt-3"}`}>{group.label}</DropdownMenu.GroupHeading>
           {#each group.routes as route (route.href)}
             <DropdownMenu.Item class={item} data-admin-flyout-item={route.href} onSelect={() => go(route.href)}>
               <AdminRouteIcon icon={route.icon} />

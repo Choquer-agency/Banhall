@@ -30,11 +30,11 @@
   }
 </script>
 
-<ul data-invite-results class="flex flex-col divide-y divide-line-soft rounded-[10px] border border-line-soft">
+<ul data-invite-results class="flex flex-col divide-y divide-line-soft rounded-[0.625rem] border border-line-soft">
   {#each rows as row (row.email)}
     <li data-invite-result={row.status} class="flex min-h-12 items-center gap-3 px-3.5 py-2">
       <div class="flex min-w-0 flex-1 flex-col">
-        <span class="truncate text-[13px] font-medium text-ink">{row.email}</span>
+        <span class="truncate text-[0.8125rem] font-medium text-ink">{row.email}</span>
         {#if row.status === "created"}
           <span class="truncate font-mono text-xs text-ink-muted">{row.link}</span>
         {:else}
@@ -46,7 +46,7 @@
         <button
           type="button"
           onclick={() => copy(row)}
-          class="flex h-8 shrink-0 items-center gap-1 rounded-md bg-chrome px-2.5 text-[13px] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          class="flex h-8 shrink-0 items-center gap-1 rounded-md bg-chrome px-2.5 text-[0.8125rem] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           {#if copied[row.email]}<IconCheck size={13} strokeWidth={2.2} class="text-success-ink-muted" />Copied{:else}Copy link{/if}
         </button>

@@ -46,7 +46,7 @@
   }
 
   const rowClass =
-    "group/preset flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors motion-reduce:transition-none pointer-coarse:min-h-11";
+    "group/preset flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1.5 text-left text-[0.8125rem] transition-colors motion-reduce:transition-none pointer-coarse:min-h-11";
 </script>
 
 <Popover.Root bind:open>
@@ -78,7 +78,7 @@
               out:popOut
               class="z-[100] w-64 overflow-hidden rounded-xl border border-line bg-surface shadow-md outline-none"
             >
-              <p class="px-3 pb-0.5 pt-2 text-[11px] font-medium text-ink-faint">Views</p>
+              <p class="px-3 pb-0.5 pt-2 text-[0.6875rem] font-medium text-ink-faint">Views</p>
               <div class="max-h-72 overflow-y-auto px-1.5 pb-1.5">
                 <button
                   type="button"
@@ -128,7 +128,7 @@
                   maxlength={MAX_PRESET_NAME_LENGTH}
                   placeholder="Save current view as…"
                   aria-label="New view name"
-                class="field-control h-8 min-w-0 flex-1 rounded-lg px-2.5 text-[13px] text-ink placeholder:text-ink-faint"
+                class="field-control h-8 min-w-0 flex-1 rounded-lg px-2.5 text-[0.8125rem] text-ink placeholder:text-ink-faint"
                 />
                 <button
                   type="submit"

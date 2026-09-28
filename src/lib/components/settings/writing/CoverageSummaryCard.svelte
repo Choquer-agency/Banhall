@@ -12,10 +12,10 @@
   }: { covered: number; enabled?: boolean; onEdit: () => void } = $props();
 </script>
 
-<section data-coverage-summary class="flex flex-wrap items-center gap-6 rounded-[14px] border border-line bg-surface px-6 py-[22px]">
+<section data-coverage-summary class="flex flex-wrap items-center gap-6 rounded-[0.875rem] border border-line bg-surface px-6 py-[1.375rem]">
   <CoverageRing {covered} total={WRITING_AREA_COUNT} />
-  <div class="flex min-w-[16rem] flex-1 flex-col gap-[3px]">
-    <h2 class="font-serif text-2xl leading-[30px] text-ink">{coverageHeading(covered)}</h2>
+  <div class="flex min-w-[16rem] flex-1 flex-col gap-[0.1875rem]">
+    <h2 class="font-serif text-2xl leading-[1.875rem] text-ink">{coverageHeading(covered)}</h2>
     <p data-coverage-subtitle class="text-sm leading-5 text-ink-secondary">
       {enabled
         ? "Banhall follows them in every new draft. House rules fill in the rest."
@@ -29,7 +29,7 @@
     class="h-8 shrink-0 rounded-lg bg-chrome px-3.5 text-sm leading-5 font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
   >Edit instructions</button>
   <div class="flex items-center gap-2.5 border-l border-line-soft pl-3">
-    <label for="writing-preferences-on" class="text-[13px] leading-[18px] text-ink-secondary">On</label>
+    <label for="writing-preferences-on" class="text-[0.8125rem] leading-[1.125rem] text-ink-secondary">On</label>
     <Switch id="writing-preferences-on" size="md" bind:checked={enabled} label="Use my writing preferences" />
   </div>
 </section>

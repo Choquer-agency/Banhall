@@ -33,7 +33,7 @@
 {:else}
   <span
     class={cn(
-      "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-navy text-[10px] font-semibold text-white",
+      "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-navy text-[0.625rem] font-semibold text-white",
       className
     )}
   >

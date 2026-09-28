@@ -55,13 +55,13 @@
       {#if category?.addressed}
         <span aria-hidden="true" data-covered-tick class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-settings-covered text-fir"><IconCheck size={11} strokeWidth={3.2} /></span>
         <div class="flex min-w-0 flex-col gap-px">
-          <span class="text-[13px] leading-[18px] font-medium text-ink">{area.label}</span>
+          <span class="text-[0.8125rem] leading-[1.125rem] font-medium text-ink">{area.label}</span>
           {#if category.evidence}<span class="text-xs leading-4 text-ink-muted [overflow-wrap:anywhere]">"{short(category.evidence)}"</span>{/if}
         </div>
       {:else}
         <span aria-hidden="true" class="h-5 w-5 shrink-0 rounded-full border-[1.5px] border-dashed border-gray-300"></span>
         <div class="flex min-w-0 flex-col gap-px">
-          <span class="text-[13px] leading-[18px] font-medium text-ink-muted">{area.label}</span>
+          <span class="text-[0.8125rem] leading-[1.125rem] font-medium text-ink-muted">{area.label}</span>
           <span class="text-xs leading-4 text-ink-muted">Not in your instructions</span>
         </div>
       {/if}

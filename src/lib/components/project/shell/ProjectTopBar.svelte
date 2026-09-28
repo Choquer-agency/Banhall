@@ -67,7 +67,7 @@
   // Board F2: 36px icon buttons, radius 7; 44px on a phone (H4) and on
   // coarse pointers.
   const iconButton =
-    "flex size-9 shrink-0 items-center justify-center rounded-[7px] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-primary-wash pointer-coarse:size-11";
+    "flex size-9 shrink-0 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-primary-wash pointer-coarse:size-11";
 </script>
 
 {#snippet moreMenu(placement: "desktop" | "phone")}
@@ -88,9 +88,9 @@
       >
         {#each moreItems as item (item.id)}
           {#if item.href}
-            <DropdownMenu.Item disabled={item.disabled} class="rounded-md text-[13px] text-ink outline-none data-[highlighted]:bg-primary-wash data-[disabled]:opacity-50">
+            <DropdownMenu.Item disabled={item.disabled} class="rounded-md text-[0.8125rem] text-ink outline-none data-[highlighted]:bg-primary-wash data-[disabled]:opacity-50">
               {#snippet child({ props })}
-                <a {...props} href={item.href} data-top-bar-more-item={item.id} class="flex h-8 w-full items-center rounded-md px-2.5 text-[13px] text-ink outline-none data-[highlighted]:bg-primary-wash">{item.label}</a>
+                <a {...props} href={item.href} data-top-bar-more-item={item.id} class="flex h-8 w-full items-center rounded-md px-2.5 text-[0.8125rem] text-ink outline-none data-[highlighted]:bg-primary-wash">{item.label}</a>
               {/snippet}
             </DropdownMenu.Item>
           {:else}
@@ -98,7 +98,7 @@
               disabled={item.disabled}
               onSelect={item.onSelect}
               data-top-bar-more-item={item.id}
-              class="flex h-8 w-full cursor-default items-center rounded-md px-2.5 text-[13px] text-ink outline-none data-[highlighted]:bg-primary-wash data-[disabled]:opacity-50"
+              class="flex h-8 w-full cursor-default items-center rounded-md px-2.5 text-[0.8125rem] text-ink outline-none data-[highlighted]:bg-primary-wash data-[disabled]:opacity-50"
             >
               {item.label}
             </DropdownMenu.Item>
@@ -112,7 +112,7 @@
 <header
   data-workspace-page-header
   data-top-bar-flush={flush || undefined}
-  class={`flex shrink-0 items-center gap-2 px-2 max-sm:h-[52px] sm:h-14 sm:gap-2.5 sm:px-5 ${
+  class={`flex shrink-0 items-center gap-2 px-2 max-sm:h-[3.25rem] sm:h-14 sm:gap-2.5 sm:px-5 ${
     flush ? "max-xl:border-b max-xl:border-line-soft max-xl:bg-surface" : ""
   }`}
 >
@@ -142,7 +142,7 @@
       <a href={projectsHref} class="rounded-sm transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir">Projects</a>
       <span aria-hidden="true">/</span>
     </span>
-    <h1 data-project-heading class="min-w-0 truncate font-medium text-ink max-sm:text-base max-sm:leading-[22px]">{title}</h1>
+    <h1 data-project-heading class="min-w-0 truncate font-medium text-ink max-sm:text-base max-sm:leading-[1.375rem]">{title}</h1>
   </div>
   <div class="flex shrink-0 items-center gap-2.5">
     {@render status?.()}
@@ -154,7 +154,7 @@
     >
       <IconBell size={16} strokeWidth={1.5} />
       {#if unseen > 0}
-        <span aria-hidden="true" data-top-bar-bell-dot class="absolute top-2 right-[9px] size-1.5 rounded-full bg-primary"></span>
+        <span aria-hidden="true" data-top-bar-bell-dot class="absolute top-2 right-[0.5625rem] size-1.5 rounded-full bg-primary"></span>
       {/if}
     </a>
     <!-- Desktop keeps Send for review at the right edge (board 2.1); the

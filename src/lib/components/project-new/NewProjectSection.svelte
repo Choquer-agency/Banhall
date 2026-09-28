@@ -39,13 +39,13 @@
   {id}
   data-new-project-section={id}
   aria-labelledby={`${id}-title`}
-  class={`flex scroll-mt-4 flex-col ${last ? "" : `border-b border-line-soft ${compact ? "pb-[18px]" : "pb-[22px]"}`}`}
+  class={`flex scroll-mt-4 flex-col ${last ? "" : `border-b border-line-soft ${compact ? "pb-[1.125rem]" : "pb-[1.375rem]"}`}`}
   style={`gap:${gap}`}
 >
   <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-    <span class="font-mono text-xs leading-[22px] text-ink-faint" aria-hidden="true">{number}</span>
-    <h2 id={`${id}-title`} class="text-[15px] leading-[22px] font-medium text-ink">{title}</h2>
-    {#if helper}<p class="text-[13px] leading-[19px] text-ink-muted">{helper}</p>{/if}
+    <span class="font-mono text-xs leading-[1.375rem] text-ink-faint" aria-hidden="true">{number}</span>
+    <h2 id={`${id}-title`} class="text-[0.9375rem] leading-[1.375rem] font-medium text-ink">{title}</h2>
+    {#if helper}<p class="text-[0.8125rem] leading-[1.1875rem] text-ink-muted">{helper}</p>{/if}
     {#if status && statusInline}{@render status()}{/if}
     <span class="grow"></span>
     {#if status && !statusInline}{@render status()}{/if}

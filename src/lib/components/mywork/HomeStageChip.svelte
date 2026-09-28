@@ -13,7 +13,7 @@
 
 <span
   data-home-stage-chip={stage}
-  class={`inline-flex max-w-full items-center truncate rounded-[5px] px-2 py-[3px] text-[11px] leading-4 ${stageBadgeClasses(stage).badge}`}
+  class={`inline-flex max-w-full items-center truncate rounded-[0.3125rem] px-2 py-[0.1875rem] text-[0.6875rem] leading-4 ${stageBadgeClasses(stage).badge}`}
 >
   {WORKFLOW_STAGE_LABELS[stage]}
 </span>

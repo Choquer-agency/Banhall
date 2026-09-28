@@ -35,7 +35,7 @@
   });
 
   const segment =
-    "flex h-7 items-center rounded-[6px] px-2.5 text-[13px] font-medium leading-[18px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11";
+    "flex h-7 items-center rounded-[0.375rem] px-2.5 text-[0.8125rem] font-medium leading-[1.125rem] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11";
   const segmentOn = "bg-surface text-ink shadow-settings-segment";
   const segmentOff = "text-ink-secondary hover:bg-primary-wash hover:text-ink";
 </script>
@@ -45,8 +45,8 @@
 <div data-settings-shortcuts class="flex flex-col gap-6">
   <div data-shortcuts-detected class="flex flex-wrap items-center gap-3 rounded-xl bg-settings-well px-3.5 py-3">
     <IconCheck size={15} strokeWidth={2} class="shrink-0 text-primary-selected" />
-    <p class="flex-1 text-[13px] leading-[18px] text-ink-secondary">{detectedCopy}</p>
-    <div role="group" aria-label="Show keys for" data-shortcuts-platforms class="flex gap-1 rounded-[9px] bg-chrome p-[3px]">
+    <p class="flex-1 text-[0.8125rem] leading-[1.125rem] text-ink-secondary">{detectedCopy}</p>
+    <div role="group" aria-label="Show keys for" data-shortcuts-platforms class="flex gap-1 rounded-[0.5625rem] bg-chrome p-[0.1875rem]">
       <button
         type="button"
         aria-pressed={shown === "mac"}
@@ -70,13 +70,13 @@
         data-shortcut-row={id}
         class={`flex items-center gap-6 py-4 ${index === rows.length - 1 ? "" : "border-b border-line-soft"}`}
       >
-        <span class="min-w-0 flex-1 text-sm font-medium leading-5 text-ink md:w-[280px] md:flex-none">{SHORTCUTS[id].label}</span>
+        <span class="min-w-0 flex-1 text-sm font-medium leading-5 text-ink md:w-[17.5rem] md:flex-none">{SHORTCUTS[id].label}</span>
         <KeyHint {id} platform={shown} />
       </li>
     {/each}
   </ul>
 
-  <p class="text-[13px] leading-[18px] text-ink-muted">
+  <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">
     Menus and tooltips show the same keys. Press ? anywhere to see this list.
   </p>
 </div>

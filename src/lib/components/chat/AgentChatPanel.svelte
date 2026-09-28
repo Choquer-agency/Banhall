@@ -1238,14 +1238,14 @@
         {#each CONTEXT_CATEGORIES as c (c.id)}
           <button
             onclick={() => uploadFiles(files, c.id)}
-            class={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-opacity hover:opacity-80 ${c.pill}`}
+            class={`rounded-full px-2.5 py-1 text-[0.6875rem] font-medium transition-opacity hover:opacity-80 ${c.pill}`}
           >
             {c.label}
           </button>
         {/each}
         <button
           onclick={() => (pendingFiles = null)}
-          class="rounded-full px-2.5 py-1 text-[11px] font-medium text-gray-400 hover:text-gray-600"
+          class="rounded-full px-2.5 py-1 text-[0.6875rem] font-medium text-gray-400 hover:text-gray-600"
         >
           Cancel
         </button>
@@ -1257,17 +1257,17 @@
     <div class="mb-2 flex flex-wrap gap-1.5">
       {#each attachments as a, i (`${a.documentId}-${i}`)}
         {@const meta = categoryMeta(a.category)}
-        <span class="inline-flex items-center gap-1 rounded-md bg-chrome px-2 py-1 text-[11px] text-gray-600">
+        <span class="inline-flex items-center gap-1 rounded-md bg-chrome px-2 py-1 text-[0.6875rem] text-gray-600">
           <svg class="h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
           </svg>
           {trimName(a.fileName)}
           {#if meta}
-            <span class={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${meta.pill}`}>
+            <span class={`rounded-full px-1.5 py-0.5 text-[0.5625rem] font-medium ${meta.pill}`}>
               {meta.label}
             </span>
           {/if}
-          <span class="ml-1 text-[10px] text-ink-muted">Project context</span>
+          <span class="ml-1 text-[0.625rem] text-ink-muted">Project context</span>
         </span>
       {/each}
     </div>
@@ -1296,7 +1296,7 @@
     <PromptInputTextarea
       bind:ref={textareaEl}
       wrapperClass="py-0"
-      class="min-h-[18px] px-0 text-[13px] leading-[18px] text-ink placeholder:text-ink-faint md:text-[13px]"
+      class="min-h-[1.125rem] px-0 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint md:text-[0.8125rem]"
       aria-label="Message the report assistant"
       textIndent={composerContextActive ? pillWidth : undefined}
       placeholder={pendingResearch
@@ -1374,7 +1374,7 @@
           aria-label="Add to message"
           title="Add to message"
           disabled={uploading}
-          class="flex size-[26px] shrink-0 items-center justify-center rounded-full border border-line text-ink transition-colors hover:bg-primary-wash data-[state=open]:bg-primary-wash disabled:opacity-50 motion-reduce:transition-none pointer-coarse:size-11"
+          class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-full border border-line text-ink transition-colors hover:bg-primary-wash data-[state=open]:bg-primary-wash disabled:opacity-50 motion-reduce:transition-none pointer-coarse:size-11"
         >
           {#if uploading}
             <Spinner size="sm" class="border-gray-300 border-t-gray-500" />
@@ -1394,7 +1394,7 @@
             <DropdownMenu.Item
               onSelect={() => fileInputEl?.click()}
               title="Add a document to project context"
-              class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash"
+              class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash"
             >
               <svg class="size-4 shrink-0 text-ink-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z M14 3v5h5 M12 12v6 M9 15h6" />
@@ -1407,7 +1407,7 @@
                 disabled={sending || isStreaming}
                 closeOnSelect={false}
                 title="Allow a new search of approved past reports. Previous conversation remains available."
-                class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50"
+                class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50"
               >
                 {#snippet children({ checked })}
                   <span class={`flex size-4 shrink-0 items-center justify-center rounded border ${checked ? "border-primary-selected bg-primary-selected text-white" : "border-line"}`} aria-hidden="true">
@@ -1424,7 +1424,7 @@
       </DropdownMenu.Root>
       {#if allowBrain && !pendingResearch}
         <!-- The per-message Brain choice stays visible while it is on. -->
-        <span data-brain-chip class="inline-flex h-[22px] min-w-0 items-center gap-1 rounded-full bg-primary-wash pr-1 pl-2 text-[11px] text-primary-selected">
+        <span data-brain-chip class="inline-flex h-[1.375rem] min-w-0 items-center gap-1 rounded-full bg-primary-wash pr-1 pl-2 text-[0.6875rem] text-primary-selected">
           <span class="truncate">Brain examples</span>
           <button
             type="button"
@@ -1481,7 +1481,7 @@
         <button
           onclick={stopGeneration}
           disabled={stopping || !selectedThreadId}
-          class="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-primary-selected text-white transition-[background-color,transform] hover:bg-primary-dark active:translate-y-px disabled:opacity-50 motion-reduce:transition-none pointer-coarse:size-11"
+          class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-full bg-primary-selected text-white transition-[background-color,transform] hover:bg-primary-dark active:translate-y-px disabled:opacity-50 motion-reduce:transition-none pointer-coarse:size-11"
           title="Stop generating"
           aria-label="Stop generating"
         >
@@ -1493,7 +1493,7 @@
         <button
           onclick={() => sendText(input)}
           disabled={sending || researchStarting || publicationPending || composerChatBlocked || (!input.trim() && !pendingHighlight && !pendingResearch)}
-          class="group flex size-[26px] shrink-0 items-center justify-center rounded-full bg-primary-selected text-white transition-[background-color,opacity,transform] hover:bg-primary-dark active:translate-y-px disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11"
+          class="group flex size-[1.625rem] shrink-0 items-center justify-center rounded-full bg-primary-selected text-white transition-[background-color,opacity,transform] hover:bg-primary-dark active:translate-y-px disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11"
           title={pendingResearch ? "Start research" : "Send"}
           aria-label="Send message"
         >
@@ -1509,7 +1509,7 @@
   {#if showHint}
     <p
       transition:fade={{ duration: motionDuration(300) }}
-      class="pt-1.5 text-center text-[11px] text-gray-400"
+      class="pt-1.5 text-center text-[0.6875rem] text-gray-400"
     >
       Enter to send, Shift+Enter for a new line
     </p>
@@ -1526,7 +1526,7 @@
       <DropdownMenu.Trigger
         aria-label="Conversation menu"
         title="Conversations"
-        class="group -ml-1.5 flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-[13px] leading-[18px] font-medium text-ink transition-colors hover:bg-chrome/60 data-[state=open]:bg-chrome/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
+        class="group -ml-1.5 flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-[0.8125rem] leading-[1.125rem] font-medium text-ink transition-colors hover:bg-chrome/60 data-[state=open]:bg-chrome/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
       >
         Assistant
         <svg class="size-3 shrink-0 text-ink-faint opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[state=open]:rotate-180 group-data-[state=open]:opacity-100 motion-reduce:transition-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -1579,7 +1579,7 @@
         title={isFull ? "Collapse assistant" : "Expand assistant"}
         aria-label={isFull ? "Collapse assistant" : "Expand assistant"}
         aria-pressed={isFull}
-        class="ml-auto flex size-[26px] shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-chrome/60 hover:text-ink motion-reduce:transition-none pointer-coarse:size-11"
+        class="ml-auto flex size-[1.625rem] shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-chrome/60 hover:text-ink motion-reduce:transition-none pointer-coarse:size-11"
       >
         {#if isFull}
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1600,17 +1600,17 @@
          composer stays pinned to the bottom (Obvious anatomy) in EVERY state. -->
     <div class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-6">
       <AuroraMark size={36} class="mb-3" />
-      <h2 class="text-center text-[15px] font-medium text-ink">
+      <h2 class="text-center text-[0.9375rem] font-medium text-ink">
         How can I help with this report?
       </h2>
-      <p class="mt-1 max-w-[300px] text-center text-xs leading-relaxed text-ink-muted">
+      <p class="mt-1 max-w-[18.75rem] text-center text-xs leading-relaxed text-ink-muted">
         I can tighten language, find passages, check compliance and propose
         edits, grounded in this report and its source documents.
       </p>
-      <div class="mt-5 flex w-full max-w-[320px] flex-col gap-1.5">
+      <div class="mt-5 flex w-full max-w-[20rem] flex-col gap-1.5">
         {#each STARTERS as starter (starter)}
           <Suggestion
-            class="w-full justify-start rounded-lg px-3 py-1.5 text-left text-[13px]"
+            class="w-full justify-start rounded-lg px-3 py-1.5 text-left text-[0.8125rem]"
             disabled={sending || researchStarting || publicationPending || composerChatBlocked || isStreaming}
             onclick={() => sendText(starter)}
           >

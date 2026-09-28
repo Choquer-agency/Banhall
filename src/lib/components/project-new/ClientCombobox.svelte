@@ -73,7 +73,7 @@
     />
     <Combobox.Trigger
       aria-label="Show recorded clients"
-      class="absolute top-1/2 right-[5px] flex size-6 -translate-y-1/2 items-center justify-center text-ink-faint"
+      class="absolute top-1/2 right-[0.3125rem] flex size-6 -translate-y-1/2 items-center justify-center text-ink-faint"
     >
       <IconChevronDown size={14} strokeWidth={1.8} />
     </Combobox.Trigger>
@@ -89,7 +89,7 @@
           <Combobox.Item
             value={name}
             label={name}
-            class="flex min-h-8 cursor-default items-center rounded-md px-2 text-[13px] leading-[18px] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:min-h-11"
+            class="flex min-h-8 cursor-default items-center rounded-md px-2 text-[0.8125rem] leading-[1.125rem] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:min-h-11"
           >
             {name}
           </Combobox.Item>

@@ -1279,7 +1279,7 @@
       <!-- Always mounted, so the live region announces its message. -->
       <div class="pointer-events-none fixed inset-x-0 bottom-6 z-[85] flex justify-center px-4" role="status" aria-live="polite" data-heading-notice>
         {#if headingNotice}
-          <p class="rounded-lg bg-navy px-4 py-2 font-sans text-[13px] leading-5 text-white shadow-popover">
+          <p class="rounded-lg bg-navy px-4 py-2 font-sans text-[0.8125rem] leading-5 text-white shadow-popover">
             {headingNotice === "paste"
               ? "Section headings were left out of the paste."
               : "Section headings stay as they are. Edit the text under them."}
@@ -1309,7 +1309,7 @@
             </svg>
             {limitOverlayVisible ? "Hide CRA limits" : "Show CRA limits"}
           </button>
-          <span class="flex flex-wrap items-center gap-x-3 text-[11px] text-ink-muted">
+          <span class="flex flex-wrap items-center gap-x-3 text-[0.6875rem] text-ink-muted">
             <span class="whitespace-nowrap"><strong class="font-medium text-ink-secondary">{lineCount}</strong> form lines</span>
             <span class="whitespace-nowrap"><strong class="font-medium text-ink-secondary">{wordCount}</strong> words</span>
             <span class="whitespace-nowrap"><strong class="font-medium text-ink-secondary">{charCount}</strong> characters</span>
@@ -1323,7 +1323,7 @@
               {@const lines = meterState(metric.lines, metric.limit)}
               {@const words = meterState(metric.words, metric.wordCap)}
               <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                <span class="w-7 flex-none text-[11px] font-medium tabular-nums text-gray-700">{line}</span>
+                <span class="w-7 flex-none text-[0.6875rem] font-medium tabular-nums text-gray-700">{line}</span>
                 {#each [
                   { label: "lines", value: metric.lines, cap: metric.limit, s: lines, raw: metric.rawLines },
                   { label: "words", value: metric.words, cap: metric.wordCap, s: words, raw: metric.rawWords },
@@ -1335,7 +1335,7 @@
                         style={`width: ${Math.min(100, (m.value / m.cap) * 100)}%`}
                       ></div>
                     </div>
-                    <span class={`flex-none whitespace-nowrap text-[11px] tabular-nums ${m.s === "over" ? "font-medium text-red-700" : m.s === "warning" ? "font-medium text-amber-600" : "text-ink-muted"}`}>
+                    <span class={`flex-none whitespace-nowrap text-[0.6875rem] tabular-nums ${m.s === "over" ? "font-medium text-red-700" : m.s === "warning" ? "font-medium text-amber-600" : "text-ink-muted"}`}>
                       {m.value} / {m.cap} {m.label}{m.raw !== m.value ? ` (+${m.raw - m.value} with gaps)` : ""}
                     </span>
                   </div>

@@ -306,7 +306,7 @@
      lineage (it now means "collapsed"). Live pointer drags suspend the track
      transition so the edge follows the pointer 1:1. */
   .workspace-shell-grid {
-    --workspace-rail-col: var(--workspace-rail-width, 275px);
+    --workspace-rail-col: var(--workspace-rail-width, 17.1875rem);
     transition: grid-template-columns 300ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
@@ -315,7 +315,7 @@
   }
 
   .workspace-shell-grid[data-rail-hidden] {
-    --workspace-rail-col: var(--workspace-rail-collapsed-width, 56px);
+    --workspace-rail-col: var(--workspace-rail-collapsed-width, 3.5rem);
   }
 
   .workspace-shell-grid[data-rail-resizing] {

@@ -398,7 +398,7 @@
                       {:else}
                         <span>{entry.hours.toFixed(1)}</span>
                       {/if}
-                      <span class={`ml-1 text-[10px] ${entry.hoursBasis === "estimated" ? "text-amber-700" : "text-gray-400"}`}>
+                      <span class={`ml-1 text-[0.625rem] ${entry.hoursBasis === "estimated" ? "text-amber-700" : "text-gray-400"}`}>
                         {entry.hoursBasis ?? "legacy"}
                       </span>
                     </td>

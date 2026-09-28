@@ -157,7 +157,7 @@
     <main
       data-work-panel
       data-work-panel-padding={panel === "padded" && !hiddenInView ? padding : "flush"}
-      class={`min-h-0 min-w-0 flex-1 overflow-y-auto bg-surface ${frame === "inset" ? "rounded-[10px] border border-line" : ""} ${hiddenInView ? "flex flex-col" : ""} ${
+      class={`min-h-0 min-w-0 flex-1 overflow-y-auto bg-surface ${frame === "inset" ? "rounded-[0.625rem] border border-line" : ""} ${hiddenInView ? "flex flex-col" : ""} ${
         panel === "flush" || hiddenInView ? "" : padding === "admin" ? "px-5 py-7 md:px-10" : "px-5 pb-12 pt-8 md:px-14"
       }`}
     >

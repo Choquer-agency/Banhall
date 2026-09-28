@@ -101,11 +101,11 @@
     : "Add work emails and pick a role. Each person gets a link to join Banhall."}
 >
   {#if results}
-    <div class="px-7 pb-5 pt-[18px]">
+    <div class="px-7 pb-5 pt-[1.125rem]">
       <InviteResults rows={results} {role} />
     </div>
   {:else}
-    <div class="flex flex-col gap-1.5 px-7 pt-[18px]">
+    <div class="flex flex-col gap-1.5 px-7 pt-[1.125rem]">
       <label for="invite-emails" class="text-xs font-medium leading-4 text-ink-secondary">Email addresses</label>
       <InviteEmailChips bind:this={chipInput} bind:chips disabled={sending} />
       {#if tooMany}
@@ -114,12 +114,12 @@
     </div>
     <!-- C3: the Role label 16px under the email box and 8px above the
          options (a <legend> ignores the fieldset's flex gap and padding). -->
-    <div role="radiogroup" aria-labelledby="invite-role-label" data-invite-roles class="flex flex-col gap-2 px-7 pb-[18px] pt-4">
+    <div role="radiogroup" aria-labelledby="invite-role-label" data-invite-roles class="flex flex-col gap-2 px-7 pb-[1.125rem] pt-4">
       <p id="invite-role-label" data-invite-role-label class="text-xs font-medium leading-4 text-ink-secondary">Role</p>
       {#each options as option (option.role)}
         <label
           data-role-option={option.role}
-          class={`flex cursor-pointer items-center gap-3 rounded-[10px] px-3 py-2.5 transition-colors pointer-coarse:min-h-11 ${role === option.role ? "border-[1.5px] border-primary-selected bg-role-option-selected" : "border border-line bg-surface hover:bg-primary-wash"}`}
+          class={`flex cursor-pointer items-center gap-3 rounded-[0.625rem] px-3 py-2.5 transition-colors pointer-coarse:min-h-11 ${role === option.role ? "border-[1.5px] border-primary-selected bg-role-option-selected" : "border border-line bg-surface hover:bg-primary-wash"}`}
         >
           <input type="radio" name="invite-role" value={option.role} bind:group={role} disabled={sending} class="peer sr-only" />
           <span
@@ -127,12 +127,12 @@
             class={`h-4 w-4 shrink-0 rounded-full bg-surface peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 ${role === option.role ? "border-[5px] border-primary-selected" : "border-[1.5px] border-line"}`}
           ></span>
           <RoleChip role={option.role} radius={4} />
-          <span class="truncate text-[13px] leading-[18px] text-ink-muted">{option.line}</span>
+          <span class="truncate text-[0.8125rem] leading-[1.125rem] text-ink-muted">{option.line}</span>
         </label>
       {/each}
     </div>
     {#if error}
-      <p role="alert" class="mx-7 mb-4 rounded-[10px] border border-danger-line bg-danger-surface px-3 py-2 text-[13px] text-danger-ink-muted">{error}</p>
+      <p role="alert" class="mx-7 mb-4 rounded-[0.625rem] border border-danger-line bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger-ink-muted">{error}</p>
     {/if}
   {/if}
   {#snippet footer()}

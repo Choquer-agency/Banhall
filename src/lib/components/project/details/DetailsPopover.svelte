@@ -80,7 +80,7 @@
   const science = $derived(scienceCodeDisplay(data?.scienceCode));
 
   // Board 5.2: 32px rows, a 92px label column and a 12px gap.
-  const row = "grid min-h-8 grid-cols-[92px_minmax(0,1fr)] items-center gap-x-3 px-2";
+  const row = "grid min-h-8 grid-cols-[5.75rem_minmax(0,1fr)] items-center gap-x-3 px-2";
 </script>
 
 <Popover.Root bind:open>
@@ -99,12 +99,12 @@
       onpointerleave={scheduleClose}
       data-details-popover
       aria-label="Details"
-      class="z-[120] w-[360px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-line bg-surface px-2 pb-2.5 pt-3 text-[13px] leading-[18px] shadow-popover outline-none"
+      class="z-[120] w-[22.5rem] max-w-[calc(100vw-1.5rem)] rounded-xl border border-line bg-surface px-2 pb-2.5 pt-3 text-[0.8125rem] leading-[1.125rem] shadow-popover outline-none"
     >
       <Popover.Arrow>
         {#snippet child({ props })}
           <span {...props} data-details-popover-notch>
-            <span class="block size-2.5 translate-y-1/2 rotate-45 rounded-[2px] border-l border-t border-line bg-surface"></span>
+            <span class="block size-2.5 translate-y-1/2 rotate-45 rounded-[0.125rem] border-l border-t border-line bg-surface"></span>
           </span>
         {/snippet}
       </Popover.Arrow>
@@ -155,7 +155,7 @@
               open = false;
               onOpenAll();
             }}
-            class="mt-2 rounded-md text-[13px] font-medium leading-[18px] text-primary-selected transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
+            class="mt-2 rounded-md text-[0.8125rem] font-medium leading-[1.125rem] text-primary-selected transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
           >
             Open all details
           </button>

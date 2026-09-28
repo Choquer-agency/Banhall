@@ -17,7 +17,7 @@
     {/if}
   </div>
   {#if text.trim()}
-    <p data-instructions-excerpt class="font-serif text-[13px] leading-5 text-ink-secondary [overflow-wrap:anywhere]">"{instructionsExcerpt(text)}"</p>
+    <p data-instructions-excerpt class="font-serif text-[0.8125rem] leading-5 text-ink-secondary [overflow-wrap:anywhere]">"{instructionsExcerpt(text)}"</p>
     <p data-instructions-count class={`text-xs leading-4 ${tooLong ? "text-danger-ink-muted" : "text-ink-faint"}`} aria-live={tooLong ? "polite" : "off"}>
       {#if tooLong}
         {count} of {max} characters. Shorten your instructions to save them.
@@ -26,10 +26,10 @@
       {/if}
     </p>
   {:else}
-    <p data-instructions-empty class="text-[13px] leading-5 text-ink-muted">No instructions yet. Paste how you write, or a sample of your writing.</p>
-    <button type="button" onclick={onEdit} class="self-start rounded-lg bg-chrome px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Add instructions</button>
+    <p data-instructions-empty class="text-[0.8125rem] leading-5 text-ink-muted">No instructions yet. Paste how you write, or a sample of your writing.</p>
+    <button type="button" onclick={onEdit} class="self-start rounded-lg bg-chrome px-3 py-1.5 text-[0.8125rem] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Add instructions</button>
   {/if}
   {#if notice}
-    <p role="status" data-prefill-notice class="text-[13px] leading-5 text-ink-secondary">{notice}</p>
+    <p role="status" data-prefill-notice class="text-[0.8125rem] leading-5 text-ink-secondary">{notice}</p>
   {/if}
 </section>

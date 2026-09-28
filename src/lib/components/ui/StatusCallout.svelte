@@ -92,7 +92,7 @@
     `inline-flex h-8 shrink-0 items-center justify-center rounded-lg px-3.5 text-sm leading-5 font-medium text-white transition-colors motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 ${focusRing} ${styles.primary}`
   );
   const secondaryClass = $derived(
-    `inline-flex h-8 shrink-0 items-center rounded-md px-1.5 text-[13px] leading-[18px] font-medium underline decoration-1 underline-offset-2 transition-colors hover:decoration-2 motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 ${focusRing} ${styles.secondary}`
+    `inline-flex h-8 shrink-0 items-center rounded-md px-1.5 text-[0.8125rem] leading-[1.125rem] font-medium underline decoration-1 underline-offset-2 transition-colors hover:decoration-2 motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 ${focusRing} ${styles.secondary}`
   );
 </script>
 
@@ -113,9 +113,9 @@
 <div
   data-status-callout={tone}
   {role}
-  class={`flex border ${inline ? "min-h-[52px] items-center gap-2.5 rounded-[10px] px-2.5 py-2" : "gap-3 rounded-xl p-3.5"} ${styles.box} ${className}`}
+  class={`flex border ${inline ? "min-h-[3.25rem] items-center gap-2.5 rounded-[0.625rem] px-2.5 py-2" : "gap-3 rounded-xl p-3.5"} ${styles.box} ${className}`}
 >
-  <span class={`flex shrink-0 items-center justify-center ${inline ? "size-7" : "mt-px size-[18px]"} ${styles.icon}`}>
+  <span class={`flex shrink-0 items-center justify-center ${inline ? "size-7" : "mt-px size-[1.125rem]"} ${styles.icon}`}>
     {#if icon}
       {@render icon()}
     {:else if tone === "success"}
@@ -127,10 +127,10 @@
 
   <div class="flex min-w-0 flex-1 flex-col gap-0.5">
     {#if title}
-      <p class={`font-medium ${inline ? "text-[13px] leading-[18px]" : "text-sm leading-5"} ${styles.title}`}>{title}</p>
+      <p class={`font-medium ${inline ? "text-[0.8125rem] leading-[1.125rem]" : "text-sm leading-5"} ${styles.title}`}>{title}</p>
     {/if}
     {#if children}
-      <div class={`${inline ? "text-xs leading-4" : "text-[13px] leading-[18px]"} ${styles.body}`}>
+      <div class={`${inline ? "text-xs leading-4" : "text-[0.8125rem] leading-[1.125rem]"} ${styles.body}`}>
         {@render children()}
       </div>
     {/if}

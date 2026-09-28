@@ -215,7 +215,7 @@
       <div
         id={activityId}
         bind:this={scrollEl}
-        class="mt-2 h-[180px] overflow-y-auto rounded-xl bg-navy px-4 py-3 font-mono text-[12px] leading-[1.7] text-white/85"
+        class="mt-2 h-[11.25rem] overflow-y-auto rounded-xl bg-navy px-4 py-3 font-mono text-[0.75rem] leading-[1.7] text-white/85"
       >
         <div class="flex gap-2">
           <span class="select-none text-primary-light">›</span>

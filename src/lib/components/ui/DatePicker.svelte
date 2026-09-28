@@ -98,7 +98,7 @@
     {...props}
     type="button"
     class={`field-control flex w-full items-center gap-1.5 rounded-lg text-left disabled:opacity-50 ${
-      size === "md" ? "h-[42px] px-3.5 text-sm" : "h-8 rounded-md px-2.5 text-xs"
+      size === "md" ? "h-[2.625rem] px-3.5 text-sm" : "h-8 rounded-md px-2.5 text-xs"
     }`}
   >
     <svg class={`flex-none text-gray-400 ${size === "md" ? "h-4 w-4" : "h-3.5 w-3.5"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -127,7 +127,7 @@
       side="bottom"
       {align}
       sideOffset={4}
-      class="z-[120] w-[312px] max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-white p-1.5 shadow-popover"
+      class="z-[120] w-[19.5rem] max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-white p-1.5 shadow-popover"
     >
       <div class="flex flex-col gap-2 p-2">
       <Calendar.Root
@@ -141,7 +141,7 @@
         {#snippet children({ months, weekdays })}
           <Calendar.Header class="flex items-center gap-1">
             {#if heading}
-              <span class="mr-auto min-w-0 flex-1 truncate text-xs leading-[18px] font-medium text-ink-muted">{heading}</span>
+              <span class="mr-auto min-w-0 flex-1 truncate text-xs leading-[1.125rem] font-medium text-ink-muted">{heading}</span>
             {/if}
             <Calendar.PrevButton
               class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink"
@@ -150,7 +150,7 @@
                 <path d="m15 18-6-6 6-6" />
               </svg>
             </Calendar.PrevButton>
-            <Calendar.Heading class={`text-[13px] leading-[18px] font-medium text-ink ${heading ? "" : "flex-1 text-center"}`} />
+            <Calendar.Heading class={`text-[0.8125rem] leading-[1.125rem] font-medium text-ink ${heading ? "" : "flex-1 text-center"}`} />
             <Calendar.NextButton
               class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink"
             >
@@ -164,7 +164,7 @@
               <Calendar.GridHead>
                 <Calendar.GridRow class="flex">
                   {#each weekdays as day (day)}
-                    <Calendar.HeadCell class="w-10 shrink-0 text-center text-[11px] leading-[18px] font-normal text-ink-muted">
+                    <Calendar.HeadCell class="w-10 shrink-0 text-center text-[0.6875rem] leading-[1.125rem] font-normal text-ink-muted">
                       {day.slice(0, 2)}
                     </Calendar.HeadCell>
                   {/each}
@@ -176,7 +176,7 @@
                     {#each weekDates as date (date.toString())}
                       <Calendar.Cell {date} month={month.value} class="flex h-8 w-10 shrink-0 items-center justify-center p-0">
                         <Calendar.Day
-                          class="flex h-[30px] w-[30px] items-center justify-center rounded-lg text-[13px] leading-[18px] text-ink transition-colors
+                          class="flex h-[1.875rem] w-[1.875rem] items-center justify-center rounded-lg text-[0.8125rem] leading-[1.125rem] text-ink transition-colors
                             hover:bg-primary-wash
                             data-disabled:pointer-events-none data-disabled:text-gray-300
                             data-outside-month:pointer-events-none data-outside-month:text-transparent
@@ -200,7 +200,7 @@
             <button
               type="button"
               onclick={() => pickQuick(pick.month, pick.day)}
-              class={`h-[26px] rounded-full px-2.5 text-xs leading-[18px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir ${current ? "bg-primary-wash font-medium text-primary-selected" : "bg-gray-50 text-ink-secondary hover:bg-primary-wash hover:text-ink"}`}
+              class={`h-[1.625rem] rounded-full px-2.5 text-xs leading-[1.125rem] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir ${current ? "bg-primary-wash font-medium text-primary-selected" : "bg-gray-50 text-ink-secondary hover:bg-primary-wash hover:text-ink"}`}
             >
               {pick.label}
             </button>
@@ -208,7 +208,7 @@
         </div>
       {/if}
       {#if helper}
-        <p class="text-xs leading-[18px] text-ink-muted">{helper}</p>
+        <p class="text-xs leading-[1.125rem] text-ink-muted">{helper}</p>
       {/if}
       </div>
     </Popover.Content>

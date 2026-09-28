@@ -16,7 +16,7 @@
 
 {#if role}
   <div data-view-as-hidden-page class="flex min-h-[60vh] flex-1 items-center justify-center px-4 py-10">
-    <div class="flex w-full max-w-[420px] flex-col items-center gap-3.5 text-center">
+    <div class="flex w-full max-w-[26.25rem] flex-col items-center gap-3.5 text-center">
       <span
         aria-hidden="true"
         class="flex size-11 items-center justify-center rounded-xl border border-warning-line bg-warning-surface text-warning-ink"
@@ -24,7 +24,7 @@
         <IconEye size={20} strokeWidth={1.6} />
       </span>
       <div class="flex flex-col items-center gap-1.5">
-        <h2 class="font-serif text-2xl font-normal leading-[30px] text-ink">
+        <h2 class="font-serif text-2xl font-normal leading-[1.875rem] text-ink">
           {pageName} is hidden in {VIEW_AS_LABELS[role]} view
         </h2>
         <p class="text-sm leading-5 text-ink-muted">

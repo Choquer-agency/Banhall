@@ -22,6 +22,6 @@
     type="button"
     data-use-another-account
     onclick={onUseAnother}
-    class="shrink-0 rounded text-[13px] leading-[18px] font-medium text-primary-selected hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    class="shrink-0 rounded text-[0.8125rem] leading-[1.125rem] font-medium text-primary-selected hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
   >Use another account</button>
 </div>

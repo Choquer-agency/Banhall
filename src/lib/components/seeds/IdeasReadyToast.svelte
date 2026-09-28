@@ -51,12 +51,12 @@
   onfocusin={pause}
   onfocusout={start}
   transition:fly={{ y: reducedMotion ? 0 : 8, duration: reducedMotion ? 0 : 200 }}
-  class="flex w-[296px] max-w-[calc(100vw-2rem)] items-start gap-2.5 rounded-[10px] bg-toast py-2.5 pr-1.5 pl-3 shadow-toast-dark"
+  class="flex w-[18.5rem] max-w-[calc(100vw-2rem)] items-start gap-2.5 rounded-[0.625rem] bg-toast py-2.5 pr-1.5 pl-3 shadow-toast-dark"
 >
   <AuroraMark size={18} class="mt-px" />
   <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-    <p class="text-xs leading-[17px] font-medium text-toast-ink">{count} {count === 1 ? "idea is" : "ideas are"} ready</p>
-    <p class="text-[11px] leading-[15px] text-toast-muted">Pick what fits, then approve to move on.</p>
+    <p class="text-xs leading-[1.0625rem] font-medium text-toast-ink">{count} {count === 1 ? "idea is" : "ideas are"} ready</p>
+    <p class="text-[0.6875rem] leading-[0.9375rem] text-toast-muted">Pick what fits, then approve to move on.</p>
   </div>
   <button
     type="button"

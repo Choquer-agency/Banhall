@@ -17,7 +17,7 @@
 </script>
 
 <button type="button" data-fixture-switch onclick={() => (showDetails = !showDetails)}>Switch panel</button>
-<div data-fixture-slot style="display:flex;flex-direction:column;height:600px;width:400px">
+<div data-fixture-slot style="display:flex;flex-direction:column;height:37.5rem;width:25rem">
   {#if showDetails}
     <DetailsPanel {data} {onChangeStage} onHandOff={async () => {}} onClose={() => (showDetails = false)} />
   {:else}

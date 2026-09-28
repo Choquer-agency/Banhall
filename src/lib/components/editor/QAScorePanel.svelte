@@ -508,11 +508,11 @@
   </button>
 {/snippet}
 
-<div class={`flex flex-col ${side ? "gap-[22px]" : "gap-6"}`}>
+<div class={`flex flex-col ${side ? "gap-[1.375rem]" : "gap-6"}`}>
   {#if side}
     <!-- Board 2.2 header: "QA score", Re-run and close; no icon. -->
     <div class="flex h-7 shrink-0 items-center gap-2" data-qa-panel-header>
-      <h2 class="min-w-0 flex-1 text-sm leading-[18px] font-medium text-ink">{title}</h2>
+      <h2 class="min-w-0 flex-1 text-sm leading-[1.125rem] font-medium text-ink">{title}</h2>
       {#if onRunQa && scorecard}
         {@render rerunButton("Re-run")}
       {/if}
@@ -539,10 +539,10 @@
   {#if lineLimitBreaches.length > 0}
     <!-- Locked CRA limits: shown with or without a scorecard. -->
     <div class="flex flex-col gap-2" data-qa-line-limits>
-      <p class="text-[11px] leading-4 font-medium text-ink-muted">Line limits</p>
+      <p class="text-[0.6875rem] leading-4 font-medium text-ink-muted">Line limits</p>
       <ul class="flex flex-col gap-1.5">
         {#each lineLimitBreaches as breach (breach.line)}
-          <li class="rounded-md bg-red-100 px-3 py-2 text-xs leading-[18px] text-red-700" data-qa-line-limit={breach.line}>
+          <li class="rounded-md bg-red-100 px-3 py-2 text-xs leading-[1.125rem] text-red-700" data-qa-line-limit={breach.line}>
             Line {breach.line} is over the CRA limit: {breach.words} of {breach.wordCap} words, {breach.lines} of {breach.limit} lines. Shorten it before filing.
           </li>
         {/each}
@@ -559,7 +559,7 @@
           <span class="text-sm leading-5 font-medium tabular-nums text-ink-secondary" data-qa-overall>{overall}/100</span>
           <span class="text-xs leading-4 text-ink-muted" data-qa-score-meta>AI QA score{lastRunLabel ? `, ${lastRunLabel}` : ""}</span>
           {#if myReview}
-            <span class="ml-auto inline-flex items-center rounded-full bg-chrome px-2 py-0.5 text-[11px] text-ink-secondary">
+            <span class="ml-auto inline-flex items-center rounded-full bg-chrome px-2 py-0.5 text-[0.6875rem] text-ink-secondary">
               You: {myReview.score}
             </span>
           {/if}
@@ -586,7 +586,7 @@
 
     <!-- Per-section breakdown -->
     <div class="flex flex-col gap-2">
-      <p class="text-[11px] leading-4 font-medium text-ink-muted">Sections</p>
+      <p class="text-[0.6875rem] leading-4 font-medium text-ink-muted">Sections</p>
       {#each Object.entries(scorecard.section_scores) as [key, section] (key)}
         {@const sectionScore = adjustedScores.sections[key] ?? section.score}
         {@const noteCount = section.issues.length + section.strengths.length}
@@ -600,20 +600,20 @@
             aria-expanded={open}
             class="flex h-9 w-full items-center gap-2.5 px-2.5 text-left transition-colors hover:bg-gray-50 disabled:hover:bg-transparent"
           >
-            <span class="w-[26px] flex-none text-xs leading-4 font-medium tabular-nums text-ink">{key}</span>
+            <span class="w-[1.625rem] flex-none text-xs leading-4 font-medium tabular-nums text-ink">{key}</span>
             <span class="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-line-soft" aria-hidden="true">
               <span data-qa-section-bar class="block h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none" style={`width: ${sectionScore}%; background: ${qaBandColors(sectionScore).bar}`}></span>
             </span>
-            <span class="w-[22px] flex-none text-right text-xs leading-4 font-medium tabular-nums text-ink">{sectionScore}</span>
+            <span class="w-[1.375rem] flex-none text-right text-xs leading-4 font-medium tabular-nums text-ink">{sectionScore}</span>
             <span class="flex w-11 flex-none items-center gap-1.5">
               {#if section.issues.length > 0}
-                <span class="flex items-center gap-[3px] text-[10px] leading-3 tabular-nums text-ink-muted" title={`${section.issues.length} issue${section.issues.length === 1 ? "" : "s"}`}>
-                  <span class="h-[5px] w-[5px] rounded-full bg-red-500" aria-hidden="true"></span>{section.issues.length}
+                <span class="flex items-center gap-[0.1875rem] text-[0.625rem] leading-3 tabular-nums text-ink-muted" title={`${section.issues.length} issue${section.issues.length === 1 ? "" : "s"}`}>
+                  <span class="h-[0.3125rem] w-[0.3125rem] rounded-full bg-red-500" aria-hidden="true"></span>{section.issues.length}
                 </span>
               {/if}
               {#if section.strengths.length > 0}
-                <span class="flex items-center gap-[3px] text-[10px] leading-3 tabular-nums text-ink-muted" title={`${section.strengths.length} strength${section.strengths.length === 1 ? "" : "s"}`}>
-                  <span class="h-[5px] w-[5px] rounded-full bg-green-500" aria-hidden="true"></span>{section.strengths.length}
+                <span class="flex items-center gap-[0.1875rem] text-[0.625rem] leading-3 tabular-nums text-ink-muted" title={`${section.strengths.length} strength${section.strengths.length === 1 ? "" : "s"}`}>
+                  <span class="h-[0.3125rem] w-[0.3125rem] rounded-full bg-green-500" aria-hidden="true"></span>{section.strengths.length}
                 </span>
               {/if}
             </span>
@@ -628,8 +628,8 @@
             <ul class="flex flex-col gap-2 px-2.5 pt-0.5 pb-3">
               {#each qaGroups as group, groupIndex (group.key)}
                 <li class={`flex items-center gap-1.5 ${groupIndex > 0 ? "pt-1" : ""}`}>
-                  <span class={`text-[10px] leading-3 font-medium uppercase tracking-[0.06em] ${group.key === "issues" ? "text-red-700" : group.key === "warnings" ? "text-yellow-700" : "text-green-700"}`}>{group.label}</span>
-                  <span class={`inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full px-1 text-[10px] leading-3 font-medium tabular-nums ${group.key === "issues" ? "bg-red-100 text-red-700" : group.key === "warnings" ? "bg-gap-bg text-yellow-700" : "bg-green-100 text-green-700"}`}>{group.items.length}</span>
+                  <span class={`text-[0.625rem] leading-3 font-medium uppercase tracking-[0.06em] ${group.key === "issues" ? "text-red-700" : group.key === "warnings" ? "text-yellow-700" : "text-green-700"}`}>{group.label}</span>
+                  <span class={`inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full px-1 text-[0.625rem] leading-3 font-medium tabular-nums ${group.key === "issues" ? "bg-red-100 text-red-700" : group.key === "warnings" ? "bg-gap-bg text-yellow-700" : "bg-green-100 text-green-700"}`}>{group.items.length}</span>
                 </li>
                 {#each group.items as row (`${row.kind}-${row.originalIndex}`)}
                   {#if row.kind === "issue"}
@@ -650,7 +650,7 @@
                             disabled={!onLocateGap}
                             class={`flex w-full items-start gap-2 text-left ${warning ? "text-amber-900" : "text-red-900"} disabled:cursor-default`}
                           >
-                            <span class={`mt-[5.5px] h-[5px] w-[5px] flex-none rounded-full ${warning ? "bg-amber-500" : "bg-red-500"}`}></span>
+                            <span class={`mt-[0.34375rem] h-[0.3125rem] w-[0.3125rem] flex-none rounded-full ${warning ? "bg-amber-500" : "bg-red-500"}`}></span>
                             <span class="min-w-0 flex-1">{displayIssueText(issue.text)}{!warning && issueDeduction(issue) > 0 ? ` (−${issueDeduction(issue)})` : ""}</span>
                           </button>
                         {/snippet}
@@ -681,7 +681,7 @@
                         <Tooltip.Content side="top" sideOffset={6}>Review options</Tooltip.Content>
                         <Popover.Portal>
                           <Popover.Content id={`qa-feedback-${itemKey}`} tabindex={-1} onOpenAutoFocus={(event) => focusFeedbackContainer(itemKey, event)} onCloseAutoFocus={(event) => restoreFeedbackTrigger(itemKey, event)} side="bottom" align="end" sideOffset={6} class="z-50 w-64 rounded-lg border border-line-soft bg-white p-3 shadow-lg outline-none">
-                            <div class="block text-[10px] font-medium text-gray-500">
+                            <div class="block text-[0.625rem] font-medium text-gray-500">
                               <label for={`qa-category-${itemKey}`} class="block">Category</label>
                               <SelectInput
                                 id={`qa-category-${itemKey}`}
@@ -715,12 +715,12 @@
                               />
                             </div>
                             {#if issueDeduction(issue) === 0}
-                              <p class="mt-1.5 text-[10px] leading-relaxed text-gray-500">No deduction amount is available, so this item remains a warning.</p>
+                              <p class="mt-1.5 text-[0.625rem] leading-relaxed text-gray-500">No deduction amount is available, so this item remains a warning.</p>
                             {:else if !canOverride}
-                              <p class="mt-1.5 text-[10px] leading-relaxed text-gray-500">Only managers can reclassify severity.</p>
+                              <p class="mt-1.5 text-[0.625rem] leading-relaxed text-gray-500">Only managers can reclassify severity.</p>
                             {/if}
                             <div class="mt-3 flex items-center gap-1.5 border-t border-line-soft pt-2.5" aria-label="Rate this QA item">
-                              <span class="mr-auto text-[10px] font-medium text-gray-500">Was this useful?</span>
+                              <span class="mr-auto text-[0.625rem] font-medium text-gray-500">Was this useful?</span>
                               {#each [{ value: 1 as const, label: "Useful", path: "M7 10v10M7 10l4-7a2 2 0 013 2v3h4a2 2 0 012 2l-1 8a2 2 0 01-2 2H7M7 10H4v10h3" }, { value: -1 as const, label: "Not useful", path: "M17 14V4M17 14l-4 7a2 2 0 01-3-2v-3H6a2 2 0 01-2-2l1-8a2 2 0 012-2h10M17 14h3V4h-3" }] as choice (choice.value)}
                                 <button
                                   type="button"
@@ -747,7 +747,7 @@
                     {@const feedback = itemFeedback.get(itemKey)}
                   <li class="group relative rounded border border-line-soft bg-surface py-2 pr-9 pl-2.5 text-xs leading-4 text-ink-secondary transition-colors">
                     <div class="flex w-full items-start gap-2 text-left">
-                      <span class="mt-[5.5px] h-[5px] w-[5px] flex-none rounded-full bg-green-500"></span>
+                      <span class="mt-[0.34375rem] h-[0.3125rem] w-[0.3125rem] flex-none rounded-full bg-green-500"></span>
                       <span class="min-w-0 flex-1">{str}</span>
                     </div>
                     {#if feedbackTarget}
@@ -764,7 +764,7 @@
                         <Popover.Portal>
                           <Popover.Content id={`qa-feedback-${itemKey}`} tabindex={-1} onOpenAutoFocus={(event) => focusFeedbackContainer(itemKey, event)} onCloseAutoFocus={(event) => restoreFeedbackTrigger(itemKey, event)} side="bottom" align="end" sideOffset={6} class="z-50 w-56 rounded-lg border border-line-soft bg-white p-3 shadow-lg outline-none">
                             <div class="flex items-center gap-1.5" aria-label="Rate this QA item">
-                              <span class="mr-auto text-[10px] font-medium text-gray-500">Was this useful?</span>
+                              <span class="mr-auto text-[0.625rem] font-medium text-gray-500">Was this useful?</span>
                               {#each [{ value: 1 as const, label: "Useful", path: "M7 10v10M7 10l4-7a2 2 0 013 2v3h4a2 2 0 012 2l-1 8a2 2 0 01-2 2H7M7 10H4v10h3" }, { value: -1 as const, label: "Not useful", path: "M17 14V4M17 14l-4 7a2 2 0 01-3-2v-3H6a2 2 0 01-2-2l1-8a2 2 0 012-2h10M17 14h3V4h-3" }] as choice (choice.value)}
                                 <button
                                   type="button"
@@ -796,12 +796,12 @@
     <!-- CRA compliance: green check or red cross chips. -->
     {#if Object.keys(scorecard.cra_compliance).length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-[11px] leading-4 font-medium text-ink-muted">CRA compliance</p>
+        <p class="text-[0.6875rem] leading-4 font-medium text-ink-muted">CRA compliance</p>
         <ul class="flex flex-wrap gap-1.5">
           {#each Object.entries(scorecard.cra_compliance) as [key, value] (key)}
             <li
               data-qa-compliance={value ? "pass" : "fail"}
-              class={`inline-flex h-[22px] items-center gap-[5px] rounded-full px-2 text-[11px] leading-[14px] ${
+              class={`inline-flex h-[1.375rem] items-center gap-[0.3125rem] rounded-full px-2 text-[0.6875rem] leading-[0.875rem] ${
                 value ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
               }`}
             >
@@ -825,18 +825,18 @@
     <!-- Language flags: typed rows, not pills; flags are phrases and wrap badly in pills. -->
     {#if scorecard.ai_language_flags.length > 0 || scorecard.superlative_flags.length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-[11px] leading-4 font-medium text-ink-muted">Language flags</p>
+        <p class="text-[0.6875rem] leading-4 font-medium text-ink-muted">Language flags</p>
         <ul class="flex flex-col gap-2">
           {#each scorecard.ai_language_flags as flag, i (`ai-${i}`)}
             <li class="flex items-start gap-2">
-              <span class="flex h-[18px] flex-none items-center rounded bg-gap-bg px-1.5 text-[10px] leading-3 font-medium text-gap-text">AI</span>
-              <span class="min-w-0 text-xs leading-[18px] text-ink-secondary">{flag}</span>
+              <span class="flex h-[1.125rem] flex-none items-center rounded bg-gap-bg px-1.5 text-[0.625rem] leading-3 font-medium text-gap-text">AI</span>
+              <span class="min-w-0 text-xs leading-[1.125rem] text-ink-secondary">{flag}</span>
             </li>
           {/each}
           {#each scorecard.superlative_flags as flag, i (`sup-${i}`)}
             <li class="flex items-start gap-2">
-              <span class="flex h-[18px] flex-none items-center rounded bg-red-100 px-1.5 text-[10px] leading-3 font-medium text-red-700">Superlative</span>
-              <span class="min-w-0 text-xs leading-[18px] text-ink-secondary">{flag}</span>
+              <span class="flex h-[1.125rem] flex-none items-center rounded bg-red-100 px-1.5 text-[0.625rem] leading-3 font-medium text-red-700">Superlative</span>
+              <span class="min-w-0 text-xs leading-[1.125rem] text-ink-secondary">{flag}</span>
             </li>
           {/each}
         </ul>
@@ -846,12 +846,12 @@
     <!-- Client follow-ups: one simple row each, tagged "244, P2". -->
     {#if followUps.length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-[11px] leading-4 font-medium text-ink-muted">Client follow-ups</p>
+        <p class="text-[0.6875rem] leading-4 font-medium text-ink-muted">Client follow-ups</p>
         <ul class="flex flex-col gap-2">
           {#each followUps as gap, i (`${gap.section}-${gap.paragraph}-${i}`)}
             <li class="flex flex-col gap-2 rounded-md border border-line-soft px-3 py-2.5" data-qa-follow-up>
-              <span class="flex h-[18px] w-max items-center rounded border border-line px-1.5 font-mono text-[10px] leading-3 text-ink-secondary">{followUpTag(gap)}</span>
-              <span class="text-xs leading-[18px] text-ink">{gap.question}</span>
+              <span class="flex h-[1.125rem] w-max items-center rounded border border-line px-1.5 font-mono text-[0.625rem] leading-3 text-ink-secondary">{followUpTag(gap)}</span>
+              <span class="text-xs leading-[1.125rem] text-ink">{gap.question}</span>
               {#if onLocateGap}
                 {@const locate = onLocateGap}
                 <button
@@ -869,11 +869,11 @@
     <!-- Suggested improvements -->
     {#if scorecard.suggested_improvements.length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-[11px] leading-4 font-medium text-ink-muted">Suggested improvements</p>
+        <p class="text-[0.6875rem] leading-4 font-medium text-ink-muted">Suggested improvements</p>
         <ul class="flex flex-col gap-1.5">
           {#each scorecard.suggested_improvements as imp, i (i)}
-            <li class="flex items-start gap-2 text-xs leading-[18px] text-ink-secondary">
-              <span class="mt-[7px] h-1 w-1 flex-none rounded-full bg-gray-400" aria-hidden="true"></span>
+            <li class="flex items-start gap-2 text-xs leading-[1.125rem] text-ink-secondary">
+              <span class="mt-[0.4375rem] h-1 w-1 flex-none rounded-full bg-gray-400" aria-hidden="true"></span>
               {imp}
             </li>
           {/each}
@@ -890,7 +890,7 @@
         <div class="flex items-center justify-between gap-2">
           <p class="text-xs font-medium text-navy">Your review</p>
           {#if hasReview && !dirty && !saving}
-            <span class="inline-flex flex-none items-center gap-1 text-[10px] font-medium text-green-700">
+            <span class="inline-flex flex-none items-center gap-1 text-[0.625rem] font-medium text-green-700">
               <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
               </svg>
@@ -948,7 +948,7 @@
         : "No QA scorecard for this report yet."}
     </p>
     {#if scorecardUnreadable}
-      <p class="max-w-[280px] text-xs leading-relaxed text-ink-muted">
+      <p class="max-w-[17.5rem] text-xs leading-relaxed text-ink-muted">
         The scoring finished, but the saved result didn't match the expected
         format, so there is nothing to show. Running it again may produce a
         readable one.

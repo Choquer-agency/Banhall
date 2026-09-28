@@ -87,7 +87,7 @@
   <div
     bind:this={handleEl}
     data-block-handle
-    class="absolute -left-[34px] flex items-center gap-0.5 pr-0.5 opacity-0 transition-opacity group-hover/editor:opacity-100 motion-reduce:transition-none"
+    class="absolute -left-[2.125rem] flex items-center gap-0.5 pr-0.5 opacity-0 transition-opacity group-hover/editor:opacity-100 motion-reduce:transition-none"
     style={`top: ${hoveredBlock.top + 3}px;`}
   >
     <button

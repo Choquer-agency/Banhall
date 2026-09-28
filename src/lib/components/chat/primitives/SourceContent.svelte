@@ -31,6 +31,6 @@
       <span class="truncate text-xs font-medium text-primary-selected">{domain}</span>
     </span>
     <span class="line-clamp-2 text-xs font-semibold leading-snug text-ink">{title}</span>
-    <span class="line-clamp-3 text-[11px] leading-relaxed text-ink-muted">{description}</span>
+    <span class="line-clamp-3 text-[0.6875rem] leading-relaxed text-ink-muted">{description}</span>
   </a>
 </span>

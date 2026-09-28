@@ -62,11 +62,11 @@
   const percent = $derived(readingPercent(doc));
   const failed = $derived(doc.status === "failed");
   const chipClass =
-    "flex h-5 max-w-full min-w-0 items-center gap-1 rounded-[5px] bg-chrome px-1.5 text-[11px] leading-[14px] font-medium whitespace-nowrap text-ink-secondary transition-colors hover:bg-primary-wash focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:h-8";
+    "flex h-5 max-w-full min-w-0 items-center gap-1 rounded-[0.3125rem] bg-chrome px-1.5 text-[0.6875rem] leading-[0.875rem] font-medium whitespace-nowrap text-ink-secondary transition-colors hover:bg-primary-wash focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:h-8";
   const menuClass =
-    "z-[130] min-w-[200px] rounded-xl border border-line bg-surface p-1.5 shadow-menu";
+    "z-[130] min-w-[12.5rem] rounded-xl border border-line bg-surface p-1.5 shadow-menu";
   const itemClass =
-    "flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px] leading-[19px] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11";
+    "flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[1.1875rem] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11";
 </script>
 
 <div
@@ -81,7 +81,7 @@
     <FileIcon name={doc.file?.name ?? (doc.pastedText !== null ? "notes.txt" : doc.name)} size={40} />
   </span>
   <div class={`flex min-w-0 flex-1 flex-col ${compact ? "gap-1" : "gap-1.5"}`}>
-    <p data-supporting-name class={`truncate text-[13px] leading-[18px] font-medium ${failed ? "text-danger-ink" : "text-ink"}`} title={doc.name}>{doc.name}</p>
+    <p data-supporting-name class={`truncate text-[0.8125rem] leading-[1.125rem] font-medium ${failed ? "text-danger-ink" : "text-ink"}`} title={doc.name}>{doc.name}</p>
     <div class="flex min-w-0 flex-wrap items-center gap-1.5">
       <DropdownMenu.Root>
         <DropdownMenu.Trigger class={chipClass} aria-label={`Type: ${CATEGORY_LABELS[doc.category]}. Change type`} data-category-chip>
@@ -113,7 +113,7 @@
             <IconChevronDown size={10} strokeWidth={2.4} stroke-linejoin="miter" class="shrink-0 text-ink-muted" />
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <DropdownMenu.Content class={`${menuClass} min-w-[120px]`} sideOffset={4} align="start">
+            <DropdownMenu.Content class={`${menuClass} min-w-[7.5rem]`} sideOffset={4} align="start">
               <DropdownMenu.RadioGroup value={String(doc.year)} onValueChange={(next) => onYear(Number(next))}>
                 {#each years as year (year)}
                   <DropdownMenu.RadioItem value={String(year)} class={itemClass}>
@@ -130,9 +130,9 @@
       {/if}
     </div>
     {#if doc.status === "reading"}
-      <div class={compact ? "flex flex-col-reverse gap-[5px] pt-0.5" : "flex items-center gap-2"} data-reading>
+      <div class={compact ? "flex flex-col-reverse gap-[0.3125rem] pt-0.5" : "flex items-center gap-2"} data-reading>
         <div
-          class={`relative h-[3px] overflow-hidden rounded-full bg-[var(--aurora-track)] ${compact ? "w-full" : "flex-1"}`}
+          class={`relative h-[0.1875rem] overflow-hidden rounded-full bg-[var(--aurora-track)] ${compact ? "w-full" : "flex-1"}`}
           role="progressbar"
           aria-label={`Reading ${doc.name}`}
           aria-valuemin={0}

@@ -68,7 +68,7 @@
   data-variant={variant}
   class={`flex shrink-0 items-center ${
     variant === "phone"
-      ? "h-[52px] gap-2 border-b border-line-soft bg-surface pr-3 pl-2"
+      ? "h-[3.25rem] gap-2 border-b border-line-soft bg-surface pr-3 pl-2"
       : variant === "bleed"
         ? "h-14 gap-2.5 border-b border-line-soft bg-surface px-5"
         : "h-14 gap-2.5 px-2"
@@ -91,7 +91,7 @@
     <PageIconTile {icon}>{@render iconSnippet?.()}</PageIconTile>
   {/if}
   {#if variant === "phone"}
-    <h1 class="min-w-0 flex-1 truncate text-base leading-[22px] font-medium text-ink">{title}</h1>
+    <h1 class="min-w-0 flex-1 truncate text-base leading-[1.375rem] font-medium text-ink">{title}</h1>
   {:else if breadcrumb}
     <!-- B3: "Admin /" is one muted run, then the 10px bar gap, then the page. -->
     <nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-2.5 text-sm leading-5">
@@ -105,7 +105,7 @@
   {:else}
     <h1 class="shrink-0 truncate text-sm font-medium leading-5 text-ink">{title}</h1>
     {#if subtitle}
-      <p data-page-subtitle class="min-w-0 truncate text-xs leading-[18px] text-ink-muted max-sm:hidden">{subtitle}</p>
+      <p data-page-subtitle class="min-w-0 truncate text-xs leading-[1.125rem] text-ink-muted max-sm:hidden">{subtitle}</p>
     {/if}
   {/if}
   {#if variant !== "phone"}<div class="flex-1"></div>{/if}
@@ -115,7 +115,7 @@
     href={resolve("/changelog")}
     data-top-bar-bell
     aria-label={unseen > 0 ? `What's new, ${unseen} new update${unseen === 1 ? "" : "s"}` : "What's new"}
-    class="relative flex size-9 shrink-0 items-center justify-center rounded-[7px] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11"
+    class="relative flex size-9 shrink-0 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11"
   >
     <IconBell size={16} strokeWidth={1.5} />
     {#if unseen > 0}

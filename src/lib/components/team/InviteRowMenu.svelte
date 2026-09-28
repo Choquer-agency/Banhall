@@ -41,7 +41,7 @@
   </DropdownMenu.Trigger>
   <DropdownMenu.Portal>
     <!-- C4: the card's right edge sits 16px past the trigger's. -->
-    <DropdownMenu.Content side="bottom" align="end" alignOffset={-16} sideOffset={4} class={`w-[220px] ${MENU_CONTENT}`}>
+    <DropdownMenu.Content side="bottom" align="end" alignOffset={-16} sideOffset={4} class={`w-[13.75rem] ${MENU_CONTENT}`}>
       <DropdownMenu.Item data-menu-item="copy" onSelect={onCopy} class={`${MENU_ITEM} text-ink`}>
         <IconBook size={15} strokeWidth={1.5} class="shrink-0" />Copy invite link
       </DropdownMenu.Item>

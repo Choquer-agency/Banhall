@@ -81,7 +81,7 @@
 
   // F6 box buttons: 28px, radius 6, 13px 500 (44px on coarse pointers).
   const failedButton =
-    "inline-flex h-7 shrink-0 items-center rounded-md px-2.5 text-[13px] leading-[18px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none pointer-coarse:min-h-11";
+    "inline-flex h-7 shrink-0 items-center rounded-md px-2.5 text-[0.8125rem] leading-[1.125rem] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none pointer-coarse:min-h-11";
 
   const reducedMotion =
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -121,7 +121,7 @@
     {#if failed}
       <!-- F6 "Reading the transcripts failed": the box, its paragraph and
            its buttons in the red family; Back to project, then Try again. -->
-      <div class="w-full max-w-[424px]" data-reading-failed>
+      <div class="w-full max-w-[26.5rem]" data-reading-failed>
         <div
           role="alert"
           data-reading-failed-box
@@ -130,7 +130,7 @@
           <IconAlertCircle size={18} strokeWidth={1.8} stroke-linejoin="miter" class="shrink-0 text-danger-ink-muted" />
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
             <p class="text-sm leading-5 font-medium text-danger-ink">We could not read the transcripts</p>
-            <p class="text-[13px] leading-[18px] text-reading-failed-body" data-reading-failed-body>
+            <p class="text-[0.8125rem] leading-[1.125rem] text-reading-failed-body" data-reading-failed-body>
               Your files are still here. Try again, or cancel to change them.
             </p>
             {#if canEdit}
@@ -154,7 +154,7 @@
             {/if}
           </div>
         </div>
-        {#if retryError}<p role="alert" data-reading-retry-error class="mt-2 text-[13px] text-danger-ink-muted">{retryError}</p>{/if}
+        {#if retryError}<p role="alert" data-reading-retry-error class="mt-2 text-[0.8125rem] text-danger-ink-muted">{retryError}</p>{/if}
       </div>
     {:else}
       <AuroraProgressPill
@@ -163,25 +163,25 @@
         progressLabel="Reading the interview"
         valueText={countText}
         shadow="var(--shadow-reading-pill)"
-        innerClass="h-10 gap-2.5 pl-[9px] pr-4"
+        innerClass="h-10 gap-2.5 pl-[0.5625rem] pr-4"
       >
         <AuroraMark size={22} />
         <span class="text-sm leading-5 font-medium whitespace-nowrap text-ink">Reading the interview</span>
-        <span class="text-[13px] leading-[19px] whitespace-nowrap text-ink-muted" data-reading-count>{countText}</span>
+        <span class="text-[0.8125rem] leading-[1.1875rem] whitespace-nowrap text-ink-muted" data-reading-count>{countText}</span>
       </AuroraProgressPill>
 
       <ol class="flex w-full flex-col items-center gap-2.5 pt-2" aria-label="Facts found so far">
         {#each visible as fact, index (fact.seq)}
           <li
             data-reading-fact={fact.seq}
-            class="flex w-full max-w-[520px] flex-col gap-1.5 rounded-xl border border-line-soft bg-surface px-[18px] py-4 transition-opacity duration-300 motion-reduce:transition-none"
+            class="flex w-full max-w-[32.5rem] flex-col gap-1.5 rounded-xl border border-line-soft bg-surface px-[1.125rem] py-4 transition-opacity duration-300 motion-reduce:transition-none"
             style={`opacity:${opacities[index] ?? opacities[opacities.length - 1]}`}
             in:fly={{ y: reducedMotion ? 0 : 4, opacity: 1, duration: reducedMotion ? 0 : 300, easing: cubicOut }}
           >
             <div class="flex items-center gap-2">
               <span
                 data-reading-chip
-                class="flex h-5 items-center rounded-[5px] bg-seed-tag-technical px-[7px] text-[11px] leading-4 font-medium text-primary-selected"
+                class="flex h-5 items-center rounded-[0.3125rem] bg-seed-tag-technical px-[0.4375rem] text-[0.6875rem] leading-4 font-medium text-primary-selected"
               >{fact.chip}</span>
               <span class="grow"></span>
               <span class="truncate text-xs leading-4 text-ink-faint" data-reading-source>{fact.sourceLabel}</span>
@@ -193,7 +193,7 @@
       <p class="sr-only" aria-live="polite" data-reading-announcement>{announcement}</p>
 
       {#if !phone}
-        <p class={`flex items-center gap-1.5 text-[13px] leading-[19px] text-ink-muted ${layout === "tablet" ? "pt-2" : "pt-2.5"}`} data-reading-note>
+        <p class={`flex items-center gap-1.5 text-[0.8125rem] leading-[1.1875rem] text-ink-muted ${layout === "tablet" ? "pt-2" : "pt-2.5"}`} data-reading-note>
           <IconBell size={14} strokeWidth={1.6} class="shrink-0" />
           You can leave this page. We will let you know when the first ideas are ready.
         </p>
@@ -202,12 +202,12 @@
   </div>
 
   {#if phone}
-    <div data-reading-bottom {@attach stickyActionBar} class="sticky bottom-0 flex flex-col items-center gap-1.5 border-t border-line-soft bg-surface px-4 pt-3.5 pb-[30px]">
+    <div data-reading-bottom {@attach stickyActionBar} class="sticky bottom-0 flex flex-col items-center gap-1.5 border-t border-line-soft bg-surface px-4 pt-3.5 pb-[1.875rem]">
       {#if !failed}
-        <p class="text-center text-[13px] leading-[18px] text-ink-muted">You can leave. We will notify you when ideas are ready.</p>
+        <p class="text-center text-[0.8125rem] leading-[1.125rem] text-ink-muted">You can leave. We will notify you when ideas are ready.</p>
       {/if}
       {#if canEdit && onCancel}
-        <Button variant="destructive-soft" class="h-11 w-full px-3.5! py-0! text-[15px]! leading-5!" onclick={onCancel} data-reading-cancel>Cancel generation</Button>
+        <Button variant="destructive-soft" class="h-11 w-full px-3.5! py-0! text-[0.9375rem]! leading-5!" onclick={onCancel} data-reading-cancel>Cancel generation</Button>
       {/if}
     </div>
   {/if}

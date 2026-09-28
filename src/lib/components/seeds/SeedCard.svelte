@@ -312,10 +312,10 @@
 
   // Card tools (board 3.1): 28px tiles, 14px strokes in secondary ink.
   const tile =
-    "inline-flex size-7 items-center justify-center rounded-[7px] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11";
+    "inline-flex size-7 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11";
   // Feedback menu rows (board 3.2): 28px, 12px text, 12px muted icons.
   const menuItem =
-    "flex h-7 w-full cursor-default items-center gap-2 rounded-md px-2 text-left text-[12px] leading-4 text-ink outline-none data-[highlighted]:bg-gray-50 data-[disabled]:opacity-50 pointer-coarse:h-11";
+    "flex h-7 w-full cursor-default items-center gap-2 rounded-md px-2 text-left text-[0.75rem] leading-4 text-ink outline-none data-[highlighted]:bg-gray-50 data-[disabled]:opacity-50 pointer-coarse:h-11";
 </script>
 
 {#snippet bulletText(view: (typeof bulletViews)[number])}
@@ -336,18 +336,18 @@
   {#each tags as tag, index (index)}
     <span
       class={`inline-flex items-center rounded-full font-medium ${
-        nested ? "h-[18px] px-1.5 text-[10px] leading-3" : "h-5 px-[7px] text-[11px] leading-[14px]"
+        nested ? "h-[1.125rem] px-1.5 text-[0.625rem] leading-3" : "h-5 px-[0.4375rem] text-[0.6875rem] leading-[0.875rem]"
       }`}
       style={`background:${tag.background};color:${tag.color}`}
       data-seed-tag
     >{tag.label}</span>
   {/each}
   {#if item.support === "writer_asserted"}
-    <span class="text-[11px] leading-[14px] text-ink-muted" data-seed-marker="writer-asserted">Writer asserted</span>
+    <span class="text-[0.6875rem] leading-[0.875rem] text-ink-muted" data-seed-marker="writer-asserted">Writer asserted</span>
   {/if}
   {#if item.outdated}
     <span
-      class="inline-flex items-center gap-1 text-[11px] leading-[14px] text-gap-text!"
+      class="inline-flex items-center gap-1 text-[0.6875rem] leading-[0.875rem] text-gap-text!"
       data-seed-marker="outdated"
       title={item.outdated.changedRoleIds.length ? `Written before changes in ${item.outdated.changedRoleIds.join(", ")}` : undefined}
     ><span class="size-1.5 rounded-full bg-stale-dot" aria-hidden="true"></span>Outdated</span>
@@ -388,26 +388,26 @@
               side="bottom"
               align="end"
               sideOffset={4}
-              class="z-[90] w-[304px] max-w-[calc(100vw-16px)] rounded-lg border border-line bg-surface px-3 py-2.5 shadow-lg"
+              class="z-[90] w-[19rem] max-w-[calc(100vw-1rem)] rounded-lg border border-line bg-surface px-3 py-2.5 shadow-lg"
               data-seed-quotes={item.seedId}
               aria-label="Quoted lines"
             >
-              <p class="text-[10px] leading-3 font-medium tracking-[0.04em] text-ink-faint uppercase">Quoted lines</p>
+              <p class="text-[0.625rem] leading-3 font-medium tracking-[0.04em] text-ink-faint uppercase">Quoted lines</p>
               <div class="mt-2 space-y-3">
                 {#each unmatchedCitations as citation (citation._id)}
                   {@const source = describeSource(sourceAttribution, String(citation.sourceId))}
                   {@const speakerLine = citationSpeakerLine(citation)}
                   <figure>
-                    <blockquote class="font-serif text-[13px] leading-[18px] text-ink">“{citation.exactExcerpt}”</blockquote>
+                    <blockquote class="font-serif text-[0.8125rem] leading-[1.125rem] text-ink">“{citation.exactExcerpt}”</blockquote>
                     <!-- A missing name is labelled by the state of the read, never
                          presented as an attributed source. -->
-                    <figcaption class="mt-1.5 flex items-end gap-3 text-[11px] leading-[14px]">
+                    <figcaption class="mt-1.5 flex items-end gap-3 text-[0.6875rem] leading-[0.875rem]">
                       <span class="min-w-0 flex-1 text-ink-faint">
                         {#if speakerLine}<span class="block">{speakerLine}</span>{/if}
                         {#if citation.needsSpeakerCheck}<span class="block text-ink-muted" data-quote-speaker-check>{SPEAKER_CHECK_NOTE}</span>{/if}
                         {#if citation.needsQuoteCheck}<span class="block text-ink-muted" data-quote-support-check>{QUOTE_CHECK_NOTE}</span>{#if onUseQuotes && canEdit}<button
                             type="button"
-                            class="shrink-0 rounded text-[11px] leading-[14px] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:text-ink-faint disabled:no-underline"
+                            class="shrink-0 rounded text-[0.6875rem] leading-[0.875rem] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:text-ink-faint disabled:no-underline"
                             data-quote-use-anyway
                             disabled={busy}
                             onclick={() => void onUseQuotes()}
@@ -421,7 +421,7 @@
                       {#if onOpenSource}
                         <button
                           type="button"
-                          class="shrink-0 rounded text-[11px] leading-[14px] text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                          class="shrink-0 rounded text-[0.6875rem] leading-[0.875rem] text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                           onclick={() => {
                             quotesOpen = false;
                             onOpenSource(citation);
@@ -447,7 +447,7 @@
               {...props}
               type="button"
               aria-label={savingEdit ? "Saving…" : "Save wording"}
-              class="inline-flex size-7 items-center justify-center rounded-[7px] bg-action-primary text-white transition-colors hover:bg-action-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11"
+              class="inline-flex size-7 items-center justify-center rounded-[0.4375rem] bg-action-primary text-white transition-colors hover:bg-action-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11"
               disabled={savingEdit || !edit?.bulletOne.trim() || editStale}
               onclick={saveEdit}
             ><IconCheck size={14} strokeWidth={2.2} /></button>
@@ -459,7 +459,7 @@
               {...props}
               type="button"
               aria-label="Cancel editing"
-              class="inline-flex size-7 items-center justify-center rounded-[7px] border border-line text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary pointer-coarse:size-11"
+              class="inline-flex size-7 items-center justify-center rounded-[0.4375rem] border border-line text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary pointer-coarse:size-11"
               onclick={() => publishEdit(null)}
             ><IconClose size={13} strokeWidth={1.8} /></button>
           {/snippet}
@@ -492,10 +492,10 @@
               align="end"
               sideOffset={4}
               preventScroll={false}
-              class="z-[90] w-[196px] rounded-[9px] border border-line bg-surface p-1 shadow-lg"
+              class="z-[90] w-[12.25rem] rounded-[0.5625rem] border border-line bg-surface p-1 shadow-lg"
               data-seed-feedback-menu={item.seedId}
             >
-              <p class="px-2 pt-1.5 pb-3 text-[10px] leading-3 font-medium tracking-[0.04em] text-ink-faint uppercase" id={`seed-feedback-menu-${uid}`}>Revise this seed</p>
+              <p class="px-2 pt-1.5 pb-3 text-[0.625rem] leading-3 font-medium tracking-[0.04em] text-ink-faint uppercase" id={`seed-feedback-menu-${uid}`}>Revise this seed</p>
               {#each FEEDBACK_PRESETS as preset (preset.label)}
                 <DropdownMenu.Item class={menuItem} disabled={sendingPreset} onSelect={() => void sendPreset(preset.instruction)}>
                   <svg class="size-3 shrink-0 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -536,7 +536,7 @@
 
 <article
   class={`relative flex flex-1 flex-col border transition-colors motion-reduce:transition-none ${
-    nested ? "rounded-lg" : "rounded-[10px]"
+    nested ? "rounded-lg" : "rounded-[0.625rem]"
   } ${
     editing
       ? "border-primary bg-surface ring-2 ring-primary-wash"
@@ -566,7 +566,7 @@
         onCheckedChange={(selected) => {
           if (canEdit) void onSelect(selected);
         }}
-        class="peer inline-flex size-4 flex-none items-center justify-center rounded-[4px] border-[1.5px] transition-colors duration-150 ease-out active:scale-[0.97] data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=unchecked]:border-line data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-gray-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[disabled]:opacity-50"
+        class="peer inline-flex size-4 flex-none items-center justify-center rounded-[0.25rem] border-[1.5px] transition-colors duration-150 ease-out active:scale-[0.97] data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=unchecked]:border-line data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-gray-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[disabled]:opacity-50"
       />
     </div>
     <div class={`flex min-w-0 flex-1 flex-col ${nested ? "gap-1.5" : "gap-2"}`}>
@@ -586,7 +586,7 @@
             onkeydown={editKeydown}
             rows="2"
             maxlength={MAX_EDITED_BULLET_CHARS}
-            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[14px] leading-5 text-ink [field-sizing:content]"
+            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[0.875rem] leading-5 text-ink [field-sizing:content]"
           ></textarea>
           <textarea
             aria-label="Bullet 2, optional"
@@ -598,14 +598,14 @@
             onkeydown={editKeydown}
             rows="2"
             maxlength={MAX_EDITED_BULLET_CHARS}
-            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[14px] leading-5 text-ink [field-sizing:content] placeholder:text-ink-faint"
+            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[0.875rem] leading-5 text-ink [field-sizing:content] placeholder:text-ink-faint"
           ></textarea>
-          <p class="text-[12px] leading-4 text-ink-muted">Enter to save, Shift+Enter for a new line, Esc to cancel.</p>
+          <p class="text-[0.75rem] leading-4 text-ink-muted">Enter to save, Shift+Enter for a new line, Esc to cancel.</p>
           {#if discardArmed}
-            <p class="text-[12px] leading-4 text-gap-text!" role="status" data-seed-discard-armed>Press Esc again to discard your changes.</p>
+            <p class="text-[0.75rem] leading-4 text-gap-text!" role="status" data-seed-discard-armed>Press Esc again to discard your changes.</p>
           {/if}
           {#if editLong}
-            <p class="text-[12px] leading-4 text-gap-text!" aria-live="polite" data-seed-long-note>Long for a seed</p>
+            <p class="text-[0.75rem] leading-4 text-gap-text!" aria-live="polite" data-seed-long-note>Long for a seed</p>
           {/if}
           {#if editStale}
             <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
@@ -623,7 +623,7 @@
           {/if}
         </div>
       {:else}
-        <ul class="flex flex-col gap-1 text-[14px] leading-5 text-ink">
+        <ul class="flex flex-col gap-1 text-[0.875rem] leading-5 text-ink">
           {#each bulletViews as view, index (index)}
             <li class="flex items-start gap-2">
               {#if !nested}<span class="mt-2 size-1 shrink-0 rounded-full bg-ink-muted" aria-hidden="true"></span>{/if}
@@ -635,7 +635,7 @@
                       {...props}
                       type="button"
                       aria-label="Restore original wording"
-                      class="-mt-px inline-flex size-[22px] shrink-0 items-center justify-center rounded-[5px] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11"
+                      class="-mt-px inline-flex size-[1.375rem] shrink-0 items-center justify-center rounded-[0.3125rem] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11"
                       disabled={busy}
                       onclick={onRestore}
                     ><IconRegenerate size={13} strokeWidth={1.8} /></button>
@@ -646,7 +646,7 @@
           {/each}
         </ul>
         {#if showOriginal && item.edited}
-          <p class="text-[12px] leading-4 text-ink-muted">Original wording: {item.originalBullets.join(" ")}</p>
+          <p class="text-[0.75rem] leading-4 text-ink-muted">Original wording: {item.originalBullets.join(" ")}</p>
         {/if}
       {/if}
 

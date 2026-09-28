@@ -35,7 +35,7 @@
         data-forgot-password
         aria-expanded={forgotOpen}
         onclick={onForgot}
-        class="text-[13px] leading-[18px] font-medium text-primary-selected hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
+        class="text-[0.8125rem] leading-[1.125rem] font-medium text-primary-selected hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
       >Forgot password?</button>
     {/if}
   {/snippet}

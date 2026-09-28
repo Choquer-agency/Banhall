@@ -72,18 +72,18 @@
   >
     <div class="flex min-w-0 flex-1 flex-col gap-0.5">
       <p class="text-sm font-medium text-ink">{headline}</p>
-      <p class="text-[13px] leading-5 text-ink-muted">
+      <p class="text-[0.8125rem] leading-5 text-ink-muted">
         Draft the rest writes only the missing sections into this report. Your edits stay as they are.
       </p>
       {#if busy}
-        <p class="text-[13px] leading-5 text-ink-secondary" role="status" data-redraft-status>
+        <p class="text-[0.8125rem] leading-5 text-ink-secondary" role="status" data-redraft-status>
           Drafting the missing sections. Editing resumes when they are in.
         </p>
       {/if}
       {#if shownError}
-        <p class="text-[13px] leading-5 text-red-700" role="alert">{shownError}</p>
+        <p class="text-[0.8125rem] leading-5 text-red-700" role="alert">{shownError}</p>
       {:else if attemptFailed}
-        <p class="text-[13px] leading-5 text-red-700" role="alert" data-redraft-failed>
+        <p class="text-[0.8125rem] leading-5 text-red-700" role="alert" data-redraft-failed>
           Drafting the missing sections did not finish.{#if failedAttempt?.error}{" "}{failedAttempt.error}{/if}
         </p>
       {/if}

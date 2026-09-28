@@ -93,7 +93,7 @@
   bind:this={card}
   data-details-status
   aria-label="Status"
-  class="rounded-xl border border-line-soft bg-gray-50/50 p-[14px]"
+  class="rounded-xl border border-line-soft bg-gray-50/50 p-[0.875rem]"
 >
   {#if step}
     <div data-stage-step={step.move} class="flex flex-col gap-3">
@@ -104,20 +104,20 @@
       </div>
       {#if step.move === "reason"}
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium leading-[18px] text-ink-secondary" for="details-stage-reason">{reasonPrompt(data.stage, step.stage)}</label>
+          <label class="text-xs font-medium leading-[1.125rem] text-ink-secondary" for="details-stage-reason">{reasonPrompt(data.stage, step.stage)}</label>
           <textarea
             id="details-stage-reason"
             bind:value={note}
             rows="3"
-            class="field-control h-[72px] w-full resize-none rounded-lg px-2.5 py-2 text-[13px] leading-[18px] text-ink"
+            class="field-control h-[4.5rem] w-full resize-none rounded-lg px-2.5 py-2 text-[0.8125rem] leading-[1.125rem] text-ink"
           ></textarea>
-          <p class="text-xs leading-[18px] text-ink-muted">Saved with the stage change so the team can see it later.</p>
+          <p class="text-xs leading-[1.125rem] text-ink-muted">Saved with the stage change so the team can see it later.</p>
           {#if noteTooLong}
             <p class="text-xs text-red-700" role="alert">Keep the reason under {MAX_WORKFLOW_NOTE_CHARS} characters.</p>
           {/if}
         </div>
       {:else}
-        <p class="text-[13px] leading-[18px] text-ink-secondary">
+        <p class="text-[0.8125rem] leading-[1.125rem] text-ink-secondary">
           This records your review decision with the move.
         </p>
       {/if}
@@ -132,7 +132,7 @@
       </div>
     </div>
   {:else}
-    <p data-details-status-line class="flex min-h-6 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[13px] leading-[18px]">
+    <p data-details-status-line class="flex min-h-6 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] leading-[1.125rem]">
       <StageChip stage={data.stage} />
       {#if handoff}
         <span class="text-ink-muted">with</span>
@@ -143,7 +143,7 @@
       {/if}
     </p>
     {#if handoff?.note}
-      <p data-details-handoff-note class="ml-0.5 mt-3 border-l-2 border-line pl-2 text-xs leading-[18px] text-ink-secondary">{handoff.note}</p>
+      <p data-details-handoff-note class="ml-0.5 mt-3 border-l-2 border-line pl-2 text-xs leading-[1.125rem] text-ink-secondary">{handoff.note}</p>
     {/if}
     {#if error}
       <p class="mt-2 text-xs text-red-700" role="alert">{error}</p>

@@ -57,7 +57,7 @@
       <p class="text-body truncate">{row.fileName}</p>
       {#if row.archived}
         <span
-          class="flex-shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-500"
+          class="flex-shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-[0.625rem] font-medium text-gray-500"
         >
           Archived
         </span>

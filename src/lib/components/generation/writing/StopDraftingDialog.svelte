@@ -69,7 +69,7 @@
               {...props}
               transition:modalPop
               data-stop-drafting-dialog
-              class="card pointer-events-auto flex w-full max-w-[480px] flex-col overflow-hidden rounded-2xl p-0 shadow-xl"
+              class="card pointer-events-auto flex w-full max-w-[30rem] flex-col overflow-hidden rounded-2xl p-0 shadow-xl"
             >
               <div class="flex flex-col gap-2 px-6 pb-4 pt-6">
                 <Dialog.Title class="text-title">Stop writing the draft?</Dialog.Title>

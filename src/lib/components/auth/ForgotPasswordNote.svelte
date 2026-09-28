@@ -4,6 +4,6 @@
   let { id = "forgot-password-note" }: { id?: string } = $props();
 </script>
 
-<p {id} data-forgot-note role="note" class="rounded-[10px] bg-chrome p-3 text-[13px] leading-5 text-ink-secondary">
+<p {id} data-forgot-note role="note" class="rounded-[0.625rem] bg-chrome p-3 text-[0.8125rem] leading-5 text-ink-secondary">
   Ask an Admin to set a temporary password for you. You can change it in Settings after you sign in.
 </p>

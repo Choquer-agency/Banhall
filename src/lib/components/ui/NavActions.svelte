@@ -59,7 +59,7 @@
 {#snippet badge(count: number, color: string)}
   {#if count > 0}
     <span
-      class={`absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none text-white ${color}`}
+      class={`absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[0.625rem] font-semibold leading-none text-white ${color}`}
     >
       {count > 99 ? "99+" : count}
     </span>

@@ -505,7 +505,7 @@
   }
 
   // Step header chips (boards 3.2, 3.7): 20px pills, 11px medium text.
-  const chip = "inline-flex h-5 items-center rounded-full px-2 text-[11px] leading-[14px] font-medium";
+  const chip = "inline-flex h-5 items-center rounded-full px-2 text-[0.6875rem] leading-[0.875rem] font-medium";
 
   let moreOpen = $state(false);
   // "Brief" in the More menu: the drawer opens once the menu has closed (the
@@ -620,7 +620,7 @@
     data-feedback-group={group.requestId}
     data-feedback-status={group.status}
   >
-    <div class="flex flex-col gap-0.5 text-[11px] leading-[14px]">
+    <div class="flex flex-col gap-0.5 text-[0.6875rem] leading-[0.875rem]">
       <div class="flex items-start gap-3">
         <p class="min-w-0 flex-1 font-medium text-ink-secondary">Revised seeds ({revisions.length})</p>
         {#if group.status === "active" && canEdit}
@@ -645,7 +645,7 @@
       {/if}
     </div>
     {#if revisions.length === 0}
-      <p class="flex items-center gap-2 text-[12px] leading-4 text-ink-muted">
+      <p class="flex items-center gap-2 text-[0.75rem] leading-4 text-ink-muted">
         {#if group.status === "active" && data.pendingBatchId && (!group.batchId || group.batchId === data.pendingBatchId)}
           <Spinner size="sm" /> Writing revised seeds…
         {:else}
@@ -689,7 +689,7 @@
                 {...props}
                 type="button"
                 aria-label={data.state === "failed" ? "Retry" : "Regenerate"}
-                class="inline-flex size-11 shrink-0 items-center justify-center rounded-[10px] border border-line bg-chrome text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50"
+                class="inline-flex size-11 shrink-0 items-center justify-center rounded-[0.625rem] border border-line bg-chrome text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50"
                 disabled={busy}
                 aria-disabled={regenerateWaiting || undefined}
                 data-regenerate-waiting={regenerateWaiting || undefined}
@@ -724,11 +724,11 @@
 <section class="@container flex h-full min-h-0 flex-col" aria-labelledby={`seed-title-${data.roleId}`}>
   <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-8 @min-[600px]:px-6 @min-[880px]:px-10">
     <header class={`flex flex-col ${compact ? "gap-2.5 pt-4" : "gap-3 pt-6"}`}>
-      <div class={`group/stephead relative flex items-center gap-2.5 ${compact ? "min-h-[14px]" : "min-h-9"}`}>
+      <div class={`group/stephead relative flex items-center gap-2.5 ${compact ? "min-h-[0.875rem]" : "min-h-9"}`}>
         <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
-          <span class="font-mono text-[11px] leading-[14px] text-ink-muted" data-section-eyebrow>Section {sectionNumber}</span>
+          <span class="font-mono text-[0.6875rem] leading-[0.875rem] text-ink-muted" data-section-eyebrow>Section {sectionNumber}</span>
           {#if kind === "multiple"}
-            <span class={`${chip} gap-[5px] bg-primary-wash text-primary-selected!`} data-step-chip="multiple">
+            <span class={`${chip} gap-[0.3125rem] bg-primary-wash text-primary-selected!`} data-step-chip="multiple">
               <svg class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l4 4L20 6" /><path d="M4 18h6" /></svg>Select all that apply
             </span>
           {:else if kind === "optional"}
@@ -750,7 +750,7 @@
           {#if hasPreviousBatch}
             <button
               type="button"
-              class="hidden rounded px-1 text-[12px] leading-4 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:inline"
+              class="hidden rounded px-1 text-[0.75rem] leading-4 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:inline"
               onclick={loadHistory}
               disabled={historyLoading}
             >Previous batch</button>
@@ -779,7 +779,7 @@
                   {...tipProps}
                   aria-label="More step actions"
                   data-step-more-trigger
-                  class={`inline-flex size-9 items-center justify-center rounded-lg text-ink-secondary transition-[color,background-color,opacity] hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none pointer-coarse:size-11 ${compact ? "-my-3" : "@min-[880px]:pointer-fine:absolute @min-[880px]:pointer-fine:top-0 @min-[880px]:pointer-fine:-right-[38px] @min-[880px]:pointer-fine:opacity-0 @min-[880px]:pointer-fine:group-hover/stephead:opacity-100 @min-[880px]:pointer-fine:focus-visible:opacity-100 @min-[880px]:pointer-fine:data-[state=open]:opacity-100"} ${moreOpen ? "bg-chrome text-ink" : ""}`}
+                  class={`inline-flex size-9 items-center justify-center rounded-lg text-ink-secondary transition-[color,background-color,opacity] hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none pointer-coarse:size-11 ${compact ? "-my-3" : "@min-[880px]:pointer-fine:absolute @min-[880px]:pointer-fine:top-0 @min-[880px]:pointer-fine:-right-[2.375rem] @min-[880px]:pointer-fine:opacity-0 @min-[880px]:pointer-fine:group-hover/stephead:opacity-100 @min-[880px]:pointer-fine:focus-visible:opacity-100 @min-[880px]:pointer-fine:data-[state=open]:opacity-100"} ${moreOpen ? "bg-chrome text-ink" : ""}`}
                 >
                   <IconMore size={16} />
                 </DropdownMenu.Trigger>
@@ -834,14 +834,14 @@
           id={`seed-title-${data.roleId}`}
           tabindex="-1"
           class={`rounded-md font-serif font-normal text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
-            compact ? "text-[20px] leading-[26px]" : "text-[24px] leading-[30px]"
+            compact ? "text-[1.25rem] leading-[1.625rem]" : "text-[1.5rem] leading-[1.875rem]"
           }`}
         >{stepHeadingTitle(title)}</h2>
-        <p class={`text-ink-muted ${compact ? "text-[12px] leading-[17px]" : "text-[13px] leading-[19px]"}`} data-step-objective>{objective}</p>
+        <p class={`text-ink-muted ${compact ? "text-[0.75rem] leading-[1.0625rem]" : "text-[0.8125rem] leading-[1.1875rem]"}`} data-step-objective>{objective}</p>
       </div>
       <p
         class={`flex gap-2 text-ink-secondary ${
-          compact ? "items-start text-[13px] leading-[18px]" : "items-center border-b border-line-soft pb-3 text-[12px] leading-4"
+          compact ? "items-start text-[0.8125rem] leading-[1.125rem]" : "items-center border-b border-line-soft pb-3 text-[0.75rem] leading-4"
         }`}
         data-step-helper
       >
@@ -937,7 +937,7 @@
         <div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" data-seed-progress>
           <div class="flex min-w-0 flex-1 items-center gap-2.5">
             <AuroraMark size={20} />
-            <p class="min-w-0 text-[13px] leading-[18px] text-ink-secondary" data-seed-progress-line aria-live="polite">
+            <p class="min-w-0 text-[0.8125rem] leading-[1.125rem] text-ink-secondary" data-seed-progress-line aria-live="polite">
               {seedProgressLine(pendingProgress, afterPicks)}
             </p>
           </div>
@@ -960,7 +960,7 @@
 
       <div {@attach observeWidth} data-seed-grid={gridName}>
         {#if data.items.length === 0 && !data.pendingBatchId && (data.lastAttemptFailed || data.state === "failed")}
-          <div role="status" class="rounded-[10px] border border-dashed border-line p-6 text-center" data-seed-empty="failed">
+          <div role="status" class="rounded-[0.625rem] border border-dashed border-line p-6 text-center" data-seed-empty="failed">
             <p class="text-body text-ink-secondary">Writing seeds for this step failed.</p>
             {#if repeatedFailure}<p class="mt-2 text-body text-ink-secondary" data-seed-repeated-failure>{repeatedFailure}</p>{/if}
             {#if canEdit && data.state !== "skipped"}
@@ -973,19 +973,19 @@
                and 60%. -->
           <div class="grid grid-cols-1 gap-4" style={gridColumns} aria-hidden="true" data-seed-skeletons>
             {#each [0, 1, 2, 3] as index (index)}
-              <div class="flex h-[170px] flex-col gap-3 rounded-xl border border-line-soft bg-surface p-4" data-seed-skeleton>
+              <div class="flex h-[10.625rem] flex-col gap-3 rounded-xl border border-line-soft bg-surface p-4" data-seed-skeleton>
                 <div class="flex gap-1.5">
-                  <span class="h-5 w-[84px] rounded-[5px] bg-skeleton-chip" data-seed-skeleton-chip></span>
-                  <span class="h-5 w-16 rounded-[5px] bg-skeleton-chip"></span>
+                  <span class="h-5 w-[5.25rem] rounded-[0.3125rem] bg-skeleton-chip" data-seed-skeleton-chip></span>
+                  <span class="h-5 w-16 rounded-[0.3125rem] bg-skeleton-chip"></span>
                 </div>
                 {#each ["92%", "76%", "60%"] as width (width)}
-                  <span class="h-2.5 rounded-[5px] bg-skeleton-line" style={`width:${width}`} data-seed-skeleton-line></span>
+                  <span class="h-2.5 rounded-[0.3125rem] bg-skeleton-line" style={`width:${width}`} data-seed-skeleton-line></span>
                 {/each}
               </div>
             {/each}
           </div>
         {:else if data.items.length === 0 && !data.pendingBatchId}
-          <div class="rounded-[10px] border border-dashed border-line p-6 text-center">
+          <div class="rounded-[0.625rem] border border-dashed border-line p-6 text-center">
             <p class="text-body text-ink-muted">No seeds are available yet.</p>
           </div>
         {:else}

@@ -9,4 +9,4 @@ export const MENU_CONTENT = "z-[100] rounded-xl border border-line bg-surface p-
 
 /** 32px item, 8px sides, radius 6, 8px gap, 13/19 text; hover is the rail's selected fill. */
 export const MENU_ITEM =
-  "flex h-8 w-full cursor-default items-center gap-2 rounded-md px-2 text-[13px] leading-[19px] outline-none data-[highlighted]:bg-workspace-rail-selected";
+  "flex h-8 w-full cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[1.1875rem] outline-none data-[highlighted]:bg-workspace-rail-selected";

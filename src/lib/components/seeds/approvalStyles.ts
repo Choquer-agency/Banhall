@@ -5,6 +5,6 @@
  * ink, not a faded primary.
  */
 export function approvalButtonClass(layout: "outline" | "bar") {
-  const size = layout === "bar" ? "h-11 rounded-[10px]" : "h-9";
+  const size = layout === "bar" ? "h-11 rounded-[0.625rem]" : "h-9";
   return `w-full ${size} disabled:bg-gray-50! disabled:text-ink-faint! disabled:opacity-100!`;
 }

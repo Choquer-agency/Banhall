@@ -86,7 +86,7 @@
   });
 
   const iconButton =
-    "flex size-9 shrink-0 items-center justify-center rounded-[7px] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11";
+    "flex size-9 shrink-0 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11";
 </script>
 
 <svelte:window onfocus={() => (now = Date.now())} />
@@ -94,11 +94,11 @@
 <div data-home class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-workspace-shell">
   <header data-workspace-page-header data-home-top-bar class="flex h-14 shrink-0 items-center gap-2.5 px-3 sm:px-5">
     <WorkspaceShellControls tone="light" {onOpenNavigation} {railHidden} {onToggleRail} />
-    <span aria-hidden="true" data-home-page-icon class="flex size-[26px] shrink-0 items-center justify-center rounded-md bg-workspace-page-icon text-primary">
+    <span aria-hidden="true" data-home-page-icon class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-md bg-workspace-page-icon text-primary">
       <IconHome size={15} strokeWidth={1.8} />
     </span>
     <h1 class="shrink-0 text-sm font-medium leading-5 text-ink">Home</h1>
-    <p data-home-greeting class="min-w-0 truncate text-xs leading-[18px] text-ink-muted max-sm:hidden">{greeting}</p>
+    <p data-home-greeting class="min-w-0 truncate text-xs leading-[1.125rem] text-ink-muted max-sm:hidden">{greeting}</p>
     <div class="flex-1"></div>
     <a
       href={resolve("/changelog")}
@@ -114,7 +114,7 @@
     <a
       href={resolve("/project/new")}
       data-home-new-project
-      class="inline-flex h-[30px] shrink-0 items-center gap-[5px] rounded-[7px] bg-primary-selected pl-2.5 pr-3 text-[13px] leading-[18px] font-medium text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
+      class="inline-flex h-[1.875rem] shrink-0 items-center gap-[0.3125rem] rounded-[0.4375rem] bg-primary-selected pl-2.5 pr-3 text-[0.8125rem] leading-[1.125rem] font-medium text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
     >
       <IconPlusSmall size={12} strokeWidth={1.5} class="shrink-0" />
       New project
@@ -124,7 +124,7 @@
   <main
     data-home-panel
     data-work-panel
-    class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-[10px] border border-line bg-surface"
+    class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-[0.625rem] border border-line bg-surface"
   >
     <!-- Owner direction 2026-09-28 (overrides the A1, A4 fixed 752px): the
          tables take every pixel the window gives them, Continue working
@@ -145,14 +145,14 @@
         >
           {#snippet empty()}
             <p class="text-sm font-medium leading-5 text-ink">No projects with you yet</p>
-            <p class="text-[13px] leading-[18px] text-ink-muted">Start one, or a Manager can hand one to you.</p>
+            <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">Start one, or a Manager can hand one to you.</p>
           {/snippet}
           {#snippet footer()}
             <div class="flex flex-wrap items-center gap-4">
               <a
                 href={resolve("/project/new")}
                 data-home-add-new
-                class={`inline-flex items-center gap-2 rounded-md px-2 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${withYou?.length === 0 ? "h-10 text-[13px] leading-[18px]" : "h-9 text-xs leading-4"}`}
+                class={`inline-flex items-center gap-2 rounded-md px-2 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${withYou?.length === 0 ? "h-10 text-[0.8125rem] leading-[1.125rem]" : "h-9 text-xs leading-4"}`}
               >
                 {#if withYou?.length === 0}
                   <IconPlus size={14} strokeWidth={2} class="shrink-0" />
@@ -193,7 +193,7 @@
         {/if}
       </div>
 
-      <div class="min-w-0 xl:w-[384px] xl:shrink-0 xl:border-l xl:border-line-soft xl:pl-8">
+      <div class="min-w-0 xl:w-[24rem] xl:shrink-0 xl:border-l xl:border-line-soft xl:pl-8">
         <HomeContinueCard {target} {now} />
       </div>
     </div>

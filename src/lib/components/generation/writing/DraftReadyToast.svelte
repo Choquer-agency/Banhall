@@ -74,7 +74,7 @@
   onpointerleave={() => (hovered = false)}
   onfocusin={() => (focused = true)}
   onfocusout={onFocusOut}
-  class={`relative w-max max-w-full overflow-hidden rounded-full p-[2px] transition-opacity duration-300 ease-out motion-reduce:transition-none ${
+  class={`relative w-max max-w-full overflow-hidden rounded-full p-[0.125rem] transition-opacity duration-300 ease-out motion-reduce:transition-none ${
     fading ? "opacity-0" : "opacity-100"
   }`}
   style="background:var(--aurora-track);box-shadow:var(--shadow-toast-soft), 0 0 14px #8438FF24"
@@ -87,11 +87,11 @@
   ></span>
   <div class="relative flex h-10 items-center gap-2.5 rounded-full bg-surface pl-2.5 pr-1.5">
     <AuroraMark size={22} glyph="check" />
-    <span class="text-sm font-medium leading-[18px] text-ink">Your draft is ready</span>
+    <span class="text-sm font-medium leading-[1.125rem] text-ink">Your draft is ready</span>
     {#if qaRunning}
       <span class="flex items-center gap-1.5" data-toast-qa-running>
         <AuroraRingSpinner size={12} />
-        <span class="text-[13px] leading-[18px] text-ink-muted">QA is checking it</span>
+        <span class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">QA is checking it</span>
       </span>
     {/if}
     <button

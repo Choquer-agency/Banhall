@@ -27,7 +27,7 @@
     role="img"
     aria-label={provider}
     class={`inline-flex shrink-0 items-center justify-center rounded bg-chrome font-medium text-gray-600 ${
-      size === "md" ? "size-6 text-xs" : "size-4 text-[10px]"
+      size === "md" ? "size-6 text-xs" : "size-4 text-[0.625rem]"
     }`}
   >
     {provider.charAt(0).toUpperCase()}

@@ -48,7 +48,7 @@
       data-write-mode={mode.id}
       onclick={() => (value = mode.id)}
       onkeydown={(event) => onKeydown(event, index)}
-      class={`flex w-full rounded-[10px] py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11 ${
+      class={`flex w-full rounded-[0.625rem] py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11 ${
         row ? "flex-col gap-1 px-3.5" : "gap-2.5 pr-3.5 pl-3"
       } ${
         selected
@@ -72,8 +72,8 @@
           {#if mode.recommended}
             <span
               data-recommended
-              class={`flex items-center rounded-[5px] bg-recommended px-1.5 text-[11px] font-medium text-recommended-ink ${
-                row ? "h-[18px] leading-[14px]" : "h-5 leading-4"
+              class={`flex items-center rounded-[0.3125rem] bg-recommended px-1.5 text-[0.6875rem] font-medium text-recommended-ink ${
+                row ? "h-[1.125rem] leading-[0.875rem]" : "h-5 leading-4"
               }`}
             >
               Recommended
@@ -83,7 +83,7 @@
         {#if row}
           <span data-write-mode-description class="text-xs leading-4 text-ink-muted">{mode.shortHint}</span>
         {:else if layout === "stack" || selected}
-          <span data-write-mode-description class="text-[13px] leading-[18px] text-ink-secondary">{mode.hint}</span>
+          <span data-write-mode-description class="text-[0.8125rem] leading-[1.125rem] text-ink-secondary">{mode.hint}</span>
         {/if}
       </span>
     </button>

@@ -165,7 +165,7 @@
       onForgot={() => (forgotOpen = !forgotOpen)}
     />
     {#if error}
-      <p id={errorId} role="alert" class="flex items-start gap-1.5 text-[13px] leading-[18px] text-danger-ink-muted">
+      <p id={errorId} role="alert" class="flex items-start gap-1.5 text-[0.8125rem] leading-[1.125rem] text-danger-ink-muted">
         <IconAlertCircle size={14} strokeWidth={2} stroke-linejoin="miter" class="mt-0.5 shrink-0 text-danger" />
         {error}
       </p>
@@ -239,7 +239,7 @@
       <button
         type="submit"
         disabled={!hydrated || submitting}
-        class="flex h-[46px] items-center justify-center gap-2 rounded-[10px] bg-fir text-[15px] leading-5 font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+        class="flex h-[2.875rem] items-center justify-center gap-2 rounded-[0.625rem] bg-fir text-[0.9375rem] leading-5 font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {#if submitting}
           <Spinner size="sm" class="h-3.5 w-3.5 border-white" />

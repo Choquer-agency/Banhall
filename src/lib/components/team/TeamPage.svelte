@@ -152,7 +152,7 @@
         type="button"
         data-open-invite
         onclick={() => (inviteOpen = true)}
-        class="flex h-[30px] shrink-0 items-center gap-[5px] rounded-[7px] bg-primary-selected pl-2.5 pr-3 text-[13px] leading-[18px] font-medium text-white hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 pointer-coarse:h-11"
+        class="flex h-[1.875rem] shrink-0 items-center gap-[0.3125rem] rounded-[0.4375rem] bg-primary-selected pl-2.5 pr-3 text-[0.8125rem] leading-[1.125rem] font-medium text-white hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 pointer-coarse:h-11"
       >
         <IconPlusSmall size={12} strokeWidth={1.5} class="shrink-0" />Invite
       </button>
@@ -165,19 +165,19 @@
         {#each [0, 1, 2, 3] as row (row)}<div class="h-12 animate-pulse rounded bg-chrome/70"></div>{/each}
       </div>
     {:else if !realCanView}
-      <div data-team-no-access class="mx-auto flex max-w-[420px] flex-col items-center gap-3 py-20 text-center">
-        <p class="font-serif text-2xl leading-[30px] text-ink">Team is for Managers and Admins.</p>
-        <a href={resolve("/my-work")} class="inline-flex h-9 items-center rounded-[10px] bg-chrome px-3.5 text-sm font-medium text-ink hover:bg-primary-wash">Back to Home</a>
+      <div data-team-no-access class="mx-auto flex max-w-[26.25rem] flex-col items-center gap-3 py-20 text-center">
+        <p class="font-serif text-2xl leading-[1.875rem] text-ink">Team is for Managers and Admins.</p>
+        <a href={resolve("/my-work")} class="inline-flex h-9 items-center rounded-[0.625rem] bg-chrome px-3.5 text-sm font-medium text-ink hover:bg-primary-wash">Back to Home</a>
       </div>
     {:else if !canView}
       <ViewAsHiddenPage pageName="Team" />
     {:else}
       <header class="flex shrink-0 flex-col gap-1">
-        <h1 class="font-serif text-[28px] leading-[34px] text-ink">Team</h1>
+        <h1 class="font-serif text-[1.75rem] leading-[2.125rem] text-ink">Team</h1>
         <p data-team-subtitle class="text-sm leading-5 text-ink-muted">{subtitle}</p>
       </header>
       {#if membersQ.data === undefined}
-        <div data-team-loading class="flex flex-col overflow-hidden rounded-[10px] border border-line-soft" aria-busy="true">
+        <div data-team-loading class="flex flex-col overflow-hidden rounded-[0.625rem] border border-line-soft" aria-busy="true">
           {#each [0, 1, 2, 3] as row (row)}
             <div class="flex h-12 items-center gap-4 border-b border-line-soft px-4 last:border-b-0">
               <div class="h-6 w-6 animate-pulse rounded-full bg-chrome"></div>

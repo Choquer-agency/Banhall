@@ -139,20 +139,20 @@
         valueText={detail}
       >
         <AuroraMark size={22} />
-        <span class="text-sm font-medium leading-[18px] text-ink" aria-live="polite" data-pill-headline>{headline}</span>
-        <span class="text-[13px] leading-[18px] text-ink-muted" data-pill-detail>{detail}</span>
+        <span class="text-sm font-medium leading-[1.125rem] text-ink" aria-live="polite" data-pill-headline>{headline}</span>
+        <span class="text-[0.8125rem] leading-[1.125rem] text-ink-muted" data-pill-detail>{detail}</span>
         {#if progress.phase === "drafting" && onStop}
           <button
             type="button"
             data-pill-stop
             disabled={stopDisabled}
             onclick={() => onStop?.()}
-            class="h-[30px] rounded-full bg-chrome px-3 text-xs font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none"
+            class="h-[1.875rem] rounded-full bg-chrome px-3 text-xs font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none"
           >
             Stop
           </button>
         {:else}
-          <span class="w-[7px]" aria-hidden="true"></span>
+          <span class="w-[0.4375rem]" aria-hidden="true"></span>
         {/if}
       </AuroraProgressPill>
     </div>
@@ -167,20 +167,20 @@
       aria-label={`${headline ?? "Writing"}, ${detail}. Show progress`}
       onpointerenter={() => reopen()}
       onclick={() => reopen(true)}
-      class={`${ringClass} z-20 rounded-full p-[3px] transition-[opacity,transform] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none ${
+      class={`${ringClass} z-20 rounded-full p-[0.1875rem] transition-[opacity,transform] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none ${
         collapsed ? "scale-100 opacity-100" : "pointer-events-none scale-90 opacity-0"
       }`}
       style={`background:${ringBackground};box-shadow:0 6px 18px #16211F1F`}
     >
-      <span class="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-surface">
+      <span class="flex h-[2.625rem] w-[2.625rem] items-center justify-center rounded-full bg-surface">
         <AuroraMark size={24} />
       </span>
     </button>
   {/if}
 
-  <article class="flex w-full max-w-[760px] flex-col gap-[22px] pt-2" data-drafting-report>
+  <article class="flex w-full max-w-[47.5rem] flex-col gap-[1.375rem] pt-2" data-drafting-report>
     <!-- The page's single h1 is the top bar title; the draft's title is h2. -->
-    <h2 id={headingId} tabindex="-1" class="font-serif text-[30px] font-normal leading-[36px] text-ink outline-none">{reportTitle}</h2>
+    <h2 id={headingId} tabindex="-1" class="font-serif text-[1.875rem] font-normal leading-[2.25rem] text-ink outline-none">{reportTitle}</h2>
 
     {#each sections as section (section.key)}
       {@const queued = section.status === "queued"}
@@ -196,18 +196,18 @@
             {#if section.status === "not_drafted"}
               <span
                 data-not-drafted-marker
-                class="rounded-full border border-dashed border-line px-2 py-px text-[11px] leading-4 text-ink-muted"
+                class="rounded-full border border-dashed border-line px-2 py-px text-[0.6875rem] leading-4 text-ink-muted"
               >Not drafted</span>
             {/if}
           </p>
-          <h3 class="font-serif text-xl font-normal leading-[26px] text-ink">{section.question}</h3>
+          <h3 class="font-serif text-xl font-normal leading-[1.625rem] text-ink">{section.question}</h3>
         </header>
 
         {#if section.status === "done"}
           <div class="flex flex-col gap-3">
             {#each section.paragraphs as paragraph, index (index)}
               <p
-                class="fade-rise font-serif text-base leading-[26px] text-ink"
+                class="fade-rise font-serif text-base leading-[1.625rem] text-ink"
                 style={`animation-delay:${revealDelayMs(index)}ms`}
                 data-revealed-paragraph
               >

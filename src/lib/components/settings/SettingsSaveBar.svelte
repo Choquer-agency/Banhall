@@ -40,7 +40,7 @@
       class="inline-flex h-9 items-center rounded-lg px-3.5 text-sm font-medium text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11"
     >Discard</button>
   {:else}
-    <p class="grow text-[13px] leading-[18px] text-ink-muted" data-settings-idle>{idleText}</p>
+    <p class="grow text-[0.8125rem] leading-[1.125rem] text-ink-muted" data-settings-idle>{idleText}</p>
   {/if}
   <button
     type="button"

@@ -76,7 +76,7 @@
         size="sm"
         placeholder="Not set"
         disabled={saving || suggesting}
-        class="min-w-0 max-w-[300px] flex-1"
+        class="min-w-0 max-w-[18.75rem] flex-1"
         onValueChange={save}
       />
       <Button

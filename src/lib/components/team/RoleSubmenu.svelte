@@ -41,7 +41,7 @@
           data-role-choice={role}
           aria-checked={role === current}
           onSelect={() => onSelect(role)}
-          class="flex h-[34px] cursor-default items-center gap-2.5 rounded-md px-2 outline-none data-[highlighted]:bg-primary-wash"
+          class="flex h-[2.125rem] cursor-default items-center gap-2.5 rounded-md px-2 outline-none data-[highlighted]:bg-primary-wash"
         >
           <span class="flex w-3.5 shrink-0 justify-center">
             {#if role === current}<IconCheck size={14} strokeWidth={2.2} aria-label="Current role" aria-hidden="false" role="img" class="text-primary-selected" />{/if}

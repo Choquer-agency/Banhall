@@ -89,7 +89,7 @@
         showSuggestEdit = true;
         suggestedEdit = highlightText ?? "";
       }}
-      class="mt-1 text-[10px] text-primary hover:text-primary-dark transition-colors"
+      class="mt-1 text-[0.625rem] text-primary hover:text-primary-dark transition-colors"
     >
       + Suggest an edit
     </button>
@@ -97,7 +97,7 @@
 
   {#if showSuggestEdit}
     <div class="mt-1.5">
-      <label class="block text-[10px] font-medium text-gray-500">
+      <label class="block text-[0.625rem] font-medium text-gray-500">
         Replace with:
         <textarea
         bind:this={suggestedEl}
@@ -113,7 +113,7 @@
           showSuggestEdit = false;
           suggestedEdit = "";
         }}
-        class="mt-0.5 text-[10px] text-gray-400 hover:text-gray-600"
+        class="mt-0.5 text-[0.625rem] text-gray-400 hover:text-gray-600"
       >
         Remove suggestion
       </button>
@@ -124,7 +124,7 @@
     <p class="mt-1 text-xs text-red-700" role="alert">{error}</p>
   {/if}
   <div class="mt-1.5 flex items-center justify-between">
-    <p class="text-[10px] text-gray-400">Command or Control+Enter to submit</p>
+    <p class="text-[0.625rem] text-gray-400">Command or Control+Enter to submit</p>
     <div class="flex items-center gap-1.5">
       {#if onCancel}
         <button

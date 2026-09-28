@@ -98,7 +98,7 @@
       <button
         type="button"
         data-add-transcript
-        class="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-[13px] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none"
+        class="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-[0.8125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none"
         {disabled}
         aria-describedby={blockedReason ? "sources-transcripts-blocked" : undefined}
         onclick={() => pick(null)}
@@ -113,11 +113,11 @@
   {/if}
 
   {#if transcripts.length === 0}
-    <p class="mt-2 text-[13px] text-ink-secondary">No interviews yet.</p>
+    <p class="mt-2 text-[0.8125rem] text-ink-secondary">No interviews yet.</p>
   {:else}
     <ul class="mt-2 divide-y divide-line-soft border-y border-line-soft">
       {#each transcripts as transcript (transcript._id)}
-        <li class="flex min-h-11 items-center gap-3 py-2 text-[13px]" data-transcript-row={transcript._id}>
+        <li class="flex min-h-11 items-center gap-3 py-2 text-[0.8125rem]" data-transcript-row={transcript._id}>
           <MicrophoneIcon size={16} aria-hidden="true" class="shrink-0 text-ink-muted" />
           <span class="min-w-0 flex-1">
             <span class="block truncate text-ink">{transcript.label}</span>
@@ -180,7 +180,7 @@
       <Dialog.Overlay class="fixed inset-0 z-[110] bg-black/40" />
       <Dialog.Content
         data-remove-transcript-dialog
-        class="fixed left-1/2 top-1/2 z-[110] w-[calc(100%-2rem)] max-w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-line bg-surface p-6 shadow-xl"
+        class="fixed left-1/2 top-1/2 z-[110] w-[calc(100%-2rem)] max-w-[27.5rem] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-line bg-surface p-6 shadow-xl"
       >
         <Dialog.Title class="text-base font-medium text-ink">Remove this transcript?</Dialog.Title>
         <Dialog.Description class="mt-2 text-sm leading-relaxed text-ink-secondary">

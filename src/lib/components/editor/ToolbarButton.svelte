@@ -18,7 +18,7 @@
   type="button"
   {onclick}
   {title}
-  class={`flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[5px] text-xs text-ink transition-colors ${
+  class={`flex h-[1.625rem] w-[1.625rem] shrink-0 items-center justify-center rounded-[0.3125rem] text-xs text-ink transition-colors ${
     active ? "bg-chrome text-fir" : "hover:bg-primary-wash"
   }`}
 >

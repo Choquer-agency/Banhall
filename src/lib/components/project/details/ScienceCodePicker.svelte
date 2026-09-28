@@ -57,7 +57,7 @@
   }
 
   const itemClass =
-    "flex min-h-[30px] w-full cursor-default items-center gap-2.5 rounded-md px-2 py-1 text-left text-[13px] leading-[18px] text-ink outline-none data-[selected]:bg-primary-wash";
+    "flex min-h-[1.875rem] w-full cursor-default items-center gap-2.5 rounded-md px-2 py-1 text-left text-[0.8125rem] leading-[1.125rem] text-ink outline-none data-[selected]:bg-primary-wash";
 </script>
 
 <Popover.Root bind:open>
@@ -76,13 +76,13 @@
     >
       <Command.Root shouldFilter={false} loop disableInitialScroll label="Science code" bind:value={highlighted} class="flex max-h-[min(24rem,calc(100dvh-8rem))] flex-col">
         <div class="shrink-0 px-2 pb-1 pt-2">
-          <div class="field-control-shell flex h-[34px] items-center gap-2 rounded-md px-2.5">
+          <div class="field-control-shell flex h-[2.125rem] items-center gap-2 rounded-md px-2.5">
             <MagnifyingGlassIcon size={14} aria-hidden="true" class="pointer-events-none shrink-0 text-ink-muted" />
             <Command.Input
               bind:value={query}
               placeholder="Search by name or code"
               aria-label="Search science codes"
-              class="input-chromeless h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink placeholder:text-ink-muted"
+              class="input-chromeless h-full min-w-0 flex-1 bg-transparent text-[0.8125rem] text-ink placeholder:text-ink-muted"
             />
           </div>
         </div>
@@ -90,7 +90,7 @@
           <Command.Viewport>
             {#each groups as group (group.field)}
               <Command.Group>
-                <Command.GroupHeading class="px-2 pb-1 pt-2 text-[11px] font-medium uppercase leading-[18px] tracking-[0.04em] text-ink-muted">{group.field}</Command.GroupHeading>
+                <Command.GroupHeading class="px-2 pb-1 pt-2 text-[0.6875rem] font-medium uppercase leading-[1.125rem] tracking-[0.04em] text-ink-muted">{group.field}</Command.GroupHeading>
                 <Command.GroupItems>
                   {#each group.items as item (item.code)}
                     <Command.Item
@@ -100,7 +100,7 @@
                       aria-current={item.code === value ? "true" : undefined}
                       data-science-code-current={item.code === value ? "" : undefined}
                     >
-                      <span class="w-[52px] shrink-0 font-mono text-xs text-ink-muted">{item.code}</span>
+                      <span class="w-[3.25rem] shrink-0 font-mono text-xs text-ink-muted">{item.code}</span>
                       <span class="min-w-0 flex-1">{item.label}</span>
                       {#if item.code === value}
                         <CheckIcon size={14} aria-label="Current code" class="shrink-0 text-primary-selected" />
@@ -110,7 +110,7 @@
                 </Command.GroupItems>
               </Command.Group>
             {:else}
-              <p class="px-2 py-4 text-center text-[13px] text-ink-muted" role="status">No code matches.</p>
+              <p class="px-2 py-4 text-center text-[0.8125rem] text-ink-muted" role="status">No code matches.</p>
             {/each}
           </Command.Viewport>
         </Command.List>
@@ -123,7 +123,7 @@
                   open = false;
                   void onSuggest?.();
                 }}
-                class="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
+                class="flex h-8 items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
               >
                 <AuroraMark size={16} />
                 Suggest with AI
@@ -133,7 +133,7 @@
               <button
                 type="button"
                 onclick={() => choose(null)}
-                class="ml-auto flex h-8 items-center rounded-md px-2 text-[13px] text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
+                class="ml-auto flex h-8 items-center rounded-md px-2 text-[0.8125rem] text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
               >
                 Clear
               </button>

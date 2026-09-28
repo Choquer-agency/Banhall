@@ -207,12 +207,12 @@
     { label: "Dec 31", month: 12, day: 31 },
   ] as const;
 
-  const row = "relative grid min-h-[34px] grid-cols-[104px_minmax(0,1fr)] items-center gap-x-3 rounded-md px-2";
+  const row = "relative grid min-h-[2.125rem] grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 rounded-md px-2";
   const editableRow = `${row} group/row transition-colors hover:bg-primary-wash has-[[data-state=open]]:bg-primary-wash motion-reduce:transition-none`;
   // The value button runs to the row's right edge (so pickers align with the
   // row) and stretches its hit area and focus ring over the whole row.
   const valueButton =
-    "-mr-2 flex min-h-[34px] w-[calc(100%+0.5rem)] min-w-0 items-center gap-1.5 pr-2 text-left outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-fir pointer-coarse:min-h-11";
+    "-mr-2 flex min-h-[2.125rem] w-[calc(100%+0.5rem)] min-w-0 items-center gap-1.5 pr-2 text-left outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-fir pointer-coarse:min-h-11";
   const hoverIcon =
     "shrink-0 text-ink-muted opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100 [[data-state=open]_&]:opacity-100 motion-reduce:transition-none";
 </script>
@@ -223,14 +223,14 @@
 
 {#snippet errorFor(field: string)}
   {#if fieldError?.field === field}
-    <dd class="col-start-2 pb-1.5 text-xs leading-[18px] text-red-700" role="alert">{fieldError.message}</dd>
+    <dd class="col-start-2 pb-1.5 text-xs leading-[1.125rem] text-red-700" role="alert">{fieldError.message}</dd>
   {/if}
 {/snippet}
 
-<dl data-details-facts class="flex flex-col text-[13px] leading-[18px]">
+<dl data-details-facts class="flex flex-col text-[0.8125rem] leading-[1.125rem]">
   <div class={editable && !editingIndustry ? editableRow : row}>
     <dt class="text-ink-muted">Industry</dt>
-    <dd data-details-fact="industry" class="flex min-h-[34px] min-w-0 items-center text-ink">
+    <dd data-details-fact="industry" class="flex min-h-[2.125rem] min-w-0 items-center text-ink">
       {#if editable && editingIndustry}
         <div bind:this={industryHost} class="w-full">
           <IndustrySelect
@@ -260,7 +260,7 @@
 
   <div class={editable ? editableRow : row}>
     <dt class="text-ink-muted">Fiscal year</dt>
-    <dd data-details-fact="fiscal-year" class="flex min-h-[34px] min-w-0 items-center text-ink">
+    <dd data-details-fact="fiscal-year" class="flex min-h-[2.125rem] min-w-0 items-center text-ink">
       {#snippet fiscalValue()}
         <span data-fiscal-year-value class="flex min-w-0 flex-1 items-center gap-1.5 truncate whitespace-nowrap">
           {#if fiscal}
@@ -295,11 +295,11 @@
 
   <div class={editable ? editableRow : row}>
     <dt class="text-ink-muted">Science code</dt>
-    <dd data-details-fact="science-code" class="flex min-h-[34px] min-w-0 items-center text-ink">
+    <dd data-details-fact="science-code" class="flex min-h-[2.125rem] min-w-0 items-center text-ink">
       {#snippet scienceValue()}
         <span class="flex min-w-0 flex-1 items-center gap-1.5">
           {#if science}
-            <span class="min-w-0 truncate">{science.label}</span> <span class="shrink-0 font-mono text-xs leading-[18px] text-ink-muted">{science.code}</span>
+            <span class="min-w-0 truncate">{science.label}</span> <span class="shrink-0 font-mono text-xs leading-[1.125rem] text-ink-muted">{science.code}</span>
           {:else}
             {@render notSet()}
           {/if}
@@ -331,13 +331,13 @@
     </dd>
     {@render errorFor("science")}
     {#if suggestionNote}
-      <dd class="col-start-2 pb-1.5 text-xs leading-[18px] text-ink-muted" aria-live="polite">{suggestionNote}</dd>
+      <dd class="col-start-2 pb-1.5 text-xs leading-[1.125rem] text-ink-muted" aria-live="polite">{suggestionNote}</dd>
     {/if}
   </div>
 
   <div class={editable && !editingNumber ? editableRow : row}>
     <dt class="text-ink-muted">Project number</dt>
-    <dd data-details-fact="project-number" class="flex min-h-[34px] min-w-0 items-center text-ink">
+    <dd data-details-fact="project-number" class="flex min-h-[2.125rem] min-w-0 items-center text-ink">
       {#if editable && editingNumber}
         <input
           bind:this={numberInput}
@@ -349,7 +349,7 @@
           aria-invalid={numberError ? "true" : undefined}
           aria-describedby={numberError ? numberErrorId : undefined}
           placeholder="Not set"
-          class="field-control h-[26px] w-full min-w-0 rounded-md px-2 text-[13px] leading-[18px] text-ink placeholder:text-ink-faint"
+          class="field-control h-[1.625rem] w-full min-w-0 rounded-md px-2 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint"
         />
       {:else if editable}
         <button bind:this={numberButton} type="button" class={valueButton} aria-label="Edit project number" onclick={beginNumber}>
@@ -363,7 +363,7 @@
       {/if}
     </dd>
     {#if numberError}
-      <dd id={numberErrorId} class="col-start-2 pb-1.5 text-xs leading-[18px] text-red-700" role="alert">
+      <dd id={numberErrorId} class="col-start-2 pb-1.5 text-xs leading-[1.125rem] text-red-700" role="alert">
         {numberError}{#if closeBlocked}{" "}Fix the number, or press Escape to discard it.{/if}
       </dd>
     {/if}
@@ -371,7 +371,7 @@
 
   <div class={row}>
     <dt class="text-ink-muted">Owner</dt>
-    <dd data-details-fact="owner" class="flex min-h-[34px] min-w-0 items-center gap-1.5 text-ink">
+    <dd data-details-fact="owner" class="flex min-h-[2.125rem] min-w-0 items-center gap-1.5 text-ink">
       {#if data.owner}
         <PersonAvatar initials={data.owner.initials} seed={String(data.owner.userId)} isYou={data.owner.isYou} />
         <span class="truncate">{data.owner.label}{data.owner.isYou ? " (you)" : ""}</span>
@@ -384,13 +384,13 @@
 
 <div aria-hidden="true" class="mx-2 my-2.5 h-px bg-line-soft"></div>
 
-<dl class="flex flex-col text-[13px] leading-[18px] text-ink-secondary">
+<dl class="flex flex-col text-[0.8125rem] leading-[1.125rem] text-ink-secondary">
   <div class={row}>
     <dt class="text-ink-muted">Created</dt>
-    <dd data-details-fact="created" class="flex min-h-[34px] items-center">{formatCreated(data.createdAt)}</dd>
+    <dd data-details-fact="created" class="flex min-h-[2.125rem] items-center">{formatCreated(data.createdAt)}</dd>
   </div>
   <div class={row}>
     <dt class="text-ink-muted">Edited</dt>
-    <dd data-details-fact="edited" class="flex min-h-[34px] items-center">{formatEdited(data.editedAt, now)}</dd>
+    <dd data-details-fact="edited" class="flex min-h-[2.125rem] items-center">{formatEdited(data.editedAt, now)}</dd>
   </div>
 </dl>

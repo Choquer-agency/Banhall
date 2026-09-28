@@ -31,7 +31,7 @@ describe("WorkspaceHeader", () => {
     const heading = document.querySelector("header h1");
     expect(heading?.textContent).toBe("Projects");
     const pageHeader = document.querySelector<HTMLElement>("[data-workspace-page-header]");
-    expect(pageHeader?.className).toContain("h-[49px]");
+    expect(pageHeader?.className).toContain("h-[3.0625rem]");
     // The heading opens its group: no decorative sibling precedes it.
     expect(heading?.previousElementSibling).toBeNull();
     // No aria-hidden lagoon tick anywhere in the bar.

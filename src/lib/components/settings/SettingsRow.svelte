@@ -27,16 +27,16 @@
   data-settings-row
   class={`flex flex-col gap-2 py-4 md:flex-row md:items-center md:gap-6 ${last ? "" : "border-b border-line-soft"}`}
 >
-  <div class="flex shrink-0 flex-col gap-0.5 md:w-[280px]">
+  <div class="flex shrink-0 flex-col gap-0.5 md:w-[17.5rem]">
     {#if labelFor}
       <label for={labelFor} class="text-sm font-medium leading-5 text-ink">{label}</label>
     {:else}
       <span class="text-sm font-medium leading-5 text-ink">{label}</span>
     {/if}
     {#if typeof hint === "function"}
-      <span class="text-[13px] leading-[18px] text-ink-muted">{@render hint()}</span>
+      <span class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">{@render hint()}</span>
     {:else if hint}
-      <span class="text-[13px] leading-[18px] text-ink-muted">{hint}</span>
+      <span class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">{hint}</span>
     {/if}
   </div>
   <!-- The field column stops at 40rem so inputs keep a readable width on a

@@ -513,7 +513,7 @@
                                   <span class="text-xs text-gray-500">{STYLE_OVERRIDE_META[key].label}</span>
                                 {/snippet}
                               </Checkbox>
-                              <p class="ml-[26px] mt-0.5 text-xs text-gray-400">
+                              <p class="ml-[1.625rem] mt-0.5 text-xs text-gray-400">
                                 {mode === "enforced"
                                   ? "Always enforced org-wide"
                                   : "Off for everyone"}

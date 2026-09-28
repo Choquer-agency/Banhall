@@ -93,9 +93,9 @@
               {...props}
               transition:modalPop
               data-signoff-dialog
-              class="pointer-events-auto flex max-h-[calc(100dvh-2rem)] [@media(min-height:640px)]:max-h-[calc(100dvh-7rem)] w-full max-w-[536px] flex-col overflow-hidden rounded-[16px] border border-line bg-surface shadow-2xl"
+              class="pointer-events-auto flex max-h-[calc(100dvh-2rem)] [@media(min-height:640px)]:max-h-[calc(100dvh-7rem)] w-full max-w-[33.5rem] flex-col overflow-hidden rounded-[1rem] border border-line bg-surface shadow-2xl"
             >
-              <div class="flex items-start gap-4 border-b border-line-soft pt-[26px] pr-6 pb-5 pl-7">
+              <div class="flex items-start gap-4 border-b border-line-soft pt-[1.625rem] pr-6 pb-5 pl-7">
                 <div class="flex min-w-0 flex-1 flex-col gap-1.5">
                   <Dialog.Title class="text-title leading-6">Sign off and generate the PD?</Dialog.Title>
                   <Dialog.Description class="text-body leading-5 text-ink-muted!">
@@ -124,7 +124,7 @@
                     </span>
                     <div class="flex flex-col gap-0.5">
                       <p class="text-body leading-5 text-ink!">{editedCount} {editedCount === 1 ? "seed" : "seeds"} edited by hand</p>
-                      <p class="text-[13px] leading-[18px] text-ink-muted">They are drafted as written, not quoted from the interview.</p>
+                      <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">They are drafted as written, not quoted from the interview.</p>
                     </div>
                   </div>
                 {/if}
@@ -132,7 +132,7 @@
                   <AuroraMark size={20} />
                   <p class="text-body leading-5 text-ink!">Written by {modelLabel}</p>
                 </div>
-                <p class="mt-1 rounded-[10px] bg-canvas px-3 py-2.5 text-[13px] leading-[18px] text-ink-secondary">
+                <p class="mt-1 rounded-[0.625rem] bg-canvas px-3 py-2.5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary">
                   Takes about three minutes. You can leave this page; we will let you know when the draft is ready.
                 </p>
                 {#if changedNotice}
@@ -140,7 +140,7 @@
                 {/if}
               </div>
 
-              <div class="flex flex-col-reverse gap-2.5 border-t border-line-soft bg-surface px-7 py-[18px] sm:flex-row sm:justify-end">
+              <div class="flex flex-col-reverse gap-2.5 border-t border-line-soft bg-surface px-7 py-[1.125rem] sm:flex-row sm:justify-end">
                 <Dialog.Close>
                   {#snippet child({ props: closeProps })}
                     <Button {...closeProps} id={keepReviewingId} variant="secondary" size="sm" class="min-h-9">Keep reviewing</Button>

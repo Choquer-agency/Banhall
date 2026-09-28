@@ -21,7 +21,7 @@
 <span
   data-page-icon-tile
   aria-hidden="true"
-  class={`flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[6px] bg-workspace-page-icon text-primary ${className}`}
+  class={`flex h-[1.625rem] w-[1.625rem] shrink-0 items-center justify-center rounded-[0.375rem] bg-workspace-page-icon text-primary ${className}`}
 >
   {#if icon}
     {@const Icon = icon}

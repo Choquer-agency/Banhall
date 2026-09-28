@@ -183,8 +183,8 @@
 <!-- Board 2.1 suggested-edit card: a quiet label, the serif wording, then
      Apply (primary) and Dismiss (quiet). Edit wording and Refine live in the
      card's More menu. -->
-<div bind:this={cardEl} class="mt-2 flex flex-col rounded-[10px] bg-gray-50 px-4 py-3.5" data-proposed-edit>
-  <p class="text-[11px] leading-4 text-ink-muted" data-proposed-edit-label>
+<div bind:this={cardEl} class="mt-2 flex flex-col rounded-[0.625rem] bg-gray-50 px-4 py-3.5" data-proposed-edit>
+  <p class="text-[0.6875rem] leading-4 text-ink-muted" data-proposed-edit-label>
     {editing
       ? "Edit suggestion"
       : replacements && replacements.length > 0
@@ -218,7 +218,7 @@
     <div>
     {#if replacements && replacements.length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-[11px] leading-4 text-ink-muted">
+        <p class="text-[0.6875rem] leading-4 text-ink-muted">
           {changes.length} replacement{changes.length === 1 ? "" : "s"}, applied to every occurrence
         </p>
         {#each changes as change, changeIndex (changeIndex)}
@@ -226,7 +226,7 @@
             {#if diffInCard}
               <p
                 aria-label={`Replacement ${changeIndex + 1} changes`}
-                class="whitespace-pre-wrap font-serif text-sm leading-[22px] text-ink"
+                class="whitespace-pre-wrap font-serif text-sm leading-[1.375rem] text-ink"
               >
                 {#each diffGroups[changeIndex] ?? [] as part, partIndex (partIndex)}
                   {#if part.type === "removed"}
@@ -239,7 +239,7 @@
                 {/each}
               </p>
             {:else if change.after}
-              <p class="whitespace-pre-wrap font-serif text-sm leading-[22px] text-ink">
+              <p class="whitespace-pre-wrap font-serif text-sm leading-[1.375rem] text-ink">
                 {change.after}
               </p>
             {:else}
@@ -251,7 +251,7 @@
     {:else if diffInCard && changes.length === 1}
       <p
         aria-label="Proposed changes"
-        class="whitespace-pre-wrap font-serif text-sm leading-[22px] text-ink"
+        class="whitespace-pre-wrap font-serif text-sm leading-[1.375rem] text-ink"
       >
         {#each diffGroups[0] ?? [] as part, i (i)}
           {#if part.type === "removed"}
@@ -264,7 +264,7 @@
         {/each}
       </p>
     {:else if newText}
-      <p class="whitespace-pre-wrap font-serif text-sm leading-[22px] text-ink">
+      <p class="whitespace-pre-wrap font-serif text-sm leading-[1.375rem] text-ink">
         {newText}
       </p>
     {:else}
@@ -278,7 +278,7 @@
     <div class="flex items-center gap-3.5 pt-3">
       <ActionButton
         variant="primary"
-        class="min-h-0 rounded-md px-3 py-1.5 leading-[18px]"
+        class="min-h-0 rounded-md px-3 py-1.5 leading-[1.125rem]"
         onclick={saveWording}
         disabled={busy}
         loading={busy}
@@ -286,7 +286,7 @@
       >
         Save & apply
       </ActionButton>
-      <button type="button" class="text-xs leading-[18px] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50" onclick={cancelEditing} disabled={busy}>Cancel</button>
+      <button type="button" class="text-xs leading-[1.125rem] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50" onclick={cancelEditing} disabled={busy}>Cancel</button>
     </div>
   {:else if changes.length > 0 && !onPreviewInDoc}
     <!-- Card-local diff toggle — only when there's no live report preview
@@ -308,7 +308,7 @@
     {:else if editState === "pending"}
       <ActionButton
         variant="primary"
-        class="min-h-0 rounded-md px-3 py-1.5 leading-[18px]"
+        class="min-h-0 rounded-md px-3 py-1.5 leading-[1.125rem]"
         onclick={() => handle(onReplace)}
         disabled={busy}
         loading={busy}
@@ -317,11 +317,11 @@
         {onReviewOneByOne ? "Apply all" : "Apply"}
       </ActionButton>
       {#if onReviewOneByOne}
-        <button type="button" class="text-xs leading-[18px] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50" onclick={onReviewOneByOne} disabled={busy}>
+        <button type="button" class="text-xs leading-[1.125rem] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50" onclick={onReviewOneByOne} disabled={busy}>
           Review individually
         </button>
       {/if}
-      <button type="button" class="text-xs leading-[18px] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50" onclick={() => handle(onReject)} disabled={busy}>
+      <button type="button" class="text-xs leading-[1.125rem] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50" onclick={() => handle(onReject)} disabled={busy}>
         Dismiss
       </button>
     {/if}
@@ -357,13 +357,13 @@
               menuActionChosen = false;
             }} class="z-[100] w-44 rounded-xl border border-line bg-white p-1 shadow-lg">
               {#if onEditWording}
-                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void startEditing(); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[13px] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
+                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void startEditing(); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
                   Edit wording
                 </DropdownMenu.Item>
               {/if}
               {#if onRefine}
                 {@const refine = onRefine}
-                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void handle(refine); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[13px] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
+                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void handle(refine); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
                   Refine with AI
                 </DropdownMenu.Item>
               {/if}

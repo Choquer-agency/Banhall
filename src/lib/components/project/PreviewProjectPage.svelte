@@ -2054,7 +2054,7 @@
             onclick={() => (contextOpen = true)}
             class="hidden size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none lg:flex"
           >
-            <svg class="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <svg class="h-[1.125rem] w-[1.125rem]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 7C4 5.343 5.343 4 7 4h10c1.657 0 3 1.343 3 3v10c0 1.657-1.343 3-3 3H7c-1.657 0-3-1.343-3-3V7zM15 5v14" />
             </svg>
           </button>
@@ -2150,7 +2150,7 @@
           <Button
             variant="secondary"
             size="sm"
-            class="h-9 gap-1.5 rounded-[7px]! px-3! text-[13px]!"
+            class="h-9 gap-1.5 rounded-[0.4375rem]! px-3! text-[0.8125rem]!"
             aria-label={exporting ? "Exporting..." : "Export .docx"}
             onclick={handleExport}
             disabled={exporting}
@@ -2162,7 +2162,7 @@
           </Button>
           <Button
             size="sm"
-            class="h-9 rounded-[7px]! px-3.5! text-[13px]! max-sm:hidden"
+            class="h-9 rounded-[0.4375rem]! px-3.5! text-[0.8125rem]! max-sm:hidden"
             data-send-for-review
             disabled={!details.data?.permissions.canHandOff}
             title={details.data && !details.data.permissions.canHandOff ? (details.handOffReason ?? undefined) : undefined}
@@ -2317,7 +2317,7 @@
             role="region"
             aria-label="Generation progress"
             tabindex="-1"
-            class="mx-auto w-full max-w-[808px] px-6 pb-24 pt-6 outline-none"
+            class="mx-auto w-full max-w-[50.5rem] px-6 pb-24 pt-6 outline-none"
           >
             {#if draftProgress}
               {#key generation._id}
@@ -2492,12 +2492,12 @@
             <div
               data-report-surface
               data-report-width={workspaceMaximized ? "full" : "reading"}
-              class={`w-full pt-11 pb-10 transition-[padding,max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? (sidePanelOpen ? "px-6 lg:px-12" : "px-6 lg:px-24") : "mx-auto max-w-[708px] px-6"}`}
+              class={`w-full pt-11 pb-10 transition-[padding,max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? (sidePanelOpen ? "px-6 lg:px-12" : "px-6 lg:px-24") : "mx-auto max-w-[44.25rem] px-6"}`}
             >
               <!-- Board 2.1: the report opens on its serif title. The top bar
                    holds the page h1; the document's own title heading stays
                    hidden in the editor. -->
-              <h2 data-report-title class="mb-0.5 font-serif text-[28px] leading-9 font-normal text-ink [text-wrap:balance]">
+              <h2 data-report-title class="mb-0.5 font-serif text-[1.75rem] leading-9 font-normal text-ink [text-wrap:balance]">
                 {project.title}
               </h2>
               {#if notDraftedSections.length > 0}
@@ -2513,7 +2513,7 @@
                   />
                 </div>
               {:else if reportReadOnly}
-                <p class="mt-4 text-[13px] leading-5 text-ink-secondary" role="status" data-redraft-status>
+                <p class="mt-4 text-[0.8125rem] leading-5 text-ink-secondary" role="status" data-redraft-status>
                   Drafting the missing sections. Editing resumes when they are in.
                 </p>
               {/if}
@@ -2829,7 +2829,7 @@
             data-side-panel-divider
             class="group relative hidden w-px flex-none cursor-col-resize bg-line-soft focus-visible:outline-none lg:block"
           >
-            <span aria-hidden="true" class={`absolute inset-y-0 -left-[3px] w-[7px] transition-colors group-hover:bg-primary/25 group-focus-visible:bg-primary/40 ${dragging ? "bg-primary/40" : ""}`}></span>
+            <span aria-hidden="true" class={`absolute inset-y-0 -left-[0.1875rem] w-[0.4375rem] transition-colors group-hover:bg-primary/25 group-focus-visible:bg-primary/40 ${dragging ? "bg-primary/40" : ""}`}></span>
             <span aria-hidden="true" class={`absolute inset-y-0 left-0 w-px transition-colors group-hover:bg-primary-selected group-focus-visible:bg-primary-selected ${dragging ? "bg-primary-selected" : ""}`}></span>
           </button>
         {/if}
@@ -2908,7 +2908,7 @@
               aria-label="AI assistant"
               inert={!chatOpen}
             >
-              <div class={assistantFull ? "mx-auto flex h-full w-full max-w-[720px] flex-col" : "flex h-full flex-col"} data-assistant-column={assistantFull ? "full" : "side"}>
+              <div class={assistantFull ? "mx-auto flex h-full w-full max-w-[45rem] flex-col" : "flex h-full flex-col"} data-assistant-column={assistantFull ? "full" : "side"}>
                 <LazyModule load={() => import("$lib/components/chat/AgentChatPanel.svelte")} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat" && (desktopAssistant || mobileWorkspaceView === "assistant" || assistantFull)}>
                   {#snippet children(AgentChatPanel)}
                     <AgentChatPanel

@@ -32,10 +32,10 @@
   description="The link stops working right away. You can invite them again later."
 >
   {#if errorMessage}
-    <p role="alert" class="mx-7 mt-4 rounded-lg border border-danger-line bg-danger-surface px-3 py-2 text-[13px] text-danger-ink-muted">{errorMessage}</p>
+    <p role="alert" class="mx-7 mt-4 rounded-lg border border-danger-line bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger-ink-muted">{errorMessage}</p>
   {/if}
   {#snippet footer()}
-    <div class="flex items-center justify-end gap-2 pb-[18px] pl-7 pr-5 pt-5">
+    <div class="flex items-center justify-end gap-2 pb-[1.125rem] pl-7 pr-5 pt-5">
       <button
         bind:this={keepButton}
         type="button"

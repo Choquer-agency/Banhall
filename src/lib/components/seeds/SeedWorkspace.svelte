@@ -1026,26 +1026,26 @@
   {#if !largeViewport && outline}
     <!-- Phone and narrow layouts show one pane at a time (3.6): a 40px
          gray-50 track with 34px segments, each inside a 44px hit target. -->
-    <div class="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-line-soft px-4" data-seed-pane-switch>
-      <div class="relative grid min-w-0 flex-1 grid-cols-2 gap-[3px] px-[3px]" role="group" aria-label="Workspace pane">
-        <span class="pointer-events-none absolute inset-x-0 top-1/2 h-10 -translate-y-1/2 rounded-[9px] bg-gray-50" aria-hidden="true"></span>
+    <div class="flex h-[3.25rem] shrink-0 items-center gap-2.5 border-b border-line-soft px-4" data-seed-pane-switch>
+      <div class="relative grid min-w-0 flex-1 grid-cols-2 gap-[0.1875rem] px-[0.1875rem]" role="group" aria-label="Workspace pane">
+        <span class="pointer-events-none absolute inset-x-0 top-1/2 h-10 -translate-y-1/2 rounded-[0.5625rem] bg-gray-50" aria-hidden="true"></span>
         {#each [{ pane: "outline" as const }, { pane: "work" as const }] as option (option.pane)}
           {@const pressed = mobilePane === option.pane}
           <button
             type="button"
             aria-pressed={pressed}
             onclick={() => (mobilePane = option.pane)}
-            class="group relative flex h-11 min-w-0 items-center justify-center rounded-[7px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+            class="group relative flex h-11 min-w-0 items-center justify-center rounded-[0.4375rem] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
           >
             <span
-              class={`flex h-[34px] w-full items-center justify-center gap-1.5 rounded-[7px] border text-[13px] leading-[18px] transition-colors motion-reduce:transition-none ${
+              class={`flex h-[2.125rem] w-full items-center justify-center gap-1.5 rounded-[0.4375rem] border text-[0.8125rem] leading-[1.125rem] transition-colors motion-reduce:transition-none ${
                 pressed
                   ? "border-line bg-surface font-medium text-ink"
                   : "border-transparent text-ink-secondary group-hover:text-ink"
               }`}
             >
               {#if option.pane === "outline"}
-                Outline <span class="text-[11px] leading-[14px] font-normal text-ink-faint">{decidedCount} / {outline.rows.length}</span>
+                Outline <span class="text-[0.6875rem] leading-[0.875rem] font-normal text-ink-faint">{decidedCount} / {outline.rows.length}</span>
               {:else}
                 Seeds
               {/if}
@@ -1231,7 +1231,7 @@
           </div>
           {#if ideasReady}
             <!-- F4: 20px from the panel's right edge and 18px from its foot. -->
-            <div class="pointer-events-none absolute right-5 bottom-[18px] z-20 max-sm:right-4 max-sm:bottom-24" data-ideas-ready-host>
+            <div class="pointer-events-none absolute right-5 bottom-[1.125rem] z-20 max-sm:right-4 max-sm:bottom-24" data-ideas-ready-host>
               <div class="pointer-events-auto">
                 {#key ideasReady.key}
                   <IdeasReadyToast count={ideasReady.count} onClose={() => (ideasReady = null)} />

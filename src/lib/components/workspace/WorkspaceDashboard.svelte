@@ -297,11 +297,11 @@
                height and one panel, so neither Home nor Projects flashes. -->
           <div class="flex min-h-0 flex-1 flex-col bg-workspace-shell" role="status" aria-label="Loading workspace">
             <div class="flex h-14 shrink-0 items-center gap-2.5 px-4">
-              <div class="h-[26px] w-[26px] animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>
+              <div class="h-[1.625rem] w-[1.625rem] animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>
               <div class="h-4 w-24 animate-pulse rounded bg-chrome motion-reduce:animate-none"></div>
             </div>
             <div class="mx-3 mb-3 flex-1 rounded-xl border border-workspace-rail-line bg-surface p-6">
-              <div class="h-[26px] w-32 animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>
+              <div class="h-[1.625rem] w-32 animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>
               <div class="mt-6 h-32 animate-pulse rounded-lg bg-chrome/40 motion-reduce:animate-none"></div>
             </div>
           </div>

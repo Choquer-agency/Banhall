@@ -238,7 +238,7 @@
     bind:this={menuEl}
     bind:offsetWidth={toolbarWidth}
     data-selection-toolbar
-    class="absolute z-50 flex h-[34px] items-center gap-0.5 whitespace-nowrap rounded-md border border-line bg-surface px-1.5 font-sans shadow-toolbar"
+    class="absolute z-50 flex h-[2.125rem] items-center gap-0.5 whitespace-nowrap rounded-md border border-line bg-surface px-1.5 font-sans shadow-toolbar"
     style={`top: ${coords.top}px; left: ${left}px; transform: translateX(-50%);`}
     onmousedown={(e) => {
       // Prevent toolbar clicks from stealing focus from the editor (the link
@@ -256,12 +256,12 @@
         type="url"
         placeholder="Paste or type a link"
         onkeydown={handleLinkKey}
-        class="input-chromeless h-[26px] w-56 bg-transparent px-2 text-xs text-ink placeholder:text-ink-faint"
+        class="input-chromeless h-[1.625rem] w-56 bg-transparent px-2 text-xs text-ink placeholder:text-ink-faint"
       />
       <button
         type="button"
         onclick={applyLink}
-        class="flex h-[26px] items-center rounded-[5px] px-2 text-xs text-primary-selected transition-colors hover:bg-primary-wash"
+        class="flex h-[1.625rem] items-center rounded-[0.3125rem] px-2 text-xs text-primary-selected transition-colors hover:bg-primary-wash"
       >Add link</button>
     {:else}
       {#if !commentOnly && !active.touchesSectionHeading}
@@ -272,7 +272,7 @@
             aria-expanded={blockMenuOpen}
             title="Block type"
             onclick={() => (blockMenuOpen = !blockMenuOpen)}
-            class="flex h-[26px] items-center gap-1 rounded-[5px] px-2 text-xs text-ink transition-colors hover:bg-primary-wash"
+            class="flex h-[1.625rem] items-center gap-1 rounded-[0.3125rem] px-2 text-xs text-ink transition-colors hover:bg-primary-wash"
           >
             {blockLabel}
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" class="text-ink-muted" aria-hidden="true">
@@ -294,7 +294,7 @@
                     type.apply(editor);
                     blockMenuOpen = false;
                   }}
-                  class={`flex h-7 items-center rounded-[5px] px-2 text-left text-xs transition-colors hover:bg-primary-wash ${type.label === blockLabel ? "text-primary-selected" : "text-ink"}`}
+                  class={`flex h-7 items-center rounded-[0.3125rem] px-2 text-left text-xs transition-colors hover:bg-primary-wash ${type.label === blockLabel ? "text-primary-selected" : "text-ink"}`}
                 >{type.label}</button>
               {/each}
             </div>
@@ -317,7 +317,7 @@
           onclick={() => editor.chain().focus().toggleItalic().run()}
           title="Italic (Cmd+I)"
         >
-          <span class="font-serif text-[13px] italic">I</span>
+          <span class="font-serif text-[0.8125rem] italic">I</span>
         </ToolbarButton>
 
         <ToolbarButton
@@ -344,7 +344,7 @@
           type="button"
           onclick={askAI}
           title="Ask assistant"
-          class="flex h-[26px] items-center gap-1.5 rounded-[5px] bg-primary-wash px-2 text-xs text-primary-selected transition-colors hover:bg-chrome"
+          class="flex h-[1.625rem] items-center gap-1.5 rounded-[0.3125rem] bg-primary-wash px-2 text-xs text-primary-selected transition-colors hover:bg-chrome"
         >
           <AuroraMark size={14} />
           Ask assistant

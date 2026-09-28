@@ -52,9 +52,9 @@
 </script>
 
 <div data-review-pd-card class="flex gap-3.5 rounded-xl border border-line-soft bg-surface p-3.5">
-  <div data-review-pd-thumb class="flex h-[52px] w-10 shrink-0 flex-col gap-1 rounded-[4px] border border-line bg-surface px-1.5 py-[7px] shadow-pd-thumb" aria-hidden="true">
+  <div data-review-pd-thumb class="flex h-[3.25rem] w-10 shrink-0 flex-col gap-1 rounded-[0.25rem] border border-line bg-surface px-1.5 py-[0.4375rem] shadow-pd-thumb" aria-hidden="true">
     {#each [0.9, 0.7, 0.85, 0.6, 0.8] as width, index (index)}
-      <span class="h-[3px] shrink-0 rounded-[2px] bg-pd-thumb-line" style={`width:${width * 100}%`}></span>
+      <span class="h-[0.1875rem] shrink-0 rounded-[0.125rem] bg-pd-thumb-line" style={`width:${width * 100}%`}></span>
     {/each}
   </div>
   <div class="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -66,13 +66,13 @@
     </p>
     <ul class="flex flex-col pt-2">
       {#each rows as row (row.key)}
-        <li data-review-section={row.number} data-found={row.found} class="flex h-[30px] items-center gap-2 text-[13px] leading-[18px]">
+        <li data-review-section={row.number} data-found={row.found} class="flex h-[1.875rem] items-center gap-2 text-[0.8125rem] leading-[1.125rem]">
           {#if row.found}
             <IconCheck size={13} strokeWidth={2.2} class="shrink-0 text-success" />
           {:else}
             <IconAlertCircle size={13} strokeWidth={2} class="shrink-0 text-warning" />
           {/if}
-          <span class="w-[220px] min-w-0 shrink truncate text-ink">{row.number} {row.title}</span>
+          <span class="w-[13.75rem] min-w-0 shrink truncate text-ink">{row.number} {row.title}</span>
           <span class={row.found ? "text-ink-muted" : "text-warning-ink-muted"} data-review-lines>{row.line}</span>
         </li>
       {/each}

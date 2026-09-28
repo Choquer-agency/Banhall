@@ -75,21 +75,21 @@
         spellcheck="false"
         bind:value={password}
         disabled={saved}
-        class="field-control h-10 min-w-0 flex-1 rounded-[10px] px-3 font-mono text-[13px] text-ink disabled:bg-canvas"
+        class="field-control h-10 min-w-0 flex-1 rounded-[0.625rem] px-3 font-mono text-[0.8125rem] text-ink disabled:bg-canvas"
       />
-      <button type="button" onclick={() => { password = generateTemporaryPassword(); copied = false; }} disabled={saved} class="h-10 rounded-[10px] bg-chrome px-3 text-[13px] font-medium text-ink hover:bg-primary-wash disabled:opacity-50">New one</button>
-      <button type="button" onclick={copy} class="h-10 rounded-[10px] bg-chrome px-3 text-[13px] font-medium text-ink hover:bg-primary-wash">{copied ? "Copied" : "Copy"}</button>
+      <button type="button" onclick={() => { password = generateTemporaryPassword(); copied = false; }} disabled={saved} class="h-10 rounded-[0.625rem] bg-chrome px-3 text-[0.8125rem] font-medium text-ink hover:bg-primary-wash disabled:opacity-50">New one</button>
+      <button type="button" onclick={copy} class="h-10 rounded-[0.625rem] bg-chrome px-3 text-[0.8125rem] font-medium text-ink hover:bg-primary-wash">{copied ? "Copied" : "Copy"}</button>
     </div>
     {#if password.length > 0 && password.length < 8}
       <p class="text-xs text-danger-ink-muted">Use at least 8 characters.</p>
     {/if}
     {#if saved}
-      <p role="status" class="mt-2 rounded-[10px] border border-success-line bg-success-surface px-3 py-2 text-[13px] text-success-ink-muted">
+      <p role="status" class="mt-2 rounded-[0.625rem] border border-success-line bg-success-surface px-3 py-2 text-[0.8125rem] text-success-ink-muted">
         Password set{copied ? " and copied" : ""}. {name} was signed out everywhere.
       </p>
     {/if}
     {#if error}
-      <p role="alert" class="mt-2 rounded-[10px] border border-danger-line bg-danger-surface px-3 py-2 text-[13px] text-danger-ink-muted">{error}</p>
+      <p role="alert" class="mt-2 rounded-[0.625rem] border border-danger-line bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger-ink-muted">{error}</p>
     {/if}
   </div>
   {#snippet footer()}

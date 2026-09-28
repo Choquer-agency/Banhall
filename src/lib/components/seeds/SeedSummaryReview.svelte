@@ -869,14 +869,14 @@
   >Summary review</h1>
 
   <div class="relative min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto w-full max-w-[760px] px-4 pt-7 pb-14 sm:px-0">
+    <div class="mx-auto w-full max-w-[47.5rem] px-4 pt-7 pb-14 sm:px-0">
       {#if outlineError}
         <!-- Separate from the Summary-page and revision states below: the
              pages on screen stay complete; only live readiness and
              capability are unknown until this subscription is back. -->
         <div class="mb-4 rounded-lg border border-line bg-surface px-3 py-3" role="alert" data-summary-outline-error>
           <p class="text-body text-gap-text!">The live plan status could not be loaded. {userErrorMessage(outlineError, "The server could not return the current readiness.")}</p>
-          <p class="mt-1 text-[12px] text-ink-muted">Edits and sign-off stay unavailable until it reloads. Your unsaved wording is kept.</p>
+          <p class="mt-1 text-[0.75rem] text-ink-muted">Edits and sign-off stay unavailable until it reloads. Your unsaved wording is kept.</p>
           <Button class="mt-2" variant="secondary" size="sm" onclick={retryOutline} disabled={retryingOutline}>
             {retryingOutline ? "Reloading…" : "Reload plan status"}
           </Button>
@@ -890,7 +890,7 @@
       {#if !shownView && loadError}
         <div class="rounded-xl border border-line bg-surface p-6 text-center" role="alert">
           <p class="text-body text-gap-text!">{loadError}</p>
-          <p class="mt-1 text-[12px] text-ink-muted">Sign-off stays unavailable until the complete Summary loads. {persistence === "ok" ? "Unsaved edits are kept on this device." : "Unsaved edits stay in this open review."}</p>
+          <p class="mt-1 text-[0.75rem] text-ink-muted">Sign-off stays unavailable until the complete Summary loads. {persistence === "ok" ? "Unsaved edits are kept on this device." : "Unsaved edits stay in this open review."}</p>
           <Button class="mt-3" variant="secondary" size="sm" onclick={retryLoad} disabled={retryingLoad || loading}>
             {retryingLoad || loading ? "Reloading…" : "Reload Summary"}
           </Button>
@@ -912,7 +912,7 @@
         {#if loadError}
           <div class="mb-4 rounded-lg border border-line bg-surface px-3 py-3" role="alert">
             <p class="text-body text-gap-text!">{loadError}</p>
-            <p class="mt-1 text-[12px] text-ink-muted">Sign-off stays unavailable until the live Summary reloads. Your unsaved wording is kept.</p>
+            <p class="mt-1 text-[0.75rem] text-ink-muted">Sign-off stays unavailable until the live Summary reloads. Your unsaved wording is kept.</p>
             <Button class="mt-2" variant="secondary" size="sm" onclick={retryLoad} disabled={retryingLoad || loading}>Reload complete Summary</Button>
           </div>
         {/if}
@@ -921,8 +921,8 @@
             <section id={`summary-${section}`} class="flex flex-col gap-1" aria-labelledby={`summary-heading-${section}`}>
               <!-- Sticky Section heading (no jump list, owner amendment 2026-09-23). -->
               <div class="sticky top-0 z-10 flex flex-col gap-1.5 bg-canvas px-3 pt-2 pb-3.5">
-                <p class="font-mono text-[11px] leading-[14px] text-ink-muted" aria-hidden="true">Section {pdSectionNumber(section)}</p>
-                <h2 id={`summary-heading-${section}`} class="font-serif text-[24px] leading-[30px] font-normal text-ink">
+                <p class="font-mono text-[0.6875rem] leading-[0.875rem] text-ink-muted" aria-hidden="true">Section {pdSectionNumber(section)}</p>
+                <h2 id={`summary-heading-${section}`} class="font-serif text-[1.5rem] leading-[1.875rem] font-normal text-ink">
                   <span class="sr-only">Section {pdSectionNumber(section)}, </span>{PD_SECTION_TITLES[section]}
                 </h2>
               </div>
@@ -934,21 +934,21 @@
                 <article
                   id={`summary-${definition.roleId}`}
                   data-summary-role={definition.roleId}
-                  class={`flex scroll-mt-24 flex-col gap-2 rounded-[10px] px-3 py-3.5 transition-colors motion-reduce:transition-none sm:flex-row sm:gap-6 ${canEdit && roleItems.length > 0 ? "hover:bg-gray-50" : ""}`}
+                  class={`flex scroll-mt-24 flex-col gap-2 rounded-[0.625rem] px-3 py-3.5 transition-colors motion-reduce:transition-none sm:flex-row sm:gap-6 ${canEdit && roleItems.length > 0 ? "hover:bg-gray-50" : ""}`}
                 >
-                  <div class="flex shrink-0 flex-col gap-1.5 sm:w-[200px]">
-                    <h3 class={`text-[14px] leading-5 font-medium ${skipped ? "text-ink-muted" : "text-ink"}`}>{definition.title}</h3>
+                  <div class="flex shrink-0 flex-col gap-1.5 sm:w-[12.5rem]">
+                    <h3 class={`text-[0.875rem] leading-5 font-medium ${skipped ? "text-ink-muted" : "text-ink"}`}>{definition.title}</h3>
                     {#if roleTags.length > 0}
                       <div class="flex flex-wrap gap-1.5">
                         {#each roleTags as tag}
                           {@const style = seedTagStyle(tag)}
-                          <span class="rounded-full px-2 py-0.5 text-[11px] leading-4" style={`background:${style.background};color:${style.color}`}>{style.label}</span>
+                          <span class="rounded-full px-2 py-0.5 text-[0.6875rem] leading-4" style={`background:${style.background};color:${style.color}`}>{style.label}</span>
                         {/each}
                       </div>
                     {/if}
                     {#if writerAsserted}
                       <!-- FR-21 marker, kept small (decision 19). -->
-                      <p class="text-[11px] leading-4 text-ink-muted" data-summary-marker="writer-asserted">Writer asserted</p>
+                      <p class="text-[0.6875rem] leading-4 text-ink-muted" data-summary-marker="writer-asserted">Writer asserted</p>
                     {/if}
                   </div>
                   <div class="flex min-w-0 flex-1 flex-col gap-3">
@@ -988,7 +988,7 @@
                                 aria-label="Bullet 1"
                                 aria-describedby={`summary-edit-hint-${item.seedId}`}
                                 data-summary-edit-first
-                                class="field-control block min-h-11 w-full resize-none rounded-lg px-2.5 py-2 text-[14px] leading-5 text-ink [field-sizing:content]"
+                                class="field-control block min-h-11 w-full resize-none rounded-lg px-2.5 py-2 text-[0.875rem] leading-5 text-ink [field-sizing:content]"
                               ></textarea>
                             </div>
                             {#if secondBulletShown || item.bullets.length > 1 || bulletTwo.length > 0}
@@ -1003,7 +1003,7 @@
                                   aria-describedby={`summary-edit-hint-${item.seedId}`}
                                   placeholder="Optional second bullet"
                                   data-summary-edit-second
-                                  class="field-control block min-h-11 w-full resize-none rounded-lg px-2.5 py-2 text-[14px] leading-5 text-ink placeholder:text-ink-faint [field-sizing:content]"
+                                  class="field-control block min-h-11 w-full resize-none rounded-lg px-2.5 py-2 text-[0.875rem] leading-5 text-ink placeholder:text-ink-faint [field-sizing:content]"
                                 ></textarea>
                               </div>
                             {/if}
@@ -1011,9 +1011,9 @@
                               <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
                                 <p>This wording began against an older decision version. Review the current wording before saving it.</p>
                                 {#if reviewedCurrentVersion}
-                                  <p class="mt-1 text-[12px]">Current wording: {item.bullets.join(" ")}</p>
+                                  <p class="mt-1 text-[0.75rem]">Current wording: {item.bullets.join(" ")}</p>
                                 {:else}
-                                  <p class="mt-1 text-[12px]">The current wording is still loading. Your draft stays as typed until it is displayed.</p>
+                                  <p class="mt-1 text-[0.75rem]">The current wording is still loading. Your draft stays as typed until it is displayed.</p>
                                 {/if}
                                 <Button
                                   class="mt-2"
@@ -1025,16 +1025,16 @@
                               </div>
                             {/if}
                             <div class="flex items-center gap-3">
-                              <p id={`summary-edit-hint-${item.seedId}`} class="flex-1 text-[12px] leading-4 text-ink-muted">Enter to save, Esc to cancel</p>
+                              <p id={`summary-edit-hint-${item.seedId}`} class="flex-1 text-[0.75rem] leading-4 text-ink-muted">Enter to save, Esc to cancel</p>
                               {#if !(secondBulletShown || item.bullets.length > 1 || bulletTwo.length > 0)}
                                 <button
                                   type="button"
-                                  class="shrink-0 rounded text-[12px] leading-4 text-ink-muted transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none"
+                                  class="shrink-0 rounded text-[0.75rem] leading-4 text-ink-muted transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none"
                                   onclick={() => revealSecondBullet(item.seedId)}
                                 >Add a second bullet</button>
                               {/if}
                               {#if editLong}
-                                <p class="text-[12px] leading-4 text-gap-text" aria-live="polite" data-seed-long-note>Long for a seed</p>
+                                <p class="text-[0.75rem] leading-4 text-gap-text" aria-live="polite" data-seed-long-note>Long for a seed</p>
                               {/if}
                             </div>
                           </div>
@@ -1044,7 +1044,7 @@
                               aria-label={savingSeedIds.includes(item.seedId) ? "Saving…" : "Save wording"}
                               onclick={() => saveEdit(item)}
                               disabled={!canSaveEdit(item)}
-                              class="flex size-[22px] items-center justify-center rounded-[5px] bg-primary-selected text-white transition-opacity focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50 motion-reduce:transition-none [@media(pointer:coarse)]:size-11"
+                              class="flex size-[1.375rem] items-center justify-center rounded-[0.3125rem] bg-primary-selected text-white transition-opacity focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50 motion-reduce:transition-none [@media(pointer:coarse)]:size-11"
                             >
                               {#if savingSeedIds.includes(item.seedId)}
                                 <Spinner size="sm" />
@@ -1056,7 +1056,7 @@
                               type="button"
                               aria-label="Cancel"
                               onclick={() => cancelEdit(item.seedId)}
-                              class="flex size-[22px] items-center justify-center rounded-[5px] border border-line bg-surface text-ink-secondary hover:bg-primary-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary [@media(pointer:coarse)]:size-11"
+                              class="flex size-[1.375rem] items-center justify-center rounded-[0.3125rem] border border-line bg-surface text-ink-secondary hover:bg-primary-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary [@media(pointer:coarse)]:size-11"
                             >
                               <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
                             </button>
@@ -1064,13 +1064,13 @@
                         {:else}
                           <ul class="flex min-w-0 flex-1 flex-col gap-1.5">
                             {#each item.bullets as bullet, bulletIndex}
-                              <li class="flex gap-2 text-[14px] leading-5 text-ink">
+                              <li class="flex gap-2 text-[0.875rem] leading-5 text-ink">
                                 <span class="mt-2 size-1 shrink-0 rounded-full bg-ink-faint" aria-hidden="true"></span>
                                 <span class="min-w-0 flex-1">
                                   <span>{@render bulletText(item, bullet)}</span>
                                   {#if edited && bulletIndex === item.bullets.length - 1}
                                     <span class="ml-1 inline-flex translate-y-0.5 text-ink-muted" role="img" aria-label="Edited by hand" data-summary-edited-mark>
-                                      {@render revertIcon("size-[13px]")}
+                                      {@render revertIcon("size-[0.8125rem]")}
                                     </span>
                                   {/if}
                                 </span>
@@ -1136,7 +1136,7 @@
               Readiness could not be fully computed within the server's safe processing limit, so it is not known whether every subsection is decided. Sign-off stays unavailable until the plan status is read completely.
             </p>
             {#each incompleteReadinessMessages as message}
-              <p class="mt-1 text-[12px] text-ink-muted">{message}</p>
+              <p class="mt-1 text-[0.75rem] text-ink-muted">{message}</p>
             {/each}
             <Button class="mt-2 min-h-11" variant="secondary" size="sm" onclick={retryOutline} disabled={retryingOutline}>
               {retryingOutline ? "Reloading…" : "Reload plan status"}
@@ -1145,9 +1145,9 @@
         {/if}
       </div>
     {/if}
-    <div class="flex min-h-[68px] flex-wrap items-center gap-x-3.5 gap-y-2 px-4 py-3 sm:px-6">
+    <div class="flex min-h-[4.25rem] flex-wrap items-center gap-x-3.5 gap-y-2 px-4 py-3 sm:px-6">
       {#if readOnly}
-        <p class="text-[14px] leading-5 font-medium text-ink" data-summary-status="signed-off">Signed-off plan</p>
+        <p class="text-[0.875rem] leading-5 font-medium text-ink" data-summary-status="signed-off">Signed-off plan</p>
       {:else if readiness?.ready && draftingInputs === "preparing"}
         <!-- Every step is decided; the background analysis and Brain search
              (owner decision 32) are still finishing. Sign-off opens by
@@ -1157,19 +1157,19 @@
             class="size-4 shrink-0 animate-spin rounded-full border-2 border-primary/30 border-t-primary motion-reduce:animate-none"
             aria-hidden="true"
           ></span>
-          <p class="text-[14px] leading-5 font-medium text-ink">Preparing the transcript analysis…</p>
+          <p class="text-[0.875rem] leading-5 font-medium text-ink">Preparing the transcript analysis…</p>
         </div>
       {:else if readiness?.ready && draftingInputs === "failed"}
         <div class="flex items-center gap-2.5" data-summary-status="drafting-inputs-failed">
           <span class="size-2 shrink-0 rounded-full bg-stale-dot" aria-hidden="true"></span>
-          <p class="text-[14px] leading-5 font-medium text-ink">{DRAFTING_INPUTS_FAILED_STATUS}</p>
+          <p class="text-[0.875rem] leading-5 font-medium text-ink">{DRAFTING_INPUTS_FAILED_STATUS}</p>
         </div>
       {:else if readiness?.ready}
         <div class="flex items-center gap-2.5" data-summary-status="ready">
           <span class="flex size-5 shrink-0 items-center justify-center rounded-full" style="background:#DCFCE7" aria-hidden="true">
             <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
           </span>
-          <p class="text-[14px] leading-5 font-medium text-ink">Ready to sign off</p>
+          <p class="text-[0.875rem] leading-5 font-medium text-ink">Ready to sign off</p>
         </div>
       {:else if blockingRoleIds.length > 0}
         {@const count = blockingRoleIds.length}
@@ -1180,11 +1180,11 @@
             <button
               type="button"
               aria-label={`${stepLabel}: open ${roleTitle(blockingRoleIds[0])}`}
-              class="rounded text-[14px] leading-5 font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              class="rounded text-[0.875rem] leading-5 font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
               onclick={() => openBlockingStep(blockingRoleIds[0])}
             >{stepLabel}</button>
           {:else}
-            <p class="text-[14px] leading-5 font-medium text-ink" title={blockingRoleIds.map(roleTitle).join(", ")}>{stepLabel}</p>
+            <p class="text-[0.875rem] leading-5 font-medium text-ink" title={blockingRoleIds.map(roleTitle).join(", ")}>{stepLabel}</p>
           {/if}
         </div>
       {/if}
@@ -1193,7 +1193,7 @@
           type="button"
           data-summary-edited-pill
           aria-label={`${editedItems.length} edited by hand, go to the first`}
-          class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-gap-bg pr-2 pl-1.5 text-[12px] leading-4 text-gap-text transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none"
+          class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-gap-bg pr-2 pl-1.5 text-[0.75rem] leading-4 text-gap-text transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none"
           onclick={jumpToFirstEdit}
         >
           {@render revertIcon("size-3")}
@@ -1202,7 +1202,7 @@
         </button>
       {/if}
       <div class="hidden flex-1 sm:block"></div>
-      <div class="flex items-center gap-2 text-[12px] leading-4 text-ink-muted">
+      <div class="flex items-center gap-2 text-[0.75rem] leading-4 text-ink-muted">
         <!-- Only the model, plus the Summary version once it has been
              regenerated (PRD FR-21). Length target and Writer Profile stay
              frozen and recorded at sign-off but are not shown here. -->

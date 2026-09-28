@@ -127,7 +127,7 @@
   }
 
   const iconButton =
-    "flex size-[26px] shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
+    "flex size-[1.625rem] shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
 </script>
 
 <section data-details-panel aria-labelledby={`${componentId}-title`} class="relative flex h-full min-h-0 flex-col bg-surface">
@@ -141,9 +141,9 @@
       >
         <CaretLeftIcon size={16} aria-hidden="true" />
       </button>
-      <h2 id={`${componentId}-title`} class="text-[13px] font-medium leading-[18px] text-ink">Hand off</h2>
+      <h2 id={`${componentId}-title`} class="text-[0.8125rem] font-medium leading-[1.125rem] text-ink">Hand off</h2>
     {:else}
-      <h2 id={`${componentId}-title`} class="text-[13px] font-medium leading-[18px] text-ink">Details</h2>
+      <h2 id={`${componentId}-title`} class="text-[0.8125rem] font-medium leading-[1.125rem] text-ink">Details</h2>
     {/if}
     <button
       type="button"
@@ -155,9 +155,9 @@
     </button>
   </header>
 
-  <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-[18px]">
+  <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-[1.125rem]">
     {#if error}
-      <p class="rounded-lg bg-gray-50 px-3 py-2.5 text-[13px] text-red-700" role="alert">{error}</p>
+      <p class="rounded-lg bg-gray-50 px-3 py-2.5 text-[0.8125rem] text-red-700" role="alert">{error}</p>
     {:else if data === undefined}
       <div class="space-y-3" aria-busy="true">
         <span class="sr-only" role="status">Loading details</span>
@@ -165,7 +165,7 @@
         <div class="skeleton-shimmer h-40 rounded-xl"></div>
       </div>
     {:else if data === null}
-      <p class="text-[13px] text-ink-secondary">Details are not available for this project.</p>
+      <p class="text-[0.8125rem] text-ink-secondary">Details are not available for this project.</p>
     {:else if view === "handoff"}
       <HandOffView
         currentStage={data.stage}
@@ -185,7 +185,7 @@
         onChangeStage={changeStage}
         onOpenHandOff={() => void leaveDetails(() => (view = "handoff"))}
       />
-      <div class="mt-[18px]">
+      <div class="mt-[1.125rem]">
         <DetailsFacts bind:this={facts} {data} {now} {canCreateIndustry} {...savers} />
       </div>
       {#if more}
@@ -197,7 +197,7 @@
             aria-expanded={moreOpen}
             aria-controls={moreId}
             onclick={() => (moreOpen = !moreOpen)}
-            class="flex min-h-[34px] w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir"
+            class="flex min-h-[2.125rem] w-full items-center gap-2 rounded-md px-2 text-left text-[0.8125rem] text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir"
           >
             More
             <DisclosureChevron open={moreOpen} tone="neutral" class="ml-auto size-3.5" />
@@ -230,7 +230,7 @@
         data-details-confirmation
         in:fly={{ y: 4, duration: motionDuration(200) }}
         out:fade={{ duration: motionDuration(300) }}
-        class="absolute inset-x-0 bottom-0 flex h-10 items-center gap-2.5 rounded-[10px] border border-line bg-surface px-3.5 text-[13px] leading-[18px] text-ink shadow-toast"
+        class="absolute inset-x-0 bottom-0 flex h-10 items-center gap-2.5 rounded-[0.625rem] border border-line bg-surface px-3.5 text-[0.8125rem] leading-[1.125rem] text-ink shadow-toast"
       >
         <CheckIcon size={14} weight="bold" aria-hidden="true" class="shrink-0 text-primary-selected" />
         <span class="min-w-0 truncate">{shown.text}</span>

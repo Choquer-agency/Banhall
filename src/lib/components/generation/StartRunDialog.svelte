@@ -271,7 +271,7 @@
       {/snippet}
     </Dialog.Overlay>
     <div data-start-run-frame class="pointer-events-none fixed inset-0 z-[110] flex flex-col items-center p-4">
-      <div aria-hidden="true" class="min-h-0 shrink grow-0 basis-[124px]"></div>
+      <div aria-hidden="true" class="min-h-0 shrink grow-0 basis-[7.75rem]"></div>
       <Dialog.Content
         forceMount
         onOpenAutoFocus={(event) => {
@@ -294,11 +294,11 @@
               transition:modalPop
               data-start-run-dialog
               data-mode={mode}
-              class="pointer-events-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-[580px] shrink-0 flex-col overflow-hidden rounded-[16px] border border-line bg-surface shadow-dialog"
+              class="pointer-events-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-[36.25rem] shrink-0 flex-col overflow-hidden rounded-[1rem] border border-line bg-surface shadow-dialog"
             >
               <div class="flex items-start gap-4 pt-6 pr-5 pl-7">
                 <div class="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <Dialog.Title data-start-run-title class="text-[18px] leading-6 font-medium text-ink">{copy.title}</Dialog.Title>
+                  <Dialog.Title data-start-run-title class="text-[1.125rem] leading-6 font-medium text-ink">{copy.title}</Dialog.Title>
                   <Dialog.Description class="text-sm leading-5 text-ink-muted">{copy.subtitle}</Dialog.Description>
                 </div>
                 <Dialog.Close
@@ -320,7 +320,7 @@
                     class={`flex shrink-0 items-center gap-3 border-b border-line-soft ${source.locked ? "h-14" : "h-12"}`}
                   >
                     {#if source.locked}
-                      <span class="flex size-[18px] shrink-0 items-center justify-center rounded-[5px] bg-chrome text-ink-secondary" data-start-run-lock aria-hidden="true">
+                      <span class="flex size-[1.125rem] shrink-0 items-center justify-center rounded-[0.3125rem] bg-chrome text-ink-secondary" data-start-run-lock aria-hidden="true">
                         <IconLock size={10} strokeWidth={2.6} stroke-linejoin="round" />
                       </span>
                     {:else}
@@ -329,7 +329,7 @@
                         onCheckedChange={(next) => toggle(source.id, next === true)}
                         aria-label={`Use ${source.name}`}
                         data-start-run-check={source.id}
-                        class="inline-flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border-[1.5px] text-white transition-colors duration-150 ease-out motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir data-[state=checked]:border-fir data-[state=checked]:bg-fir data-[state=unchecked]:border-gray-300 data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-gray-400"
+                        class="inline-flex size-[1.125rem] shrink-0 items-center justify-center rounded-[0.3125rem] border-[1.5px] text-white transition-colors duration-150 ease-out motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir data-[state=checked]:border-fir data-[state=checked]:bg-fir data-[state=unchecked]:border-gray-300 data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-gray-400"
                       >
                         {#snippet children({ checked })}
                           {#if checked}
@@ -341,18 +341,18 @@
                     <div class={`flex min-w-0 flex-1 items-center gap-2.5 transition-opacity motion-reduce:transition-none ${ticked ? "" : "opacity-55"}`} data-start-run-body>
                       <span class="flex size-7 shrink-0 items-center justify-center"><FileIcon name={source.name} size={28} /></span>
                       <div class="flex min-w-0 flex-col">
-                        <span class="truncate text-[13px] leading-[18px] font-medium text-ink" data-start-run-name>{source.name}</span>
+                        <span class="truncate text-[0.8125rem] leading-[1.125rem] font-medium text-ink" data-start-run-name>{source.name}</span>
                         <span data-start-run-meta class="truncate text-xs leading-4 text-ink-muted">
                           {source.reading ? readingMeta(source.readingEtaSeconds) : source.meta}
                         </span>
                       </div>
                     </div>
                     {#if source.locked}
-                      <span data-start-run-chip class="flex h-[18px] shrink-0 items-center rounded-[4px] bg-being-reviewed px-1.5 text-[11px] leading-[14px] font-medium text-fir">
+                      <span data-start-run-chip class="flex h-[1.125rem] shrink-0 items-center rounded-[0.25rem] bg-being-reviewed px-1.5 text-[0.6875rem] leading-[0.875rem] font-medium text-fir">
                         Being reviewed
                       </span>
                     {:else}
-                      <span data-start-run-chip class={`flex h-[18px] shrink-0 items-center rounded-[4px] bg-chrome px-1.5 text-[11px] leading-[14px] font-medium text-ink-secondary ${ticked ? "" : "opacity-55"}`}>
+                      <span data-start-run-chip class={`flex h-[1.125rem] shrink-0 items-center rounded-[0.25rem] bg-chrome px-1.5 text-[0.6875rem] leading-[0.875rem] font-medium text-ink-secondary ${ticked ? "" : "opacity-55"}`}>
                         {source.typeLabel}
                       </span>
                     {/if}
@@ -363,11 +363,11 @@
               {#if anyTickedReading}
                 <div class="flex items-start gap-2 px-7 pt-2.5" data-start-run-reading-note>
                   <span class="aurora-spin mt-0.5 size-3.5 shrink-0 rounded-full border-2 border-[var(--aurora-track)] border-t-ink-muted" aria-hidden="true"></span>
-                  <p class="text-xs leading-[17px] text-ink-muted">Files still being read are used as soon as they are ready. Untick one to start without it.</p>
+                  <p class="text-xs leading-[1.0625rem] text-ink-muted">Files still being read are used as soon as they are ready. Untick one to start without it.</p>
                 </div>
               {/if}
               {#if problem}
-                <p role="alert" data-start-run-problem class="px-7 pt-2.5 text-xs leading-[17px] text-danger-ink-muted">{problem}</p>
+                <p role="alert" data-start-run-problem class="px-7 pt-2.5 text-xs leading-[1.0625rem] text-danger-ink-muted">{problem}</p>
               {/if}
               {#if runCopy}
                 <!-- F6: one run at a time per project. -->
@@ -385,11 +385,11 @@
                 </div>
               {/if}
 
-              <div class="flex flex-wrap items-center gap-2 pt-[18px] pr-5 pb-5 pl-7">
+              <div class="flex flex-wrap items-center gap-2 pt-[1.125rem] pr-5 pb-5 pl-7">
                 <div class="flex min-w-0 flex-1 items-center gap-2" data-start-run-models>
                   <AuroraMark size={18} />
                   <div class="flex min-w-0 flex-col">
-                    <span class="truncate text-[13px] leading-[18px] font-medium text-ink" data-start-run-model-title>{models.title}</span>
+                    <span class="truncate text-[0.8125rem] leading-[1.125rem] font-medium text-ink" data-start-run-model-title>{models.title}</span>
                     <span class="truncate text-xs leading-4 text-ink-muted" data-start-run-model-line>{models.line}</span>
                   </div>
                 </div>
@@ -412,7 +412,7 @@
           {/if}
         {/snippet}
       </Dialog.Content>
-      <div aria-hidden="true" class="min-h-0 shrink grow basis-[124px]"></div>
+      <div aria-hidden="true" class="min-h-0 shrink grow basis-[7.75rem]"></div>
     </div>
   </Dialog.Portal>
 </Dialog.Root>

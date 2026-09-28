@@ -48,27 +48,27 @@
     <h2 id="home-continue-title" class="min-w-0 flex-1 text-base font-medium leading-6 text-ink">Continue working</h2>
     {#if target !== null}
       <!-- J7 has no label: there is nothing to pick up yet. -->
-      <span data-home-continue-label class="shrink-0 text-[11px] leading-4 text-ink-secondary">Last worked on</span>
+      <span data-home-continue-label class="shrink-0 text-[0.6875rem] leading-4 text-ink-secondary">Last worked on</span>
     {/if}
   </div>
 
   {#if target === undefined || (target && summary === undefined)}
-    <div role="status" aria-label="Loading the project to continue" class="flex flex-col gap-2.5 rounded-[9px] border border-line p-5">
+    <div role="status" aria-label="Loading the project to continue" class="flex flex-col gap-2.5 rounded-[0.5625rem] border border-line p-5">
       <span class="h-3 w-28 animate-pulse rounded bg-chrome motion-reduce:animate-none"></span>
       <span class="h-4 w-52 max-w-full animate-pulse rounded bg-chrome motion-reduce:animate-none"></span>
       <span class="h-3 w-40 animate-pulse rounded bg-chrome motion-reduce:animate-none"></span>
     </div>
   {:else if target && summary}
-    <div data-home-continue-card class="flex flex-col gap-1.5 rounded-[9px] border border-line bg-surface p-5">
+    <div data-home-continue-card class="flex flex-col gap-1.5 rounded-[0.5625rem] border border-line bg-surface p-5">
       {#if eyebrow}
-        <p data-home-continue-when class="text-[11px] leading-4 text-ink-secondary">{eyebrow}</p>
+        <p data-home-continue-when class="text-[0.6875rem] leading-4 text-ink-secondary">{eyebrow}</p>
       {/if}
       <p class="text-base font-medium leading-6 text-ink [overflow-wrap:anywhere]">{summary.projectTitle}</p>
       {#if continueMetaLine(summary)}
-        <p data-home-continue-meta class="text-xs leading-[18px] text-ink-secondary">{continueMetaLine(summary)}</p>
+        <p data-home-continue-meta class="text-xs leading-[1.125rem] text-ink-secondary">{continueMetaLine(summary)}</p>
       {/if}
       {#if proposals}
-        <p data-home-continue-proposals class="text-[11px] leading-4 text-ink-secondary">{proposals}</p>
+        <p data-home-continue-proposals class="text-[0.6875rem] leading-4 text-ink-secondary">{proposals}</p>
       {/if}
       <div class="flex items-center justify-between gap-3 pt-1.5">
         <HomeStageChip stage={summary.workflowStage} />
@@ -78,7 +78,7 @@
           data-recent-title={summary.projectTitle}
           data-recent-stage={summary.workflowStage}
           data-recent-client={summary.clientName || undefined}
-          class="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-primary-selected px-2.5 text-xs leading-[18px] font-medium text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
+          class="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-primary-selected px-2.5 text-xs leading-[1.125rem] font-medium text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
         >
           Resume report <span aria-hidden="true">→</span>
         </a>
@@ -86,7 +86,7 @@
     </div>
   {:else}
     <!-- J7: no card, one quiet line until there is something to pick up. -->
-    <p data-home-continue-empty class="text-[13px] leading-[19px] text-ink-muted">
+    <p data-home-continue-empty class="text-[0.8125rem] leading-[1.1875rem] text-ink-muted">
       Nothing to pick up yet. The last project you worked on shows up here.
     </p>
   {/if}

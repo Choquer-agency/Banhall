@@ -85,7 +85,7 @@
       >
         <ModelLogo size="sm" provider={row.provider} />
         <span class="min-w-0 truncate text-xs font-medium">{row.label}</span>
-        <span class="ml-1 shrink-0 text-[10px] uppercase tracking-wide text-gray-300">{row.provider}</span>
+        <span class="ml-1 shrink-0 text-[0.625rem] uppercase tracking-wide text-gray-300">{row.provider}</span>
         <svg
           class={`ml-auto h-4 w-4 shrink-0 text-primary ${value === row.id ? "opacity-100" : "opacity-0"}`}
           fill="currentColor" viewBox="0 0 24 24"

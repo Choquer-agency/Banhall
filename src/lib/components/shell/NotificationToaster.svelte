@@ -84,7 +84,7 @@
     aria-label="Notifications"
     data-notification-toaster
     style:bottom={`${16 + stickyActionBarHeight()}px`}
-    class="pointer-events-none fixed right-4 z-[100] flex w-[min(360px,calc(100vw-2rem))] flex-col-reverse gap-2"
+    class="pointer-events-none fixed right-4 z-[100] flex w-[min(22.5rem,calc(100vw-2rem))] flex-col-reverse gap-2"
   >
     {#each cards as row (row._id)}
       <div
@@ -103,7 +103,7 @@
         >
           <span class="block text-sm leading-5 font-medium text-ink" data-notification-title>{row.title}</span>
           {#if row.body}
-            <span class="mt-0.5 block text-[13px] leading-[18px] text-ink-muted" data-notification-body>{row.body}</span>
+            <span class="mt-0.5 block text-[0.8125rem] leading-[1.125rem] text-ink-muted" data-notification-body>{row.body}</span>
           {/if}
         </button>
         <button

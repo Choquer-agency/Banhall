@@ -100,12 +100,12 @@
   }
 
   const fieldTrigger =
-    "field-control flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] leading-[18px] text-ink data-[state=open]:shadow-[inset_0_0_0_1px_var(--color-primary)]!";
-  const fieldLabel = "text-xs font-medium leading-[18px] text-ink-secondary";
+    "field-control flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[0.8125rem] leading-[1.125rem] text-ink data-[state=open]:shadow-[inset_0_0_0_1px_var(--color-primary)]!";
+  const fieldLabel = "text-xs font-medium leading-[1.125rem] text-ink-secondary";
   const menu =
     "z-[120] w-[var(--bits-popover-anchor-width)] min-w-56 overflow-hidden rounded-xl border border-line bg-surface shadow-popover outline-none";
   const optionRow =
-    "flex min-h-[34px] w-full cursor-default items-center gap-2.5 rounded-md px-2 text-left text-[13px] leading-[18px] text-ink outline-none";
+    "flex min-h-[2.125rem] w-full cursor-default items-center gap-2.5 rounded-md px-2 text-left text-[0.8125rem] leading-[1.125rem] text-ink outline-none";
 </script>
 
 <form
@@ -144,22 +144,22 @@
         >
           <Command.Root shouldFilter={false} loop label="People">
             <div class="px-2 pb-1 pt-2">
-              <div class="field-control-shell flex h-[34px] items-center gap-2 rounded-md px-2.5">
+              <div class="field-control-shell flex h-[2.125rem] items-center gap-2 rounded-md px-2.5">
                 <MagnifyingGlassIcon size={14} aria-hidden="true" class="pointer-events-none shrink-0 text-ink-muted" />
                 <Command.Input
                   bind:value={query}
                   placeholder="Search people"
                   aria-label="Search people"
-                  class="input-chromeless h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink placeholder:text-ink-muted"
+                  class="input-chromeless h-full min-w-0 flex-1 bg-transparent text-[0.8125rem] text-ink placeholder:text-ink-muted"
                 />
               </div>
             </div>
             <Command.List class="max-h-64 overflow-y-auto px-1.5 pb-1.5">
               <Command.Viewport>
                 {#if teamLoading}
-                  <p class="px-2 py-3 text-[13px] text-ink-muted" role="status">Loading the team...</p>
+                  <p class="px-2 py-3 text-[0.8125rem] text-ink-muted" role="status">Loading the team...</p>
                 {:else if teamError}
-                  <p class="px-2 py-3 text-[13px] text-red-700" role="alert">{teamError}</p>
+                  <p class="px-2 py-3 text-[0.8125rem] text-red-700" role="alert">{teamError}</p>
                 {:else}
                   {#each filtered as member (member.userId)}
                     <Command.Item
@@ -177,7 +177,7 @@
                       {/if}
                     </Command.Item>
                   {:else}
-                    <p class="px-2 py-3 text-[13px] text-ink-muted" role="status">No one matches.</p>
+                    <p class="px-2 py-3 text-[0.8125rem] text-ink-muted" role="status">No one matches.</p>
                   {/each}
                 {/if}
               </Command.Viewport>
@@ -224,9 +224,9 @@
                   chosenStage = option.stage;
                   stageOpen = false;
                 }}
-                class={`${optionRow} min-h-[30px] hover:bg-primary-wash focus-visible:bg-primary-wash ${option.stage === stage ? "bg-gray-50" : ""}`}
+                class={`${optionRow} min-h-[1.875rem] hover:bg-primary-wash focus-visible:bg-primary-wash ${option.stage === stage ? "bg-gray-50" : ""}`}
               >
-                <span class="w-[132px] shrink-0"><StageChip stage={option.stage} size="sm" /></span>
+                <span class="w-[8.25rem] shrink-0"><StageChip stage={option.stage} size="sm" /></span>
                 <span class="min-w-0 flex-1 truncate text-xs text-ink-muted">
                   {option.current ? "keep current" : option.move === "reason" ? "asks for a reason" : ""}
                 </span>
@@ -239,7 +239,7 @@
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
-    <p class="text-xs leading-[18px] text-ink-muted">
+    <p class="text-xs leading-[1.125rem] text-ink-muted">
       {#if stage === currentStage}
         The stage stays {WORKFLOW_STAGE_LABELS[currentStage]}.
       {:else if canKeepStage}
@@ -256,7 +256,7 @@
       id="hand-off-note"
       bind:value={note}
       rows="3"
-      class="field-control h-[72px] w-full resize-none rounded-lg px-2.5 py-2 text-[13px] leading-[18px] text-ink"
+      class="field-control h-[4.5rem] w-full resize-none rounded-lg px-2.5 py-2 text-[0.8125rem] leading-[1.125rem] text-ink"
     ></textarea>
     {#if note.length > MAX_WORKFLOW_NOTE_CHARS}
       <p class="text-xs text-red-700" role="alert">Keep the note under {MAX_WORKFLOW_NOTE_CHARS} characters.</p>
@@ -264,7 +264,7 @@
   </div>
 
   {#if assignee}
-    <p data-hand-off-helper class="text-xs leading-[18px] text-ink-muted">
+    <p data-hand-off-helper class="text-xs leading-[1.125rem] text-ink-muted">
       {assignee.isYou ? "You see" : `${firstName(assignee.label)} sees`} it under With you on {assignee.isYou ? "your" : "their"} home page.
     </p>
   {/if}

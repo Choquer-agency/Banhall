@@ -55,7 +55,7 @@
     class="flex w-full items-center gap-3 px-4 py-3 text-left"
   >
     <span
-      class={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+      class={`flex-shrink-0 rounded-full px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide ${
         report.reportType === "feature"
           ? "bg-primary/15 text-primary-selected"
           : report.kind === "manual"
@@ -74,7 +74,7 @@
       {report.message}
     </span>
 
-    <span class="hidden flex-shrink-0 truncate text-xs text-ink-faint sm:block sm:max-w-[160px]">
+    <span class="hidden flex-shrink-0 truncate text-xs text-ink-faint sm:block sm:max-w-[10rem]">
       {report.url}
     </span>
     <span class="flex-shrink-0 text-xs text-ink-faint">
@@ -190,12 +190,12 @@
           <p class="mb-1 text-xs font-semibold text-ink-muted">
             Stack trace
           </p>
-          <pre class="overflow-x-auto rounded-lg bg-navy px-3 py-2 text-[11px] leading-relaxed text-white/80">{report.stack}</pre>
+          <pre class="overflow-x-auto rounded-lg bg-navy px-3 py-2 text-[0.6875rem] leading-relaxed text-white/80">{report.stack}</pre>
         </div>
       {/if}
 
       {#if report.userAgent}
-        <p class="break-all text-[11px] text-ink-faint">
+        <p class="break-all text-[0.6875rem] text-ink-faint">
           {report.userAgent}
         </p>
       {/if}

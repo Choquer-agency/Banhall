@@ -14,7 +14,7 @@
     progressLabel,
     valueText,
     shadow = "var(--shadow-writing-pill)",
-    innerClass = "h-[42px] gap-3 pl-3 pr-[5px]",
+    innerClass = "h-[2.625rem] gap-3 pl-3 pr-[0.3125rem]",
     element = $bindable(null),
     class: className = "",
     children,
@@ -39,7 +39,7 @@
 <div
   bind:this={element}
   {...rest}
-  class={`relative overflow-hidden rounded-full p-[2px] outline-none ${className}`}
+  class={`relative overflow-hidden rounded-full p-[0.125rem] outline-none ${className}`}
   style={`background:${TRACK};box-shadow:${shadow}`}
 >
   <!-- Border progress: the Aurora fill scales from the left edge. -->

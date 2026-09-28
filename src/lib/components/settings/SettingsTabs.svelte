@@ -15,7 +15,7 @@
 </script>
 
 <nav aria-label="Settings sections" class="-m-1 max-w-full overflow-x-auto p-1">
-  <ul data-settings-tabs class="inline-flex gap-1 rounded-[10px] bg-chrome p-1">
+  <ul data-settings-tabs class="inline-flex gap-1 rounded-[0.625rem] bg-chrome p-1">
     {#each tabs as tab (tab.key)}
       {@const current = tab.key === activeKey}
       <li>
@@ -23,7 +23,7 @@
           href={tab.href}
           aria-current={current ? "page" : undefined}
           data-settings-tab={tab.key}
-          class={`flex h-[30px] items-center whitespace-nowrap rounded-[7px] px-3 text-[13px] font-medium leading-[18px] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11 ${
+          class={`flex h-[1.875rem] items-center whitespace-nowrap rounded-[0.4375rem] px-3 text-[0.8125rem] font-medium leading-[1.125rem] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11 ${
             current ? "bg-primary-selected text-white" : "text-ink-secondary hover:bg-primary-wash hover:text-ink"
           }`}
         >{tab.label}</a>

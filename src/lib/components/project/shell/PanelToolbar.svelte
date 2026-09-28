@@ -71,7 +71,7 @@
   } = $props();
 
   const toggleBase =
-    "flex size-[26px] shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir pointer-coarse:size-11";
+    "flex size-[1.625rem] shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir pointer-coarse:size-11";
   const toggleClass = (active: boolean) =>
     `${toggleBase} ${active ? "bg-workspace-rail-selected text-fir" : "text-ink-muted hover:bg-primary-wash hover:text-ink"}`;
 </script>
@@ -99,10 +99,10 @@
           <span class="sr-only">, done</span>
         {/if}
         {#if tab.status}
-          <span class="rounded bg-primary-wash px-1.5 text-[11px] leading-4 text-primary-selected">{tab.status}</span>
+          <span class="rounded bg-primary-wash px-1.5 text-[0.6875rem] leading-4 text-primary-selected">{tab.status}</span>
         {/if}
         {#if tab.count != null}
-          <span class="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-gray-50 px-1 text-[10px] leading-3 font-normal text-ink-muted tabular-nums">{tab.count}</span>
+          <span class="flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-gray-50 px-1 text-[0.625rem] leading-3 font-normal text-ink-muted tabular-nums">{tab.count}</span>
         {/if}
         {#if active}
           <span aria-hidden="true" class="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-primary-selected"></span>

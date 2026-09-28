@@ -67,7 +67,7 @@
               {...props}
               data-view-as-dialog
               transition:modalPop
-              class="pointer-events-auto w-full shrink-0 overflow-hidden rounded-t-2xl border border-line bg-surface shadow-dialog sm:max-w-[600px] sm:rounded-2xl"
+              class="pointer-events-auto w-full shrink-0 overflow-hidden rounded-t-2xl border border-line bg-surface shadow-dialog sm:max-w-[37.5rem] sm:rounded-2xl"
             >
               <div class="flex items-start gap-4 pl-7 pr-5 pt-6">
                 <div class="flex flex-1 flex-col gap-1.5">
@@ -87,7 +87,7 @@
               <RadioGroup.Root
                 bind:value={() => selected, (value) => (selected = value as ViewAsRole)}
                 aria-label="Role to view as"
-                class="grid grid-cols-1 gap-2.5 px-7 pb-1 pt-[18px] sm:grid-cols-2"
+                class="grid grid-cols-1 gap-2.5 px-7 pb-1 pt-[1.125rem] sm:grid-cols-2"
               >
                 {#each CARDS as card (card.role)}
                   <RadioGroup.Item
@@ -113,7 +113,7 @@
                 {/each}
               </RadioGroup.Root>
 
-              <div class="flex flex-col-reverse gap-2 pb-5 pl-7 pr-5 pt-[18px] sm:flex-row sm:items-center">
+              <div class="flex flex-col-reverse gap-2 pb-5 pl-7 pr-5 pt-[1.125rem] sm:flex-row sm:items-center">
                 <p class="flex-1 text-xs leading-4 text-ink-muted">Exit any time from the pill at the top.</p>
                 <!-- Round 2 filled destructive Cancel (Button variant destructive-soft tokens). -->
                 <Dialog.Close

@@ -91,12 +91,12 @@
     <Dialog.Overlay class="fixed inset-0 z-[110] bg-preview-scrim" data-preview-scrim />
     <Dialog.Content
       data-supporting-preview
-      class="fixed inset-y-0 right-0 z-[110] flex w-full max-w-[560px] flex-col border-l border-line bg-surface shadow-preview-sheet outline-none"
+      class="fixed inset-y-0 right-0 z-[110] flex w-full max-w-[35rem] flex-col border-l border-line bg-surface shadow-preview-sheet outline-none"
     >
       {#if doc}
-        <div class="flex items-start gap-3 border-b border-line-soft pt-[22px] pr-5 pb-4 pl-7">
+        <div class="flex items-start gap-3 border-b border-line-soft pt-[1.375rem] pr-5 pb-4 pl-7">
           <div class="flex min-w-0 flex-1 flex-col gap-2">
-            <Dialog.Title class="truncate text-[17px] leading-6 font-medium text-ink">{doc.name}</Dialog.Title>
+            <Dialog.Title class="truncate text-[1.0625rem] leading-6 font-medium text-ink">{doc.name}</Dialog.Title>
             <div class="flex flex-wrap items-center gap-2">
               {#if categories && onCategory}
                 <DropdownMenu.Root>
@@ -109,12 +109,12 @@
                     <IconChevronDown size={11} strokeWidth={2.2} stroke-linejoin="miter" class="shrink-0 text-ink-muted" />
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
-                    <DropdownMenu.Content class="z-[130] min-w-[200px] rounded-xl border border-line bg-surface p-1.5 shadow-menu" sideOffset={4} align="start">
+                    <DropdownMenu.Content class="z-[130] min-w-[12.5rem] rounded-xl border border-line bg-surface p-1.5 shadow-menu" sideOffset={4} align="start">
                       <DropdownMenu.RadioGroup value={doc.category} onValueChange={(next) => onCategory(next as SupportingCategory)}>
                         {#each categories as category (category)}
                           <DropdownMenu.RadioItem
                             value={category}
-                            class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px] leading-[19px] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11"
+                            class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[1.1875rem] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11"
                           >
                             {#snippet children({ checked })}
                               <span class="min-w-0 flex-1">{CATEGORY_LABELS[category]}</span>
@@ -143,13 +143,13 @@
         <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
           <div class="flex shrink-0 justify-center bg-gray-50 px-7 py-6" data-preview-page-area>
             {#if isPdf && pdfState !== "failed"}
-              <figure class="flex w-[380px] max-w-full flex-col items-center gap-3 rounded-[4px] bg-surface pb-4 shadow-preview-page">
+              <figure class="flex w-[23.75rem] max-w-full flex-col items-center gap-3 rounded-[0.25rem] bg-surface pb-4 shadow-preview-page">
                 <canvas bind:this={canvas} data-pdf-page class="w-full" aria-label={`Page 1 of ${doc.name}`}></canvas>
-                <figcaption class="text-[11px] leading-[14px] text-ink-faint">Page 1 of {pageCount ?? 1}</figcaption>
+                <figcaption class="text-[0.6875rem] leading-[0.875rem] text-ink-faint">Page 1 of {pageCount ?? 1}</figcaption>
               </figure>
             {:else}
-              <div data-preview-text class="w-[380px] max-w-full rounded-[4px] bg-surface px-[34px] py-9 shadow-preview-page">
-                <p class="font-serif text-[13px] leading-[20px] whitespace-pre-wrap text-ink-secondary">{text.slice(0, PREVIEW_CHARS)}{text.length > PREVIEW_CHARS ? "..." : ""}</p>
+              <div data-preview-text class="w-[23.75rem] max-w-full rounded-[0.25rem] bg-surface px-[2.125rem] py-9 shadow-preview-page">
+                <p class="font-serif text-[0.8125rem] leading-[1.25rem] whitespace-pre-wrap text-ink-secondary">{text.slice(0, PREVIEW_CHARS)}{text.length > PREVIEW_CHARS ? "..." : ""}</p>
               </div>
             {/if}
           </div>
@@ -158,13 +158,13 @@
             <div class="flex flex-col gap-1.5 px-7 py-5" data-found-list>
               <p class="text-xs leading-4 font-medium text-ink-muted">What we found</p>
               {#if doc.sections.length === 0}
-                <p class="py-2 text-[13px] leading-[18px] text-ink-secondary" data-no-sections>We did not find Lines 242, 244 or 246 in this file.</p>
+                <p class="py-2 text-[0.8125rem] leading-[1.125rem] text-ink-secondary" data-no-sections>We did not find Lines 242, 244 or 246 in this file.</p>
               {:else}
                 <ul class="flex flex-col">
                   {#each doc.sections as section (section.section)}
                     <li data-found-section={section.number} class="flex h-10 items-center gap-2.5 border-b border-line-soft">
                       <IconCheck size={14} strokeWidth={2} class="shrink-0 text-success" />
-                      <span class="min-w-0 flex-1 truncate text-[13px] leading-[18px] font-medium text-ink">{section.number} {section.title}</span>
+                      <span class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[1.125rem] font-medium text-ink">{section.number} {section.title}</span>
                       {#if section.pageStart}
                         <span class="shrink-0 text-xs leading-4 text-ink-muted">{pageRangeLabel(section.pageStart, section.pageEnd ?? section.pageStart)}</span>
                       {/if}
@@ -172,7 +172,7 @@
                   {/each}
                 </ul>
               {/if}
-              <p data-previous-year-note class="mt-2 flex gap-2.5 rounded-[10px] bg-canvas px-3.5 py-3 text-[13px] leading-[19px] text-ink-secondary">
+              <p data-previous-year-note class="mt-2 flex gap-2.5 rounded-[0.625rem] bg-canvas px-3.5 py-3 text-[0.8125rem] leading-[1.1875rem] text-ink-secondary">
                 <IconShieldCheck size={15} strokeWidth={1.6} class="shrink-0 text-ink-muted" />
                 We use this to check facts and match last year's claim. It is never copied into the new PD.
               </p>
@@ -180,7 +180,7 @@
           {/if}
         </div>
 
-        <div class="flex items-center gap-2.5 border-t border-line-soft px-7 pt-4 pb-[22px]">
+        <div class="flex items-center gap-2.5 border-t border-line-soft px-7 pt-4 pb-[1.375rem]">
           <Button variant="destructive-soft" size="sm" class="h-9 px-3.5! py-0!" onclick={onRemove} data-preview-remove>Remove</Button>
           <span class="grow"></span>
           <Button variant="secondary" size="sm" class="h-9 px-3.5! py-0!" onclick={onReplace} data-preview-replace>Replace file</Button>

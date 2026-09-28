@@ -136,7 +136,7 @@
   });
 
   const itemClass =
-    "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-ink-secondary outline-none transition-colors data-selected:bg-chrome data-selected:text-ink motion-reduce:transition-none pointer-coarse:min-h-11";
+    "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[0.8125rem] text-ink-secondary outline-none transition-colors data-selected:bg-chrome data-selected:text-ink motion-reduce:transition-none pointer-coarse:min-h-11";
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
@@ -199,9 +199,9 @@
                         <Command.GroupHeading class="text-label px-2.5 pb-1 pt-2">Projects</Command.GroupHeading>
                         <Command.GroupItems>
                           {#if searching && results.length === 0}
-                            <p class="px-2.5 py-2 text-[13px] text-ink-faint" role="status">Searching…</p>
+                            <p class="px-2.5 py-2 text-[0.8125rem] text-ink-faint" role="status">Searching…</p>
                           {:else if results.length === 0}
-                            <p class="px-2.5 py-2 text-[13px] text-ink-muted" role="status">No matching projects.</p>
+                            <p class="px-2.5 py-2 text-[0.8125rem] text-ink-muted" role="status">No matching projects.</p>
                           {:else}
                             {#each results as project (project._id)}
                               <Command.Item value={`project:${project._id}`} onSelect={() => go(resolve("/project/[id]", { id: project._id }))} class={itemClass}>
@@ -225,7 +225,7 @@
                           <Command.Item value="action:new-project" onSelect={() => go(resolve("/project/new"))} class={itemClass}>
                             <svg class="h-4 w-4 shrink-0 text-ink-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" d="M12 5v14M5 12h14" /></svg>
                             New project
-                            <span class="ml-auto text-[11px] text-ink-faint">Opens the wizard</span>
+                            <span class="ml-auto text-[0.6875rem] text-ink-faint">Opens the wizard</span>
                           </Command.Item>
                           {/if}
                           {#if flagIssueVisible}
@@ -239,12 +239,12 @@
                     {/if}
 
                     {#if !settled && visibleDestinations.length === 0 && !newProjectVisible && !flagIssueVisible}
-                      <p class="px-2.5 py-6 text-center text-[13px] text-ink-muted">Nothing matches.</p>
+                      <p class="px-2.5 py-6 text-center text-[0.8125rem] text-ink-muted">Nothing matches.</p>
                     {/if}
                   </Command.Viewport>
                 </Command.List>
                 <div
-                  class="flex shrink-0 items-center gap-4 border-t border-line-soft px-3 py-2 text-[11px] text-ink-faint"
+                  class="flex shrink-0 items-center gap-4 border-t border-line-soft px-3 py-2 text-[0.6875rem] text-ink-faint"
                   aria-hidden="true"
                 >
                   <span class="inline-flex items-center gap-1.5">

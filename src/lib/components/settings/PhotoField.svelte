@@ -52,7 +52,7 @@
 
 <div data-photo-field class="flex flex-col gap-2">
   <div class="flex flex-wrap items-center gap-3.5">
-    <div class="relative size-[52px] shrink-0">
+    <div class="relative size-[3.25rem] shrink-0">
       <Avatar {name} {seed} imageUrl={shownUrl} size={52} />
       {#if shownUrl}
         <button
@@ -61,7 +61,7 @@
           aria-label="Remove photo"
           onclick={remove}
           {disabled}
-          class="absolute -top-1 left-[34px] flex size-[22px] items-center justify-center rounded-full border border-line bg-surface text-ink-secondary shadow-settings-badge transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:before:absolute pointer-coarse:before:-inset-3 pointer-coarse:before:content-['']"
+          class="absolute -top-1 left-[2.125rem] flex size-[1.375rem] items-center justify-center rounded-full border border-line bg-surface text-ink-secondary shadow-settings-badge transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:before:absolute pointer-coarse:before:-inset-3 pointer-coarse:before:content-['']"
         >
           <IconClose size={11} strokeWidth={2.4} />
         </button>

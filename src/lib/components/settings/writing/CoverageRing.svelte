@@ -17,7 +17,7 @@
   style={`width:${size}px;height:${size}px;background-image:${ring}`}
 >
   <span
-    class="relative flex items-center justify-center rounded-full bg-surface text-[15px] leading-[18px] font-medium text-ink"
+    class="relative flex items-center justify-center rounded-full bg-surface text-[0.9375rem] leading-[1.125rem] font-medium text-ink"
     style={`width:${size - 14}px;height:${size - 14}px`}
   >{covered}/{total}</span>
 </div>

@@ -62,7 +62,7 @@
   data-start-checklist={variant}
   class={plain
     ? "flex flex-col gap-2"
-    : "flex flex-col gap-3.5 rounded-[14px] border border-line-soft bg-surface p-[18px]"}
+    : "flex flex-col gap-3.5 rounded-[0.875rem] border border-line-soft bg-surface p-[1.125rem]"}
 >
   {#if !plain}
     <p class="text-xs leading-4 font-medium text-ink-muted">Before you start</p>
@@ -79,7 +79,7 @@
             <IconClock size={16} strokeWidth={1.8} class={`shrink-0 ${iconColor[row.state]}`} />
           {/if}
           <span
-            class={`min-w-0 flex-1 text-[13px] leading-[19px] ${
+            class={`min-w-0 flex-1 text-[0.8125rem] leading-[1.1875rem] ${
               row.state === "danger" || row.state === "warning"
                 ? "text-ink"
                 : row.state === "pending" || row.state === "reading"
@@ -94,7 +94,7 @@
               type="button"
               data-checklist-action={row.action.target}
               onclick={() => onAction(row.action!.target)}
-              class={`shrink-0 rounded px-1 text-[13px] leading-[18px] font-medium hover:underline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:min-h-11 ${actionColor[row.state]}`}
+              class={`shrink-0 rounded px-1 text-[0.8125rem] leading-[1.125rem] font-medium hover:underline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:min-h-11 ${actionColor[row.state]}`}
             >
               {row.action.label}
             </button>
@@ -110,7 +110,7 @@
     disabled={blocked || busy}
     onclick={onStart}
     class={`flex shrink-0 items-center justify-center gap-2 bg-fir text-sm leading-5 font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fir focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
-      plain ? "h-9 w-full rounded-lg px-4" : "mt-1 h-[42px] rounded-[10px]"
+      plain ? "h-9 w-full rounded-lg px-4" : "mt-1 h-[2.625rem] rounded-[0.625rem]"
     }`}
   >
     {startLabel}
@@ -119,6 +119,6 @@
   <p
     data-start-note
     role={busyLabel ? "status" : undefined}
-    class={`text-center text-xs text-ink-muted ${plain ? "leading-4" : "leading-[17px]"}`}
+    class={`text-center text-xs text-ink-muted ${plain ? "leading-4" : "leading-[1.0625rem]"}`}
   >{busyLabel ?? note}</p>
 </div>

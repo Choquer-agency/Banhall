@@ -96,7 +96,7 @@
                     {#each speakers as speaker (speaker.label)}
                       <li class="flex items-start gap-3 px-4 py-2.5" data-speaker-row={speaker.label}>
                         <span class="min-w-0 flex-1">
-                          <span class="block truncate text-[13px] text-ink">{speaker.label}</span>
+                          <span class="block truncate text-[0.8125rem] text-ink">{speaker.label}</span>
                           {#if speaker.sample}
                             <span class="mt-0.5 line-clamp-2 block text-xs text-ink-muted">{speaker.sample}</span>
                           {/if}
@@ -151,7 +151,7 @@
                       type="button"
                       data-speakers-confirm
                       disabled={busy}
-                      class="min-h-9 rounded-lg px-3 text-[13px] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none"
+                      class="min-h-9 rounded-lg px-3 text-[0.8125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none"
                       onclick={async () => {
                         await onConfirm?.();
                         open = false;

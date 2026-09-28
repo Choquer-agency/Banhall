@@ -45,7 +45,7 @@
   );
   // Board 4.4: the running tile is 5px left, 7px right with a 5px gap; the
   // shield alone and the score chip use 4px all round.
-  const spacing = $derived(state === "running" ? "gap-[5px] pl-[5px] pr-[7px]" : "gap-1 px-1");
+  const spacing = $derived(state === "running" ? "gap-[0.3125rem] pl-[0.3125rem] pr-[0.4375rem]" : "gap-1 px-1");
 </script>
 
 <button
@@ -58,7 +58,7 @@
   data-qa-state={state}
   data-active={active ? "true" : "false"}
   onclick={() => onToggle()}
-  class={`relative flex h-[26px] min-w-[26px] shrink-0 pointer-coarse:h-11 pointer-coarse:min-w-11 items-center justify-center rounded-md ${spacing} transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none ${fill}`}
+  class={`relative flex h-[1.625rem] min-w-[1.625rem] shrink-0 pointer-coarse:h-11 pointer-coarse:min-w-11 items-center justify-center rounded-md ${spacing} transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none ${fill}`}
 >
   <svg
     viewBox="0 0 24 24"
@@ -82,7 +82,7 @@
   {:else if shownScore !== null && colors}
     <span
       data-qa-chip
-      class="flex h-[18px] min-w-5 items-center justify-center rounded-full px-[5px] text-[11px] font-medium leading-[14px] tabular-nums"
+      class="flex h-[1.125rem] min-w-5 items-center justify-center rounded-full px-[0.3125rem] text-[0.6875rem] font-medium leading-[0.875rem] tabular-nums"
       style={`background:${colors.chipBg};color:${colors.chipText}`}
     >{shownScore}</span>
   {/if}

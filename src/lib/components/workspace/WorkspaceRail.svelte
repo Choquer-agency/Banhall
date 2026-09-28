@@ -148,7 +148,7 @@
   // Board A1: 32px rows on desktop, 44px minimum in the touch drawer.
   const rowHeight = $derived(variant === "rail" ? "h-8" : "min-h-11");
   const rowBase = $derived(
-    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md px-2 [&>svg]:shrink-0 text-left text-[13px] font-normal leading-[19px] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
+    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md px-2 [&>svg]:shrink-0 text-left text-[0.8125rem] font-normal leading-[1.1875rem] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
   );
   // A4: 36px icon tiles, radius 6, 17px icons, a tooltip each.
   const iconRow =
@@ -212,7 +212,7 @@
     {#if item.badge}
       <span
         data-rail-badge={item.badge.tone}
-        class={`flex h-[18px] min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-medium leading-3 text-white ${item.badge.tone === "danger" ? "bg-danger" : "bg-primary-selected"}`}
+        class={`flex h-[1.125rem] min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[0.625rem] font-medium leading-3 text-white ${item.badge.tone === "danger" ? "bg-danger" : "bg-primary-selected"}`}
       >{badgeLabel(item.badge.count)}</span>
     {/if}
   </a>
@@ -244,7 +244,7 @@
   </button>
   {#if adminOpen}
     <div id="workspace-admin-links" data-rail-admin-links class="relative flex flex-col">
-      <span aria-hidden="true" class="absolute bottom-1 left-[15px] top-1 w-px bg-line"></span>
+      <span aria-hidden="true" class="absolute bottom-1 left-[0.9375rem] top-1 w-px bg-line"></span>
       {#each ADMIN_RAIL_ROUTES as route (route.href)}
         {@const href = resolve(route.href as "/")}
         {@const current = pathname === href || pathname.startsWith(`${href}/`)}
@@ -253,7 +253,7 @@
           data-admin-link={route.href}
           aria-current={current ? "page" : undefined}
           onclick={() => onNavigate?.()}
-          class={`${variant === "rail" ? "h-7" : "min-h-11"} workspace-rail-row flex items-center gap-2 rounded-md pl-[31px] pr-2 text-[13px] leading-[19px] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${current ? selectedRow : idleRow}`}
+          class={`${variant === "rail" ? "h-7" : "min-h-11"} workspace-rail-row flex items-center gap-2 rounded-md pl-[1.9375rem] pr-2 text-[0.8125rem] leading-[1.1875rem] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${current ? selectedRow : idleRow}`}
         >
           <span class="min-w-0 flex-1 truncate">{route.label}</span>
           {#if route.href === ADMIN_INGESTION_PATH && attention.ingestionFailed > 0}
@@ -289,12 +289,12 @@
         {@render itemIcon(item.id)}
         {#if item.id === "changelog" && item.badge}
           <!-- A4: What's new shows a 7px dot here, not a count. -->
-          <span data-rail-dot aria-hidden="true" class="absolute right-1.5 top-1.5 size-[7px] rounded-full border-[1.5px] border-gray-50 bg-primary-selected"></span>
+          <span data-rail-dot aria-hidden="true" class="absolute right-1.5 top-1.5 size-[0.4375rem] rounded-full border-[1.5px] border-gray-50 bg-primary-selected"></span>
         {:else if item.badge}
           <span
             data-rail-badge={item.badge.tone}
             aria-hidden="true"
-            class="absolute right-px top-px flex h-4 min-w-4 items-center justify-center rounded-full border-[1.5px] border-gray-50 bg-danger px-1 text-[9px] font-medium leading-none text-white"
+            class="absolute right-px top-px flex h-4 min-w-4 items-center justify-center rounded-full border-[1.5px] border-gray-50 bg-danger px-1 text-[0.5625rem] font-medium leading-none text-white"
           >{badgeLabel(item.badge.count)}</span>
         {/if}
       </a>
@@ -315,7 +315,7 @@
       >
         {@render itemIcon("admin")}
         {#if item.attention}
-          <span data-rail-attention aria-hidden="true" class="absolute right-1.5 top-1.5 size-[7px] rounded-full border-[1.5px] border-gray-50 bg-stale-dot"></span>
+          <span data-rail-attention aria-hidden="true" class="absolute right-1.5 top-1.5 size-[0.4375rem] rounded-full border-[1.5px] border-gray-50 bg-stale-dot"></span>
         {/if}
       </button>
     {/snippet}
@@ -341,7 +341,7 @@
           type="button"
           data-rail-identity
           aria-label={`${userName}, account menu`}
-          class="flex size-[30px] items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
+          class="flex size-[1.875rem] items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
         >
           <Avatar name={userName} imageUrl={user?.imageUrl ?? null} seed={user?._id} tone={avatarTone} size={30} />
         </button>
@@ -439,7 +439,7 @@
       {#snippet groupBlock(group: (typeof groups)[number], first: boolean)}
         <div data-rail-group={group.id} class="flex flex-col">
           <!-- A1 to A3: 11px group labels in muted ink, as the boards draw them. -->
-          <p data-rail-group-label class={`px-2 pb-1 text-[11px] leading-4 text-ink-muted ${first ? "pt-1.5" : "pt-4"}`}>{group.label}</p>
+          <p data-rail-group-label class={`px-2 pb-1 text-[0.6875rem] leading-4 text-ink-muted ${first ? "pt-1.5" : "pt-4"}`}>{group.label}</p>
           {#each group.items as item (item.id)}
             {#if item.id === "admin"}
               {@render adminGroup(item)}

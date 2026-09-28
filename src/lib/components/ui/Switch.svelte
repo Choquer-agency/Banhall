@@ -28,7 +28,7 @@
   } = $props();
 
   const trackStyles = {
-    sm: "h-[18px] w-8 data-[state=checked]:bg-primary-selected pointer-coarse:before:-inset-x-1.5 pointer-coarse:before:-inset-y-[13px]",
+    sm: "h-[1.125rem] w-8 data-[state=checked]:bg-primary-selected pointer-coarse:before:-inset-x-1.5 pointer-coarse:before:-inset-y-[0.8125rem]",
     md: "h-5 w-9 data-[state=checked]:bg-fir pointer-coarse:before:-inset-x-1 pointer-coarse:before:-inset-y-3",
   } as const;
   const thumbStyles = {

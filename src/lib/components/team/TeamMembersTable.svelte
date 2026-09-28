@@ -42,26 +42,26 @@
   } = $props();
 </script>
 
-<div data-team-members class="flex shrink-0 flex-col overflow-x-auto rounded-[10px] border border-line-soft">
-  <div class="min-w-[720px]" role="table" aria-label="Team members">
+<div data-team-members class="flex shrink-0 flex-col overflow-x-auto rounded-[0.625rem] border border-line-soft">
+  <div class="min-w-[45rem]" role="table" aria-label="Team members">
     <div role="row" class="flex h-9 items-center gap-4 border-b border-line-soft bg-canvas px-4 text-xs leading-4 text-ink-muted">
-      <span role="columnheader" class="w-[260px] shrink-0">Name</span>
+      <span role="columnheader" class="w-[16.25rem] shrink-0">Name</span>
       <span role="columnheader" class="min-w-0 flex-1">Email</span>
-      <span role="columnheader" class="w-[120px] shrink-0">Role</span>
-      <span role="columnheader" class="w-[110px] shrink-0">Last active</span>
+      <span role="columnheader" class="w-[7.5rem] shrink-0">Role</span>
+      <span role="columnheader" class="w-[6.875rem] shrink-0">Last active</span>
       {#if showActions}<span role="columnheader" class="sr-only">Actions</span>{/if}
     </div>
     {#each members as member (member._id)}
       <div role="row" data-member-row={member._id} class="relative flex h-12 items-center gap-4 border-b border-line-soft px-4 last:border-b-0">
-        <span role="cell" class="flex w-[260px] shrink-0 items-center gap-2.5">
+        <span role="cell" class="flex w-[16.25rem] shrink-0 items-center gap-2.5">
           <Avatar name={member.name} initials={personInitials(member)} tone={roleAvatarTone(roleChipKind(member))} size={24} />
-          <span class="truncate text-[13px] leading-[19px] font-medium text-ink">{member.name}</span>
+          <span class="truncate text-[0.8125rem] leading-[1.1875rem] font-medium text-ink">{member.name}</span>
         </span>
-        <span role="cell" class="min-w-0 flex-1 truncate text-[13px] leading-[19px] text-ink-secondary">{member.email ?? ""}</span>
-        <span role="cell" class="flex w-[120px] shrink-0">
+        <span role="cell" class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[1.1875rem] text-ink-secondary">{member.email ?? ""}</span>
+        <span role="cell" class="flex w-[7.5rem] shrink-0">
           <RoleChip role={member.role} isOwner={member.isOwner} isDeveloper={member.isDeveloper} />
         </span>
-        <span role="cell" data-last-active class={`w-[110px] shrink-0 truncate text-[13px] leading-[19px] text-ink-muted ${showActions ? "pr-8" : ""}`}>
+        <span role="cell" data-last-active class={`w-[6.875rem] shrink-0 truncate text-[0.8125rem] leading-[1.1875rem] text-ink-muted ${showActions ? "pr-8" : ""}`}>
           {lastActiveLabel(member.lastActiveAt, member.isSelf, now)}
         </span>
         {#if showActions}

@@ -91,7 +91,7 @@
       class={`${menuLayer === "drawer" ? "z-[130]" : "z-[80]"} w-56 overflow-hidden rounded-lg border border-line bg-surface shadow-lg`}
     >
       <div data-account-menu-identity class="flex items-center gap-2.5 border-b border-line-soft px-3.5 py-3">
-        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] bg-chrome text-[0.6875rem] font-semibold text-fir">{initials}</span>
+        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[0.3125rem] bg-chrome text-[0.6875rem] font-semibold text-fir">{initials}</span>
         <p class="min-w-0 truncate text-sm font-semibold text-ink">{label || "Account"}</p>
       </div>
       <div>

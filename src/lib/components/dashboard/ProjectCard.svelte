@@ -236,7 +236,7 @@
           : "opacity-0 focus-within:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
       }`}
     >
-      <span class="flex rounded-[7px] bg-white shadow-sm">
+      <span class="flex rounded-[0.4375rem] bg-white shadow-sm">
         <Checkbox
           checked={selected}
           aria-label={`Select “${project.title}”`}

@@ -24,7 +24,7 @@
   {/if}
   <!-- Phones (J9): two lines, "invited you as". -->
   <div class="flex flex-col gap-1 sm:hidden">
-    <p class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[18px] text-fir">
+    <p class="flex flex-wrap items-center gap-1.5 text-[0.8125rem] leading-[1.125rem] text-fir">
       {inviter ? `${inviter.name} invited you as` : "You were invited as"}
       <RoleChip {role} />
     </p>

@@ -37,13 +37,13 @@
             use:focusAtStart
             bind:value
             placeholder={PLACEHOLDER}
-            class="field-control mt-4 block min-h-0 w-full flex-1 resize-none rounded-[10px] px-3.5 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint"
+            class="field-control mt-4 block min-h-0 w-full flex-1 resize-none rounded-[0.625rem] px-3.5 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint"
           ></textarea>
           <div class="mt-3 flex items-center justify-between gap-3">
             <span class={`text-xs ${tooLong ? "text-danger-ink-muted" : "text-ink-muted"}`}>
               {value.length.toLocaleString("en-US")} of {MAX_INSTRUCTIONS_CHARS.toLocaleString("en-US")} characters
             </span>
-            <Dialog.Close class="h-9 rounded-[10px] bg-chrome px-3.5 text-sm font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Back to settings</Dialog.Close>
+            <Dialog.Close class="h-9 rounded-[0.625rem] bg-chrome px-3.5 text-sm font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Back to settings</Dialog.Close>
           </div>
         </div>
       {/if}{/snippet}</Dialog.Content>
