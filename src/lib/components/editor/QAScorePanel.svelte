@@ -55,6 +55,21 @@
     ).default([]),
   });
 
+  /** One Line's recorded counts in agentOutputs.metrics (review P3-7). */
+  const lineMetricSchema = z.object({
+    words: z.number(),
+    wordCap: z.number(),
+    lines: z.number(),
+    limit: z.number(),
+    overLimit: z.boolean(),
+  });
+  type LineMetric = z.infer<typeof lineMetricSchema>;
+  const recordedMetricsSchema = z.object({
+    s242: lineMetricSchema.optional(),
+    s244: lineMetricSchema.optional(),
+    s246: lineMetricSchema.optional(),
+  });
+
   function parseScorecard(raw: unknown): QAScorecard | null {
     const parsed = qaScorecardSchema.safeParse(raw);
     return parsed.success ? parsed.data : null;
@@ -224,15 +239,15 @@
    * until the writer shortens it.
    */
   const lineLimitBreaches = $derived.by(() => {
-    type Measured = { words: number; wordCap: number; lines: number; limit: number; overLimit: boolean };
-    let measured: Partial<Record<ReportSectionKey, Measured>> = {};
+    let measured: Partial<Record<ReportSectionKey, LineMetric>> = {};
     if (reportContent) {
       measured = reportSectionMetrics(reportContent);
     } else if (agentOutputs) {
       try {
         const parsed: unknown = JSON.parse(agentOutputs);
         if (typeof parsed === "object" && parsed !== null && "metrics" in parsed) {
-          measured = (parsed.metrics ?? {}) as Partial<Record<ReportSectionKey, Measured>>;
+          const metrics = recordedMetricsSchema.safeParse(parsed.metrics);
+          if (metrics.success) measured = metrics.data;
         }
       } catch {
         // No recorded counts: nothing to name.

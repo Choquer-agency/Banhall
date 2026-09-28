@@ -196,4 +196,17 @@ describe("QAScorePanel line limits (2026-09-28, second)", () => {
     });
     expect(fits.container.querySelector("[data-qa-line-limits]")).toBeNull();
   });
+
+  it("ignores recorded counts that are not well formed (review P3-7)", async () => {
+    for (const metrics of [
+      { s246: { words: "440", wordCap: 350, lines: 45, limit: 50, overLimit: true } },
+      { s246: { words: 440, overLimit: true } },
+      "over",
+      [1, 2, 3],
+    ]) {
+      const { container, unmount } = await render(QAScorePanel, { agentOutputs: JSON.stringify({ metrics }) });
+      expect(container.querySelector("[data-qa-line-limits]")).toBeNull();
+      unmount();
+    }
+  });
 });

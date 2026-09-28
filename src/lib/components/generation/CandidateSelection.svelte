@@ -441,6 +441,7 @@
       onClose={() => (qaOpen = false)}
       title={`QA for ${current.label ?? `Option ${pos + 1}`}`}
       rawQa={current.qa}
+      reportContent={current.content}
       candidateId={current._id}
       modelName={current.label}
       onLocateGap={locateGap}
