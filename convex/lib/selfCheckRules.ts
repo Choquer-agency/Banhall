@@ -469,8 +469,19 @@ export function assembleSectionNotes(input: {
    * names and byte counts, never model text). Absent everywhere else.
    */
   storylineQuestionWithheld?: string;
-  repair: { attempted: boolean; succeeded: boolean; failureReason?: string };
+  /**
+   * `notUsedReason`: the repair came back but was not used (2026-09-28,
+   * second: it went further over a Locked limit than the checked draft).
+   */
+  repair: {
+    attempted: boolean;
+    succeeded: boolean;
+    failureReason?: string;
+    notUsedReason?: string;
+  };
   finalText: string;
+  /** Compression passes run on this Section, before and after any repair. */
+  compressionPasses?: number;
 }): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
   const { section, before, verdicts, repair } = input;
   const failedBefore = new Set(
@@ -480,11 +491,14 @@ export function assembleSectionNotes(input: {
   );
   const finalEntries = (input.after ?? before).entries;
   const repairFailure = repair.failureReason ? `: ${repair.failureReason}` : "";
+  const repairNotDone = repair.notUsedReason
+    ? `repair not used (${repair.notUsedReason})`
+    : `repair call failed${repairFailure}`;
 
   const rows: ComplianceNoteDraft[] = finalEntries.map((entry) => {
     if (!repair.attempted || !failedBefore.has(entry.key)) return entry.row;
     if (!repair.succeeded) {
-      return { ...entry.row, reason: `${entry.row.reason}; repair call failed${repairFailure}` };
+      return { ...entry.row, reason: `${entry.row.reason}; ${repairNotDone}` };
     }
     return {
       ...entry.row,
@@ -495,6 +509,21 @@ export function assembleSectionNotes(input: {
           : `${entry.row.reason}; repair failed`,
     };
   });
+  // 2026-09-28 (second): a Section still over a Locked limit is kept whole,
+  // never cut to fit; its row says so and what the writer must do.
+  const lockedIndex = finalEntries.findIndex(
+    (entry) => entry.key === "locked" && entry.row.outcome === "not_applied"
+  );
+  if (lockedIndex >= 0) {
+    const metrics = sectionMetrics(input.finalText, sectionKeyOf(section));
+    const passes = input.compressionPasses ?? 0;
+    rows[lockedIndex] = {
+      ...rows[lockedIndex],
+      reason: `${rows[lockedIndex].reason}; still over after ${passes} shortening ${
+        passes === 1 ? "pass" : "passes"
+      }. The text was not cut to fit: shorten Line ${section} to ${metrics.wordCap} words and ${metrics.limit} lines before filing`,
+    };
+  }
   let remainingFailures = finalEntries.filter(
     (entry) => entry.repairable && entry.row.outcome === "not_applied"
   ).length;
@@ -538,7 +567,7 @@ export function assembleSectionNotes(input: {
         reason = `${reason}; repaired (deterministic re-check only; not re-verified by the model)`;
       }
     } else if (repair.attempted) {
-      reason = `${reason}; repair call failed${repairFailure}`;
+      reason = `${reason}; ${repairNotDone}`;
     }
     rows.push(noteDraft({ ...base, outcome, reason, repaired }));
   }

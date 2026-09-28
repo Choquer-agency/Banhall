@@ -446,6 +446,9 @@ export const generationPromptProgram = {
             "conditionalCompression",
             "selfCheck",
             "atMostOneRepair",
+            // 2026-09-28 (second): the repair is compressed like the
+            // draft, and kept only if it is no further over a Locked limit.
+            "conditionalCompressionOfTheRepair",
           ],
           gate: "none",
         },

@@ -1261,22 +1261,27 @@ describe("Self-check before display (CAP-9)", () => {
     ]);
     expect(locked[0].reason).toContain(`cap breach at ${words}/350 words`);
     expect(locked[0].reason).toContain("repair failed");
+    // 2026-09-28 (second): the breach says the text was kept whole and
+    // what the writer must do.
+    expect(locked[0].reason).toContain(
+      "still over after 4 shortening passes. The text was not cut to fit: shorten Line 242 to 350 words and 50 lines before filing"
+    );
 
     const { selfCheck, slotCounts } = rowFor(sectionRows, "242");
     expect(selfCheck).toMatchObject({ status: "repair_failed", repairAttempted: true, remainingFailures: 1 });
     // The ordered section action's worst case: draft + two squeezes +
-    // Self-check + one repair, exactly the five-slot bound.
+    // Self-check + one repair + two squeezes on the repair.
     expect(slotCounts).toEqual({
       "section:242": 1,
-      "compression:242": 2,
+      "compression:242": 4,
       "selfCheck:242": 1,
       "repair:242": 1,
     });
     expect(Object.values(slotCounts).reduce((sum, count) => sum + count, 0)).toBe(
-      SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE
+      SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE + COMPRESSION_REQUEST.squeezes.length
     );
     const budget = JSON.parse(generation.agentOutputs ?? "null").callBudget;
-    expect(budget.counts).toMatchObject({ "compression:242": 2, "repair:242": 1 });
+    expect(budget.counts).toMatchObject({ "compression:242": 4, "repair:242": 1 });
     expect(budget.overrun).toEqual([]);
   });
 

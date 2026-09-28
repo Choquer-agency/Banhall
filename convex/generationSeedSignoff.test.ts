@@ -1844,6 +1844,12 @@ describe("seed Summary sign-off and recovery", () => {
     expect(after.candidates[0]?.ghost).toBeUndefined();
     expect(providerUser(firstRequest)).toContain(SECTION_246_REQUEST.userPrefix);
     expect(providerUser(firstRequest)).toContain("SIGNED-OFF CONTENT PLAN");
+    // 2026-09-28 (second): the Locked length is restated after the plan.
+    const user = providerUser(firstRequest);
+    const lengthAt = user.indexOf(
+      "# LENGTH (Locked Rule, outranks the plan)\nThis Line holds at most 350 words and 50 form lines. Write AT MOST "
+    );
+    expect(lengthAt).toBeGreaterThan(user.indexOf("--- END [SIGNED-OFF CONTENT PLAN] ---"));
     vi.unstubAllEnvs();
   });
 

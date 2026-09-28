@@ -159,7 +159,8 @@ export const SEED_ANTHROPIC_OPTIONS = {
  * action; each section is its own scheduled action (orderedGeneration.ts
  * generateOrderedSection) whose worst case is ORDERED_SECTION_ACTION_SLOTS:
  * one draft + the compression squeezes + one Self-check + at most one repair
- * = 5, the same bound. Finalize adds consistency + (QA || chronology) = 2.
+ * + the compression squeezes again on the repair (2026-09-28, second) = 7.
+ * Finalize adds consistency + (QA || chronology) = 2.
  * Iterative's one-shot ghost still runs the five-slot chain above. Since
  * 2026-09-25 each of these actions runs under its action deadline (see
  * ANTHROPIC_TIMEOUT_MS): a chain that runs out of time fails its row
@@ -175,6 +176,7 @@ export const ORDERED_SECTION_ACTION_SLOTS = {
   compression: COMPRESSION_REQUEST.squeezes.length,
   selfCheck: 1,
   repair: 1,
+  repairCompression: COMPRESSION_REQUEST.squeezes.length,
 } as const;
 
 

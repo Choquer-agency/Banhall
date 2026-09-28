@@ -33,8 +33,9 @@ import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import {
   buildStyleGuidance,
-  compressToFit,
+  compressWithinLimit,
   lengthBudgetBlock,
+  limitOverage,
   provenanceDrafts,
   recordCandidateProvenance,
 } from "./pipeline";
@@ -57,7 +58,14 @@ import { scrubBannedWordsUnlessWaived } from "../../shared/bannedWords";
 import { normalizeStyleOverrides } from "../../shared/styleOverrides";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
 import { buildTiptapDocument } from "../lib/tiptapReport";
-import { sectionMetrics, type LengthTarget } from "../lib/lineLimits";
+import {
+  LINE_LIMITS,
+  WORD_CAPS,
+  sectionMetrics,
+  wordBudget,
+  type LengthTarget,
+  type SectionKey,
+} from "../lib/lineLimits";
 import {
   orderedPayloadValidator,
   sectionKeyOf,
@@ -128,6 +136,21 @@ export function repairGuidanceBlock(issues: string[], draft: string): string {
   return `${scaffold.prefix}${issues
     .map((issue) => `${scaffold.issuePrefix}${issue}`)
     .join(scaffold.issueSeparator)}${scaffold.draftPrefix}${draft}`;
+}
+
+/**
+ * 2026-09-28 (second): the Locked length restated after a signed-off plan,
+ * so the drafter reads it after "Cover every COVER item".
+ */
+export function planLengthBudgetBlock(section: SectionKey, target: LengthTarget): string {
+  const scaffold = ORDERED_PROMPT_SCAFFOLDS.planLengthBudget;
+  return `${scaffold.prefix}${WORD_CAPS[section]}${scaffold.wordCapToLines}${LINE_LIMITS[section]}${scaffold.linesToBudget}${wordBudget(section, target)}${scaffold.suffix}`;
+}
+
+/** Why a repair that broke a Locked limit was not used (Compliance Note wording). */
+export function repairOverLimitReason(section: SectionNumber, words: number, lines: number): string {
+  const key = sectionKeyOf(section);
+  return `the repaired text came out at ${words}/${WORD_CAPS[key]} words, ${lines}/${LINE_LIMITS[key]} lines, further from the Line ${section} limit than the checked draft, so the checked draft was kept`;
 }
 
 type PlanCheck = {
@@ -357,12 +380,11 @@ type SectionCompletion = {
 
 /**
  * Draft, Self-check and (at most once) repair one section. Worst case:
- * draft 1 + compression 2 + Self-check 1 + repair 1 = 5 sequential calls
- * (providers.ts ORDERED_SECTION_ACTION_SLOTS). The Self-check may send a
- * second request, its structured repair or in Summary mode its one
- * follow-up for missing labels (2026-09-28): the recorded allowance is 2
- * (instrument.ts GENERATION_SLOT_ALLOWANCES) and the action deadline bounds
- * its time. Shared by the ordered chain
+ * draft 1 + compression 2 + Self-check 2 (its answer plus one structured
+ * retry, or in Summary mode its one follow-up for missing labels,
+ * 2026-09-28) + repair 1 + compression of the repair 2 = 8 sequential calls
+ * (providers.ts ORDERED_SECTION_ACTION_SLOTS); the action deadline bounds
+ * their time. Shared by the ordered chain
  * and the seed redraft so both draft under the same rules. Throws on a
  * failed draft; the caller records the failure.
  */
@@ -398,6 +420,8 @@ async function draftCheckedSection(input: {
         styleOverrides,
         claim.briefBlock,
         claim.planBlock
+          ? claim.planBlock + planLengthBudgetBlock(key, lengthTarget)
+          : claim.planBlock
       ),
       styleOverrides.bannedWords
     );
@@ -410,13 +434,18 @@ async function draftCheckedSection(input: {
     // section run rather than persisting an empty body.
     throw new Error("Section draft empty after the banned-word scrub");
   }
-  text = await compressToFit(clientFor, claim.model, key, text, lengthTarget, styleOverrides);
-  if (!text.trim()) {
-    // Same guard as the initial draft above: only the banned-word scrub
-    // inside compressToFit's re-scrub step can empty an already-non-empty
-    // compressed draft. There is no repair fallback for this stage.
-    throw new Error("Section draft empty after compression");
-  }
+  // A compression pass that comes back empty after the scrub, or no closer
+  // to the limits, never replaces the draft it was given.
+  const firstFit = await compressWithinLimit(
+    clientFor,
+    claim.model,
+    key,
+    text,
+    lengthTarget,
+    styleOverrides
+  );
+  text = firstFit.text;
+  let compressionPasses = firstFit.passes;
 
   const brief = claim.brief;
   const check = (draft: string): DeterministicSelfCheck =>
@@ -496,7 +525,12 @@ async function draftCheckedSection(input: {
       })
     : [];
   const issues = [...repairIssues(before, verdicts), ...planIssues];
-  const repair: { attempted: boolean; succeeded: boolean; failureReason?: string } = {
+  const repair: {
+    attempted: boolean;
+    succeeded: boolean;
+    failureReason?: string;
+    notUsedReason?: string;
+  } = {
     attempted: issues.length > 0,
     succeeded: false,
   };
@@ -511,9 +545,40 @@ async function draftCheckedSection(input: {
         repairGuidanceBlock(issues, text)
       );
       if (repaired.trim()) {
-        finalText = repaired;
-        repair.succeeded = true;
-        after = check(finalText);
+        // 2026-09-28 (second): the repair is a whole new draft, so it is
+        // compressed and measured like the first one before it can replace
+        // the checked draft. A compression that fails here (a provider
+        // error, the action deadline) leaves the repair as it came.
+        let fit = {
+          text: repaired,
+          passes: 0,
+          overLimit: sectionMetrics(repaired, key).overLimit,
+        };
+        try {
+          fit = await compressWithinLimit(
+            clientFor,
+            claim.model,
+            key,
+            repaired,
+            lengthTarget,
+            styleOverrides
+          );
+        } catch (error) {
+          console.warn(
+            `generation:compression:${section}: compression after the repair failed (${normalizeProviderError(error).code}); the Locked limit decides which text is kept`
+          );
+        }
+        compressionPasses += fit.passes;
+        if (fit.overLimit && limitOverage(fit.text, key) > limitOverage(text, key)) {
+          // Locked Rules outrank every repaired issue: a repair further
+          // over the limit than the checked draft is not used.
+          const metrics = sectionMetrics(fit.text, key);
+          repair.notUsedReason = repairOverLimitReason(section, metrics.words, metrics.lines);
+        } else {
+          finalText = fit.text;
+          repair.succeeded = true;
+          after = check(finalText);
+        }
       } else {
         // An empty repair never replaces the draft it was meant to fix.
         repair.failureReason = "EMPTY_OUTPUT";
@@ -544,6 +609,7 @@ async function draftCheckedSection(input: {
     ...(storylineQuestionWithheld ? { storylineQuestionWithheld } : {}),
     repair,
     finalText,
+    compressionPasses,
   });
   const rows = [...baseRows];
   let planRows: ComplianceNoteDraft[] = [];

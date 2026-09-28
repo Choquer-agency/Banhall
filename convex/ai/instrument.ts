@@ -178,7 +178,9 @@ export const GENERATION_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
   // one follow-up for labels the first answer missed.
   selfCheck: 2,
   repair: 1,
-  compression: COMPRESSION_REQUEST.squeezes.length,
+  // Per Section: the squeezes on the draft, then again on its repair
+  // (2026-09-28, second). Each compression slot is one Section's.
+  compression: COMPRESSION_REQUEST.squeezes.length * 2,
   seeds: 2,
   seedFeedback: 2,
 };

@@ -305,10 +305,24 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     issueSeparator: "\n",
     draftPrefix: "\n\nDraft to revise:\n",
   },
+  // 2026-09-28 (second): a signed-off plan asks the drafter to cover every
+  // item, which pushed a Line 246 draft 50 percent over its word cap. This
+  // block follows the plan so the Locked length is the last thing it reads.
+  planLengthBudget: {
+    prefix:
+      "\n\n# LENGTH (Locked Rule, outranks the plan)\nThis Line holds at most ",
+    wordCapToLines: " words and ",
+    linesToBudget: " form lines. Write AT MOST ",
+    suffix:
+      " words in all. Cover every COVER item in as few words as it needs: when the plan holds more than fits, give each item fewer words rather than go over.",
+  },
   runtimeSentinels: [
     "{{runtime.draftedPriorSections}}",
     "{{runtime.selfCheckIssues}}",
     "{{runtime.sectionDraft}}",
+    "{{runtime.wordCap}}",
+    "{{runtime.lineLimit}}",
+    "{{runtime.wordBudget}}",
   ],
 } as const;
 
