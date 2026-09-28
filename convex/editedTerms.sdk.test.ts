@@ -24,7 +24,12 @@ import { instrumentedAnthropic } from "./ai/instrument";
 import type { GenerationClient } from "./ai/openrouterCore";
 import { draftCheckedSection, repairDroppedTermReason } from "./ai/orderedGeneration";
 import { compressionLoss } from "./ai/pipeline";
-import { COMPRESSION_REQUEST, ORDERED_PROMPT_SCAFFOLDS } from "./ai/promptDefinitions";
+import {
+  COMPRESSION_REQUEST,
+  ORDERED_PROMPT_SCAFFOLDS,
+  SUMMARY_PLAN_SELF_CHECK_REQUEST,
+} from "./ai/promptDefinitions";
+import { EDITED_TERM_ALLOWED_REASON } from "./ai/selfCheck";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import {
   serializeFrozenSummaryPlanChecks,
@@ -142,7 +147,15 @@ const PAYLOAD = {
   frozenStyleGuidance: "",
 } satisfies OrderedPayload;
 
-function claimFor(editedTerms: string[]) {
+/** A fictional Brief whose Storyline never uses the team term. */
+const BRIEF = {
+  storylineText: "Brackenridge set out to grade pore size through one foam ceramic filter without cracking.",
+  claimExclusions: [],
+  confidenceMap: [],
+  glossaryTerms: [],
+};
+
+function claimFor(editedTerms: string[], brief: typeof BRIEF | null = null) {
   return {
     projectId: "project-brackenridge",
     model: SONNET,
@@ -152,7 +165,7 @@ function claimFor(editedTerms: string[]) {
     isFirstInOrder: true,
     priorSections: [],
     briefBlock: "\n\n--- BEGIN [GENERATION BRIEF] ---\n(fictional Brief)\n--- END [GENERATION BRIEF] ---",
-    brief: null,
+    brief,
     planBlock: "\n\n--- BEGIN [SIGNED-OFF CONTENT PLAN] ---\n(fictional plan)\n--- END [SIGNED-OFF CONTENT PLAN] ---",
     planChecksBlock: serializeFrozenSummaryPlanChecks(PLAN_CHECKS),
     planChecks: PLAN_CHECKS,
@@ -194,6 +207,8 @@ function installFetch(script: {
   compressions?: string[];
   repair?: string;
   checks: PlanAnswer[][];
+  /** Ordinary verdicts for the first Self-check request (none by default). */
+  ordinary?: unknown[];
 }): Sent[] {
   const sent: Sent[] = [];
   const compressions = [...(script.compressions ?? [])];
@@ -229,7 +244,18 @@ function installFetch(script: {
         if (next === undefined) throw new Error("No Self-check answer scripted");
         return Response.json({
           ...base,
-          content: [{ type: "tool_use", id: "toolu_self_check", name: tool, input: { verdicts: [], planVerdicts: next } }],
+          content: [{
+            type: "tool_use",
+            id: "toolu_self_check",
+            name: tool,
+            input: {
+              // The final coverage check asks for plan verdicts only.
+              verdicts: user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction)
+                ? []
+                : script.ordinary ?? [],
+              planVerdicts: next,
+            },
+          }],
           stop_reason: "tool_use",
         });
       }
@@ -246,7 +272,7 @@ function installFetch(script: {
   return sent;
 }
 
-async function draft(editedTerms: string[] = [TERM]) {
+async function draft(editedTerms: string[] = [TERM], brief: typeof BRIEF | null = null) {
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
   return await runAction(t, async (ctx) => {
@@ -255,7 +281,7 @@ async function draft(editedTerms: string[] = [TERM]) {
       { modelFor: () => SONNET }
     );
     return await draftCheckedSection({
-      claim: claimFor(editedTerms),
+      claim: claimFor(editedTerms, brief),
       payload: PAYLOAD,
       section: "242",
       clientFor,
@@ -383,5 +409,123 @@ describe("a writer's edited term survives drafting, compression and the repair (
     expect(sent.filter((request) => request.stage === "submit_self_check")).toHaveLength(1);
     expect(planRow(result, ITEM_GOAL).reason).toContain(`repair not used (${repairDroppedTermReason(TERM)})`);
     expect(planRow(result, ITEM_CONTEXT)).toMatchObject({ outcome: "applied" });
+  });
+
+  // Release suite run 4: the Self-check reported "P1 invents term
+  // 'cascade-fired lattice', not in storyline" and the repair removed it. The
+  // Self-check now gets the Line's edited terms as the writer's own, allowed
+  // word for word (2026-09-28 second, edited terms).
+  const EXACT = SUMMARY_PLAN_SELF_CHECK_REQUEST.exactTerms;
+  const termsBlock = `--- BEGIN [${EXACT.blockLabel}] ---\n- "${TERM}"\n--- END [${EXACT.blockLabel}] ---`;
+  const storylineVerdict = (outcome: "applied" | "not_applied", reason: string, repairGuidance?: string) => ({
+    paragraph: 1,
+    check: "storyline",
+    instruction: "storyline",
+    outcome,
+    reason,
+    ...(repairGuidance ? { repairGuidance } : {}),
+  });
+
+  it("a Section holding the edited term gets no invented-term issue and no repair on its account", async () => {
+    const sent = installFetch({
+      draft: DRAFT,
+      checks: [bothCovered],
+      // What run 4's checking model said.
+      ordinary: [storylineVerdict(
+        "not_applied",
+        "P1 invents term 'cascade-fired lattice', not in storyline",
+        "Remove 'cascade-fired lattice' or tie it to the Storyline."
+      )],
+    });
+    const result = await draft([TERM], BRIEF);
+
+    const check = sent.find((request) => request.stage === "submit_self_check");
+    if (!check) throw new Error("No Self-check request");
+    // The terms as data, and the rule for them outside the data blocks.
+    expect(check.user).toContain(termsBlock);
+    expect(check.user).toContain(`${termsBlock}${EXACT.instruction}`);
+    expect(EXACT.instruction).toContain(
+      "never report one as invented, unsupported, off the Storyline or missing from the sources"
+    );
+    // No repair: the only objection was to the writer's own term.
+    expect(sent.map((request) => request.stage)).toEqual(["section", "submit_self_check"]);
+    expect(result.draftText).toBe(DRAFT);
+    const storyline = result.notes.find((note) => note.source === "model" && note.instruction === "Storyline");
+    expect(storyline).toMatchObject({ outcome: "applied", reason: EDITED_TERM_ALLOWED_REASON, repaired: false });
+    expect(result.notes.some((note) => /invent/i.test(note.reason))).toBe(false);
+    expect(JSON.parse(result.selfCheck)).toMatchObject({ status: "pass", repairAttempted: false });
+  });
+
+  it("a genuinely invented term is still flagged and repaired", async () => {
+    const invented = DRAFT.replace("graded without delaminating", "graded as a helix-bonded matrix without delaminating");
+    const sent = installFetch({
+      draft: invented,
+      repair: DRAFT,
+      checks: [bothCovered, bothCovered],
+      ordinary: [storylineVerdict(
+        "not_applied",
+        "P3 invents term 'helix-bonded matrix', not in storyline",
+        "Remove 'helix-bonded matrix'."
+      )],
+    });
+    const result = await draft([TERM], BRIEF);
+
+    const repair = sent.find((request) => request.stage === "repair");
+    if (!repair) throw new Error("The invented term was not repaired");
+    expect(repair.user).toContain("Remove 'helix-bonded matrix'.");
+    expect(result.draftText).toBe(DRAFT);
+    const storyline = result.notes.find((note) => note.source === "model" && note.instruction === "Storyline");
+    expect(storyline).toMatchObject({ outcome: "not_applied", repaired: true });
+    expect(storyline?.reason).toContain("helix-bonded matrix");
+  });
+
+  it("an objection to the edited term and to a genuinely invented one is kept", async () => {
+    const invented = DRAFT.replace("graded without delaminating", "graded as a helix-bonded matrix without delaminating");
+    const sent = installFetch({
+      draft: invented,
+      repair: DRAFT,
+      checks: [bothCovered, bothCovered],
+      ordinary: [storylineVerdict(
+        "not_applied",
+        "Invents 'cascade-fired lattice' and 'helix-bonded matrix'",
+        "Remove the writer's 'helix-bonded matrix'."
+      )],
+    });
+    const result = await draft([TERM], BRIEF);
+    expect(sent.some((request) => request.stage === "repair")).toBe(true);
+    const storyline = result.notes.find((note) => note.source === "model" && note.instruction === "Storyline");
+    expect(storyline).toMatchObject({ outcome: "not_applied", repaired: true });
+  });
+
+  it("an objection that names the edited term but is not about invention is kept", async () => {
+    const sent = installFetch({
+      draft: DRAFT,
+      repair: DRAFT.replace("The team calls", "Since 2019 the team calls"),
+      checks: [bothCovered, bothCovered],
+      ordinary: [storylineVerdict(
+        "not_applied",
+        "P1 puts the 'cascade-fired lattice' before the goal",
+        "Move the sentence naming the 'cascade-fired lattice' after the goal."
+      )],
+    });
+    const result = await draft([TERM], BRIEF);
+    expect(sent.some((request) => request.stage === "repair")).toBe(true);
+    const storyline = result.notes.find((note) => note.source === "model" && note.instruction === "Storyline");
+    expect(storyline?.reason).toContain("before the goal");
+  });
+
+  it("the final coverage check gets the edited terms too", async () => {
+    const sent = installFetch({
+      draft: DRAFT,
+      repair: DRAFT.replace("while raising", "while clearly raising"),
+      checks: [[covered(ITEM_CONTEXT, 1), goalMissing], bothCovered],
+    });
+    const result = await draft([TERM]);
+    const checks = sent.filter((request) => request.stage === "submit_self_check");
+    expect(checks).toHaveLength(2);
+    const final = checks[1]!;
+    expect(final.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+    expect(final.user).toContain(`${termsBlock}${EXACT.instruction}`);
+    expect(planRow(result, ITEM_GOAL)).toMatchObject({ outcome: "applied", repaired: true });
   });
 });

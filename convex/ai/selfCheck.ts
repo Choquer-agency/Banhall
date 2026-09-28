@@ -19,6 +19,7 @@ import {
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
 } from "./promptDefinitions";
 import { sectionParagraphs } from "../lib/tiptapReport";
+import { containsTerm } from "../lib/editedTerms";
 import {
   isSectionNumber,
   type SectionNumber,
@@ -415,7 +416,30 @@ export type SelfCheckModelInput = {
    * runFinalCoverageSelfCheck, whose input carries no ordinary labels.
    */
   coverageOnly?: boolean;
+  /**
+   * 2026-09-28 (second, edited terms): the Line's edited terms from the
+   * frozen plan, allowed word for word. Summary mode only.
+   */
+  editedTerms?: readonly string[];
 };
+
+function summaryEditedTerms(input: SelfCheckModelInput): string[] {
+  return (input.editedTerms ?? []).map((term) => term.trim()).filter(Boolean);
+}
+
+/**
+ * What a verdict says when it objects to a term as made up or unsourced:
+ * invented, coined, fabricated, unsupported, not in the Storyline or the
+ * sources, off the Storyline.
+ */
+const INVENTED_TERM_OBJECTION =
+  /\b(?:invent\w*|coin\w*|made[- ]up|fabricat\w*|unsupported|not supported|unsourced|off[- ]storyline|off the storyline|(?:not|never) (?:in|from|found in|mentioned in|used in|part of|present in) (?:the )?(?:storyline|sources?|brief|transcript|material)|absent from (?:the )?(?:storyline|sources?))\b/i;
+
+/** A phrase a verdict puts in quotation marks (an apostrophe inside a word is not one). */
+const QUOTED_PHRASE = /(?:^|[\s(])['"\u2018\u201c]([^'"\u2019\u201d\n]{2,80})['"\u2019\u201d](?=[\s.,;:!?)]|$)/g;
+
+/** Compliance Note reason for an objection to a writer's edited term that was set aside. */
+export const EDITED_TERM_ALLOWED_REASON = "Writer's own edited term, allowed as written.";
 
 function summaryOrdinaryChecks(input: SelfCheckModelInput): SummaryOrdinaryCheck[] {
   return projectSummaryOrdinaryChecks({
@@ -489,7 +513,20 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
     }
     blocks.push(serialized);
   }
-  return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}`;
+  // The writer's edited terms, allowed word for word: a block of data and,
+  // after the blocks, the rule for them. Absent without edited terms, so
+  // those requests are unchanged.
+  const terms = hasSummaryPlan ? summaryEditedTerms(input) : [];
+  const exact = SUMMARY_PLAN_SELF_CHECK_REQUEST.exactTerms;
+  if (terms.length > 0) {
+    blocks.push(block(
+      exact.blockLabel,
+      terms.map((term) => `${exact.termPrefix}${term}${exact.termSuffix}`).join(exact.separator)
+    ));
+  }
+  return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}${
+    terms.length > 0 ? exact.instruction : ""
+  }`;
 }
 
 export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
@@ -1167,6 +1204,43 @@ export async function runModelSelfCheck(
         ...(repairText ? { repairText } : {}),
       };
     });
+  // 2026-09-28 (second, edited terms): the request says the writer's edited
+  // terms are allowed. A verdict that still objects to one as invented or
+  // unsourced is set aside: recorded as applied with a fixed reason and never
+  // sent to the repair. Everything else is judged as the model judged it.
+  const editedTerms = hasSummaryPlan ? summaryEditedTerms(input) : [];
+  if (editedTerms.length > 0) {
+    const setAside: number[] = [];
+    verdicts.forEach((verdict, index) => {
+      if (verdict.outcome !== "not_applied" || verdict.notChecked) return;
+      const said = [verdict.reason, verdict.repairGuidance ?? "", verdict.repairText ?? ""].join(" ");
+      // Kept when it also quotes something that is not an edited term: the
+      // objection may be about that too.
+      const quoted = [...said.matchAll(QUOTED_PHRASE)].map((match) => match[1]);
+      if (
+        !INVENTED_TERM_OBJECTION.test(said) ||
+        !editedTerms.some((term) => containsTerm(said, term)) ||
+        quoted.some((phrase) => !editedTerms.some((term) => containsTerm(phrase, term)))
+      ) {
+        return;
+      }
+      verdicts[index] = {
+        ...(verdict.paragraphIndex === undefined ? {} : { paragraphIndex: verdict.paragraphIndex }),
+        check: verdict.check,
+        instruction: verdict.instruction,
+        outcome: "applied",
+        reason: EDITED_TERM_ALLOWED_REASON,
+      };
+      setAside.push(index + 1);
+    });
+    if (setAside.length > 0) {
+      console.warn(
+        `${SELF_CHECK_REQUEST.toolName}: set aside ${setAside.length} ${
+          setAside.length === 1 ? "objection" : "objections"
+        } to the writer's edited terms (ordinary verdicts ${setAside.join(", ")})`
+      );
+    }
+  }
   // A label with no verdict is recorded on its own, never as applied, and
   // never sent to the repair: nothing says the section fails it.
   for (const check of notChecked.labels) {
@@ -1276,6 +1350,7 @@ export async function runFinalCoverageSelfCheck(
     model: string;
     planChecks: SelfCheckPlanCheck[];
     planChecksBlock?: string;
+    editedTerms?: readonly string[];
   }
 ): Promise<ModelSelfCheckResult["planVerdicts"]> {
   if (input.planChecks.length === 0) return [];
@@ -1290,6 +1365,7 @@ export async function runFinalCoverageSelfCheck(
     planChecks: input.planChecks,
     planChecksBlock: input.planChecksBlock,
     coverageOnly: true,
+    ...(input.editedTerms?.length ? { editedTerms: input.editedTerms } : {}),
   });
   return result.planVerdicts;
 }

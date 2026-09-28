@@ -663,6 +663,9 @@ export const generationPromptProgram = {
         // plan check asked for in the follow-up; only an answer with more
         // invalid verdicts than valid ones is rejected whole.
         invalidVerdicts: "dropped-and-asked-for-unless-most-are-invalid",
+        // 2026-09-28 (second, edited terms): the Line's edited terms are
+        // allowed word for word; an objection to one as invented is set aside.
+        editedTerms: "allowed-word-for-word-invention-objections-set-aside",
       },
     },
     // Story 2 (CAP-9): the repair is the section agent itself, re-run once

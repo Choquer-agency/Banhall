@@ -623,6 +623,7 @@ export async function draftCheckedSection(input: {
       model: clientFor.modelFor(`generation:selfCheck:${section}`),
       planChecks: claim.planChecks,
       planChecksBlock: claim.planChecksBlock,
+      editedTerms: claim.editedTerms,
     });
     verdicts = result.verdicts;
     storylineQuestion = result.storylineQuestion;
@@ -778,6 +779,7 @@ export async function draftCheckedSection(input: {
             model: clientFor.modelFor(`generation:selfCheck:${section}`),
             planChecks: claim.planChecks,
             planChecksBlock: claim.planChecksBlock,
+            editedTerms: claim.editedTerms,
           }
         ),
       };

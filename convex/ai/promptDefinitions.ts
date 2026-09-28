@@ -677,6 +677,21 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
    * Its data blocks are the Section text and the plan checks only; this line
    * comes before the plan list. Its tool schema has no storylineQuestion.
    */
+  /**
+   * 2026-09-28 (second, edited terms): the Line's edited terms, as the
+   * drafting request gets them. Release suite run 4 called "cascade-fired
+   * lattice" invented and the repair removed it. The block and the line
+   * after the data blocks are only present when the Line has edited terms,
+   * in the first request, its follow-up and the final coverage check.
+   */
+  exactTerms: {
+    blockLabel: "WRITER'S EXACT TERMS",
+    termPrefix: "- \"",
+    termSuffix: "\"",
+    separator: "\n",
+    instruction:
+      "\n\nThe WRITER'S EXACT TERMS block lists terms the writer put in the signed-off plan. Each is the writer's own wording and is allowed exactly as written: never report one as invented, unsupported, off the Storyline or missing from the sources, and never ask for one to be changed or removed. Check everything else in the section as usual.",
+  },
   finalCoverage: {
     instruction:
       "This check covers the content plan only, on the section's final text. Return an empty verdicts list and leave out storylineQuestion.",
