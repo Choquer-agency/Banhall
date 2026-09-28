@@ -3799,6 +3799,77 @@ describe("seed Summary sign-off and recovery", () => {
     expect(providerContentPlanRows(retryRequest)).toEqual(initialRows);
   });
 
+  it("drafts without a quote marked for a check and says so in the Compliance Note (2026-09-27, third)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const kept = "Kept advancement evidence line.";
+    const marked = "Marked neighbouring line about something else.";
+    const advancementId = await s.t.run(async (ctx) => {
+      const advancement = (await ctx.db.query("seeds")
+        .withIndex("by_generationId_and_roleId", (q) =>
+          q.eq("generationId", s.generationId).eq("roleId", "specific_advancements"))
+        .take(10))[0];
+      if (!advancement) throw new Error("Missing advancement fixture");
+      for (const [exactExcerpt, needsQuoteCheck] of [[kept, false], [marked, true]] as const) {
+        await ctx.db.insert("seedProvenance", {
+          seedId: advancement._id,
+          projectId: s.projectId,
+          generationId: s.generationId,
+          sourceId: s.sourceId,
+          sourceContentHash: "source-hash",
+          startOffset: 0,
+          endOffset: exactExcerpt.length,
+          exactExcerpt,
+          ...(needsQuoteCheck ? { needsQuoteCheck: true } : {}),
+        });
+      }
+      return advancement._id;
+    });
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    configureSummaryActionProvider({
+      draftText: "A checked paragraph.",
+      repairText: "A repaired checked paragraph.",
+    });
+    const request = await runNextSectionAction(s, s.generationId);
+    const row = providerContentPlanRows(request).find(
+      (entry) => entry.kind === "cover" && entry.roleId === "specific_advancements"
+    );
+    // The item's wording and support still go to drafting; only the marked
+    // excerpt is left out of its references.
+    expect(row).toMatchObject({
+      items: expect.arrayContaining([expect.objectContaining({ support: expect.any(String) })]),
+      sourceReferences: expect.arrayContaining([expect.objectContaining({ exactExcerpt: kept })]),
+    });
+    expect(JSON.stringify(request)).not.toContain(marked);
+    const { item, notes } = await s.t.run(async (ctx) => {
+      const generation = await ctx.db.get(s.generationId);
+      const items = await ctx.db.query("summaryItems")
+        .withIndex("by_summaryVersionId_and_order", (q) =>
+          q.eq("summaryVersionId", generation!.summaryVersionId!))
+        .take(50);
+      return {
+        item: items.find((candidate) => candidate.seedId === advancementId)!,
+        notes: await ctx.db.query("complianceNotes")
+          .withIndex("by_generationId_and_section", (q) => q.eq("generationId", s.generationId))
+          .collect(),
+      };
+    });
+    expect(row?.items).toContainEqual(expect.objectContaining({ itemId: item._id, wording: item.bullets }));
+    expect(notes.filter((note) => note.instruction.includes("marked for a check"))).toEqual([
+      expect.objectContaining({
+        source: "deterministic",
+        outcome: "applied",
+        instruction: `Leave quotes marked for a check out of signed-off Summary item ${item._id}'s evidence`,
+        reason:
+          '1 quote was marked "Needs a check" (the line may not back the item), so the draft did not use it as evidence. The item\'s wording and support status were used as signed off.',
+      }),
+    ]);
+    expect(notes.find((note) => note.instruction.includes("marked for a check"))?.planRef).toBeUndefined();
+  });
+
   it("suppresses only the confirmed exclusion repair while an unrelated repair still runs once", async () => {
     const s = await decisionFixture();
     await makeReady(s);

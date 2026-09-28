@@ -148,7 +148,32 @@ type PlanCheck = {
     sourceId: string;
     exactExcerpt: string;
   }>;
+  quotesLeftOut?: number;
 };
+
+/**
+ * 2026-09-27 (third): one row per signed-off item whose quotes marked for a
+ * check were left out of the drafting evidence. Its wording and support
+ * status were drafted as signed off. No planRef, so plan coverage counts
+ * are unchanged.
+ */
+export function leftOutQuoteNoteDrafts(args: {
+  section: SectionNumber;
+  checks: readonly PlanCheck[];
+}): ComplianceNoteDraft[] {
+  return args.checks.flatMap((check) =>
+    check.itemId && check.quotesLeftOut
+      ? [noteDraft({
+          section: args.section,
+          source: "deterministic",
+          instruction: `Leave quotes marked for a check out of signed-off Summary item ${check.itemId}'s evidence`,
+          outcome: "applied",
+          tier: "none",
+          reason: `${check.quotesLeftOut} ${check.quotesLeftOut === 1 ? "quote was" : "quotes were"} marked "Needs a check" (the line may not back the item), so the draft did not use ${check.quotesLeftOut === 1 ? "it" : "them"} as evidence. The item's wording and support status were used as signed off.`,
+        })]
+      : []
+  );
+}
 
 function sameUtf8Bytes(left: string, right: string): boolean {
   const leftBytes = new TextEncoder().encode(left);
@@ -527,6 +552,7 @@ async function draftCheckedSection(input: {
       finalCoverageNotReverified,
     });
     rows.push(...planRows);
+    rows.push(...leftOutQuoteNoteDrafts({ section, checks: claim.planChecks }));
   }
   const initialPlanFailures = planVerdicts.filter((verdict) => {
     const expected = claim.planChecks.find((check) =>

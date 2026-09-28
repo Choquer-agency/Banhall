@@ -534,7 +534,7 @@ export async function signOffSeedStageHandler(
   const referencesBySeedId = new Map(
     frozenItems.map((item) => [item.seedId, item.bullets] as const)
   );
-  const sourceRefsByItemId = await loadSummarySourceRefs(ctx, generation, frozenItems);
+  const { sourceRefsByItemId } = await loadSummarySourceRefs(ctx, generation, frozenItems);
   const payload = await frozenOrderedPayload(ctx, generation, summaryVersionId);
   try {
     for (const section of ["242", "244", "246"] as const) {
@@ -739,6 +739,8 @@ export async function loadFrozenSectionPlan(
       sourceId: string;
       exactExcerpt: string;
     }>;
+    /** Quotes marked for a check that were left out of this item's evidence. */
+    quotesLeftOut?: number;
   }>;
 }> {
   if (!generation.summaryVersionId) {
@@ -762,7 +764,7 @@ export async function loadFrozenSectionPlan(
   const referencesBySeedId = new Map(
     items.map((item) => [item.seedId, item.bullets] as const)
   );
-  const sourceRefsByItemId = await loadSummarySourceRefs(ctx, generation, items);
+  const { sourceRefsByItemId, quotesLeftOut } = await loadSummarySourceRefs(ctx, generation, items);
   const pdSection = section === "242" ? "s242" : section === "244" ? "s244" : "s246";
   const plan = buildFrozenSummaryPlan({
     section: pdSection,
@@ -798,6 +800,10 @@ export async function loadFrozenSectionPlan(
       wording: check.wording,
       relationshipReferences: check.relationshipReferences,
       sourceReferences: check.sourceReferences,
+      // Not part of the plan the model reads; the Compliance Note uses it.
+      ...(check.itemId && quotesLeftOut.has(check.itemId)
+        ? { quotesLeftOut: quotesLeftOut.get(check.itemId) }
+        : {}),
     })),
   };
 }
@@ -856,6 +862,9 @@ export async function loadSummarySourceRefs(
     Id<"summaryItems">,
     Array<{ sourceId: string; exactExcerpt: string }>
   >();
+  // 2026-09-27 (third): a quote marked for a check may not back its item,
+  // so it is never drafting evidence; the item's wording still is.
+  const quotesLeftOut = new Map<Id<"summaryItems">, number>();
   for (const item of items) {
     const rows = await ctx.db.query("seedProvenance")
       .withIndex("by_seedId", (q) => q.eq("seedId", item.seedId))
@@ -863,7 +872,9 @@ export async function loadSummarySourceRefs(
     if (rows.length > 128) {
       domainError("INVALID_INPUT", "Seed provenance exceeds the drafting budget");
     }
-    result.set(item._id, rows.map((row) => {
+    const marked = rows.filter((row) => row.needsQuoteCheck === true).length;
+    if (marked > 0) quotesLeftOut.set(item._id, marked);
+    result.set(item._id, rows.filter((row) => row.needsQuoteCheck !== true).map((row) => {
       if (row.projectId !== generation.projectId) {
         domainError("INVALID_STATE", "Seed provenance belongs to another project");
       }
@@ -876,5 +887,5 @@ export async function loadSummarySourceRefs(
       };
     }));
   }
-  return result;
+  return { sourceRefsByItemId: result, quotesLeftOut };
 }
