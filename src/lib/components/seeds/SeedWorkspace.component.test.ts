@@ -3208,6 +3208,8 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
       provenance: [],
     });
     const view = await render(SeedSubsectionPane, paneProps(subsection({ items: cards() })));
+    // The pane's width at a 1440 window beside the Outline (board 3.1).
+    view.container.style.width = "914px";
     await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("two");
     const cardF = document.querySelector<HTMLElement>('article[data-seed-id="seed-f"]')!;
     await page.elementLocator(cardF).getByRole("button", { name: "Edit", exact: true }).click();
@@ -3573,6 +3575,42 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     await page.getByLabelText("Seed workspace").screenshot({ path: await captures.path("seed-plan-tablet-1024") });
   });
 
+  it("fills a wide pane with more card columns in reading order and keeps the Outline width", async () => {
+    // 2026-09-28 width pass: columns of at least 400px share the pane, so a
+    // 1920 window shows three and a 2560 window four, rather than two 412px
+    // columns at the left of an empty pane.
+    const fiveSeeds = () => Array.from({ length: 5 }, (_, index) => seed({
+      seedId: `seed-wide-${index}` as Id<"seeds">,
+      bullets: [`Wide seed ${index + 1} wording.`],
+    }));
+    for (const [viewport, width, grid, columns] of [
+      [1920, "1707px", "three", ["0", "1", "2", "0", "1"]],
+      [2560, "2347px", "four", ["0", "1", "2", "3", "0"]],
+    ] as const) {
+      document.body.innerHTML = "";
+      await page.viewport(viewport, 1080);
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSubsection", subsection({ items: fiveSeeds() }));
+      const view = await render(SeedWorkspace, workspaceProps());
+      view.container.style.width = width;
+      view.container.style.height = "1000px";
+      await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe(grid);
+      const cells = Array.from(document.querySelectorAll<HTMLElement>("[data-seed-cell][data-seed-column]"));
+      expect(cells.map((cell) => cell.dataset.seedCell)).toEqual(fiveSeeds().map((item) => item.seedId));
+      expect(cells.map((cell) => cell.dataset.seedColumn)).toEqual([...columns]);
+      const card = (index: number) => document.querySelector<HTMLElement>(`article[data-seed-id="seed-wide-${index}"]`)!.getBoundingClientRect();
+      const widths = [0, 1, 2, 3, 4].map((index) => Math.round(card(index).width));
+      expect(new Set(widths).size).toBe(1);
+      expect(widths[0]).toBeGreaterThanOrEqual(400);
+      expect(Math.round(card(1).left - card(0).right)).toBe(10);
+      const grid0 = view.container.querySelector<HTMLElement>("[data-seed-grid]")!.getBoundingClientRect();
+      const lastInRow = grid === "three" ? card(2) : card(3);
+      expect(Math.abs(Math.round(lastInRow.right - grid0.right))).toBeLessThanOrEqual(1);
+      await expect.element(page.getByRole("slider", { name: "Resize Seed outline" })).toHaveAttribute("aria-valuenow", "300");
+      view.unmount();
+    }
+  });
+
   it("nests revised seeds inside their seed's card and keeps placing cards two to a row after it (board 3.2)", async () => {
     await page.viewport(1440, 900);
     const revision = (index: number) => seed({
@@ -3666,7 +3704,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     });
     // A reload after feedback on the first seed: its revised seeds are
     // already there when the cards are placed.
-    await render(SeedSubsectionPane, paneProps(subsection({
+    const view = await render(SeedSubsectionPane, paneProps(subsection({
       items: [
         ...letters.map((letter) => seed({ seedId: `seed-${letter}` as Id<"seeds">, selected: false, bullets: [`Seed ${letter.toUpperCase()} wording.`], provenance: [] })),
         revision(1),
@@ -3682,6 +3720,8 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
         revisedSeedIds: ["seed-rev-1", "seed-rev-2"] as Id<"seeds">[],
       }],
     })));
+    // The pane's width at a 1440 window beside the Outline (board 3.1).
+    view.container.style.width = "914px";
     await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("two");
     const cells = Array.from(document.querySelectorAll<HTMLElement>("[data-seed-cell][data-seed-column]"));
     const pageOrder = cells.map((cell) => cell.dataset.seedCell);

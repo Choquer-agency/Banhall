@@ -444,11 +444,27 @@
   const revisionsOf = (group: SeedSubsectionData["feedbackGroups"][number]) =>
     data.items.filter((item) => item.feedbackRequestId === group.requestId && item.seedId !== group.targetSeedId);
 
-  // Two 412px columns when the pane is wide enough, otherwise one (3.5, 3.6).
+  // Card columns: one below 800px (3.5, 3.6), two 412px columns (board 3.1)
+  // until a third fits, then as many columns of at least 400px as fit,
+  // sharing the width, so a wide monitor gains columns instead of leaving
+  // the right of the pane empty (2026-09-28 width pass).
   // The width is read on the next frame, so a layout change it causes (a
   // scrollbar appearing) never feeds back into the same observation.
+  const CARD_MIN_WIDTH = 400;
+  const CARD_GAP = 10;
   let cardsWidth = $state(0);
-  const twoColumns = $derived(cardsWidth >= 800);
+  const columns = $derived(
+    cardsWidth >= 800 ? Math.max(2, Math.floor((cardsWidth + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP))) : 1
+  );
+  const multiColumn = $derived(columns > 1);
+  const gridColumns = $derived(
+    columns === 1
+      ? undefined
+      : columns === 2
+        ? "grid-template-columns:repeat(2,minmax(0,412px))"
+        : `grid-template-columns:repeat(${columns},minmax(0,1fr))`
+  );
+  const gridName = $derived(["one", "two", "three", "four", "five", "six"][columns - 1] ?? String(columns));
   function observeWidth(element: HTMLElement) {
     let frame = 0;
     const observer = new ResizeObserver(([entry]) => {
@@ -464,26 +480,27 @@
     };
   }
   // Cards keep their ranked reading order in the page (tab and screen-reader
-  // order) and fill the two-column grid two to a row in that same order: the
-  // n-th card goes to column n % 2 of row n / 2. Visual order therefore always
+  // order) and fill the grid a row at a time in that same order: with c
+  // columns the n-th card goes to column n % c of row n / c. Visual order therefore always
   // equals page order, and no cell is left empty. A card's place depends only
   // on its rank, never on feedback or revised seeds, and every card comes
   // from one keyed list, so feedback sent or revised seeds landing never move
   // a card to another parent or rebuild it. A row's two cards share one height
-  // (board 3.1); beside a seed with revised seeds, the other card keeps its
-  // own height.
+  // (board 3.1); beside a seed with revised seeds, the other cards keep
+  // their own height.
   const hasRevisions = (item: SeedCardData) => groupsByTarget.has(String(item.seedId));
   const rankOf = $derived(new Map(topLevelItems.map((item, index) => [String(item.seedId), index])));
   function spotOf(item: SeedCardData) {
     const rank = rankOf.get(String(item.seedId));
-    return rank === undefined ? null : { column: rank % 2, row: Math.floor(rank / 2) };
+    return rank === undefined ? null : { column: rank % columns, row: Math.floor(rank / columns) };
   }
   function placementOf(item: SeedCardData) {
-    if (!twoColumns) return undefined;
+    if (!multiColumn) return undefined;
     const spot = spotOf(item);
     if (!spot) return undefined;
-    const partner = topLevelItems[spot.row * 2 + (1 - spot.column)];
-    const align = !hasRevisions(item) && !!partner && hasRevisions(partner) ? "align-self:start;" : "";
+    const row = topLevelItems.slice(spot.row * columns, spot.row * columns + columns);
+    const beside = row.some((other) => other.seedId !== item.seedId && hasRevisions(other));
+    const align = !hasRevisions(item) && beside ? "align-self:start;" : "";
     return `grid-column:${spot.column + 1};grid-row:${spot.row + 1};${align}`;
   }
 
@@ -941,7 +958,7 @@
         </div>
       {/if}
 
-      <div {@attach observeWidth} data-seed-grid={twoColumns ? "two" : "one"}>
+      <div {@attach observeWidth} data-seed-grid={gridName}>
         {#if data.items.length === 0 && !data.pendingBatchId && (data.lastAttemptFailed || data.state === "failed")}
           <div role="status" class="rounded-[10px] border border-dashed border-line p-6 text-center" data-seed-empty="failed">
             <p class="text-body text-ink-secondary">Writing seeds for this step failed.</p>
@@ -954,7 +971,7 @@
           <!-- Four skeleton cards while the step's ideas are written (F3):
                two columns 16px apart, 84 and 64px chips, lines at 92, 76
                and 60%. -->
-          <div class={`grid gap-4 ${twoColumns ? "grid-cols-[repeat(2,minmax(0,412px))]" : "grid-cols-1"}`} aria-hidden="true" data-seed-skeletons>
+          <div class="grid grid-cols-1 gap-4" style={gridColumns} aria-hidden="true" data-seed-skeletons>
             {#each [0, 1, 2, 3] as index (index)}
               <div class="flex h-[170px] flex-col gap-3 rounded-xl border border-line-soft bg-surface p-4" data-seed-skeleton>
                 <div class="flex gap-1.5">
@@ -982,9 +999,9 @@
           {/if}
           <!-- One keyed list in ranked order; each card is placed on the grid,
                so a card keeps its parent, focus and local state. -->
-          <div class={`grid gap-2.5 ${twoColumns ? "grid-cols-[repeat(2,minmax(0,412px))]" : "grid-cols-1"}`}>
+          <div class="grid grid-cols-1 gap-2.5" style={gridColumns}>
             {#each topLevelItems as item (item.seedId)}
-              {@render seedWithRevisions(item, false, placementOf(item), twoColumns ? (spotOf(item)?.column ?? 0) : 0)}
+              {@render seedWithRevisions(item, false, placementOf(item), multiColumn ? (spotOf(item)?.column ?? 0) : 0)}
             {/each}
           </div>
         {/if}

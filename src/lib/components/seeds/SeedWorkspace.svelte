@@ -1002,7 +1002,7 @@
     <span class="h-2.5 w-24 rounded-[5px] bg-skeleton-line"></span>
     <span class="h-5 w-72 max-w-full rounded-[5px] bg-skeleton-line"></span>
     <span class="h-2.5 w-[28rem] max-w-full rounded-[5px] bg-skeleton-line"></span>
-    <div class="mt-5 grid grid-cols-1 gap-2.5 @min-[800px]:grid-cols-2 @min-[1220px]:grid-cols-3 @min-[1630px]:grid-cols-4">
+    <div class="mt-5 grid grid-cols-1 gap-2.5 @min-[800px]:grid-cols-[repeat(2,minmax(0,412px))] @min-[1220px]:grid-cols-3 @min-[1630px]:grid-cols-4">
       {#each [0, 1, 2, 3] as index (index)}
         <div class="flex h-[170px] flex-col gap-3 rounded-xl border border-line-soft bg-surface p-4">
           <div class="flex gap-1.5">

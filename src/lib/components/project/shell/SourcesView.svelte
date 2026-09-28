@@ -54,7 +54,10 @@
   }
 </script>
 
-<div data-sources-view class="mx-auto w-full max-w-[660px] px-6 py-10">
+<!-- The file list follows the report's 660px column; a pane wider than a
+     1440 window can give it gets a wider list (2026-09-28 width pass). -->
+<div class="@container">
+<div data-sources-view class="mx-auto w-full max-w-[660px] px-6 py-10 @min-[1400px]:max-w-[960px]">
   <h2 class="font-serif text-2xl text-ink">Sources</h2>
   <p class="mt-1 text-[13px] text-ink-muted">The interviews and documents this report is written from.</p>
 
@@ -111,4 +114,5 @@
       </section>
     {/if}
   {/if}
+</div>
 </div>
