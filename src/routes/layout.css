@@ -277,6 +277,16 @@ html {
   font-size: clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%); /* px-to-rem: keep */
 }
 
+/* Board icons and the logo mark keep their board size as the svg width and
+   height attributes and in --icon-size; this sizes them in rem so they scale
+   with the root. Base layer, so a size class on the icon still wins. */
+@layer base {
+  svg[data-board-icon] {
+    width: calc(var(--icon-size) * 0.0625rem);
+    height: calc(var(--icon-size) * 0.0625rem);
+  }
+}
+
 .workspace-rail-control {
   box-shadow: var(--shadow-workspace-control);
 }

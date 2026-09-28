@@ -89,8 +89,11 @@ is rem and the root grows on wide windows:
   resizable pane width, an icon or avatar `size`, a dialog `top`) stays a
   board pixel number and renders through `boardRem()` from
   `$lib/rootScale`; pointer and window math converts back with
-  `rootScale()`. Measured positions (menus anchored to a rect, comment
-  offsets, a measured bar height) stay px.
+  `rootScale()`. Board icons and the logo mark keep their board size as the
+  svg `width`/`height` attributes and in `--icon-size`; a base-layer rule
+  in `layout.css` (`svg[data-board-icon]`) sizes them in rem, and a size
+  class on the icon still wins. Measured positions (menus anchored to a
+  rect, comment offsets, a measured bar height) stay px.
 - **Tooling.** `node scripts/px-to-rem.mjs` converts px sizes under `src/`
   and is safe to re-run (a second run changes nothing); `--check` lists what
   it would change. `tests/pxToRem.test.ts` fails when a new px size lands in

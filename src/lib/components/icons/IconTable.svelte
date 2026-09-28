@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { boardRem } from "$lib/rootScale";
   import type { IconProps } from "./types";
 
   /**
@@ -10,8 +9,10 @@
 </script>
 
 <svg
-  width={boardRem(size)}
-  height={boardRem(size)}
+  width={size}
+  height={size}
+  data-board-icon
+  style:--icon-size={size}
   viewBox="0 0 14 14"
   fill="none"
   stroke="currentColor"

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { boardRem } from "$lib/rootScale";
   import type { SVGAttributes } from "svelte/elements";
   import {
     LOGO_MARK_COLORS,
@@ -33,8 +32,10 @@
 <svg
   {...rest}
   xmlns="http://www.w3.org/2000/svg"
-  width={boardRem(size)}
-  height={boardRem(size)}
+  width={size}
+  height={size}
+  data-board-icon
+  style:--icon-size={size}
   viewBox={`0 0 ${LOGO_MARK_VIEWBOX} ${LOGO_MARK_VIEWBOX}`}
   role={label ? "img" : undefined}
   aria-label={label || undefined}

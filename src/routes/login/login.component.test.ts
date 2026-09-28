@@ -115,7 +115,7 @@ describe("/login", () => {
     expect(document.querySelector("footer")).toBeNull();
     expect(document.querySelector("#email")?.getAttribute("placeholder")).toBe("you@banhall.com");
     expect(document.querySelector("#password")?.getAttribute("placeholder")).toBe("Enter your password");
-    expect(document.querySelector('[data-auth-column]')?.getAttribute("style")).toContain("max-width: 360px");
+    expect(document.querySelector('[data-auth-column]')?.getAttribute("style")).toContain("max-width: 22.5rem");
     expect(document.body.textContent).not.toContain("The interview is the evidence");
     expect(document.querySelector("[data-account-card]")).toBeNull();
   });
