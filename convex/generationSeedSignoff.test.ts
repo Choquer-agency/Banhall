@@ -4784,6 +4784,9 @@ describe("seed Summary sign-off and recovery", () => {
     }
   );
 
+  // 2026-09-28, run 4: one invalid verdict no longer fails the whole
+  // check. It is dropped and logged by position, asked for once, and, still
+  // invalid in the follow-up, recorded as not checked.
   it.each([
     {
       name: "a wrong item id",
@@ -4823,6 +4826,71 @@ describe("seed Summary sign-off and recovery", () => {
       detail: () =>
         "ordinary verdict 1 (storyline): paragraph 2 is not a whole number from 0 to 1",
     },
+  ])("drops only $name, asks once for it and records it as not checked", async ({ name, mutate, detail }) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    let expectedDetail = "";
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (!params.tool_choice) {
+        return {
+          content: [{ type: "text", text: "Technical work and results were recorded." }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      const checks = providerPlanChecks(params);
+      const input: SummaryCheckInput = {
+        verdicts: providerOrdinaryVerdicts(params),
+        planVerdicts: checks.map((check) => ({
+          ...(check.itemId ? { itemId: check.itemId } : {}),
+          ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+          mergedItemIds: [...check.mergedItemIds],
+          paragraph: 1,
+          outcome: "applied",
+          reason: "Covered.",
+        })),
+      };
+      mutate(input, checks);
+      expectedDetail ||= detail(checks);
+      return {
+        content: [{ type: "tool_use", id: "one-invalid-verdict", name: params.tool_choice.name, input }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+
+    await runNextSectionAction(s, s.generationId);
+    const calls = network.create.mock.calls.map(([params]) => params as GenerationMessageParams);
+    expect(calls.filter(isFirstSelfCheckRequest)).toHaveLength(2);
+    expect(calls.filter(isFinalCoverageRequest)).toHaveLength(0);
+    const state = await s.t.run(async (ctx) => ({
+      rows: await ctx.db.query("complianceNotes")
+        .withIndex("by_generationId_and_section", (q) =>
+          q.eq("generationId", s.generationId).eq("section", "246"))
+        .take(40),
+      run: (await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(4)).find((row) => row.section === "s246"),
+    }));
+    const summary = JSON.parse(state.run?.selfCheck ?? "{}");
+    expect(summary.modelCheck).toBe("ok");
+    const notChecked = state.rows.filter((row) => row.reason.startsWith("Not checked:"));
+    expect(notChecked).toHaveLength(1);
+    const planTarget = name === "a wrong item id" || name === "empty mergedItemIds";
+    expect(Boolean(notChecked[0]?.planRef)).toBe(planTarget);
+    expect(notChecked[0]).toMatchObject({ outcome: "not_applied", repaired: false });
+    // The fixture's confirmed conflict keeps Line 246's coverage incomplete.
+    expect(summary.planCoverage.status).toBe("incomplete");
+    const logged = warn.mock.calls.map((call) => call.join(" ")).join("\n");
+    expect(logged).toContain(`dropped 1 invalid item`);
+    expect(logged).toContain(expectedDetail);
+    expect(logged).not.toContain("not-a-signed-off-item");
+  });
+
+  it.each([
     {
       name: "a response over 16,384 bytes",
       mutate: (input: SummaryCheckInput) => {
@@ -4862,8 +4930,8 @@ describe("seed Summary sign-off and recovery", () => {
       };
       expect(input.verdicts.length).toBeGreaterThanOrEqual(2);
       expect(input.verdicts[0]?.instruction).toBe("storyline");
-      mutate(input, checks);
-      expectedDetail = detail(checks);
+      mutate(input);
+      expectedDetail = detail();
       return {
         content: [{
           type: "tool_use",
@@ -4961,7 +5029,9 @@ describe("seed Summary sign-off and recovery", () => {
     const selfChecks = network.create.mock.calls
       .map(([params]) => params as GenerationMessageParams)
       .filter((params) => params.tool_choice?.name === "submit_self_check");
-    expect(selfChecks).toHaveLength(1);
+    // An invalid paragraph drops that verdict and asks once for its label
+    // (2026-09-28, run 4).
+    expect(selfChecks).toHaveLength(accepted ? 1 : 2);
     const checks = providerPlanChecks(selfChecks[0]!);
     const state = await s.t.run(async (ctx) => ({
       rows: await ctx.db.query("complianceNotes")
@@ -4988,16 +5058,15 @@ describe("seed Summary sign-off and recovery", () => {
       }
       expect(state.run?.selfCheck).toContain('"modelCheck":"ok"');
     } else {
-      expect(state.rows.find((row) => row.instruction === "Model Self-check"))
-        .toMatchObject({
-          source: "deterministic",
-          outcome: "not_applied",
-          repaired: false,
-        });
-      expect(planRows.every((row) =>
-        row.outcome === "not_applied" && row.repaired === false
+      // The follow-up repeats the invalid paragraph, so the Storyline label
+      // is not checked; the plan rows keep their verdicts.
+      expect(state.rows.find((row) =>
+        row.source === "model" && row.instruction === "Storyline"
+      )).toMatchObject({ outcome: "not_applied", reason: expect.stringMatching(/^Not checked:/), repaired: false });
+      expect(planRows.filter((row) => row.tier !== "conflict").every((row) =>
+        row.outcome === "applied"
       )).toBe(true);
-      expect(state.run?.selfCheck).toContain('"modelCheck":"failed"');
+      expect(state.run?.selfCheck).toContain('"modelCheck":"ok"');
     }
   });
 
@@ -5052,7 +5121,7 @@ describe("seed Summary sign-off and recovery", () => {
       const selfChecks = network.create.mock.calls
         .map(([params]) => params as GenerationMessageParams)
         .filter((params) => params.tool_choice?.name === "submit_self_check");
-      expect(selfChecks).toHaveLength(1);
+      expect(selfChecks).toHaveLength(accepted ? 1 : 2);
       const checks = providerPlanChecks(selfChecks[0]!);
       const state = await s.t.run(async (ctx) => ({
         rows: await ctx.db.query("complianceNotes")
@@ -5070,12 +5139,13 @@ describe("seed Summary sign-off and recovery", () => {
         )).toMatchObject({ outcome: "applied", paragraphIndex: 2 });
         expect(state.run?.selfCheck).toContain('"modelCheck":"ok"');
       } else {
-        expect(state.rows.find((row) => row.instruction === "Model Self-check"))
-          .toMatchObject({ outcome: "not_applied", repaired: false });
-        expect(state.rows.filter((row) => row.planRef).every((row) =>
-          row.outcome === "not_applied" && row.paragraphIndex === undefined
+        expect(state.rows.find((row) =>
+          row.source === "model" && row.instruction === "Storyline"
+        )).toMatchObject({ outcome: "not_applied", reason: expect.stringMatching(/^Not checked:/) });
+        expect(state.rows.filter((row) => row.planRef && row.tier !== "conflict").every((row) =>
+          row.outcome === "applied" && row.paragraphIndex !== undefined
         )).toBe(true);
-        expect(state.run?.selfCheck).toContain('"modelCheck":"failed"');
+        expect(state.run?.selfCheck).toContain('"modelCheck":"ok"');
       }
     }
   );
@@ -5482,12 +5552,74 @@ describe("seed Summary sign-off and recovery", () => {
     )).toBe(true);
   });
 
+  // 2026-09-28, run 4: a malformed verdict is dropped on its own, asked
+  // for once and, still malformed, recorded as not checked.
+  it.each(["invalid field type", "omitted required field"] as const)(
+    "drops one plan verdict with an %s instead of failing the Summary Self-check",
+    async (failureMode) => {
+      const s = await decisionFixture();
+      await makeReady(s);
+      await s.writer.mutation(api.generations.signOffSeedStage, {
+        generationId: s.generationId,
+        expectedSeedStageVersion: 0,
+      });
+      network.create.mockImplementation(async (params: GenerationMessageParams) => {
+        if (params.tool_choice?.name !== "submit_self_check") {
+          return {
+            content: [{ type: "text", text: "Final specific_advancements wording. Draft text." }],
+            usage: { input_tokens: 10, output_tokens: 5 },
+          };
+        }
+        const planVerdicts = providerPlanChecks(params).map((check) => ({
+          ...(check.itemId ? { itemId: check.itemId } : {}),
+          ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+          mergedItemIds: [...check.mergedItemIds],
+          paragraph: 1,
+          outcome: check.confirmedExclusion ? "not_applied" : "applied",
+          reason: "Covered.",
+        }));
+        if (failureMode === "invalid field type") Object.assign(planVerdicts[0] ?? {}, { outcome: 7 });
+        else Reflect.deleteProperty(planVerdicts[0] ?? {}, "reason");
+        return {
+          content: [{
+            type: "tool_use",
+            id: "one-malformed-plan-verdict",
+            name: params.tool_choice.name,
+            input: { verdicts: providerOrdinaryVerdicts(params), planVerdicts },
+          }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      });
+      await runNextSectionAction(s, s.generationId);
+      const requests = network.create.mock.calls.map(([params]) => params as GenerationMessageParams);
+      expect(requests.filter(isFirstSelfCheckRequest)).toHaveLength(2);
+      const checks = providerPlanChecks(requests.find(isFirstSelfCheckRequest)!);
+      const state = await s.t.run(async (ctx) => ({
+        rows: (await ctx.db.query("complianceNotes")
+          .withIndex("by_generationId_and_section", (q) =>
+            q.eq("generationId", s.generationId).eq("section", "246"))
+          .take(30)).filter((row) => row.planRef),
+        run: (await ctx.db.query("generationSectionRuns")
+          .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+          .take(4)).find((row) => row.section === "s246"),
+      }));
+      expectCompletePlanRows(checks, state.rows);
+      expect(state.run?.selfCheck).toContain('"modelCheck":"ok"');
+      const first = checks[0]!;
+      const firstRow = state.rows.find((row) => first.itemId
+        ? row.planRef?.itemId === first.itemId
+        : row.planRef?.skippedRoleId === first.skippedRoleId);
+      expect(firstRow).toMatchObject({ outcome: "not_applied", repaired: false });
+      expect(firstRow?.reason.startsWith("Not checked:")).toBe(true);
+      expect(state.rows.filter((row) => row !== firstRow && row.tier !== "conflict")
+        .every((row) => row.outcome === "applied")).toBe(true);
+    }
+  );
+
   it.each([
     "throws",
     "missing tool output",
     "malformed adapter output",
-    "invalid field type",
-    "omitted required field",
     "oversized raw extras",
     "oversized nested extras",
     "encoded root",
@@ -5524,12 +5656,6 @@ describe("seed Summary sign-off and recovery", () => {
           outcome: "applied",
           reason: "Covered.",
         }));
-        if (failureMode === "invalid field type") {
-          Object.assign(planVerdicts[0] ?? {}, { outcome: 7 });
-        }
-        if (failureMode === "omitted required field") {
-          Reflect.deleteProperty(planVerdicts[0] ?? {}, "reason");
-        }
         if (failureMode === "oversized nested extras") {
           Object.assign(planVerdicts[0] ?? {}, {
             unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1),

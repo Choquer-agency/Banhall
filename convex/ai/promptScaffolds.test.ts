@@ -454,6 +454,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       structuredPolicy: "single-attempt-then-missing-labels-follow-up",
       encodedJsonRecovery: "disabled",
       finalCoverage: "plan-verdicts-only-on-the-changed-final-text",
+      invalidVerdicts: "dropped-and-asked-for-unless-most-are-invalid",
     });
     expect(generationPromptProgram.templates.seeds.summaryPlan).toEqual({
       drafting: FROZEN_SUMMARY_PLAN_SCAFFOLD,

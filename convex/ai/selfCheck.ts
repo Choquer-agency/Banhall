@@ -31,8 +31,6 @@ import type {
 import {
   clipJsonEscapedUtf8,
   jsonEscapedUtf8Bytes,
-  MAX_SUMMARY_ORDINARY_VERDICTS,
-  MAX_SUMMARY_PLAN_VERDICTS,
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES,
@@ -77,6 +75,8 @@ type RawVerdict = {
   reason: string;
   repairGuidance?: string;
   unclipped?: UnclippedFreeText;
+  /** Summary only: the verdict's 1-based position in the answer, for logs. */
+  position?: number;
 };
 type RawStorylineQuestion = {
   question: string;
@@ -93,6 +93,14 @@ type RawSelfCheck = {
    * their reservation, with byte counts. Never model text.
    */
   storylineQuestionClipped?: string;
+  /**
+   * Summary only (2026-09-28, run 4): verdicts that failed their item
+   * schema, by position and failed path, never model text. Each is dropped
+   * and counts as invalid.
+   */
+  malformed?: string[];
+  /** Summary only: why a Storyline question failed its schema. */
+  malformedQuestion?: string;
 };
 type RawPlanVerdict = {
   itemId?: string;
@@ -103,6 +111,7 @@ type RawPlanVerdict = {
   reason: string;
   repairGuidance?: string;
   unclipped?: UnclippedFreeText;
+  position?: number;
 };
 
 const verdictsOutputSchema = z
@@ -183,11 +192,57 @@ const summaryStorylineQuestionOutputSchema = z.object({
   confidenceEntry: z.number(),
   storylineAlternative: z.string(),
 }).strict().nullable().optional();
+/** The failed path and code of a schema error: never the value it saw. */
+function failedPathOf(error: z.ZodError): string {
+  const issue = error.issues[0];
+  return `${issue && issue.path.length > 0 ? issue.path.join(".") : "(item)"} ${issue?.code ?? "invalid"}`;
+}
+
+/**
+ * 2026-09-28, run 4: the answer's root must have its shape, but each
+ * verdict is decoded on its own, so one malformed verdict is dropped (and
+ * counted as invalid) instead of failing the whole answer. A malformed
+ * Storyline question is dropped the same way.
+ */
+function decodeSummaryItems(value: {
+  verdicts: unknown[];
+  planVerdicts: unknown[];
+  storylineQuestion?: unknown;
+}): RawSelfCheck {
+  const malformed: string[] = [];
+  const verdicts: RawVerdict[] = [];
+  value.verdicts.forEach((candidate, index) => {
+    const parsed = summaryVerdictOutputSchema.safeParse(candidate);
+    if (parsed.success) verdicts.push({ ...parsed.data, position: index + 1 });
+    else malformed.push(`ordinary verdict ${index + 1}: ${failedPathOf(parsed.error)}`);
+  });
+  const planVerdicts: RawPlanVerdict[] = [];
+  value.planVerdicts.forEach((candidate, index) => {
+    const parsed = summaryPlanVerdictOutputSchema.safeParse(candidate);
+    if (parsed.success) planVerdicts.push({ ...parsed.data, position: index + 1 });
+    else malformed.push(`plan verdict ${index + 1}: ${failedPathOf(parsed.error)}`);
+  });
+  let storylineQuestion: RawStorylineQuestion | null | undefined;
+  let malformedQuestion: string | undefined;
+  if (value.storylineQuestion !== undefined) {
+    const parsed = summaryStorylineQuestionOutputSchema.safeParse(value.storylineQuestion);
+    if (parsed.success) storylineQuestion = parsed.data;
+    else malformedQuestion = `Storyline question: ${failedPathOf(parsed.error)}`;
+  }
+  return {
+    verdicts,
+    planVerdicts,
+    ...(storylineQuestion !== undefined ? { storylineQuestion } : {}),
+    ...(malformed.length > 0 ? { malformed } : {}),
+    ...(malformedQuestion ? { malformedQuestion } : {}),
+  };
+}
+
 const decodedSummaryPlanSelfCheckOutputSchema = z.object({
-  verdicts: z.array(summaryVerdictOutputSchema),
-  planVerdicts: z.array(summaryPlanVerdictOutputSchema),
-  storylineQuestion: summaryStorylineQuestionOutputSchema,
-}).strict();
+  verdicts: z.array(z.unknown()),
+  planVerdicts: z.array(z.unknown()),
+  storylineQuestion: z.unknown().optional(),
+}).strict().transform(decodeSummaryItems);
 
 /**
  * Real reasons run 90 to 280 bytes while the reservations allow 64 (reason)
@@ -484,7 +539,14 @@ export function summaryChecklist(
       }),
       ...planChecks.map((check) =>
         check.itemId
-          ? fillRuntime(list.itemLine, { id: check.itemId })
+          ? // A merged item names its merged ids, which its verdict must
+            // repeat in that order (2026-09-28, run 4).
+            check.mergedItemIds.length === 1 && check.mergedItemIds[0] === check.itemId
+            ? fillRuntime(list.itemLine, { id: check.itemId })
+            : fillRuntime(list.mergedItemLine, {
+                id: check.itemId,
+                ids: check.mergedItemIds.length ? check.mergedItemIds.join(", ") : "none",
+              })
           : fillRuntime(list.skipLine, { id: check.skippedRoleId ?? "" })),
     ].join(list.lineSeparator));
   }
@@ -637,79 +699,85 @@ function planRefOf(check: { itemId?: string; skippedRoleId?: string }): string {
 }
 
 /**
- * Rejects the whole answer for any verdict that is invalid: a label or id
- * nobody supplied, a repeat, a wrong check kind, a paragraph out of range or
- * a field over its limit. A label or plan check with no verdict at all is no
- * longer a rejection (2026-09-28): it is returned, so the caller can ask once
- * for it and record what is still missing as not checked.
+ * The verdicts of one Summary answer that stand, and what it left missing.
+ * `dropped` counts the invalid verdicts set aside.
  */
-function assertValidSummaryOutput(args: {
+type ValidatedSummaryOutput = {
+  raw: RawSelfCheck;
+  missing: SummaryCoverageGap;
+  dropped: number;
+};
+
+/**
+ * Validates one Summary answer verdict by verdict (2026-09-28, run 4). A
+ * verdict that is invalid (a label or plan reference nobody supplied, empty
+ * or garbled, a repeat, a wrong check kind, a paragraph out of range, merged
+ * ids that are not the supplied ones, a field over its limit) is dropped and
+ * logged by its position, never its text; its label or plan check then counts
+ * as missing, like one with no verdict at all, so the caller asks once for it
+ * and records what is still missing as not checked. An invalid Storyline
+ * question is dropped the same way. The whole answer is rejected only when
+ * more than half of its verdicts are invalid; an unreadable or cut-off answer
+ * never reaches this point.
+ */
+function validateSummaryOutput(args: {
   raw: RawSelfCheck;
   ordinaryChecks: readonly SummaryOrdinaryCheck[];
   planChecks: readonly SelfCheckPlanCheck[];
   allowStorylineQuestion: boolean;
   actualParagraphCount: number;
-}): SummaryCoverageGap {
+}): ValidatedSummaryOutput {
   const { raw, ordinaryChecks, planChecks } = args;
   summarySelfCheckWorstCaseResponse({
     ordinaryChecks,
     planChecks,
     includeStorylineQuestion: args.allowStorylineQuestion,
   });
-  const rawPlans = raw.planVerdicts ?? [];
-  if (
-    raw.verdicts.length > MAX_SUMMARY_ORDINARY_VERDICTS ||
-    rawPlans.length > MAX_SUMMARY_PLAN_VERDICTS
-  ) {
-    throw new SummarySelfCheckRejection(
-      "Summary Self-check returned too many verdicts",
-      `${raw.verdicts.length} ordinary (limit ${MAX_SUMMARY_ORDINARY_VERDICTS}), ` +
-        `${rawPlans.length} plan (limit ${MAX_SUMMARY_PLAN_VERDICTS})`
-    );
-  }
+  const problems: string[] = [...(raw.malformed ?? [])];
   const ordinaryByLabel = new Map(ordinaryChecks.map((check) => [check.label, check]));
   const seenLabels = new Set<string>();
-  raw.verdicts.forEach((verdict, index) => {
+  const verdicts = raw.verdicts.filter((verdict, index) => {
     const expected = ordinaryByLabel.get(verdict.instruction);
-    const invalid = (detail: string) =>
-      new SummarySelfCheckRejection(
-        "Summary Self-check returned an invalid ordinary verdict",
-        `ordinary verdict ${index + 1}${expected ? ` (${expected.label})` : ""}: ${detail}`
+    const problem = ((): string | null => {
+      if (!expected) {
+        return `label of ${jsonEscapedUtf8Bytes(verdict.instruction)} escaped bytes matches no supplied label`;
+      }
+      if (seenLabels.has(verdict.instruction)) return "label repeats";
+      if (expected.check !== verdict.check) {
+        return `check ${verdict.check}, expected ${expected.check}`;
+      }
+      if (
+        !Number.isInteger(verdict.paragraph) ||
+        verdict.paragraph < 0 ||
+        verdict.paragraph > args.actualParagraphCount ||
+        !withinSummaryNumberReservation(verdict.paragraph)
+      ) {
+        return `paragraph ${String(verdict.paragraph)} is not a whole number from 0 to ${args.actualParagraphCount}`;
+      }
+      return (
+        overLimit("label", verdict.instruction, MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES) ??
+        overLimit("reason", verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) ??
+        (verdict.repairGuidance === undefined
+          ? null
+          : overLimit(
+              "repairGuidance",
+              verdict.repairGuidance,
+              MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES
+            ))
       );
-    if (!expected) {
-      throw invalid(
-        `label of ${jsonEscapedUtf8Bytes(verdict.instruction)} escaped bytes matches no supplied label`
+    })();
+    if (problem) {
+      problems.push(
+        `ordinary verdict ${verdict.position ?? index + 1}${expected ? ` (${expected.label})` : ""}: ${problem}`
       );
+      return false;
     }
-    if (expected.check !== verdict.check) {
-      throw invalid(`check ${verdict.check}, expected ${expected.check}`);
-    }
-    if (seenLabels.has(verdict.instruction)) throw invalid("label repeats");
-    if (
-      !Number.isInteger(verdict.paragraph) ||
-      verdict.paragraph < 0 ||
-      verdict.paragraph > args.actualParagraphCount ||
-      !withinSummaryNumberReservation(verdict.paragraph)
-    ) {
-      throw invalid(
-        `paragraph ${String(verdict.paragraph)} is not a whole number from 0 to ${args.actualParagraphCount}`
-      );
-    }
-    const fieldProblem =
-      overLimit("label", verdict.instruction, MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES) ??
-      overLimit("reason", verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) ??
-      (verdict.repairGuidance === undefined
-        ? null
-        : overLimit(
-            "repairGuidance",
-            verdict.repairGuidance,
-            MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES
-          ));
-    if (fieldProblem) throw invalid(fieldProblem);
     seenLabels.add(verdict.instruction);
+    return true;
   });
   const seenPlanRefs = new Set<string>();
-  rawPlans.forEach((verdict, index) => {
+  const rawPlans = raw.planVerdicts ?? [];
+  const planVerdicts = rawPlans.filter((verdict, index) => {
     const ref = verdict.itemId
       ? `item:${verdict.itemId}`
       : verdict.skippedRoleId
@@ -718,105 +786,113 @@ function assertValidSummaryOutput(args: {
     // Check the reference before looking up its plan check: with no usable
     // reference, the lookup would match an unrelated item's undefined
     // skippedRoleId and the diagnostic would name that item.
-    if ((verdict.itemId !== undefined) === (verdict.skippedRoleId !== undefined) || !ref) {
-      throw new SummarySelfCheckRejection(
-        "Summary Self-check returned an invalid plan verdict",
-        `plan verdict ${index + 1}: needs exactly one non-empty itemId or skippedRoleId`
+    const usable =
+      (verdict.itemId !== undefined) !== (verdict.skippedRoleId !== undefined) && ref !== "";
+    const expected = usable
+      ? planChecks.find((check) =>
+          verdict.itemId
+            ? check.itemId === verdict.itemId
+            : check.skippedRoleId === verdict.skippedRoleId
+        )
+      : undefined;
+    const problem = ((): string | null => {
+      if (!usable) return "needs exactly one non-empty itemId or skippedRoleId";
+      if (!expected) {
+        const field = verdict.itemId ? "itemId" : "skippedRoleId";
+        return `${field} of ${jsonEscapedUtf8Bytes(verdict.itemId ?? verdict.skippedRoleId ?? "")} escaped bytes matches no plan check`;
+      }
+      if (seenPlanRefs.has(ref)) return "plan reference repeats";
+      if (verdict.paragraph !== undefined && !withinSummaryNumberReservation(verdict.paragraph)) {
+        return "paragraph is past the numeric limit";
+      }
+      if (JSON.stringify(verdict.mergedItemIds) !== JSON.stringify(expected.mergedItemIds)) {
+        return `mergedItemIds has ${verdict.mergedItemIds.length} ids, expected ` +
+          (expected.mergedItemIds.length
+            ? `[${expected.mergedItemIds.join(", ")}] in that order`
+            : "none");
+      }
+      return (
+        overLimit(
+          "id",
+          verdict.itemId ?? verdict.skippedRoleId ?? "",
+          MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
+        ) ??
+        verdict.mergedItemIds
+          .map((id) => overLimit("merged id", id, MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES))
+          .find((found) => found !== null) ??
+        overLimit("reason", verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) ??
+        (verdict.repairGuidance === undefined
+          ? null
+          : overLimit(
+              "repairGuidance",
+              verdict.repairGuidance,
+              MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES
+            ))
       );
-    }
-    const expected = planChecks.find((check) =>
-      verdict.itemId
-        ? check.itemId === verdict.itemId
-        : check.skippedRoleId === verdict.skippedRoleId
-    );
-    const invalid = (detail: string) =>
-      new SummarySelfCheckRejection(
-        "Summary Self-check returned an invalid plan verdict",
-        `plan verdict ${index + 1}${
+    })();
+    if (problem) {
+      problems.push(
+        `plan verdict ${verdict.position ?? index + 1}${
           expected
             ? expected.itemId
               ? ` (item ${expected.itemId})`
               : ` (Skip ${expected.skippedRoleId})`
             : ""
-        }: ${detail}`
+        }: ${problem}`
       );
-    if (!expected) {
-      const field = verdict.itemId ? "itemId" : "skippedRoleId";
-      throw invalid(
-        `${field} of ${jsonEscapedUtf8Bytes(verdict.itemId ?? verdict.skippedRoleId ?? "")} escaped bytes matches no plan check`
-      );
+      return false;
     }
-    if (seenPlanRefs.has(ref)) throw invalid("plan reference repeats");
-    if (
-      verdict.paragraph !== undefined &&
-      !withinSummaryNumberReservation(verdict.paragraph)
-    ) {
-      throw invalid("paragraph is past the numeric limit");
-    }
-    if (JSON.stringify(verdict.mergedItemIds) !== JSON.stringify(expected.mergedItemIds)) {
-      throw invalid(
-        `mergedItemIds has ${verdict.mergedItemIds.length} ids, expected ` +
-          (expected.mergedItemIds.length
-            ? `[${expected.mergedItemIds.join(", ")}] in that order`
-            : "none")
-      );
-    }
-    const fieldProblem =
-      overLimit(
-        "id",
-        verdict.itemId ?? verdict.skippedRoleId ?? "",
-        MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
-      ) ??
-      verdict.mergedItemIds
-        .map((id) => overLimit("merged id", id, MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES))
-        .find((problem) => problem !== null) ??
-      overLimit("reason", verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) ??
-      (verdict.repairGuidance === undefined
-        ? null
-        : overLimit(
-            "repairGuidance",
-            verdict.repairGuidance,
-            MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES
-          ));
-    if (fieldProblem) throw invalid(fieldProblem);
     seenPlanRefs.add(ref);
+    return true;
   });
-  if (raw.storylineQuestion) {
-    const question = raw.storylineQuestion;
-    const invalid = (detail: string) =>
-      new SummarySelfCheckRejection(
-        "Summary Self-check returned an invalid Storyline question",
-        `Storyline question: ${detail}`
-      );
-    if (!args.allowStorylineQuestion) {
-      throw invalid("returned without both a Storyline and a Confidence Map");
-    }
-    const fieldProblem =
-      overLimit("question", question.question, MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES) ??
-      overLimit(
-        "sectionClaim",
-        question.sectionClaim,
-        MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
-      ) ??
-      overLimit(
-        "storylineAlternative",
-        question.storylineAlternative,
-        MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
-      );
-    if (fieldProblem) throw invalid(fieldProblem);
-    if (
-      !Number.isInteger(question.confidenceEntry) ||
-      question.confidenceEntry < 0 ||
-      !withinSummaryNumberReservation(question.confidenceEntry)
-    ) {
-      throw invalid(
-        `confidenceEntry ${String(question.confidenceEntry)} is not a whole number from 0 to ${MAX_SUMMARY_SELF_CHECK_PARAGRAPH}`
-      );
+  const total = raw.verdicts.length + rawPlans.length + (raw.malformed?.length ?? 0);
+  if (problems.length * 2 > total) {
+    throw new SummarySelfCheckRejection(
+      "Summary Self-check returned more invalid verdicts than valid ones",
+      `${problems.length} of ${total} verdicts invalid; first ${problems[0]}`
+    );
+  }
+  let storylineQuestion = raw.storylineQuestion;
+  if (raw.malformedQuestion) problems.push(raw.malformedQuestion);
+  if (storylineQuestion) {
+    const question = storylineQuestion;
+    const problem = !args.allowStorylineQuestion
+      ? "returned without both a Storyline and a Confidence Map"
+      : overLimit("question", question.question, MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES) ??
+        overLimit("sectionClaim", question.sectionClaim, MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES) ??
+        overLimit(
+          "storylineAlternative",
+          question.storylineAlternative,
+          MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
+        ) ??
+        (!Number.isInteger(question.confidenceEntry) ||
+        question.confidenceEntry < 0 ||
+        !withinSummaryNumberReservation(question.confidenceEntry)
+          ? `confidenceEntry ${String(question.confidenceEntry)} is not a whole number from 0 to ${MAX_SUMMARY_SELF_CHECK_PARAGRAPH}`
+          : null);
+    if (problem) {
+      problems.push(`Storyline question: ${problem}`);
+      storylineQuestion = null;
     }
   }
+  if (problems.length > 0) {
+    console.warn(
+      `${SELF_CHECK_REQUEST.toolName}: dropped ${problems.length} invalid ${
+        problems.length === 1 ? "item" : "items"
+      }; their labels and plan checks count as missing: ${problems.join("; ")}`
+    );
+  }
+  const { malformed: _malformed, malformedQuestion: _malformedQuestion, ...rest } = raw;
+  const kept: RawSelfCheck = { ...rest, verdicts, planVerdicts, storylineQuestion };
+  // A dropped question carries no clipping marker either.
+  if (!storylineQuestion) delete kept.storylineQuestionClipped;
   return {
-    labels: ordinaryChecks.filter((check) => !seenLabels.has(check.label)),
-    plans: planChecks.filter((check) => !seenPlanRefs.has(planRefOf(check))),
+    raw: kept,
+    missing: {
+      labels: ordinaryChecks.filter((check) => !seenLabels.has(check.label)),
+      plans: planChecks.filter((check) => !seenPlanRefs.has(planRefOf(check))),
+    },
+    dropped: problems.length,
   };
 }
 
@@ -915,8 +991,10 @@ function followUpMessage(data: string, gap: SummaryCoverageGap): string {
  * and the answers are merged; a follow-up verdict for something the first
  * answer already covered is dropped. Whatever is still missing, or everything the
  * first answer missed when the follow-up fails, comes back as not checked,
- * one by one; the verdicts the first answer gave are kept. An invalid first
- * answer still rejects the whole check.
+ * one by one; the verdicts the first answer gave are kept. An invalid verdict
+ * is dropped and its label or plan check counts as missing (2026-09-28,
+ * run 4); only a first answer with more invalid verdicts than valid ones, or
+ * one that is unreadable or cut off, rejects the whole check.
  */
 async function completeSummarySelfCheck(
   client: GenerationClient,
@@ -949,15 +1027,18 @@ async function completeSummarySelfCheck(
       attempts: 1,
       encodedJsonRecovery: false,
     });
-  const first = await ask(args.user, args.ordinaryChecks, args.planChecks);
-  const gap = assertValidSummaryOutput({
-    raw: first,
+  // Invalid verdicts are dropped here and their labels and plan checks
+  // count as missing (2026-09-28, run 4).
+  const firstAnswer = validateSummaryOutput({
+    raw: await ask(args.user, args.ordinaryChecks, args.planChecks),
     ordinaryChecks: args.ordinaryChecks,
     planChecks: args.planChecks,
     allowStorylineQuestion:
       input.storylineText.trim().length > 0 && input.confidenceMap.length > 0,
     actualParagraphCount: args.actualParagraphCount,
   });
+  const first = firstAnswer.raw;
+  const gap = firstAnswer.missing;
   if (gap.labels.length === 0 && gap.plans.length === 0) {
     return { raw: first, notChecked: gap };
   }
@@ -971,9 +1052,10 @@ async function completeSummarySelfCheck(
   try {
     const answer = await ask(followUpMessage(args.data, gap), gap.labels, gap.plans);
     // A verdict for a label or plan check the first answer already covered
-    // is dropped, not a reason to set the follow-up aside; anything else
-    // unasked for (an unknown label or id) still is. The follow-up answers
-    // for coverage only: a Storyline question comes from the first answer.
+    // is dropped without counting as invalid; any other invalid verdict is
+    // dropped as in the first answer, and only a follow-up with more invalid
+    // verdicts than valid ones is set aside. The follow-up answers for
+    // coverage only: a Storyline question comes from the first answer.
     const answeredLabels = new Set(
       args.ordinaryChecks
         .filter((check) => !gap.labels.includes(check))
@@ -992,14 +1074,15 @@ async function completeSummarySelfCheck(
     if (dropped > 0) {
       console.warn(`${tool}: the follow-up repeated ${dropped} verdicts the first answer gave; dropped`);
     }
-    followUp = { verdicts, planVerdicts };
-    stillMissing = assertValidSummaryOutput({
-      raw: followUp,
+    const followUpAnswer = validateSummaryOutput({
+      raw: { verdicts, planVerdicts, ...(answer.malformed ? { malformed: answer.malformed } : {}) },
       ordinaryChecks: gap.labels,
       planChecks: gap.plans,
       allowStorylineQuestion: false,
       actualParagraphCount: args.actualParagraphCount,
     });
+    followUp = followUpAnswer.raw;
+    stillMissing = followUpAnswer.missing;
   } catch (error) {
     console.warn(
       `${tool}: the follow-up for missing labels failed (${selfCheckFailureDiagnostic(error)}); ` +

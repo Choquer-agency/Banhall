@@ -37,6 +37,7 @@ import type { OrderedProfileContext } from "../lib/orderedChain";
 import { planComplianceNoteDrafts } from "./orderedGeneration";
 import {
   NOT_CHECKED_REASON,
+  PLAN_ITEM_NOT_CHECKED_REASON,
   PLAN_SKIP_NOT_CHECKED_REASON,
   runModelSelfCheck,
   selfCheckFailureDiagnostic,
@@ -1001,7 +1002,26 @@ describe("Self-check before display (CAP-9)", () => {
     });
     expect(accepted.create).toHaveBeenCalledTimes(1);
 
+    // Only an answer whose root is malformed or over the byte budget is
+    // unreadable and rejects the whole check (2026-09-28, run 4).
     const malformed: Array<[string, (response: typeof valid) => void]> = [
+      ["oversized unknown root property", (response) => { Object.assign(response, { unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1) }); }],
+      ["oversized unknown nested property", (response) => { Object.assign(response.planVerdicts[0], { unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1) }); }],
+      ["unknown root property", (response) => { Object.assign(response, { unknownRoot: true }); }],
+    ];
+    for (const [name, mutate] of malformed) {
+      const response = structuredClone(valid);
+      mutate(response);
+      const rejected = await execute(response);
+      await expect(rejected.result, name).rejects.toThrow();
+      expect(rejected.create, name).toHaveBeenCalledTimes(1);
+    }
+
+    // One invalid or malformed verdict is dropped; its label or plan check
+    // counts as missing and goes to the one follow-up. Here the follow-up
+    // repeats the whole answer, so the row stays missing and is recorded as
+    // not checked, while every other row is kept.
+    const invalidRows: Array<[string, (response: typeof valid) => void]> = [
       ["omitted ordinary reason", (response) => { Reflect.deleteProperty(response.verdicts[0], "reason"); }],
       ["omitted Skip merge array", (response) => { Reflect.deleteProperty(response.planVerdicts[2], "mergedItemIds"); }],
       ["duplicate ordinary row", (response) => { response.verdicts[4] = { ...response.verdicts[0] }; }],
@@ -1012,23 +1032,45 @@ describe("Self-check before display (CAP-9)", () => {
       ["overlong returned id", (response) => { response.planVerdicts[0].itemId = "x".repeat(65); }],
       ["ordinary paragraph numeric limit", (response) => { response.verdicts[0].paragraph = 10_000_000_000; }],
       ["plan paragraph numeric limit", (response) => { response.planVerdicts[0].paragraph = 10_000_000_000; }],
+      ["unknown ordinary property", (response) => { Object.assign(response.verdicts[0], { unknownOrdinary: true }); }],
+      ["unknown plan property", (response) => { Object.assign(response.planVerdicts[0], { unknownPlan: true }); }],
+      ["both plan identities", (response) => { response.planVerdicts[0].skippedRoleId = "prior_year_status"; }],
+    ];
+    for (const [name, mutate] of invalidRows) {
+      const response = structuredClone(valid);
+      mutate(response);
+      const dropped = await execute(response);
+      const value = await dropped.result;
+      expect(dropped.create, name).toHaveBeenCalledTimes(2);
+      expect(value.verdicts, name).toHaveLength(valid.verdicts.length);
+      expect(value.planVerdicts, name).toHaveLength(valid.planVerdicts.length);
+      const notChecked = [
+        ...value.verdicts.filter((verdict) => verdict.notChecked),
+        ...value.planVerdicts.filter((verdict) => verdict.reason.startsWith("Not checked")),
+      ];
+      expect(notChecked, name).toHaveLength(1);
+      expect(notChecked[0]?.outcome, name).toBe("not_applied");
+      expect(value.storylineQuestion?.question, name).toBe("Which result is supported?");
+    }
+
+    // An invalid Storyline question is dropped; every verdict stands and
+    // nothing is missing, so no follow-up is sent.
+    const invalidQuestions: Array<[string, (response: typeof valid) => void]> = [
       ["Storyline numeric limit", (response) => { response.storylineQuestion.confidenceEntry = 10_000_000_000; }],
       ["negative Storyline entry", (response) => { response.storylineQuestion.confidenceEntry = -1; }],
       ["oversized negative Storyline entry", (response) => { response.storylineQuestion.confidenceEntry = -10_000_000_000; }],
-      ["oversized unknown root property", (response) => { Object.assign(response, { unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1) }); }],
-      ["oversized unknown nested property", (response) => { Object.assign(response.planVerdicts[0], { unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1) }); }],
-      ["unknown root property", (response) => { Object.assign(response, { unknownRoot: true }); }],
-      ["unknown ordinary property", (response) => { Object.assign(response.verdicts[0], { unknownOrdinary: true }); }],
-      ["unknown plan property", (response) => { Object.assign(response.planVerdicts[0], { unknownPlan: true }); }],
       ["unknown Storyline property", (response) => { Object.assign(response.storylineQuestion, { unknownQuestion: true }); }],
-      ["both plan identities", (response) => { response.planVerdicts[0].skippedRoleId = "prior_year_status"; }],
     ];
-    for (const [name, mutate] of malformed) {
+    for (const [name, mutate] of invalidQuestions) {
       const response = structuredClone(valid);
       mutate(response);
-      const rejected = await execute(response);
-      await expect(rejected.result, name).rejects.toThrow();
-      expect(rejected.create, name).toHaveBeenCalledTimes(1);
+      const dropped = await execute(response);
+      const value = await dropped.result;
+      expect(dropped.create, name).toHaveBeenCalledTimes(1);
+      expect(value.storylineQuestion, name).toBeNull();
+      expect(value.verdicts.some((verdict) => verdict.notChecked), name).toBe(false);
+      expect(value.planVerdicts.map((verdict) => verdict.outcome), name)
+        .toEqual(["applied", "applied", "applied"]);
     }
 
     // An omitted row no longer rejects the whole response (2026-09-28): one
@@ -1119,13 +1161,17 @@ describe("Self-check before display (CAP-9)", () => {
       planChecks: [check],
       planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
     });
+    const value = await result;
     if (!accepted) {
-      await expect(result).rejects.toThrow();
+      // The invalid verdict is dropped and asked for once (2026-09-28,
+      // run 4); the follow-up repeats it, so the label is not checked.
+      expect(value.verdicts[0]).toMatchObject({ notChecked: true, outcome: "not_applied" });
+      expect(value.planVerdicts[0]?.outcome).toBe("applied");
+      expect(create).toHaveBeenCalledTimes(2);
     } else {
-      const value = await result;
       expect(value.verdicts[0]?.paragraphIndex).toBe(paragraph === 0 ? undefined : 0);
+      expect(create).toHaveBeenCalledTimes(1);
     }
-    expect(create).toHaveBeenCalledTimes(1);
   });
 
   it("an excluded claim triggers exactly one repair and the row records repaired: true", async () => {
@@ -2004,6 +2050,9 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
     expect(result.planVerdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
   });
 
+  // 2026-09-28, run 4: one invalid verdict is dropped and logged by its
+  // position, never its text; its label or plan check counts as missing, goes
+  // to the one follow-up and, still missing there, is not checked.
   it.each([
     {
       name: "a wrong item id",
@@ -2011,6 +2060,7 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
         response.planVerdicts[1].itemId = "not-a-signed-off-item";
       },
       detail: "plan verdict 2: itemId of 21 escaped bytes matches no plan check",
+      missing: { plan: 1 },
     },
     {
       // Neither reference: no unrelated item may be named in the reason.
@@ -2019,6 +2069,7 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
         Reflect.deleteProperty(response.planVerdicts[1], "itemId");
       },
       detail: "plan verdict 2: needs exactly one non-empty itemId or skippedRoleId",
+      missing: { plan: 1 },
     },
     {
       name: "a plan verdict with an empty itemId",
@@ -2026,6 +2077,7 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
         response.planVerdicts[2].itemId = "";
       },
       detail: "plan verdict 3: needs exactly one non-empty itemId or skippedRoleId",
+      missing: { plan: 2 },
     },
     {
       name: "empty mergedItemIds",
@@ -2033,6 +2085,7 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
         response.planVerdicts[0].mergedItemIds = [];
       },
       detail: `plan verdict 1 (item ${planCoverageReplay.case.items[0]?.itemId}): mergedItemIds has 0 ids, expected [${planCoverageReplay.case.items[0]?.itemId}] in that order`,
+      missing: { plan: 0 },
     },
     {
       name: "a duplicate label",
@@ -2040,6 +2093,7 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
         response.verdicts[2] = { ...response.verdicts[1] };
       },
       detail: "ordinary verdict 3 (confidence:C1): label repeats",
+      missing: { label: 2 },
     },
     {
       name: "an out-of-range paragraph",
@@ -2047,6 +2101,103 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
         response.verdicts[4].paragraph = 6;
       },
       detail: "ordinary verdict 5 (confidence:C4): paragraph 6 is not a whole number from 0 to 5",
+      missing: { label: 4 },
+    },
+    {
+      // The release suite's shape (run 4): the short marker, not the label.
+      name: "a label copied without its prefix",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.verdicts[3].instruction = "C3";
+      },
+      detail: "ordinary verdict 4: label of 2 escaped bytes matches no supplied label",
+      missing: { label: 3 },
+    },
+  ])("drops only $name, asks once for it and records it as not checked", async ({ mutate, detail, missing }) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const response = replayResponse();
+      const labels = response.verdicts.map((verdict) => verdict.instruction);
+      mutate(response);
+      // The same answer again: the follow-up repeats the invalid verdict.
+      const client = replayClient(response);
+      const result = await runModelSelfCheck(client as GenerationClient, replayInput());
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+      const logged = warn.mock.calls.map((call) => call.join(" ")).join("\n");
+      expect(logged).toContain(detail);
+      // The log never carries the model's own words.
+      for (const reason of planCoverageReplay.recordedReasons) {
+        expect(logged).not.toContain(reason.slice(0, 24));
+      }
+      expect(logged).not.toContain("not-a-signed-off-item");
+      if ("plan" in missing) {
+        result.planVerdicts.forEach((verdict, index) => {
+          if (index === missing.plan) {
+            expect(verdict).toMatchObject({
+              outcome: "not_applied",
+              reason: PLAN_ITEM_NOT_CHECKED_REASON,
+              actionableRepair: false,
+            });
+          } else {
+            expect(verdict.outcome).toBe("applied");
+          }
+        });
+        expect(result.verdicts.some((verdict) => verdict.notChecked)).toBe(false);
+      } else {
+        const input = replayInput();
+        const ordinary = projectSummaryOrdinaryChecks({
+          storylineText: input.storylineText,
+          confidenceMap: input.confidenceMap,
+          glossaryTerms: input.glossaryCandidates,
+          rules: input.rules,
+        });
+        const notChecked = result.verdicts.filter((verdict) => verdict.notChecked);
+        expect(notChecked).toEqual([expect.objectContaining({
+          instruction: ordinary.find((check) => check.label === labels[missing.label])?.instruction,
+          outcome: "not_applied",
+          reason: NOT_CHECKED_REASON,
+        })]);
+        expect(result.verdicts).toHaveLength(labels.length);
+        expect(result.planVerdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps a follow-up's valid verdict when the first answer's was dropped", async () => {
+    const response = replayResponse();
+    const good = structuredClone(response.planVerdicts[1]);
+    response.planVerdicts[1].mergedItemIds = [];
+    const client = {
+      messages: {
+        create: vi.fn()
+          .mockResolvedValueOnce({
+            content: [{ type: "tool_use" as const, id: "first", name: "submit_self_check", input: response }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          })
+          .mockResolvedValueOnce({
+            content: [{
+              type: "tool_use" as const,
+              id: "follow-up",
+              name: "submit_self_check",
+              input: { verdicts: [], planVerdicts: [good] },
+            }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+      },
+    };
+    const result = await runModelSelfCheck(client as unknown as GenerationClient, replayInput());
+    expect(client.messages.create).toHaveBeenCalledTimes(2);
+    expect(result.planVerdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
+  });
+
+  it.each([
+    {
+      name: "more invalid verdicts than valid ones",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.verdicts.forEach((verdict) => { verdict.instruction = "not-a-label"; });
+      },
+      detail: "10 of 14 verdicts invalid; first ordinary verdict 1: label of 11 escaped bytes matches no supplied label",
     },
     {
       name: "a response over 16,384 bytes",
@@ -2069,7 +2220,7 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
     for (const reason of planCoverageReplay.recordedReasons) {
       expect(diagnostic).not.toContain(reason.slice(0, 24));
     }
-    expect(diagnostic).not.toContain("not-a-signed-off-item");
+    expect(diagnostic).not.toContain("not-a-label");
   });
 
   it("names an answer cut off at the output limit as that, not as invalid JSON", async () => {

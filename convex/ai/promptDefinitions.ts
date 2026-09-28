@@ -622,6 +622,7 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
       "Return exactly {{runtime.count}} {{runtime.noun}}, one for each plan check below:",
     planNoun: { one: "planVerdict", other: "planVerdicts" },
     itemLine: "- itemId {{runtime.id}}",
+    mergedItemLine: "- itemId {{runtime.id}} with mergedItemIds [{{runtime.ids}}] in that order",
     skipLine: "- skippedRoleId {{runtime.id}}",
   },
   /**

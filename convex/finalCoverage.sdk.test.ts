@@ -412,7 +412,8 @@ describe("coverage is checked on the final text (real SDK, fetch stubbed)", () =
       repair: REPAIRED,
       checks: [
         [skipHonoured, workplanCovered(1), hypothesisMissing],
-        // An id nobody supplied rejects the whole answer.
+        // Its only verdict names an id nobody supplied: more invalid
+        // verdicts than valid ones reject the whole answer.
         { raw: { verdicts: [], planVerdicts: [{ ...workplanCovered(1), itemId: "item-unknown", mergedItemIds: [] }] } },
       ],
     });
@@ -432,5 +433,67 @@ describe("coverage is checked on the final text (real SDK, fetch stubbed)", () =
     expect(JSON.parse(result.selfCheck)).toMatchObject({
       planCoverage: { status: "incomplete", applied: 0, total: 3 },
     });
+  });
+
+  // Release suite run 4 (withdrawn-feedback, Line 246): the final answer's
+  // verdict for a merged item repeated only its own id, and that one verdict
+  // rejected the whole final check, so every plan row read "Not checked".
+  // Now the verdict is dropped and the item asked for once (2026-09-28,
+  // run 4).
+  it("drops a final verdict with incomplete merged ids and asks once for that item", async () => {
+    const mergedPartner = "item-marlow-bench-log" as Id<"summaryItems">;
+    const merged = PLAN_CHECKS.map((check) =>
+      check.itemId === ITEM_HYPOTHESIS
+        ? { ...check, mergedItemIds: [ITEM_HYPOTHESIS, mergedPartner] }
+        : check);
+    const mergedMissing = { ...hypothesisMissing, mergedItemIds: [ITEM_HYPOTHESIS, mergedPartner] };
+    const mergedCovered = { ...hypothesisCovered(2), mergedItemIds: [ITEM_HYPOTHESIS, mergedPartner] };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const sent = installFetch({
+        repair: REPAIRED,
+        checks: [
+          [skipHonoured, workplanCovered(1), mergedMissing],
+          [skipHonoured, workplanCovered(1), { ...mergedCovered, mergedItemIds: [ITEM_HYPOTHESIS] }],
+          [mergedCovered],
+        ],
+      });
+      const result = await draft(merged);
+
+      expect(sent.map((request) => request.stage)).toEqual([
+        "section",
+        "selfCheck",
+        "repair",
+        "finalCoverage",
+        "finalCoverage",
+      ]);
+      // The list names the merged ids the verdict must repeat.
+      expect(sent[3]!.user).toContain(
+        `- itemId ${ITEM_HYPOTHESIS} with mergedItemIds [${ITEM_HYPOTHESIS}, ${mergedPartner}] in that order`
+      );
+      const followUp = sent[4]!;
+      expect(followUp.user).toContain(
+        "Return exactly 1 planVerdict, one for each plan check below:\n" +
+          `- itemId ${ITEM_HYPOTHESIS} with mergedItemIds [${ITEM_HYPOTHESIS}, ${mergedPartner}] in that order`
+      );
+      const logged = warn.mock.calls.map((call) => call.join(" ")).join("\n");
+      expect(logged).toContain(
+        `plan verdict 3 (item ${ITEM_HYPOTHESIS}): mergedItemIds has 1 ids, expected [${ITEM_HYPOTHESIS}, ${mergedPartner}] in that order`
+      );
+      expect(logged).not.toContain("P2 states the hypothesis");
+      expect(result.draftText).toBe(REPAIRED);
+      expect(rowFor(result, ITEM_HYPOTHESIS)).toMatchObject({
+        outcome: "applied",
+        paragraphIndex: 1,
+        repaired: true,
+        planRef: expect.objectContaining({ mergedItemIds: [ITEM_HYPOTHESIS, mergedPartner] }),
+      });
+      expect(planRows(result).every((row) => row.outcome === "applied")).toBe(true);
+      expect(JSON.parse(result.selfCheck)).toMatchObject({
+        planCoverage: { status: "complete", applied: 3, total: 3 },
+      });
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

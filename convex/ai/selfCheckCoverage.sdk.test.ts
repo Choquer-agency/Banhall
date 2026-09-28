@@ -464,7 +464,7 @@ describe("Summary plan coverage Self-check through the SDK boundary", () => {
       .toBe(true);
   });
 
-  it("keeps the first answer and records every missing label as not checked when the follow-up is unusable", async () => {
+  it("keeps a follow-up's valid verdicts and drops only the label nobody supplied", async () => {
     const input = inputFor(CASE_246);
     const ordinary = ordinaryOf(input);
     const plans = input.planChecks ?? [];
@@ -473,11 +473,35 @@ describe("Summary plan coverage Self-check through the SDK boundary", () => {
       planVerdicts: plans.slice(0, 4).map(planVerdictFor),
     };
     // The follow-up answers everything missing, plus a label nobody
-    // supplied: the whole follow-up is set aside.
+    // supplied: that one verdict is dropped (2026-09-28, run 4).
     const { result, bodies } = await runThroughSdk(input, [firstAnswer, {
       verdicts: [
         ...ordinary.slice(8).map(verdictFor),
         { ...verdictFor(ordinary[1]!), instruction: "confidence:C99" },
+      ],
+      planVerdicts: [planVerdictFor(plans[4]!, 4)],
+    }]);
+
+    expect(bodies).toHaveLength(2);
+    expect(result.verdicts).toHaveLength(19);
+    expect(result.verdicts.every((verdict) => verdict.outcome === "applied" && !verdict.notChecked))
+      .toBe(true);
+    expect(result.planVerdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
+  });
+
+  it("keeps the first answer and records every missing label as not checked when the follow-up is unusable", async () => {
+    const input = inputFor(CASE_246);
+    const ordinary = ordinaryOf(input);
+    const plans = input.planChecks ?? [];
+    const firstAnswer = {
+      verdicts: ordinary.slice(0, 8).map(verdictFor),
+      planVerdicts: plans.slice(0, 4).map(planVerdictFor),
+    };
+    // More than half of the follow-up's verdicts are invalid: it is set aside.
+    const { result, bodies } = await runThroughSdk(input, [firstAnswer, {
+      verdicts: [
+        verdictFor(ordinary[8]!),
+        ...ordinary.slice(9).map((check) => ({ ...verdictFor(check), instruction: "confidence:C99" })),
       ],
       planVerdicts: [planVerdictFor(plans[4]!, 4)],
     }]);
@@ -720,5 +744,72 @@ describe("Skips are honoured by absence (real SDK, fetch stubbed)", () => {
       reason: "Applied plan verdict did not identify valid paragraph evidence.",
       actionableRepair: false,
     });
+  });
+});
+
+// Release suite run 4 (exclusion-conflict, Line 246): "Self-check call failed
+// (unknown: ordinary verdict 17: label of 2 escaped bytes matches no supplied
+// label)". The model copied a short marker instead of the label, and that
+// one verdict failed the whole check, so every plan row read "did not
+// complete". Now the verdict is dropped and its label asked for once
+// (2026-09-28, run 4).
+describe("one garbled label no longer fails the Self-check (real SDK, fetch stubbed)", () => {
+  it("drops ordinary verdict 17 with a 2-byte label and asks once for its label", async () => {
+    const input = inputFor(CASE_246);
+    const ordinary = ordinaryOf(input);
+    const plans = input.planChecks ?? [];
+    expect(ordinary).toHaveLength(19);
+    const garbled = ordinary[16]!;
+    const first = {
+      verdicts: ordinary.map((check, index) =>
+        index === 16 ? { ...verdictFor(check), instruction: "C3" } : verdictFor(check)),
+      planVerdicts: plans.map(planVerdictFor),
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { result, bodies } = await runThroughSdk(input, [
+        first,
+        { verdicts: [verdictFor(garbled)], planVerdicts: [] },
+      ]);
+
+      expect(bodies).toHaveLength(2);
+      const [, followUp] = bodies as [WireBody, WireBody];
+      expect(userOf(followUp).endsWith(
+        `\n\n${checklistLines([garbled], [])}\n\n${EMPTY_PLAN_VERDICTS}`
+      )).toBe(true);
+      expect(schemaOf(followUp).verdicts.items.properties.instruction.enum).toEqual([garbled.label]);
+      const logged = warn.mock.calls.map((call) => call.join(" ")).join("\n");
+      expect(logged).toContain("ordinary verdict 17: label of 2 escaped bytes matches no supplied label");
+      expect(logged).not.toContain("Not mentioned in the section.");
+      expect(result.verdicts).toHaveLength(19);
+      expect(result.verdicts.every((verdict) => verdict.outcome === "applied" && !verdict.notChecked))
+        .toBe(true);
+      expect(result.planVerdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("records the garbled label as not checked when the follow-up repeats it", async () => {
+    const input = inputFor(CASE_246);
+    const ordinary = ordinaryOf(input);
+    const plans = input.planChecks ?? [];
+    const garbled = ordinary[16]!;
+    const first = {
+      verdicts: ordinary.map((check, index) =>
+        index === 16 ? { ...verdictFor(check), instruction: "C3" } : verdictFor(check)),
+      planVerdicts: plans.map(planVerdictFor),
+    };
+    const { result, bodies } = await runThroughSdk(input, [
+      first,
+      { verdicts: [{ ...verdictFor(garbled), instruction: "C3" }], planVerdicts: [] },
+    ]);
+
+    expect(bodies).toHaveLength(2);
+    expect(result.verdicts.filter((verdict) => verdict.notChecked)).toEqual([
+      expect.objectContaining({ instruction: garbled.instruction, reason: NOT_CHECKED_REASON }),
+    ]);
+    // The plan rows keep their verdicts: nothing about the plan failed.
+    expect(result.planVerdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
   });
 });

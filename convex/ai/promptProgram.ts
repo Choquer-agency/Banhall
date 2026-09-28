@@ -659,6 +659,10 @@ export const generationPromptProgram = {
         structuredPolicy: "single-attempt-then-missing-labels-follow-up",
         encodedJsonRecovery: "disabled",
         finalCoverage: "plan-verdicts-only-on-the-changed-final-text",
+        // 2026-09-28, run 4: an invalid verdict is dropped and its label or
+        // plan check asked for in the follow-up; only an answer with more
+        // invalid verdicts than valid ones is rejected whole.
+        invalidVerdicts: "dropped-and-asked-for-unless-most-are-invalid",
       },
     },
     // Story 2 (CAP-9): the repair is the section agent itself, re-run once
