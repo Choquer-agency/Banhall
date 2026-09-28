@@ -108,6 +108,11 @@ export function __mutationCalls(name: string) {
   return calls.filter((call) => call.name === name).map((call) => call.args);
 }
 
+/** Names of every mutation and action call, in call order (across names). */
+export function __callOrder() {
+  return calls.map((call) => call.name);
+}
+
 /** Args of every one-shot `client.query(name, ...)`, in call order. */
 export function __clientQueryCalls(name: string) {
   return clientQueries.filter((call) => call.name === name).map((call) => call.args);

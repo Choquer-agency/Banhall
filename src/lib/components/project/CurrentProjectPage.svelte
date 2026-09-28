@@ -87,6 +87,13 @@
     type GenerationModeId,
   } from "../../../../shared/generationModes";
   import { pickerModels } from "$lib/modelPicker";
+  import StartRunDialog, { type StartRunExcluded } from "$lib/components/generation/StartRunDialog.svelte";
+  import {
+    projectStartProblem,
+    projectStartSources,
+    startRunModels,
+  } from "$lib/components/generation/startRunSources";
+  import { ProjectStartSelection } from "$lib/components/generation/projectStartSelection";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
@@ -181,6 +188,19 @@
   );
 
   const generateReport = useMutation(api.generations.requestGeneration);
+  // 2026-09-27 (fourth): the start dialog's leave-out list asks for a head
+  // start of exactly the ticked files, as on New project.
+  const setProjectStartSelection = useMutation(api.briefPreparations.setProjectStartSelection);
+  const startSelection = new ProjectStartSelection({
+    send: (excluded, confirm) =>
+      setProjectStartSelection({
+        projectId,
+        excludedTranscriptIds: excluded.transcriptIds as Id<"transcripts">[],
+        excludedDocumentIds: excluded.documentIds as Id<"projectDocuments">[],
+        ...(confirm ? { confirm: true } : {}),
+      }),
+  });
+  onDestroy(() => startSelection.dispose());
   const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
   const logPdReviewEvent = useMutation(api.pdReviews.logPdReviewEvent);
   const updateReport = useMutation(api.reports.updateReportContent);
@@ -712,7 +732,51 @@
     return source === "brief" ? (briefRunMode ?? GENERATION_MODES[0].id) : requestMode;
   }
 
-  async function runGenerate(source: "transcript" | "review" | "brief", force: boolean) {
+  // Start (2026-09-27, fourth): the same dialog as New project, every file
+  // ticked when it opens; what the writer unticks is left out of this run.
+  let startOpen = $state(false);
+  let startSource = $state<"transcript" | "review">("transcript");
+  let startTrigger: HTMLElement | null = null;
+  const NOTHING_LEFT_OUT: StartRunExcluded = { transcriptIds: [], documentIds: [] };
+  let startExcluded: StartRunExcluded = NOTHING_LEFT_OUT;
+  const startMode = $derived(modeFor(startSource));
+  const startSources = $derived(projectStartSources(transcriptsQ.data ?? [], documentsQ.data ?? []));
+  const startModels = $derived(
+    startRunModels({
+      mode: startMode,
+      capabilities: modelCapabilitiesQ.data,
+      singleModelId,
+      compareSlotA,
+      compareSlotB,
+    })
+  );
+
+  function openStart(source: "transcript" | "review") {
+    startSource = source;
+    startTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    startOpen = true;
+  }
+
+  function confirmStart(excluded: StartRunExcluded) {
+    startOpen = false;
+    startExcluded = excluded;
+    if (requiresRegenerationConfirmation) {
+      confirmRegenerate = startSource;
+      return;
+    }
+    void runGenerate(startSource, false, excluded);
+  }
+
+  function cancelRegenerate() {
+    confirmRegenerate = null;
+    startSelection.cancel();
+  }
+
+  async function runGenerate(
+    source: "transcript" | "review" | "brief",
+    force: boolean,
+    excluded: StartRunExcluded = source === "brief" ? NOTHING_LEFT_OUT : startExcluded
+  ) {
     const mode = modeFor(source);
     confirmRegenerate = null;
     generationError = "";
@@ -725,11 +789,21 @@
         action: "generate_from_review",
       }).catch(() => {});
     }
+    // A Step-by-step run can wait on a head start: the final list goes
+    // first (the client keeps the order), so a queued one is sent at once.
+    if (mode === "iterative") void startSelection.confirm(excluded);
+    else startSelection.flush();
     try {
       await generateReport({
         projectId,
         lengthTarget: lengthTarget as "concise" | "standard" | "full",
         candidateMode: mode,
+        ...(excluded.transcriptIds.length
+          ? { excludeTranscriptIds: excluded.transcriptIds as Id<"transcripts">[] }
+          : {}),
+        ...(excluded.documentIds.length
+          ? { excludeDocumentIds: excluded.documentIds as Id<"projectDocuments">[] }
+          : {}),
         ...(mode !== "compare" && singleModelId
           ? { singleModelId }
           : {}),
@@ -754,14 +828,13 @@
   }
 
   function handleRegenerate() {
-    if (requiresRegenerationConfirmation) {
-      confirmRegenerate = "transcript";
-      return;
-    }
-    runGenerate("transcript", false);
+    openStart("transcript");
   }
 
+  // "Regenerate with this Brief" keeps its own path (story 8): no file
+  // choice, so it leaves nothing out.
   function handleRegenerateFromBrief() {
+    startExcluded = NOTHING_LEFT_OUT;
     if (requiresRegenerationConfirmation) {
       confirmRegenerate = "brief";
       return;
@@ -770,11 +843,7 @@
   }
 
   function handleGenerateFromReview() {
-    if (requiresRegenerationConfirmation) {
-      confirmRegenerate = "review";
-      return;
-    }
-    runGenerate("review", false);
+    openStart("review");
   }
 
   async function handleCopyShareLink() {
@@ -1919,6 +1988,18 @@
       />
     {/if}
 
+    <StartRunDialog
+      bind:open={startOpen}
+      mode={startMode}
+      sources={startSources}
+      models={startModels}
+      validate={(excluded) => projectStartProblem(excluded, transcriptsQ.data ?? [], documentsQ.data ?? [])}
+      onConfirm={confirmStart}
+      onCancel={() => startSelection.cancel()}
+      onSelectionChange={(excluded) => startSelection.change(excluded)}
+      returnFocus={() => startTrigger}
+    />
+
     <!-- BNH-52: confirm a re-run when the project already has a report; copy in shared/generationModes.ts -->
     {#if confirmRegenerate}
       {@const regenSource = confirmRegenerate}
@@ -1943,7 +2024,7 @@
           <div class="mt-5 flex justify-end gap-2">
             <button
               type="button"
-              onclick={() => (confirmRegenerate = null)}
+              onclick={cancelRegenerate}
               class="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-chrome"
             >
               Cancel

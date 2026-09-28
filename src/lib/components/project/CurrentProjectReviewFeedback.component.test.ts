@@ -108,6 +108,11 @@ const viewedEvents = () => __mutationCalls("pdReviews:logPdReviewEvent").filter(
   (args) => typeof args === "object" && args !== null && "action" in args && args.action === "review_viewed"
 );
 const requests = () => __mutationCalls("generations:requestGeneration");
+/** 2026-09-27 (fourth): every start passes the file choice dialog first. */
+async function confirmStartDialog() {
+  await expect.poll(() => document.querySelector("[data-start-run-confirm]")).not.toBeNull();
+  await page.elementLocator(document.querySelector("[data-start-run-confirm]")!).click();
+}
 const generationEvents = () => __mutationCalls("pdReviews:logPdReviewEvent").filter(
   (args) => typeof args === "object" && args !== null && "action" in args && args.action === "generate_from_review"
 );
@@ -174,7 +179,15 @@ describe("Current project comparison review feedback", () => {
   it("preserves confirmation and cancellation, surfaces failure, and retries generation", async () => {
     await mount();
     const button = page.getByRole("button", { name: "Generate PD for comparison", exact: true });
-    await button.click();
+    // 2026-09-27 (fourth): the start dialog comes first, every file ticked.
+    // A Review PD project drafts in Compare, so the dialog has Compare's copy.
+    const start = page.getByRole("dialog", { name: "Choose what the drafts come from" });
+    const startDrafts = async () => {
+      await button.click();
+      await expect.element(start).toBeVisible();
+      await start.getByRole("button", { name: "Write 2 drafts", exact: true }).click();
+    };
+    await startDrafts();
     const dialog = page.getByRole("dialog", { name: "This project already has a report" });
     await expect.element(dialog).toBeVisible();
     // A Review PD project always drafts its comparison PD in Compare (story 8).
@@ -189,7 +202,7 @@ describe("Current project comparison review feedback", () => {
       candidateMode: "compare", confirmRegeneration: true };
     const expectedEvent = { projectId: "project-q4", reviewId: "review-q4", action: "generate_from_review" };
     __setMutationError("generations:requestGeneration", new Error("Generation is temporarily unavailable."));
-    await button.click();
+    await startDrafts();
     await dialog.getByRole("button", { name: "Re-run generation", exact: true }).click();
     await expect.poll(requests).toEqual([expectedRequest]);
     await expect.element(page.getByRole("alert")).toHaveTextContent("Generation is temporarily unavailable.");
@@ -198,7 +211,7 @@ describe("Current project comparison review feedback", () => {
     expect(__mutationCalls("reports:updateReportContent")).toEqual([]);
 
     __setMutationResult("generations:requestGeneration", null);
-    await button.click();
+    await startDrafts();
     await expect.element(dialog).toBeVisible();
     expect(requests()).toEqual([expectedRequest]);
     expect(generationEvents()).toEqual([expectedEvent]);
@@ -223,6 +236,7 @@ describe("Current project comparison review feedback", () => {
     for (const [label, mode] of [["Step by step", "iterative"], ["Single draft", "single"], ["Compare two drafts", "compare"]] as const) {
       await modes.getByRole("radio", { name: label, exact: true }).click();
       await generate.click();
+      await confirmStartDialog();
       await expect.element(dialog).toBeVisible();
       const text = dialog.element().textContent?.replace(/\s+/g, " ") ?? "";
       expect(text).toContain(`${RERUN_COPY[mode]} ${RERUN_KEEPS}`);
@@ -234,6 +248,7 @@ describe("Current project comparison review feedback", () => {
 
     await modes.getByRole("radio", { name: "Step by step", exact: true }).click();
     await generate.click();
+    await confirmStartDialog();
     await dialog.getByRole("button", { name: "Re-run generation", exact: true }).click();
     await expect.poll(requests).toEqual([{ projectId: "project-q4", lengthTarget: "standard",
       candidateMode: "iterative", confirmRegeneration: true }]);
@@ -246,6 +261,9 @@ describe("Current project comparison review feedback", () => {
     await page.viewport(1440, 1000);
     await render(PreviewProjectPage);
     await page.getByRole("button", { name: "Generate PD for comparison", exact: true }).click();
+    // The Review PD project's start dialog has Compare's copy and model line.
+    await expect.element(page.getByRole("dialog", { name: "Choose what the drafts come from" })).toBeVisible();
+    await confirmStartDialog();
     const dialog = page.getByRole("dialog", { name: "This project already has a report" });
     await expect.element(dialog).toBeVisible();
     const text = dialog.element().textContent?.replace(/\s+/g, " ") ?? "";

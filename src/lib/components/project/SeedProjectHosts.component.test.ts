@@ -638,6 +638,10 @@ describe("Seed project hosts", () => {
     expect(group.textContent).not.toContain("Recommended");
 
     await browserPage.getByRole("button", { name: "Generate Report", exact: true }).click();
+    // 2026-09-27 (fourth): the start dialog, with Step by step's copy.
+    await expect.element(browserPage.getByRole("dialog", { name: "Choose what the ideas come from" })).toBeVisible();
+    await browserPage.getByRole("button", { name: "Start with 1 file", exact: true }).click();
+    await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
     expect(__mutationCalls("generations:requestGeneration")).toEqual([{
       projectId: "project-seed-host",
       lengthTarget: "standard",
@@ -652,6 +656,12 @@ describe("Seed project hosts", () => {
     await expect.element(browserPage.getByRole("button", { name: "Generate Report", exact: true })).toBeVisible();
     expect(document.querySelector('[role="radiogroup"][aria-label="Draft generation mode"]')).toBeNull();
     await browserPage.getByRole("button", { name: "Generate Report", exact: true }).click();
+    // The start dialog has Compare's copy and model line (requestMode).
+    const start = browserPage.getByRole("dialog", { name: "Choose what the drafts come from" });
+    await expect.element(start).toBeVisible();
+    expect(document.querySelector("[data-start-run-model-line]")?.textContent).toBe("One draft each, you keep the better one");
+    await start.getByRole("button", { name: "Write 2 drafts", exact: true }).click();
+    await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
     expect(__mutationCalls("generations:requestGeneration")).toEqual([{
       projectId: "project-seed-host",
       lengthTarget: "standard",
@@ -722,6 +732,9 @@ describe("Seed project hosts", () => {
     await render(PreviewProjectPage, {});
     await browserPage.getByRole("radio", { name: "Step by step", exact: true }).click();
     await browserPage.getByRole("button", { name: "Generate Report", exact: true }).click();
+    // 2026-09-27 (fourth): the start dialog, every file ticked.
+    await browserPage.getByRole("button", { name: "Start with 1 file", exact: true }).click();
+    await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
     expect(__mutationCalls("generations:requestGeneration")).toEqual([{
       projectId: "project-seed-host",
       lengthTarget: "standard",
