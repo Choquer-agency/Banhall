@@ -25,6 +25,7 @@
   import { seedsApi } from "./api";
   import { api } from "../../../../convex/_generated/api";
   import { draftingInputsFailureMessage } from "./draftingInputs";
+  import { laterReviewFor } from "./laterReview";
 
   let {
     generationId,
@@ -437,6 +438,9 @@
   const reopened = $derived(
     !!activeRow && (activeRow.state === "approved" || typeof activeRow.approvedAt === "number")
   );
+  // 2026-09-28 (seventh): the step whose change marked later steps offers
+  // "Keep all" and "Review each".
+  const laterReview = $derived(outline ? laterReviewFor(outline.rows, activeRoleId) : null);
   const decidedCount = $derived(
     outline?.rows.filter((row) => row.state === "approved" || row.state === "skipped").length ?? 0
   );
@@ -1220,6 +1224,10 @@
                 {onOpenSource}
                 {expectedMs}
                 {afterPicks}
+                {laterReview}
+                onReviewEach={(roleId) => {
+                  if (isRoleId(roleId)) void openRoleFromOutline(roleId);
+                }}
               />
             {/key}
           </div>

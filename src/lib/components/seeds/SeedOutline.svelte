@@ -94,8 +94,9 @@
       default:
         parts.push(row.kind === "optional" ? "optional, not started" : "not started");
     }
-    if (row.stale) parts.push("stale");
-    else if (row.outdated) parts.push("outdated");
+    // 2026-09-28 (seventh): one quiet label for a step an earlier change
+    // marked; a reconciled step (approved again or kept) shows none.
+    if (row.stale) parts.push("review suggested");
     if (row.selectedCount > 0 && row.state !== "skipped") {
       parts.push(
         row.countsComplete
@@ -198,9 +199,9 @@
           <span class="sr-only">, {stateText(row)}</span>
           {#if writing !== null}
             <span class="shrink-0 pr-1 text-[0.6875rem] leading-[0.875rem] text-ink-muted" data-row-progress>{writing}%</span>
-          {:else if row.stale || row.outdated}
-            <span class="inline-flex shrink-0 items-center gap-1 text-[0.6875rem] leading-[0.875rem] text-gap-text!" aria-hidden="true" data-row-marker={row.stale ? "stale" : "outdated"}>
-              <span class="size-1.5 rounded-full bg-stale-dot"></span>{row.stale ? "stale" : "outdated"}
+          {:else if row.stale}
+            <span class="inline-flex shrink-0 items-center gap-1 text-[0.6875rem] leading-[0.875rem] text-gap-text!" aria-hidden="true" data-row-marker="review">
+              <span class="size-1.5 rounded-full bg-stale-dot"></span>Review suggested
             </span>
           {:else if count}
             <span

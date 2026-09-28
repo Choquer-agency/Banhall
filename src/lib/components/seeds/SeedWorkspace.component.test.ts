@@ -2810,8 +2810,11 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(row(/Company \/ Context/).textContent).toContain("approved, 2 selected");
     expect(row(/Hypothesis/).textContent).toContain("writing seeds");
     expect(row(/Advancement to science/).textContent).toContain("seeds failed");
-    expect(row(/Specific/).textContent).toContain("approved, stale");
-    expect(row(/Specific/).querySelector("[data-row-marker]")?.textContent?.trim()).toBe("stale");
+    // 2026-09-28 (seventh): a step an earlier change marked says "Review
+    // suggested", once; no "stale" or "outdated" wording.
+    expect(row(/Specific/).textContent).toContain("approved, review suggested");
+    expect(row(/Specific/).querySelector("[data-row-marker]")?.textContent?.trim()).toBe("Review suggested");
+    expect(container.querySelector('nav[aria-label="PD subsections"]')?.textContent).not.toMatch(/\bstale\b|outdated/i);
     // A count is faint and on the right; an approved step shows none (F5).
     // No preview or state line on screen.
     expect(row(/Experimentation/).querySelector("[data-counts-complete]")?.textContent).toBe("1");
@@ -2855,7 +2858,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     const helper = view.container.querySelector<HTMLElement>("[data-step-helper]")!;
     expect(helper.querySelector("svg")).not.toBeNull();
     // A reopened step says why it is open again instead of counting (board 3.7).
-    expect(helper.textContent).toContain("Reopened from the summary.");
+    expect(helper.textContent).toContain("You approved this step before. If you change a pick, later steps are marked for review. Confirming this step approves this step only.");
     expect(helper.querySelector("[data-selected-count]")).toBeNull();
     expect(helper.textContent).toContain("Underlined words are quoted from the sources.");
     // No raw kind chip, no per-card regenerate, no dashed placeholder card.
@@ -3398,7 +3401,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(page.getByRole("button", { name: "Review summary" }).elements()).toHaveLength(0);
     expect(document.getElementById("seed-review-summary-trigger")).toBeNull();
     // The helper line says why the step is open again.
-    expect(document.querySelector("[data-step-helper]")?.textContent).toContain("Reopened from the summary.");
+    expect(document.querySelector("[data-step-helper]")?.textContent).toContain("You approved this step before.");
     expect(page.getByRole("button", { name: "Approve and continue", exact: true }).elements()).toHaveLength(0);
 
     await confirm.click();
@@ -4392,5 +4395,110 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     expect(__mutationCalls("seeds:select")).toEqual([
       { generationId, roleId: "company_context", seedId: "seed-1", selected: true, expectedSeedStageVersion: 7 },
     ]);
+  });
+});
+
+describe("later steps after an earlier change (2026-09-28 seventh)", () => {
+  const clean = () => ({ ...subsection().approvalChallenge!, carriedSeedIds: [], exclusionEntryIds: [], changedRoleIds: [], shownBatchOutdated: false, exclusions: [] });
+  const outdatedCard = (overrides: Partial<SeedCardData> = {}) =>
+    seed({ outdated: { changedRoleIds: ["goal_problem"] } as unknown as SeedCardData["outdated"], ...overrides });
+
+  it("shows a marked step one plain notice with Keep as is, and no chip on the step or its cards", async () => {
+    const data = subsection({
+      roleId: "passive_limitations",
+      state: "approved",
+      stale: true,
+      staleReason: { changedRoleIds: ["goal_problem"], restored: false } as unknown as SeedSubsectionData["staleReason"],
+      items: [outdatedCard({ roleId: "passive_limitations" }), outdatedCard({ seedId: "seed-2" as Id<"seeds">, roleId: "passive_limitations", selected: false })],
+    });
+    __setMutationResult("seeds:keep", { seedStageVersion: 8, kept: ["passive_limitations"], needsAttention: [] });
+    const view = await render(SeedSubsectionPane, paneProps(data, { title: "Limitations", reopened: true }));
+    const notices = view.container.querySelectorAll<HTMLElement>("[data-step-review-notice]");
+    expect(notices).toHaveLength(1);
+    expect(notices[0].textContent).toContain("An earlier step changed (Goal / Problem) after these ideas were written.");
+    expect(view.container.textContent).not.toMatch(/Outdated|Stale|stale/);
+    expect(view.container.querySelector("[data-seed-marker]")).toBeNull();
+    expect(view.container.querySelector('[data-step-chip="stale"]')).toBeNull();
+
+    await page.getByRole("button", { name: "Keep as is", exact: true }).click();
+    expect(__mutationCalls("seeds:keep")).toEqual([
+      { generationId, roleId: "passive_limitations", expectedSeedStageVersion: 7, scope: "step" },
+    ]);
+  });
+
+  it("shows no review label once the step is approved again, even with ideas written before the change", async () => {
+    const data = subsection({
+      roleId: "passive_limitations",
+      state: "approved",
+      stale: false,
+      staleReason: null,
+      items: [outdatedCard({ roleId: "passive_limitations" })],
+    });
+    const view = await render(SeedSubsectionPane, paneProps(data, { title: "Limitations", reopened: true }));
+    await expect.element(page.getByRole("heading", { name: "Limitations" })).toBeVisible();
+    expect(view.container.querySelector("[data-step-review-notice]")).toBeNull();
+    expect(view.container.querySelector("[data-approval-acknowledgment]")).toBeNull();
+    expect(view.container.textContent).not.toMatch(/Outdated|Review suggested|Keep as is/);
+  });
+
+  it("offers Keep all and Review each on the changed step, and keeps every later step marked for review", async () => {
+    const rows = outline().rows.map((row) =>
+      row.roleId === "company_context"
+        ? { ...row, state: "approved" }
+        : row.roleId === "goal_problem"
+          ? { ...row, state: "in_progress", approvedAt: 1_700_000_000_000 }
+          : row.roleId === "passive_limitations" || row.roleId === "technological_objective"
+            ? { ...row, state: "approved", stale: true }
+            : { ...row, state: "untouched" }
+    );
+    __setQueryData("seeds:getOutline", { ...outline(), rows });
+    __setQueryData("seeds:getSubsection", subsection({ roleId: "goal_problem", approvalChallenge: clean() }));
+    __setMutationResult("seeds:keep", { seedStageVersion: 8, kept: ["passive_limitations", "technological_objective"], needsAttention: [] });
+    localStorage.setItem(`seeds.openRole:writer-1:${generationId}`, "goal_problem");
+    await render(SeedWorkspace, workspaceProps());
+    const line = () => document.querySelector<HTMLElement>("[data-later-review]");
+    await expect.poll(() => line()?.textContent).toContain("This may affect 2 later steps.");
+    // The Outline says it once per marked step.
+    expect([...document.querySelectorAll("[data-row-marker]")].map((marker) => marker.textContent?.trim())).toEqual(["Review suggested", "Review suggested"]);
+
+    await page.getByRole("button", { name: "Keep all", exact: true }).click();
+    expect(__mutationCalls("seeds:keep")).toEqual([
+      { generationId, roleId: "goal_problem", expectedSeedStageVersion: 7, scope: "later" },
+    ]);
+    // No selection changes and nothing regenerates from the client either.
+    expect(__mutationCalls("seeds:select")).toEqual([]);
+    expect(__mutationCalls("seeds:regenerate")).toEqual([]);
+
+    await page.getByRole("button", { name: "Review each", exact: true }).click();
+    await expect.poll(() => __activeQueryArgs("seeds:getSubsection")).toContainEqual({ generationId, roleId: "passive_limitations" });
+  });
+
+  it("names a step Keep all had to leave, in plain words", async () => {
+    const rows = outline().rows.map((row) =>
+      row.roleId === "goal_problem"
+        ? { ...row, state: "in_progress" }
+        : row.roleId === "specific_advancements"
+          ? { ...row, state: "approved", stale: true }
+          : row.roleId === "company_context"
+            ? { ...row, state: "approved" }
+            : { ...row, state: "untouched" }
+    );
+    __setQueryData("seeds:getOutline", { ...outline(), rows });
+    __setQueryData("seeds:getSubsection", subsection({ roleId: "goal_problem", approvalChallenge: clean() }));
+    __setMutationResult("seeds:keep", { seedStageVersion: 8, kept: [], needsAttention: [{ roleId: "specific_advancements", reason: "UNLINKED_ADVANCEMENT" }] });
+    localStorage.setItem(`seeds.openRole:writer-1:${generationId}`, "goal_problem");
+    await render(SeedWorkspace, workspaceProps());
+    await page.getByRole("button", { name: "Keep all", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-keep-attention]")?.textContent).toBe(
+      "Specific advancements needs your attention: its advancements must come from uncertainties and experiments you picked."
+    );
+  });
+
+  it("offers no Keep controls to a reader", async () => {
+    const data = subsection({ roleId: "passive_limitations", state: "approved", stale: true, staleReason: null });
+    await render(SeedSubsectionPane, paneProps(data, { title: "Limitations", canEdit: false, laterReview: { count: 1, firstRoleId: "hypothesis" } }));
+    await expect.element(page.getByRole("heading", { name: "Limitations" })).toBeVisible();
+    expect(page.getByRole("button", { name: /Keep/ }).elements()).toHaveLength(0);
+    expect(document.querySelector("[data-step-review-notice]")?.textContent).toContain("An earlier step changed after these ideas were written.");
   });
 });

@@ -18,6 +18,7 @@ import type {
   listBatches,
   markBatchViewed,
   giveFeedback,
+  keep,
   open,
   regenerate,
   restoreBatch,
@@ -80,4 +81,5 @@ export const seedsApi = {
   skip: mutationReference<typeof skip>("seeds:skip"),
   unskip: mutationReference<typeof unskip>("seeds:unskip"),
   approve: mutationReference<typeof approve>("seeds:approve"),
+  keep: mutationReference<typeof keep>("seeds:keep"),
 };

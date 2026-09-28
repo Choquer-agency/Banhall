@@ -5,7 +5,7 @@
   import { DropdownMenu } from "bits-ui";
   import { IconInfo, IconMore, IconRegenerate } from "$lib/components/icons";
   import type { Id } from "../../../../convex/_generated/dataModel";
-  import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../../../shared/pdSubsections";
+  import { PD_SUBSECTIONS, pdSubsectionOutlineLabel, type PdSubsectionRoleId } from "../../../../shared/pdSubsections";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
   import Button from "$lib/components/ui/Button.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
@@ -54,6 +54,8 @@
     onOpenSource = undefined,
     expectedMs = 20_000,
     afterPicks = false,
+    laterReview = null,
+    onReviewEach = undefined,
   }: {
     generationId: Id<"generations">;
     title: string;
@@ -93,6 +95,11 @@
     expectedMs?: number;
     /** A step after approved ones reads the writer's picks too (F5 copy). */
     afterPicks?: boolean;
+    /** 2026-09-28 (seventh): on the step whose change marked later steps for
+     * review, how many are marked and the first of them. */
+    laterReview?: { count: number; firstRoleId: string } | null;
+    /** Opens a step in the workspace ("Review each"). */
+    onReviewEach?: (roleId: string) => void;
   } = $props();
 
   // Round 2 (F3, F5): the pending batch's time-based progress. An estimate:
@@ -136,6 +143,7 @@
 
   const convex = useConvexClient();
   const selectSeed = useMutation(seedsApi.select);
+  const keepSteps = useMutation(seedsApi.keep);
   const editSeed = useMutation(seedsApi.edit);
   const restoreWording = useMutation(seedsApi.restoreWording);
   const useQuotesAnyway = useMutation(seedsApi.useQuotesAnyway);
@@ -161,6 +169,8 @@
 
   let busy = $state(false);
   let error = $state<string | null>(null);
+  // Steps "Keep" left for the writer, named in plain words (2026-09-28 seventh).
+  let keepAttention = $state<string | null>(null);
   let announcement = $state("");
   let confirmedChallengeKey = $state<string | null>(null);
   let historyOpen = $state(false);
@@ -244,6 +254,7 @@
     historyRefusal = null;
     historyApprovalReview = null;
     historyReviewRefused = false;
+    keepAttention = null;
   });
 
   // A destroyed pane owns no pending walk: a page or challenge that resolves
@@ -325,6 +336,35 @@
     );
     if (approved && continueAfter && !destroyed) onApproved?.(approvedRoleId);
   }
+
+  // 2026-09-28 (seventh, owner): "Keep as is" approves this step, and "Keep
+  // all" every later step an earlier change marked for review, with their
+  // picks as they are. The server records the same approval as confirming
+  // carried selections and names any step it had to leave.
+  const KEEP_REFUSAL: Record<string, string> = {
+    NO_SELECTION: "it has no picks",
+    UNLINKED_ADVANCEMENT: "its advancements must come from uncertainties and experiments you picked",
+    CLAIM_EXCLUSION: "a pick matches a claim exclusion in the Brief, so confirm it on that step",
+  };
+  async function keep(scope: "step" | "later") {
+    keepAttention = null;
+    let left: Array<{ roleId: string; reason: string }> = [];
+    const kept = await mutate(
+      async () => {
+        left = (await keepSteps({ ...common(), scope })).needsAttention;
+      },
+      scope === "step" ? "Step kept as is." : "Later steps kept."
+    );
+    if (!kept || destroyed || left.length === 0) return;
+    keepAttention = left
+      .map(({ roleId, reason }) => `${pdSubsectionOutlineLabel(roleId as PdSubsectionRoleId)} needs your attention: ${KEEP_REFUSAL[reason] ?? "review it"}.`)
+      .join(" ");
+  }
+  const reviewNotice = $derived.by(() => {
+    const changed = (data.staleReason?.changedRoleIds ?? []).map((roleId) => pdSubsectionOutlineLabel(roleId));
+    const where = changed.length ? `An earlier step changed (${changed.join(", ")})` : "An earlier step changed";
+    return `${where} after these ideas were written. Check they still fit, then keep this step as it is, or regenerate and pick again.`;
+  });
 
   // Boards F3 and F5: Regenerate keeps its full ink while ideas are being
   // written, but a Batch already on its way is not replaced: the control is
@@ -779,7 +819,6 @@
           {:else if data.state === "skipped"}
             <span class={`${chip} bg-chrome text-ink-secondary!`} data-step-chip="skipped">Skipped</span>
           {/if}
-          {#if data.stale}<span class={`${chip} bg-gap-bg text-gap-text!`} data-step-chip="stale">Stale</span>{/if}
           {#if data.state === "failed"}<span class={`${chip} bg-gap-bg text-gap-text!`} data-step-chip="failed">Failed</span>{/if}
         </div>
         <div class="flex shrink-0 items-center gap-2.5">
@@ -887,7 +926,7 @@
             This step is skipped. Restore it from the More menu to pick seeds.
           {:else}
             {#if isReopened}
-              Reopened from the summary. Changing a selection makes later steps stale until you confirm this one again.
+              You approved this step before. If you change a pick, later steps are marked for review. Confirming this step approves this step only.
             {/if}
             {#if !selectedCountComplete}
               <span data-selected-count="partial" class="text-gap-text!">{selectedCount}+ selected in the shown seeds, complete count pending</span>.
@@ -906,10 +945,30 @@
           Underlined words are quoted from the sources{!compact && !isReopened && data.state !== "skipped" && approvalSelectedCount === 0 && selectedCountComplete ? "; hover one to see the line" : ""}.
         </span>
       </p>
-      {#if data.staleReason?.changedRoleIds.length}
-        <p class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">
-          Context changed in {data.staleReason.changedRoleIds.join(", ")}.
-        </p>
+      {#if data.stale}
+        <!-- One notice for a step marked for review; its cards carry none. -->
+        <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status" data-step-review-notice>
+          <p>{reviewNotice}</p>
+          {#if canEdit}
+            <Button class="mt-2" size="sm" variant="secondary" disabled={busy || picksPending} onclick={() => void keep("step")} data-keep-step>Keep as is</Button>
+          {/if}
+        </div>
+      {/if}
+      {#if laterReview}
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-primary-wash px-3 py-2 text-body text-ink" data-later-review>
+          <p class="min-w-0 flex-1">This may affect {laterReview.count} later {laterReview.count === 1 ? "step" : "steps"}.</p>
+          <div class="flex shrink-0 gap-2">
+            {#if canEdit}
+              <Button size="sm" variant="secondary" disabled={busy || picksPending} onclick={() => void keep("later")} data-keep-all>Keep all</Button>
+            {/if}
+            {#if onReviewEach}
+              <Button size="sm" variant="secondary" onclick={() => onReviewEach(laterReview.firstRoleId)} data-review-each>Review each</Button>
+            {/if}
+          </div>
+        </div>
+      {/if}
+      {#if keepAttention}
+        <p class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status" data-keep-attention>{keepAttention}</p>
       {/if}
     </header>
 
@@ -935,7 +994,7 @@
           {/if}
         </div>
       {/if}
-      {#if needsConfirmation && canEdit}
+      {#if needsConfirmation && canEdit && !(data.state === "approved" && !data.stale)}
         <div class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" data-approval-acknowledgment>
           <Checkbox
             checked={confirmedChallengeKey === challengeKey}

@@ -158,7 +158,9 @@
   // they never cover a bullet, Restore original wording or the feedback box.
   // A card without a tag row keeps the tools in their own row at its foot.
   // Coarse pointers have no hover, so there the tools always show.
-  const tagRowShown = $derived(tags.length > 0 || item.support === "writer_asserted" || !!item.outdated);
+  // 2026-09-28 (seventh): a card carries no "Outdated" chip; a step marked
+  // for review says so once, at the top of its pane.
+  const tagRowShown = $derived(tags.length > 0 || item.support === "writer_asserted");
   const footerFloating = $derived((item.selected || nested) && !editing);
   const footerHidden = $derived(footerFloating && !feedbackMenuOpen && !quotesOpen);
   const toolCount = $derived((showQuotes ? 1 : 0) + (canEdit ? 2 : 0));
@@ -369,13 +371,6 @@
   {/each}
   {#if item.support === "writer_asserted"}
     <span class="text-[0.6875rem] leading-[0.875rem] text-ink-muted" data-seed-marker="writer-asserted">Writer asserted</span>
-  {/if}
-  {#if item.outdated}
-    <span
-      class="inline-flex items-center gap-1 text-[0.6875rem] leading-[0.875rem] text-gap-text!"
-      data-seed-marker="outdated"
-      title={item.outdated.changedRoleIds.length ? `Written before changes in ${item.outdated.changedRoleIds.join(", ")}` : undefined}
-    ><span class="size-1.5 rounded-full bg-stale-dot" aria-hidden="true"></span>Outdated</span>
   {/if}
 {/snippet}
 
