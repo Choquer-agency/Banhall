@@ -11,6 +11,8 @@ import { SECTION_242_REQUEST } from "./section242Agent";
 import { SECTION_244_REQUEST } from "./section244Agent";
 import { SECTION_246_REQUEST } from "./section246Agent";
 import type { GenerationMessageParams } from "./openrouterCore";
+import { lengthBudgetBlock } from "./pipeline";
+import { draftWordTarget } from "../lib/lineLimits";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -173,16 +175,30 @@ const sectionRequests = [SECTION_242_REQUEST, SECTION_244_REQUEST, SECTION_246_R
 // plus the unchanged writing rules and output format) and open their user
 // message with the same cached block (the analysis JSON), with each line's
 // unchanged instructions and runtime blocks after it; previous values fd9a4107...,
-// 96663c9e..., b32eb92a.... Any other change to these requests is still
-// unintended.
+// 96663c9e..., b32eb92a.... 2026-09-28 (second, full suite): the ordered chain's drafts ask
+// for the draft target (85 percent of the word cap) instead of the length
+// budget; the hash is taken with the budget put back (withoutDraftHeadroom).
+// Any other change to these requests is still unintended.
 const HISTORICAL_NO_PLAN_SECTION_REQUEST_HASHES = [
   "2bd255c79925e24f18538a5a2a8653ab3e75ac31511628f62d15ef801ec4ae0c",
   "060b56f8c304a41f75600596da9f13d07706ac6b7cb4c1a3426acc99d0d25341",
   "e018b20e612590133df7cf8777d446ece1a71d94818b8fbeb78f6e157f8eb8bc",
 ] as const;
 
+/** The request with the length budget in place of the draft target. */
+function withoutDraftHeadroom(params: GenerationMessageParams): string {
+  let body = JSON.stringify(params);
+  // The fixture drafts at the standard length.
+  for (const key of ["s242", "s244", "s246"] as const) {
+    body = body
+      .split(JSON.stringify(lengthBudgetBlock(key, "standard", draftWordTarget(key, "standard"))).slice(1, -1))
+      .join(JSON.stringify(lengthBudgetBlock(key, "standard")).slice(1, -1));
+  }
+  return body;
+}
+
 async function completeRequestHash(params: GenerationMessageParams): Promise<string> {
-  const bytes = new TextEncoder().encode(JSON.stringify(params));
+  const bytes = new TextEncoder().encode(withoutDraftHeadroom(params));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))

@@ -102,9 +102,16 @@ export {
   STYLE_GUIDANCE_SCAFFOLDS,
 } from "./promptDefinitions";
 
-/** BNH-45: the length-budget instruction appended to each drafter prompt. */
-export function lengthBudgetBlock(section: SectionKey, target: LengthTarget): string {
-  const words = wordBudget(section, target);
+/**
+ * BNH-45: the length-budget instruction appended to each drafter prompt.
+ * `words` defaults to the length budget; the ordered chain passes its draft
+ * target (2026-09-28 second, full suite).
+ */
+export function lengthBudgetBlock(
+  section: SectionKey,
+  target: LengthTarget,
+  words: number = wordBudget(section, target)
+): string {
   const lines = LINE_LIMITS[section];
   return `${LENGTH_BUDGET_SCAFFOLD.prefix}${lines}${LENGTH_BUDGET_SCAFFOLD.linesToChars}${CHARS_PER_LINE}${LENGTH_BUDGET_SCAFFOLD.charsToWords}${words}${LENGTH_BUDGET_SCAFFOLD.suffix}`;
 }
@@ -160,6 +167,10 @@ export async function compressSection(
 ): Promise<string> {
   const m = sectionMetrics(text, section);
   const words = compressionTargetWords(section, target, squeeze, m);
+  // 2026-09-28 (second, full suite): the request says how much to cut, not only where to
+  // land. A Section over on lines alone is asked for fewer words than it has.
+  const cut = Math.max(m.words - words, 1);
+  const cutPercent = Math.max(Math.round((cut / Math.max(m.words, 1)) * 100), 1);
   const scaffold = COMPRESSION_REQUEST.userScaffold;
   let response: GenerationResponse;
   try {
@@ -170,7 +181,7 @@ export async function compressSection(
       messages: [
         {
           role: "user",
-          content: `${mustKeepBlock(mustKeep)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToTarget}${words}${scaffold.targetToText}${text}`,
+          content: `${mustKeepBlock(mustKeep)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToTarget}${words}${scaffold.targetToCut}${cut}${scaffold.cutToPercent}${cutPercent}${scaffold.percentToText}${text}`,
         },
       ],
     });
@@ -232,36 +243,65 @@ export function limitOverage(text: string, key: SectionKey): number {
 }
 
 const NUMBER_RE = /\d+(?:[.,]\d+)*/g;
-const NEGATION_RE = /\b(?:not|no|never|cannot|none|neither|nor|without)\b|n't\b/gi;
+/**
+ * A negation and the word it negates. "n't" and "cannot" read as "not", and
+ * an article or a form of "be" after the negation is skipped, so "is not a
+ * flat filter" reads "not flat" and "didn't crack" reads "not crack".
+ */
+const NEGATION_PHRASE_RE =
+  /\b(not|no|never|none|neither|nor|without)\s+(?:(?:a|an|the|be|been|being)\s+)?([a-z0-9][a-z0-9-]*)/g;
 
 function numbersIn(text: string): Set<string> {
   // "1,200" and "1200" are the same number; a trailing comma is punctuation.
   return new Set([...text.matchAll(NUMBER_RE)].map((match) => match[0].replace(/,/g, "")));
 }
 
+function negationsIn(text: string): Set<string> {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/\bcannot\b/g, "can not")
+    .replace(/n't\b/g, " not");
+  return new Set([...normalized.matchAll(NEGATION_PHRASE_RE)].map((match) => `${match[1]} ${match[2]}`));
+}
+
 /**
- * Review P2-1: why a compression pass dropped required content, or null when
- * it kept it. A pass must keep every [GAP] marker verbatim, every number and
- * every negation of the text it was given, and must not fall below
- * `targetFloor` of its word target (content cut, not wording).
+ * Why a compression pass dropped required content, or null when it kept it
+ * (review P2-1; 2026-09-28 second, full suite). A pass must keep every [GAP] marker of
+ * the text it was given verbatim. A number, or a negation read with the word
+ * it negates, that the text holds and a Must keep line also holds must still
+ * appear somewhere in the pass; any other number or negation may go with the
+ * detail it belongs to (the request forbids changing one). A pass under
+ * `targetFloor` of its word target cut content, not wording.
  */
 export function compressionLoss(
   input: string,
   output: string,
   key: SectionKey,
-  targetWords: number
+  targetWords: number,
+  mustKeep: readonly string[] = []
 ): string | null {
   for (const match of input.matchAll(new RegExp(GAP_MARKER_RE.source, "gi"))) {
     if (!output.includes(match[0])) return `dropped the marker ${match[0]}`;
   }
-  const kept = numbersIn(output);
+  // A Self-check fix names where it applies ("Paragraph 2: ..."); that
+  // label is not content the text must keep.
+  const required = mustKeep
+    .map((line) => line.replace(/^(?:Paragraph \d+|Whole section):\s*/, ""))
+    .join("\n");
+  const requiredNumbers = numbersIn(required);
+  const keptNumbers = numbersIn(output);
   for (const number of numbersIn(input)) {
-    if (!kept.has(number)) return `dropped the number ${number}`;
+    if (requiredNumbers.has(number) && !keptNumbers.has(number)) {
+      return `dropped the number ${number}, which a Must keep line holds`;
+    }
   }
-  const negationsIn = input.match(NEGATION_RE)?.length ?? 0;
-  const negationsOut = output.match(NEGATION_RE)?.length ?? 0;
-  if (negationsOut < negationsIn) {
-    return `dropped a negation (${negationsOut} of ${negationsIn} kept)`;
+  const requiredNegations = negationsIn(required);
+  const keptNegations = negationsIn(output);
+  for (const negation of negationsIn(input)) {
+    if (requiredNegations.has(negation) && !keptNegations.has(negation)) {
+      return `dropped the negation "${negation}", which a Must keep line holds`;
+    }
   }
   const words = sectionMetrics(output, key).words;
   const floor = Math.floor(targetWords * COMPRESSION_REQUEST.targetFloor);
@@ -332,7 +372,8 @@ export async function compressWithinLimit(
       best,
       out,
       key,
-      compressionTargetWords(key, lengthTarget, squeeze, metrics)
+      compressionTargetWords(key, lengthTarget, squeeze, metrics),
+      mustKeep
     );
     if (loss) {
       console.warn(`generation:compression:${key.slice(1)}: pass ${passes} not kept: it ${loss}`);

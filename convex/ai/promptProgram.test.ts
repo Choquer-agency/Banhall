@@ -124,7 +124,7 @@ function install() {
     const user = userText(params);
     if (systemText(params) === COMPRESSION_REQUEST.system) {
       return {
-        content: [{ type: "text", text: user.split(COMPRESSION_REQUEST.userScaffold.targetToText)[1] ?? "" }],
+        content: [{ type: "text", text: user.split(COMPRESSION_REQUEST.userScaffold.percentToText)[1] ?? "" }],
         usage,
       };
     }

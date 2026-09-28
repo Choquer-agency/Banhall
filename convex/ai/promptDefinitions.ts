@@ -193,13 +193,19 @@ export const SEED_PROMPT_PROGRAM = {
  * model routinely lands a little over the target it was given. `mustKeep`
  * (review P2-1) opens the request with the signed-off plan's COVER items and
  * the Self-check fixes a repair was made for, when there are any.
+ *
+ * 2026-09-28 (second, full suite): in the release suite 40 passes came back at 94 percent
+ * of their input on average, since the request asked to keep every claim,
+ * number and negation of already dense text. The target now comes first,
+ * the request says how many words to cut, cuts go in a stated order, and a
+ * number or negation may go only with the detail it belongs to.
  */
 export const COMPRESSION_REQUEST = {
   system:
-    "You compress SR&ED report sections to fit CRA form limits. The line and word limits are hard: a section over either one cannot be filed. Preserve every distinct technical claim, number, negation, [GAP] marker and writer instruction; cut repetition, framing and filler first, then state supporting detail more briefly. Never invent content. [GAP: …] markers must be preserved verbatim: never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs), and end every paragraph on a complete sentence. Return ONLY the compressed section text.\n\n" + RULES_HUMAN_PROSE,
+    "You compress SR&ED report sections to fit CRA form limits. The line and word limits are hard: a section over either one cannot be filed, so reaching the word target comes first. Keep every [GAP: …] marker verbatim (never remove or reword one), every point in the Must keep list and every writer instruction the text follows. To reach the target, cut in this order: repetition and restated context, then framing and filler, then the least important supporting detail, and say what stays more briefly. A number or negation may go only together with the detail it belongs to: never change a number and never turn a negative statement into a positive one. Never invent content. Keep the same paragraph conventions (blank line between paragraphs), and end every paragraph on a complete sentence. Return ONLY the compressed section text.\n\n" + RULES_HUMAN_PROSE,
   mustKeep: {
     prefix:
-      "Must keep: the compressed section must still meet every line below (a signed-off plan item it covers, or a Self-check fix it was repaired for).\n",
+      "Must keep: the compressed section must still meet every line below (a signed-off plan item it covers, or a Self-check fix it was repaired for). Each needs its point, not its full wording: say it as briefly as it allows.\n",
     itemPrefix: "- ",
     itemSeparator: "\n",
     suffix: "\n\n",
@@ -212,8 +218,10 @@ export const COMPRESSION_REQUEST = {
     charsToCap:
       " characters (blank lines between paragraphs each cost one line) and at most ",
     capToTarget: " words. Rewrite it to AT MOST ",
-    targetToText:
-      " words while preserving the technical substance. Merge paragraphs where natural; fewer paragraph breaks save lines.\n\n",
+    targetToCut: " words: cut at least ",
+    cutToPercent: " words, about ",
+    percentToText:
+      " percent of it, while preserving the technical substance. Merge paragraphs where natural; fewer paragraph breaks save lines.\n\n",
     runtimeSentinels: [
       "{{runtime.mustKeep}}",
       "{{runtime.currentLines}}",
@@ -222,6 +230,8 @@ export const COMPRESSION_REQUEST = {
       "{{runtime.charsPerLine}}",
       "{{runtime.wordCap}}",
       "{{runtime.targetWords}}",
+      "{{runtime.cutWords}}",
+      "{{runtime.cutPercent}}",
       "{{runtime.sectionText}}",
     ],
   },
@@ -230,8 +240,11 @@ export const COMPRESSION_REQUEST = {
   modelSelector: { kind: "candidate" },
   thinking: { kind: "omitted" },
   squeezes: [1, 0.85],
-  /** The share of the Locked word cap a compression aims for at most. */
-  capHeadroom: 0.9,
+  /**
+   * The share of the Locked word cap a compression aims for at most
+   * (2026-09-28 second, full suite: 297 for Lines 242 and 246, 595 for Line 244).
+   */
+  capHeadroom: 0.85,
   /**
    * Review P2-1: a pass whose text falls below this share of its word target
    * dropped content rather than wording, and is not kept.

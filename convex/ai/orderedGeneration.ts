@@ -65,7 +65,7 @@ import {
   LINE_LIMITS,
   WORD_CAPS,
   sectionMetrics,
-  wordBudget,
+  draftWordTarget,
   type LengthTarget,
   type SectionKey,
 } from "../lib/lineLimits";
@@ -143,11 +143,12 @@ export function repairGuidanceBlock(issues: string[], draft: string): string {
 
 /**
  * 2026-09-28 (second): the Locked length restated after a signed-off plan,
- * so the drafter reads it after "Cover every COVER item".
+ * so the drafter reads it after "Cover every COVER item"; since the full
+ * release suite it asks for the draft target, well under the cap.
  */
 export function planLengthBudgetBlock(section: SectionKey, target: LengthTarget): string {
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.planLengthBudget;
-  return `${scaffold.prefix}${WORD_CAPS[section]}${scaffold.wordCapToLines}${LINE_LIMITS[section]}${scaffold.linesToBudget}${wordBudget(section, target)}${scaffold.suffix}`;
+  return `${scaffold.prefix}${WORD_CAPS[section]}${scaffold.wordCapToLines}${LINE_LIMITS[section]}${scaffold.linesToBudget}${draftWordTarget(section, target)}${scaffold.suffix}`;
 }
 
 /** Why a repair that broke a Locked limit was not used (Compliance Note wording). */
@@ -478,7 +479,8 @@ export async function draftCheckedSection(input: {
         analysis,
         claim.model,
         payload.brainExemplars[key],
-        lengthBudgetBlock(key, lengthTarget),
+        // 2026-09-28 (second, full suite): drafts and repairs aim well under the cap.
+        lengthBudgetBlock(key, lengthTarget, draftWordTarget(key, lengthTarget)),
         styleGuidance + extraGuidance,
         styleOverrides,
         // A signed-off plan run restates the Locked length last, after the

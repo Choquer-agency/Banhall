@@ -183,7 +183,7 @@ function install(script: Script = {}) {
     if (blocksText((params as { system?: unknown }).system) === COMPRESSION_REQUEST.system) {
       // Compression that cannot shrink the text: a breach survives it.
       return {
-        content: [{ type: "text", text: user.split(COMPRESSION_REQUEST.userScaffold.targetToText)[1] ?? "" }],
+        content: [{ type: "text", text: user.split(COMPRESSION_REQUEST.userScaffold.percentToText)[1] ?? "" }],
         usage,
       };
     }

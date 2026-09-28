@@ -21,6 +21,7 @@ import { generationModelFreeze } from "../lib/modelRoles";
 import { generationModelsRef } from "../lib/modelCatalogRefs";
 import {
   CHARS_PER_LINE,
+  DRAFT_WORD_CAP_SHARE,
   LENGTH_TARGETS,
   LINE_LIMITS,
   WORD_CAPS,
@@ -775,6 +776,12 @@ export const generationPromptProgram = {
         cap: "section-word-cap",
       },
       derivedWordBudgets,
+      // 2026-09-28 (second, full suite): ordered-chain drafts and repairs ask for the
+      // budget, never above this share of the word cap.
+      orderedDraftTarget: {
+        capShare: DRAFT_WORD_CAP_SHARE,
+        rounding: "floor",
+      },
     },
     transcripts: {
       budgetChars: TRANSCRIPT_BUDGET_CHARS,

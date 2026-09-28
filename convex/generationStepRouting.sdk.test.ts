@@ -55,8 +55,8 @@ import {
 } from "./lib/generationSteps";
 import { runSeedDraftingInputs } from "./seedStartup.fixture";
 import { anthropicToolSse, sseResponse } from "./anthropicSse.fixture";
-import { compressionTargetWords } from "./ai/pipeline";
-import { wordBudget } from "./lib/lineLimits";
+import { compressionTargetWords, lengthBudgetBlock } from "./ai/pipeline";
+import { draftWordTarget, wordBudget } from "./lib/lineLimits";
 import { RULES_HUMAN_PROSE } from "../shared/humanProse";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -293,16 +293,33 @@ const withoutQuoteRules = (json: Record<string, unknown>) => {
 };
 /**
  * 2026-09-28 (second): the compression request names the word cap beside the
- * line limit and asks for a target below the cap. Putting back the wording
+ * line limit and asks for a target below the cap; 2026-09-28 (second, full suite) adds
+ * the words to cut and reorders the system rule. Putting back the wording
  * and the target it had on 771af202 gives the pinned body, so nothing else
  * in it moved. Every compression in this fixture is a first pass.
  */
 const COMPRESSION_SYSTEM_771AF202 =
   "You compress SR&ED report sections to fit CRA form limits. Preserve every distinct technical claim, uncertainty, iteration, and result; cut repetition, filler, and scene-setting. Never invent content. [GAP: …] markers must be preserved verbatim: never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs). Return ONLY the compressed section text.\n\n";
 const COMPRESSION_USER_NOW =
-  /^This section is (\d+) lines and (\d+) words, but the CRA field allows at most (\d+) lines of (\d+) characters \(blank lines between paragraphs each cost one line\) and at most (\d+) words\. Rewrite it to AT MOST (\d+) words while preserving the technical substance\. Merge paragraphs where natural; fewer paragraph breaks save lines\.\n\n([\s\S]*)$/;
+  /^This section is (\d+) lines and (\d+) words, but the CRA field allows at most (\d+) lines of (\d+) characters \(blank lines between paragraphs each cost one line\) and at most (\d+) words\. Rewrite it to AT MOST (\d+) words: cut at least (\d+) words, about (\d+) percent of it, while preserving the technical substance\. Merge paragraphs where natural; fewer paragraph breaks save lines\.\n\n([\s\S]*)$/;
+/**
+ * 2026-09-28 (second, full suite): ordered-chain drafts and repairs ask for the draft
+ * target, 85 percent of the word cap, where the pins asked for the length
+ * budget. Putting the budget back in the length block gives the pinned body.
+ */
+const withoutDraftHeadroom = (json: Record<string, unknown>) => {
+  const stage = stageOf(json);
+  if (stage !== "section" && stage !== "repair") return json;
+  let body = JSON.stringify(json);
+  for (const key of ["s242", "s244", "s246"] as const) {
+    body = body
+      .split(JSON.stringify(lengthBudgetBlock(key, "standard", draftWordTarget(key, "standard"))).slice(1, -1))
+      .join(JSON.stringify(lengthBudgetBlock(key, "standard")).slice(1, -1));
+  }
+  return JSON.parse(body) as Record<string, unknown>;
+};
 const withoutLengthFix = (json: Record<string, unknown>) => {
-  if (stageOf(json) !== "compression") return json;
+  if (stageOf(json) !== "compression") return withoutDraftHeadroom(json);
   const systemNow = COMPRESSION_REQUEST.system.slice(0, -RULES_HUMAN_PROSE.length);
   const body = JSON.stringify(json).replace(
     JSON.stringify(systemNow).slice(1, -1),
@@ -312,9 +329,10 @@ const withoutLengthFix = (json: Record<string, unknown>) => {
   const block = edited.messages[0].content[0];
   const match = COMPRESSION_USER_NOW.exec(block.text);
   if (!match) throw new Error("Unexpected compression request wording");
-  const [, lines, words, limit, chars, cap, target, text] = match;
+  const [, lines, words, limit, chars, cap, target, cut, , text] = match;
   const key = cap === "700" ? "s244" : "s242";
   expect(Number(target)).toBe(compressionTargetWords(key, "standard"));
+  expect(Number(cut)).toBe(Number(words) - Number(target));
   block.text = `This section is ${lines} lines / ${words} words, but the CRA field allows only ${limit} lines of ${chars} characters (blank lines between paragraphs each cost one line). Rewrite it to AT MOST ${wordBudget(key, "standard")} words while preserving all technical substance. Merge paragraphs where natural; fewer paragraph breaks save lines.\n\n${text}`;
   return edited as unknown as Record<string, unknown>;
 };
@@ -814,7 +832,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
 
   it("an always-thinking planning or checking model an admin assigned runs at low effort; the writer's Sonnet 5 is untouched", async () => {
     const { wire } = await runOneShot("single", SONNET, "current", { planning: OPUS, checking: OPUS });
-    const now = await stagesOf(wire.sent, withPinnedCompressionAnswer);
+    const now = await stagesOf(wire.sent, (json) => withPinnedCompressionAnswer(withoutDraftHeadroom(json)));
     const pinned = PINNED_771AF202[`single:${SONNET}`];
     for (const stage of [...PLANNING_STAGES, ...CHECKING_STAGES].filter((name) => name in now)) {
       expect([stage, now[stage].models]).toEqual([stage, [OPUS]]);
