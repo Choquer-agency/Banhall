@@ -126,6 +126,7 @@ import type * as lib_deviationInventory from "../lib/deviationInventory.js";
 import type * as lib_draftingInputsFailure from "../lib/draftingInputsFailure.js";
 import type * as lib_editDistance from "../lib/editDistance.js";
 import type * as lib_editProvenance from "../lib/editProvenance.js";
+import type * as lib_editedTerms from "../lib/editedTerms.js";
 import type * as lib_eligibleOwner from "../lib/eligibleOwner.js";
 import type * as lib_email from "../lib/email.js";
 import type * as lib_firmNames from "../lib/firmNames.js";
@@ -381,6 +382,7 @@ declare const fullApi: ApiFromModules<{
   "lib/draftingInputsFailure": typeof lib_draftingInputsFailure;
   "lib/editDistance": typeof lib_editDistance;
   "lib/editProvenance": typeof lib_editProvenance;
+  "lib/editedTerms": typeof lib_editedTerms;
   "lib/eligibleOwner": typeof lib_eligibleOwner;
   "lib/email": typeof lib_email;
   "lib/firmNames": typeof lib_firmNames;
