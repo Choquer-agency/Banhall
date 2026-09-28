@@ -92,7 +92,9 @@ is rem and the root grows on wide windows:
   `rootScale()`. Board icons and the logo mark keep their board size as the
   svg `width`/`height` attributes and in `--icon-size`; a base-layer rule
   in `layout.css` (`svg[data-board-icon]`) sizes them in rem, and a size
-  class on the icon still wins. Measured positions (menus anchored to a
+  class on the icon still wins. Phosphor icons take a rem string
+  (`size="0.875rem"`); the codemod rewrites a literal `size={14}` on a
+  `phosphor-svelte` import. Measured positions (menus anchored to a
   rect, comment offsets, a measured bar height) stay px.
 - **Tooling.** `node scripts/px-to-rem.mjs` converts px sizes under `src/`
   and is safe to re-run (a second run changes nothing); `--check` lists what
