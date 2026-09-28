@@ -26,6 +26,7 @@ import {
   PLAN_ITEM_NOT_CHECKED_REASON,
   PLAN_SKIP_NOT_CHECKED_REASON,
   runModelSelfCheck,
+  SKIP_BREAK_UNLOCATED_REASON,
   summaryChecklist,
   type ModelSelfCheckResult,
   type SelfCheckModelInput,
@@ -595,9 +596,129 @@ describe("Summary plan coverage Self-check through the SDK boundary", () => {
       expect(result.verdicts).toHaveLength(fixture.labels);
       expect(result.verdicts.some((verdict) => verdict.notChecked)).toBe(false);
       expect(result.planVerdicts).toHaveLength(plans.length);
-      // Every item and the Skip carry the model's own verdict.
+      // Every item and the Skip carry the model's own verdict. An item is
+      // covered where its paragraph says; a Skip is honoured by absence, so
+      // it carries no paragraph (2026-09-28, third).
       expect(result.planVerdicts.every((verdict) =>
-        verdict.outcome === "applied" && verdict.paragraphIndex !== undefined)).toBe(true);
+        verdict.outcome === "applied" &&
+        (verdict.skippedRoleId ? verdict.paragraphIndex === undefined : verdict.paragraphIndex !== undefined)
+      )).toBe(true);
     }
   );
+});
+
+// 2026-09-28 (third), release suite finding: "Omit signed-off role
+// prior_year_status: not_applied; Applied plan verdict did not identify valid
+// paragraph evidence." A Skip is honoured by absence, so an applied Skip
+// needs no paragraph; a Skip that is not honoured names where the role is.
+describe("Skips are honoured by absence (real SDK, fetch stubbed)", () => {
+  const input = inputFor(CASE_244);
+  const ordinary = ordinaryOf(input);
+  const plans = input.planChecks ?? [];
+  const skip = plans.find((check) => check.skippedRoleId)!;
+  const answerWithSkip = (skipVerdict: Record<string, unknown>) => ({
+    verdicts: ordinary.map(verdictFor),
+    planVerdicts: plans.map((check, index) =>
+      check.skippedRoleId ? skipVerdict : planVerdictFor(check, index)),
+  });
+  const skipOf = (result: ModelSelfCheckResult) =>
+    result.planVerdicts.find((verdict) => verdict.skippedRoleId === skip.skippedRoleId)!;
+
+  it("tells the model how a Skip carries its paragraph", async () => {
+    const { bodies } = await runThroughSdk(input, [
+      answerWithSkip({ skippedRoleId: skip.skippedRoleId, mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "The role is absent." }),
+    ]);
+    const [body] = bodies as [WireBody];
+    expect(JSON.stringify(body.system)).toContain(
+      "A Skip is honoured by absence: it is applied only when the role is absent, with paragraph 0. A Skip that is not applied names the paragraph where the role appears."
+    );
+    const paragraph = (body.tools[0]!.input_schema.properties.planVerdicts.items.properties as unknown as Record<string, { description?: string }>).paragraph;
+    expect(paragraph?.description).toBe(
+      "Item: the 1-based [P#] holding the evidence when applied, 0 when not applied. Skip: 0 when applied (the role is absent), the 1-based [P#] where the role appears when not applied."
+    );
+  });
+
+  it.each([
+    { name: "paragraph 0", paragraph: 0 as number | undefined },
+    { name: "no paragraph", paragraph: undefined },
+  ])("accepts a Skip honoured with $name", async ({ paragraph }) => {
+    const { result, bodies } = await runThroughSdk(input, [
+      answerWithSkip({
+        skippedRoleId: skip.skippedRoleId,
+        mergedItemIds: [],
+        ...(paragraph === undefined ? {} : { paragraph }),
+        outcome: "applied",
+        reason: "The role is absent.",
+      }),
+    ]);
+    expect(bodies).toHaveLength(1);
+    expect(skipOf(result)).toEqual({
+      skippedRoleId: skip.skippedRoleId,
+      mergedItemIds: [],
+      outcome: "applied",
+      reason: "The role is absent.",
+    });
+  });
+
+  it("records a broken Skip at the paragraph it cites, and sends it to the repair", async () => {
+    const { result } = await runThroughSdk(input, [
+      answerWithSkip({
+        skippedRoleId: skip.skippedRoleId,
+        mergedItemIds: [],
+        paragraph: 2,
+        outcome: "not_applied",
+        reason: "P2 reports last year's status.",
+        repairGuidance: "Remove the prior-year status from P2.",
+      }),
+    ]);
+    expect(skipOf(result)).toEqual({
+      skippedRoleId: skip.skippedRoleId,
+      mergedItemIds: [],
+      paragraphIndex: 1,
+      outcome: "not_applied",
+      reason: "P2 reports last year's status.",
+      repairGuidance: "Remove the prior-year status from P2.",
+      actionableRepair: true,
+    });
+  });
+
+  it.each([
+    { name: "no paragraph", paragraph: undefined as number | undefined },
+    { name: "paragraph 0", paragraph: 0 },
+    { name: "a paragraph past the Section", paragraph: PARAGRAPHS.length + 1 },
+  ])("keeps a broken Skip that cites $name not honoured, with no repair", async ({ paragraph }) => {
+    const { result } = await runThroughSdk(input, [
+      answerWithSkip({
+        skippedRoleId: skip.skippedRoleId,
+        mergedItemIds: [],
+        ...(paragraph === undefined ? {} : { paragraph }),
+        outcome: "not_applied",
+        reason: "The section reports last year's status.",
+        repairGuidance: "Remove the prior-year status.",
+      }),
+    ]);
+    expect(skipOf(result)).toEqual({
+      skippedRoleId: skip.skippedRoleId,
+      mergedItemIds: [],
+      outcome: "not_applied",
+      reason: SKIP_BREAK_UNLOCATED_REASON,
+      actionableRepair: false,
+    });
+  });
+
+  it("still asks an applied item for its paragraph", async () => {
+    const item = plans.find((check) => check.itemId)!;
+    const { result } = await runThroughSdk(input, [{
+      verdicts: ordinary.map(verdictFor),
+      planVerdicts: plans.map((check, index) =>
+        check === item
+          ? { itemId: item.itemId, mergedItemIds: [...item.mergedItemIds], paragraph: 0, outcome: "applied", reason: "Covered." }
+          : planVerdictFor(check, index)),
+    }]);
+    expect(result.planVerdicts.find((verdict) => verdict.itemId === item.itemId)).toMatchObject({
+      outcome: "not_applied",
+      reason: "Applied plan verdict did not identify valid paragraph evidence.",
+      actionableRepair: false,
+    });
+  });
 });

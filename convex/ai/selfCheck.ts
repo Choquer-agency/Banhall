@@ -865,6 +865,15 @@ export const PLAN_ITEM_NOT_CHECKED_REASON =
   "Not checked: the plan coverage Self-check gave no verdict for this item.";
 export const PLAN_SKIP_NOT_CHECKED_REASON =
   "Not checked: the plan coverage Self-check gave no verdict for this Skip.";
+/** An applied item verdict with no valid paragraph holding the evidence. */
+export const ITEM_EVIDENCE_UNLOCATED_REASON =
+  "Applied plan verdict did not identify valid paragraph evidence.";
+/**
+ * 2026-09-28 (third): a Skip reported as not honoured that names no valid
+ * paragraph where the role appears.
+ */
+export const SKIP_BREAK_UNLOCATED_REASON =
+  "Skip reported as not honoured named no valid paragraph.";
 
 /**
  * The follow-up request: the data blocks, the follow-up text and only what
@@ -1094,27 +1103,40 @@ export async function runModelSelfCheck(
       const paragraphIndex = verdict
         ? exactPlanParagraphIndex(verdict.paragraph, count)
         : undefined;
-      const applied = verdict?.outcome === "applied" && paragraphIndex !== undefined;
-      const evidenceDowngraded = verdict?.outcome === "applied" && !applied;
+      // 2026-09-28 (third): an item is covered where its paragraph says; a
+      // Skip is honoured by absence, so an applied Skip needs no paragraph
+      // (0 or none), while a Skip that is not honoured must name the
+      // paragraph where the role appears. A verdict that claims text is
+      // there without naming a valid paragraph is not applied and asks for
+      // no repair: nothing located a prose defect.
+      const skip = expected.itemId === undefined;
+      const applied = verdict?.outcome === "applied" &&
+        (skip || paragraphIndex !== undefined);
+      const evidenceDowngraded = verdict !== undefined &&
+        paragraphIndex === undefined &&
+        (skip ? verdict.outcome === "not_applied" : verdict.outcome === "applied");
+      const cited = paragraphIndex !== undefined && (skip ? !applied : applied);
       // Only a model not_applied verdict repairs, and it is never downgraded.
-      const repairText = unclippedRepairText(
-        verdict,
-        verdict?.repairGuidance?.trim() ||
-          verdict?.reason.trim() ||
-          "Plan verdict was not applied."
-      );
+      const repairText = evidenceDowngraded
+        ? undefined
+        : unclippedRepairText(
+            verdict,
+            verdict?.repairGuidance?.trim() ||
+              verdict?.reason.trim() ||
+              "Plan verdict was not applied."
+          );
       return {
         ...(expected.itemId ? { itemId: expected.itemId } : {}),
         ...(expected.skippedRoleId ? { skippedRoleId: expected.skippedRoleId } : {}),
         mergedItemIds: [...expected.mergedItemIds],
-        ...(applied ? { paragraphIndex } : {}),
+        ...(cited ? { paragraphIndex } : {}),
         outcome: applied ? "applied" as const : "not_applied" as const,
         reason: !verdict
           ? expected.itemId
             ? PLAN_ITEM_NOT_CHECKED_REASON
             : PLAN_SKIP_NOT_CHECKED_REASON
           : evidenceDowngraded
-            ? "Applied plan verdict did not identify valid paragraph evidence."
+            ? skip ? SKIP_BREAK_UNLOCATED_REASON : ITEM_EVIDENCE_UNLOCATED_REASON
             : verdict.reason.trim() || "Plan verdict was not applied.",
         ...(!evidenceDowngraded && verdict?.repairGuidance?.trim()
           ? { repairGuidance: verdict.repairGuidance.trim() }

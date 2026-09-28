@@ -4430,7 +4430,8 @@ describe("seed Summary sign-off and recovery", () => {
       if (!row) throw new Error("Missing durable 246 plan row");
       expect(row.outcome).toBe(expectedOutcome);
       if (keepsParagraph) {
-        expect(row.paragraphIndex).toBe(0);
+        // A Skip is honoured by absence and carries no paragraph.
+        expect(row.paragraphIndex).toBe(check.skippedRoleId ? undefined : 0);
       } else {
         expect(row.paragraphIndex).toBeUndefined();
         expect(row.reason).toContain("Final coverage was not reverified");
@@ -4473,7 +4474,7 @@ describe("seed Summary sign-off and recovery", () => {
         : candidate.planRef?.skippedRoleId === check.skippedRoleId);
       expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
       expect(row?.outcome).toBe(expectedOutcome);
-      if (keepsParagraph) expect(row?.paragraphIndex).toBe(0);
+      if (keepsParagraph) expect(row?.paragraphIndex).toBe(check.skippedRoleId ? undefined : 0);
       else {
         expect(row?.paragraphIndex).toBeUndefined();
         expect(row?.reason).toContain("Final coverage was not reverified");
@@ -5132,9 +5133,15 @@ describe("seed Summary sign-off and recovery", () => {
       rows.find((candidate) => check.itemId
         ? candidate.planRef?.itemId === check.itemId
         : candidate.planRef?.skippedRoleId === check.skippedRoleId));
-    expect(rowsInRequestOrder.slice(0, 3).every((row) =>
-      row?.outcome === "not_applied" && row.paragraphIndex === undefined
-    )).toBe(true);
+    // An applied item needs a valid paragraph; an applied Skip is honoured
+    // by absence and needs none (2026-09-28, third).
+    const requestOrder = checks.slice(0, paragraphs.length);
+    expect(requestOrder.some((check) => check.skippedRoleId)).toBe(true);
+    requestOrder.slice(0, 3).forEach((check, index) => {
+      const row = rowsInRequestOrder[index];
+      expect(row?.paragraphIndex).toBeUndefined();
+      expect(row?.outcome).toBe(check.skippedRoleId ? "applied" : "not_applied");
+    });
     expect(rowsInRequestOrder[3]).toMatchObject({
       outcome: "applied",
       paragraphIndex: 0,

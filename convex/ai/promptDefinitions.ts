@@ -544,7 +544,8 @@ export const SUMMARY_PLAN_SELF_CHECK_SCHEMA = {
             type: "integer",
             minimum: 0,
             maximum: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
-            description: "1-based [P#]; 0 only when not applied.",
+            description:
+              "Item: the 1-based [P#] holding the evidence when applied, 0 when not applied. Skip: 0 when applied (the role is absent), the 1-based [P#] where the role appears when not applied.",
           },
           outcome: verdictOutcome,
           reason: {
