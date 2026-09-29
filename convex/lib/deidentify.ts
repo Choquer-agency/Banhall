@@ -89,7 +89,7 @@ export function deidentify(
     // `\b`: identifiers routinely start or end with punctuation ("C++ … Ltd.").
     out = out.replace(
       new RegExp(
-        `(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`,
+        `${NAME_EDGE_BEFORE}${escapeRegExp(name)}(?![\\p{L}\\p{N}])`,
         "giu"
       ),
       "[redacted]"
@@ -126,8 +126,10 @@ export function deidentify(
  *    names hidden everywhere, labels after a space or sentence.
  * 4: 2026-09-29 (second): a company's coined first word ("Quillmere" of
  *    "Quillmere Analytics Ltd.") is hidden too (`[CLIENT_1_FIRST]`).
+ * 5: 2026-09-29 (second, privacy): a backslash escape ("\n", "\t", "\r",
+ *    "\b", "\f", "\uXXXX") is a word edge before a name or a bare token.
  */
-export const PLACEHOLDER_ALGORITHM_VERSION = 4;
+export const PLACEHOLDER_ALGORITHM_VERSION = 5;
 
 export type PlaceholderEntry = {
   token: string;
@@ -318,7 +320,8 @@ function ordinaryWord(lower: string): boolean {
  * hyphen between letters ("Quill-Mere"); it needs a lower-case letter, so an
  * acronym ("ACME") is left to the CAPS form, and four letters or more. It is
  * never a word of a person on the map ("Morgan" of "Morgan Hale
- * Engineering" when Morgan Hale is a speaker), and never ordinary, whole or
+ * Engineering" when Morgan Hale is a speaker and the map hides "Morgan"
+ * everywhere as that person; re-check P3-1), and never ordinary, whole or
  * in every hyphen part.
  */
 function coinedFirstWord(name: string, personWords: ReadonlySet<string>): string | undefined {
@@ -336,7 +339,7 @@ function coinedFirstWord(name: string, personWords: ReadonlySet<string>): string
   const lower = first.toLowerCase();
   if (
     COMMON_FIRST_WORDS.has(first) ||
-    personWords.has(lower) ||
+    personWords.has(first) ||
     ordinaryWord(lower) ||
     lower.split("-").every(ordinaryWord)
   ) {
@@ -392,6 +395,18 @@ function labelOnly(name: string): boolean {
   return name.split(/\s+/).every((word) => COMMON_CASELESS_WORDS.has(word) || isCommonCaselessWord(word));
 }
 
+type PlaceholderMapInput = {
+  clientName?: string;
+  /** Other organizations to hide (none on the record today). */
+  companies?: readonly string[];
+  /** The consulting firm's own names and short forms (admin setting). */
+  firms?: readonly string[];
+  /** Interviewer, writer, interviewees, then speaker labels. */
+  people: readonly (string | undefined)[];
+  /** Weak labels that opened no turn: hidden only at label positions. */
+  phrases?: readonly string[];
+};
+
 /**
  * The placeholder map for one project (and, inside a generation, frozen on
  * the generation). Deterministic for the same inputs: the client first, then
@@ -408,17 +423,29 @@ function labelOnly(name: string): boolean {
  * token when it is the firm's own). `phrases`, weak labels that opened no
  * turn, are hidden only where they stand as labels.
  */
-export function buildPlaceholderMap(input: {
-  clientName?: string;
-  /** Other organizations to hide (none on the record today). */
-  companies?: readonly string[];
-  /** The consulting firm's own names and short forms (admin setting). */
-  firms?: readonly string[];
-  /** Interviewer, writer, interviewees, then speaker labels. */
-  people: readonly (string | undefined)[];
-  /** Weak labels that opened no turn: hidden only at label positions. */
-  phrases?: readonly string[];
-}): PlaceholderMap {
+export function buildPlaceholderMap(input: PlaceholderMapInput): PlaceholderMap {
+  // Re-check P3-1 (2026-09-29, second): a company's coined first word is
+  // left to a person only when the map hides that exact word everywhere as
+  // a person or part of one. A first pass without the coined first words
+  // finds those words; a loose label hidden only where it stands as a label
+  // ("Quillmere" as a weak label) or a word inside a longer label ("Dana
+  // Whitfield (Quillmere)") never blocks the company's token.
+  const maskedPersonWords = new Set(
+    buildPlaceholderEntries(input, null)
+      .filter((entry) => entry.token.startsWith("[PERSON_") && entry.at === undefined && !/\s/u.test(entry.value))
+      .map((entry) => entry.value)
+  );
+  return buildPlaceholderEntries(input, maskedPersonWords);
+}
+
+/**
+ * The map's entries. `personWords` null leaves out the coined first words
+ * (the first pass); otherwise it names the words people hide everywhere.
+ */
+function buildPlaceholderEntries(
+  input: PlaceholderMapInput,
+  personWords: ReadonlySet<string> | null
+): PlaceholderEntry[] {
   const entries: PlaceholderEntry[] = [];
   const taken = new Set<string>();
   const add = (token: string, value: string | undefined, minLength = 3, at?: "label") => {
@@ -459,15 +486,6 @@ export function buildPlaceholderMap(input: {
     }
   }
 
-  // Review P3-4: every word of every person and label on the map, so a
-  // company's first word that is also someone's name is never hidden as
-  // the company.
-  const personWords = new Set(
-    [...input.people, ...(input.phrases ?? [])]
-      .flatMap((raw) => cleanPersonName(raw)?.split(/[\s,]+/) ?? [])
-      .map((word) => word.replace(/[^\p{L}'-]/gu, "").toLowerCase())
-      .filter(Boolean)
-  );
   const companyForms = (prefix: "CLIENT" | "FIRM", company: string, n: number, minLength: number) => {
     add(`[${prefix}_${n}]`, company, minLength);
     const short = company.replace(LEGAL_SUFFIX, "").trim();
@@ -481,7 +499,7 @@ export function buildPlaceholderMap(input: {
     // as people say it ("a bit about Quillmere"). Left visible beside
     // [CLIENT_1] for "Quillmere Analytics Ltd.", it led the analysis to call
     // the company "Quillmere Client", and Line 242 copied it.
-    const first = coinedFirstWord(short || company, personWords);
+    const first = personWords ? coinedFirstWord(short || company, personWords) : undefined;
     if (first) add(`[${prefix}_${n}_FIRST]`, first, minLength);
   };
 
@@ -614,7 +632,28 @@ const TOKEN = /\[(?:CLIENT|PERSON|FIRM)_\d+(?:_[A-Z]+)?\]/g;
 
 const matcherCache = new WeakMap<PlaceholderMap, { find: RegExp; byValue: Map<string, string> }>();
 
-const WORD_EDGE_BEFORE = "(?<![\\p{L}\\p{N}])";
+/**
+ * 2026-09-29 (second, privacy): a backslash escape that ends right before a
+ * name. A JSON-encoded or escaped text writes a line break, tab, carriage
+ * return, backspace or form feed as a backslash and a letter ("\n", "\t",
+ * "\r", "\b", "\f") and other characters as "\u" and four hex digits, so a
+ * name right after one sits next to a letter or digit and used to fail the
+ * word-edge check and reach the provider unmasked ("\nQuillmere"). The
+ * backslash must not itself be escaped: "\\n" (a backslash, then the letter
+ * n) is no escape. "\"", "\\" and "\/" end in a character that is no letter
+ * and were edges already.
+ */
+export const ESCAPE_EDGE_BEFORE = String.raw`(?<=(?<!\\)(?:\\\\)*\\(?:[ntrbf]|u[0-9A-Fa-f]{4}))`;
+/** An escaped line break or tab, where a new line or a gap begins. */
+const ESCAPED_BREAK_BEFORE = String.raw`(?<=(?<!\\)(?:\\\\)*\\[ntr])`;
+/**
+ * A name's leading edge: not inside a word, or right after an escape. Every
+ * finder of names or tokens uses it: the mask, the bare-token restore and
+ * the collision scan here, `deidentify` and the research redaction.
+ */
+export const NAME_EDGE_BEFORE = String.raw`(?:(?<![\p{L}\p{N}])|${ESCAPE_EDGE_BEFORE})`;
+
+const WORD_EDGE_BEFORE = NAME_EDGE_BEFORE;
 const WORD_EDGE_AFTER = "(?![\\p{L}\\p{N}])";
 
 /**
@@ -626,10 +665,12 @@ const WORD_EDGE_AFTER = "(?![\\p{L}\\p{N}])";
  * running text without its colon.
  */
 const TIME = "\\[?\\d{1,2}:\\d{2}(?::\\d{2})?(?:[.,]\\d{1,3})?\\]?";
-const LABEL_COLON_BEFORE = "(?<=^|[\\s(\\[\\uFF08\\u3010.!?\\u3002\\uFF01\\uFF1F\\u2026:\\uFF1A])";
+const LABEL_COLON_BEFORE = `(?:(?<=^|[\\s(\\[\\uFF08\\u3010.!?\\u3002\\uFF01\\uFF1F\\u2026:\\uFF1A])|${ESCAPED_BREAK_BEFORE})`;
 const LABEL_COLON_AFTER = `(?=[ \\t]*(?:[(\\[\\uFF08\\u3010][^()\\[\\]\\uFF08\\uFF09\\u3010\\u3011\\n]{0,80}[)\\]\\uFF09\\u3011][ \\t]*)?(?:${TIME}[ \\t]*)?[:\\uFF1A])`;
-const LABEL_HEADER_BEFORE = "(?<=(?:^|\\n)[ \\t]*)";
-const LABEL_HEADER_AFTER = `(?=[ \\t]+(?:[-\\u2013\\u2014][ \\t]*)?${TIME}[ \\t]*(?:\\r?\\n|$))`;
+const LABEL_HEADER_BEFORE = String.raw`(?:(?<=(?:^|\n)[ \t]*)|(?<=(?<!\\)(?:\\\\)*\\n(?:[ \t]|\\t)*))`;
+// A header line ends at a line break, escaped or not, or at the end of the
+// text or of the quoted string that holds it.
+const LABEL_HEADER_AFTER = `(?=[ \\t]+(?:[-\\u2013\\u2014][ \\t]*)?${TIME}[ \\t]*(?:\\r?\\n|$|\\\\r\\\\n|\\\\n|"))`;
 const LABEL_VOICE_BEFORE = "(?<=<v(?:\\.[^\\s>]+)*[ \\t]+)";
 
 function patternFor(entry: PlaceholderEntry): string {
@@ -706,7 +747,10 @@ function tokenValue(token: string, byToken: ReadonlyMap<string, string>): string
  * `CLIENT_1_OTHER` never match as `CLIENT_1`. Case-sensitive, like the
  * bracketed form, so a code identifier such as `client_1` stays.
  */
-const BARE_TOKEN = /(?<![\p{L}\p{N}_])(?:CLIENT|PERSON|FIRM)_\d+(?:_[A-Z]+)?(?![\p{L}\p{N}_])/gu;
+const BARE_TOKEN = new RegExp(
+  String.raw`(?:(?<![\p{L}\p{N}_])|${ESCAPE_EDGE_BEFORE})(?:CLIENT|PERSON|FIRM)_\d+(?:_[A-Z]+)?(?![\p{L}\p{N}_])`,
+  "gu"
+);
 
 /**
  * A text with every bracketed placeholder removed: for a search query that

@@ -94,6 +94,7 @@ import {
   confirmedConflictsOf,
   conflictExclusionsPhrase,
   ideaWords,
+  quoteForPrompt,
   stepTitle,
   type ConfirmedConflict,
   type GlossarySetAside,
@@ -188,24 +189,25 @@ export function writerDecisionsBlock(args: {
   const kept = args.confirmed.length > 0
     ? `${scaffold.keptIntro}${args.confirmed
         .map((conflict) =>
-          `${scaffold.keptPrefix}${JSON.stringify(ideaWords(conflict.wording, 600))}${
+          `${scaffold.keptPrefix}${quoteForPrompt(ideaWords(conflict.wording, 600))}${
             conflict.exclusions.length > 0
               ? `${scaffold.keptExclusionPrefix}${conflictExclusionsPhrase(conflict.exclusions.map((entry) => entry.text))}${scaffold.keptExclusionSuffix}`
               : ""
           }`)
         .join("")}`
     : "";
-  // Review P3-3: the writer's words are delimited data, each a JSON string,
-  // so an instruction can never close the block or pose as a rule.
+  // Review P3-3: the writer's words are delimited data, each quoted on one
+  // line (quoteForPrompt), so an instruction can never close the block or
+  // pose as a rule, and a name after a line break is still masked.
   const feedback = args.feedback.length > 0
     ? `${scaffold.feedbackIntro}${scaffold.feedbackBegin}${args.feedback
         .map((entry) =>
-          `${scaffold.feedbackPrefix}${stepTitle(entry.roleId)}${scaffold.feedbackMiddle}${JSON.stringify(entry.instruction)}`)
+          `${scaffold.feedbackPrefix}${stepTitle(entry.roleId)}${scaffold.feedbackMiddle}${quoteForPrompt(entry.instruction)}`)
         .join("")}${scaffold.feedbackEnd}`
     : "";
   const glossary = args.glossarySetAside.length > 0
     ? `${scaffold.glossaryIntro}${args.glossarySetAside
-        .map((entry) => `${scaffold.glossaryPrefix}${JSON.stringify(entry.term)}`)
+        .map((entry) => `${scaffold.glossaryPrefix}${quoteForPrompt(entry.term)}`)
         .join("")}`
     : "";
   return `${scaffold.heading}${kept}${feedback}${glossary}`;
@@ -223,7 +225,7 @@ export function repairDroppedKeptIdeaReason(conflict: Pick<ConfirmedConflict, "w
 
 /** The repair fix for an idea the writer kept despite a Claim Exclusion that the draft does not cover. */
 export function keptIdeaRepairIssue(conflict: Pick<ConfirmedConflict, "wording" | "exclusions">): string {
-  return `Whole section: state the idea the writer kept despite ${conflictExclusionsPhrase(conflict.exclusions.map((entry) => entry.text))} as work the project did, as the plan gives it: ${JSON.stringify(ideaWords(conflict.wording, 600))}. A disclaimer or a "not claimed" mention does not cover it.`;
+  return `Whole section: state the idea the writer kept despite ${conflictExclusionsPhrase(conflict.exclusions.map((entry) => entry.text))} as work the project did, as the plan gives it: ${quoteForPrompt(ideaWords(conflict.wording, 600))}. A disclaimer or a "not claimed" mention does not cover it.`;
 }
 
 /** Compliance Note reasons for an idea the writer kept despite a Claim Exclusion. */
@@ -231,7 +233,12 @@ export function keptIdeaReason(
   state: "drafted" | "missing" | "over_limit" | "not_checked",
   words: string,
   exclusions: readonly string[] = [],
-  detail: { section?: SectionNumber; paragraphInText?: number } = {}
+  detail: {
+    section?: SectionNumber;
+    paragraphInText?: number;
+    /** A repair closer to the Locked limit, without its words, was kept. */
+    wordsWentForLimit?: boolean;
+  } = {}
 ): string {
   const named = conflictExclusionsPhrase(exclusions);
   if (state === "drafted") {
@@ -243,9 +250,11 @@ export function keptIdeaReason(
   if (state === "over_limit") {
     return `Not drafted: the writer kept the idea "${words}" at sign-off despite ${named}, but the draft that held it is further over the Line ${detail.section ?? ""} limit and the Locked Rules come first, so the text closer to the limit was kept without it. Shorten something else and add it before filing.`;
   }
-  const where = detail.paragraphInText === undefined
-    ? "are not in the text as written"
-    : `appear in paragraph ${detail.paragraphInText + 1} as written, which alone does not show it is stated as work the project did`;
+  const where = detail.wordsWentForLimit
+    ? `went from the text when a repair closer to the Line ${detail.section ?? ""} limit replaced a draft further over it, since the Locked Rules come first`
+    : detail.paragraphInText === undefined
+      ? "are not in the text as written"
+      : `appear in paragraph ${detail.paragraphInText + 1} as written, which alone does not show it is stated as work the project did`;
   return `Not checked: the Self-check gave no usable verdict for the idea the writer kept despite ${named} ("${words}"); its excluded words ${where}.`;
 }
 
@@ -446,12 +455,14 @@ export function planComplianceNoteDrafts(args: {
           : verdict;
       const checked = final !== undefined && final.actionableRepair !== false;
       const drafted = checked && final.outcome === "applied";
+      // Rule 4 (g): with no usable verdict the row is "Not checked", even
+      // when a repair within the limit was kept (re-check P3-4).
       const state = drafted
         ? "drafted" as const
-        : kept?.droppedForLimit
-          ? "over_limit" as const
-          : !checked
-            ? "not_checked" as const
+        : !checked
+          ? "not_checked" as const
+          : kept?.droppedForLimit
+            ? "over_limit" as const
             : "missing" as const;
       return [noteDraft({
         section: args.section,
@@ -467,6 +478,7 @@ export function planComplianceNoteDrafts(args: {
           {
             section: args.section,
             ...(kept?.paragraphIndex !== undefined ? { paragraphInText: kept.paragraphIndex } : {}),
+            ...(kept?.droppedForLimit ? { wordsWentForLimit: true } : {}),
           }
         ),
         repaired: false,
@@ -993,15 +1005,19 @@ export async function draftCheckedSection(input: {
     const coverage = finalCoverage;
     const dropped = confirmed.filter((conflict) => {
       const ref = { itemId: conflict.itemId as Id<"summaryItems"> };
+      const before = planVerdictFor(planVerdicts, ref);
+      const coveredBefore = before?.outcome === "applied" && before.actionableRepair !== false;
+      // The accepted rule: only an idea the first check found covered can
+      // make the repair not used (re-check P3-2). With no final verdict to
+      // read, its excluded words going from the text count as not covered.
+      if (!coveredBefore) return false;
       if (!coverage.ok) {
         return confirmedConflictParagraph(text, conflict) !== undefined &&
           confirmedConflictParagraph(finalText, conflict) === undefined;
       }
-      const before = planVerdictFor(planVerdicts, ref);
       const after = planVerdictFor(coverage.verdicts, ref);
-      const coveredBefore = before?.outcome === "applied" && before.actionableRepair !== false;
       const checkedAfter = after !== undefined && after.actionableRepair !== false;
-      return coveredBefore && checkedAfter && after.outcome !== "applied";
+      return checkedAfter && after.outcome !== "applied";
     });
     if (dropped.length > 0 && overLimitMore(text, finalText)) {
       for (const conflict of dropped) droppedForLimit.add(conflict.itemId);

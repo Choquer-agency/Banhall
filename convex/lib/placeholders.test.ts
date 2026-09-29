@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   avoidTokenCollisions,
+  deidentify,
   buildPlaceholderMap,
   containsPlaceholderToken,
   pseudonymize,
@@ -536,6 +537,19 @@ describe("a company's coined first word (release suite run 6)", () => {
     expect(founder.find((entry) => entry.token === "[CLIENT_1_FIRST]")).toBeUndefined();
     expect(pseudonymize("Morgan said Morgan Hale Engineering Ltd. grew.", founder))
       .toBe("[PERSON_1_FIRST] said [CLIENT_1] grew.");
+    // Re-check P3-1: only a word the map hides everywhere as a person blocks
+    // the company's token. A weak label hidden only as a label, or a word
+    // inside a longer label, never does, so "Quillmere" is still hidden.
+    for (const input of [
+      { clientName: "Quillmere Analytics Ltd.", people: ["Anders Kowalczyk"], phrases: ["Quillmere"] },
+      { clientName: "Quillmere Analytics Ltd.", people: ["Dana Whitfield (Quillmere)"] },
+    ]) {
+      const map = buildPlaceholderMap(input);
+      expect(map.find((entry) => entry.token === "[CLIENT_1_FIRST]")?.value, JSON.stringify(input)).toBe("Quillmere");
+      expect(pseudonymize("Could you start with a bit about Quillmere?", map))
+        .toBe("Could you start with a bit about [CLIENT_1_FIRST]?");
+      expect(restorePlaceholders(pseudonymize("About Quillmere.", map), map)).toBe("About Quillmere.");
+    }
     // Inner capitals and a hyphen between letters are still coined words.
     for (const [clientName, first] of [
       ["QuillMere Analytics Ltd.", "QuillMere"],
@@ -554,5 +568,62 @@ describe("a company's coined first word (release suite run 6)", () => {
       "Northwind wrote it.",
       buildPlaceholderMap({ firms: ["Northwind Advisory"], people: [] })
     )).toBe("[FIRM_1_FIRST] wrote it.");
+  });
+});
+
+// 2026-09-29 (second, privacy): a JSON-encoded or escaped text writes a line
+// break before a name as "\n", which used to glue the letter "n" to the name
+// so the word-edge check skipped it and the name reached the provider.
+describe("backslash escapes are word edges (placeholder algorithm 5)", () => {
+  const map = buildPlaceholderMap({
+    clientName: "Quillmere Analytics Ltd.",
+    people: ["Morgan Hale"],
+    phrases: ["Rosalind"],
+  });
+
+  it.each([
+    ["\\n"], ["\\t"], ["\\r"], ["\\b"], ["\\f"], ["\\u00a0"], ["\\\""], ["\\\\"], ["\\/"], ["\\r\\n"],
+  ])("hides a name right after %s and restores it exactly", (escape) => {
+    const text = `x${escape}Quillmere Analytics Ltd. agreed${escape}Morgan Hale ran it${escape}Hale too.`;
+    const hidden = pseudonymize(text, map);
+    expect(hidden).toBe(`x${escape}[CLIENT_1] agreed${escape}[PERSON_1] ran it${escape}[PERSON_1_LAST] too.`);
+    expect(restorePlaceholders(hidden, map)).toBe(text);
+  });
+
+  it("hides every name in a JSON-encoded text and restores the decoded text", () => {
+    const raw = "Use compliant spindle.\nQuillmere Analytics Ltd. agreed.\tMorgan Hale approved.\r\nQuillmere signed.";
+    const encoded = JSON.stringify({ bullets: [raw] });
+    const hidden = pseudonymize(encoded, map);
+    expect(hidden).not.toMatch(/Quillmere|Morgan|Hale/);
+    expect(restorePlaceholdersDeep(JSON.parse(hidden), map)).toEqual({ bullets: [raw] });
+  });
+
+  it("never treats an escaped backslash before a letter as an escape", () => {
+    // "\\n" is a backslash, then the letter n glued to the name: no edge.
+    expect(pseudonymize("a\\\\nQuillmere b", map)).toBe("a\\\\nQuillmere b");
+    // An odd run of backslashes ends in an escape again.
+    expect(pseudonymize("a\\\\\\nQuillmere b", map)).toBe("a\\\\\\n[CLIENT_1_FIRST] b");
+    // Inside a word the letters of an escape are still letters.
+    expect(pseudonymize("Xnote\\nfoo", map)).toBe("Xnote\\nfoo");
+  });
+
+  it("restores a bare token after an escape, and the collision scan sees it", () => {
+    expect(restorePlaceholders("a\\nCLIENT_1_FIRST b\\tPERSON_1", map)).toBe("a\\nQuillmere b\\tMorgan Hale");
+    expect(containsPlaceholderToken("a\\nPERSON_1 b", map)).toBe(true);
+    const safe = avoidTokenCollisions(map, ["log line\\nPERSON_1 was the rig"]);
+    expect(safe.find((entry) => entry.value === "Morgan Hale")?.token).toBe("[PERSON_2]");
+    expect(restorePlaceholders(pseudonymize("log line\\nPERSON_1 was Morgan Hale", safe), safe))
+      .toBe("log line\\nPERSON_1 was Morgan Hale");
+  });
+
+  it("finds a label after an escaped line break, as at the start of a line", () => {
+    expect(pseudonymize("{\"t\":\"Q: hi\\nRosalind: yes\\nRosalind 00:01\\n\"}", map))
+      .toBe("{\"t\":\"Q: hi\\n[PERSON_2]: yes\\n[PERSON_2] 00:01\\n\"}");
+    // Still never in running text.
+    expect(pseudonymize("ask\\nRosalind about it", map)).toBe("ask\\nRosalind about it");
+  });
+
+  it("redacts after an escape too, in deidentify", () => {
+    expect(deidentify("a\\nAcme Farms b\\tAcme", { clientName: "Acme Farms" })).toBe("a\\n[redacted] b\\tAcme");
   });
 });

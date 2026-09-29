@@ -46,7 +46,7 @@ import {
 } from "./lib/seedRevisions";
 import type { OrderedPayload } from "./lib/orderedChain";
 import { sectionMetrics } from "./lib/lineLimits";
-import type { GlossarySetAside, WriterFeedback } from "./lib/writerPrecedence";
+import { quoteForPrompt, type GlossarySetAside, type WriterFeedback } from "./lib/writerPrecedence";
 import { buildPlaceholderMap, type PlaceholderMap } from "./lib/deidentify";
 import { withPlaceholders } from "./ai/placeholderClient";
 
@@ -603,6 +603,77 @@ describe("an idea kept despite a Claim Exclusion is drafted and kept (real SDK, 
     expect(row.reason).toContain("appear in paragraph 2 as written, which alone does not show it is stated as work the project did");
   });
 
+  it("re-check P3-2: with no final verdict, a repair is kept when the first check found the kept idea not covered", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const repaired = WITHOUT_KEPT.replace("before running any experiment", "in July 2025 before running any experiment");
+      installFetch({
+        draft: WITH_DISCLAIMER,
+        repair: repaired,
+        checks: [
+          [missing(ITEM_PLAN, "P1 misses the July 2025 date.", "Say the definitions were fixed in July 2025."), missing(ITEM_KEPT, "Only a disclaimer.")],
+          "unreadable",
+        ],
+      });
+      const result = await draft("244", claim244());
+      // The disclaimer's words went, but the first check never found the
+      // idea covered, so the repair and its other fix are kept.
+      expect(result.draftText).toBe(repaired);
+      expect(planRow(result, ITEM_KEPT)).toMatchObject({ outcome: "not_applied", tier: "conflict" });
+      expect(planRow(result, ITEM_KEPT).reason.startsWith("Not checked: the Self-check gave no usable verdict")).toBe(true);
+      expect(result.notes.some((note) => note.instruction === "Final coverage Self-check")).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("re-check P3-2: with no final verdict, a repair is not used when the first check found the kept idea covered and its words went", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      installFetch({
+        draft: WITH_KEPT,
+        repair: WITHOUT_KEPT.replace("before running any experiment", "in July 2025 before running any experiment"),
+        checks: [
+          [missing(ITEM_PLAN, "P1 misses the July 2025 date.", "Say the definitions were fixed in July 2025."), covered(ITEM_KEPT, 2)],
+          "unreadable",
+        ],
+      });
+      const result = await draft("244", claim244());
+      expect(result.draftText).toBe(WITH_KEPT);
+      expect(planRow(result, ITEM_KEPT)).toMatchObject({ outcome: "applied", tier: "conflict", paragraphIndex: 1 });
+      expect(planRow(result, ITEM_PLAN).reason).toContain(
+        `repair not used (${repairDroppedKeptIdeaReason({ wording: KEPT_WORDING })})`
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("re-check P3-4: with no verdict, a repair kept for the limit still leaves the row Not checked, saying why its words went", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const support =
+        "The dryer logs describe how each controller behaved through the season and how the engineers compared every alert with the operator notes.";
+      const long = [
+        `${PLAN_P1} ${Array(12).fill(support).join(" ")}`,
+        `${BASELINE_P2} ${KEPT_SENTENCE} ${Array(12).fill(support).join(" ")}`,
+        `${RESIDUAL_P3} ${Array(12).fill(support).join(" ")}`,
+      ].join("\n\n");
+      expect(sectionMetrics(long, "s244").overLimit).toBe(true);
+      installFetch({ draft: long, repair: WITHOUT_KEPT, checks: ["unreadable"] });
+      const result = await draft("244", claim244());
+      expect(result.draftText).toBe(WITHOUT_KEPT);
+      const row = planRow(result, ITEM_KEPT);
+      expect(row).toMatchObject({ outcome: "not_applied", tier: "conflict", repaired: false });
+      expect(row.reason).toBe(
+        `Not checked: the Self-check gave no usable verdict for the idea the writer kept despite the Claim Exclusion "${BILLING}" ("${KEPT_WORDING.join(" ").slice(0, 119).trimEnd()}..."); its excluded words went from the text when a repair closer to the Line 244 limit replaced a draft further over it, since the Locked Rules come first.`
+      );
+      expect(row.reason).not.toContain("the draft that held it is further over");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("an unkept excluded claim is still repaired away", async () => {
     const withTraining = [PLAN_P1, `${BASELINE_P2} ${KEPT_SENTENCE}`, `${RESIDUAL_P3} ${TRAINING}`].join("\n\n");
     const sent = installFetch({
@@ -733,11 +804,45 @@ describe("the writer's Feedback outranks a Brief Glossary Term (real SDK, fetch 
     }
     const section = sent.find((request) => request.stage === "section")!;
     expect(section.user).toContain(
-      `- On Company / Context: ${JSON.stringify(forged.replace("Tessrow Robotics Corp.", "[CLIENT_1]"))}`
+      `- On Company / Context: ${quoteForPrompt(forged.replace("Tessrow Robotics Corp.", "[CLIENT_1]"))}`
     );
     // The Self-check reads the drafted Line masked too.
     const check = sent.find((request) => request.stage === "submit_self_check")!;
     expect(check.user).toContain("[CLIENT_1_FIRST] builds robotic finishing cells");
+  });
+
+  it("re-check P2: a name after a line break, a tab or a CRLF in the Feedback is masked in every request that carries it", async () => {
+    const withBreaks = "Use compliant spindle.\nQuillmere Analytics Ltd. agreed.\tMorgan Hale approved.\r\nQuillmere signed it.";
+    const sent = installFetch({
+      draft: SPINDLE_DRAFT,
+      repair: SPINDLE_DRAFT.replace("instead of one fixed force", "in place of one fixed force"),
+      checks: [
+        [missing(ITEM_CONTEXT, "P2 misses the robotic cells.", "Name the robotic finishing cells in paragraph 2.")],
+        [covered(ITEM_CONTEXT, 2)],
+      ],
+    });
+    await draft(
+      "242",
+      claimFor({
+        planChecks: PLAN_242,
+        brief: BRIEF_242,
+        writerFeedback: [{ roleId: "company_context", instruction: withBreaks }],
+        glossarySetAside: SET_ASIDE,
+      }),
+      buildPlaceholderMap({ clientName: "Quillmere Analytics Ltd.", people: ["Morgan Hale"] })
+    );
+    const stages = sent.map((request) => request.stage);
+    expect(stages).toEqual(["section", "submit_self_check", "repair", "submit_self_check"]);
+    const expected =
+      '- On Company / Context: "Use compliant spindle. [CLIENT_1] agreed. [PERSON_1] approved. [CLIENT_1_FIRST] signed it."';
+    for (const request of sent) {
+      expect(request.user, request.stage).not.toMatch(/Quillmere|Morgan|Hale/);
+      expect(request.system, request.stage).not.toMatch(/Quillmere|Morgan|Hale/);
+      expect(request.user, request.stage).toContain(expected);
+    }
+    // The final coverage check is among them.
+    expect(sent[3]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+    expect(quoteForPrompt("a\\b \"c\"\u0007d")).toBe('"a\\\\b \\"c\\"d"');
   });
 
   it("lead decision P2-2: a signed-off edit that uses a term the Feedback forbids wins in its Line", async () => {

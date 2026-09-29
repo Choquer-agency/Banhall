@@ -36,6 +36,25 @@ export type ConfirmedConflict = {
   exclusions: ClaimExclusionLike[];
 };
 
+/**
+ * Writer or plan text quoted on one line for a prompt (2026-09-29 second,
+ * re-check P2). Names are masked at the provider boundary, on the request
+ * as sent, and a name counts only at a word edge. JSON escaping turned a
+ * line break before a name into the letters "\n" glued to it, so the name
+ * went out unmasked. Here every run of white space (line breaks and tabs
+ * included) reads as one space and other control characters are dropped,
+ * so the quoted text keeps the word edges of the raw text; a double quote
+ * or a backslash is escaped with a backslash, which is no letter, so the
+ * text cannot end its quotation or put a block marker on a line of its own.
+ */
+export function quoteForPrompt(text: string): string {
+  const flat = text
+    .replace(/[\u0000-\u0008\u000E-\u001F\u007F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `"${flat.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 /** The words an idea is named by in a Compliance Note or a prompt. */
 export function ideaWords(wording: readonly string[], maxChars = 160): string {
   const words = wording.join(" ").replace(/\s+/g, " ").trim();
@@ -238,7 +257,7 @@ export function confirmedConflictParagraph(
  * "a Claim Exclusion" when none is known.
  */
 export function conflictExclusionsPhrase(exclusions: readonly string[]): string {
-  const quoted = exclusions.map((text) => JSON.stringify(text));
+  const quoted = exclusions.map(quoteForPrompt);
   if (quoted.length === 0) return "a Claim Exclusion";
   if (quoted.length === 1) return `the Claim Exclusion ${quoted[0]}`;
   return `the Claim Exclusions ${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`;
