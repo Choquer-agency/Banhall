@@ -333,7 +333,7 @@ describe("an idea kept despite a Claim Exclusion is drafted and kept (real SDK, 
 
   it("the drafting request names the kept idea and its Claim Exclusion after the plan and the Brief, before the Locked length", async () => {
     expect(keptBlock).toBe(
-      "\n\n# WRITER'S DECISIONS (outrank the Brief)\nThe writer made these decisions while planning. The Locked Rules and the signed-off plan outrank them, and they outrank the Brief, including its Claim Exclusions and Glossary Terms." +
+      "\n\n# WRITER'S DECISIONS (outrank the Brief)\nThe writer made these decisions while planning. The Locked Rules outrank them, and they outrank the Brief, including its Claim Exclusions and Glossary Terms." +
         "\n\nIdeas kept despite a Claim Exclusion. At sign-off the writer confirmed each idea below although it matches a Claim Exclusion in the Brief. Write each one in this Line as the plan gives it; do not drop, soften or disclaim it. That Claim Exclusion does not apply to the idea's own content. Every other Claim Exclusion still applies." +
         `\n- "${KEPT_WORDING.join(" ")}" (matches the Claim Exclusion "${BILLING}")`
     );
@@ -575,8 +575,8 @@ describe("the writer's Feedback outranks a Brief Glossary Term (real SDK, fetch 
 
     const block = writerDecisionsBlock({ confirmed: [], feedback: FEEDBACK, glossarySetAside: SET_ASIDE });
     expect(block).toBe(
-      "\n\n# WRITER'S DECISIONS (outrank the Brief)\nThe writer made these decisions while planning. The Locked Rules and the signed-off plan outrank them, and they outrank the Brief, including its Claim Exclusions and Glossary Terms." +
-        "\n\nThe writer's Feedback. Each instruction was given on the step named and applies to that step and every later step, as it did while the ideas were written. Follow each one wherever it applies in this Line, even where the Brief says otherwise." +
+      "\n\n# WRITER'S DECISIONS (outrank the Brief)\nThe writer made these decisions while planning. The Locked Rules outrank them, and they outrank the Brief, including its Claim Exclusions and Glossary Terms." +
+        "\n\nThe writer's Feedback. Each instruction was given on the step named and applies to that step and every later step, as it did while the ideas were written. Follow each one wherever it applies in this Line, even where the Brief or a plan item's wording says otherwise, and still cover every COVER item of the plan." +
         `\n- On Company / Context: "${SPINDLE}"` +
         "\n\nGlossary Terms set aside in this Line. The writer's own wording governs these terms here: never use one to replace the writer's wording, and never add one where the writer's wording or Feedback avoids it." +
         "\n- \"floating head\""

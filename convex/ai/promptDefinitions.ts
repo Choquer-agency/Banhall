@@ -412,7 +412,7 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
   // has at least one; each part only when it has entries.
   writerDecisions: {
     heading:
-      "\n\n# WRITER'S DECISIONS (outrank the Brief)\nThe writer made these decisions while planning. The Locked Rules and the signed-off plan outrank them, and they outrank the Brief, including its Claim Exclusions and Glossary Terms.",
+      "\n\n# WRITER'S DECISIONS (outrank the Brief)\nThe writer made these decisions while planning. The Locked Rules outrank them, and they outrank the Brief, including its Claim Exclusions and Glossary Terms.",
     keptIntro:
       "\n\nIdeas kept despite a Claim Exclusion. At sign-off the writer confirmed each idea below although it matches a Claim Exclusion in the Brief. Write each one in this Line as the plan gives it; do not drop, soften or disclaim it. That Claim Exclusion does not apply to the idea's own content. Every other Claim Exclusion still applies.",
     keptPrefix: "\n- \"",
@@ -420,7 +420,7 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     keptExclusionSuffix: "\")",
     keptSuffix: "\"",
     feedbackIntro:
-      "\n\nThe writer's Feedback. Each instruction was given on the step named and applies to that step and every later step, as it did while the ideas were written. Follow each one wherever it applies in this Line, even where the Brief says otherwise.",
+      "\n\nThe writer's Feedback. Each instruction was given on the step named and applies to that step and every later step, as it did while the ideas were written. Follow each one wherever it applies in this Line, even where the Brief or a plan item's wording says otherwise, and still cover every COVER item of the plan.",
     feedbackPrefix: "\n- On ",
     feedbackMiddle: ": \"",
     feedbackSuffix: "\"",
@@ -787,7 +787,7 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     lineSuffix: "\"",
     separator: "\n",
     instruction:
-      "\n\nThe WRITER'S FEEDBACK block lists instructions the writer gave while planning, each on the step named and every later step. They outrank the Brief: wording that follows one is correct even where the Storyline, a Glossary Term or the sources name the same thing another way, so never report it or ask for it to be changed. Check everything else in the section as usual.",
+      "\n\nThe WRITER'S FEEDBACK block lists instructions the writer gave while planning, each on the step named and every later step. They outrank the Brief: wording that follows one is correct even where the Storyline, a Glossary Term, a plan item or the sources name the same thing another way, so never report it or ask for it to be changed. Check everything else in the section as usual.",
   },
   finalCoverage: {
     instruction:
