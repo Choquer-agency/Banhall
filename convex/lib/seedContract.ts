@@ -782,8 +782,22 @@ export type SeedAnswerCounts = {
   seedsReturned: number;
   seedsValid: number;
   minimum: number;
-  issues: Array<{ code: SeedValidationIssueCode; reason?: SeedLinkIssueReason; seeds: number }>;
+  issues: Array<{ code: SeedValidationIssueCode | "WRONG_TOOL"; reason?: SeedLinkIssueReason; seeds: number }>;
 };
+
+/**
+ * PR #22 review (G13): an answer from a Seed tool other than the one the
+ * request asked for, as counts. None of its Seeds is kept, whatever they
+ * hold, so every Seed it returned counts against `WRONG_TOOL`.
+ */
+export function wrongToolAnswerCounts(returned: number, mode: SeedBatchMode): SeedAnswerCounts {
+  return {
+    seedsReturned: returned,
+    seedsValid: 0,
+    minimum: mode === "batch" ? MIN_BATCH_SEEDS : MIN_FEEDBACK_SEEDS,
+    issues: [{ code: "WRONG_TOOL", seeds: returned }],
+  };
+}
 
 export function seedAnswerCounts(result: BatchValidationResult, returned: number): SeedAnswerCounts {
   const counts = new Map<string, { code: SeedValidationIssueCode; reason?: SeedLinkIssueReason; seeds: Set<number> }>();

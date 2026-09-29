@@ -164,6 +164,15 @@ export async function generateStructured<T>(
      * `schema` is sent, as before.
      */
     tools?: ReadonlyArray<{ name: string; description: string; input_schema: Anthropic.Tool.InputSchema }>;
+    /**
+     * PR #22 review (G13): with `tools`, an answer from any tool but
+     * `toolName` is invalid, on every gateway and attempt. A model that
+     * cannot be forced to call a tool (tool_choice becomes auto) can pick
+     * another offered tool. Such an answer is never accepted: it spends the
+     * repair, whose issue names the tool to call, and fails the call when no
+     * attempt is left. Told the tool the model called, then the answer.
+     */
+    onWrongTool?: (calledTool: string, answer: unknown) => void;
   }
 ): Promise<T> {
   // The answer a soft repair set aside, returned if the repair fails.
@@ -304,12 +313,41 @@ async function structuredAttempts<T>(
       );
     }
 
-    const block = res.content.find((item) => item.type === "tool_use");
+    // With several tools offered, the answer is the call of the intended
+    // one, wherever it stands among the blocks.
+    const block =
+      (opts.tools && res.content.find((item) => item.type === "tool_use" && item.name === opts.toolName)) ||
+      res.content.find((item) => item.type === "tool_use");
     if (!block || block.type !== "tool_use") {
       await settle({ ok: false, code: "no_tool_output" });
       validationSummary = "the required tool was not called";
       if (!lastAttempt) continue;
       throw new Error(`${opts.toolName}: model did not return structured output`);
+    }
+    if (opts.tools && block.name !== opts.toolName) {
+      await settle({ ok: false, code: "wrong_tool" });
+      // Only offered names are repeated: a name the model made up is not.
+      const called = tools.some((tool) => tool.name === block.name)
+        ? block.name
+        : "a tool this request does not offer";
+      validationSummary = `it called ${called}, but this request must be answered with ${opts.toolName}`;
+      try {
+        opts.onWrongTool?.(block.name, block.input);
+      } catch (error) {
+        console.warn(`${opts.toolName}: wrong tool not reported (${error instanceof Error ? error.name : "error"})`);
+      }
+      try {
+        invalidAnswerText = opts.invalidAnswerRepair?.(block.input) ?? null;
+      } catch (error) {
+        invalidAnswerText = null;
+        console.warn(`${opts.toolName}: repair text skipped (${error instanceof Error ? error.name : "error"})`);
+      }
+      console.error(`${opts.toolName}: the model answered with another tool (${called})`);
+      if (!lastAttempt) continue;
+      throw new StructuredValidationError(
+        `${opts.toolName}: model returned an unexpected shape: ${validationSummary}`,
+        [{ path: "(root)", code: "wrong_tool", message: validationSummary }]
+      );
     }
     if (!opts.validate) {
       await settle({ ok: true });
