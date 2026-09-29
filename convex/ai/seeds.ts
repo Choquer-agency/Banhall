@@ -49,6 +49,7 @@ import {
   linkedSeedSchemas,
   offeredAdvancementLinks,
   seedAnswerCounts,
+  wrongToolAnswerCounts,
   seedToolSchema,
   validateBatch,
   withCheckedSpeakers,
@@ -426,6 +427,13 @@ function seedRuleSummary(
  * input sent as a string, so parse this one field when it holds an array;
  * anything else is left for the schema to reject.
  */
+/** How many Seeds an answer holds, as the validator reads them. */
+function seedsIn(answer: unknown): number {
+  const seeds =
+    answer && typeof answer === "object" && "seeds" in answer ? parseStringifiedSeeds(answer.seeds) : undefined;
+  return Array.isArray(seeds) ? seeds.length : 0;
+}
+
 function parseStringifiedSeeds(value: unknown): unknown {
   if (typeof value !== "string" || !value.trim().startsWith("[")) return value;
   try {
@@ -678,6 +686,14 @@ export const generateBatch = internalAction({
         ...(toolKind !== "shared"
           ? { invalidAnswerRepair: (answer: unknown) => seedLinkRepairText(answer, request.promptBytes) }
           : {}),
+        // PR #22 review (G13): an answer from another of the three tools is
+        // refused and repaired (a model that cannot be forced may pick
+        // one), and counted. It is not a link failure, so the writer is not
+        // told the links were wrong.
+        onWrongTool: (_calledTool: string, answer: unknown) => {
+          lastRejection = undefined;
+          rejectedAnswers.push(wrongToolAnswerCounts(seedsIn(answer), mode));
+        },
         maxTokens: SEED_PROMPT_PROGRAM.request.maxTokens,
         model: claim.batch.model,
         attempts: 2,

@@ -124,7 +124,44 @@ function requestText(value: unknown): string {
     .join("");
 }
 
-function providerResponse(input: unknown, request: number): Response {
+/**
+ * PR #22 review (G13): the tool the last request asked for, forced or (for
+ * a model that cannot be forced) named in its system line. The stubbed
+ * model answers with it unless a test names another (stubSeedFetch).
+ */
+let askedTool: string = SEED_PROMPT_PROGRAM.request.toolName;
+
+async function toolAskedBy(input: RequestInfo | URL, init?: RequestInit): Promise<string> {
+  const request = SEED_PROMPT_PROGRAM.request;
+  try {
+    const body = (await new Request(input, init).json()) as {
+      tool_choice?: { type?: string; name?: string };
+      system?: unknown;
+    };
+    if (body.tool_choice?.type === "tool" && body.tool_choice.name) return body.tool_choice.name;
+    const system = JSON.stringify(body.system ?? "");
+    return (
+      [request.linkedTools.advancement.name, request.linkedTools.experiment.name, request.toolName].find((name) =>
+        system.includes(`calling the ${name} tool`)
+      ) ?? request.toolName
+    );
+  } catch {
+    return request.toolName;
+  }
+}
+
+/** Stubs the provider transport; every request first records the tool it asks for. */
+function stubSeedFetch(transport: typeof fetch): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async (input, init) => {
+      askedTool = await toolAskedBy(input, init);
+      return await transport(input, init);
+    })
+  );
+}
+
+function providerResponse(input: unknown, request: number, toolName: string = askedTool): Response {
   return Response.json(
     {
       id: `msg_seed_${request}`,
@@ -135,7 +172,7 @@ function providerResponse(input: unknown, request: number): Response {
         {
           type: "tool_use",
           id: `tool_seed_${request}`,
-          name: SEED_PROMPT_PROGRAM.request.toolName,
+          name: toolName,
           input,
         },
       ],
@@ -264,6 +301,8 @@ async function dispatchedAttempt(
   args: {
     targetRoleId: PdSubsectionRoleId;
     decisions: PriorDecision[];
+    /** The generation's model (PR #22 review G13: one that cannot be forced). */
+    model?: string;
   }
 ) {
   const fixture = await t.run(async (ctx) => {
@@ -287,7 +326,7 @@ async function dispatchedAttempt(
       gatedWorkflow: "seeds",
       seedStageVersion: 0,
       seedRequestsReserved: 0,
-      singleModelId: model,
+      singleModelId: args.model ?? model,
       lengthTarget: "standard",
       promptVersion: "seed-action-review",
       startedAt: now,
@@ -485,8 +524,7 @@ describe("seed Node action request boundary", () => {
     const t = convexTest(schema, modules);
     const fixture = await seedAttempt(t);
     const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return providerResponse({ seeds: validSeeds }, 1);
@@ -568,8 +606,7 @@ describe("seed Node action request boundary", () => {
         : seed
     );
     const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return providerResponse({ seeds: citedSeeds }, 1);
@@ -619,8 +656,7 @@ describe("seed Node action request boundary", () => {
     });
     expect(liveRevision).not.toBe(fixture.dispatchedRevision);
     const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return providerResponse({ seeds: validSeeds }, requests.length);
@@ -687,7 +723,7 @@ describe("seed Node action request boundary", () => {
     const transport = vi.fn<typeof fetch>(async () =>
       providerResponse({ seeds: linkedSeeds }, 1)
     );
-    vi.stubGlobal("fetch", transport);
+    stubSeedFetch(transport);
 
     await t.action(generateBatchRef, { batchId: fixture.batchId });
 
@@ -740,7 +776,7 @@ describe("seed Node action request boundary", () => {
     const transport = vi.fn<typeof fetch>(async () =>
       providerResponse({ seeds: invalidSeeds }, 1)
     );
-    vi.stubGlobal("fetch", transport);
+    stubSeedFetch(transport);
 
     await t.action(generateBatchRef, { batchId: fixture.batchId });
 
@@ -838,7 +874,7 @@ describe("seed Node action request boundary", () => {
     const transport = vi.fn<typeof fetch>(async () =>
       providerResponse({ seeds: validSeeds }, 1)
     );
-    vi.stubGlobal("fetch", transport);
+    stubSeedFetch(transport);
 
     await t.action(generateBatchRef, { batchId: fixture.batchId });
 
@@ -920,8 +956,7 @@ describe("seed Node action request boundary", () => {
     });
     const ids = fixture.decisions.map((decision) => decision.seedId);
     const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return requests.length === 1
@@ -967,8 +1002,7 @@ describe("seed Node action request boundary", () => {
       decisions: withdrawnFeedbackDecisions,
     });
     const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return providerResponse({ seeds: validSeeds }, requests.length);
@@ -996,7 +1030,7 @@ describe("seed Node action request boundary", () => {
     });
     const ids = fixture.decisions.map((decision) => decision.seedId);
     const transport = vi.fn<typeof fetch>(async () => providerResponse(withdrawnFeedbackAnswer(ids), 1));
-    vi.stubGlobal("fetch", transport);
+    stubSeedFetch(transport);
     const writer = t.withIdentity({ subject: "seed-dispatch-specific_advancements" });
     const pane = () =>
       writer.query(api.seeds.getSubsection, { generationId: fixture.generationId, roleId: "specific_advancements" });
@@ -1093,8 +1127,7 @@ describe("seed Node action request boundary", () => {
       ...(uncertaintySeedId ? { uncertaintySeedId } : {}),
     });
     const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return requests.length === 1
@@ -1143,7 +1176,7 @@ describe("seed Node action request boundary", () => {
       targetRoleId: "experimentation",
       decisions: [{ roleId: "active_uncertainties", bullets: [startUp] }],
     });
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => providerResponse({ seeds: validSeeds }, 1)));
+    stubSeedFetch(vi.fn<typeof fetch>(async () => providerResponse({ seeds: validSeeds }, 1)));
     const pane = () =>
       t
         .withIdentity({ subject: "seed-dispatch-experimentation" })
@@ -1181,8 +1214,7 @@ describe("seed Node action request boundary", () => {
     });
     const [u2, u3, t3, t4, t5] = fixture.decisions.map((decision) => decision.seedId);
     const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return requests.length === 1
@@ -1259,8 +1291,7 @@ describe("seed Node action request boundary", () => {
       ],
     };
     const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return providerResponse(relinked, 1);
@@ -1304,8 +1335,7 @@ describe("seed Node action request boundary", () => {
     });
     const [u1, revised, t1] = fixture.decisions.map((decision) => decision.seedId);
     const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return providerResponse({
@@ -1429,7 +1459,7 @@ describe("seed Node action request boundary", () => {
       const t = convexTest(schema, modules);
       const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: [...decisions] });
       const ids = fixture.decisions.map((decision) => decision.seedId);
-      vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => providerResponse(answer(ids), 1)));
+      stubSeedFetch(vi.fn<typeof fetch>(async () => providerResponse(answer(ids), 1)));
       await t.action(generateBatchRef, { batchId: fixture.batchId });
       const batch = await t.run((ctx) => ctx.db.get(fixture.batchId));
       expect(batch).toMatchObject({ status: "failed", error: "INVALID_OUTPUT", errorDetail: "advancement_links", requestsMade: 2 });
@@ -1454,7 +1484,7 @@ describe("seed Node action request boundary", () => {
       const ids = fixture.decisions.map((decision) => decision.seedId);
       const [images, force, vision, camera] = ids;
       const requests: Request[] = [];
-      vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+      stubSeedFetch(vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return providerResponse(run7DeburringFollowed(ids), 1);
       }));
@@ -1485,7 +1515,7 @@ describe("seed Node action request boundary", () => {
       const ids = fixture.decisions.map((decision) => decision.seedId);
       const [acclimation, nitrite, fraction, standard, trialOne, trialTwo] = ids;
       const transport = vi.fn<typeof fetch>(async () => providerResponse(run7BiofilterFollowed(ids), 1));
-      vi.stubGlobal("fetch", transport);
+      stubSeedFetch(transport);
       await t.action(generateBatchRef, { batchId: fixture.batchId });
       expect(transport).toHaveBeenCalledTimes(1);
       expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 1, seedsDropped: 0 });
@@ -1536,7 +1566,7 @@ describe("seed Node action request boundary", () => {
       const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: [...run7.decisions] });
       const ids = fixture.decisions.map((decision) => decision.seedId);
       const requests: Request[] = [];
-      vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+      stubSeedFetch(vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return requests.length === 1 ? providerResponse(run7.first(ids), 1) : providerResponse(run7.then(ids), 2);
       }));
@@ -1567,20 +1597,21 @@ describe("seed Node action request boundary", () => {
         advancement("Structured light 3D gave no better depth resolution than 2D and took 400 milliseconds.", "detailed", { uncertaintySeedId: images, experimentSeedIds: [camera!] }),
       ],
     };
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
-      requests.push(new Request(input, init));
-      return providerResponse(answer, requests.length);
-    }));
-    await t.action(generateBatchRef, { batchId: fixture.batchId });
-    const shown = await t.run((ctx) =>
-      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
-    );
-    // The writer asks for one advancement to be revised.
-    const target = shown[1]!;
-    // As giveFeedback records it: the request, and the step's context
-    // revision recomputed with its own active feedback.
-    const requestId = await t.run(async (ctx) => {
-      const id = await ctx.db.insert("seedFeedbackRequests", {
+    stubSeedFetch(
+      vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse(answer, requests.length);
+      }));
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      const shown = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+      );
+      // The writer asks for one advancement to be revised.
+      const target = shown[1]!;
+      // As giveFeedback records it: the request, and the step's context
+      // revision recomputed with its own active feedback.
+      const requestId = await t.run(async (ctx) => {
+        const id = await ctx.db.insert("seedFeedbackRequests", {
         projectId: fixture.projectId,
         generationId: fixture.generationId,
         roleId: "specific_advancements",
@@ -1589,122 +1620,122 @@ describe("seed Node action request boundary", () => {
         instruction: "Say how much the glare inflated the estimates.",
         status: "active",
         commandId: "run7-feedback",
-      });
-      const loaded = await loadSeedDispatchSnapshot(ctx, {
+        });
+        const loaded = await loadSeedDispatchSnapshot(ctx, {
         generationId: fixture.generationId,
         roleId: "specific_advancements",
         feedbackRequestId: id,
+        });
+        await ctx.db.patch(fixture.subsectionId, { currentContextRevision: loaded.contextRevision });
+        return id;
       });
-      await ctx.db.patch(fixture.subsectionId, { currentContextRevision: loaded.contextRevision });
-      return id;
-    });
-    answer = {
-      seeds: [
+      answer = {
+        seeds: [
         advancement("Glare on machined faces made 2D burr heights read up to twice their true size.", "technical", { uncertaintySeedId: images, experimentSeedIds: [vision!] }),
+        ],
+      };
+      const dispatched = await t.mutation(dispatchRef, {
+        generationId: fixture.generationId,
+        roleId: "specific_advancements",
+        operation: "feedback",
+        commandId: "run7-feedback-dispatch",
+        feedbackRequestId: requestId,
+        actorUserId: fixture.userId,
+      });
+      if (dispatched.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${dispatched.kind}`);
+      await t.action(generateBatchRef, { batchId: dispatched.batchId });
+
+      expect(requests).toHaveLength(2);
+      // The feedback request sends the same tools and forces the advancement one (run 2).
+      const batchBody = await requests[0]!.clone().json();
+      const feedbackBody = await requests[1]!.clone().json();
+      expect(JSON.stringify(feedbackBody.tools)).toBe(JSON.stringify(batchBody.tools));
+      expect(feedbackBody.tool_choice).toEqual({ type: "tool", name: "submit_advancement_seed_batch" });
+      const feedbackText = requestText((await requests[1]!.json()).messages[0].content);
+      // The mode says one to three; the link rules scope three to five to a fresh Batch.
+      expect(feedbackText).toContain("Revise the frozen target wording in response to the frozen feedback instruction: 1 to 3 Seeds.");
+      expect(feedbackText).not.toContain("Generate a fresh Batch for this role");
+      expect(feedbackText).toContain("In a fresh Batch, write 3 to 5 advancements");
+      expect(feedbackText).toContain("A feedback revision keeps to its one to three Seeds, each on one listed pair.");
+      expect(linkBlock(feedbackText, "FROZEN ADVANCEMENT LINKS")).toMatchObject({
+        links: [{ experimentSeedIds: [vision, camera], uncertaintySeedId: images }],
+      });
+      const revised = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", dispatched.batchId)).collect()
+      );
+      expect(revised.map((seed) => [seed.revisionOfSeedId, seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual([
+        [target._id, images, [vision]],
+      ]);
+      expect(await t.run((ctx) => ctx.db.get(dispatched.batchId))).toMatchObject({ status: "shown", requestsMade: 1 });
+    });
+
+    // Targeted run 2 (2026-09-29, feat ab6a89f6): Subsection 11 answers came
+    // back with no links at all ("missing_link x4"), in a regenerate, a retry
+    // and the repair of an answer whose only fault was bullet form. Every Seed
+    // request now sends the same three tools; a request with a link block
+    // forces the linked one, whose schema requires the links.
+    const toolsOf = async (request: Request) => JSON.stringify((await request.clone().json()).tools);
+    const forcedTool = async (request: Request) => (await request.clone().json()).tool_choice as { type: string; name: string };
+    const noLinks = (ids: Id<"seeds">[]) => ({
+      seeds: run7DeburringAnswer(ids).seeds.map(({ uncertaintySeedId: _u, experimentSeedIds: _e, ...rest }) => rest),
+    });
+    const onePairAnswer = (images: Id<"seeds">, vision: Id<"seeds">, camera: Id<"seeds">) => ({
+      seeds: [
+        advancement("Single-angle 2D vision cannot resolve burr height below 0.18 millimetres on cast aluminium.", "conservative", { uncertaintySeedId: images, experimentSeedIds: [vision] }),
+        advancement("Glare on machined faces makes 2D burr height estimates read high.", "technical", { uncertaintySeedId: images, experimentSeedIds: [vision] }),
+        advancement("Structured light 3D gave no better depth resolution than 2D and took 400 milliseconds.", "detailed", { uncertaintySeedId: images, experimentSeedIds: [camera] }),
       ],
-    };
-    const dispatched = await t.mutation(dispatchRef, {
-      generationId: fixture.generationId,
-      roleId: "specific_advancements",
-      operation: "feedback",
-      commandId: "run7-feedback-dispatch",
-      feedbackRequestId: requestId,
-      actorUserId: fixture.userId,
     });
-    if (dispatched.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${dispatched.kind}`);
-    await t.action(generateBatchRef, { batchId: dispatched.batchId });
 
-    expect(requests).toHaveLength(2);
-    // The feedback request sends the same tools and forces the advancement one (run 2).
-    const batchBody = await requests[0]!.clone().json();
-    const feedbackBody = await requests[1]!.clone().json();
-    expect(JSON.stringify(feedbackBody.tools)).toBe(JSON.stringify(batchBody.tools));
-    expect(feedbackBody.tool_choice).toEqual({ type: "tool", name: "submit_advancement_seed_batch" });
-    const feedbackText = requestText((await requests[1]!.json()).messages[0].content);
-    // The mode says one to three; the link rules scope three to five to a fresh Batch.
-    expect(feedbackText).toContain("Revise the frozen target wording in response to the frozen feedback instruction: 1 to 3 Seeds.");
-    expect(feedbackText).not.toContain("Generate a fresh Batch for this role");
-    expect(feedbackText).toContain("In a fresh Batch, write 3 to 5 advancements");
-    expect(feedbackText).toContain("A feedback revision keeps to its one to three Seeds, each on one listed pair.");
-    expect(linkBlock(feedbackText, "FROZEN ADVANCEMENT LINKS")).toMatchObject({
-      links: [{ experimentSeedIds: [vision, camera], uncertaintySeedId: images }],
-    });
-    const revised = await t.run((ctx) =>
-      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", dispatched.batchId)).collect()
-    );
-    expect(revised.map((seed) => [seed.revisionOfSeedId, seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual([
-      [target._id, images, [vision]],
-    ]);
-    expect(await t.run((ctx) => ctx.db.get(dispatched.batchId))).toMatchObject({ status: "shown", requestsMade: 1 });
-  });
+    it("sends byte-identical tools in every Seed request type and role, and forces the linked tool when a link block is sent (run 2)", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
+      const ids = fixture.decisions.map((decision) => decision.seedId);
+      const [images, , vision, camera] = ids;
+      const requests: Request[] = [];
+      const answers: unknown[] = [noLinks(ids), onePairAnswer(images!, vision!, camera!)];
+      stubSeedFetch(vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse(answers.shift() ?? noLinks(ids), requests.length);
+      }));
 
-  // Targeted run 2 (2026-09-29, feat ab6a89f6): Subsection 11 answers came
-  // back with no links at all ("missing_link x4"), in a regenerate, a retry
-  // and the repair of an answer whose only fault was bullet form. Every Seed
-  // request now sends the same three tools; a request with a link block
-  // forces the linked one, whose schema requires the links.
-  const toolsOf = async (request: Request) => JSON.stringify((await request.clone().json()).tools);
-  const forcedTool = async (request: Request) => (await request.clone().json()).tool_choice as { type: string; name: string };
-  const noLinks = (ids: Id<"seeds">[]) => ({
-    seeds: run7DeburringAnswer(ids).seeds.map(({ uncertaintySeedId: _u, experimentSeedIds: _e, ...rest }) => rest),
-  });
-  const onePairAnswer = (images: Id<"seeds">, vision: Id<"seeds">, camera: Id<"seeds">) => ({
-    seeds: [
-      advancement("Single-angle 2D vision cannot resolve burr height below 0.18 millimetres on cast aluminium.", "conservative", { uncertaintySeedId: images, experimentSeedIds: [vision] }),
-      advancement("Glare on machined faces makes 2D burr height estimates read high.", "technical", { uncertaintySeedId: images, experimentSeedIds: [vision] }),
-      advancement("Structured light 3D gave no better depth resolution than 2D and took 400 milliseconds.", "detailed", { uncertaintySeedId: images, experimentSeedIds: [camera] }),
-    ],
-  });
+      // Open: the answer with no links, then its repair.
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(requests).toHaveLength(2);
+      const repair = requestText((await requests[1]!.clone().json()).messages[0].content);
+      expect(repair).toContain("use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 1, 2, 3, 4)");
+      expect(repair).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.opening);
+      const earlier = linkBlock(repair, SEED_PROMPT_PROGRAM.request.linkRepair.earlierAnswerLabel) as { seeds: Array<{ bullets: string[] }> };
+      expect(earlier.seeds.map((seed) => seed.bullets[0])).toEqual(noLinks(ids).seeds.map((seed) => seed.bullets[0]));
+      expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
 
-  it("sends byte-identical tools in every Seed request type and role, and forces the linked tool when a link block is sent (run 2)", async () => {
-    const t = convexTest(schema, modules);
-    const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
-    const ids = fixture.decisions.map((decision) => decision.seedId);
-    const [images, , vision, camera] = ids;
-    const requests: Request[] = [];
-    const answers: unknown[] = [noLinks(ids), onePairAnswer(images!, vision!, camera!)];
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
-      requests.push(new Request(input, init));
-      return providerResponse(answers.shift() ?? noLinks(ids), requests.length);
-    }));
+      // Regenerate, whose answers keep omitting links, then Retry.
+      const regenerate = await t.mutation(dispatchRef, {
+        generationId: fixture.generationId,
+        roleId: "specific_advancements",
+        operation: "regenerate",
+        commandId: "run2-regenerate",
+        actorUserId: fixture.userId,
+      });
+      if (regenerate.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${regenerate.kind}`);
+      await t.action(generateBatchRef, { batchId: regenerate.batchId });
+      expect(await t.run((ctx) => ctx.db.get(regenerate.batchId))).toMatchObject({ status: "failed", errorDetail: "advancement_links" });
+      answers.push(onePairAnswer(images!, vision!, camera!));
+      const retry = await t.mutation(dispatchRef, {
+        generationId: fixture.generationId,
+        roleId: "specific_advancements",
+        operation: "retry",
+        commandId: "run2-retry",
+        actorUserId: fixture.userId,
+      });
+      if (retry.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${retry.kind}`);
+      await t.action(generateBatchRef, { batchId: retry.batchId });
+      expect(requests).toHaveLength(5);
+      expect(await t.run((ctx) => ctx.db.get(retry.batchId))).toMatchObject({ status: "shown", requestsMade: 1 });
 
-    // Open: the answer with no links, then its repair.
-    await t.action(generateBatchRef, { batchId: fixture.batchId });
-    expect(requests).toHaveLength(2);
-    const repair = requestText((await requests[1]!.clone().json()).messages[0].content);
-    expect(repair).toContain("use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 1, 2, 3, 4)");
-    expect(repair).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.opening);
-    const earlier = linkBlock(repair, SEED_PROMPT_PROGRAM.request.linkRepair.earlierAnswerLabel) as { seeds: Array<{ bullets: string[] }> };
-    expect(earlier.seeds.map((seed) => seed.bullets[0])).toEqual(noLinks(ids).seeds.map((seed) => seed.bullets[0]));
-    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
-
-    // Regenerate, whose answers keep omitting links, then Retry.
-    const regenerate = await t.mutation(dispatchRef, {
-      generationId: fixture.generationId,
-      roleId: "specific_advancements",
-      operation: "regenerate",
-      commandId: "run2-regenerate",
-      actorUserId: fixture.userId,
-    });
-    if (regenerate.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${regenerate.kind}`);
-    await t.action(generateBatchRef, { batchId: regenerate.batchId });
-    expect(await t.run((ctx) => ctx.db.get(regenerate.batchId))).toMatchObject({ status: "failed", errorDetail: "advancement_links" });
-    answers.push(onePairAnswer(images!, vision!, camera!));
-    const retry = await t.mutation(dispatchRef, {
-      generationId: fixture.generationId,
-      roleId: "specific_advancements",
-      operation: "retry",
-      commandId: "run2-retry",
-      actorUserId: fixture.userId,
-    });
-    if (retry.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${retry.kind}`);
-    await t.action(generateBatchRef, { batchId: retry.batchId });
-    expect(requests).toHaveLength(5);
-    expect(await t.run((ctx) => ctx.db.get(retry.batchId))).toMatchObject({ status: "shown", requestsMade: 1 });
-
-    // Another role of the same generation, with no link block.
-    const other = await t.run(async (ctx) => {
-      const subsectionId = await ctx.db.insert("seedSubsections", {
+      // Another role of the same generation, with no link block.
+      const other = await t.run(async (ctx) => {
+        const subsectionId = await ctx.db.insert("seedSubsections", {
         projectId: fixture.projectId,
         generationId: fixture.generationId,
         roleId: "project_status",
@@ -1714,272 +1745,384 @@ describe("seed Node action request boundary", () => {
         selectionRevision: await emptySelectionRevision(),
         priorState: "untouched",
         consecutiveFailures: 0,
+        });
+        const loaded = await loadSeedDispatchSnapshot(ctx, { generationId: fixture.generationId, roleId: "project_status" });
+        await ctx.db.patch(subsectionId, { currentContextRevision: loaded.contextRevision });
       });
-      const loaded = await loadSeedDispatchSnapshot(ctx, { generationId: fixture.generationId, roleId: "project_status" });
-      await ctx.db.patch(subsectionId, { currentContextRevision: loaded.contextRevision });
-    });
-    void other;
-    answers.push({ seeds: validSeeds });
-    const status = await t.mutation(dispatchRef, {
-      generationId: fixture.generationId,
-      roleId: "project_status",
-      operation: "open",
-      commandId: "run2-other-role",
-      actorUserId: fixture.userId,
-    });
-    if (status.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${status.kind}`);
-    await t.action(generateBatchRef, { batchId: status.batchId });
-    expect(requests).toHaveLength(6);
+      void other;
+      answers.push({ seeds: validSeeds });
+      const status = await t.mutation(dispatchRef, {
+        generationId: fixture.generationId,
+        roleId: "project_status",
+        operation: "open",
+        commandId: "run2-other-role",
+        actorUserId: fixture.userId,
+      });
+      if (status.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${status.kind}`);
+      await t.action(generateBatchRef, { batchId: status.batchId });
+      expect(requests).toHaveLength(6);
 
-    // The tools bytes are the same in all six: batch, repair, regenerate and
-    // its repair, retry, and another role.
-    const tools = await Promise.all(requests.map(toolsOf));
-    expect(new Set(tools).size).toBe(1);
-    const toolList = JSON.parse(tools[0]!) as Array<{ name: string; input_schema: { properties: { seeds: { items: { required: string[] } } } } }>;
-    expect(toolList.map((tool) => tool.name)).toEqual(["submit_seed_batch", "submit_experiment_seed_batch", "submit_advancement_seed_batch"]);
-    expect(toolList[2]!.input_schema.properties.seeds.items.required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId", "experimentSeedIds"]);
-    // Every Subsection 11 request forces the advancement tool; the other role the shared one.
-    const forced = await Promise.all(requests.map(forcedTool));
-    expect(forced.slice(0, 5).every((choice) => choice.name === "submit_advancement_seed_batch")).toBe(true);
-    expect(forced[5]).toEqual({ type: "tool", name: "submit_seed_batch" });
-  });
+      // The tools bytes are the same in all six: batch, repair, regenerate and
+      // its repair, retry, and another role.
+      const tools = await Promise.all(requests.map(toolsOf));
+      expect(new Set(tools).size).toBe(1);
+      const toolList = JSON.parse(tools[0]!) as Array<{ name: string; input_schema: { properties: { seeds: { items: { required: string[] } } } } }>;
+      expect(toolList.map((tool) => tool.name)).toEqual(["submit_seed_batch", "submit_experiment_seed_batch", "submit_advancement_seed_batch"]);
+      expect(toolList[2]!.input_schema.properties.seeds.items.required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId", "experimentSeedIds"]);
+      // Every Subsection 11 request forces the advancement tool; the other role the shared one.
+      const forced = await Promise.all(requests.map(forcedTool));
+      expect(forced.slice(0, 5).every((choice) => choice.name === "submit_advancement_seed_batch")).toBe(true);
+      expect(forced[5]).toEqual({ type: "tool", name: "submit_seed_batch" });
+    });
 
-  it("sends a form-only failure to the repair, which shows the earlier answer and keeps its links (run 2)", async () => {
-    const t = convexTest(schema, modules);
-    const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
-    const [images, , vision, camera] = fixture.decisions.map((decision) => decision.seedId);
-    // Four valid one-bullet advancements: the run 2 prefetch's first answer.
-    const four = {
-      seeds: [
+    it("sends a form-only failure to the repair, which shows the earlier answer and keeps its links (run 2)", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
+      const [images, , vision, camera] = fixture.decisions.map((decision) => decision.seedId);
+      // Four valid one-bullet advancements: the run 2 prefetch's first answer.
+      const four = {
+        seeds: [
         ...onePairAnswer(images!, vision!, camera!).seeds,
         advancement("Reflections from machined faces were the main source of 2D error.", "aggressive", { uncertaintySeedId: images, experimentSeedIds: [vision!] }),
-      ],
-    };
-    const repaired = {
-      seeds: four.seeds.map((seed, index) =>
+        ],
+      };
+      const repaired = {
+        seeds: four.seeds.map((seed, index) =>
         index === 0 ? { ...seed, bullets: [...seed.bullets, "Error grew on the shiniest machined faces."] } : seed
-      ),
-    };
-    const requests: Request[] = [];
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
-      requests.push(new Request(input, init));
-      return providerResponse(requests.length === 1 ? four : repaired, requests.length);
-    }));
-    await t.action(generateBatchRef, { batchId: fixture.batchId });
-    expect(requests).toHaveLength(2);
-    const repair = requestText((await requests[1]!.json()).messages[0].content);
-    expect(repair).toContain("(root): 4 of 4 Seeds valid; mix one-bullet and two-bullet Seeds.");
-    expect(repair).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.opening);
-    const earlier = linkBlock(repair, SEED_PROMPT_PROGRAM.request.linkRepair.earlierAnswerLabel) as { seeds: Array<{ uncertaintySeedId: string; experimentSeedIds: string[] }> };
-    expect(earlier.seeds.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual(
-      four.seeds.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])
-    );
-    const persisted = await t.run((ctx) =>
-      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
-    );
-    expect(persisted.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual(
-      four.seeds.map((seed) => [images, seed.experimentSeedIds])
-    );
-    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
-  });
+        ),
+      };
+      const requests: Request[] = [];
+      stubSeedFetch(vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse(requests.length === 1 ? four : repaired, requests.length);
+      }));
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(requests).toHaveLength(2);
+      const repair = requestText((await requests[1]!.json()).messages[0].content);
+      expect(repair).toContain("(root): 4 of 4 Seeds valid; mix one-bullet and two-bullet Seeds.");
+      expect(repair).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.opening);
+      const earlier = linkBlock(repair, SEED_PROMPT_PROGRAM.request.linkRepair.earlierAnswerLabel) as { seeds: Array<{ uncertaintySeedId: string; experimentSeedIds: string[] }> };
+      expect(earlier.seeds.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual(
+        four.seeds.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])
+      );
+      const persisted = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+      );
+      expect(persisted.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual(
+        four.seeds.map((seed) => [images, seed.experimentSeedIds])
+      );
+      expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
+    });
 
-  it("repairs a linked answer for another rule with its earlier links shown and kept (run 2)", async () => {
-    const t = convexTest(schema, modules);
-    const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
-    const [images, , vision, camera] = fixture.decisions.map((decision) => decision.seedId);
-    // Three linked advancements sharing one tag: a tag fault, not a link one.
-    const oneTag = {
-      seeds: onePairAnswer(images!, vision!, camera!).seeds.map((seed) => ({ ...seed, tags: ["technical" as const] })),
-    };
-    const requests: Request[] = [];
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
-      requests.push(new Request(input, init));
-      return providerResponse(requests.length === 1 ? oneTag : onePairAnswer(images!, vision!, camera!), requests.length);
-    }));
-    await t.action(generateBatchRef, { batchId: fixture.batchId });
-    expect(requests).toHaveLength(2);
-    const repair = requestText((await requests[1]!.json()).messages[0].content);
-    expect(repair).toContain("(root): 3 of 3 Seeds valid; use at least two different tags.");
-    expect(repair).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.opening);
-    const earlier = linkBlock(repair, SEED_PROMPT_PROGRAM.request.linkRepair.earlierAnswerLabel) as { seeds: Array<{ uncertaintySeedId: string; experimentSeedIds: string[] }> };
-    expect(earlier.seeds.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual([
-      [images, [vision]],
-      [images, [vision]],
-      [images, [camera]],
-    ]);
-    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
-  });
+    it("repairs a linked answer for another rule with its earlier links shown and kept (run 2)", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
+      const [images, , vision, camera] = fixture.decisions.map((decision) => decision.seedId);
+      // Three linked advancements sharing one tag: a tag fault, not a link one.
+      const oneTag = {
+        seeds: onePairAnswer(images!, vision!, camera!).seeds.map((seed) => ({ ...seed, tags: ["technical" as const] })),
+      };
+      const requests: Request[] = [];
+      stubSeedFetch(vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse(requests.length === 1 ? oneTag : onePairAnswer(images!, vision!, camera!), requests.length);
+      }));
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(requests).toHaveLength(2);
+      const repair = requestText((await requests[1]!.json()).messages[0].content);
+      expect(repair).toContain("(root): 3 of 3 Seeds valid; use at least two different tags.");
+      expect(repair).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.opening);
+      const earlier = linkBlock(repair, SEED_PROMPT_PROGRAM.request.linkRepair.earlierAnswerLabel) as { seeds: Array<{ uncertaintySeedId: string; experimentSeedIds: string[] }> };
+      expect(earlier.seeds.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual([
+        [images, [vision]],
+        [images, [vision]],
+        [images, [camera]],
+      ]);
+      expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
+    });
 
-  it("forces the experiment tool for an experimentation request with a link block, with the same tools bytes", async () => {
-    const t = convexTest(schema, modules);
-    const fixture = await dispatchedAttempt(t, {
-      targetRoleId: "experimentation",
-      decisions: [
+    it("forces the experiment tool for an experimentation request with a link block, with the same tools bytes", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, {
+        targetRoleId: "experimentation",
+        decisions: [
         { roleId: "active_uncertainties", bullets: [startUp] },
         { roleId: "active_uncertainties", bullets: [dosing] },
-      ],
+        ],
+      });
+      const [u1] = fixture.decisions.map((decision) => decision.seedId);
+      const requests: Request[] = [];
+      stubSeedFetch(vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse({ seeds: validSeeds.map((seed) => ({ ...seed, uncertaintySeedId: u1 })) }, 1);
+      }));
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(await forcedTool(requests[0]!)).toEqual({ type: "tool", name: "submit_experiment_seed_batch" });
+      const toolList = JSON.parse(await toolsOf(requests[0]!)) as Array<{ name: string; input_schema: { properties: { seeds: { items: { required: string[]; properties: Record<string, unknown> } } } } }>;
+      const experimentTool = toolList.find((tool) => tool.name === "submit_experiment_seed_batch")!;
+      expect(experimentTool.input_schema.properties.seeds.items.required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId"]);
+      expect(experimentTool.input_schema.properties.seeds.items.properties).not.toHaveProperty("experimentSeedIds");
+      // A step with no link block, in another generation, sends the same tools
+      // bytes and forces the shared tool.
+      const other = await dispatchedAttempt(t, { targetRoleId: "project_status", decisions: run7Deburring });
+      await t.action(generateBatchRef, { batchId: other.batchId });
+      expect(await toolsOf(requests.at(-1)!)).toBe(await toolsOf(requests[0]!));
+      expect(await forcedTool(requests.at(-1)!)).toEqual({ type: "tool", name: "submit_seed_batch" });
     });
-    const [u1] = fixture.decisions.map((decision) => decision.seedId);
-    const requests: Request[] = [];
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
-      requests.push(new Request(input, init));
-      return providerResponse({ seeds: validSeeds.map((seed) => ({ ...seed, uncertaintySeedId: u1 })) }, 1);
-    }));
-    await t.action(generateBatchRef, { batchId: fixture.batchId });
-    expect(await forcedTool(requests[0]!)).toEqual({ type: "tool", name: "submit_experiment_seed_batch" });
-    const toolList = JSON.parse(await toolsOf(requests[0]!)) as Array<{ name: string; input_schema: { properties: { seeds: { items: { required: string[]; properties: Record<string, unknown> } } } } }>;
-    const experimentTool = toolList.find((tool) => tool.name === "submit_experiment_seed_batch")!;
-    expect(experimentTool.input_schema.properties.seeds.items.required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId"]);
-    expect(experimentTool.input_schema.properties.seeds.items.properties).not.toHaveProperty("experimentSeedIds");
-    // A step with no link block, in another generation, sends the same tools
-    // bytes and forces the shared tool.
-    const other = await dispatchedAttempt(t, { targetRoleId: "project_status", decisions: run7Deburring });
-    await t.action(generateBatchRef, { batchId: other.batchId });
-    expect(await toolsOf(requests.at(-1)!)).toBe(await toolsOf(requests[0]!));
-    expect(await forcedTool(requests.at(-1)!)).toEqual({ type: "tool", name: "submit_seed_batch" });
+
+    describe("an answer from the wrong Seed tool (PR #22 review G13)", () => {
+    const tools = SEED_PROMPT_PROGRAM.request;
+    const wrongToolIssue = `Your previous tool output was invalid: it called ${tools.toolName}, but this request must be answered with ${tools.linkedTools.advancement.name}. Return the complete tool object and include every required field.`;
+
+    async function answeredWith(opts: { model?: string; first: string; second: string }) {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, {
+        targetRoleId: "specific_advancements",
+        decisions: run7Deburring,
+        ...(opts.model ? { model: opts.model } : {}),
+      });
+      const [images, , vision, camera] = fixture.decisions.map((decision) => decision.seedId);
+      // A valid linked answer: only the tool that carries it differs.
+      const answer = onePairAnswer(images!, vision!, camera!);
+      const requests: Request[] = [];
+      stubSeedFetch(
+        vi.fn<typeof fetch>(async (input, init) => {
+          requests.push(new Request(input, init));
+          return providerResponse(answer, requests.length, requests.length === 1 ? opts.first : opts.second);
+        })
+      );
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      const bodies = await Promise.all(requests.map((request) => request.clone().json()));
+      const batch = await t.run((ctx) => ctx.db.get(fixture.batchId));
+      const persisted = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+      );
+      return { bodies, batch, persisted, answer, links: { images: images!, vision: vision!, camera: camera! } };
+    }
+
+    it("refuses the shared tool's answer on the auto path (Opus 5.5), repairs it naming the right tool, and stores the right tool's answer", async () => {
+      const run = await answeredWith({
+        model: "claude-opus-5-5",
+        first: tools.toolName,
+        second: tools.linkedTools.advancement.name,
+      });
+      expect(run.bodies).toHaveLength(2);
+      for (const body of run.bodies) {
+        // The model cannot be forced: auto, with the tool named in the system line.
+        expect(body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
+        expect(JSON.stringify(body.system)).toContain(`Reply only by calling the ${tools.linkedTools.advancement.name} tool, exactly once.`);
+        expect(body.tools.map((tool: { name: string }) => tool.name)).toEqual([
+          tools.toolName,
+          tools.linkedTools.experiment.name,
+          tools.linkedTools.advancement.name,
+        ]);
+      }
+      const repair = requestText(run.bodies[1].messages[0].content);
+      expect(repair).toContain(wrongToolIssue);
+      // The earlier answer is shown so its links are kept.
+      expect(repair).toContain(`--- BEGIN [${tools.linkRepair.earlierAnswerLabel}] ---`);
+      expect(run.batch).toMatchObject({ status: "shown", requestsMade: 2 });
+      expect(run.persisted).toHaveLength(run.answer.seeds.length);
+      for (const seed of run.persisted) {
+        expect(seed.uncertaintySeedId).toBe(run.links.images);
+        expect(seed.experimentSeedIds?.length).toBeGreaterThan(0);
+      }
+    });
+
+    it("fails a Batch whose answers both come from the wrong tool, counting them as WRONG_TOOL, never as a link fault", async () => {
+      const run = await answeredWith({ model: "claude-opus-5-5", first: tools.toolName, second: tools.toolName });
+      expect(run.bodies).toHaveLength(2);
+      expect(run.persisted).toHaveLength(0);
+      expect(run.batch).toMatchObject({ status: "failed", error: "INVALID_OUTPUT" });
+      expect(run.batch).not.toHaveProperty("errorDetail");
+      const counts = {
+        seedsReturned: run.answer.seeds.length,
+        seedsValid: 0,
+        minimum: 3,
+        issues: [{ code: "WRONG_TOOL", seeds: run.answer.seeds.length }],
+      };
+      expect(run.batch?.invalidAnswers).toEqual([counts, counts]);
+    });
+
+    it("checks the tool on the forced path too: a forced request answered by another tool is repaired", async () => {
+      const run = await answeredWith({ first: tools.toolName, second: tools.linkedTools.advancement.name });
+      expect(run.bodies).toHaveLength(2);
+      for (const body of run.bodies) {
+        expect(body.tool_choice).toEqual({ type: "tool", name: tools.linkedTools.advancement.name });
+        expect(JSON.stringify(body.system)).not.toContain("Reply only by calling");
+      }
+      expect(requestText(run.bodies[1].messages[0].content)).toContain(wrongToolIssue);
+      expect(run.batch).toMatchObject({ status: "shown", requestsMade: 2 });
+      expect(run.persisted.every((seed) => seed.uncertaintySeedId === run.links.images)).toBe(true);
+    });
+
+    it("refuses a linked tool's answer to a request that forces the shared tool", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, { targetRoleId: "project_status", decisions: run7Deburring });
+      const requests: Request[] = [];
+      stubSeedFetch(
+        vi.fn<typeof fetch>(async (input, init) => {
+          requests.push(new Request(input, init));
+          return providerResponse(
+            { seeds: validSeeds },
+            requests.length,
+            requests.length === 1 ? tools.linkedTools.advancement.name : undefined
+          );
+        })
+      );
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(requests).toHaveLength(2);
+      const bodies = await Promise.all(requests.map((request) => request.clone().json()));
+      expect(bodies[0].tool_choice).toEqual({ type: "tool", name: tools.toolName });
+      const repair = requestText(bodies[1].messages[0].content);
+      expect(repair).toContain(
+        `Your previous tool output was invalid: it called ${tools.linkedTools.advancement.name}, but this request must be answered with ${tools.toolName}.`
+      );
+      // A request without a link block shows no earlier answer.
+      expect(repair).not.toContain(`[${tools.linkRepair.earlierAnswerLabel}]`);
+      expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
+    });
   });
 
   it("leaves the earlier answer out of a link repair when the prompt has no room for it (run 2 re-check)", () => {
-    const answer = { seeds: [{ bullets: ["An advancement."], tags: ["technical"], provenance: [] }] };
-    const shown = seedLinkRepairText(answer, 10_000);
-    expect(shown).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.opening);
-    expect(shown).toContain(`--- BEGIN [${SEED_PROMPT_PROGRAM.request.linkRepair.earlierAnswerLabel}] ---\n${JSON.stringify(answer)}\n`);
-    // Room left after the reserved note and pairs: exactly the text's bytes fit, one more does not.
-    const bytes = new TextEncoder().encode(shown!).byteLength;
-    const reserved =
-      new TextEncoder().encode(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix).byteLength +
-      new TextEncoder().encode(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix).byteLength +
-      SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes +
-      SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes;
-    const fullPrompt = MAX_SEED_PROMPT_UTF8_BYTES - reserved - bytes;
-    expect(seedLinkRepairText(answer, fullPrompt)).toBe(shown);
-    expect(seedLinkRepairText(answer, fullPrompt + 1)).toBeNull();
-  });
+      const answer = { seeds: [{ bullets: ["An advancement."], tags: ["technical"], provenance: [] }] };
+      const shown = seedLinkRepairText(answer, 10_000);
+      expect(shown).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.opening);
+      expect(shown).toContain(`--- BEGIN [${SEED_PROMPT_PROGRAM.request.linkRepair.earlierAnswerLabel}] ---\n${JSON.stringify(answer)}\n`);
+      // Room left after the reserved note and pairs: exactly the text's bytes fit, one more does not.
+      const bytes = new TextEncoder().encode(shown!).byteLength;
+      const reserved =
+        new TextEncoder().encode(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix).byteLength +
+        new TextEncoder().encode(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix).byteLength +
+        SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes +
+        SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes;
+      const fullPrompt = MAX_SEED_PROMPT_UTF8_BYTES - reserved - bytes;
+      expect(seedLinkRepairText(answer, fullPrompt)).toBe(shown);
+      expect(seedLinkRepairText(answer, fullPrompt + 1)).toBeNull();
+    });
 
-  it("masks names in the earlier answer a link repair shows, and restores them in the stored Seeds (run 2 re-check)", async () => {
-    resetGenerationPlaceholderCache();
-    const t = convexTest(schema, modules);
-    const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
-    await t.run((ctx) =>
-      ctx.db.patch(fixture.generationId, { placeholders: [{ token: "[PERSON_1]", value: "Anders Kowalczyk" }] })
-    );
-    const [images, , vision, camera] = fixture.decisions.map((decision) => decision.seedId);
-    // The model writes the placeholder; the app restores the name.
-    const named = (seeds: ReturnType<typeof onePairAnswer>["seeds"]) =>
-      seeds.map((seed, index) => (index === 0 ? { ...seed, bullets: ["[PERSON_1] showed single-angle 2D vision cannot resolve burr height below 0.18 millimetres."] } : seed));
-    const first = { seeds: named(onePairAnswer(images!, vision!, camera!).seeds).map(({ uncertaintySeedId: _u, experimentSeedIds: _e, ...rest }) => rest) };
-    const second = { seeds: named(onePairAnswer(images!, vision!, camera!).seeds) };
-    const requests: Request[] = [];
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
-      requests.push(new Request(input, init));
-      return providerResponse(requests.length === 1 ? first : second, requests.length);
-    }));
-    await t.action(generateBatchRef, { batchId: fixture.batchId });
-    expect(requests).toHaveLength(2);
-    const repair = requestText((await requests[1]!.json()).messages[0].content);
-    const earlier = linkBlock(repair, SEED_PROMPT_PROGRAM.request.linkRepair.earlierAnswerLabel) as { seeds: Array<{ bullets: string[] }> };
-    // Out: the earlier answer the model sees holds the placeholder, never the name.
-    expect(earlier.seeds[0]!.bullets[0]).toBe("[PERSON_1] showed single-angle 2D vision cannot resolve burr height below 0.18 millimetres.");
-    expect(repair).not.toContain("Anders Kowalczyk");
-    // Back: the stored Seed holds the name.
-    const persisted = await t.run((ctx) =>
-      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
-    );
-    expect(persisted[0]!.bullets[0]).toBe("Anders Kowalczyk showed single-angle 2D vision cannot resolve burr height below 0.18 millimetres.");
-    resetGenerationPlaceholderCache();
-  });
+    it("masks names in the earlier answer a link repair shows, and restores them in the stored Seeds (run 2 re-check)", async () => {
+      resetGenerationPlaceholderCache();
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
+      await t.run((ctx) =>
+        ctx.db.patch(fixture.generationId, { placeholders: [{ token: "[PERSON_1]", value: "Anders Kowalczyk" }] })
+      );
+      const [images, , vision, camera] = fixture.decisions.map((decision) => decision.seedId);
+      // The model writes the placeholder; the app restores the name.
+      const named = (seeds: ReturnType<typeof onePairAnswer>["seeds"]) =>
+        seeds.map((seed, index) => (index === 0 ? { ...seed, bullets: ["[PERSON_1] showed single-angle 2D vision cannot resolve burr height below 0.18 millimetres."] } : seed));
+      const first = { seeds: named(onePairAnswer(images!, vision!, camera!).seeds).map(({ uncertaintySeedId: _u, experimentSeedIds: _e, ...rest }) => rest) };
+      const second = { seeds: named(onePairAnswer(images!, vision!, camera!).seeds) };
+      const requests: Request[] = [];
+      stubSeedFetch(vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse(requests.length === 1 ? first : second, requests.length);
+      }));
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(requests).toHaveLength(2);
+      const repair = requestText((await requests[1]!.json()).messages[0].content);
+      const earlier = linkBlock(repair, SEED_PROMPT_PROGRAM.request.linkRepair.earlierAnswerLabel) as { seeds: Array<{ bullets: string[] }> };
+      // Out: the earlier answer the model sees holds the placeholder, never the name.
+      expect(earlier.seeds[0]!.bullets[0]).toBe("[PERSON_1] showed single-angle 2D vision cannot resolve burr height below 0.18 millimetres.");
+      expect(repair).not.toContain("Anders Kowalczyk");
+      // Back: the stored Seed holds the name.
+      const persisted = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+      );
+      expect(persisted[0]!.bullets[0]).toBe("Anders Kowalczyk showed single-angle 2D vision cannot resolve burr height below 0.18 millimetres.");
+      resetGenerationPlaceholderCache();
+    });
 
-  it("still refuses an answer with too few linked advancements, names the exact pairs and records why (run 7)", async () => {
-    const t = convexTest(schema, modules);
-    const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
-    const ids = fixture.decisions.map((decision) => decision.seedId);
-    const [images, , vision, camera] = ids;
-    // Only force advancements and one vision advancement: one valid of four.
-    const forceHeavy = { seeds: [run7DeburringAnswer(ids).seeds[0]!, ...run7DeburringAnswer(ids).seeds.slice(2), advancement("Force control needs a compliant spindle.", "technical", {})] };
-    const requests: Request[] = [];
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
-      requests.push(new Request(input, init));
-      return providerResponse(forceHeavy, requests.length);
-    }));
-    await t.action(generateBatchRef, { batchId: fixture.batchId });
-    expect(requests).toHaveLength(2);
-    const second = requestText((await requests[1]!.json()).messages[0].content);
-    expect(second).toContain(
-      `(root): 1 of 4 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 2, 3, 4); use at least two different tags; the only pairs, one per Seed and each usable by several Seeds, and no advancement for any other uncertainty: ${images} with ${vision}, ${camera}.`
-    );
-    const batch = await t.run((ctx) => ctx.db.get(fixture.batchId));
-    expect(batch).toMatchObject({ status: "failed", error: "INVALID_OUTPUT", errorDetail: "advancement_links" });
-    expect(batch?.invalidAnswers?.[0]).toEqual({
-      seedsReturned: 4,
-      seedsValid: 1,
-      minimum: 3,
-      issues: expect.arrayContaining([
+    it("still refuses an answer with too few linked advancements, names the exact pairs and records why (run 7)", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
+      const ids = fixture.decisions.map((decision) => decision.seedId);
+      const [images, , vision, camera] = ids;
+      // Only force advancements and one vision advancement: one valid of four.
+      const forceHeavy = { seeds: [run7DeburringAnswer(ids).seeds[0]!, ...run7DeburringAnswer(ids).seeds.slice(2), advancement("Force control needs a compliant spindle.", "technical", {})] };
+      const requests: Request[] = [];
+      stubSeedFetch(vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse(forceHeavy, requests.length);
+      }));
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(requests).toHaveLength(2);
+      const second = requestText((await requests[1]!.json()).messages[0].content);
+      expect(second).toContain(
+        `(root): 1 of 4 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 2, 3, 4); use at least two different tags; the only pairs, one per Seed and each usable by several Seeds, and no advancement for any other uncertainty: ${images} with ${vision}, ${camera}.`
+      );
+      const batch = await t.run((ctx) => ctx.db.get(fixture.batchId));
+      expect(batch).toMatchObject({ status: "failed", error: "INVALID_OUTPUT", errorDetail: "advancement_links" });
+      expect(batch?.invalidAnswers?.[0]).toEqual({
+        seedsReturned: 4,
+        seedsValid: 1,
+        minimum: 3,
+        issues: expect.arrayContaining([
         { code: "INVALID_ADVANCEMENT_REFERENCE", reason: "uncertainty_without_tested_experiment", seeds: 2 },
         { code: "INVALID_ADVANCEMENT_REFERENCE", reason: "missing_link", seeds: 1 },
-      ]),
+        ]),
+      });
     });
-  });
 
-  it("names the Seed rules, not the links, when answers keep breaking other rules", async () => {
-    const t = convexTest(schema, modules);
-    const fixture = await dispatchedAttempt(t, { targetRoleId: "company_context", decisions: [] });
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => providerResponse({ seeds: [] }, 1)));
-    await t.action(generateBatchRef, { batchId: fixture.batchId });
-    const again = await t.mutation(dispatchRef, {
-      generationId: fixture.generationId,
-      roleId: "company_context",
-      operation: "retry",
-      commandId: "seed-rules-again",
-      actorUserId: fixture.userId,
-    });
-    if (again.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${again.kind}`);
-    await t.action(generateBatchRef, { batchId: again.batchId });
+    it("names the Seed rules, not the links, when answers keep breaking other rules", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, { targetRoleId: "company_context", decisions: [] });
+      stubSeedFetch(vi.fn<typeof fetch>(async () => providerResponse({ seeds: [] }, 1)));
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      const again = await t.mutation(dispatchRef, {
+        generationId: fixture.generationId,
+        roleId: "company_context",
+        operation: "retry",
+        commandId: "seed-rules-again",
+        actorUserId: fixture.userId,
+      });
+      if (again.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${again.kind}`);
+      await t.action(generateBatchRef, { batchId: again.batchId });
 
-    expect(await t.run((ctx) => ctx.db.get(again.batchId))).not.toHaveProperty("errorDetail");
-    expect(
-      await t
+      expect(await t.run((ctx) => ctx.db.get(again.batchId))).not.toHaveProperty("errorDetail");
+      expect(
+        await t
         .withIdentity({ subject: "seed-dispatch-company_context" })
         .query(api.seeds.getSubsection, { generationId: fixture.generationId, roleId: "company_context" })
-    ).toMatchObject({ lastAttemptFailed: true, repeatedInvalidOutput: "seed_rules" });
-  });
-
-  it("makes no HTTP request when the queued dispatch lease has expired", async () => {
-    const t = convexTest(schema, modules);
-    const fixture = await dispatchedAttempt(t, {
-      targetRoleId: "company_context",
-      decisions: [],
+      ).toMatchObject({ lastAttemptFailed: true, repeatedInvalidOutput: "seed_rules" });
     });
-    await t.run((ctx) =>
-      ctx.db.patch(fixture.batchId, { leaseExpiresAt: Date.now() - 1 })
-    );
-    const transport = vi.fn<typeof fetch>();
-    vi.stubGlobal("fetch", transport);
 
-    await t.action(generateBatchRef, { batchId: fixture.batchId });
-
-    expect(transport).not.toHaveBeenCalled();
-    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
-      status: "failed",
-      error: "LEASE_EXPIRED",
-      requestsMade: 2,
-    });
-    expect(
+    it("makes no HTTP request when the queued dispatch lease has expired", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, {
+        targetRoleId: "company_context",
+        decisions: [],
+      });
       await t.run((ctx) =>
+        ctx.db.patch(fixture.batchId, { leaseExpiresAt: Date.now() - 1 })
+      );
+      const transport = vi.fn<typeof fetch>();
+      stubSeedFetch(transport);
+
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+      expect(transport).not.toHaveBeenCalled();
+      expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+        status: "failed",
+        error: "LEASE_EXPIRED",
+        requestsMade: 2,
+      });
+      expect(
+        await t.run((ctx) =>
         ctx.db
           .query("seeds")
           .withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId))
           .collect()
-      )
-    ).toEqual([]);
-  });
+        )
+      ).toEqual([]);
+    });
 
-  it("spends exactly one repair request for an invalid tool shape", async () => {
-    const t = convexTest(schema, modules);
-    const fixture = await seedAttempt(t);
-    const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof fetch>(async (input, init) => {
+    it("spends exactly one repair request for an invalid tool shape", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await seedAttempt(t);
+      const requests: Request[] = [];
+      stubSeedFetch(vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return requests.length === 1
           ? providerResponse({ seeds: [] }, 1)
@@ -2010,7 +2153,7 @@ describe("seed Node action request boundary", () => {
     const transport = vi.fn<typeof fetch>(async () =>
       providerResponse({ seeds: JSON.stringify(validSeeds) }, 1)
     );
-    vi.stubGlobal("fetch", transport);
+    stubSeedFetch(transport);
 
     await t.action(generateBatchRef, { batchId: fixture.batchId });
 
@@ -2027,7 +2170,7 @@ describe("seed Node action request boundary", () => {
     const transport = vi.fn<typeof fetch>(async () =>
       providerResponse({ seeds: "[not json" }, 1)
     );
-    vi.stubGlobal("fetch", transport);
+    stubSeedFetch(transport);
 
     await t.action(generateBatchRef, { batchId: fixture.batchId });
 
@@ -2044,8 +2187,7 @@ describe("seed Node action request boundary", () => {
     const longBullet =
       "The client secret team measured every zone of the warehouse many times over many weeks to learn how the coupled zones behaved under changing loads through the whole working day.";
     const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         return requests.length === 1
@@ -2262,7 +2404,7 @@ describe("seed Node action request boundary", () => {
     const transport = vi.fn<typeof fetch>(async () =>
       providerResponse({ seeds: [{ bullets: ["client secret"], tags: [], provenance: [] }] }, 1)
     );
-    vi.stubGlobal("fetch", transport);
+    stubSeedFetch(transport);
 
     await t.action(generateBatchRef, { batchId: fixture.batchId });
 
@@ -2299,7 +2441,7 @@ describe("seed Node action request boundary", () => {
         usage: { prompt_tokens: 1, completion_tokens: 1 },
       })
     );
-    vi.stubGlobal("fetch", transport);
+    stubSeedFetch(transport);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -2340,7 +2482,7 @@ describe("seed Node action request boundary", () => {
       await providerReleased;
       return providerResponse({ seeds: validSeeds }, 1);
     });
-    vi.stubGlobal("fetch", transport);
+    stubSeedFetch(transport);
 
     const lateAction = t.action(generateBatchRef, { batchId: fixture.batchId });
     await requestStarted;
@@ -2463,8 +2605,7 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
 
   function answering(sourceId: string, answers: Array<"good" | "bad" | "unusable">, onRequest?: (request: number) => Promise<void>) {
     const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
         await onRequest?.(requests.length);
@@ -2684,8 +2825,7 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
       { bullets: ["Winter installs run colder than any data sheet expects."], tags: ["detailed"], provenance: [cite(sourceId, 1)] },
     ];
     let request = 0;
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async () => {
         request += 1;
         return providerResponse({ seeds: request === 1 ? badSeeds(fixture.sourceId) : noBetter(fixture.sourceId) }, request);
@@ -2711,8 +2851,7 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
       provenance: [],
     };
     let request = 0;
-    vi.stubGlobal(
-      "fetch",
+    stubSeedFetch(
       vi.fn<typeof fetch>(async () => {
         request += 1;
         return providerResponse(
@@ -2805,7 +2944,7 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
       { bullets: ["Customers ban drilling on every coated mast they own."], tags: ["detailed"], provenance: [cite(fixture.sourceId, 0)] },
     ];
     const transport = vi.fn<typeof fetch>(async () => providerResponse({ seeds: revised }, 1));
-    vi.stubGlobal("fetch", transport);
+    stubSeedFetch(transport);
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await t.action(generateBatchRef, { batchId: feedbackBatchId });

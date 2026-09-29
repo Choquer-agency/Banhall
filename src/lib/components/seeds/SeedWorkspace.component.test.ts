@@ -867,6 +867,8 @@ describe("Seed workspace", () => {
         linkedUncertainty: { seedId: "u2" as Id<"seeds">, bullets: ["It was unknown whether nitrite oxidizing bacteria were the cold-sensitive bottleneck."], picked: true },
         linkedExperiments: [
           { seedId: "t1" as Id<"seeds">, words: "Trial 1 ran three loops at 8 C: 66, 47 and 31 days to full nitrification.", picked: true },
+          // PR #22 review (G12): an unticked experiment keeps its words.
+          { seedId: "t2" as Id<"seeds">, words: "Trial 2 seeded nitrite oxidizers.", picked: false },
           { seedId: "t9" as Id<"seeds">, words: "", picked: false },
         ],
       });
@@ -877,7 +879,7 @@ describe("Seed workspace", () => {
           canEdit,
         });
       const view = await render(SeedSubsectionPane, props(true));
-      const line = 'Experiments: "Trial 1 ran three loops at 8 C: 66, 47 and 31 days to ful..."; an experiment not shown here (no longer picked)';
+      const line = 'Experiments: "Trial 1 ran three loops at 8 C: 66, 47 and 31 days to ful..."; "Trial 2 seeded nitrite oxidizers." (no longer picked); an experiment not shown here (no longer picked)';
       expect(document.querySelector('[data-seed-link="uncertainty"]')?.textContent).toBe(
         'Uncertainty: "It was unknown whether nitrite oxidizing bacteria were the cold-sensitive bot..."'
       );

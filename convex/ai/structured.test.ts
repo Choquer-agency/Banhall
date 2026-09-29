@@ -256,4 +256,66 @@ describe("generateStructured", () => {
       expect(client.messages.create).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("several tools offered (PR #22 review G13)", () => {
+    const toolList = [
+      { name: "submit_shared", description: "shared", input_schema: { type: "object" as const } },
+      { name: "submit_linked", description: "linked", input_schema: { type: "object" as const } },
+    ];
+    const opts = {
+      system: "system",
+      user: "user",
+      toolName: "submit_linked",
+      description: "linked",
+      tools: toolList,
+      validate: z.object({ value: z.string() }),
+    };
+    const call = (name: string, input: unknown, id = name) => ({ type: "tool_use" as const, id, name, input });
+
+    it("never accepts another tool's answer, even a valid one: it spends the repair, which names the right tool", async () => {
+      const create = vi
+        .fn()
+        .mockResolvedValueOnce({ content: [call("submit_shared", { value: "from the wrong tool" })] })
+        .mockResolvedValueOnce({ content: [call("submit_linked", { value: "right" })] });
+      const onWrongTool = vi.fn();
+      const invalidAnswerRepair = vi.fn(() => "\n\nEarlier answer shown.");
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      await expect(
+        generateStructured({ messages: { create } }, { ...opts, onWrongTool, invalidAnswerRepair })
+      ).resolves.toEqual({ value: "right" });
+      error.mockRestore();
+      expect(onWrongTool).toHaveBeenCalledWith("submit_shared", { value: "from the wrong tool" });
+      expect(invalidAnswerRepair).toHaveBeenCalledWith({ value: "from the wrong tool" });
+      const second = create.mock.calls[1][0];
+      expect(second.messages[0].content).toBe(
+        "user\n\nYour previous tool output was invalid: it called submit_shared, but this request must be answered with submit_linked. Return the complete tool object and include every required field.\n\nEarlier answer shown."
+      );
+      // The same tools and forced choice in the repair.
+      expect(second.tools).toEqual(toolList);
+      expect(second.tool_choice).toEqual({ type: "tool", name: "submit_linked" });
+    });
+
+    it("fails with a validation error when no attempt is left, and never repeats a name no tool has", async () => {
+      const create = vi.fn().mockResolvedValue({ content: [call("made_up_tool", { value: "x" })] });
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const failure = await generateStructured({ messages: { create } }, opts).catch((caught: unknown) => caught);
+      error.mockRestore();
+      expect(failure).toMatchObject({
+        name: "StructuredValidationError",
+        issues: [{ path: "(root)", code: "wrong_tool" }],
+      });
+      expect(create).toHaveBeenCalledTimes(2);
+      const repair = create.mock.calls[1][0].messages[0].content as string;
+      expect(repair).toContain("it called a tool this request does not offer, but this request must be answered with submit_linked");
+      expect(repair).not.toContain("made_up_tool");
+    });
+
+    it("takes the intended tool's call when the answer holds several", async () => {
+      const create = vi.fn().mockResolvedValue({
+        content: [call("submit_shared", { value: "shared" }), call("submit_linked", { value: "linked" })],
+      });
+      await expect(generateStructured({ messages: { create } }, opts)).resolves.toEqual({ value: "linked" });
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+  });
 });

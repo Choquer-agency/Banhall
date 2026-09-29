@@ -262,16 +262,19 @@ function linkedUncertaintyOf(
  * an advancement links, each by its current first bullet and whether it is
  * still picked, so the writer can see what the advancement claims to come
  * from. Null for other roles or when the decisions were not read in full.
+ * `readById` holds the linked experiments the decisions did not load
+ * (loadLinkedExperiments).
  */
 function linkedExperimentsOf(
   state: SeedDecisionState,
   seed: Doc<"seeds">,
-  picked: { experiments: readonly { seedId: string }[] } | null
+  picked: { experiments: readonly { seedId: string }[] } | null,
+  readById: ReadonlyMap<string, Doc<"seeds">>
 ) {
   if (!picked || seed.roleId !== "specific_advancements" || !seed.experimentSeedIds?.length) return null;
   const pickedIds = new Set(picked.experiments.map((experiment) => experiment.seedId));
   return seed.experimentSeedIds.map((seedId) => {
-    const experiment = state.seeds.find((candidate) => candidate._id === seedId);
+    const experiment = state.seeds.find((candidate) => candidate._id === seedId) ?? readById.get(seedId);
     const selection = state.selectionRows.find((candidate) => candidate.seedId === seedId);
     return {
       seedId,
@@ -279,6 +282,44 @@ function linkedExperimentsOf(
       picked: pickedIds.has(seedId),
     };
   });
+}
+
+/** At most this many linked experiments are read by id for one step's cards. */
+export const LINKED_EXPERIMENT_READS = 64;
+
+/**
+ * PR #22 review (G12): the experiments the advancement cards link that the
+ * decisions did not load, read by id so the card shows their words even
+ * when no selection row holds them (an experiment never ticked). Each is
+ * read once, through the decisions' read budget, and at most
+ * LINKED_EXPERIMENT_READS of them; one the budget cannot hold, or a Seed
+ * that is not an experiment of this generation, is left out and the card
+ * says "an experiment not shown here".
+ */
+async function loadLinkedExperiments(
+  ctx: QueryCtx,
+  state: SeedDecisionState,
+  generationId: Id<"generations">,
+  advancements: readonly Doc<"seeds">[]
+): Promise<Map<string, Doc<"seeds">>> {
+  const loaded = new Map<string, Doc<"seeds">>();
+  const known = new Set<string>(state.seeds.map((seed) => seed._id));
+  const wanted = [
+    ...new Set(
+      advancements.flatMap((seed) => (seed.roleId === "specific_advancements" ? (seed.experimentSeedIds ?? []) : []))
+    ),
+  ]
+    .filter((seedId) => !known.has(seedId))
+    .slice(0, LINKED_EXPERIMENT_READS);
+  for (const seedId of wanted) {
+    const read = await state.budget.one(() => ctx.db.get(seedId));
+    if (read.kind === "not-loaded") break;
+    const experiment = read.value;
+    if (experiment && experiment.generationId === generationId && experiment.roleId === "experimentation") {
+      loaded.set(seedId, experiment);
+    }
+  }
+  return loaded;
 }
 
 /**
@@ -334,7 +375,8 @@ async function seedCard(
     uncertaintySeedIds: readonly string[];
     rootOf: UncertaintyRoot;
     experiments: readonly { seedId: string }[];
-  } | null
+  } | null,
+  experimentsReadById: ReadonlyMap<string, Doc<"seeds">>
 ) {
   const selection = state.selectionRows.find(
     (candidate) => candidate.seedId === seed._id
@@ -389,7 +431,7 @@ async function seedCard(
     };
   }
   const linked = linkedUncertaintyOf(state, seed, pickedUncertainties);
-  const linkedExperiments = linkedExperimentsOf(state, seed, pickedUncertainties);
+  const linkedExperiments = linkedExperimentsOf(state, seed, pickedUncertainties, experimentsReadById);
   return {
     seedId: seed._id,
     batchId: seed.batchId,
@@ -515,9 +557,13 @@ export async function getSubsectionData(
     state.complete && (roleId === "experimentation" || roleId === "specific_advancements")
       ? pickedLinks(state)
       : null;
+  const experimentsReadById =
+    pickedUncertainties && roleId === "specific_advancements"
+      ? await loadLinkedExperiments(ctx, state, generationId, ordered)
+      : new Map<string, Doc<"seeds">>();
   const items = [];
   for (const seed of ordered) {
-    items.push(await seedCard(ctx, state, row, seed, pickedUncertainties));
+    items.push(await seedCard(ctx, state, row, seed, pickedUncertainties, experimentsReadById));
   }
 
   let approvalChallenge = null;
