@@ -8387,6 +8387,108 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     expect(complete.sections[2]?.paragraphs).toEqual(["Writer wrote 244 by hand."]);
   });
 
+  it("replaces a QA pass that was running when Draft the rest filled the report", async () => {
+    const { s } = await stopAfterFirstSection("QaStop");
+    // The writer asks for QA on the stopped report; that pass is in flight.
+    await s.writer.mutation(api.generations.requestReportQa, { generationId: s.generationId });
+    const before = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(before?.postQaStatus).toBe("running");
+    const oldAttempt = before?.postQaStartedAt;
+    if (oldAttempt === undefined) throw new Error("Missing QA attempt");
+    const oldPass = await takeJob(s, "ai/postQa:runReportQa");
+    expect(oldPass.attemptStartedAt).toBe(oldAttempt);
+
+    configureSuccessfulSummaryFinalization("QaFill");
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toEqual({ status: "started", sections: ["242", "244"] });
+    await runRedraftSection(s);
+    await runRedraftSection(s);
+    await runRedraftFinalizer(s);
+    const filled = await reportOf(s);
+    expect(filled.content).toContain("QaFill draft 1.");
+    expect(filled.content).not.toContain("[NOT GENERATED]");
+
+    // A fresh attempt replaces the running pass; the state stays running.
+    const after = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(after?.postQaStatus).toBe("running");
+    expect(after?.postQaStartedAt).toBeGreaterThan(oldAttempt);
+    const pending = await pendingJobs(s, "ai/postQa:runReportQa");
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.args[0]?.attemptStartedAt).toBe(after?.postQaStartedAt);
+
+    // The old pass lands late and is fenced out: no model call, no result.
+    network.create.mockClear();
+    await s.t.action(
+      internal.ai.postQa.runReportQa,
+      oldPass as FunctionArgs<typeof internal.ai.postQa.runReportQa>
+    );
+    expect(network.create).not.toHaveBeenCalled();
+    await s.t.mutation(internal.generations.saveReportQa, {
+      generationId: s.generationId,
+      attemptStartedAt: oldAttempt,
+      qa: JSON.stringify({ overall_score: 12 }),
+      qaScore: 12,
+    });
+    await s.t.mutation(internal.generations.saveReportQa, {
+      generationId: s.generationId,
+      attemptStartedAt: oldAttempt,
+      failed: true,
+    });
+    const fenced = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(fenced?.postQaStatus).toBe("running");
+    expect(fenced?.postQaStartedAt).toBe(after?.postQaStartedAt);
+    expect(fenced?.qaScore).toBeUndefined();
+
+    // The fresh pass scores the filled report and settles done.
+    network.create.mockClear();
+    const freshPass = await takeJob(s, "ai/postQa:runReportQa");
+    await s.t.action(
+      internal.ai.postQa.runReportQa,
+      freshPass as FunctionArgs<typeof internal.ai.postQa.runReportQa>
+    );
+    const qaCall = network.create.mock.calls
+      .map(([params]) => params as GenerationMessageParams)
+      .find((params) => params.tool_choice?.name === "submit_qa_scorecard");
+    if (!qaCall) throw new Error("The fresh QA pass made no scorecard call");
+    expect(JSON.stringify(qaCall)).toContain("QaFill draft 1.");
+    expect(JSON.stringify(qaCall)).not.toContain("[NOT GENERATED]");
+    const settled = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(settled).toMatchObject({ postQaStatus: "done", qaScore: 91 });
+  });
+
+  it("leaves a running QA pass alone when Draft the rest puts nothing into the report", async () => {
+    const { s } = await stopAfterFirstSection("QaKeep");
+    configureSuccessfulSummaryFinalization("QaKeepFill");
+    await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    });
+    await runRedraftSection(s);
+    await runRedraftSection(s);
+    // The writer fills both Not drafted Sections by hand before the redraft
+    // lands, then asks for QA on that complete report.
+    const current = await reportOf(s);
+    await s.writer.mutation(api.reports.updateReportContent, {
+      reportId: current._id,
+      content: current.content.replaceAll("[NOT GENERATED]", "Writer wrote this by hand."),
+      expectedRevisionNumber: current.revisionNumber ?? 0,
+    });
+    await s.writer.mutation(api.generations.requestReportQa, { generationId: s.generationId });
+    const before = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(before?.postQaStatus).toBe("running");
+    await runRedraftFinalizer(s);
+    const report = await reportOf(s);
+    expect(report.content).not.toContain("QaKeepFill draft");
+    const after = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(after?.redraft).toMatchObject({ status: "completed", filledSections: [] });
+    // The running pass already scores this report, so it keeps its attempt.
+    expect(after?.postQaStatus).toBe("running");
+    expect(after?.postQaStartedAt).toBe(before?.postQaStartedAt);
+    const pending = await pendingJobs(s, "ai/postQa:runReportQa");
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.args[0]?.attemptStartedAt).toBe(before?.postQaStartedAt);
+  });
+
   it("leaves a placeholder the writer starts typing in during the redraft alone", async () => {
     const { s } = await stopAfterFirstSection("Race");
     configureSuccessfulSummaryFinalization("RaceRedraft");
