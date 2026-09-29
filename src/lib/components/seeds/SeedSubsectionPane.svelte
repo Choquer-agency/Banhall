@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, untrack, type Snippet } from "svelte";
-  import { boardRem } from "$lib/rootScale";
+  import { boardRem, rootScale } from "$lib/rootScale";
   import { useConvexClient, useMutation } from "convex-svelte";
   import { DropdownMenu } from "bits-ui";
   import { IconInfo, IconMore, IconRegenerate } from "$lib/components/icons";
@@ -30,7 +30,14 @@
     SeedSubsectionData,
   } from "./types";
   import { seedsApi } from "./api";
-  import { enqueuePick, queuedPicks } from "./pickQueue.svelte";
+  import {
+    clearPickRefusal,
+    clearPickRefusals,
+    enqueuePick,
+    pickRefusalsFor,
+    queuedPicks,
+    recordPickRefusal,
+  } from "./pickQueue.svelte";
   import { detectPlatform, isModEnter, isTypingTarget, shortcutHint } from "$lib/shell/shortcuts";
 
   let {
@@ -212,9 +219,11 @@
   let pickToken = 0;
   // Refused picks stay listed, one per seed, until that seed is picked again
   // successfully or the writer takes another decision (review P2-2): a later
-  // pick of another seed never erases them.
-  let pickRefusals = $state<Record<string, string>>({});
+  // pick of another seed never erases them. They live with the run's pick
+  // queue, not in this pane, so a refusal that arrives after the pane closed
+  // shows when the step opens again (Greptile G6).
   const runKey = $derived(String(generationId));
+  const pickRefusals = $derived(pickRefusalsFor(runKey, data.roleId));
   // Any pick of this run on its way, from this pane or one closed before it.
   // Every other decision writer waits for them (review P2-3).
   const picksPending = $derived(Object.keys(pendingPicks).length > 0 || queuedPicks(runKey) > 0);
@@ -244,25 +253,24 @@
       if (!destroyed && !canEdit) throw new Error(PICK_NOT_SENT);
       return selectSeed({ ...target, expectedSeedStageVersion, seedId, selected });
     });
-    if (destroyed) return outcome.ok;
-    if (pendingPicks[key]?.token === token) {
-      const { [key]: _settled, ...rest } = pendingPicks;
-      pendingPicks = rest;
-    }
+    // The run's refusals are kept whether or not this pane is still open.
+    const targetRun = String(target.generationId);
     if (outcome.ok) {
-      announcement = selected ? "Seed selected." : "Seed deselected.";
-      if (key in pickRefusals) {
-        const { [key]: _cleared, ...rest } = pickRefusals;
-        pickRefusals = rest;
-      }
+      clearPickRefusal(targetRun, target.roleId, key);
     } else if (!(outcome.error instanceof Error && outcome.error.message === PICK_NOT_SENT)) {
       const idea = wording.length > 60 ? `${wording.slice(0, 57).trimEnd()}...` : wording;
       const why =
         userErrorCode(outcome.error) === "STALE_REVISION"
           ? "decisions changed in another session"
           : userErrorMessage(outcome.error, "the server did not save it").replace(/\.$/, "");
-      pickRefusals = { ...pickRefusals, [key]: `Your ${selected ? "tick" : "untick"} on "${idea}" was not saved: ${why}. Try it again.` };
+      recordPickRefusal(targetRun, target.roleId, key, `Your ${selected ? "tick" : "untick"} on "${idea}" was not saved: ${why}. Try it again.`);
     }
+    if (destroyed) return outcome.ok;
+    if (pendingPicks[key]?.token === token) {
+      const { [key]: _settled, ...rest } = pendingPicks;
+      pendingPicks = rest;
+    }
+    if (outcome.ok) announcement = selected ? "Seed selected." : "Seed deselected.";
     return outcome.ok;
   }
 
@@ -293,6 +301,17 @@
     historyRefusal = null;
     historyApprovalReview = null;
     historyReviewRefused = false;
+  });
+
+  // What the last Keep did stays until the next pick or decision (both clear
+  // it), or until the pane shows another step or run. A successful Keep
+  // moves the seed-stage version, so it must not clear with the version
+  // (Greptile G8).
+  let keepScope = "";
+  $effect(() => {
+    const scope = `${generationId}:${data.roleId}`;
+    if (scope === keepScope) return;
+    keepScope = scope;
     keepResult = null;
   });
 
@@ -344,7 +363,7 @@
     if (picksPending) return false;
     if (exclusive) busy = true;
     error = null;
-    pickRefusals = {};
+    clearPickRefusals(runKey, data.roleId);
     keepResult = null;
     try {
       await action();
@@ -664,10 +683,13 @@
   const revisionsOf = (group: SeedSubsectionData["feedbackGroups"][number]) =>
     data.items.filter((item) => item.feedbackRequestId === group.requestId && item.seedId !== group.targetSeedId);
 
-  // Card columns: one below 800px (3.5, 3.6), two 412px columns (board 3.1)
-  // until a third fits, then as many columns of at least 400px as fit,
-  // sharing the width, so a wide monitor gains columns instead of leaving
-  // the right of the pane empty (2026-09-28 width pass).
+  // Card columns: one below 800 board pixels (3.5, 3.6), two 412px columns
+  // (board 3.1) until a third fits, then as many columns of at least 400
+  // board pixels (25rem) as fit, sharing the width, so a wide monitor gains
+  // columns instead of leaving the right of the pane empty (2026-09-28 width
+  // pass). The pane is measured in board pixels (its width over the root
+  // scale) because the cards are rem, so a card never drops below 25rem at
+  // any root: 500px at 2560, 375px on a laptop (Greptile G4).
   // The width is read on the next frame, so a layout change it causes (a
   // scrollbar appearing) never feeds back into the same observation.
   const CARD_MIN_WIDTH = 400;
@@ -690,9 +712,9 @@
     const observer = new ResizeObserver(([entry]) => {
       cancelAnimationFrame(frame);
       const width = entry.contentRect.width;
-      frame = requestAnimationFrame(() => (cardsWidth = width));
+      frame = requestAnimationFrame(() => (cardsWidth = width / rootScale()));
     });
-    cardsWidth = element.clientWidth;
+    cardsWidth = element.clientWidth / rootScale();
     observer.observe(element);
     return () => {
       cancelAnimationFrame(frame);

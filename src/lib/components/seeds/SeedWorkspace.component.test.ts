@@ -24,6 +24,8 @@ import { reactiveValue } from "$lib/test/reactiveValue.svelte";
 import SeedWorkspace from "./SeedWorkspace.svelte";
 import SeedSubsectionPane from "./SeedSubsectionPane.svelte";
 import SeedCard from "./SeedCard.svelte";
+import { CARD_CLICK_DELAY_MS } from "./cardClick";
+import { resetPickRefusals } from "./pickQueue.svelte";
 import type { SeedCardData, SeedDraftUpdate, SeedLocalDraft, SeedSubsectionData } from "./types";
 import { board, boardPx } from "$lib/test/boardScale";
 
@@ -236,6 +238,7 @@ beforeEach(async () => {
   document.body.innerHTML = "";
   localStorage.clear();
   __resetConvexStub();
+  resetPickRefusals();
   await page.viewport(1366, 900);
 });
 
@@ -3736,16 +3739,18 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
   });
 
   it("fills a wide pane with more card columns in reading order and keeps the Outline width", async () => {
-    // 2026-09-28 width pass: columns of at least 400px share the pane, so a
-    // 1920 window shows three and a 2560 window four, rather than two 412px
-    // columns at the left of an empty pane.
+    // 2026-09-28 width pass: columns of at least 400 board pixels (25rem)
+    // share the pane, rather than two 412px columns at the left of an empty
+    // pane. Greptile G4: the minimum is rem like the cards, so a 2347px pane
+    // at 2560 (20px root) holds three columns, not four of under 500px.
     const fiveSeeds = () => Array.from({ length: 5 }, (_, index) => seed({
       seedId: `seed-wide-${index}` as Id<"seeds">,
       bullets: [`Wide seed ${index + 1} wording.`],
     }));
     for (const [viewport, width, grid, columns] of [
-      [1920, "1707px", "three", ["0", "1", "2", "0", "1"]],
-      [2560, "2347px", "four", ["0", "1", "2", "3", "0"]],
+      [1920, "1760px", "three", ["0", "1", "2", "0", "1"]],
+      [2560, "2347px", "three", ["0", "1", "2", "0", "1"]],
+      [2560, "2520px", "four", ["0", "1", "2", "3", "0"]],
     ] as const) {
       document.body.innerHTML = "";
       await page.viewport(viewport, 1080);
@@ -3761,7 +3766,8 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
       const card = (index: number) => document.querySelector<HTMLElement>(`article[data-seed-id="seed-wide-${index}"]`)!.getBoundingClientRect();
       const widths = [0, 1, 2, 3, 4].map((index) => Math.round(card(index).width));
       expect(new Set(widths).size).toBe(1);
-      expect(widths[0]).toBeGreaterThanOrEqual(400);
+      // Never narrower than 25rem at this window's root.
+      expect(widths[0]).toBeGreaterThanOrEqual(Math.floor(board(400)));
       // The 0.5rem gap (8px at a 16px root) grows with the root above 1600px.
       expect(card(1).left - card(0).right).toBeCloseTo(board(8), 0);
       const grid0 = view.container.querySelector<HTMLElement>("[data-seed-grid]")!.getBoundingClientRect();
@@ -4449,6 +4455,38 @@ describe("snappy ticks (owner, 2026-09-28)", () => {
     await expect.element(page.getByRole("button", { name: "Regenerate", exact: true })).toBeEnabled();
   });
 
+  it("shows a refusal that arrived after the step closed when the step opens again (Greptile G6)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", unticked());
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "goal_problem" }, subsection({
+      roleId: "goal_problem",
+      items: [seed({ seedId: "seed-goal" as Id<"seeds">, roleId: "goal_problem", bullets: ["Goal Seed wording."] })],
+    }));
+    let refuse: ((reason: unknown) => void) | undefined;
+    __setMutationResult("seeds:select", new Promise((_, reject) => { refuse = reject; }));
+    await render(SeedWorkspace, workspaceProps());
+    await page.getByRole("checkbox", { name: "Select seed", exact: true }).click();
+    // The writer leaves the step before the answer.
+    const outlineNav = page.getByRole("navigation", { name: "PD subsections" });
+    await outlineNav.getByRole("button", { name: /Goal \/ Problem/ }).click();
+    await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
+    refuse?.(new ConvexError({ code: "STALE_REVISION", message: "Seed decisions changed; refresh and retry" }));
+    await expect.poll(() => __mutationCalls("seeds:select")).toHaveLength(1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Not on this step.
+    expect(document.querySelector("[data-pick-refusals]")).toBeNull();
+    // Back on the step, the refusal is there.
+    await outlineNav.getByRole("button", { name: /Company \/ Context/ }).click();
+    await expect.element(page.getByRole("heading", { name: "Company and context", exact: true })).toBeVisible();
+    await expect.poll(() => document.querySelector("[data-pick-refusals]")?.textContent).toContain(
+      'Your tick on "The control loop stabilized output." was not saved: decisions changed in another session. Try it again.'
+    );
+    // Cleared as before: picking that seed again successfully.
+    __setMutationResult("seeds:select", { seedStageVersion: 8 });
+    await page.getByRole("checkbox", { name: "Select seed", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-pick-refusals]")).toBeNull();
+  });
+
   it("finishes queued picks when the next step is still loading as the first answer lands (review P2-1 re-check)", async () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSubsection", subsection({ items: [seed({ selected: false }), seed({ seedId: "seed-2" as Id<"seeds">, selected: false, bullets: ["Second Seed wording."] })] }));
@@ -4560,11 +4598,14 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
   const body = () => document.querySelector<HTMLElement>("[data-seed-body]")!;
   const plainText = () => [...document.querySelectorAll<HTMLElement>("[data-seed-body] li span")].find((span) => span.textContent?.includes("Tests covered"))!;
 
+  // Greptile G5: a body click acts after the double-click window.
+  const pastClickWindow = () => new Promise((resolve) => setTimeout(resolve, CARD_CLICK_DELAY_MS + 100));
+
   it("toggles from the card body like the checkbox, which stays the one control and tab stop", async () => {
     const props = cardProps();
     await render(SeedCard, props);
     await page.elementLocator(body()).click({ position: { x: 200, y: 8 } });
-    expect(props.onSelect).toHaveBeenCalledTimes(1);
+    await expect.poll(() => props.onSelect).toHaveBeenCalledTimes(1);
     expect(props.onSelect).toHaveBeenLastCalledWith(true);
 
     // The checkbox still toggles once, not twice through the card.
@@ -4583,7 +4624,7 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     const props = cardProps({ item: seed({ selected: true, bullets: ["Measured output remained stable. Tests covered three load bands."] }) });
     await render(SeedCard, props);
     plainText().click();
-    expect(props.onSelect).toHaveBeenCalledWith(false);
+    await expect.poll(() => props.onSelect).toHaveBeenCalledWith(false);
   });
 
   it("keeps the behaviour of tools, quotes and text selection inside the card", async () => {
@@ -4610,10 +4651,11 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     window.getSelection()!.removeAllRanges();
     window.getSelection()!.addRange(range);
     plainText().click();
+    await pastClickWindow();
     expect(props.onSelect).not.toHaveBeenCalled();
     window.getSelection()!.removeAllRanges();
     plainText().click();
-    expect(props.onSelect).toHaveBeenCalledTimes(1);
+    await expect.poll(() => props.onSelect).toHaveBeenCalledTimes(1);
   });
 
   it("does not toggle for a reader or while the card's decisions are unavailable", async () => {
@@ -4632,15 +4674,32 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     expect(waiting.onSelect).not.toHaveBeenCalled();
   });
 
-  it("ignores the click that ends a double or triple click (review P2-4)", async () => {
+  it("ignores every click of a double or triple click, the first one included (review P2-4, Greptile G5)", async () => {
     const props = cardProps();
     await render(SeedCard, props);
-    for (const detail of [2, 3]) {
+    const click = (detail: number) =>
       plainText().dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail }));
-    }
+    const press = () => plainText().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, buttons: 1 }));
+    // The browser's order for a double click: the first click arrives before
+    // any text is selected, then the second press and click.
+    press();
+    click(1);
+    press();
+    click(2);
+    press();
+    click(3);
+    await pastClickWindow();
     expect(props.onSelect).not.toHaveBeenCalled();
-    plainText().dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 }));
-    expect(props.onSelect).toHaveBeenCalledTimes(1);
+    // A real double click selects a word and leaves the pick alone.
+    await userEvent.dblClick(plainText());
+    await pastClickWindow();
+    expect(props.onSelect).not.toHaveBeenCalled();
+    window.getSelection()?.removeAllRanges();
+    // A single click still toggles, once the window has passed.
+    press();
+    click(1);
+    expect(props.onSelect).not.toHaveBeenCalled();
+    await expect.poll(() => props.onSelect).toHaveBeenCalledTimes(1);
   });
 
   it("ignores the click that closes an open menu (review P2-4)", async () => {
@@ -4653,7 +4712,7 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     expect(props.onSelect).not.toHaveBeenCalled();
     // With nothing open, the next body click toggles.
     await page.elementLocator(body()).click({ position: { x: 200, y: 8 } });
-    expect(props.onSelect).toHaveBeenCalledTimes(1);
+    await expect.poll(() => props.onSelect).toHaveBeenCalledTimes(1);
   });
 
   it("changes a pick on an approved step only through its checkbox (review P2-4)", async () => {
@@ -4673,11 +4732,11 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     await render(SeedWorkspace, workspaceProps());
     await expect.element(page.getByRole("checkbox", { name: "Deselect seed", exact: true })).toBeEnabled();
     document.querySelector<HTMLElement>('[data-seed-id="seed-1"] [data-seed-body] li span')!.click();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await pastClickWindow();
     expect(__mutationCalls("seeds:select")).toEqual([]);
   });
 
-  it("toggles a card in the workspace with the same instant pick as its checkbox", async () => {
+  it("toggles a card in the workspace with the same pick as its checkbox, once the double-click window passes", async () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSubsection", subsection({ items: [seed({ selected: false })] }));
     let answer: ((value: unknown) => void) | undefined;
@@ -4867,6 +4926,27 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     );
     __setMutationResult("seeds:select", { seedStageVersion: 9 });
     await page.getByRole("checkbox").first().click();
+    await expect.poll(() => document.querySelector("[data-keep-result]")).toBeNull();
+  });
+
+  it("keeps the Keep result when the updated read with the new version arrives (Greptile G8)", async () => {
+    const data = subsection({ roleId: "goal_problem", approvalChallenge: clean() });
+    const props = paneProps(data, {
+      title: "Goal / Problem",
+      laterReview: { roleIds: ["passive_limitations", "technological_objective"], firstRoleId: "passive_limitations" },
+    });
+    __setMutationResult("seeds:keep", { seedStageVersion: 8, kept: ["passive_limitations", "technological_objective"], needsAttention: [] });
+    const view = await render(SeedSubsectionPane, props);
+    await page.getByRole("button", { name: "Keep all", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-keep-result]")?.textContent).toBe(
+      "Kept 2 steps as they are: Limitations, Objectives."
+    );
+    // The Keep moved the seed-stage version; the live read follows it.
+    await view.rerender({ ...props, laterReview: null, data: subsection({ roleId: "goal_problem", approvalChallenge: clean(), seedStageVersion: 8 }) });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector("[data-keep-result]")?.textContent).toBe("Kept 2 steps as they are: Limitations, Objectives.");
+    // Another step clears it.
+    await view.rerender({ ...props, laterReview: null, data: subsection({ roleId: "passive_limitations", approvalChallenge: clean(), seedStageVersion: 8 }) });
     await expect.poll(() => document.querySelector("[data-keep-result]")).toBeNull();
   });
 
