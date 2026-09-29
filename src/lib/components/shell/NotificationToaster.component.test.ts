@@ -81,7 +81,7 @@ describe("NotificationToaster (I3, F6 card)", () => {
     expect(Math.round(window.innerWidth - section.right)).toBe(16);
   });
 
-  it("keeps notifications from before this tab opened behind one pill (owner, 2026-09-28 eighth)", async () => {
+  it("keeps notifications from before this tab opened behind one summary card (owner, 2026-09-28 eighth)", async () => {
     const hoursAgo = now - 3 * 60 * 60 * 1000;
     __setQueryData("notifications:listRecent", [
       row("new"),
@@ -92,15 +92,29 @@ describe("NotificationToaster (I3, F6 card)", () => {
     await expect.poll(() => cards().length).toBe(1);
     expect(cards()[0].textContent).toContain("Project new is with you");
 
-    await page.getByRole("button", { name: "2 updates while you were away", exact: true }).click();
+    // The summary is the same F6 card: title, muted line and close.
+    const summary = document.querySelector<HTMLElement>("[data-notification-summary]")!;
+    expect(summary.querySelector("[data-notification-title]")?.textContent).toBe("2 updates while you were away");
+    expect(summary.querySelector("[data-notification-body]")?.textContent).toBe("Open to see them, three at a time.");
+    expect(summary.className).toBe(cards()[0].className);
+    await page.getByRole("button", { name: /^2 updates while you were away/ }).click();
     await expect.poll(() => cards().length).toBe(3);
-    // New ones stay first, and keyboard focus lands on the first card the pill opened.
+    // New ones stay first, and keyboard focus lands on the first card the summary opened.
     expect(cards().map((card) => card.dataset.notificationId)).toEqual(["new", "earlier-1", "earlier-2"]);
     expect(document.activeElement?.closest<HTMLElement>("[data-notification-id]")?.dataset.notificationId).toBe("earlier-1");
     await page.getByRole("button", { name: "Dismiss all 2 earlier updates", exact: true }).click();
     await expect.poll(() => cards().length).toBe(1);
     expect(__mutationCalls("notifications:markSeen")).toEqual([{ ids: ["earlier-1", "earlier-2"] }]);
-    expect(document.querySelector("[data-notification-waiting]")).toBeNull();
+    expect(document.querySelector("[data-notification-summary]")).toBeNull();
+  });
+
+  it("closing the summary card dismisses every earlier update", async () => {
+    const hoursAgo = Date.now() - 3 * 60 * 60 * 1000;
+    __setQueryData("notifications:listRecent", [row("earlier-1", { createdAt: hoursAgo }), row("earlier-2", { createdAt: hoursAgo - 1000 })]);
+    await render(NotificationToaster, {});
+    await page.getByRole("button", { name: "Dismiss all 2 earlier updates", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-notification-toaster]")).toBeNull();
+    expect(__mutationCalls("notifications:markSeen")).toEqual([{ ids: ["earlier-1", "earlier-2"] }]);
   });
 
   it("decides once per page load which updates were waiting, not on every page change (review of the eighth)", async () => {
@@ -113,7 +127,7 @@ describe("NotificationToaster (I3, F6 card)", () => {
     __setQueryData("notifications:listRecent", [row("a", { createdAt: later }), row("b", { createdAt: later })]);
     await render(NotificationToaster, {});
     await expect.poll(() => cards().length).toBe(2);
-    expect(document.querySelector("[data-notification-waiting]")).toBeNull();
+    expect(document.querySelector("[data-notification-summary]")).toBeNull();
   });
 
   it("shows a notification that arrives after the page loaded, whatever its time says", async () => {
@@ -121,7 +135,7 @@ describe("NotificationToaster (I3, F6 card)", () => {
     await render(NotificationToaster, {});
     __setQueryData("notifications:listRecent", [row("late", { createdAt: Date.now() - 10 * 60_000 })]);
     await expect.poll(() => cards().length).toBe(1);
-    expect(document.querySelector("[data-notification-waiting]")).toBeNull();
+    expect(document.querySelector("[data-notification-summary]")).toBeNull();
   });
 
   it("closing marks the notification seen and hides it at once", async () => {

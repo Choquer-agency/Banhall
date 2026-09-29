@@ -15,8 +15,9 @@
    *
    * Owner, 2026-09-28 (eighth): only notifications that arrive while this
    * page is open (or just before it loaded) show as cards. Older unseen ones
-   * wait behind one small "N updates while you were away" pill that opens
-   * them as cards, so hours-old news never covers the page on arrival.
+   * wait behind one summary card in the same F6 design, "N updates while
+   * you were away", that opens them as cards (its close dismisses them all),
+   * so hours-old news never covers the page on arrival.
    * What was waiting is decided once per page load from the first answer,
    * not per mount (each route's shell mounts its own toaster), so a row that
    * arrives later is always new, whatever the browser's clock says.
@@ -31,6 +32,7 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { isAiNotificationKind } from "../../../../shared/notifications";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
+  import Button from "$lib/components/ui/Button.svelte";
   import { stickyActionBarHeight } from "$lib/shell/stickyActionBars.svelte";
   import { notificationSession } from "$lib/shell/notificationSession.svelte";
 
@@ -77,7 +79,7 @@
     const set = waitingSet;
     return elsewhere.filter((row) => !set?.has(String(row._id)));
   });
-  // New ones stay first; the earlier ones follow once the pill is opened.
+  // New ones stay first; the earlier ones follow once the summary is opened.
   const cards = $derived(
     (notificationSession.waitingShown ? [...arrivedNow, ...waiting] : arrivedNow).slice(0, MAX_CARDS)
   );
@@ -86,7 +88,7 @@
     const first = waiting[0]?._id;
     notificationSession.showWaiting();
     await tick();
-    // The pill is gone; keyboard focus moves to the first card it opened.
+    // The summary is gone; keyboard focus moves to the first card it opened.
     document.querySelector<HTMLElement>(`[data-notification-id="${first}"] [data-notification-open]`)?.focus();
   }
 
@@ -113,6 +115,44 @@
   }
 </script>
 
+{#snippet card(c: {
+  attrs: Record<string, string | boolean>;
+  ai: boolean;
+  title: string;
+  body?: string;
+  onOpen: () => void;
+  closeLabel: string;
+  onClose: () => void;
+})}
+  <!-- F6 "If the writer left the page": one card design for a notification
+       and for the summary of the ones waiting (owner, 2026-09-28). -->
+  <div {...c.attrs} role="status" class="pointer-events-auto relative flex gap-2.5 rounded-xl border border-line-soft bg-surface p-3.5 shadow-menu">
+    {#if c.ai}
+      <AuroraMark size={22} />
+    {/if}
+    <button
+      type="button"
+      data-notification-open
+      onclick={c.onOpen}
+      class="min-w-0 flex-1 rounded-md pr-6 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
+    >
+      <span class="block text-sm leading-5 font-medium text-ink" data-notification-title>{c.title}</span>
+      {#if c.body}
+        <span class="mt-0.5 block text-[0.8125rem] leading-[1.125rem] text-ink-muted" data-notification-body>{c.body}</span>
+      {/if}
+    </button>
+    <button
+      type="button"
+      data-notification-close
+      aria-label={c.closeLabel}
+      onclick={c.onClose}
+      class="absolute right-2 top-2 flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11"
+    >
+      <IconClose size={14} strokeWidth={1.8} />
+    </button>
+  </div>
+{/snippet}
+
 {#if cards.length > 0 || waiting.length > 0}
   <section
     aria-label="Notifications"
@@ -121,51 +161,34 @@
     class="pointer-events-none fixed right-4 z-[100] flex w-[min(22.5rem,calc(100vw-2rem))] flex-col-reverse gap-2"
   >
     {#if waiting.length > 0 && !notificationSession.waitingShown}
-      <button
-        type="button"
-        data-notification-waiting
-        onclick={() => void revealWaiting()}
-        class="pointer-events-auto self-end rounded-xl border border-line-soft bg-surface px-3.5 py-2 text-sm leading-5 font-medium text-ink shadow-menu transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none"
-      >{waiting.length === 1 ? "1 update while you were away" : `${waiting.length} updates while you were away`}</button>
+      {@render card({
+        attrs: { "data-notification-summary": true },
+        ai: false,
+        title: waiting.length === 1 ? "1 update while you were away" : `${waiting.length} updates while you were away`,
+        body: waiting.length === 1 ? "Open to see it." : "Open to see them, three at a time.",
+        onOpen: () => void revealWaiting(),
+        closeLabel: waiting.length === 1 ? "Dismiss the earlier update" : `Dismiss all ${waiting.length} earlier updates`,
+        onClose: () => void markSeen(waiting.map((row) => row._id)),
+      })}
     {:else if notificationSession.waitingShown && waiting.length > 1}
-      <button
-        type="button"
+      <Button
+        size="sm"
+        variant="secondary"
+        class="pointer-events-auto self-end shadow-menu"
         data-notification-dismiss-waiting
         onclick={() => void markSeen(waiting.map((row) => row._id))}
-        class="pointer-events-auto self-end rounded-xl border border-line-soft bg-surface px-3 py-1.5 text-[0.8125rem] leading-[1.125rem] text-ink-muted shadow-menu transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
-      >Dismiss all {waiting.length} earlier updates</button>
+      >Dismiss all {waiting.length} earlier updates</Button>
     {/if}
     {#each cards as row (row._id)}
-      <div
-        data-notification={row.kind}
-        data-notification-id={row._id}
-        role="status"
-        class="pointer-events-auto relative flex gap-2.5 rounded-xl border border-line-soft bg-surface p-3.5 shadow-menu"
-      >
-        {#if isAiNotificationKind(row.kind)}
-          <AuroraMark size={22} />
-        {/if}
-        <button
-          type="button"
-          data-notification-open
-          onclick={() => open(row)}
-          class="min-w-0 flex-1 rounded-md pr-6 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
-        >
-          <span class="block text-sm leading-5 font-medium text-ink" data-notification-title>{row.title}</span>
-          {#if row.body}
-            <span class="mt-0.5 block text-[0.8125rem] leading-[1.125rem] text-ink-muted" data-notification-body>{row.body}</span>
-          {/if}
-        </button>
-        <button
-          type="button"
-          data-notification-close
-          aria-label={`Dismiss: ${row.title}`}
-          onclick={() => void markSeen([row._id])}
-          class="absolute right-2 top-2 flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11"
-        >
-          <IconClose size={14} strokeWidth={1.8} />
-        </button>
-      </div>
+      {@render card({
+        attrs: { "data-notification": row.kind, "data-notification-id": row._id },
+        ai: isAiNotificationKind(row.kind),
+        title: row.title,
+        body: row.body,
+        onOpen: () => open(row),
+        closeLabel: `Dismiss: ${row.title}`,
+        onClose: () => void markSeen([row._id]),
+      })}
     {/each}
   </section>
 {/if}

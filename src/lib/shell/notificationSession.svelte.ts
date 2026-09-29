@@ -2,7 +2,7 @@
  * The notification toaster's memory for one page load (owner, 2026-09-28
  * eighth). Each route's shell mounts its own toaster, so which unseen rows
  * were already waiting when the page loaded, and whether the person opened
- * them from the pill, live here rather than in the component. Sign-out
+ * them from the summary card, live here rather than in the component. Sign-out
  * forgets both, so the next person on this tab gets their own reading.
  */
 type Row = { _id: string; seenAt?: number; createdAt: number };
