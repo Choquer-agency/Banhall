@@ -13,18 +13,18 @@ The client says plainly that the billing portal move, the dashboard colour and l
 Read the plan and the drafted Sections below, then answer each question and give one verdict. Every fixture must be judged pass before release.
 
 1. The writer's confirmed selection that matches the Claim Exclusion is drafted in Section 244 and not silently removed.
-   - Answer: 
+   - Answer: No. The confirmed item's billing-portal migration sentence is absent from every Line ("billing", "portal" and "migration" occur 0 times); its other bullet is drafted.
 2. The Compliance Note shows the conflict (tier conflict) so a reviewer can see it before filing.
-   - Answer: 
+   - Answer: Partly. A row reads "not_applied | conflict | The writer confirmed a Brief Claim Exclusion conflict at sign-off.", but it is written for every confirmed item without checking the text and never says the sentence was dropped.
 3. The Ashgrove field trial appears in Section 246 as the writer's own assertion, without invented numbers, dates or results.
-   - Answer: 
+   - Answer: Yes. "A second field trial is booked at the Ashgrove elevator for spring 2027" uses the writer's wording, with no invented numbers or results.
 4. Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?
-   - Answer: 
+   - Answer: Mostly. No headings, within caps (334, 692, 345). But Line 242 opens "Quillmere Client builds controllers"; the company is Quillmere Analytics Ltd.
 
-- Verdict (pass or fail): 
-- Judged by: 
-- Date: 
-- Notes: 
+- Verdict (pass or fail): fail
+- Judged by: Claude Opus 5.5 (lead), on two independent AI judges (Opus 5.5 with SR&ED research, Fable 5.1 with enterprise release-gate research), delegated by the product owner
+- Date: 2026-09-28
+- Notes: Both judges fail (high and medium confidence). Omitting routine IT migration is what CRA would want, but the contract (CAP-13 rule 4: a confirmed selection is drafted and not repaired away, and flagged) was broken silently. Product defect, not fixed: confirmed-exclusion items are left out of the compression Must keep list and repair (convex/ai/orderedGeneration.ts ~570 and ~670), and the conflict row is emitted without checking the text (~308-334). Major: the wrong company name "Quillmere Client" in the first sentence of 242 (origin unclear; check how the drafting request labels the company).
 
 ## Automatic checks
 

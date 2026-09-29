@@ -13,18 +13,18 @@ A continuing project whose sources describe the previous year in detail (the Ori
 Read the plan and the drafted Sections below, then answer each question and give one verdict. Every fixture must be judged pass before release.
 
 1. Section 244 does not describe the previous year's status (Orion-1, the 14-day drift limit, what remained open at the end of fiscal 2025) as a topic of its own.
-   - Answer: 
+   - Answer: Yes. Line 244 has no Orion-1, no 14-day figure and no end-of-fiscal-2025 status; the Compliance Note reads "Omit signed-off role prior_year_status | applied".
 2. Where this year's work refers back to the earlier prototype, it does so only as context for fiscal 2026 work, not as a previous-year status passage.
-   - Answer: 
+   - Answer: Yes. The only back-reference in 244 is one clause from the signed-off hypothesis; Orion-1 and the wiper limit appear in 242 as goal and limitation context, which the Skip does not forbid.
 3. The rest of Section 244 (work plan, hypothesis, experiments) is complete without the skipped role.
-   - Answer: 
+   - Answer: Yes. Work plan with dates, hypothesis, coupon rounds, tank runs and the field trial, with figures that match the notes.
 4. Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?
-   - Answer: 
+   - Answer: Yes. Plain prose, no headings.
 
-- Verdict (pass or fail): 
-- Judged by: 
-- Date: 
-- Notes: 
+- Verdict (pass or fail): pass
+- Judged by: Claude Opus 5.5 (lead), on two independent AI judges (Opus 5.5 with SR&ED research, Fable 5.1 with enterprise release-gate research), delegated by the product owner
+- Date: 2026-09-28
+- Notes: Both judges pass (medium and high confidence). Major: Line 246 is 355 of 350 words; the product flags it ("shorten Line 246 to 350 words") and export refuses an over-limit Line; 70132834 (one targeted cut when at most 10 percent over) addresses it but is not yet proven on a live run. Minor: "UV-resistant polymer coatings" should be fouling-resistant fluoropolymers and hydrogels; advancement links in the plan show the same structural-only weakness as changed-advancement-links.
 
 ## Automatic checks
 

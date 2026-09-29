@@ -13,18 +13,18 @@ The writer approves through Experimentation, then switches the goal framing (fro
 Read the plan and the drafted Sections below, then answer each question and give one verdict. Every fixture must be judged pass before release.
 
 1. Section 242 states the goal the writer switched to, not the first framing, and the carried uncertainties still read as consistent with it.
-   - Answer: 
+   - Answer: Yes. Line 242 paragraph 2 states the switched-to goal (cut cracking under thermal shock, raise capture of 20 to 80 micron inclusions); the first framing (a single pore-graded filter) appears nowhere. The carried uncertainties (firing survival, capture against flow) fit it.
 2. The carried uncertainty selections are drafted faithfully, even though their Seeds were produced before the goal change.
-   - Answer: 
+   - Answer: Yes. Line 242 paragraph 5 follows plan item 5 clause by clause; "slurry loading" became the glossary term "slurry pick-up", which the sources also use.
 3. The edited term "cascade-fired lattice" is used naturally in Section 242, and the writer-asserted wording is presented without invented evidence.
-   - Answer: 
+   - Answer: Yes. "The team calls the graded structure under study in this project the cascade-fired lattice." No evidence is invented for the name.
 4. Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?
-   - Answer: 
+   - Answer: Yes. Plain prose, no headings, all three Lines within their caps (341, 665, 345 words).
 
-- Verdict (pass or fail): 
-- Judged by: 
-- Date: 
-- Notes: 
+- Verdict (pass or fail): pass
+- Judged by: Claude Opus 5.5 (lead), on two independent AI judges (Opus 5.5 with SR&ED research, Fable 5.1 with enterprise release-gate research), delegated by the product owner
+- Date: 2026-09-28
+- Notes: Both judges pass (high and medium confidence). Every figure checked matches the trial notes. Major, for the consultant: Line 244 says Line 242 sets out three uncertainties (adds interface behaviour under thermal shock) but 242 states two, and Line 246 claims an advancement on the third; the cross-Line consistency pass did not run on this fixture (call failed). Minor: "the 25 mm zone originally assumed" is not in the hypothesis; the field-trial Compliance Note row is stale.
 
 ## Automatic checks
 

@@ -13,18 +13,18 @@ On Company / Context the writer gives two Feedback instructions. The first (call
 Read the plan and the drafted Sections below, then answer each question and give one verdict. Every fixture must be judged pass before release.
 
 1. Nothing in the Seeds after the withdrawal, the plan or the report calls the pilot cell the Kestrel line.
-   - Answer: 
+   - Answer: Yes. "Kestrel" appears in 0 later Seeds, 0 plan items and 0 Sections.
 2. Subsection 9's Seeds and Section 244 call the tool the compliant spindle, as the active Feedback asked.
-   - Answer: 
+   - Answer: No. The drafted Lines say "floating head" 8 times and "compliant spindle" 0 times (Line 242 and 246 even say "compliant floating head"), although the active Feedback said "never the floating head, here and in every later step" and plan items 2, 5 and 13 use "compliant spindle". The Brief's Glossary Term won.
 3. The experiments in Section 244 match the sources (burr heights, forces, cycle times, reject rates) despite the renamed tool.
-   - Answer: 
+   - Answer: Yes. Every figure in Line 244 matches the memo (14 percent; 0.18 mm at 210 ms; 0.07 mm at 95 ms; knee near 0.6 mm; 4.3 percent; chatter above about 28 N; 2.6 and 97.8 percent; 2.4 percent).
 4. Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?
-   - Answer: 
+   - Answer: Yes. Plain prose, no headings, within caps (347, 588, 337).
 
-- Verdict (pass or fail): 
-- Judged by: 
-- Date: 
-- Notes: 
+- Verdict (pass or fail): fail
+- Judged by: Claude Opus 5.5 (lead), on two independent AI judges (Opus 5.5 with SR&ED research, Fable 5.1 with enterprise release-gate research), delegated by the product owner
+- Date: 2026-09-28
+- Notes: Both judges fail (high and medium confidence). Product defect, not fixed: Feedback wording is not a protected term at drafting (only writer edits to Seed text are), so Glossary normalization overrides an active Feedback instruction, against CAP-13 precedence (signed-off selections outrank Brief entries). Major: Line 246 says "97.8 percent of edges, just under the 97 percent threshold" (97.8 is over), inherited from the signed-off Seed. The Line 246 Self-check failure (planVerdicts invalid_type) is fixed by fe84a8f2, not yet proven live.
 
 ## Automatic checks
 

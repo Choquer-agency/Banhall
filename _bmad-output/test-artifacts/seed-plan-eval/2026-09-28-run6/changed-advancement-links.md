@@ -13,18 +13,18 @@ The writer selects three uncertainties and several experiments, approves Specifi
 Read the plan and the drafted Sections below, then answer each question and give one verdict. Every fixture must be judged pass before release.
 
 1. Section 246 does not claim an advancement for the uncertainty the writer dropped.
-   - Answer: 
+   - Answer: No. Line 246 paragraph 2: "Stepwise acclimation resolved the cold-water start-up uncertainty below 10 C", the uncertainty the writer dropped; paragraph 1 adds "The U1 hypothesis ... was proven".
 2. The advancements that share one uncertainty are drafted as one advancement with facets, not as two separate claims.
-   - Answer: 
+   - Answer: Yes, formally: the two advancements are one paragraph with facets and the Compliance Note shows "Merged items 2". But the merged advancement belongs to the dropped uncertainty.
 3. Each drafted advancement matches an uncertainty in Section 242 and an experiment in Section 244.
-   - Answer: 
+   - Answer: No. The plan links both start-up advancements to the sensor uncertainty; Line 242 lists only the dosing and sensor uncertainties, so the start-up advancement matches nothing in 242. Paragraphs 3 and 4 match 242 and 244 but come from the Brief, not the plan.
 4. Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?
-   - Answer: 
+   - Answer: Mostly. No headings, but "U1" and "U2" are internal labels a CRA reader cannot resolve.
 
-- Verdict (pass or fail): 
-- Judged by: 
-- Date: 
-- Notes: 
+- Verdict (pass or fail): fail
+- Judged by: Claude Opus 5.5 (lead), on two independent AI judges (Opus 5.5 with SR&ED research, Fable 5.1 with enterprise release-gate research), delegated by the product owner
+- Date: 2026-09-28
+- Notes: Both judges fail (high and medium confidence). Product defect, not fixed by any commit after c8ce1fe2: the Subsection 11 link rule is structural only (an allowed uncertainty id), so with only start-up experiments selected the Seed model linked start-up advancements to the sensor uncertainty and the automatic link check passed. Needs a semantic link rule (an advancement must resolve the uncertainty it links) or a flag when selected experiments belong to a dropped uncertainty. Major: Line 242 says three uncertainties and lists two. The script's blind choice of two linked advancements made the corner; a rerun should pick by content.
 
 ## Automatic checks
 
