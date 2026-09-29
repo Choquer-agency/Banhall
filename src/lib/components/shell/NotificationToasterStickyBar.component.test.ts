@@ -8,6 +8,7 @@ import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+import { notificationSession } from "$lib/shell/notificationSession.svelte";
 
 /**
  * Recheck #1: on tablet (1024) and phone (390) the notification card sat on
@@ -53,6 +54,7 @@ beforeEach(() => {
   __resetPage();
   __resetNavigation();
   __resetConvexStub();
+  notificationSession.clear();
   takeProjectStart();
   __setQueryData("notifications:listRecent", [notification]);
   __setQueryData("users:getCurrentUser", { _id: "user-1", role: "writer", firstName: "Wendy" });

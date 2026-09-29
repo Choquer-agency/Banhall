@@ -6,6 +6,7 @@ import { goto } from "$app/navigation";
 import { toast } from "svelte-sonner";
 import { authClient } from "$lib/authClient";
 import { clearAllOutboxes } from "$lib/uploads/attemptOutbox";
+import { notificationSession } from "$lib/shell/notificationSession.svelte";
 import { LAST_ACCOUNT_KEY, readLastAccount, rememberAccount } from "$lib/auth/lastAccount";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetPage } from "$lib/test/app-state-stub.svelte";
@@ -145,6 +146,9 @@ describe("UserMenu", () => {
     vi.mocked(authClient.signOut).mockReturnValueOnce(pending);
     rememberAccount({ email: "account@banhall.com", firstName: "Account", lastName: "Writer" });
     expect(readLastAccount()?.email).toBe("account@banhall.com");
+    // This person's reading of which notifications were waiting (eighth).
+    notificationSession.waiting([{ _id: "n1", createdAt: 0 }], 0);
+    notificationSession.showWaiting();
     await render(UserMenu, { tone: "light", menuTheme: "light" });
     const trigger = page.getByRole("button", { name: "Account menu", exact: true });
     await trigger.click();
@@ -167,6 +171,9 @@ describe("UserMenu", () => {
     expect(clearAllOutboxes).toHaveBeenCalledTimes(1);
     // Decision 58: an explicit sign-out forgets the returning-user greeting.
     expect(localStorage.getItem(LAST_ACCOUNT_KEY)).toBeNull();
+    // The next person gets their own reading of waiting notifications.
+    expect(notificationSession.waitingShown).toBe(false);
+    expect(notificationSession.waiting(undefined, 0)).toBeNull();
     expect(goto).toHaveBeenCalledWith("/login", { replaceState: true, invalidateAll: true });
     await expect.element(page.getByRole("menuitem", { name: "Sign out", exact: true })).not.toHaveAttribute("aria-disabled", "true");
     expect(authClient.signOut).toHaveBeenCalledTimes(1);

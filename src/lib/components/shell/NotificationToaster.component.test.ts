@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
-import NotificationToaster, { __resetNotificationSession } from "./NotificationToaster.svelte";
+import NotificationToaster from "./NotificationToaster.svelte";
+import { notificationSession } from "$lib/shell/notificationSession.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
@@ -34,7 +35,7 @@ describe("NotificationToaster (I3, F6 card)", () => {
     __resetPage();
     __resetNavigation();
     __resetConvexStub();
-    __resetNotificationSession();
+    notificationSession.clear();
     __setPageUrl("/my-work");
   });
 
@@ -93,8 +94,8 @@ describe("NotificationToaster (I3, F6 card)", () => {
 
     await page.getByRole("button", { name: "2 updates while you were away", exact: true }).click();
     await expect.poll(() => cards().length).toBe(3);
-    // Earliest first, and keyboard focus lands on the first card the pill opened.
-    expect(cards().map((card) => card.dataset.notificationId)).toEqual(["earlier-1", "earlier-2", "new"]);
+    // New ones stay first, and keyboard focus lands on the first card the pill opened.
+    expect(cards().map((card) => card.dataset.notificationId)).toEqual(["new", "earlier-1", "earlier-2"]);
     expect(document.activeElement?.closest<HTMLElement>("[data-notification-id]")?.dataset.notificationId).toBe("earlier-1");
     await page.getByRole("button", { name: "Dismiss all 2 earlier updates", exact: true }).click();
     await expect.poll(() => cards().length).toBe(1);
