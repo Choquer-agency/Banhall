@@ -171,6 +171,14 @@ describe("Glossary Terms the writer's wording sets aside (2026-09-29 second, CAP
       "Floating head should not be used.",
       "Floating head can't be used here.",
       "Terminology: never floating head.",
+      // PR #22 review, round 2: explicit bans.
+      "Floating head is not allowed.",
+      "The floating head isn't permitted in this report.",
+      "Floating head is not acceptable.",
+      "Floating head is prohibited.",
+      "Floating heads are disallowed.",
+      "We prohibit floating head.",
+      "Disallow floating head everywhere.",
     ];
     const replacing = [
       "Use compliant spindle instead of floating head.",
@@ -195,6 +203,8 @@ describe("Glossary Terms the writer's wording sets aside (2026-09-29 second, CAP
       "Replace the compliant spindle with the floating head.",
       "Don't call it the compliant spindle, call it the floating head.",
       "Say Grandbois, Quebec.",
+      "The floating head is allowed.",
+      "Floating head is permitted here.",
     ]) {
       expect(rulesOut(instruction), instruction).toBe(false);
     }

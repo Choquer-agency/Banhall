@@ -192,6 +192,8 @@ const RULING_OUT = wordsPattern([
   "delet(?:e|es|ed|ing)",
   "ban(?:s|ned)?",
   "forbid(?:s|den)?",
+  "prohibit(?:s|ed|ing)?",
+  "disallow(?:s|ed|ing)?",
   "get rid of",
   "stay away from",
   "steer clear of",
@@ -223,6 +225,8 @@ const RULED_OUT_AFTER = new RegExp(
     "(?:cannot|can't|cant|won't|wont|shouldn't|shouldnt|mustn't|mustnt) be (?:used|said|written|mentioned|called|kept)",
     "(?:should|must|needs to|has to|is to|will) be (?:replaced|changed|renamed|dropped|removed|avoided|retired)",
     "(?:is|are) (?:no longer|not) (?:used|right|correct|accurate)",
+    "(?:is|are|was|were)(?: not|n't|nt) (?:allowed|permitted|acceptable|approved|ok|okay|wanted|to be used)",
+    "(?:is|are|was|were) (?:prohibited|disallowed|off-limits|not to be used)",
     "(?:is|are) out",
   ].join("|")})${EDGE_AFTER}|^(?:=?>|\u2192|\u21d2)`
 );
