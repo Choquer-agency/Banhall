@@ -36,6 +36,7 @@ import {
   summarySelfCheckWorstCaseResponse,
   stableSerialize,
   resolveFrozenSourceId,
+  MAX_SEED_SNAPSHOT_ROWS,
 } from "../seedRevisions";
 import { transitionGeneration } from "../generationTransitions";
 import { refreshProjectGenerationActivity } from "../dashboardProjection";
@@ -54,6 +55,12 @@ import { isProjectDeleting } from "../projectDeletion";
 import { internal } from "../../_generated/api";
 import { SEED_DECISION_COLLECTION_ROWS } from "../seedDecisionState";
 import { editedTermsOf, MAX_EDITED_TERMS_PER_LINE } from "../editedTerms";
+import {
+  feedbackForLine,
+  glossaryTermsSetAside,
+  type GlossarySetAside,
+  type WriterFeedback,
+} from "../writerPrecedence";
 
 export const generateOrderedSectionRef = makeFunctionReference<
   "action",
@@ -718,7 +725,12 @@ export async function retryInitializeSeedStageHandler(
 export async function loadFrozenSectionPlan(
   ctx: { db: QueryCtx["db"] },
   generation: Doc<"generations">,
-  section: SectionNumber
+  section: SectionNumber,
+  /**
+   * 2026-09-29 (second): the frozen Brief's Glossary Terms, so the plan can
+   * say which ones the writer's own wording sets aside in this Line.
+   */
+  options: { glossaryTerms?: readonly string[] } = {}
 ): Promise<{
   planBlock: string;
   planChecksBlock: string;
@@ -749,9 +761,24 @@ export async function loadFrozenSectionPlan(
    * compression and the repair.
    */
   editedTerms: string[];
+  /**
+   * 2026-09-29 (second, CAP-13 rule 5): the active Feedback that reaches
+   * this Line (its steps and every earlier step), which outranks the Brief.
+   * Withdrawn Feedback, and Feedback a Skip suspended, never does.
+   */
+  writerFeedback: WriterFeedback[];
+  /** The Glossary Terms the writer's own wording governs in this Line. */
+  glossarySetAside: GlossarySetAside[];
 }> {
   if (!generation.summaryVersionId) {
-    return { planBlock: "", planChecksBlock: "", planChecks: [], editedTerms: [] };
+    return {
+      planBlock: "",
+      planChecksBlock: "",
+      planChecks: [],
+      editedTerms: [],
+      writerFeedback: [],
+      glossarySetAside: [],
+    };
   }
   const summary = await ctx.db.get(generation.summaryVersionId);
   if (!summary || summary.projectId !== generation.projectId) {
@@ -796,11 +823,18 @@ export async function loadFrozenSectionPlan(
   // An edited item's terms: what the writer changed or added compared with
   // the model's original Seed (immutable). Items frozen before 2026-09-24
   // lack the flag and compare wording, as the Summary reader does.
+  // Since 2026-09-29 (second) an idea the writer kept despite a Claim
+  // Exclusion is drafted like any other (CAP-13 rule 4), so its edited terms
+  // count too.
   const itemsById = new Map(items.map((item) => [item._id, item] as const));
   const editedTerms: string[] = [];
+  const editedItems: Array<{ original: string[]; edited: string[] }> = [];
+  const seenItems = new Set<string>();
   for (const check of plan.checks) {
-    if (check.instruction !== "cover" || check.confirmedExclusion) continue;
+    if (check.instruction !== "cover") continue;
     for (const itemId of check.mergedItemIds) {
+      if (seenItems.has(itemId)) continue;
+      seenItems.add(itemId);
       const item = itemsById.get(itemId);
       if (!item || item.edited === false) continue;
       const seed = await ctx.db.get(item.seedId);
@@ -808,6 +842,7 @@ export async function loadFrozenSectionPlan(
       if (item.edited === undefined && stableSerialize(item.bullets) === stableSerialize(seed.bullets)) {
         continue;
       }
+      editedItems.push({ original: seed.bullets, edited: item.bullets });
       for (const term of editedTermsOf(seed.bullets, item.bullets)) {
         if (!editedTerms.some((known) => known.toLowerCase() === term.toLowerCase())) {
           editedTerms.push(term);
@@ -815,7 +850,31 @@ export async function loadFrozenSectionPlan(
       }
     }
   }
+  // CAP-13 rule 5 (2026-09-29, second): the active Feedback of the run that
+  // signed this Summary off. Nothing changes it after sign-off.
+  const feedbackRows = await ctx.db
+    .query("seedFeedbackRequests")
+    .withIndex("by_generationId_and_status_and_roleId", (q) =>
+      q.eq("generationId", originGenerationId).eq("status", "active"))
+    .take(MAX_SEED_SNAPSHOT_ROWS + 1);
+  if (feedbackRows.length > MAX_SEED_SNAPSHOT_ROWS) {
+    domainError("INVALID_INPUT", "Frozen Summary Feedback exceeds the drafting budget");
+  }
+  const writerFeedback = feedbackForLine(
+    section,
+    feedbackRows
+      .filter((row) => row.projectId === generation.projectId)
+      .sort((a, b) => a._creationTime - b._creationTime),
+    summary.skippedRoleIds
+  );
+  const glossarySetAside = glossaryTermsSetAside({
+    glossaryTerms: options.glossaryTerms ?? [],
+    feedback: writerFeedback,
+    editedItems,
+  });
   return {
+    writerFeedback,
+    glossarySetAside,
     editedTerms: editedTerms.slice(0, MAX_EDITED_TERMS_PER_LINE),
     planBlock: `\n\n${plan.block}`,
     planChecksBlock: plan.checksBlock,

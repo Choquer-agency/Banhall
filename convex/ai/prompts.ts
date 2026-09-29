@@ -1152,7 +1152,7 @@ Signed-off content plan (Summary mode). These rules replace any rule above that 
 - Return exactly one planVerdict for every item and Skip in CONTENT PLAN CHECKS.
 - Judge coverage against each item's frozen role, wording and supporting references. Preserve every supplied item id in mergedItemIds.
 - An applied item verdict must identify the paragraph containing the evidence. A Skip is honoured by absence: it is applied only when the role is absent, with paragraph 0. A Skip that is not applied names the paragraph where the role appears.
-- The signed-off plan outranks the Brief. A confirmed exclusion conflict is always not_applied evidence with no repair guidance; do not attempt to resolve it.`;
+- The signed-off plan outranks the Brief. An item with confirmedExclusion true was kept by the writer at sign-off although it matches a Brief Claim Exclusion: judge its coverage like any other item, applied when the section covers it, and never ask for it to be removed, softened or disclaimed.`;
 
 export const CONSISTENCY_SYSTEM_PROMPT = `You run the single consistency pass over an assembled Canadian SR&ED project description (Lines 242, 244 and 246) before the writer sees its last section. You never rewrite; you report findings.
 

@@ -398,7 +398,36 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     exactTermsPrefix:
       "\n\nKeep the writer's exact terms word for word, even where an issue above calls one unsupported or invented: ",
     exactTermsSuffix: ".",
+    // 2026-09-29 (second): only present when the Line has WRITER'S DECISIONS
+    // (an idea kept despite a Claim Exclusion, active Feedback or a Glossary
+    // Term set aside). In release suite run 6 the repair of Line 244 dropped
+    // the idea the writer kept despite a Claim Exclusion.
+    writerDecisions:
+      "\n\nThe WRITER'S DECISIONS after the plan and the Brief outrank these issues: where an issue asks to drop or soften an idea the writer kept despite a Claim Exclusion, to go against the writer's Feedback or to use a Glossary Term set aside for this Line, leave that part as the writer decided.",
     draftPrefix: "\n\nDraft to revise:\n",
+  },
+  // 2026-09-29 (second): the writer's decisions that outrank the Brief
+  // (CAP-13 rules 4 and 5), read after the plan and the Brief and before the
+  // writer's exact terms and the Locked length. Only present when the Line
+  // has at least one; each part only when it has entries.
+  writerDecisions: {
+    heading:
+      "\n\n# WRITER'S DECISIONS (outrank the Brief)\nThe writer made these decisions while planning. The Locked Rules and the signed-off plan outrank them, and they outrank the Brief, including its Claim Exclusions and Glossary Terms.",
+    keptIntro:
+      "\n\nIdeas kept despite a Claim Exclusion. At sign-off the writer confirmed each idea below although it matches a Claim Exclusion in the Brief. Write each one in this Line as the plan gives it; do not drop, soften or disclaim it. That Claim Exclusion does not apply to the idea's own content. Every other Claim Exclusion still applies.",
+    keptPrefix: "\n- \"",
+    keptExclusionPrefix: "\" (matches the Claim Exclusion \"",
+    keptExclusionSuffix: "\")",
+    keptSuffix: "\"",
+    feedbackIntro:
+      "\n\nThe writer's Feedback. Each instruction was given on the step named and applies to that step and every later step, as it did while the ideas were written. Follow each one wherever it applies in this Line, even where the Brief says otherwise.",
+    feedbackPrefix: "\n- On ",
+    feedbackMiddle: ": \"",
+    feedbackSuffix: "\"",
+    glossaryIntro:
+      "\n\nGlossary Terms set aside in this Line. The writer's own wording governs these terms here: never use one to replace the writer's wording, and never add one where the writer's wording or Feedback avoids it.",
+    glossaryPrefix: "\n- \"",
+    glossarySuffix: "\"",
   },
   // 2026-09-28 (second, edited terms): the terms a writer changed or added
   // in a signed-off Seed Selection (CAP-13), read before the Locked length.
@@ -429,6 +458,7 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     "{{runtime.draftedPriorSections}}",
     "{{runtime.selfCheckIssues}}",
     "{{runtime.editedTerms}}",
+    "{{runtime.writerDecisions}}",
     "{{runtime.sectionDraft}}",
     "{{runtime.wordCap}}",
     "{{runtime.lineLimit}}",
@@ -741,6 +771,23 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     separator: "\n",
     instruction:
       "\n\nThe WRITER'S EXACT TERMS block lists terms the writer put in the signed-off plan. Each is the writer's own wording and is allowed exactly as written: never report one as invented, unsupported, off the Storyline or missing from the sources, and never ask for one to be changed or removed. Check everything else in the section as usual.",
+  },
+  /**
+   * 2026-09-29 (second): the active Feedback that reaches the Line, as the
+   * drafting request gets it. Release suite run 6 enforced the Brief's
+   * Glossary Term "floating head" over the writer's "compliant spindle". The
+   * block and the line after the data blocks are only present when the Line
+   * has active Feedback, in the first request, its follow-up and the final
+   * coverage check.
+   */
+  writerFeedback: {
+    blockLabel: "WRITER'S FEEDBACK",
+    linePrefix: "- On ",
+    lineMiddle: ": \"",
+    lineSuffix: "\"",
+    separator: "\n",
+    instruction:
+      "\n\nThe WRITER'S FEEDBACK block lists instructions the writer gave while planning, each on the step named and every later step. They outrank the Brief: wording that follows one is correct even where the Storyline, a Glossary Term or the sources name the same thing another way, so never report it or ask for it to be changed. Check everything else in the section as usual.",
   },
   finalCoverage: {
     instruction:

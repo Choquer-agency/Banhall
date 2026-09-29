@@ -34,7 +34,7 @@ import {
   runDeterministicSelfCheck,
 } from "../lib/selfCheckRules";
 import type { OrderedProfileContext } from "../lib/orderedChain";
-import { planComplianceNoteDrafts } from "./orderedGeneration";
+import { keptIdeaReason, planComplianceNoteDrafts } from "./orderedGeneration";
 import {
   NOT_CHECKED_REASON,
   PLAN_ITEM_NOT_CHECKED_REASON,
@@ -1661,7 +1661,7 @@ describe("deterministic Self-check rules", () => {
     })]);
   });
 
-  it("writes one plan row per item and Skip, retains merges, and never repairs confirmed exclusions", () => {
+  it("writes one plan row per item and Skip, retains merges, and records a kept idea from its verdict, never as repaired", () => {
     const summaryVersionId = "summary" as Id<"summaryVersions">;
     const first = "item-1" as Id<"summaryItems">;
     const second = "item-2" as Id<"summaryItems">;
@@ -1708,9 +1708,86 @@ describe("deterministic Self-check rules", () => {
     });
     expect(rows).toHaveLength(3);
     expect(rows[0]).toMatchObject({ outcome: "applied", paragraphIndex: 1, planRef: { itemId: first, mergedItemIds: [first, second] } });
-    expect(rows[1]).toMatchObject({ outcome: "not_applied", tier: "conflict", repaired: false, planRef: { itemId: second, mergedItemIds: [first, second] } });
-    expect(rows[1].paragraphIndex).toBeUndefined();
+    // CAP-13 rule 4 (2026-09-29, second): the idea the writer kept despite a
+    // Claim Exclusion is drafted; its row says so, tier conflict, never repaired.
+    expect(rows[1]).toMatchObject({
+      outcome: "applied",
+      tier: "conflict",
+      repaired: false,
+      paragraphIndex: 1,
+      reason: keptIdeaReason("drafted", "Excluded advancement."),
+      planRef: { itemId: second, mergedItemIds: [first, second] },
+    });
+    expect(rows[1].reason).toBe(
+      "Drafted despite a Claim Exclusion: the writer kept the idea \"Excluded advancement.\" at sign-off, so it stays in the report and is not repaired away."
+    );
     expect(rows[2]).toMatchObject({ outcome: "applied", planRef: { skippedRoleId: "project_status", mergedItemIds: [] } });
+  });
+
+  it("records a kept idea the final text leaves out, or could not check, as a visible not_applied conflict row", () => {
+    const summaryVersionId = "summary" as Id<"summaryVersions">;
+    const item = "item-kept" as Id<"summaryItems">;
+    const check = {
+      itemId: item,
+      roleId: "experimentation" as const,
+      mergedItemIds: [item],
+      instruction: "cover" as const,
+      confirmedExclusion: true,
+      wording: ["The work also covered the billing portal move."],
+      relationshipReferences: [],
+      sourceReferences: [],
+    };
+    const confirmed = (paragraphIndex?: number) => new Map([[item as string, {
+      exclusion: "Migration of the customer billing portal was routine IT work.",
+      words: "The work also covered the billing portal move.",
+      ...(paragraphIndex === undefined ? {} : { paragraphIndex }),
+    }]]);
+    const missing = planComplianceNoteDrafts({
+      section: "244",
+      summaryVersionId,
+      checks: [check],
+      verdicts: [{ itemId: item, mergedItemIds: [item], outcome: "not_applied", reason: "Not in the section." }],
+      coverageCheckSucceeded: true,
+      confirmed: confirmed(),
+    });
+    expect(missing[0]).toMatchObject({ outcome: "not_applied", tier: "conflict", repaired: false });
+    expect(missing[0].reason).toBe(
+      "Not drafted: the writer kept the idea \"The work also covered the billing portal move.\" at sign-off despite the Claim Exclusion \"Migration of the customer billing portal was routine IT work.\", but the final text leaves it out. Add it before filing, or confirm with the writer that it should go."
+    );
+    // The excluded words standing in the final text count as drafted, even
+    // when the verdict missed them.
+    const inText = planComplianceNoteDrafts({
+      section: "244",
+      summaryVersionId,
+      checks: [check],
+      verdicts: [{ itemId: item, mergedItemIds: [item], outcome: "not_applied", reason: "Not in the section." }],
+      coverageCheckSucceeded: true,
+      confirmed: confirmed(3),
+    });
+    expect(inText[0]).toMatchObject({ outcome: "applied", tier: "conflict", paragraphIndex: 3 });
+    // A Self-check that did not complete leaves it not checked.
+    const unchecked = planComplianceNoteDrafts({
+      section: "244",
+      summaryVersionId,
+      checks: [check],
+      verdicts: [{ itemId: item, mergedItemIds: [item], outcome: "not_applied", reason: "The plan coverage Self-check did not complete." }],
+      coverageCheckSucceeded: false,
+      confirmed: confirmed(),
+    });
+    expect(unchecked[0]).toMatchObject({ outcome: "not_applied", tier: "conflict" });
+    expect(unchecked[0].reason.startsWith("Not checked: the Self-check gave no usable verdict for the idea")).toBe(true);
+    // The final coverage check decides after a used repair.
+    const final = planComplianceNoteDrafts({
+      section: "244",
+      summaryVersionId,
+      checks: [check],
+      verdicts: [{ itemId: item, mergedItemIds: [item], outcome: "not_applied", reason: "Not in the section." }],
+      repairSucceeded: true,
+      coverageCheckSucceeded: true,
+      finalCoverage: { ok: true, verdicts: [{ itemId: item, mergedItemIds: [item], paragraphIndex: 4, outcome: "applied", reason: "P5 covers it." }] },
+      confirmed: confirmed(),
+    });
+    expect(final[0]).toMatchObject({ outcome: "applied", tier: "conflict", paragraphIndex: 4, repaired: false });
   });
 
   it("marks plan and model rows not re-verified when compression changed an accepted repair (review P2-1)", () => {

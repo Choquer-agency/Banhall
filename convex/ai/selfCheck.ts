@@ -20,6 +20,7 @@ import {
 } from "./promptDefinitions";
 import { sectionParagraphs } from "../lib/tiptapReport";
 import { containsTerm } from "../lib/editedTerms";
+import { stepTitle, type WriterFeedback } from "../lib/writerPrecedence";
 import {
   isSectionNumber,
   type SectionNumber,
@@ -454,6 +455,11 @@ export type SelfCheckModelInput = {
    * frozen plan, allowed word for word. Summary mode only.
    */
   editedTerms?: readonly string[];
+  /**
+   * 2026-09-29 (second): the active Feedback that reaches the Line, which
+   * outranks the Brief. Summary mode only.
+   */
+  writerFeedback?: readonly WriterFeedback[];
 };
 
 function summaryEditedTerms(input: SelfCheckModelInput): string[] {
@@ -557,9 +563,24 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
       terms.map((term) => `${exact.termPrefix}${term}${exact.termSuffix}`).join(exact.separator)
     ));
   }
+  // 2026-09-29 (second): the writer's active Feedback, which outranks the
+  // Brief: a block of data and, after the blocks, the rule for it. Absent
+  // without Feedback, so those requests are unchanged.
+  const feedback = hasSummaryPlan
+    ? (input.writerFeedback ?? []).filter((entry) => entry.instruction.trim())
+    : [];
+  const writer = SUMMARY_PLAN_SELF_CHECK_REQUEST.writerFeedback;
+  if (feedback.length > 0) {
+    blocks.push(block(
+      writer.blockLabel,
+      feedback
+        .map((entry) => `${writer.linePrefix}${stepTitle(entry.roleId)}${writer.lineMiddle}${entry.instruction.trim()}${writer.lineSuffix}`)
+        .join(writer.separator)
+    ));
+  }
   return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}${
     terms.length > 0 ? exact.instruction : ""
-  }`;
+  }${feedback.length > 0 ? writer.instruction : ""}`;
 }
 
 export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
@@ -1405,6 +1426,7 @@ export async function runFinalCoverageSelfCheck(
     planChecks: SelfCheckPlanCheck[];
     planChecksBlock?: string;
     editedTerms?: readonly string[];
+    writerFeedback?: readonly WriterFeedback[];
   }
 ): Promise<ModelSelfCheckResult["planVerdicts"]> {
   if (input.planChecks.length === 0) return [];
@@ -1420,6 +1442,7 @@ export async function runFinalCoverageSelfCheck(
     planChecksBlock: input.planChecksBlock,
     coverageOnly: true,
     ...(input.editedTerms?.length ? { editedTerms: input.editedTerms } : {}),
+    ...(input.writerFeedback?.length ? { writerFeedback: input.writerFeedback } : {}),
   });
   return result.planVerdicts;
 }

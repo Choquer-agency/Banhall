@@ -1936,8 +1936,10 @@ describe("seed Summary sign-off and recovery", () => {
       .map(([params]) => params as GenerationMessageParams)
       .find((params) => params.tool_choice);
     if (!selfCheckRequest) throw new Error("No Self-check request");
+    // 2026-09-29 (second): an idea kept despite a Claim Exclusion is a
+    // COVER item like any other (CAP-13 rule 4).
     const coverItems = providerPlanChecks(selfCheckRequest)
-      .filter((check) => check.instruction === "cover" && !check.confirmedExclusion)
+      .filter((check) => check.instruction === "cover")
       .map((check) => check.wording.join(" "));
     expect(coverItems.length).toBeGreaterThan(0);
     expect(providerUser(draftRequest)).toContain("SIGNED-OFF CONTENT PLAN");
@@ -1994,6 +1996,143 @@ describe("seed Summary sign-off and recovery", () => {
     expect(plans.s242.editedTerms).toEqual(["cascade-fired lattice"]);
     expect(plans.s244.editedTerms).toEqual([]);
     expect(plans.s246.editedTerms).toEqual([]);
+  });
+
+  it("reaches drafting with the writer's active Feedback and sets aside the Glossary Term it names (2026-09-29 second)", async () => {
+    const s = await productionInitializedFixture();
+    await makeReady(s);
+    const spindle =
+      "Call the deburring tool the compliant spindle, never the floating head, here and in every later step";
+    await s.t.run(async (ctx) => {
+      // Two Glossary Terms in the frozen Brief (fictional).
+      for (const text of ["floating head", "pilot cell"]) {
+        await ctx.db.insert("generationBriefEntries", {
+          briefId: s.briefId,
+          projectId: s.projectId,
+          group: "glossaryTerm",
+          text,
+          sourceId: s.sourceId,
+          sourceContentHash: "source-hash",
+          startOffset: 0,
+          endOffset: 14,
+          exactExcerpt: "Evidence alpha",
+          createdAt: 7,
+        });
+      }
+      const seedOf = async (roleId: PdSubsectionRoleId) => {
+        const selection = (await ctx.db.query("seedSelections")
+          .withIndex("by_generationId_and_roleId", (q) =>
+            q.eq("generationId", s.generationId).eq("roleId", roleId))
+          .take(5)).find((row) => row.selected);
+        if (!selection) throw new Error(`Missing ${roleId} selection`);
+        return selection.seedId;
+      };
+      const feedback = async (
+        roleId: PdSubsectionRoleId,
+        instruction: string,
+        status: "active" | "withdrawn" | "suspendedBySkip"
+      ) => ctx.db.insert("seedFeedbackRequests", {
+        projectId: s.projectId,
+        generationId: s.generationId,
+        roleId,
+        targetSeedId: await seedOf(roleId),
+        targetWording: ["Target wording."],
+        instruction,
+        status,
+        ...(status === "withdrawn" ? { withdrawnAt: 8 } : {}),
+      });
+      await feedback("company_context", spindle, "active");
+      await feedback("company_context", "Call the pilot cell the Kestrel line", "withdrawn");
+      await feedback("experimentation", "Name each test by its month.", "active");
+    });
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const plans = await s.t.run(async (ctx) => {
+      const generation = await ctx.db.get(s.generationId);
+      if (!generation) throw new Error("Missing generation");
+      const options = { glossaryTerms: ["floating head", "pilot cell"] };
+      return {
+        s242: await loadFrozenSectionPlan(ctx, generation, "242", options),
+        s244: await loadFrozenSectionPlan(ctx, generation, "244", options),
+        s246: await loadFrozenSectionPlan(ctx, generation, "246", options),
+        withoutBrief: await loadFrozenSectionPlan(ctx, generation, "242"),
+      };
+    });
+    // Feedback reaches its step's Line and every later Line; withdrawn never.
+    expect(plans.s242.writerFeedback).toEqual([{ roleId: "company_context", instruction: spindle }]);
+    expect(plans.s244.writerFeedback).toEqual([
+      { roleId: "company_context", instruction: spindle },
+      { roleId: "experimentation", instruction: "Name each test by its month." },
+    ]);
+    expect(plans.s246.writerFeedback).toEqual(plans.s244.writerFeedback);
+    const aside = [{
+      term: "floating head",
+      reason: `the writer's Feedback on Company / Context names this term: "${spindle}"`,
+    }];
+    expect(plans.s242.glossarySetAside).toEqual(aside);
+    expect(plans.s244.glossarySetAside).toEqual(aside);
+    expect(plans.s246.glossarySetAside).toEqual(aside);
+    expect(plans.withoutBrief.glossarySetAside).toEqual([]);
+    for (const plan of Object.values(plans)) {
+      expect(JSON.stringify(plan)).not.toContain("Kestrel");
+    }
+
+    // The claim reads the frozen Brief's terms and the drafting request
+    // carries the decisions, never the withdrawn instruction.
+    network.create.mockReset().mockImplementation(async (params: GenerationMessageParams) => {
+      if (params.tool_choice) {
+        return {
+          content: [{
+            type: "tool_use",
+            id: "feedback-check",
+            name: params.tool_choice.name,
+            input: {
+              verdicts: providerOrdinaryVerdicts(params),
+              planVerdicts: providerPlanChecks(params).map((check) => ({
+                ...(check.itemId ? { itemId: check.itemId } : {}),
+                ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+                mergedItemIds: check.mergedItemIds,
+                paragraph: 1,
+                outcome: "applied",
+                reason: "Covered.",
+              })),
+            },
+          }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      return {
+        content: [{ type: "text", text: "The compliant spindle ran in the pilot cell." }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+    const draftRequest = await runNextSectionAction(s, s.generationId);
+    const user = providerUser(draftRequest);
+    expect(user).toContain("# WRITER'S DECISIONS (outrank the Brief)");
+    expect(user).toContain(`- On Company / Context: "${spindle}"`);
+    expect(user).toContain("Glossary Terms set aside in this Line.");
+    expect(user).toContain("\n- \"floating head\"");
+    expect(user).not.toContain("Kestrel");
+    const selfCheck = network.create.mock.calls
+      .map(([params]) => params as GenerationMessageParams)
+      .find((params) => params.tool_choice?.name === "submit_self_check");
+    if (!selfCheck) throw new Error("No Self-check request");
+    expect(providerUser(selfCheck)).toContain(`--- BEGIN [WRITER'S FEEDBACK] ---\n- On Company / Context: "${spindle}"`);
+    expect(providerUser(selfCheck)).not.toContain("Kestrel");
+    const row = await s.t.run(async (ctx) => {
+      for (const section of ["242", "244", "246"] as const) {
+        const found = (await ctx.db.query("complianceNotes")
+          .withIndex("by_generationId_and_section", (q) =>
+            q.eq("generationId", s.generationId).eq("section", section))
+          .take(80)).find((note) => note.instruction === "Glossary Term: floating head");
+        if (found) return found;
+      }
+      return null;
+    });
+    expect(row).toMatchObject({ outcome: "not_applied", tier: "conflict", repaired: false });
+    vi.unstubAllEnvs();
   });
 
   it("attributes initialization-to-sign-off program drift at the first provider boundary", async () => {
@@ -4136,10 +4275,15 @@ describe("seed Summary sign-off and recovery", () => {
         .withIndex("by_generationId_and_section", (q) =>
           q.eq("generationId", s.generationId).eq("section", "246"))
         .take(30)).find((row) => row.tier === "conflict" && row.planRef));
+    // 2026-09-29 (second, CAP-13 rule 4): the idea the writer kept despite
+    // its Claim Exclusion stays in the repaired text and is recorded as
+    // drafted from it, tier conflict, never as repaired.
     expect(conflict).toMatchObject({
-      outcome: "not_applied",
+      outcome: "applied",
+      tier: "conflict",
       repaired: false,
     });
+    expect(conflict?.reason).toContain('Drafted despite the Claim Exclusion "Final specific_advancements wording."');
     const conflictRun = await s.t.run(async (ctx) =>
       (await ctx.db.query("generationSectionRuns")
         .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
@@ -4147,10 +4291,10 @@ describe("seed Summary sign-off and recovery", () => {
     expect(JSON.parse(conflictRun?.selfCheck ?? "{}")).toMatchObject({
       status: "repair_attempted",
       repairAttempted: true,
-      planCoverage: { status: "incomplete" },
+      planCoverage: { status: "complete" },
     });
     expect((await exposedProgress(s)).some((line) =>
-      line.includes("Self-check: repair attempted; plan coverage incomplete")
+      line.includes("Self-check: repair attempted; plan coverage complete")
     )).toBe(true);
   });
 
@@ -4323,9 +4467,14 @@ describe("seed Summary sign-off and recovery", () => {
         ? candidate.planRef?.itemId === check.itemId
         : candidate.planRef?.skippedRoleId === check.skippedRoleId);
       expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
-      expect(row?.outcome).toBe("not_applied");
       if (check.confirmedExclusion) {
-        expect(row).toMatchObject({ tier: "conflict", repaired: false });
+        // 2026-09-29 (second, CAP-13 rule 4): the kept idea's excluded
+        // words stand in the final text, so it is recorded as drafted even
+        // though the Self-check did not complete.
+        expect(row).toMatchObject({ outcome: "applied", tier: "conflict", repaired: false });
+        expect(row?.reason.startsWith("Drafted despite the Claim Exclusion")).toBe(true);
+      } else {
+        expect(row?.outcome).toBe("not_applied");
       }
     }
     expect(state.run).toMatchObject({
@@ -4337,7 +4486,10 @@ describe("seed Summary sign-off and recovery", () => {
     expect(JSON.parse(state.run?.selfCheck ?? "{}")).toMatchObject({
       status: "repair_attempted",
       repairAttempted: true,
-      planCoverage: { status: "unavailable", applied: 0 },
+      planCoverage: {
+        status: "unavailable",
+        applied: checks.filter((check) => check.confirmedExclusion).length,
+      },
     });
     expect((await exposedProgress(s)).some((line) =>
       line.includes("Self-check: repair attempted; plan coverage unavailable")
@@ -4477,8 +4629,11 @@ describe("seed Summary sign-off and recovery", () => {
         : candidate.planRef?.skippedRoleId === check.skippedRoleId);
       expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
       if (check.confirmedExclusion) {
+        // 2026-09-29 (second, CAP-13 rule 4): the verdict missed it, but its
+        // excluded words stand in the final text, so it is recorded as
+        // drafted, tier conflict, never as repaired.
         expect(row).toMatchObject({
-          outcome: "not_applied",
+          outcome: "applied",
           tier: "conflict",
           repaired: false,
         });
@@ -4498,12 +4653,12 @@ describe("seed Summary sign-off and recovery", () => {
       status: "repair_attempted",
       repairAttempted: true,
       failedChecks: 2,
-      planCoverage: { status: "incomplete" },
+      planCoverage: { status: "complete" },
     });
-    // Only the confirmed conflict stays not applied.
-    expect(persistedSummary.remainingFailures).toBe(1);
+    // The kept idea is drafted, so nothing stays not applied.
+    expect(persistedSummary.remainingFailures).toBe(0);
     expect((await exposedProgress(s)).some((line) =>
-      line.includes("Self-check: repair attempted; plan coverage incomplete")
+      line.includes("Self-check: repair attempted; plan coverage complete")
     )).toBe(true);
     await runNextSectionAction(s, s.generationId);
     await runNextSectionAction(s, s.generationId);
@@ -4641,10 +4796,12 @@ describe("seed Summary sign-off and recovery", () => {
     const completeSummary = JSON.parse(
       runs.find((row) => row.section === "s242")?.selfCheck ?? "{}"
     );
+    // 2026-09-29 (second, CAP-13 rule 4): the idea the writer kept despite a
+    // Claim Exclusion counts as covered when the check finds it drafted.
     expect(conflictSummary).toMatchObject({
       status: "pass",
       repairAttempted: false,
-      planCoverage: { status: "incomplete" },
+      planCoverage: { status: "complete" },
     });
     expect(completeSummary).toMatchObject({
       status: "pass",
@@ -4654,7 +4811,7 @@ describe("seed Summary sign-off and recovery", () => {
     const progress = await exposedProgress(s);
     expect(progress.some((line) =>
       line.includes("Self-check: pass; plan coverage incomplete")
-    )).toBe(true);
+    )).toBe(false);
     expect(progress.some((line) =>
       line.includes("Self-check: pass; plan coverage complete")
     )).toBe(true);
@@ -4726,10 +4883,11 @@ describe("seed Summary sign-off and recovery", () => {
     const summary246 = JSON.parse(
       state.runs.find((row) => row.section === "s246")?.selfCheck ?? "{}"
     );
-    // Section 246 carries a confirmed exclusion conflict, never an outage.
+    // Section 246 carries an idea kept despite a Claim Exclusion, which the
+    // check found drafted (2026-09-29, second), and never an outage.
     expect(summary246).toMatchObject({
       modelCheck: "ok",
-      planCoverage: { status: "incomplete" },
+      planCoverage: { status: "complete" },
     });
     const planRows = state.rows242.filter((row) => row.planRef);
     expect(planRows.length).toBeGreaterThan(0);
@@ -4981,8 +5139,10 @@ describe("seed Summary sign-off and recovery", () => {
     const planTarget = name === "a wrong item id" || name === "empty mergedItemIds";
     expect(Boolean(notChecked[0]?.planRef)).toBe(planTarget);
     expect(notChecked[0]).toMatchObject({ outcome: "not_applied", repaired: false });
-    // The fixture's confirmed conflict keeps Line 246's coverage incomplete.
-    expect(summary.planCoverage.status).toBe("incomplete");
+    // Only a plan check left not checked keeps Line 246's coverage
+    // incomplete: the fixture's idea kept despite a Claim Exclusion is
+    // recorded as drafted when the check finds it (2026-09-29, second).
+    expect(summary.planCoverage.status).toBe(planTarget ? "incomplete" : "complete");
     const logged = warn.mock.calls.map((call) => call.join(" ")).join("\n");
     expect(logged).toContain(`dropped 1 invalid item`);
     expect(logged).toContain(expectedDetail);
@@ -5833,7 +5993,6 @@ describe("seed Summary sign-off and recovery", () => {
       [checks244, state.rows244],
     ] as const) {
       expect(rows).toHaveLength(checks.length);
-      expect(rows.every((row) => row.outcome === "not_applied")).toBe(true);
       expect(rows.every((row) => row.repaired === false)).toBe(true);
       for (const check of checks) {
         const row = rows.find((candidate) =>
@@ -5842,11 +6001,15 @@ describe("seed Summary sign-off and recovery", () => {
             : candidate.planRef?.skippedRoleId === check.skippedRoleId);
         expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
         if (check.confirmedExclusion) {
+          // 2026-09-29 (second, CAP-13 rule 4): with no verdict to read,
+          // the kept idea's excluded words standing in the text decide it.
           expect(row).toMatchObject({
-            outcome: "not_applied",
+            outcome: "applied",
             tier: "conflict",
             repaired: false,
           });
+        } else {
+          expect(row?.outcome).toBe("not_applied");
         }
       }
     }
@@ -5946,8 +6109,9 @@ describe("seed Summary sign-off and recovery", () => {
         : "Not checked: the plan coverage Self-check gave no verdict for this Skip.",
     });
     for (const check of answered) {
+      // 2026-09-29 (second): a kept idea found drafted is applied, tier conflict.
       expect(rowFor(check)).toMatchObject(check.confirmedExclusion
-        ? { outcome: "not_applied", tier: "conflict" }
+        ? { outcome: "applied", tier: "conflict", repaired: false }
         : { outcome: "applied", reason: "Covered." });
     }
     // The check itself completed: no whole-check failure row.
