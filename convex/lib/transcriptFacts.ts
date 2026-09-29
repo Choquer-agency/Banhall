@@ -26,8 +26,11 @@ import {
  * 2 (2026-09-25, review of steps 5 and 6): quotes in `other` turns are no
  * longer evidence, and invented placeholder variants restore through their
  * base token. Facts stored under 1 are extracted again on next use.
+ * 3 (2026-09-29, second): placeholder algorithm 4 hides a company's coined
+ * first word, so facts extracted while it was visible are extracted again
+ * on next use.
  */
-export const FACTS_VERSION = "2";
+export const FACTS_VERSION = "3";
 
 /**
  * Owner decision 25: only the client's words back a claim. A turn whose

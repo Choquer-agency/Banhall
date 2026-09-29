@@ -181,6 +181,12 @@ export function runDeterministicSelfCheck(input: {
   isFirstInOrder: boolean;
   /** Signed plan items whose matching Brief exclusions were human-confirmed. */
   confirmedPlanConflicts?: readonly (readonly string[])[];
+  /**
+   * 2026-09-29 (second): Glossary Terms the writer's own wording governs in
+   * this Line (writerPrecedence.ts). They are neither required nor used to
+   * replace wording; each gets a conflict row saying why.
+   */
+  glossarySetAside?: readonly { term: string; reason: string }[];
 }): DeterministicSelfCheck {
   const { section, text, brief, profile, isFirstInOrder } = input;
   const key = sectionKeyOf(section);
@@ -365,6 +371,31 @@ export function runDeterministicSelfCheck(input: {
     }
     const label = exclusionReasonLabel(exclusion.reason);
     const instruction = `Claim Exclusion: ${exclusion.text}`;
+    // CAP-13 rule 4 (2026-09-29, second): in the Line whose signed-off plan
+    // holds an idea the writer kept despite this exclusion, the exclusion is
+    // meant to be suspended for that idea's content only. This check matches
+    // words and cannot tell the kept idea from other content with the same
+    // words, so it suspends the exclusion for the whole Line (review P3-1)
+    // and says so; it never asks for a removal there. The consistency pass
+    // is told to report any other content that claims the excluded work, and
+    // the idea's own plan row says whether it was drafted. Every other Line,
+    // and every other exclusion, is checked as before.
+    const confirmedPlanConflict = (input.confirmedPlanConflicts ?? []).some(
+      (wording) =>
+        matchesClaimExclusion(wording, exclusion.text, exclusion.exactExcerpt)
+    );
+    if (confirmedPlanConflict) {
+      add(`exclusion:${index}`, {
+        instruction,
+        ...(found >= 0 ? { paragraphIndex: found } : {}),
+        outcome: "not_applied",
+        tier: "conflict",
+        reason: found >= 0
+          ? `suspended in this Line for the idea the writer kept despite this Claim Exclusion: its words appear in paragraph ${found + 1} (${label}) and are not repaired away; this word check cannot tell that idea from other content with the same words`
+          : `suspended in this Line for the idea the writer kept despite this Claim Exclusion (${label}); its words are not in this Line as written, and the idea's own row says whether it was drafted`,
+      });
+      return;
+    }
     if (found < 0) {
       add(`exclusion:${index}`, {
         instruction,
@@ -374,25 +405,17 @@ export function runDeterministicSelfCheck(input: {
       });
       return;
     }
-    const confirmedPlanConflict = (input.confirmedPlanConflicts ?? []).some(
-      (wording) =>
-        matchesClaimExclusion(wording, exclusion.text, exclusion.exactExcerpt)
-    );
     add(
       `exclusion:${index}`,
       {
         instruction,
         paragraphIndex: found,
         outcome: "not_applied",
-        tier: confirmedPlanConflict ? "conflict" : "none",
-        reason: confirmedPlanConflict
-          ? `writer-confirmed signed-plan conflict appears in paragraph ${found + 1} (${label}); retained and not repaired`
-          : `excluded claim appears in paragraph ${found + 1} (${label})`,
+        tier: "none",
+        reason: `excluded claim appears in paragraph ${found + 1} (${label})`,
       },
-      !confirmedPlanConflict,
-      confirmedPlanConflict
-        ? undefined
-        : `Paragraph ${found + 1}: remove the excluded claim "${exclusion.text}"; it is outside the eligible work (${label}) and must not be claimed.`
+      true,
+      `Paragraph ${found + 1}: remove the excluded claim "${exclusion.text}"; it is outside the eligible work (${label}) and must not be claimed.`
     );
   });
 
@@ -400,7 +423,20 @@ export function runDeterministicSelfCheck(input: {
   // with no occurrence is a candidate the model classifies (synonym or
   // absent concept).
   const glossaryCandidates: string[] = [];
+  const setAside = input.glossarySetAside ?? [];
   for (const term of uniqueTerms(brief?.glossaryTerms ?? [])) {
+    // CAP-13 rule 5 (2026-09-29, second): the writer's wording outranks a
+    // Glossary Term. A term it sets aside is not checked in this Line.
+    const aside = setAside.find((entry) => entry.term.trim().toLowerCase() === term.toLowerCase());
+    if (aside) {
+      add(`glossary:${term.toLowerCase()}`, {
+        instruction: `Glossary Term: ${term}`,
+        outcome: "not_applied",
+        tier: "conflict",
+        reason: `Not enforced in this Line: ${aside.reason}. The writer's wording outranks the Brief.`,
+      });
+      continue;
+    }
     const index = paragraphs.findIndex((paragraph) =>
       glossaryTermPresent(term, paragraph)
     );
@@ -684,10 +720,15 @@ export function consistencyNoteDrafts(
 export function consistencySummaryNote(
   section: SectionNumber,
   outcome:
-    | { ok: true; findings: number }
+    | { ok: true; findings: number; unreadable?: number }
     | { ok: false; reason: string }
     | { ok: false; reportChanged: true }
 ): ComplianceNoteDraft {
+  // 2026-09-29 (second): findings left out as unreadable are counted, so a
+  // pass that could read only part of its answer says so.
+  const unreadable = outcome.ok && (outcome.unreadable ?? 0) > 0
+    ? `; ${outcome.unreadable} more ${outcome.unreadable === 1 ? "finding" : "findings"} could not be read and ${outcome.unreadable === 1 ? "was" : "were"} left out`
+    : "";
   return noteDraft({
     section,
     source: "deterministic",
@@ -695,7 +736,7 @@ export function consistencySummaryNote(
     outcome: outcome.ok ? "applied" : "not_applied",
     tier: "none",
     reason: outcome.ok
-      ? `consistency pass ran over the assembled draft: ${outcome.findings} finding(s)`
+      ? `consistency pass ran over the assembled draft: ${outcome.findings} finding(s)${unreadable}`
       : "reportChanged" in outcome
         ? "consistency pass skipped: the report changed while it ran, so no findings were stored"
         : `consistency pass call failed (${outcome.reason})`,

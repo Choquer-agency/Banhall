@@ -27,7 +27,11 @@ import {
 import { internal } from "../../_generated/api";
 import { loadBriefCheck } from "./brief";
 import { domainError } from "../contracts";
-import { assertFrozenSummaryRuntimeAdmission, loadFrozenSectionPlan } from "./seedStage";
+import {
+  assertFrozenSummaryRuntimeAdmission,
+  loadFrozenSectionPlan,
+  loadWriterPrecedenceByLine,
+} from "./seedStage";
 import { complianceNoteDraftValidator, complianceNoteRow } from "../complianceNote";
 import {
   sectionRunTypedFields,
@@ -296,10 +300,12 @@ export async function orderedSectionClaim(
   }
 ) {
   const orderIndex = args.row.orderIndex ?? 0;
-  const [{ briefBlock, brief }, plan] = await Promise.all([
-    args.executionBrief ?? loadBriefCheck(ctx, args.generation),
-    loadFrozenSectionPlan(ctx, args.generation, args.section),
-  ]);
+  const { briefBlock, brief } = args.executionBrief ?? await loadBriefCheck(ctx, args.generation);
+  // 2026-09-29 (second): the plan says which Glossary Terms the writer's
+  // own wording sets aside in this Line, so it reads the Brief's terms.
+  const plan = await loadFrozenSectionPlan(ctx, args.generation, args.section, {
+    glossaryTerms: brief?.glossaryTerms ?? [],
+  });
   return {
     projectId: args.generation.projectId,
     model: args.row.model,
@@ -646,6 +652,8 @@ export async function getOrderedCandidateDraftsHandler(
     label: run.label,
     runStatus: run.status,
     brief,
+    // 2026-09-29 (second): what the consistency pass must not report.
+    writerPrecedence: await loadWriterPrecedenceByLine(ctx, generation, brief),
     stopRequested: generation.stopRequestedAt !== undefined,
     consistencyCheckedAt: run.consistencyCheckedAt ?? null,
     sections: rows.map((row) => ({

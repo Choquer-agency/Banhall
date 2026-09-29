@@ -36,6 +36,7 @@ import {
   summarySelfCheckWorstCaseResponse,
   stableSerialize,
   resolveFrozenSourceId,
+  MAX_SEED_SNAPSHOT_ROWS,
 } from "../seedRevisions";
 import { transitionGeneration } from "../generationTransitions";
 import { refreshProjectGenerationActivity } from "../dashboardProjection";
@@ -55,6 +56,12 @@ import { isProjectDeleting } from "../projectDeletion";
 import { internal } from "../../_generated/api";
 import { SEED_DECISION_COLLECTION_ROWS } from "../seedDecisionState";
 import { editedTermsOf, MAX_EDITED_TERMS_PER_LINE } from "../editedTerms";
+import {
+  feedbackForLine,
+  glossaryTermsSetAside,
+  type GlossarySetAside,
+  type WriterFeedback,
+} from "../writerPrecedence";
 
 export const generateOrderedSectionRef = makeFunctionReference<
   "action",
@@ -729,10 +736,107 @@ export async function retryInitializeSeedStageHandler(
   return null;
 }
 
+/**
+ * CAP-13 rule 5 (2026-09-29, second): the active Feedback of the run that
+ * signed the Summary off, in the order it was given. Nothing changes it
+ * after sign-off.
+ */
+async function activeFeedbackRows(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  originGenerationId: Id<"generations">
+) {
+  const rows = await ctx.db
+    .query("seedFeedbackRequests")
+    .withIndex("by_generationId_and_status_and_roleId", (q) =>
+      q.eq("generationId", originGenerationId).eq("status", "active"))
+    .take(MAX_SEED_SNAPSHOT_ROWS + 1);
+  if (rows.length > MAX_SEED_SNAPSHOT_ROWS) {
+    domainError("INVALID_INPUT", "Frozen Summary Feedback exceeds the drafting budget");
+  }
+  return rows
+    .filter((row) => row.projectId === generation.projectId)
+    .sort((a, b) => a._creationTime - b._creationTime);
+}
+
+/**
+ * 2026-09-29 (second): for the assembled-draft consistency pass, which Lines
+ * carry an idea the writer kept despite each Claim Exclusion, and which
+ * Lines set each Glossary Term aside (the same rules as the drafting plan,
+ * without reading the plan's evidence). Null without a signed-off Summary.
+ */
+export async function loadWriterPrecedenceByLine(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  brief: { claimExclusions: ReadonlyArray<{ text: string; exactExcerpt?: string }>; glossaryTerms: readonly string[] } | null
+): Promise<{
+  keptExclusions: Array<{ text: string; sections: SectionNumber[] }>;
+  glossarySetAside: Array<{ term: string; sections: SectionNumber[] }>;
+} | null> {
+  if (!generation.summaryVersionId || !brief) return null;
+  const summary = await ctx.db.get(generation.summaryVersionId);
+  if (!summary || summary.projectId !== generation.projectId) return null;
+  const originGenerationId = generation.originGenerationId ?? generation._id;
+  const items = await ctx.db.query("summaryItems")
+    .withIndex("by_summaryVersionId_and_order", (q) =>
+      q.eq("summaryVersionId", summary._id))
+    .take(SEED_DECISION_COLLECTION_ROWS + 1);
+  if (items.length > SEED_DECISION_COLLECTION_ROWS) return null;
+  const skipped = new Set(summary.skippedRoleIds);
+  const feedbackRows = await activeFeedbackRows(ctx, generation, originGenerationId);
+  const keptExclusions: Array<{ text: string; sections: SectionNumber[] }> = [];
+  const glossarySetAside: Array<{ term: string; sections: SectionNumber[] }> = [];
+  const push = <T extends { sections: SectionNumber[] }>(
+    list: T[],
+    find: (entry: T) => boolean,
+    make: () => T,
+    section: SectionNumber
+  ) => {
+    const entry = list.find(find) ?? (list.push(make()), list[list.length - 1]!);
+    if (!entry.sections.includes(section)) entry.sections.push(section);
+  };
+  for (const section of ["242", "244", "246"] as const) {
+    const key = `s${section}`;
+    const roleIds = new Set(PD_SUBSECTIONS.filter((role) => role.section === key).map((role) => role.roleId));
+    const lineItems = items.filter((item) => roleIds.has(item.roleId) && !skipped.has(item.roleId));
+    for (const item of lineItems) {
+      if (!item.confirmedExclusion) continue;
+      for (const exclusion of brief.claimExclusions) {
+        if (matchesSeedExclusion(item.bullets, exclusion.text, exclusion.exactExcerpt)) {
+          push(keptExclusions, (entry) => entry.text === exclusion.text, () => ({ text: exclusion.text, sections: [] }), section);
+        }
+      }
+    }
+    const editedItems: Array<{ original: string[]; edited: string[] }> = [];
+    for (const item of lineItems) {
+      if (item.edited === false) continue;
+      const seed = await ctx.db.get(item.seedId);
+      if (!seed || seed.projectId !== generation.projectId) continue;
+      if (stableSerialize(item.bullets) === stableSerialize(seed.bullets)) continue;
+      editedItems.push({ original: seed.bullets, edited: item.bullets });
+    }
+    const aside = glossaryTermsSetAside({
+      glossaryTerms: brief.glossaryTerms,
+      feedback: feedbackForLine(section, feedbackRows, summary.skippedRoleIds),
+      editedItems,
+      selectionWording: lineItems.map((item) => item.bullets),
+    });
+    for (const entry of aside) {
+      push(glossarySetAside, (known) => known.term === entry.term, () => ({ term: entry.term, sections: [] }), section);
+    }
+  }
+  return { keptExclusions, glossarySetAside };
+}
+
 export async function loadFrozenSectionPlan(
   ctx: { db: QueryCtx["db"] },
   generation: Doc<"generations">,
-  section: SectionNumber
+  section: SectionNumber,
+  /**
+   * 2026-09-29 (second): the frozen Brief's Glossary Terms, so the plan can
+   * say which ones the writer's own wording sets aside in this Line.
+   */
+  options: { glossaryTerms?: readonly string[] } = {}
 ): Promise<{
   planBlock: string;
   planChecksBlock: string;
@@ -763,9 +867,24 @@ export async function loadFrozenSectionPlan(
    * compression and the repair.
    */
   editedTerms: string[];
+  /**
+   * 2026-09-29 (second, CAP-13 rule 5): the active Feedback that reaches
+   * this Line (its steps and every earlier step), which outranks the Brief.
+   * Withdrawn Feedback, and Feedback a Skip suspended, never does.
+   */
+  writerFeedback: WriterFeedback[];
+  /** The Glossary Terms the writer's own wording governs in this Line. */
+  glossarySetAside: GlossarySetAside[];
 }> {
   if (!generation.summaryVersionId) {
-    return { planBlock: "", planChecksBlock: "", planChecks: [], editedTerms: [] };
+    return {
+      planBlock: "",
+      planChecksBlock: "",
+      planChecks: [],
+      editedTerms: [],
+      writerFeedback: [],
+      glossarySetAside: [],
+    };
   }
   const summary = await ctx.db.get(generation.summaryVersionId);
   if (!summary || summary.projectId !== generation.projectId) {
@@ -810,11 +929,18 @@ export async function loadFrozenSectionPlan(
   // An edited item's terms: what the writer changed or added compared with
   // the model's original Seed (immutable). Items frozen before 2026-09-24
   // lack the flag and compare wording, as the Summary reader does.
+  // Since 2026-09-29 (second) an idea the writer kept despite a Claim
+  // Exclusion is drafted like any other (CAP-13 rule 4), so its edited terms
+  // count too.
   const itemsById = new Map(items.map((item) => [item._id, item] as const));
   const editedTerms: string[] = [];
+  const editedItems: Array<{ original: string[]; edited: string[] }> = [];
+  const seenItems = new Set<string>();
   for (const check of plan.checks) {
-    if (check.instruction !== "cover" || check.confirmedExclusion) continue;
+    if (check.instruction !== "cover") continue;
     for (const itemId of check.mergedItemIds) {
+      if (seenItems.has(itemId)) continue;
+      seenItems.add(itemId);
       const item = itemsById.get(itemId);
       if (!item || item.edited === false) continue;
       const seed = await ctx.db.get(item.seedId);
@@ -822,6 +948,7 @@ export async function loadFrozenSectionPlan(
       if (item.edited === undefined && stableSerialize(item.bullets) === stableSerialize(seed.bullets)) {
         continue;
       }
+      editedItems.push({ original: seed.bullets, edited: item.bullets });
       for (const term of editedTermsOf(seed.bullets, item.bullets)) {
         if (!editedTerms.some((known) => known.toLowerCase() === term.toLowerCase())) {
           editedTerms.push(term);
@@ -829,7 +956,22 @@ export async function loadFrozenSectionPlan(
       }
     }
   }
+  const writerFeedback = feedbackForLine(
+    section,
+    await activeFeedbackRows(ctx, generation, originGenerationId),
+    summary.skippedRoleIds
+  );
+  const glossarySetAside = glossaryTermsSetAside({
+    glossaryTerms: options.glossaryTerms ?? [],
+    feedback: writerFeedback,
+    editedItems,
+    selectionWording: plan.checks
+      .filter((check) => check.instruction === "cover")
+      .map((check) => check.wording),
+  });
   return {
+    writerFeedback,
+    glossarySetAside,
     editedTerms: editedTerms.slice(0, MAX_EDITED_TERMS_PER_LINE),
     planBlock: `\n\n${plan.block}`,
     planChecksBlock: plan.checksBlock,

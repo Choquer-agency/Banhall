@@ -20,6 +20,7 @@ import {
 } from "./promptDefinitions";
 import { sectionParagraphs } from "../lib/tiptapReport";
 import { containsTerm } from "../lib/editedTerms";
+import { stepTitle, type WriterFeedback } from "../lib/writerPrecedence";
 import {
   isSectionNumber,
   type SectionNumber,
@@ -389,20 +390,126 @@ type RawFinding = {
   kind: ConsistencyFinding["kind"];
   issue: string;
 };
-const SECTION_ENUM = ["242", "244", "246"] as const;
-const consistencyOutputSchema: z.ZodType<{ findings: RawFinding[] }> = z.object({
-  findings: z
-    .array(
-      z.object({
-        section: z.enum(SECTION_ENUM),
-        paragraph: z.number().default(1),
-        sections: z.array(z.enum(SECTION_ENUM)).default([]),
-        kind: z.enum(["contradiction", "excluded_claim", "terminology"]),
-        issue: z.string(),
-      })
-    )
-    .default([]),
-});
+const CONSISTENCY_KINDS = ["contradiction", "excluded_claim", "terminology"] as const;
+
+/**
+ * 2026-09-29 (second, release suite run 6, "Carried old selections"): the
+ * consistency pass failed as a whole ("consistency pass call failed
+ * (unknown)") after its answer and its structured repair both failed
+ * validation (`invalid_output` twice on the checking model), so it never
+ * ran. The same model sent the Self-check's planVerdicts as a string that
+ * day. One badly typed field used to reject every finding; now:
+ * - a findings list sent as a JSON string is read as that list;
+ * - each finding is read on its own, so one unreadable finding is left out
+ *   (counted and logged by position and field, never model text) instead of
+ *   failing the others;
+ * - a section written as a number or a label ("244", 244, "Line 244") and a
+ *   paragraph written as a numeric string are read as meant.
+ * An answer whose findings is neither a list nor a string holding one is
+ * still unreadable and goes to the structured repair, as before.
+ */
+function sectionOf(value: unknown): SectionNumber | undefined {
+  const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+  if (!text || text.length > 40) return undefined;
+  const match = /(?:^|[^0-9])(242|244|246)(?:[^0-9]|$)/.exec(text);
+  return match ? (match[1] as SectionNumber) : undefined;
+}
+
+function consistencyListOf(value: unknown): unknown[] | undefined {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("[")) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A paragraph as a number, "2", "P2", "[P2]" or "paragraph 2" (review P2-3). */
+function paragraphOf(value: unknown): number | undefined {
+  if (value === undefined || value === null) return 1;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const match = /^\s*\[?\s*(?:p(?:ara(?:graph)?)?\.?\s*)?(\d{1,4})\s*\]?\s*$/i.exec(value);
+  return match ? Number(match[1]) : undefined;
+}
+
+type DecodedConsistency = {
+  findings: RawFinding[];
+  /** Findings left out as unreadable, by position and field. Never model text. */
+  unreadable: string[];
+};
+
+function decodeConsistencyFindings(list: readonly unknown[]): DecodedConsistency {
+  const findings: RawFinding[] = [];
+  const unreadable: string[] = [];
+  list.forEach((candidate, index) => {
+    const position = `finding ${index + 1}`;
+    if (!isUnknownRecord(candidate)) {
+      unreadable.push(`${position}: ${jsonTypeOf(candidate)}, not an object`);
+      return;
+    }
+    const section = sectionOf(candidate.section);
+    const paragraph = paragraphOf(candidate.paragraph);
+    const sectionsList = candidate.sections === undefined ? [] : consistencyListOf(candidate.sections);
+    const kind = typeof candidate.kind === "string"
+      ? candidate.kind.trim().toLowerCase().replace(/[\s-]+/g, "_")
+      : "";
+    const issue = typeof candidate.issue === "string" ? candidate.issue.trim() : "";
+    const bad = [
+      ...(section === undefined ? ["section"] : []),
+      ...(paragraph === undefined ? ["paragraph"] : []),
+      ...(sectionsList === undefined ? ["sections"] : []),
+      ...((CONSISTENCY_KINDS as readonly string[]).includes(kind) ? [] : ["kind"]),
+      ...(issue ? [] : ["issue"]),
+    ];
+    if (bad.length > 0 || section === undefined || paragraph === undefined || sectionsList === undefined) {
+      unreadable.push(`${position}: ${bad.join(", ")}`);
+      return;
+    }
+    findings.push({
+      section,
+      paragraph,
+      sections: sectionsList.flatMap((entry) => {
+        const named = sectionOf(entry);
+        return named ? [named] : [];
+      }),
+      kind: kind as RawFinding["kind"],
+      issue,
+    });
+  });
+  return { findings, unreadable };
+}
+
+const consistencyOutputSchema = z
+  .object({ findings: z.unknown().optional() })
+  .superRefine((value, ctx) => {
+    if (value.findings !== undefined && consistencyListOf(value.findings) === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["findings"],
+        message: `not a list (${jsonTypeOf(value.findings)})`,
+      });
+    }
+  })
+  .transform((value, ctx) => {
+    const decoded = decodeConsistencyFindings(consistencyListOf(value.findings) ?? []);
+    // Review P2-3: an answer whose findings could none of them be read is
+    // a failed attempt, never a clean pass: the structured repair asks
+    // again, and a second such answer fails the pass with this reason.
+    if (decoded.findings.length === 0 && decoded.unreadable.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["findings"],
+        message: `none of ${decoded.unreadable.length} could be read (${decoded.unreadable.slice(0, 3).join("; ")})`,
+      });
+      return z.NEVER;
+    }
+    return decoded;
+  });
 
 function block(label: string, body: string): string {
   return `--- BEGIN [${label}] ---\n${body}\n--- END [${label}] ---`;
@@ -454,6 +561,11 @@ export type SelfCheckModelInput = {
    * frozen plan, allowed word for word. Summary mode only.
    */
   editedTerms?: readonly string[];
+  /**
+   * 2026-09-29 (second): the active Feedback that reaches the Line, which
+   * outranks the Brief. Summary mode only.
+   */
+  writerFeedback?: readonly WriterFeedback[];
 };
 
 function summaryEditedTerms(input: SelfCheckModelInput): string[] {
@@ -557,9 +669,24 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
       terms.map((term) => `${exact.termPrefix}${term}${exact.termSuffix}`).join(exact.separator)
     ));
   }
+  // 2026-09-29 (second): the writer's active Feedback, which outranks the
+  // Brief: a block of data and, after the blocks, the rule for it. Absent
+  // without Feedback, so those requests are unchanged.
+  const feedback = hasSummaryPlan
+    ? (input.writerFeedback ?? []).filter((entry) => entry.instruction.trim())
+    : [];
+  const writer = SUMMARY_PLAN_SELF_CHECK_REQUEST.writerFeedback;
+  if (feedback.length > 0) {
+    blocks.push(block(
+      writer.blockLabel,
+      feedback
+        .map((entry) => `${writer.linePrefix}${stepTitle(entry.roleId)}${writer.lineMiddle}${JSON.stringify(entry.instruction.trim())}`)
+        .join(writer.separator)
+    ));
+  }
   return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}${
     terms.length > 0 ? exact.instruction : ""
-  }`;
+  }${feedback.length > 0 ? writer.instruction : ""}`;
 }
 
 export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
@@ -1405,6 +1532,7 @@ export async function runFinalCoverageSelfCheck(
     planChecks: SelfCheckPlanCheck[];
     planChecksBlock?: string;
     editedTerms?: readonly string[];
+    writerFeedback?: readonly WriterFeedback[];
   }
 ): Promise<ModelSelfCheckResult["planVerdicts"]> {
   if (input.planChecks.length === 0) return [];
@@ -1420,6 +1548,7 @@ export async function runFinalCoverageSelfCheck(
     planChecksBlock: input.planChecksBlock,
     coverageOnly: true,
     ...(input.editedTerms?.length ? { editedTerms: input.editedTerms } : {}),
+    ...(input.writerFeedback?.length ? { writerFeedback: input.writerFeedback } : {}),
   });
   return result.planVerdicts;
 }
@@ -1429,31 +1558,64 @@ export type ConsistencyInput = {
   claimExclusions: string[];
   glossaryTerms: string[];
   model: string;
+  /**
+   * 2026-09-29 (second): the Lines where the writer kept an idea despite a
+   * Claim Exclusion, and where the writer's wording sets a Glossary Term
+   * aside (loadWriterPrecedenceByLine).
+   */
+  writerPrecedence?: {
+    keptExclusions: ReadonlyArray<{ text: string; sections: readonly SectionNumber[] }>;
+    glossarySetAside: ReadonlyArray<{ term: string; sections: readonly SectionNumber[] }>;
+  } | null;
 };
+
+/** "Line 244", or "Lines 242, 244 and 246". */
+function linesPhrase(sections: readonly SectionNumber[]): string {
+  const scaffold = CONSISTENCY_REQUEST.writerPrecedence;
+  const sorted = [...sections].sort();
+  if (sorted.length <= 1) return `${scaffold.oneLine}${sorted[0] ?? ""}`;
+  return `${scaffold.manyLines}${sorted.slice(0, -1).join(scaffold.lineSeparator)}${scaffold.lastLineSeparator}${sorted[sorted.length - 1]}`;
+}
 
 export function buildConsistencyUserMessage(input: ConsistencyInput): string {
   const blocks = input.sections.map(({ section, text }) =>
     block(ORDERED_SECTION_TITLES[section].toUpperCase(), numberedSectionParagraphs(text))
   );
+  const scaffold = CONSISTENCY_REQUEST.writerPrecedence;
+  const kept = input.writerPrecedence?.keptExclusions ?? [];
+  const aside = input.writerPrecedence?.glossarySetAside ?? [];
   if (input.claimExclusions.length > 0) {
     blocks.push(
-      block("CLAIM EXCLUSIONS", input.claimExclusions.map((text) => `- ${text}`).join("\n"))
+      block("CLAIM EXCLUSIONS", input.claimExclusions.map((text) => {
+        const lines = kept.find((entry) => entry.text === text)?.sections ?? [];
+        return `- ${text}${lines.length > 0 ? `${scaffold.keptPrefix}${linesPhrase(lines)}${scaffold.keptSuffix}` : ""}`;
+      }).join("\n"))
     );
   }
   if (input.glossaryTerms.length > 0) {
     blocks.push(
-      block("GLOSSARY TERMS", input.glossaryTerms.map((term) => `- ${term}`).join("\n"))
+      block("GLOSSARY TERMS", input.glossaryTerms.map((term) => {
+        const lines = aside.find((entry) => entry.term.toLowerCase() === term.trim().toLowerCase())?.sections ?? [];
+        return `- ${term}${lines.length > 0 ? `${scaffold.setAsidePrefix}${linesPhrase(lines)}${scaffold.setAsideSuffix}` : ""}`;
+      }).join("\n"))
     );
   }
   return `${CONSISTENCY_REQUEST.userScaffold.prefix}${blocks.join(CONSISTENCY_REQUEST.userScaffold.blockSeparator)}`;
 }
 
+/** What one consistency pass found, and how many findings it could not read. */
+export type ConsistencyPassResult = {
+  findings: ConsistencyFinding[];
+  /** Findings left out because a field could not be read (2026-09-29, second). */
+  unreadable: number;
+};
+
 /** The one structured consistency call over the assembled draft. */
 export async function runConsistencyPass(
   client: GenerationClient,
   input: ConsistencyInput
-): Promise<ConsistencyFinding[]> {
-  const raw = await generateStructured<{ findings: RawFinding[] }>(client, {
+): Promise<ConsistencyPassResult> {
+  const raw = await generateStructured<DecodedConsistency>(client, {
     system: CONSISTENCY_SYSTEM_PROMPT,
     user: buildConsistencyUserMessage(input),
     toolName: CONSISTENCY_REQUEST.toolName,
@@ -1463,10 +1625,15 @@ export async function runConsistencyPass(
     model: input.model,
     validate: consistencyOutputSchema,
   });
+  if (raw.unreadable.length > 0) {
+    console.warn(
+      `${CONSISTENCY_REQUEST.toolName}: left out ${raw.unreadable.length} unreadable finding(s): ${raw.unreadable.slice(0, 5).join("; ")}`
+    );
+  }
   const counts = new Map(
     input.sections.map(({ section, text }) => [section, sectionParagraphs(text).length])
   );
-  return raw.findings
+  const findings = raw.findings
     .filter((finding) => isSectionNumber(finding.section) && counts.has(finding.section))
     .slice(0, CONSISTENCY_REQUEST.maxFindings)
     .map((finding) => ({
@@ -1477,4 +1644,14 @@ export async function runConsistencyPass(
       kind: finding.kind,
       issue: finding.issue.trim(),
     }));
+  return { findings, unreadable: raw.unreadable.length };
+}
+
+/**
+ * Why a consistency pass failed as a whole, safe to store: the failure kind
+ * and the same diagnostic the Self-check stores (validation paths and codes,
+ * or a fixed description), never model text (2026-09-29, second).
+ */
+export function consistencyFailureReason(code: string, error: unknown): string {
+  return `${code}: ${selfCheckFailureDiagnostic(error)}`;
 }
