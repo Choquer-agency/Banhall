@@ -694,3 +694,37 @@ describe("labels in encoded strings and names split by other white space (placeh
       .toBe("a\\n[redacted] b\\\\t[redacted] c\\u0007[redacted]");
   });
 });
+
+// Final privacy round (2026-09-29, second).
+describe("header labels, page breaks and double-spaced names", () => {
+  const map = buildPlaceholderMap({ clientName: "Acme  Robotics Inc.", people: ["Morgan Hale"], phrases: ["Rosalind"] });
+
+  it("finds an indented header label at any indentation, raw and escaped", () => {
+    const indent = " ".repeat(60);
+    expect(pseudonymize(`Notes\n${indent}Rosalind 00:01\nWe tried.`, map))
+      .toBe(`Notes\n${indent}[PERSON_2] 00:01\nWe tried.`);
+    expect(pseudonymize(`{"t":"Notes\\n${indent}Rosalind 00:01\\nWe tried."}`, map))
+      .toBe(`{"t":"Notes\\n${indent}[PERSON_2] 00:01\\nWe tried."}`);
+    // Never a header in running text.
+    expect(pseudonymize("ask Rosalind 00:01\n", map)).toBe("ask Rosalind 00:01\n");
+    // A long run of spaces with no label stays cheap and unchanged.
+    const spaces = " ".repeat(20_000);
+    expect(pseudonymize(`a${spaces}b`, map)).toBe(`a${spaces}b`);
+  });
+
+  it("treats a form feed or vertical tab, raw or escaped, as a line start for labels", () => {
+    expect(pseudonymize("page one\fRosalind: yes", map)).toBe("page one\f[PERSON_2]: yes");
+    expect(pseudonymize("page one\\fRosalind: yes", map)).toBe("page one\\f[PERSON_2]: yes");
+    expect(pseudonymize("page one\\u000cRosalind: yes", map)).toBe("page one\\u000c[PERSON_2]: yes");
+    expect(pseudonymize("page one\\u000bRosalind: yes", map)).toBe("page one\\u000b[PERSON_2]: yes");
+    expect(pseudonymize("page one\\fRosalind 00:01\\n", map)).toBe("page one\\f[PERSON_2] 00:01\\n");
+  });
+
+  it("collapses a double-spaced name when the map and the redactions are built", () => {
+    expect(map[0]).toMatchObject({ token: "[CLIENT_1]", value: "Acme Robotics Inc." });
+    expect(pseudonymize("Acme Robotics Inc. and Acme\nRobotics Inc.", map))
+      .toBe("[CLIENT_1] and [CLIENT_1_WA]\n[CLIENT_1_WB] [CLIENT_1_WC]");
+    expect(deidentify("Acme Farms and Acme\tFarms", { clientName: "Acme   Farms" })).toBe("[redacted] and [redacted]");
+    expect(redactExternalText("Acme Farms and Acme\nFarms", ["Acme  Farms"])).toBe("[redacted] and [redacted]");
+  });
+});

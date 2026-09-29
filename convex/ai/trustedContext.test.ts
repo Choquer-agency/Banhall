@@ -1033,3 +1033,29 @@ describe("budget cuts end at a word boundary", () => {
     expect(endAtWordBoundary("word", " next")).toBe("word");
   });
 });
+
+// Final privacy round: a hyphen or an apostrophe joins a word, so a cut
+// never backs off to "Whitfield-" and sends "Whitfield".
+describe("budget cuts keep hyphenated and apostrophe words whole", () => {
+  const text = "Notes from Dana Whitfield-Smith and O\u2019Neil today";
+  it.each([
+    // [limit, expected]: inside "Smith", at the hyphen, just before it.
+    [26, "Notes from Dana "],
+    [25, "Notes from Dana "],
+    [24, "Notes from Dana "],
+    [30, "Notes from Dana "],
+    [31, "Notes from Dana Whitfield-Smith"],
+  ])("a cut at %i characters gives %j", (limit, expected) => {
+    expect(cutToBudget(text, limit)).toBe(expected);
+    expect(cutUtf8ToBudget(text, limit)).toBe(expected);
+  });
+
+  it("backs off before a word joined by a Unicode hyphen, an apostrophe or a middle dot", () => {
+    expect(cutToBudget("By Jean\u2010Philippe Roy", 10)).toBe("By ");
+    expect(cutToBudget("By Quill-Mere Analytics", 9)).toBe("By ");
+    // "O\u2019Neil" cut after the apostrophe backs off before "O".
+    expect(cutToBudget("With O\u2019Neil now", 7)).toBe("With ");
+    expect(cutToBudget("With O'Neil now", 7)).toBe("With ");
+    expect(cutToBudget("\u5c71\u7530\u30fb\u82b1\u5b50\u3068", 3)).toBe("");
+  });
+});

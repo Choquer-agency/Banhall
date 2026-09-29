@@ -202,9 +202,9 @@ describe("the derivation bundle", () => {
   test("is pinned: a changed constant needs a new version and a new pin", async () => {
     const hash = await sha256(stableSerialize(BRIEF_DERIVATION_CONSTANTS as unknown as JsonValue));
     expect({ version: BRIEF_DERIVATION_VERSION, maxQuotePlaces: MAX_QUOTE_PLACES, hash }).toEqual({
-      version: 7,
+      version: 8,
       maxQuotePlaces: 8,
-      hash: "ba6aa5a7ce9cc70eec17b5336b20879d49f81f135a8f39f2b8b1acc9514bc666",
+      hash: "655c4a925d1ff374670e45de8ab6a0aa0b31b76261db8c26877f8e1baaf89ef4",
     });
   });
 

@@ -17,9 +17,10 @@ import { PLACEHOLDER_ALGORITHM_VERSION } from "./deidentify";
  * hides a company's coined first word (2026-09-29, second). 6: a backslash
  * escape is a word edge before a name (2026-09-29, second, privacy). 7: any
  * escape is an edge, labels open strings and split names are hidden
- * (2026-09-29, second, privacy re-check).
+ * (2026-09-29, second, privacy re-check). 8: placeholder algorithm 7 (final
+ * privacy round).
  */
-export const BRIEF_DERIVATION_VERSION = 7;
+export const BRIEF_DERIVATION_VERSION = 8;
 
 /** Places of one quote tried under owner decision 25 before it is dropped. */
 export const MAX_QUOTE_PLACES = 8;

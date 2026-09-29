@@ -36,8 +36,9 @@ import {
  * 5 (2026-09-29, second, privacy re-check): placeholder algorithm 6 treats
  * every escape as an edge, a quote as a label position and a name split by
  * other white space as the name; facts are extracted again on next use.
+ * 6 (2026-09-29, second, final privacy round): placeholder algorithm 7.
  */
-export const FACTS_VERSION = "5";
+export const FACTS_VERSION = "6";
 
 /**
  * Owner decision 25: only the client's words back a claim. A turn whose

@@ -44,7 +44,8 @@ export function cap(value: string, max: number): string {
 export function redactExternalText(value: string, knownNames: string[]): string {
   let redacted = value;
   const names = Array.from(
-    new Set(knownNames.map((name) => name.trim()).filter((name) => name.length >= 3))
+    // One space between words (final privacy round).
+    new Set(knownNames.map((name) => name.trim().replace(/\s+/g, " ")).filter((name) => name.length >= 3))
   ).sort((a, b) => b.length - a.length);
   for (const name of names) {
     // Whole words only (review 2026-09-26, P2-7): a short name such as
