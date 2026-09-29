@@ -146,7 +146,9 @@ describe("scripted sessions", () => {
     expect(
       buildPlan(byCase("changed_advancement_links")).some((step) => step.op === "select" && step.role === "experimentation"),
     ).toBe(false);
-    expect(links.indexOf("deselectMostLinkedUncertainty")).toBeLessThan(links.indexOf("approve:droppedRefused"));
+    expect(links.indexOf("deselectMostLinkedUncertainty")).toBeLessThan(links.indexOf("recordLinkNotice"));
+    expect(links.indexOf("recordLinkNotice")).toBeLessThan(links.indexOf("approve:droppedRefused"));
+    expect(links.lastIndexOf("recordLinkNotice")).toBeLessThan(links.indexOf("approve:unlinkedRefused"));
     expect(links.indexOf("approve:droppedRefused")).toBeLessThan(links.indexOf("deselectExperimentsForDroppedUncertainty"));
     expect(links.indexOf("deselectExperimentsForDroppedUncertainty")).toBeLessThan(links.indexOf("approve:unlinkedRefused"));
   });
@@ -192,6 +194,15 @@ describe("scripted sessions", () => {
       3,
     );
     expect(tested.map((candidate) => candidate.seedId)).toEqual(["a2"]);
+    // Review P2-2: a Feedback revision of an uncertainty counts as the original.
+    const revised = linkedAdvancements(
+      [item("a1", "u1b", ["e1"])],
+      new Set(["u1b"]),
+      new Map([["e1", "u1"]]),
+      1,
+      (seedId) => (seedId === "u1b" ? "u1" : seedId),
+    );
+    expect(revised.map((candidate) => candidate.seedId)).toEqual(["a1"]);
   });
 
   it("picks experiments by the uncertainty each tested, one for each uncertainty first", () => {
@@ -215,9 +226,21 @@ describe("scripted sessions", () => {
     expect(experimentsCoveringUncertainties(partly, ["u1", "u2"], 2).map((item) => item.seedId)).toEqual(["t4"]);
     // Never an experiment for an uncertainty that is not picked.
     expect(experimentsCoveringUncertainties(page, ["u2"], 3).map((item) => item.seedId)).toEqual(["t4"]);
+    // Review P2-1: until coverage is met, never a second experiment for an
+    // uncertainty, so a regenerated page still has slots to cover the rest.
+    const startUpOnly = [experiment("t1", "u1"), experiment("t2", "u1"), experiment("t3", "u1")];
+    expect(experimentsCoveringUncertainties(startUpOnly, ["u1", "u2", "u3"], 3, { extras: false }).map((item) => item.seedId)).toEqual(["t1"]);
+    const regenerated = [experiment("t1", "u1", true), experiment("t4", "u2"), experiment("t6", "u2"), experiment("t5", "u3")];
+    expect(experimentsCoveringUncertainties(regenerated, ["u1", "u2", "u3"], 3, { extras: false }).map((item) => item.seedId)).toEqual(["t4", "t5"]);
+    expect(experimentsCoveringUncertainties([experiment("t1", "u1", true), experiment("t4", "u2", true), experiment("t6", "u2")], ["u1", "u2"], 3).map((item) => item.seedId)).toEqual(["t6"]);
+    // A revision of an uncertainty is covered by an experiment of its original.
+    expect(
+      experimentsCoveringUncertainties([experiment("t1", "u1", true), experiment("t2", "u1")], ["u1b"], 3, { extras: false, rootOf: (id) => (id === "u1b" ? "u1" : id) }),
+    ).toEqual([]);
     // Without any recorded uncertainty, the first on the page.
     expect(experimentsCoveringUncertainties([experiment("a", null), experiment("b", null)], ["u1"], 1).map((item) => item.seedId)).toEqual(["a"]);
     expect(testedUncertaintyCount([experiment("t1", "u1"), experiment("t4", "u2"), experiment("x", null)], new Set(["u1", "u2", "u3"]))).toBe(2);
+    expect(testedUncertaintyCount([experiment("t1", "u1")], new Set(["u1b"]), (id) => (id === "u1b" ? "u1" : id))).toBe(1);
   });
 });
 
@@ -485,13 +508,14 @@ describe("automatic checks", () => {
     const log: RunLog = {
       ...emptyRunLog(fixture.id, 0),
       removedUncertaintySeedId: "u1",
+      linkNotices: { experimentation: "experiments_for_dropped_uncertainty", specific_advancements: "unlinked_advancements" },
       refusals: [
         { roleId: "experimentation", key: "droppedExperiments", code: "INVALID_STATE", reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" },
         { roleId: "specific_advancements", key: "unlinked", code: "INVALID_STATE", reason: "UNLINKED_ADVANCEMENT" },
       ],
     };
     const checks = runChecks(fixture, c, log);
-    for (const id of ["unlinked-refused", "links-valid", "removed-uncertainty-gone", "merge-named", "advancements-follow-experiments", "experiments-hold-uncertainties", "dropped-experiments-refused"]) {
+    for (const id of ["unlinked-refused", "links-valid", "removed-uncertainty-gone", "merge-named", "advancements-follow-experiments", "experiments-hold-uncertainties", "dropped-experiments-refused", "dropped-experiments-named", "unlinked-advancements-named"]) {
       expect({ id, status: status(checks, id) }).toEqual({ id, status: "pass" });
     }
     // The hint points the judge at the paragraph closest to the dropped uncertainty.
@@ -506,7 +530,11 @@ describe("automatic checks", () => {
       summaryItem("ie1", "experimentation", "e1", { uncertaintySeedId: "u1" }),
       summaryItem("ia1", "specific_advancements", "a1", { uncertaintySeedId: "u3", experimentSeedIds: ["e1"] }),
     ];
-    const run6Checks = runChecks(fixture, run6, { ...log, refusals: [log.refusals[1]!] });
+    // Run 6's log: no notices were read (older results carry no linkNotices).
+    const { linkNotices: _notices, ...run6Log } = log;
+    const run6Checks = runChecks(fixture, run6, { ...run6Log, refusals: [log.refusals[1]!] });
+    expect(status(run6Checks, "dropped-experiments-named")).toBe("fail");
+    expect(status(run6Checks, "unlinked-advancements-named")).toBe("fail");
     expect(status(run6Checks, "links-valid")).toBe("pass");
     expect(status(run6Checks, "advancements-follow-experiments")).toBe("fail");
     expect(status(run6Checks, "experiments-hold-uncertainties")).toBe("fail");

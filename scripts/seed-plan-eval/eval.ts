@@ -9,7 +9,13 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from "node:path";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { releaseEvalProjectTitle } from "../../shared/releaseEval";
-import { advancementLinkProblem, experimentsForDroppedUncertainties, pickedLinkSelections } from "../../shared/advancementLinks";
+import {
+  advancementLinkProblem,
+  experimentsForDroppedUncertainties,
+  pickedLinkSelections,
+  revisionRoots,
+  type UncertaintyRoot,
+} from "../../shared/advancementLinks";
 
 // ─── Semantic cases ─────────────────────────────────────────────────────────
 
@@ -274,6 +280,7 @@ export type Step =
   | { op: "selectCoveringExperiments"; n: number; minUncertainties: number }
   | { op: "deselectMostLinkedUncertainty" }
   | { op: "deselectExperimentsForDroppedUncertainty" }
+  | { op: "recordLinkNotice"; role: PdSubsectionRoleId }
   | { op: "deselectUnlinkedAdvancements" }
   | { op: "edit"; role: PdSubsectionRoleId; transform: EditTransform; key: string }
   | { op: "feedback"; role: PdSubsectionRoleId; key: string; target: "selected" | "notSelected"; instruction: string }
@@ -396,11 +403,14 @@ export function buildPlan(fixture: FixtureManifest): Step[] {
         // The writer drops the uncertainty most advancements link to.
         { op: "deselectMostLinkedUncertainty" },
         { op: "approve", role: "active_uncertainties" },
-        // Its experiments can no longer be approved into the plan; the writer
-        // unticks them, as the step tells them to.
+        // Its experiments can no longer be approved into the plan: the step
+        // says so, approval is refused, and the writer unticks them (or
+        // picks experiments for a kept uncertainty when none is left).
+        { op: "recordLinkNotice", role: "experimentation" },
         { op: "approve", role: "experimentation", expect: "droppedRefused", key: "droppedExperiments" },
         { op: "deselectExperimentsForDroppedUncertainty" },
         { op: "approve", role: "experimentation" },
+        { op: "recordLinkNotice", role: "specific_advancements" },
         { op: "approve", role: "specific_advancements", expect: "unlinkedRefused", key: "unlinked" },
         { op: "regenerate", role: "specific_advancements" },
         { op: "deselectUnlinkedAdvancements" },
@@ -445,6 +455,8 @@ export function describeStep(step: Step): string {
       return `Experimentation / Iterations: select ${step.n} experiments by the uncertainty each tested, one for each picked uncertainty first, covering at least ${step.minUncertainties} (regenerating up to twice to find them)`;
     case "deselectMostLinkedUncertainty":
       return "Technological uncertainties: untick the uncertainty most selected advancements link to";
+    case "recordLinkNotice":
+      return `${title(step.role)}: read what the step says about its links before approving`;
     case "deselectExperimentsForDroppedUncertainty":
       return "Experimentation / Iterations: untick the experiments that tested the dropped uncertainty (regenerating for the kept uncertainties if none is left)";
     case "deselectUnlinkedAdvancements":
@@ -717,6 +729,8 @@ type SubsectionView = {
   shownBatchId: string | null;
   pendingBatchId: string | null;
   lastAttemptFailed?: boolean;
+  /** 2026-09-29 (first): why the step's links stop its approval. */
+  linkNotice?: { kind: string } | null;
 };
 type OutlineView = {
   rows: Array<{ roleId: PdSubsectionRoleId; state: string; stale: boolean }>;
@@ -744,6 +758,8 @@ export type RunLog = {
   approvals: Array<{ roleId: string; at: number; key?: string; carriedSeedIds: string[]; exclusionEntryIds: string[]; changedRoleIds: string[] }>;
   refusals: Array<{ roleId: string; key?: string; code: string | null; reason: string | null }>;
   removedUncertaintySeedId: string | null;
+  /** 2026-09-29 (first): each step's link notice when the script read it. Absent in older results. */
+  linkNotices?: Record<string, string | null>;
   retries: number;
   singleBaseline: { generationId: string; requestedAt: number; reportGeneratedAt: number } | null;
   error: string | null;
@@ -762,6 +778,7 @@ export function emptyRunLog(fixtureId: string, now: number): RunLog {
     approvals: [],
     refusals: [],
     removedUncertaintySeedId: null,
+    linkNotices: {},
     retries: 0,
     singleBaseline: null,
     error: null,
@@ -796,10 +813,12 @@ export function linkedAdvancements(
   activeUncertainties: ReadonlySet<string>,
   activeExperiments: ReadonlyMap<string, string | null>,
   n: number,
+  rootOf?: UncertaintyRoot,
 ): SeedItem[] {
   const picked = pickedLinkSelections(
     activeUncertainties,
     [...activeExperiments].map(([seedId, uncertaintySeedId]) => ({ seedId, uncertaintySeedId })),
+    rootOf,
   );
   const linked = items.filter((item) => advancementLinkProblem(item, picked) === null);
   const groups = new Map<string, SeedItem[]>();
@@ -814,8 +833,10 @@ export function linkedAdvancements(
 /**
  * The experiments a writer picks by what they tested (2026-09-29, first):
  * among `items` (the picked ones count already), one experiment for each
- * picked uncertainty in turn, uncovered uncertainties first, then more in
- * the same turn order, up to `n` picked in all. An experiment that tested
+ * picked uncertainty no picked experiment tested yet, then, with `extras`,
+ * more in turn up to `n` picked in all. Without `extras` it never takes a
+ * second experiment for an uncertainty (review P2-1): the slots stay free so
+ * a regenerated page can still cover the others. An experiment that tested
  * no picked uncertainty is never chosen; with no experiment recording an
  * uncertainty at all, the first ones on the page are taken.
  */
@@ -823,18 +844,26 @@ export function experimentsCoveringUncertainties(
   items: readonly SeedItem[],
   uncertaintySeedIds: readonly string[],
   n: number,
+  options: { extras?: boolean; rootOf?: UncertaintyRoot } = {},
 ): SeedItem[] {
+  const extras = options.extras ?? true;
+  const rootOf = options.rootOf ?? ((seedId: string) => seedId);
   const already = items.filter((item) => item.selected);
   const candidates = items.filter((item) => !item.selected);
   const room = Math.max(0, n - already.length);
   if (!items.some((item) => item.uncertaintySeedId !== null)) return candidates.slice(0, room);
-  const queues = new Map(uncertaintySeedIds.map((id) => [id, candidates.filter((item) => item.uncertaintySeedId === id)]));
-  const covered = new Set(already.map((item) => item.uncertaintySeedId).filter((id): id is string => id !== null));
+  const testedRoot = (item: SeedItem) => (item.uncertaintySeedId === null ? null : rootOf(item.uncertaintySeedId));
+  const queues = new Map(uncertaintySeedIds.map((id) => [id, candidates.filter((item) => testedRoot(item) === rootOf(id))]));
+  const coveredRoots = new Set(already.map(testedRoot).filter((root): root is string => root !== null));
   const picks: SeedItem[] = [];
-  const order = [...uncertaintySeedIds.filter((id) => !covered.has(id)), ...uncertaintySeedIds.filter((id) => covered.has(id))];
+  for (const id of uncertaintySeedIds.filter((candidate) => !coveredRoots.has(rootOf(candidate)))) {
+    const next = queues.get(id)?.shift();
+    if (next && picks.length < room) picks.push(next);
+  }
+  if (!extras) return picks;
   while (picks.length < room) {
     let took = false;
-    for (const id of order) {
+    for (const id of uncertaintySeedIds) {
       const next = queues.get(id)?.shift();
       if (!next || picks.length >= room) continue;
       picks.push(next);
@@ -845,9 +874,18 @@ export function experimentsCoveringUncertainties(
   return picks;
 }
 
-/** How many picked uncertainties a set of picked experiments tested. */
-export function testedUncertaintyCount(experiments: readonly SeedItem[], uncertaintySeedIds: ReadonlySet<string>): number {
-  return new Set(experiments.map((item) => item.uncertaintySeedId).filter((id): id is string => id !== null && uncertaintySeedIds.has(id))).size;
+/** How many picked uncertainties (a revision counts as its original) a set of picked experiments tested. */
+export function testedUncertaintyCount(
+  experiments: readonly SeedItem[],
+  uncertaintySeedIds: ReadonlySet<string>,
+  rootOf: UncertaintyRoot = (seedId) => seedId,
+): number {
+  const picked = new Set([...uncertaintySeedIds].map(rootOf));
+  return new Set(
+    experiments
+      .map((item) => (item.uncertaintySeedId === null ? null : rootOf(item.uncertaintySeedId)))
+      .filter((root): root is string => root !== null && picked.has(root)),
+  ).size;
 }
 
 function commandId(fixtureId: string, label: string, counter: number): string {
@@ -948,6 +986,9 @@ export async function runFixture(
   const shownItems = (view: SubsectionView) => view.items.filter((item) => item.batchId === view.shownBatchId);
   const activeIds = async (role: PdSubsectionRoleId) =>
     new Set((await subsection(role)).items.filter((item) => item.selected).map((item) => item.seedId));
+  /** An uncertainty and its Feedback revisions count as one (review P2-2). */
+  const uncertaintyRootOf = async (): Promise<UncertaintyRoot> =>
+    revisionRoots((await subsection("active_uncertainties")).items);
   /** Picked experiments and the uncertainty each tested (2026-09-29, first). */
   const activeExperiments = async () =>
     new Map(
@@ -970,7 +1011,7 @@ export async function runFixture(
       case "linkedAdvancements": {
         const uncertainties = await activeIds("active_uncertainties");
         const experiments = await activeExperiments();
-        return linkedAdvancements(view.items.filter((item) => !item.selected), uncertainties, experiments, pick.n);
+        return linkedAdvancements(view.items.filter((item) => !item.selected), uncertainties, experiments, pick.n, await uncertaintyRootOf());
       }
     }
   };
@@ -1055,8 +1096,9 @@ export async function runFixture(
   const dropUnlinked = async (view: SubsectionView) => {
     const uncertainties = await activeIds("active_uncertainties");
     const experiments = await activeExperiments();
+    const rootOf = await uncertaintyRootOf();
     for (const item of view.items.filter((candidate) => candidate.selected)) {
-      const linked = linkedAdvancements([item], uncertainties, experiments, 1).length === 1;
+      const linked = linkedAdvancements([item], uncertainties, experiments, 1, rootOf).length === 1;
       if (!linked) {
         await setSelected("specific_advancements", item.seedId, false);
         say(`untick unlinked advancement ${item.seedId}`);
@@ -1071,17 +1113,27 @@ export async function runFixture(
    */
   const pickCoveringExperiments = async (n: number, minUncertainties: number) => {
     const role = "experimentation" as const;
-    for (let round = 0; ; round += 1) {
+    const pool = async () => {
       const view = await subsection(role);
+      return [...view.items.filter((item) => item.selected), ...shownItems(view).filter((item) => !item.selected)];
+    };
+    for (let round = 0; ; round += 1) {
       const uncertaintyView = await subsection("active_uncertainties");
       const uncertainties = uncertaintyView.items.filter((item) => item.selected).map((item) => item.seedId);
       const active = new Set(uncertainties);
-      const pool = [...view.items.filter((item) => item.selected), ...shownItems(view).filter((item) => !item.selected)];
-      for (const item of experimentsCoveringUncertainties(pool, uncertainties, n)) await setSelected(role, item.seedId, true);
-      const picked = (await subsection(role)).items.filter((item) => item.selected);
-      const covered = testedUncertaintyCount(picked, active);
+      const rootOf = revisionRoots(uncertaintyView.items);
+      // Review P2-1: one experiment per uncovered uncertainty only, so the
+      // other slots stay free for a regenerated page to cover the rest.
+      for (const item of experimentsCoveringUncertainties(await pool(), uncertainties, n, { extras: false, rootOf })) {
+        await setSelected(role, item.seedId, true);
+      }
+      const covered = testedUncertaintyCount((await pool()).filter((item) => item.selected), active, rootOf);
       const needed = Math.min(minUncertainties, active.size);
       if (covered >= needed || round >= 2) {
+        // Coverage met, or no more regenerations: fill the remaining slots.
+        for (const item of experimentsCoveringUncertainties(await pool(), uncertainties, n, { rootOf })) {
+          await setSelected(role, item.seedId, true);
+        }
         if (covered < needed) say(`the experiments cover ${covered} of ${needed} picked uncertainties after two regenerations`);
         return;
       }
@@ -1138,7 +1190,7 @@ export async function runFixture(
           const uncertainties = await activeIds("active_uncertainties");
           const experiments = await activeExperiments();
           const selected = view.items.filter((item) => item.selected);
-          const candidates = linkedAdvancements(view.items, uncertainties, experiments, view.items.length);
+          const candidates = linkedAdvancements(view.items, uncertainties, experiments, view.items.length, await uncertaintyRootOf());
           const groups = new Map<string, SeedItem[]>();
           for (const item of candidates) {
             groups.set(item.uncertaintySeedId as string, [...(groups.get(item.uncertaintySeedId as string) ?? []), item]);
@@ -1174,23 +1226,31 @@ export async function runFixture(
           if (item.uncertaintySeedId) counts.set(item.uncertaintySeedId, (counts.get(item.uncertaintySeedId) ?? 0) + 1);
         }
         const active = await activeIds("active_uncertainties");
-        const tested = new Set([...(await activeExperiments()).values()].filter((id): id is string => id !== null));
-        // Prefer one whose drop leaves another uncertainty a picked experiment tested.
-        const ranked = [...counts.entries()].filter(([id]) => active.has(id)).sort((a, b) => b[1] - a[1]);
-        const target = (ranked.find(([id]) => [...tested].some((other) => other !== id && active.has(other))) ?? ranked[0])?.[0];
+        // Review P3-4: the uncertainty the manifest describes, whatever it
+        // leaves: when no kept uncertainty has an experiment, the writer
+        // recovers as the step says (deselectExperimentsForDroppedUncertainty).
+        const target = [...counts.entries()].filter(([id]) => active.has(id)).sort((a, b) => b[1] - a[1])[0]?.[0];
         if (!target) throw new Error("No selected advancement links to an active uncertainty");
         if (active.size < 2) throw new Error("Only one uncertainty is selected; nothing would remain");
         log.removedUncertaintySeedId = target;
         await setSelected("active_uncertainties", target, false);
         return;
       }
+      case "recordLinkNotice": {
+        const kind = (await subsection(step.role)).linkNotice?.kind ?? null;
+        log.linkNotices = { ...(log.linkNotices ?? {}), [step.role]: kind };
+        say(`${step.role} link notice: ${kind ?? "none"}`);
+        return;
+      }
       case "deselectExperimentsForDroppedUncertainty": {
         const uncertainties = await activeIds("active_uncertainties");
         const view = await subsection("experimentation");
         const picked = view.items.filter((item) => item.selected);
+        const rootOf = await uncertaintyRootOf();
         const dropped = experimentsForDroppedUncertainties(
           uncertainties,
           picked.map((item) => ({ seedId: item.seedId, uncertaintySeedId: item.uncertaintySeedId })),
+          rootOf,
         );
         for (const experiment of dropped) {
           await setSelected("experimentation", experiment.seedId, false);
@@ -1199,7 +1259,7 @@ export async function runFixture(
         // With nothing left for a kept uncertainty, the writer follows the
         // step's advice and picks experiments for the uncertainties they kept.
         const left = (await subsection("experimentation")).items.filter((item) => item.selected);
-        if (testedUncertaintyCount(left, uncertainties) === 0) {
+        if (testedUncertaintyCount(left, uncertainties, rootOf) === 0) {
           say("no picked experiment tests a kept uncertainty; picking experiments for them");
           await pickCoveringExperiments(Math.max(1, dropped.length), 1);
         }
@@ -2030,6 +2090,23 @@ function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[
           "Every signed-off experiment tested an uncertainty the plan still holds",
           experimentItems.length > 0 && strayExperiments.length === 0,
           `${experimentItems.length} experiment(s); ${strayExperiments.length} with no recorded uncertainty or one the plan dropped${strayExperiments.length ? `: ${strayExperiments.map((item) => quote(item.bullets.join(" "), 60)).join(", ")}` : ""}`,
+        ),
+      );
+      const notices = log.linkNotices ?? {};
+      checks.push(
+        check(
+          "dropped-experiments-named",
+          "Before approval, Experimentation / Iterations named the experiments that tested the dropped uncertainty",
+          notices.experimentation === "experiments_for_dropped_uncertainty",
+          `notice: ${notices.experimentation ?? "none read"}`,
+        ),
+      );
+      checks.push(
+        check(
+          "unlinked-advancements-named",
+          "Before approval, Specific technological advancements said its advancements could not be linked",
+          notices.specific_advancements === "unlinked_advancements" || notices.specific_advancements === "no_linkable_experiment",
+          `notice: ${notices.specific_advancements ?? "none read"}`,
         ),
       );
       const droppedRefusal = log.refusals.find((candidate) => candidate.key === "droppedExperiments");
