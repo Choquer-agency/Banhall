@@ -722,6 +722,97 @@ export async function retryInitializeSeedStageHandler(
   return null;
 }
 
+/**
+ * CAP-13 rule 5 (2026-09-29, second): the active Feedback of the run that
+ * signed the Summary off, in the order it was given. Nothing changes it
+ * after sign-off.
+ */
+async function activeFeedbackRows(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  originGenerationId: Id<"generations">
+) {
+  const rows = await ctx.db
+    .query("seedFeedbackRequests")
+    .withIndex("by_generationId_and_status_and_roleId", (q) =>
+      q.eq("generationId", originGenerationId).eq("status", "active"))
+    .take(MAX_SEED_SNAPSHOT_ROWS + 1);
+  if (rows.length > MAX_SEED_SNAPSHOT_ROWS) {
+    domainError("INVALID_INPUT", "Frozen Summary Feedback exceeds the drafting budget");
+  }
+  return rows
+    .filter((row) => row.projectId === generation.projectId)
+    .sort((a, b) => a._creationTime - b._creationTime);
+}
+
+/**
+ * 2026-09-29 (second): for the assembled-draft consistency pass, which Lines
+ * carry an idea the writer kept despite each Claim Exclusion, and which
+ * Lines set each Glossary Term aside (the same rules as the drafting plan,
+ * without reading the plan's evidence). Null without a signed-off Summary.
+ */
+export async function loadWriterPrecedenceByLine(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  brief: { claimExclusions: ReadonlyArray<{ text: string; exactExcerpt?: string }>; glossaryTerms: readonly string[] } | null
+): Promise<{
+  keptExclusions: Array<{ text: string; sections: SectionNumber[] }>;
+  glossarySetAside: Array<{ term: string; sections: SectionNumber[] }>;
+} | null> {
+  if (!generation.summaryVersionId || !brief) return null;
+  const summary = await ctx.db.get(generation.summaryVersionId);
+  if (!summary || summary.projectId !== generation.projectId) return null;
+  const originGenerationId = generation.originGenerationId ?? generation._id;
+  const items = await ctx.db.query("summaryItems")
+    .withIndex("by_summaryVersionId_and_order", (q) =>
+      q.eq("summaryVersionId", summary._id))
+    .take(SEED_DECISION_COLLECTION_ROWS + 1);
+  if (items.length > SEED_DECISION_COLLECTION_ROWS) return null;
+  const skipped = new Set(summary.skippedRoleIds);
+  const feedbackRows = await activeFeedbackRows(ctx, generation, originGenerationId);
+  const keptExclusions: Array<{ text: string; sections: SectionNumber[] }> = [];
+  const glossarySetAside: Array<{ term: string; sections: SectionNumber[] }> = [];
+  const push = <T extends { sections: SectionNumber[] }>(
+    list: T[],
+    find: (entry: T) => boolean,
+    make: () => T,
+    section: SectionNumber
+  ) => {
+    const entry = list.find(find) ?? (list.push(make()), list[list.length - 1]!);
+    if (!entry.sections.includes(section)) entry.sections.push(section);
+  };
+  for (const section of ["242", "244", "246"] as const) {
+    const key = `s${section}`;
+    const roleIds = new Set(PD_SUBSECTIONS.filter((role) => role.section === key).map((role) => role.roleId));
+    const lineItems = items.filter((item) => roleIds.has(item.roleId) && !skipped.has(item.roleId));
+    for (const item of lineItems) {
+      if (!item.confirmedExclusion) continue;
+      for (const exclusion of brief.claimExclusions) {
+        if (matchesSeedExclusion(item.bullets, exclusion.text, exclusion.exactExcerpt)) {
+          push(keptExclusions, (entry) => entry.text === exclusion.text, () => ({ text: exclusion.text, sections: [] }), section);
+        }
+      }
+    }
+    const editedItems: Array<{ original: string[]; edited: string[] }> = [];
+    for (const item of lineItems) {
+      if (item.edited === false) continue;
+      const seed = await ctx.db.get(item.seedId);
+      if (!seed || seed.projectId !== generation.projectId) continue;
+      if (stableSerialize(item.bullets) === stableSerialize(seed.bullets)) continue;
+      editedItems.push({ original: seed.bullets, edited: item.bullets });
+    }
+    const aside = glossaryTermsSetAside({
+      glossaryTerms: brief.glossaryTerms,
+      feedback: feedbackForLine(section, feedbackRows, summary.skippedRoleIds),
+      editedItems,
+    });
+    for (const entry of aside) {
+      push(glossarySetAside, (known) => known.term === entry.term, () => ({ term: entry.term, sections: [] }), section);
+    }
+  }
+  return { keptExclusions, glossarySetAside };
+}
+
 export async function loadFrozenSectionPlan(
   ctx: { db: QueryCtx["db"] },
   generation: Doc<"generations">,
@@ -850,21 +941,9 @@ export async function loadFrozenSectionPlan(
       }
     }
   }
-  // CAP-13 rule 5 (2026-09-29, second): the active Feedback of the run that
-  // signed this Summary off. Nothing changes it after sign-off.
-  const feedbackRows = await ctx.db
-    .query("seedFeedbackRequests")
-    .withIndex("by_generationId_and_status_and_roleId", (q) =>
-      q.eq("generationId", originGenerationId).eq("status", "active"))
-    .take(MAX_SEED_SNAPSHOT_ROWS + 1);
-  if (feedbackRows.length > MAX_SEED_SNAPSHOT_ROWS) {
-    domainError("INVALID_INPUT", "Frozen Summary Feedback exceeds the drafting budget");
-  }
   const writerFeedback = feedbackForLine(
     section,
-    feedbackRows
-      .filter((row) => row.projectId === generation.projectId)
-      .sort((a, b) => a._creationTime - b._creationTime),
+    await activeFeedbackRows(ctx, generation, originGenerationId),
     summary.skippedRoleIds
   );
   const glossarySetAside = glossaryTermsSetAside({

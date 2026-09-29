@@ -43,7 +43,11 @@ import { requireReportEditAccess } from "../roleCapabilities";
 import { limitGenerationStart } from "../aiRateLimits";
 import { findActiveGeneration } from "../activeGeneration";
 import { ACTIVE_GENERATION_STATUSES } from "../../../shared/generationTransitions";
-import { frozenOrderedPayload, assertFrozenSummaryRuntimeAdmission } from "./seedStage";
+import {
+  frozenOrderedPayload,
+  assertFrozenSummaryRuntimeAdmission,
+  loadWriterPrecedenceByLine,
+} from "./seedStage";
 import { appendGenerationProgress } from "../generationProgress";
 import { transitionRedraft } from "../generationTransitions";
 import {
@@ -998,6 +1002,8 @@ export async function getSeedRedraftInputHandler(
     projectId: generation.projectId,
     requestedBy: generation.requestedBy,
     brief,
+    // 2026-09-29 (second): what the consistency pass must not report.
+    writerPrecedence: await loadWriterPrecedenceByLine(ctx, generation, brief),
     sections: await redraftCheckedSections(ctx, generation._id, generation.redraft, run._id),
   };
 }

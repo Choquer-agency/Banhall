@@ -812,6 +812,22 @@ export const CONSISTENCY_REQUEST = {
       "{{runtime.glossaryTerms}}",
     ],
   },
+  /**
+   * 2026-09-29 (second, CAP-13 rules 4 and 5): a Claim Exclusion the writer
+   * kept an idea for, and a Glossary Term the writer's wording sets aside,
+   * name the Lines where that holds. Only present when one does, so other
+   * requests are unchanged.
+   */
+  writerPrecedence: {
+    keptPrefix: " (the writer kept an idea with this content in ",
+    keptSuffix: "; do not report it there)",
+    setAsidePrefix: " (set aside by the writer's own wording in ",
+    setAsideSuffix: "; do not report another name for it there)",
+    oneLine: "Line ",
+    manyLines: "Lines ",
+    lineSeparator: ", ",
+    lastLineSeparator: " and ",
+  },
   modelSelector: "candidate-model-or-default",
 } as const;
 

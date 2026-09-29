@@ -188,3 +188,57 @@ describe("the consistency pass reads what it can (real SDK, fetch stubbed)", () 
     }
   });
 });
+
+describe("the consistency pass knows the writer's decisions (2026-09-29 second)", () => {
+  const BILLING = "Migration of the customer billing portal was routine IT work.";
+
+  it("names the Lines where the writer kept an idea despite a Claim Exclusion or set a Glossary Term aside", async () => {
+    const users = installFetch([{ findings: [] }]);
+    const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
+    await t.action(async (ctx: ActionCtx) =>
+      await runConsistencyPass(
+        instrumentedAnthropic(ctx, { callSite: "generation:consistency" }) as unknown as GenerationClient,
+        {
+          sections: SECTIONS,
+          claimExclusions: [BILLING, "Dealer training was a business activity."],
+          glossaryTerms: ["floating head", "pilot cell"],
+          model: SONNET,
+          writerPrecedence: {
+            keptExclusions: [{ text: BILLING, sections: ["244"] }],
+            glossarySetAside: [{ term: "floating head", sections: ["246", "242", "244"] }],
+          },
+        }
+      )
+    );
+    expect(users[0]).toContain(
+      `--- BEGIN [CLAIM EXCLUSIONS] ---\n- ${BILLING} (the writer kept an idea with this content in Line 244; do not report it there)\n- Dealer training was a business activity.\n--- END [CLAIM EXCLUSIONS] ---`
+    );
+    expect(users[0]).toContain(
+      "--- BEGIN [GLOSSARY TERMS] ---\n- floating head (set aside by the writer's own wording in Lines 242, 244 and 246; do not report another name for it there)\n- pilot cell\n--- END [GLOSSARY TERMS] ---"
+    );
+  });
+
+  it("sends the lists as before when the writer made no such decision", async () => {
+    const users = installFetch([{ findings: [] }, { findings: [] }]);
+    const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
+    for (const writerPrecedence of [undefined, { keptExclusions: [], glossarySetAside: [] }]) {
+      await t.action(async (ctx: ActionCtx) =>
+        await runConsistencyPass(
+          instrumentedAnthropic(ctx, { callSite: "generation:consistency" }) as unknown as GenerationClient,
+          {
+            sections: SECTIONS,
+            claimExclusions: [BILLING],
+            glossaryTerms: ["floating head"],
+            model: SONNET,
+            ...(writerPrecedence ? { writerPrecedence } : {}),
+          }
+        )
+      );
+    }
+    expect(users[0]).toContain(`--- BEGIN [CLAIM EXCLUSIONS] ---\n- ${BILLING}\n--- END [CLAIM EXCLUSIONS] ---`);
+    expect(users[0]).toContain("--- BEGIN [GLOSSARY TERMS] ---\n- floating head\n--- END [GLOSSARY TERMS] ---");
+    expect(users[1]).toBe(users[0]);
+  });
+});

@@ -27,7 +27,11 @@ import {
 import { internal } from "../../_generated/api";
 import { loadBriefCheck } from "./brief";
 import { domainError } from "../contracts";
-import { assertFrozenSummaryRuntimeAdmission, loadFrozenSectionPlan } from "./seedStage";
+import {
+  assertFrozenSummaryRuntimeAdmission,
+  loadFrozenSectionPlan,
+  loadWriterPrecedenceByLine,
+} from "./seedStage";
 import { complianceNoteDraftValidator, complianceNoteRow } from "../complianceNote";
 import {
   sectionRunTypedFields,
@@ -648,6 +652,8 @@ export async function getOrderedCandidateDraftsHandler(
     label: run.label,
     runStatus: run.status,
     brief,
+    // 2026-09-29 (second): what the consistency pass must not report.
+    writerPrecedence: await loadWriterPrecedenceByLine(ctx, generation, brief),
     stopRequested: generation.stopRequestedAt !== undefined,
     consistencyCheckedAt: run.consistencyCheckedAt ?? null,
     sections: rows.map((row) => ({

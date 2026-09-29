@@ -1542,20 +1542,46 @@ export type ConsistencyInput = {
   claimExclusions: string[];
   glossaryTerms: string[];
   model: string;
+  /**
+   * 2026-09-29 (second): the Lines where the writer kept an idea despite a
+   * Claim Exclusion, and where the writer's wording sets a Glossary Term
+   * aside (loadWriterPrecedenceByLine).
+   */
+  writerPrecedence?: {
+    keptExclusions: ReadonlyArray<{ text: string; sections: readonly SectionNumber[] }>;
+    glossarySetAside: ReadonlyArray<{ term: string; sections: readonly SectionNumber[] }>;
+  } | null;
 };
+
+/** "Line 244", or "Lines 242, 244 and 246". */
+function linesPhrase(sections: readonly SectionNumber[]): string {
+  const scaffold = CONSISTENCY_REQUEST.writerPrecedence;
+  const sorted = [...sections].sort();
+  if (sorted.length <= 1) return `${scaffold.oneLine}${sorted[0] ?? ""}`;
+  return `${scaffold.manyLines}${sorted.slice(0, -1).join(scaffold.lineSeparator)}${scaffold.lastLineSeparator}${sorted[sorted.length - 1]}`;
+}
 
 export function buildConsistencyUserMessage(input: ConsistencyInput): string {
   const blocks = input.sections.map(({ section, text }) =>
     block(ORDERED_SECTION_TITLES[section].toUpperCase(), numberedSectionParagraphs(text))
   );
+  const scaffold = CONSISTENCY_REQUEST.writerPrecedence;
+  const kept = input.writerPrecedence?.keptExclusions ?? [];
+  const aside = input.writerPrecedence?.glossarySetAside ?? [];
   if (input.claimExclusions.length > 0) {
     blocks.push(
-      block("CLAIM EXCLUSIONS", input.claimExclusions.map((text) => `- ${text}`).join("\n"))
+      block("CLAIM EXCLUSIONS", input.claimExclusions.map((text) => {
+        const lines = kept.find((entry) => entry.text === text)?.sections ?? [];
+        return `- ${text}${lines.length > 0 ? `${scaffold.keptPrefix}${linesPhrase(lines)}${scaffold.keptSuffix}` : ""}`;
+      }).join("\n"))
     );
   }
   if (input.glossaryTerms.length > 0) {
     blocks.push(
-      block("GLOSSARY TERMS", input.glossaryTerms.map((term) => `- ${term}`).join("\n"))
+      block("GLOSSARY TERMS", input.glossaryTerms.map((term) => {
+        const lines = aside.find((entry) => entry.term.toLowerCase() === term.trim().toLowerCase())?.sections ?? [];
+        return `- ${term}${lines.length > 0 ? `${scaffold.setAsidePrefix}${linesPhrase(lines)}${scaffold.setAsideSuffix}` : ""}`;
+      }).join("\n"))
     );
   }
   return `${CONSISTENCY_REQUEST.userScaffold.prefix}${blocks.join(CONSISTENCY_REQUEST.userScaffold.blockSeparator)}`;

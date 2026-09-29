@@ -1253,6 +1253,7 @@ export const finalizeOrderedCandidate = internalAction({
             claimExclusions: drafts.brief?.claimExclusions.map((entry) => entry.text) ?? [],
             glossaryTerms: drafts.brief?.glossaryTerms ?? [],
             model: clientFor.modelFor("generation:consistency"),
+            writerPrecedence: drafts.writerPrecedence,
           });
           notes = [
             ...consistencyNoteDrafts(pass.findings),
@@ -1544,6 +1545,7 @@ export const finalizeSeedRedraft = internalAction({
           claimExclusions: input.brief?.claimExclusions.map((entry) => entry.text) ?? [],
           glossaryTerms: input.brief?.glossaryTerms ?? [],
           model: route.model,
+          writerPrecedence: input.writerPrecedence,
         });
         notes = [
           ...consistencyNoteDrafts(pass.findings),

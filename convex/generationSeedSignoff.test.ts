@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
-import { loadFrozenSectionPlan } from "./lib/generations/seedStage";
+import { loadFrozenSectionPlan, loadWriterPrecedenceByLine } from "./lib/generations/seedStage";
 import {
   makeFunctionReference,
   type FunctionArgs,
@@ -2078,6 +2078,19 @@ describe("seed Summary sign-off and recovery", () => {
     for (const plan of Object.values(plans)) {
       expect(JSON.stringify(plan)).not.toContain("Kestrel");
     }
+    // The consistency pass reads the same decisions, by Line.
+    const byLine = await s.t.run(async (ctx) => {
+      const generation = await ctx.db.get(s.generationId);
+      if (!generation) throw new Error("Missing generation");
+      return await loadWriterPrecedenceByLine(ctx, generation, {
+        claimExclusions: [{ text: "Final specific_advancements wording." }],
+        glossaryTerms: ["floating head", "pilot cell"],
+      });
+    });
+    expect(byLine).toEqual({
+      keptExclusions: [{ text: "Final specific_advancements wording.", sections: ["246"] }],
+      glossarySetAside: [{ term: "floating head", sections: ["242", "244", "246"] }],
+    });
 
     // The claim reads the frozen Brief's terms and the drafting request
     // carries the decisions, never the withdrawn instruction.
@@ -6783,6 +6796,12 @@ describe("seed Summary sign-off and recovery", () => {
       ([params]) => (params as GenerationMessageParams).tool_choice?.name ?? null
     );
     expect(finalizerTools).toEqual(["submit_consistency_findings"]);
+    // 2026-09-29 (second): the pass is told where the writer kept an idea
+    // despite a Claim Exclusion, so it does not report it there.
+    const consistencyRequest = network.create.mock.calls[0]?.[0] as GenerationMessageParams;
+    expect(providerUser(consistencyRequest)).toContain(
+      "- Final specific_advancements wording. (the writer kept an idea with this content in Line 246; do not report it there)"
+    );
 
     const completed = await s.t.run(async (ctx) => {
       const report = await ctx.db.query("reports")
