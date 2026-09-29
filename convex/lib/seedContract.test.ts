@@ -10,7 +10,7 @@ import {
   locateCitations,
   nearestOccurrence,
   seedAnswerCounts,
-  seedSchemaWithLinks,
+  linkedSeedSchemas,
   seedToolSchema,
   speakerOfTranscriptLine,
   validateBatch,
@@ -137,43 +137,12 @@ describe("seed contract", () => {
         candidate(["The final option reduced implementation risk."], ["aggressive"]),
       ],
     });
-    // Run 7 re-check: four valid Seeds whose only fault is one bullet form
-    // keep the first three that use two tags, a Batch the form rule does not
-    // cover, instead of spending a repair.
-    expect(noFormDiversity).toMatchObject({ ok: true, seedIndexes: [0, 1, 2], dropped: 1 });
-    expect(noFormDiversity.seeds.map((seed) => seed.bullets[0])).toEqual([one, two, "A third option remained stable."]);
-    expect(noFormDiversity.issues).toEqual([expect.objectContaining({ code: "FORM_VARIETY_TRIMMED" })]);
-    // The three kept must still use two tags; otherwise the rule stands.
-    const sameTags = validateBatch({
-      roleId: "goal_problem",
-      mode: "batch",
-      seeds: [
-        candidate([one], ["technical"]),
-        candidate([two], ["technical"]),
-        candidate(["A third option remained stable."], ["technical"]),
-        candidate(["The final option reduced implementation risk."], ["aggressive"]),
-      ],
-    });
-    expect(sameTags).toMatchObject({ ok: true, seedIndexes: [0, 1, 3] });
-    const oneTag = validateBatch({
-      roleId: "goal_problem",
-      mode: "batch",
-      seeds: [
-        candidate([one], ["technical"]),
-        candidate([two], ["technical"]),
-        candidate(["A third option remained stable."], ["technical"]),
-        candidate(["The final option reduced implementation risk."], ["technical"]),
-      ],
-    });
-    expect(oneTag.ok).toBe(false);
-    expect(oneTag.issues.map((issue) => issue.code)).toEqual(["INSUFFICIENT_TAG_DIVERSITY", "INSUFFICIENT_FORM_DIVERSITY"]);
-    // A form fault beside another Batch fault is not trimmed.
-    const short = validateBatch({
-      roleId: "goal_problem",
-      mode: "batch",
-      seeds: [candidate([one], ["technical"]), candidate([two], ["technical"])],
-    });
-    expect(short.issues.some((issue) => issue.code === "FORM_VARIETY_TRIMMED")).toBe(false);
+    expect(noFormDiversity.ok).toBe(false);
+    expect(noFormDiversity.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "INSUFFICIENT_FORM_DIVERSITY" }),
+      ])
+    );
 
     const five = [
       candidate([one], ["technical"]),
@@ -354,27 +323,19 @@ describe("seed contract", () => {
     expect(JSON.stringify(schema)).toContain("experimentSeedIds");
   });
 
-  it("requires the offered links on every Seed when a request sends a link block (run 7 re-check)", () => {
+  it("builds two fixed linked Seed schemas that require the links, with no ids in them (run 7 re-check)", () => {
     const base = seedToolSchema();
-    expect(seedSchemaWithLinks(base, null)).toBe(base);
     const item = (schema: unknown) =>
       (schema as { properties: { seeds: { items: { required: string[]; properties: Record<string, unknown> } } } }).properties.seeds.items;
-    const advancement = item(
-      seedSchemaWithLinks(base, { roleId: "specific_advancements", uncertaintySeedIds: ["u1"], experimentSeedIds: ["e1", "e2"] })
-    );
-    expect(advancement.required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId", "experimentSeedIds"]);
-    expect(advancement.properties.uncertaintySeedId).toEqual({ type: "string", enum: ["u1"] });
-    expect(advancement.properties.experimentSeedIds).toEqual({
-      type: "array",
-      minItems: 1,
-      uniqueItems: true,
-      items: { type: "string", enum: ["e1", "e2"] },
-    });
-    const experiment = item(seedSchemaWithLinks(base, { roleId: "experimentation", uncertaintySeedIds: ["u1", "u2"] }));
-    expect(experiment.required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId"]);
-    expect(experiment.properties.uncertaintySeedId).toEqual({ type: "string", enum: ["u1", "u2"] });
-    expect(experiment.properties).not.toHaveProperty("experimentSeedIds");
-    // The shared schema is never changed in place.
+    const { experiment, advancement } = linkedSeedSchemas(base);
+    expect(item(advancement).required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId", "experimentSeedIds"]);
+    expect(item(advancement).properties.uncertaintySeedId).toEqual({ type: "string" });
+    expect(item(advancement).properties.experimentSeedIds).toEqual({ type: "array", minItems: 1, uniqueItems: true, items: { type: "string" } });
+    expect(item(experiment).required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId"]);
+    expect(item(experiment).properties.uncertaintySeedId).toEqual({ type: "string" });
+    expect(item(experiment).properties).not.toHaveProperty("experimentSeedIds");
+    // Fixed: the same bytes every time, and the shared schema never changes.
+    expect(JSON.stringify(linkedSeedSchemas(seedToolSchema()))).toBe(JSON.stringify({ experiment, advancement }));
     expect(item(base).required).toEqual(["bullets", "tags", "provenance"]);
   });
 

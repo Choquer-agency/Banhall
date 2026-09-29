@@ -51,6 +51,7 @@ import {
   SUMMARY_PLAN_SERIALIZER_VERSION,
 } from "../lib/seedRevisions";
 import { seedToolSchemaForFacts } from "../lib/seedFacts";
+import { linkedSeedSchemas, seedToolSchema } from "../lib/seedContract";
 import { FACTS_SCHEMA, FACTS_SYSTEM_PROMPT } from "./transcriptFactsAgent";
 import { FACTS_VERSION } from "../lib/transcriptFacts";
 
@@ -374,15 +375,21 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("names each experiment's uncertainty and makes advancements follow it (2026-09-29, first amendment)", () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-29.5");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-29.6");
     expect(SEED_PROMPT_PROGRAM.user.blocks.experimentLinks).toBe("FROZEN EXPERIMENT LINKS");
     // Run 7: the exact pairs in a repair have their own reserved bytes.
     expect(SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes).toBe(768);
-    // Run 7 re-check: required links in the schema, repairs that keep them,
-    // and the form trim are part of the hashed program.
-    expect(SEED_PROMPT_PROGRAM.request.linkedSchema).toBe("link-fields-required-and-limited-to-offered-ids-when-a-link-block-is-sent");
+    // Targeted run 2 and its re-check: the three fixed tools (the linked two
+    // require their links) and the repair that keeps them are part of the
+    // hashed program.
+    expect(SEED_PROMPT_PROGRAM.request.linkedToolPolicy).toBe(
+      "three-fixed-tools-in-every-seed-request-tool_choice-forces-the-linked-one-when-a-link-block-is-sent"
+    );
+    expect(SEED_PROMPT_PROGRAM.request.linkedTools.experiment.name).toBe("submit_experiment_seed_batch");
+    expect(SEED_PROMPT_PROGRAM.request.linkedTools.advancement.name).toBe("submit_advancement_seed_batch");
+    expect(generationPromptProgram.calls.seeds.linkedSchemas).toEqual(linkedSeedSchemas(seedToolSchema()));
+    expect(generationPromptProgram.calls.seedFeedback.factLinkedSchemas).toEqual(linkedSeedSchemas(seedToolSchemaForFacts()));
     expect(SEED_PROMPT_PROGRAM.request.linkRepair.opening).toContain("Keep each Seed's link fields");
-    expect(SEED_PROMPT_PROGRAM.request.formVariety).toContain("keep-the-first-three-with-two-tags");
     expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.linkRepair)).not.toMatch(/[\u2013\u2014]/);
     // The experiment block renders after the decisions, before the advancement block.
     const order: readonly string[] = SEED_PROMPT_PROGRAM.user.order;
@@ -413,7 +420,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("versions the Seed quote rules (2026-09-27, third amendment)", async () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-29.5");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-29.6");
     expect(SEED_PROMPT_PROGRAM.request.quoteRepair.opening).toContain("Some quotes may not back their idea card.");
     expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.quoteRepair)).not.toMatch(/[\u2013\u2014]/);
     expect(generationPromptProgram.templates.seeds.scaffolds.version).toBe(SEED_PROMPT_PROGRAM.version);

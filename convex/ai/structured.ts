@@ -156,6 +156,14 @@ export async function generateStructured<T>(
      * cut-off, malformed or missing answer.
      */
     invalidAnswerRepair?: (answer: unknown) => string | null;
+    /**
+     * 2026-09-29 (first, run 7 re-check): the whole tools list, sent as
+     * given in every attempt so its bytes (and their cache) never depend on
+     * which tool is forced; `toolName` names the forced one and must be in
+     * it. Without it, the one tool from `toolName`, `description` and
+     * `schema` is sent, as before.
+     */
+    tools?: ReadonlyArray<{ name: string; description: string; input_schema: Anthropic.Tool.InputSchema }>;
   }
 ): Promise<T> {
   // The answer a soft repair set aside, returned if the repair fails.
@@ -175,6 +183,18 @@ async function structuredAttempts<T>(
 ): Promise<T> {
   const client = rawClient as GenerationClient;
   const attempts = opts.attempts ?? STRUCTURED_OUTPUT_PROGRAM.attempts;
+  if (opts.tools && !opts.tools.some((tool) => tool.name === opts.toolName)) {
+    throw new Error(`${opts.toolName}: the forced tool is not in the tools list`);
+  }
+  const tools = opts.tools
+    ? opts.tools.map((tool) => ({ ...tool }))
+    : [
+        {
+          name: opts.toolName,
+          description: opts.description,
+          input_schema: opts.schema ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultSchema,
+        },
+      ];
   let validationSummary = "";
   // Set when the soft repair asked for the next attempt: its own text.
   let softRepairText: string | null = null;
@@ -232,14 +252,7 @@ async function structuredAttempts<T>(
         max_tokens:
           opts.maxTokens ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultMaxTokens,
         system: opts.system,
-        tools: [
-          {
-            name: opts.toolName,
-            description: opts.description,
-            input_schema:
-              opts.schema ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultSchema,
-          },
-        ],
+        tools,
         tool_choice: {
           type: STRUCTURED_OUTPUT_PROGRAM.request.toolChoice.type,
           name: opts.toolName,

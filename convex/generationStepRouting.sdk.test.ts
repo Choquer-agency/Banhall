@@ -31,7 +31,7 @@ import {
   SELF_CHECK_REQUEST,
 } from "./ai/promptDefinitions";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
-import { withPinnedAdvancementLinkRules } from "./seedLinkRules.fixture";
+import { withPinnedAdvancementLinkRules, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { BRIEF_REQUEST } from "./ai/brief";
 import { describeBriefOutcome } from "./lib/briefRender";
 import { QA_REQUEST } from "./ai/qaAgent";
@@ -287,7 +287,7 @@ const withoutBriefStream = (json: Record<string, unknown>) => {
 const withoutQuoteRules = (json: Record<string, unknown>) => {
   if (toolOf(json) !== "submit_seed_batch") return json;
   // 2026-09-28 (fourth): the link sentence changed; the pins hold the old one.
-  let body = withPinnedAdvancementLinkRules(JSON.stringify(json));
+  let body = withPinnedAdvancementLinkRules(JSON.stringify(withSharedSeedToolOnly(json)));
   for (const rules of [SEED_QUOTE_RULES, SEED_FACT_QUOTE_RULES]) {
     body = body.replace(JSON.stringify(rules).slice(1, -1), "");
   }

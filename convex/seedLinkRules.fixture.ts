@@ -1,4 +1,4 @@
-import { SEED_LINK_RULES } from "./ai/promptDefinitions";
+import { SEED_LINK_RULES, SEED_PROMPT_PROGRAM } from "./ai/promptDefinitions";
 
 /**
  * The advancement link sentence every Seed request sent before the
@@ -18,4 +18,15 @@ export function withPinnedAdvancementLinkRules(body: string): string {
   return body
     .split(JSON.stringify(SEED_LINK_RULES).slice(1, -1))
     .join(JSON.stringify(PINNED_ADVANCEMENT_LINK_RULES).slice(1, -1));
+}
+
+/**
+ * 2026-09-29 (first, run 7 re-check): every Seed request also sends the two
+ * linked Seed tools after the shared one; the pinned bodies hold the shared
+ * one only. A request body as JSON with the linked tools taken out.
+ */
+export function withSharedSeedToolOnly<T extends Record<string, unknown>>(json: T): T {
+  const tools = json.tools as Array<{ name: string }> | undefined;
+  if (!tools || tools[0]?.name !== SEED_PROMPT_PROGRAM.request.toolName) return json;
+  return { ...json, tools: tools.filter((tool) => tool.name === SEED_PROMPT_PROGRAM.request.toolName) };
 }
