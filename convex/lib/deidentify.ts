@@ -318,7 +318,8 @@ function ordinaryWord(lower: string): boolean {
  * hyphen between letters ("Quill-Mere"); it needs a lower-case letter, so an
  * acronym ("ACME") is left to the CAPS form, and four letters or more. It is
  * never a word of a person on the map ("Morgan" of "Morgan Hale
- * Engineering" when Morgan Hale is a speaker), and never ordinary, whole or
+ * Engineering" when Morgan Hale is a speaker and the map hides "Morgan"
+ * everywhere as that person; re-check P3-1), and never ordinary, whole or
  * in every hyphen part.
  */
 function coinedFirstWord(name: string, personWords: ReadonlySet<string>): string | undefined {
@@ -336,7 +337,7 @@ function coinedFirstWord(name: string, personWords: ReadonlySet<string>): string
   const lower = first.toLowerCase();
   if (
     COMMON_FIRST_WORDS.has(first) ||
-    personWords.has(lower) ||
+    personWords.has(first) ||
     ordinaryWord(lower) ||
     lower.split("-").every(ordinaryWord)
   ) {
@@ -392,6 +393,18 @@ function labelOnly(name: string): boolean {
   return name.split(/\s+/).every((word) => COMMON_CASELESS_WORDS.has(word) || isCommonCaselessWord(word));
 }
 
+type PlaceholderMapInput = {
+  clientName?: string;
+  /** Other organizations to hide (none on the record today). */
+  companies?: readonly string[];
+  /** The consulting firm's own names and short forms (admin setting). */
+  firms?: readonly string[];
+  /** Interviewer, writer, interviewees, then speaker labels. */
+  people: readonly (string | undefined)[];
+  /** Weak labels that opened no turn: hidden only at label positions. */
+  phrases?: readonly string[];
+};
+
 /**
  * The placeholder map for one project (and, inside a generation, frozen on
  * the generation). Deterministic for the same inputs: the client first, then
@@ -408,17 +421,29 @@ function labelOnly(name: string): boolean {
  * token when it is the firm's own). `phrases`, weak labels that opened no
  * turn, are hidden only where they stand as labels.
  */
-export function buildPlaceholderMap(input: {
-  clientName?: string;
-  /** Other organizations to hide (none on the record today). */
-  companies?: readonly string[];
-  /** The consulting firm's own names and short forms (admin setting). */
-  firms?: readonly string[];
-  /** Interviewer, writer, interviewees, then speaker labels. */
-  people: readonly (string | undefined)[];
-  /** Weak labels that opened no turn: hidden only at label positions. */
-  phrases?: readonly string[];
-}): PlaceholderMap {
+export function buildPlaceholderMap(input: PlaceholderMapInput): PlaceholderMap {
+  // Re-check P3-1 (2026-09-29, second): a company's coined first word is
+  // left to a person only when the map hides that exact word everywhere as
+  // a person or part of one. A first pass without the coined first words
+  // finds those words; a loose label hidden only where it stands as a label
+  // ("Quillmere" as a weak label) or a word inside a longer label ("Dana
+  // Whitfield (Quillmere)") never blocks the company's token.
+  const maskedPersonWords = new Set(
+    buildPlaceholderEntries(input, null)
+      .filter((entry) => entry.token.startsWith("[PERSON_") && entry.at === undefined && !/\s/u.test(entry.value))
+      .map((entry) => entry.value)
+  );
+  return buildPlaceholderEntries(input, maskedPersonWords);
+}
+
+/**
+ * The map's entries. `personWords` null leaves out the coined first words
+ * (the first pass); otherwise it names the words people hide everywhere.
+ */
+function buildPlaceholderEntries(
+  input: PlaceholderMapInput,
+  personWords: ReadonlySet<string> | null
+): PlaceholderEntry[] {
   const entries: PlaceholderEntry[] = [];
   const taken = new Set<string>();
   const add = (token: string, value: string | undefined, minLength = 3, at?: "label") => {
@@ -459,15 +484,6 @@ export function buildPlaceholderMap(input: {
     }
   }
 
-  // Review P3-4: every word of every person and label on the map, so a
-  // company's first word that is also someone's name is never hidden as
-  // the company.
-  const personWords = new Set(
-    [...input.people, ...(input.phrases ?? [])]
-      .flatMap((raw) => cleanPersonName(raw)?.split(/[\s,]+/) ?? [])
-      .map((word) => word.replace(/[^\p{L}'-]/gu, "").toLowerCase())
-      .filter(Boolean)
-  );
   const companyForms = (prefix: "CLIENT" | "FIRM", company: string, n: number, minLength: number) => {
     add(`[${prefix}_${n}]`, company, minLength);
     const short = company.replace(LEGAL_SUFFIX, "").trim();
@@ -481,7 +497,7 @@ export function buildPlaceholderMap(input: {
     // as people say it ("a bit about Quillmere"). Left visible beside
     // [CLIENT_1] for "Quillmere Analytics Ltd.", it led the analysis to call
     // the company "Quillmere Client", and Line 242 copied it.
-    const first = coinedFirstWord(short || company, personWords);
+    const first = personWords ? coinedFirstWord(short || company, personWords) : undefined;
     if (first) add(`[${prefix}_${n}_FIRST]`, first, minLength);
   };
 

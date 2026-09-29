@@ -536,6 +536,19 @@ describe("a company's coined first word (release suite run 6)", () => {
     expect(founder.find((entry) => entry.token === "[CLIENT_1_FIRST]")).toBeUndefined();
     expect(pseudonymize("Morgan said Morgan Hale Engineering Ltd. grew.", founder))
       .toBe("[PERSON_1_FIRST] said [CLIENT_1] grew.");
+    // Re-check P3-1: only a word the map hides everywhere as a person blocks
+    // the company's token. A weak label hidden only as a label, or a word
+    // inside a longer label, never does, so "Quillmere" is still hidden.
+    for (const input of [
+      { clientName: "Quillmere Analytics Ltd.", people: ["Anders Kowalczyk"], phrases: ["Quillmere"] },
+      { clientName: "Quillmere Analytics Ltd.", people: ["Dana Whitfield (Quillmere)"] },
+    ]) {
+      const map = buildPlaceholderMap(input);
+      expect(map.find((entry) => entry.token === "[CLIENT_1_FIRST]")?.value, JSON.stringify(input)).toBe("Quillmere");
+      expect(pseudonymize("Could you start with a bit about Quillmere?", map))
+        .toBe("Could you start with a bit about [CLIENT_1_FIRST]?");
+      expect(restorePlaceholders(pseudonymize("About Quillmere.", map), map)).toBe("About Quillmere.");
+    }
     // Inner capitals and a hyphen between letters are still coined words.
     for (const [clientName, first] of [
       ["QuillMere Analytics Ltd.", "QuillMere"],
