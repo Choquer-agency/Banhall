@@ -1317,6 +1317,79 @@ describe("seed Node action request boundary", () => {
     expect(context.find((row) => row.seedId === t1)?.uncertaintySeedId).toBe(u1);
   });
 
+  // Release suite run 7 (2026-09-29, feat 9d21a567): in two fixtures every
+  // Subsection 11 Batch failed INVALID_OUTPUT / advancement_links. The
+  // answers are not stored, so these are realistic answers for the two
+  // frozen plans, on fictional data shaped like them.
+  const run7Deburring: PriorDecision[] = [
+    { roleId: "active_uncertainties", bullets: ["Nobody had estimated burr height from 2D images on cast aluminium."] },
+    { roleId: "active_uncertainties", bullets: ["It was uncertain whether per-edge force changes could hold edge radius in window."] },
+    { roleId: "experimentation", bullets: ["The single-angle vision test gave 0.18 millimetres RMS error at 210 milliseconds per edge."], tested: 0 },
+    { roleId: "experimentation", bullets: ["A structured light 3D camera was rejected at about 0.2 millimetres depth resolution."], tested: 0 },
+    { roleId: "overall_advancement", bullets: ["The compliant spindle held edge radius in window on 97.8 percent of edges."] },
+  ];
+  function run7DeburringAnswer(ids: Id<"seeds">[]) {
+    const [images, force, vision, camera] = ids;
+    return {
+      seeds: [
+        advancement("Single-angle 2D vision cannot resolve burr height below 0.18 millimetres on cast aluminium.", "conservative", { uncertaintySeedId: images, experimentSeedIds: [vision!] }),
+        advancement("Structured light 3D gave no better depth resolution than 2D and was slower.", "technical", { uncertaintySeedId: images, experimentSeedIds: [camera!] }),
+        // Force knowledge the sources describe, linked to the force
+        // uncertainty that no picked experiment tested.
+        advancement("A compliant spindle held edge radius in window on 97.8 percent of edges.", "detailed", { uncertaintySeedId: force, experimentSeedIds: [vision!] }),
+        advancement("Per-edge force changes absorb casting variation in part position and burr shape.", "aggressive", { uncertaintySeedId: force, experimentSeedIds: [camera!] }),
+      ],
+    };
+  }
+  const run7Biofilter: PriorDecision[] = [
+    { roleId: "active_uncertainties", bullets: ["It was uncertain whether stepwise seed acclimation would avoid cold shock."] },
+    { roleId: "active_uncertainties", bullets: ["It was unknown whether nitrite oxidizing bacteria were the cold-sensitive bottleneck."] },
+    { roleId: "active_uncertainties", bullets: ["It was unclear whether a 10 percent acclimated seed fraction would work at 6 C."] },
+    { roleId: "experimentation", bullets: ["Standard seeding with warm-system media caused cold shock with little growth."], tested: 0 },
+    { roleId: "experimentation", bullets: ["Trial 1 ran three loops at 8 C: 66, 47 and 31 days to full nitrification."], tested: 1 },
+    { roleId: "experimentation", bullets: ["Trial 2 compared 5 and 15 percent acclimated seed at 6 C: 44 and 29 days."], tested: 2 },
+  ];
+  function run7BiofilterAnswer(ids: Id<"seeds">[]) {
+    const [acclimation, nitrite, fraction, standard, trialOne, trialTwo] = ids;
+    return {
+      seeds: [
+        // Mixed: the acclimation finding comes from Trial 1, which the
+        // experiment Seed recorded against the nitrite uncertainty.
+        advancement("Stepwise acclimation avoided cold shock and cut start-up to 31 days at 8 C.", "conservative", { uncertaintySeedId: acclimation, experimentSeedIds: [standard!, trialOne!] }),
+        advancement("Nitrite oxidizers, not ammonia oxidizers, set the cold start-up pace.", "technical", { uncertaintySeedId: nitrite, experimentSeedIds: [trialOne!] }),
+        advancement("Colder water needs about 15 percent acclimated seed to start within five weeks.", "detailed", { uncertaintySeedId: fraction, experimentSeedIds: [trialTwo!] }),
+        advancement("Seed acclimation and seed fraction together set cold start-up time.", "aggressive", { uncertaintySeedId: nitrite, experimentSeedIds: [trialOne!, trialTwo!] }),
+      ],
+    };
+  }
+
+  it("reproduces run 7: realistic answers for both frozen plans fail on their links", async () => {
+    for (const [decisions, answer] of [
+      [run7Deburring, run7DeburringAnswer],
+      [run7Biofilter, run7BiofilterAnswer],
+    ] as const) {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: [...decisions] });
+      const ids = fixture.decisions.map((decision) => decision.seedId);
+      const transport = vi.fn<typeof fetch>(async () => providerResponse(answer(ids), 1));
+      vi.stubGlobal("fetch", transport);
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "failed", error: "INVALID_OUTPUT", errorDetail: "advancement_links", requestsMade: 2 });
+    }
+    // A model that obeys the link list and writes one advancement per picked
+    // experiment returns two Seeds, below the Batch minimum of three: the
+    // same failure with no link detail, like run 7's fourth deburring Batch.
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
+    const ids = fixture.decisions.map((decision) => decision.seedId);
+    const obeying = { seeds: run7DeburringAnswer(ids).seeds.slice(0, 2) };
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => providerResponse(obeying, 1)));
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+    const failed = await t.run((ctx) => ctx.db.get(fixture.batchId));
+    expect(failed).toMatchObject({ status: "failed", error: "INVALID_OUTPUT", requestsMade: 2 });
+    expect(failed).not.toHaveProperty("errorDetail");
+  });
+
   it("names the Seed rules, not the links, when answers keep breaking other rules", async () => {
     const t = convexTest(schema, modules);
     const fixture = await dispatchedAttempt(t, { targetRoleId: "company_context", decisions: [] });
