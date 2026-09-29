@@ -243,8 +243,12 @@ function seedIssueHints(mode: SeedBatchMode): Record<SeedValidationIssueCode, st
     DUPLICATE_TAG: "a tag is repeated",
     // 2026-09-28 (fourth): names the block that lists the allowed ids and
     // why a link cannot be found, since the repair never sees its answer.
+    // 2026-09-29 (first): the ids come as pairs, one entry per uncertainty.
     INVALID_ADVANCEMENT_REFERENCE:
-      "use only FROZEN ADVANCEMENT LINKS ids and write from linked experiments",
+      "use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments",
+    // 2026-09-29 (first): an experiment names the uncertainty it tested.
+    INVALID_EXPERIMENT_REFERENCE:
+      "set uncertaintySeedId to the tested uncertainty from FROZEN EXPERIMENT LINKS",
     INVALID_PROVENANCE: "",
     INVALID_BATCH_SIZE: `return ${min} to ${max} valid Seeds`,
     INSUFFICIENT_TAG_DIVERSITY: "use at least two different tags",
@@ -350,6 +354,7 @@ function validatedBatchSchema(args: {
       generationId: args.generationId,
       roleId: item.roleId,
       active: true,
+      ...(item.uncertaintySeedId ? { uncertaintySeedId: item.uncertaintySeedId } : {}),
     }));
   return z
     .object({ seeds: z.preprocess(parseStringifiedSeeds, z.array(z.unknown())) })
@@ -383,17 +388,23 @@ function validatedBatchSchema(args: {
 /**
  * 2026-09-28 (fourth): why a Batch's answers failed the Seed contract, when
  * the writer can act on it. "advancement_links": the last answer's Seeds
- * linked ids outside the frozen uncertainty and experiment selections.
+ * linked ids outside the frozen uncertainty and experiment selections, or
+ * (2026-09-29 first) paired an uncertainty with experiments that did not
+ * test it. "experiment_links" (2026-09-29 first): experiment Seeds named no
+ * frozen uncertainty selection, or one outside them.
  */
-export type SeedFailureDetail = "advancement_links";
+export type SeedFailureDetail = "advancement_links" | "experiment_links";
 
 function failureDetail(
   error: unknown,
   lastRejection: BatchValidationResult | undefined
 ): SeedFailureDetail | undefined {
   if (!(error instanceof StructuredValidationError) || !lastRejection) return undefined;
-  return lastRejection.issues.some((issue) => issue.code === "INVALID_ADVANCEMENT_REFERENCE")
-    ? "advancement_links"
+  if (lastRejection.issues.some((issue) => issue.code === "INVALID_ADVANCEMENT_REFERENCE")) {
+    return "advancement_links";
+  }
+  return lastRejection.issues.some((issue) => issue.code === "INVALID_EXPERIMENT_REFERENCE")
+    ? "experiment_links"
     : undefined;
 }
 

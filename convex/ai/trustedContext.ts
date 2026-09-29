@@ -20,6 +20,10 @@ import { STRUCTURED_OUTPUT_PROGRAM } from "./structured";
 import type { GenerationTextBlock } from "./openrouterCore";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
+import {
+  allowedAdvancementLinks,
+  type AllowedAdvancementLink,
+} from "../../shared/advancementLinks";
 import { readsFactPacks } from "../lib/seedFacts";
 import {
   MAX_SEED_PROMPT_UTF8_BYTES,
@@ -663,9 +667,16 @@ export type SeedPromptProjection = {
   target?: string;
   /**
    * 2026-09-28 (fourth): for specific advancements with frozen experiment
-   * selections, the only ids each link may use, as canonical JSON.
+   * selections, the only ids each link may use, as canonical JSON. Since
+   * 2026-09-29 (first), grouped: each picked uncertainty with the picked
+   * experiments that tested it.
    */
   advancementLinks?: string;
+  /**
+   * 2026-09-29 (first): for experimentation with frozen uncertainty
+   * selections, the uncertainty ids an experiment may name, as canonical JSON.
+   */
+  experimentLinks?: string;
 };
 
 export type SeedTrustedContextInput = {
@@ -714,23 +725,44 @@ function seedSnapshotOf(
 }
 
 /**
- * 2026-09-28 (fourth): the ids Subsection 11's links may use, the same set
- * the Seed contract accepts (frozen selections of active_uncertainties and
- * experimentation). Null for any other role, or with no frozen experiment,
- * where the Seeds carry no links.
+ * 2026-09-28 (fourth), grouped since 2026-09-29 (first): the links
+ * Subsection 11's Seeds may use, the same set the Seed contract accepts. Each
+ * entry is a frozen uncertainty selection with the frozen experiment
+ * selections that tested it (an experiment that records no uncertainty goes
+ * with every one). Null for any other role, and when no uncertainty has an
+ * experiment, where the Seeds carry no links.
  */
 export function seedAdvancementLinkIds(
   snapshot: SeedContextSnapshot,
   roleId: PdSubsectionRoleId
-): { uncertaintySeedIds: string[]; experimentSeedIds: string[] } | null {
+): { links: AllowedAdvancementLink[] } | null {
   if (roleId !== "specific_advancements") return null;
-  const idsOf = (linkedRoleId: PdSubsectionRoleId) =>
-    snapshot.items.flatMap((item) =>
-      item.kind === "selection" && item.roleId === linkedRoleId ? [item.seedId] : []
-    );
-  const experimentSeedIds = idsOf("experimentation");
-  if (experimentSeedIds.length === 0) return null;
-  return { uncertaintySeedIds: idsOf("active_uncertainties"), experimentSeedIds };
+  const selections = snapshot.items.filter((item) => item.kind === "selection");
+  const links = allowedAdvancementLinks(
+    selections.flatMap((item) => (item.roleId === "active_uncertainties" ? [item.seedId] : [])),
+    selections.flatMap((item) =>
+      item.roleId === "experimentation"
+        ? [{ seedId: item.seedId, uncertaintySeedId: item.uncertaintySeedId ?? null }]
+        : []
+    )
+  );
+  return links.length > 0 ? { links } : null;
+}
+
+/**
+ * 2026-09-29 (first): the uncertainty ids an experiment Seed may name, the
+ * frozen active_uncertainties selections. Null for any other role, or with
+ * no frozen uncertainty, where experiment Seeds carry no link.
+ */
+export function seedExperimentLinkIds(
+  snapshot: SeedContextSnapshot,
+  roleId: PdSubsectionRoleId
+): { uncertaintySeedIds: string[] } | null {
+  if (roleId !== "experimentation") return null;
+  const uncertaintySeedIds = snapshot.items.flatMap((item) =>
+    item.kind === "selection" && item.roleId === "active_uncertainties" ? [item.seedId] : []
+  );
+  return uncertaintySeedIds.length > 0 ? { uncertaintySeedIds } : null;
 }
 
 export function seedPromptProjection(
@@ -738,6 +770,7 @@ export function seedPromptProjection(
   roleId?: PdSubsectionRoleId
 ) {
   const links = roleId ? seedAdvancementLinkIds(snapshot, roleId) : null;
+  const tested = roleId ? seedExperimentLinkIds(snapshot, roleId) : null;
   const decisions = snapshot.items.filter(
     (item) =>
       item.kind === "selection" ||
@@ -753,6 +786,7 @@ export function seedPromptProjection(
       ? { target: snapshotPromptProjection(seedSnapshotOf(target)) }
       : {}),
     ...(links ? { advancementLinks: stableSeedPromptJson(links) } : {}),
+    ...(tested ? { experimentLinks: stableSeedPromptJson(tested) } : {}),
   };
 }
 
@@ -873,6 +907,9 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     prompt.modeLabels[input.mode],
     seedBlock(prompt.blocks.objective, input.objective),
     seedBlock(prompt.blocks.decisions, input.projection.decisions),
+    ...(input.projection.experimentLinks !== undefined
+      ? [seedBlock(prompt.blocks.experimentLinks, input.projection.experimentLinks)]
+      : []),
     ...(input.projection.advancementLinks !== undefined
       ? [seedBlock(prompt.blocks.advancementLinks, input.projection.advancementLinks)]
       : []),

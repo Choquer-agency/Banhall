@@ -624,6 +624,13 @@ export type SeedSelectionContextItem = SeedContextItemBase & {
   kind: "selection";
   seedId: string;
   bullets: string[];
+  /**
+   * 2026-09-29 (first): on an experimentation selection, the uncertainty
+   * selection the experiment tested, when the Seed records one. Absent on
+   * every other role and on experiments written before the rule, so their
+   * contribution hashes are unchanged.
+   */
+  uncertaintySeedId?: string;
 };
 
 export type SeedSkipContextItem = SeedContextItemBase & {
@@ -666,6 +673,8 @@ export type MaterializedSeedSelection = {
   seedId: string;
   bullets: readonly string[];
   active: boolean;
+  /** 2026-09-29 (first): the uncertainty an experimentation selection tested. */
+  uncertaintySeedId?: string;
 };
 
 export type MaterializedSeedFeedback = {
@@ -913,6 +922,9 @@ function buildDecisionSnapshot(args: BuildDispatchSnapshotArgs): SeedContextSnap
         roleId: selection.roleId,
         seedId: selection.seedId,
         bullets: [...selection.bullets],
+        ...(selection.roleId === "experimentation" && selection.uncertaintySeedId
+          ? { uncertaintySeedId: selection.uncertaintySeedId }
+          : {}),
       });
     }
   }
@@ -1157,6 +1169,8 @@ export type EncodedSeedBatchContextRow = {
   sourceRoleId: PdSubsectionRoleId;
   kind: SeedContextItemKind;
   seedId?: string;
+  /** 2026-09-29 (first): the uncertainty an experimentation selection tested. */
+  uncertaintySeedId?: string;
   feedbackRequestId?: string;
   bullets?: string[];
   text?: string;
@@ -1181,7 +1195,12 @@ export async function encodeBatchContext(
     };
     switch (item.kind) {
       case "selection":
-        return { ...base, seedId: item.seedId, bullets: [...item.bullets] };
+        return {
+          ...base,
+          seedId: item.seedId,
+          bullets: [...item.bullets],
+          ...(item.uncertaintySeedId ? { uncertaintySeedId: item.uncertaintySeedId } : {}),
+        };
       case "skip":
         return base;
       case "feedback":
@@ -1231,6 +1250,7 @@ export function decodeBatchContext(
           roleId: row.sourceRoleId,
           seedId: row.seedId,
           bullets: [...row.bullets],
+          ...(row.uncertaintySeedId ? { uncertaintySeedId: row.uncertaintySeedId } : {}),
         };
       case "skip":
         return { kind: row.kind, roleId: row.sourceRoleId };

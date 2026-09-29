@@ -152,6 +152,8 @@ async function fixture() {
       subsectionIds,
       advancementSeedId,
       experimentSeedId,
+      uncertaintySeedId,
+      batchId,
     };
   });
   return { t, ...ids };
@@ -250,6 +252,91 @@ describe("seed readiness", () => {
         expect.objectContaining({ code: "UNLINKED_ADVANCEMENT" }),
       ])
     );
+  });
+
+  it("blocks an advancement whose experiments tested another uncertainty, and experiments for a dropped uncertainty (2026-09-29, first)", async () => {
+    const s = await fixture();
+    const seedOf = (
+      roleId: "active_uncertainties" | "experimentation",
+      order: number,
+      bullets: string[],
+      extra: { uncertaintySeedId?: Id<"seeds"> } = {}
+    ) =>
+      s.t.run(async (ctx) => {
+        const seedId = await ctx.db.insert("seeds", {
+          projectId: s.projectId,
+          generationId: s.generationId,
+          batchId: s.batchId,
+          roleId,
+          order,
+          bullets,
+          tags: ["technical"],
+          support: "source_supported",
+          originalSupport: "source_supported",
+          ...extra,
+        });
+        return seedId;
+      });
+    const select = (seedId: Id<"seeds">, roleId: PdSubsectionRoleId, selected: boolean) =>
+      s.t.run(async (ctx) => {
+        await ctx.db.insert("seedSelections", {
+          projectId: s.projectId,
+          generationId: s.generationId,
+          seedId,
+          roleId,
+          selected,
+          selectedAt: 1,
+          version: 1,
+        });
+      });
+    // The picked experiment tested the picked uncertainty: ready.
+    await s.t.run((ctx) => ctx.db.patch(s.experimentSeedId, { uncertaintySeedId: s.uncertaintySeedId }));
+    expect((await s.t.run((ctx) => readSeedReadiness(ctx, s.generationId))).ready).toBe(true);
+
+    // A second uncertainty and an experiment that tested it; the
+    // advancement now also links that experiment.
+    const sensors = await seedOf("active_uncertainties", 3, ["Sensor accuracy under biofilm was unknown."]);
+    await select(sensors, "active_uncertainties", true);
+    const bypass = await seedOf("experimentation", 4, ["Trial five compared direct sensors with a bypass loop."], {
+      uncertaintySeedId: sensors,
+    });
+    await select(bypass, "experimentation", true);
+    await s.t.run((ctx) =>
+      ctx.db.patch(s.advancementSeedId, { experimentSeedIds: [s.experimentSeedId, bypass] })
+    );
+    const crossed = await s.t.run((ctx) => readSeedReadiness(ctx, s.generationId));
+    expect(crossed.ready).toBe(false);
+    expect(crossed.blockers).toEqual([
+      expect.objectContaining({ code: "UNLINKED_ADVANCEMENT", roleId: "specific_advancements" }),
+    ]);
+
+    // The writer drops the sensor uncertainty: its trial is still picked.
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.advancementSeedId, { experimentSeedIds: [s.experimentSeedId] });
+      const row = await ctx.db
+        .query("seedSelections")
+        .withIndex("by_seedId", (q) => q.eq("seedId", sensors))
+        .unique();
+      await ctx.db.patch(row!._id, { selected: false });
+    });
+    const dropped = await s.t.run((ctx) => readSeedReadiness(ctx, s.generationId));
+    expect(dropped.ready).toBe(false);
+    expect(dropped.blockers).toEqual([
+      expect.objectContaining({
+        code: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY",
+        roleId: "experimentation",
+        message:
+          "Experimentation / Iterations has picked experiments that tested an uncertainty you no longer have picked",
+      }),
+    ]);
+    expect(dropped.blockingRoleIds).toEqual(["experimentation"]);
+
+    // An experiment recording no uncertainty keeps the old rule.
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(bypass, { uncertaintySeedId: undefined });
+      await ctx.db.patch(s.advancementSeedId, { experimentSeedIds: [s.experimentSeedId, bypass] });
+    });
+    expect((await s.t.run((ctx) => readSeedReadiness(ctx, s.generationId))).ready).toBe(true);
   });
 
   it("never reports ready from an incomplete read and performs no writes", async () => {

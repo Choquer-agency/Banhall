@@ -159,9 +159,13 @@
 
   // 2026-09-28 (fourth): after two or more answers in a row broke the Seed
   // rules, say why instead of only "failed".
+  // 2026-09-29 (first): advancements must also follow the uncertainty their
+  // experiments tested, and experiments must name the uncertainty they tested.
   const REPEATED_INVALID_OUTPUT = {
     advancement_links:
-      "The AI kept linking advancements to work you did not select. Each advancement must come from an experiment you selected in Experimentation / Iterations. Try again, or select the experiments these advancements came from.",
+      "The AI kept linking advancements to work you did not select, or to experiments that tested another uncertainty. Each advancement must come from experiments you selected that tested the uncertainty it names. Try again, or select the experiments these advancements came from.",
+    experiment_links:
+      "The AI kept writing experiments without naming an uncertainty you picked. Each experiment must name the uncertainty it tested. Try again, or check your picks in Technological uncertainties.",
     seed_rules: "The AI kept writing seeds that break the seed rules, so none could be shown. Try again.",
   } as const;
   const repeatedFailure = $derived(

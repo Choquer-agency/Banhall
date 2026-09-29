@@ -368,22 +368,126 @@ describe("seed contract", () => {
         referenceContext: { generationId: "generation-1", references: [] },
       }).ok
     ).toBe(true);
+    const uncertainty = {
+      seedId: "uncertainty-1",
+      generationId: "generation-1",
+      roleId: "active_uncertainties" as const,
+      active: true,
+    };
+    const experiment = {
+      seedId: "experiment-1",
+      generationId: "generation-1",
+      roleId: "experimentation" as const,
+      active: true,
+    };
+    // A link can be made, so it is required.
     expect(
       validateSeed({
         roleId: "specific_advancements",
         seed: unlinked,
-        referenceContext: {
-          generationId: "generation-1",
-          references: [
-            {
-              seedId: "experiment-1",
-              generationId: "generation-1",
-              roleId: "experimentation",
-              active: true,
-            },
-          ],
-        },
+        referenceContext: { generationId: "generation-1", references: [uncertainty, experiment] },
       }).ok
+    ).toBe(false);
+    // 2026-09-29 (first): with an experiment but no uncertainty to pair it
+    // with, no link can be right, so the Seed carries none.
+    expect(
+      validateSeed({
+        roleId: "specific_advancements",
+        seed: unlinked,
+        referenceContext: { generationId: "generation-1", references: [experiment] },
+      }).ok
+    ).toBe(true);
+  });
+});
+
+describe("an advancement follows the uncertainty its experiments tested (2026-09-29, first amendment)", () => {
+  // The run 6 fixture "changed-advancement-links" (Marrowgate, fictional):
+  // the writer dropped the cold-water start-up uncertainty (U1) and every
+  // picked experiment was a start-up trial.
+  const reference = (
+    seedId: string,
+    roleId: "active_uncertainties" | "experimentation",
+    uncertaintySeedId?: string
+  ) => ({
+    seedId,
+    generationId: "generation-1",
+    roleId,
+    active: true,
+    ...(uncertaintySeedId ? { uncertaintySeedId } : {}),
+  });
+  const advancement = (uncertaintySeedId: string, experimentSeedIds: string[]) =>
+    candidate([one], ["technical"], { uncertaintySeedId, experimentSeedIds });
+  const check = (seed: SeedCandidate, references: ReturnType<typeof reference>[], roleId: "specific_advancements" | "experimentation" = "specific_advancements") =>
+    validateSeed({ roleId, seed, referenceContext: { generationId: "generation-1", references } });
+
+  it("refuses an advancement linked to an uncertainty its experiments did not test", () => {
+    const run6 = [
+      reference("u2-dosing", "active_uncertainties"),
+      reference("u3-sensors", "active_uncertainties"),
+      reference("trial-1", "experimentation", "u1-startup"),
+      reference("trial-2", "experimentation", "u1-startup"),
+    ];
+    // The Seed model's run 6 answer: start-up findings linked to the sensor uncertainty.
+    const relinked = check(advancement("u3-sensors", ["trial-1", "trial-2"]), run6);
+    expect(relinked.ok).toBe(false);
+    expect(relinked.issues.map((issue) => issue.code)).toContain("INVALID_ADVANCEMENT_REFERENCE");
+    // No picked uncertainty was tested by a picked experiment, so an
+    // unlinked Seed is kept (it cannot be approved) instead of failing the Batch.
+    expect(check(candidate([one]), run6).ok).toBe(true);
+  });
+
+  it("accepts an advancement whose experiments all tested its uncertainty, and refuses a mixed one", () => {
+    const references = [
+      reference("u2-dosing", "active_uncertainties"),
+      reference("u3-sensors", "active_uncertainties"),
+      reference("trial-3", "experimentation", "u2-dosing"),
+      reference("trial-4", "experimentation", "u2-dosing"),
+      reference("trial-5", "experimentation", "u3-sensors"),
+    ];
+    expect(check(advancement("u2-dosing", ["trial-3", "trial-4"]), references).ok).toBe(true);
+    expect(check(advancement("u3-sensors", ["trial-5"]), references).ok).toBe(true);
+    expect(check(advancement("u2-dosing", ["trial-3", "trial-5"]), references).ok).toBe(false);
+    // Links are required while a pair exists.
+    expect(check(candidate([one]), references).ok).toBe(false);
+  });
+
+  it("keeps the old rule for experiments that record no uncertainty", () => {
+    const references = [
+      reference("u2-dosing", "active_uncertainties"),
+      reference("u3-sensors", "active_uncertainties"),
+      reference("legacy-trial", "experimentation"),
+    ];
+    expect(check(advancement("u2-dosing", ["legacy-trial"]), references).ok).toBe(true);
+    expect(check(advancement("u3-sensors", ["legacy-trial"]), references).ok).toBe(true);
+  });
+
+  it("makes an experiment name the picked uncertainty it tested, and nothing else", () => {
+    const references = [
+      reference("u1-startup", "active_uncertainties"),
+      reference("u2-dosing", "active_uncertainties"),
+    ];
+    const named = check(
+      candidate([one], ["technical"], { uncertaintySeedId: "u1-startup", experimentSeedIds: ["trial-9"] }),
+      references,
+      "experimentation"
+    );
+    expect(named.ok).toBe(true);
+    if (!named.ok) return;
+    expect(named.seed.uncertaintySeedId).toBe("u1-startup");
+    // An experiment never links other experiments.
+    expect(named.seed).not.toHaveProperty("experimentSeedIds");
+    for (const seed of [
+      candidate([one]),
+      candidate([one], ["technical"], { uncertaintySeedId: "u3-sensors" }),
+    ]) {
+      const refused = check(seed, references, "experimentation");
+      expect(refused.ok).toBe(false);
+      expect(refused.issues.map((issue) => issue.code)).toContain("INVALID_EXPERIMENT_REFERENCE");
+    }
+    // With no uncertainty picked yet, an experiment carries no link.
+    expect(check(candidate([one]), [], "experimentation").ok).toBe(true);
+    expect(
+      check(candidate([one], ["technical"], { uncertaintySeedId: "u1-startup" }), [], "experimentation").ok
     ).toBe(false);
   });
 });

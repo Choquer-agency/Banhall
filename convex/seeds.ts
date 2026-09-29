@@ -42,6 +42,7 @@ import { MAX_EDITED_BULLET_CHARS } from "./lib/seedContract";
 import {
   buildSeedApprovalChallenge,
   unlinkedAdvancementIds,
+  droppedUncertaintyExperimentIds,
 } from "./lib/seedApproval";
 import {
   appendSeedRoleEvent,
@@ -898,8 +899,19 @@ export const approve = mutation({
     )
       domainError(
         "INVALID_STATE",
-        "Advancement references must be active selections",
+        "Each picked advancement must link an uncertainty you picked and picked experiments that tested it. Untick the ones that do not, or regenerate this step.",
         { reason: "UNLINKED_ADVANCEMENT" },
+      );
+    // 2026-09-29 (first): an experiment that tested an uncertainty the
+    // writer dropped cannot be approved into the plan.
+    if (
+      args.roleId === "experimentation" &&
+      droppedUncertaintyExperimentIds(state).length
+    )
+      domainError(
+        "INVALID_STATE",
+        "Some picked experiments tested an uncertainty you no longer have picked. Untick them, pick that uncertainty again, or regenerate this step.",
+        { reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" },
       );
     const challenge = await buildSeedApprovalChallenge(ctx, state, f.row);
     if (
@@ -965,6 +977,7 @@ export const approve = mutation({
 export type SeedKeepRefusal =
   | "NO_SELECTION"
   | "UNLINKED_ADVANCEMENT"
+  | "EXPERIMENT_FOR_DROPPED_UNCERTAINTY"
   | "CLAIM_EXCLUSION"
   | "READ_LIMIT";
 /**
@@ -975,7 +988,8 @@ export type SeedKeepRefusal =
  * selections (approve event, confirmed, with its `approvalSource`), under
  * the normal decision fence and edit access. Nothing is regenerated and no
  * selection changes. A step is left for the writer, and named, when it has
- * no selection, when its advancements no longer link selected work, when a
+ * no selection, when its advancements no longer link selected work, when its
+ * experiments tested an uncertainty the writer dropped (2026-09-29 first), when a
  * selection matches a Claim Exclusion (that needs its own acknowledgment),
  * or when it does not fit the read budget; the others are kept. A request
  * made against older decisions is refused only when a step it names could
@@ -1010,6 +1024,7 @@ export const keep = mutation({
       challenge: Awaited<ReturnType<typeof buildSeedApprovalChallenge>>;
     }> = [];
     const unlinked = unlinkedAdvancementIds(state).length > 0;
+    const droppedTests = droppedUncertaintyExperimentIds(state).length > 0;
     for (const row of targets) {
       const selectedRows = state.selectionRows.filter(
         (s) => s.roleId === row.roleId && s.selected,
@@ -1020,6 +1035,10 @@ export const keep = mutation({
       }
       if (row.roleId === "specific_advancements" && unlinked) {
         needsAttention.push({ roleId: row.roleId, reason: "UNLINKED_ADVANCEMENT" });
+        continue;
+      }
+      if (row.roleId === "experimentation" && droppedTests) {
+        needsAttention.push({ roleId: row.roleId, reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" });
         continue;
       }
       let challenge;

@@ -742,7 +742,7 @@ describe("Seed workspace", () => {
   it("says why when answers keep breaking the Seed rules (2026-09-28, fourth amendment)", async () => {
     const empty = { state: "failed" as const, items: [], shownBatchId: null, approvalChallenge: null };
     const links =
-      "The AI kept linking advancements to work you did not select. Each advancement must come from an experiment you selected in Experimentation / Iterations. Try again, or select the experiments these advancements came from.";
+      "The AI kept linking advancements to work you did not select, or to experiments that tested another uncertainty. Each advancement must come from experiments you selected that tested the uncertainty it names. Try again, or select the experiments these advancements came from.";
     const rules = "The AI kept writing seeds that break the seed rules, so none could be shown. Try again.";
     const view = await render(
       SeedSubsectionPane,

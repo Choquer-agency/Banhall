@@ -95,7 +95,10 @@ const failureCodeValidator = v.union(
   v.literal("GENERATION_TERMINATED")
 );
 
-const failureDetailValidator = v.literal("advancement_links");
+const failureDetailValidator = v.union(
+  v.literal("advancement_links"),
+  v.literal("experiment_links")
+);
 
 type SeedFailureCode =
   | "PROVIDER_FAILED"
@@ -451,6 +454,12 @@ export async function dispatchSeedAttempt(
       ...(row.seedId
         ? { seedId: ctx.db.normalizeId("seeds", row.seedId) ?? undefined }
         : {}),
+      ...(row.uncertaintySeedId
+        ? {
+            uncertaintySeedId:
+              ctx.db.normalizeId("seeds", row.uncertaintySeedId) ?? undefined,
+          }
+        : {}),
       ...(row.feedbackRequestId
         ? {
             feedbackRequestId:
@@ -748,7 +757,7 @@ async function failSeedAttempt(
     batch: Doc<"seedBatches">;
     requestsMade: number;
     errorCode: SeedFailureCode;
-    errorDetail?: "advancement_links";
+    errorDetail?: "advancement_links" | "experiment_links";
     actorSystem?: boolean;
     bumpVersion?: boolean;
   }
@@ -970,6 +979,7 @@ export const completeAttempt = internalMutation({
           generationId: batch.generationId,
           roleId: item.roleId,
           active: true,
+          ...(item.uncertaintySeedId ? { uncertaintySeedId: item.uncertaintySeedId } : {}),
         })),
     };
     const frozenSources: FrozenSeedSource[] = sources.map((source) => ({

@@ -1,5 +1,10 @@
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { isDashClean } from "../../shared/humanProse";
+import {
+  advancementLinkProblem,
+  allowedAdvancementLinks,
+  pickedLinkSelections,
+} from "../../shared/advancementLinks";
 import { speakerOfTranscriptLine, speakersAtOffsets } from "../../shared/transcriptParse";
 import { quoteCheckIssues, type QuoteCheckIssue } from "./seedQuoteSupport";
 
@@ -70,6 +75,11 @@ export type SeedReference = {
   generationId: string;
   roleId: PdSubsectionRoleId;
   active: boolean;
+  /**
+   * 2026-09-29 (first): on an experimentation reference, the uncertainty
+   * selection the experiment tested, when it records one.
+   */
+  uncertaintySeedId?: string;
 };
 
 export type SeedReferenceContext = {
@@ -94,6 +104,7 @@ export type SeedValidationIssueCode =
   | "INVALID_TAG"
   | "DUPLICATE_TAG"
   | "INVALID_ADVANCEMENT_REFERENCE"
+  | "INVALID_EXPERIMENT_REFERENCE"
   | "INVALID_PROVENANCE"
   | "INVALID_BATCH_SIZE"
   | "INSUFFICIENT_TAG_DIVERSITY"
@@ -276,6 +287,52 @@ function validReference(
   );
 }
 
+function activeReferences(
+  context: SeedReferenceContext | undefined,
+  roleId: PdSubsectionRoleId
+): SeedReference[] {
+  return (
+    context?.references.filter(
+      (reference) =>
+        reference.generationId === context.generationId &&
+        reference.roleId === roleId &&
+        reference.active
+    ) ?? []
+  );
+}
+
+/**
+ * 2026-09-29 (first): an experiment Seed names the uncertainty it tested.
+ * When the request's decisions hold uncertainty selections, every Seed of
+ * Subsection 9 must set uncertaintySeedId to one of them; with none, it
+ * carries no link. Experiments never link other experiments.
+ */
+function validateExperimentReference(args: {
+  candidate: SeedCandidate;
+  roleId: PdSubsectionRoleId;
+  referenceContext?: SeedReferenceContext;
+}): SeedValidationIssue[] {
+  if (args.roleId !== "experimentation") return [];
+  const context = args.referenceContext;
+  const uncertainties = activeReferences(context, "active_uncertainties");
+  const uncertaintyId = args.candidate.uncertaintySeedId;
+  if (uncertainties.length === 0 && uncertaintyId === undefined) return [];
+  if (
+    !context ||
+    !uncertaintyId ||
+    !validReference(uncertaintyId, "active_uncertainties", context)
+  ) {
+    return [
+      {
+        code: "INVALID_EXPERIMENT_REFERENCE",
+        message:
+          "An experiment must name the active uncertainty selection it tested, from this generation",
+      },
+    ];
+  }
+  return [];
+}
+
 function validateAdvancementReferences(args: {
   candidate: SeedCandidate;
   roleId: PdSubsectionRoleId;
@@ -283,24 +340,38 @@ function validateAdvancementReferences(args: {
 }): SeedValidationIssue[] {
   if (args.roleId !== "specific_advancements") return [];
   const context = args.referenceContext;
-  const activeExperiments =
-    context?.references.filter(
-      (reference) =>
-        reference.generationId === context.generationId &&
-        reference.roleId === "experimentation" &&
-        reference.active
-    ) ?? [];
+  const uncertainties = activeReferences(context, "active_uncertainties");
+  const experiments = activeReferences(context, "experimentation");
+  // 2026-09-29 (first): links are required whenever one can be made: a
+  // picked uncertainty that a picked experiment tested (or an experiment
+  // that records no uncertainty). With none, a link could only be wrong, so
+  // the Seeds carry none and the step says why.
+  const allowed = allowedAdvancementLinks(
+    uncertainties.map((reference) => reference.seedId),
+    experiments.map((reference) => ({
+      seedId: reference.seedId,
+      uncertaintySeedId: reference.uncertaintySeedId ?? null,
+    }))
+  );
   const uncertaintyId = args.candidate.uncertaintySeedId;
   const experimentIds = args.candidate.experimentSeedIds;
   if (
-    activeExperiments.length === 0 &&
+    allowed.length === 0 &&
     uncertaintyId === undefined &&
     experimentIds === undefined
   ) {
     return [];
   }
+  const invalid: SeedValidationIssue[] = [
+    {
+      code: "INVALID_ADVANCEMENT_REFERENCE",
+      message:
+        "A specific advancement must link one active uncertainty and active experiments that tested it, from this generation",
+    },
+  ];
   if (
     !context ||
+    allowed.length === 0 ||
     !uncertaintyId ||
     !experimentIds ||
     experimentIds.length === 0 ||
@@ -310,15 +381,16 @@ function validateAdvancementReferences(args: {
       (seedId) => !validReference(seedId, "experimentation", context)
     )
   ) {
-    return [
-      {
-        code: "INVALID_ADVANCEMENT_REFERENCE",
-        message:
-          "Specific advancement references must name active uncertainty and experimentation selections from this generation",
-      },
-    ];
+    return invalid;
   }
-  return [];
+  const picked = pickedLinkSelections(
+    uncertainties.map((reference) => reference.seedId),
+    experiments.map((reference) => ({
+      seedId: reference.seedId,
+      uncertaintySeedId: reference.uncertaintySeedId ?? null,
+    }))
+  );
+  return advancementLinkProblem(args.candidate, picked) === null ? [] : invalid;
 }
 
 function validatedProvenance(args: {
@@ -460,6 +532,12 @@ function withoutAdvancementLinks(candidate: SeedCandidate): SeedCandidate {
   return rest;
 }
 
+/** 2026-09-29 (first): an experiment keeps the uncertainty it tested only. */
+function withExperimentLinkOnly(candidate: SeedCandidate): SeedCandidate {
+  const { experimentSeedIds: _experiments, ...rest } = candidate;
+  return rest;
+}
+
 export function validateSeed(args: {
   roleId: PdSubsectionRoleId;
   seed: unknown;
@@ -473,13 +551,16 @@ export function validateSeed(args: {
       issues: [{ code: "INVALID_SHAPE", message: "Seed has an invalid shape" }],
     };
   }
-  // Link fields belong to specific advancements only. The shared provider
-  // schema allows them on every role, so they are dropped elsewhere rather
-  // than stored on a Seed they cannot describe.
+  // Link fields belong to specific advancements, and since 2026-09-29
+  // (first) an experiment's uncertainty to experimentation. The shared
+  // provider schema allows them on every role, so they are dropped
+  // elsewhere rather than stored on a Seed they cannot describe.
   const candidate =
     args.roleId === "specific_advancements"
       ? parsed.candidate
-      : withoutAdvancementLinks(parsed.candidate);
+      : args.roleId === "experimentation"
+        ? withExperimentLinkOnly(parsed.candidate)
+        : withoutAdvancementLinks(parsed.candidate);
   const issues: SeedValidationIssue[] = [];
   if (candidate.bullets.length < 1 || candidate.bullets.length > 2) {
     issues.push({
@@ -520,6 +601,11 @@ export function validateSeed(args: {
   }
   issues.push(
     ...validateAdvancementReferences({
+      candidate,
+      roleId: args.roleId,
+      referenceContext: args.referenceContext,
+    }),
+    ...validateExperimentReference({
       candidate,
       roleId: args.roleId,
       referenceContext: args.referenceContext,

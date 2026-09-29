@@ -902,6 +902,32 @@ it("skipped selections above the prompt ceiling stay inactive for later dispatch
   ]);
 });
 
+it("computes the same context revision at dispatch and in the decisions when an experiment names its uncertainty (2026-09-29, first)", async () => {
+  const s = await decisionFixture();
+  const uncertainty = await addDecisionSeed(s, "active_uncertainties");
+  const experiment = await addDecisionSeed(s, "experimentation");
+  await s.t.run((ctx) => ctx.db.patch(experiment.seedId, { uncertaintySeedId: uncertainty.seedId }));
+  const version = async () => (await s.t.run((ctx) => ctx.db.get(s.generationId)))?.seedStageVersion ?? 0;
+  await s.writer.mutation(select, { ...args(s, await version(), "active_uncertainties"), seedId: uncertainty.seedId, selected: true });
+  await s.writer.mutation(select, { ...args(s, await version(), "experimentation"), seedId: experiment.seedId, selected: true });
+  const { loadSeedDispatchSnapshot } = await import("./lib/seedSnapshotLoader");
+  const result = await s.t.run(async (ctx) => {
+    const loaded = await loadSeedDispatchSnapshot(ctx, { generationId: s.generationId, roleId: "specific_advancements" });
+    const row = await ctx.db
+      .query("seedSubsections")
+      .withIndex("by_generationId_and_roleId", (q) =>
+        q.eq("generationId", s.generationId).eq("roleId", "specific_advancements"),
+      )
+      .unique();
+    return { loaded, current: row?.currentContextRevision };
+  });
+  expect(result.loaded.snapshot.items.find((item) => item.kind === "selection" && item.roleId === "experimentation")).toMatchObject({
+    uncertaintySeedId: uncertainty.seedId,
+  });
+  // A Batch dispatched now is not outdated the moment it lands.
+  expect(result.loaded.contextRevision).toBe(result.current);
+});
+
 it("refuses an incomplete decision calculation atomically and never reports partial readiness as ready", async () => {
   const s = await decisionFixture(),
     seed = await addDecisionSeed(s);

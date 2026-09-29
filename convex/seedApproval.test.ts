@@ -1338,6 +1338,205 @@ describe("public seed approval", () => {
     ).resolves.toMatchObject({ state: "approved" });
   });
 
+  // 2026-09-29 (first amendment), release suite run 6 (Marrowgate, fictional).
+  async function linkSeed(
+    fixture: Fixture,
+    args: {
+      roleId: "active_uncertainties" | "experimentation";
+      bullet: string;
+      selected: boolean;
+      uncertaintySeedId?: Id<"seeds">;
+    },
+  ) {
+    const batchId = await seedBatch(fixture, {
+      roleId: args.roleId,
+      key: `${args.roleId}-${args.bullet.slice(0, 12)}`,
+    });
+    return await fixture.t.run(async (ctx) => {
+      const seedId = await ctx.db.insert("seeds", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        batchId,
+        roleId: args.roleId,
+        order: 0,
+        bullets: [args.bullet],
+        tags: ["technical"],
+        support: "source_supported",
+        originalSupport: "source_supported",
+        ...(args.uncertaintySeedId ? { uncertaintySeedId: args.uncertaintySeedId } : {}),
+      });
+      await ctx.db.insert("seedSelections", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        seedId,
+        roleId: args.roleId,
+        selected: args.selected,
+        selectedAt: NOW,
+        version: 1,
+      });
+      return seedId;
+    });
+  }
+
+  async function skipLaterSteps(fixture: Fixture, roleIds: PdSubsectionRoleId[]) {
+    await fixture.t.run(async (ctx) => {
+      for (const roleId of roleIds) {
+        const subsectionId = fixture.subsectionIds[roleId];
+        if (!subsectionId) throw new Error(`Missing ${roleId} subsection`);
+        await ctx.db.patch(subsectionId, { state: "skipped" });
+      }
+    });
+  }
+
+  async function tryApprove(fixture: Fixture) {
+    const view = await subsection(fixture);
+    const challenge = view.approvalChallenge;
+    if (!challenge) throw new Error("Expected a complete approval challenge");
+    return fixture.writer.mutation(approveRef, {
+      generationId: fixture.generationId,
+      roleId: fixture.roleId,
+      expectedSeedStageVersion: view.seedStageVersion,
+      approvalChallenge: challenge.approvalChallenge,
+      acknowledgedCarriedSeedIds: challenge.carriedSeedIds,
+      acknowledgedExclusionEntryIds: challenge.exclusionEntryIds,
+    });
+  }
+
+  test("refuses an advancement whose experiments tested another uncertainty, and the step says so first (2026-09-29, first)", async () => {
+    const fixture = await approvalFixture({
+      roleId: "specific_advancements",
+      bullet: "Stepwise acclimation resolved the cold-water start-up uncertainty.",
+    });
+    const dosing = await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether feed-forward dosing could hold TAN under 1 mg/L was unresolved.",
+      selected: true,
+    });
+    const sensors = await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether fouled sensors stay accurate enough for control was unknown.",
+      selected: true,
+    });
+    const dosingTrial = await linkSeed(fixture, {
+      roleId: "experimentation",
+      bullet: "Trial three cut peak TAN from 2.3 to 1.2 mg/L.",
+      selected: true,
+      uncertaintySeedId: dosing,
+    });
+    // The run 6 shape: the advancement names the sensor uncertainty and a
+    // trial that tested another one.
+    await fixture.t.run((ctx) =>
+      ctx.db.patch(fixture.seedId, { uncertaintySeedId: sensors, experimentSeedIds: [dosingTrial] }),
+    );
+    await skipLaterSteps(fixture, ["project_status", "goal_improvements"]);
+
+    const before = await subsection(fixture);
+    expect(before.linkNotice).toEqual({ kind: "unlinked_advancements", seedIds: [fixture.seedId] });
+    expect(before.items.find((item) => item.seedId === fixture.seedId)?.linkedUncertainty).toEqual({
+      seedId: sensors,
+      bullets: ["Whether fouled sensors stay accurate enough for control was unknown."],
+      picked: true,
+    });
+    await expect(tryApprove(fixture)).rejects.toThrow(
+      /Each picked advancement must link an uncertainty you picked and picked experiments that tested it/,
+    );
+    await expect(tryApprove(fixture)).rejects.toThrow(/UNLINKED_ADVANCEMENT/);
+
+    await fixture.t.run((ctx) => ctx.db.patch(fixture.seedId, { uncertaintySeedId: dosing }));
+    expect((await subsection(fixture)).linkNotice).toBeUndefined();
+    await approveExact(fixture);
+    await expect(fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId))).resolves.toMatchObject({
+      state: "approved",
+    });
+  });
+
+  test("says no advancement can be linked when every picked experiment tested a dropped uncertainty", async () => {
+    const fixture = await approvalFixture({ roleId: "specific_advancements" });
+    const startUp = await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether acclimation could shorten start-up below 10 C was unknown.",
+      selected: false,
+    });
+    await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether fouled sensors stay accurate enough for control was unknown.",
+      selected: true,
+    });
+    await linkSeed(fixture, {
+      roleId: "experimentation",
+      bullet: "Trial one reached full nitrification in 31 days at 8 C.",
+      selected: true,
+      uncertaintySeedId: startUp,
+    });
+    const view = await subsection(fixture);
+    expect(view.linkNotice).toEqual({ kind: "no_linkable_experiment", experimentsPicked: true });
+    await expect(tryApprove(fixture)).rejects.toThrow(/UNLINKED_ADVANCEMENT/);
+  });
+
+  test("refuses experiments that tested an uncertainty the writer dropped, names it, and approves once they go (2026-09-29, first)", async () => {
+    const fixture = await approvalFixture({
+      roleId: "experimentation",
+      bullet: "Trial one reached full nitrification in 31 days at 8 C.",
+    });
+    const startUp = await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether acclimation could shorten start-up below 10 C was unknown.",
+      selected: false,
+    });
+    const dosing = await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether feed-forward dosing could hold TAN under 1 mg/L was unresolved.",
+      selected: true,
+    });
+    await fixture.t.run((ctx) => ctx.db.patch(fixture.seedId, { uncertaintySeedId: startUp }));
+    await skipLaterSteps(fixture, [
+      "overall_advancement",
+      "specific_advancements",
+      "project_status",
+      "goal_improvements",
+    ]);
+
+    const view = await subsection(fixture);
+    expect(view.linkNotice).toEqual({
+      kind: "experiments_for_dropped_uncertainty",
+      seedIds: [fixture.seedId],
+      uncertainties: ["Whether acclimation could shorten start-up below 10 C was unknown."],
+    });
+    expect(view.items.find((item) => item.seedId === fixture.seedId)?.linkedUncertainty).toMatchObject({
+      seedId: startUp,
+      picked: false,
+    });
+    await expect(tryApprove(fixture)).rejects.toThrow(
+      /Some picked experiments tested an uncertainty you no longer have picked/,
+    );
+    await expect(tryApprove(fixture)).rejects.toThrow(/EXPERIMENT_FOR_DROPPED_UNCERTAINTY/);
+
+    // The writer picks an experiment for the kept uncertainty and unticks the other.
+    const dosingTrial = await linkSeed(fixture, {
+      roleId: "experimentation",
+      bullet: "Trial three cut peak TAN from 2.3 to 1.2 mg/L.",
+      selected: true,
+      uncertaintySeedId: dosing,
+    });
+    await fixture.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("seedSelections")
+        .withIndex("by_seedId", (q) => q.eq("seedId", fixture.seedId))
+        .unique();
+      await ctx.db.patch(row!._id, { selected: false });
+    });
+    const fixed = await subsection(fixture);
+    expect(fixed.linkNotice).toBeUndefined();
+    expect(fixed.items.find((item) => item.seedId === dosingTrial)).toMatchObject({
+      selected: true,
+      linkedUncertainty: { seedId: dosing, picked: true },
+    });
+    await approveExact(fixture);
+    await expect(fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId))).resolves.toMatchObject({
+      state: "approved",
+    });
+  });
+
   test("approves out of order and prefetches only its first untouched successor", async () => {
     const fixture = await approvalFixture({ roleId: "passive_limitations" });
     await fixture.t.run(async (ctx) => {

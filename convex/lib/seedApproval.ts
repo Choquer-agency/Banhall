@@ -1,4 +1,5 @@
 import { matchesClaimExclusion } from "./claimExclusionMatcher";
+import { advancementLinkProblem, experimentsForDroppedUncertainties, pickedLinkSelections, type ExperimentTest } from "../../shared/advancementLinks";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
@@ -31,11 +32,36 @@ export function seedBatchIsOutdated(state: SeedDecisionState, row: Doc<"seedSubs
   const selection = request && state.selectionRows.find(s => s.seedId === request.targetSeedId);
   return !request || !target || stableSerialize(request.targetWording) !== stableSerialize(materializeFinalWording(target, selection));
 }
-export function unlinkedAdvancementIds(state: SeedDecisionState): Id<"seeds">[] {
+/**
+ * 2026-09-29 (first): the picked uncertainties and experiments, each
+ * experiment with the uncertainty it tested when it records one.
+ */
+export function pickedLinks(state: Pick<SeedDecisionState, "subsections" | "seeds" | "selectionRows">) {
   const active = materializeActiveSelections(state);
-  const uncertainty = new Set(active.filter(s => s.roleId === "active_uncertainties").map(s => s.seedId));
-  const experiments = new Set(active.filter(s => s.roleId === "experimentation").map(s => s.seedId));
-  return state.seeds.filter(seed => active.some(s => s.seedId === seed._id) && seed.roleId === "specific_advancements" && (!seed.uncertaintySeedId || !uncertainty.has(seed.uncertaintySeedId) || !seed.experimentSeedIds?.length || seed.experimentSeedIds.some(id => !experiments.has(id)))).map(s => s._id);
+  const uncertaintySeedIds = active.filter(s => s.roleId === "active_uncertainties").map(s => s.seedId as Id<"seeds">);
+  const experiments: ExperimentTest[] = active
+    .filter(s => s.roleId === "experimentation")
+    .map(s => ({ seedId: s.seedId, uncertaintySeedId: s.uncertaintySeedId ?? null }));
+  return { active, uncertaintySeedIds, experiments, picked: pickedLinkSelections(uncertaintySeedIds, experiments) };
+}
+/**
+ * Selected advancements that are not linked: a picked uncertainty and picked
+ * experiments that tested it (2026-09-29 first; an experiment recording no
+ * uncertainty supports any, as before).
+ */
+export function unlinkedAdvancementIds(state: SeedDecisionState): Id<"seeds">[] {
+  const { active, picked } = pickedLinks(state);
+  const selected = new Set(active.filter(s => s.roleId === "specific_advancements").map(s => s.seedId));
+  return state.seeds.filter(seed => selected.has(seed._id) && seed.roleId === "specific_advancements" && advancementLinkProblem(seed, picked) !== null).map(s => s._id);
+}
+/**
+ * 2026-09-29 (first): selected experiments that tested an uncertainty the
+ * writer no longer has picked. Approval of Subsection 9 and readiness refuse
+ * them; an experiment recording no uncertainty is never one of them.
+ */
+export function droppedUncertaintyExperimentIds(state: SeedDecisionState): Id<"seeds">[] {
+  const { uncertaintySeedIds, experiments } = pickedLinks(state);
+  return experimentsForDroppedUncertainties(new Set<string>(uncertaintySeedIds), experiments).map(e => e.seedId as Id<"seeds">);
 }
 export async function buildSeedApprovalChallenge(ctx: Ctx, state: SeedDecisionState, row: Doc<"seedSubsections">): Promise<SeedApprovalChallenge> {
   if (!state.complete) processingLimit(row.roleId);

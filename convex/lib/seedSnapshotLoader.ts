@@ -158,6 +158,11 @@ export async function loadSeedDispatchSnapshot(
       seedId: row.seedId,
       bullets: row.editedBullets ?? seed.bullets,
       active: !skipped.has(row.roleId),
+      // 2026-09-29 (first): must match materializeActiveSelections, so the
+      // dispatched revision equals the one approval and staleness compute.
+      ...(row.roleId === "experimentation" && seed.uncertaintySeedId
+        ? { uncertaintySeedId: seed.uncertaintySeedId }
+        : {}),
     });
   }
 

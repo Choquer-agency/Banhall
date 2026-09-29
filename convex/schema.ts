@@ -1290,7 +1290,11 @@ export default defineSchema({
     invalidOutputStreak: v.optional(
       v.object({
         failures: v.number(),
-        detail: v.optional(v.literal("advancement_links")),
+        // 2026-09-29 (first) widen: "experiment_links" when experiment
+        // Seeds kept naming no picked uncertainty, or one outside the list.
+        detail: v.optional(
+          v.union(v.literal("advancement_links"), v.literal("experiment_links"))
+        ),
       })
     ),
     activeStaleEpisodeId: v.optional(v.id("seedStaleEpisodes")),
@@ -1352,7 +1356,10 @@ export default defineSchema({
     error: v.optional(v.string()),
     // 2026-09-28 (fourth) widen: with error INVALID_OUTPUT, why the last
     // answer broke the Seed contract when the writer can act on it.
-    errorDetail: v.optional(v.literal("advancement_links")),
+    // 2026-09-29 (first) widen: "experiment_links" for experiment links.
+    errorDetail: v.optional(
+      v.union(v.literal("advancement_links"), v.literal("experiment_links"))
+    ),
   })
     .index("by_generationId_and_roleId", ["generationId", "roleId"])
     .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
@@ -1375,6 +1382,9 @@ export default defineSchema({
     ),
     sourceRoleId: seedRoleIdValidator,
     seedId: v.optional(v.id("seeds")),
+    // 2026-09-29 (first) widen: on an experimentation selection row, the
+    // uncertainty selection the experiment tested. No backfill.
+    uncertaintySeedId: v.optional(v.id("seeds")),
     feedbackRequestId: v.optional(v.id("seedFeedbackRequests")),
     bullets: v.optional(v.array(v.string())),
     text: v.optional(v.string()),

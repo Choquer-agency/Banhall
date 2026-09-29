@@ -266,6 +266,11 @@ export function materializeActiveSelections(
       seedId: selection.seedId,
       bullets: materializeFinalWording(seed, selection),
       active: true,
+      // 2026-09-29 (first): the uncertainty an experiment tested travels
+      // with its selection into every later step's Decision Set.
+      ...(selection.roleId === "experimentation" && seed.uncertaintySeedId
+        ? { uncertaintySeedId: seed.uncertaintySeedId }
+        : {}),
     });
   }
   return materialized;

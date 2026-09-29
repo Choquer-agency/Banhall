@@ -251,6 +251,8 @@ type PriorDecision = {
   roleId: PdSubsectionRoleId;
   bullets: string[];
   selected?: boolean;
+  /** 2026-09-29 (first): an experiment's tested uncertainty, by its index in the decisions. */
+  tested?: number;
 };
 
 async function dispatchedAttempt(
@@ -399,6 +401,9 @@ async function dispatchedAttempt(
         tags: ["technical"],
         support: "writer_asserted",
         originalSupport: "writer_asserted",
+        ...(decision.tested !== undefined
+          ? { uncertaintySeedId: decisions[decision.tested]!.seedId }
+          : {}),
       });
       const selected = decision.selected ?? true;
       const selectionId = await ctx.db.insert("seedSelections", {
@@ -913,14 +918,18 @@ describe("seed Node action request boundary", () => {
     expect(requests).toHaveLength(2);
     const first = requestText((await requests[0]!.json()).messages[0].content);
     const block = first.split("--- BEGIN [FROZEN ADVANCEMENT LINKS] ---\n")[1]?.split("\n--- END [FROZEN ADVANCEMENT LINKS] ---")[0];
+    // Tests 1 and 2 record no uncertainty (written before 2026-09-29), so
+    // either may support either uncertainty, as before.
     expect(JSON.parse(block ?? "null")).toEqual({
-      experimentSeedIds: [ids[3], ids[4]],
-      uncertaintySeedIds: [ids[1], ids[2]],
+      links: [
+        { experimentSeedIds: [ids[3], ids[4]], uncertaintySeedId: ids[1] },
+        { experimentSeedIds: [ids[3], ids[4]], uncertaintySeedId: ids[2] },
+      ],
     });
-    expect(first).toContain("Write each advancement as knowledge gained from the experiments it links.");
+    expect(first).toContain("Each advancement states what was learned about the uncertainty it links, from the experiments it links.");
     const second = requestText((await requests[1]!.json()).messages[0].content);
     expect(second).toContain(
-      "Your previous tool output was invalid: (root): 2 of 5 Seeds valid; return 3 to 5 valid Seeds; use only FROZEN ADVANCEMENT LINKS ids and write from linked experiments (Seeds 3, 4, 5)."
+      "Your previous tool output was invalid: (root): 2 of 5 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 3, 4, 5)."
     );
     const persisted = await t.run((ctx) =>
       ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
@@ -1016,6 +1025,247 @@ describe("seed Node action request boundary", () => {
     expect(cleared).not.toHaveProperty("repeatedInvalidOutput");
     expect(cleared).not.toHaveProperty("lastAttemptFailed");
     expect((await t.run((ctx) => ctx.db.get(fixture.subsectionId)))?.invalidOutputStreak).toBeUndefined();
+  });
+
+  // 2026-09-29 (first amendment), release suite run 6 fixture
+  // "changed-advancement-links" (Marrowgate, fictional): the writer dropped
+  // the cold-water start-up uncertainty while every picked experiment was a
+  // start-up trial, and Line 246 then claimed the dropped uncertainty
+  // resolved. Experiments now name the uncertainty they tested, and an
+  // advancement may only pair an uncertainty with experiments that tested it.
+  const startUp = "Whether stepwise acclimation could shorten nitrification start-up below 10 C was unknown.";
+  const dosing = "Whether feed-forward alkalinity dosing could hold TAN under 1 mg/L through feeding surges was unresolved.";
+  const sensors = "The team did not know whether fouled optical DO sensors and ammonium electrodes stay accurate enough for control.";
+
+  function linkBlock(text: string, label: string): unknown {
+    const block = text.split(`--- BEGIN [${label}] ---\n`)[1]?.split(`\n--- END [${label}] ---`)[0];
+    return block === undefined ? undefined : JSON.parse(block);
+  }
+
+  it("asks each experiment for the uncertainty it tested, repairs a missing or unlisted one, and stores it", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, {
+      targetRoleId: "experimentation",
+      decisions: [
+        { roleId: "company_context", bullets: ["Marrowgate designs recirculating aquaculture systems for trout farms."] },
+        { roleId: "active_uncertainties", bullets: [startUp] },
+        { roleId: "active_uncertainties", bullets: [dosing] },
+        { roleId: "active_uncertainties", bullets: [sensors], selected: false },
+      ],
+    });
+    const [, u1, u2, u3] = fixture.decisions.map((decision) => decision.seedId);
+    const trial = (text: string, tag: ProviderSeed["tags"][number], uncertaintySeedId?: string): ProviderSeed => ({
+      bullets: [text],
+      tags: [tag],
+      provenance: [],
+      ...(uncertaintySeedId ? { uncertaintySeedId } : {}),
+    });
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return requests.length === 1
+          ? providerResponse({
+              seeds: [
+                trial("Trial one compared unseeded, unacclimated and acclimated seed loops at 8 C.", "detailed", u1),
+                // No uncertainty named.
+                trial("Trial three compared reactive pH dosing with feed-forward dosing at 9 C.", "technical"),
+                // An uncertainty the writer did not pick.
+                trial("Trial five compared direct sensors with a screened bypass loop.", "conservative", u3),
+              ],
+            }, 1)
+          : providerResponse({
+              seeds: [
+                trial("Trial one compared unseeded, unacclimated and acclimated seed loops at 8 C.", "detailed", u1),
+                trial("Trial two raised the acclimated seed fraction to 15 percent at 6 C.", "technical", u1),
+                { ...trial("Trial three compared reactive pH dosing with feed-forward dosing at 9 C.", "conservative", u2), experimentSeedIds: [u1!] },
+              ],
+            }, 2);
+      })
+    );
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(requests).toHaveLength(2);
+    const first = requestText((await requests[0]!.json()).messages[0].content);
+    expect(linkBlock(first, "FROZEN EXPERIMENT LINKS")).toEqual({ uncertaintySeedIds: [u1, u2].sort() });
+    expect(first).not.toContain("--- BEGIN [FROZEN ADVANCEMENT LINKS] ---");
+    expect(first).toContain("names the uncertainty the experiment tested");
+    const second = requestText((await requests[1]!.json()).messages[0].content);
+    expect(second).toContain(
+      "Your previous tool output was invalid: (root): 1 of 3 Seeds valid; return 3 to 5 valid Seeds; set uncertaintySeedId to the tested uncertainty from FROZEN EXPERIMENT LINKS (Seeds 2, 3); use at least two different tags."
+    );
+    const persisted = await t.run((ctx) =>
+      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+    );
+    expect(persisted.map((seed) => seed.uncertaintySeedId)).toEqual([u1, u1, u2]);
+    // An experiment never links other experiments.
+    expect(persisted.every((seed) => seed.experimentSeedIds === undefined)).toBe(true);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
+  });
+
+  it("says why after two attempts in a row write experiments that name no picked uncertainty", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, {
+      targetRoleId: "experimentation",
+      decisions: [{ roleId: "active_uncertainties", bullets: [startUp] }],
+    });
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => providerResponse({ seeds: validSeeds }, 1)));
+    const pane = () =>
+      t
+        .withIdentity({ subject: "seed-dispatch-experimentation" })
+        .query(api.seeds.getSubsection, { generationId: fixture.generationId, roleId: "experimentation" });
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+      status: "failed",
+      error: "INVALID_OUTPUT",
+      errorDetail: "experiment_links",
+    });
+    const again = await t.mutation(dispatchRef, {
+      generationId: fixture.generationId,
+      roleId: "experimentation",
+      operation: "retry",
+      commandId: "experiment-links-again",
+      actorUserId: fixture.userId,
+    });
+    if (again.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${again.kind}`);
+    await t.action(generateBatchRef, { batchId: again.batchId });
+    expect(await pane()).toMatchObject({ lastAttemptFailed: true, repeatedInvalidOutput: "experiment_links" });
+  });
+
+  it("pairs each uncertainty with the experiments that tested it and repairs a crossed pairing", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, {
+      targetRoleId: "specific_advancements",
+      decisions: [
+        { roleId: "active_uncertainties", bullets: [dosing] },
+        { roleId: "active_uncertainties", bullets: [sensors] },
+        { roleId: "experimentation", bullets: ["Trial three cut peak TAN from 2.3 to 1.2 mg/L with feed-forward dosing."], tested: 0 },
+        { roleId: "experimentation", bullets: ["Trial four held TAN at 0.8 mg/L with a 55 percent media fill."], tested: 0 },
+        { roleId: "experimentation", bullets: ["Trial five held DO within 3 percent for 28 days in a bypass loop."], tested: 1 },
+      ],
+    });
+    const [u2, u3, t3, t4, t5] = fixture.decisions.map((decision) => decision.seedId);
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return requests.length === 1
+          ? providerResponse({
+              seeds: [
+                advancement("Feed-forward dosing alone cannot hold TAN under 1 mg/L at this feeding rate.", "conservative", { uncertaintySeedId: u2, experimentSeedIds: [t3!] }),
+                advancement("A 55 percent media fill buffers the ammonia pulse independently of dosing.", "technical", { uncertaintySeedId: u2, experimentSeedIds: [t4!] }),
+                // A dosing trial offered as a sensor advancement.
+                advancement("Sensor readings stay accurate once dosing is fed forward.", "detailed", { uncertaintySeedId: u3, experimentSeedIds: [t3!] }),
+              ],
+            }, 1)
+          : providerResponse({
+              seeds: [
+                advancement("Feed-forward dosing alone cannot hold TAN under 1 mg/L at this feeding rate.", "conservative", { uncertaintySeedId: u2, experimentSeedIds: [t3!] }),
+                advancement("Dosing and a 55 percent media fill together hold TAN under 1 mg/L.", "technical", { uncertaintySeedId: u2, experimentSeedIds: [t3!, t4!] }),
+                advancement("A screened bypass loop keeps DO within 3 percent for four weeks.", "detailed", { uncertaintySeedId: u3, experimentSeedIds: [t5!] }),
+              ],
+            }, 2);
+      })
+    );
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(requests).toHaveLength(2);
+    const first = requestText((await requests[0]!.json()).messages[0].content);
+    const block = linkBlock(first, "FROZEN ADVANCEMENT LINKS") as { links: Array<{ uncertaintySeedId: string; experimentSeedIds: string[] }> };
+    expect(Object.fromEntries(block.links.map((link) => [link.uncertaintySeedId, [...link.experimentSeedIds].sort()]))).toEqual({
+      [u2!]: [t3, t4].sort(),
+      [u3!]: [t5],
+    });
+    expect(first).not.toContain("--- BEGIN [FROZEN EXPERIMENT LINKS] ---");
+    // Every later step reads which uncertainty each experiment tested.
+    const decisions = linkBlock(first, "FROZEN PREDECESSOR DECISIONS") as { items: Array<{ seedId: string; uncertaintySeedId?: string }> };
+    expect(decisions.items.find((item) => item.seedId === t5)?.uncertaintySeedId).toBe(u3);
+    expect(decisions.items.find((item) => item.seedId === u2)).not.toHaveProperty("uncertaintySeedId");
+    const second = requestText((await requests[1]!.json()).messages[0].content);
+    expect(second).toContain(
+      "(root): 2 of 3 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seed 3)."
+    );
+    const persisted = await t.run((ctx) =>
+      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+    );
+    expect(persisted.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual([
+      [u2, [t3]],
+      [u2, [t3, t4]],
+      [u3, [t5]],
+    ]);
+    // The frozen context row keeps what each experiment tested.
+    const context = await t.run((ctx) =>
+      ctx.db.query("seedBatchContext").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+    );
+    expect(context.find((row) => row.seedId === t4)?.uncertaintySeedId).toBe(u2);
+  });
+
+  it("sends no link block when every picked experiment tested a dropped uncertainty, refuses the run 6 relink and keeps unlinked Seeds", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, {
+      targetRoleId: "specific_advancements",
+      decisions: [
+        { roleId: "active_uncertainties", bullets: [startUp], selected: false },
+        { roleId: "active_uncertainties", bullets: [dosing] },
+        { roleId: "active_uncertainties", bullets: [sensors] },
+        { roleId: "experimentation", bullets: ["Trial one: acclimated seed reached full nitrification in 31 days at 8 C."], tested: 0 },
+        { roleId: "experimentation", bullets: ["Trial two: 15 percent acclimated seed took 29 days at 6 C."], tested: 0 },
+      ],
+    });
+    const [u1, , u3, t1, t2] = fixture.decisions.map((decision) => decision.seedId);
+    const relinked = {
+      seeds: [
+        advancement("Stepwise acclimation resolved the cold-water start-up uncertainty.", "conservative", { uncertaintySeedId: u3, experimentSeedIds: [t1!] }),
+        advancement("Nitrite oxidizers are the main cold-sensitivity bottleneck.", "technical", { uncertaintySeedId: u3, experimentSeedIds: [t1!, t2!] }),
+        advancement("Colder water needs a higher acclimated seed fraction.", "detailed", { uncertaintySeedId: u3, experimentSeedIds: [t2!] }),
+      ],
+    };
+    const requests: Request[] = [];
+    const transport = vi.fn<typeof fetch>(async (input, init) => {
+      requests.push(new Request(input, init));
+      return providerResponse(relinked, 1);
+    });
+    vi.stubGlobal("fetch", transport);
+    const writer = t.withIdentity({ subject: "seed-dispatch-specific_advancements" });
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(requests).toHaveLength(2);
+    const first = requestText((await requests[0]!.json()).messages[0].content);
+    expect(first).not.toContain("--- BEGIN [FROZEN ADVANCEMENT LINKS] ---");
+    const decisions = linkBlock(first, "FROZEN PREDECESSOR DECISIONS") as { items: Array<{ seedId: string; uncertaintySeedId?: string }> };
+    // The trials show which uncertainty they tested, one the writer dropped.
+    expect(decisions.items.find((item) => item.seedId === t1)?.uncertaintySeedId).toBe(u1);
+    expect(decisions.items.some((item) => item.seedId === u1)).toBe(false);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+      status: "failed",
+      error: "INVALID_OUTPUT",
+      errorDetail: "advancement_links",
+    });
+
+    // Unlinked Seeds are kept; they cannot be approved and the step says why.
+    transport.mockImplementation(async () => providerResponse({ seeds: validSeeds }, 3));
+    const again = await t.mutation(dispatchRef, {
+      generationId: fixture.generationId,
+      roleId: "specific_advancements",
+      operation: "retry",
+      commandId: "run6-corner-unlinked",
+      actorUserId: fixture.userId,
+    });
+    if (again.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${again.kind}`);
+    await t.action(generateBatchRef, { batchId: again.batchId });
+    const persisted = await t.run((ctx) =>
+      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", again.batchId)).collect()
+    );
+    expect(persisted).toHaveLength(3);
+    expect(persisted.every((seed) => seed.uncertaintySeedId === undefined && seed.experimentSeedIds === undefined)).toBe(true);
+    const pane = await writer.query(api.seeds.getSubsection, { generationId: fixture.generationId, roleId: "specific_advancements" });
+    expect(pane.linkNotice).toEqual({ kind: "no_linkable_experiment", experimentsPicked: true });
   });
 
   it("names the Seed rules, not the links, when answers keep breaking other rules", async () => {
@@ -1201,7 +1451,7 @@ describe("seed Node action request boundary", () => {
       "batch"
     );
     expect(mixed).toBe(
-      "0 of 5 Seeds valid; return 3 to 5 valid Seeds; use only FROZEN ADVANCEMENT LINKS ids and write from linked experiments (Seeds 1, 2, 3, 4, 5); a bullet is over 25 words (Seeds 1, 4); use a plain hyphen (Seed 5); use at least two different tags"
+      "0 of 5 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 1, 2, 3, 4, 5); a bullet is over 25 words (Seeds 1, 4); use a plain hyphen (Seed 5); use at least two different tags"
     );
 
     // A variety rule can be the only reason the batch failed, so it stays
@@ -1309,7 +1559,7 @@ describe("seed Node action request boundary", () => {
       "feedback"
     );
     expect(marked).toBe(
-      "0 of 3 Seeds valid; return 1 to 3 valid Seeds; use one or two bullets (Seeds 1, 2); a bullet is over 25 words (Seeds 2, 3); use only FROZEN ADVANCEMENT LINKS ids and write from linked experiments (Seeds 2, 3); more issues omitted"
+      "0 of 3 Seeds valid; return 1 to 3 valid Seeds; use one or two bullets (Seeds 1, 2); a bullet is over 25 words (Seeds 2, 3); use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 2, 3); more issues omitted"
     );
     expect(bytes(marked)).toBeLessThanOrEqual(reserved);
 

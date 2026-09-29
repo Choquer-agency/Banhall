@@ -956,6 +956,81 @@ describe("seed revisions", () => {
   });
 });
 
+describe("an experiment's tested uncertainty in the decisions (2026-09-29, first amendment)", () => {
+  const selections = (tested?: string) => [
+    { roleId: "active_uncertainties" as const, seedId: "u1", bullets: ["Start-up below 10 C was unknown."], active: true },
+    {
+      roleId: "experimentation" as const,
+      seedId: "t1",
+      bullets: ["Trial one ran three loops at 8 C."],
+      active: true,
+      ...(tested ? { uncertaintySeedId: tested } : {}),
+    },
+  ];
+  const snapshotFor = (tested?: string) =>
+    buildCompleteDecisionSnapshot({
+      targetRoleId: "specific_advancements",
+      selections: selections(tested),
+      skippedRoleIds: [],
+      feedbackRequests: [],
+    });
+
+  it("leaves an experiment without one exactly as before, so no step is marked for review by the change", async () => {
+    const legacy = snapshotFor();
+    expect(legacy.items.find((item) => item.roleId === "experimentation")).toEqual({
+      kind: "selection",
+      roleId: "experimentation",
+      seedId: "t1",
+      bullets: ["Trial one ran three loops at 8 C."],
+    });
+    const handBuilt = canonicalizeSeedSnapshot({
+      v: 1,
+      items: [
+        { kind: "selection", roleId: "active_uncertainties", seedId: "u1", bullets: ["Start-up below 10 C was unknown."] },
+        { kind: "selection", roleId: "experimentation", seedId: "t1", bullets: ["Trial one ran three loops at 8 C."] },
+      ],
+    });
+    expect(await completeContextRevision(legacy)).toBe(await completeContextRevision(handBuilt));
+  });
+
+  it("carries it on the experiment's selection, through the stored context rows, and only there", async () => {
+    const tagged = snapshotFor("u1");
+    expect(tagged.items.find((item) => item.roleId === "experimentation")).toMatchObject({ uncertaintySeedId: "u1" });
+    expect(tagged.items.find((item) => item.roleId === "active_uncertainties")).not.toHaveProperty("uncertaintySeedId");
+    expect(await completeContextRevision(tagged)).not.toBe(await completeContextRevision(snapshotFor()));
+    const rows = await encodeBatchContext(tagged, { targetRoleId: "specific_advancements" });
+    expect(rows.find((row) => row.seedId === "t1")?.uncertaintySeedId).toBe("u1");
+    expect(decodeBatchContext(rows)).toEqual(tagged);
+    // Only experimentation carries it into the decisions.
+    const onUncertainty = buildCompleteDecisionSnapshot({
+      targetRoleId: "specific_advancements",
+      selections: [{ ...selections()[0], uncertaintySeedId: "u9" }],
+      skippedRoleIds: [],
+      feedbackRequests: [],
+    });
+    expect(onUncertainty.items[0]).not.toHaveProperty("uncertaintySeedId");
+  });
+});
+
+describe("Line 244 reads which uncertainty each experiment tested (2026-09-29, first amendment)", () => {
+  it("gives each experiment its uncertainty as reference context, never merging experiments", () => {
+    const plan = buildFrozenSummaryPlan({
+      section: "s244",
+      items: [
+        { itemId: "trial-1", roleId: "experimentation", kind: "multiple", bullets: ["Trial one ran three loops at 8 C."], support: "source_supported", uncertaintySeedId: "u1" },
+        { itemId: "trial-2", roleId: "experimentation", kind: "multiple", bullets: ["Trial two ran two loops at 6 C."], support: "source_supported", uncertaintySeedId: "u1" },
+      ],
+      skippedRoleIds: [],
+      referencesBySeedId: new Map([["u1", ["Start-up below 10 C was unknown."]]]),
+    });
+    const rows = planDataRows(plan.block) as Array<{ itemIds: string[]; relationshipReferences: unknown[] }>;
+    expect(rows.map((row) => row.itemIds)).toEqual([["trial-1"], ["trial-2"]]);
+    for (const row of rows) {
+      expect(row.relationshipReferences).toEqual([{ seedId: "u1", wording: ["Start-up below 10 C was unknown."] }]);
+    }
+  });
+});
+
 describe("clipJsonEscapedUtf8 (Summary Self-check free text)", () => {
   const LIMIT = 64;
   const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;

@@ -9,6 +9,12 @@ import {
   type SeedSubsectionRevisionState,
 } from "./seedRevisions";
 import {
+  advancementLinkProblem,
+  experimentsForDroppedUncertainties,
+  pickedLinkSelections,
+  type ExperimentTest,
+} from "../../shared/advancementLinks";
+import {
   loadSeedDecisionState,
   type SeedDecisionReadBudget,
   type SeedDecisionReadBudgetSnapshot,
@@ -23,7 +29,8 @@ export type SeedReadinessBlocker = {
     | "REQUIRED_ROLE_UNDECIDED"
     | "OPTIONAL_ROLE_UNDECIDED"
     | "ROLE_STALE"
-    | "UNLINKED_ADVANCEMENT";
+    | "UNLINKED_ADVANCEMENT"
+    | "EXPERIMENT_FOR_DROPPED_UNCERTAINTY";
   roleId?: PdSubsectionRoleId;
   message: string;
 };
@@ -59,15 +66,23 @@ function roleStale(subsection: SeedSubsectionRevisionState): boolean {
   return isSeedSubsectionStale(subsection);
 }
 
-function advancementReferencesAreLinked(input: SeedReadinessInput): boolean {
+/**
+ * The link rules readiness checks (FR-8; 2026-09-29 first): every selected
+ * advancement links a picked uncertainty and picked experiments that tested
+ * it, and no selected experiment tested an uncertainty the writer dropped.
+ */
+function linkReview(input: SeedReadinessInput): {
+  advancementsLinked: boolean;
+  droppedUncertaintyExperiments: number;
+} {
   const skipped = new Set(
     input.subsections
       .filter((subsection) => subsection.state === "skipped")
       .map((subsection) => subsection.roleId)
   );
   const seeds = new Map(input.seeds.map((seed) => [seed._id, seed]));
-  const activeUncertainties = new Set<Id<"seeds">>();
-  const activeExperiments = new Set<Id<"seeds">>();
+  const uncertaintySeedIds: string[] = [];
+  const experiments: ExperimentTest[] = [];
   const advancements = [];
 
   for (const selection of input.selectionRows) {
@@ -79,23 +94,27 @@ function advancementReferencesAreLinked(input: SeedReadinessInput): boolean {
       seed.projectId === selection.projectId &&
       seed.roleId === selection.roleId;
     if (selection.roleId === "active_uncertainties" && sameDecision) {
-      activeUncertainties.add(selection.seedId);
+      uncertaintySeedIds.push(selection.seedId);
     } else if (selection.roleId === "experimentation" && sameDecision) {
-      activeExperiments.add(selection.seedId);
+      experiments.push({
+        seedId: selection.seedId,
+        uncertaintySeedId: seed.uncertaintySeedId ?? null,
+      });
     } else if (selection.roleId === "specific_advancements") {
       advancements.push(sameDecision ? seed : undefined);
     }
   }
 
-  return advancements.every(
-    (seed) =>
-      seed !== undefined &&
-      seed.uncertaintySeedId !== undefined &&
-      activeUncertainties.has(seed.uncertaintySeedId) &&
-      seed.experimentSeedIds !== undefined &&
-      seed.experimentSeedIds.length > 0 &&
-      seed.experimentSeedIds.every((seedId) => activeExperiments.has(seedId))
-  );
+  const picked = pickedLinkSelections(uncertaintySeedIds, experiments);
+  return {
+    advancementsLinked: advancements.every(
+      (seed) => seed !== undefined && advancementLinkProblem(seed, picked) === null
+    ),
+    droppedUncertaintyExperiments: experimentsForDroppedUncertainties(
+      picked.uncertaintySeedIds,
+      experiments
+    ).length,
+  };
 }
 
 /** The one pure seed-stage readiness rule shared by query and mutation callers. */
@@ -150,12 +169,21 @@ export function computeSeedReadiness(input: SeedReadinessInput): SeedReadiness {
     }
   }
 
-  if (!advancementReferencesAreLinked(input)) {
+  const links = linkReview(input);
+  if (links.droppedUncertaintyExperiments > 0) {
+    blockers.push({
+      code: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY",
+      roleId: "experimentation",
+      message:
+        "Experimentation / Iterations has picked experiments that tested an uncertainty you no longer have picked",
+    });
+  }
+  if (!links.advancementsLinked) {
     blockers.push({
       code: "UNLINKED_ADVANCEMENT",
       roleId: "specific_advancements",
       message:
-        "Specific advancements must reference active uncertainty and experimentation selections",
+        "Specific advancements must link a picked uncertainty and picked experiments that tested it",
     });
   }
 

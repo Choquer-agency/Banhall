@@ -148,6 +148,23 @@ describe("keep later steps after an earlier change", () => {
     expect(await staleOf(s, advancement.rowId)).toBe(true);
   });
 
+  it("leaves experiments that tested an uncertainty the writer dropped, and names the step (2026-09-29, first)", async () => {
+    const s = await decisionFixture();
+    const uncertainty = await addDecisionSeed(s, "active_uncertainties");
+    await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: uncertainty.seedId, selected: true });
+    const workplan = await approvedLaterStep(s, "workplan");
+    const experiment = await approvedLaterStep(s, "experimentation");
+    await s.t.run((ctx) => ctx.db.patch(experiment.seedId, { uncertaintySeedId: uncertainty.seedId }));
+    // The writer drops the uncertainty the experiment tested.
+    await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: uncertainty.seedId, selected: false });
+    expect(await staleOf(s, experiment.rowId)).toBe(true);
+    const result = await s.writer.mutation(keep, { ...args(s, await version(s), "active_uncertainties"), scope: "later" });
+    expect(result.kept).toEqual(["workplan"]);
+    expect(result.needsAttention).toEqual([{ roleId: "experimentation", reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" }]);
+    expect(await staleOf(s, workplan.rowId)).toBe(false);
+    expect(await staleOf(s, experiment.rowId)).toBe(true);
+  });
+
   it("writes nothing when no later step is marked for review", async () => {
     const s = await decisionFixture();
     await addDecisionSeed(s);
