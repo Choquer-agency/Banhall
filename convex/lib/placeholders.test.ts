@@ -10,6 +10,7 @@ import {
   type PlaceholderMap,
 } from "./deidentify";
 import { pseudonymizeRequest, restoreResponse, withPlaceholders } from "../ai/placeholderClient";
+import { redactExternalText } from "../ai/research/core";
 import type { GenerationClient, GenerationMessageParams } from "../ai/openrouterCore";
 
 const map = buildPlaceholderMap({
@@ -598,10 +599,16 @@ describe("backslash escapes are word edges (placeholder algorithm 5)", () => {
     expect(restorePlaceholdersDeep(JSON.parse(hidden), map)).toEqual({ bullets: [raw] });
   });
 
-  it("never treats an escaped backslash before a letter as an escape", () => {
-    // "\\n" is a backslash, then the letter n glued to the name: no edge.
-    expect(pseudonymize("a\\\\nQuillmere b", map)).toBe("a\\\\nQuillmere b");
-    // An odd run of backslashes ends in an escape again.
+  it("masks a name after a backslash escape even when the backslash is itself escaped (privacy re-check P1-1)", () => {
+    // A raw literal backslash-n before a name, JSON-encoded, reads "\\n":
+    // the name is still masked, and restoring is exact.
+    const raw = "exported\\nQuillmere Analytics Ltd. and\\tMorgan Hale";
+    expect(pseudonymize(raw, map)).toBe("exported\\n[CLIENT_1] and\\t[PERSON_1]");
+    const encoded = JSON.stringify({ excerpt: raw });
+    expect(encoded).toContain("\\\\nQuillmere");
+    const hidden = pseudonymize(encoded, map);
+    expect(hidden).not.toMatch(/Quillmere|Morgan|Hale/);
+    expect(restorePlaceholdersDeep(JSON.parse(hidden), map)).toEqual({ excerpt: raw });
     expect(pseudonymize("a\\\\\\nQuillmere b", map)).toBe("a\\\\\\n[CLIENT_1_FIRST] b");
     // Inside a word the letters of an escape are still letters.
     expect(pseudonymize("Xnote\\nfoo", map)).toBe("Xnote\\nfoo");
@@ -625,5 +632,65 @@ describe("backslash escapes are word edges (placeholder algorithm 5)", () => {
 
   it("redacts after an escape too, in deidentify", () => {
     expect(deidentify("a\\nAcme Farms b\\tAcme", { clientName: "Acme Farms" })).toBe("a\\n[redacted] b\\tAcme");
+  });
+});
+
+// Privacy re-check of the escape rule (2026-09-29, second).
+describe("labels in encoded strings and names split by other white space (placeholder algorithm 6)", () => {
+  const map = buildPlaceholderMap({
+    clientName: "Northern Robotics Inc.",
+    people: ["Morgan Hale"],
+    phrases: ["Rosalind"],
+  });
+
+  it("finds a weak label after the opening quote of a string, in raw, JSON and quoted forms (P2-1)", () => {
+    expect(pseudonymize("Rosalind: we tried", map)).toBe("[PERSON_2]: we tried");
+    expect(pseudonymize(JSON.stringify({ exactExcerpt: "Rosalind: we tried" }), map))
+      .toBe('{"exactExcerpt":"[PERSON_2]: we tried"}');
+    expect(pseudonymize(JSON.stringify({ a: JSON.stringify({ b: "Rosalind: we tried" }) }), map))
+      .toBe('{"a":"{\\"b\\":\\"[PERSON_2]: we tried\\"}"}');
+    expect(pseudonymize('- On Company / Context: "Rosalind: we tried"', map))
+      .toBe('- On Company / Context: "[PERSON_2]: we tried"');
+    // Still never a word in running text.
+    expect(pseudonymize('He said "Rosalind knows"', map)).toBe('He said "Rosalind knows"');
+  });
+
+  it("hides a name split by a line break, a tab or a CRLF word by word and restores it exactly (P2-2)", () => {
+    for (const gap of ["\n", "\t", "\r\n", "  ", "\n  "]) {
+      const text = `Built by Northern${gap}Robotics Inc. and Morgan${gap}Hale.`;
+      const hidden = pseudonymize(text, map);
+      expect(hidden).toBe(`Built by [CLIENT_1_WA]${gap}[CLIENT_1_WB] [CLIENT_1_WC] and [PERSON_1_WA]${gap}[PERSON_1_WB].`);
+      expect(restorePlaceholders(hidden, map)).toBe(text);
+    }
+    // A single space keeps the one token, as before.
+    expect(pseudonymize("Built by Northern Robotics Inc. and Morgan Hale.", map))
+      .toBe("Built by [CLIENT_1] and [PERSON_1].");
+    // The short form split the same way.
+    expect(pseudonymize("Northern\r\nRobotics said", map)).toBe("[CLIENT_1_SHORTWA]\r\n[CLIENT_1_SHORTWB] said");
+    expect(restorePlaceholders("[CLIENT_1_SHORTWA]\r\n[CLIENT_1_SHORTWB] said", map)).toBe("Northern\r\nRobotics said");
+  });
+
+  it("hides a split name in its JSON form and restores the decoded text (P2-2)", () => {
+    const raw = "Northern\nRobotics Inc. and Morgan\tHale, with a literal Northern\\nRobotics Inc.";
+    const hidden = pseudonymize(JSON.stringify({ excerpt: raw }), map);
+    expect(hidden).not.toMatch(/Northern|Robotics|Morgan|Hale/);
+    expect(restorePlaceholdersDeep(JSON.parse(hidden), map)).toEqual({ excerpt: raw });
+  });
+
+  it("restores a word token written bare, and a literal word token in a source is a collision (P2-2)", () => {
+    expect(restorePlaceholders("CLIENT_1_WA and PERSON_1_WB", map)).toBe("Northern and Hale");
+    // A word the name does not have falls back to the whole name, like any
+    // variant the map never issued.
+    expect(restorePlaceholders("[CLIENT_1_WD] stays", map)).toBe("Northern Robotics Inc. stays");
+    expect(containsPlaceholderToken("see [CLIENT_1_WA]", map)).toBe(true);
+    const safe = avoidTokenCollisions(map, ["see [CLIENT_1_WA]"]);
+    expect(safe.find((entry) => entry.value === "Northern Robotics Inc.")?.token).toBe("[CLIENT_2]");
+  });
+
+  it("redacts across gaps and after escapes in deidentify and the research redaction", () => {
+    expect(deidentify("a\\nNorthern\nRobotics Inc. b", { clientName: "Northern Robotics Inc." }))
+      .toBe("a\\n[redacted] b");
+    expect(redactExternalText("a\\nNorthern\tRobotics Inc. b\\\\tMorgan Hale c\\u0007Morgan\nHale", ["Northern Robotics Inc.", "Morgan Hale"]))
+      .toBe("a\\n[redacted] b\\\\t[redacted] c\\u0007[redacted]");
   });
 });

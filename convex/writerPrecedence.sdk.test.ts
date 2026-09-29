@@ -46,7 +46,7 @@ import {
 } from "./lib/seedRevisions";
 import type { OrderedPayload } from "./lib/orderedChain";
 import { sectionMetrics } from "./lib/lineLimits";
-import { quoteForPrompt, type GlossarySetAside, type WriterFeedback } from "./lib/writerPrecedence";
+import { ideaWords, quoteForPrompt, type GlossarySetAside, type WriterFeedback } from "./lib/writerPrecedence";
 import { buildPlaceholderMap, type PlaceholderMap } from "./lib/deidentify";
 import { withPlaceholders } from "./ai/placeholderClient";
 
@@ -345,7 +345,7 @@ describe("an idea kept despite a Claim Exclusion is drafted and kept (real SDK, 
     glossarySetAside: [],
   });
   const keptReason = (state: Parameters<typeof keptIdeaReason>[0]) =>
-    keptIdeaReason(state, `${KEPT_WORDING.join(" ").slice(0, 119).trimEnd()}...`, [BILLING], { section: "244" });
+    keptIdeaReason(state, `${ideaWords(KEPT_WORDING, 120)}`, [BILLING], { section: "244" });
   /** The run 6 shape of a disclaimer: the excluded words, called not claimed. */
   const DISCLAIMER = `${BILLING.replace(".", "")}, and it is not claimed.`;
   const WITH_DISCLAIMER = [PLAN_P1, `${BASELINE_P2} ${DISCLAIMER}`, RESIDUAL_P3].join("\n\n");
@@ -491,7 +491,7 @@ describe("an idea kept despite a Claim Exclusion is drafted and kept (real SDK, 
     expect(result.draftText).toBe(WITH_KEPT);
     const reason = repairDroppedKeptIdeaReason({ wording: KEPT_WORDING });
     expect(reason).toBe(
-      `the repaired text no longer covers the idea the writer kept despite a Claim Exclusion ("${KEPT_WORDING.join(" ").slice(0, 119).trimEnd()}..."), so the checked draft was kept`
+      `the repaired text no longer covers the idea the writer kept despite a Claim Exclusion ("${ideaWords(KEPT_WORDING, 120)}"), so the checked draft was kept`
     );
     expect(planRow(result, ITEM_PLAN).reason).toContain(`repair not used (${reason})`);
     expect(planRow(result, ITEM_KEPT)).toMatchObject({ outcome: "applied", tier: "conflict", paragraphIndex: 1 });
@@ -666,7 +666,7 @@ describe("an idea kept despite a Claim Exclusion is drafted and kept (real SDK, 
       const row = planRow(result, ITEM_KEPT);
       expect(row).toMatchObject({ outcome: "not_applied", tier: "conflict", repaired: false });
       expect(row.reason).toBe(
-        `Not checked: the Self-check gave no usable verdict for the idea the writer kept despite the Claim Exclusion "${BILLING}" ("${KEPT_WORDING.join(" ").slice(0, 119).trimEnd()}..."); its excluded words went from the text when a repair closer to the Line 244 limit replaced a draft further over it, since the Locked Rules come first.`
+        `Not checked: the Self-check gave no usable verdict for the idea the writer kept despite the Claim Exclusion "${BILLING}" ("${ideaWords(KEPT_WORDING, 120)}"); its excluded words went from the text when a repair closer to the Line 244 limit replaced a draft further over it, since the Locked Rules come first.`
       );
       expect(row.reason).not.toContain("the draft that held it is further over");
     } finally {
@@ -842,7 +842,9 @@ describe("the writer's Feedback outranks a Brief Glossary Term (real SDK, fetch 
     }
     // The final coverage check is among them.
     expect(sent[3]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
-    expect(quoteForPrompt("a\\b \"c\"\u0007d")).toBe('"a\\\\b \\"c\\"d"');
+    // A control character reads as a space, never gluing a word to a name.
+    expect(quoteForPrompt("a\\b \"c\"\u0007d")).toBe('"a\\\\b \\"c\\" d"');
+    expect(quoteForPrompt("about\u0007Quillmere Analytics Ltd.")).toBe('"about Quillmere Analytics Ltd."');
   });
 
   it("lead decision P2-2: a signed-off edit that uses a term the Feedback forbids wins in its Line", async () => {

@@ -59,7 +59,7 @@ describe("the facts contract is pinned to FACTS_VERSION", () => {
    * (same hash); placeholder algorithm 4 now hides a company's coined first
    * word, so facts read while it was visible are read again. Version 4
    * (same hash): placeholder algorithm 5 treats a backslash escape before
-   * a name as a word edge.
+   * a name as a word edge. Version 5 (same hash): placeholder algorithm 6.
    */
   it("hashes the prompt, instructions, schema and request", async () => {
     const hash = await sha256(
@@ -71,7 +71,7 @@ describe("the facts contract is pinned to FACTS_VERSION", () => {
         JSON.stringify(FACTS_REQUEST),
       ].join("\n---\n")
     );
-    expect(FACTS_VERSION).toBe("4");
+    expect(FACTS_VERSION).toBe("5");
     expect(hash).toBe("3020782abac26e9d223266ac464fe725abb960974ac7572b586c2d128c23a76e");
   });
 });

@@ -41,24 +41,33 @@ export type ConfirmedConflict = {
  * re-check P2). Names are masked at the provider boundary, on the request
  * as sent, and a name counts only at a word edge. JSON escaping turned a
  * line break before a name into the letters "\n" glued to it, so the name
- * went out unmasked. Here every run of white space (line breaks and tabs
- * included) reads as one space and other control characters are dropped,
- * so the quoted text keeps the word edges of the raw text; a double quote
+ * went out unmasked. Here every run of white space and control characters
+ * (line breaks and tabs included) reads as one space, so the quoted text
+ * keeps the word edges of the raw text; a double quote
  * or a backslash is escaped with a backslash, which is no letter, so the
  * text cannot end its quotation or put a block marker on a line of its own.
  */
 export function quoteForPrompt(text: string): string {
+  // Privacy re-check P1-2: a control character becomes a space like a line
+  // break, never nothing, so it cannot glue a word to a name.
   const flat = text
-    .replace(/[\u0000-\u0008\u000E-\u001F\u007F]/g, "")
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   return `"${flat.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-/** The words an idea is named by in a Compliance Note or a prompt. */
+/**
+ * The words an idea is named by in a Compliance Note or a prompt. A long
+ * idea is shortened at a word boundary (privacy re-check P3), so no name is
+ * cut into a fragment that masking cannot recognize.
+ */
 export function ideaWords(wording: readonly string[], maxChars = 160): string {
   const words = wording.join(" ").replace(/\s+/g, " ").trim();
-  return words.length > maxChars ? `${words.slice(0, maxChars - 1).trimEnd()}...` : words;
+  if (words.length <= maxChars) return words;
+  const cut = words.slice(0, maxChars - 2);
+  const boundary = cut.lastIndexOf(" ");
+  return `${boundary > 0 ? cut.slice(0, boundary).trimEnd() : ""}...`;
 }
 
 export function stepTitle(roleId: PdSubsectionRoleId): string {

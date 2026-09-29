@@ -33,8 +33,11 @@ import {
  * backslash escape before a name as a word edge, so a name a transcript
  * wrote after a literal "\n" is hidden; facts are extracted again on next
  * use.
+ * 5 (2026-09-29, second, privacy re-check): placeholder algorithm 6 treats
+ * every escape as an edge, a quote as a label position and a name split by
+ * other white space as the name; facts are extracted again on next use.
  */
-export const FACTS_VERSION = "4";
+export const FACTS_VERSION = "5";
 
 /**
  * Owner decision 25: only the client's words back a claim. A turn whose
