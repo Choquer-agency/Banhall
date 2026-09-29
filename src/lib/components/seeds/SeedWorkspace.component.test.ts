@@ -4295,6 +4295,35 @@ describe("snappy ticks (owner, 2026-09-28)", () => {
     await expect.element(page.getByRole("button", { name: "Regenerate", exact: true })).toBeEnabled();
   });
 
+  it("finishes queued picks when the next step is still loading as the first answer lands (review P2-1 re-check)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({ items: [seed({ selected: false }), seed({ seedId: "seed-2" as Id<"seeds">, selected: false, bullets: ["Second Seed wording."] })] }));
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "goal_problem" }, undefined);
+    let answer: ((value: unknown) => void) | undefined;
+    __setMutationResult("seeds:select", new Promise((resolve) => { answer = resolve; }));
+    await render(SeedWorkspace, workspaceProps());
+    const boxes = page.getByRole("checkbox", { name: "Select seed", exact: true });
+    await boxes.first().click();
+    await boxes.last().click();
+    expect(__mutationCalls("seeds:select")).toHaveLength(1);
+    await page.getByRole("navigation", { name: "PD subsections" }).getByRole("button", { name: /Goal \/ Problem/ }).click();
+    await expect.element(page.getByRole("status", { name: "Loading subsection" })).toBeVisible();
+    // The first answer lands while the next step has no read yet.
+    __setMutationResult("seeds:select", { seedStageVersion: 9 });
+    answer?.({ seedStageVersion: 8 });
+    await expect.poll(() => __mutationCalls("seeds:select")).toHaveLength(2);
+    expect(__mutationCalls("seeds:select")[1]).toEqual({
+      generationId, roleId: "company_context", seedId: "seed-2", selected: true, expectedSeedStageVersion: 8,
+    });
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "goal_problem" }, subsection({
+      roleId: "goal_problem",
+      items: [seed({ seedId: "seed-goal" as Id<"seeds">, roleId: "goal_problem", bullets: ["Goal Seed wording."] })],
+    }));
+    await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
+    // Nothing is left waiting, so the step's decisions are open again.
+    await expect.element(page.getByRole("button", { name: "Regenerate", exact: true })).toBeEnabled();
+  });
+
   it("holds every other decision while a pick is on its way (review P2-3)", async () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSubsection", subsection({ items: [seed({ selected: false, edited: true })] }));

@@ -219,7 +219,14 @@
     pendingPicks = { ...pendingPicks, [key]: { selected, token } };
     // The pick's own step and run, fixed now: the save outlives this pane.
     const target = { generationId, roleId: data.roleId };
-    const knownVersion = () => data.seedStageVersion;
+    // The live read is only trusted while this pane is open on the pick's run:
+    // once it closes, `data` follows the parent's next read, which can be
+    // empty while the next step loads or belong to another run.
+    const pickedAtVersion = data.seedStageVersion;
+    const knownVersion = () => {
+      const live = destroyed || generationId !== target.generationId ? undefined : data?.seedStageVersion;
+      return typeof live === "number" ? live : pickedAtVersion;
+    };
     const outcome = await enqueuePick(String(target.generationId), knownVersion, (expectedSeedStageVersion) => {
       // A3: capability is rechecked at dispatch while this pane is open.
       if (!destroyed && !canEdit) throw new Error(PICK_NOT_SENT);
@@ -1032,7 +1039,8 @@
         </div>
       {/if}
       {#if keepAttention}
-        <p class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status" data-keep-attention>{keepAttention}</p>
+        <!-- Read out once by the pane's live region below, not here too. -->
+        <p class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" data-keep-attention>{keepAttention}</p>
       {/if}
     </header>
 

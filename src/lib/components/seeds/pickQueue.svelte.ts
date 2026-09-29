@@ -30,8 +30,11 @@ export function enqueuePick(
   lanes.set(runKey, lane);
   waiting[runKey] = (waiting[runKey] ?? 0) + 1;
   const run = lane.tail.then(async (): Promise<PickOutcome> => {
-    const expected = Math.max(lane.version ?? -1, knownVersion());
+    // Everything, including reading the caller's version, sits inside the try:
+    // a throw here must still count the pick as done, or the run's other
+    // decisions stay disabled and later picks never send.
     try {
+      const expected = Math.max(lane.version ?? -1, knownVersion());
       const answer = await send(expected);
       const version = (answer as { seedStageVersion?: unknown } | null | undefined)?.seedStageVersion;
       lane.version = typeof version === "number" ? version : null;
@@ -49,6 +52,7 @@ export function enqueuePick(
       }
     }
   });
-  lane.tail = run;
+  // The next pick waits for this one however it ends; the tail never rejects.
+  lane.tail = run.catch(() => undefined);
   return run;
 }
