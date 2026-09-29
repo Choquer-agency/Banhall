@@ -254,8 +254,6 @@ function seedIssueHints(mode: SeedBatchMode, minimum?: number): Record<SeedValid
     // 2026-09-29 (first): an experiment names the uncertainty it tested.
     INVALID_EXPERIMENT_REFERENCE:
       "set uncertaintySeedId to the tested uncertainty from FROZEN EXPERIMENT LINKS",
-    // Never costs a Seed its place (2026-09-29 first, run 7).
-    ADVANCEMENT_LINK_NARROWED: "",
     INVALID_PROVENANCE: "",
     INVALID_BATCH_SIZE: `return ${min} to ${max} valid Seeds`,
     INSUFFICIENT_TAG_DIVERSITY: "use at least two different tags",
@@ -296,7 +294,7 @@ function linkPairsNote(
   const broken = result.issues.filter((issue) => issue.code === "INVALID_ADVANCEMENT_REFERENCE");
   if (broken.length === 0 || offeredLinks.length === 0) return null;
   const unlisted = broken.some((issue) => issue.linkReason === "uncertainty_without_tested_experiment");
-  const lead = `the only pairs, each usable by several Seeds${unlisted ? ", and no advancement for any other uncertainty" : ""}: `;
+  const lead = `the only pairs, one per Seed and each usable by several Seeds${unlisted ? ", and no advancement for any other uncertainty" : ""}: `;
   const list = offeredLinks
     .map((link) => `${link.uncertaintySeedId} with ${link.experimentSeedIds.join(", ")}`)
     .join(" | ");

@@ -9,7 +9,6 @@ import {
   isOneSeedSentence,
   locateCitations,
   nearestOccurrence,
-  batchMinimum,
   seedAnswerCounts,
   seedToolSchema,
   speakerOfTranscriptLine,
@@ -468,7 +467,7 @@ describe("an advancement follows the uncertainty its experiments tested (2026-09
     expect(crossedResult.ok ? null : crossedResult.issues[0]?.linkReason).toBe("experiment_tested_other");
   });
 
-  it("lets a narrow plan's Batch hold one advancement per offered experiment (run 7)", () => {
+  it("keeps three valid Seeds for a narrow plan, which three advancements on one pair meet (run 7)", () => {
     const narrow = {
       generationId: "generation-1",
       references: [
@@ -478,45 +477,34 @@ describe("an advancement follows the uncertainty its experiments tested (2026-09
         reference("camera", "experimentation", "u-images"),
       ],
     };
-    expect(batchMinimum({ roleId: "specific_advancements", mode: "batch", referenceContext: narrow })).toBe(2);
-    expect(batchMinimum({ roleId: "experimentation", mode: "batch", referenceContext: narrow })).toBe(3);
-    expect(batchMinimum({ roleId: "specific_advancements", mode: "feedback", referenceContext: narrow })).toBe(1);
-    // No link can be made: the usual three.
-    expect(batchMinimum({ roleId: "specific_advancements", mode: "batch", referenceContext: { generationId: "generation-1", references: [] } })).toBe(3);
-    const oneExperiment = { ...narrow, references: narrow.references.filter((item) => item.seedId !== "camera") };
-    expect(batchMinimum({ roleId: "specific_advancements", mode: "batch", referenceContext: oneExperiment })).toBe(1);
-    const images = (text: string, tag: SeedCandidate["tags"][number], experiment: string) =>
-      candidate([text], [tag], { uncertaintySeedId: "u-images", experimentSeedIds: [experiment] });
-    const narrowBatch = validateBatch({
+    const images = (text: string, tag: SeedCandidate["tags"][number], experiments: string[]) =>
+      candidate([text], [tag], { uncertaintySeedId: "u-images", experimentSeedIds: experiments });
+    const onePair = [
+      images("Single-angle 2D vision cannot resolve burr height below 0.18 millimetres.", "conservative", ["vision"]),
+      images("Glare on machined faces makes 2D burr height estimates read high.", "technical", ["vision"]),
+      images("Structured light 3D gave no better depth resolution than 2D.", "detailed", ["camera"]),
+    ];
+    expect(validateBatch({ roleId: "specific_advancements", mode: "batch", referenceContext: narrow, seeds: onePair })).toMatchObject({ ok: true, minimum: 3 });
+    // Two on the pair and one for the force uncertainty: two valid, refused.
+    const short = validateBatch({
       roleId: "specific_advancements",
       mode: "batch",
       referenceContext: narrow,
       seeds: [
-        images("Single-angle 2D vision cannot resolve burr height below 0.18 millimetres.", "conservative", "vision"),
-        images("Structured light 3D gave no better depth resolution than 2D.", "technical", "camera"),
-        // An advancement for the force uncertainty is dropped, not relinked.
+        ...onePair.slice(0, 2),
         candidate(["A compliant spindle held edge radius in window."], ["detailed"], { uncertaintySeedId: "u-force", experimentSeedIds: ["vision"] }),
       ],
     });
-    expect(narrowBatch).toMatchObject({ ok: true, minimum: 2, dropped: 1 });
-    expect(seedAnswerCounts(narrowBatch, 3)).toEqual({
+    expect(short).toMatchObject({ ok: false, minimum: 3 });
+    expect(seedAnswerCounts(short, 3)).toEqual({
       seedsReturned: 3,
       seedsValid: 2,
-      minimum: 2,
-      issues: [{ code: "INVALID_ADVANCEMENT_REFERENCE", reason: "uncertainty_without_tested_experiment", seeds: 1 }],
+      minimum: 3,
+      issues: [
+        { code: "INVALID_ADVANCEMENT_REFERENCE", reason: "uncertainty_without_tested_experiment", seeds: 1 },
+        { code: "INVALID_BATCH_SIZE", seeds: 0 },
+      ],
     });
-    // One Seed alone is a full answer with one offered experiment, one tag and all.
-    const single = validateBatch({
-      roleId: "specific_advancements",
-      mode: "batch",
-      referenceContext: oneExperiment,
-      seeds: [images("Single-angle 2D vision cannot resolve burr height below 0.18 millimetres.", "conservative", "vision")],
-    });
-    expect(single).toMatchObject({ ok: true, minimum: 1 });
-    // Every other Batch keeps its three and its tag rule.
-    const standard = validateBatch({ roleId: "goal_problem", mode: "batch", seeds: [candidate([one]), candidate([two])] });
-    expect(standard.ok).toBe(false);
-    expect(standard.issues.map((issue) => issue.code)).toEqual(["INVALID_BATCH_SIZE", "INSUFFICIENT_TAG_DIVERSITY"]);
   });
 
   it("counts an uncertainty and its Feedback revisions as one (review P2-2)", () => {
@@ -546,7 +534,7 @@ describe("an advancement follows the uncertainty its experiments tested (2026-09
     ).toBe(false);
   });
 
-  it("accepts an advancement whose experiments all tested its uncertainty, and narrows a mixed one", () => {
+  it("accepts an advancement whose experiments all tested its uncertainty, and refuses a mixed one", () => {
     const references = [
       reference("u2-dosing", "active_uncertainties"),
       reference("u3-sensors", "active_uncertainties"),
@@ -556,15 +544,11 @@ describe("an advancement follows the uncertainty its experiments tested (2026-09
     ];
     expect(check(advancement("u2-dosing", ["trial-3", "trial-4"]), references).ok).toBe(true);
     expect(check(advancement("u3-sensors", ["trial-5"]), references).ok).toBe(true);
-    // Run 7: a mixed set keeps the experiment that tested its own uncertainty
-    // and drops only the other, never moving it to another uncertainty.
+    // A mixed set is refused whole (run 7 re-check, lead decision 1): the
+    // text may carry the other experiment's finding, so nothing is narrowed.
     const mixed = check(advancement("u2-dosing", ["trial-3", "trial-5"]), references);
-    expect(mixed.ok).toBe(true);
-    if (mixed.ok) {
-      expect(mixed.seed).toMatchObject({ uncertaintySeedId: "u2-dosing", experimentSeedIds: ["trial-3"] });
-      expect(mixed.issues).toEqual([expect.objectContaining({ code: "ADVANCEMENT_LINK_NARROWED", linkReason: "experiment_tested_other" })]);
-    }
-    // With no experiment that tested its uncertainty, it stays invalid.
+    expect(mixed.ok).toBe(false);
+    expect(mixed.issues).toEqual([expect.objectContaining({ code: "INVALID_ADVANCEMENT_REFERENCE", linkReason: "experiment_tested_other" })]);
     expect(check(advancement("u2-dosing", ["trial-5"]), references).ok).toBe(false);
     // Links are required while a pair exists.
     expect(check(candidate([one]), references).ok).toBe(false);

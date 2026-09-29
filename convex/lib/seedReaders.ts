@@ -258,6 +258,30 @@ function linkedUncertaintyOf(
 }
 
 /**
+ * 2026-09-29 (first, lead decision 4 of the run 7 re-check): the experiments
+ * an advancement links, each by its current first bullet and whether it is
+ * still picked, so the writer can see what the advancement claims to come
+ * from. Null for other roles or when the decisions were not read in full.
+ */
+function linkedExperimentsOf(
+  state: SeedDecisionState,
+  seed: Doc<"seeds">,
+  picked: { experiments: readonly { seedId: string }[] } | null
+) {
+  if (!picked || seed.roleId !== "specific_advancements" || !seed.experimentSeedIds?.length) return null;
+  const pickedIds = new Set(picked.experiments.map((experiment) => experiment.seedId));
+  return seed.experimentSeedIds.map((seedId) => {
+    const experiment = state.seeds.find((candidate) => candidate._id === seedId);
+    const selection = state.selectionRows.find((candidate) => candidate.seedId === seedId);
+    return {
+      seedId,
+      words: experiment ? (materializeFinalWording(experiment, selection)[0] ?? "") : "",
+      picked: pickedIds.has(seedId),
+    };
+  });
+}
+
+/**
  * 2026-09-29 (first): why this step's links stop it from being approved,
  * so the step can say so before the writer tries. Experimentation: picked
  * experiments that tested an uncertainty the writer dropped. Specific
@@ -306,7 +330,11 @@ async function seedCard(
   state: SeedDecisionState,
   row: Doc<"seedSubsections">,
   seed: Doc<"seeds">,
-  pickedUncertainties: { uncertaintySeedIds: readonly string[]; rootOf: UncertaintyRoot } | null
+  pickedUncertainties: {
+    uncertaintySeedIds: readonly string[];
+    rootOf: UncertaintyRoot;
+    experiments: readonly { seedId: string }[];
+  } | null
 ) {
   const selection = state.selectionRows.find(
     (candidate) => candidate.seedId === seed._id
@@ -361,6 +389,7 @@ async function seedCard(
     };
   }
   const linked = linkedUncertaintyOf(state, seed, pickedUncertainties);
+  const linkedExperiments = linkedExperimentsOf(state, seed, pickedUncertainties);
   return {
     seedId: seed._id,
     batchId: seed.batchId,
@@ -380,6 +409,7 @@ async function seedCard(
     provenanceTruncated: !citations.complete,
     outdated,
     ...(linked ? { linkedUncertainty: linked } : {}),
+    ...(linkedExperiments ? { linkedExperiments } : {}),
   };
 }
 

@@ -1047,7 +1047,9 @@ export const completeAttempt = internalMutation({
         batch,
         requestsMade: args.requestsMade,
         errorCode: "INVALID_OUTPUT",
-        invalidAnswers: [seedAnswerCounts(validation, args.seeds.length)],
+        // What the model returned: the Seeds sent here plus those the
+        // action already dropped (lead decision 3, run 7 re-check).
+        invalidAnswers: [seedAnswerCounts(validation, args.seeds.length + (args.seedsDropped ?? 0))],
       });
     }
 

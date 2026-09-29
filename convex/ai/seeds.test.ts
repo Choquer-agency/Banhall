@@ -793,7 +793,8 @@ describe("seed Node action request boundary", () => {
         uncertaintySeedId: fixture.decisions[0]!.seedId,
         experimentSeedIds: [fixture.decisions[2]!.seedId],
       })),
-      seedsDropped: 0,
+      // One more the action already dropped: the model returned four.
+      seedsDropped: 1,
     });
 
     expect(result).toEqual({ kind: "failed" });
@@ -804,9 +805,9 @@ describe("seed Node action request boundary", () => {
       // Run 7: the completion's own check is recorded as counts too.
       invalidAnswers: [
         {
-          seedsReturned: 3,
+          seedsReturned: 4,
           seedsValid: 0,
-          minimum: 1,
+          minimum: 3,
           issues: expect.arrayContaining([{ code: "INVALID_ADVANCEMENT_REFERENCE", reason: "unknown_experiment", seeds: 3 }]),
         },
       ],
@@ -921,10 +922,8 @@ describe("seed Node action request boundary", () => {
       "fetch",
       vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
-        // One Seed linked right and three not; since 2026-09-29 (run 7) two
-        // offered experiments make two valid Seeds enough, so one is short.
         return requests.length === 1
-          ? providerResponse({ seeds: withdrawnFeedbackAnswer(ids).seeds.slice(1) }, 1)
+          ? providerResponse(withdrawnFeedbackAnswer(ids), 1)
           : providerResponse(linkedAnswer(ids), 2);
       })
     );
@@ -946,7 +945,7 @@ describe("seed Node action request boundary", () => {
     const second = requestText((await requests[1]!.json()).messages[0].content);
     // The repair names the exact pairs (run 7).
     expect(second).toContain(
-      `Your previous tool output was invalid: (root): 1 of 4 Seeds valid; return 2 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 2, 3, 4); the only pairs, each usable by several Seeds: ${ids[1]} with ${ids[3]}, ${ids[4]} | ${ids[2]} with ${ids[3]}, ${ids[4]}.`
+      `Your previous tool output was invalid: (root): 2 of 5 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 3, 4, 5); the only pairs, one per Seed and each usable by several Seeds: ${ids[1]} with ${ids[3]}, ${ids[4]} | ${ids[2]} with ${ids[3]}, ${ids[4]}.`
     );
     const persisted = await t.run((ctx) =>
       ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
@@ -994,8 +993,7 @@ describe("seed Node action request boundary", () => {
       decisions: withdrawnFeedbackDecisions,
     });
     const ids = fixture.decisions.map((decision) => decision.seedId);
-    // One Seed linked right, below the two this narrow plan needs.
-    const transport = vi.fn<typeof fetch>(async () => providerResponse({ seeds: withdrawnFeedbackAnswer(ids).seeds.slice(1) }, 1));
+    const transport = vi.fn<typeof fetch>(async () => providerResponse(withdrawnFeedbackAnswer(ids), 1));
     vi.stubGlobal("fetch", transport);
     const writer = t.withIdentity({ subject: "seed-dispatch-specific_advancements" });
     const pane = () =>
@@ -1012,9 +1010,9 @@ describe("seed Node action request boundary", () => {
     });
     // Run 7: both answers are recorded as counts by rule and reason, never text.
     const answerCounts = {
-      seedsReturned: 4,
-      seedsValid: 1,
-      minimum: 2,
+      seedsReturned: 5,
+      seedsValid: 2,
+      minimum: 3,
       issues: expect.arrayContaining([
         { code: "INVALID_ADVANCEMENT_REFERENCE", reason: "unknown_experiment", seeds: 2 },
         { code: "INVALID_ADVANCEMENT_REFERENCE", reason: "missing_link", seeds: 1 },
@@ -1220,7 +1218,7 @@ describe("seed Node action request boundary", () => {
     expect(decisions.items.find((item) => item.seedId === u2)).not.toHaveProperty("uncertaintySeedId");
     const second = requestText((await requests[1]!.json()).messages[0].content);
     expect(second).toContain(
-      `(root): 2 of 3 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seed 3); the only pairs, each usable by several Seeds: ${u2} with ${t3}, ${t4} | ${u3} with ${t5}.`
+      `(root): 2 of 3 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seed 3); the only pairs, one per Seed and each usable by several Seeds: ${u2} with ${t3}, ${t4} | ${u3} with ${t5}.`
     );
     const persisted = await t.run((ctx) =>
       ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
@@ -1368,6 +1366,18 @@ describe("seed Node action request boundary", () => {
       ],
     };
   }
+  // The answer the guidance asks for (run 7 re-check): one tested pair, three
+  // distinct findings split from it, nothing for the force uncertainty.
+  function run7DeburringFollowed(ids: Id<"seeds">[]) {
+    const [images, , vision, camera] = ids;
+    return {
+      seeds: [
+        advancement("Single-angle 2D vision cannot resolve burr height below 0.18 millimetres on cast aluminium.", "conservative", { uncertaintySeedId: images, experimentSeedIds: [vision!] }),
+        advancement("Glare on machined faces makes 2D burr height estimates read high.", "technical", { uncertaintySeedId: images, experimentSeedIds: [vision!] }),
+        advancement("Structured light 3D gave no better depth resolution than 2D and took 400 milliseconds.", "detailed", { uncertaintySeedId: images, experimentSeedIds: [camera!] }),
+      ],
+    };
+  }
   const run7Biofilter: PriorDecision[] = [
     { roleId: "active_uncertainties", bullets: ["It was uncertain whether stepwise seed acclimation would avoid cold shock."] },
     { roleId: "active_uncertainties", bullets: ["It was unknown whether nitrite oxidizing bacteria were the cold-sensitive bottleneck."] },
@@ -1392,19 +1402,59 @@ describe("seed Node action request boundary", () => {
       ],
     };
   }
+  // The answer the guidance asks for: three pairs of one experiment each,
+  // each advancement on one pair.
+  function run7BiofilterFollowed(ids: Id<"seeds">[]) {
+    const [acclimation, nitrite, fraction, standard, trialOne, trialTwo] = ids;
+    return {
+      seeds: [
+        advancement("Warm seed media placed in 8 C water went into cold shock and barely grew.", "conservative", { uncertaintySeedId: acclimation, experimentSeedIds: [standard!] }),
+        advancement("Nitrite oxidizers, not ammonia oxidizers, set the cold start-up pace.", "technical", { uncertaintySeedId: nitrite, experimentSeedIds: [trialOne!] }),
+        advancement("The nitrite stall shortened from 19 to 6 days once seed was acclimated.", "detailed", { uncertaintySeedId: nitrite, experimentSeedIds: [trialOne!] }),
+        {
+          ...advancement("Colder water needs about 15 percent acclimated seed to start within five weeks.", "aggressive", { uncertaintySeedId: fraction, experimentSeedIds: [trialTwo!] }),
+          bullets: ["Colder water needs about 15 percent acclimated seed to start within five weeks.", "At 5 percent the 6 C loop took 44 days."],
+        },
+      ],
+    };
+  }
 
-  it("keeps run 7's realistic answers for both frozen plans in one request, dropping or narrowing only the bad links", async () => {
-    // Deburring: the two vision advancements are kept, the two force ones
-    // (an uncertainty no picked experiment tested) dropped; two offered
-    // experiments make two valid Seeds a full Batch.
+  it("refuses run 7's realistic answers whole and records why, never narrowing a mixed set (run 7 re-check)", async () => {
+    for (const [decisions, answer, reason] of [
+      [run7Deburring, run7DeburringAnswer, "uncertainty_without_tested_experiment"],
+      [run7Biofilter, run7BiofilterAnswer, "experiment_tested_other"],
+    ] as const) {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: [...decisions] });
+      const ids = fixture.decisions.map((decision) => decision.seedId);
+      vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => providerResponse(answer(ids), 1)));
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      const batch = await t.run((ctx) => ctx.db.get(fixture.batchId));
+      expect(batch).toMatchObject({ status: "failed", error: "INVALID_OUTPUT", errorDetail: "advancement_links", requestsMade: 2 });
+      expect(batch?.invalidAnswers?.[0]).toMatchObject({
+        seedsReturned: 4,
+        seedsValid: 2,
+        minimum: 3,
+        issues: expect.arrayContaining([{ code: "INVALID_ADVANCEMENT_REFERENCE", reason, seeds: 2 }]),
+      });
+      // Nothing was stored, so no Seed kept text its links do not back.
+      expect(
+        await t.run((ctx) => ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect())
+      ).toEqual([]);
+    }
+  });
+
+  it("keeps answers that follow the new instructions in one request: three advancements sharing the offered pairs (run 7 re-check)", async () => {
+    // Deburring: one tested pair, three distinct findings split from it.
     {
       const t = convexTest(schema, modules);
       const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
-      const [images, force, vision, camera] = fixture.decisions.map((decision) => decision.seedId);
+      const ids = fixture.decisions.map((decision) => decision.seedId);
+      const [images, force, vision, camera] = ids;
       const requests: Request[] = [];
       vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
         requests.push(new Request(input, init));
-        return providerResponse(run7DeburringAnswer(fixture.decisions.map((decision) => decision.seedId)), 1);
+        return providerResponse(run7DeburringFollowed(ids), 1);
       }));
       await t.action(generateBatchRef, { batchId: fixture.batchId });
       expect(requests).toHaveLength(1);
@@ -1414,45 +1464,91 @@ describe("seed Node action request boundary", () => {
         links: [{ experimentSeedIds: [vision, camera], uncertaintySeedId: images }],
         uncertaintiesWithoutTestedExperiments: [force],
       });
-      expect(first).toContain("write no advancement for it, even when a source or another step's selection describes knowledge about it");
-      expect(first).toContain("When the links list holds fewer than three experiments in all, a Batch may hold as few Seeds as it lists experiments.");
+      expect(first).toContain("Write 3 to 5 advancements even when the list holds only one or two entries: split the findings of one entry into distinct advancements.");
+      expect(first).toContain("Never mix experiments from different entries in one Seed.");
       const persisted = await t.run((ctx) =>
         ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
       );
       expect(persisted.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual([
         [images, [vision]],
+        [images, [vision]],
         [images, [camera]],
       ]);
-      expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 1, seedsDropped: 2 });
     }
-    // Biofilter: both mixed sets are narrowed to the experiment that tested
-    // their own uncertainty; nothing moves to another uncertainty.
+    // Biofilter: three pairs of one experiment each, each advancement on one pair.
     {
       const t = convexTest(schema, modules);
       const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Biofilter });
-      const [acclimation, nitrite, fraction, standard, trialOne, trialTwo] = fixture.decisions.map((decision) => decision.seedId);
-      const transport = vi.fn<typeof fetch>(async () => providerResponse(run7BiofilterAnswer(fixture.decisions.map((decision) => decision.seedId)), 1));
+      const ids = fixture.decisions.map((decision) => decision.seedId);
+      const [acclimation, nitrite, fraction, standard, trialOne, trialTwo] = ids;
+      const transport = vi.fn<typeof fetch>(async () => providerResponse(run7BiofilterFollowed(ids), 1));
       vi.stubGlobal("fetch", transport);
       await t.action(generateBatchRef, { batchId: fixture.batchId });
       expect(transport).toHaveBeenCalledTimes(1);
+      expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 1, seedsDropped: 0 });
       const persisted = await t.run((ctx) =>
         ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
       );
       expect(persisted.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual([
         [acclimation, [standard]],
         [nitrite, [trialOne]],
-        [fraction, [trialTwo]],
         [nitrite, [trialOne]],
+        [fraction, [trialTwo]],
       ]);
     }
-    // The answer that obeys the list with one advancement per experiment.
-    {
+  });
+
+  it("repairs each run 7 failure into a valid Batch with the links as written, never narrowed (run 7 re-check)", async () => {
+    // Each case: the realistic failing answer, then the repair's answer.
+    const cases = [
+      {
+        name: "deburring, force advancements",
+        decisions: run7Deburring,
+        first: run7DeburringAnswer,
+        note: "2 of 4 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 3, 4); the only pairs, one per Seed and each usable by several Seeds, and no advancement for any other uncertainty: ",
+        pairs: ([images, , vision, camera]: Id<"seeds">[]) => `${images} with ${vision}, ${camera}.`,
+        then: run7DeburringFollowed,
+      },
+      {
+        name: "deburring, one advancement per experiment",
+        decisions: run7Deburring,
+        first: (ids: Id<"seeds">[]) => ({ seeds: run7DeburringAnswer(ids).seeds.slice(0, 2) }),
+        // Too few, with every link right: the rule note alone, no pairs.
+        note: "2 of 2 Seeds valid; return 3 to 5 valid Seeds.",
+        pairs: () => "",
+        then: run7DeburringFollowed,
+      },
+      {
+        name: "biofilter, mixed experiment sets",
+        decisions: run7Biofilter,
+        first: run7BiofilterAnswer,
+        note: "2 of 4 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 1, 4); the only pairs, one per Seed and each usable by several Seeds: ",
+        pairs: ([acclimation, nitrite, fraction, standard, trialOne, trialTwo]: Id<"seeds">[]) =>
+          `${acclimation} with ${standard} | ${nitrite} with ${trialOne} | ${fraction} with ${trialTwo}.`,
+        then: run7BiofilterFollowed,
+      },
+    ];
+    for (const run7 of cases) {
       const t = convexTest(schema, modules);
-      const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
+      const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: [...run7.decisions] });
       const ids = fixture.decisions.map((decision) => decision.seedId);
-      vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => providerResponse({ seeds: run7DeburringAnswer(ids).seeds.slice(0, 2) }, 1)));
+      const requests: Request[] = [];
+      vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return requests.length === 1 ? providerResponse(run7.first(ids), 1) : providerResponse(run7.then(ids), 2);
+      }));
       await t.action(generateBatchRef, { batchId: fixture.batchId });
-      expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 1 });
+      expect(requests, run7.name).toHaveLength(2);
+      const second = requestText((await requests[1]!.json()).messages[0].content);
+      expect(second, run7.name).toContain(`Your previous tool output was invalid: (root): ${run7.note}${run7.pairs(ids)}`);
+      expect(await t.run((ctx) => ctx.db.get(fixture.batchId)), run7.name).toMatchObject({ status: "shown", requestsMade: 2, seedsDropped: 0 });
+      // Every stored Seed carries the links the repair's answer wrote.
+      const persisted = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+      );
+      expect(persisted.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds]), run7.name).toEqual(
+        run7.then(ids).seeds.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])
+      );
     }
   });
 
@@ -1472,14 +1568,14 @@ describe("seed Node action request boundary", () => {
     expect(requests).toHaveLength(2);
     const second = requestText((await requests[1]!.json()).messages[0].content);
     expect(second).toContain(
-      `(root): 1 of 4 Seeds valid; return 2 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 2, 3, 4); the only pairs, each usable by several Seeds, and no advancement for any other uncertainty: ${images} with ${vision}, ${camera}.`
+      `(root): 1 of 4 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 2, 3, 4); use at least two different tags; the only pairs, one per Seed and each usable by several Seeds, and no advancement for any other uncertainty: ${images} with ${vision}, ${camera}.`
     );
     const batch = await t.run((ctx) => ctx.db.get(fixture.batchId));
     expect(batch).toMatchObject({ status: "failed", error: "INVALID_OUTPUT", errorDetail: "advancement_links" });
     expect(batch?.invalidAnswers?.[0]).toEqual({
       seedsReturned: 4,
       seedsValid: 1,
-      minimum: 2,
+      minimum: 3,
       issues: expect.arrayContaining([
         { code: "INVALID_ADVANCEMENT_REFERENCE", reason: "uncertainty_without_tested_experiment", seeds: 2 },
         { code: "INVALID_ADVANCEMENT_REFERENCE", reason: "missing_link", seeds: 1 },

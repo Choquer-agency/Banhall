@@ -1437,6 +1437,10 @@ describe("public seed approval", () => {
       bullets: ["Whether fouled sensors stay accurate enough for control was unknown."],
       picked: true,
     });
+    // Run 7 re-check (lead decision 4): the card names its experiments too.
+    expect(before.items.find((item) => item.seedId === fixture.seedId)?.linkedExperiments).toEqual([
+      { seedId: dosingTrial, words: "Trial three cut peak TAN from 2.3 to 1.2 mg/L.", picked: true },
+    ]);
     await expect(tryApprove(fixture)).rejects.toThrow(
       /Each picked advancement must link an uncertainty you picked and picked experiments that tested it/,
     );
