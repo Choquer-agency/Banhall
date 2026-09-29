@@ -3,6 +3,7 @@ import { page as browserPage } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import WorkspaceHeader from "./WorkspaceHeader.svelte";
 import { searchShortcutHint } from "$lib/workspace/searchContinuity";
+import { board } from "$lib/test/boardScale";
 
 /**
  * The in-plane workspace toolbar. The decorative left title tick was removed
@@ -171,7 +172,7 @@ describe("WorkspaceHeader", () => {
       expect(bounds.height).toBeGreaterThanOrEqual(44);
       expect(bounds.width).toBeGreaterThanOrEqual(44);
     } else {
-      expect(bounds.height).toBe(32);
+      expect(bounds.height).toBe(board(32));
       expect(getComputedStyle(newProject).minWidth).toBe("0px");
       expect(getComputedStyle(newProject).minHeight).toBe("0px");
     }

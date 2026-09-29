@@ -12,6 +12,8 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import type { RecentProject } from "$lib/workspace/recentProjects";
+import { rootFontSize } from "$lib/rootScale";
+import { board, boardPx } from "$lib/test/boardScale";
 
 /**
  * Home (ui-design-final.md section 9, boards 1.1 and 1.2): the "With you"
@@ -122,18 +124,18 @@ describe("Home", () => {
     // Board sizes (A1, J7): 30px New project with the 12-grid plus (stroke
     // 1.5), a 36px bell with the 16px board bell, and a 10px-radius panel
     // with the line border.
-    expect(newProject.getBoundingClientRect().height).toBe(30);
-    expect(getComputedStyle(newProject).borderRadius).toBe("7px");
+    expect(newProject.getBoundingClientRect().height).toBe(board(30));
+    expect(getComputedStyle(newProject).borderRadius).toBe(boardPx(7));
     const plus = newProject.querySelector("svg")!;
     expect(plus.getAttribute("viewBox")).toBe("0 0 12 12");
     expect(plus.getAttribute("stroke-width")).toBe("1.5");
     expect(plus.querySelector("path")?.getAttribute("d")).toBe("M6 2v8M2 6h8");
     const bell = bar.querySelector<HTMLElement>("[data-top-bar-bell]")!;
-    expect(bell.getBoundingClientRect().width).toBe(36);
+    expect(bell.getBoundingClientRect().width).toBe(board(36));
     expect(bell.querySelector("svg")?.getAttribute("width")).toBe("16");
     expect(bell.querySelector("path")?.getAttribute("d")).toBe("M5 17h14l-2-3V9a5 5 0 0 0-10 0v5Z M10 21h4");
     const panel = document.querySelector<HTMLElement>("[data-home-panel]")!;
-    expect(getComputedStyle(panel).borderRadius).toBe("10px");
+    expect(getComputedStyle(panel).borderRadius).toBe(boardPx(10));
     expect(getComputedStyle(panel).borderTopColor).toBe("rgb(218, 229, 227)");
     // Home stays simple: no search field on the dashboard.
     expect(document.querySelector('input[type="search"], [role="searchbox"]')).toBeNull();
@@ -172,7 +174,7 @@ describe("Home", () => {
     const rowBox = second.getBoundingClientRect();
     const linkArea = getComputedStyle(link, "::after");
     expect(linkArea.position).toBe("absolute");
-    expect(rowBox.height).toBe(44);
+    expect(rowBox.height).toBe(board(44));
 
     // No due dates on Home, even though the work items carry one.
     expect(withYou.textContent).not.toMatch(/due|overdue/i);
@@ -220,12 +222,12 @@ describe("Home", () => {
     // J7: a 160px empty block, then a 40px "+ New project" row indented 8px,
     // level with Name, with the 14px plus (24 grid, stroke 2).
     const empty = withYou.querySelector<HTMLElement>("[data-home-table-empty]")!;
-    expect(empty.getBoundingClientRect().height).toBe(160);
+    expect(empty.getBoundingClientRect().height).toBe(board(160));
     const newProject = withYou.querySelector<HTMLAnchorElement>("[data-home-add-new]")!;
     expect(newProject.textContent?.trim()).toBe("New project");
     expect(newProject.getAttribute("href")).toBe("/project/new");
-    expect(newProject.getBoundingClientRect().height).toBe(40);
-    expect(getComputedStyle(newProject).paddingLeft).toBe("8px");
+    expect(newProject.getBoundingClientRect().height).toBe(board(40));
+    expect(getComputedStyle(newProject).paddingLeft).toBe(boardPx(8));
     const plus = newProject.querySelector("svg")!;
     expect(plus.getAttribute("viewBox")).toBe("0 0 24 24");
     expect(plus.getAttribute("width")).toBe("14");
@@ -233,15 +235,15 @@ describe("Home", () => {
     // The chip row is 48px. Decision 59: no checkbox column, so Name is the
     // first column and its text starts 8px in.
     const chipRow = withYou.querySelector<HTMLElement>("[data-home-view-chip]")!.closest("h2")!.parentElement!;
-    expect(chipRow.getBoundingClientRect().height).toBe(48);
+    expect(chipRow.getBoundingClientRect().height).toBe(board(48));
     const tableBox = withYou.querySelector("table")!.getBoundingClientRect();
     const headerCells = [...withYou.querySelectorAll<HTMLElement>("[data-home-column-header] > *")];
     expect(headerCells.map((cell) => cell.textContent?.trim())).toEqual(["Name", "Client", "Stage", "Last edited"]);
     const nameHeader = headerCells[0];
-    expect(Math.round(nameHeader.getBoundingClientRect().left - tableBox.left)).toBe(0);
-    expect(getComputedStyle(nameHeader).paddingLeft).toBe("8px");
+    expect(nameHeader.getBoundingClientRect().left - tableBox.left).toBeCloseTo(board(0), 0);
+    expect(getComputedStyle(nameHeader).paddingLeft).toBe(boardPx(8));
     const stageHeader = [...withYou.querySelectorAll("th")].find((cell) => cell.textContent?.trim() === "Stage")!;
-    expect(Math.round(stageHeader.getBoundingClientRect().width)).toBe(108);
+    expect(stageHeader.getBoundingClientRect().width).toBeCloseTo(board(108), 0);
     // No second table, no welcome banner, no get-started cards.
     expect(document.querySelector('[data-home-table="home-recent"]')).toBeNull();
     expect(document.body.textContent).not.toMatch(/Welcome|Get started/);
@@ -306,15 +308,17 @@ describe("Home", () => {
     expect(firstRow.querySelector('input[type="checkbox"], [role="checkbox"]')).toBeNull();
     const name = firstRow.querySelector<HTMLElement>("[data-home-client-mark]")!;
     expect(firstRow.children[0].contains(name)).toBe(true);
-    expect(Math.round(name.getBoundingClientRect().left - recentBox.left)).toBe(8);
+    expect(name.getBoundingClientRect().left - recentBox.left).toBeCloseTo(board(8), 0);
     const stage = firstRow.querySelector<HTMLElement>("[data-home-stage-chip]")!.closest("td")!;
-    expect(Math.round(stage.getBoundingClientRect().width)).toBe(108);
+    expect(stage.getBoundingClientRect().width).toBeCloseTo(board(108), 0);
     // With you keeps its visible header row.
-    expect(table("home-with-you").querySelector<HTMLElement>("[data-home-column-header]")!.getBoundingClientRect().height).toBe(36);
+    expect(table("home-with-you").querySelector<HTMLElement>("[data-home-column-header]")!.getBoundingClientRect().height).toBe(board(36));
   });
 
   it.each([
+    [1280, 800],
     [1440, 900],
+    [1520, 900],
     [1920, 1080],
     [2560, 1440],
   ])("grows the tables with a %ipx window and keeps Continue working at the right edge (owner, 2026-09-28)", async (width, height) => {
@@ -329,10 +333,10 @@ describe("Home", () => {
     const panel = document.querySelector<HTMLElement>("[data-home-panel]")!.getBoundingClientRect();
     const tables = document.querySelector<HTMLElement>("[data-home-tables]")!.getBoundingClientRect();
     const column = document.querySelector<HTMLElement>("[data-home-continue]")!.parentElement!.getBoundingClientRect();
-    // The root is 16px up to a 1600px window, then grows to 20px at 2560
-    // (layout.css), so every rem below scales with it.
+    // The root is 15px on a laptop up to 1440 wide, 16px at 1600, then grows
+    // to 20px at 2560 (layout.css), so every rem below scales with it.
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
-    expect(rem).toBeCloseTo(width <= 1600 ? 16 : Math.min(20, 16 + (width - 1600) / 240), 3);
+    expect(rem).toBeCloseTo(rootFontSize(width), 3);
     // Sides come from the shared --page-gutter token (2.25rem from 1024px up).
     const gutter = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--page-gutter")) * rem;
     expect(gutter).toBeCloseTo(2.25 * rem, 3);
@@ -470,7 +474,7 @@ describe("Home", () => {
     await userEvent.hover(row);
     await expect.poll(() => getComputedStyle(button).opacity).toBe("1");
     // Rows keep their 44px height, and the button sits above the row link.
-    expect(row.getBoundingClientRect().height).toBe(44);
+    expect(row.getBoundingClientRect().height).toBe(board(44));
     const box = button.getBoundingClientRect();
     const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
     expect(hit && button.contains(hit)).toBe(true);

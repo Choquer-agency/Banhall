@@ -7,6 +7,7 @@ import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-s
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
 import { chooseMode, fillBasics, openTranscriptPaste, setInputValue } from "./newProjectTestSupport";
+import { boardPx } from "$lib/test/boardScale";
 
 /**
  * Board E1 on one page, and H1 (tablet, 1024) and H2 (phone, 390): numbered
@@ -47,7 +48,7 @@ describe("E1 desktop layout", () => {
       "Add the interview and the basics. You become the project Owner."
     );
     const column = document.querySelector<HTMLElement>("[data-right-column]")!;
-    expect(getComputedStyle(column).width).toBe("360px");
+    expect(getComputedStyle(column).width).toBe(boardPx(360));
     expect(text(column.querySelector("h2"))).toBe("How should we write it?");
     const cards = [...column.querySelectorAll<HTMLElement>("[data-write-mode]")];
     expect(cards.map((card) => [card.dataset.writeMode, card.getAttribute("aria-checked")])).toEqual([
@@ -116,21 +117,21 @@ describe("E1 board values", () => {
     await render(NewProjectPage, {});
     await expect.poll(() => document.querySelector("[data-form-column]")).not.toBeNull();
     const column = getComputedStyle(document.querySelector("[data-form-column]")!);
-    expect([column.paddingTop, column.paddingBottom, column.paddingLeft, column.paddingRight]).toEqual(["24px", "24px", "40px", "40px"]);
+    expect([column.paddingTop, column.paddingBottom, column.paddingLeft, column.paddingRight]).toEqual([boardPx(24), boardPx(24), boardPx(40), boardPx(40)]);
     for (const selector of ["#title", "#clientName", "[data-fiscal-year]", "[data-science-code]", "#industry", "#interviewer", "#projectNumber"]) {
       const field = getComputedStyle(document.querySelector(selector)!);
-      expect([field.height, field.borderTopLeftRadius, field.paddingLeft], selector).toEqual(["36px", "8px", "10px"]);
+      expect([field.height, field.borderTopLeftRadius, field.paddingLeft], selector).toEqual([boardPx(36), boardPx(8), boardPx(10)]);
     }
     // Labels 12/16 500 in secondary ink.
     const label = getComputedStyle(document.querySelector("#fiscal-year-label")!);
-    expect([label.fontSize, label.lineHeight, label.fontWeight]).toEqual(["12px", "16px", "500"]);
+    expect([label.fontSize, label.lineHeight, label.fontWeight]).toEqual([boardPx(12), boardPx(16), "500"]);
     // Section header: 01 in 12px mono faint, the 15px title, the 13px hint.
     const header = document.querySelector<HTMLElement>("#section-project > div")!;
     const [number, title, hint] = [...header.children] as HTMLElement[];
-    expect([getComputedStyle(number).fontSize, getComputedStyle(number).color]).toEqual(["12px", "rgb(147, 165, 161)"]);
+    expect([getComputedStyle(number).fontSize, getComputedStyle(number).color]).toEqual([boardPx(12), "rgb(147, 165, 161)"]);
     expect(getComputedStyle(number).fontFamily).toContain("Geist Mono");
-    expect([getComputedStyle(title).fontSize, getComputedStyle(title).fontWeight]).toEqual(["15px", "500"]);
-    expect([getComputedStyle(hint).fontSize, getComputedStyle(hint).color]).toEqual(["13px", "rgb(107, 127, 123)"]);
+    expect([getComputedStyle(title).fontSize, getComputedStyle(title).fontWeight]).toEqual([boardPx(15), "500"]);
+    expect([getComputedStyle(hint).fontSize, getComputedStyle(hint).color]).toEqual([boardPx(13), "rgb(107, 127, 123)"]);
     // The board icons: the calendar in the fiscal year, the chevron in the science code.
     const calendar = document.querySelector("[data-fiscal-year] svg")!;
     expect([calendar.getAttribute("width"), calendar.getAttribute("stroke-width")]).toEqual(["15", "1.5"]);
@@ -162,30 +163,30 @@ describe("E1 board values", () => {
     expect(getComputedStyle(other).backgroundColor).toBe("rgb(255, 255, 255)");
     const recommended = getComputedStyle(selected.querySelector("[data-recommended]")!);
     expect([recommended.fontSize, recommended.height, recommended.backgroundColor, recommended.color]).toEqual([
-      "11px",
-      "20px",
+      boardPx(11),
+      boardPx(20),
       "rgb(187, 247, 208)",
       "rgb(20, 83, 45)",
     ]);
     // The model field: 36px, radius 8, the 18px AI mark and a faint chevron.
     const model = document.querySelector<HTMLElement>('[data-right-column] [data-model-picker="field"]')!;
-    expect([getComputedStyle(model).height, getComputedStyle(model).borderTopLeftRadius]).toEqual(["36px", "8px"]);
+    expect([getComputedStyle(model).height, getComputedStyle(model).borderTopLeftRadius]).toEqual([boardPx(36), boardPx(8)]);
     const chevron = [...model.querySelectorAll<SVGElement>("svg")].at(-1)!;
     expect([chevron.getAttribute("width"), chevron.getAttribute("stroke-width")]).toEqual(["14", "1.8"]);
     // Before you start: the checklist box and the 42px start with its arrow.
     const box = getComputedStyle(document.querySelector("[data-start-checklist]")!);
-    expect([box.paddingTop, box.borderTopLeftRadius]).toEqual(["18px", "14px"]);
+    expect([box.paddingTop, box.borderTopLeftRadius]).toEqual([boardPx(18), boardPx(14)]);
   });
 
   it("sizes Cancel as the board: 36px, 14px sides, radius 8, 13px 500 in #B91C1C", async () => {
     await render(NewProjectPage, {});
     const cancel = getComputedStyle(document.querySelector("[data-new-project-cancel]")!);
     expect([cancel.height, cancel.paddingLeft, cancel.borderTopLeftRadius, cancel.fontSize, cancel.lineHeight, cancel.fontWeight, cancel.color]).toEqual([
-      "36px",
-      "14px",
-      "8px",
-      "13px",
-      "18px",
+      boardPx(36),
+      boardPx(14),
+      boardPx(8),
+      boardPx(13),
+      boardPx(18),
       "500",
       "rgb(185, 28, 28)",
     ]);
@@ -201,10 +202,10 @@ describe("E1 board values", () => {
     await userEvent.click(trigger);
     await expect.poll(() => document.querySelector("[data-add-menu]")).not.toBeNull();
     const menu = getComputedStyle(document.querySelector("[data-add-menu]")!);
-    expect([menu.width, menu.paddingTop, menu.borderTopLeftRadius]).toEqual(["300px", "6px", "12px"]);
+    expect([menu.width, menu.paddingTop, menu.borderTopLeftRadius]).toEqual([boardPx(300), boardPx(6), boardPx(12)]);
     expect(menu.boxShadow).toContain("0px 12px 32px");
     const upload = document.querySelector<HTMLElement>("[data-add-upload]")!;
-    expect([getComputedStyle(upload).height, getComputedStyle(upload).paddingLeft, getComputedStyle(upload).fontSize]).toEqual(["32px", "8px", "13px"]);
+    expect([getComputedStyle(upload).height, getComputedStyle(upload).paddingLeft, getComputedStyle(upload).fontSize]).toEqual([boardPx(32), boardPx(8), boardPx(13)]);
     expect(getComputedStyle(upload.querySelector("span:last-child")!).color).toBe("rgb(147, 165, 161)");
     const book = document.querySelector("[data-add-paste] svg")!;
     expect(book.querySelector("path")!.getAttribute("d")).toBe("M5 4.5h10.5a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3Z M5 17.5a3 3 0 0 1 3-3h10.5");

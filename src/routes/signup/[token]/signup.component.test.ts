@@ -21,6 +21,7 @@ vi.mock("$lib/auth/replaceLocation", () => ({ replaceLocation }));
 vi.mock("$lib/uploads/attemptOutbox", () => ({ clearAllOutboxes: vi.fn() }));
 
 import SignupPage from "./+page.svelte";
+import { board, boardPx } from "$lib/test/boardScale";
 
 const SENT = Date.parse("2026-09-25T18:00:00Z");
 const EXPIRES = Date.parse("2026-10-02T18:00:00Z");
@@ -258,12 +259,12 @@ describe("/signup/[token]", () => {
     render(SignupPage);
     await expect.poll(() => document.querySelector("[data-invite-banner]")).not.toBeNull();
     const banner = document.querySelector<HTMLElement>("[data-invite-banner]")!;
-    expect(banner.getBoundingClientRect().height).toBe(48);
+    expect(banner.getBoundingClientRect().height).toBe(board(48));
     expect(getComputedStyle(banner).backgroundColor).toBe("rgb(227, 244, 241)");
     const avatar = banner.querySelector<HTMLElement>("[data-avatar]")!;
     expect(getComputedStyle(avatar).backgroundColor).toBe("rgb(46, 119, 114)");
     expect(getComputedStyle(avatar).fontWeight).toBe("500");
-    expect(getComputedStyle(avatar).fontSize).toBe("10px");
+    expect(getComputedStyle(avatar).fontSize).toBe(boardPx(10));
     const joinBy = [...banner.querySelectorAll<HTMLElement>("[data-invite-join-by]")].find(
       (el) => el.offsetParent !== null,
     )!;

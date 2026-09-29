@@ -7,6 +7,7 @@ import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
 import { fillBasics, startButton } from "./newProjectTestSupport";
+import { boardPx } from "$lib/test/boardScale";
 
 /**
  * Board E5: a file that is not a transcript replaces the drop zone with a red
@@ -93,10 +94,10 @@ describe("E5 file problems", () => {
     const statusIcon = document.querySelector<SVGElement>('[data-interview-status="problem"] svg')!;
     expect(getComputedStyle(statusIcon).color).toBe("rgb(220, 38, 38)");
     expect([statusIcon.getAttribute("width"), statusIcon.getAttribute("stroke-width")]).toEqual(["13", "2"]);
-    expect(getComputedStyle(problem).marginTop).toBe("4px");
+    expect(getComputedStyle(problem).marginTop).toBe(boardPx(4));
     const callout = problem.querySelector<HTMLElement>("[data-status-callout]")!;
     expect(getComputedStyle(callout).backgroundColor).toBe("rgb(254, 242, 242)");
-    expect(getComputedStyle(callout).minHeight).toBe("52px");
+    expect(getComputedStyle(callout).minHeight).toBe(boardPx(52));
     const row = document.querySelector<HTMLElement>('[data-checklist-row="unreadable"]')!;
     expect(row.dataset.state).toBe("danger");
     expect(text(row)).toContain("1 transcript could not be read");

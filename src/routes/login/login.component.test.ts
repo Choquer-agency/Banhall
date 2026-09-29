@@ -13,6 +13,7 @@ const signInEmail = vi.hoisted(() => vi.fn());
 vi.mock("$lib/authClient", () => ({ authClient: { signIn: { email: signInEmail } } }));
 
 import LoginPage from "./+page.svelte";
+import { board, boardPx } from "$lib/test/boardScale";
 
 function setInputValue(selector: string, value: string) {
   const field = document.querySelector<HTMLInputElement>(selector)!;
@@ -262,14 +263,15 @@ describe("/login", () => {
       render(LoginPage);
       await expect.poll(() => document.querySelector("h1")?.textContent).toBe("Sign in");
       const logo = document.querySelector<HTMLImageElement>("[data-banhall-logo]")!.getBoundingClientRect();
-      expect(Math.round(logo.height)).toBe(64);
-      expect(Math.round(logo.width)).toBe(143);
+      // Board sizes at the root of a 1440 window (board(), 15px per rem).
+      expect(Math.round(logo.height)).toBe(Math.round(board(64)));
+      expect(Math.round(logo.width)).toBe(Math.round(board(143)));
       const field = document.querySelector<HTMLElement>("#email")!.closest<HTMLElement>("[data-auth-input]")!;
-      expect(field.getBoundingClientRect().height).toBe(44);
-      expect(getComputedStyle(field).borderRadius).toBe("10px");
+      expect(field.getBoundingClientRect().height).toBe(board(44));
+      expect(getComputedStyle(field).borderRadius).toBe(boardPx(10));
       expect(getComputedStyle(field).borderTopColor).toBe("rgb(218, 229, 227)");
       const button = document.querySelector<HTMLElement>('button[type="submit"]')!;
-      expect(button.getBoundingClientRect().height).toBe(46);
+      expect(button.getBoundingClientRect().height).toBe(board(46));
       expect(document.querySelector("[data-auth-footer]")).toBeNull();
       // The column is centred in the whole page.
       const main = document.querySelector("main")!.getBoundingClientRect();
@@ -323,7 +325,7 @@ describe("/login", () => {
     const card = document.querySelector<HTMLElement>("[data-account-card]")!.getBoundingClientRect();
     const label = document.querySelector<HTMLElement>('label[for="password"]')!;
     const block = label.closest<HTMLElement>(".gap-2") ?? label.parentElement!;
-    expect(Math.round(block.getBoundingClientRect().top - card.bottom)).toBe(20);
+    expect(Math.round(block.getBoundingClientRect().top - card.bottom)).toBe(Math.round(board(20)));
   });
 
   it("draws the J3 account card: radius 12, 10/12 padding, 36px avatar with 12px/500 initials", async () => {
@@ -332,13 +334,13 @@ describe("/login", () => {
     await expect.poll(() => document.querySelector("[data-account-card]")).not.toBeNull();
     const card = document.querySelector<HTMLElement>("[data-account-card]")!;
     const style = getComputedStyle(card);
-    expect(style.borderRadius).toBe("12px");
-    expect(style.paddingTop).toBe("10px");
-    expect(style.paddingLeft).toBe("12px");
+    expect(style.borderRadius).toBe(boardPx(12));
+    expect(style.paddingTop).toBe(boardPx(10));
+    expect(style.paddingLeft).toBe(boardPx(12));
     expect(style.borderTopColor).toBe("rgb(233, 240, 239)");
     const avatar = card.querySelector<HTMLElement>("[data-avatar]")!;
-    expect(avatar.getBoundingClientRect().width).toBe(36);
-    expect(getComputedStyle(avatar).fontSize).toBe("12px");
+    expect(avatar.getBoundingClientRect().width).toBe(board(36));
+    expect(getComputedStyle(avatar).fontSize).toBe(boardPx(12));
     expect(getComputedStyle(avatar).fontWeight).toBe("500");
   });
 });

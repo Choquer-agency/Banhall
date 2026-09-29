@@ -27,6 +27,7 @@ import {
   setInputValue,
   startFromPage,
 } from "./newProjectTestSupport";
+import { board, boardPx } from "$lib/test/boardScale";
 
 /**
  * Board E1 section 03 and E3: supporting documents are read as soon as they
@@ -142,10 +143,10 @@ describe("E1 supporting documents on the page", () => {
     // E1 card: radius 12, 14px padding, the 13px name, the 11px chip with its
     // 10px, stroke 2.4 chevron, and the 15px eye and 14px faint cross.
     const box = getComputedStyle(node);
-    expect([box.borderTopLeftRadius, box.paddingTop, box.borderTopColor]).toEqual(["12px", "14px", "rgb(233, 240, 239)"]);
-    expect(getComputedStyle(node.querySelector("[data-supporting-name]")!).fontSize).toBe("13px");
+    expect([box.borderTopLeftRadius, box.paddingTop, box.borderTopColor]).toEqual([boardPx(12), boardPx(14), "rgb(233, 240, 239)"]);
+    expect(getComputedStyle(node.querySelector("[data-supporting-name]")!).fontSize).toBe(boardPx(13));
     const chip = node.querySelector<HTMLElement>("[data-category-chip]")!;
-    expect([getComputedStyle(chip).fontSize, getComputedStyle(chip).height, getComputedStyle(chip).borderTopLeftRadius]).toEqual(["11px", "20px", "5px"]);
+    expect([getComputedStyle(chip).fontSize, getComputedStyle(chip).height, getComputedStyle(chip).borderTopLeftRadius]).toEqual([boardPx(11), boardPx(20), boardPx(5)]);
     const chevron = chip.querySelector("svg")!;
     expect([chevron.getAttribute("width"), chevron.getAttribute("stroke-width")]).toEqual(["10", "2.4"]);
     const eye = node.querySelector("[data-preview] svg")!;
@@ -179,9 +180,11 @@ describe("E1 supporting documents on the page", () => {
     const button = trigger.getBoundingClientRect();
     // Measured once the open animation has settled.
     const menu = () => document.querySelector<HTMLElement>("[data-add-menu]")!.getBoundingClientRect();
+    // The 26px offset is a measured position and stays px; the 300px menu
+    // is a board size and follows the root (board()).
     await expect
-      .poll(() => [Math.round(menu().top - button.bottom), Math.round(menu().right - button.right), Math.round(menu().width)])
-      .toEqual([26, 0, 300]);
+      .poll(() => [Math.abs(menu().top - button.bottom - 26) <= 1, Math.round(menu().right - button.right), Math.round(menu().width)])
+      .toEqual([true, 0, Math.round(board(300))]);
   });
 
   it("offers the five existing categories on the chip, never Work plan or Test results", async () => {
@@ -225,22 +228,22 @@ describe("E1 supporting documents on the page", () => {
     );
     // Not a PDF: the start of the text in a page box.
     expect(text(sheet.querySelector("[data-preview-text]"))).toContain("Line 242 Technological uncertainty");
-    expect(getComputedStyle(sheet).maxWidth).toBe("560px");
+    expect(getComputedStyle(sheet).maxWidth).toBe(boardPx(560));
     // E3: the sheet shadow, a 17px title, the chip as a menu, the gray-50
     // page well, 40px found rows and the 15px shield note.
     expect(getComputedStyle(sheet).boxShadow).toContain("-24px 0px 64px");
-    expect(getComputedStyle(sheet.querySelector("h2, [data-dialog-title]")!).fontSize).toBe("17px");
+    expect(getComputedStyle(sheet.querySelector("h2, [data-dialog-title]")!).fontSize).toBe(boardPx(17));
     const category = sheet.querySelector<HTMLElement>("[data-preview-category]")!;
     expect(category.tagName).toBe("BUTTON");
-    expect([getComputedStyle(category).height, getComputedStyle(category).fontSize]).toEqual(["24px", "12px"]);
+    expect([getComputedStyle(category).height, getComputedStyle(category).fontSize]).toEqual([boardPx(24), boardPx(12)]);
     expect(getComputedStyle(sheet.querySelector("[data-preview-page-area]")!).backgroundColor).toBe("rgb(243, 247, 246)");
-    expect(getComputedStyle(sheet.querySelector("[data-found-section]")!).height).toBe("40px");
+    expect(getComputedStyle(sheet.querySelector("[data-found-section]")!).height).toBe(boardPx(40));
     const shield = sheet.querySelector("[data-previous-year-note] svg")!;
     expect([shield.getAttribute("width"), shield.getAttribute("stroke-width")]).toEqual(["15", "1.6"]);
     const scrim = document.querySelector("[data-preview-scrim]")!;
     expect(getComputedStyle(scrim).backgroundColor).toBe("rgba(1, 5, 5, 0.25)");
     const replace = getComputedStyle(sheet.querySelector("[data-preview-replace]")!);
-    expect([replace.height, replace.paddingLeft]).toEqual(["36px", "14px"]);
+    expect([replace.height, replace.paddingLeft]).toEqual([boardPx(36), boardPx(14)]);
     sheet.querySelector<HTMLButtonElement>("[data-preview-done]")!.click();
     await expect.poll(() => document.querySelector("[data-supporting-preview]")).toBeNull();
   });

@@ -6,6 +6,7 @@ import ViewAsDialog from "./ViewAsDialog.svelte";
 import ViewAsPill from "./ViewAsPill.svelte";
 import ToastHarness from "$lib/test/ToastHarness.svelte";
 import { viewAs, VIEW_AS_STORAGE_KEY } from "$lib/shell/viewAs.svelte";
+import { board } from "$lib/test/boardScale";
 
 vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn() } }));
 
@@ -90,8 +91,9 @@ describe("View as (D2, D3, D5)", () => {
     await page.viewport(1440, 900);
     try {
       const view = await render(ViewAsDialog, { open: true });
-      await expect.poll(() => document.querySelector<HTMLElement>("[data-view-as-dialog]")?.getBoundingClientRect().top).toBe(170);
-      expect(document.querySelector<HTMLElement>("[data-view-as-dialog]")!.getBoundingClientRect().left).toBe(420);
+      await expect.poll(() => document.querySelector<HTMLElement>("[data-view-as-dialog]")?.getBoundingClientRect().top).toBe(board(170));
+      // Centred: a 600px board dialog, (1440 - 600) / 2 = 420 at a 16px root.
+      expect(document.querySelector<HTMLElement>("[data-view-as-dialog]")!.getBoundingClientRect().left).toBe((1440 - board(600)) / 2);
       view.unmount();
     } finally {
       await page.viewport(1280, 800);
@@ -123,7 +125,7 @@ describe("View as (D2, D3, D5)", () => {
     viewAs.enter("consultant");
     await render(ViewAsPill, { role: "consultant" });
     const pill = document.querySelector<HTMLElement>("[data-view-as-pill]")!;
-    expect(pill.getBoundingClientRect().height).toBe(36);
+    expect(pill.getBoundingClientRect().height).toBe(board(36));
     expect(getComputedStyle(pill).backgroundColor).toBe("rgb(255, 251, 235)");
     expect(pill.textContent).toContain("Viewing as");
     // D3: the board's eye (14 / 1.7) and chevron (12 / 2) in warning ink,

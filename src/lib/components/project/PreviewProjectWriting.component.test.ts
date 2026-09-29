@@ -17,6 +17,7 @@ import {
   __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { __resetQaSeenMemory } from "$lib/qa/qaSeen";
+import { board } from "$lib/test/boardScale";
 
 /**
  * The preview report page around a signed-off Step-by-step draft
@@ -408,7 +409,7 @@ describe("PreviewProjectPage writing a signed-off Step-by-step draft", () => {
     await expect.element(page.getByRole("heading", { name: "QA finished", exact: true })).toBeVisible();
     const host = document.querySelector<HTMLElement>("[data-qa-finished-host]")!;
     expect(getComputedStyle(host).position).toBe("fixed");
-    expect(window.innerWidth - host.getBoundingClientRect().right).toBe(24);
+    expect(window.innerWidth - host.getBoundingClientRect().right).toBe(board(24));
     // It sits above the Assistant composer, never over Send (review g2 B7).
     const send = page.getByRole("button", { name: "Send message", exact: true }).element() as HTMLElement;
     await expect.poll(() => host.getBoundingClientRect().bottom <= send.getBoundingClientRect().top).toBe(true);
@@ -428,8 +429,8 @@ describe("PreviewProjectPage writing a signed-off Step-by-step draft", () => {
     const rect = notice.getBoundingClientRect();
     // Board 4.5: 24px inside the report panel's bottom right corner.
     const panel = document.querySelector<HTMLElement>("[data-project-main]")!.getBoundingClientRect();
-    expect(panel.right - rect.right).toBe(24);
-    expect(panel.bottom - rect.bottom).toBe(24);
+    expect(panel.right - rect.right).toBe(board(24));
+    expect(panel.bottom - rect.bottom).toBe(board(24));
     expect(Array.from(notice.querySelectorAll("[data-qa-section-row]")).map((row) => row.getAttribute("data-qa-section-row"))).toEqual(["242", "244", "246"]);
     const toggle = () => document.querySelector<HTMLElement>('[data-panel-toggle="qa"]')!;
     expect(toggle().querySelector("[data-qa-unseen-dot]")).not.toBeNull();

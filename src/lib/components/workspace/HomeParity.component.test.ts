@@ -13,6 +13,7 @@ import {
 } from "$lib/test/convex-svelte-stub.svelte";
 import { RECENT_PROJECTS_KEY } from "$lib/workspace/recentProjects";
 import { RAIL_PREFERENCES_KEY } from "$lib/workspace/railPreferences";
+import { board } from "$lib/test/boardScale";
 
 /**
  * Home inside the workspace shell (ui-design-final.md section 9, boards 1.1
@@ -105,7 +106,7 @@ describe("Home in the workspace shell", () => {
     expect(document.querySelector("[data-home-recents]")).toBeNull();
     // Split desk at 1440: tables left, Continue working in a 384px column.
     const continueColumn = document.querySelector<HTMLElement>("[data-home-continue]")!.parentElement!;
-    expect(Math.round(continueColumn.getBoundingClientRect().width)).toBe(384);
+    expect(continueColumn.getBoundingClientRect().width).toBeCloseTo(board(384), 0);
     const tables = document.querySelector<HTMLElement>("[data-home-tables]")!.getBoundingClientRect();
     expect(continueColumn.getBoundingClientRect().left).toBeGreaterThanOrEqual(tables.right);
     expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(window.innerHeight);

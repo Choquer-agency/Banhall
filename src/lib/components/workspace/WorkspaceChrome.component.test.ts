@@ -9,6 +9,7 @@ import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-s
 import { __mutationCalls, __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import { readLastAccount } from "$lib/auth/lastAccount";
 import { viewAs } from "$lib/shell/viewAs.svelte";
+import { board, boardPx } from "$lib/test/boardScale";
 
 vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn() } }));
 
@@ -45,28 +46,28 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     const panel = root.querySelector<HTMLElement>("[data-work-panel]")!;
     const aside = root.querySelector<HTMLElement>("aside")!;
     expect(Math.round(root.getBoundingClientRect().height)).toBe(window.innerHeight);
-    expect(header.getBoundingClientRect().height).toBe(56);
+    expect(header.getBoundingClientRect().height).toBe(board(56));
     expect(header.hasAttribute("data-workspace-page-header")).toBe(true);
     const tile = header.querySelector<HTMLElement>("[data-page-icon-tile]")!;
-    expect(tile.getBoundingClientRect().width).toBe(26);
+    expect(tile.getBoundingClientRect().width).toBe(board(26));
     expect(getComputedStyle(tile).backgroundColor).toBe("rgb(227, 244, 241)");
     expect(header.querySelector("h1")?.textContent).toBe("Settings");
     expect(header.querySelector("[data-page-subtitle]")?.textContent).toBe("Account");
     // Round 2 shell: the lighter #FAFCFB rail and frame.
     expect(getComputedStyle(aside).backgroundColor).toBe("rgb(250, 252, 251)");
     expect(getComputedStyle(panel.parentElement!).backgroundColor).toBe("rgb(250, 252, 251)");
-    expect(getComputedStyle(panel).borderRadius).toBe("10px");
+    expect(getComputedStyle(panel).borderRadius).toBe(boardPx(10));
     expect(getComputedStyle(panel).backgroundColor).toBe("rgb(255, 255, 255)");
     // Panel inset 12px from the frame on the sides and bottom.
     const panelBox = panel.getBoundingClientRect();
-    expect(Math.round(window.innerHeight - panelBox.bottom)).toBe(12);
+    expect(Math.round(window.innerHeight - panelBox.bottom)).toBe(Math.round(board(12)));
     expect(panel.scrollHeight).toBeGreaterThan(panel.clientHeight);
     panel.scrollTop = 300;
     expect(panel.scrollTop).toBeGreaterThan(0);
     expect(window.scrollY).toBe(0);
     // Padded panel: 32px top, 56px sides (Settings, Team).
-    expect(getComputedStyle(panel).paddingTop).toBe("32px");
-    expect(getComputedStyle(panel).paddingLeft).toBe("56px");
+    expect(getComputedStyle(panel).paddingTop).toBe(boardPx(32));
+    expect(getComputedStyle(panel).paddingLeft).toBe(boardPx(56));
   });
 
   it("sends the Team activity heartbeat once on mount and remembers the signed-in account (J3)", async () => {
@@ -105,7 +106,7 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     const add = header.querySelector("[data-testid=page-action]")!;
     expect(bell.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const panel = document.querySelector<HTMLElement>("[data-work-panel]")!;
-    expect(getComputedStyle(panel).paddingLeft).toBe("40px");
+    expect(getComputedStyle(panel).paddingLeft).toBe(boardPx(40));
   });
 
   it("keeps the drawer reachable below 1024px", async () => {
@@ -148,11 +149,11 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     expect(getComputedStyle(panel).borderTopColor).toBe("rgb(245, 158, 11)");
     const pill = document.querySelector<HTMLElement>("[data-view-as-pill]")!.getBoundingClientRect();
     const bar = root.querySelector<HTMLElement>("[data-page-top-bar]")!.getBoundingClientRect();
-    expect(pill.height).toBe(36);
+    expect(pill.height).toBe(board(36));
     expect(Math.abs(pill.top + pill.height / 2 - (bar.top + bar.height / 2))).toBeLessThanOrEqual(1);
     // D3, D4: 560px from the window's left edge, as the boards draw it.
     const shell = root.getBoundingClientRect();
-    expect(pill.left - shell.left).toBe(560);
+    expect(pill.left - shell.left).toBe(board(560));
     // Narrower than the boards, it is centred on the window instead.
     await browserPage.viewport(1100, 900);
     await expect.poll(() => {

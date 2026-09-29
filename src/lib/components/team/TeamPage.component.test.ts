@@ -13,6 +13,7 @@ import {
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
 import { __resetPage } from "$lib/test/app-state-stub.svelte";
 import { viewAs } from "$lib/shell/viewAs.svelte";
+import { board, boardPx } from "$lib/test/boardScale";
 
 const enter = (role: Parameters<typeof viewAs.enter>[0]) => viewAs.enter(role);
 const exit = () => viewAs.exit();
@@ -200,8 +201,8 @@ describe("TeamPage", () => {
       await expect.poll(() => document.querySelectorAll("[data-member-row]").length).toBe(4);
 
       const invite = document.querySelector<HTMLElement>("[data-open-invite]")!;
-      expect(invite.getBoundingClientRect().height).toBe(30);
-      expect(getComputedStyle(invite).borderRadius).toBe("7px");
+      expect(invite.getBoundingClientRect().height).toBe(board(30));
+      expect(getComputedStyle(invite).borderRadius).toBe(boardPx(7));
       expect(getComputedStyle(invite).backgroundColor).toBe("rgb(8, 122, 117)");
       const plus = invite.querySelector("svg")!;
       expect(plus.getAttribute("viewBox")).toBe("0 0 12 12");
@@ -210,42 +211,42 @@ describe("TeamPage", () => {
       expect(plus.querySelector("path")?.getAttribute("d")).toBe("M6 2v8M2 6h8");
 
       const body = getComputedStyle(document.querySelector<HTMLElement>("[data-team-page]")!);
-      expect([body.paddingTop, body.paddingBottom, body.paddingLeft, body.paddingRight]).toEqual(["28px", "28px", "56px", "56px"]);
+      expect([body.paddingTop, body.paddingBottom, body.paddingLeft, body.paddingRight]).toEqual([boardPx(28), boardPx(28), boardPx(56), boardPx(56)]);
       const title = getComputedStyle(document.querySelector<HTMLElement>("[data-team-page] h1")!);
-      expect([title.fontSize, title.lineHeight]).toEqual(["28px", "34px"]);
+      expect([title.fontSize, title.lineHeight]).toEqual([boardPx(28), boardPx(34)]);
       const subtitle = getComputedStyle(document.querySelector<HTMLElement>("[data-team-subtitle]")!);
-      expect([subtitle.fontSize, subtitle.lineHeight, subtitle.color]).toEqual(["14px", "20px", "rgb(107, 127, 123)"]);
+      expect([subtitle.fontSize, subtitle.lineHeight, subtitle.color]).toEqual([boardPx(14), boardPx(20), "rgb(107, 127, 123)"]);
 
       const members = document.querySelector<HTMLElement>("[data-team-members]")!;
       const header = members.querySelector<HTMLElement>('[role="row"]')!;
-      expect(header.getBoundingClientRect().height).toBe(36);
-      expect(getComputedStyle(header).fontSize).toBe("12px");
+      expect(header.getBoundingClientRect().height).toBe(board(36));
+      expect(getComputedStyle(header).fontSize).toBe(boardPx(12));
       const widths = [...header.querySelectorAll<HTMLElement>('[role="columnheader"]')].map((cell) =>
         Math.round(cell.getBoundingClientRect().width),
       );
-      expect(widths[0]).toBe(260);
-      expect(widths[2]).toBe(120);
-      expect(widths[3]).toBe(110);
+      expect(widths[0]).toBe(Math.round(board(260)));
+      expect(widths[2]).toBe(Math.round(board(120)));
+      expect(widths[3]).toBe(Math.round(board(110)));
       // C1: the Admin row menu takes no column of its own, so Last active
       // ends 16px inside the table and the menu sits over its right end.
       const lastActive = header.querySelectorAll<HTMLElement>('[role="columnheader"]')[3].getBoundingClientRect();
-      expect(Math.round(members.getBoundingClientRect().right - lastActive.right)).toBe(17);
+      expect(members.getBoundingClientRect().right - lastActive.right).toBeCloseTo(board(17), 0);
       const menu = members.querySelector<HTMLElement>("[data-member-row] [data-member-menu]")!.getBoundingClientRect();
       expect(Math.round(menu.right)).toBe(Math.round(lastActive.right));
       const firstRow = members.querySelector<HTMLElement>("[data-member-row]")!;
-      expect(firstRow.getBoundingClientRect().height).toBe(48);
+      expect(firstRow.getBoundingClientRect().height).toBe(board(48));
       const avatar = firstRow.querySelector<HTMLElement>("[data-avatar]")!;
-      expect(avatar.getBoundingClientRect().width).toBe(24);
-      expect(getComputedStyle(avatar).fontSize).toBe("10px");
+      expect(avatar.getBoundingClientRect().width).toBe(board(24));
+      expect(getComputedStyle(avatar).fontSize).toBe(boardPx(10));
       expect(getComputedStyle(avatar).fontWeight).toBe("400");
 
       const dot = (email: string) => row(email)!.querySelector<HTMLElement>("[data-invite-status] span")!;
       expect(getComputedStyle(dot("ana.ruiz@banhall.com")).backgroundColor).toBe("rgb(245, 158, 11)");
       expect(getComputedStyle(dot("m.tremblay@banhall.com")).backgroundColor).toBe("rgb(220, 38, 38)");
       const resend = row("m.tremblay@banhall.com")!.querySelector<HTMLElement>("[data-resend]")!;
-      expect(resend.getBoundingClientRect().height).toBe(28);
-      expect(getComputedStyle(resend).borderRadius).toBe("6px");
-      expect(row("ana.ruiz@banhall.com")!.getBoundingClientRect().height).toBe(52);
+      expect(resend.getBoundingClientRect().height).toBe(board(28));
+      expect(getComputedStyle(resend).borderRadius).toBe(boardPx(6));
+      expect(row("ana.ruiz@banhall.com")!.getBoundingClientRect().height).toBe(board(52));
     } finally {
       await page.viewport(1280, 800);
     }
