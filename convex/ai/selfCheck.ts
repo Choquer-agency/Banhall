@@ -20,7 +20,7 @@ import {
 } from "./promptDefinitions";
 import { sectionParagraphs } from "../lib/tiptapReport";
 import { containsTerm } from "../lib/editedTerms";
-import { stepTitle, type WriterFeedback } from "../lib/writerPrecedence";
+import { quoteForPrompt, stepTitle, type WriterFeedback } from "../lib/writerPrecedence";
 import {
   isSectionNumber,
   type SectionNumber,
@@ -680,7 +680,7 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
     blocks.push(block(
       writer.blockLabel,
       feedback
-        .map((entry) => `${writer.linePrefix}${stepTitle(entry.roleId)}${writer.lineMiddle}${JSON.stringify(entry.instruction.trim())}`)
+        .map((entry) => `${writer.linePrefix}${stepTitle(entry.roleId)}${writer.lineMiddle}${quoteForPrompt(entry.instruction)}`)
         .join(writer.separator)
     ));
   }

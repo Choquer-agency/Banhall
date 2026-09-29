@@ -411,7 +411,7 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
   // the writer's Feedback, Brief), read after the plan and the Brief and
   // before the writer's exact terms and the Locked length. Only present when
   // the Line has at least one; each part only when it has entries. Every
-  // idea, exclusion and instruction is quoted as a JSON string.
+  // idea, exclusion and instruction is quoted on one line (quoteForPrompt).
   writerDecisions: {
     heading:
       "\n\n# WRITER'S DECISIONS (outrank the Brief)\nThe writer made these decisions while planning. The Locked Rules and the signed-off plan outrank them; each part below says how it ranks against the Brief.",
