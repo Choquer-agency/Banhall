@@ -377,6 +377,24 @@
       : { text: `Its uncertainty is no longer picked: ${words}`, kind: "uncertainty-dropped", dropped: true };
   });
 
+  // Run 7 re-check (lead decision 4): an advancement card also names the
+  // experiments it links, so a writer or reader can see the finding comes
+  // from work that tested its uncertainty.
+  const experimentsLine = $derived.by(() => {
+    const linked = item.linkedExperiments;
+    if (roleId !== "specific_advancements" || !linked?.length) return null;
+    const words = linked.map((experiment) => {
+      const text = experiment.words
+        ? `"${experiment.words.length > 60 ? `${experiment.words.slice(0, 57).trimEnd()}...` : experiment.words}"`
+        : "an experiment not shown here";
+      return experiment.picked ? text : `${text} (no longer picked)`;
+    });
+    return {
+      text: `${linked.length === 1 ? "Experiment" : "Experiments"}: ${words.join("; ")}`,
+      dropped: linked.some((experiment) => !experiment.picked),
+    };
+  });
+
   // Card tools (board 3.1): 28px tiles, 14px strokes in secondary ink.
   const tile =
     "inline-flex size-7 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11";
@@ -716,6 +734,9 @@
         {/if}
         {#if linkLine}
           <p class={`text-[0.75rem] leading-4 ${linkLine.dropped ? "text-gap-text!" : "text-ink-muted"}`} data-seed-link={linkLine.kind}>{linkLine.text}</p>
+        {/if}
+        {#if experimentsLine}
+          <p class={`text-[0.75rem] leading-4 ${experimentsLine.dropped ? "text-gap-text!" : "text-ink-muted"}`} data-seed-link-experiments>{experimentsLine.text}</p>
         {/if}
       {/if}
 

@@ -859,6 +859,48 @@ describe("Seed workspace", () => {
       );
     });
 
+    it("names the experiments an advancement links beside its uncertainty, for writers and readers (run 7 re-check)", async () => {
+      const advancement = seed({
+        seedId: "adv-1" as Id<"seeds">,
+        roleId: "specific_advancements",
+        bullets: ["Nitrite oxidizers, not ammonia oxidizers, set the cold start-up pace."],
+        linkedUncertainty: { seedId: "u2" as Id<"seeds">, bullets: ["It was unknown whether nitrite oxidizing bacteria were the cold-sensitive bottleneck."], picked: true },
+        linkedExperiments: [
+          { seedId: "t1" as Id<"seeds">, words: "Trial 1 ran three loops at 8 C: 66, 47 and 31 days to full nitrification.", picked: true },
+          { seedId: "t9" as Id<"seeds">, words: "", picked: false },
+        ],
+      });
+      const props = (canEdit: boolean) =>
+        paneProps(subsection({ roleId: "specific_advancements", items: [advancement], approvalChallenge: clean() }), {
+          title: "Specific technological advancements",
+          kind: "multiple",
+          canEdit,
+        });
+      const view = await render(SeedSubsectionPane, props(true));
+      const line = 'Experiments: "Trial 1 ran three loops at 8 C: 66, 47 and 31 days to ful..."; an experiment not shown here (no longer picked)';
+      expect(document.querySelector('[data-seed-link="uncertainty"]')?.textContent).toBe(
+        'Uncertainty: "It was unknown whether nitrite oxidizing bacteria were the cold-sensitive bot..."'
+      );
+      expect(document.querySelector("[data-seed-link-experiments]")?.textContent).toBe(line);
+      await view.rerender(props(false));
+      expect(document.querySelector("[data-seed-link-experiments]")?.textContent).toBe(line);
+      // One experiment reads in the singular; experiment cards carry no such line.
+      await view.rerender(paneProps(subsection({
+        roleId: "specific_advancements",
+        items: [seed({ ...advancement, linkedExperiments: [advancement.linkedExperiments![0]!] })],
+        approvalChallenge: clean(),
+      }), { title: "Specific technological advancements", kind: "multiple" }));
+      expect(document.querySelector("[data-seed-link-experiments]")?.textContent).toBe(
+        'Experiment: "Trial 1 ran three loops at 8 C: 66, 47 and 31 days to ful..."'
+      );
+      await view.rerender(paneProps(subsection({
+        roleId: "experimentation",
+        items: [seed({ ...advancement, roleId: "experimentation" })],
+        approvalChallenge: clean(),
+      }), { title: "Experimentation / Iterations", kind: "multiple" }));
+      expect(document.querySelector("[data-seed-link-experiments]")).toBeNull();
+    });
+
     it("says why when experiments keep naming no picked uncertainty", async () => {
       const empty = { state: "failed" as const, items: [], shownBatchId: null, approvalChallenge: null };
       await render(SeedSubsectionPane, paneProps(subsection({ ...empty, roleId: "experimentation", lastAttemptFailed: true, repeatedInvalidOutput: "experiment_links" })));
