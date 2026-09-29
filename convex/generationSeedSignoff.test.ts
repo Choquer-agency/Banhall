@@ -2150,7 +2150,7 @@ describe("seed Summary sign-off and recovery", () => {
     expect(plans.s246.writerFeedback).toEqual(plans.s244.writerFeedback);
     const aside = [{
       term: "floating head",
-      reason: `the writer's Feedback on Company / Context names this term: "${spindle}"`,
+      reason: `the writer's Feedback on Company / Context rules out this term: "${spindle}"`,
     }];
     expect(plans.s242.glossarySetAside).toEqual(aside);
     // Line 244's signed-off idea says "floating-head": the Glossary Term

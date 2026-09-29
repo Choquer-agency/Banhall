@@ -4,6 +4,7 @@ import {
   confirmedConflictsOf,
   conflictExclusionsPhrase,
   feedbackForLine,
+  feedbackRulesOutTerm,
   glossaryTermsSetAside,
   ideaWords,
   namesTerm,
@@ -54,7 +55,7 @@ describe("Glossary Terms the writer's wording sets aside (2026-09-29 second, CAP
   const feedback = [{ roleId: "company_context" as const, instruction: SPINDLE }];
   const spindleIdeas = [["Force control came from a compliant spindle."]];
 
-  it("sets aside a Glossary Term an active Feedback instruction names, with the instruction as the reason", () => {
+  it("sets aside a Glossary Term an active Feedback instruction rules out, with the instruction as the reason", () => {
     expect(glossaryTermsSetAside({
       glossaryTerms: ["floating head", "burr height estimation", "Floating head"],
       feedback,
@@ -62,7 +63,7 @@ describe("Glossary Terms the writer's wording sets aside (2026-09-29 second, CAP
       selectionWording: spindleIdeas,
     })).toEqual([{
       term: "floating head",
-      reason: `the writer's Feedback on Company / Context names this term: "${SPINDLE}"`,
+      reason: `the writer's Feedback on Company / Context rules out this term: "${SPINDLE}"`,
     }]);
   });
 
@@ -110,6 +111,93 @@ describe("Glossary Terms the writer's wording sets aside (2026-09-29 second, CAP
       editedItems: [],
       selectionWording: [["Each sensor drifted by 2 C per month."]],
     })).toEqual([]);
+  });
+
+  it("keeps a Glossary Term an active Feedback instruction endorses in force (PR #22 review G10)", () => {
+    // No idea of the Line uses the term, so only the Feedback decides.
+    const setAside = (instruction: string, term = "floating head") => glossaryTermsSetAside({
+      glossaryTerms: [term],
+      feedback: [{ roleId: "company_context", instruction }],
+      editedItems: [],
+      selectionWording: [["Force control held the burr height within tolerance."]],
+    });
+    for (const endorsing of [
+      "Call the deburring tool the floating head.",
+      "CALL THE DEBURRING TOOL THE FLOATING HEAD, here and in every later step",
+      "Always say floating head; it is the shop's word.",
+      "Keep using floating-head in every step.",
+      "The floating head is the right name, use it everywhere.",
+      "Use the floating head, not the compliant spindle.",
+      "Use no other name than floating head.",
+      "Replace the compliant spindle with the floating head.",
+      "Change the compliant spindle to the floating head.",
+      "Stop saying compliant spindle and say floating head.",
+      "Don't call it the compliant spindle, call it the floating head.",
+      "Not the compliant spindle but the floating head.",
+      "Instead of the compliant spindle, write floating head.",
+    ]) {
+      expect(setAside(endorsing), endorsing).toEqual([]);
+    }
+    // The run 6 instruction endorses "compliant spindle" and rules out
+    // "floating head".
+    expect(setAside(SPINDLE, "compliant spindle")).toEqual([]);
+    expect(setAside(SPINDLE, "deburring tool")).toEqual([]);
+    expect(setAside(SPINDLE)).toEqual([{
+      term: "floating head",
+      reason: `the writer's Feedback on Company / Context rules out this term: "${SPINDLE}"`,
+    }]);
+  });
+
+  it("sets aside a Glossary Term an active Feedback instruction rejects or replaces, in any case and with contractions", () => {
+    const rulesOut = (instruction: string) => feedbackRulesOutTerm(instruction, "floating head");
+    const rejecting = [
+      SPINDLE,
+      SPINDLE.toUpperCase(),
+      "Never say floating head.",
+      "never say Floating-Heads",
+      "Don't call it the floating head.",
+      "Don\u2019t call it the floating head.",
+      "DONT CALL IT THE FLOATING HEAD",
+      "Do not use floating head in any Line.",
+      "We shouldn't write floating head.",
+      "Avoid floating head.",
+      "Stop calling it the floating head.",
+      "No floating head anywhere.",
+      "Call it compliant spindle not floating head",
+      "Call it the compliant spindle (not the floating head).",
+      "Say compliant spindle, never floating head or float.",
+      "The floating head is wrong.",
+      "\"Floating head\" is not the right term.",
+      "Floating head should not be used.",
+      "Floating head can't be used here.",
+      "Terminology: never floating head.",
+    ];
+    const replacing = [
+      "Use compliant spindle instead of floating head.",
+      "Say compliant spindle rather than floating head.",
+      "Write compliant spindle in place of floating head.",
+      "Replace floating head with compliant spindle.",
+      "Replacing the floating head by the compliant spindle, please.",
+      "Change the floating head to the compliant spindle.",
+      "Rename the floating head as the compliant spindle.",
+      "Switch from floating head to compliant spindle.",
+      "Instead of floating head, write compliant spindle.",
+      "Floating head should be replaced by compliant spindle.",
+      "floating head -> compliant spindle",
+      "Call it Y not X: compliant spindle, not floating head.",
+    ];
+    for (const instruction of [...rejecting, ...replacing]) {
+      expect(rulesOut(instruction), instruction).toBe(true);
+    }
+    for (const instruction of [
+      "Call the deburring tool the floating head.",
+      "Use the floating head, not the compliant spindle.",
+      "Replace the compliant spindle with the floating head.",
+      "Don't call it the compliant spindle, call it the floating head.",
+      "Say Grandbois, Quebec.",
+    ]) {
+      expect(rulesOut(instruction), instruction).toBe(false);
+    }
   });
 
   it("sets aside a Glossary Term the writer's edit took out, unless another idea of the Line still uses it", () => {
