@@ -1,6 +1,9 @@
 import { PD_REVIEW_INPUT_BUDGET, buildPdReviewUserMessage } from "./reviewAgent";
 import { describe, expect, it } from "vitest";
 import {
+  cutToBudget,
+  cutUtf8ToBudget,
+  endAtWordBoundary,
   buildTrustedContext,
   buildSeedTrustedContext,
   buildSeedPrompt,
@@ -300,11 +303,12 @@ describe("trusted context assembly", () => {
   it("budgets transcript parts in frozen order, cutting the tail", () => {
     const { userMessage, report } = buildTrustedContext({
       transcriptParts: [
-        { label: "First", content: "a".repeat(30) },
-        { label: "Second", content: "b".repeat(30) },
-        { label: "Third", content: "c".repeat(30) },
+        { label: "First", content: "aaaa ".repeat(6) },
+        { label: "Second", content: "bbbb ".repeat(6) },
+        { label: "Third", content: "cccc ".repeat(6) },
       ],
-      // 10 tokens = 40 chars: part 1 whole, part 2 cut, part 3 dropped.
+      // 10 tokens = 40 chars: part 1 whole, part 2 cut (at a word
+      // boundary), part 3 dropped.
       budget: budget({ transcriptTokens: 10 }),
     });
     expect(
@@ -810,10 +814,10 @@ describe("describeContextCuts", () => {
 
   it("names what was shortened and what was left out", () => {
     const { report } = buildTrustedContext({
-      transcriptParts: [{ label: "Kickoff", content: "a".repeat(50) }],
+      transcriptParts: [{ label: "Kickoff", content: "aaaa ".repeat(10) }],
       documents: [
-        doc("writer_notes", "notes.md", "n".repeat(50)),
-        doc("other", "misc.txt", "m".repeat(50)),
+        doc("writer_notes", "notes.md", "nnnn ".repeat(10)),
+        doc("other", "misc.txt", "mmmm ".repeat(10)),
       ],
       budget: budget({ totalTokens: 15, transcriptTokens: 10, perDocumentTokens: 10 }),
     });
@@ -824,7 +828,7 @@ describe("describeContextCuts", () => {
 
   it("keeps the sentence on one line when a file name carries line breaks", () => {
     const { report } = buildTrustedContext({
-      documents: [doc("other", "weird\r\nname .txt", "m".repeat(50))],
+      documents: [doc("other", "weird\r\nname .txt", "mmmm ".repeat(10))],
       budget: budget({ perDocumentTokens: 1 }),
     });
     expect(describeContextCuts(report)).toBe(
@@ -865,13 +869,14 @@ describe("PD review input budget", () => {
     title: "Seal project",
     clientName: "Client",
     fileName: "pd.docx",
-    pdContent: "P".repeat(30),
-    transcript: "T".repeat(30),
+    // Cuts land at word boundaries (2026-09-29, second, privacy).
+    pdContent: "PPPP ".repeat(6),
+    transcript: "TTTT ".repeat(6),
   };
   const docs = [
-    { fileName: "one.md", category: "other" as const, content: "1".repeat(10) },
-    { fileName: "two.md", category: "other" as const, content: "2".repeat(10) },
-    { fileName: "three.md", category: "other" as const, content: "3".repeat(10) },
+    { fileName: "one.md", category: "other" as const, content: "1111 111 1" },
+    { fileName: "two.md", category: "other" as const, content: "2222 222 2" },
+    { fileName: "three.md", category: "other" as const, content: "3333 333 3" },
   ];
 
   it("spends the PD first, then the transcript, then documents, and says what it cut", () => {
@@ -879,9 +884,9 @@ describe("PD review input budget", () => {
     const budget = { totalTokens: 12, pdTokens: 5, transcriptTokens: 5, perDocumentTokens: 2, maxDocuments: 12 };
     const message = buildPdReviewUserMessage(input, docs, budget);
     expect(message).toBe(buildPdReviewUserMessage(input, docs, budget));
-    expect(message).toContain(`## Written PD under review (pd.docx)\n${"P".repeat(20)}\n[TRUNCATED: 10 of 30 characters omitted to fit the context budget.]`);
-    expect(message).toContain(`## Interview transcript (context)\n${"T".repeat(20)}\n[TRUNCATED: 10 of 30 characters omitted`);
-    expect(message).toContain(`## Supporting document: one.md (other)\n${"1".repeat(8)}\n[TRUNCATED: 2 of 10`);
+    expect(message).toContain(`## Written PD under review (pd.docx)\n${"PPPP ".repeat(4)}\n[TRUNCATED: 10 of 30 characters omitted to fit the context budget.]`);
+    expect(message).toContain(`## Interview transcript (context)\n${"TTTT ".repeat(4)}\n[TRUNCATED: 10 of 30 characters omitted`);
+    expect(message).toContain("## Supporting document: one.md (other)\n1111 111\n[TRUNCATED: 2 of 10");
     expect(message).not.toContain("two.md");
     expect(message.endsWith("[2 further supporting document(s) were omitted to fit the context budget.]")).toBe(true);
   });
@@ -894,7 +899,7 @@ describe("PD review input budget", () => {
     const whole = buildPdReviewUserMessage(input, docs);
     expect(whole).not.toContain("TRUNCATED");
     expect(whole).not.toContain("omitted");
-    expect(whole).toContain("3".repeat(10));
+    expect(whole).toContain("3333 333 3");
   });
 });
 
@@ -989,5 +994,42 @@ describe("seed source allowance near the byte limit (cost phase 1)", () => {
     expect(prompt.sources[0]).toMatchObject({ included: true, truncated: false });
     expect(prompt.promptBytes).toBeGreaterThan(550_000);
     expect(prompt.promptBytes).toBeLessThanOrEqual(600_000);
+  });
+});
+
+// 2026-09-29 (second, privacy): a budget cut through "Quillmere" sent the
+// fragment "Quillm", which no placeholder matches, to the provider.
+describe("budget cuts end at a word boundary", () => {
+  it("backs a cut off to the last white space or punctuation, never mid-word, within the budget", () => {
+    const text = "Talk to Quillmere Analytics Ltd. today";
+    // "Talk to Quillm" would cut the name.
+    expect(cutToBudget(text, 14)).toBe("Talk to ");
+    expect(cutUtf8ToBudget(text, 14)).toBe("Talk to ");
+    // A cut already at a boundary is kept as it is.
+    expect(cutToBudget(text, 8)).toBe("Talk to ");
+    expect(cutToBudget(text, 7)).toBe("Talk to");
+    expect(cutToBudget(text, 17)).toBe("Talk to Quillmere");
+    expect(cutToBudget(text, 18)).toBe("Talk to Quillmere ");
+    // Punctuation is a boundary too.
+    expect(cutToBudget("Seen by Hale,Morgan and more", 16)).toBe("Seen by Hale,");
+    for (let limit = 1; limit <= text.length; limit += 1) {
+      expect(cutToBudget(text, limit).length).toBeLessThanOrEqual(limit);
+      expect(new TextEncoder().encode(cutUtf8ToBudget(text, limit)).byteLength).toBeLessThanOrEqual(limit);
+    }
+  });
+
+  it("measures multibyte text in bytes and cuts script without spaces at its punctuation", () => {
+    // "Rencontre avec Émilie " is 23 bytes; 25 end inside "Côté".
+    expect(cutUtf8ToBudget("Rencontre avec Émilie Côté hier", 25)).toBe("Rencontre avec Émilie ");
+    expect(cutUtf8ToBudget("Rencontre avec Émilie Côté hier", 22)).toBe("Rencontre avec Émilie");
+    expect(cutToBudget("项目：李伟负责测试", 4)).toBe("项目：");
+  });
+
+  it("cuts a run longer than any name word where the budget ends, as before", () => {
+    const hash = `sha ${"f".repeat(80)} end`;
+    expect(cutToBudget(hash, 20)).toBe(hash.slice(0, 20));
+    expect(endAtWordBoundary("x".repeat(40), "x".repeat(40))).toBe("x".repeat(40));
+    expect(endAtWordBoundary("word ", "next")).toBe("word ");
+    expect(endAtWordBoundary("word", " next")).toBe("word");
   });
 });

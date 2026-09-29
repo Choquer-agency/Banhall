@@ -29,7 +29,12 @@ import {
 } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { generateStructured } from "./ai/structured";
-import { buildSeedPrompt, seedPromptProjection } from "./ai/trustedContext";
+import {
+  buildSeedPrompt,
+  buildTrustedContext,
+  DEFAULT_CONTEXT_BUDGET,
+  seedPromptProjection,
+} from "./ai/trustedContext";
 import { seedToolSchema } from "./lib/seedContract";
 import { buildPlaceholderMap } from "./lib/deidentify";
 import { buildFrozenSummaryPlan, canonicalizeSeedSnapshot } from "./lib/seedRevisions";
@@ -397,6 +402,45 @@ describe("the privacy re-check cases are masked at the request boundary (real SD
     for (const entry of bodies) expect(entry.body, entry.stage).not.toMatch(RECHECK_HIDDEN);
     // The model's word tokens restore to the words.
     expect(result.draftText).toContain("per Northern Robotics.");
+  });
+});
+
+// 2026-09-29 (second, privacy): a budget cut through a name sent the
+// fragment ("Interview with Quill"), which no placeholder matches.
+describe("a budget cut never sends a fragment of a name (real SDK, fetch stubbed)", () => {
+  it("the analyzer's trusted context, cut inside the client name, reaches the provider without the fragment", async () => {
+    const { userMessage, report } = buildTrustedContext({
+      transcriptParts: [{ label: "Kickoff", content: "Interview with Quillmere Analytics Ltd. about the rig." }],
+      // 5 tokens are 20 characters: "Interview with Quill" would cut the name.
+      budget: { ...DEFAULT_CONTEXT_BUDGET, transcriptTokens: 5 },
+    });
+    expect(report.sources[0]).toMatchObject({ included: true, truncated: true, includedLength: 15 });
+    expect(userMessage).toContain("Interview with \n[TRUNCATED:");
+    const bodies: string[] = [];
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+      bodies.push(await new Request(input, init).text());
+      return Response.json({
+        id: "msg_synthetic", type: "message", role: "assistant", model: SONNET, stop_sequence: null,
+        usage: { input_tokens: 40, output_tokens: 8 },
+        content: [{ type: "text", text: "Read." }],
+        stop_reason: "end_turn",
+      });
+    }));
+    const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
+    await t.action(async (ctx) => {
+      await withPlaceholders(
+        instrumentedAnthropic(ctx, { callSite: "generation:analyzer" }) as unknown as GenerationClient,
+        MAP
+      ).messages.create({
+        model: SONNET,
+        max_tokens: 100,
+        system: "Analyse the interview.",
+        messages: [{ role: "user", content: userMessage }],
+      });
+    });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).not.toMatch(/Quill/);
   });
 });
 

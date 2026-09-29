@@ -189,16 +189,17 @@ test("reads a digested transcript through its digest only (cost phase 1)", () =>
 test("spends a deterministic budget: per-source cut with a notice, then whole sources omitted", () => {
   const budget = { totalTokens: 10, perSourceTokens: 6 }; // 40 and 24 characters
   const sources = [
-    { kind: "transcript", label: "A", content: "a".repeat(30) },
-    { kind: "project_document", label: "B", content: "b".repeat(20) },
+    // Cuts land at word boundaries (2026-09-29, second, privacy).
+    { kind: "transcript", label: "A", content: "aaaaaaaaaaa aaaaaaaaaaaa aaaaa" },
+    { kind: "project_document", label: "B", content: "bbbbbbb bbbbbbbb bbb" },
     { kind: "project_document", label: "C", content: "c".repeat(5) },
     { kind: "project_document", label: "D", content: "" },
   ] satisfies Parameters<typeof buildBriefUserMessage>[0];
   const message = buildBriefUserMessage(sources, budget);
   expect(message).toBe(buildBriefUserMessage(sources, budget));
   // A keeps 24 of 30; B gets the remaining 16 of 20; C gets nothing.
-  expect(message).toContain(`${"a".repeat(24)}\n[TRUNCATED: 6 of 30 characters omitted to fit the context budget.]`);
-  expect(message).toContain(`${"b".repeat(16)}\n[TRUNCATED: 4 of 20 characters omitted to fit the context budget.]`);
+  expect(message).toContain("aaaaaaaaaaa aaaaaaaaaaaa\n[TRUNCATED: 6 of 30 characters omitted to fit the context budget.]");
+  expect(message).toContain("bbbbbbb bbbbbbbb\n[TRUNCATED: 4 of 20 characters omitted to fit the context budget.]");
   expect(message).not.toContain("[C] ---");
   // An empty source costs nothing and still shows as a block.
   expect(message).toContain("--- BEGIN [SOURCE_KIND=project_document] [D] ---");
