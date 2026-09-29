@@ -20,8 +20,8 @@
     },
     {
       "id": 2,
-      "prompt": "Rewrite this headline: 'An Innovative AI-Powered Platform for Streamlined Business Operations' — it's for a B2B SaaS tool that helps small businesses manage invoicing and payments.",
-      "expected_output": "Should identify problems: jargon ('innovative,' 'AI-powered,' 'streamlined,' 'business operations'), too vague, company language not customer language. Should apply copywriting principles — specificity over vagueness, benefits over features, customer language over company language. Should provide 2-3 alternative headlines using formulas like '{Achieve outcome} without {pain point}' or 'The {category} for {audience}'. Each alternative should include rationale. Should also suggest a subheadline that adds specificity.",
+      "prompt": "Rewrite this headline: 'An Innovative AI-Powered Platform for Streamlined Business Operations'. It's for a B2B SaaS tool that helps small businesses manage invoicing and payments.",
+      "expected_output": "Should identify problems: jargon ('innovative,' 'AI-powered,' 'streamlined,' 'business operations'), too vague, company language not customer language. Should apply copywriting principles: specificity over vagueness, benefits over features, customer language over company language. Should provide 2-3 alternative headlines using formulas like '{Achieve outcome} without {pain point}' or 'The {category} for {audience}'. Each alternative should include rationale. Should also suggest a subheadline that adds specificity.",
       "assertions": [
         "Identifies jargon in original headline",
         "Identifies vagueness as a problem",
@@ -70,7 +70,7 @@
     {
       "id": 5,
       "prompt": "Can you improve this CTA? We currently have 'Learn More' on our feature page for our analytics dashboard product.",
-      "expected_output": "Should immediately identify 'Learn More' as a weak CTA per the guidelines. Should apply the CTA formula: [Action Verb] + [What They Get] + [Qualifier]. Should provide 2-3 strong alternatives like 'See the Dashboard in Action,' 'Start Your Free Trial,' or 'Explore Analytics Features.' Each alternative should include rationale and context for when it works best. Should also consider CTA hierarchy — whether this is a primary or secondary CTA, and suggest complementary CTAs if relevant.",
+      "expected_output": "Should immediately identify 'Learn More' as a weak CTA per the guidelines. Should apply the CTA formula: [Action Verb] + [What They Get] + [Qualifier]. Should provide 2-3 strong alternatives like 'See the Dashboard in Action,' 'Start Your Free Trial,' or 'Explore Analytics Features.' Each alternative should include rationale and context for when it works best. Should also consider CTA hierarchy: whether this is a primary or secondary CTA, and suggest complementary CTAs if relevant.",
       "assertions": [
         "Identifies 'Learn More' as a weak CTA",
         "Applies the CTA formula from the skill",
@@ -110,7 +110,7 @@
     {
       "id": 8,
       "prompt": "Write above-the-fold copy for a calendar scheduling tool. Our differentiator is that the recipient gets to overlay their own calendar on the invite, so picking a time feels fair to both people instead of one-sided. Same product needs to work for indie founders AND for enterprise ops teams.",
-      "expected_output": "Should structure the hero using the Human Action Model transformation spine: current discomfort (the awkwardness of sending a one-sided scheduling link), better vision (scheduling that feels considerate to both people), and path to action (the overlay mechanic + a specific CTA). Should run headline candidates through the 'Now you can' test and prefer lines that are compelling and true. Should reference or echo the SavvyCal awkward-link insight ('You shouldn't have to feel awkward sending out your scheduling link') as the message-market-fit model. Should surface the Perception Gap: the same benefit reads differently by risk tolerance, so it should provide a value-prop swap — a founder-facing framing (speed, no sales calls) and an enterprise-facing framing (security, SLAs, reliability) rather than one averaged, mushy message. Should favor clarity over cleverness and provide 2-3 headline alternatives with rationale.",
+      "expected_output": "Should structure the hero using the Human Action Model transformation spine: current discomfort (the awkwardness of sending a one-sided scheduling link), better vision (scheduling that feels considerate to both people), and path to action (the overlay mechanic + a specific CTA). Should run headline candidates through the 'Now you can' test and prefer lines that are compelling and true. Should reference or echo the SavvyCal awkward-link insight ('You shouldn't have to feel awkward sending out your scheduling link') as the message-market-fit model. Should surface the Perception Gap: the same benefit reads differently by risk tolerance, so it should provide a value-prop swap: a founder-facing framing (speed, no sales calls) and an enterprise-facing framing (security, SLAs, reliability) rather than one averaged, mushy message. Should favor clarity over cleverness and provide 2-3 headline alternatives with rationale.",
       "assertions": [
         "Structures the hero as discomfort -> vision -> path (Human Action Model)",
         "Applies the 'Now you can' test to headline candidates",

@@ -23,7 +23,7 @@ Raw data for every fixture is in `results.json`.
 
 ## Judgment, 2026-09-28
 
-Judged on the product owner's instruction by two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research) and the lead, who checked the key evidence against the pack. The judges agreed on every verdict: 2 pass, 3 fail. The release gate (checklist step 3: every fixture must pass) is **not met**.
+Judged on the product owner's instruction by two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each at its default reasoning effort, under the AGENTS.md reviewer rule (models interchangeable, recorded) and the lead, who checked the key evidence against the pack. The judges agreed on every verdict: 2 pass, 3 fail. The release gate (checklist step 3: every fixture must pass) is **not met**.
 
 The three failures are product defects that no commit after `c8ce1fe2` fixes:
 
