@@ -8,6 +8,8 @@
  * newest version the caller knows, whichever is later), so the server's
  * decision fence is kept and rapid ticks never refuse each other.
  */
+import { userErrorCode } from "$lib/errors";
+
 type Lane = { tail: Promise<unknown>; version: number | null };
 
 const lanes = new Map<string, Lane>();
@@ -40,8 +42,12 @@ export function enqueuePick(
       lane.version = typeof version === "number" ? version : null;
       return { ok: true };
     } catch (error) {
-      // After a refusal the next pick uses the newest version the caller knows.
-      lane.version = null;
+      // A coded refusal wrote nothing, so the version this lane knows still
+      // holds (a closed pane's own version can be older). After a version
+      // conflict or a failure that may have saved, the next pick uses the
+      // newest version the caller knows.
+      const code = userErrorCode(error);
+      if (code === null || code === "STALE_REVISION") lane.version = null;
       return { ok: false, error };
     } finally {
       const left = (waiting[runKey] ?? 1) - 1;

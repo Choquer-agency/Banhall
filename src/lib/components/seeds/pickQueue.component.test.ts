@@ -2,6 +2,7 @@
  * The run's pick queue on its own (review P2-1 re-check). It runs in the
  * browser project because the module keeps its count in Svelte state.
  */
+import { ConvexError } from "convex/values";
 import { describe, expect, it } from "vitest";
 import { enqueuePick, queuedPicks } from "./pickQueue.svelte";
 
@@ -51,18 +52,36 @@ describe("pick queue", () => {
     expect(queuedPicks(run)).toBe(0);
   });
 
-  it("moves on after a refused pick, using the caller's newest version", async () => {
-    const run = "run-refused";
+  it("moves on after a version conflict, using the caller's newest version", async () => {
+    const run = "run-stale";
     const sent: number[] = [];
     const refused = enqueuePick(run, () => 4, async (version) => {
       sent.push(version);
-      throw new Error("STALE_REVISION");
+      throw new ConvexError({ code: "STALE_REVISION", message: "Seed decisions changed; refresh and retry" });
     });
     const next = enqueuePick(run, () => 6, answerWith(sent));
 
     await expect(refused).resolves.toMatchObject({ ok: false });
     await expect(next).resolves.toEqual({ ok: true });
     expect(sent).toEqual([4, 6]);
+    expect(queuedPicks(run)).toBe(0);
+  });
+
+  it("keeps the version it knows after a refusal that wrote nothing, over a closed pane's older one", async () => {
+    const run = "run-coded-refusal";
+    const sent: number[] = [];
+    const saved = enqueuePick(run, () => 7, answerWith(sent));
+    const refused = enqueuePick(run, () => 7, async (version) => {
+      sent.push(version);
+      throw new ConvexError({ code: "INVALID_STATE", message: "Unskip this subsection before changing its decisions" });
+    });
+    // The pane closed after the first click, so it can only offer version 7.
+    const next = enqueuePick(run, () => 7, answerWith(sent));
+
+    await expect(saved).resolves.toEqual({ ok: true });
+    await expect(refused).resolves.toMatchObject({ ok: false });
+    await expect(next).resolves.toEqual({ ok: true });
+    expect(sent).toEqual([7, 8, 8]);
     expect(queuedPicks(run)).toBe(0);
   });
 });
