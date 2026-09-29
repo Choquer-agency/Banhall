@@ -351,7 +351,7 @@
           type="button"
           data-rail-identity
           aria-label={`${userName}, account menu`}
-          class={`flex w-full items-center gap-2 rounded-lg px-1.5 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${variant === "rail" ? "h-11" : "min-h-12"} ${open ? "bg-workspace-rail-selected" : "hover:bg-workspace-rail-hover"}`}
+          class={`flex w-full items-center gap-2 rounded-lg px-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${variant === "rail" ? "h-11" : "min-h-12"} ${open ? "bg-workspace-rail-selected" : "hover:bg-workspace-rail-hover"}`}
         >
           <Avatar name={userName} imageUrl={user?.imageUrl ?? null} seed={user?._id} tone={avatarTone} size={24} />
           <span class="flex min-w-0 flex-1 flex-col">
@@ -375,7 +375,7 @@
 <nav
   aria-label="Workspace"
   data-rail-collapsed={collapsed ? "" : undefined}
-  class={`flex h-full min-h-0 flex-col bg-workspace-shell text-ink ${variant === "drawer" ? "pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[env(safe-area-inset-top)]" : "pb-2.5"}`}
+  class={`flex h-full min-h-0 flex-col bg-workspace-shell text-ink ${variant === "drawer" ? "pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[env(safe-area-inset-top)]" : "pb-3"}`}
 >
   {#if collapsed}
     <!-- Owner direction 2026-09-28 (overrides A4, A5 and decision 62's
@@ -415,15 +415,15 @@
           {/each}
         {/each}
       </div>
-      <span aria-hidden="true" class="mt-1.5 h-px w-10 shrink-0 bg-line-soft"></span>
-      <!-- A4: the 30px avatar ends 18px above the window's bottom edge. -->
-      <div class="flex flex-col items-center pb-2 pt-2.5">
+      <!-- Owner, 2026-09-29: no divider above the avatar, and more room
+           around it: 22px above (with the column's 2px gap) and 22px below. -->
+      <div class="flex flex-col items-center pb-2.5 pt-5">
         {@render identity()}
       </div>
     </div>
   {:else}
     <div data-rail-drawer-header class="shrink-0 bg-workspace-shell">
-      <div class={`flex h-14 items-center gap-2 pl-3 ${variant === "drawer" ? "pr-14" : "pr-3"}`}>
+      <div class={`flex h-14 items-center gap-2 pl-4 ${variant === "drawer" ? "pr-14" : "pr-4"}`}>
         <a
           href={myWorkHref}
           aria-label="Banhall home"
@@ -435,7 +435,7 @@
       </div>
     </div>
 
-    <div data-rail-scroll class="scrollbar-hidden flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2">
+    <div data-rail-scroll class="scrollbar-hidden flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3">
       {#snippet groupBlock(group: (typeof groups)[number], first: boolean)}
         <div data-rail-group={group.id} class="flex flex-col">
           <!-- A1 to A3: 11px group labels in muted ink, as the boards draw them. -->
@@ -458,10 +458,10 @@
       {/each}
     </div>
 
-    <div class="shrink-0 px-2">
-      <div class="border-t border-line-soft">
-        {@render identity()}
-      </div>
+    <!-- Owner, 2026-09-29: no divider above the identity row, and 22px
+         above and below its avatar. -->
+    <div class="shrink-0 px-3 pt-3">
+      {@render identity()}
     </div>
   {/if}
 </nav>

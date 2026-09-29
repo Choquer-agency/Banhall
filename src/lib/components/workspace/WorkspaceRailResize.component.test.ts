@@ -16,6 +16,7 @@ import {
   RAIL_MIN_WIDTH,
   RAIL_PREFERENCES_KEY,
 } from "$lib/workspace/railPreferences";
+import { board } from "$lib/test/boardScale";
 
 /**
  * Desktop rail ergonomics (2026-09-24 final UI: collapsing leaves an
@@ -117,8 +118,9 @@ describe("Workspace rail resize + hide/show", () => {
     const separator = handle()!;
     const root = shellRoot()!;
 
+    // 24 board pixels of pointer travel (22.5px at a 1440 window's 15px root).
     separator.dispatchEvent(pointer("pointerdown", 255));
-    separator.dispatchEvent(pointer("pointermove", 279));
+    separator.dispatchEvent(pointer("pointermove", 255 + board(24)));
     // During the drag the shell suspends the grid transition (1:1 tracking)…
     await expect.poll(() => root.hasAttribute("data-rail-resizing")).toBe(true);
     expect(getComputedStyle(root).transitionProperty).toBe("none");
@@ -175,7 +177,7 @@ describe("Workspace rail resize + hide/show", () => {
     // The rail settles at the icons-only width.
     await expect
       .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
-      .toBe(RAIL_COLLAPSED_WIDTH);
+      .toBe(board(RAIL_COLLAPSED_WIDTH));
     // No resize separator while collapsed.
     expect(handle()).toBeNull();
 
@@ -185,7 +187,7 @@ describe("Workspace rail resize + hide/show", () => {
     expect(storedPrefs()).toEqual({ width: 272, hidden: false, adminOpen: false });
     await expect
       .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
-      .toBeGreaterThanOrEqual(271);
+      .toBeGreaterThanOrEqual(board(272) - 1);
   });
 
   it("keeps the icons-only rail on screen at tablet widths, whatever the preference (board 3.5)", async () => {
@@ -197,7 +199,7 @@ describe("Workspace rail resize + hide/show", () => {
     await expect.poll(() => railAside()?.querySelector("[data-rail-collapsed]")).not.toBeNull();
     await expect
       .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
-      .toBe(RAIL_COLLAPSED_WIDTH);
+      .toBe(board(RAIL_COLLAPSED_WIDTH));
     expect(handle()).toBeNull();
     // The rail replaces the drawer hamburger from 1024px up.
     const hamburger = document.querySelector<HTMLElement>('button[aria-label="Open workspace navigation"]');
@@ -283,7 +285,7 @@ describe("Workspace rail resize + hide/show", () => {
       .toBe("Expand navigation rail");
     await expect
       .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
-      .toBe(RAIL_COLLAPSED_WIDTH);
+      .toBe(board(RAIL_COLLAPSED_WIDTH));
     // No resize separator while collapsed.
     expect(handle()).toBeNull();
   });
