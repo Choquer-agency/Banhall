@@ -18,7 +18,7 @@ import type {
 } from "../seedRuns";
 import type { GenerationClient } from "./openrouterCore";
 import { MalformedOutputError, OutputLimitError, messageText } from "./openrouterCore";
-import { StructuredValidationError, generateStructured } from "./structured";
+import { STRUCTURED_OUTPUT_PROGRAM, StructuredValidationError, generateStructured } from "./structured";
 import { startActionDeadline } from "./actionDeadline";
 import {
   clientForStep,
@@ -29,10 +29,13 @@ import { resolveGenerationCall, stepRequestFields } from "../lib/generationSteps
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import {
   buildSeedPrompt,
+  seedAdvancementLinkIds,
   seedBlock,
+  seedExperimentLinkIds,
   seedPromptProjection,
 } from "./trustedContext";
 import {
+  MAX_SEED_PROMPT_UTF8_BYTES,
   SeedContextLimitError,
   assertSeedPromptWithinLimit,
   type SeedContextSnapshot,
@@ -45,6 +48,7 @@ import {
   MIN_FEEDBACK_SEEDS,
   offeredAdvancementLinks,
   seedAnswerCounts,
+  seedSchemaWithLinks,
   seedToolSchema,
   validateBatch,
   withCheckedSpeakers,
@@ -54,6 +58,7 @@ import {
   type SeedBatchMode,
   type SeedAnswerCounts,
   type SeedReference,
+  type SeedSchemaLinks,
   type SeedReferenceContext,
   type SeedValidationIssueCode,
   type ValidatedSeedCandidate,
@@ -254,6 +259,8 @@ function seedIssueHints(mode: SeedBatchMode, minimum?: number): Record<SeedValid
     // 2026-09-29 (first): an experiment names the uncertainty it tested.
     INVALID_EXPERIMENT_REFERENCE:
       "set uncertaintySeedId to the tested uncertainty from FROZEN EXPERIMENT LINKS",
+    // Never costs a Seed its place (run 7 re-check).
+    FORM_VARIETY_TRIMMED: "",
     INVALID_PROVENANCE: "",
     INVALID_BATCH_SIZE: `return ${min} to ${max} valid Seeds`,
     INSUFFICIENT_TAG_DIVERSITY: "use at least two different tags",
@@ -262,6 +269,46 @@ function seedIssueHints(mode: SeedBatchMode, minimum?: number): Record<SeedValid
 }
 
 const REPAIR_OMITTED = "more issues omitted";
+
+/**
+ * 2026-09-29 (first, run 7 re-check): the offered link ids of a request
+ * with a link block, which its tool schema then requires on every Seed.
+ * Null for a request without one.
+ */
+export function seedSchemaLinksFor(
+  snapshot: SeedContextSnapshot,
+  roleId: Parameters<typeof validateBatch>[0]["roleId"],
+  uncertaintyRoots: Readonly<Record<string, string>> = {}
+): SeedSchemaLinks | null {
+  const advancement = seedAdvancementLinkIds(snapshot, roleId, uncertaintyRoots);
+  if (advancement) {
+    return {
+      roleId: "specific_advancements",
+      uncertaintySeedIds: advancement.links.map((link) => link.uncertaintySeedId),
+      experimentSeedIds: [...new Set(advancement.links.flatMap((link) => link.experimentSeedIds))],
+    };
+  }
+  const experiment = seedExperimentLinkIds(snapshot, roleId);
+  return experiment ? { roleId: "experimentation", uncertaintySeedIds: experiment.uncertaintySeedIds } : null;
+}
+
+/**
+ * 2026-09-29 (first, run 7 re-check): the repair of an invalid answer to a
+ * request with a link block shows that answer as data and asks to keep each
+ * Seed's links unless an issue names it, so a repair for another rule never
+ * loses them. Omitted (null) when the prompt has no room for it.
+ */
+export function seedLinkRepairText(answer: unknown, promptBytes: number): string | null {
+  const text = SEED_PROMPT_PROGRAM.request.linkRepair;
+  const repair = `${text.opening}${seedBlock(text.earlierAnswerLabel, JSON.stringify(answer))}`;
+  const bytes = (value: string) => new TextEncoder().encode(value).byteLength;
+  const reserved =
+    bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix) +
+    bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix) +
+    SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes +
+    SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes;
+  return promptBytes + reserved + bytes(repair) <= MAX_SEED_PROMPT_UTF8_BYTES ? repair : null;
+}
 
 /**
  * Repair feedback the model can act on. The retry never shows the model its
@@ -518,6 +565,7 @@ export const generateBatch = internalAction({
             ...(source.factSpans ? { factSpans: source.factSpans } : {}),
           }))
         : undefined;
+      const schemaLinks = seedSchemaLinksFor(claim.context, claim.batch.roleId, claim.uncertaintyRoots);
       const request = buildSeedPrompt({
         mode,
         objective: claim.role.objective,
@@ -599,7 +647,12 @@ export const generateBatch = internalAction({
         // One schema for every role and mode keeps the cached tools
         // prefix shared; validatedBatchSchema enforces role and mode. A
         // generation that reads fact packs uses the fact schema for all.
-        schema: factMode ? seedToolSchemaForFacts() : seedToolSchema(),
+        // 2026-09-29 (first, run 7 re-check): a request that sends a link
+        // block requires the links on every Seed, from the offered ids.
+        schema: seedSchemaWithLinks(factMode ? seedToolSchemaForFacts() : seedToolSchema(), schemaLinks),
+        ...(schemaLinks
+          ? { invalidAnswerRepair: (answer: unknown) => seedLinkRepairText(answer, request.promptBytes) }
+          : {}),
         maxTokens: SEED_PROMPT_PROGRAM.request.maxTokens,
         model: claim.batch.model,
         attempts: 2,

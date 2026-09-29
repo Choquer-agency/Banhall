@@ -374,10 +374,16 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("names each experiment's uncertainty and makes advancements follow it (2026-09-29, first amendment)", () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-29.4");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-29.5");
     expect(SEED_PROMPT_PROGRAM.user.blocks.experimentLinks).toBe("FROZEN EXPERIMENT LINKS");
     // Run 7: the exact pairs in a repair have their own reserved bytes.
     expect(SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes).toBe(768);
+    // Run 7 re-check: required links in the schema, repairs that keep them,
+    // and the form trim are part of the hashed program.
+    expect(SEED_PROMPT_PROGRAM.request.linkedSchema).toBe("link-fields-required-and-limited-to-offered-ids-when-a-link-block-is-sent");
+    expect(SEED_PROMPT_PROGRAM.request.linkRepair.opening).toContain("Keep each Seed's link fields");
+    expect(SEED_PROMPT_PROGRAM.request.formVariety).toContain("keep-the-first-three-with-two-tags");
+    expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.linkRepair)).not.toMatch(/[\u2013\u2014]/);
     // The experiment block renders after the decisions, before the advancement block.
     const order: readonly string[] = SEED_PROMPT_PROGRAM.user.order;
     expect(order.indexOf("{{runtime.decisions}}")).toBeLessThan(order.indexOf("{{runtime.experimentLinks}}"));
@@ -407,7 +413,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("versions the Seed quote rules (2026-09-27, third amendment)", async () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-29.4");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-29.5");
     expect(SEED_PROMPT_PROGRAM.request.quoteRepair.opening).toContain("Some quotes may not back their idea card.");
     expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.quoteRepair)).not.toMatch(/[\u2013\u2014]/);
     expect(generationPromptProgram.templates.seeds.scaffolds.version).toBe(SEED_PROMPT_PROGRAM.version);

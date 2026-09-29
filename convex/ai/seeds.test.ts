@@ -1613,6 +1613,11 @@ describe("seed Node action request boundary", () => {
     await t.action(generateBatchRef, { batchId: dispatched.batchId });
 
     expect(requests).toHaveLength(2);
+    // The feedback request requires the offered links too (run 2).
+    const feedbackItem = ((await requests[1]!.clone().json()).tools[0].input_schema as {
+      properties: { seeds: { items: { required: string[] } } };
+    }).properties.seeds.items;
+    expect(feedbackItem.required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId", "experimentSeedIds"]);
     const feedbackText = requestText((await requests[1]!.json()).messages[0].content);
     // The mode says one to three; the link rules scope three to five to a fresh Batch.
     expect(feedbackText).toContain("Revise the frozen target wording in response to the frozen feedback instruction: 1 to 3 Seeds.");
@@ -1629,6 +1634,164 @@ describe("seed Node action request boundary", () => {
       [target._id, images, [vision]],
     ]);
     expect(await t.run((ctx) => ctx.db.get(dispatched.batchId))).toMatchObject({ status: "shown", requestsMade: 1 });
+  });
+
+  // Targeted run 2 (2026-09-29, feat ab6a89f6): Subsection 11 answers came
+  // back with no links at all ("missing_link x4"), in a regenerate, a retry
+  // and the repair of an answer whose only fault was bullet form.
+  type ToolSchema = { properties: { seeds: { items: { required: string[]; properties: Record<string, unknown> } } } };
+  const seedItemSchema = async (request: Request) =>
+    ((await request.clone().json()).tools[0].input_schema as ToolSchema).properties.seeds.items;
+  const noLinks = (ids: Id<"seeds">[]) => ({
+    seeds: run7DeburringAnswer(ids).seeds.map(({ uncertaintySeedId: _u, experimentSeedIds: _e, ...rest }) => rest),
+  });
+  const onePairAnswer = (images: Id<"seeds">, vision: Id<"seeds">, camera: Id<"seeds">) => ({
+    seeds: [
+      advancement("Single-angle 2D vision cannot resolve burr height below 0.18 millimetres on cast aluminium.", "conservative", { uncertaintySeedId: images, experimentSeedIds: [vision] }),
+      advancement("Glare on machined faces makes 2D burr height estimates read high.", "technical", { uncertaintySeedId: images, experimentSeedIds: [vision] }),
+      advancement("Structured light 3D gave no better depth resolution than 2D and took 400 milliseconds.", "detailed", { uncertaintySeedId: images, experimentSeedIds: [camera] }),
+    ],
+  });
+
+  it("requires the offered links in the tool schema of every Subsection 11 request type, and repairs a no-links answer keeping its words (run 2)", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
+    const ids = fixture.decisions.map((decision) => decision.seedId);
+    const [images, , vision, camera] = ids;
+    const requests: Request[] = [];
+    const answers: unknown[] = [noLinks(ids), onePairAnswer(images!, vision!, camera!)];
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+      requests.push(new Request(input, init));
+      return providerResponse(answers.shift() ?? noLinks(ids), requests.length);
+    }));
+    const linked = {
+      required: ["bullets", "tags", "provenance", "uncertaintySeedId", "experimentSeedIds"],
+      uncertaintySeedId: { type: "string", enum: [images] },
+      experimentSeedIds: { type: "array", minItems: 1, uniqueItems: true, items: { type: "string", enum: [vision, camera] } },
+    };
+    const expectLinkedSchema = async (request: Request) => {
+      const item = await seedItemSchema(request);
+      expect(item.required).toEqual(linked.required);
+      expect(item.properties.uncertaintySeedId).toEqual(linked.uncertaintySeedId);
+      expect(item.properties.experimentSeedIds).toEqual(linked.experimentSeedIds);
+    };
+
+    // Open: the answer with no links, then its repair.
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+    expect(requests).toHaveLength(2);
+    await expectLinkedSchema(requests[0]!);
+    await expectLinkedSchema(requests[1]!);
+    const repair = requestText((await requests[1]!.json()).messages[0].content);
+    expect(repair).toContain("use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 1, 2, 3, 4)");
+    expect(repair).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.opening);
+    const earlier = linkBlock(repair, SEED_PROMPT_PROGRAM.request.linkRepair.earlierAnswerLabel) as { seeds: Array<{ bullets: string[] }> };
+    expect(earlier.seeds.map((seed) => seed.bullets[0])).toEqual(noLinks(ids).seeds.map((seed) => seed.bullets[0]));
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
+
+    // Regenerate, whose answers keep omitting links, then Retry.
+    const regenerate = await t.mutation(dispatchRef, {
+      generationId: fixture.generationId,
+      roleId: "specific_advancements",
+      operation: "regenerate",
+      commandId: "run2-regenerate",
+      actorUserId: fixture.userId,
+    });
+    if (regenerate.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${regenerate.kind}`);
+    await t.action(generateBatchRef, { batchId: regenerate.batchId });
+    expect(requests).toHaveLength(4);
+    await expectLinkedSchema(requests[2]!);
+    await expectLinkedSchema(requests[3]!);
+    expect(await t.run((ctx) => ctx.db.get(regenerate.batchId))).toMatchObject({ status: "failed", errorDetail: "advancement_links" });
+    answers.push(onePairAnswer(images!, vision!, camera!));
+    const retry = await t.mutation(dispatchRef, {
+      generationId: fixture.generationId,
+      roleId: "specific_advancements",
+      operation: "retry",
+      commandId: "run2-retry",
+      actorUserId: fixture.userId,
+    });
+    if (retry.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${retry.kind}`);
+    await t.action(generateBatchRef, { batchId: retry.batchId });
+    expect(requests).toHaveLength(5);
+    await expectLinkedSchema(requests[4]!);
+    expect(await t.run((ctx) => ctx.db.get(retry.batchId))).toMatchObject({ status: "shown", requestsMade: 1 });
+  });
+
+  it("keeps a Batch whose only fault is bullet form in one request, links untouched, instead of a repair that dropped them (run 2)", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
+    const [images, , vision, camera] = fixture.decisions.map((decision) => decision.seedId);
+    // Four valid one-bullet advancements: the run 2 prefetch's first answer.
+    const four = {
+      seeds: [
+        ...onePairAnswer(images!, vision!, camera!).seeds,
+        advancement("Reflections from machined faces were the main source of 2D error.", "aggressive", { uncertaintySeedId: images, experimentSeedIds: [vision!] }),
+      ],
+    };
+    const transport = vi.fn<typeof fetch>(async () => providerResponse(four, 1));
+    vi.stubGlobal("fetch", transport);
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+    expect(transport).toHaveBeenCalledTimes(1);
+    const persisted = await t.run((ctx) =>
+      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+    );
+    expect(persisted.map((seed) => [seed.bullets[0], seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual(
+      four.seeds.slice(0, 3).map((seed) => [seed.bullets[0], images, seed.experimentSeedIds])
+    );
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 1, seedsDropped: 1 });
+  });
+
+  it("repairs a linked answer for another rule with its earlier links shown and kept (run 2)", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
+    const [images, , vision, camera] = fixture.decisions.map((decision) => decision.seedId);
+    // Three linked advancements sharing one tag: a tag fault, not a link one.
+    const oneTag = {
+      seeds: onePairAnswer(images!, vision!, camera!).seeds.map((seed) => ({ ...seed, tags: ["technical" as const] })),
+    };
+    const requests: Request[] = [];
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+      requests.push(new Request(input, init));
+      return providerResponse(requests.length === 1 ? oneTag : onePairAnswer(images!, vision!, camera!), requests.length);
+    }));
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+    expect(requests).toHaveLength(2);
+    const repair = requestText((await requests[1]!.json()).messages[0].content);
+    expect(repair).toContain("(root): 3 of 3 Seeds valid; use at least two different tags.");
+    expect(repair).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.opening);
+    const earlier = linkBlock(repair, SEED_PROMPT_PROGRAM.request.linkRepair.earlierAnswerLabel) as { seeds: Array<{ uncertaintySeedId: string; experimentSeedIds: string[] }> };
+    expect(earlier.seeds.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual([
+      [images, [vision]],
+      [images, [vision]],
+      [images, [camera]],
+    ]);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
+  });
+
+  it("requires an experiment's tested uncertainty in the schema of an experimentation request with a link block, and nothing else changes for other steps", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, {
+      targetRoleId: "experimentation",
+      decisions: [
+        { roleId: "active_uncertainties", bullets: [startUp] },
+        { roleId: "active_uncertainties", bullets: [dosing] },
+      ],
+    });
+    const [u1, u2] = fixture.decisions.map((decision) => decision.seedId);
+    const requests: Request[] = [];
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+      requests.push(new Request(input, init));
+      return providerResponse({ seeds: validSeeds.map((seed) => ({ ...seed, uncertaintySeedId: u1 })) }, 1);
+    }));
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+    const item = await seedItemSchema(requests[0]!);
+    expect(item.required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId"]);
+    expect(item.properties.uncertaintySeedId).toEqual({ type: "string", enum: [u1, u2].sort() });
+    expect(item.properties).not.toHaveProperty("experimentSeedIds");
+    // A step with no link block keeps the shared schema and its cached prefix.
+    const other = await dispatchedAttempt(t, { targetRoleId: "project_status", decisions: run7Deburring });
+    await t.action(generateBatchRef, { batchId: other.batchId });
+    expect((await requests.at(-1)!.clone().json()).tools[0].input_schema).toEqual(seedToolSchema());
   });
 
   it("still refuses an answer with too few linked advancements, names the exact pairs and records why (run 7)", async () => {

@@ -111,6 +111,7 @@ export type SeedValidationIssueCode =
   | "DUPLICATE_TAG"
   | "INVALID_ADVANCEMENT_REFERENCE"
   | "INVALID_EXPERIMENT_REFERENCE"
+  | "FORM_VARIETY_TRIMMED"
   | "INVALID_PROVENANCE"
   | "INVALID_BATCH_SIZE"
   | "INSUFFICIENT_TAG_DIVERSITY"
@@ -136,7 +137,10 @@ export type SeedValidationIssue = {
 };
 
 /** Issues that never cost a Seed its place. */
-const NON_BLOCKING_ISSUES: ReadonlySet<SeedValidationIssueCode> = new Set(["INVALID_PROVENANCE"]);
+const NON_BLOCKING_ISSUES: ReadonlySet<SeedValidationIssueCode> = new Set([
+  "INVALID_PROVENANCE",
+  "FORM_VARIETY_TRIMMED",
+]);
 
 export type SeedValidationResult =
   | { ok: true; seed: ValidatedSeedCandidate; issues: SeedValidationIssue[] }
@@ -762,6 +766,30 @@ export function validateBatch(args: {
     "INSUFFICIENT_TAG_DIVERSITY",
     "INSUFFICIENT_FORM_DIVERSITY",
   ]);
+  // 2026-09-29 (first, run 7 re-check): four or five valid Seeds whose only
+  // fault is one bullet form keep the first three that still use two tags,
+  // a Batch the form rule does not cover, instead of a repair that rewrites
+  // every Seed and can drop their links. Their links and words are untouched.
+  const batchIssues = issues.filter((issue) => batchIssueCodes.has(issue.code));
+  if (batchIssues.length === 1 && batchIssues[0]!.code === "INSUFFICIENT_FORM_DIVERSITY") {
+    const kept = firstThreeWithTwoTags(seeds);
+    if (kept) {
+      return {
+        ok: true,
+        seeds: kept.map((index) => seeds[index]!),
+        seedIndexes: kept.map((index) => inputIndexes[index]!),
+        dropped: args.seeds.length - kept.length,
+        issues: [
+          ...issues.filter((issue) => issue !== batchIssues[0]),
+          {
+            code: "FORM_VARIETY_TRIMMED",
+            message: `${seeds.length - kept.length} valid Seed(s) left out so the Batch holds three that meet every rule`,
+          },
+        ],
+        minimum: min,
+      };
+    }
+  }
   return {
     ok: !issues.some((issue) => batchIssueCodes.has(issue.code)),
     seeds,
@@ -770,6 +798,19 @@ export function validateBatch(args: {
     issues,
     minimum: min,
   };
+}
+
+/** The first three Seeds, in answer order, that use at least two tags. */
+function firstThreeWithTwoTags(seeds: readonly ValidatedSeedCandidate[]): number[] | null {
+  for (let a = 0; a < seeds.length; a += 1) {
+    for (let b = a + 1; b < seeds.length; b += 1) {
+      for (let c = b + 1; c < seeds.length; c += 1) {
+        const tags = new Set([a, b, c].flatMap((index) => seeds[index]!.tags));
+        if (tags.size >= 2) return [a, b, c];
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -839,6 +880,46 @@ export type SeedToolInputSchema = {
   type: "object";
   [key: string]: unknown;
 };
+
+/**
+ * 2026-09-29 (first, run 7 re-check): the ids a request's link block offers,
+ * which its tool schema then requires on every Seed.
+ */
+export type SeedSchemaLinks =
+  | { roleId: "specific_advancements"; uncertaintySeedIds: readonly string[]; experimentSeedIds: readonly string[] }
+  | { roleId: "experimentation"; uncertaintySeedIds: readonly string[] };
+
+/**
+ * The shared Seed schema, or, when the request sends a link block, a copy
+ * whose Seeds must carry their links, limited to the offered ids: both link
+ * fields for specific advancements, the tested uncertainty (and no
+ * experiment list) for experimentation. The pairing itself stays with
+ * validateSeed. Only these requests leave the shared cached tools prefix.
+ */
+export function seedSchemaWithLinks(
+  schema: SeedToolInputSchema,
+  links: SeedSchemaLinks | null
+): SeedToolInputSchema {
+  if (!links || links.uncertaintySeedIds.length === 0) return schema;
+  const copy = structuredClone(schema) as SeedToolInputSchema & {
+    properties: { seeds: { items: { required: string[]; properties: Record<string, unknown> } } };
+  };
+  const item = copy.properties.seeds.items;
+  item.properties.uncertaintySeedId = { type: "string", enum: [...links.uncertaintySeedIds] };
+  if (links.roleId === "specific_advancements") {
+    item.properties.experimentSeedIds = {
+      type: "array",
+      minItems: 1,
+      uniqueItems: true,
+      items: { type: "string", enum: [...links.experimentSeedIds] },
+    };
+    item.required = [...item.required, "uncertaintySeedId", "experimentSeedIds"];
+  } else {
+    delete item.properties.experimentSeedIds;
+    item.required = [...item.required, "uncertaintySeedId"];
+  }
+  return copy;
+}
 
 /**
  * The forced tool schema every Seed request sends, whatever the role or

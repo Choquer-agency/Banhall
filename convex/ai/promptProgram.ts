@@ -320,7 +320,10 @@ const seedProviderSchema = seedToolSchema();
 // and mode, with SEED_PROMPT_PROGRAM.user.factGuidance.
 const seedFactProviderSchema = seedToolSchemaForFacts();
 const SEED_SCHEMA_POLICY = {
-  provider: "one-schema-for-every-role-and-mode",
+  // 2026-09-29 (first, run 7 re-check): a request that sends a link block
+  // requires the offered links (seedSchemaWithLinks); only those requests
+  // leave the shared cached tools prefix.
+  provider: "one-schema-for-every-role-and-mode-except-requests-with-a-link-block",
   application: "validateBatch-enforces-mode-count-and-role-links",
   factMode: {
     selectedBy: "every-frozen-transcript-has-a-fact-pack",
