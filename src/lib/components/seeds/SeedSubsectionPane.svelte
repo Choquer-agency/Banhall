@@ -684,15 +684,16 @@
     data.items.filter((item) => item.feedbackRequestId === group.requestId && item.seedId !== group.targetSeedId);
 
   // Card columns: one below 800 board pixels (3.5, 3.6), two 412px columns
-  // (board 3.1) until a third fits, then as many columns of at least 400
-  // board pixels (25rem) as fit, sharing the width, so a wide monitor gains
+  // (board 3.1) until a third fits, then as many columns of at least 340
+  // board pixels (21.25rem) as fit, sharing the width, so a wide monitor gains
   // columns instead of leaving the right of the pane empty (2026-09-28 width
-  // pass). The pane is measured in board pixels (its width over the root
-  // scale) because the cards are rem, so a card never drops below 25rem at
-  // any root: 500px at 2560, 375px on a laptop (Greptile G4).
+  // pass: two, three and four columns at 1440, 1920 and 2560). The pane is
+  // measured in board pixels (its width over the root scale) because the
+  // cards are rem, so a card never drops below 21.25rem at any root: 425px at
+  // 2560, wider than the old fixed 400px (Greptile G4; measured 2026-09-29).
   // The width is read on the next frame, so a layout change it causes (a
   // scrollbar appearing) never feeds back into the same observation.
-  const CARD_MIN_WIDTH = 400;
+  const CARD_MIN_WIDTH = 340;
   const CARD_GAP = 8;
   let cardsWidth = $state(0);
   const columns = $derived(

@@ -3741,17 +3741,17 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
   });
 
   it("fills a wide pane with more card columns in reading order and keeps the Outline width", async () => {
-    // 2026-09-28 width pass: columns of at least 400 board pixels (25rem)
+    // 2026-09-28 width pass: columns of at least 340 board pixels (21.25rem)
     // share the pane, rather than two 412px columns at the left of an empty
-    // pane. Greptile G4: the minimum is rem like the cards, so a 2347px pane
-    // at 2560 (20px root) holds three columns, not four of under 500px.
+    // pane. Greptile G4: the minimum is rem like the cards, so at 2560 (20px
+    // root) no card is narrower than 425px, and four columns still fit.
     const fiveSeeds = () => Array.from({ length: 5 }, (_, index) => seed({
       seedId: `seed-wide-${index}` as Id<"seeds">,
       bullets: [`Wide seed ${index + 1} wording.`],
     }));
     for (const [viewport, width, grid, columns] of [
       [1920, "1760px", "three", ["0", "1", "2", "0", "1"]],
-      [2560, "2347px", "three", ["0", "1", "2", "0", "1"]],
+      [2560, "2347px", "four", ["0", "1", "2", "3", "0"]],
       [2560, "2520px", "four", ["0", "1", "2", "3", "0"]],
     ] as const) {
       document.body.innerHTML = "";
@@ -3768,8 +3768,8 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
       const card = (index: number) => document.querySelector<HTMLElement>(`article[data-seed-id="seed-wide-${index}"]`)!.getBoundingClientRect();
       const widths = [0, 1, 2, 3, 4].map((index) => Math.round(card(index).width));
       expect(new Set(widths).size).toBe(1);
-      // Never narrower than 25rem at this window's root.
-      expect(widths[0]).toBeGreaterThanOrEqual(Math.floor(board(400)));
+      // Never narrower than 21.25rem at this window's root.
+      expect(widths[0]).toBeGreaterThanOrEqual(Math.floor(board(340)));
       // The 0.5rem gap (8px at a 16px root) grows with the root above 1600px.
       expect(card(1).left - card(0).right).toBeCloseTo(board(8), 0);
       const grid0 = view.container.querySelector<HTMLElement>("[data-seed-grid]")!.getBoundingClientRect();

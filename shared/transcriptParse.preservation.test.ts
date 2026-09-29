@@ -172,7 +172,9 @@ describe("parser v8 and v9 keep every v7 transcript as it was", () => {
       }
     }
     expect(changed).toEqual([]);
-  });
+    // Parses every fixture transcript twice; on a loaded machine that takes
+    // well over the default five seconds (5.7 to 13.7 s seen on 2026-09-29).
+  }, 30_000);
 
   it("reads an allowed metadata heading as text and moves nothing else", () => {
     const allowed = items.filter(
