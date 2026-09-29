@@ -366,9 +366,11 @@
     const first = linked.bullets[0] ?? "";
     const words = `"${first.length > 80 ? `${first.slice(0, 77).trimEnd()}...` : first}"`;
     if (roleId === "experimentation") {
+      // Readers did not drop it; the writer did (review P3-5).
+      const who = canEdit ? "you no longer have" : "the writer no longer has";
       return linked.picked
         ? { text: `Tested: ${words}`, kind: "tested", dropped: false }
-        : { text: `Tested an uncertainty you no longer have picked: ${words}`, kind: "tested-dropped", dropped: true };
+        : { text: `Tested an uncertainty ${who} picked: ${words}`, kind: "tested-dropped", dropped: true };
     }
     return linked.picked
       ? { text: `Uncertainty: ${words}`, kind: "uncertainty", dropped: false }

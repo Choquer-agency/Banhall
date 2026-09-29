@@ -804,6 +804,10 @@ describe("Seed workspace", () => {
       const reader = document.querySelector("[data-link-notice]")?.textContent ?? "";
       expect(reader).toContain("tested an uncertainty the writer no longer has picked");
       expect(reader).not.toMatch(/Untick|regenerate/);
+      // The card speaks to the reader too (review P3-5).
+      expect(document.querySelector('[data-seed-link="tested-dropped"]')?.textContent).toBe(
+        'Tested an uncertainty the writer no longer has picked: "Whether stepwise acclimation could shorten nitrification start-up below 10 C..."'
+      );
 
       // Once the experiment tests a picked uncertainty, the card says so and approval returns.
       await view.rerender(paneProps(subsection({
