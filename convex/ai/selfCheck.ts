@@ -390,20 +390,110 @@ type RawFinding = {
   kind: ConsistencyFinding["kind"];
   issue: string;
 };
-const SECTION_ENUM = ["242", "244", "246"] as const;
-const consistencyOutputSchema: z.ZodType<{ findings: RawFinding[] }> = z.object({
-  findings: z
-    .array(
-      z.object({
-        section: z.enum(SECTION_ENUM),
-        paragraph: z.number().default(1),
-        sections: z.array(z.enum(SECTION_ENUM)).default([]),
-        kind: z.enum(["contradiction", "excluded_claim", "terminology"]),
-        issue: z.string(),
-      })
-    )
-    .default([]),
-});
+const CONSISTENCY_KINDS = ["contradiction", "excluded_claim", "terminology"] as const;
+
+/**
+ * 2026-09-29 (second, release suite run 6, "Carried old selections"): the
+ * consistency pass failed as a whole ("consistency pass call failed
+ * (unknown)") after its answer and its structured repair both failed
+ * validation (`invalid_output` twice on the checking model), so it never
+ * ran. The same model sent the Self-check's planVerdicts as a string that
+ * day. One badly typed field used to reject every finding; now:
+ * - a findings list sent as a JSON string is read as that list;
+ * - each finding is read on its own, so one unreadable finding is left out
+ *   (counted and logged by position and field, never model text) instead of
+ *   failing the others;
+ * - a section written as a number or a label ("244", 244, "Line 244") and a
+ *   paragraph written as a numeric string are read as meant.
+ * An answer whose findings is neither a list nor a string holding one is
+ * still unreadable and goes to the structured repair, as before.
+ */
+function sectionOf(value: unknown): SectionNumber | undefined {
+  const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+  if (!text || text.length > 40) return undefined;
+  const match = /(?:^|[^0-9])(242|244|246)(?:[^0-9]|$)/.exec(text);
+  return match ? (match[1] as SectionNumber) : undefined;
+}
+
+function consistencyListOf(value: unknown): unknown[] | undefined {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("[")) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function paragraphOf(value: unknown): number | undefined {
+  if (value === undefined || value === null) return 1;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && /^\s*\d+\s*$/.test(value)) return Number(value);
+  return undefined;
+}
+
+type DecodedConsistency = {
+  findings: RawFinding[];
+  /** Findings left out as unreadable, by position and field. Never model text. */
+  unreadable: string[];
+};
+
+function decodeConsistencyFindings(list: readonly unknown[]): DecodedConsistency {
+  const findings: RawFinding[] = [];
+  const unreadable: string[] = [];
+  list.forEach((candidate, index) => {
+    const position = `finding ${index + 1}`;
+    if (!isUnknownRecord(candidate)) {
+      unreadable.push(`${position}: ${jsonTypeOf(candidate)}, not an object`);
+      return;
+    }
+    const section = sectionOf(candidate.section);
+    const paragraph = paragraphOf(candidate.paragraph);
+    const sectionsList = candidate.sections === undefined ? [] : consistencyListOf(candidate.sections);
+    const kind = typeof candidate.kind === "string"
+      ? candidate.kind.trim().toLowerCase().replace(/[\s-]+/g, "_")
+      : "";
+    const issue = typeof candidate.issue === "string" ? candidate.issue.trim() : "";
+    const bad = [
+      ...(section === undefined ? ["section"] : []),
+      ...(paragraph === undefined ? ["paragraph"] : []),
+      ...(sectionsList === undefined ? ["sections"] : []),
+      ...((CONSISTENCY_KINDS as readonly string[]).includes(kind) ? [] : ["kind"]),
+      ...(issue ? [] : ["issue"]),
+    ];
+    if (bad.length > 0 || section === undefined || paragraph === undefined || sectionsList === undefined) {
+      unreadable.push(`${position}: ${bad.join(", ")}`);
+      return;
+    }
+    findings.push({
+      section,
+      paragraph,
+      sections: sectionsList.flatMap((entry) => {
+        const named = sectionOf(entry);
+        return named ? [named] : [];
+      }),
+      kind: kind as RawFinding["kind"],
+      issue,
+    });
+  });
+  return { findings, unreadable };
+}
+
+const consistencyOutputSchema = z
+  .object({ findings: z.unknown().optional() })
+  .superRefine((value, ctx) => {
+    if (value.findings !== undefined && consistencyListOf(value.findings) === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["findings"],
+        message: `not a list (${jsonTypeOf(value.findings)})`,
+      });
+    }
+  })
+  .transform((value) => decodeConsistencyFindings(consistencyListOf(value.findings) ?? []));
 
 function block(label: string, body: string): string {
   return `--- BEGIN [${label}] ---\n${body}\n--- END [${label}] ---`;
@@ -1471,12 +1561,19 @@ export function buildConsistencyUserMessage(input: ConsistencyInput): string {
   return `${CONSISTENCY_REQUEST.userScaffold.prefix}${blocks.join(CONSISTENCY_REQUEST.userScaffold.blockSeparator)}`;
 }
 
+/** What one consistency pass found, and how many findings it could not read. */
+export type ConsistencyPassResult = {
+  findings: ConsistencyFinding[];
+  /** Findings left out because a field could not be read (2026-09-29, second). */
+  unreadable: number;
+};
+
 /** The one structured consistency call over the assembled draft. */
 export async function runConsistencyPass(
   client: GenerationClient,
   input: ConsistencyInput
-): Promise<ConsistencyFinding[]> {
-  const raw = await generateStructured<{ findings: RawFinding[] }>(client, {
+): Promise<ConsistencyPassResult> {
+  const raw = await generateStructured<DecodedConsistency>(client, {
     system: CONSISTENCY_SYSTEM_PROMPT,
     user: buildConsistencyUserMessage(input),
     toolName: CONSISTENCY_REQUEST.toolName,
@@ -1486,10 +1583,15 @@ export async function runConsistencyPass(
     model: input.model,
     validate: consistencyOutputSchema,
   });
+  if (raw.unreadable.length > 0) {
+    console.warn(
+      `${CONSISTENCY_REQUEST.toolName}: left out ${raw.unreadable.length} unreadable finding(s): ${raw.unreadable.slice(0, 5).join("; ")}`
+    );
+  }
   const counts = new Map(
     input.sections.map(({ section, text }) => [section, sectionParagraphs(text).length])
   );
-  return raw.findings
+  const findings = raw.findings
     .filter((finding) => isSectionNumber(finding.section) && counts.has(finding.section))
     .slice(0, CONSISTENCY_REQUEST.maxFindings)
     .map((finding) => ({
@@ -1500,4 +1602,14 @@ export async function runConsistencyPass(
       kind: finding.kind,
       issue: finding.issue.trim(),
     }));
+  return { findings, unreadable: raw.unreadable.length };
+}
+
+/**
+ * Why a consistency pass failed as a whole, safe to store: the failure kind
+ * and the same diagnostic the Self-check stores (validation paths and codes,
+ * or a fixed description), never model text (2026-09-29, second).
+ */
+export function consistencyFailureReason(code: string, error: unknown): string {
+  return `${code}: ${selfCheckFailureDiagnostic(error)}`;
 }

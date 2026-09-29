@@ -42,6 +42,7 @@ import {
   recordCandidateProvenance,
 } from "./pipeline";
 import {
+  consistencyFailureReason,
   runConsistencyPass,
   runFinalCoverageSelfCheck,
   runModelSelfCheck,
@@ -1247,21 +1248,27 @@ export const finalizeOrderedCandidate = internalAction({
         const last = productionOrder[productionOrder.length - 1];
         let notes: ComplianceNoteDraft[];
         try {
-          const findings = await runConsistencyPass(clientFor("generation:consistency"), {
+          const pass = await runConsistencyPass(clientFor("generation:consistency"), {
             sections: drafted,
             claimExclusions: drafts.brief?.claimExclusions.map((entry) => entry.text) ?? [],
             glossaryTerms: drafts.brief?.glossaryTerms ?? [],
             model: clientFor.modelFor("generation:consistency"),
           });
           notes = [
-            ...consistencyNoteDrafts(findings),
-            consistencySummaryNote(last, { ok: true, findings: findings.length }),
+            ...consistencyNoteDrafts(pass.findings),
+            consistencySummaryNote(last, {
+              ok: true,
+              findings: pass.findings.length,
+              unreadable: pass.unreadable,
+            }),
           ];
         } catch (error) {
+          // 2026-09-29 (second): the stored reason names what failed (the
+          // validation path and code, or the failure kind), never model text.
           notes = [
             consistencySummaryNote(last, {
               ok: false,
-              reason: normalizeProviderError(error).code,
+              reason: consistencyFailureReason(normalizeProviderError(error).code, error),
             }),
           ];
         }
@@ -1532,21 +1539,25 @@ export const finalizeSeedRedraft = internalAction({
           },
           { seedPolicy: true }
         );
-        const findings = await runConsistencyPass(consistencyClient, {
+        const pass = await runConsistencyPass(consistencyClient, {
           sections: present,
           claimExclusions: input.brief?.claimExclusions.map((entry) => entry.text) ?? [],
           glossaryTerms: input.brief?.glossaryTerms ?? [],
           model: route.model,
         });
         notes = [
-          ...consistencyNoteDrafts(findings),
-          consistencySummaryNote(last, { ok: true, findings: findings.length }),
+          ...consistencyNoteDrafts(pass.findings),
+          consistencySummaryNote(last, {
+            ok: true,
+            findings: pass.findings.length,
+            unreadable: pass.unreadable,
+          }),
         ];
       } catch (error) {
         notes = [
           consistencySummaryNote(last, {
             ok: false,
-            reason: normalizeProviderError(error).code,
+            reason: consistencyFailureReason(normalizeProviderError(error).code, error),
           }),
         ];
       }

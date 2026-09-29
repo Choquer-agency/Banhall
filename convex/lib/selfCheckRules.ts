@@ -717,10 +717,15 @@ export function consistencyNoteDrafts(
 export function consistencySummaryNote(
   section: SectionNumber,
   outcome:
-    | { ok: true; findings: number }
+    | { ok: true; findings: number; unreadable?: number }
     | { ok: false; reason: string }
     | { ok: false; reportChanged: true }
 ): ComplianceNoteDraft {
+  // 2026-09-29 (second): findings left out as unreadable are counted, so a
+  // pass that could read only part of its answer says so.
+  const unreadable = outcome.ok && (outcome.unreadable ?? 0) > 0
+    ? `; ${outcome.unreadable} more ${outcome.unreadable === 1 ? "finding" : "findings"} could not be read and ${outcome.unreadable === 1 ? "was" : "were"} left out`
+    : "";
   return noteDraft({
     section,
     source: "deterministic",
@@ -728,7 +733,7 @@ export function consistencySummaryNote(
     outcome: outcome.ok ? "applied" : "not_applied",
     tier: "none",
     reason: outcome.ok
-      ? `consistency pass ran over the assembled draft: ${outcome.findings} finding(s)`
+      ? `consistency pass ran over the assembled draft: ${outcome.findings} finding(s)${unreadable}`
       : "reportChanged" in outcome
         ? "consistency pass skipped: the report changed while it ran, so no findings were stored"
         : `consistency pass call failed (${outcome.reason})`,

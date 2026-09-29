@@ -703,6 +703,11 @@ export const generationPromptProgram = {
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:consistency",
       perCandidate: 1,
+      // 2026-09-29 (second, release suite run 6): each finding is read on
+      // its own, a findings list sent as a JSON string is read as that list,
+      // and an unreadable finding is left out and counted; a pass that fails
+      // as a whole stores why (validation path and code, never model text).
+      readPolicy: "each-finding-read-on-its-own-string-lists-read-unreadable-counted",
     },
     qa: {
       kind: "structured",
