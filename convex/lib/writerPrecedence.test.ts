@@ -205,6 +205,11 @@ describe("Glossary Terms the writer's wording sets aside (2026-09-29 second, CAP
       "Say Grandbois, Quebec.",
       "The floating head is allowed.",
       "Floating head is permitted here.",
+      // PR #22 review, round 3: a double negative keeps the term.
+      "Floating head is not allowed to be removed.",
+      "The floating head isn't permitted to be changed.",
+      "Floating heads are not allowed to be replaced or dropped.",
+      "Floating head is not OK to cut.",
     ]) {
       expect(rulesOut(instruction), instruction).toBe(false);
     }
