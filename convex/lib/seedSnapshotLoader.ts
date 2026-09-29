@@ -419,3 +419,45 @@ export async function loadFrozenSeedActionInput(
     lengthTarget: args.generation.lengthTarget ?? "standard",
   };
 }
+
+/** Bounds one revision chain walk; Feedback chains are far shorter. */
+const MAX_REVISION_HOPS = 64;
+
+/**
+ * 2026-09-29 (first, review P2-2): the first Seed of the revision chain of
+ * every uncertainty a frozen snapshot names (its uncertainty selections and
+ * the uncertainties its experiments tested), so the Seed contract and the
+ * FROZEN ADVANCEMENT LINKS block count an uncertainty and its Feedback
+ * revisions as one. Only ids whose root differs are listed. `revisionOfSeedId`
+ * never changes after a Seed is written, so the claim and the completion of
+ * one attempt read the same answer. Empty when no experiment names one.
+ */
+export async function loadUncertaintyRoots(
+  ctx: SeedReadCtx,
+  snapshot: SeedContextSnapshot,
+): Promise<Record<string, string>> {
+  const selections = snapshot.items.filter((item) => item.kind === "selection");
+  const tags = selections.flatMap((item) =>
+    item.roleId === "experimentation" && item.uncertaintySeedId ? [item.uncertaintySeedId] : [],
+  );
+  if (tags.length === 0) return {};
+  const ids = new Set([
+    ...selections.flatMap((item) => (item.roleId === "active_uncertainties" ? [item.seedId] : [])),
+    ...tags,
+  ]);
+  const roots: Record<string, string> = {};
+  for (const id of ids) {
+    let current = id;
+    const seen = new Set([id]);
+    for (let hop = 0; hop < MAX_REVISION_HOPS; hop += 1) {
+      const seedId = ctx.db.normalizeId("seeds", current);
+      const seed = seedId ? await ctx.db.get(seedId) : null;
+      const parent = seed?.revisionOfSeedId;
+      if (!parent || seen.has(parent)) break;
+      seen.add(parent);
+      current = parent;
+    }
+    if (current !== id) roots[id] = current;
+  }
+  return roots;
+}

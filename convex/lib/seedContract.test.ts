@@ -211,38 +211,36 @@ describe("seed contract", () => {
         referenceContext: { generationId: "generation-1", references },
       }).ok
     ).toBe(true);
+    // 2026-09-29 (first, review P3-3): with no member of this generation to
+    // link, no list was sent, so links the model sends anyway are dropped,
+    // never stored, and the Seed is kept unlinked (it cannot be approved).
+    for (const referenceContext of [
+      { generationId: "generation-2", references },
+      {
+        generationId: "generation-1",
+        references: references.map((reference) => ({ ...reference, active: false })),
+      },
+      {
+        generationId: "generation-1",
+        references: references.map((reference) =>
+          reference.seedId === "experiment-1"
+            ? { ...reference, roleId: "workplan" as const }
+            : reference
+        ),
+      },
+    ]) {
+      const kept = validateSeed({ roleId: "specific_advancements", seed, referenceContext });
+      expect(kept.ok).toBe(true);
+      if (!kept.ok) continue;
+      expect(kept.seed).not.toHaveProperty("uncertaintySeedId");
+      expect(kept.seed).not.toHaveProperty("experimentSeedIds");
+    }
+    // While a link can be made, a link to a non-member is refused.
     expect(
       validateSeed({
         roleId: "specific_advancements",
-        seed,
-        referenceContext: {
-          generationId: "generation-2",
-          references,
-        },
-      }).ok
-    ).toBe(false);
-    expect(
-      validateSeed({
-        roleId: "specific_advancements",
-        seed,
-        referenceContext: {
-          generationId: "generation-1",
-          references: references.map((reference) => ({ ...reference, active: false })),
-        },
-      }).ok
-    ).toBe(false);
-    expect(
-      validateSeed({
-        roleId: "specific_advancements",
-        seed,
-        referenceContext: {
-          generationId: "generation-1",
-          references: references.map((reference) =>
-            reference.seedId === "experiment-1"
-              ? { ...reference, roleId: "workplan" as const }
-              : reference
-          ),
-        },
+        seed: candidate([one], ["technical"], { uncertaintySeedId: "uncertainty-1", experimentSeedIds: ["experiment-9"] }),
+        referenceContext: { generationId: "generation-1", references },
       }).ok
     ).toBe(false);
   });
@@ -427,13 +425,49 @@ describe("an advancement follows the uncertainty its experiments tested (2026-09
       reference("trial-1", "experimentation", "u1-startup"),
       reference("trial-2", "experimentation", "u1-startup"),
     ];
-    // The Seed model's run 6 answer: start-up findings linked to the sensor uncertainty.
+    // No picked uncertainty was tested by a picked experiment, so no link
+    // list was sent. The Seed model's run 6 answer (start-up findings linked
+    // to the sensor uncertainty) is kept with its links dropped, never
+    // stored as a link (review P3-3), and cannot be approved.
     const relinked = check(advancement("u3-sensors", ["trial-1", "trial-2"]), run6);
-    expect(relinked.ok).toBe(false);
-    expect(relinked.issues.map((issue) => issue.code)).toContain("INVALID_ADVANCEMENT_REFERENCE");
-    // No picked uncertainty was tested by a picked experiment, so an
-    // unlinked Seed is kept (it cannot be approved) instead of failing the Batch.
+    expect(relinked.ok).toBe(true);
+    if (relinked.ok) {
+      expect(relinked.seed).not.toHaveProperty("uncertaintySeedId");
+      expect(relinked.seed).not.toHaveProperty("experimentSeedIds");
+    }
     expect(check(candidate([one]), run6).ok).toBe(true);
+    // With a pair on offer, the same crossed link is refused.
+    const withPair = [...run6, reference("trial-5", "experimentation", "u3-sensors")];
+    const crossed = check(advancement("u3-sensors", ["trial-1"]), withPair);
+    expect(crossed.ok).toBe(false);
+    expect(crossed.issues.map((issue) => issue.code)).toContain("INVALID_ADVANCEMENT_REFERENCE");
+  });
+
+  it("counts an uncertainty and its Feedback revisions as one (review P2-2)", () => {
+    // The writer revised the start-up uncertainty through Feedback and
+    // picked the revision; the trials still name the original.
+    const references = [
+      reference("u1-revised", "active_uncertainties"),
+      reference("trial-1", "experimentation", "u1-startup"),
+    ];
+    const referenceContext = {
+      generationId: "generation-1",
+      references,
+      uncertaintyRoots: { "u1-revised": "u1-startup" },
+    };
+    const linkedToRevision = validateSeed({
+      roleId: "specific_advancements",
+      seed: advancement("u1-revised", ["trial-1"]),
+      referenceContext,
+    });
+    expect(linkedToRevision.ok).toBe(true);
+    if (linkedToRevision.ok) expect(linkedToRevision.seed.uncertaintySeedId).toBe("u1-revised");
+    // Without the revision chain no link could be made, so it would be dropped.
+    const idOnly = check(advancement("u1-revised", ["trial-1"]), references);
+    expect(idOnly.ok && idOnly.seed.uncertaintySeedId).toBe(undefined);
+    expect(
+      validateSeed({ roleId: "specific_advancements", seed: candidate([one]), referenceContext }).ok
+    ).toBe(false);
   });
 
   it("accepts an advancement whose experiments all tested its uncertainty, and refuses a mixed one", () => {
@@ -484,11 +518,12 @@ describe("an advancement follows the uncertainty its experiments tested (2026-09
       expect(refused.ok).toBe(false);
       expect(refused.issues.map((issue) => issue.code)).toContain("INVALID_EXPERIMENT_REFERENCE");
     }
-    // With no uncertainty picked yet, an experiment carries no link.
+    // With no uncertainty picked yet, an experiment carries no link: one the
+    // model sends anyway is dropped (review P3-3), never stored.
     expect(check(candidate([one]), [], "experimentation").ok).toBe(true);
-    expect(
-      check(candidate([one], ["technical"], { uncertaintySeedId: "u1-startup" }), [], "experimentation").ok
-    ).toBe(false);
+    const unrequested = check(candidate([one], ["technical"], { uncertaintySeedId: "u1-startup" }), [], "experimentation");
+    expect(unrequested.ok).toBe(true);
+    if (unrequested.ok) expect(unrequested.seed).not.toHaveProperty("uncertaintySeedId");
   });
 });
 

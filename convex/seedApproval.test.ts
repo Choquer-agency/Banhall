@@ -1537,6 +1537,74 @@ describe("public seed approval", () => {
     });
   });
 
+  test("approves experiments whose uncertainty the writer revised through Feedback, and shows the revision (review P2-2)", async () => {
+    const fixture = await approvalFixture({
+      roleId: "experimentation",
+      bullet: "Trial one reached full nitrification in 31 days at 8 C.",
+    });
+    const startUp = await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether acclimation could shorten start-up below 10 C was unknown.",
+      selected: false,
+    });
+    const revised = await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether acclimated seed reaches full nitrification within five weeks at 8 C was unknown.",
+      selected: true,
+    });
+    await fixture.t.run(async (ctx) => {
+      await ctx.db.patch(revised, { revisionOfSeedId: startUp });
+      await ctx.db.patch(fixture.seedId, { uncertaintySeedId: startUp });
+    });
+    await skipLaterSteps(fixture, [
+      "overall_advancement",
+      "specific_advancements",
+      "project_status",
+      "goal_improvements",
+    ]);
+    const view = await subsection(fixture);
+    expect(view.linkNotice).toBeUndefined();
+    expect(view.items.find((item) => item.seedId === fixture.seedId)?.linkedUncertainty).toEqual({
+      seedId: revised,
+      bullets: ["Whether acclimated seed reaches full nitrification within five weeks at 8 C was unknown."],
+      picked: true,
+    });
+    await approveExact(fixture);
+    await expect(fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId))).resolves.toMatchObject({
+      state: "approved",
+    });
+  });
+
+  test("approves an advancement that names the original of a revised uncertainty its experiment tested (review P2-2)", async () => {
+    const fixture = await approvalFixture({ roleId: "specific_advancements" });
+    const startUp = await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether acclimation could shorten start-up below 10 C was unknown.",
+      selected: false,
+    });
+    const revised = await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether acclimated seed reaches full nitrification within five weeks at 8 C was unknown.",
+      selected: true,
+    });
+    const trial = await linkSeed(fixture, {
+      roleId: "experimentation",
+      bullet: "Trial one reached full nitrification in 31 days at 8 C.",
+      selected: true,
+      uncertaintySeedId: revised,
+    });
+    await fixture.t.run(async (ctx) => {
+      await ctx.db.patch(revised, { revisionOfSeedId: startUp });
+      await ctx.db.patch(fixture.seedId, { uncertaintySeedId: startUp, experimentSeedIds: [trial] });
+    });
+    await skipLaterSteps(fixture, ["project_status", "goal_improvements"]);
+    expect((await subsection(fixture)).linkNotice).toBeUndefined();
+    await approveExact(fixture);
+    await expect(fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId))).resolves.toMatchObject({
+      state: "approved",
+    });
+  });
+
   test("approves out of order and prefetches only its first untouched successor", async () => {
     const fixture = await approvalFixture({ roleId: "passive_limitations" });
     await fixture.t.run(async (ctx) => {

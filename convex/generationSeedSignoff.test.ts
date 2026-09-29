@@ -1996,6 +1996,73 @@ describe("seed Summary sign-off and recovery", () => {
     expect(plans.s246.editedTerms).toEqual([]);
   });
 
+  it("freezes a revised uncertainty into the plan for experiments and advancements that named the original (2026-09-29 first, review P2-2)", async () => {
+    const s = await productionInitializedFixture();
+    await makeReady(s);
+    // The experiment names the original uncertainty; the writer then picks a
+    // Feedback revision of it and unticks the original.
+    const ids = await s.t.run(async (ctx) => {
+      const selected = async (roleId: PdSubsectionRoleId) =>
+        (await ctx.db.query("seedSelections")
+          .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", roleId))
+          .take(10)).filter((row) => row.selected);
+      const [uncertaintyRow] = await selected("active_uncertainties");
+      const [experimentRow] = await selected("experimentation");
+      if (!uncertaintyRow || !experimentRow) throw new Error("Missing linked selections");
+      const original = await ctx.db.get(uncertaintyRow.seedId);
+      if (!original) throw new Error("Missing uncertainty");
+      await ctx.db.patch(experimentRow.seedId, { uncertaintySeedId: original._id });
+      const revised = await ctx.db.insert("seeds", {
+        projectId: s.projectId,
+        generationId: s.generationId,
+        batchId: original.batchId,
+        roleId: "active_uncertainties",
+        order: 1,
+        bullets: ["Revised active_uncertainties wording."],
+        tags: ["technical"],
+        support: "source_supported",
+        originalSupport: "source_supported",
+        revisionOfSeedId: original._id,
+      });
+      await ctx.db.insert("seedSelections", {
+        projectId: s.projectId,
+        generationId: s.generationId,
+        seedId: revised,
+        roleId: "active_uncertainties",
+        selected: true,
+        selectedAt: 7,
+        version: 1,
+      });
+      await ctx.db.patch(uncertaintyRow._id, { selected: false });
+      return { original: original._id, revised, experiment: experimentRow.seedId };
+    });
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const frozen = await s.t.run(async (ctx) => {
+      const generation = await ctx.db.get(s.generationId);
+      if (!generation) throw new Error("Missing generation");
+      const items = await ctx.db.query("summaryItems")
+        .withIndex("by_projectId", (q) => q.eq("projectId", s.projectId))
+        .take(30);
+      return {
+        items,
+        s244: await loadFrozenSectionPlan(ctx, generation, "244"),
+        s246: await loadFrozenSectionPlan(ctx, generation, "246"),
+      };
+    });
+    const linked = frozen.items.filter((item) => item.roleId === "experimentation" || item.roleId === "specific_advancements");
+    expect(linked.length).toBeGreaterThanOrEqual(3);
+    for (const item of linked) expect(item.uncertaintySeedId).toBe(ids.revised);
+    expect(frozen.items.some((item) => item.seedId === ids.original)).toBe(false);
+    // Line 244 reads the revision as the experiment's uncertainty, and the
+    // two advancements stay one merged advancement.
+    expect(frozen.s244.planBlock).toContain("Revised active_uncertainties wording.");
+    const advancementChecks = frozen.s246.planChecks.filter((check) => check.roleId === "specific_advancements");
+    expect(advancementChecks.every((check) => check.mergedItemIds.length === 2)).toBe(true);
+  });
+
   it("attributes initialization-to-sign-off program drift at the first provider boundary", async () => {
     const s = await productionInitializedFixture();
     await makeReady(s);

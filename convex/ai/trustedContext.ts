@@ -22,6 +22,7 @@ import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import {
   allowedAdvancementLinks,
+  pickedUncertaintyFor,
   type AllowedAdvancementLink,
 } from "../../shared/advancementLinks";
 import { readsFactPacks } from "../lib/seedFacts";
@@ -734,7 +735,8 @@ function seedSnapshotOf(
  */
 export function seedAdvancementLinkIds(
   snapshot: SeedContextSnapshot,
-  roleId: PdSubsectionRoleId
+  roleId: PdSubsectionRoleId,
+  uncertaintyRoots: Readonly<Record<string, string>> = {}
 ): { links: AllowedAdvancementLink[] } | null {
   if (roleId !== "specific_advancements") return null;
   const selections = snapshot.items.filter((item) => item.kind === "selection");
@@ -744,9 +746,32 @@ export function seedAdvancementLinkIds(
       item.roleId === "experimentation"
         ? [{ seedId: item.seedId, uncertaintySeedId: item.uncertaintySeedId ?? null }]
         : []
-    )
+    ),
+    (seedId) => uncertaintyRoots[seedId] ?? seedId
   );
   return links.length > 0 ? { links } : null;
+}
+
+/**
+ * 2026-09-29 (first, review P2-2): in the decisions sent to the model, an
+ * experiment whose uncertainty was revised through Feedback names the
+ * picked revision (or original) instead, so every id it reads is one the
+ * decisions list. The frozen snapshot and its hashes are unchanged.
+ */
+function withPickedTestedUncertainties(
+  items: readonly SeedContextItem[],
+  uncertaintyRoots: Readonly<Record<string, string>>
+): SeedContextItem[] {
+  if (Object.keys(uncertaintyRoots).length === 0) return [...items];
+  const rootOf = (seedId: string) => uncertaintyRoots[seedId] ?? seedId;
+  const picked = items.flatMap((item) =>
+    item.kind === "selection" && item.roleId === "active_uncertainties" ? [item.seedId] : []
+  );
+  return items.map((item) => {
+    if (item.kind !== "selection" || item.roleId !== "experimentation" || !item.uncertaintySeedId) return item;
+    const standIn = pickedUncertaintyFor(item.uncertaintySeedId, picked, rootOf);
+    return standIn && standIn !== item.uncertaintySeedId ? { ...item, uncertaintySeedId: standIn } : item;
+  });
 }
 
 /**
@@ -767,11 +792,12 @@ export function seedExperimentLinkIds(
 
 export function seedPromptProjection(
   snapshot: SeedContextSnapshot,
-  roleId?: PdSubsectionRoleId
+  roleId?: PdSubsectionRoleId,
+  uncertaintyRoots: Readonly<Record<string, string>> = {}
 ) {
-  const links = roleId ? seedAdvancementLinkIds(snapshot, roleId) : null;
+  const links = roleId ? seedAdvancementLinkIds(snapshot, roleId, uncertaintyRoots) : null;
   const tested = roleId ? seedExperimentLinkIds(snapshot, roleId) : null;
-  const decisions = snapshot.items.filter(
+  const decisions = withPickedTestedUncertainties(snapshot.items, uncertaintyRoots).filter(
     (item) =>
       item.kind === "selection" ||
       item.kind === "skip" ||

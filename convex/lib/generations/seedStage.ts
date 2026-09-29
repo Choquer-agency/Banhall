@@ -46,7 +46,8 @@ import { requireReportEditAccess } from "../roleCapabilities";
 import { limitGenerationStart } from "../aiRateLimits";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
 import { readSeedReadiness } from "../seedReadiness";
-import { matchesSeedExclusion } from "../seedApproval";
+import { matchesSeedExclusion, pickedLinks } from "../seedApproval";
+import { pickedUncertaintyFor } from "../../../shared/advancementLinks";
 import { terminateSeedAttempts } from "../../seedRuns";
 import { bypassSeedEpisodes } from "../seedDecisionWrites";
 import { appendGenerationProgress } from "../generationProgress";
@@ -480,6 +481,19 @@ export async function signOffSeedStageHandler(
     signedOffBy: user._id,
     signedOffAt: now,
   });
+  // 2026-09-29 (first, review P2-2): an experiment or advancement that names
+  // an uncertainty later revised through Feedback names the picked revision
+  // (or original) in the frozen plan, so the plan only refers to uncertainties
+  // it holds and advancements sharing one uncertainty are merged.
+  const links = pickedLinks(state);
+  const planUncertainty = (seed: Doc<"seeds">): Id<"seeds"> | undefined => {
+    if (!seed.uncertaintySeedId) return undefined;
+    if (seed.roleId !== "experimentation" && seed.roleId !== "specific_advancements") return seed.uncertaintySeedId;
+    return (
+      (pickedUncertaintyFor(seed.uncertaintySeedId, links.uncertaintySeedIds, links.rootOf) as Id<"seeds"> | null) ??
+      seed.uncertaintySeedId
+    );
+  };
   const frozenItems: Array<{
     _id: Id<"summaryItems">;
     itemId: Id<"summaryItems">;
@@ -515,7 +529,7 @@ export async function signOffSeedStageHandler(
       support: selection.editedBullets ? "writer_asserted" : seed.support,
       tags: seed.tags,
       edited: selection.editedBullets !== undefined,
-      ...(seed.uncertaintySeedId ? { uncertaintySeedId: seed.uncertaintySeedId } : {}),
+      ...(planUncertainty(seed) ? { uncertaintySeedId: planUncertainty(seed) } : {}),
       ...(seed.experimentSeedIds ? { experimentSeedIds: seed.experimentSeedIds } : {}),
       ...(confirmedExclusion ? { confirmedExclusion: true } : {}),
     });
@@ -526,7 +540,7 @@ export async function signOffSeedStageHandler(
       kind: subsection?.kind ?? "standard",
       bullets,
       support: selection.editedBullets ? "writer_asserted" : seed.support,
-      ...(seed.uncertaintySeedId ? { uncertaintySeedId: seed.uncertaintySeedId } : {}),
+      ...(planUncertainty(seed) ? { uncertaintySeedId: planUncertainty(seed) } : {}),
       ...(seed.experimentSeedIds ? { experimentSeedIds: seed.experimentSeedIds } : {}),
       ...(confirmedExclusion ? { confirmedExclusion: true } : {}),
       seedId: seed._id,

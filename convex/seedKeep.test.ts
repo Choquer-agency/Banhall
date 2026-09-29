@@ -165,6 +165,38 @@ describe("keep later steps after an earlier change", () => {
     expect(await staleOf(s, experiment.rowId)).toBe(true);
   });
 
+  it("keeps experiments whose uncertainty the writer revised through Feedback (review P2-2)", async () => {
+    const s = await decisionFixture();
+    const uncertainty = await addDecisionSeed(s, "active_uncertainties");
+    await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: uncertainty.seedId, selected: true });
+    const experiment = await approvedLaterStep(s, "experimentation");
+    await s.t.run((ctx) => ctx.db.patch(experiment.seedId, { uncertaintySeedId: uncertainty.seedId }));
+    // A Feedback revision of the uncertainty replaces the original.
+    const revised = await s.t.run(async (ctx) => {
+      const original = await ctx.db.get(uncertainty.seedId);
+      if (!original) throw Error();
+      return await ctx.db.insert("seeds", {
+        projectId: s.projectId,
+        generationId: s.generationId,
+        batchId: original.batchId,
+        roleId: "active_uncertainties",
+        order: 1,
+        bullets: ["Reworded frozen wording."],
+        tags: ["technical"],
+        support: "source_supported",
+        originalSupport: "source_supported",
+        revisionOfSeedId: original._id,
+      });
+    });
+    await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: revised, selected: true });
+    await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: uncertainty.seedId, selected: false });
+    expect(await staleOf(s, experiment.rowId)).toBe(true);
+    const result = await s.writer.mutation(keep, { ...args(s, await version(s), "active_uncertainties"), scope: "later" });
+    expect(result.kept).toEqual(["experimentation"]);
+    expect(result.needsAttention).toEqual([]);
+    expect(await staleOf(s, experiment.rowId)).toBe(false);
+  });
+
   it("writes nothing when no later step is marked for review", async () => {
     const s = await decisionFixture();
     await addDecisionSeed(s);

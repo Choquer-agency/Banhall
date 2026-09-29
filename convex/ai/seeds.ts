@@ -337,6 +337,8 @@ function validatedBatchSchema(args: {
   mode: Parameters<typeof validateBatch>[0]["mode"];
   generationId: string;
   snapshot: SeedContextSnapshot;
+  /** 2026-09-29 (first, review P2-2): an uncertainty and its revisions are one. */
+  uncertaintyRoots?: Readonly<Record<string, string>>;
   sources: readonly FrozenSeedSource[];
   /**
    * 2026-09-24 (transcript method): set when every transcript is read
@@ -366,7 +368,11 @@ function validatedBatchSchema(args: {
         roleId: args.roleId,
         mode: args.mode,
         seeds,
-        referenceContext: { generationId: args.generationId, references },
+        referenceContext: {
+          generationId: args.generationId,
+          references,
+          ...(args.uncertaintyRoots ? { uncertaintyRoots: args.uncertaintyRoots } : {}),
+        },
         frozenSources: args.sources,
       });
       if (!result.ok) {
@@ -481,7 +487,7 @@ export const generateBatch = internalAction({
           contentHash: source.contentHash,
           ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
         })),
-        projection: seedPromptProjection(claim.context, claim.batch.roleId),
+        projection: seedPromptProjection(claim.context, claim.batch.roleId, claim.uncertaintyRoots),
         writerSettings: claim.input.writerSettings,
         lengthTarget: claim.input.lengthTarget,
       });
@@ -562,6 +568,7 @@ export const generateBatch = internalAction({
           mode,
           generationId: claim.batch.generationId,
           snapshot: claim.context,
+          uncertaintyRoots: claim.uncertaintyRoots,
           sources,
           ...(factSources ? { factSources } : {}),
           onRejected: (result) => {

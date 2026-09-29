@@ -12,6 +12,7 @@ import {
   advancementLinkProblem,
   experimentsForDroppedUncertainties,
   pickedLinkSelections,
+  revisionRoots,
   type ExperimentTest,
 } from "../../shared/advancementLinks";
 import {
@@ -105,14 +106,20 @@ function linkReview(input: SeedReadinessInput): {
     }
   }
 
-  const picked = pickedLinkSelections(uncertaintySeedIds, experiments);
+  // An uncertainty and its Feedback revisions are one uncertainty (review
+  // P2-2); the loaded decisions carry every selected Seed's ancestors.
+  const rootOf = revisionRoots(
+    input.seeds.map((seed) => ({ seedId: seed._id, revisionOfSeedId: seed.revisionOfSeedId ?? null }))
+  );
+  const picked = pickedLinkSelections(uncertaintySeedIds, experiments, rootOf);
   return {
     advancementsLinked: advancements.every(
       (seed) => seed !== undefined && advancementLinkProblem(seed, picked) === null
     ),
     droppedUncertaintyExperiments: experimentsForDroppedUncertainties(
       picked.uncertaintySeedIds,
-      experiments
+      experiments,
+      rootOf
     ).length,
   };
 }

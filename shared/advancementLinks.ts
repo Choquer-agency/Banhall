@@ -10,6 +10,11 @@
  * records no uncertainty (written before this rule, or before any
  * uncertainty was picked) may support any picked uncertainty, as before.
  *
+ * An uncertainty and its revisions (Feedback revised Seeds, found through
+ * `revisionOfSeedId`) are the same uncertainty here: every comparison goes
+ * through `rootOf`, which names the first Seed of a revision chain. Without
+ * one, ids compare exactly.
+ *
  * One pure rule for the Seed contract, approval, readiness, the step's
  * notices and the release suite. Ids are plain strings so the Convex code,
  * the app and the release suite can all use it.
@@ -21,10 +26,42 @@ export type ExperimentTest = {
   uncertaintySeedId: string | null;
 };
 
+/** Names the first Seed of an uncertainty's revision chain. */
+export type UncertaintyRoot = (seedId: string) => string;
+
+const sameId: UncertaintyRoot = (seedId) => seedId;
+
+/**
+ * The root of each Seed's revision chain, from Seeds that know their
+ * parent. A Seed whose parent is not given is its own root; a chain longer
+ * than the Seeds given, or a cycle, stops where it is.
+ */
+export function revisionRoots(
+  seeds: Iterable<{ seedId: string; revisionOfSeedId?: string | null }>
+): UncertaintyRoot {
+  const parent = new Map<string, string>();
+  for (const seed of seeds) {
+    if (seed.revisionOfSeedId) parent.set(seed.seedId, seed.revisionOfSeedId);
+  }
+  return (seedId) => {
+    let current = seedId;
+    const seen = new Set<string>([current]);
+    for (;;) {
+      const next = parent.get(current);
+      if (next === undefined || seen.has(next)) return current;
+      seen.add(next);
+      current = next;
+    }
+  };
+}
+
 /** What is picked now: uncertainties, and each experiment with what it tested. */
 export type PickedLinkSelections = {
   uncertaintySeedIds: ReadonlySet<string>;
   experiments: ReadonlyMap<string, string | null>;
+  rootOf: UncertaintyRoot;
+  /** The roots of the picked uncertainties. */
+  uncertaintyRoots: ReadonlySet<string>;
 };
 
 /**
@@ -42,13 +79,17 @@ export type AdvancementLinkProblem =
 
 export function pickedLinkSelections(
   uncertaintySeedIds: Iterable<string>,
-  experiments: Iterable<ExperimentTest>
+  experiments: Iterable<ExperimentTest>,
+  rootOf: UncertaintyRoot = sameId
 ): PickedLinkSelections {
+  const uncertainties = new Set(uncertaintySeedIds);
   return {
-    uncertaintySeedIds: new Set(uncertaintySeedIds),
+    uncertaintySeedIds: uncertainties,
     experiments: new Map(
       [...experiments].map((experiment) => [experiment.seedId, experiment.uncertaintySeedId])
     ),
+    rootOf,
+    uncertaintyRoots: new Set([...uncertainties].map(rootOf)),
   };
 }
 
@@ -62,14 +103,15 @@ export function advancementLinkProblem(
   const uncertainty = advancement.uncertaintySeedId;
   const experiments = advancement.experimentSeedIds ?? [];
   if (!uncertainty || experiments.length === 0) return "missing";
-  if (!picked.uncertaintySeedIds.has(uncertainty)) return "uncertainty_not_picked";
+  const root = picked.rootOf(uncertainty);
+  if (!picked.uncertaintyRoots.has(root)) return "uncertainty_not_picked";
   if (experiments.some((seedId) => !picked.experiments.has(seedId))) {
     return "experiment_not_picked";
   }
   if (
     experiments.some((seedId) => {
       const tested = picked.experiments.get(seedId);
-      return !!tested && tested !== uncertainty;
+      return !!tested && picked.rootOf(tested) !== root;
     })
   ) {
     return "experiment_tested_other";
@@ -84,23 +126,25 @@ export type AllowedAdvancementLink = {
 
 /**
  * For each picked uncertainty, in the order given, the picked experiments an
- * advancement for it may link: those that tested it and those that record no
- * uncertainty. An uncertainty no picked experiment tested is left out, so an
- * empty list means no advancement can be linked.
+ * advancement for it may link: those that tested it (or a revision of it)
+ * and those that record no uncertainty. An uncertainty no picked experiment
+ * tested is left out, so an empty list means no advancement can be linked.
  */
 export function allowedAdvancementLinks(
   uncertaintySeedIds: readonly string[],
-  experiments: readonly ExperimentTest[]
+  experiments: readonly ExperimentTest[],
+  rootOf: UncertaintyRoot = sameId
 ): AllowedAdvancementLink[] {
   const links: AllowedAdvancementLink[] = [];
   for (const uncertaintySeedId of new Set(uncertaintySeedIds)) {
+    const root = rootOf(uncertaintySeedId);
     const experimentSeedIds = [
       ...new Set(
         experiments
           .filter(
             (experiment) =>
               experiment.uncertaintySeedId === null ||
-              experiment.uncertaintySeedId === uncertaintySeedId
+              rootOf(experiment.uncertaintySeedId) === root
           )
           .map((experiment) => experiment.seedId)
       ),
@@ -112,15 +156,31 @@ export function allowedAdvancementLinks(
 
 /**
  * Picked experiments that tested an uncertainty the writer no longer has
- * picked. An experiment that records no uncertainty is never one of them.
+ * picked, in any of its revisions. An experiment that records no
+ * uncertainty is never one of them.
  */
 export function experimentsForDroppedUncertainties(
   uncertaintySeedIds: ReadonlySet<string>,
-  experiments: readonly ExperimentTest[]
+  experiments: readonly ExperimentTest[],
+  rootOf: UncertaintyRoot = sameId
 ): ExperimentTest[] {
+  const roots = new Set([...uncertaintySeedIds].map(rootOf));
   return experiments.filter(
     (experiment) =>
-      experiment.uncertaintySeedId !== null &&
-      !uncertaintySeedIds.has(experiment.uncertaintySeedId)
+      experiment.uncertaintySeedId !== null && !roots.has(rootOf(experiment.uncertaintySeedId))
   );
+}
+
+/**
+ * The picked uncertainty that stands for `seedId`: itself when picked, else
+ * a picked revision or original of it, else null (it was dropped).
+ */
+export function pickedUncertaintyFor(
+  seedId: string,
+  uncertaintySeedIds: readonly string[],
+  rootOf: UncertaintyRoot = sameId
+): string | null {
+  if (uncertaintySeedIds.includes(seedId)) return seedId;
+  const root = rootOf(seedId);
+  return uncertaintySeedIds.find((candidate) => rootOf(candidate) === root) ?? null;
 }

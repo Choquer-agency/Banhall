@@ -35,6 +35,7 @@ import {
 import {
   loadFrozenSeedActionInput,
   loadSeedDispatchSnapshot,
+  loadUncertaintyRoots,
   MAX_SEED_SOURCE_ROWS,
 } from "./lib/seedSnapshotLoader";
 import {
@@ -647,6 +648,9 @@ export const claimAttempt = internalMutation({
       throw new Error("Seed attempt context exceeds its bounded row limit");
     }
     const context = decodeBatchContext(contextRows);
+    // 2026-09-29 (first, review P2-2): an uncertainty and its revisions are one.
+    const uncertaintyRoots =
+      batch.roleId === "specific_advancements" ? await loadUncertaintyRoots(ctx, context) : {};
     const input = await loadFrozenSeedActionInput(ctx, {
       generation,
       briefVersionId: batch.briefVersionId,
@@ -677,6 +681,7 @@ export const claimAttempt = internalMutation({
         title: role.title,
       },
       context,
+      uncertaintyRoots,
       input,
     };
   },
@@ -972,6 +977,9 @@ export const completeAttempt = internalMutation({
     const snapshot = decodeBatchContext(contextRows);
     const referenceContext: SeedReferenceContext = {
       generationId: batch.generationId,
+      ...(batch.roleId === "specific_advancements"
+        ? { uncertaintyRoots: await loadUncertaintyRoots(ctx, snapshot) }
+        : {}),
       references: snapshot.items
         .filter((item) => item.kind === "selection")
         .map((item) => ({

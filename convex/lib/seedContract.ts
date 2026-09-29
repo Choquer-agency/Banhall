@@ -85,6 +85,12 @@ export type SeedReference = {
 export type SeedReferenceContext = {
   generationId: string;
   references: readonly SeedReference[];
+  /**
+   * 2026-09-29 (first, review P2-2): the first Seed of each uncertainty's
+   * revision chain, by uncertainty Seed id, so an uncertainty and its
+   * Feedback revisions count as one. Missing ids are their own root.
+   */
+  uncertaintyRoots?: Readonly<Record<string, string>>;
 };
 
 export type FrozenSeedSource = {
@@ -301,6 +307,47 @@ function activeReferences(
   );
 }
 
+function rootsOf(context: SeedReferenceContext | undefined) {
+  const roots = context?.uncertaintyRoots;
+  return (seedId: string) => roots?.[seedId] ?? seedId;
+}
+
+function pickedFromContext(context: SeedReferenceContext | undefined) {
+  const uncertainties = activeReferences(context, "active_uncertainties").map((reference) => reference.seedId);
+  const experiments = activeReferences(context, "experimentation").map((reference) => ({
+    seedId: reference.seedId,
+    uncertaintySeedId: reference.uncertaintySeedId ?? null,
+  }));
+  const rootOf = rootsOf(context);
+  return {
+    uncertainties,
+    allowed: allowedAdvancementLinks(uncertainties, experiments, rootOf),
+    picked: pickedLinkSelections(uncertainties, experiments, rootOf),
+  };
+}
+
+/**
+ * 2026-09-29 (first): links are dropped where the request sent no list to
+ * copy them from (review P3-3): an experiment with no uncertainty picked,
+ * and an advancement when no link can be made (no picked uncertainty that a
+ * picked experiment tested). A link copied from the decisions there could
+ * only be wrong, and refusing it would fail the Batch for nothing: the Seed
+ * is kept unlinked, cannot be approved, and the step says why.
+ */
+function withoutUnrequestedLinks(
+  candidate: SeedCandidate,
+  roleId: PdSubsectionRoleId,
+  context: SeedReferenceContext | undefined
+): SeedCandidate {
+  if (roleId === "experimentation" && activeReferences(context, "active_uncertainties").length === 0) {
+    return withoutAdvancementLinks(candidate);
+  }
+  if (roleId === "specific_advancements" && pickedFromContext(context).allowed.length === 0) {
+    return withoutAdvancementLinks(candidate);
+  }
+  return candidate;
+}
+
 /**
  * 2026-09-29 (first): an experiment Seed names the uncertainty it tested.
  * When the request's decisions hold uncertainty selections, every Seed of
@@ -340,19 +387,11 @@ function validateAdvancementReferences(args: {
 }): SeedValidationIssue[] {
   if (args.roleId !== "specific_advancements") return [];
   const context = args.referenceContext;
-  const uncertainties = activeReferences(context, "active_uncertainties");
-  const experiments = activeReferences(context, "experimentation");
   // 2026-09-29 (first): links are required whenever one can be made: a
   // picked uncertainty that a picked experiment tested (or an experiment
-  // that records no uncertainty). With none, a link could only be wrong, so
-  // the Seeds carry none and the step says why.
-  const allowed = allowedAdvancementLinks(
-    uncertainties.map((reference) => reference.seedId),
-    experiments.map((reference) => ({
-      seedId: reference.seedId,
-      uncertaintySeedId: reference.uncertaintySeedId ?? null,
-    }))
-  );
+  // that records no uncertainty). With none, the links were already
+  // dropped (withoutUnrequestedLinks) and the step says why.
+  const { allowed, picked } = pickedFromContext(context);
   const uncertaintyId = args.candidate.uncertaintySeedId;
   const experimentIds = args.candidate.experimentSeedIds;
   if (
@@ -383,13 +422,6 @@ function validateAdvancementReferences(args: {
   ) {
     return invalid;
   }
-  const picked = pickedLinkSelections(
-    uncertainties.map((reference) => reference.seedId),
-    experiments.map((reference) => ({
-      seedId: reference.seedId,
-      uncertaintySeedId: reference.uncertaintySeedId ?? null,
-    }))
-  );
   return advancementLinkProblem(args.candidate, picked) === null ? [] : invalid;
 }
 
@@ -555,12 +587,15 @@ export function validateSeed(args: {
   // (first) an experiment's uncertainty to experimentation. The shared
   // provider schema allows them on every role, so they are dropped
   // elsewhere rather than stored on a Seed they cannot describe.
-  const candidate =
+  const candidate = withoutUnrequestedLinks(
     args.roleId === "specific_advancements"
       ? parsed.candidate
       : args.roleId === "experimentation"
         ? withExperimentLinkOnly(parsed.candidate)
-        : withoutAdvancementLinks(parsed.candidate);
+        : withoutAdvancementLinks(parsed.candidate),
+    args.roleId,
+    args.referenceContext
+  );
   const issues: SeedValidationIssue[] = [];
   if (candidate.bullets.length < 1 || candidate.bullets.length > 2) {
     issues.push({

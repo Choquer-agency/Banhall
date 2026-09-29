@@ -253,6 +253,8 @@ type PriorDecision = {
   selected?: boolean;
   /** 2026-09-29 (first): an experiment's tested uncertainty, by its index in the decisions. */
   tested?: number;
+  /** A Feedback revision of the decision at this index. */
+  revisionOf?: number;
 };
 
 async function dispatchedAttempt(
@@ -403,6 +405,9 @@ async function dispatchedAttempt(
         originalSupport: "writer_asserted",
         ...(decision.tested !== undefined
           ? { uncertaintySeedId: decisions[decision.tested]!.seedId }
+          : {}),
+        ...(decision.revisionOf !== undefined
+          ? { revisionOfSeedId: decisions[decision.revisionOf]!.seedId }
           : {}),
       });
       const selected = decision.selected ?? true;
@@ -1205,7 +1210,7 @@ describe("seed Node action request boundary", () => {
     expect(context.find((row) => row.seedId === t4)?.uncertaintySeedId).toBe(u2);
   });
 
-  it("sends no link block when every picked experiment tested a dropped uncertainty, refuses the run 6 relink and keeps unlinked Seeds", async () => {
+  it("sends no link block when every picked experiment tested a dropped uncertainty, and keeps the run 6 relink unlinked in one request", async () => {
     const t = convexTest(schema, modules);
     const fixture = await dispatchedAttempt(t, {
       targetRoleId: "specific_advancements",
@@ -1218,54 +1223,98 @@ describe("seed Node action request boundary", () => {
       ],
     });
     const [u1, , u3, t1, t2] = fixture.decisions.map((decision) => decision.seedId);
+    // The model copies links from the decisions although no list was sent.
     const relinked = {
       seeds: [
-        advancement("Stepwise acclimation resolved the cold-water start-up uncertainty.", "conservative", { uncertaintySeedId: u3, experimentSeedIds: [t1!] }),
+        advancement("Stepwise acclimation cut start-up time at 8 C.", "conservative", { uncertaintySeedId: u3, experimentSeedIds: [t1!] }),
         advancement("Nitrite oxidizers are the main cold-sensitivity bottleneck.", "technical", { uncertaintySeedId: u3, experimentSeedIds: [t1!, t2!] }),
         advancement("Colder water needs a higher acclimated seed fraction.", "detailed", { uncertaintySeedId: u3, experimentSeedIds: [t2!] }),
       ],
     };
     const requests: Request[] = [];
-    const transport = vi.fn<typeof fetch>(async (input, init) => {
-      requests.push(new Request(input, init));
-      return providerResponse(relinked, 1);
-    });
-    vi.stubGlobal("fetch", transport);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse(relinked, 1);
+      })
+    );
     const writer = t.withIdentity({ subject: "seed-dispatch-specific_advancements" });
 
     await t.action(generateBatchRef, { batchId: fixture.batchId });
 
-    expect(requests).toHaveLength(2);
+    // Review P3-3: the links are dropped, not refused, so no repair is spent
+    // and the Batch does not fail twice on a list it was never sent.
+    expect(requests).toHaveLength(1);
     const first = requestText((await requests[0]!.json()).messages[0].content);
     expect(first).not.toContain("--- BEGIN [FROZEN ADVANCEMENT LINKS] ---");
     const decisions = linkBlock(first, "FROZEN PREDECESSOR DECISIONS") as { items: Array<{ seedId: string; uncertaintySeedId?: string }> };
     // The trials show which uncertainty they tested, one the writer dropped.
     expect(decisions.items.find((item) => item.seedId === t1)?.uncertaintySeedId).toBe(u1);
     expect(decisions.items.some((item) => item.seedId === u1)).toBe(false);
-    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
-      status: "failed",
-      error: "INVALID_OUTPUT",
-      errorDetail: "advancement_links",
-    });
-
-    // Unlinked Seeds are kept; they cannot be approved and the step says why.
-    transport.mockImplementation(async () => providerResponse({ seeds: validSeeds }, 3));
-    const again = await t.mutation(dispatchRef, {
-      generationId: fixture.generationId,
-      roleId: "specific_advancements",
-      operation: "retry",
-      commandId: "run6-corner-unlinked",
-      actorUserId: fixture.userId,
-    });
-    if (again.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${again.kind}`);
-    await t.action(generateBatchRef, { batchId: again.batchId });
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 1 });
     const persisted = await t.run((ctx) =>
-      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", again.batchId)).collect()
+      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
     );
     expect(persisted).toHaveLength(3);
     expect(persisted.every((seed) => seed.uncertaintySeedId === undefined && seed.experimentSeedIds === undefined)).toBe(true);
+    // They cannot be approved, and the step says why.
     const pane = await writer.query(api.seeds.getSubsection, { generationId: fixture.generationId, roleId: "specific_advancements" });
     expect(pane.linkNotice).toEqual({ kind: "no_linkable_experiment", experimentsPicked: true });
+  });
+
+  it("pairs a revised uncertainty with the experiments that tested its original (review P2-2)", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, {
+      targetRoleId: "specific_advancements",
+      decisions: [
+        // The writer revised the start-up uncertainty through Feedback and
+        // picked the revision; the trials name the original.
+        { roleId: "active_uncertainties", bullets: [startUp], selected: false },
+        { roleId: "active_uncertainties", bullets: ["Whether acclimated seed could reach full nitrification within five weeks at 8 C was unknown."], revisionOf: 0 },
+        { roleId: "experimentation", bullets: ["Trial one: acclimated seed reached full nitrification in 31 days at 8 C."], tested: 0 },
+      ],
+    });
+    const [u1, revised, t1] = fixture.decisions.map((decision) => decision.seedId);
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse({
+          seeds: [
+            advancement("Stepwise acclimation reached full nitrification in 31 days at 8 C.", "conservative", { uncertaintySeedId: revised, experimentSeedIds: [t1!] }),
+            advancement("Nitrite oxidizers limit cold start-up more than ammonia oxidizers.", "technical", { uncertaintySeedId: revised, experimentSeedIds: [t1!] }),
+            advancement("Unacclimated seed barely grows once placed in 8 C water.", "detailed", { uncertaintySeedId: revised, experimentSeedIds: [t1!] }),
+          ],
+        }, 1);
+      })
+    );
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(requests).toHaveLength(1);
+    const first = requestText((await requests[0]!.json()).messages[0].content);
+    expect(linkBlock(first, "FROZEN ADVANCEMENT LINKS")).toEqual({
+      links: [{ experimentSeedIds: [t1], uncertaintySeedId: revised }],
+    });
+    // The decisions name the picked revision for the trial, never the unpicked original.
+    const decisions = linkBlock(first, "FROZEN PREDECESSOR DECISIONS") as { items: Array<{ seedId: string; uncertaintySeedId?: string }> };
+    expect(decisions.items.find((item) => item.seedId === t1)?.uncertaintySeedId).toBe(revised);
+    expect(first).not.toContain(u1!);
+    const persisted = await t.run((ctx) =>
+      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+    );
+    expect(persisted.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual([
+      [revised, [t1]],
+      [revised, [t1]],
+      [revised, [t1]],
+    ]);
+    // The frozen context row keeps what the trial recorded.
+    const context = await t.run((ctx) =>
+      ctx.db.query("seedBatchContext").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+    );
+    expect(context.find((row) => row.seedId === t1)?.uncertaintySeedId).toBe(u1);
   });
 
   it("names the Seed rules, not the links, when answers keep breaking other rules", async () => {

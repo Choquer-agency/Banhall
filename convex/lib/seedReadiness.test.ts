@@ -339,6 +339,57 @@ describe("seed readiness", () => {
     expect((await s.t.run((ctx) => readSeedReadiness(ctx, s.generationId))).ready).toBe(true);
   });
 
+  it("counts an uncertainty revised through Feedback as the one its experiments tested (review P2-2)", async () => {
+    const s = await fixture();
+    // The experiment and the advancement name the original uncertainty; the
+    // writer picks its Feedback revision and unticks the original.
+    const revised = await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.experimentSeedId, { uncertaintySeedId: s.uncertaintySeedId });
+      const revisedId = await ctx.db.insert("seeds", {
+        projectId: s.projectId,
+        generationId: s.generationId,
+        batchId: s.batchId,
+        roleId: "active_uncertainties",
+        order: 5,
+        bullets: ["The reworded uncertainty remained unresolved."],
+        tags: ["technical"],
+        support: "source_supported",
+        originalSupport: "source_supported",
+        revisionOfSeedId: s.uncertaintySeedId,
+      });
+      await ctx.db.insert("seedSelections", {
+        projectId: s.projectId,
+        generationId: s.generationId,
+        seedId: revisedId,
+        roleId: "active_uncertainties",
+        selected: true,
+        selectedAt: 2,
+        version: 1,
+      });
+      const original = await ctx.db
+        .query("seedSelections")
+        .withIndex("by_seedId", (q) => q.eq("seedId", s.uncertaintySeedId))
+        .unique();
+      await ctx.db.patch(original!._id, { selected: false });
+      return revisedId;
+    });
+    expect((await s.t.run((ctx) => readSeedReadiness(ctx, s.generationId))).ready).toBe(true);
+
+    // Unpicking the revision too drops the uncertainty for good.
+    await s.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("seedSelections")
+        .withIndex("by_seedId", (q) => q.eq("seedId", revised))
+        .unique();
+      await ctx.db.patch(row!._id, { selected: false });
+    });
+    const dropped = await s.t.run((ctx) => readSeedReadiness(ctx, s.generationId));
+    expect(dropped.blockers.map((blocker) => blocker.code)).toEqual([
+      "EXPERIMENT_FOR_DROPPED_UNCERTAINTY",
+      "UNLINKED_ADVANCEMENT",
+    ]);
+  });
+
   it("never reports ready from an incomplete read and performs no writes", async () => {
     const s = await fixture();
     const before = await s.t.run(async (ctx) => ({

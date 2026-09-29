@@ -1,5 +1,5 @@
 import { matchesClaimExclusion } from "./claimExclusionMatcher";
-import { advancementLinkProblem, experimentsForDroppedUncertainties, pickedLinkSelections, type ExperimentTest } from "../../shared/advancementLinks";
+import { advancementLinkProblem, experimentsForDroppedUncertainties, pickedLinkSelections, revisionRoots, type ExperimentTest } from "../../shared/advancementLinks";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
@@ -34,7 +34,9 @@ export function seedBatchIsOutdated(state: SeedDecisionState, row: Doc<"seedSubs
 }
 /**
  * 2026-09-29 (first): the picked uncertainties and experiments, each
- * experiment with the uncertainty it tested when it records one.
+ * experiment with the uncertainty it tested when it records one. An
+ * uncertainty and its Feedback revisions count as one (review P2-2): the
+ * decision state loads every selected Seed's revision ancestors.
  */
 export function pickedLinks(state: Pick<SeedDecisionState, "subsections" | "seeds" | "selectionRows">) {
   const active = materializeActiveSelections(state);
@@ -42,7 +44,8 @@ export function pickedLinks(state: Pick<SeedDecisionState, "subsections" | "seed
   const experiments: ExperimentTest[] = active
     .filter(s => s.roleId === "experimentation")
     .map(s => ({ seedId: s.seedId, uncertaintySeedId: s.uncertaintySeedId ?? null }));
-  return { active, uncertaintySeedIds, experiments, picked: pickedLinkSelections(uncertaintySeedIds, experiments) };
+  const rootOf = revisionRoots(state.seeds.map(seed => ({ seedId: seed._id, revisionOfSeedId: seed.revisionOfSeedId ?? null })));
+  return { active, uncertaintySeedIds, experiments, rootOf, picked: pickedLinkSelections(uncertaintySeedIds, experiments, rootOf) };
 }
 /**
  * Selected advancements that are not linked: a picked uncertainty and picked
@@ -60,8 +63,8 @@ export function unlinkedAdvancementIds(state: SeedDecisionState): Id<"seeds">[] 
  * them; an experiment recording no uncertainty is never one of them.
  */
 export function droppedUncertaintyExperimentIds(state: SeedDecisionState): Id<"seeds">[] {
-  const { uncertaintySeedIds, experiments } = pickedLinks(state);
-  return experimentsForDroppedUncertainties(new Set<string>(uncertaintySeedIds), experiments).map(e => e.seedId as Id<"seeds">);
+  const { uncertaintySeedIds, experiments, rootOf } = pickedLinks(state);
+  return experimentsForDroppedUncertainties(new Set<string>(uncertaintySeedIds), experiments, rootOf).map(e => e.seedId as Id<"seeds">);
 }
 export async function buildSeedApprovalChallenge(ctx: Ctx, state: SeedDecisionState, row: Doc<"seedSubsections">): Promise<SeedApprovalChallenge> {
   if (!state.complete) processingLimit(row.roleId);
