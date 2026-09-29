@@ -29,6 +29,7 @@ describe("placeholder map", () => {
       { token: "[CLIENT_1_SHORT]", value: "Verdant Grid Technologies", bare: true },
       { token: "[CLIENT_1_BRAND]", value: "Verdant Grid", bare: true },
       { token: "[CLIENT_1_CAPS]", value: "VERDANT GRID TECHNOLOGIES", bare: true },
+      { token: "[CLIENT_1_FIRST]", value: "Verdant", bare: true },
       { token: "[PERSON_1]", value: "Dana Whitfield", bare: true },
       { token: "[PERSON_1_FIRST]", value: "Dana", bare: true },
       { token: "[PERSON_1_LAST]", value: "Whitfield", bare: true },
@@ -430,5 +431,105 @@ describe("the placeholder client", () => {
       { type: "tool_use", id: "x", name: "t", input: { quote: "At Verdant Grid Technologies Inc. we built a controller." } },
     ]);
     expect(restoreResponse(response, [])).toBe(response);
+  });
+});
+
+// Release suite run 6, fixture "Exclusion-matching selection" (commit
+// c8ce1fe2, fictional Quillmere Analytics Ltd.): Line 242 opened "Quillmere
+// Client builds controllers". The words come from the stored transcript
+// analysis, whose company_context read "Quillmere Client (Quillmere/Quillmere
+// Analytics Ltd.) is a 25-person company"; no source, Seed or setting says
+// "Quillmere Client". The map hid the full and short names ([CLIENT_1],
+// [CLIENT_1_SHORT]) but not the word people say, so the analyzer saw "a bit
+// about Quillmere" beside "[CLIENT_1] is based in Carrow" and joined the two
+// into a name. 2026-09-29 (second): a coined first word is hidden too.
+describe("a company's coined first word (release suite run 6)", () => {
+  const quillmere = buildPlaceholderMap({
+    clientName: "Quillmere Analytics Ltd.",
+    people: ["Beatrix Nwachukwu", "Anders Kowalczyk", "Rosalind Tiwari"],
+  });
+  const analyzerRequest: GenerationMessageParams = {
+    model: "claude-sonnet-5",
+    max_tokens: 100,
+    system: "Analyse the SR&ED interview.",
+    messages: [{
+      role: "user",
+      content: [
+        "Beatrix Nwachukwu: Anders, could you start with a bit about Quillmere and what your team does?",
+        "Anders Kowalczyk: Sure. Quillmere Analytics Ltd. is based in Carrow, Saskatchewan. We're 25 people.",
+        "Signed-off idea: Quillmere builds controllers and cloud analytics for grain dryers.",
+      ].join("\n\n"),
+    }],
+  };
+
+  it("hides the name everywhere the model reads it, so no bare brand sits beside its token", () => {
+    expect(quillmere.slice(0, 4)).toEqual([
+      { token: "[CLIENT_1]", value: "Quillmere Analytics Ltd.", bare: true },
+      { token: "[CLIENT_1_SHORT]", value: "Quillmere Analytics", bare: true },
+      { token: "[CLIENT_1_CAPS]", value: "QUILLMERE ANALYTICS", bare: true },
+      { token: "[CLIENT_1_FIRST]", value: "Quillmere", bare: true },
+    ]);
+    const sent = pseudonymizeRequest(analyzerRequest, quillmere);
+    const text = JSON.stringify(sent);
+    expect(text).not.toContain("Quillmere");
+    expect(sent.messages[0].content).toBe([
+      "[PERSON_1]: [PERSON_2_FIRST], could you start with a bit about [CLIENT_1_FIRST] and what your team does?",
+      "[PERSON_2]: Sure. [CLIENT_1] is based in Carrow, Saskatchewan. We're 25 people.",
+      "Signed-off idea: [CLIENT_1_FIRST] builds controllers and cloud analytics for grain dryers.",
+    ].join("\n\n"));
+    // Before, the map had no single-word form and the model read both.
+    const before = quillmere.filter((entry) => entry.token !== "[CLIENT_1_FIRST]");
+    const leaked = JSON.stringify(pseudonymizeRequest(analyzerRequest, before));
+    expect(leaked).toContain("a bit about Quillmere and");
+    expect(leaked).toContain("[CLIENT_1] is based in Carrow");
+  });
+
+  it("restores the name the model writes with the tokens, bracketed or bare", async () => {
+    const inner: GenerationClient = {
+      messages: {
+        create: async () => ({
+          content: [{
+            type: "tool_use",
+            id: "analysis",
+            name: "submit_analysis",
+            input: { company_context: "[CLIENT_1] ([CLIENT_1_FIRST]) is a 25-person company. CLIENT_1_FIRST builds controllers." },
+          }],
+        }),
+      },
+    };
+    const response = await withPlaceholders(inner, quillmere).messages.create(analyzerRequest);
+    expect(response.content).toEqual([{
+      type: "tool_use",
+      id: "analysis",
+      name: "submit_analysis",
+      input: { company_context: "Quillmere Analytics Ltd. (Quillmere) is a 25-person company. Quillmere builds controllers." },
+    }]);
+    // A map frozen before this change restores the variant from its base.
+    const frozen = quillmere.filter((entry) => entry.token !== "[CLIENT_1_FIRST]");
+    expect(restorePlaceholders("[CLIENT_1_FIRST] builds controllers.", frozen)).toBe("Quillmere builds controllers.");
+  });
+
+  it("never hides an ordinary first word, a one-word name or a first word that is also a name", () => {
+    for (const clientName of [
+      "Northern Robotics Inc.",
+      "Advanced Sensing Ltd.",
+      "Precision Castings Corp.",
+      "Grant Dryer Systems Ltd.",
+      "Quillmere Inc.",
+      "AB Controls Ltd.",
+      "3M Canada",
+    ]) {
+      const firstForm = buildPlaceholderMap({ clientName, people: [] })
+        .find((entry) => entry.token === "[CLIENT_1_FIRST]");
+      expect(firstForm, clientName).toBeUndefined();
+    }
+    // "Quillmere Inc." still hides "Quillmere", as its short form.
+    expect(pseudonymize("Quillmere built it.", buildPlaceholderMap({ clientName: "Quillmere Inc.", people: [] })))
+      .toBe("[CLIENT_1_SHORT] built it.");
+    // A firm's own coined first word is hidden the same way.
+    expect(pseudonymize(
+      "Northwind wrote it.",
+      buildPlaceholderMap({ firms: ["Northwind Advisory"], people: [] })
+    )).toBe("[FIRM_1_FIRST] wrote it.");
   });
 });

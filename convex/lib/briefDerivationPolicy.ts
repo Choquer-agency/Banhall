@@ -12,8 +12,11 @@ import { STRUCTURED_OUTPUT_PROGRAM } from "../ai/structured";
 import { GLOSSARY_MATCHER_VERSION } from "./glossaryMatcher";
 import { PLACEHOLDER_ALGORITHM_VERSION } from "./deidentify";
 
-/** Bumped with any change to the bundle below. */
-export const BRIEF_DERIVATION_VERSION = 4;
+/**
+ * Bumped with any change to the bundle below. 5: the placeholder algorithm
+ * hides a company's coined first word (2026-09-29, second).
+ */
+export const BRIEF_DERIVATION_VERSION = 5;
 
 /** Places of one quote tried under owner decision 25 before it is dropped. */
 export const MAX_QUOTE_PLACES = 8;

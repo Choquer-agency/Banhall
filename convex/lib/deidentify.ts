@@ -124,8 +124,10 @@ export function deidentify(
  * 3: re-review of 2026-09-26: label-only promoted labels that fail the
  *    name test, full names with common name words, mailbox rules, CJK
  *    names hidden everywhere, labels after a space or sentence.
+ * 4: 2026-09-29 (second): a company's coined first word ("Quillmere" of
+ *    "Quillmere Analytics Ltd.") is hidden too (`[CLIENT_1_FIRST]`).
  */
-export const PLACEHOLDER_ALGORITHM_VERSION = 3;
+export const PLACEHOLDER_ALGORITHM_VERSION = 4;
 
 export type PlaceholderEntry = {
   token: string;
@@ -159,6 +161,29 @@ const LEGAL_SUFFIX = /[,\s]+(?:inc|incorporated|ltd|limited|llc|corp|corporation
  * one ordinary capitalized word.
  */
 const COMPANY_DESCRIPTOR = /\s+(?:technologies|technology|systems|solutions|group|holdings|labs|laboratories|industries|international|enterprises|services|software|energy|canada)$/i;
+
+/**
+ * Ordinary words a company name often starts with. A first word among them
+ * (or any common, technical or name word below) is never hidden alone, so
+ * "Northern Robotics" never hides "Northern".
+ */
+const ORDINARY_COMPANY_WORDS = new Set([
+  "north", "south", "east", "west", "northern", "southern", "eastern", "western", "central",
+  "pacific", "atlantic", "arctic", "coastal", "prairie", "mountain", "valley", "river", "lake",
+  "canadian", "canada", "american", "national", "international", "global", "world", "general",
+  "united", "allied", "advanced", "applied", "precision", "digital", "smart", "first", "prime",
+  "premier", "royal", "great", "grand", "true", "total", "next", "future", "modern", "classic",
+  "blue", "green", "red", "black", "white", "gold", "golden", "silver", "maple", "pine", "cedar",
+  "alpha", "beta", "delta", "omega", "sigma", "apex", "summit", "peak", "core", "vision",
+  "dynamic", "integrated", "innovative", "superior", "universal", "standard", "quality", "custom",
+  "metro", "city", "urban", "rural", "farm", "home", "star", "sun", "solar", "wind", "water",
+  "clear", "bright", "rapid", "swift", "open", "free", "fresh", "pure", "natural", "organic",
+  "medical", "industrial", "commercial", "professional", "creative", "strategic", "technical",
+  "scientific", "research", "engineering", "manufacturing", "product", "products", "project",
+  "projects", "consulting", "partners", "associates", "company", "corporate", "enterprise",
+  "network", "networks", "data", "cloud", "cyber", "micro", "nano", "bio", "eco", "agri",
+  "aero", "auto", "marine", "ocean", "sea", "air", "land", "earth", "energy", "power",
+]);
 
 function cleanName(name: string | undefined): string | undefined {
   const trimmed = name?.trim().replace(/\s+/g, " ");
@@ -253,6 +278,31 @@ const COMMON_CASELESS_WORDS = new Set([
   "現象", "原因", "課題", "対策", "結果", "結論", "目標", "計画", "実績", "予定", "分析", "問題", "解決",
   "문제", "해결", "원인", "결과", "결론", "대책", "목표", "계획", "실적", "예상", "관찰", "분석", "현상",
 ]);
+
+/**
+ * The first word of a company name of two words or more when it is coined
+ * rather than ordinary: capitalized, letters only, at least four of them,
+ * and not a common, technical, name or ordinary company word. "Quillmere"
+ * of "Quillmere Analytics"; never "Northern" of "Northern Robotics".
+ */
+function coinedFirstWord(name: string): string | undefined {
+  const words = name.split(" ");
+  const first = words[0];
+  if (words.length < 2 || !first || !/^\p{Lu}\p{Ll}{3,}$/u.test(first)) return undefined;
+  const lower = first.toLowerCase();
+  if (
+    ORDINARY_COMPANY_WORDS.has(lower) ||
+    TECHNICAL_WORDS.has(lower) ||
+    COMMON_LOWER_WORDS.has(lower) ||
+    COMMON_FIRST_WORDS.has(first) ||
+    isCommonLowercaseWord(lower) ||
+    LEGAL_SUFFIX.test(` ${first}`) ||
+    COMPANY_DESCRIPTOR.test(` ${first}`)
+  ) {
+    return undefined;
+  }
+  return first;
+}
 
 /** "priya shah" as "Priya Shah"; "jean-philippe o'neil" as "Jean-Philippe O'Neil". */
 function titleCase(name: string): string {
@@ -377,6 +427,12 @@ export function buildPlaceholderMap(input: {
     if (brand !== (short || company) && brand.split(" ").length >= 2) add(`[${prefix}_${n}_BRAND]`, brand, minLength);
     const upper = (short || company).toUpperCase();
     if (upper !== short && upper !== company && /\p{L}{3,}/u.test(upper)) add(`[${prefix}_${n}_CAPS]`, upper, minLength);
+    // 2026-09-29 (second, release suite run 6): the name's coined first word,
+    // as people say it ("a bit about Quillmere"). Left visible beside
+    // [CLIENT_1] for "Quillmere Analytics Ltd.", it led the analysis to call
+    // the company "Quillmere Client", and Line 242 copied it.
+    const first = coinedFirstWord(short || company);
+    if (first) add(`[${prefix}_${n}_FIRST]`, first, minLength);
   };
 
   const [client, ...others] = [input.clientName, ...(input.companies ?? []), ...domains]

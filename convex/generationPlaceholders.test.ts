@@ -83,6 +83,7 @@ describe("placeholders frozen on a generation", () => {
       "Verdant Grid Technologies",
       "Verdant Grid",
       "VERDANT GRID TECHNOLOGIES",
+      "Verdant",
       "Dana Whitfield",
       "Dana",
       "Whitfield",
