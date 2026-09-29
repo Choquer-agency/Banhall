@@ -312,9 +312,9 @@ describe("fact pack", () => {
 });
 
 describe("facts version (2026-09-29 second, review P3-5 and the escape rule)", () => {
-  it("moves with placeholder algorithm 6, so facts read under the older masking are read again", () => {
-    expect(FACTS_VERSION).toBe("5");
-    expect(PLACEHOLDER_ALGORITHM_VERSION).toBe(6);
+  it("moves with placeholder algorithm 7, so facts read under the older masking are read again", () => {
+    expect(FACTS_VERSION).toBe("6");
+    expect(PLACEHOLDER_ALGORITHM_VERSION).toBe(7);
     const map = buildPlaceholderMap({ clientName: "Quillmere Analytics Ltd.", people: [] });
     expect(map.some((entry) => entry.token === "[CLIENT_1_FIRST]" && entry.value === "Quillmere")).toBe(true);
   });

@@ -442,5 +442,41 @@ describe("a budget cut never sends a fragment of a name (real SDK, fetch stubbed
     expect(bodies).toHaveLength(1);
     expect(bodies[0]).not.toMatch(/Quill/);
   });
+
+  it("final privacy round: a cut inside a hyphenated surname backs off before the whole word", async () => {
+    const map = buildPlaceholderMap({ people: ["Dana Whitfield-Smith"] });
+    const { userMessage } = buildTrustedContext({
+      transcriptParts: [{ label: "Kickoff", content: "Interview with Dana Whitfield-Smith about the rig." }],
+      // 7 tokens are 28 characters: "Interview with Dana Whitfield-S".
+      budget: { ...DEFAULT_CONTEXT_BUDGET, transcriptTokens: 7 },
+    });
+    expect(userMessage).toContain("Interview with Dana \n[TRUNCATED:");
+    const bodies: string[] = [];
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+      bodies.push(await new Request(input, init).text());
+      return Response.json({
+        id: "msg_synthetic", type: "message", role: "assistant", model: SONNET, stop_sequence: null,
+        usage: { input_tokens: 40, output_tokens: 8 },
+        content: [{ type: "text", text: "Read." }],
+        stop_reason: "end_turn",
+      });
+    }));
+    const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
+    await t.action(async (ctx) => {
+      await withPlaceholders(
+        instrumentedAnthropic(ctx, { callSite: "generation:analyzer" }) as unknown as GenerationClient,
+        map
+      ).messages.create({
+        model: SONNET,
+        max_tokens: 100,
+        system: "Analyse the interview.",
+        messages: [{ role: "user", content: userMessage }],
+      });
+    });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).not.toMatch(/Whitfield|Smith|Dana/);
+    expect(bodies[0]).toContain("Interview with [PERSON_1_FIRST] ");
+  });
 });
 

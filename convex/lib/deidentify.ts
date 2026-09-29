@@ -55,7 +55,9 @@ export function deidentify(
         project?.interviewer,
         ...(project?.interviewees ?? []),
       ]
-        .map((name) => name?.trim())
+        // One space between words (final privacy round): a double-spaced
+        // name on the record still matches, with one gap pattern per gap.
+        .map((name) => name?.trim().replace(/\s+/g, " "))
         .filter((name): name is string => !!name && name.length >= 3)
     )
     // Longest first so "Acme Farms" is consumed before a bare "Acme" would
@@ -131,8 +133,11 @@ export function deidentify(
  * 6: 2026-09-29 (second, privacy re-check): any backslash escape is an edge,
  *    even after an escaped backslash; an opening quote is a label position;
  *    a name split by other white space is hidden word by word.
+ * 7: 2026-09-29 (second, final privacy round): header labels at any
+ *    indentation, form feeds and vertical tabs (raw or escaped) as line
+ *    starts, and double-spaced names collapsed when the map is built.
  */
-export const PLACEHOLDER_ALGORITHM_VERSION = 6;
+export const PLACEHOLDER_ALGORITHM_VERSION = 7;
 
 export type PlaceholderEntry = {
   token: string;
@@ -651,7 +656,9 @@ const matcherCache = new WeakMap<PlaceholderMap, { find: RegExp; byValue: Map<st
  */
 export const ESCAPE_EDGE_BEFORE = String.raw`(?<=\\(?:[ntrbf]|u[0-9A-Fa-f]{4}))`;
 /** An escaped line break or tab, where a new line or a gap begins. */
-const ESCAPED_BREAK_BEFORE = String.raw`(?<=\\[ntr])`;
+// Final privacy round: an escaped form feed or vertical tab (a PDF page
+// break) is a line start too.
+const ESCAPED_BREAK_BEFORE = String.raw`(?<=\\(?:[ntrf]|u000[bBcC]))`;
 /**
  * White space between the words of a name, written or escaped (privacy
  * re-check P2-2): a hard-wrapped "Northern\nRobotics Inc." or its JSON form
@@ -682,9 +689,13 @@ const TIME = "\\[?\\d{1,2}:\\d{2}(?::\\d{2})?(?:[.,]\\d{1,3})?\\]?";
 // escaped, is a label position too ("exactExcerpt":"Rosalind: we tried").
 const LABEL_COLON_BEFORE = `(?:(?<=^|[\\s(\\[\\uFF08\\u3010.!?\\u3002\\uFF01\\uFF1F\\u2026:\\uFF1A"])|${ESCAPED_BREAK_BEFORE})`;
 const LABEL_COLON_AFTER = `(?=[ \\t]*(?:[(\\[\\uFF08\\u3010][^()\\[\\]\\uFF08\\uFF09\\u3010\\u3011\\n]{0,80}[)\\]\\uFF09\\u3011][ \\t]*)?(?:${TIME}[ \\t]*)?[:\\uFF1A])`;
-// The run of spaces before a header label is capped, so the look-behind
-// never scans a long run of white space at every position.
-const LABEL_HEADER_BEFORE = String.raw`(?:(?<=(?:^|\n|")[ \t]{0,40})|(?<=\\n(?:[ \t]|\\t){0,40}))`;
+// Where a header label's line starts: the text's start, a line break, a
+// form feed or vertical tab, an opening quote, or their escaped forms, and
+// then any indentation. The look-behind runs only after the label's own
+// words matched (see headerLabelPattern), so indentation of any length costs
+// nothing at other positions (final privacy round: the parser accepts any
+// indentation).
+const HEADER_LINE_START = String.raw`(?:(?:^|[\n\f\v"])[ \t]*|\\(?:[nf]|u000[bBcC])(?:[ \t]|\\t)*)`;
 // A header line ends at a line break, escaped or not, or at the end of the
 // text or of the quoted string that holds it.
 const LABEL_HEADER_AFTER = `(?=[ \\t]+(?:[-\\u2013\\u2014][ \\t]*)?${TIME}[ \\t]*(?:\\r?\\n|$|\\\\r\\\\n|\\\\n|"))`;
@@ -695,7 +706,9 @@ const LABEL_VOICE_BEFORE = "(?<=<v(?:\\.[^\\s>]+)*[ \\t]+)";
  * redactions (`deidentify`, the research redaction) use it too.
  */
 export function surfacePattern(value: string): string {
-  return escapeRegExp(value).replace(/ /g, NAME_GAP);
+  // One gap per run of spaces, so a double-spaced name never gives two
+  // adjacent gap patterns (final privacy round).
+  return escapeRegExp(value).replace(/ +/g, NAME_GAP);
 }
 
 function patternFor(entry: PlaceholderEntry): string {
@@ -703,7 +716,8 @@ function patternFor(entry: PlaceholderEntry): string {
   if (entry.at === "label") {
     return [
       `${LABEL_COLON_BEFORE}${value}${LABEL_COLON_AFTER}`,
-      `${LABEL_HEADER_BEFORE}${value}${LABEL_HEADER_AFTER}`,
+      // The value first, then the look-behind over it and its indentation.
+      `${value}(?<=${HEADER_LINE_START}${value})${LABEL_HEADER_AFTER}`,
       `${LABEL_VOICE_BEFORE}${value}(?=>)`,
     ].join("|");
   }
