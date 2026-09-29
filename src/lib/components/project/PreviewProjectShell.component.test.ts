@@ -15,6 +15,7 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { __resetQaSeenMemory } from "$lib/qa/qaSeen";
+import { board, boardPx } from "$lib/test/boardScale";
 
 /**
  * The preview report page's final shell (ui-design-final.md sections 2 and 8,
@@ -146,10 +147,10 @@ describe("PreviewProjectPage final shell", () => {
     // Round 2 top bar (F2): 10px apart, the 26px tile (radius 6, page icon
     // fill) with the board's document icon, "Projects /" in muted ink, and
     // the 36px bell (radius 7) with the board's bell.
-    expect(getComputedStyle(header).columnGap).toBe("10px");
+    expect(getComputedStyle(header).columnGap).toBe(boardPx(10));
     const tile = header.querySelector<HTMLElement>("[data-page-icon-tile]")!;
-    expect(tile.getBoundingClientRect().width).toBe(26);
-    expect(getComputedStyle(tile).borderRadius).toBe("6px");
+    expect(tile.getBoundingClientRect().width).toBe(board(26));
+    expect(getComputedStyle(tile).borderRadius).toBe(boardPx(6));
     expect(getComputedStyle(tile).backgroundColor).toBe("rgb(227, 244, 241)");
     expect(tile.querySelector("svg path")!.getAttribute("d")).toBe("M6 3h8l4 4v14H6z M14 3v4h4 M9 12h6M9 16h6");
     expect(tile.querySelector("svg")!.getAttribute("stroke-width")).toBe("1.8");
@@ -157,8 +158,8 @@ describe("PreviewProjectPage final shell", () => {
     expect(crumb.textContent?.replace(/\s+/g, " ").trim()).toBe("Projects /");
     expect(getComputedStyle(crumb).color).toBe("rgb(107, 127, 123)");
     const bell = header.querySelector<HTMLElement>("[data-top-bar-bell]")!;
-    expect(bell.getBoundingClientRect().width).toBe(36);
-    expect(getComputedStyle(bell).borderRadius).toBe("7px");
+    expect(bell.getBoundingClientRect().width).toBe(board(36));
+    expect(getComputedStyle(bell).borderRadius).toBe(boardPx(7));
     expect(bell.querySelector("svg path")!.getAttribute("d")).toBe("M5 17h14l-2-3V9a5 5 0 0 0-10 0v5Z M10 21h4");
     const exportButton = page.getByRole("button", { name: "Export .docx", exact: true }).element() as HTMLElement;
     expect(exportButton.className).toContain("bg-chrome");
@@ -237,23 +238,27 @@ describe("PreviewProjectPage final shell", () => {
     expect(page.getByText("Evidence from thermal trials.", { exact: true }).element()).toBe(editorText);
   });
 
-  it("switches between the 660px reading column and full width, and remembers it per browser", async () => {
+  it("switches between the 720px reading column and full width, and remembers it per browser", async () => {
     seed();
     localStorage.setItem("banhall_chat_open", "0");
     const screen = await render(PreviewProjectPage);
     await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
     expect(surface().getAttribute("data-report-width")).toBe("reading");
     const style = getComputedStyle(surface());
-    expect(surface().getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)).toBe(660);
+    // Owner, 2026-09-29: a 720px (45rem) text column, 40px sides from lg up
+    // so the block handle 34px left of the text stays visible.
+    expect(surface().getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)).toBe(board(720));
+    expect(style.paddingLeft).toBe(boardPx(40));
     const toggle = page.getByRole("button", { name: "Full width", exact: true });
     await expect.element(toggle).toHaveAttribute("aria-pressed", "false");
     await toggle.click();
     await expect.poll(() => surface().getAttribute("data-report-width")).toBe("full");
-    await expect.poll(() => getComputedStyle(surface()).paddingLeft).toBe("96px");
+    // Full width alone: 48px sides (was 96).
+    await expect.poll(() => getComputedStyle(surface()).paddingLeft).toBe(boardPx(48));
     await expect.poll(() => localStorage.getItem("banhall_project_editor_maximized")).toBe("1");
-    // With a side panel open the full-width report keeps 48px sides.
+    // With a side panel open the full-width report keeps 40px sides (was 48).
     await page.getByRole("button", { name: "Details", exact: true }).click();
-    await expect.poll(() => getComputedStyle(surface()).paddingLeft).toBe("48px");
+    await expect.poll(() => getComputedStyle(surface()).paddingLeft).toBe(boardPx(40));
     screen.unmount();
     document.body.innerHTML = "";
     await render(PreviewProjectPage);
@@ -267,7 +272,7 @@ describe("PreviewProjectPage final shell", () => {
     await render(PreviewProjectPage);
     await expect.element(page.getByRole("textbox", { name: "Message the report assistant" })).toBeVisible();
     const aside = document.querySelector<HTMLElement>("[data-side-panel]")!;
-    await expect.poll(() => aside.getBoundingClientRect().width).toBe(400);
+    await expect.poll(() => aside.getBoundingClientRect().width).toBe(board(400));
     const main = document.querySelector<HTMLElement>("[data-project-main]")!;
     expect(aside.getBoundingClientRect().left).toBeGreaterThan(main.getBoundingClientRect().left);
     expect(document.querySelector('[data-panel-toggle="assistant"]')?.getAttribute("aria-pressed")).toBe("true");
@@ -275,12 +280,12 @@ describe("PreviewProjectPage final shell", () => {
 
     await page.getByRole("button", { name: "Expand assistant", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-assistant-column]")?.getAttribute("data-assistant-column")).toBe("full");
-    await expect.poll(() => document.querySelector<HTMLElement>("[data-assistant-column]")!.getBoundingClientRect().width).toBe(720);
+    await expect.poll(() => document.querySelector<HTMLElement>("[data-assistant-column]")!.getBoundingClientRect().width).toBe(board(720));
     expect(getComputedStyle(main).display).toBe("none");
     expect(document.querySelector('[data-panel-toggle="full-width"]')).toBeNull();
     await page.getByRole("button", { name: "Collapse assistant", exact: true }).click();
     await expect.poll(() => getComputedStyle(main).display).not.toBe("none");
-    await expect.poll(() => aside.getBoundingClientRect().width).toBe(400);
+    await expect.poll(() => aside.getBoundingClientRect().width).toBe(board(400));
   });
 
   it("leaves Assistant full screen when a tab is selected, so the tab's page shows", async () => {
@@ -431,7 +436,7 @@ describe("PreviewProjectPage final shell", () => {
     expect(document.querySelector("[data-qa-overall]")?.textContent).toContain("78/100");
     expect(getComputedStyle(document.querySelector<HTMLElement>("[data-qa-overall-bar]")!).backgroundColor).toBe("rgb(245, 158, 11)");
     const aside = document.querySelector<HTMLElement>("[data-side-panel]")!;
-    await expect.poll(() => aside.getBoundingClientRect().width).toBe(400);
+    await expect.poll(() => aside.getBoundingClientRect().width).toBe(board(400));
     expect(document.querySelector('[data-panel-toggle="qa"]')?.getAttribute("aria-pressed")).toBe("true");
   });
 
