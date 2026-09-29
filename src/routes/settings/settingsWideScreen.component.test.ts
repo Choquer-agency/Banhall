@@ -19,9 +19,9 @@ vi.mock("$lib/authClient", () => ({
 }));
 
 /**
- * Lead direction 2026-09-28: on a wide screen the Settings page still fills
- * the window, but its forms keep a comfortable width: the tab content stops
- * at 64rem and every field column at 40rem.
+ * Lead direction 2026-09-28, owner 2026-09-29: on a wide screen the Settings
+ * page and its tab content fill the window, while every field column stops
+ * at 40rem so inputs keep a comfortable width.
  */
 const wideChild = createRawSnippet(() => ({
   render: () => `<div data-wide-child style="width:100%;height:10px"></div>`,
@@ -47,19 +47,20 @@ describe("Settings forms on a 2560px screen", () => {
     await page.viewport(2560, 1440);
   });
 
-  it("fills the window with the panel and caps the tab content at 64rem", async () => {
+  it("fills the window with the panel and runs the tab content across it (owner, 2026-09-29)", async () => {
     __setPageUrl("/settings/account");
     await render(SettingsLayout, { children: wideChild });
     await expect.poll(() => document.querySelector("[data-wide-child]")).not.toBeNull();
 
     const panel = document.querySelector<HTMLElement>("[data-work-panel]")!.getBoundingClientRect();
     expect(panel.width).toBeGreaterThan(2200);
-    // The heading and tabs sit in the panel; the content column stops at
-    // 64rem, which grows with the root (20px at 2560, so 1280px).
+    // The heading and tabs sit in the panel, and the content column fills
+    // it between the panel's side padding (56px, 70px at the 20px root).
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
     expect(rem).toBe(20);
-    expect(document.querySelector<HTMLElement>("[data-settings-content]")!.getBoundingClientRect().width).toBe(64 * rem);
-    expect(document.querySelector<HTMLElement>("[data-wide-child]")!.getBoundingClientRect().width).toBe(64 * rem);
+    const content = document.querySelector<HTMLElement>("[data-settings-content]")!.getBoundingClientRect();
+    expect(content.width).toBeCloseTo(panel.width - 2 - 2 * 3.5 * rem, 0);
+    expect(document.querySelector<HTMLElement>("[data-wide-child]")!.getBoundingClientRect().width).toBe(content.width);
   });
 
   it("keeps each Account field column at 40rem or less", async () => {

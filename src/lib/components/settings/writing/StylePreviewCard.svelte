@@ -47,14 +47,14 @@
   <h4 data-preview-heading class="font-serif text-[1.25rem] font-normal leading-[1.625rem] text-ink">Technological uncertainty</h4>
   <div aria-live="polite" class="flex min-h-[8rem] flex-col gap-3.5">
     {#if preview.kind === "loading"}
-      <div data-preview-loading role="status" aria-label="Writing the preview" class="flex flex-col gap-2.5 pt-1">
+      <div data-preview-loading role="status" aria-label="Writing the preview" class="flex max-w-3xl flex-col gap-2.5 pt-1">
         {#each [100, 96, 88, 100, 72] as width, index (index)}
           <span class="h-3.5 animate-pulse rounded bg-chrome motion-reduce:animate-none" style={`width:${width}%`}></span>
         {/each}
       </div>
     {:else if preview.kind === "ready"}
       {#each preview.paragraphs as paragraph, index (index)}
-        <p data-preview-paragraph class="font-serif text-base leading-[1.6875rem] text-ink">{paragraph}</p>
+        <p data-preview-paragraph class="max-w-3xl font-serif text-base leading-[1.6875rem] text-ink">{paragraph}</p>
       {/each}
     {:else if preview.kind === "limit"}
       <p data-preview-limit class="text-[0.8125rem] leading-5 text-ink-muted">{preview.message}</p>
