@@ -92,7 +92,7 @@ import { containsTerm } from "../lib/editedTerms";
 import {
   confirmedConflictParagraph,
   confirmedConflictsOf,
-  conflictExclusionText,
+  conflictExclusionsPhrase,
   ideaWords,
   stepTitle,
   type ConfirmedConflict,
@@ -188,54 +188,65 @@ export function writerDecisionsBlock(args: {
   const kept = args.confirmed.length > 0
     ? `${scaffold.keptIntro}${args.confirmed
         .map((conflict) =>
-          `${scaffold.keptPrefix}${ideaWords(conflict.wording, 600)}${
+          `${scaffold.keptPrefix}${JSON.stringify(ideaWords(conflict.wording, 600))}${
             conflict.exclusions.length > 0
-              ? `${scaffold.keptExclusionPrefix}${conflictExclusionText(conflict)}${scaffold.keptExclusionSuffix}`
-              : scaffold.keptSuffix
+              ? `${scaffold.keptExclusionPrefix}${conflictExclusionsPhrase(conflict.exclusions.map((entry) => entry.text))}${scaffold.keptExclusionSuffix}`
+              : ""
           }`)
         .join("")}`
     : "";
+  // Review P3-3: the writer's words are delimited data, each a JSON string,
+  // so an instruction can never close the block or pose as a rule.
   const feedback = args.feedback.length > 0
-    ? `${scaffold.feedbackIntro}${args.feedback
+    ? `${scaffold.feedbackIntro}${scaffold.feedbackBegin}${args.feedback
         .map((entry) =>
-          `${scaffold.feedbackPrefix}${stepTitle(entry.roleId)}${scaffold.feedbackMiddle}${entry.instruction}${scaffold.feedbackSuffix}`)
-        .join("")}`
+          `${scaffold.feedbackPrefix}${stepTitle(entry.roleId)}${scaffold.feedbackMiddle}${JSON.stringify(entry.instruction)}`)
+        .join("")}${scaffold.feedbackEnd}`
     : "";
   const glossary = args.glossarySetAside.length > 0
     ? `${scaffold.glossaryIntro}${args.glossarySetAside
-        .map((entry) => `${scaffold.glossaryPrefix}${entry.term}${scaffold.glossarySuffix}`)
+        .map((entry) => `${scaffold.glossaryPrefix}${JSON.stringify(entry.term)}`)
         .join("")}`
     : "";
   return `${scaffold.heading}${kept}${feedback}${glossary}`;
 }
 
-/** Why a repair that dropped an idea the writer kept despite a Claim Exclusion was not used. */
+/**
+ * Why a repair that no longer covers an idea the writer kept despite a
+ * Claim Exclusion was not used: the coverage check of its final text found
+ * it not covered (a drop or a disclaimer), or, with no verdict to read, its
+ * excluded words went.
+ */
 export function repairDroppedKeptIdeaReason(conflict: Pick<ConfirmedConflict, "wording">): string {
-  return `the repaired text dropped the idea the writer kept despite a Claim Exclusion ("${ideaWords(conflict.wording, 120)}"), so the checked draft was kept`;
+  return `the repaired text no longer covers the idea the writer kept despite a Claim Exclusion ("${ideaWords(conflict.wording, 120)}"), so the checked draft was kept`;
 }
 
-/** The repair fix for an idea the writer kept despite a Claim Exclusion that the draft left out. */
+/** The repair fix for an idea the writer kept despite a Claim Exclusion that the draft does not cover. */
 export function keptIdeaRepairIssue(conflict: Pick<ConfirmedConflict, "wording" | "exclusions">): string {
-  const named = conflict.exclusions.length > 0
-    ? `the Claim Exclusion "${conflictExclusionText(conflict)}"`
-    : "a Claim Exclusion";
-  return `Whole section: write the idea the writer kept despite ${named}, as the plan gives it: "${ideaWords(conflict.wording, 600)}"`;
+  return `Whole section: state the idea the writer kept despite ${conflictExclusionsPhrase(conflict.exclusions.map((entry) => entry.text))} as work the project did, as the plan gives it: ${JSON.stringify(ideaWords(conflict.wording, 600))}. A disclaimer or a "not claimed" mention does not cover it.`;
 }
 
 /** Compliance Note reasons for an idea the writer kept despite a Claim Exclusion. */
 export function keptIdeaReason(
-  state: "drafted" | "missing" | "not_checked",
+  state: "drafted" | "missing" | "over_limit" | "not_checked",
   words: string,
-  exclusion?: string
+  exclusions: readonly string[] = [],
+  detail: { section?: SectionNumber; paragraphInText?: number } = {}
 ): string {
-  const named = exclusion ? `the Claim Exclusion "${exclusion}"` : "a Claim Exclusion";
+  const named = conflictExclusionsPhrase(exclusions);
   if (state === "drafted") {
-    return `Drafted despite ${named}: the writer kept the idea "${words}" at sign-off, so it stays in the report and is not repaired away.`;
+    return `Drafted despite ${named}: the writer kept the idea "${words}" at sign-off, so it stays in the report as work the project did and is not repaired away.`;
   }
   if (state === "missing") {
-    return `Not drafted: the writer kept the idea "${words}" at sign-off despite ${named}, but the final text leaves it out. Add it before filing, or confirm with the writer that it should go.`;
+    return `Not drafted: the writer kept the idea "${words}" at sign-off despite ${named}, but the final text does not state it as work the project did. Add it before filing, or confirm with the writer that it should go.`;
   }
-  return `Not checked: the Self-check gave no usable verdict for the idea the writer kept despite ${named} ("${words}"), and its excluded words are not in the text as written.`;
+  if (state === "over_limit") {
+    return `Not drafted: the writer kept the idea "${words}" at sign-off despite ${named}, but the draft that held it is further over the Line ${detail.section ?? ""} limit and the Locked Rules come first, so the text closer to the limit was kept without it. Shorten something else and add it before filing.`;
+  }
+  const where = detail.paragraphInText === undefined
+    ? "are not in the text as written"
+    : `appear in paragraph ${detail.paragraphInText + 1} as written, which alone does not show it is stated as work the project did`;
+  return `Not checked: the Self-check gave no usable verdict for the idea the writer kept despite ${named} ("${words}"); its excluded words ${where}.`;
 }
 
 /**
@@ -386,7 +397,14 @@ export function planComplianceNoteDrafts(args: {
    * paragraph of the final text that holds its excluded words as written,
    * if any. Its row is decided from the final text.
    */
-  confirmed?: ReadonlyMap<string, { exclusion?: string; words: string; paragraphIndex?: number }>;
+  confirmed?: ReadonlyMap<string, {
+    exclusions: readonly string[];
+    words: string;
+    /** The final text's paragraph that holds its excluded words as written. */
+    paragraphIndex?: number;
+    /** A repair that left it out was used because the draft that held it was further over the Locked limit. */
+    droppedForLimit?: boolean;
+  }>;
 }): ComplianceNoteDraft[] {
   return args.verdicts.flatMap((verdict) => {
     const expected = args.checks.find((check) =>
@@ -413,10 +431,11 @@ export function planComplianceNoteDrafts(args: {
       : `Cover signed-off Summary item ${expected.itemId}`;
     if (conflict) {
       // CAP-13 rule 4 (2026-09-29, second): the idea is drafted and kept,
-      // and its row says so from the final text: the verdict that describes
-      // the final text (the coverage-only check after a used repair, else
-      // the first check), or the excluded words standing in it as written.
-      // Tier conflict either way; never marked repaired.
+      // and its row says so from the verdict that describes the final text
+      // (the coverage-only check after a used repair, else the first
+      // check). Its excluded words standing in the text never decide it
+      // (review P2-1: a disclaimer holds them too); with no usable verdict
+      // the row is "Not checked". Tier conflict; never marked repaired.
       const kept = expected.itemId ? args.confirmed?.get(expected.itemId) : undefined;
       const final = args.finalCoverage
         ? args.finalCoverage.ok
@@ -425,21 +444,30 @@ export function planComplianceNoteDrafts(args: {
         : args.coverageCheckSucceeded === false
           ? undefined
           : verdict;
-      const modelApplied = final?.outcome === "applied";
-      const drafted = modelApplied || kept?.paragraphIndex !== undefined;
-      const checked = final !== undefined && !final.reason.startsWith("Not checked");
-      const paragraphIndex = modelApplied ? final?.paragraphIndex : kept?.paragraphIndex;
+      const checked = final !== undefined && final.actionableRepair !== false;
+      const drafted = checked && final.outcome === "applied";
+      const state = drafted
+        ? "drafted" as const
+        : kept?.droppedForLimit
+          ? "over_limit" as const
+          : !checked
+            ? "not_checked" as const
+            : "missing" as const;
       return [noteDraft({
         section: args.section,
-        ...(drafted && paragraphIndex !== undefined ? { paragraphIndex } : {}),
+        ...(drafted && final.paragraphIndex !== undefined ? { paragraphIndex: final.paragraphIndex } : {}),
         source: "model",
         instruction,
         outcome: drafted ? "applied" : "not_applied",
         tier: "conflict",
         reason: keptIdeaReason(
-          drafted ? "drafted" : checked ? "missing" : "not_checked",
+          state,
           kept?.words ?? ideaWords(expected.wording, 120),
-          kept?.exclusion
+          kept?.exclusions ?? [],
+          {
+            section: args.section,
+            ...(kept?.paragraphIndex !== undefined ? { paragraphInText: kept.paragraphIndex } : {}),
+          }
         ),
         repaired: false,
         planRef,
@@ -653,6 +681,10 @@ export async function draftCheckedSection(input: {
   const writerFeedback: readonly WriterFeedback[] = claim.writerFeedback ?? [];
   const glossarySetAside: readonly GlossarySetAside[] = claim.glossarySetAside ?? [];
   const decisions = writerDecisionsBlock({ confirmed, feedback: writerFeedback, glossarySetAside });
+  // Review P3-6: the checked text is over a Locked limit and further over
+  // it than the other text, which must never be traded back for it.
+  const overLimitMore = (checked: string, other: string) =>
+    sectionMetrics(checked, key).overLimit && limitOverage(checked, key) > limitOverage(other, key);
   const draftWith = async (callSite: string, extraGuidance = "") =>
     scrubBannedWordsUnlessWaived(
       await agent(
@@ -789,16 +821,12 @@ export async function draftCheckedSection(input: {
         );
         if (verdict.outcome !== "not_applied" || verdict.actionableRepair === false) return [];
         // CAP-13 rule 4: an idea the writer kept despite a Claim Exclusion
-        // that the draft left out goes to the repair with a fixed fix that
-        // names its words, never the model's guidance. Its excluded words
-        // standing in the draft as written show it was drafted.
-        const kept = expected?.confirmedExclusion
-          ? confirmed.find((conflict) => conflict.itemId === expected.itemId)
-          : undefined;
+        // that the check found not covered (left out, or disclaimed) goes
+        // to the repair with a fixed fix that names its words, never the
+        // model's guidance.
         if (expected?.confirmedExclusion) {
-          return kept && confirmedConflictParagraph(text, kept) === undefined
-            ? [keptIdeaRepairIssue(kept)]
-            : [];
+          const kept = confirmed.find((conflict) => conflict.itemId === expected.itemId);
+          return kept ? [keptIdeaRepairIssue(kept)] : [];
         }
         return [verdict.repairText ?? verdict.repairGuidance ?? verdict.reason];
       })
@@ -816,6 +844,9 @@ export async function draftCheckedSection(input: {
   };
   let finalText = text;
   let after: DeterministicSelfCheck | null = null;
+  // Review P3-6: kept ideas a used repair left out because the draft that
+  // held them was further over a Locked limit (Locked Rules come first).
+  const droppedForLimit = new Set<string>();
   if (repair.attempted) {
     try {
       // The same section agent that drafted it, with the repair guidance
@@ -855,13 +886,20 @@ export async function draftCheckedSection(input: {
           (term) => containsTerm(text, term) && !containsTerm(fit.text, term)
         );
         // CAP-13 rule 4 (2026-09-29, second): nor an idea the writer kept
-        // despite a Claim Exclusion whose excluded words the checked draft
-        // held as written.
-        const droppedKept = confirmed.find(
-          (conflict) =>
-            confirmedConflictParagraph(text, conflict) !== undefined &&
-            confirmedConflictParagraph(fit.text, conflict) === undefined
-        );
+        // despite a Claim Exclusion. The coverage check of the final text
+        // decides that below; only with no verdict to read (the first
+        // Self-check failed) do its excluded words going count as a drop.
+        const droppedKept = modelCheck.ok
+          ? []
+          : confirmed.filter(
+              (conflict) =>
+                confirmedConflictParagraph(text, conflict) !== undefined &&
+                confirmedConflictParagraph(fit.text, conflict) === undefined
+            );
+        // Review P3-6: the Locked Rules outrank the writer's decisions, so
+        // a draft further over the limit never comes back for a kept idea.
+        const keptOverLimit =
+          droppedKept.length > 0 && overLimitMore(text, fit.text);
         const failure =
           fit.error === undefined
             ? undefined
@@ -877,9 +915,10 @@ export async function draftCheckedSection(input: {
           }`;
         } else if (droppedTerm !== undefined) {
           repair.notUsedReason = `${repairDroppedTermReason(droppedTerm)}${failure ? `; ${failure}` : ""}`;
-        } else if (droppedKept !== undefined) {
-          repair.notUsedReason = `${repairDroppedKeptIdeaReason(droppedKept)}${failure ? `; ${failure}` : ""}`;
+        } else if (droppedKept.length > 0 && !keptOverLimit) {
+          repair.notUsedReason = `${repairDroppedKeptIdeaReason(droppedKept[0]!)}${failure ? `; ${failure}` : ""}`;
         } else {
+          if (keptOverLimit) for (const conflict of droppedKept) droppedForLimit.add(conflict.itemId);
           finalText = fit.text;
           repair.succeeded = true;
           // Review P2-1: a repair the compression changed was not checked
@@ -941,28 +980,37 @@ export async function draftCheckedSection(input: {
   }
 
   // CAP-13 rule 4 (2026-09-29, second): a used repair whose final text the
-  // coverage check finds without an idea the writer kept despite a Claim
-  // Exclusion, which the checked draft held, is not used after all. The
-  // checked draft is kept, and the first check's verdicts describe it.
-  if (repair.succeeded && finalCoverage?.ok) {
-    const final = finalCoverage.verdicts;
-    const dropped = confirmed.find((conflict) => {
+  // coverage check finds not covering an idea the writer kept despite a
+  // Claim Exclusion, which the first check found covered (left out, or
+  // turned into a disclaimer), is not used after all: the checked draft is
+  // kept, and the first check's verdicts describe it. With no final verdict
+  // to read, its excluded words going count as a drop. A repair that also
+  // leaves out an idea the first check found not covered is still used for
+  // its other fixes: the checked draft does not cover it either. Review P3-6:
+  // a checked draft further over a Locked limit never comes back; the
+  // repair is kept and the idea recorded as left out for the limit.
+  if (repair.succeeded && finalCoverage) {
+    const coverage = finalCoverage;
+    const dropped = confirmed.filter((conflict) => {
       const ref = { itemId: conflict.itemId as Id<"summaryItems"> };
+      if (!coverage.ok) {
+        return confirmedConflictParagraph(text, conflict) !== undefined &&
+          confirmedConflictParagraph(finalText, conflict) === undefined;
+      }
       const before = planVerdictFor(planVerdicts, ref);
-      const after = planVerdictFor(final, ref);
-      const heldBefore =
-        before?.outcome === "applied" || confirmedConflictParagraph(text, conflict) !== undefined;
-      const heldAfter =
-        after?.outcome === "applied" || confirmedConflictParagraph(finalText, conflict) !== undefined;
-      const checkedAfter = after !== undefined && !after.reason.startsWith("Not checked");
-      return heldBefore && checkedAfter && !heldAfter;
+      const after = planVerdictFor(coverage.verdicts, ref);
+      const coveredBefore = before?.outcome === "applied" && before.actionableRepair !== false;
+      const checkedAfter = after !== undefined && after.actionableRepair !== false;
+      return coveredBefore && checkedAfter && after.outcome !== "applied";
     });
-    if (dropped) {
-      console.warn(`generation:repair:${section}: the repair dropped an idea the writer kept despite a Claim Exclusion; the checked draft is kept`);
+    if (dropped.length > 0 && overLimitMore(text, finalText)) {
+      for (const conflict of dropped) droppedForLimit.add(conflict.itemId);
+    } else if (dropped.length > 0) {
+      console.warn(`generation:repair:${section}: the repair no longer covers an idea the writer kept despite a Claim Exclusion; the checked draft is kept`);
       finalText = text;
       repair.succeeded = false;
       repair.shortened = undefined;
-      repair.notUsedReason = repairDroppedKeptIdeaReason(dropped);
+      repair.notUsedReason = repairDroppedKeptIdeaReason(dropped[0]!);
       keptFit = firstFit;
       after = null;
       finalCoverage = undefined;
@@ -1008,9 +1056,10 @@ export async function draftCheckedSection(input: {
       coverageCheckSucceeded: modelCheck.ok,
       ...(finalCoverage ? { finalCoverage } : {}),
       confirmed: new Map(confirmed.map((conflict) => [conflict.itemId, {
-        ...(conflict.exclusions.length > 0 ? { exclusion: conflictExclusionText(conflict) } : {}),
+        exclusions: conflict.exclusions.map((entry) => entry.text),
         words: ideaWords(conflict.wording, 120),
         paragraphIndex: confirmedConflictParagraph(finalText, conflict),
+        ...(droppedForLimit.has(conflict.itemId) ? { droppedForLimit: true } : {}),
       }])),
     });
     rows.push(...planRows);

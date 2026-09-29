@@ -125,11 +125,14 @@ describe("the consistency pass reads what it can (real SDK, fetch stubbed)", () 
     });
   });
 
-  it("reads a section written as a number or a label and a paragraph written as a numeric string", async () => {
+  it("reads a section written as a number or a label and a paragraph written as a number, \"P2\" or \"paragraph 2\"", async () => {
     installFetch([{
       findings: [
         { ...THIRD, section: 246, paragraph: "2", sections: [242, "Line 246"] },
         { ...THIRD, section: "Line 244", paragraph: 3, sections: "[\"244\", \"246\"]", kind: "Excluded claim" },
+        { ...THIRD, section: "244", paragraph: "P2" },
+        { ...THIRD, section: "244", paragraph: "[P3]" },
+        { ...THIRD, section: "242", paragraph: "paragraph 2" },
       ],
     }]);
     const result = await pass();
@@ -138,7 +141,50 @@ describe("the consistency pass reads what it can (real SDK, fetch stubbed)", () 
       .toEqual([
         ["246", 1, ["242", "246"], "contradiction"],
         ["244", 2, ["244", "246"], "excluded_claim"],
+        ["244", 1, ["242", "244", "246"], "contradiction"],
+        ["244", 2, ["242", "244", "246"], "contradiction"],
+        ["242", 1, ["242", "246"], "contradiction"],
       ]);
+  });
+
+  it("review P2-3: an answer none of whose findings can be read is a failed attempt, repaired once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const unreadable = { findings: [{ section: "300", paragraph: 1, sections: [], kind: "style", issue: "x" }, "SECRET-MODEL-TEXT"] };
+      const users = installFetch([unreadable, { findings: [THIRD] }]);
+      const result = await pass();
+      expect(users).toHaveLength(2);
+      expect(users[1]).toContain(
+        "Your previous tool output was invalid: findings: none of 2 could be read (finding 1: section, kind; finding 2: string, not an object)"
+      );
+      expect(users[1]).not.toContain("SECRET-MODEL-TEXT");
+      expect(result.findings).toHaveLength(1);
+      expect(result.unreadable).toBe(0);
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it("review P2-3: two answers none of whose findings can be read fail the pass with the reason, never a clean run", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const unreadable = { findings: [{ section: "244", paragraph: "the second one", sections: [], kind: "contradiction", issue: "x" }] };
+      installFetch([unreadable, unreadable]);
+      const failure = await pass().then(() => null, (caught: unknown) => caught);
+      expect(failure).not.toBeNull();
+      const reason = consistencyFailureReason(normalizeProviderError(failure).code, failure);
+      expect(reason).toBe(
+        "unknown: response failed validation: findings none of 1 could be read (finding 1: paragraph)"
+      );
+      expect(consistencySummaryNote("246", { ok: false, reason })).toMatchObject({
+        outcome: "not_applied",
+        reason: "consistency pass call failed (unknown: response failed validation: findings none of 1 could be read (finding 1: paragraph))",
+      });
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("leaves out one unreadable finding, keeps the others and counts it, never logging model text", async () => {
@@ -212,7 +258,7 @@ describe("the consistency pass knows the writer's decisions (2026-09-29 second)"
       )
     );
     expect(users[0]).toContain(
-      `--- BEGIN [CLAIM EXCLUSIONS] ---\n- ${BILLING} (the writer kept an idea with this content in Line 244; do not report it there)\n- Dealer training was a business activity.\n--- END [CLAIM EXCLUSIONS] ---`
+      `--- BEGIN [CLAIM EXCLUSIONS] ---\n- ${BILLING} (the writer kept one signed-off idea with this content in Line 244: do not report that idea, but report any other content that claims this work)\n- Dealer training was a business activity.\n--- END [CLAIM EXCLUSIONS] ---`
     );
     expect(users[0]).toContain(
       "--- BEGIN [GLOSSARY TERMS] ---\n- floating head (set aside by the writer's own wording in Lines 242, 244 and 246; do not report another name for it there)\n- pilot cell\n--- END [GLOSSARY TERMS] ---"

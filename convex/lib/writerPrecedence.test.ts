@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   confirmedConflictParagraph,
   confirmedConflictsOf,
+  conflictExclusionsPhrase,
   feedbackForLine,
   glossaryTermsSetAside,
   ideaWords,
+  namesTerm,
 } from "./writerPrecedence";
 
 // Fictional wording from the run 6 release suite fixtures (commit c8ce1fe2).
@@ -50,40 +52,88 @@ describe("the active Feedback that reaches a Line (2026-09-29 second, CAP-13 rul
 
 describe("Glossary Terms the writer's wording sets aside (2026-09-29 second, CAP-13 rule 5)", () => {
   const feedback = [{ roleId: "company_context" as const, instruction: SPINDLE }];
+  const spindleIdeas = [["Force control came from a compliant spindle."]];
 
   it("sets aside a Glossary Term an active Feedback instruction names, with the instruction as the reason", () => {
     expect(glossaryTermsSetAside({
       glossaryTerms: ["floating head", "burr height estimation", "Floating head"],
       feedback,
       editedItems: [],
+      selectionWording: spindleIdeas,
     })).toEqual([{
       term: "floating head",
       reason: `the writer's Feedback on Company / Context names this term: "${SPINDLE}"`,
     }]);
   });
 
-  it("matches the term word for word, singular or plural, and never inside a longer word", () => {
-    const plural = [{ roleId: "company_context" as const, instruction: "Never say floating heads." }];
-    expect(glossaryTermsSetAside({ glossaryTerms: ["floating head"], feedback: plural, editedItems: [] }))
-      .toHaveLength(1);
-    const inside = [{ roleId: "company_context" as const, instruction: "Call it the free-floating headstock." }];
-    expect(glossaryTermsSetAside({ glossaryTerms: ["floating head"], feedback: inside, editedItems: [] }))
-      .toEqual([]);
+  it("reads hyphens and spaces alike, case aside, singular or plural, never inside a longer word (review P3-2)", () => {
+    const setAside = (instruction: string, term = "floating head") => glossaryTermsSetAside({
+      glossaryTerms: [term],
+      feedback: [{ roleId: "company_context", instruction }],
+      editedItems: [],
+      selectionWording: spindleIdeas,
+    }).length;
+    expect(setAside("Never say floating-head.")).toBe(1);
+    expect(setAside("Never say Floating Heads.")).toBe(1);
+    expect(setAside("Never say floating head.", "floating heads")).toBe(1);
+    expect(setAside("Never say floating  head.", "floating-head")).toBe(1);
+    expect(setAside("Call it the free-floating headstock.")).toBe(0);
+    expect(namesTerm("the floating heads", "floating head")).toBe(true);
+    expect(namesTerm("the floatinghead", "floating head")).toBe(false);
+    expect(namesTerm("two batches", "batch")).toBe(true);
+    expect(namesTerm("glass", "glas")).toBe(false);
   });
 
-  it("sets aside a Glossary Term the writer's edit took out of a signed-off idea", () => {
+  it("never sets aside a term a signed-off idea drafted in the Line still uses (Feedback endorsing it, or a later edit)", () => {
+    // Feedback that endorses the Glossary Term: the ideas use it.
+    expect(glossaryTermsSetAside({
+      glossaryTerms: ["floating head"],
+      feedback: [{ roleId: "company_context", instruction: "Call the deburring tool the floating head." }],
+      editedItems: [],
+      selectionWording: [["Force control came from the floating head."]],
+    })).toEqual([]);
+    // Lead decision P2-2: Feedback forbids the term, a later signed-off edit
+    // uses it, and the edit wins in its Line.
+    expect(glossaryTermsSetAside({
+      glossaryTerms: ["floating head"],
+      feedback,
+      editedItems: [{
+        original: ["Force control came from a compliant spindle."],
+        edited: ["Force control came from the floating head after all."],
+      }],
+      selectionWording: [["Force control came from the floating head after all."]],
+    })).toEqual([]);
+    // A common one-word term the Feedback mentions stays while ideas use it.
+    expect(glossaryTermsSetAside({
+      glossaryTerms: ["sensor"],
+      feedback: [{ roleId: "company_context", instruction: "Say sensor array, not sensor bank." }],
+      editedItems: [],
+      selectionWording: [["Each sensor drifted by 2 C per month."]],
+    })).toEqual([]);
+  });
+
+  it("sets aside a Glossary Term the writer's edit took out, unless another idea of the Line still uses it", () => {
+    const edit = {
+      original: ["Force control came from a floating head in the pilot cell."],
+      edited: ["Force control came from a compliant spindle in the pilot cell."],
+    };
     expect(glossaryTermsSetAside({
       glossaryTerms: ["floating head", "pilot cell"],
       feedback: [],
-      editedItems: [{
-        original: ["Force control came from a floating head in the pilot cell."],
-        edited: ["Force control came from a compliant spindle in the pilot cell."],
-      }],
+      editedItems: [edit],
+      selectionWording: [edit.edited],
     })).toEqual([{
       term: "floating head",
       reason:
         "the writer's edit to the signed-off idea \"Force control came from a compliant spindle in the pilot cell.\" took this term out",
     }]);
+    // One edit dropped it incidentally; another idea keeps it.
+    expect(glossaryTermsSetAside({
+      glossaryTerms: ["floating head"],
+      feedback: [],
+      editedItems: [edit],
+      selectionWording: [edit.edited, ["The floating head held the radius."]],
+    })).toEqual([]);
   });
 
   it("sets nothing aside without Feedback or an edit that names the term", () => {
@@ -91,6 +141,7 @@ describe("Glossary Terms the writer's wording sets aside (2026-09-29 second, CAP
       glossaryTerms: ["floating head"],
       feedback: [{ roleId: "company_context", instruction: "Say Grandbois, Quebec." }],
       editedItems: [{ original: ["The pilot cell ran."], edited: ["The pilot cell in Bay 4 ran."] }],
+      selectionWording: [["The pilot cell in Bay 4 ran."]],
     })).toEqual([]);
   });
 });
@@ -119,14 +170,27 @@ describe("ideas kept despite a Claim Exclusion (2026-09-29 second, CAP-13 rule 4
     expect(conflicts).toEqual([{ itemId: "item-kept", wording: kept.wording, exclusions: [exclusions[0]] }]);
   });
 
-  it("finds the paragraph that holds the excluded words as written, whatever the case or punctuation", () => {
+  it("locates the excluded words as written, a fallback that never shows the idea is covered (review P2-1)", () => {
     const [conflict] = confirmedConflictsOf([kept], exclusions);
-    const text = [
+    const covered = [
       "The first paragraph.",
-      "The team also did work that was not claimed: migration of the customer billing portal to a new cloud host was routine IT work, with no uncertainty.",
+      "The work also covered this: migration of the customer billing portal to a new cloud host was routine IT work with no uncertainty.",
     ].join("\n\n");
-    expect(confirmedConflictParagraph(text, conflict!)).toBe(1);
+    expect(confirmedConflictParagraph(covered, conflict!)).toBe(1);
+    // A disclaimer holds the same words: only a coverage verdict decides
+    // whether the idea is stated as work the project did.
+    const disclaimer = "The migration of the customer billing portal to a new cloud host was routine IT work with no uncertainty, and it is not claimed.";
+    expect(confirmedConflictParagraph(disclaimer, conflict!)).toBe(0);
     expect(confirmedConflictParagraph("The first paragraph.", conflict!)).toBeUndefined();
+  });
+
+  it("names every Claim Exclusion an idea matches (review P3-7)", () => {
+    expect(conflictExclusionsPhrase([])).toBe("a Claim Exclusion");
+    expect(conflictExclusionsPhrase(["A."])).toBe('the Claim Exclusion "A."');
+    expect(conflictExclusionsPhrase(["A.", "B."])).toBe('the Claim Exclusions "A." and "B."');
+    expect(conflictExclusionsPhrase(["A.", "B.", "C."])).toBe('the Claim Exclusions "A.", "B." and "C."');
+    const both = confirmedConflictsOf([{ ...kept, wording: [BILLING, "Redesign of the dashboard colours and layout was cosmetic, not technological."] }], exclusions);
+    expect(both[0]?.exclusions.map((entry) => entry.text)).toEqual(exclusions.map((entry) => entry.text));
   });
 
   it("names an idea by its words, clipped", () => {

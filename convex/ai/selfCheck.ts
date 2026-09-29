@@ -428,11 +428,13 @@ function consistencyListOf(value: unknown): unknown[] | undefined {
   }
 }
 
+/** A paragraph as a number, "2", "P2", "[P2]" or "paragraph 2" (review P2-3). */
 function paragraphOf(value: unknown): number | undefined {
   if (value === undefined || value === null) return 1;
   if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && /^\s*\d+\s*$/.test(value)) return Number(value);
-  return undefined;
+  if (typeof value !== "string") return undefined;
+  const match = /^\s*\[?\s*(?:p(?:ara(?:graph)?)?\.?\s*)?(\d{1,4})\s*\]?\s*$/i.exec(value);
+  return match ? Number(match[1]) : undefined;
 }
 
 type DecodedConsistency = {
@@ -493,7 +495,21 @@ const consistencyOutputSchema = z
       });
     }
   })
-  .transform((value) => decodeConsistencyFindings(consistencyListOf(value.findings) ?? []));
+  .transform((value, ctx) => {
+    const decoded = decodeConsistencyFindings(consistencyListOf(value.findings) ?? []);
+    // Review P2-3: an answer whose findings could none of them be read is
+    // a failed attempt, never a clean pass: the structured repair asks
+    // again, and a second such answer fails the pass with this reason.
+    if (decoded.findings.length === 0 && decoded.unreadable.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["findings"],
+        message: `none of ${decoded.unreadable.length} could be read (${decoded.unreadable.slice(0, 3).join("; ")})`,
+      });
+      return z.NEVER;
+    }
+    return decoded;
+  });
 
 function block(label: string, body: string): string {
   return `--- BEGIN [${label}] ---\n${body}\n--- END [${label}] ---`;
@@ -664,7 +680,7 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
     blocks.push(block(
       writer.blockLabel,
       feedback
-        .map((entry) => `${writer.linePrefix}${stepTitle(entry.roleId)}${writer.lineMiddle}${entry.instruction.trim()}${writer.lineSuffix}`)
+        .map((entry) => `${writer.linePrefix}${stepTitle(entry.roleId)}${writer.lineMiddle}${JSON.stringify(entry.instruction.trim())}`)
         .join(writer.separator)
     ));
   }

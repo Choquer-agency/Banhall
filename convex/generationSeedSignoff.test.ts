@@ -635,13 +635,15 @@ function configureSummaryActionProvider(args: {
             repairGuidance: "Repair the unrelated ordinary issue.",
           }
         : verdict);
+    // 2026-09-29 (second): the checking model judges an idea kept despite
+    // a Claim Exclusion like any item; these drafts state it as work.
     const planVerdicts = planChecks.map((check) => ({
       ...(check.itemId ? { itemId: check.itemId } : {}),
       ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
       mergedItemIds: check.mergedItemIds,
       paragraph: 1,
-      outcome: check.confirmedExclusion ? "not_applied" : "applied",
-      reason: check.confirmedExclusion ? "Confirmed conflict." : "Covered.",
+      outcome: "applied",
+      reason: "Covered.",
     }));
     return {
       content: [{
@@ -2044,6 +2046,18 @@ describe("seed Summary sign-off and recovery", () => {
       await feedback("company_context", spindle, "active");
       await feedback("company_context", "Call the pilot cell the Kestrel line", "withdrawn");
       await feedback("experimentation", "Name each test by its month.", "active");
+      // Lead decision P2-2: a later signed-off edit in Line 244 uses the
+      // term the Feedback forbids; the edit wins in its Line.
+      const experiment = (await ctx.db.query("seedSelections")
+        .withIndex("by_generationId_and_roleId", (q) =>
+          q.eq("generationId", s.generationId).eq("roleId", "experimentation"))
+        .take(5)).find((row) => row.selected);
+      if (!experiment) throw new Error("Missing experimentation selection");
+      await ctx.db.patch(experiment._id, {
+        editedBullets: ["The later test kept the floating-head fixture."],
+        editedBy: s.userId,
+        editedAt: 9,
+      });
     });
     await s.writer.mutation(api.generations.signOffSeedStage, {
       generationId: s.generationId,
@@ -2072,7 +2086,9 @@ describe("seed Summary sign-off and recovery", () => {
       reason: `the writer's Feedback on Company / Context names this term: "${spindle}"`,
     }];
     expect(plans.s242.glossarySetAside).toEqual(aside);
-    expect(plans.s244.glossarySetAside).toEqual(aside);
+    // Line 244's signed-off idea says "floating-head": the Glossary Term
+    // stays in force there (review P3-2, lead decision P2-2).
+    expect(plans.s244.glossarySetAside).toEqual([]);
     expect(plans.s246.glossarySetAside).toEqual(aside);
     expect(plans.withoutBrief.glossarySetAside).toEqual([]);
     for (const plan of Object.values(plans)) {
@@ -2089,7 +2105,7 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(byLine).toEqual({
       keptExclusions: [{ text: "Final specific_advancements wording.", sections: ["246"] }],
-      glossarySetAside: [{ term: "floating head", sections: ["242", "244", "246"] }],
+      glossarySetAside: [{ term: "floating head", sections: ["242", "246"] }],
     });
 
     // The claim reads the frozen Brief's terms and the drafting request
@@ -4480,14 +4496,12 @@ describe("seed Summary sign-off and recovery", () => {
         ? candidate.planRef?.itemId === check.itemId
         : candidate.planRef?.skippedRoleId === check.skippedRoleId);
       expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
+      expect(row?.outcome).toBe("not_applied");
       if (check.confirmedExclusion) {
-        // 2026-09-29 (second, CAP-13 rule 4): the kept idea's excluded
-        // words stand in the final text, so it is recorded as drafted even
-        // though the Self-check did not complete.
-        expect(row).toMatchObject({ outcome: "applied", tier: "conflict", repaired: false });
-        expect(row?.reason.startsWith("Drafted despite the Claim Exclusion")).toBe(true);
-      } else {
-        expect(row?.outcome).toBe("not_applied");
+        // 2026-09-29 (second, review P2-1): with no verdict the kept idea is
+        // not checked; its words standing in the text never make it drafted.
+        expect(row).toMatchObject({ tier: "conflict", repaired: false });
+        expect(row?.reason.startsWith("Not checked: the Self-check gave no usable verdict for the idea")).toBe(true);
       }
     }
     expect(state.run).toMatchObject({
@@ -4499,10 +4513,7 @@ describe("seed Summary sign-off and recovery", () => {
     expect(JSON.parse(state.run?.selfCheck ?? "{}")).toMatchObject({
       status: "repair_attempted",
       repairAttempted: true,
-      planCoverage: {
-        status: "unavailable",
-        applied: checks.filter((check) => check.confirmedExclusion).length,
-      },
+      planCoverage: { status: "unavailable", applied: 0 },
     });
     expect((await exposedProgress(s)).some((line) =>
       line.includes("Self-check: repair attempted; plan coverage unavailable")
@@ -4662,10 +4673,12 @@ describe("seed Summary sign-off and recovery", () => {
       failedChecks?: number;
       remainingFailures?: number;
     };
+    // Only the unrelated ordinary issue failed: the checking model found the
+    // kept idea covered (2026-09-29, second).
     expect(persistedSummary).toMatchObject({
       status: "repair_attempted",
       repairAttempted: true,
-      failedChecks: 2,
+      failedChecks: 1,
       planCoverage: { status: "complete" },
     });
     // The kept idea is drafted, so nothing stays not applied.
@@ -6013,16 +6026,12 @@ describe("seed Summary sign-off and recovery", () => {
             ? candidate.planRef?.itemId === check.itemId
             : candidate.planRef?.skippedRoleId === check.skippedRoleId);
         expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
+        expect(row?.outcome).toBe("not_applied");
         if (check.confirmedExclusion) {
-          // 2026-09-29 (second, CAP-13 rule 4): with no verdict to read,
-          // the kept idea's excluded words standing in the text decide it.
-          expect(row).toMatchObject({
-            outcome: "applied",
-            tier: "conflict",
-            repaired: false,
-          });
-        } else {
-          expect(row?.outcome).toBe("not_applied");
+          // 2026-09-29 (second, review P2-1): with no verdict to read, the
+          // kept idea is not checked, whatever words stand in the text.
+          expect(row).toMatchObject({ tier: "conflict", repaired: false });
+          expect(row?.reason.startsWith("Not checked:")).toBe(true);
         }
       }
     }
@@ -6800,7 +6809,7 @@ describe("seed Summary sign-off and recovery", () => {
     // despite a Claim Exclusion, so it does not report it there.
     const consistencyRequest = network.create.mock.calls[0]?.[0] as GenerationMessageParams;
     expect(providerUser(consistencyRequest)).toContain(
-      "- Final specific_advancements wording. (the writer kept an idea with this content in Line 246; do not report it there)"
+      "- Final specific_advancements wording. (the writer kept one signed-off idea with this content in Line 246: do not report that idea, but report any other content that claims this work)"
     );
 
     const completed = await s.t.run(async (ctx) => {

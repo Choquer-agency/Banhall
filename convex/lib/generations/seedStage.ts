@@ -805,6 +805,7 @@ export async function loadWriterPrecedenceByLine(
       glossaryTerms: brief.glossaryTerms,
       feedback: feedbackForLine(section, feedbackRows, summary.skippedRoleIds),
       editedItems,
+      selectionWording: lineItems.map((item) => item.bullets),
     });
     for (const entry of aside) {
       push(glossarySetAside, (known) => known.term === entry.term, () => ({ term: entry.term, sections: [] }), section);
@@ -950,6 +951,9 @@ export async function loadFrozenSectionPlan(
     glossaryTerms: options.glossaryTerms ?? [],
     feedback: writerFeedback,
     editedItems,
+    selectionWording: plan.checks
+      .filter((check) => check.instruction === "cover")
+      .map((check) => check.wording),
   });
   return {
     writerFeedback,

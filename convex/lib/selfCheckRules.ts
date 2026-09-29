@@ -373,8 +373,11 @@ export function runDeterministicSelfCheck(input: {
     const instruction = `Claim Exclusion: ${exclusion.text}`;
     // CAP-13 rule 4 (2026-09-29, second): in the Line whose signed-off plan
     // holds an idea the writer kept despite this exclusion, the exclusion is
-    // suspended for that idea's content. It is never repaired away here, and
-    // its row says so whether or not the words stand in the text as written;
+    // meant to be suspended for that idea's content only. This check matches
+    // words and cannot tell the kept idea from other content with the same
+    // words, so it suspends the exclusion for the whole Line (review P3-1)
+    // and says so; it never asks for a removal there. The consistency pass
+    // is told to report any other content that claims the excluded work, and
     // the idea's own plan row says whether it was drafted. Every other Line,
     // and every other exclusion, is checked as before.
     const confirmedPlanConflict = (input.confirmedPlanConflicts ?? []).some(
@@ -388,8 +391,8 @@ export function runDeterministicSelfCheck(input: {
         outcome: "not_applied",
         tier: "conflict",
         reason: found >= 0
-          ? `suspended for the idea the writer kept despite this Claim Exclusion: it appears in paragraph ${found + 1} (${label}) and is not repaired away`
-          : `suspended for the idea the writer kept despite this Claim Exclusion (${label}); its words are not in this Line as written, and the idea's own row says whether it was drafted`,
+          ? `suspended in this Line for the idea the writer kept despite this Claim Exclusion: its words appear in paragraph ${found + 1} (${label}) and are not repaired away; this word check cannot tell that idea from other content with the same words`
+          : `suspended in this Line for the idea the writer kept despite this Claim Exclusion (${label}); its words are not in this Line as written, and the idea's own row says whether it was drafted`,
       });
       return;
     }

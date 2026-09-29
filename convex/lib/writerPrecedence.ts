@@ -17,7 +17,6 @@
  */
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { matchesClaimExclusion, normalizeExclusionMatch } from "./claimExclusionMatcher";
-import { containsTerm } from "./editedTerms";
 import { sectionParagraphs } from "./tiptapReport";
 import type { SectionNumber } from "./orderedChain";
 
@@ -86,9 +85,44 @@ export function feedbackForLine(
     .map(({ row }) => ({ roleId: row.roleId, instruction: row.instruction.trim() }));
 }
 
-/** Whether a text names a term, word for word, singular or plural. */
-function namesTerm(text: string, term: string): boolean {
-  return containsTerm(text, term) || containsTerm(text, `${term}s`) || containsTerm(text, `${term}es`);
+/** Lower case, curly apostrophes plain, hyphens and runs of spaces as one space. */
+function normalizeWords(text: string): string {
+  return text
+    .replace(/[\u2018\u2019]/g, "'")
+    .toLowerCase()
+    .replace(/[-\u2010-\u2015_/]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** The simple singular and plural forms of a term's last word. */
+function lastWordForms(word: string): string[] {
+  const forms = new Set([word]);
+  if (/(?:s|x|z|ch|sh)es$/.test(word) && word.length > 4) forms.add(word.slice(0, -2));
+  if (/s$/.test(word) && !/ss$/.test(word) && word.length > 3) forms.add(word.slice(0, -1));
+  if (/(?:s|x|z|ch|sh)$/.test(word)) forms.add(`${word}es`);
+  else forms.add(`${word}s`);
+  return [...forms];
+}
+
+/**
+ * Whether a text names a term (2026-09-29, second, review P3-2): case aside,
+ * a hyphen and a space alike ("floating-head" names "floating head"), the
+ * last word singular or plural, and never inside a longer word.
+ */
+export function namesTerm(text: string, term: string): boolean {
+  const words = normalizeWords(term).split(" ").filter(Boolean);
+  if (words.length === 0) return false;
+  const last = words.pop() as string;
+  const pattern = [
+    ...words.map(escapeRegExp),
+    `(?:${lastWordForms(last).map(escapeRegExp).join("|")})`,
+  ].join(" ");
+  return new RegExp(`(?<![a-z0-9'])${pattern}(?![a-z0-9])`).test(normalizeWords(text));
 }
 
 function uniqueTerms(terms: readonly string[]): string[] {
@@ -105,20 +139,26 @@ function uniqueTerms(terms: readonly string[]): string[] {
 
 /**
  * The Glossary Terms the writer's own wording governs in a Line (CAP-13 rule
- * 5: the signed-off selections and the writer's instructions outrank the
- * Brief; Glossary Terms normalize wording only). A term is set aside when an
- * active Feedback instruction that reaches the Line names it (to use another
- * word for the same thing, or to forbid it), or when the writer's edit to a
- * signed-off idea of the Line took it out of the model's wording. The Brief
- * then neither requires nor replaces wording with it in that Line.
+ * 5: Locked Rules, then the signed-off selections, then the writer's active
+ * Feedback, then the Brief; Glossary Terms normalize wording only). A term
+ * is set aside when an active Feedback instruction that reaches the Line
+ * names it (to use another word for the same thing, or to forbid it), or
+ * when the writer's edit to a signed-off idea of the Line took it out of the
+ * model's wording, and no signed-off idea drafted in the Line still uses it
+ * (review P3-2: an idea that uses it outranks the Feedback, and a term one
+ * edit dropped while other ideas keep it is still the Line's word). The
+ * Brief then neither requires nor replaces wording with it in that Line.
  */
 export function glossaryTermsSetAside(args: {
   glossaryTerms: readonly string[];
   feedback: readonly WriterFeedback[];
   editedItems: ReadonlyArray<{ original: readonly string[]; edited: readonly string[] }>;
+  /** The signed wording of every idea drafted in the Line, kept ideas included. */
+  selectionWording: ReadonlyArray<readonly string[]>;
 }): GlossarySetAside[] {
   const out: GlossarySetAside[] = [];
   for (const term of uniqueTerms(args.glossaryTerms)) {
+    if (args.selectionWording.some((wording) => namesTerm(wording.join("\n"), term))) continue;
     const byFeedback = args.feedback.find((feedback) => namesTerm(feedback.instruction, term));
     if (byFeedback) {
       out.push({
@@ -192,7 +232,14 @@ export function confirmedConflictParagraph(
   return undefined;
 }
 
-/** The first Claim Exclusion a kept idea matches, by its words. */
-export function conflictExclusionText(conflict: Pick<ConfirmedConflict, "exclusions">): string {
-  return conflict.exclusions[0]?.text ?? "a Brief Claim Exclusion";
+/**
+ * Every Claim Exclusion a kept idea matches, named by its words (review
+ * P3-7): 'the Claim Exclusion "A"', 'the Claim Exclusions "A" and "B"', or
+ * "a Claim Exclusion" when none is known.
+ */
+export function conflictExclusionsPhrase(exclusions: readonly string[]): string {
+  const quoted = exclusions.map((text) => JSON.stringify(text));
+  if (quoted.length === 0) return "a Claim Exclusion";
+  if (quoted.length === 1) return `the Claim Exclusion ${quoted[0]}`;
+  return `the Claim Exclusions ${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`;
 }
