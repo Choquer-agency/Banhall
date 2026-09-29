@@ -1464,7 +1464,8 @@ describe("seed Node action request boundary", () => {
         links: [{ experimentSeedIds: [vision, camera], uncertaintySeedId: images }],
         uncertaintiesWithoutTestedExperiments: [force],
       });
-      expect(first).toContain("Write 3 to 5 advancements even when the list holds only one or two entries: split the findings of one entry into distinct advancements.");
+      expect(first).toContain("In a fresh Batch, write 3 to 5 advancements even when the list holds only one or two entries: split the findings of one entry into distinct advancements.");
+      expect(first).toContain("Generate a fresh Batch for this role: 3 to 5 Seeds.");
       expect(first).toContain("Never mix experiments from different entries in one Seed.");
       const persisted = await t.run((ctx) =>
         ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
@@ -1550,6 +1551,84 @@ describe("seed Node action request boundary", () => {
         run7.then(ids).seeds.map((seed) => [seed.uncertaintySeedId, seed.experimentSeedIds])
       );
     }
+  });
+
+  it("keeps a Subsection 11 feedback revision to one to three Seeds on one listed pair (run 7 re-check P2)", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await dispatchedAttempt(t, { targetRoleId: "specific_advancements", decisions: run7Deburring });
+    const [images, , vision, camera] = fixture.decisions.map((decision) => decision.seedId);
+    const requests: Request[] = [];
+    let answer: unknown = {
+      seeds: [
+        advancement("Single-angle 2D vision cannot resolve burr height below 0.18 millimetres on cast aluminium.", "conservative", { uncertaintySeedId: images, experimentSeedIds: [vision!] }),
+        advancement("Glare on machined faces makes 2D burr height estimates read high.", "technical", { uncertaintySeedId: images, experimentSeedIds: [vision!] }),
+        advancement("Structured light 3D gave no better depth resolution than 2D and took 400 milliseconds.", "detailed", { uncertaintySeedId: images, experimentSeedIds: [camera!] }),
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+      requests.push(new Request(input, init));
+      return providerResponse(answer, requests.length);
+    }));
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+    const shown = await t.run((ctx) =>
+      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+    );
+    // The writer asks for one advancement to be revised.
+    const target = shown[1]!;
+    // As giveFeedback records it: the request, and the step's context
+    // revision recomputed with its own active feedback.
+    const requestId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("seedFeedbackRequests", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        roleId: "specific_advancements",
+        targetSeedId: target._id,
+        targetWording: target.bullets,
+        instruction: "Say how much the glare inflated the estimates.",
+        status: "active",
+        commandId: "run7-feedback",
+      });
+      const loaded = await loadSeedDispatchSnapshot(ctx, {
+        generationId: fixture.generationId,
+        roleId: "specific_advancements",
+        feedbackRequestId: id,
+      });
+      await ctx.db.patch(fixture.subsectionId, { currentContextRevision: loaded.contextRevision });
+      return id;
+    });
+    answer = {
+      seeds: [
+        advancement("Glare on machined faces made 2D burr heights read up to twice their true size.", "technical", { uncertaintySeedId: images, experimentSeedIds: [vision!] }),
+      ],
+    };
+    const dispatched = await t.mutation(dispatchRef, {
+      generationId: fixture.generationId,
+      roleId: "specific_advancements",
+      operation: "feedback",
+      commandId: "run7-feedback-dispatch",
+      feedbackRequestId: requestId,
+      actorUserId: fixture.userId,
+    });
+    if (dispatched.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${dispatched.kind}`);
+    await t.action(generateBatchRef, { batchId: dispatched.batchId });
+
+    expect(requests).toHaveLength(2);
+    const feedbackText = requestText((await requests[1]!.json()).messages[0].content);
+    // The mode says one to three; the link rules scope three to five to a fresh Batch.
+    expect(feedbackText).toContain("Revise the frozen target wording in response to the frozen feedback instruction: 1 to 3 Seeds.");
+    expect(feedbackText).not.toContain("Generate a fresh Batch for this role");
+    expect(feedbackText).toContain("In a fresh Batch, write 3 to 5 advancements");
+    expect(feedbackText).toContain("A feedback revision keeps to its one to three Seeds, each on one listed pair.");
+    expect(linkBlock(feedbackText, "FROZEN ADVANCEMENT LINKS")).toMatchObject({
+      links: [{ experimentSeedIds: [vision, camera], uncertaintySeedId: images }],
+    });
+    const revised = await t.run((ctx) =>
+      ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", dispatched.batchId)).collect()
+    );
+    expect(revised.map((seed) => [seed.revisionOfSeedId, seed.uncertaintySeedId, seed.experimentSeedIds])).toEqual([
+      [target._id, images, [vision]],
+    ]);
+    expect(await t.run((ctx) => ctx.db.get(dispatched.batchId))).toMatchObject({ status: "shown", requestsMade: 1 });
   });
 
   it("still refuses an answer with too few linked advancements, names the exact pairs and records why (run 7)", async () => {

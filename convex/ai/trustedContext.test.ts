@@ -959,7 +959,7 @@ describe("seed source allowance near the byte limit (cost phase 1)", () => {
     // Accepted at 215995f (2 sources kept, 126 omissions disclosed); the
     // half-space clamp alone left the disclosure no room. The Brief is
     // 3,000 bytes shorter since 2026-09-29 (first), whose link rules added
-    // 1,220 bytes to the shared guidance and 768 to the repair reservation
+    // 1,316 bytes to the shared guidance and 768 to the repair reservation
     // (run 7), so the role keeps the same room.
     const build = (objective: string) => buildSeedPrompt({
       ...base,

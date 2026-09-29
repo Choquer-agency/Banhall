@@ -517,7 +517,7 @@ describe("automatic checks", () => {
         {
           seedsReturned: 5,
           seedsValid: 1,
-          minimum: 2,
+          minimum: 3,
           issues: [
             { code: "INVALID_ADVANCEMENT_REFERENCE", reason: "uncertainty_without_tested_experiment", seeds: 3 },
             { code: "INVALID_BATCH_SIZE", seeds: 0 },
@@ -528,7 +528,7 @@ describe("automatic checks", () => {
     const failed = runChecks(fixture, c, emptyRunLog(fixture.id, 0)).find((item) => item.id === "failed-batches");
     expect(failed).toMatchObject({ status: "info" });
     expect(failed?.evidence).toBe(
-      "specific_advancements retry: INVALID_OUTPUT / advancement_links, answer 1: 1 of 5 valid, needed 2 (INVALID_ADVANCEMENT_REFERENCE uncertainty_without_tested_experiment x3, INVALID_BATCH_SIZE x0)"
+      "specific_advancements retry: INVALID_OUTPUT / advancement_links, answer 1: 1 of 5 valid, needed 3 (INVALID_ADVANCEMENT_REFERENCE uncertainty_without_tested_experiment x3, INVALID_BATCH_SIZE x0)"
     );
   });
 
