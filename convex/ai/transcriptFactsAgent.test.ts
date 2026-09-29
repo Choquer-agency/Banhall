@@ -55,6 +55,9 @@ describe("the facts contract is pinned to FACTS_VERSION", () => {
    * prompt also names other speakers such as a vendor or a note taker, the
    * verifier rejects their quotes, and a cut-off citations answer drops its
    * last line. Previous hash 2d253b48....
+   * 2026-09-29 (second, review P3-5): version 3. The contract is unchanged
+   * (same hash); placeholder algorithm 4 now hides a company's coined first
+   * word, so facts read while it was visible are read again.
    */
   it("hashes the prompt, instructions, schema and request", async () => {
     const hash = await sha256(
@@ -66,7 +69,7 @@ describe("the facts contract is pinned to FACTS_VERSION", () => {
         JSON.stringify(FACTS_REQUEST),
       ].join("\n---\n")
     );
-    expect(FACTS_VERSION).toBe("2");
+    expect(FACTS_VERSION).toBe("3");
     expect(hash).toBe("3020782abac26e9d223266ac464fe725abb960974ac7572b586c2d128c23a76e");
   });
 });

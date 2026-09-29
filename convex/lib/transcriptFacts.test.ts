@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseTranscriptTurns } from "../../shared/transcriptParse";
 import {
   FACT_WINDOW_OVERLAP_TURNS,
+  FACTS_VERSION,
   isEvidenceRole,
   locateQuote,
   needsSpeakerCheck,
@@ -18,7 +19,7 @@ import {
   type PackFact,
   type PackTurnInfo,
 } from "./transcriptFacts";
-import { buildPlaceholderMap } from "./deidentify";
+import { buildPlaceholderMap, PLACEHOLDER_ALGORITHM_VERSION } from "./deidentify";
 import type { TranscriptSpeakerRole } from "./transcriptValidators";
 
 const CONTENT = [
@@ -307,5 +308,14 @@ describe("fact pack", () => {
     expect(packFactId(3, "F12")).toBe("F3-12");
     expect(parsePackFactId("F3-12")).toEqual({ position: 3, key: "F12" });
     expect(parsePackFactId("F3")).toBeNull();
+  });
+});
+
+describe("facts version (2026-09-29 second, review P3-5)", () => {
+  it("moves with placeholder algorithm 4, so facts read while a coined company word was visible are read again", () => {
+    expect(FACTS_VERSION).toBe("3");
+    expect(PLACEHOLDER_ALGORITHM_VERSION).toBe(4);
+    const map = buildPlaceholderMap({ clientName: "Quillmere Analytics Ltd.", people: [] });
+    expect(map.some((entry) => entry.token === "[CLIENT_1_FIRST]" && entry.value === "Quillmere")).toBe(true);
   });
 });

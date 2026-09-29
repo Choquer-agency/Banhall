@@ -517,11 +517,34 @@ describe("a company's coined first word (release suite run 6)", () => {
       "Grant Dryer Systems Ltd.",
       "Quillmere Inc.",
       "AB Controls Ltd.",
+      "ACME Robotics",
       "3M Canada",
+      // Review P3-4: ordinary capitalized technical words.
+      "Laser Dynamics Inc.",
+      "Hydraulic Systems Ltd.",
+      "Polymer Works Ltd.",
+      "Carbon Forge Inc.",
+      "North-West Controls Ltd.",
     ]) {
       const firstForm = buildPlaceholderMap({ clientName, people: [] })
         .find((entry) => entry.token === "[CLIENT_1_FIRST]");
       expect(firstForm, clientName).toBeUndefined();
+    }
+    // Review P3-4: a founder's given name on the map is that person, never
+    // the company.
+    const founder = buildPlaceholderMap({ clientName: "Morgan Hale Engineering Ltd.", people: ["Morgan Hale"] });
+    expect(founder.find((entry) => entry.token === "[CLIENT_1_FIRST]")).toBeUndefined();
+    expect(pseudonymize("Morgan said Morgan Hale Engineering Ltd. grew.", founder))
+      .toBe("[PERSON_1_FIRST] said [CLIENT_1] grew.");
+    // Inner capitals and a hyphen between letters are still coined words.
+    for (const [clientName, first] of [
+      ["QuillMere Analytics Ltd.", "QuillMere"],
+      ["Quill-Mere Analytics Ltd.", "Quill-Mere"],
+      ["Bio-Rad Labs Inc.", "Bio-Rad"],
+    ] as const) {
+      const map = buildPlaceholderMap({ clientName, people: [] });
+      expect(map.find((entry) => entry.token === "[CLIENT_1_FIRST]")?.value, clientName).toBe(first);
+      expect(pseudonymize(`About ${first} and its work.`, map)).toBe("About [CLIENT_1_FIRST] and its work.");
     }
     // "Quillmere Inc." still hides "Quillmere", as its short form.
     expect(pseudonymize("Quillmere built it.", buildPlaceholderMap({ clientName: "Quillmere Inc.", people: [] })))
