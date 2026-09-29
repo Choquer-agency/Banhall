@@ -63,24 +63,34 @@ Supporting sizes stay Tailwind (`text-xs`/`text-sm`). Where a board needs an
 exact size, write it in rem (`text-[0.8125rem]` for 13px), never px; see the
 next section.
 
-## Sizes scale with the root (2026-09-28)
+## Sizes scale with the root (2026-09-28, laptop density 2026-09-29)
 
 The boards are drawn at 1440 wide with a 16px root. On a 27 inch screen
-(2560 wide) at 100% zoom those exact pixel sizes read as tiny, so every size
-is rem and the root grows on wide windows:
+(2560 wide) at 100% zoom those exact pixel sizes read as tiny, and on a
+laptop they read a little loose, so every size is rem and the root follows
+the window:
 
 - **Sizes are rem.** Font sizes, line heights, widths, heights, padding,
   margins, gaps, insets and radii are rem at 16px per rem (13px is
   `0.8125rem`), in classes (`text-[0.8125rem]`, `leading-[1.125rem]`,
   `w-[8.5rem]`), in CSS and in style attributes. Tailwind's own scale
   (`h-11`, `p-4`, `max-w-7xl`) is already rem.
-- **The root scales above 1600px.** `html` in `layout.css` is 16px up to a
-  1600px wide window, then grows 1px per 240px to 20px at 2560px and stops:
-  `clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%)`. At 1440 every
-  computed size equals the board; at 1920 the UI is 1.083x; at 2560 1.25x,
-  with the boards' proportions. Media query breakpoints do not move (they
-  read the browser default, not the root). Browser zoom and a larger browser
-  default still apply on top.
+- **The root follows the window.** `html` in `layout.css` is 16px on
+  phones and tablets (below 1280px, or any width with a touch screen as the
+  main pointer), so their text and 44px touch targets keep the board sizes.
+  On a laptop (a mouse or trackpad and a window 1280px or wider, where the
+  full rail replaces the tablet's icons-only rail) it is 15px up to 1440px
+  wide, rising 1px per 160px to 16px at 1600px (`clamp(93.75%, calc(93.75%
+  + (100vw - 1440px) / 160), 100%)`), so text, spacing and cards shrink
+  together to 0.9375x of the board. From 1600px it grows 1px per 240px to 20px at 2560px and stops
+  (`clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%)`): 1.083x at
+  1920, 1.25x at 2560, with the boards' proportions. The step down sits on
+  the 1280px rail breakpoint, where the layout changes anyway, so resizing
+  across it never shows a jump on an unchanged layout, and the tablet
+  boards drawn at 1024 (H1) keep their exact sizes. `rootFontSize()` in
+  `$lib/rootScale` mirrors the numbers and its unit test checks the CSS.
+  Media query breakpoints do not move (they read the browser default, not
+  the root). Browser zoom and a larger browser default still apply on top.
 - **Hairlines stay px.** 1px and 0.5px lines, border, outline and ring
   widths, outline offsets, shadows, text decoration, blur, CSS transforms and
   gradient stops stay px, as do `9999px` pill radii and media or container
@@ -1150,11 +1160,55 @@ fixed board widths where they left content stranded.
   content-only shapes `fields` and `list` replace in-panel spinners. The
   skeleton carries `role="status"` and a label; a signed-out visitor on the
   way to sign in gets the plain canvas.
-- **Form widths.** Pages fill the window; their forms do not. Settings tab
-  content stops at 64rem and every `SettingsRow` field column at 40rem.
-  Dialogs (Team invite) keep their fixed widths.
+- **Form widths.** Pages fill the window; their fields do not. Every
+  `SettingsRow` field column stops at 40rem. Dialogs (Team invite) keep
+  their fixed widths. (The 64rem cap on Settings tab content was retired on
+  2026-09-29; see the laptop density amendment.)
 - **Title weight.** Top bar titles are weight 500 (the Projects toolbar title
   was 600).
+
+### 2026-09-29 amendment - laptop density (owner direction)
+
+The owner reviewed the app on a laptop and chose "smaller and denser". Board
+sizes below are at the 16px root; a laptop renders them at 0.9375x.
+
+- **Root.** 15px on a laptop window from 1280 to 1440px wide, rising to
+  16px at 1600px, then as before up to 20px at 2560px. Phones, tablets and
+  touch screens keep 16px. See "Sizes scale with the root".
+- **Step pane.** The Step-by-step step pane's sides are 16px on a phone,
+  20px beside the tablet Outline and 36px on desktop (were 16, 24 and 40),
+  with 24px under the last card (was 32). The header starts 20px down with
+  10px between its rows (were 24 and 12), 4px between the title and its
+  subtitle, 10px under the helper line and 12px above the cards. With a
+  mouse on a wide pane the More dots are 32px and sit 2px inside the 36px
+  gutter.
+- **Idea cards.** 14px sides and 12px top and bottom (were 16 and 14), 10px
+  between the tick and the text, and 8px between cards in the grid and
+  between the skeletons that stand in for them (were 10 and 16).
+- **Rail.** Expanded, rows and group labels sit in 12px sides (were 8) and
+  the wordmark 16px in (was 12). Collapsed, the rail is 60px wide (was 56)
+  so the 36px tiles keep 12px sides. The identity block has no divider
+  above it in either state; the avatar gets 22px above and below it.
+- **Settings.** Full width of the work panel like the other round 2 pages:
+  the 64rem cap on tab content is gone. Each `SettingsRow` field column
+  still stops at 40rem, and the Writing preferences sample paragraph keeps
+  the `max-w-3xl` reading width.
+- **Short step names.** The Outline, and every notice or notification that
+  names a step, use one short name per step (`pdSubsectionOutlineLabel`):
+  Company / Context, Goal / Problem, Limitations, Objectives,
+  Uncertainties, Previous year, Work plan, Hypothesis, Experiments, Overall
+  advancement, Specific advancements, Status and next steps, Goal
+  improvements. The step heading, the Summary, prompts, QA and exports keep
+  each step's full title. The line under a step heading is a short display
+  subtitle for every step (`pdSubsectionStepSubtitle`); the objectives
+  that feed prompts are unchanged. The Outline marks a step an earlier
+  change touched "Needs review" (was "Review suggested").
+- **Report width.** The reading column is 45rem of text (720px, was 660px):
+  `max-w-3xl` with 24px sides below `lg`, 50rem with 40px sides from `lg`.
+  Full width has 48px sides when the report is alone (was 96px) and 40px
+  beside a side panel (was 48px). From `lg` up every width keeps at least
+  40px of side padding, so the block handle 34px left of the text is never
+  clipped. The Sources list follows the reading column.
 
 ## Panel motion (2026-08-10)
 
