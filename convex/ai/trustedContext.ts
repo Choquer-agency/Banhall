@@ -772,11 +772,12 @@ export function seedAdvancementLinkIds(
   snapshot: SeedContextSnapshot,
   roleId: PdSubsectionRoleId,
   uncertaintyRoots: Readonly<Record<string, string>> = {}
-): { links: AllowedAdvancementLink[] } | null {
+): { links: AllowedAdvancementLink[]; uncertaintiesWithoutTestedExperiments?: string[] } | null {
   if (roleId !== "specific_advancements") return null;
   const selections = snapshot.items.filter((item) => item.kind === "selection");
+  const uncertainties = selections.flatMap((item) => (item.roleId === "active_uncertainties" ? [item.seedId] : []));
   const links = allowedAdvancementLinks(
-    selections.flatMap((item) => (item.roleId === "active_uncertainties" ? [item.seedId] : [])),
+    uncertainties,
     selections.flatMap((item) =>
       item.roleId === "experimentation"
         ? [{ seedId: item.seedId, uncertaintySeedId: item.uncertaintySeedId ?? null }]
@@ -784,7 +785,12 @@ export function seedAdvancementLinkIds(
     ),
     (seedId) => uncertaintyRoots[seedId] ?? seedId
   );
-  return links.length > 0 ? { links } : null;
+  if (links.length === 0) return null;
+  // 2026-09-29 (first, run 7): the picked uncertainties no picked experiment
+  // tested are named, so the model knows they cannot have an advancement.
+  const offered = new Set(links.map((link) => link.uncertaintySeedId));
+  const without = uncertainties.filter((seedId) => !offered.has(seedId));
+  return { links, ...(without.length ? { uncertaintiesWithoutTestedExperiments: without } : {}) };
 }
 
 /**
@@ -1213,7 +1219,8 @@ export function buildSeedPrompt(
   const repairReserveBytes =
     utf8Bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix) +
     utf8Bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix) +
-    SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes;
+    SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes +
+    SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes;
   if (systemBytes + repairReserveBytes >= MAX_SEED_PROMPT_UTF8_BYTES) {
     throw new SeedContextLimitError(
       "prompt_utf8_bytes",

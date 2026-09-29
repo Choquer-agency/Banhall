@@ -1,5 +1,5 @@
 import { makeFunctionReference } from "convex/server";
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import {
   internalMutation,
   internalQuery,
@@ -41,12 +41,14 @@ import {
 import {
   SEED_TAGS,
   locateCitations,
+  seedAnswerCounts,
   validateBatch,
   withQuoteChecks,
   type CitationLocation,
   type FrozenSeedSource,
   type SeedReferenceContext,
 } from "./lib/seedContract";
+import { MAX_RECORDED_ANSWERS, seedAnswerCountsValidator } from "./lib/seedAnswerCounts";
 import { createSeedDecisionBudget } from "./lib/seedDecisionState";
 import {
   adjustSeedRequestsReserved,
@@ -763,6 +765,8 @@ async function failSeedAttempt(
     requestsMade: number;
     errorCode: SeedFailureCode;
     errorDetail?: "advancement_links" | "experiment_links";
+    /** 2026-09-29 (first, run 7): the rejected answers as counts. */
+    invalidAnswers?: Infer<typeof seedAnswerCountsValidator>[];
     actorSystem?: boolean;
     bumpVersion?: boolean;
   }
@@ -781,6 +785,9 @@ async function failSeedAttempt(
     completedAt: now,
     error: args.errorCode,
     ...(args.errorDetail ? { errorDetail: args.errorDetail } : {}),
+    ...(args.invalidAnswers?.length
+      ? { invalidAnswers: args.invalidAnswers.slice(-MAX_RECORDED_ANSWERS) }
+      : {}),
   });
   const [generation, project] = await Promise.all([
     ctx.db.get(current.generationId),
@@ -893,6 +900,7 @@ export const failAttempt = internalMutation({
     requestsMade: v.number(),
     errorCode: failureCodeValidator,
     errorDetail: v.optional(failureDetailValidator),
+    invalidAnswers: v.optional(v.array(seedAnswerCountsValidator)),
   },
   handler: async (ctx, args) => {
     const batch = await ctx.db.get(args.batchId);
@@ -902,6 +910,7 @@ export const failAttempt = internalMutation({
       requestsMade: args.requestsMade,
       errorCode: args.errorCode,
       ...(args.errorDetail ? { errorDetail: args.errorDetail } : {}),
+      ...(args.invalidAnswers ? { invalidAnswers: args.invalidAnswers } : {}),
     });
   },
 });
@@ -1038,6 +1047,7 @@ export const completeAttempt = internalMutation({
         batch,
         requestsMade: args.requestsMade,
         errorCode: "INVALID_OUTPUT",
+        invalidAnswers: [seedAnswerCounts(validation, args.seeds.length)],
       });
     }
 

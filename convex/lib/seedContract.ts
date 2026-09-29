@@ -111,16 +111,36 @@ export type SeedValidationIssueCode =
   | "DUPLICATE_TAG"
   | "INVALID_ADVANCEMENT_REFERENCE"
   | "INVALID_EXPERIMENT_REFERENCE"
+  | "ADVANCEMENT_LINK_NARROWED"
   | "INVALID_PROVENANCE"
   | "INVALID_BATCH_SIZE"
   | "INSUFFICIENT_TAG_DIVERSITY"
   | "INSUFFICIENT_FORM_DIVERSITY";
 
+/**
+ * 2026-09-29 (first, run 7): why a Seed's links failed, so a failed Batch
+ * can be recorded as counts by reason, never as model text.
+ */
+export type SeedLinkIssueReason =
+  | "missing_link"
+  | "unknown_uncertainty"
+  | "uncertainty_without_tested_experiment"
+  | "unknown_experiment"
+  | "duplicate_experiment"
+  | "experiment_tested_other";
+
 export type SeedValidationIssue = {
   code: SeedValidationIssueCode;
   message: string;
   seedIndex?: number;
+  linkReason?: SeedLinkIssueReason;
 };
+
+/** Issues that never cost a Seed its place. */
+const NON_BLOCKING_ISSUES: ReadonlySet<SeedValidationIssueCode> = new Set([
+  "INVALID_PROVENANCE",
+  "ADVANCEMENT_LINK_NARROWED",
+]);
 
 export type SeedValidationResult =
   | { ok: true; seed: ValidatedSeedCandidate; issues: SeedValidationIssue[] }
@@ -133,6 +153,8 @@ export type BatchValidationResult = {
   seedIndexes: number[];
   dropped: number;
   issues: SeedValidationIssue[];
+  /** The fewest valid Seeds this Batch needed (2026-09-29 first, run 7). */
+  minimum?: number;
 };
 
 const TAG_SET: ReadonlySet<string> = new Set(SEED_TAGS);
@@ -321,9 +343,39 @@ function pickedFromContext(context: SeedReferenceContext | undefined) {
   const rootOf = rootsOf(context);
   return {
     uncertainties,
+    rootOf,
     allowed: allowedAdvancementLinks(uncertainties, experiments, rootOf),
     picked: pickedLinkSelections(uncertainties, experiments, rootOf),
   };
+}
+
+/**
+ * 2026-09-29 (first, run 7): the links a Subsection 11 request offers, one
+ * entry per picked uncertainty with the picked experiments that tested it.
+ * Empty when no link can be made. Shared by the prompt, the repair note and
+ * the Batch minimum.
+ */
+export function offeredAdvancementLinks(context: SeedReferenceContext | undefined) {
+  return pickedFromContext(context).allowed;
+}
+
+/**
+ * 2026-09-29 (first, run 7): the fewest valid Seeds a Subsection 11 Batch
+ * needs. Three, unless the links offer fewer than three experiments in all:
+ * then one per offered experiment, since one advancement per experiment is
+ * a full answer to a narrow plan. Every other role and Feedback keep theirs.
+ */
+export function batchMinimum(args: {
+  roleId: PdSubsectionRoleId;
+  mode: SeedBatchMode;
+  referenceContext?: SeedReferenceContext;
+}): number {
+  if (args.mode !== "batch") return MIN_FEEDBACK_SEEDS;
+  if (args.roleId !== "specific_advancements") return MIN_BATCH_SEEDS;
+  const allowed = offeredAdvancementLinks(args.referenceContext);
+  if (allowed.length === 0) return MIN_BATCH_SEEDS;
+  const experiments = new Set(allowed.flatMap((link) => link.experimentSeedIds));
+  return Math.max(1, Math.min(MIN_BATCH_SEEDS, experiments.size));
 }
 
 /**
@@ -374,10 +426,66 @@ function validateExperimentReference(args: {
         code: "INVALID_EXPERIMENT_REFERENCE",
         message:
           "An experiment must name the active uncertainty selection it tested, from this generation",
+        linkReason: uncertaintyId ? "unknown_uncertainty" : "missing_link",
       },
     ];
   }
   return [];
+}
+
+/**
+ * 2026-09-29 (first, run 7): an advancement that links a picked uncertainty
+ * and picked experiments, some of which tested another uncertainty, keeps
+ * the experiments that tested its own uncertainty (or record none) and
+ * drops only the others. It is never relinked to another uncertainty; with
+ * no such experiment it stays invalid.
+ */
+function narrowAdvancementLinks(
+  candidate: SeedCandidate,
+  roleId: PdSubsectionRoleId,
+  context: SeedReferenceContext | undefined
+): { candidate: SeedCandidate; issues: SeedValidationIssue[] } {
+  if (roleId !== "specific_advancements" || !context) return { candidate, issues: [] };
+  const uncertaintyId = candidate.uncertaintySeedId;
+  const experimentIds = candidate.experimentSeedIds;
+  if (
+    !uncertaintyId ||
+    !experimentIds ||
+    experimentIds.length < 2 ||
+    new Set(experimentIds).size !== experimentIds.length ||
+    !validReference(uncertaintyId, "active_uncertainties", context) ||
+    experimentIds.some((seedId) => !validReference(seedId, "experimentation", context))
+  ) {
+    return { candidate, issues: [] };
+  }
+  const { picked } = pickedFromContext(context);
+  const root = picked.rootOf(uncertaintyId);
+  const kept = experimentIds.filter((seedId) => {
+    const tested = picked.experiments.get(seedId);
+    return !tested || picked.rootOf(tested) === root;
+  });
+  if (kept.length === 0 || kept.length === experimentIds.length) return { candidate, issues: [] };
+  return {
+    candidate: { ...candidate, experimentSeedIds: kept },
+    issues: [
+      {
+        code: "ADVANCEMENT_LINK_NARROWED",
+        message: `${experimentIds.length - kept.length} linked experiment(s) tested another uncertainty and were dropped`,
+        linkReason: "experiment_tested_other",
+      },
+    ],
+  };
+}
+
+function advancementIssue(linkReason: SeedLinkIssueReason): SeedValidationIssue[] {
+  return [
+    {
+      code: "INVALID_ADVANCEMENT_REFERENCE",
+      message:
+        "A specific advancement must link one offered uncertainty and experiments that tested it, from this generation",
+      linkReason,
+    },
+  ];
 }
 
 function validateAdvancementReferences(args: {
@@ -401,28 +509,21 @@ function validateAdvancementReferences(args: {
   ) {
     return [];
   }
-  const invalid: SeedValidationIssue[] = [
-    {
-      code: "INVALID_ADVANCEMENT_REFERENCE",
-      message:
-        "A specific advancement must link one active uncertainty and active experiments that tested it, from this generation",
-    },
-  ];
-  if (
-    !context ||
-    allowed.length === 0 ||
-    !uncertaintyId ||
-    !experimentIds ||
-    experimentIds.length === 0 ||
-    new Set(experimentIds).size !== experimentIds.length ||
-    !validReference(uncertaintyId, "active_uncertainties", context) ||
-    experimentIds.some(
-      (seedId) => !validReference(seedId, "experimentation", context)
-    )
-  ) {
-    return invalid;
+  if (!context || allowed.length === 0 || !uncertaintyId || !experimentIds || experimentIds.length === 0) {
+    return advancementIssue("missing_link");
   }
-  return advancementLinkProblem(args.candidate, picked) === null ? [] : invalid;
+  if (new Set(experimentIds).size !== experimentIds.length) return advancementIssue("duplicate_experiment");
+  if (!validReference(uncertaintyId, "active_uncertainties", context)) return advancementIssue("unknown_uncertainty");
+  if (experimentIds.some((seedId) => !validReference(seedId, "experimentation", context))) {
+    return advancementIssue("unknown_experiment");
+  }
+  const root = picked.rootOf(uncertaintyId);
+  if (!allowed.some((link) => picked.rootOf(link.uncertaintySeedId) === root)) {
+    return advancementIssue("uncertainty_without_tested_experiment");
+  }
+  const problem = advancementLinkProblem(args.candidate, picked);
+  if (problem === null) return [];
+  return advancementIssue(problem === "experiment_tested_other" ? "experiment_tested_other" : "missing_link");
 }
 
 function validatedProvenance(args: {
@@ -587,16 +688,21 @@ export function validateSeed(args: {
   // (first) an experiment's uncertainty to experimentation. The shared
   // provider schema allows them on every role, so they are dropped
   // elsewhere rather than stored on a Seed they cannot describe.
-  const candidate = withoutUnrequestedLinks(
-    args.roleId === "specific_advancements"
-      ? parsed.candidate
-      : args.roleId === "experimentation"
-        ? withExperimentLinkOnly(parsed.candidate)
-        : withoutAdvancementLinks(parsed.candidate),
+  const narrowed = narrowAdvancementLinks(
+    withoutUnrequestedLinks(
+      args.roleId === "specific_advancements"
+        ? parsed.candidate
+        : args.roleId === "experimentation"
+          ? withExperimentLinkOnly(parsed.candidate)
+          : withoutAdvancementLinks(parsed.candidate),
+      args.roleId,
+      args.referenceContext
+    ),
     args.roleId,
     args.referenceContext
   );
-  const issues: SeedValidationIssue[] = [];
+  const candidate = narrowed.candidate;
+  const issues: SeedValidationIssue[] = [...narrowed.issues];
   if (candidate.bullets.length < 1 || candidate.bullets.length > 2) {
     issues.push({
       code: "INVALID_BULLET_COUNT",
@@ -646,7 +752,7 @@ export function validateSeed(args: {
       referenceContext: args.referenceContext,
     })
   );
-  const blocking = issues.some((issue) => issue.code !== "INVALID_PROVENANCE");
+  const blocking = issues.some((issue) => !NON_BLOCKING_ISSUES.has(issue.code));
   if (blocking) return { ok: false, issues };
 
   const citationResult = validatedProvenance({
@@ -697,7 +803,9 @@ export function validateBatch(args: {
     }
   });
 
-  const min = args.mode === "batch" ? MIN_BATCH_SEEDS : MIN_FEEDBACK_SEEDS;
+  // 2026-09-29 (first, run 7): a Subsection 11 Batch whose links offer
+  // fewer than three experiments needs one valid Seed per offered experiment.
+  const min = batchMinimum(args);
   const max = args.mode === "batch" ? MAX_BATCH_SEEDS : MAX_FEEDBACK_SEEDS;
   if (seeds.length < min || seeds.length > max) {
     issues.push({
@@ -707,7 +815,9 @@ export function validateBatch(args: {
   }
   if (args.mode === "batch") {
     const distinctTags = new Set(seeds.flatMap((seed) => seed.tags));
-    if (distinctTags.size < 2) {
+    // One Seed cannot vary its tags; only the lowered minimum lets a Batch
+    // hold one, and every other Batch keeps the rule unchanged.
+    if (distinctTags.size < 2 && !(min < MIN_BATCH_SEEDS && seeds.length < 2)) {
       issues.push({
         code: "INSUFFICIENT_TAG_DIVERSITY",
         message: "Seed batch must use at least two distinct tags",
@@ -735,6 +845,43 @@ export function validateBatch(args: {
     seedIndexes: inputIndexes,
     dropped: args.seeds.length - seeds.length,
     issues,
+    minimum: min,
+  };
+}
+
+/**
+ * 2026-09-29 (first, run 7): one rejected answer as counts, never model
+ * text: Seeds returned and kept, the minimum, and for each rule (and link
+ * reason) how many Seeds broke it. Recorded on a failed Batch so a failure
+ * is never a black box.
+ */
+export type SeedAnswerCounts = {
+  seedsReturned: number;
+  seedsValid: number;
+  minimum: number;
+  issues: Array<{ code: SeedValidationIssueCode; reason?: SeedLinkIssueReason; seeds: number }>;
+};
+
+export function seedAnswerCounts(result: BatchValidationResult, returned: number): SeedAnswerCounts {
+  const counts = new Map<string, { code: SeedValidationIssueCode; reason?: SeedLinkIssueReason; seeds: Set<number> }>();
+  for (const issue of result.issues) {
+    const key = `${issue.code}:${issue.linkReason ?? ""}`;
+    const entry = counts.get(key) ?? {
+      code: issue.code,
+      ...(issue.linkReason ? { reason: issue.linkReason } : {}),
+      seeds: new Set<number>(),
+    };
+    entry.seeds.add(issue.seedIndex ?? -1);
+    counts.set(key, entry);
+  }
+  return {
+    seedsReturned: returned,
+    seedsValid: result.seeds.length,
+    minimum: result.minimum ?? MIN_BATCH_SEEDS,
+    issues: [...counts.values()].map(({ seeds, ...rest }) => ({
+      ...rest,
+      seeds: [...seeds].filter((index) => index >= 0).length,
+    })),
   };
 }
 

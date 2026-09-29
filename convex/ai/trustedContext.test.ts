@@ -958,11 +958,12 @@ describe("seed source allowance near the byte limit (cost phase 1)", () => {
   it("keeps room to disclose omitted sources under a very large Brief with many sources", () => {
     // Accepted at 215995f (2 sources kept, 126 omissions disclosed); the
     // half-space clamp alone left the disclosure no room. The Brief is
-    // 1,000 bytes shorter since 2026-09-29 (first), whose link rules added
-    // 682 bytes to the shared guidance, so the role keeps the same room.
+    // 3,000 bytes shorter since 2026-09-29 (first), whose link rules added
+    // about 1,240 bytes to the shared guidance and 768 to the repair
+    // reservation (run 7), so the role keeps the same room.
     const build = (objective: string) => buildSeedPrompt({
       ...base,
-      brief: { storyline: "S".repeat(589_000), entries: [] },
+      brief: { storyline: "S".repeat(587_000), entries: [] },
       sources: Array.from({ length: 128 }, (_, i) => ({
         sourceId: `source-${String(i).padStart(25, "0")}`,
         label: `Interview ${i}`,

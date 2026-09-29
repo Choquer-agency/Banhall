@@ -374,8 +374,10 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("names each experiment's uncertainty and makes advancements follow it (2026-09-29, first amendment)", () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-29.1");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-29.2");
     expect(SEED_PROMPT_PROGRAM.user.blocks.experimentLinks).toBe("FROZEN EXPERIMENT LINKS");
+    // Run 7: the exact pairs in a repair have their own reserved bytes.
+    expect(SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes).toBe(768);
     // The experiment block renders after the decisions, before the advancement block.
     const order: readonly string[] = SEED_PROMPT_PROGRAM.user.order;
     expect(order.indexOf("{{runtime.decisions}}")).toBeLessThan(order.indexOf("{{runtime.experimentLinks}}"));
@@ -389,8 +391,12 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       );
       expect(guidance).toContain("never name an uncertainty an experiment did not test");
       expect(guidance).toContain(
-        "every Seed must copy the uncertaintySeedId of one entry in that block's links list exactly and set experimentSeedIds to one or more ids from that same entry's experimentSeedIds list"
+        "its links list holds the only allowed pairs: each entry is one uncertainty and the picked experiments that tested it. Every Seed must copy the uncertaintySeedId of one entry exactly and set experimentSeedIds to one or more ids from that same entry's experimentSeedIds list, never from another entry. Several Seeds may use the same entry"
       );
+      // Run 7: an uncertainty no picked experiment tested gets no advancement,
+      // and a narrow list allows a smaller Batch.
+      expect(guidance).toContain("such as one in the block's uncertaintiesWithoutTestedExperiments list, has no picked experiment that tested it: write no advancement for it");
+      expect(guidance).toContain("When the links list holds fewer than three experiments in all, a Batch may hold as few Seeds as it lists experiments.");
       expect(guidance).toContain(
         "Each advancement states what was learned about the uncertainty it links, from the experiments it links."
       );
@@ -400,7 +406,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("versions the Seed quote rules (2026-09-27, third amendment)", async () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-29.1");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-29.2");
     expect(SEED_PROMPT_PROGRAM.request.quoteRepair.opening).toContain("Some quotes may not back their idea card.");
     expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.quoteRepair)).not.toMatch(/[\u2013\u2014]/);
     expect(generationPromptProgram.templates.seeds.scaffolds.version).toBe(SEED_PROMPT_PROGRAM.version);

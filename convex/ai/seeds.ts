@@ -43,6 +43,8 @@ import {
   MAX_FEEDBACK_SEEDS,
   MIN_BATCH_SEEDS,
   MIN_FEEDBACK_SEEDS,
+  offeredAdvancementLinks,
+  seedAnswerCounts,
   seedToolSchema,
   validateBatch,
   withCheckedSpeakers,
@@ -50,11 +52,14 @@ import {
   type BatchValidationResult,
   type FrozenSeedSource,
   type SeedBatchMode,
+  type SeedAnswerCounts,
   type SeedReference,
+  type SeedReferenceContext,
   type SeedValidationIssueCode,
   type ValidatedSeedCandidate,
 } from "../lib/seedContract";
 import type { QuoteCheckIssue } from "../lib/seedQuoteSupport";
+import type { AllowedAdvancementLink } from "../../shared/advancementLinks";
 import {
   readsFactPacks,
   resolveFactCitations,
@@ -227,11 +232,11 @@ function countedClient(client: GenerationClient, onRequest: () => void): Generat
  * limits. The Record is exhaustive, so a new issue code fails the build until
  * it has a hint. INVALID_PROVENANCE never blocks a Seed, so it has none.
  */
-function seedIssueHints(mode: SeedBatchMode): Record<SeedValidationIssueCode, string> {
+function seedIssueHints(mode: SeedBatchMode, minimum?: number): Record<SeedValidationIssueCode, string> {
   const [min, max] =
     mode === "batch"
-      ? [MIN_BATCH_SEEDS, MAX_BATCH_SEEDS]
-      : [MIN_FEEDBACK_SEEDS, MAX_FEEDBACK_SEEDS];
+      ? [minimum ?? MIN_BATCH_SEEDS, MAX_BATCH_SEEDS]
+      : [minimum ?? MIN_FEEDBACK_SEEDS, MAX_FEEDBACK_SEEDS];
   return {
     INVALID_SHAPE: "wrong fields or tag",
     INVALID_BULLET_COUNT: "use one or two bullets",
@@ -249,6 +254,8 @@ function seedIssueHints(mode: SeedBatchMode): Record<SeedValidationIssueCode, st
     // 2026-09-29 (first): an experiment names the uncertainty it tested.
     INVALID_EXPERIMENT_REFERENCE:
       "set uncertaintySeedId to the tested uncertainty from FROZEN EXPERIMENT LINKS",
+    // Never costs a Seed its place (2026-09-29 first, run 7).
+    ADVANCEMENT_LINK_NARROWED: "",
     INVALID_PROVENANCE: "",
     INVALID_BATCH_SIZE: `return ${min} to ${max} valid Seeds`,
     INSUFFICIENT_TAG_DIVERSITY: "use at least two different tags",
@@ -268,9 +275,44 @@ const REPAIR_OMITTED = "more issues omitted";
 export function seedRepairSummary(
   result: BatchValidationResult,
   returned: number,
+  mode: SeedBatchMode,
+  options: { offeredLinks?: readonly AllowedAdvancementLink[] } = {}
+): string {
+  const rules = seedRuleSummary(result, returned, mode);
+  const pairs = linkPairsNote(result, options.offeredLinks ?? []);
+  return pairs ? `${rules}; ${pairs}` : rules;
+}
+
+/**
+ * 2026-09-29 (first, run 7): after a broken advancement link, the repair
+ * names the exact pairs it may use, within its own reserved bytes after the
+ * rules (`repairLinkPairsMaxUtf8Bytes`). Ids only, never Seed text; the
+ * block that lists them is named instead when they do not fit.
+ */
+function linkPairsNote(
+  result: BatchValidationResult,
+  offeredLinks: readonly AllowedAdvancementLink[]
+): string | null {
+  const broken = result.issues.filter((issue) => issue.code === "INVALID_ADVANCEMENT_REFERENCE");
+  if (broken.length === 0 || offeredLinks.length === 0) return null;
+  const unlisted = broken.some((issue) => issue.linkReason === "uncertainty_without_tested_experiment");
+  const lead = `the only pairs, each usable by several Seeds${unlisted ? ", and no advancement for any other uncertainty" : ""}: `;
+  const list = offeredLinks
+    .map((link) => `${link.uncertaintySeedId} with ${link.experimentSeedIds.join(", ")}`)
+    .join(" | ");
+  const full = `${lead}${list}`;
+  const bytes = (text: string) => new TextEncoder().encode(text).byteLength;
+  return bytes(`; ${full}`) <= SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes
+    ? full
+    : `${lead}as listed in FROZEN ADVANCEMENT LINKS`;
+}
+
+function seedRuleSummary(
+  result: BatchValidationResult,
+  returned: number,
   mode: SeedBatchMode
 ): string {
-  const hints = seedIssueHints(mode);
+  const hints = seedIssueHints(mode, result.minimum);
   const maxBytes =
     SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes -
     "(root): ".length;
@@ -346,8 +388,8 @@ function validatedBatchSchema(args: {
    * offsets on frozen rows before the Seed contract byte-checks them.
    */
   factSources?: readonly FactSource[];
-  /** Told each rejected answer's validation, the last one last. */
-  onRejected?: (result: BatchValidationResult) => void;
+  /** Told each rejected answer's validation and Seed count, the last one last. */
+  onRejected?: (result: BatchValidationResult, returned: number) => void;
 }): z.ZodType<ValidatedSeedBatch> {
   const references: SeedReference[] = args.snapshot.items
     .filter((item) => item.kind === "selection")
@@ -364,22 +406,25 @@ function validatedBatchSchema(args: {
       const seeds = args.factSources
         ? resolveFactCitations(value.seeds, args.factSources).seeds
         : value.seeds;
+      const referenceContext: SeedReferenceContext = {
+        generationId: args.generationId,
+        references,
+        ...(args.uncertaintyRoots ? { uncertaintyRoots: args.uncertaintyRoots } : {}),
+      };
       const result = validateBatch({
         roleId: args.roleId,
         mode: args.mode,
         seeds,
-        referenceContext: {
-          generationId: args.generationId,
-          references,
-          ...(args.uncertaintyRoots ? { uncertaintyRoots: args.uncertaintyRoots } : {}),
-        },
+        referenceContext,
         frozenSources: args.sources,
       });
       if (!result.ok) {
-        args.onRejected?.(result);
+        args.onRejected?.(result, seeds.length);
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: seedRepairSummary(result, seeds.length, args.mode),
+          message: seedRepairSummary(result, seeds.length, args.mode, {
+            offeredLinks: args.roleId === "specific_advancements" ? offeredAdvancementLinks(referenceContext) : [],
+          }),
         });
         return z.NEVER;
       }
@@ -451,6 +496,9 @@ export const generateBatch = internalAction({
 
     let requestsMade = 0;
     let lastRejection: BatchValidationResult | undefined;
+    // 2026-09-29 (first, run 7): every rejected answer as counts, recorded
+    // on a failed Batch.
+    const rejectedAnswers: SeedAnswerCounts[] = [];
     try {
       const mode = claim.batch.operation === "feedback" ? "feedback" : "batch";
       const sources: FrozenSeedSource[] = claim.input.sources.map((source) => ({
@@ -571,8 +619,9 @@ export const generateBatch = internalAction({
           uncertaintyRoots: claim.uncertaintyRoots,
           sources,
           ...(factSources ? { factSources } : {}),
-          onRejected: (result) => {
+          onRejected: (result, returned) => {
             lastRejection = result;
+            rejectedAnswers.push(seedAnswerCounts(result, returned));
           },
         }),
       });
@@ -618,6 +667,7 @@ export const generateBatch = internalAction({
         requestsMade,
         errorCode: failureCode(error),
         ...(detail ? { errorDetail: detail } : {}),
+        ...(rejectedAnswers.length ? { invalidAnswers: rejectedAnswers } : {}),
       });
     }
     return null;

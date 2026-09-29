@@ -20,6 +20,7 @@ import { styleOverridesValidator } from "./lib/styleOverrides";
 import { writerCoverageValidator } from "./lib/writerCoverage";
 import { brainProvenanceEntryValidator } from "./lib/generationOutputs";
 import { draftingInputsFailureCodeValidator } from "./lib/draftingInputsFailure";
+import { seedAnswerCountsValidator } from "./lib/seedAnswerCounts";
 import {
   sectionMetricsValidator,
   sectionQaFindingsValidator,
@@ -1360,6 +1361,9 @@ export default defineSchema({
     errorDetail: v.optional(
       v.union(v.literal("advancement_links"), v.literal("experiment_links"))
     ),
+    // 2026-09-29 (first, run 7) widen: each rejected answer of a failed
+    // attempt as counts by rule and link reason, never model text.
+    invalidAnswers: v.optional(v.array(seedAnswerCountsValidator)),
   })
     .index("by_generationId_and_roleId", ["generationId", "roleId"])
     .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
