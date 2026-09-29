@@ -1344,7 +1344,8 @@ describe("public seed approval", () => {
     args: {
       roleId: "active_uncertainties" | "experimentation";
       bullet: string;
-      selected: boolean;
+      /** "never": no selection row at all, as for a Seed never ticked. */
+      selected: boolean | "never";
       uncertaintySeedId?: Id<"seeds">;
     },
   ) {
@@ -1365,6 +1366,7 @@ describe("public seed approval", () => {
         originalSupport: "source_supported",
         ...(args.uncertaintySeedId ? { uncertaintySeedId: args.uncertaintySeedId } : {}),
       });
+      if (args.selected === "never") return seedId;
       await ctx.db.insert("seedSelections", {
         projectId: fixture.projectId,
         generationId: fixture.generationId,
@@ -1452,6 +1454,59 @@ describe("public seed approval", () => {
     await expect(fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId))).resolves.toMatchObject({
       state: "approved",
     });
+  });
+
+  test("shows the words of every linked experiment, an unticked one and one no selection row holds, marked no longer picked (PR #22 review G12)", async () => {
+    const fixture = await approvalFixture({
+      roleId: "specific_advancements",
+      bullet: "Nitrite oxidizers, not ammonia oxidizers, set the cold start-up pace.",
+    });
+    const nitrite = await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether nitrite oxidizing bacteria were the cold-sensitive bottleneck was unknown.",
+      selected: true,
+    });
+    const picked = await linkSeed(fixture, {
+      roleId: "experimentation",
+      bullet: "Trial 1 ran three loops at 8 C: 66, 47 and 31 days to full nitrification.",
+      selected: true,
+      uncertaintySeedId: nitrite,
+    });
+    const unticked = await linkSeed(fixture, {
+      roleId: "experimentation",
+      bullet: "Trial 2 seeded nitrite oxidizers and cut start-up to 24 days.",
+      selected: false,
+      uncertaintySeedId: nitrite,
+    });
+    const neverTicked = await linkSeed(fixture, {
+      roleId: "experimentation",
+      bullet: "Trial 3 held the loop at 12 C for a week before cooling.",
+      selected: "never",
+      uncertaintySeedId: nitrite,
+    });
+    // An id that names no experiment is still not shown.
+    const notAnExperiment = await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether the sensors drift at 8 C was unknown.",
+      selected: "never",
+    });
+    await fixture.t.run((ctx) =>
+      ctx.db.patch(fixture.seedId, {
+        uncertaintySeedId: nitrite,
+        experimentSeedIds: [picked, unticked, neverTicked, notAnExperiment],
+      }),
+    );
+    await skipLaterSteps(fixture, ["project_status", "goal_improvements"]);
+
+    const view = await subsection(fixture);
+    expect(view.items.find((item) => item.seedId === fixture.seedId)?.linkedExperiments).toEqual([
+      { seedId: picked, words: "Trial 1 ran three loops at 8 C: 66, 47 and 31 days to full nitrification.", picked: true },
+      { seedId: unticked, words: "Trial 2 seeded nitrite oxidizers and cut start-up to 24 days.", picked: false },
+      { seedId: neverTicked, words: "Trial 3 held the loop at 12 C for a week before cooling.", picked: false },
+      { seedId: notAnExperiment, words: "", picked: false },
+    ]);
+    // The extra reads stay inside the decisions' budget.
+    expect(view.truncated).toBe(false);
   });
 
   test("says no advancement can be linked when every picked experiment tested a dropped uncertainty", async () => {
