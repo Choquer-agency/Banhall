@@ -29,8 +29,12 @@ import {
  * 3 (2026-09-29, second): placeholder algorithm 4 hides a company's coined
  * first word, so facts extracted while it was visible are extracted again
  * on next use.
+ * 4 (2026-09-29, second, privacy): placeholder algorithm 5 treats a
+ * backslash escape before a name as a word edge, so a name a transcript
+ * wrote after a literal "\n" is hidden; facts are extracted again on next
+ * use.
  */
-export const FACTS_VERSION = "3";
+export const FACTS_VERSION = "4";
 
 /**
  * Owner decision 25: only the client's words back a claim. A turn whose

@@ -14,9 +14,10 @@ import { PLACEHOLDER_ALGORITHM_VERSION } from "./deidentify";
 
 /**
  * Bumped with any change to the bundle below. 5: the placeholder algorithm
- * hides a company's coined first word (2026-09-29, second).
+ * hides a company's coined first word (2026-09-29, second). 6: a backslash
+ * escape is a word edge before a name (2026-09-29, second, privacy).
  */
-export const BRIEF_DERIVATION_VERSION = 5;
+export const BRIEF_DERIVATION_VERSION = 6;
 
 /** Places of one quote tried under owner decision 25 before it is dropped. */
 export const MAX_QUOTE_PLACES = 8;

@@ -311,10 +311,10 @@ describe("fact pack", () => {
   });
 });
 
-describe("facts version (2026-09-29 second, review P3-5)", () => {
-  it("moves with placeholder algorithm 4, so facts read while a coined company word was visible are read again", () => {
-    expect(FACTS_VERSION).toBe("3");
-    expect(PLACEHOLDER_ALGORITHM_VERSION).toBe(4);
+describe("facts version (2026-09-29 second, review P3-5 and the escape rule)", () => {
+  it("moves with placeholder algorithm 5, so facts read under the older masking are read again", () => {
+    expect(FACTS_VERSION).toBe("4");
+    expect(PLACEHOLDER_ALGORITHM_VERSION).toBe(5);
     const map = buildPlaceholderMap({ clientName: "Quillmere Analytics Ltd.", people: [] });
     expect(map.some((entry) => entry.token === "[CLIENT_1_FIRST]" && entry.value === "Quillmere")).toBe(true);
   });

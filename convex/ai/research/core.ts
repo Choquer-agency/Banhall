@@ -8,7 +8,7 @@ import {
   openRouterUsage,
   type ChatCompletionsResponse,
 } from "../openrouterCore";
-import { pseudonymize, type PlaceholderMap } from "../../lib/deidentify";
+import { NAME_EDGE_BEFORE, pseudonymize, type PlaceholderMap } from "../../lib/deidentify";
 
 export const RESEARCH_MODELS = {
   gpt: "openai/gpt-5.6-sol",
@@ -54,7 +54,8 @@ export function redactExternalText(value: string, knownNames: string[]): string 
     // Whole words only (review 2026-09-26, P2-7): a short name such as
     // "ACE" never corrupts "surface".
     redacted = redacted.replace(
-      new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, "giu"),
+      // 2026-09-29 (second, privacy): an escape before a name is an edge.
+      new RegExp(`${NAME_EDGE_BEFORE}${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, "giu"),
       "[redacted]"
     );
   }
