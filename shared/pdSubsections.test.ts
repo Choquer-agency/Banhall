@@ -80,40 +80,40 @@ const EXPECTED_SUBSECTIONS = [
 ] as const;
 
 describe("PD_SUBSECTIONS", () => {
-  it("shortens three Outline labels and keeps every other title (F3)", () => {
+  it("gives every step a short name for the Outline and notices, and keeps every title (2026-09-29)", () => {
     expect(PD_SUBSECTIONS.map((subsection) => pdSubsectionOutlineLabel(subsection.roleId))).toEqual([
       "Company / Context",
       "Goal / Problem",
-      "Technological limitations",
-      "Technological objectives",
-      "Technological uncertainties",
-      "Previous-year work",
+      "Limitations",
+      "Objectives",
+      "Uncertainties",
+      "Previous year",
       "Work plan",
       "Hypothesis",
-      "Experimentation / Iterations",
-      "Advancement to science / technology",
+      "Experiments",
+      "Overall advancement",
       "Specific advancements",
-      "Project status and next steps",
+      "Status and next steps",
       "Goal improvements",
     ]);
+    // No two steps share a name.
+    const labels = PD_SUBSECTIONS.map((subsection) => pdSubsectionOutlineLabel(subsection.roleId));
+    expect(new Set(labels).size).toBe(labels.length);
     // The canonical titles are unchanged for every other use.
     expect(PD_SUBSECTIONS.find((subsection) => subsection.roleId === "prior_year_status")?.title).toBe("Previous-year status");
+    expect(PD_SUBSECTIONS.find((subsection) => subsection.roleId === "experimentation")?.title).toBe("Experimentation / Iterations");
   });
 
-  it("uses the boards' step subtitles for display and keeps every objective (F3 to F5)", () => {
-    expect(pdSubsectionStepSubtitle("company_context", "writing")).toBe("Who the claimant is and where the work happened.");
-    expect(pdSubsectionStepSubtitle("company_context", "ready")).toBe(
-      "Who the claimant is and the operating context the uncertainty sits in. Pick the seeds that position the project the way you want it written."
-    );
-    expect(pdSubsectionStepSubtitle("goal_problem", "writing")).toBe(
-      "What the project set out to do and the problem that stood in the way."
-    );
-    expect(pdSubsectionStepSubtitle("goal_problem", "ready")).toBe(
-      "What the project set out to do and the problem that stood in the way."
-    );
-    // Steps the boards do not draw fall back to the objective.
-    for (const subsection of PD_SUBSECTIONS.filter((row) => row.roleId !== "company_context" && row.roleId !== "goal_problem")) {
-      expect(pdSubsectionStepSubtitle(subsection.roleId, "ready")).toBe(subsection.objective);
+  it("uses a short subtitle for every step and keeps every objective (2026-09-29)", () => {
+    expect(pdSubsectionStepSubtitle("company_context")).toBe("Who the claimant is and where the work happened.");
+    expect(pdSubsectionStepSubtitle("goal_problem")).toBe("What the project set out to do, and what stood in the way.");
+    expect(pdSubsectionStepSubtitle("passive_limitations")).toBe("Where existing knowledge and standard practice fell short.");
+    for (const subsection of PD_SUBSECTIONS) {
+      const subtitle = pdSubsectionStepSubtitle(subsection.roleId);
+      expect(subtitle.length).toBeGreaterThan(0);
+      // Shorter than the objective it stands in for, in plain hyphens only.
+      expect(subtitle.length).toBeLessThan(subsection.objective.length);
+      expect(subtitle).not.toMatch(/[\u2013\u2014]/);
     }
     // The objectives that feed prompts, QA and the Summary are unchanged.
     expect(PD_SUBSECTIONS[0].objective).toBe(

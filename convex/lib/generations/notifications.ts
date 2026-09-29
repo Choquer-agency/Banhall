@@ -11,7 +11,7 @@ import type { MutationCtx } from "../../_generated/server";
 import { notify } from "../notify";
 import { notificationCopy } from "../../../shared/notifications";
 import {
-  PD_SUBSECTIONS,
+  pdSubsectionOutlineLabel,
   type PdSubsectionRoleId,
 } from "../../../shared/pdSubsections";
 
@@ -34,9 +34,9 @@ export function projectStepHref(
   return `${projectPageHref(projectId)}?step=${encodeURIComponent(roleId)}`;
 }
 
-/** The step's label as the Plan outline shows it ("Company / Context"). */
+/** The step's label as the Plan outline shows it ("Uncertainties"). */
 export function seedStepLabel(roleId: PdSubsectionRoleId): string {
-  return PD_SUBSECTIONS.find((subsection) => subsection.roleId === roleId)?.title ?? roleId;
+  return pdSubsectionOutlineLabel(roleId);
 }
 
 async function projectOf(ctx: MutationCtx, generation: GenerationForNotify) {

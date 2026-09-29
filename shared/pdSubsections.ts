@@ -148,17 +148,24 @@ export type PdSubsection = (typeof PD_SUBSECTIONS)[number];
 export type PdSubsectionRoleId = PdSubsection["roleId"];
 
 /**
- * Round 2 (boards F3 to F5): shorter names for three Outline rows, so no row
- * truncates in the 300px Outline. Only the Outline uses them; prompts, QA,
- * the step header and the Summary keep each step's `title`.
+ * Short step names (owner, 2026-09-29, after round 2's boards F3 to F5):
+ * the Outline and every notice that names a step use them, so a step reads
+ * the same wherever it is named. Prompts, QA, the step heading, the Summary
+ * and exports keep each step's `title`.
  */
 const PD_SUBSECTION_OUTLINE_LABELS: Partial<Record<PdSubsectionRoleId, string>> = {
-  prior_year_status: "Previous-year work",
+  passive_limitations: "Limitations",
+  technological_objective: "Objectives",
+  active_uncertainties: "Uncertainties",
+  prior_year_status: "Previous year",
+  experimentation: "Experiments",
+  overall_advancement: "Overall advancement",
   specific_advancements: "Specific advancements",
+  project_status: "Status and next steps",
   goal_improvements: "Goal improvements",
 };
 
-/** The step's name in the Outline: its short label, else its title. */
+/** The step's short name: its Outline label, else its title. */
 export function pdSubsectionOutlineLabel(roleId: PdSubsectionRoleId): string {
   return (
     PD_SUBSECTION_OUTLINE_LABELS[roleId] ??
@@ -168,40 +175,29 @@ export function pdSubsectionOutlineLabel(roleId: PdSubsectionRoleId): string {
 }
 
 /**
- * Round 2 (boards F3 to F5): the plain line under a step's heading in the
- * plan, for the steps the boards draw. Display only: prompts, QA and the
- * Summary keep each step's `objective`. F3 draws Company and context while
- * its ideas are being written and F4 once they are ready to pick; F5 draws
- * Goal and problem while its ideas are being written.
+ * The plain line under a step's heading in the plan, one per step (owner,
+ * 2026-09-29: shorter than the objectives, same meaning). Display only:
+ * prompts, QA and the Summary keep each step's `objective`.
  */
-const PD_SUBSECTION_STEP_SUBTITLES: Partial<
-  Record<PdSubsectionRoleId, { writing: string; ready: string }>
-> = {
-  company_context: {
-    writing: "Who the claimant is and where the work happened.",
-    ready:
-      "Who the claimant is and the operating context the uncertainty sits in. Pick the seeds that position the project the way you want it written.",
-  },
-  goal_problem: {
-    writing: "What the project set out to do and the problem that stood in the way.",
-    ready: "What the project set out to do and the problem that stood in the way.",
-  },
+const PD_SUBSECTION_STEP_SUBTITLES: Record<PdSubsectionRoleId, string> = {
+  company_context: "Who the claimant is and where the work happened.",
+  goal_problem: "What the project set out to do, and what stood in the way.",
+  passive_limitations: "Where existing knowledge and standard practice fell short.",
+  technological_objective: "The new knowledge sought, and the solution it was meant to enable.",
+  active_uncertainties: "The open questions in the chosen approach, and why each outcome was uncertain.",
+  prior_year_status: "For a continuing project: where it stood at last year's end, and what stayed uncertain.",
+  workplan: "The planned approach and steps to resolve the uncertainties.",
+  hypothesis: "A testable, measurable hypothesis in if/then form.",
+  experimentation: "Each experiment: problem, attempt, finding, adaptation and conclusion.",
+  overall_advancement: "The overall advancement, and how far the objective and hypothesis were met.",
+  specific_advancements: "The knowledge gained for each resolved uncertainty.",
+  project_status: "Where the project stands, what is still uncertain and what comes next.",
+  goal_improvements: "How the knowledge gained met the original goal and improved the product or process.",
 };
 
-/**
- * The line under a step's heading in the plan: the board's subtitle for the
- * step's state ("writing" while its first ideas are being written), else the
- * step's `objective`.
- */
-export function pdSubsectionStepSubtitle(
-  roleId: PdSubsectionRoleId,
-  state: "writing" | "ready"
-): string {
-  return (
-    PD_SUBSECTION_STEP_SUBTITLES[roleId]?.[state] ??
-    PD_SUBSECTIONS.find((subsection) => subsection.roleId === roleId)?.objective ??
-    ""
-  );
+/** The line under a step's heading in the plan. */
+export function pdSubsectionStepSubtitle(roleId: PdSubsectionRoleId): string {
+  return PD_SUBSECTION_STEP_SUBTITLES[roleId];
 }
 
 /**

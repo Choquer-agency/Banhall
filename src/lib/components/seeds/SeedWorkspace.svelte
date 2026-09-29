@@ -5,6 +5,7 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import {
     PD_SUBSECTIONS,
+    pdSubsectionOutlineLabel,
     pdSubsectionStepSubtitle,
     stepAfterApproval,
     type PdSubsectionRoleId,
@@ -1185,12 +1186,12 @@
       >
         {#if subsection}
           {#if subsectionError}
-            {@render readBanner(`${activeDefinition.title} could not refresh.`, subsectionError)}
+            {@render readBanner(`${pdSubsectionOutlineLabel(activeDefinition.roleId)} could not refresh.`, subsectionError)}
           {:else if !subsectionCurrent}
             <!-- The retained DTO stays readable while the live read is
                  re-established; decisions wait for its current result. -->
             <p role="status" data-subsection-read-pending class="mx-4 mt-3 shrink-0 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">
-              Waiting for the live read of {activeDefinition.title}. Decisions stay unavailable until it returns. {@render retention()}
+              Waiting for the live read of {pdSubsectionOutlineLabel(activeDefinition.roleId)}. Decisions stay unavailable until it returns. {@render retention()}
             </p>
           {/if}
           <div class="flex min-h-0 flex-1 flex-col">
@@ -1198,10 +1199,7 @@
               <SeedSubsectionPane
                 {generationId}
                 title={activeDefinition.title}
-                objective={pdSubsectionStepSubtitle(
-                  activeDefinition.roleId,
-                  subsection.items.length === 0 && subsection.pendingBatchId ? "writing" : "ready"
-                )}
+                objective={pdSubsectionStepSubtitle(activeDefinition.roleId)}
                 kind={activeDefinition.kind}
                 data={subsection}
                 canEdit={subsectionCanEdit}
@@ -1243,7 +1241,7 @@
           {/if}
         {:else if subsectionError}
           <div class="min-h-0 flex-1 overflow-y-auto px-4">
-            {@render readFailure(`${activeDefinition.title} could not load.`, subsectionError)}
+            {@render readFailure(`${pdSubsectionOutlineLabel(activeDefinition.roleId)} could not load.`, subsectionError)}
           </div>
         {:else}
           <div class="min-h-0 flex-1" role="status" aria-label="Loading subsection" data-subsection-skeleton>

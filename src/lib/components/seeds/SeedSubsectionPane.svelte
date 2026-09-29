@@ -60,8 +60,8 @@
   }: {
     generationId: Id<"generations">;
     title: string;
-    /** The line under the heading. Display only: the board's step subtitle
-     * where it draws one (pdSubsectionStepSubtitle), else the objective. */
+    /** The line under the heading. Display only: the step's short subtitle
+     * (pdSubsectionStepSubtitle), never the objective the prompts use. */
     objective: string;
     kind: "standard" | "optional" | "multiple";
     data: SeedSubsectionData;
@@ -157,6 +157,10 @@
   const unskip = useMutation(seedsApi.unskip);
   const approve = useMutation(seedsApi.approve);
 
+  // Short step names in notices, as the Outline shows them (2026-09-29).
+  const UNCERTAINTIES = pdSubsectionOutlineLabel("active_uncertainties");
+  const EXPERIMENTS = pdSubsectionOutlineLabel("experimentation");
+
   // 2026-09-28 (fourth): after two or more answers in a row broke the Seed
   // rules, say why instead of only "failed".
   // 2026-09-29 (first): advancements must also follow the uncertainty their
@@ -165,7 +169,7 @@
     advancement_links:
       "The AI kept linking advancements to work you did not select, or to experiments that tested another uncertainty. Each advancement must come from experiments you selected that tested the uncertainty it names. Try again, or select the experiments these advancements came from.",
     experiment_links:
-      "The AI kept writing experiments without naming an uncertainty you picked. Each experiment must name the uncertainty it tested. Try again, or check your picks in Technological uncertainties.",
+      `The AI kept writing experiments without naming an uncertainty you picked. Each experiment must name the uncertainty it tested. Try again, or check your picks on the ${UNCERTAINTIES} step.`,
     seed_rules: "The AI kept writing seeds that break the seed rules, so none could be shown. Try again.",
   } as const;
   const repeatedFailure = $derived(
@@ -417,9 +421,9 @@
   const reviewNotice = $derived.by(() => {
     const where = changedNames.length ? `An earlier step changed (${changedNames.join(", ")})` : "An earlier step changed";
     // Readers get what happened, not actions they cannot take (review P3 e).
-    if (canEdit && keepAsIsOffered) return `${where} after these ideas were written. Check they still fit, then choose Keep as is, or regenerate and pick again.`;
+    if (canEdit && keepAsIsOffered) return `${where} after these ideas were written. If they still fit, choose Keep as is. If not, regenerate.`;
     return canEdit
-      ? `${where} after these ideas were written. Check they still fit, then keep this step as it is, or regenerate and pick again.`
+      ? `${where} after these ideas were written. If they still fit, confirm this step. If not, regenerate.`
       : `${where} after these ideas were written, so this step needs another look before it is approved again.`;
   });
   // A pick matching a Claim Exclusion needs its own confirmation, so "Keep
@@ -438,9 +442,9 @@
   function sinceWhat(changedRoleIds: readonly string[]) {
     const names = changedRoleIds.filter((roleId) => roleId !== data.roleId).map(label);
     const here = changedRoleIds.includes(data.roleId);
-    if (names.length && here) return `you changed ${names.join(", ")}, and feedback or wording on this step`;
+    if (names.length && here) return `you changed ${names.join(", ")} and feedback or wording here`;
     if (names.length) return `you changed ${names.join(", ")}`;
-    return here ? "you changed feedback or wording on this step" : "the plan changed";
+    return here ? "you changed feedback or wording here" : "the plan changed";
   }
   // Review P3 f: a step not yet approved whose shown ideas were written
   // before a change gets one quiet note, no chips. A confirmation box that
@@ -449,7 +453,7 @@
     const challenge = data.approvalChallenge;
     if (data.stale || data.state === "approved" || data.state === "skipped" || !challenge?.shownBatchOutdated) return null;
     if (acknowledgmentShown && challenge.carriedSeedIds.length) return null;
-    return `These ideas were written before ${sinceWhat(challenge.changedRoleIds)}.`;
+    return `Written before ${sinceWhat(challenge.changedRoleIds)}.`;
   });
   // Review P3 l: the confirmation names ideas by their words, not ids.
   function ideaText(seedId: string) {
@@ -475,16 +479,16 @@
       const names = notice.uncertainties.map((words) => (words ? quoted(words) : "an uncertainty not shown here")).join(", ");
       const what = several ? "uncertainties" : "an uncertainty";
       if (!canEdit) return `${which} tested ${what} the writer no longer has picked: ${names}. This step cannot be approved until that changes.`;
-      return `${which} tested ${what} you no longer have picked: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again in Technological uncertainties, or regenerate this step and pick experiments for the uncertainties you kept.`;
+      return `${which} tested ${what} you no longer have picked: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again on the ${UNCERTAINTIES} step, or regenerate this step and pick experiments for the uncertainties you kept.`;
     }
     if (notice.kind === "no_linkable_experiment") {
       if (!notice.experimentsPicked) {
         return canEdit
-          ? "No advancement can be linked yet: no experiment is picked. Pick the experiments behind these advancements in Experimentation / Iterations, then regenerate this step."
+          ? `No advancement can be linked yet: no experiment is picked. Pick the experiments behind these advancements on the ${EXPERIMENTS} step, then regenerate this step.`
           : "No advancement can be linked yet: no experiment is picked.";
       }
       return canEdit
-        ? "No advancement can be linked yet: none of the experiments you picked tested an uncertainty you still have picked. In Experimentation / Iterations, pick an experiment for one of your uncertainties, or pick the dropped uncertainty again in Technological uncertainties, then regenerate this step."
+        ? `No advancement can be linked yet: none of the experiments you picked tested an uncertainty you still have picked. On the ${EXPERIMENTS} step, pick an experiment for one of your uncertainties, or pick the dropped uncertainty again on the ${UNCERTAINTIES} step, then regenerate this step.`
         : "No advancement can be linked yet: none of the picked experiments tested a picked uncertainty.";
     }
     const count = notice.seedIds.length;
@@ -1063,10 +1067,10 @@
         <IconInfo size={14} strokeWidth={1.8} class={`shrink-0 ${compact ? "mt-0.5 text-primary" : "text-primary-selected"}`} />
         <span class="min-w-0">
           {#if data.state === "skipped"}
-            This step is skipped. Restore it from the More menu to pick seeds.
+            Skipped. Restore it from the More menu to pick seeds.
           {:else}
             {#if isReopened}
-              You approved this step before. If you change a pick, later steps are marked for review. Confirming this step approves this step only.
+              Approved before. Changing a pick marks later steps for review. Confirming approves this step only.
             {/if}
             {#if !selectedCountComplete}
               <span data-selected-count="partial" class="text-gap-text!">{selectedCount}+ selected in the shown seeds, complete count pending</span>.
@@ -1075,14 +1079,14 @@
             {/if}
             {#if !isReopened}
               {#if approvalSelectedCount === 0 && selectedCountComplete}
-                {kind === "multiple" ? "Tick every seed the PD should cover, then approve to move on." : "Tick at least one seed to approve this step."}
+                {kind === "multiple" ? "Pick every seed the PD should cover." : "Pick at least one."}
               {:else}
-                {kind === "multiple" ? "Keep ticking every one the PD should cover, then approve to move on." : "Approve to move on, or change your pick."}
+                {kind === "multiple" ? "Pick every one the PD should cover." : "Approve, or change your pick."}
               {/if}
             {/if}
           {/if}
           <!-- The first look at a step also says how to read a quote (board 3.1). -->
-          Underlined words are quoted from the sources{!compact && !isReopened && data.state !== "skipped" && approvalSelectedCount === 0 && selectedCountComplete ? "; hover one to see the line" : ""}.
+          Underlined words quote the sources{!compact && !isReopened && data.state !== "skipped" && approvalSelectedCount === 0 && selectedCountComplete ? "; hover to see the line" : ""}.
         </span>
       </p>
       {#if data.stale}
