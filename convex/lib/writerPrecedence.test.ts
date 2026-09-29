@@ -193,8 +193,10 @@ describe("ideas kept despite a Claim Exclusion (2026-09-29 second, CAP-13 rule 4
     expect(both[0]?.exclusions.map((entry) => entry.text)).toEqual(exclusions.map((entry) => entry.text));
   });
 
-  it("names an idea by its words, clipped", () => {
+  it("names an idea by its words, shortened only at a word boundary (privacy re-check P3)", () => {
     expect(ideaWords(["One.", "Two."])).toBe("One. Two.");
-    expect(ideaWords(["x".repeat(200)], 20)).toBe(`${"x".repeat(19)}...`);
+    // A cut never leaves a fragment of a name such as "Quillmer".
+    expect(ideaWords(["The work at Quillmere Analytics Ltd. ran long."], 22)).toBe("The work at...");
+    expect(ideaWords(["x".repeat(200)], 20)).toBe("...");
   });
 });

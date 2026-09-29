@@ -8,7 +8,7 @@ import {
   openRouterUsage,
   type ChatCompletionsResponse,
 } from "../openrouterCore";
-import { NAME_EDGE_BEFORE, pseudonymize, type PlaceholderMap } from "../../lib/deidentify";
+import { NAME_EDGE_BEFORE, pseudonymize, surfacePattern, type PlaceholderMap } from "../../lib/deidentify";
 
 export const RESEARCH_MODELS = {
   gpt: "openai/gpt-5.6-sol",
@@ -37,10 +37,6 @@ export function cap(value: string, max: number): string {
   return normalized.length <= max ? normalized : `${normalized.slice(0, max - 1)}…`;
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * Remove direct identifiers before a prompt leaves Banhall. Technical language
  * is retained because it is the point of the research request.
@@ -55,7 +51,7 @@ export function redactExternalText(value: string, knownNames: string[]): string 
     // "ACE" never corrupts "surface".
     redacted = redacted.replace(
       // 2026-09-29 (second, privacy): an escape before a name is an edge.
-      new RegExp(`${NAME_EDGE_BEFORE}${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, "giu"),
+      new RegExp(`${NAME_EDGE_BEFORE}${surfacePattern(name)}(?![\\p{L}\\p{N}])`, "giu"),
       "[redacted]"
     );
   }

@@ -89,7 +89,7 @@ export function deidentify(
     // `\b`: identifiers routinely start or end with punctuation ("C++ … Ltd.").
     out = out.replace(
       new RegExp(
-        `${NAME_EDGE_BEFORE}${escapeRegExp(name)}(?![\\p{L}\\p{N}])`,
+        `${NAME_EDGE_BEFORE}${surfacePattern(name)}(?![\\p{L}\\p{N}])`,
         "giu"
       ),
       "[redacted]"
@@ -128,8 +128,11 @@ export function deidentify(
  *    "Quillmere Analytics Ltd.") is hidden too (`[CLIENT_1_FIRST]`).
  * 5: 2026-09-29 (second, privacy): a backslash escape ("\n", "\t", "\r",
  *    "\b", "\f", "\uXXXX") is a word edge before a name or a bare token.
+ * 6: 2026-09-29 (second, privacy re-check): any backslash escape is an edge,
+ *    even after an escaped backslash; an opening quote is a label position;
+ *    a name split by other white space is hidden word by word.
  */
-export const PLACEHOLDER_ALGORITHM_VERSION = 5;
+export const PLACEHOLDER_ALGORITHM_VERSION = 6;
 
 export type PlaceholderEntry = {
   token: string;
@@ -638,14 +641,24 @@ const matcherCache = new WeakMap<PlaceholderMap, { find: RegExp; byValue: Map<st
  * return, backspace or form feed as a backslash and a letter ("\n", "\t",
  * "\r", "\b", "\f") and other characters as "\u" and four hex digits, so a
  * name right after one sits next to a letter or digit and used to fail the
- * word-edge check and reach the provider unmasked ("\nQuillmere"). The
- * backslash must not itself be escaped: "\\n" (a backslash, then the letter
- * n) is no escape. "\"", "\\" and "\/" end in a character that is no letter
- * and were edges already.
+ * word-edge check and reach the provider unmasked ("\nQuillmere"). Any
+ * backslash counts, escaped or not (privacy re-check P1-1): a raw literal
+ * backslash-n before a name is masked in its raw form, and once JSON-encoded
+ * it reads "\\n" before the name, which must be masked too. At worst this
+ * hides a word that was glued to a letter after a backslash, and restoring
+ * stays exact. "\"", "\\" and "\/" end in a character that is no letter and
+ * were edges already.
  */
-export const ESCAPE_EDGE_BEFORE = String.raw`(?<=(?<!\\)(?:\\\\)*\\(?:[ntrbf]|u[0-9A-Fa-f]{4}))`;
+export const ESCAPE_EDGE_BEFORE = String.raw`(?<=\\(?:[ntrbf]|u[0-9A-Fa-f]{4}))`;
 /** An escaped line break or tab, where a new line or a gap begins. */
-const ESCAPED_BREAK_BEFORE = String.raw`(?<=(?<!\\)(?:\\\\)*\\[ntr])`;
+const ESCAPED_BREAK_BEFORE = String.raw`(?<=\\[ntr])`;
+/**
+ * White space between the words of a name, written or escaped (privacy
+ * re-check P2-2): a hard-wrapped "Northern\nRobotics Inc." or its JSON form
+ * "Northern\\nRobotics Inc." is the name too. Values hold single spaces.
+ */
+const NAME_GAP = String.raw`(?:\s|\\+[ntrbf]|\\+u[0-9A-Fa-f]{4})+`;
+const NAME_GAP_GLOBAL = new RegExp(NAME_GAP, "gu");
 /**
  * A name's leading edge: not inside a word, or right after an escape. Every
  * finder of names or tokens uses it: the mask, the bare-token restore and
@@ -665,16 +678,28 @@ const WORD_EDGE_AFTER = "(?![\\p{L}\\p{N}])";
  * running text without its colon.
  */
 const TIME = "\\[?\\d{1,2}:\\d{2}(?::\\d{2})?(?:[.,]\\d{1,3})?\\]?";
-const LABEL_COLON_BEFORE = `(?:(?<=^|[\\s(\\[\\uFF08\\u3010.!?\\u3002\\uFF01\\uFF1F\\u2026:\\uFF1A])|${ESCAPED_BREAK_BEFORE})`;
+// Privacy re-check P2-1: the opening quote of an encoded string, plain or
+// escaped, is a label position too ("exactExcerpt":"Rosalind: we tried").
+const LABEL_COLON_BEFORE = `(?:(?<=^|[\\s(\\[\\uFF08\\u3010.!?\\u3002\\uFF01\\uFF1F\\u2026:\\uFF1A"])|${ESCAPED_BREAK_BEFORE})`;
 const LABEL_COLON_AFTER = `(?=[ \\t]*(?:[(\\[\\uFF08\\u3010][^()\\[\\]\\uFF08\\uFF09\\u3010\\u3011\\n]{0,80}[)\\]\\uFF09\\u3011][ \\t]*)?(?:${TIME}[ \\t]*)?[:\\uFF1A])`;
-const LABEL_HEADER_BEFORE = String.raw`(?:(?<=(?:^|\n)[ \t]*)|(?<=(?<!\\)(?:\\\\)*\\n(?:[ \t]|\\t)*))`;
+// The run of spaces before a header label is capped, so the look-behind
+// never scans a long run of white space at every position.
+const LABEL_HEADER_BEFORE = String.raw`(?:(?<=(?:^|\n|")[ \t]{0,40})|(?<=\\n(?:[ \t]|\\t){0,40}))`;
 // A header line ends at a line break, escaped or not, or at the end of the
 // text or of the quoted string that holds it.
 const LABEL_HEADER_AFTER = `(?=[ \\t]+(?:[-\\u2013\\u2014][ \\t]*)?${TIME}[ \\t]*(?:\\r?\\n|$|\\\\r\\\\n|\\\\n|"))`;
 const LABEL_VOICE_BEFORE = "(?<=<v(?:\\.[^\\s>]+)*[ \\t]+)";
 
+/**
+ * A value's pattern, its single spaces matching any gap between words. The
+ * redactions (`deidentify`, the research redaction) use it too.
+ */
+export function surfacePattern(value: string): string {
+  return escapeRegExp(value).replace(/ /g, NAME_GAP);
+}
+
 function patternFor(entry: PlaceholderEntry): string {
-  const value = escapeRegExp(entry.value);
+  const value = surfacePattern(entry.value);
   if (entry.at === "label") {
     return [
       `${LABEL_COLON_BEFORE}${value}${LABEL_COLON_AFTER}`,
@@ -699,7 +724,7 @@ function matcherFor(map: PlaceholderMap) {
     // with only such names keep the one shared boundary; a label-only entry
     // or a name without word edges carries its own.
     const find = sorted.every((entry) => entry.at === undefined && !noSpaceName(entry.value))
-      ? new RegExp(`${WORD_EDGE_BEFORE}(?:${sorted.map((entry) => escapeRegExp(entry.value)).join("|")})${WORD_EDGE_AFTER}`, "gu")
+      ? new RegExp(`${WORD_EDGE_BEFORE}(?:${sorted.map((entry) => surfacePattern(entry.value)).join("|")})${WORD_EDGE_AFTER}`, "gu")
       : new RegExp(sorted.map(patternFor).join("|"), "gu");
     cached = {
       find,
@@ -715,7 +740,52 @@ export function pseudonymize(text: string, map: PlaceholderMap): string {
   if (map.length === 0 || text === "") return text;
   const { find, byValue } = matcherFor(map);
   find.lastIndex = 0;
-  return text.replace(find, (match) => byValue.get(match) ?? match);
+  return text.replace(find, (match) => {
+    const exact = byValue.get(match);
+    if (exact !== undefined) return exact;
+    // Privacy re-check P2-2: a name whose words another gap separates
+    // ("Northern\nRobotics Inc.") becomes one token per word, its gaps kept
+    // between them, so restoring writes back the exact surface.
+    const token = byValue.get(match.replace(NAME_GAP_GLOBAL, " "));
+    return token === undefined ? match : wordTokens(token, match);
+  });
+}
+
+/** Letters for word positions: A for the first word, B for the second. */
+const WORD_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+/**
+ * "[CLIENT_1]" over "Northern\nRobotics Inc." gives "[CLIENT_1_WA]\n
+ * [CLIENT_1_WB] [CLIENT_1_WC]" (the gaps as written); a suffixed token
+ * such as "[CLIENT_1_SHORT]" gives "[CLIENT_1_SHORTWA]". Past 26 words the
+ * surface is left whole as the one token.
+ */
+function wordTokens(token: string, surface: string): string {
+  const pieces = surface.split(new RegExp(`(${NAME_GAP})`, "u"));
+  const wordCount = Math.ceil(pieces.length / 2);
+  if (wordCount > WORD_LETTERS.length) return token;
+  const stem = token.slice(0, -1);
+  const joiner = /^\[(?:CLIENT|PERSON|FIRM)_\d+\]$/.test(token) ? "_W" : "W";
+  return pieces
+    .map((piece, index) => index % 2 === 1 ? piece : `${stem}${joiner}${WORD_LETTERS[index / 2]}]`)
+    .join("");
+}
+
+/**
+ * The word a word token stands for: "[CLIENT_1_WB]" is the second word of
+ * "[CLIENT_1]", "[CLIENT_1_SHORTWA]" the first word of "[CLIENT_1_SHORT]".
+ */
+function wordTokenValue(
+  kind: string,
+  n: string,
+  suffix: string,
+  lookup: (token: string) => string | undefined
+): string | undefined {
+  const word = /^(.*)W([A-Z])$/.exec(suffix);
+  if (!word) return undefined;
+  const base = lookup(word[1] ? `[${kind}_${n}_${word[1]}]` : `[${kind}_${n}]`);
+  if (base === undefined) return undefined;
+  return base.split(" ")[WORD_LETTERS.indexOf(word[2])];
 }
 
 const TOKEN_PARTS = /^\[(CLIENT|PERSON|FIRM)_(\d+)(?:_([A-Z]+))?\]$/;
@@ -732,6 +802,8 @@ function tokenValue(token: string, byToken: ReadonlyMap<string, string>): string
   if (exact !== undefined) return exact;
   const parts = TOKEN_PARTS.exec(token);
   if (!parts || !parts[3]) return undefined;
+  const word = wordTokenValue(parts[1], parts[2], parts[3], (base) => byToken.get(base));
+  if (word !== undefined) return word;
   const base = byToken.get(`[${parts[1]}_${parts[2]}]`);
   if (base === undefined) return undefined;
   const words = base.split(" ");
@@ -789,7 +861,14 @@ function tokenLookup(map: PlaceholderMap): TokenLookup {
  * map frozen before bare ids were restored.
  */
 function anyTokenValue(token: string, lookup: TokenLookup): string | undefined {
-  return token.startsWith("[") ? tokenValue(token, lookup.byToken) : lookup.byBareToken.get(`[${token}]`);
+  if (token.startsWith("[")) return tokenValue(token, lookup.byToken);
+  const exact = lookup.byBareToken.get(`[${token}]`);
+  if (exact !== undefined) return exact;
+  // A word token written bare restores from its bare-marked base entry.
+  const parts = TOKEN_PARTS.exec(`[${token}]`);
+  return parts?.[3]
+    ? wordTokenValue(parts[1], parts[2], parts[3], (base) => lookup.byBareToken.get(base))
+    : undefined;
 }
 
 /**

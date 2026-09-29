@@ -319,7 +319,33 @@ export function cutToBudget(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const code = text.charCodeAt(limit - 1);
   const splitsPair = code >= 0xd800 && code <= 0xdbff;
-  return text.slice(0, splitsPair ? limit - 1 : limit);
+  const end = splitsPair ? limit - 1 : limit;
+  return endAtWordBoundary(text.slice(0, end), text.slice(end));
+}
+
+const LAST_WORD_RUN = /[\p{L}\p{N}\p{M}]+$/u;
+const FIRST_WORD_RUN = /^[\p{L}\p{N}\p{M}]+/u;
+/** The longest run of letters and digits a word of a name can be. */
+const MAX_NAME_WORD = 64;
+
+/**
+ * 2026-09-29 (second, privacy): a budget cut never ends inside a word. Names
+ * are masked at the provider boundary only where they stand whole, so a cut
+ * through "Quillmere" sent the fragment "Quillm" unmasked. When the kept
+ * text ends in a letter or digit and the text after the cut goes on with
+ * one, the cut backs off to just after the last white space or punctuation.
+ * A word the cut falls in that runs longer than 64 letters and digits, both
+ * sides together, is no word of a name (a hash, an encoded blob, a long run
+ * of unbroken script) and is cut where the budget ends, as before. It only
+ * ever shortens, so the cut stays within budget.
+ */
+export function endAtWordBoundary(kept: string, rest: string): string {
+  const before = LAST_WORD_RUN.exec(kept);
+  const after = FIRST_WORD_RUN.exec(rest);
+  if (!before || !after) return kept;
+  // The word the cut falls in, both sides of it.
+  if (before[0].length + after[0].length > MAX_NAME_WORD) return kept;
+  return kept.slice(0, before.index);
 }
 
 /**
@@ -842,7 +868,8 @@ export function cutUtf8ToBudget(value: string, maxBytes: number): string {
     result += scalar;
     used += size;
   }
-  return result;
+  // Never inside a word, so no name is cut into a fragment (privacy).
+  return endAtWordBoundary(result, value.slice(result.length));
 }
 
 export function stableSeedPromptJson(value: unknown): string {

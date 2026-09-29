@@ -2371,10 +2371,11 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
         t,
         candidateMode,
       );
-      // 100 tokens total; a 1-token (4-char) document cap cuts the notes.
+      // 100 tokens total; a 2-token (8-char) document cap cuts the notes,
+      // at a word boundary ("Frozen w" backs off to "Frozen ", 2026-09-29).
       await writeBudgetSettings(t, {
         "ai.analyzerContextBudgetTokens": "100",
-        "ai.analyzerDocumentBudgetTokens": "1",
+        "ai.analyzerDocumentBudgetTokens": "2",
       });
       const requests: OpenRouterRequest[] = [];
       vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
@@ -2399,7 +2400,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
       expect(documentRow.contextBudget).toEqual({
         budgetTokens: 100,
         included: true,
-        includedLength: 4,
+        includedLength: 7,
         truncated: true,
         maxDocuments: 12,
       });
@@ -2418,7 +2419,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
       {
         const userText = analyzerUserTextOf(requests);
         expect(userText).toContain(
-          `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 4)}\n[TRUNCATED: 38 of 42 characters omitted to fit the context budget.]\n--- END`,
+          `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 7)}\n[TRUNCATED: 35 of 42 characters omitted to fit the context budget.]\n--- END`,
         );
         expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
       }
@@ -2476,7 +2477,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
         queuedAt: Date.now(),
       });
     });
-    await writeBudgetSettings(t, { "ai.analyzerDocumentBudgetTokens": "1" });
+    await writeBudgetSettings(t, { "ai.analyzerDocumentBudgetTokens": "2" });
     const requests: OpenRouterRequest[] = [];
     vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
     await t.action(internal.ai.pipeline.generateCandidate, {
@@ -2486,7 +2487,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
     });
     const userText = analyzerUserTextOf(requests);
     expect(userText).toContain(
-      `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 4)}\n[TRUNCATED: 38 of 42 characters omitted to fit the context budget.]\n--- END`,
+      `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 7)}\n[TRUNCATED: 35 of 42 characters omitted to fit the context budget.]\n--- END`,
     );
     expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
   });
