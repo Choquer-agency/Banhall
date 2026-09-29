@@ -4716,6 +4716,34 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     await expect.poll(() => document.querySelector("[data-keep-result]")).toBeNull();
   });
 
+  it("offers Keep as is only once the step's full check is loaded (review of the eighth)", async () => {
+    const data = subsection({ roleId: "passive_limitations", state: "approved", stale: true, staleReason: null, truncated: true, approvalChallenge: null });
+    const view = await render(SeedSubsectionPane, paneProps(data, { title: "Limitations", reopened: true }));
+    await expect.poll(() => view.container.querySelector("[data-approve-step]")?.textContent).toBe("Confirm and approve");
+    expect(page.getByRole("button", { name: "Keep as is", exact: true }).elements()).toHaveLength(0);
+    expect(view.container.querySelector("[data-step-review-notice]")?.textContent).not.toContain("claim exclusion");
+  });
+
+  it("keeps a marked step with Cmd or Ctrl+Enter (owner, 2026-09-28 eighth)", async () => {
+    const data = subsection({
+      roleId: "passive_limitations",
+      state: "approved",
+      stale: true,
+      staleReason: { changedRoleIds: ["goal_problem"], restored: false } as unknown as SeedSubsectionData["staleReason"],
+      items: [outdatedCard({ roleId: "passive_limitations" })],
+      approvalChallenge: { ...clean(), carriedSeedIds: ["seed-1" as Id<"seeds">], shownBatchOutdated: true, changedRoleIds: ["goal_problem"] },
+    });
+    __setMutationResult("seeds:keep", { seedStageVersion: 8, kept: ["passive_limitations"], needsAttention: [] });
+    await render(SeedSubsectionPane, paneProps(data, { title: "Limitations", reopened: true }));
+    await expect.element(page.getByRole("button", { name: "Keep as is", exact: true })).toBeEnabled();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, ctrlKey: true }));
+    await expect.poll(() => __mutationCalls("seeds:keep")).toEqual([
+      { generationId, roleId: "passive_limitations", expectedSeedStageVersion: 7, scope: "step" },
+    ]);
+    expect(__mutationCalls("seeds:approve")).toEqual([]);
+    await expect.poll(() => document.querySelector("[data-keep-result]")?.textContent).toBe("Kept 1 step as it is: Technological limitations.");
+  });
+
   it("says a change on this step happened on this step, not earlier (owner, 2026-09-28 eighth)", async () => {
     const data = subsection({
       roleId: "company_context",

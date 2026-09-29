@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
-import NotificationToaster from "./NotificationToaster.svelte";
+import NotificationToaster, { __resetNotificationSession } from "./NotificationToaster.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
@@ -21,7 +21,8 @@ function row(id: string, overrides: Record<string, unknown> = {}) {
     title: `Project ${id} is with you`,
     body: "Drafting. Handed off by Mo Reyes.",
     href: `/project/${id}`,
-    createdAt: now - 60_000,
+    // Relative to when the row is made, so a long file never ages it past the grace.
+    createdAt: Date.now() - 60_000,
     ...overrides,
   };
 }
@@ -33,6 +34,7 @@ describe("NotificationToaster (I3, F6 card)", () => {
     __resetPage();
     __resetNavigation();
     __resetConvexStub();
+    __resetNotificationSession();
     __setPageUrl("/my-work");
   });
 
@@ -91,9 +93,33 @@ describe("NotificationToaster (I3, F6 card)", () => {
 
     await page.getByRole("button", { name: "2 updates while you were away", exact: true }).click();
     await expect.poll(() => cards().length).toBe(3);
+    // Earliest first, and keyboard focus lands on the first card the pill opened.
+    expect(cards().map((card) => card.dataset.notificationId)).toEqual(["earlier-1", "earlier-2", "new"]);
+    expect(document.activeElement?.closest<HTMLElement>("[data-notification-id]")?.dataset.notificationId).toBe("earlier-1");
     await page.getByRole("button", { name: "Dismiss all 2 earlier updates", exact: true }).click();
     await expect.poll(() => cards().length).toBe(1);
     expect(__mutationCalls("notifications:markSeen")).toEqual([{ ids: ["earlier-1", "earlier-2"] }]);
+    expect(document.querySelector("[data-notification-waiting]")).toBeNull();
+  });
+
+  it("decides once per page load which updates were waiting, not on every page change (review of the eighth)", async () => {
+    __setQueryData("notifications:listRecent", [row("a"), row("b")]);
+    const first = await render(NotificationToaster, {});
+    await expect.poll(() => cards().length).toBe(2);
+    first.unmount();
+    // Minutes later another page's shell mounts its own toaster.
+    const later = Date.now() - 10 * 60_000;
+    __setQueryData("notifications:listRecent", [row("a", { createdAt: later }), row("b", { createdAt: later })]);
+    await render(NotificationToaster, {});
+    await expect.poll(() => cards().length).toBe(2);
+    expect(document.querySelector("[data-notification-waiting]")).toBeNull();
+  });
+
+  it("shows a notification that arrives after the page loaded, whatever its time says", async () => {
+    __setQueryData("notifications:listRecent", []);
+    await render(NotificationToaster, {});
+    __setQueryData("notifications:listRecent", [row("late", { createdAt: Date.now() - 10 * 60_000 })]);
+    await expect.poll(() => cards().length).toBe(1);
     expect(document.querySelector("[data-notification-waiting]")).toBeNull();
   });
 

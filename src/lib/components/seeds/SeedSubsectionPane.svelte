@@ -419,7 +419,10 @@
   });
   // A pick matching a Claim Exclusion needs its own confirmation, so "Keep
   // as is" is not offered for it (review P3 d).
-  const keepAsIsOffered = $derived(canEdit && !(data.approvalChallenge?.exclusionEntryIds.length ?? 0));
+  // The full challenge decides, including one loaded from Batch history for
+  // a cut-short step, and it must be there: without it an exclusion match
+  // cannot be ruled out (review of the eighth amendment).
+  const keepAsIsOffered = $derived(canEdit && !!approvalChallenge && approvalChallenge.exclusionEntryIds.length === 0);
   // Owner, 2026-09-28 (eighth): on a step marked for review, Keep as is is
   // the step's one way to confirm. The footer button does it too, and the
   // "I checked these picks" box is not shown beside it.
@@ -435,12 +438,12 @@
     return here ? "you changed feedback or wording on this step" : "the plan changed";
   }
   // Review P3 f: a step not yet approved whose shown ideas were written
-  // before a change gets one quiet note, no chips. The confirmation box says
-  // the same with the ideas listed, so the note waits while it shows.
+  // before a change gets one quiet note, no chips. A confirmation box that
+  // lists the carried ideas says the same, so the note waits while it shows.
   const olderIdeasNote = $derived.by(() => {
     const challenge = data.approvalChallenge;
     if (data.stale || data.state === "approved" || data.state === "skipped" || !challenge?.shownBatchOutdated) return null;
-    if (acknowledgmentShown) return null;
+    if (acknowledgmentShown && challenge.carriedSeedIds.length) return null;
     return `These ideas were written before ${sinceWhat(challenge.changedRoleIds)}.`;
   });
   // Review P3 l: the confirmation names ideas by their words, not ids.
@@ -1042,7 +1045,7 @@
         <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status" data-step-review-notice>
           <p>{reviewNotice}</p>
           <!-- Keep as is is the step's footer action (eighth), not a second button here. -->
-          {#if canEdit && !keepAsIsOffered}
+          {#if canEdit && (approvalChallenge?.exclusionEntryIds.length ?? 0) > 0}
             <p class="mt-1">A pick here matches a claim exclusion in the Brief, so confirm this step below.</p>
           {/if}
         </div>
@@ -1065,7 +1068,7 @@
       {#if keepResult}
         <!-- Read out once by the pane's live region below, not here too. -->
         <p
-          class={`rounded-lg px-3 py-2 text-body ${keepResult.attention ? "bg-gap-bg text-gap-text!" : "bg-primary-wash text-ink"}`}
+          class={`rounded-lg px-3 py-2 text-body ${keepResult.attention ? "bg-gap-bg text-gap-text!" : "bg-success-surface text-success-ink"}`}
           data-keep-result
           data-keep-attention={keepResult.attention || undefined}
         >{keepResult.text}</p>

@@ -1,3 +1,16 @@
+<script module lang="ts">
+  // Which unseen rows were already waiting is decided once per page load,
+  // from the first answer, not per mount: each route's shell mounts its own
+  // toaster, and a row that arrives later is always new, whatever the
+  // browser's clock says (review of the eighth amendment).
+  let waitingIds: Set<string> | null = null;
+
+  /** Tests start each case as a fresh page load. */
+  export function __resetNotificationSession() {
+    waitingIds = null;
+  }
+</script>
+
 <script lang="ts">
   /**
    * In-app notifications (I3, F6 card): unseen notifications from the last
@@ -14,10 +27,11 @@
    * start bar, H4 cancel bar) so it never covers the page's primary action.
    *
    * Owner, 2026-09-28 (eighth): only notifications that arrive while this
-   * tab is open (or just before it opened) show as cards. Older unseen ones
+   * page is open (or just before it loaded) show as cards. Older unseen ones
    * wait behind one small "N updates while you were away" pill that opens
    * them as cards, so hours-old news never covers the page on arrival.
    */
+  import { tick } from "svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { useMutation, useQuery } from "convex-svelte";
@@ -31,10 +45,9 @@
 
   const SHOW_FOR_MS = 24 * 60 * 60 * 1000;
   const MAX_CARDS = 3;
-  // A notification written up to this long before the tab opened (a reload
+  // A notification written up to this long before the page loaded (a reload
   // right after it arrived) still counts as new.
   const NEW_GRACE_MS = 2 * 60 * 1000;
-  const openedAt = Date.now();
 
   const auth = useAuth();
   const recentQ = useQuery(api.notifications.listRecent, () =>
@@ -62,10 +75,35 @@
 
   const onThisPage = $derived(unseen.filter((row) => pathOf(row.href) === page.url.pathname));
   const elsewhere = $derived(unseen.filter((row) => pathOf(row.href) !== page.url.pathname));
-  const arrivedNow = $derived(elsewhere.filter((row) => row.createdAt >= openedAt - NEW_GRACE_MS));
-  const waiting = $derived(elsewhere.filter((row) => row.createdAt < openedAt - NEW_GRACE_MS));
+  const waitingSet = $derived.by(() => {
+    const rows = recentQ.data;
+    if (waitingIds === null && rows) {
+      const cutoff = Date.now() - NEW_GRACE_MS;
+      waitingIds = new Set(rows.filter((row) => row.seenAt === undefined && row.createdAt < cutoff).map((row) => String(row._id)));
+    }
+    return waitingIds;
+  });
+  // Read the set before filtering: an empty first answer must still be the
+  // one that decides, or the first row to arrive later would be sorted as waiting.
+  const waiting = $derived.by(() => {
+    const set = waitingSet;
+    return elsewhere.filter((row) => set?.has(String(row._id)));
+  });
+  const arrivedNow = $derived.by(() => {
+    const set = waitingSet;
+    return elsewhere.filter((row) => !set?.has(String(row._id)));
+  });
   let showWaiting = $state(false);
-  const cards = $derived([...arrivedNow, ...(showWaiting ? waiting : [])].slice(0, MAX_CARDS));
+  // Asked for, the earlier ones come first; new ones follow as they are dismissed.
+  const cards = $derived((showWaiting ? [...waiting, ...arrivedNow] : arrivedNow).slice(0, MAX_CARDS));
+
+  async function revealWaiting() {
+    const first = waiting[0]?._id;
+    showWaiting = true;
+    await tick();
+    // The pill is gone; keyboard focus moves to the first card it opened.
+    document.querySelector<HTMLElement>(`[data-notification-id="${first}"] [data-notification-open]`)?.focus();
+  }
 
   async function markSeen(ids: Id<"notifications">[]) {
     if (ids.length === 0) return;
@@ -101,7 +139,7 @@
       <button
         type="button"
         data-notification-waiting
-        onclick={() => (showWaiting = true)}
+        onclick={() => void revealWaiting()}
         class="pointer-events-auto self-end rounded-xl border border-line-soft bg-surface px-3.5 py-2 text-sm leading-5 font-medium text-ink shadow-menu transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none"
       >{waiting.length === 1 ? "1 update while you were away" : `${waiting.length} updates while you were away`}</button>
     {:else if showWaiting && waiting.length > 1}
@@ -109,12 +147,13 @@
         type="button"
         data-notification-dismiss-waiting
         onclick={() => void markSeen(waiting.map((row) => row._id))}
-        class="pointer-events-auto self-end rounded-xl border border-line-soft bg-surface px-3 py-1.5 text-[0.8125rem] leading-[1.125rem] text-ink-muted shadow-menu transition-colors hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
+        class="pointer-events-auto self-end rounded-xl border border-line-soft bg-surface px-3 py-1.5 text-[0.8125rem] leading-[1.125rem] text-ink-muted shadow-menu transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
       >Dismiss all {waiting.length} earlier updates</button>
     {/if}
     {#each cards as row (row._id)}
       <div
         data-notification={row.kind}
+        data-notification-id={row._id}
         role="status"
         class="pointer-events-auto relative flex gap-2.5 rounded-xl border border-line-soft bg-surface p-3.5 shadow-menu"
       >
