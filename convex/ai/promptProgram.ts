@@ -672,6 +672,11 @@ export const generationPromptProgram = {
         // 2026-09-28 (second, edited terms): the Line's edited terms are
         // allowed word for word; an objection to one as invented is set aside.
         editedTerms: "allowed-word-for-word-invention-objections-set-aside",
+        // 2026-09-29 (second): an idea the writer kept despite a Claim
+        // Exclusion is judged for coverage like any item and never repaired
+        // away; the Line's active Feedback is sent as data that outranks the
+        // Brief, and a Glossary Term it names is not a candidate.
+        writerPrecedence: "kept-ideas-judged-for-coverage-feedback-outranks-brief",
       },
     },
     // Story 2 (CAP-9): the repair is the section agent itself, re-run once
