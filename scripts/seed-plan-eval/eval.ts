@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from "node:path";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { releaseEvalProjectTitle } from "../../shared/releaseEval";
+import { advancementLinkProblem, experimentsForDroppedUncertainties, pickedLinkSelections } from "../../shared/advancementLinks";
 
 // ─── Semantic cases ─────────────────────────────────────────────────────────
 
@@ -92,6 +93,8 @@ export type FixtureManifest = {
   fictional: boolean;
   semanticCase: SemanticCase;
   purpose: string;
+  /** What changed in the scripted session and why, shown in the judging pack. */
+  notes?: string[];
   sources: FixtureSource[];
   mustNotAppearInSources: string[];
   mustAppearInSources: string[];
@@ -242,7 +245,8 @@ export function validateFixture(fixture: Fixture): string[] {
       break;
     case "changed_advancement_links":
       need(Number(p.uncertainties) >= 2, "params.uncertainties must be at least 2");
-      need(Number(p.experiments) >= 1, "params.experiments must be at least 1");
+      // One experiment for each of two uncertainties, so one is left after the drop.
+      need(Number(p.experiments) >= 2, "params.experiments must be at least 2");
       break;
   }
   return problems;
@@ -267,7 +271,9 @@ export type Step =
   | { op: "deselect"; role: PdSubsectionRoleId; pick: Pick; note?: string }
   | { op: "switchSelection"; role: PdSubsectionRoleId; note?: string }
   | { op: "selectSharedAdvancements"; n: number }
+  | { op: "selectCoveringExperiments"; n: number; minUncertainties: number }
   | { op: "deselectMostLinkedUncertainty" }
+  | { op: "deselectExperimentsForDroppedUncertainty" }
   | { op: "deselectUnlinkedAdvancements" }
   | { op: "edit"; role: PdSubsectionRoleId; transform: EditTransform; key: string }
   | { op: "feedback"; role: PdSubsectionRoleId; key: string; target: "selected" | "notSelected"; instruction: string }
@@ -275,7 +281,7 @@ export type Step =
   | { op: "withdrawFeedback"; role: PdSubsectionRoleId; key: string }
   | { op: "skip"; role: PdSubsectionRoleId }
   | { op: "regenerate"; role: PdSubsectionRoleId }
-  | { op: "approve"; role: PdSubsectionRoleId; expect?: "carried" | "exclusion" | "unlinkedRefused"; key?: string }
+  | { op: "approve"; role: PdSubsectionRoleId; expect?: "carried" | "exclusion" | "unlinkedRefused" | "droppedRefused"; key?: string }
   | { op: "reapproveStale" }
   | { op: "signOff" };
 
@@ -381,13 +387,20 @@ export function buildPlan(fixture: FixtureManifest): Step[] {
         { op: "select", role: "active_uncertainties", pick: { kind: "firstN", n: params.uncertainties } },
         { op: "approve", role: "active_uncertainties" },
         ...defaults("prior_year_status", "hypothesis"),
+        // 2026-09-29 (first): a writer picks experiments by what they tested,
+        // one for each uncertainty first, not the first few on the page.
         { op: "open", role: "experimentation" },
-        { op: "select", role: "experimentation", pick: { kind: "firstN", n: params.experiments } },
+        { op: "selectCoveringExperiments", n: params.experiments, minUncertainties: 2 },
         { op: "approve", role: "experimentation" },
         ...defaults("overall_advancement", "goal_improvements"),
         // The writer drops the uncertainty most advancements link to.
         { op: "deselectMostLinkedUncertainty" },
         { op: "approve", role: "active_uncertainties" },
+        // Its experiments can no longer be approved into the plan; the writer
+        // unticks them, as the step tells them to.
+        { op: "approve", role: "experimentation", expect: "droppedRefused", key: "droppedExperiments" },
+        { op: "deselectExperimentsForDroppedUncertainty" },
+        { op: "approve", role: "experimentation" },
         { op: "approve", role: "specific_advancements", expect: "unlinkedRefused", key: "unlinked" },
         { op: "regenerate", role: "specific_advancements" },
         { op: "deselectUnlinkedAdvancements" },
@@ -428,8 +441,12 @@ export function describeStep(step: Step): string {
       return `${title(step.role)}: select a different Seed and untick the earlier selection${step.note ? ` (${step.note})` : ""}`;
     case "selectSharedAdvancements":
       return `Specific technological advancements: select ${step.n} linked advancements sharing one uncertainty (regenerating up to twice to find them)`;
+    case "selectCoveringExperiments":
+      return `Experimentation / Iterations: select ${step.n} experiments by the uncertainty each tested, one for each picked uncertainty first, covering at least ${step.minUncertainties} (regenerating up to twice to find them)`;
     case "deselectMostLinkedUncertainty":
       return "Technological uncertainties: untick the uncertainty most selected advancements link to";
+    case "deselectExperimentsForDroppedUncertainty":
+      return "Experimentation / Iterations: untick the experiments that tested the dropped uncertainty (regenerating for the kept uncertainties if none is left)";
     case "deselectUnlinkedAdvancements":
       return "Specific technological advancements: untick advancements whose links are no longer active";
     case "edit":
@@ -453,7 +470,9 @@ export function describeStep(step: Step): string {
           ? `${title(step.role)}: approve, confirming the Claim Exclusion warning`
           : step.expect === "unlinkedRefused"
             ? `${title(step.role)}: try to approve and expect the unlinked-advancement refusal`
-            : `Approve ${title(step.role)}`;
+            : step.expect === "droppedRefused"
+              ? `${title(step.role)}: try to approve and expect the refusal for experiments that tested the dropped uncertainty`
+              : `Approve ${title(step.role)}`;
     case "reapproveStale":
       return "Confirm and approve every Stale Subsection, in order";
     case "signOff":
@@ -766,22 +785,23 @@ export function chooseExclusion<T extends { text: string; exactExcerpt?: string 
 }
 
 /**
- * Advancements whose links point at active selections, grouped so the
- * largest group sharing one uncertainty comes first (the merge case).
+ * Advancements linked under the product's rule (2026-09-29, first): a picked
+ * uncertainty and picked experiments that tested it (an experiment that
+ * records no uncertainty supports any). `activeExperiments` maps each picked
+ * experiment to the uncertainty it tested. Grouped so the largest group
+ * sharing one uncertainty comes first (the merge case).
  */
 export function linkedAdvancements(
   items: readonly SeedItem[],
   activeUncertainties: ReadonlySet<string>,
-  activeExperiments: ReadonlySet<string>,
+  activeExperiments: ReadonlyMap<string, string | null>,
   n: number,
 ): SeedItem[] {
-  const linked = items.filter(
-    (item) =>
-      item.uncertaintySeedId !== null &&
-      activeUncertainties.has(item.uncertaintySeedId) &&
-      item.experimentSeedIds.length > 0 &&
-      item.experimentSeedIds.every((id) => activeExperiments.has(id)),
+  const picked = pickedLinkSelections(
+    activeUncertainties,
+    [...activeExperiments].map(([seedId, uncertaintySeedId]) => ({ seedId, uncertaintySeedId })),
   );
+  const linked = items.filter((item) => advancementLinkProblem(item, picked) === null);
   const groups = new Map<string, SeedItem[]>();
   for (const item of linked) {
     const key = item.uncertaintySeedId as string;
@@ -789,6 +809,45 @@ export function linkedAdvancements(
   }
   const ordered = [...groups.values()].sort((a, b) => b.length - a.length);
   return ordered.flat().slice(0, n);
+}
+
+/**
+ * The experiments a writer picks by what they tested (2026-09-29, first):
+ * among `items` (the picked ones count already), one experiment for each
+ * picked uncertainty in turn, uncovered uncertainties first, then more in
+ * the same turn order, up to `n` picked in all. An experiment that tested
+ * no picked uncertainty is never chosen; with no experiment recording an
+ * uncertainty at all, the first ones on the page are taken.
+ */
+export function experimentsCoveringUncertainties(
+  items: readonly SeedItem[],
+  uncertaintySeedIds: readonly string[],
+  n: number,
+): SeedItem[] {
+  const already = items.filter((item) => item.selected);
+  const candidates = items.filter((item) => !item.selected);
+  const room = Math.max(0, n - already.length);
+  if (!items.some((item) => item.uncertaintySeedId !== null)) return candidates.slice(0, room);
+  const queues = new Map(uncertaintySeedIds.map((id) => [id, candidates.filter((item) => item.uncertaintySeedId === id)]));
+  const covered = new Set(already.map((item) => item.uncertaintySeedId).filter((id): id is string => id !== null));
+  const picks: SeedItem[] = [];
+  const order = [...uncertaintySeedIds.filter((id) => !covered.has(id)), ...uncertaintySeedIds.filter((id) => covered.has(id))];
+  while (picks.length < room) {
+    let took = false;
+    for (const id of order) {
+      const next = queues.get(id)?.shift();
+      if (!next || picks.length >= room) continue;
+      picks.push(next);
+      took = true;
+    }
+    if (!took) break;
+  }
+  return picks;
+}
+
+/** How many picked uncertainties a set of picked experiments tested. */
+export function testedUncertaintyCount(experiments: readonly SeedItem[], uncertaintySeedIds: ReadonlySet<string>): number {
+  return new Set(experiments.map((item) => item.uncertaintySeedId).filter((id): id is string => id !== null && uncertaintySeedIds.has(id))).size;
 }
 
 function commandId(fixtureId: string, label: string, counter: number): string {
@@ -889,6 +948,13 @@ export async function runFixture(
   const shownItems = (view: SubsectionView) => view.items.filter((item) => item.batchId === view.shownBatchId);
   const activeIds = async (role: PdSubsectionRoleId) =>
     new Set((await subsection(role)).items.filter((item) => item.selected).map((item) => item.seedId));
+  /** Picked experiments and the uncertainty each tested (2026-09-29, first). */
+  const activeExperiments = async () =>
+    new Map(
+      (await subsection("experimentation")).items
+        .filter((item) => item.selected)
+        .map((item) => [item.seedId, item.uncertaintySeedId] as const),
+    );
 
   const pickItems = async (role: PdSubsectionRoleId, pick: Pick, view: SubsectionView): Promise<SeedItem[]> => {
     const shown = shownItems(view);
@@ -903,7 +969,7 @@ export async function runFixture(
         return view.items.filter((item) => item.selected);
       case "linkedAdvancements": {
         const uncertainties = await activeIds("active_uncertainties");
-        const experiments = await activeIds("experimentation");
+        const experiments = await activeExperiments();
         return linkedAdvancements(view.items.filter((item) => !item.selected), uncertainties, experiments, pick.n);
       }
     }
@@ -988,17 +1054,41 @@ export async function runFixture(
 
   const dropUnlinked = async (view: SubsectionView) => {
     const uncertainties = await activeIds("active_uncertainties");
-    const experiments = await activeIds("experimentation");
+    const experiments = await activeExperiments();
     for (const item of view.items.filter((candidate) => candidate.selected)) {
-      const linked =
-        item.uncertaintySeedId !== null &&
-        uncertainties.has(item.uncertaintySeedId) &&
-        item.experimentSeedIds.length > 0 &&
-        item.experimentSeedIds.every((id) => experiments.has(id));
+      const linked = linkedAdvancements([item], uncertainties, experiments, 1).length === 1;
       if (!linked) {
         await setSelected("specific_advancements", item.seedId, false);
         say(`untick unlinked advancement ${item.seedId}`);
       }
+    }
+  };
+
+  /**
+   * Picks experiments by what they tested (2026-09-29, first), regenerating
+   * the step up to twice when the page covers too few picked uncertainties.
+   * A Batch never vouches for picks it did not offer: earlier picks stay.
+   */
+  const pickCoveringExperiments = async (n: number, minUncertainties: number) => {
+    const role = "experimentation" as const;
+    for (let round = 0; ; round += 1) {
+      const view = await subsection(role);
+      const uncertaintyView = await subsection("active_uncertainties");
+      const uncertainties = uncertaintyView.items.filter((item) => item.selected).map((item) => item.seedId);
+      const active = new Set(uncertainties);
+      const pool = [...view.items.filter((item) => item.selected), ...shownItems(view).filter((item) => !item.selected)];
+      for (const item of experimentsCoveringUncertainties(pool, uncertainties, n)) await setSelected(role, item.seedId, true);
+      const picked = (await subsection(role)).items.filter((item) => item.selected);
+      const covered = testedUncertaintyCount(picked, active);
+      const needed = Math.min(minUncertainties, active.size);
+      if (covered >= needed || round >= 2) {
+        if (covered < needed) say(`the experiments cover ${covered} of ${needed} picked uncertainties after two regenerations`);
+        return;
+      }
+      say(`the experiments cover ${covered} of ${needed} picked uncertainties; regenerating`);
+      const before = await waitIdle(role);
+      await decide("seeds:regenerate", role, { commandId: commandId(fixture.id, "regenerate-experiments", next()) });
+      await waitShown(role, before.shownBatchId);
     }
   };
 
@@ -1046,7 +1136,7 @@ export async function runFixture(
         for (let round = 0; ; round += 1) {
           const view = await subsection(role);
           const uncertainties = await activeIds("active_uncertainties");
-          const experiments = await activeIds("experimentation");
+          const experiments = await activeExperiments();
           const selected = view.items.filter((item) => item.selected);
           const candidates = linkedAdvancements(view.items, uncertainties, experiments, view.items.length);
           const groups = new Map<string, SeedItem[]>();
@@ -1073,6 +1163,10 @@ export async function runFixture(
           await waitShown(role, before.shownBatchId);
         }
       }
+      case "selectCoveringExperiments": {
+        await pickCoveringExperiments(step.n, step.minUncertainties);
+        return;
+      }
       case "deselectMostLinkedUncertainty": {
         const advancements = (await subsection("specific_advancements")).items.filter((item) => item.selected);
         const counts = new Map<string, number>();
@@ -1080,11 +1174,35 @@ export async function runFixture(
           if (item.uncertaintySeedId) counts.set(item.uncertaintySeedId, (counts.get(item.uncertaintySeedId) ?? 0) + 1);
         }
         const active = await activeIds("active_uncertainties");
-        const target = [...counts.entries()].filter(([id]) => active.has(id)).sort((a, b) => b[1] - a[1])[0]?.[0];
+        const tested = new Set([...(await activeExperiments()).values()].filter((id): id is string => id !== null));
+        // Prefer one whose drop leaves another uncertainty a picked experiment tested.
+        const ranked = [...counts.entries()].filter(([id]) => active.has(id)).sort((a, b) => b[1] - a[1]);
+        const target = (ranked.find(([id]) => [...tested].some((other) => other !== id && active.has(other))) ?? ranked[0])?.[0];
         if (!target) throw new Error("No selected advancement links to an active uncertainty");
         if (active.size < 2) throw new Error("Only one uncertainty is selected; nothing would remain");
         log.removedUncertaintySeedId = target;
         await setSelected("active_uncertainties", target, false);
+        return;
+      }
+      case "deselectExperimentsForDroppedUncertainty": {
+        const uncertainties = await activeIds("active_uncertainties");
+        const view = await subsection("experimentation");
+        const picked = view.items.filter((item) => item.selected);
+        const dropped = experimentsForDroppedUncertainties(
+          uncertainties,
+          picked.map((item) => ({ seedId: item.seedId, uncertaintySeedId: item.uncertaintySeedId })),
+        );
+        for (const experiment of dropped) {
+          await setSelected("experimentation", experiment.seedId, false);
+          say(`untick experiment ${experiment.seedId}, which tested the dropped uncertainty`);
+        }
+        // With nothing left for a kept uncertainty, the writer follows the
+        // step's advice and picks experiments for the uncertainties they kept.
+        const left = (await subsection("experimentation")).items.filter((item) => item.selected);
+        if (testedUncertaintyCount(left, uncertainties) === 0) {
+          say("no picked experiment tests a kept uncertainty; picking experiments for them");
+          await pickCoveringExperiments(Math.max(1, dropped.length), 1);
+        }
         return;
       }
       case "deselectUnlinkedAdvancements": {
@@ -1167,7 +1285,7 @@ export async function runFixture(
         return;
       }
       case "approve": {
-        if (step.expect === "unlinkedRefused") {
+        if (step.expect === "unlinkedRefused" || step.expect === "droppedRefused") {
           try {
             await approve(step.role, step.key);
             log.refusals.push({ roleId: step.role, key: step.key, code: null, reason: "NOT_REFUSED" });
@@ -1886,6 +2004,62 @@ function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[
           removed ? `dropped ${removed}` : "no uncertainty was dropped",
         ),
       );
+      // 2026-09-29 (first): the plan itself shows each advancement's
+      // uncertainty is one the plan still holds and that every experiment
+      // it links tested that uncertainty; an experiment recording no
+      // uncertainty cannot show it, so it fails here.
+      const testedBy = new Map(items.filter((item) => item.roleId === "experimentation").map((item) => [item.seedId, item.uncertaintySeedId]));
+      const notFollowing = advancements.flatMap((item) => {
+        if (!item.uncertaintySeedId || !uncertaintySeeds.has(item.uncertaintySeedId)) return [`${quote(item.bullets.join(" "), 60)} names an uncertainty the plan does not hold`];
+        const other = item.experimentSeedIds.filter((id) => testedBy.get(id) !== item.uncertaintySeedId);
+        return other.length ? [`${quote(item.bullets.join(" "), 60)} links ${other.length} experiment(s) that did not record testing its uncertainty`] : [];
+      });
+      checks.push(
+        check(
+          "advancements-follow-experiments",
+          "Every signed-off advancement's uncertainty is one the plan still holds, and every experiment it links tested that uncertainty",
+          advancements.length > 0 && notFollowing.length === 0,
+          notFollowing.length ? notFollowing.join("; ") : `${advancements.length} advancement(s), each following the uncertainty its experiments tested`,
+        ),
+      );
+      const experimentItems = items.filter((item) => item.roleId === "experimentation");
+      const strayExperiments = experimentItems.filter((item) => !item.uncertaintySeedId || !uncertaintySeeds.has(item.uncertaintySeedId));
+      checks.push(
+        check(
+          "experiments-hold-uncertainties",
+          "Every signed-off experiment tested an uncertainty the plan still holds",
+          experimentItems.length > 0 && strayExperiments.length === 0,
+          `${experimentItems.length} experiment(s); ${strayExperiments.length} with no recorded uncertainty or one the plan dropped${strayExperiments.length ? `: ${strayExperiments.map((item) => quote(item.bullets.join(" "), 60)).join(", ")}` : ""}`,
+        ),
+      );
+      const droppedRefusal = log.refusals.find((candidate) => candidate.key === "droppedExperiments");
+      checks.push(
+        check(
+          "dropped-experiments-refused",
+          "After the uncertainty was dropped, approving the experiments that tested it was refused",
+          droppedRefusal?.reason === "EXPERIMENT_FOR_DROPPED_UNCERTAINTY",
+          droppedRefusal ? `${droppedRefusal.code ?? "no code"} / ${droppedRefusal.reason ?? "no reason"}` : "no approval attempt recorded",
+        ),
+      );
+      // A hint for the judge, not a verdict: the drafted text cannot be
+      // tied to an uncertainty mechanically, so show the Line 246 paragraph
+      // that shares the most words with the dropped uncertainty.
+      const droppedWords = c.seeds.find((seed) => seed.seedId === removed)?.bullets.join(" ") ?? "";
+      const paragraphs = (c.report?.sections.s246 ?? "").split(/\n\s*\n/).map((text) => text.trim()).filter(Boolean);
+      const closest = paragraphs
+        .map((text, index) => ({ index, text, overlap: contentWordOverlap(droppedWords, text) }))
+        .sort((a, b) => b.overlap - a.overlap)[0];
+      checks.push(
+        info(
+          "dropped-uncertainty-drafted",
+          "Where the dropped uncertainty's words appear in Line 246 (a hint for the judge)",
+          !droppedWords
+            ? "the dropped uncertainty's wording was not read back"
+            : closest
+              ? `paragraph ${closest.index + 1} shares ${Math.round(closest.overlap * 100)} percent of its content words: ${quote(closest.text, 200)}`
+              : "Line 246 was not drafted",
+        ),
+      );
       const byUncertainty = new Map<string, string[]>();
       for (const item of advancements) {
         if (item.uncertaintySeedId) byUncertainty.set(item.uncertaintySeedId, [...(byUncertainty.get(item.uncertaintySeedId) ?? []), item.itemId]);
@@ -2057,7 +2231,9 @@ function renderPlan(c: Collected, log: RunLog): string[] {
         byId.get(item.seedId)?.revisionOfSeedId ? "Revised Seed" : null,
       ].filter(Boolean);
       lines.push(`- ${item.bullets.join(" / ")} _(${marks.join(", ")})_`);
-      if (item.uncertaintySeedId || item.experimentSeedIds.length) {
+      if (item.roleId === "experimentation" && item.uncertaintySeedId) {
+        lines.push(`  - Tested: uncertainty ${label(item.uncertaintySeedId)}`);
+      } else if (item.uncertaintySeedId || item.experimentSeedIds.length) {
         lines.push(`  - Links: uncertainty ${label(item.uncertaintySeedId)}; experiments ${item.experimentSeedIds.map(label).join(", ") || "none"}`);
       }
     }
@@ -2081,6 +2257,7 @@ export function renderFixturePack(result: FixtureResult, context: PackContext): 
     "",
     fixture.purpose,
     "",
+    ...(fixture.notes?.length ? ["Fixture notes:", "", ...fixture.notes.map((note) => `- ${note}`), ""] : []),
     "## Judgment (reviewing manager)",
     "",
     "Read the plan and the drafted Sections below, then answer each question and give one verdict. Every fixture must be judged pass before release.",

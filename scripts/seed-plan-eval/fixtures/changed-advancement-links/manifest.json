@@ -9,7 +9,13 @@
   ],
   "fictional": true,
   "semanticCase": "changed_advancement_links",
-  "purpose": "The writer selects three uncertainties and several experiments, approves Specific technological advancements, then unticks the uncertainty most advancements link to. Approving the old advancements must be refused as unlinked; the writer regenerates, drops the unlinked items and selects advancements linked to the remaining uncertainties. When two signed-off advancements share one uncertainty they must be drafted as one advancement with facets, and the Compliance Note must name the merge.",
+  "purpose": "The writer selects three uncertainties, picks experiments by the uncertainty each tested (one for each uncertainty first), approves Specific technological advancements, then unticks the uncertainty most advancements link to. Approving the experiments that tested it must be refused, and the writer unticks them; approving the old advancements must be refused as unlinked; the writer regenerates, drops the unlinked items and selects advancements linked to a remaining uncertainty and to experiments that tested it. When two signed-off advancements share one uncertainty they must be drafted as one advancement with facets, and the Compliance Note must name the merge. No drafted advancement may claim the dropped uncertainty.",
+  "notes": [
+    "2026-09-29: run 6 (commit c8ce1fe2) failed because the scripted writer picked the first three experiments on the page, which were all cold-water start-up trials, and then dropped the start-up uncertainty. The Seed model linked start-up advancements to the sensor uncertainty and Line 246 claimed the dropped uncertainty resolved.",
+    "The scripted writer now picks experiments the way a writer would for this purpose: by the uncertainty each one tested (the card shows it since the 2026-09-29 first amendment), one for each picked uncertainty first, regenerating Experimentation / Iterations up to twice when the page covers fewer than two uncertainties.",
+    "After the drop it tries to approve Experimentation / Iterations and expects the refusal for experiments that tested the dropped uncertainty, then unticks them (and picks experiments for the kept uncertainties if none is left) before it returns to the advancements.",
+    "Automatic checks added: the experiments refusal, every signed-off advancement follows the uncertainty its experiments tested, every signed-off experiment tested an uncertainty the plan still holds, and a hint showing the Line 246 paragraph closest to the dropped uncertainty's words. No earlier check was removed or weakened."
+  ],
   "sources": [
     {
       "kind": "transcript",

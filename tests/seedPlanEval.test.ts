@@ -14,6 +14,7 @@ import {
   distribution,
   emptyRunLog,
   exclusionBullet,
+  experimentsCoveringUncertainties,
   formatWait,
   rateLimitBudget,
   rateLimitRetryAfterMs,
@@ -31,6 +32,7 @@ import {
   runChecks,
   runFixture,
   seedRequestCount,
+  testedUncertaintyCount,
   usageCost,
   validateFixture,
   writePack,
@@ -137,6 +139,16 @@ describe("scripted sessions", () => {
     const links = buildPlan(byCase("changed_advancement_links")).map((step) => (step.op === "approve" ? `approve:${step.expect ?? ""}` : step.op));
     expect(links.indexOf("deselectMostLinkedUncertainty")).toBeLessThan(links.indexOf("approve:unlinkedRefused"));
     expect(links.indexOf("approve:unlinkedRefused")).toBeLessThan(links.indexOf("selectSharedAdvancements"));
+    // 2026-09-29 (first): experiments are picked by what they tested, and the
+    // ones that tested the dropped uncertainty are refused, then unticked,
+    // before the advancements are fixed.
+    expect(links.indexOf("selectCoveringExperiments")).toBeLessThan(links.indexOf("deselectMostLinkedUncertainty"));
+    expect(
+      buildPlan(byCase("changed_advancement_links")).some((step) => step.op === "select" && step.role === "experimentation"),
+    ).toBe(false);
+    expect(links.indexOf("deselectMostLinkedUncertainty")).toBeLessThan(links.indexOf("approve:droppedRefused"));
+    expect(links.indexOf("approve:droppedRefused")).toBeLessThan(links.indexOf("deselectExperimentsForDroppedUncertainty"));
+    expect(links.indexOf("deselectExperimentsForDroppedUncertainty")).toBeLessThan(links.indexOf("approve:unlinkedRefused"));
   });
 
   it("builds edits and picks within the server's rules", () => {
@@ -166,10 +178,46 @@ describe("scripted sessions", () => {
     const picked = linkedAdvancements(
       [item("a1", "u1", ["e1"]), item("a2", "u2", ["e1"]), item("a3", "u2", ["e2"]), item("a4", "u9", ["e1"]), item("a5", "u2", ["e9"])],
       new Set(["u1", "u2"]),
-      new Set(["e1", "e2"]),
+      new Map([["e1", null], ["e2", null]]),
       2,
     );
     expect(picked.map((candidate) => candidate.seedId)).toEqual(["a2", "a3"]);
+    // 2026-09-29 (first): an experiment that tested another uncertainty
+    // cannot support the advancement (run 6: a start-up trial offered for
+    // the sensor uncertainty).
+    const tested = linkedAdvancements(
+      [item("a1", "u3", ["e1"]), item("a2", "u2", ["e2"]), item("a3", "u2", ["e2", "e1"])],
+      new Set(["u2", "u3"]),
+      new Map([["e1", "u1"], ["e2", "u2"]]),
+      3,
+    );
+    expect(tested.map((candidate) => candidate.seedId)).toEqual(["a2"]);
+  });
+
+  it("picks experiments by the uncertainty each tested, one for each uncertainty first", () => {
+    const experiment = (seedId: string, uncertaintySeedId: string | null, selected = false) => ({
+      seedId,
+      batchId: "b",
+      bullets: ["x"],
+      selected,
+      edited: false,
+      revisionOfSeedId: null,
+      feedbackRequestId: null,
+      uncertaintySeedId,
+      experimentSeedIds: [],
+    });
+    // Run 6's page: the first three were all start-up trials (u1).
+    const page = [experiment("t1", "u1"), experiment("t2", "u1"), experiment("t3", "u1"), experiment("t4", "u2"), experiment("t5", "u3")];
+    expect(experimentsCoveringUncertainties(page, ["u1", "u2", "u3"], 3).map((item) => item.seedId)).toEqual(["t1", "t4", "t5"]);
+    expect(experimentsCoveringUncertainties(page, ["u1", "u2", "u3"], 4).map((item) => item.seedId)).toEqual(["t1", "t4", "t5", "t2"]);
+    // Picks already made count, and an uncovered uncertainty goes first.
+    const partly = [experiment("t1", "u1", true), ...page.slice(1)];
+    expect(experimentsCoveringUncertainties(partly, ["u1", "u2"], 2).map((item) => item.seedId)).toEqual(["t4"]);
+    // Never an experiment for an uncertainty that is not picked.
+    expect(experimentsCoveringUncertainties(page, ["u2"], 3).map((item) => item.seedId)).toEqual(["t4"]);
+    // Without any recorded uncertainty, the first on the page.
+    expect(experimentsCoveringUncertainties([experiment("a", null), experiment("b", null)], ["u1"], 1).map((item) => item.seedId)).toEqual(["a"]);
+    expect(testedUncertaintyCount([experiment("t1", "u1"), experiment("t4", "u2"), experiment("x", null)], new Set(["u1", "u2", "u3"]))).toBe(2);
   });
 });
 
@@ -427,20 +475,42 @@ describe("automatic checks", () => {
     const c = baseCollected();
     c.summary!.items = [
       summaryItem("iu2", "active_uncertainties", "u2"),
-      summaryItem("ie1", "experimentation", "e1"),
+      summaryItem("ie1", "experimentation", "e1", { uncertaintySeedId: "u2" }),
       summaryItem("ia1", "specific_advancements", "a1", { uncertaintySeedId: "u2", experimentSeedIds: ["e1"] }),
       summaryItem("ia2", "specific_advancements", "a2", { uncertaintySeedId: "u2", experimentSeedIds: ["e1"] }),
     ];
+    c.seeds = [{ seedId: "u1", batchId: "b", roleId: "active_uncertainties", bullets: ["Cold-water start-up below 10 C was unknown."], support: "source_supported", revisionOfSeedId: null, feedbackRequestId: null, uncertaintySeedId: null, experimentSeedIds: [] }];
+    c.report = { ...c.report!, sections: { ...c.report!.sections, s246: "Dosing and fill held TAN under target.\n\nThe cold-water start-up below 10 C was resolved." } };
     c.complianceNotes = [cover("iu2", "242"), cover("ie1", "244"), cover("ia1", "246", ["ia1", "ia2"]), cover("ia2", "246", ["ia1", "ia2"])];
     const log: RunLog = {
       ...emptyRunLog(fixture.id, 0),
       removedUncertaintySeedId: "u1",
-      refusals: [{ roleId: "specific_advancements", key: "unlinked", code: "INVALID_STATE", reason: "UNLINKED_ADVANCEMENT" }],
+      refusals: [
+        { roleId: "experimentation", key: "droppedExperiments", code: "INVALID_STATE", reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" },
+        { roleId: "specific_advancements", key: "unlinked", code: "INVALID_STATE", reason: "UNLINKED_ADVANCEMENT" },
+      ],
     };
     const checks = runChecks(fixture, c, log);
-    for (const id of ["unlinked-refused", "links-valid", "removed-uncertainty-gone", "merge-named"]) {
+    for (const id of ["unlinked-refused", "links-valid", "removed-uncertainty-gone", "merge-named", "advancements-follow-experiments", "experiments-hold-uncertainties", "dropped-experiments-refused"]) {
       expect({ id, status: status(checks, id) }).toEqual({ id, status: "pass" });
     }
+    // The hint points the judge at the paragraph closest to the dropped uncertainty.
+    expect(checks.find((item) => item.id === "dropped-uncertainty-drafted")).toMatchObject({ status: "info" });
+    expect(checks.find((item) => item.id === "dropped-uncertainty-drafted")?.evidence).toMatch(/^paragraph 2 shares/);
+
+    // Run 6's plan: the advancement names a kept uncertainty, but its
+    // experiment tested the dropped one.
+    const run6 = baseCollected();
+    run6.summary!.items = [
+      summaryItem("iu3", "active_uncertainties", "u3"),
+      summaryItem("ie1", "experimentation", "e1", { uncertaintySeedId: "u1" }),
+      summaryItem("ia1", "specific_advancements", "a1", { uncertaintySeedId: "u3", experimentSeedIds: ["e1"] }),
+    ];
+    const run6Checks = runChecks(fixture, run6, { ...log, refusals: [log.refusals[1]!] });
+    expect(status(run6Checks, "links-valid")).toBe("pass");
+    expect(status(run6Checks, "advancements-follow-experiments")).toBe("fail");
+    expect(status(run6Checks, "experiments-hold-uncertainties")).toBe("fail");
+    expect(status(run6Checks, "dropped-experiments-refused")).toBe("fail");
     c.complianceNotes = [cover("iu2", "242"), cover("ie1", "244"), cover("ia1", "246"), cover("ia2", "246")];
     expect(status(runChecks(fixture, c, log), "merge-named")).toBe("fail");
     c.summary!.items[2] = summaryItem("ia1", "specific_advancements", "a1", { uncertaintySeedId: "u1", experimentSeedIds: ["e1"] });
@@ -501,6 +571,14 @@ describe("judging pack", () => {
     expect(text).toContain("Section 244 text.");
     expect(text).toContain("Dispatch to validated result: median 9.0 s");
     expect(DASHES.test(text)).toBe(false);
+    expect(text).not.toContain("Fixture notes:");
+
+    // A fixture's notes on its scripted session reach the judge (2026-09-29).
+    const links = byCase("changed_advancement_links");
+    const linksText = renderFixturePack({ fixture: links, log: emptyRunLog(links.id, 0), collected: null, checks: [] }, context);
+    expect(linksText).toContain("Fixture notes:");
+    for (const note of links.notes ?? []) expect(linksText).toContain(`- ${note}`);
+    expect(links.notes?.length).toBeGreaterThan(0);
 
     const summary = renderSummary([{ fixture, log, collected: c, checks }], context);
     expect(summary).toContain("| [skipped-role-supported](skipped-role-supported.md) | Skipped role supported by the Brief |");
