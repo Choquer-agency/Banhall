@@ -634,14 +634,14 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div
     class={`group/seed flex flex-1 flex-col ${
-      nested ? `px-3 pt-2.5 ${below ? "pb-2" : "pb-2.5"}` : `px-4 pt-3.5 ${below ? "pb-3" : "pb-3.5"}`
+      nested ? `px-3 pt-2.5 ${below ? "pb-2" : "pb-2.5"}` : `px-3.5 pt-3 ${below ? "pb-2.5" : "pb-3"}`
     } ${cardToggles ? "cursor-pointer" : ""}`}
     data-seed-body
     data-card-toggles={cardToggles || undefined}
     onpointerdowncapture={notePointerDown}
     onclick={toggleFromCard}
   >
-  <div class={`flex items-start ${nested ? "gap-2.5" : "gap-3"}`}>
+  <div class="flex items-start gap-2.5">
     <div class="pt-0.5">
       <Checkbox
         checked={item.selected}
@@ -803,6 +803,6 @@
 </div>
 
   {#if below}
-    <div class={nested ? "px-3 pb-2.5" : "px-4 pb-3.5"} data-seed-below>{@render below()}</div>
+    <div class={nested ? "px-3 pb-2.5" : "px-3.5 pb-3"} data-seed-below>{@render below()}</div>
   {/if}
 </article>
