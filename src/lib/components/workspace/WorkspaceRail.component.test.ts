@@ -282,7 +282,7 @@ describe("WorkspaceRail (round 2)", () => {
     expect(search.querySelector("path")?.getAttribute("d")).toBe("M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z M20 20l-4-4");
   });
 
-  it("collapsed, the rail shows no logo, starts with search in the top bar's row and ends 18px under the avatar", async () => {
+  it("collapsed, the rail shows no logo, starts with search in the top bar's row and ends 22px under the avatar", async () => {
     seed("consultant", { unseen: 2 });
     await render(WorkspaceRail, baseProps({ collapsed: true }));
     await expect.poll(() => item("settings")).not.toBeNull();
@@ -293,13 +293,16 @@ describe("WorkspaceRail (round 2)", () => {
     expect(nav().querySelector('a[aria-label="Banhall home"]')).toBeNull();
     // The 36px search tile is centred on the 56px top bar row: 10px down.
     expect(nav().querySelector<HTMLElement>("[data-rail-search]")!.getBoundingClientRect().top - top).toBe(10);
-    // Board A4 (2px column gap): avatar 852 to 882, Settings 795 to 831 and
-    // What's new 757 to 793 on a 900 tall rail.
+    // Board A4 (2px column gap) with the owner's 2026-09-29 spacing: no
+    // divider, 22px above and below the avatar. Avatar 848 to 878, Settings
+    // 790 to 826 and What's new 752 to 788 on a 900 tall rail.
     const bottom = nav().getBoundingClientRect().bottom;
     const avatar = nav().querySelector<HTMLElement>("[data-rail-identity] [data-avatar]")!.getBoundingClientRect();
-    expect(bottom - avatar.bottom).toBe(18);
-    expect(bottom - item("settings")!.getBoundingClientRect().bottom).toBe(69);
-    expect(bottom - item("changelog")!.getBoundingClientRect().bottom).toBe(107);
+    expect(bottom - avatar.bottom).toBe(22);
+    expect(bottom - item("settings")!.getBoundingClientRect().bottom).toBe(74);
+    expect(bottom - item("changelog")!.getBoundingClientRect().bottom).toBe(112);
+    // Nothing divides the avatar from the icons above it.
+    expect(nav().querySelector("[data-rail-identity]")!.parentElement!.previousElementSibling?.hasAttribute("data-rail-scroll")).toBe(true);
   });
 
   it("A1 to A3, D3: the identity avatar is coloured by the person's own role", async () => {

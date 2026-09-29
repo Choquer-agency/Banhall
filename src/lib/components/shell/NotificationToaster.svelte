@@ -80,9 +80,12 @@
     return elsewhere.filter((row) => !set?.has(String(row._id)));
   });
   // New ones stay first; the earlier ones follow once the summary is opened.
-  const cards = $derived(
-    (notificationSession.waitingShown ? [...arrivedNow, ...waiting] : arrivedNow).slice(0, MAX_CARDS)
-  );
+  // Each group shows at most three, so new cards never crowd out the earlier
+  // ones the writer asked to see (Greptile G7).
+  const cards = $derived([
+    ...arrivedNow.slice(0, MAX_CARDS),
+    ...(notificationSession.waitingShown ? waiting.slice(0, MAX_CARDS) : []),
+  ]);
 
   async function revealWaiting() {
     const first = waiting[0]?._id;
@@ -170,14 +173,14 @@
         closeLabel: waiting.length === 1 ? "Dismiss the earlier update" : `Dismiss all ${waiting.length} earlier updates`,
         onClose: () => void markSeen(waiting.map((row) => row._id)),
       })}
-    {:else if notificationSession.waitingShown && waiting.length > 1}
+    {:else if notificationSession.waitingShown && waiting.length > 0}
       <Button
         size="sm"
         variant="secondary"
         class="pointer-events-auto self-end shadow-menu"
         data-notification-dismiss-waiting
         onclick={() => void markSeen(waiting.map((row) => row._id))}
-      >Dismiss all {waiting.length} earlier updates</Button>
+      >{waiting.length === 1 ? "Dismiss the earlier update" : `Dismiss all ${waiting.length} earlier updates`}</Button>
     {/if}
     {#each cards as row (row._id)}
       {@render card({

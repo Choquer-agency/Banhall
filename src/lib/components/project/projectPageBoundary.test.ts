@@ -63,11 +63,11 @@ describe("project page rollback-purity boundary", () => {
     }
   });
 
-  it("switches the report between the 660px reading column and full width", () => {
+  it("switches the report between the 720px reading column and full width", () => {
     expect(previewSrc).toContain('data-project-workspace class="flex min-h-0 w-full flex-1 flex-col overflow-hidden"');
     expect(previewSrc).toContain('data-report-width={workspaceMaximized ? "full" : "reading"}');
-    expect(previewSrc).toContain('"mx-auto max-w-[44.25rem] px-6"');
-    expect(previewSrc).toContain('sidePanelOpen ? "px-6 lg:px-12" : "px-6 lg:px-24"');
+    expect(previewSrc).toContain('"mx-auto max-w-3xl px-6 lg:max-w-[50rem] lg:px-10"');
+    expect(previewSrc).toContain('sidePanelOpen ? "px-6 lg:px-10" : "px-6 lg:px-12"');
     expect(previewSrc).toContain("min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto");
   });
 

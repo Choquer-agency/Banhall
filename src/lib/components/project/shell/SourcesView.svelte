@@ -54,10 +54,11 @@
   }
 </script>
 
-<!-- The file list follows the report's 660px column; a pane wider than a
-     1440 window can give it gets a wider list (2026-09-28 width pass). -->
+<!-- The file list follows the report's reading column (48rem, widened on
+     2026-09-29); a pane wider than a 1440 window can give it gets a wider
+     list (2026-09-28 width pass). -->
 <div class="@container">
-<div data-sources-view class="mx-auto w-full max-w-[41.25rem] px-6 py-10 @min-[1400px]:max-w-[60rem]">
+<div data-sources-view class="mx-auto w-full max-w-3xl px-6 py-10 @min-[1400px]:max-w-[60rem]">
   <h2 class="font-serif text-2xl text-ink">Sources</h2>
   <p class="mt-1 text-[0.8125rem] text-ink-muted">The interviews and documents this report is written from.</p>
 

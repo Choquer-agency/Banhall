@@ -19,6 +19,7 @@ import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import { viewAs } from "$lib/shell/viewAs.svelte";
+import { board, boardPx } from "$lib/test/boardScale";
 
 vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn() } }));
 
@@ -142,16 +143,16 @@ describe("round 2 shell captures", () => {
     expect(getComputedStyle(backIcon).color).toBe("rgb(255, 255, 255)");
     const backTitle = back.querySelector<HTMLElement>("[data-title]")!;
     expect(getComputedStyle(backTitle).fontWeight).toBe("400");
-    expect(getComputedStyle(backTitle).lineHeight).toBe("19px");
-    expect(getComputedStyle(back).borderRadius).toBe("10px");
-    expect(getComputedStyle(back).paddingLeft).toBe("14px");
-    expect(getComputedStyle(back).paddingRight).toBe("10px");
+    expect(getComputedStyle(backTitle).lineHeight).toBe(boardPx(19));
+    expect(getComputedStyle(back).borderRadius).toBe(boardPx(10));
+    expect(getComputedStyle(back).paddingLeft).toBe(boardPx(14));
+    expect(getComputedStyle(back).paddingRight).toBe(boardPx(10));
     expect(back.getBoundingClientRect().width).toBeLessThan(300);
     // The success tick is the board's plain 15px check, not a filled circle.
     const saved = byText("Changes saved").querySelector<SVGElement>('[data-toast-icon="check"]');
     expect(saved?.querySelector("path")?.getAttribute("d")).toBe("M20 6 9 17l-5-5");
     const viewing = byText("Now viewing");
-    expect(getComputedStyle(viewing).paddingRight).toBe("10px");
+    expect(getComputedStyle(viewing).paddingRight).toBe(boardPx(10));
     const eye = viewing.querySelector<SVGElement>('[data-toast-icon="eye"]')!;
     expect(eye.getAttribute("stroke-width")).toBe("1.6");
     expect(getComputedStyle(eye).color).toBe("rgb(255, 255, 255)");
@@ -161,18 +162,19 @@ describe("round 2 shell captures", () => {
     // Board C1, D3, D5: the front toast's top is 820 on a 900 tall window,
     // 41px above the bottom edge.
     const front = toasts.find((element) => element.dataset.front === "true")!;
-    await expect.poll(() => Math.round(window.innerHeight - front.getBoundingClientRect().bottom)).toBe(41);
+    await expect.poll(() => Math.round(window.innerHeight - front.getBoundingClientRect().bottom)).toBe(Math.round(board(41)));
     // Expanded so every toast shows in the capture.
     toaster.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
     await settle();
     // C1, D3, D5: expanded, the card is its own 39px and its close button
     // sits inside on the right after the text, not over the top-left corner.
-    await expect.poll(() => back.getBoundingClientRect().height).toBe(39);
+    // Sonner rounds the measured card height, so allow a pixel.
+    await expect.poll(() => Math.abs(back.getBoundingClientRect().height - board(39)) <= 1).toBe(true);
     const backRect = back.getBoundingClientRect();
     const close = back.querySelector<HTMLElement>("[data-close-button]")!.getBoundingClientRect();
-    expect(close.width).toBe(18);
+    expect(close.width).toBe(board(18));
     expect(close.left).toBeGreaterThan(backTitle.getBoundingClientRect().right);
-    expect(Math.round(backRect.right - close.right)).toBe(10);
+    expect(backRect.right - close.right).toBeCloseTo(board(10), 0);
     expect(close.top).toBeGreaterThan(backRect.top);
     expect(close.bottom).toBeLessThan(backRect.bottom);
     // A wide red card still keeps its close button at the right edge.

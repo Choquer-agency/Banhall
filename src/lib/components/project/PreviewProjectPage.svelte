@@ -2503,16 +2503,19 @@
       </p>
     {/if}
 
-    <!-- Report surface (ui-design-final.md section 8, row 5): a centred
-         660px reading column, or full width with 48px side padding beside a
-         side panel and 96px when the report is alone. -->
+    <!-- Report surface (ui-design-final.md section 8, row 5, widened by the
+         owner on 2026-09-29): a centred 720px (45rem) reading column, or
+         full width with 40px side padding beside a side panel and 48px when
+         the report is alone. From lg up every width keeps at least 40px of
+         side padding, so the block handle 34px left of the text is never
+         clipped. -->
     {#if reportActionsVisible && report}
       <div data-project-workspace class="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
         <div class="[container-type:inline-size] flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto">
             <div
               data-report-surface
               data-report-width={workspaceMaximized ? "full" : "reading"}
-              class={`w-full pt-11 pb-10 transition-[padding,max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? (sidePanelOpen ? "px-6 lg:px-12" : "px-6 lg:px-24") : "mx-auto max-w-[44.25rem] px-6"}`}
+              class={`w-full pt-11 pb-10 transition-[padding,max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? (sidePanelOpen ? "px-6 lg:px-10" : "px-6 lg:px-12") : "mx-auto max-w-3xl px-6 lg:max-w-[50rem] lg:px-10"}`}
             >
               <!-- Board 2.1: the report opens on its serif title. The top bar
                    holds the page h1; the document's own title heading stays

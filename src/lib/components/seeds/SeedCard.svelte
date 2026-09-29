@@ -1,6 +1,6 @@
 <script lang="ts">
   import { boardRem } from "$lib/rootScale";
-  import { tick, type Snippet } from "svelte";
+  import { onDestroy, tick, type Snippet } from "svelte";
   import { DropdownMenu, Popover } from "bits-ui";
   import { IconCheck, IconClose, IconComment, IconPencil, IconQuote, IconRegenerate } from "$lib/components/icons";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
@@ -13,6 +13,7 @@
   import { findExactQuoteSpans, segmentBullet } from "./exactQuote";
   import { MAX_CARD_TAGS, seedTagStyle } from "./seedTags";
   import SeedQuote from "./SeedQuote.svelte";
+  import { createCardClickGate } from "./cardClick";
   import type {
     SeedCardData,
     SeedDraftUpdate,
@@ -334,27 +335,51 @@
   // pick. Recorded at pointerdown, before the layer closes (review P2-4).
   const OPEN_LAYERS = "[data-menu-content], [data-popover-content], [data-quote-card], [data-seed-quotes]";
   let dismissingLayer = false;
-  function notePointerDown() {
+  let cardBody: HTMLElement | null = null;
+  // Text selected inside this card (a drag, or a double or triple click).
+  function textSelectedHere() {
+    const selection = window.getSelection();
+    return (
+      !!selection &&
+      selection.rangeCount > 0 &&
+      !selection.isCollapsed &&
+      !!cardBody &&
+      (cardBody.contains(selection.anchorNode) || cardBody.contains(selection.focusNode))
+    );
+  }
+  // Greptile G5: a body click acts only once the double-click window has
+  // passed with no second click, drag or selection; the checkbox stays
+  // instant and the keyboard never comes through here.
+  const clickGate = createCardClickGate(
+    () => {
+      if (cardToggles) void onSelect(!item.selected);
+    },
+    { textSelected: textSelectedHere }
+  );
+  $effect(() => {
+    if (!cardToggles) clickGate.cancel();
+  });
+  onDestroy(() => clickGate.cancel());
+  function notePointerDown(event: PointerEvent) {
     dismissingLayer = feedbackMenuOpen || quotesOpen || document.querySelector(OPEN_LAYERS) !== null;
+    clickGate.pointerDown(event.clientX, event.clientY);
+  }
+  function notePointerMove(event: PointerEvent) {
+    if (event.buttons & 1) clickGate.pointerMove(event.clientX, event.clientY);
   }
   function toggleFromCard(event: MouseEvent) {
     const dismissed = dismissingLayer;
     dismissingLayer = false;
-    if (!cardToggles || dismissed || event.defaultPrevented || event.button !== 0) return;
-    // The last click of a double or triple click selects a word or a line.
-    if (event.detail > 1) return;
+    if (!cardToggles || dismissed || event.defaultPrevented || event.button !== 0) {
+      clickGate.cancel();
+      return;
+    }
     const target = event.target;
-    if (!(target instanceof Element) || target.closest(OWN_BEHAVIOUR)) return;
-    const selection = window.getSelection();
-    const cardBody = event.currentTarget instanceof Node ? event.currentTarget : null;
-    if (
-      selection &&
-      selection.rangeCount > 0 &&
-      !selection.isCollapsed &&
-      cardBody &&
-      (cardBody.contains(selection.anchorNode) || cardBody.contains(selection.focusNode))
-    ) return;
-    void onSelect(!item.selected);
+    if (!(target instanceof Element) || target.closest(OWN_BEHAVIOUR)) {
+      clickGate.cancel();
+      return;
+    }
+    clickGate.click(event.detail);
   }
 
   // 2026-09-29 (first): the uncertainty an experiment tested, or an
@@ -634,14 +659,16 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div
     class={`group/seed flex flex-1 flex-col ${
-      nested ? `px-3 pt-2.5 ${below ? "pb-2" : "pb-2.5"}` : `px-4 pt-3.5 ${below ? "pb-3" : "pb-3.5"}`
+      nested ? `px-3 pt-2.5 ${below ? "pb-2" : "pb-2.5"}` : `px-3.5 pt-3 ${below ? "pb-2.5" : "pb-3"}`
     } ${cardToggles ? "cursor-pointer" : ""}`}
     data-seed-body
     data-card-toggles={cardToggles || undefined}
+    bind:this={cardBody}
     onpointerdowncapture={notePointerDown}
+    onpointermove={notePointerMove}
     onclick={toggleFromCard}
   >
-  <div class={`flex items-start ${nested ? "gap-2.5" : "gap-3"}`}>
+  <div class="flex items-start gap-2.5">
     <div class="pt-0.5">
       <Checkbox
         checked={item.selected}
@@ -803,6 +830,6 @@
 </div>
 
   {#if below}
-    <div class={nested ? "px-3 pb-2.5" : "px-4 pb-3.5"} data-seed-below>{@render below()}</div>
+    <div class={nested ? "px-3 pb-2.5" : "px-3.5 pb-3"} data-seed-below>{@render below()}</div>
   {/if}
 </article>

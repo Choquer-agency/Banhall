@@ -24,7 +24,10 @@ import { reactiveValue } from "$lib/test/reactiveValue.svelte";
 import SeedWorkspace from "./SeedWorkspace.svelte";
 import SeedSubsectionPane from "./SeedSubsectionPane.svelte";
 import SeedCard from "./SeedCard.svelte";
+import { CARD_CLICK_DELAY_MS } from "./cardClick";
+import { resetPickRefusals } from "./pickQueue.svelte";
 import type { SeedCardData, SeedDraftUpdate, SeedLocalDraft, SeedSubsectionData } from "./types";
+import { board, boardPx } from "$lib/test/boardScale";
 
 const generationId = "generation-seeds" as Id<"generations">;
 const otherGenerationId = "generation-seeds-next" as Id<"generations">;
@@ -235,6 +238,7 @@ beforeEach(async () => {
   document.body.innerHTML = "";
   localStorage.clear();
   __resetConvexStub();
+  resetPickRefusals();
   await page.viewport(1366, 900);
 });
 
@@ -298,7 +302,7 @@ describe("Seed workspace", () => {
     // The active Outline row is a primary-wash fill with ink text, one line.
     const activeRow = container.querySelector<HTMLElement>('nav[aria-label="PD subsections"] button[aria-current="step"]')!;
     expect(getComputedStyle(activeRow).backgroundColor).toBe("rgb(241, 250, 249)");
-    expect(getComputedStyle(activeRow).height).toBe("34px");
+    expect(getComputedStyle(activeRow).height).toBe(boardPx(34));
     expect(activeRow.querySelector("[data-row-icon]")?.getAttribute("data-row-icon")).toBe("open");
 
     // R3-12 and decision 19: the value is the Outline's width in pixels,
@@ -310,7 +314,7 @@ describe("Seed workspace", () => {
     await expect.element(splitter).toHaveAttribute("aria-valuemax", "400");
     await expect.element(splitter).toHaveAttribute("aria-valuenow", "300");
     const outlineElement = container.querySelector<HTMLElement>('[aria-label="Seed outline"]')!.parentElement!;
-    expect(Math.round(outlineElement.getBoundingClientRect().width)).toBe(300);
+    expect(outlineElement.getBoundingClientRect().width).toBeCloseTo(board(300), 0);
     await splitter.click();
     await userEvent.keyboard("{ArrowLeft}");
     await expect.element(splitter).toHaveAttribute("aria-valuenow", "290");
@@ -791,7 +795,7 @@ describe("Seed workspace", () => {
       });
       const view = await render(SeedSubsectionPane, paneProps(data, { title: "Experimentation / Iterations", kind: "multiple" }));
       await expect.element(page.getByText(
-        'A picked experiment tested an uncertainty you no longer have picked: "Whether stepwise acclimation could shorten nitrification start-up below 10 C...". Untick it, pick that uncertainty again in Technological uncertainties, or regenerate this step and pick experiments for the uncertainties you kept.'
+        'A picked experiment tested an uncertainty you no longer have picked: "Whether stepwise acclimation could shorten nitrification start-up below 10 C...". Untick it, pick that uncertainty again on the Uncertainties step, or regenerate this step and pick experiments for the uncertainties you kept.'
       )).toBeVisible();
       expect(document.querySelector("[data-link-notice]")?.getAttribute("data-link-notice")).toBe("experiments_for_dropped_uncertainty");
       expect(document.querySelector('[data-seed-link="tested-dropped"]')?.textContent).toBe(
@@ -837,14 +841,14 @@ describe("Seed workspace", () => {
         });
       const view = await render(SeedSubsectionPane, props({ linkNotice: { kind: "no_linkable_experiment", experimentsPicked: true } }));
       await expect.element(page.getByText(
-        "No advancement can be linked yet: none of the experiments you picked tested an uncertainty you still have picked. In Experimentation / Iterations, pick an experiment for one of your uncertainties, or pick the dropped uncertainty again in Technological uncertainties, then regenerate this step."
+        "No advancement can be linked yet: none of the experiments you picked tested an uncertainty you still have picked. On the Experiments step, pick an experiment for one of your uncertainties, or pick the dropped uncertainty again on the Uncertainties step, then regenerate this step."
       )).toBeVisible();
       await expect.element(approveButton()).toBeDisabled();
       expect(document.querySelector('[data-seed-link="uncertainty"]')?.textContent).toBe('Uncertainty: "Sensor accuracy under biofilm was unknown."');
 
       await view.rerender(props({ linkNotice: { kind: "no_linkable_experiment", experimentsPicked: false } }));
       await expect.element(page.getByText(
-        "No advancement can be linked yet: no experiment is picked. Pick the experiments behind these advancements in Experimentation / Iterations, then regenerate this step."
+        "No advancement can be linked yet: no experiment is picked. Pick the experiments behind these advancements on the Experiments step, then regenerate this step."
       )).toBeVisible();
 
       await view.rerender(props({ linkNotice: { kind: "unlinked_advancements", seedIds: ["adv-1" as Id<"seeds">] } }));
@@ -907,7 +911,7 @@ describe("Seed workspace", () => {
       const empty = { state: "failed" as const, items: [], shownBatchId: null, approvalChallenge: null };
       await render(SeedSubsectionPane, paneProps(subsection({ ...empty, roleId: "experimentation", lastAttemptFailed: true, repeatedInvalidOutput: "experiment_links" })));
       await expect.element(page.getByText(
-        "The AI kept writing experiments without naming an uncertainty you picked. Each experiment must name the uncertainty it tested. Try again, or check your picks in Technological uncertainties."
+        "The AI kept writing experiments without naming an uncertainty you picked. Each experiment must name the uncertainty it tested. Try again, or check your picks on the Uncertainties step."
       )).toBeVisible();
     });
   });
@@ -2542,15 +2546,15 @@ describe("Seed workspace", () => {
     const splitterElement = splitter.element() as HTMLElement;
     const host = splitterElement.parentElement!;
     const rect = host.getBoundingClientRect();
-    // Pointer positions are pixels from the workspace's left edge, which is
-    // where the Outline starts.
+    // Pointer positions are board pixels from the workspace's left edge,
+    // which is where the Outline starts (board(), so they hold at any root).
     const pointer = (type: string, offset: number, pointerId = 7) =>
       new PointerEvent(type, {
         pointerId,
         pointerType: "mouse",
         button: 0,
         buttons: 1,
-        clientX: rect.left + offset,
+        clientX: rect.left + board(offset),
         clientY: rect.top + 40,
         bubbles: true,
         cancelable: true,
@@ -2956,32 +2960,36 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
 
     expect(icon(/Company \/ Context/)).toBe("approved");
     expect(icon(/Goal \/ Problem/)).toBe("untouched");
-    expect(icon(/Previous-year/)).toBe("optional");
+    expect(icon(/Previous year/)).toBe("optional");
     expect(icon(/Work plan/)).toBe("skipped");
     expect(icon(/Hypothesis/)).toBe("generating");
-    expect(icon(/Experimentation/)).toBe("open");
+    expect(icon(/Experiments/)).toBe("open");
     // Every state has an honest accessible name, not only an icon.
     expect(row(/Company \/ Context/).textContent).toContain("approved, 2 selected");
     expect(row(/Hypothesis/).textContent).toContain("writing seeds");
-    expect(row(/Advancement to science/).textContent).toContain("seeds failed");
-    // 2026-09-28 (seventh): a step an earlier change marked says "Review
-    // suggested", once; no "stale" or "outdated" wording.
-    expect(row(/Specific/).textContent).toContain("approved, review suggested");
-    expect(row(/Specific/).querySelector("[data-row-marker]")?.textContent?.trim()).toBe("Review suggested");
+    expect(row(/Overall advancement/).textContent).toContain("seeds failed");
+    // 2026-09-28 (seventh): a step an earlier change marked says so once,
+    // "Needs review" since 2026-09-29; no "stale" or "outdated" wording.
+    expect(row(/Specific/).textContent).toContain("approved, needs review");
+    expect(row(/Specific/).querySelector("[data-row-marker]")?.textContent?.trim()).toBe("Needs review");
     expect(container.querySelector('nav[aria-label="PD subsections"]')?.textContent).not.toMatch(/\bstale\b|outdated/i);
     // A count is faint and on the right; an approved step shows none (F5).
     // No preview or state line on screen.
-    expect(row(/Experimentation/).querySelector("[data-counts-complete]")?.textContent).toBe("1");
+    expect(row(/Experiments/).querySelector("[data-counts-complete]")?.textContent).toBe("1");
     expect(row(/Company \/ Context/).querySelector("[data-counts-complete]")).toBeNull();
-    // F3: the three long step names are shortened in the Outline only.
+    // Owner, 2026-09-29: short step names in the Outline.
     const label = (roleTitle: RegExp) => row(roleTitle).querySelector(".truncate")?.textContent;
-    expect(label(/Previous-year/)).toBe("Previous-year work");
+    expect(label(/Previous year/)).toBe("Previous year");
+    expect(label(/Limitations/)).toBe("Limitations");
+    expect(label(/Experiments/)).toBe("Experiments");
+    expect(label(/Overall advancement/)).toBe("Overall advancement");
     expect(label(/Specific/)).toBe("Specific advancements");
+    expect(label(/Status and next steps/)).toBe("Status and next steps");
     expect(label(/Goal improvements/)).toBe("Goal improvements");
     expect(container.textContent).not.toContain("Control loop evidence");
     expect(container.textContent).not.toContain("·");
     // Rows are one line high.
-    expect(Math.round(row(/Goal \/ Problem/).getBoundingClientRect().height)).toBe(34);
+    expect(row(/Goal \/ Problem/).getBoundingClientRect().height).toBeCloseTo(board(34), 0);
 
     const nav = container.querySelector('nav[aria-label="PD subsections"]')!;
     expect(Array.from(nav.querySelectorAll(":scope > p")).map((label) => label.textContent?.trim())).toEqual(["242", "244", "246"]);
@@ -3012,9 +3020,9 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     const helper = view.container.querySelector<HTMLElement>("[data-step-helper]")!;
     expect(helper.querySelector("svg")).not.toBeNull();
     // A reopened step says why it is open again instead of counting (board 3.7).
-    expect(helper.textContent).toContain("You approved this step before. If you change a pick, later steps are marked for review. Confirming this step approves this step only.");
+    expect(helper.textContent).toContain("Approved before. Changing a pick marks later steps for review. Confirming approves this step only.");
     expect(helper.querySelector("[data-selected-count]")).toBeNull();
-    expect(helper.textContent).toContain("Underlined words are quoted from the sources.");
+    expect(helper.textContent).toContain("Underlined words quote the sources.");
     // No raw kind chip, no per-card regenerate, no dashed placeholder card.
     expect(view.container.textContent).not.toContain("multiple");
     expect(page.getByRole("button", { name: "Regenerate", exact: true }).elements()).toHaveLength(1);
@@ -3199,7 +3207,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     const menu = () => document.querySelector<HTMLElement>('[data-seed-feedback-menu="seed-1"]');
     await expect.poll(() => menu()).not.toBeNull();
     // The layout width; the shared menu entrance briefly scales the box.
-    expect(getComputedStyle(menu()!).width).toBe("196px");
+    expect(getComputedStyle(menu()!).width).toBe(boardPx(196));
     expect(menu()!.textContent).toContain("Revise this seed");
     expect(getComputedStyle(menu()!.querySelector("p")!).textTransform).toBe("uppercase");
     expect(page.getByRole("menuitem").elements().map((item) => item.textContent?.trim())).toEqual([
@@ -3555,7 +3563,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(page.getByRole("button", { name: "Review summary" }).elements()).toHaveLength(0);
     expect(document.getElementById("seed-review-summary-trigger")).toBeNull();
     // The helper line says why the step is open again.
-    expect(document.querySelector("[data-step-helper]")?.textContent).toContain("You approved this step before.");
+    expect(document.querySelector("[data-step-helper]")?.textContent).toContain("Approved before.");
     expect(page.getByRole("button", { name: "Approve and continue", exact: true }).elements()).toHaveLength(0);
 
     await confirm.click();
@@ -3601,41 +3609,42 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     const nav = view.container.querySelector<HTMLElement>('nav[aria-label="PD subsections"]')!;
     const active = nav.querySelector<HTMLElement>('button[aria-current="step"]')!;
     const activeLabel = active.querySelector<HTMLElement>(".truncate")!;
-    expect(getComputedStyle(activeLabel).fontSize).toBe("13px");
+    expect(getComputedStyle(activeLabel).fontSize).toBe(boardPx(13));
     expect(getComputedStyle(activeLabel).fontWeight).toBe("500");
-    expect(Math.round(active.querySelector<HTMLElement>("[data-row-icon]")!.getBoundingClientRect().width)).toBe(14);
+    expect(active.querySelector<HTMLElement>("[data-row-icon]")!.getBoundingClientRect().width).toBeCloseTo(board(14), 0);
     // An approved step and an untouched one both read in secondary ink (F5).
     const approved = nav.querySelector<HTMLElement>('button[data-row-state="approved"] .truncate')!;
     const untouched = nav.querySelector<HTMLElement>('button[data-row-state="untouched"] .truncate')!;
     expect(getComputedStyle(approved).color).toBe("rgb(79, 97, 93)");
     expect(getComputedStyle(untouched).color).toBe("rgb(79, 97, 93)");
-    expect(getComputedStyle(nav.querySelector<HTMLElement>(":scope > p")!).fontSize).toBe("11px");
-    expect(Math.round(view.container.querySelector<HTMLElement>('[aria-label="Seed outline"] > header')!.getBoundingClientRect().height)).toBe(48);
+    expect(getComputedStyle(nav.querySelector<HTMLElement>(":scope > p")!).fontSize).toBe(boardPx(11));
+    expect(view.container.querySelector<HTMLElement>('[aria-label="Seed outline"] > header')!.getBoundingClientRect().height).toBeCloseTo(board(48), 0);
 
     // Step header: serif 24/30 title, 13px purpose, 12px helper over a hairline.
     const heading = page.getByRole("heading", { name: "Company and context", exact: true }).element() as HTMLElement;
-    expect(getComputedStyle(heading).fontSize).toBe("24px");
-    expect(getComputedStyle(heading).lineHeight).toBe("30px");
+    expect(getComputedStyle(heading).fontSize).toBe(boardPx(24));
+    expect(getComputedStyle(heading).lineHeight).toBe(boardPx(30));
     const helperLine = view.container.querySelector<HTMLElement>("[data-step-helper]")!;
-    expect(getComputedStyle(helperLine).fontSize).toBe("12px");
+    expect(getComputedStyle(helperLine).fontSize).toBe(boardPx(12));
     expect(helperLine.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      "1 seed selected. Approve to move on, or change your pick. Underlined words are quoted from the sources."
+      "1 seed selected. Approve, or change your pick. Underlined words quote the sources."
     );
 
     // Cards: 10px radius, 14/16 padding, 16px checkbox, 11px medium tags, 14/20 bullets.
     const card = view.container.querySelector<HTMLElement>('article[data-seed-id="seed-1"]')!;
-    expect(getComputedStyle(card).borderRadius).toBe("10px");
+    expect(getComputedStyle(card).borderRadius).toBe(boardPx(10));
     const cardBody = card.querySelector<HTMLElement>(":scope > [data-seed-body]")!;
-    expect(getComputedStyle(cardBody).paddingTop).toBe("14px");
-    expect(getComputedStyle(cardBody).paddingLeft).toBe("16px");
-    expect(Math.round(card.querySelector<HTMLElement>('[role="checkbox"]')!.getBoundingClientRect().width)).toBe(16);
+    // Owner, 2026-09-29: 12px top and 14px sides (were 14 and 16).
+    expect(getComputedStyle(cardBody).paddingTop).toBe(boardPx(12));
+    expect(getComputedStyle(cardBody).paddingLeft).toBe(boardPx(14));
+    expect(card.querySelector<HTMLElement>('[role="checkbox"]')!.getBoundingClientRect().width).toBeCloseTo(board(16), 0);
     const tag = card.querySelector<HTMLElement>("[data-seed-tag]")!;
-    expect(getComputedStyle(tag).fontSize).toBe("11px");
+    expect(getComputedStyle(tag).fontSize).toBe(boardPx(11));
     expect(getComputedStyle(tag).fontWeight).toBe("500");
-    expect(Math.round(tag.getBoundingClientRect().height)).toBe(20);
+    expect(tag.getBoundingClientRect().height).toBeCloseTo(board(20), 0);
     const bullet = card.querySelector<HTMLElement>("li")!;
-    expect(getComputedStyle(bullet).fontSize).toBe("14px");
-    expect(getComputedStyle(bullet).lineHeight).toBe("20px");
+    expect(getComputedStyle(bullet).fontSize).toBe(boardPx(14));
+    expect(getComputedStyle(bullet).lineHeight).toBe(boardPx(20));
     // An unselected card keeps its tools in a row at its foot; a selected one
     // keeps them at the end of its tag row, hidden and not clickable until
     // hover (board 3.2), in space the tag row keeps free.
@@ -3649,7 +3658,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     const tagRow = view.container.querySelector<HTMLElement>('article[data-seed-id="seed-2"] [data-seed-tag-row]')!;
     // Quoted lines, Edit and Give feedback: 36px each.
     expect(selectedFooter.querySelectorAll("button")).toHaveLength(3);
-    expect(getComputedStyle(tagRow).paddingRight).toBe("108px");
+    expect(getComputedStyle(tagRow).paddingRight).toBe(boardPx(108));
 
     // A disabled approval is a gray-50 fill with faint ink, not a faded primary.
     const approve = page.elementLocator(view.container.querySelector<HTMLElement>("[data-outline-footer]")!)
@@ -3665,7 +3674,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     document.body.innerHTML = "";
     const fresh = await render(SeedSubsectionPane, paneProps(subsection({ items: [seed({ selected: false })] })));
     expect(fresh.container.querySelector<HTMLElement>("[data-step-helper]")!.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      "Tick at least one seed to approve this step. Underlined words are quoted from the sources; hover one to see the line."
+      "Pick at least one. Underlined words quote the sources; hover to see the line."
     );
   });
 
@@ -3705,12 +3714,13 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(cells.map((cell) => cell.dataset.seedCell)).toEqual(["seed-grid-0", "seed-grid-1", "seed-grid-2", "seed-grid-3"]);
     expect(cells.map((cell) => cell.dataset.seedColumn)).toEqual(["0", "1", "0", "1"]);
     const card = (id: string) => document.querySelector<HTMLElement>(`article[data-seed-id="${id}"]`)!.getBoundingClientRect();
-    for (const id of ["seed-grid-0", "seed-grid-1", "seed-grid-2", "seed-grid-3"]) expect(Math.round(card(id).width)).toBe(412);
+    for (const id of ["seed-grid-0", "seed-grid-1", "seed-grid-2", "seed-grid-3"]) expect(card(id).width).toBeCloseTo(board(412), 0);
     await expect.poll(() => Math.round(card("seed-grid-0").height)).toBe(Math.round(card("seed-grid-1").height));
     expect(Math.round(card("seed-grid-0").top)).toBe(Math.round(card("seed-grid-1").top));
     expect(Math.round(card("seed-grid-2").top)).toBe(Math.round(card("seed-grid-3").top));
-    expect(Math.round(card("seed-grid-2").top - card("seed-grid-0").bottom)).toBe(10);
-    expect(Math.round(card("seed-grid-1").left - card("seed-grid-0").right)).toBe(10);
+    // 8px between cards (owner, 2026-09-29; the board drew 10).
+    expect(card("seed-grid-2").top - card("seed-grid-0").bottom).toBeCloseTo(board(8), 0);
+    expect(card("seed-grid-1").left - card("seed-grid-0").right).toBeCloseTo(board(8), 0);
     await expect.element(page.getByRole("slider", { name: "Resize Seed outline" })).toHaveAttribute("aria-valuenow", "300");
     await page.getByLabelText("Seed workspace").screenshot({ path: await captures.path("seed-plan-desktop-1440") });
     wide.unmount();
@@ -3722,7 +3732,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     tablet.container.style.height = "700px";
     await expect.element(page.getByRole("slider", { name: "Resize Seed outline" })).toHaveAttribute("aria-valuenow", "240");
     const outlinePane = tablet.container.querySelector<HTMLElement>('[aria-label="Seed outline"]')!.parentElement!;
-    expect(Math.round(outlinePane.getBoundingClientRect().width)).toBe(240);
+    expect(outlinePane.getBoundingClientRect().width).toBeCloseTo(board(240), 0);
     await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("one");
     expect(new Set(Array.from(document.querySelectorAll<HTMLElement>("[data-seed-cell][data-seed-column]")).map((cell) => cell.dataset.seedColumn))).toEqual(new Set(["0"]));
     await expect.element(page.elementLocator(tablet.container.querySelector<HTMLElement>("[data-outline-footer]")!)
@@ -3731,16 +3741,18 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
   });
 
   it("fills a wide pane with more card columns in reading order and keeps the Outline width", async () => {
-    // 2026-09-28 width pass: columns of at least 400px share the pane, so a
-    // 1920 window shows three and a 2560 window four, rather than two 412px
-    // columns at the left of an empty pane.
+    // 2026-09-28 width pass: columns of at least 400 board pixels (25rem)
+    // share the pane, rather than two 412px columns at the left of an empty
+    // pane. Greptile G4: the minimum is rem like the cards, so a 2347px pane
+    // at 2560 (20px root) holds three columns, not four of under 500px.
     const fiveSeeds = () => Array.from({ length: 5 }, (_, index) => seed({
       seedId: `seed-wide-${index}` as Id<"seeds">,
       bullets: [`Wide seed ${index + 1} wording.`],
     }));
     for (const [viewport, width, grid, columns] of [
-      [1920, "1707px", "three", ["0", "1", "2", "0", "1"]],
-      [2560, "2347px", "four", ["0", "1", "2", "3", "0"]],
+      [1920, "1760px", "three", ["0", "1", "2", "0", "1"]],
+      [2560, "2347px", "three", ["0", "1", "2", "0", "1"]],
+      [2560, "2520px", "four", ["0", "1", "2", "3", "0"]],
     ] as const) {
       document.body.innerHTML = "";
       await page.viewport(viewport, 1080);
@@ -3756,10 +3768,10 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
       const card = (index: number) => document.querySelector<HTMLElement>(`article[data-seed-id="seed-wide-${index}"]`)!.getBoundingClientRect();
       const widths = [0, 1, 2, 3, 4].map((index) => Math.round(card(index).width));
       expect(new Set(widths).size).toBe(1);
-      expect(widths[0]).toBeGreaterThanOrEqual(400);
-      // The 0.625rem gap (10px at a 16px root) grows with the root above 1600px.
-      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
-      expect(Math.round(card(1).left - card(0).right)).toBe(Math.round(0.625 * rem));
+      // Never narrower than 25rem at this window's root.
+      expect(widths[0]).toBeGreaterThanOrEqual(Math.floor(board(400)));
+      // The 0.5rem gap (8px at a 16px root) grows with the root above 1600px.
+      expect(card(1).left - card(0).right).toBeCloseTo(board(8), 0);
       const grid0 = view.container.querySelector<HTMLElement>("[data-seed-grid]")!.getBoundingClientRect();
       const lastInRow = grid === "three" ? card(2) : card(3);
       expect(Math.abs(Math.round(lastInRow.right - grid0.right))).toBeLessThanOrEqual(1);
@@ -3806,7 +3818,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     const rect = (id: string) => document.querySelector<HTMLElement>(`article[data-seed-id="${id}"]`)!.getBoundingClientRect();
     expect(Math.round(rect("seed-grid-3").top)).toBe(Math.round(rect("seed-grid-2").top));
     expect(rect("seed-grid-3").height).toBeLessThan(rect("seed-grid-2").height - 100);
-    expect(Math.round(rect("seed-grid-4").top - rect("seed-grid-2").bottom)).toBe(10);
+    expect(rect("seed-grid-4").top - rect("seed-grid-2").bottom).toBeCloseTo(board(8), 0);
     expect(Math.round(rect("seed-grid-4").left)).toBe(Math.round(rect("seed-grid-2").left));
     // The revised seeds sit inside the targeted seed's own card, on canvas.
     const target = document.querySelector<HTMLElement>('article[data-seed-id="seed-grid-2"]')!;
@@ -3974,11 +3986,11 @@ describe("seed-step progress (F3, F5)", () => {
     );
     expect(row.querySelector('[data-ai-mark="aurora"]')).not.toBeNull();
     const bar = row.querySelector<HTMLElement>("[data-seed-progress-bar]")!;
-    expect(getComputedStyle(bar).width).toBe("160px");
+    expect(getComputedStyle(bar).width).toBe(boardPx(160));
     expect(Number(bar.getAttribute("aria-valuenow"))).toBeGreaterThanOrEqual(24);
     const skeletons = [...document.querySelectorAll<HTMLElement>("[data-seed-skeleton]")];
     expect(skeletons).toHaveLength(4);
-    expect(getComputedStyle(skeletons[0]).height).toBe("170px");
+    expect(getComputedStyle(skeletons[0]).height).toBe(boardPx(170));
     expect(document.body.textContent).not.toContain("Writing seeds…");
     expect(document.querySelector<HTMLButtonElement>("[data-approve-step]")?.disabled).toBe(true);
   });
@@ -4037,11 +4049,11 @@ describe("seed-step progress (F3, F5)", () => {
     expect(ring.getAttribute("style")).toContain("conic-gradient(");
     expect(ring.getAttribute("style")).toContain("var(--color-aurora-violet)");
     // F3: a 14px ring around a 9px wash, the percent at 11px in muted ink.
-    expect(ring.getBoundingClientRect().width).toBe(14);
-    expect(ring.firstElementChild!.getBoundingClientRect().width).toBe(9);
+    expect(ring.getBoundingClientRect().width).toBe(board(14));
+    expect(ring.firstElementChild!.getBoundingClientRect().width).toBe(board(9));
     const percent = getComputedStyle(first()!.querySelector("[data-row-progress]")!);
-    expect(percent.fontSize).toBe("11px");
-    expect(percent.lineHeight).toBe("14px");
+    expect(percent.fontSize).toBe(boardPx(11));
+    expect(percent.lineHeight).toBe(boardPx(14));
     expect(percent.color).toBe("rgb(107, 127, 123)");
     expect(textOf(first()!.querySelector("[data-row-progress]"))).toMatch(/^\d+%$/);
     // The other rows keep their icons.
@@ -4061,27 +4073,25 @@ describe("step subtitles (F3 to F5)", () => {
     });
   const subtitle = () => textOf(document.querySelector("[data-step-objective]"));
 
-  it("shows the boards' subtitle for each state and leaves the registry objective alone", async () => {
+  it("shows one short subtitle per step, the same while its ideas are written and once ready, and leaves the registry objective alone", async () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSubsection", pendingFor("company_context"));
     await render(SeedWorkspace, workspaceProps());
     // F3: Company and context while its ideas are written.
     await expect.poll(subtitle).toBe("Who the claimant is and where the work happened.");
 
-    // F4: the same step once its ideas are ready to pick.
+    // F4: the same step once its ideas are ready to pick (owner, 2026-09-29:
+    // one short line; the helper line below says what to pick).
     __setQueryData("seeds:getSubsection", subsection({ items: twoSeeds(), shownBatchId: "batch-1" as Id<"seedBatches"> }));
-    await expect
-      .poll(subtitle)
-      .toBe(
-        "Who the claimant is and the operating context the uncertainty sits in. Pick the seeds that position the project the way you want it written."
-      );
+    await expect.poll(() => document.querySelectorAll(".seed-card, [data-seed-id]").length).toBeGreaterThan(0);
+    expect(subtitle()).toBe("Who the claimant is and where the work happened.");
 
     // F5: Goal and problem while its ideas are written.
     __setQueryData("seeds:getSubsection", pendingFor("goal_problem"));
     [...document.querySelectorAll<HTMLButtonElement>('nav[aria-label="PD subsections"] button')]
       .find((button) => textOf(button).includes("Goal / Problem"))!
       .click();
-    await expect.poll(subtitle).toBe("What the project set out to do and the problem that stood in the way.");
+    await expect.poll(subtitle).toBe("What the project set out to do, and what stood in the way.");
     expect(document.body.textContent).not.toContain("State the physical or practical product");
 
     // Display only: the registry objective that feeds prompts, QA and the Summary is unchanged.
@@ -4090,11 +4100,12 @@ describe("step subtitles (F3 to F5)", () => {
     );
   });
 
-  it("keeps the registry objective for a step the boards do not draw", async () => {
+  it("shows the short subtitle for a step the boards do not draw, not its registry objective", async () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSubsection", subsection({ roleId: "hypothesis" }));
     await render(SeedWorkspace, workspaceProps({ requestedRoleId: "hypothesis" }));
-    await expect.poll(subtitle).toBe("State a specific, testable, and measurable hypothesis in if/then form.");
+    await expect.poll(subtitle).toBe("A testable, measurable hypothesis in if/then form.");
+    expect(document.body.textContent).not.toContain("State a specific, testable, and measurable hypothesis");
   });
 });
 
@@ -4123,8 +4134,8 @@ describe("ideas ready, Mod Enter and the step deep link (F4, I4, F6)", () => {
     expect(toast.querySelector('[data-ai-mark="aurora"]')).not.toBeNull();
     // Board F4: the shell's dark toast surface, 296px, radius 10.
     expect(getComputedStyle(toast).backgroundColor).toBe("rgb(19, 45, 42)");
-    expect(toast.getBoundingClientRect().width).toBe(296);
-    expect(getComputedStyle(toast).borderRadius).toBe("10px");
+    expect(toast.getBoundingClientRect().width).toBe(board(296));
+    expect(getComputedStyle(toast).borderRadius).toBe(boardPx(10));
     expect(toast.closest("[data-ideas-ready-host]")).not.toBeNull();
     toast.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')!.click();
     await expect.poll(() => document.querySelector("[data-ideas-ready-toast]")).toBeNull();
@@ -4220,17 +4231,18 @@ describe("board match (F3 to F5)", () => {
         { expectedMs: 20_000 }
       )
     );
-    expect(getComputedStyle(document.querySelector("[data-seed-progress]")!).marginBottom).toBe("16px");
+    expect(getComputedStyle(document.querySelector("[data-seed-progress]")!).marginBottom).toBe(boardPx(16));
     const grid = getComputedStyle(document.querySelector("[data-seed-skeletons]")!);
-    expect(grid.columnGap).toBe("16px");
-    expect(grid.rowGap).toBe("16px");
+    // The cards' own 8px gaps (owner, 2026-09-29; the board drew 16).
+    expect(grid.columnGap).toBe(boardPx(8));
+    expect(grid.rowGap).toBe(boardPx(8));
     const chip = document.querySelector<HTMLElement>("[data-seed-skeleton-chip]")!;
-    expect(chip.getBoundingClientRect().width).toBe(84);
+    expect(chip.getBoundingClientRect().width).toBe(board(84));
     expect(getComputedStyle(chip).backgroundColor).toBe("rgb(238, 243, 242)");
     const lines = [...document.querySelectorAll<HTMLElement>("[data-seed-skeleton]")[0].querySelectorAll<HTMLElement>("[data-seed-skeleton-line]")];
     expect(lines.map((line) => line.style.width)).toEqual(["92%", "76%", "60%"]);
     expect(getComputedStyle(lines[0]).backgroundColor).toBe("rgb(232, 238, 237)");
-    expect(getComputedStyle(lines[0]).borderRadius).toBe("5px");
+    expect(getComputedStyle(lines[0]).borderRadius).toBe(boardPx(5));
     // The hint uses the board's info icon, the More menu the board's dots.
     expect(document.querySelector("[data-step-helper] svg path")!.getAttribute("d")).toBe(PATHS.info);
     expect(document.querySelector("[data-step-more-trigger] svg path")!.getAttribute("d")).toBe(PATHS.more);
@@ -4303,9 +4315,9 @@ describe("board match (F3 to F5)", () => {
     expect(open.querySelector('[aria-label="Edit"] svg path')!.getAttribute("d")).toBe(PATHS.pencil);
     expect(open.querySelector('[aria-label="Give feedback"] svg path')!.getAttribute("d")).toBe(PATHS.comment);
     const edit = open.querySelector<HTMLElement>('[aria-label="Edit"]')!;
-    expect(edit.getBoundingClientRect().width).toBe(28);
-    expect(getComputedStyle(edit).borderRadius).toBe("7px");
-    expect(getComputedStyle(open).borderRadius).toBe("10px");
+    expect(edit.getBoundingClientRect().width).toBe(board(28));
+    expect(getComputedStyle(edit).borderRadius).toBe(boardPx(7));
+    expect(getComputedStyle(open).borderRadius).toBe(boardPx(10));
     expect(getComputedStyle(open).borderTopColor).toBe("rgb(218, 229, 227)");
     expect(getComputedStyle(selected).backgroundColor).toBe("rgb(247, 252, 251)");
     // The Technical tag comes from the seed-tag tokens.
@@ -4332,18 +4344,18 @@ describe("board match (F3 to F5)", () => {
     );
     await expect.poll(() => document.querySelector("[data-ideas-ready-host]")).not.toBeNull();
     const host = getComputedStyle(document.querySelector("[data-ideas-ready-host]")!);
-    expect(host.right).toBe("20px");
-    expect(host.bottom).toBe("18px");
+    expect(host.right).toBe(boardPx(20));
+    expect(host.bottom).toBe(boardPx(18));
     const toast = document.querySelector<HTMLElement>("[data-ideas-ready-toast]")!;
     const title = getComputedStyle(toast.querySelector("p")!);
-    expect(title.fontSize).toBe("12px");
-    expect(title.lineHeight).toBe("17px");
+    expect(title.fontSize).toBe(boardPx(12));
+    expect(title.lineHeight).toBe(boardPx(17));
     expect(title.fontWeight).toBe("500");
     const body = getComputedStyle(toast.querySelectorAll("p")[1]);
-    expect(body.fontSize).toBe("11px");
-    expect(body.lineHeight).toBe("15px");
+    expect(body.fontSize).toBe(boardPx(11));
+    expect(body.lineHeight).toBe(boardPx(15));
     expect(body.color).toBe("rgb(184, 201, 198)");
-    expect(toast.querySelector<HTMLElement>('[data-ai-mark="aurora"]')!.getBoundingClientRect().width).toBe(18);
+    expect(toast.querySelector<HTMLElement>('[data-ai-mark="aurora"]')!.getBoundingClientRect().width).toBe(board(18));
     expect(toast.querySelector('button[aria-label="Dismiss"] svg path')!.getAttribute("d")).toBe("M18 6 6 18M6 6l12 12");
   });
 });
@@ -4443,6 +4455,38 @@ describe("snappy ticks (owner, 2026-09-28)", () => {
       generationId, roleId: "company_context", seedId: "seed-2", selected: true, expectedSeedStageVersion: 8,
     });
     await expect.element(page.getByRole("button", { name: "Regenerate", exact: true })).toBeEnabled();
+  });
+
+  it("shows a refusal that arrived after the step closed when the step opens again (Greptile G6)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", unticked());
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "goal_problem" }, subsection({
+      roleId: "goal_problem",
+      items: [seed({ seedId: "seed-goal" as Id<"seeds">, roleId: "goal_problem", bullets: ["Goal Seed wording."] })],
+    }));
+    let refuse: ((reason: unknown) => void) | undefined;
+    __setMutationResult("seeds:select", new Promise((_, reject) => { refuse = reject; }));
+    await render(SeedWorkspace, workspaceProps());
+    await page.getByRole("checkbox", { name: "Select seed", exact: true }).click();
+    // The writer leaves the step before the answer.
+    const outlineNav = page.getByRole("navigation", { name: "PD subsections" });
+    await outlineNav.getByRole("button", { name: /Goal \/ Problem/ }).click();
+    await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
+    refuse?.(new ConvexError({ code: "STALE_REVISION", message: "Seed decisions changed; refresh and retry" }));
+    await expect.poll(() => __mutationCalls("seeds:select")).toHaveLength(1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Not on this step.
+    expect(document.querySelector("[data-pick-refusals]")).toBeNull();
+    // Back on the step, the refusal is there.
+    await outlineNav.getByRole("button", { name: /Company \/ Context/ }).click();
+    await expect.element(page.getByRole("heading", { name: "Company and context", exact: true })).toBeVisible();
+    await expect.poll(() => document.querySelector("[data-pick-refusals]")?.textContent).toContain(
+      'Your tick on "The control loop stabilized output." was not saved: decisions changed in another session. Try it again.'
+    );
+    // Cleared as before: picking that seed again successfully.
+    __setMutationResult("seeds:select", { seedStageVersion: 8 });
+    await page.getByRole("checkbox", { name: "Select seed", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-pick-refusals]")).toBeNull();
   });
 
   it("finishes queued picks when the next step is still loading as the first answer lands (review P2-1 re-check)", async () => {
@@ -4556,11 +4600,14 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
   const body = () => document.querySelector<HTMLElement>("[data-seed-body]")!;
   const plainText = () => [...document.querySelectorAll<HTMLElement>("[data-seed-body] li span")].find((span) => span.textContent?.includes("Tests covered"))!;
 
+  // Greptile G5: a body click acts after the double-click window.
+  const pastClickWindow = () => new Promise((resolve) => setTimeout(resolve, CARD_CLICK_DELAY_MS + 100));
+
   it("toggles from the card body like the checkbox, which stays the one control and tab stop", async () => {
     const props = cardProps();
     await render(SeedCard, props);
     await page.elementLocator(body()).click({ position: { x: 200, y: 8 } });
-    expect(props.onSelect).toHaveBeenCalledTimes(1);
+    await expect.poll(() => props.onSelect).toHaveBeenCalledTimes(1);
     expect(props.onSelect).toHaveBeenLastCalledWith(true);
 
     // The checkbox still toggles once, not twice through the card.
@@ -4579,7 +4626,7 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     const props = cardProps({ item: seed({ selected: true, bullets: ["Measured output remained stable. Tests covered three load bands."] }) });
     await render(SeedCard, props);
     plainText().click();
-    expect(props.onSelect).toHaveBeenCalledWith(false);
+    await expect.poll(() => props.onSelect).toHaveBeenCalledWith(false);
   });
 
   it("keeps the behaviour of tools, quotes and text selection inside the card", async () => {
@@ -4606,10 +4653,11 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     window.getSelection()!.removeAllRanges();
     window.getSelection()!.addRange(range);
     plainText().click();
+    await pastClickWindow();
     expect(props.onSelect).not.toHaveBeenCalled();
     window.getSelection()!.removeAllRanges();
     plainText().click();
-    expect(props.onSelect).toHaveBeenCalledTimes(1);
+    await expect.poll(() => props.onSelect).toHaveBeenCalledTimes(1);
   });
 
   it("does not toggle for a reader or while the card's decisions are unavailable", async () => {
@@ -4628,15 +4676,32 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     expect(waiting.onSelect).not.toHaveBeenCalled();
   });
 
-  it("ignores the click that ends a double or triple click (review P2-4)", async () => {
+  it("ignores every click of a double or triple click, the first one included (review P2-4, Greptile G5)", async () => {
     const props = cardProps();
     await render(SeedCard, props);
-    for (const detail of [2, 3]) {
+    const click = (detail: number) =>
       plainText().dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail }));
-    }
+    const press = () => plainText().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, buttons: 1 }));
+    // The browser's order for a double click: the first click arrives before
+    // any text is selected, then the second press and click.
+    press();
+    click(1);
+    press();
+    click(2);
+    press();
+    click(3);
+    await pastClickWindow();
     expect(props.onSelect).not.toHaveBeenCalled();
-    plainText().dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 }));
-    expect(props.onSelect).toHaveBeenCalledTimes(1);
+    // A real double click selects a word and leaves the pick alone.
+    await userEvent.dblClick(plainText());
+    await pastClickWindow();
+    expect(props.onSelect).not.toHaveBeenCalled();
+    window.getSelection()?.removeAllRanges();
+    // A single click still toggles, once the window has passed.
+    press();
+    click(1);
+    expect(props.onSelect).not.toHaveBeenCalled();
+    await expect.poll(() => props.onSelect).toHaveBeenCalledTimes(1);
   });
 
   it("ignores the click that closes an open menu (review P2-4)", async () => {
@@ -4649,7 +4714,7 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     expect(props.onSelect).not.toHaveBeenCalled();
     // With nothing open, the next body click toggles.
     await page.elementLocator(body()).click({ position: { x: 200, y: 8 } });
-    expect(props.onSelect).toHaveBeenCalledTimes(1);
+    await expect.poll(() => props.onSelect).toHaveBeenCalledTimes(1);
   });
 
   it("changes a pick on an approved step only through its checkbox (review P2-4)", async () => {
@@ -4669,11 +4734,11 @@ describe("click anywhere on a card (owner, 2026-09-28)", () => {
     await render(SeedWorkspace, workspaceProps());
     await expect.element(page.getByRole("checkbox", { name: "Deselect seed", exact: true })).toBeEnabled();
     document.querySelector<HTMLElement>('[data-seed-id="seed-1"] [data-seed-body] li span')!.click();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await pastClickWindow();
     expect(__mutationCalls("seeds:select")).toEqual([]);
   });
 
-  it("toggles a card in the workspace with the same instant pick as its checkbox", async () => {
+  it("toggles a card in the workspace with the same pick as its checkbox, once the double-click window passes", async () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSubsection", subsection({ items: [seed({ selected: false })] }));
     let answer: ((value: unknown) => void) | undefined;
@@ -4716,7 +4781,7 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     expect(view.container.querySelector('[data-step-chip="stale"]')).toBeNull();
     // One way to confirm (owner, 2026-09-28 eighth): Keep as is is the step's
     // footer action, with no "I checked these picks" box beside it.
-    expect(notices[0].textContent).toContain("then choose Keep as is, or regenerate and pick again.");
+    expect(notices[0].textContent).toContain("If they still fit, choose Keep as is. If not, regenerate.");
     expect(view.container.querySelector("[data-approval-acknowledgment]")).toBeNull();
     expect(page.getByRole("button", { name: "Keep as is", exact: true }).elements()).toHaveLength(1);
     expect(view.container.querySelector("[data-approve-step]")?.textContent).toBe("Keep as is");
@@ -4739,7 +4804,7 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     await expect.element(page.getByRole("heading", { name: "Limitations" })).toBeVisible();
     expect(view.container.querySelector("[data-step-review-notice]")).toBeNull();
     expect(view.container.querySelector("[data-approval-acknowledgment]")).toBeNull();
-    expect(view.container.textContent).not.toMatch(/Outdated|Review suggested|Keep as is/);
+    expect(view.container.textContent).not.toMatch(/Outdated|Needs review|Keep as is/);
   });
 
   it("offers Keep all and Review each on the changed step, and keeps every later step marked for review", async () => {
@@ -4758,9 +4823,9 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     localStorage.setItem(`seeds.openRole:writer-1:${generationId}`, "goal_problem");
     await render(SeedWorkspace, workspaceProps());
     const line = () => document.querySelector<HTMLElement>("[data-later-review]");
-    await expect.poll(() => line()?.textContent).toContain("This may affect 2 later steps: Technological limitations, Technological objectives.");
+    await expect.poll(() => line()?.textContent).toContain("This may affect 2 later steps: Limitations, Objectives.");
     // The Outline says it once per marked step.
-    expect([...document.querySelectorAll("[data-row-marker]")].map((marker) => marker.textContent?.trim())).toEqual(["Review suggested", "Review suggested"]);
+    expect([...document.querySelectorAll("[data-row-marker]")].map((marker) => marker.textContent?.trim())).toEqual(["Needs review", "Needs review"]);
 
     await page.getByRole("button", { name: "Keep all", exact: true }).click();
     expect(__mutationCalls("seeds:keep")).toEqual([
@@ -4839,10 +4904,10 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     await expect.element(page.getByRole("heading", { name: "Limitations" })).toBeVisible();
     const notes = view.container.querySelectorAll("[data-older-ideas-note]");
     expect(notes).toHaveLength(1);
-    expect(notes[0].textContent).toBe("These ideas were written before you changed Goal / Problem.");
+    expect(notes[0].textContent).toBe("Written before you changed Goal / Problem.");
     expect(view.container.querySelector("[data-step-review-notice]")).toBeNull();
     expect(view.container.querySelector("[data-seed-marker]")).toBeNull();
-    expect(view.container.textContent).not.toMatch(/Outdated|Review suggested/);
+    expect(view.container.textContent).not.toMatch(/Outdated|Needs review/);
   });
 
   it("says what Keep all kept (review P3 c)", async () => {
@@ -4854,15 +4919,36 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     }));
     await page.getByRole("button", { name: "Keep all", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-pane-announcement]")?.textContent).toBe(
-      "Kept 2 steps as they are: Technological limitations, Technological objectives."
+      "Kept 2 steps as they are: Limitations, Objectives."
     );
     expect(document.querySelector("[data-keep-attention]")).toBeNull();
     // Shown too, not only announced (owner, 2026-09-28 eighth), until the next pick.
     expect(document.querySelector("[data-keep-result]")?.textContent).toBe(
-      "Kept 2 steps as they are: Technological limitations, Technological objectives."
+      "Kept 2 steps as they are: Limitations, Objectives."
     );
     __setMutationResult("seeds:select", { seedStageVersion: 9 });
     await page.getByRole("checkbox").first().click();
+    await expect.poll(() => document.querySelector("[data-keep-result]")).toBeNull();
+  });
+
+  it("keeps the Keep result when the updated read with the new version arrives (Greptile G8)", async () => {
+    const data = subsection({ roleId: "goal_problem", approvalChallenge: clean() });
+    const props = paneProps(data, {
+      title: "Goal / Problem",
+      laterReview: { roleIds: ["passive_limitations", "technological_objective"], firstRoleId: "passive_limitations" },
+    });
+    __setMutationResult("seeds:keep", { seedStageVersion: 8, kept: ["passive_limitations", "technological_objective"], needsAttention: [] });
+    const view = await render(SeedSubsectionPane, props);
+    await page.getByRole("button", { name: "Keep all", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-keep-result]")?.textContent).toBe(
+      "Kept 2 steps as they are: Limitations, Objectives."
+    );
+    // The Keep moved the seed-stage version; the live read follows it.
+    await view.rerender({ ...props, laterReview: null, data: subsection({ roleId: "goal_problem", approvalChallenge: clean(), seedStageVersion: 8 }) });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector("[data-keep-result]")?.textContent).toBe("Kept 2 steps as they are: Limitations, Objectives.");
+    // Another step clears it.
+    await view.rerender({ ...props, laterReview: null, data: subsection({ roleId: "passive_limitations", approvalChallenge: clean(), seedStageVersion: 8 }) });
     await expect.poll(() => document.querySelector("[data-keep-result]")).toBeNull();
   });
 
@@ -4891,7 +4977,7 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
       { generationId, roleId: "passive_limitations", expectedSeedStageVersion: 7, scope: "step" },
     ]);
     expect(__mutationCalls("seeds:approve")).toEqual([]);
-    await expect.poll(() => document.querySelector("[data-keep-result]")?.textContent).toBe("Kept 1 step as it is: Technological limitations.");
+    await expect.poll(() => document.querySelector("[data-keep-result]")?.textContent).toBe("Kept 1 step as it is: Limitations.");
   });
 
   it("says a change on this step happened on this step, not earlier (owner, 2026-09-28 eighth)", async () => {
@@ -4906,7 +4992,7 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     const view = await render(SeedSubsectionPane, paneProps(data, { title: "Company / Context" }));
     await expect.poll(() => view.container.querySelector("[data-approval-acknowledgment]")).not.toBeNull();
     const box = view.container.querySelector("[data-approval-acknowledgment]");
-    expect(box?.textContent).toContain("Written before you changed feedback or wording on this step:");
+    expect(box?.textContent).toContain("Written before you changed feedback or wording here:");
     expect(view.container.textContent).not.toContain("an earlier change");
     // The box lists the ideas, so the quiet note does not say it again.
     expect(view.container.querySelector("[data-older-ideas-note]")).toBeNull();
@@ -4924,7 +5010,7 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     const view = await render(SeedSubsectionPane, paneProps(data, { title: "Limitations" }));
     await expect.element(page.getByRole("heading", { name: "Limitations" })).toBeVisible();
     expect(view.container.querySelector("[data-older-ideas-note]")?.textContent).toBe(
-      "These ideas were written before you changed Goal / Problem, and feedback or wording on this step."
+      "Written before you changed Goal / Problem and feedback or wording here."
     );
   });
 });

@@ -264,17 +264,30 @@
   --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
 }
 
-/* ─── Root scale (2026-09-28) ────────────────────────────────────────────────
+/* ─── Root scale (2026-09-28, laptop density 2026-09-29) ─────────────────────
    Sizes are rem (scripts/px-to-rem.mjs), so the root font size scales the
-   whole UI. It stays at the browser default (16px) up to a 1600px wide
-   window, so every board drawn at 1440 renders at exactly its size, then
-   grows by 1px for every 240px of width to 125% at 2560px and stops there:
-   16px at 1600, 17.33px at 1920, 20px at 2560 and wider. Percent based, so
-   a larger browser default and browser zoom still apply on top. Media query
-   breakpoints are not affected (they read the browser default, not this).
-   JS that sizes things in board pixels reads the ratio from rootScale(). */
+   whole UI. Phones and tablets keep the browser default (16px). On a laptop
+   (a mouse or trackpad and a window 1280px or wider, where the full rail
+   appears) the root is 15px up to 1440px wide, so the boards render a
+   little denser, then rises 1px per 160px to 16px at 1600. From there it
+   grows 1px per 240px to 125% at 2560px and stops: 17.33px at 1920, 20px at
+   2560 and wider. rootFontSize() in $lib/rootScale mirrors these numbers.
+   Percent based, so a larger browser default and browser zoom still apply
+   on top. Media query breakpoints are not affected (they read the browser
+   default, not this). JS that sizes things in board pixels reads the ratio
+   from rootScale(). */
 html {
-  font-size: clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%); /* px-to-rem: keep */
+  font-size: 100%;
+}
+@media (min-width: 1280px) and (pointer: fine) {
+  html {
+    font-size: clamp(93.75%, calc(93.75% + (100vw - 1440px) / 160), 100%); /* px-to-rem: keep */
+  }
+}
+@media (min-width: 1600px) {
+  html {
+    font-size: clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%); /* px-to-rem: keep */
+  }
 }
 
 /* Board icons and the logo mark keep their board size as the svg width and

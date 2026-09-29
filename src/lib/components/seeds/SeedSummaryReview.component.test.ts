@@ -18,6 +18,7 @@ import {
 } from "$lib/test/convex-svelte-stub.svelte";
 import { captureOwner } from "$lib/test/captureOwner";
 import SeedSummaryReview from "./SeedSummaryReview.svelte";
+import { board, boardPx } from "$lib/test/boardScale";
 
 const generationId = "generation-summary" as Id<"generations">;
 const otherGenerationId = "generation-summary-next" as Id<"generations">;
@@ -1485,14 +1486,14 @@ describe("Seed Summary Review", () => {
       await expect.element(title).toBeVisible();
       const titleElement = title.element() as HTMLElement;
       expect(getComputedStyle(titleElement).fontFamily).toContain("Georgia");
-      expect(getComputedStyle(titleElement).fontSize).toBe("24px");
+      expect(getComputedStyle(titleElement).fontSize).toBe(boardPx(24));
       const eyebrow = [...container.querySelectorAll<HTMLElement>("p")].find((node) => node.textContent === "Section 242")!;
       expect(getComputedStyle(eyebrow).fontFamily).toContain("Mono");
       await expect.element(page.getByRole("heading", { level: 2, name: "Section 244, Work performed" })).toBeVisible();
       await expect.element(page.getByRole("heading", { level: 2, name: "Section 246, Technological advancement" })).toBeVisible();
 
       const column = titleElement.closest("section")!.parentElement!.parentElement!;
-      expect(Math.round(column.getBoundingClientRect().width)).toBe(760);
+      expect(column.getBoundingClientRect().width).toBeCloseTo(board(760), 0);
       // Tag pills use the fixed Seed tag palette.
       const tag = page.getByText("Technical", { exact: true }).element() as HTMLElement;
       expect(getComputedStyle(tag).backgroundColor).toBe("rgb(213, 243, 241)");
@@ -1502,7 +1503,7 @@ describe("Seed Summary Review", () => {
       expect(bar.querySelector("[data-summary-status=ready]")?.textContent).toContain("Ready to sign off");
       await expect.element(page.getByRole("button", { name: "Back to plan", exact: true })).toBeVisible();
       await expect.element(signOffButton()).toBeEnabled();
-      expect(Math.round(bar.getBoundingClientRect().height)).toBeGreaterThanOrEqual(68);
+      expect(Math.round(bar.getBoundingClientRect().height)).toBeGreaterThanOrEqual(Math.floor(board(68)));
     });
 
     it("confirms sign-off in a dialog with the exact copy, starting nothing until its primary is pressed", async () => {
@@ -1528,8 +1529,8 @@ describe("Seed Summary Review", () => {
       expect(document.activeElement?.textContent?.trim()).toBe("Keep reviewing");
       expect(container.querySelector("section")?.hasAttribute("inert")).toBe(true);
       const dialogBox = (dialog.element() as HTMLElement).getBoundingClientRect();
-      expect(Math.round(dialogBox.width)).toBe(536);
-      expect(getComputedStyle(dialog.element() as HTMLElement).borderRadius).toBe("16px");
+      expect(dialogBox.width).toBeCloseTo(board(536), 0);
+      expect(getComputedStyle(dialog.element() as HTMLElement).borderRadius).toBe(boardPx(16));
       // Near-black fir scrim over the Summary.
       const scrim = document.querySelector<HTMLElement>("[data-signoff-scrim]")!;
       expect(getComputedStyle(scrim).backgroundColor).toBe("rgba(1, 5, 5, 0.75)");

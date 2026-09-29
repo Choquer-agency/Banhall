@@ -17,6 +17,7 @@ import {
 } from "$lib/test/convex-svelte-stub.svelte";
 import CurrentProjectPage from "./CurrentProjectPage.svelte";
 import PreviewProjectPage from "./PreviewProjectPage.svelte";
+import { boardPx } from "$lib/test/boardScale";
 
 // The Summary bar's primary opens the sign-off confirm (board 3.4); only the
 // confirm's own primary starts sign-off.
@@ -1303,17 +1304,17 @@ describe("Seed project hosts", () => {
     const cancelStyle = getComputedStyle(cancel);
     expect(cancelStyle.backgroundColor).toBe("rgb(254, 226, 226)");
     expect(cancelStyle.color).toBe("rgb(185, 28, 28)");
-    expect(cancelStyle.height).toBe("36px");
-    expect(cancelStyle.paddingLeft).toBe("14px");
-    expect(cancelStyle.borderRadius).toBe("8px");
-    expect(cancelStyle.fontSize).toBe("14px");
+    expect(cancelStyle.height).toBe(boardPx(36));
+    expect(cancelStyle.paddingLeft).toBe(boardPx(14));
+    expect(cancelStyle.borderRadius).toBe(boardPx(8));
+    expect(cancelStyle.fontSize).toBe(boardPx(14));
     expect(cancelStyle.fontWeight).toBe("500");
     // The panel: canvas, line-soft hairline, radius 12, 12px from the frame.
     const panelStyle = getComputedStyle(panel);
     expect(panelStyle.backgroundColor).toBe("rgb(249, 252, 251)");
     expect(panelStyle.borderTopColor).toBe("rgb(233, 240, 239)");
-    expect(panelStyle.borderRadius).toBe("12px");
-    expect(panelStyle.marginLeft).toBe("12px");
+    expect(panelStyle.borderRadius).toBe(boardPx(12));
+    expect(panelStyle.marginLeft).toBe(boardPx(12));
     // F2: no status pill and no More dots in the desktop top bar.
     const header = document.querySelector<HTMLElement>("[data-workspace-page-header]")!;
     expect(header.textContent).not.toContain("AI generating");

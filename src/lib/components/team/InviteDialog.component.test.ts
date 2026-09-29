@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import InviteDialog from "./InviteDialog.svelte";
+import { board, boardPx } from "$lib/test/boardScale";
 
 const dialog = () => document.querySelector<HTMLElement>('[data-testid="invite-dialog"]');
 const sendButton = () => document.querySelector<HTMLButtonElement>("[data-send-invites]");
@@ -117,11 +118,12 @@ describe("InviteDialog", () => {
     await render(InviteDialog, { open: true, canInviteAdmin: true, onSend: vi.fn() });
     await expect.poll(dialog).not.toBeNull();
     // C3: 150px from the top of the window, centred across it.
-    await expect.poll(() => dialog()!.getBoundingClientRect().top).toBe(150);
-    expect(dialog()!.getBoundingClientRect().left).toBe(450);
+    await expect.poll(() => dialog()!.getBoundingClientRect().top).toBe(board(150));
+    // Centred: a 540px board dialog, (1440 - 540) / 2 = 450 at a 16px root.
+    expect(dialog()!.getBoundingClientRect().left).toBe((1440 - board(540)) / 2);
     const scrim = document.querySelector<HTMLElement>("[data-team-dialog-scrim]")!;
     expect(getComputedStyle(scrim).backgroundColor).toBe("rgba(1, 5, 5, 0.35)");
-    expect(getComputedStyle(dialog()!).borderRadius).toBe("16px");
+    expect(getComputedStyle(dialog()!).borderRadius).toBe(boardPx(16));
     const close = page.getByRole("button", { name: "Close" }).element();
     expect(close.querySelector("svg")?.getAttribute("width")).toBe("18");
     expect(close.querySelector("svg")?.getAttribute("stroke-width")).toBe("2");
@@ -133,49 +135,49 @@ describe("InviteDialog", () => {
     expect(card("writer").className).toContain("border-[1.5px]");
     expect(getComputedStyle(card("writer")).borderTopColor).toBe("rgb(8, 122, 117)");
     expect(getComputedStyle(card("manager")).backgroundColor).toBe("rgb(255, 255, 255)");
-    expect(getComputedStyle(card("manager")).paddingTop).toBe("10px");
-    expect(getComputedStyle(card("manager")).borderRadius).toBe("10px");
-    expect(getComputedStyle(card("manager").querySelector<HTMLElement>("[data-role-chip]")!).borderRadius).toBe("4px");
+    expect(getComputedStyle(card("manager")).paddingTop).toBe(boardPx(10));
+    expect(getComputedStyle(card("manager")).borderRadius).toBe(boardPx(10));
+    expect(getComputedStyle(card("manager").querySelector<HTMLElement>("[data-role-chip]")!).borderRadius).toBe(boardPx(4));
 
     await typeEmails("k.osei@banhall.com ");
     await expect.poll(() => chips("valid")).toEqual(["k.osei@banhall.com"]);
     const chip = document.querySelector<HTMLElement>('[data-email-chip="valid"]')!;
-    expect(chip.getBoundingClientRect().height).toBe(26);
-    expect(getComputedStyle(chip).borderRadius).toBe("6px");
+    expect(chip.getBoundingClientRect().height).toBe(board(26));
+    expect(getComputedStyle(chip).borderRadius).toBe(boardPx(6));
     const remove = chip.querySelector<HTMLElement>("button")!;
     expect(getComputedStyle(remove).color).toBe("rgb(147, 165, 161)");
     expect(remove.querySelector("svg")?.getAttribute("stroke-width")).toBe("1.8");
     const field = document.querySelector<HTMLElement>("[data-invite-email-chips]")!;
-    expect(getComputedStyle(field).borderRadius).toBe("8px");
+    expect(getComputedStyle(field).borderRadius).toBe(boardPx(8));
     // C3: the placeholder line is 18px, so a wrapped box is 1.5 + 8 + 26 +
     // 6 + 18 + 8 + 1.5 = 69px (it was 77 with a 26px input line).
     await typeEmails("d.cole@banhall.com a.long.address@banhall.com ");
     await expect.poll(() => chips("valid").length).toBe(3);
     const input = field.querySelector<HTMLElement>("input")!;
-    expect(input.getBoundingClientRect().height).toBe(18);
+    expect(input.getBoundingClientRect().height).toBe(board(18));
     const lastChip = [...field.querySelectorAll<HTMLElement>('[data-email-chip="valid"]')].at(-1)!;
     const inputBox = input.getBoundingClientRect();
     if (inputBox.top > lastChip.getBoundingClientRect().bottom) {
       // Wrapped onto its own line: 6px under the chips, 8px padding below.
-      expect(Math.round(inputBox.top - lastChip.getBoundingClientRect().bottom)).toBe(6);
+      expect(inputBox.top - lastChip.getBoundingClientRect().bottom).toBeCloseTo(board(6), 0);
       expect(field.getBoundingClientRect().bottom - inputBox.bottom).toBe(9.5);
     } else {
       // Beside the last chip, centred on its 26px line.
-      expect(inputBox.top - lastChip.getBoundingClientRect().top).toBe(4);
+      expect(inputBox.top - lastChip.getBoundingClientRect().top).toBe(board(4));
     }
     // C3: the Role label is 16px under the email box and 8px above the options.
     const label = document.querySelector<HTMLElement>("[data-invite-role-label]")!.getBoundingClientRect();
-    expect(Math.round(label.top - field.getBoundingClientRect().bottom)).toBe(16);
-    expect(Math.round(card("writer").getBoundingClientRect().top - label.bottom)).toBe(8);
+    expect(label.top - field.getBoundingClientRect().bottom).toBeCloseTo(board(16), 0);
+    expect(card("writer").getBoundingClientRect().top - label.bottom).toBeCloseTo(board(8), 0);
     expect(document.querySelector('[role="radiogroup"]')?.getAttribute("aria-labelledby")).toBe("invite-role-label");
 
     const cancel = page.getByRole("button", { name: "Cancel" }).element() as HTMLElement;
     expect(getComputedStyle(cancel).backgroundColor).toBe("rgb(254, 226, 226)");
     expect(getComputedStyle(cancel).color).toBe("rgb(185, 28, 28)");
-    expect(getComputedStyle(cancel).borderRadius).toBe("8px");
-    expect(cancel.getBoundingClientRect().height).toBe(36);
+    expect(getComputedStyle(cancel).borderRadius).toBe(boardPx(8));
+    expect(cancel.getBoundingClientRect().height).toBe(board(36));
     expect(getComputedStyle(sendButton()!).backgroundColor).toBe("rgb(10, 58, 56)");
-    expect(getComputedStyle(sendButton()!).borderRadius).toBe("8px");
+    expect(getComputedStyle(sendButton()!).borderRadius).toBe(boardPx(8));
     await page.viewport(1280, 800);
   });
 });

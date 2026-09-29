@@ -22,8 +22,10 @@ export const RAIL_MAX_WIDTH = 288;
  * Collapsed desktop rail: an icons-only column (ui-design-final.md section 2,
  * board 1.2). The persisted `hidden` key keeps its name for compatibility and
  * now means "collapsed"; expanding restores the last expanded width.
+ * 60px since the owner's laptop density pass (2026-09-29, was 56), so the
+ * 36px tiles keep 12px sides like the expanded rail's rows.
  */
-export const RAIL_COLLAPSED_WIDTH = 56;
+export const RAIL_COLLAPSED_WIDTH = 60;
 
 /** Arrow-key resize step on the keyboard separator; Shift multiplies. */
 export const RAIL_KEYBOARD_STEP = 8;

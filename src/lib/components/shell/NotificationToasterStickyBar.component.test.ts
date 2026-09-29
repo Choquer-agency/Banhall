@@ -9,6 +9,7 @@ import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
 import { notificationSession } from "$lib/shell/notificationSession.svelte";
+import { board } from "$lib/test/boardScale";
 
 /**
  * Recheck #1: on tablet (1024) and phone (390) the notification card sat on
@@ -103,6 +104,6 @@ describe("Notification card above sticky action bars", () => {
     await expect.poll(() => document.querySelector("[data-notification]")).not.toBeNull();
     expect(document.querySelector("[data-bottom-bar]")).toBeNull();
     const section = document.querySelector<HTMLElement>("[data-notification-toaster]")!.getBoundingClientRect();
-    expect(Math.round(window.innerHeight - section.bottom)).toBe(16);
+    expect(Math.round(window.innerHeight - section.bottom)).toBe(Math.round(board(16)));
   });
 });

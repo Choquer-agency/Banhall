@@ -71,10 +71,9 @@
           </p>
           <div class="mt-8 grid items-start gap-8 md:grid-cols-[11.5rem_minmax(0,1fr)]">
             {@render sectionNav()}
-            <!-- Forms keep a comfortable width on wide screens (lead,
-                 2026-09-28): the panel fills the window, the tab content
-                 stops at 64rem and each field column at 40rem (SettingsRow). -->
-            <div data-settings-content class="min-w-0 max-w-[64rem]">{@render pageContent()}</div>
+            <!-- Settings use the full width (owner, 2026-09-29); each field
+                 column still stops at 40rem (SettingsRow). -->
+            <div data-settings-content class="min-w-0">{@render pageContent()}</div>
           </div>
         </PageContainer>
       </div>
@@ -87,10 +86,10 @@
               <h2 data-settings-title class="font-serif text-[1.75rem] font-normal leading-[2.125rem] text-ink">Settings</h2>
               <SettingsTabs tabs={links} activeKey={active.key} />
             </div>
-            <!-- Forms keep a comfortable width on wide screens (lead,
-                 2026-09-28): the panel fills the window, the tab content
-                 stops at 64rem and each field column at 40rem (SettingsRow). -->
-            <div data-settings-content class="min-w-0 max-w-[64rem]">{@render pageContent()}</div>
+            <!-- Settings use the full width of the work panel like the other
+                 round 2 pages (owner, 2026-09-29); each field column still
+                 stops at 40rem (SettingsRow). -->
+            <div data-settings-content class="min-w-0">{@render pageContent()}</div>
           </div>
         {/snippet}
       </WorkspaceChrome>

@@ -62,3 +62,38 @@ export function enqueuePick(
   lane.tail = run.catch(() => undefined);
   return run;
 }
+
+/**
+ * Refused picks, kept per run, step and seed (Greptile G6). A refusal that
+ * arrives after its step's pane has closed (the writer ticked, then opened
+ * another step) still shows when that step opens again. The pane clears them
+ * as before: a seed's message when that seed is picked again successfully,
+ * and the step's messages when the writer takes another decision there.
+ */
+const refusals = $state<Record<string, Record<string, Record<string, string>>>>({});
+
+/** The step's refused picks by seed id; reactive. */
+export function pickRefusalsFor(runKey: string, roleId: string): Record<string, string> {
+  return refusals[runKey]?.[roleId] ?? {};
+}
+
+export function recordPickRefusal(runKey: string, roleId: string, seedId: string, message: string) {
+  const run = (refusals[runKey] ??= {});
+  run[roleId] = { ...(run[roleId] ?? {}), [seedId]: message };
+}
+
+export function clearPickRefusal(runKey: string, roleId: string, seedId: string) {
+  const step = refusals[runKey]?.[roleId];
+  if (!step || !(seedId in step)) return;
+  const { [seedId]: _cleared, ...rest } = step;
+  refusals[runKey][roleId] = rest;
+}
+
+export function clearPickRefusals(runKey: string, roleId: string) {
+  if (refusals[runKey]?.[roleId]) delete refusals[runKey][roleId];
+}
+
+/** Test isolation: forgets every refusal. */
+export function resetPickRefusals() {
+  for (const key of Object.keys(refusals)) delete refusals[key];
+}

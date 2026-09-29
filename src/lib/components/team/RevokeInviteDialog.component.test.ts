@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import RevokeInviteDialog from "./RevokeInviteDialog.svelte";
+import { board } from "$lib/test/boardScale";
 
 describe("RevokeInviteDialog", () => {
   beforeEach(() => {
@@ -38,7 +39,7 @@ describe("RevokeInviteDialog", () => {
       document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
       await render(RevokeInviteDialog, { open: true, email: "m.tremblay@banhall.com", onConfirm: vi.fn() });
       const dialog = () => document.querySelector<HTMLElement>('[data-testid="revoke-invite-dialog"]')!;
-      await expect.poll(() => dialog()?.getBoundingClientRect().top).toBe(320);
+      await expect.poll(() => dialog()?.getBoundingClientRect().top).toBe(board(320));
       const keep = document.querySelector<HTMLElement>("[data-keep-invite]")!;
       await expect.poll(() => document.activeElement).toBe(keep);
       // Opened from a pointer: neither Keep invite nor the close button shows a ring.

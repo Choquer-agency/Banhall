@@ -9,6 +9,7 @@ import DetailsPanelSwitchFixture from "./DetailsPanelSwitchFixture.svelte";
 import DetailsDataFixture from "./DetailsDataFixture.svelte";
 import { __mutationCalls, __resetConvexStub, __setMutationResult } from "$lib/test/convex-svelte-stub.svelte";
 import type { DetailsPanelData, TeamMember } from "./types";
+import { board, boardPx } from "$lib/test/boardScale";
 
 /**
  * Details panel states (ui-design-final.md section 8; board 5.1y rows A to C,
@@ -129,33 +130,33 @@ describe("Details panel", () => {
     await expect.poll(() => statusLine()).not.toBeNull();
     const panel = document.querySelector<HTMLElement>("[data-details-panel]")!.getBoundingClientRect();
     const header = document.querySelector<HTMLElement>("[data-details-panel] header")!.getBoundingClientRect();
-    expect(Math.round(header.top - panel.top)).toBe(20);
-    expect(Math.round(header.height)).toBe(28);
+    expect(header.top - panel.top).toBeCloseTo(board(20), 0);
+    expect(header.height).toBeCloseTo(board(28), 0);
     const close = page.getByRole("button", { name: "Close details", exact: true }).element().getBoundingClientRect();
-    expect(Math.round(close.width)).toBe(26);
-    expect(Math.round(panel.right - close.right)).toBe(24);
+    expect(close.width).toBeCloseTo(board(26), 0);
+    expect(panel.right - close.right).toBeCloseTo(board(24), 0);
 
     const card = document.querySelector<HTMLElement>("[data-details-status]")!;
     const cardBox = card.getBoundingClientRect();
-    expect(Math.round(cardBox.left - panel.left)).toBe(24);
-    expect(Math.round(cardBox.top - header.bottom)).toBe(18);
-    expect(getComputedStyle(card).paddingTop).toBe("14px");
+    expect(cardBox.left - panel.left).toBeCloseTo(board(24), 0);
+    expect(cardBox.top - header.bottom).toBeCloseTo(board(18), 0);
+    expect(getComputedStyle(card).paddingTop).toBe(boardPx(14));
     const chip = statusLine().querySelector<HTMLElement>("[data-stage-badge]")!;
-    expect(Math.round(chip.getBoundingClientRect().height)).toBe(24);
-    expect(getComputedStyle(chip).borderTopLeftRadius).toBe("6px");
+    expect(chip.getBoundingClientRect().height).toBeCloseTo(board(24), 0);
+    expect(getComputedStyle(chip).borderTopLeftRadius).toBe(boardPx(6));
     for (const name of ["Change stage", "Hand off"]) {
       const button = page.getByRole("button", { name, exact: true }).element();
-      expect(Math.round(button.getBoundingClientRect().height)).toBe(32);
-      expect(getComputedStyle(button).fontSize).toBe("13px");
+      expect(button.getBoundingClientRect().height).toBeCloseTo(board(32), 0);
+      expect(getComputedStyle(button).fontSize).toBe(boardPx(13));
     }
 
     // Facts: 34px rows inset 8px, a 104px label column, values 12px after it.
     const dt = document.querySelector<HTMLElement>("[data-details-facts] dt")!.getBoundingClientRect();
     const value = fact("industry").getBoundingClientRect();
-    expect(Math.round(dt.left - cardBox.left)).toBe(8);
-    expect(Math.round(value.left - dt.left)).toBe(116);
-    expect(Math.round(value.height)).toBe(34);
-    expect(Math.round(value.top - cardBox.bottom)).toBe(18);
+    expect(dt.left - cardBox.left).toBeCloseTo(board(8), 0);
+    expect(value.left - dt.left).toBeCloseTo(board(116), 0);
+    expect(value.height).toBeCloseTo(board(34), 0);
+    expect(value.top - cardBox.bottom).toBeCloseTo(board(18), 0);
   });
 
   it("keeps the calendar icon and plain values when details are read only", async () => {
@@ -385,13 +386,13 @@ describe("Details panel", () => {
     await new Promise((resolve) => setTimeout(resolve, 250));
     const panel = document.querySelector<HTMLElement>("[data-details-panel]")!.getBoundingClientRect();
     const box = confirmation()!.getBoundingClientRect();
-    expect(Math.round(box.height)).toBe(40);
-    expect(Math.round(box.left - panel.left)).toBe(24);
-    expect(Math.round(panel.right - box.right)).toBe(24);
-    expect(Math.round(panel.bottom - box.bottom)).toBe(20);
+    expect(box.height).toBeCloseTo(board(40), 0);
+    expect(box.left - panel.left).toBeCloseTo(board(24), 0);
+    expect(panel.right - box.right).toBeCloseTo(board(24), 0);
+    expect(panel.bottom - box.bottom).toBeCloseTo(board(20), 0);
     const style = getComputedStyle(confirmation()!);
-    expect(style.fontSize).toBe("13px");
-    expect(style.borderTopLeftRadius).toBe("10px");
+    expect(style.fontSize).toBe(boardPx(13));
+    expect(style.borderTopLeftRadius).toBe(boardPx(10));
     expect(confirmation()!.querySelector("svg")).not.toBeNull();
 
     // It goes away on its own.
@@ -578,7 +579,7 @@ describe("Details popover", () => {
     } });
     const popover = () => document.querySelector<HTMLElement>("[data-details-popover]");
     await expect.poll(() => popover()).not.toBeNull();
-    expect(popover()!.getBoundingClientRect().width).toBe(360);
+    expect(popover()!.getBoundingClientRect().width).toBe(board(360));
     // The shared popover shadow token (--shadow-popover), not an ad-hoc value.
     expect(getComputedStyle(popover()!).boxShadow).toContain("rgba(22, 33, 31, 0.12) 0px 16px 40px 0px");
     const text = popover()!.textContent!.replace(/\s+/g, " ");

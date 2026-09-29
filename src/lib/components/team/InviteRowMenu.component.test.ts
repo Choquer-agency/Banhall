@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import InviteRowMenu from "./InviteRowMenu.svelte";
+import { board, boardPx } from "$lib/test/boardScale";
 
 function props(overrides: Record<string, unknown> = {}) {
   return {
@@ -86,7 +87,8 @@ describe("InviteRowMenu", () => {
       // Board: menu 1150 to 1370, Change role row from 675, submenu 920 to 1144 from 670.
       await expect.poll(() => Math.round(sub().top - row.top)).toBe(-5);
       // The submenu slides in, so its x settles after it opens.
-      await expect.poll(() => Math.round(menu().left - sub().right)).toBe(6);
+      // 6 board px, within a pixel of rounding at any root.
+      await expect.poll(() => Math.abs(menu().left - sub().right - board(6)) <= 1).toBe(true);
     } finally {
       await page.viewport(1280, 800);
     }
@@ -95,14 +97,14 @@ describe("InviteRowMenu", () => {
   it("draws the C4 menu with the board icons, sizes and the red Revoke", async () => {
     await render(InviteRowMenu, props());
     const trigger = document.querySelector<HTMLElement>("[data-invite-menu]")!;
-    expect(trigger.getBoundingClientRect().width).toBe(28);
+    expect(trigger.getBoundingClientRect().width).toBe(board(28));
     expect(trigger.querySelector("path")?.getAttribute("d")).toBe("M6 12h.01 M12 12h.01 M18 12h.01");
     expect(trigger.querySelector("svg")?.getAttribute("stroke-width")).toBe("3");
     await open();
     const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
-    expect(menu.offsetWidth).toBe(220);
-    expect(getComputedStyle(menu).borderRadius).toBe("12px");
-    expect(getComputedStyle(menu).paddingTop).toBe("6px");
+    expect(menu.offsetWidth).toBe(Math.round(board(220)));
+    expect(getComputedStyle(menu).borderRadius).toBe(boardPx(12));
+    expect(getComputedStyle(menu).paddingTop).toBe(boardPx(6));
     const item = (key: string) => document.querySelector<HTMLElement>(`[data-menu-item="${key}"]`)!;
     const path = (key: string) => item(key).querySelector("path")?.getAttribute("d");
     expect(path("copy")).toBe("M5 4.5h10.5a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3Z M5 17.5a3 3 0 0 1 3-3h10.5");
@@ -110,8 +112,8 @@ describe("InviteRowMenu", () => {
     expect(path("resend")).toBe("M19 12H5 M11 6l-6 6 6 6");
     expect(path("revoke")).toBe("M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4 M10 16l-4-4 4-4 M6 12h10");
     expect(item("copy").querySelector("svg")?.getAttribute("width")).toBe("15");
-    expect(item("copy").offsetHeight).toBe(32);
-    expect(getComputedStyle(item("copy")).fontSize).toBe("13px");
+    expect(item("copy").offsetHeight).toBe(Math.round(board(32)));
+    expect(getComputedStyle(item("copy")).fontSize).toBe(boardPx(13));
     expect(getComputedStyle(item("copy")).color).toBe("rgb(22, 33, 31)");
     expect(getComputedStyle(item("revoke")).color).toBe("rgb(220, 38, 38)");
 
@@ -122,7 +124,7 @@ describe("InviteRowMenu", () => {
     expect(check.getAttribute("stroke-width")).toBe("2.2");
     expect(getComputedStyle(check).color).toBe("rgb(8, 122, 117)");
     const chip = document.querySelector<HTMLElement>('[data-role-choice="manager"] [data-role-chip]')!;
-    expect(getComputedStyle(chip).borderRadius).toBe("4px");
-    expect(document.querySelector<HTMLElement>('[data-role-choice="manager"]')!.offsetHeight).toBe(34);
+    expect(getComputedStyle(chip).borderRadius).toBe(boardPx(4));
+    expect(document.querySelector<HTMLElement>('[data-role-choice="manager"]')!.offsetHeight).toBe(Math.round(board(34)));
   });
 });

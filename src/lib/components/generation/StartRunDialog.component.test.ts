@@ -6,6 +6,7 @@ import StartRunDialog, {
   type StartRunSource,
   readingMeta,
 } from "./StartRunDialog.svelte";
+import { board, boardPx } from "$lib/test/boardScale";
 
 const dialog = () => document.querySelector<HTMLElement>("[data-start-run-dialog]");
 const q = <T extends HTMLElement = HTMLElement>(selector: string) =>
@@ -210,7 +211,7 @@ describe("StartRunDialog placement (F1, G1 to G3)", () => {
     await render(StartRunDialog, props());
     await settle();
     const box = dialog()!.getBoundingClientRect();
-    expect(Math.round(box.top)).toBe(140);
+    expect(box.top).toBeCloseTo(board(140), 0);
     expect(Math.round(box.left + box.width / 2)).toBe(720);
   });
 
@@ -262,7 +263,7 @@ describe("StartRunDialog footer and keyboard", () => {
     expect(getComputedStyle(cancel).backgroundColor).toBe("rgb(254, 226, 226)");
     expect(getComputedStyle(cancel).color).toBe("rgb(185, 28, 28)");
     expect(getComputedStyle(q("[data-start-run-confirm]")!).backgroundColor).toBe("rgb(10, 58, 56)");
-    expect(getComputedStyle(dialog()!).maxWidth).toBe("580px");
+    expect(getComputedStyle(dialog()!).maxWidth).toBe(boardPx(580));
   });
 
   it("Space toggles the focused file, Esc cancels and focus returns to the start button", async () => {

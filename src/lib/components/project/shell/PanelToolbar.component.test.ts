@@ -3,6 +3,7 @@ import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { createRawSnippet } from "svelte";
 import PanelToolbar from "./PanelToolbar.svelte";
+import { board } from "$lib/test/boardScale";
 
 /**
  * Panel toolbar (ui-design-final.md section 2): tabs left with a 2px
@@ -57,7 +58,7 @@ describe("PanelToolbar", () => {
     expect(tab("summary").getAttribute("aria-current")).toBe("page");
     expect(tab("summary").className).toContain("text-ink");
     const underline = tab("summary").querySelector<HTMLElement>("span.bg-primary-selected")!;
-    expect(underline.getBoundingClientRect().height).toBe(2);
+    expect(underline.getBoundingClientRect().height).toBe(board(2));
     expect(tab("plan").getAttribute("aria-current")).toBeNull();
     expect(tab("plan").textContent).toContain("done");
     expect(tab("summary").textContent).toContain("Ready");
@@ -77,7 +78,7 @@ describe("PanelToolbar", () => {
     expect(details.getAttribute("aria-pressed")).toBe("true");
     expect(details.className).toContain("bg-workspace-rail-selected");
     expect(details.className).toContain("text-fir");
-    expect(details.getBoundingClientRect().height).toBe(26);
+    expect(details.getBoundingClientRect().height).toBe(board(26));
     expect(document.querySelector('[data-panel-toggle="full-width"]')).toBeNull();
     expect(document.querySelector('[data-panel-toggle="assistant"]')).toBeNull();
   });

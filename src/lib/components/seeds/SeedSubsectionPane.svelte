@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, untrack, type Snippet } from "svelte";
-  import { boardRem } from "$lib/rootScale";
+  import { boardRem, rootScale } from "$lib/rootScale";
   import { useConvexClient, useMutation } from "convex-svelte";
   import { DropdownMenu } from "bits-ui";
   import { IconInfo, IconMore, IconRegenerate } from "$lib/components/icons";
@@ -30,7 +30,14 @@
     SeedSubsectionData,
   } from "./types";
   import { seedsApi } from "./api";
-  import { enqueuePick, queuedPicks } from "./pickQueue.svelte";
+  import {
+    clearPickRefusal,
+    clearPickRefusals,
+    enqueuePick,
+    pickRefusalsFor,
+    queuedPicks,
+    recordPickRefusal,
+  } from "./pickQueue.svelte";
   import { detectPlatform, isModEnter, isTypingTarget, shortcutHint } from "$lib/shell/shortcuts";
 
   let {
@@ -60,8 +67,8 @@
   }: {
     generationId: Id<"generations">;
     title: string;
-    /** The line under the heading. Display only: the board's step subtitle
-     * where it draws one (pdSubsectionStepSubtitle), else the objective. */
+    /** The line under the heading. Display only: the step's short subtitle
+     * (pdSubsectionStepSubtitle), never the objective the prompts use. */
     objective: string;
     kind: "standard" | "optional" | "multiple";
     data: SeedSubsectionData;
@@ -157,6 +164,10 @@
   const unskip = useMutation(seedsApi.unskip);
   const approve = useMutation(seedsApi.approve);
 
+  // Short step names in notices, as the Outline shows them (2026-09-29).
+  const UNCERTAINTIES = pdSubsectionOutlineLabel("active_uncertainties");
+  const EXPERIMENTS = pdSubsectionOutlineLabel("experimentation");
+
   // 2026-09-28 (fourth): after two or more answers in a row broke the Seed
   // rules, say why instead of only "failed".
   // 2026-09-29 (first): advancements must also follow the uncertainty their
@@ -165,7 +176,7 @@
     advancement_links:
       "The AI kept linking advancements to work you did not select, or to experiments that tested another uncertainty. Each advancement must come from experiments you selected that tested the uncertainty it names. Try again, or select the experiments these advancements came from.",
     experiment_links:
-      "The AI kept writing experiments without naming an uncertainty you picked. Each experiment must name the uncertainty it tested. Try again, or check your picks in Technological uncertainties.",
+      `The AI kept writing experiments without naming an uncertainty you picked. Each experiment must name the uncertainty it tested. Try again, or check your picks on the ${UNCERTAINTIES} step.`,
     seed_rules: "The AI kept writing seeds that break the seed rules, so none could be shown. Try again.",
   } as const;
   const repeatedFailure = $derived(
@@ -208,9 +219,11 @@
   let pickToken = 0;
   // Refused picks stay listed, one per seed, until that seed is picked again
   // successfully or the writer takes another decision (review P2-2): a later
-  // pick of another seed never erases them.
-  let pickRefusals = $state<Record<string, string>>({});
+  // pick of another seed never erases them. They live with the run's pick
+  // queue, not in this pane, so a refusal that arrives after the pane closed
+  // shows when the step opens again (Greptile G6).
   const runKey = $derived(String(generationId));
+  const pickRefusals = $derived(pickRefusalsFor(runKey, data.roleId));
   // Any pick of this run on its way, from this pane or one closed before it.
   // Every other decision writer waits for them (review P2-3).
   const picksPending = $derived(Object.keys(pendingPicks).length > 0 || queuedPicks(runKey) > 0);
@@ -240,25 +253,24 @@
       if (!destroyed && !canEdit) throw new Error(PICK_NOT_SENT);
       return selectSeed({ ...target, expectedSeedStageVersion, seedId, selected });
     });
-    if (destroyed) return outcome.ok;
-    if (pendingPicks[key]?.token === token) {
-      const { [key]: _settled, ...rest } = pendingPicks;
-      pendingPicks = rest;
-    }
+    // The run's refusals are kept whether or not this pane is still open.
+    const targetRun = String(target.generationId);
     if (outcome.ok) {
-      announcement = selected ? "Seed selected." : "Seed deselected.";
-      if (key in pickRefusals) {
-        const { [key]: _cleared, ...rest } = pickRefusals;
-        pickRefusals = rest;
-      }
+      clearPickRefusal(targetRun, target.roleId, key);
     } else if (!(outcome.error instanceof Error && outcome.error.message === PICK_NOT_SENT)) {
       const idea = wording.length > 60 ? `${wording.slice(0, 57).trimEnd()}...` : wording;
       const why =
         userErrorCode(outcome.error) === "STALE_REVISION"
           ? "decisions changed in another session"
           : userErrorMessage(outcome.error, "the server did not save it").replace(/\.$/, "");
-      pickRefusals = { ...pickRefusals, [key]: `Your ${selected ? "tick" : "untick"} on "${idea}" was not saved: ${why}. Try it again.` };
+      recordPickRefusal(targetRun, target.roleId, key, `Your ${selected ? "tick" : "untick"} on "${idea}" was not saved: ${why}. Try it again.`);
     }
+    if (destroyed) return outcome.ok;
+    if (pendingPicks[key]?.token === token) {
+      const { [key]: _settled, ...rest } = pendingPicks;
+      pendingPicks = rest;
+    }
+    if (outcome.ok) announcement = selected ? "Seed selected." : "Seed deselected.";
     return outcome.ok;
   }
 
@@ -289,6 +301,17 @@
     historyRefusal = null;
     historyApprovalReview = null;
     historyReviewRefused = false;
+  });
+
+  // What the last Keep did stays until the next pick or decision (both clear
+  // it), or until the pane shows another step or run. A successful Keep
+  // moves the seed-stage version, so it must not clear with the version
+  // (Greptile G8).
+  let keepScope = "";
+  $effect(() => {
+    const scope = `${generationId}:${data.roleId}`;
+    if (scope === keepScope) return;
+    keepScope = scope;
     keepResult = null;
   });
 
@@ -340,7 +363,7 @@
     if (picksPending) return false;
     if (exclusive) busy = true;
     error = null;
-    pickRefusals = {};
+    clearPickRefusals(runKey, data.roleId);
     keepResult = null;
     try {
       await action();
@@ -417,9 +440,9 @@
   const reviewNotice = $derived.by(() => {
     const where = changedNames.length ? `An earlier step changed (${changedNames.join(", ")})` : "An earlier step changed";
     // Readers get what happened, not actions they cannot take (review P3 e).
-    if (canEdit && keepAsIsOffered) return `${where} after these ideas were written. Check they still fit, then choose Keep as is, or regenerate and pick again.`;
+    if (canEdit && keepAsIsOffered) return `${where} after these ideas were written. If they still fit, choose Keep as is. If not, regenerate.`;
     return canEdit
-      ? `${where} after these ideas were written. Check they still fit, then keep this step as it is, or regenerate and pick again.`
+      ? `${where} after these ideas were written. If they still fit, confirm this step. If not, regenerate.`
       : `${where} after these ideas were written, so this step needs another look before it is approved again.`;
   });
   // A pick matching a Claim Exclusion needs its own confirmation, so "Keep
@@ -438,9 +461,9 @@
   function sinceWhat(changedRoleIds: readonly string[]) {
     const names = changedRoleIds.filter((roleId) => roleId !== data.roleId).map(label);
     const here = changedRoleIds.includes(data.roleId);
-    if (names.length && here) return `you changed ${names.join(", ")}, and feedback or wording on this step`;
+    if (names.length && here) return `you changed ${names.join(", ")} and feedback or wording here`;
     if (names.length) return `you changed ${names.join(", ")}`;
-    return here ? "you changed feedback or wording on this step" : "the plan changed";
+    return here ? "you changed feedback or wording here" : "the plan changed";
   }
   // Review P3 f: a step not yet approved whose shown ideas were written
   // before a change gets one quiet note, no chips. A confirmation box that
@@ -449,7 +472,7 @@
     const challenge = data.approvalChallenge;
     if (data.stale || data.state === "approved" || data.state === "skipped" || !challenge?.shownBatchOutdated) return null;
     if (acknowledgmentShown && challenge.carriedSeedIds.length) return null;
-    return `These ideas were written before ${sinceWhat(challenge.changedRoleIds)}.`;
+    return `Written before ${sinceWhat(challenge.changedRoleIds)}.`;
   });
   // Review P3 l: the confirmation names ideas by their words, not ids.
   function ideaText(seedId: string) {
@@ -475,16 +498,16 @@
       const names = notice.uncertainties.map((words) => (words ? quoted(words) : "an uncertainty not shown here")).join(", ");
       const what = several ? "uncertainties" : "an uncertainty";
       if (!canEdit) return `${which} tested ${what} the writer no longer has picked: ${names}. This step cannot be approved until that changes.`;
-      return `${which} tested ${what} you no longer have picked: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again in Technological uncertainties, or regenerate this step and pick experiments for the uncertainties you kept.`;
+      return `${which} tested ${what} you no longer have picked: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again on the ${UNCERTAINTIES} step, or regenerate this step and pick experiments for the uncertainties you kept.`;
     }
     if (notice.kind === "no_linkable_experiment") {
       if (!notice.experimentsPicked) {
         return canEdit
-          ? "No advancement can be linked yet: no experiment is picked. Pick the experiments behind these advancements in Experimentation / Iterations, then regenerate this step."
+          ? `No advancement can be linked yet: no experiment is picked. Pick the experiments behind these advancements on the ${EXPERIMENTS} step, then regenerate this step.`
           : "No advancement can be linked yet: no experiment is picked.";
       }
       return canEdit
-        ? "No advancement can be linked yet: none of the experiments you picked tested an uncertainty you still have picked. In Experimentation / Iterations, pick an experiment for one of your uncertainties, or pick the dropped uncertainty again in Technological uncertainties, then regenerate this step."
+        ? `No advancement can be linked yet: none of the experiments you picked tested an uncertainty you still have picked. On the ${EXPERIMENTS} step, pick an experiment for one of your uncertainties, or pick the dropped uncertainty again on the ${UNCERTAINTIES} step, then regenerate this step.`
         : "No advancement can be linked yet: none of the picked experiments tested a picked uncertainty.";
     }
     const count = notice.seedIds.length;
@@ -660,14 +683,17 @@
   const revisionsOf = (group: SeedSubsectionData["feedbackGroups"][number]) =>
     data.items.filter((item) => item.feedbackRequestId === group.requestId && item.seedId !== group.targetSeedId);
 
-  // Card columns: one below 800px (3.5, 3.6), two 412px columns (board 3.1)
-  // until a third fits, then as many columns of at least 400px as fit,
-  // sharing the width, so a wide monitor gains columns instead of leaving
-  // the right of the pane empty (2026-09-28 width pass).
+  // Card columns: one below 800 board pixels (3.5, 3.6), two 412px columns
+  // (board 3.1) until a third fits, then as many columns of at least 400
+  // board pixels (25rem) as fit, sharing the width, so a wide monitor gains
+  // columns instead of leaving the right of the pane empty (2026-09-28 width
+  // pass). The pane is measured in board pixels (its width over the root
+  // scale) because the cards are rem, so a card never drops below 25rem at
+  // any root: 500px at 2560, 375px on a laptop (Greptile G4).
   // The width is read on the next frame, so a layout change it causes (a
   // scrollbar appearing) never feeds back into the same observation.
   const CARD_MIN_WIDTH = 400;
-  const CARD_GAP = 10;
+  const CARD_GAP = 8;
   let cardsWidth = $state(0);
   const columns = $derived(
     cardsWidth >= 800 ? Math.max(2, Math.floor((cardsWidth + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP))) : 1
@@ -686,9 +712,9 @@
     const observer = new ResizeObserver(([entry]) => {
       cancelAnimationFrame(frame);
       const width = entry.contentRect.width;
-      frame = requestAnimationFrame(() => (cardsWidth = width));
+      frame = requestAnimationFrame(() => (cardsWidth = width / rootScale()));
     });
-    cardsWidth = element.clientWidth;
+    cardsWidth = element.clientWidth / rootScale();
     observer.observe(element);
     return () => {
       cancelAnimationFrame(frame);
@@ -934,11 +960,12 @@
   <IconRegenerate size={14} strokeWidth={1.8} />
 {/snippet}
 
-<!-- The pane is its own size container: 16px gutters on a phone, 24px beside
-     the tablet Outline, 40px on desktop (boards 3.1, 3.5, 3.6). -->
+<!-- The pane is its own size container: 16px gutters on a phone, 20px beside
+     the tablet Outline, 36px on desktop (boards 3.1, 3.5, 3.6, tightened by
+     the owner's laptop density pass, 2026-09-29). -->
 <section class="@container flex h-full min-h-0 flex-col" aria-labelledby={`seed-title-${data.roleId}`}>
-  <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-8 @min-[600px]:px-6 @min-[880px]:px-10">
-    <header class={`flex flex-col ${compact ? "gap-2.5 pt-4" : "gap-3 pt-6"}`}>
+  <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-6 @min-[600px]:px-5 @min-[880px]:px-9">
+    <header class={`flex flex-col ${compact ? "gap-2 pt-4" : "gap-2.5 pt-5"}`}>
       <div class={`group/stephead relative flex items-center gap-2.5 ${compact ? "min-h-[0.875rem]" : "min-h-9"}`}>
         <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
           <span class="font-mono text-[0.6875rem] leading-[0.875rem] text-ink-muted" data-section-eyebrow>Section {sectionNumber}</span>
@@ -985,7 +1012,7 @@
               {#snippet children({ props: tipProps })}
                 <!-- Boards F3 to F5 draw Regenerate at the header's right edge
                      with nothing beside it. With a mouse on a wide pane the
-                     More dots sit in the 40px gutter, out of the layout, and
+                     32px More dots sit in the 36px gutter, out of the layout, and
                      show while the header is hovered, the dots have focus or
                      the menu is open; touch and narrower panes keep them in
                      line. -->
@@ -993,7 +1020,7 @@
                   {...tipProps}
                   aria-label="More step actions"
                   data-step-more-trigger
-                  class={`inline-flex size-9 items-center justify-center rounded-lg text-ink-secondary transition-[color,background-color,opacity] hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none pointer-coarse:size-11 ${compact ? "-my-3" : "@min-[880px]:pointer-fine:absolute @min-[880px]:pointer-fine:top-0 @min-[880px]:pointer-fine:-right-[2.375rem] @min-[880px]:pointer-fine:opacity-0 @min-[880px]:pointer-fine:group-hover/stephead:opacity-100 @min-[880px]:pointer-fine:focus-visible:opacity-100 @min-[880px]:pointer-fine:data-[state=open]:opacity-100"} ${moreOpen ? "bg-chrome text-ink" : ""}`}
+                  class={`inline-flex size-9 items-center justify-center rounded-lg text-ink-secondary transition-[color,background-color,opacity] hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none pointer-coarse:size-11 ${compact ? "-my-3" : "@min-[880px]:pointer-fine:absolute @min-[880px]:pointer-fine:top-0.5 @min-[880px]:pointer-fine:-right-[2.125rem] @min-[880px]:pointer-fine:size-8 @min-[880px]:pointer-fine:opacity-0 @min-[880px]:pointer-fine:group-hover/stephead:opacity-100 @min-[880px]:pointer-fine:focus-visible:opacity-100 @min-[880px]:pointer-fine:data-[state=open]:opacity-100"} ${moreOpen ? "bg-chrome text-ink" : ""}`}
                 >
                   <IconMore size={16} />
                 </DropdownMenu.Trigger>
@@ -1043,7 +1070,7 @@
           </DropdownMenu.Root>
         </div>
       </div>
-      <div class="flex flex-col gap-1.5">
+      <div class="flex flex-col gap-1">
         <h2
           id={`seed-title-${data.roleId}`}
           tabindex="-1"
@@ -1055,17 +1082,17 @@
       </div>
       <p
         class={`flex gap-2 text-ink-secondary ${
-          compact ? "items-start text-[0.8125rem] leading-[1.125rem]" : "items-center border-b border-line-soft pb-3 text-[0.75rem] leading-4"
+          compact ? "items-start text-[0.8125rem] leading-[1.125rem]" : "items-center border-b border-line-soft pb-2.5 text-[0.75rem] leading-4"
         }`}
         data-step-helper
       >
         <IconInfo size={14} strokeWidth={1.8} class={`shrink-0 ${compact ? "mt-0.5 text-primary" : "text-primary-selected"}`} />
         <span class="min-w-0">
           {#if data.state === "skipped"}
-            This step is skipped. Restore it from the More menu to pick seeds.
+            Skipped. Restore it from the More menu to pick seeds.
           {:else}
             {#if isReopened}
-              You approved this step before. If you change a pick, later steps are marked for review. Confirming this step approves this step only.
+              Approved before. Changing a pick marks later steps for review. Confirming approves this step only.
             {/if}
             {#if !selectedCountComplete}
               <span data-selected-count="partial" class="text-gap-text!">{selectedCount}+ selected in the shown seeds, complete count pending</span>.
@@ -1074,14 +1101,14 @@
             {/if}
             {#if !isReopened}
               {#if approvalSelectedCount === 0 && selectedCountComplete}
-                {kind === "multiple" ? "Tick every seed the PD should cover, then approve to move on." : "Tick at least one seed to approve this step."}
+                {kind === "multiple" ? "Pick every seed the PD should cover." : "Pick at least one."}
               {:else}
-                {kind === "multiple" ? "Keep ticking every one the PD should cover, then approve to move on." : "Approve to move on, or change your pick."}
+                {kind === "multiple" ? "Pick every one the PD should cover." : "Approve, or change your pick."}
               {/if}
             {/if}
           {/if}
           <!-- The first look at a step also says how to read a quote (board 3.1). -->
-          Underlined words are quoted from the sources{!compact && !isReopened && data.state !== "skipped" && approvalSelectedCount === 0 && selectedCountComplete ? "; hover one to see the line" : ""}.
+          Underlined words quote the sources{!compact && !isReopened && data.state !== "skipped" && approvalSelectedCount === 0 && selectedCountComplete ? "; hover to see the line" : ""}.
         </span>
       </p>
       {#if data.stale}
@@ -1122,7 +1149,7 @@
       {/if}
     </header>
 
-    <div class="pt-4">
+    <div class="pt-3">
       {#if error}<p role="alert" class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">{error}</p>{/if}
       {#if Object.keys(pickRefusals).length}
         <div role="alert" class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" data-pick-refusals>
@@ -1230,9 +1257,9 @@
           </div>
         {:else if data.items.length === 0 && data.pendingBatchId}
           <!-- Four skeleton cards while the step's ideas are written (F3):
-               two columns 16px apart, 84 and 64px chips, lines at 92, 76
+               the cards' own 8px gaps, 84 and 64px chips, lines at 92, 76
                and 60%. -->
-          <div class="grid grid-cols-1 gap-4" style={gridColumns} aria-hidden="true" data-seed-skeletons>
+          <div class="grid grid-cols-1 gap-2" style={gridColumns} aria-hidden="true" data-seed-skeletons>
             {#each [0, 1, 2, 3] as index (index)}
               <div class="flex h-[10.625rem] flex-col gap-3 rounded-xl border border-line-soft bg-surface p-4" data-seed-skeleton>
                 <div class="flex gap-1.5">
@@ -1260,14 +1287,14 @@
           {/if}
           <!-- One keyed list in ranked order; each card is placed on the grid,
                so a card keeps its parent, focus and local state. -->
-          <div class="grid grid-cols-1 gap-2.5" style={gridColumns}>
+          <div class="grid grid-cols-1 gap-2" style={gridColumns}>
             {#each topLevelItems as item (item.seedId)}
               {@render seedWithRevisions(item, false, placementOf(item), multiColumn ? (spotOf(item)?.column ?? 0) : 0)}
             {/each}
           </div>
         {/if}
         {#if orphanGroups.length > 0}
-          <div class="mt-2.5 space-y-2.5">
+          <div class="mt-2 space-y-2">
             {#each orphanGroups as group (group.requestId)}
               {@render revisionGroup(group, true)}
             {/each}

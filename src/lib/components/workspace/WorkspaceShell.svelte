@@ -316,7 +316,7 @@
   }
 
   .workspace-shell-grid[data-rail-hidden] {
-    --workspace-rail-col: var(--workspace-rail-collapsed-width, 3.5rem);
+    --workspace-rail-col: var(--workspace-rail-collapsed-width, 3.75rem);
   }
 
   .workspace-shell-grid[data-rail-resizing] {
