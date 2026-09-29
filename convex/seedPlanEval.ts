@@ -363,6 +363,8 @@ export const collect = internalQuery({
         // 2026-09-28 (fourth): why a Batch failed, so a suite report shows it.
         error: batch.error ?? null,
         errorDetail: batch.errorDetail ?? null,
+        // 2026-09-29 (first, run 7): each rejected answer as counts.
+        invalidAnswers: batch.invalidAnswers ?? [],
       })),
       seeds: seeds.map((seed) => ({
         seedId: seed._id,

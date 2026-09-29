@@ -1533,6 +1533,15 @@ export type Collected = {
     seedsDropped: number | null;
     consumedContextRevision: string;
     feedbackRequestId: string | null;
+    /** Why a failed Batch failed; absent in results from before 2026-09-29. */
+    error?: string | null;
+    errorDetail?: string | null;
+    invalidAnswers?: Array<{
+      seedsReturned: number;
+      seedsValid: number;
+      minimum: number;
+      issues: Array<{ code: string; reason?: string; seeds: number }>;
+    }>;
   }>;
   seeds: Array<{
     seedId: string;
@@ -1730,6 +1739,18 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
       skipped.length ? skipped.map((roleId, i) => `${roleId}: ${skipRows[i] ? skipRows[i]!.outcome : "missing"}`).join("; ") : "no Skips",
     ),
   );
+  // 2026-09-29 (first, run 7): a failed Batch is never a black box: each
+  // one's error, detail and rejected answers as counts by rule and reason.
+  const failedBatches = c.batches.filter((batch) => batch.status === "failed");
+  checks.push(
+    info(
+      "failed-batches",
+      "Failed Seed Batches and why (informational)",
+      failedBatches.length
+        ? failedBatches.map(describeFailedBatch).join("; ")
+        : "no Seed Batch failed",
+    ),
+  );
   const requests = seedRequestCount(c);
   checks.push(
     info(
@@ -1740,6 +1761,18 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
   );
   void fixture;
   return checks;
+}
+
+/** One failed Batch in a line: role, error, detail and each answer's counts. */
+export function describeFailedBatch(batch: Collected["batches"][number]): string {
+  const answers = (batch.invalidAnswers ?? []).map(
+    (answer, index) =>
+      `answer ${index + 1}: ${answer.seedsValid} of ${answer.seedsReturned} valid, needed ${answer.minimum}` +
+      (answer.issues.length
+        ? ` (${answer.issues.map((issue) => `${issue.code}${issue.reason ? ` ${issue.reason}` : ""} x${issue.seeds}`).join(", ")})`
+        : ""),
+  );
+  return [`${batch.roleId} ${batch.operation}: ${batch.error ?? "failed"}${batch.errorDetail ? ` / ${batch.errorDetail}` : ""}`, ...answers].join(", ");
 }
 
 const NOT_CHECKED_PREFIX = "Not checked:";

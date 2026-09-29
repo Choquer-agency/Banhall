@@ -493,6 +493,45 @@ describe("automatic checks", () => {
     expect(contentWordOverlap(exclusionText, "nothing relevant")).toBe(0);
   });
 
+  it("says why each Seed Batch failed, as counts, never a black box (run 7)", () => {
+    const fixture = byCase("withdrawn_feedback");
+    const c = baseCollected();
+    expect(runChecks(fixture, c, emptyRunLog(fixture.id, 0)).find((item) => item.id === "failed-batches")?.evidence).toBe("no Seed Batch failed");
+    c.batches.push({
+      batchId: "b9",
+      roleId: "specific_advancements",
+      operation: "retry",
+      status: "failed",
+      queuedAt: 1,
+      startedAt: 2,
+      completedAt: 3,
+      roleOpen: false,
+      startedBy: null,
+      requestsMade: 2,
+      seedsDropped: null,
+      consumedContextRevision: "r9",
+      feedbackRequestId: null,
+      error: "INVALID_OUTPUT",
+      errorDetail: "advancement_links",
+      invalidAnswers: [
+        {
+          seedsReturned: 5,
+          seedsValid: 1,
+          minimum: 2,
+          issues: [
+            { code: "INVALID_ADVANCEMENT_REFERENCE", reason: "uncertainty_without_tested_experiment", seeds: 3 },
+            { code: "INVALID_BATCH_SIZE", seeds: 0 },
+          ],
+        },
+      ],
+    });
+    const failed = runChecks(fixture, c, emptyRunLog(fixture.id, 0)).find((item) => item.id === "failed-batches");
+    expect(failed).toMatchObject({ status: "info" });
+    expect(failed?.evidence).toBe(
+      "specific_advancements retry: INVALID_OUTPUT / advancement_links, answer 1: 1 of 5 valid, needed 2 (INVALID_ADVANCEMENT_REFERENCE uncertainty_without_tested_experiment x3, INVALID_BATCH_SIZE x0)"
+    );
+  });
+
   it("checks the changed-advancement-links case", () => {
     const fixture = byCase("changed_advancement_links");
     const c = baseCollected();
