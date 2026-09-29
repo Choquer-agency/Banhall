@@ -108,6 +108,47 @@ describe("NotificationToaster (I3, F6 card)", () => {
     expect(document.querySelector("[data-notification-summary]")).toBeNull();
   });
 
+  it("shows the earlier update under three new ones, with its own Dismiss and focus (Greptile G7)", async () => {
+    const hoursAgo = now - 3 * 60 * 60 * 1000;
+    __setQueryData("notifications:listRecent", [
+      row("new-1"),
+      row("new-2"),
+      row("new-3"),
+      row("earlier-1", { createdAt: hoursAgo }),
+    ]);
+    await render(NotificationToaster, {});
+    await expect.poll(() => cards().length).toBe(3);
+    await page.getByRole("button", { name: /^1 update while you were away/ }).click();
+    // The three-card limit applies to each group: the earlier card shows too.
+    await expect.poll(() => cards().length).toBe(4);
+    expect(cards().map((card) => card.dataset.notificationId)).toEqual(["new-1", "new-2", "new-3", "earlier-1"]);
+    await expect
+      .poll(() => document.activeElement?.closest<HTMLElement>("[data-notification-id]")?.dataset.notificationId)
+      .toBe("earlier-1");
+    await page.getByRole("button", { name: "Dismiss the earlier update", exact: true }).click();
+    await expect.poll(() => cards().length).toBe(3);
+    expect(__mutationCalls("notifications:markSeen")).toEqual([{ ids: ["earlier-1"] }]);
+  });
+
+  it("shows three of four earlier updates at a time, with Dismiss all and focus on the first (Greptile G7)", async () => {
+    const hoursAgo = now - 3 * 60 * 60 * 1000;
+    __setQueryData("notifications:listRecent", [1, 2, 3, 4].map((index) => row(`earlier-${index}`, { createdAt: hoursAgo - index * 1000 })));
+    await render(NotificationToaster, {});
+    await expect.poll(() => document.querySelector("[data-notification-summary]")).not.toBeNull();
+    expect(cards()).toHaveLength(0);
+    await page.getByRole("button", { name: /^4 updates while you were away/ }).click();
+    await expect.poll(() => cards().length).toBe(3);
+    expect(cards().map((card) => card.dataset.notificationId)).toEqual(["earlier-1", "earlier-2", "earlier-3"]);
+    await expect
+      .poll(() => document.activeElement?.closest<HTMLElement>("[data-notification-id]")?.dataset.notificationId)
+      .toBe("earlier-1");
+    // Closing one brings the fourth in.
+    await page.getByRole("button", { name: "Dismiss: Project earlier-1 is with you", exact: true }).click();
+    await expect.poll(() => cards().map((card) => card.dataset.notificationId)).toEqual(["earlier-2", "earlier-3", "earlier-4"]);
+    await page.getByRole("button", { name: "Dismiss all 3 earlier updates", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-notification-toaster]")).toBeNull();
+  });
+
   it("closing the summary card dismisses every earlier update", async () => {
     const hoursAgo = Date.now() - 3 * 60 * 60 * 1000;
     __setQueryData("notifications:listRecent", [row("earlier-1", { createdAt: hoursAgo }), row("earlier-2", { createdAt: hoursAgo - 1000 })]);
