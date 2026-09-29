@@ -60,8 +60,8 @@ export type DetailsFieldSavers = {
   onSaveProjectNumber?: (projectNumber: string) => Promise<void>;
   /**
    * Asks the AI for a science code and saves it. "superseded" means the
-   * writer chose a code by hand while the suggestion was pending, so the
-   * suggestion was not saved.
+   * writer chose a code by hand, or the page moved to another project, while
+   * the suggestion was pending, so the suggestion was not saved.
    */
   onSuggestScienceCode?: () => Promise<ScienceCodeSuggestion>;
 };

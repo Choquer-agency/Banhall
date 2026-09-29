@@ -1933,9 +1933,16 @@
   // browser-local per generation and QA completion (src/lib/qa/qaSeen.ts).
   const qaScores = $derived(qaSectionScores(generation?.agentOutputs ?? null));
   const qaScore = $derived(qaScores?.overall ?? null);
-  const qaState = $derived<"idle" | "running" | "done">(
-    generation?.postQaStatus === "running" ? "running" : qaScore !== null ? "done" : "idle"
-  );
+  // Completion is the current pass's status, never a stored score: a failed
+  // re-check keeps the last scorecard in agentOutputs, but that pass did not
+  // finish, so it shows as not run (no score, no "QA finished" notice). A
+  // legacy row with no post-QA status keeps its inline scorecard.
+  const qaState = $derived.by((): "idle" | "running" | "done" => {
+    const status = generation?.postQaStatus;
+    if (status === "running") return "running";
+    if (status === "failed") return "idle";
+    return qaScore !== null ? "done" : "idle";
+  });
   const qaCompletedAt = $derived(generation?.postQaCompletedAt ?? null);
   let qaSeenTick = $state(0);
   const qaSeen = $derived.by((): QaSeenState | null => {

@@ -827,7 +827,13 @@ export async function settleSeedRedraft(
   if (complete) delete outputs.stoppedAfterSection;
   else if (lastDrafted) outputs.stoppedAfterSection = sectionNumberOfRow(lastDrafted);
   // CAP-18: once no Section is Not drafted, QA runs once in the background.
-  const scheduleQa = complete && generation.postQaStatus !== "running";
+  // A pass already running scored the report before this redraft filled it,
+  // so a fresh attempt replaces it: the new postQaStartedAt fences the old
+  // pass out (saveReportQa and runReportQa ignore a stale attempt), and the
+  // post-QA state stays running. A redraft that changed nothing leaves a
+  // running pass alone.
+  const qaRunning = generation.postQaStatus === "running";
+  const scheduleQa = complete && (!qaRunning || filled.length > 0);
   const postQaStartedAt = Math.max(now, (generation.postQaStartedAt ?? 0) + 1);
   const lines = (sections: SectionNumber[]) =>
     `${sections.length === 1 ? "Line" : "Lines"} ${sections.join(", ")}`;
@@ -853,7 +859,11 @@ export async function settleSeedRedraft(
       : lastDrafted
         ? sectionNumberOfRow(lastDrafted)
         : generation.stoppedAfterSection,
-    ...(scheduleQa ? { postQaStatus: "running" as const, postQaStartedAt } : {}),
+    ...(scheduleQa
+      ? qaRunning
+        ? { postQaStartedAt }
+        : { postQaStatus: "running" as const, postQaStartedAt }
+      : {}),
   });
   if (scheduleQa) {
     // CAP-18: the report is complete now, so QA follows in the background.

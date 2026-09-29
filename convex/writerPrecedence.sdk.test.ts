@@ -702,7 +702,7 @@ const SPINDLE =
 const FEEDBACK: WriterFeedback[] = [{ roleId: "company_context", instruction: SPINDLE }];
 const SET_ASIDE: GlossarySetAside[] = [{
   term: "floating head",
-  reason: `the writer's Feedback on Company / Context names this term: "${SPINDLE}"`,
+  reason: `the writer's Feedback on Company / Context rules out this term: "${SPINDLE}"`,
 }];
 const BRIEF_242: Brief = {
   storylineText: "",
@@ -773,7 +773,7 @@ describe("the writer's Feedback outranks a Brief Glossary Term (real SDK, fetch 
       outcome: "not_applied",
       tier: "conflict",
       repaired: false,
-      reason: `Not enforced in this Line: the writer's Feedback on Company / Context names this term: "${SPINDLE}". The writer's wording outranks the Brief.`,
+      reason: `Not enforced in this Line: the writer's Feedback on Company / Context rules out this term: "${SPINDLE}". The writer's wording outranks the Brief.`,
     });
     // Every other Glossary Term is checked as before.
     expect(result.notes.find((note) => note.instruction === "Glossary Term: pilot cell")).toMatchObject({

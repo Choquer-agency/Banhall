@@ -453,6 +453,43 @@ describe("PreviewProjectPage writing a signed-off Step-by-step draft", () => {
     expect(localStorage.getItem(`banhall_qa_seen:${GENERATION}:1000`)).toBe("seen");
   });
 
+  it("shows a failed re-check as not run, never as complete with the old score", async () => {
+    seedDrafting();
+    // The last pass scored 78; the re-check failed and settled a new time,
+    // but the old scorecard is still stored.
+    const oldScorecard = JSON.stringify({ qa: { overall_score: 78, section_scores: { "242": { score: 86 } } } });
+    completeRun(reportDoc({ "242": "Final 242.", "244": "Final 244.", "246": "Final 246." }), {
+      postQaStatus: "failed",
+      postQaCompletedAt: 3_000,
+      agentOutputs: oldScorecard,
+    });
+    __setQueryData("generations:getSeedDraftProgress", progress("completed", ["done", "done", "done"], 100));
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Final 244.", { exact: true })).toBeVisible();
+    const toggle = () => document.querySelector<HTMLElement>('[data-panel-toggle="qa"]');
+    await expect.poll(() => toggle()?.getAttribute("data-qa-state")).toBe("idle");
+    expect(toggle()?.getAttribute("aria-label")).toBe("QA");
+    expect(toggle()?.querySelector("[data-qa-unseen-dot]")).toBeNull();
+    expect(document.querySelector("[data-qa-finished-notice]")).toBeNull();
+    expect(localStorage.getItem(`banhall_qa_seen:${GENERATION}:3000`)).toBeNull();
+
+    // A new pass runs, then finishes: only now is the result complete.
+    completeRun(reportDoc({ "242": "Final 242.", "244": "Final 244.", "246": "Final 246." }), {
+      postQaStatus: "running",
+      postQaCompletedAt: 3_000,
+      agentOutputs: oldScorecard,
+    });
+    await expect.poll(() => toggle()?.getAttribute("data-qa-state")).toBe("running");
+    expect(document.querySelector("[data-qa-finished-notice]")).toBeNull();
+    completeRun(reportDoc({ "242": "Final 242.", "244": "Final 244.", "246": "Final 246." }), {
+      postQaStatus: "done",
+      postQaCompletedAt: 4_000,
+      agentOutputs: JSON.stringify({ qa: { overall_score: 83, section_scores: { "242": { score: 88 } } } }),
+    });
+    await expect.element(page.getByRole("heading", { name: "QA finished", exact: true })).toBeVisible();
+    expect(toggle()?.getAttribute("aria-label")).toBe("QA score 83, new result");
+  });
+
   it("opens the QA score panel from the notice and marks the result seen", async () => {
     seedDrafting();
     completeRun(reportDoc({ "242": "Final 242.", "244": "Final 244.", "246": "Final 246." }), {
