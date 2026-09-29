@@ -25,7 +25,7 @@ import {
 import { DRAFTING_INPUTS_LEASE_MS } from "./lib/generations/draftingInputs";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
 import { SEED_QUOTE_RULES } from "./ai/promptDefinitions";
-import { withPinnedAdvancementLinkRules } from "./seedLinkRules.fixture";
+import { withPinnedAdvancementLinkRules, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { ActionTimeBudgetError } from "./ai/actionDeadline";
 import { decisionFixture } from "./seedDecision.fixture";
 
@@ -315,7 +315,7 @@ async function requestHashes(
     // The link sentence changed on 2026-09-28 (fourth); the pins hold the old one.
     firstByTool.set(
       name,
-      maskIds(withPinnedAdvancementLinkRules(JSON.stringify(body)).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
+      maskIds(withPinnedAdvancementLinkRules(JSON.stringify(withSharedSeedToolOnly(body))).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
     );
   }
   const result: Record<string, string> = {};

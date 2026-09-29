@@ -202,18 +202,19 @@ describe("/project/new transcript list", () => {
       await docxFile("Day 2.docx", ["delta", "epsilon"]),
       await docxFile("Day 3.docx", ["zeta", "eta", "theta", "iota"]),
     ]);
+    // Real mammoth extraction: give it time on a loaded machine.
     await expect
-      .poll(itemLabels)
+      .poll(itemLabels, { timeout: 10_000 })
       .toEqual(["Day 1.docx", "Day 2.docx", "Day 3.docx"]);
     // Word counts come out of the real mammoth extraction, per file and total.
     expect(itemWordCounts()).toEqual(["3 words", "2 words", "4 words"]);
     await expect
-      .poll(() => document.querySelector('[data-checklist-row="transcripts"], [data-interview-status]')?.textContent)
+      .poll(() => document.querySelector('[data-checklist-row="transcripts"], [data-interview-status]')?.textContent, { timeout: 10_000 })
       .toContain("9 words");
 
     selectFiles([await docxFile("Day 4.docx", ["kappa", "lambda"])]);
     await expect
-      .poll(itemLabels)
+      .poll(itemLabels, { timeout: 10_000 })
       .toEqual(["Day 1.docx", "Day 2.docx", "Day 3.docx", "Day 4.docx"]);
 
     await clickLabel("Remove Day 2.docx");

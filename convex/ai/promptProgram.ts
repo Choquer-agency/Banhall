@@ -147,7 +147,7 @@ import {
 } from "./brainRetrieval";
 import { OPENROUTER_CONVERSION } from "./openrouterCore";
 import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
-import { seedToolSchema } from "../lib/seedContract";
+import { linkedSeedSchemas, seedToolSchema } from "../lib/seedContract";
 import { seedToolSchemaForFacts } from "../lib/seedFacts";
 import {
   FACTS_CITATIONS_INSTRUCTION,
@@ -319,8 +319,15 @@ const seedProviderSchema = seedToolSchema();
 // fact pack for every transcript sends this schema instead, for every role
 // and mode, with SEED_PROMPT_PROGRAM.user.factGuidance.
 const seedFactProviderSchema = seedToolSchemaForFacts();
+// 2026-09-29 (first, run 7 re-check): the two linked tools every Seed request
+// also sends, in both citation modes.
+const seedLinkedProviderSchemas = linkedSeedSchemas(seedProviderSchema);
+const seedFactLinkedProviderSchemas = linkedSeedSchemas(seedFactProviderSchema);
 const SEED_SCHEMA_POLICY = {
-  provider: "one-schema-for-every-role-and-mode",
+  // 2026-09-29 (first, run 7 re-check): the same three tools in every Seed
+  // request (shared, experiment, advancement), so the tools cache is shared;
+  // tool_choice forces the linked one when a link block is sent.
+  provider: "three-fixed-tools-for-every-role-and-mode-tool_choice-picks-one",
   application: "validateBatch-enforces-mode-count-and-role-links",
   factMode: {
     selectedBy: "every-frozen-transcript-has-a-fact-pack",
@@ -559,6 +566,8 @@ export const generationPromptProgram = {
       request: SEED_PROMPT_PROGRAM.request,
       schema: seedProviderSchema,
       factSchema: seedFactProviderSchema,
+      linkedSchemas: seedLinkedProviderSchemas,
+      factLinkedSchemas: seedFactLinkedProviderSchemas,
       schemaPolicy: SEED_SCHEMA_POLICY,
       model: { kind: "generation-step", step: "seeds", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
@@ -573,6 +582,8 @@ export const generationPromptProgram = {
       request: SEED_PROMPT_PROGRAM.request,
       schema: seedProviderSchema,
       factSchema: seedFactProviderSchema,
+      linkedSchemas: seedLinkedProviderSchemas,
+      factLinkedSchemas: seedFactLinkedProviderSchemas,
       schemaPolicy: SEED_SCHEMA_POLICY,
       model: { kind: "generation-step", step: "seedFeedback", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },

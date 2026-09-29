@@ -148,6 +148,22 @@ export async function generateStructured<T>(
       ask: (value: T, answer: unknown) => string | null | Promise<string | null>;
       keepRepaired?: (first: T, repaired: T) => boolean | Promise<boolean>;
     };
+    /**
+     * 2026-09-29 (first, run 7 re-check): more text for the repair of an
+     * answer that failed `validate`, given the tool input as the model sent
+     * it, appended after the invalid-output scaffold. It never reaches the
+     * validation summary, which is logged. Null adds nothing. Not used for a
+     * cut-off, malformed or missing answer.
+     */
+    invalidAnswerRepair?: (answer: unknown) => string | null;
+    /**
+     * 2026-09-29 (first, run 7 re-check): the whole tools list, sent as
+     * given in every attempt so its bytes (and their cache) never depend on
+     * which tool is forced; `toolName` names the forced one and must be in
+     * it. Without it, the one tool from `toolName`, `description` and
+     * `schema` is sent, as before.
+     */
+    tools?: ReadonlyArray<{ name: string; description: string; input_schema: Anthropic.Tool.InputSchema }>;
   }
 ): Promise<T> {
   // The answer a soft repair set aside, returned if the repair fails.
@@ -167,9 +183,23 @@ async function structuredAttempts<T>(
 ): Promise<T> {
   const client = rawClient as GenerationClient;
   const attempts = opts.attempts ?? STRUCTURED_OUTPUT_PROGRAM.attempts;
+  if (opts.tools && !opts.tools.some((tool) => tool.name === opts.toolName)) {
+    throw new Error(`${opts.toolName}: the forced tool is not in the tools list`);
+  }
+  const tools = opts.tools
+    ? opts.tools.map((tool) => ({ ...tool }))
+    : [
+        {
+          name: opts.toolName,
+          description: opts.description,
+          input_schema: opts.schema ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultSchema,
+        },
+      ];
   let validationSummary = "";
   // Set when the soft repair asked for the next attempt: its own text.
   let softRepairText: string | null = null;
+  // Set when the last answer failed validation and the caller adds text.
+  let invalidAnswerText: string | null = null;
   // A valid answer is returned unless the soft repair asks for another.
   const askedSoftRepair = async (value: T, answer: unknown, lastAttempt: boolean): Promise<boolean> => {
     if (kept.answer || lastAttempt || !opts.softRepair) return false;
@@ -199,8 +229,9 @@ async function structuredAttempts<T>(
     const lastAttempt = attempt === attempts - 1;
     const repair =
       softRepairText ??
-      `${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix}${validationSummary}${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix}`;
+      `${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix}${validationSummary}${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix}${invalidAnswerText ?? ""}`;
     softRepairText = null;
+    invalidAnswerText = null;
     const user: GenerationMessageContent =
       attempt === 0
         ? opts.user
@@ -221,14 +252,7 @@ async function structuredAttempts<T>(
         max_tokens:
           opts.maxTokens ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultMaxTokens,
         system: opts.system,
-        tools: [
-          {
-            name: opts.toolName,
-            description: opts.description,
-            input_schema:
-              opts.schema ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultSchema,
-          },
-        ],
+        tools,
         tool_choice: {
           type: STRUCTURED_OUTPUT_PROGRAM.request.toolChoice.type,
           name: opts.toolName,
@@ -316,6 +340,12 @@ async function structuredAttempts<T>(
     }
     await settle({ ok: false, code: "invalid_output" });
 
+    try {
+      invalidAnswerText = opts.invalidAnswerRepair?.(block.input) ?? null;
+    } catch (error) {
+      invalidAnswerText = null;
+      console.warn(`${opts.toolName}: repair text skipped (${error instanceof Error ? error.name : "error"})`);
+    }
     validationSummary = parsed.error.issues
       .slice(0, 3)
       .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)

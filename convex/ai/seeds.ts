@@ -18,7 +18,7 @@ import type {
 } from "../seedRuns";
 import type { GenerationClient } from "./openrouterCore";
 import { MalformedOutputError, OutputLimitError, messageText } from "./openrouterCore";
-import { StructuredValidationError, generateStructured } from "./structured";
+import { STRUCTURED_OUTPUT_PROGRAM, StructuredValidationError, generateStructured } from "./structured";
 import { startActionDeadline } from "./actionDeadline";
 import {
   clientForStep,
@@ -29,10 +29,13 @@ import { resolveGenerationCall, stepRequestFields } from "../lib/generationSteps
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import {
   buildSeedPrompt,
+  seedAdvancementLinkIds,
   seedBlock,
+  seedExperimentLinkIds,
   seedPromptProjection,
 } from "./trustedContext";
 import {
+  MAX_SEED_PROMPT_UTF8_BYTES,
   SeedContextLimitError,
   assertSeedPromptWithinLimit,
   type SeedContextSnapshot,
@@ -43,6 +46,7 @@ import {
   MAX_FEEDBACK_SEEDS,
   MIN_BATCH_SEEDS,
   MIN_FEEDBACK_SEEDS,
+  linkedSeedSchemas,
   offeredAdvancementLinks,
   seedAnswerCounts,
   seedToolSchema,
@@ -54,6 +58,8 @@ import {
   type SeedBatchMode,
   type SeedAnswerCounts,
   type SeedReference,
+  type SeedToolKind,
+  type SeedToolInputSchema,
   type SeedReferenceContext,
   type SeedValidationIssueCode,
   type ValidatedSeedCandidate,
@@ -247,8 +253,9 @@ function seedIssueHints(mode: SeedBatchMode, minimum?: number): Record<SeedValid
     INVALID_TAG: "use only the allowed tags",
     DUPLICATE_TAG: "a tag is repeated",
     // 2026-09-28 (fourth): names the block that lists the allowed ids and
-    // why a link cannot be found, since the repair never sees its answer.
-    // 2026-09-29 (first): the ids come as pairs, one entry per uncertainty.
+    // why a link cannot be found. 2026-09-29 (first): the ids come as
+    // pairs, one entry per uncertainty; a request with a link block also
+    // shows its earlier answer (seedLinkRepairText).
     INVALID_ADVANCEMENT_REFERENCE:
       "use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments",
     // 2026-09-29 (first): an experiment names the uncertainty it tested.
@@ -264,11 +271,68 @@ function seedIssueHints(mode: SeedBatchMode, minimum?: number): Record<SeedValid
 const REPAIR_OMITTED = "more issues omitted";
 
 /**
- * Repair feedback the model can act on. The retry never shows the model its
- * failed output, so the note leads with the broken rules and names the Seeds
- * by position only; it never carries Seed text. structured.ts prefixes
- * "(root): ", and the note stays inside the prompt's reserved repair bytes
- * with that prefix, marking any rules it had to leave out.
+ * 2026-09-29 (first, run 7 re-check): which Seed tool a request forces: the
+ * advancement tool when it sends FROZEN ADVANCEMENT LINKS, the experiment
+ * tool when it sends FROZEN EXPERIMENT LINKS, else the shared one.
+ */
+export function seedToolKindFor(
+  snapshot: SeedContextSnapshot,
+  roleId: Parameters<typeof validateBatch>[0]["roleId"],
+  uncertaintyRoots: Readonly<Record<string, string>> = {}
+): SeedToolKind {
+  if (seedAdvancementLinkIds(snapshot, roleId, uncertaintyRoots)) return "advancement";
+  if (seedExperimentLinkIds(snapshot, roleId)) return "experiment";
+  return "shared";
+}
+
+/**
+ * The three Seed tools every request sends, always the same bytes for one
+ * citation mode, so the cached tools prefix is shared; and the name of the
+ * one `kind` forces.
+ */
+export function seedTools(base: SeedToolInputSchema, kind: SeedToolKind) {
+  const request = SEED_PROMPT_PROGRAM.request;
+  const linked = linkedSeedSchemas(base);
+  const tools = [
+    { name: request.toolName, description: request.description, input_schema: base },
+    { ...request.linkedTools.experiment, input_schema: linked.experiment },
+    { ...request.linkedTools.advancement, input_schema: linked.advancement },
+  ];
+  const toolName =
+    kind === "advancement"
+      ? request.linkedTools.advancement.name
+      : kind === "experiment"
+        ? request.linkedTools.experiment.name
+        : request.toolName;
+  return { tools, toolName };
+}
+
+/**
+ * 2026-09-29 (first, run 7 re-check): the repair of an invalid answer to a
+ * request with a link block shows that answer as data and asks to keep each
+ * Seed's links unless an issue names it, so a repair for another rule never
+ * loses them. Omitted (null) when the prompt has no room for it.
+ */
+export function seedLinkRepairText(answer: unknown, promptBytes: number): string | null {
+  const text = SEED_PROMPT_PROGRAM.request.linkRepair;
+  const repair = `${text.opening}${seedBlock(text.earlierAnswerLabel, JSON.stringify(answer))}`;
+  const bytes = (value: string) => new TextEncoder().encode(value).byteLength;
+  const reserved =
+    bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix) +
+    bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix) +
+    SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes +
+    SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes;
+  return promptBytes + reserved + bytes(repair) <= MAX_SEED_PROMPT_UTF8_BYTES ? repair : null;
+}
+
+/**
+ * Repair feedback the model can act on. The note leads with the broken rules
+ * and names the Seeds by position only; the note itself never carries Seed
+ * text, because it is logged. (Since 2026-09-29, first, a request with a
+ * link block also shows the model its earlier answer, after the note and
+ * outside it: seedLinkRepairText.) structured.ts prefixes "(root): ", and the
+ * note stays inside the prompt's reserved repair bytes with that prefix,
+ * marking any rules it had to leave out.
  */
 export function seedRepairSummary(
   result: BatchValidationResult,
@@ -466,9 +530,16 @@ function failureCode(error: unknown):
   if (error instanceof MalformedOutputError) return "INVALID_OUTPUT";
   const provider = normalizeProviderError(error);
   if (provider.code !== "unknown") return "PROVIDER_FAILED";
+  if (error instanceof StructuredValidationError) return "INVALID_OUTPUT";
+  // Any of the three Seed tools (2026-09-29 first, run 7 re-check).
+  const toolNames = [
+    SEED_PROMPT_PROGRAM.request.toolName,
+    SEED_PROMPT_PROGRAM.request.linkedTools.experiment.name,
+    SEED_PROMPT_PROGRAM.request.linkedTools.advancement.name,
+  ];
   if (
     error instanceof Error &&
-    (error.message.includes(SEED_PROMPT_PROGRAM.request.toolName) ||
+    (toolNames.some((name) => error.message.includes(name)) ||
       error.message.includes("structured output"))
   ) {
     return "INVALID_OUTPUT";
@@ -518,6 +589,7 @@ export const generateBatch = internalAction({
             ...(source.factSpans ? { factSpans: source.factSpans } : {}),
           }))
         : undefined;
+      const toolKind = seedToolKindFor(claim.context, claim.batch.roleId, claim.uncertaintyRoots);
       const request = buildSeedPrompt({
         mode,
         objective: claim.role.objective,
@@ -594,12 +666,18 @@ export const generateBatch = internalAction({
       const output = await generateStructured<ValidatedSeedBatch>(client, {
         system: request.system,
         user: request.userBlocks,
-        toolName: SEED_PROMPT_PROGRAM.request.toolName,
+        // 2026-09-29 (first, run 7 re-check): three fixed tools in every
+        // Seed request; the forced one requires the links when the request
+        // sends a link block.
+        ...seedTools(factMode ? seedToolSchemaForFacts() : seedToolSchema(), toolKind),
         description: SEED_PROMPT_PROGRAM.request.description,
-        // One schema for every role and mode keeps the cached tools
-        // prefix shared; validatedBatchSchema enforces role and mode. A
-        // generation that reads fact packs uses the fact schema for all.
-        schema: factMode ? seedToolSchemaForFacts() : seedToolSchema(),
+        // The same tools for every role and mode keep the cached tools
+        // prefix shared; validatedBatchSchema enforces role, mode and the
+        // offered ids. A generation that reads fact packs uses the fact
+        // schemas for all.
+        ...(toolKind !== "shared"
+          ? { invalidAnswerRepair: (answer: unknown) => seedLinkRepairText(answer, request.promptBytes) }
+          : {}),
         maxTokens: SEED_PROMPT_PROGRAM.request.maxTokens,
         model: claim.batch.model,
         attempts: 2,

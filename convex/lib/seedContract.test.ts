@@ -10,6 +10,7 @@ import {
   locateCitations,
   nearestOccurrence,
   seedAnswerCounts,
+  linkedSeedSchemas,
   seedToolSchema,
   speakerOfTranscriptLine,
   validateBatch,
@@ -320,6 +321,22 @@ describe("seed contract", () => {
     });
     expect(JSON.stringify(schema)).toContain("uncertaintySeedId");
     expect(JSON.stringify(schema)).toContain("experimentSeedIds");
+  });
+
+  it("builds two fixed linked Seed schemas that require the links, with no ids in them (run 7 re-check)", () => {
+    const base = seedToolSchema();
+    const item = (schema: unknown) =>
+      (schema as { properties: { seeds: { items: { required: string[]; properties: Record<string, unknown> } } } }).properties.seeds.items;
+    const { experiment, advancement } = linkedSeedSchemas(base);
+    expect(item(advancement).required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId", "experimentSeedIds"]);
+    expect(item(advancement).properties.uncertaintySeedId).toEqual({ type: "string" });
+    expect(item(advancement).properties.experimentSeedIds).toEqual({ type: "array", minItems: 1, uniqueItems: true, items: { type: "string" } });
+    expect(item(experiment).required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId"]);
+    expect(item(experiment).properties.uncertaintySeedId).toEqual({ type: "string" });
+    expect(item(experiment).properties).not.toHaveProperty("experimentSeedIds");
+    // Fixed: the same bytes every time, and the shared schema never changes.
+    expect(JSON.stringify(linkedSeedSchemas(seedToolSchema()))).toBe(JSON.stringify({ experiment, advancement }));
+    expect(item(base).required).toEqual(["bullets", "tags", "provenance"]);
   });
 
   it("drops advancement links from every other role (cost phase 1)", () => {

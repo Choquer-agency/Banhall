@@ -841,6 +841,39 @@ export type SeedToolInputSchema = {
 };
 
 /**
+ * 2026-09-29 (first, run 7 re-check): which Seed tool a request forces. A
+ * request that sends a FROZEN EXPERIMENT LINKS block forces the experiment
+ * tool, one that sends FROZEN ADVANCEMENT LINKS the advancement tool, and
+ * every other request the shared one.
+ */
+export type SeedToolKind = "shared" | "experiment" | "advancement";
+
+/**
+ * The two linked Seed schemas, fixed for every request so the tools list is
+ * byte-stable across a generation's Seed requests. The experiment schema
+ * requires uncertaintySeedId and has no experiment list; the advancement
+ * schema requires uncertaintySeedId and experimentSeedIds (at least one).
+ * Which ids are allowed is never in the schema: the request's link block
+ * lists them and validateSeed enforces them.
+ */
+export function linkedSeedSchemas(base: SeedToolInputSchema): {
+  experiment: SeedToolInputSchema;
+  advancement: SeedToolInputSchema;
+} {
+  type Mutable = SeedToolInputSchema & {
+    properties: { seeds: { items: { required: string[]; properties: Record<string, unknown> } } };
+  };
+  const experiment = structuredClone(base) as Mutable;
+  const experimentItem = experiment.properties.seeds.items;
+  delete experimentItem.properties.experimentSeedIds;
+  experimentItem.required = [...experimentItem.required, "uncertaintySeedId"];
+  const advancement = structuredClone(base) as Mutable;
+  const advancementItem = advancement.properties.seeds.items;
+  advancementItem.required = [...advancementItem.required, "uncertaintySeedId", "experimentSeedIds"];
+  return { experiment, advancement };
+}
+
+/**
  * The forced tool schema every Seed request sends, whatever the role or
  * mode. Role and mode constraints live in application validation.
  */
