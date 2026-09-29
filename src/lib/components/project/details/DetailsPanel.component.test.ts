@@ -6,7 +6,8 @@ import { Toaster } from "svelte-sonner";
 import DetailsPanel from "./DetailsPanel.svelte";
 import DetailsPopover from "./DetailsPopover.svelte";
 import DetailsPanelSwitchFixture from "./DetailsPanelSwitchFixture.svelte";
-import { __resetConvexStub } from "$lib/test/convex-svelte-stub.svelte";
+import DetailsDataFixture from "./DetailsDataFixture.svelte";
+import { __mutationCalls, __resetConvexStub, __setMutationResult } from "$lib/test/convex-svelte-stub.svelte";
 import type { DetailsPanelData, TeamMember } from "./types";
 
 /**
@@ -589,5 +590,51 @@ describe("Details popover", () => {
     expect(document.querySelector("[data-details-popover-notch]")).not.toBeNull();
     await userEvent.click(page.getByRole("button", { name: "Open all details", exact: true }));
     expect(onOpenAll).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Details data adapter: science code suggestion", () => {
+  beforeEach(() => {
+    __resetConvexStub();
+    document.body.innerHTML = "";
+  });
+
+  const outcome = () => document.querySelector("[data-fixture-outcome]")?.textContent ?? null;
+
+  it("saves a suggestion to the project it was asked for", async () => {
+    __setMutationResult("scienceCodeSuggestions:suggest", { code: "2.03.01", label: "2.03.01 Software engineering" });
+    await render(DetailsDataFixture, { projectId: "project-a" });
+    await page.getByRole("button", { name: "Suggest a code", exact: true }).click();
+    await expect.poll(outcome).toBe("suggested");
+    expect(__mutationCalls("scienceCodeSuggestions:suggest")).toEqual([{ projectId: "project-a" }]);
+    expect(__mutationCalls("projects:updateProjectScienceCode")).toEqual([
+      { projectId: "project-a", scienceCode: "2.03.01" },
+    ]);
+  });
+
+  it("drops a suggestion that comes back after the page moved to another project", async () => {
+    let answer!: (value: unknown) => void;
+    __setMutationResult("scienceCodeSuggestions:suggest", new Promise((resolve) => (answer = resolve)));
+    const screen = await render(DetailsDataFixture, { projectId: "project-a" });
+    await page.getByRole("button", { name: "Suggest a code", exact: true }).click();
+    await expect.poll(() => __mutationCalls("scienceCodeSuggestions:suggest")).toEqual([{ projectId: "project-a" }]);
+    // The writer opens another project while project A's suggestion is pending.
+    await screen.rerender({ projectId: "project-b" });
+    answer({ code: "2.03.01", label: "2.03.01 Software engineering" });
+    await expect.poll(outcome).toBe("superseded");
+    // Nothing is saved: not to project B on screen, not to project A.
+    expect(__mutationCalls("projects:updateProjectScienceCode")).toEqual([]);
+  });
+
+  it("stays quiet when a suggestion for the previous project fails", async () => {
+    let refuse!: (error: unknown) => void;
+    __setMutationResult("scienceCodeSuggestions:suggest", new Promise((_resolve, reject) => (refuse = reject)));
+    const screen = await render(DetailsDataFixture, { projectId: "project-a" });
+    await page.getByRole("button", { name: "Suggest a code", exact: true }).click();
+    await expect.poll(() => __mutationCalls("scienceCodeSuggestions:suggest")).toHaveLength(1);
+    await screen.rerender({ projectId: "project-b" });
+    refuse(new Error("provider down"));
+    await expect.poll(outcome).toBe("superseded");
+    expect(__mutationCalls("projects:updateProjectScienceCode")).toEqual([]);
   });
 });

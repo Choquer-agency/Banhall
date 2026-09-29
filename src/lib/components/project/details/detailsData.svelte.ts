@@ -186,14 +186,20 @@ export function useDetailsData(options: {
 
   async function suggestCode(): Promise<ScienceCodeSuggestion> {
     const ticket = ++scienceCodeTicket;
+    // The suggestion belongs to the project it was asked for. The page can
+    // move to another project while it is pending (the adapter lives on), so
+    // a result that comes back after the move is dropped, never saved to
+    // the project now on screen.
+    const projectId = options.projectId();
+    const stale = () => ticket !== scienceCodeTicket || options.projectId() !== projectId;
     try {
-      const result = await suggestScienceCode({ projectId: options.projectId() });
-      if (ticket !== scienceCodeTicket) return { status: "superseded" };
+      const result = await suggestScienceCode({ projectId });
+      if (stale()) return { status: "superseded" };
       if (!result) return { status: "none" };
-      await updateScienceCode({ projectId: options.projectId(), scienceCode: result.code });
+      await updateScienceCode({ projectId, scienceCode: result.code });
       return { status: "suggested", label: result.label };
     } catch (error) {
-      if (ticket !== scienceCodeTicket) return { status: "superseded" };
+      if (stale()) return { status: "superseded" };
       fail(error, "Could not suggest a science code.");
     }
   }
