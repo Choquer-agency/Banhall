@@ -578,6 +578,35 @@ describe("Seed project hosts", () => {
     await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
   });
 
+  it("unlocks the Summary tab once Keep all leaves every step done (review P3 k)", async () => {
+    const marked = hostOutline({ ready: false, complete: true, blockingRoleIds: ["passive_limitations", "technological_objective"] });
+    __setQueryData("seeds:getOutline", {
+      ...marked,
+      rows: marked.rows.map((row) =>
+        row.roleId === "passive_limitations" || row.roleId === "technological_objective"
+          ? { ...row, state: "approved", stale: true, staleReason: { changedRoleIds: ["goal_problem"], restored: false } }
+          : { ...row, state: "approved" }
+      ),
+    });
+    __setQueryData("seeds:getSubsection", { ...hostSubsection("batch-host-1"), roleId: "goal_problem", state: "approved" });
+    localStorage.setItem("seeds.openRole:writer-1:generation-seed-host", "goal_problem");
+    let answer: ((value: unknown) => void) | undefined;
+    __setMutationResult("seeds:keep", new Promise((resolve) => { answer = resolve; }));
+    await render(PreviewProjectPage, {});
+    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    expect(summaryEntry()!.disabled).toBe(true);
+    await browserPage.getByRole("button", { name: "Keep all", exact: true }).click();
+    expect(__mutationCalls("seeds:keep")).toEqual([
+      { generationId: "generation-seed-host", roleId: "goal_problem", expectedSeedStageVersion: 4, scope: "later" },
+    ]);
+    // As in Convex, the live Outline is ready before the answer lands.
+    __setQueryData("seeds:getOutline", lastStepOutline("goal_problem", true));
+    answer?.({ seedStageVersion: 5, kept: ["passive_limitations", "technological_objective"], needsAttention: [] });
+    await expect.poll(() => summaryEntry()?.disabled).toBe(false);
+    await openSummary();
+    await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
+  });
+
   it("offers the current host's Summary action only once every step is done", async () => {
     __setQueryData("seeds:getOutline", hostOutline({ ready: false, complete: true, blockingRoleIds: ["goal_problem"] }));
     await render(CurrentProjectPage, {});

@@ -417,10 +417,14 @@ describe("Seed workspace", () => {
     // acknowledgment before "Approve and continue" is available.
     const approve = page.getByRole("button", { name: "Approve and continue", exact: true });
     await expect.element(approve).toBeDisabled();
-    expect(view.container.textContent).toContain("seed-carried");
-    expect(view.container.textContent).toContain("goal_problem");
-    expect(view.container.textContent).toContain("Marketing work is excluded.");
-    await page.getByRole("checkbox", { name: /I acknowledge 1 carried/ }).click();
+    // In plain words: the ideas' own text and step names, never raw ids
+    // (review P3 l).
+    const details = view.container.querySelector<HTMLElement>("[data-acknowledgment-details]")!;
+    expect(details.textContent).toContain("Written before you changed Goal / Problem:");
+    expect(details.textContent).toContain('Matches the claim exclusion "Marketing work is excluded." in the Brief:');
+    expect(details.textContent).toContain("an idea not shown here");
+    expect(details.textContent).not.toMatch(/seed-carried|goal_problem|exclusion-exact/);
+    await page.getByRole("checkbox", { name: "I checked these picks and want to keep them." }).click();
     await view.rerender(paneProps(subsection({
       approvalChallenge: {
         ...subsection().approvalChallenge!,
@@ -429,7 +433,7 @@ describe("Seed workspace", () => {
       },
     })));
     await expect.element(approve).toBeDisabled();
-    await page.getByRole("checkbox", { name: /I acknowledge 1 carried/ }).click();
+    await page.getByRole("checkbox", { name: "I checked these picks and want to keep them." }).click();
     await approve.click();
     expect(__mutationCalls("seeds:approve")).toEqual([{
       generationId,
@@ -4521,6 +4525,7 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
       stale: true,
       staleReason: { changedRoleIds: ["goal_problem"], restored: false } as unknown as SeedSubsectionData["staleReason"],
       items: [outdatedCard({ roleId: "passive_limitations" }), outdatedCard({ seedId: "seed-2" as Id<"seeds">, roleId: "passive_limitations", selected: false })],
+      approvalChallenge: { ...clean(), carriedSeedIds: ["seed-1" as Id<"seeds">], shownBatchOutdated: true, changedRoleIds: ["goal_problem"] },
     });
     __setMutationResult("seeds:keep", { seedStageVersion: 8, kept: ["passive_limitations"], needsAttention: [] });
     const view = await render(SeedSubsectionPane, paneProps(data, { title: "Limitations", reopened: true }));
@@ -4568,7 +4573,7 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     localStorage.setItem(`seeds.openRole:writer-1:${generationId}`, "goal_problem");
     await render(SeedWorkspace, workspaceProps());
     const line = () => document.querySelector<HTMLElement>("[data-later-review]");
-    await expect.poll(() => line()?.textContent).toContain("This may affect 2 later steps.");
+    await expect.poll(() => line()?.textContent).toContain("This may affect 2 later steps: Technological limitations, Technological objectives.");
     // The Outline says it once per marked step.
     expect([...document.querySelectorAll("[data-row-marker]")].map((marker) => marker.textContent?.trim())).toEqual(["Review suggested", "Review suggested"]);
 
@@ -4601,15 +4606,71 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     await render(SeedWorkspace, workspaceProps());
     await page.getByRole("button", { name: "Keep all", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-keep-attention]")?.textContent).toBe(
-      "Specific advancements needs your attention: its advancements must come from uncertainties and experiments you picked."
+      "Nothing was kept. Specific advancements needs your attention: its advancements must come from uncertainties and experiments you picked."
+    );
+    // One status, no contradicting "kept" announcement (review P3 c).
+    expect(document.querySelector("[data-pane-announcement]")?.textContent).toBe(
+      "Nothing was kept. Specific advancements needs your attention: its advancements must come from uncertainties and experiments you picked."
     );
   });
 
   it("offers no Keep controls to a reader", async () => {
     const data = subsection({ roleId: "passive_limitations", state: "approved", stale: true, staleReason: null });
-    await render(SeedSubsectionPane, paneProps(data, { title: "Limitations", canEdit: false, laterReview: { count: 1, firstRoleId: "hypothesis" } }));
+    await render(SeedSubsectionPane, paneProps(data, { title: "Limitations", canEdit: false, laterReview: { roleIds: ["hypothesis"], firstRoleId: "hypothesis" } }));
     await expect.element(page.getByRole("heading", { name: "Limitations" })).toBeVisible();
     expect(page.getByRole("button", { name: /Keep/ }).elements()).toHaveLength(0);
-    expect(document.querySelector("[data-step-review-notice]")?.textContent).toContain("An earlier step changed after these ideas were written.");
+    // Readers get what happened, not actions they cannot take (review P3 e).
+    const notice = document.querySelector("[data-step-review-notice]")?.textContent ?? "";
+    expect(notice).toContain("An earlier step changed after these ideas were written, so this step needs another look before it is approved again.");
+    expect(notice).not.toMatch(/keep this step|regenerate/i);
+  });
+
+  it("offers no Keep as is when a pick matches a claim exclusion (review P3 d)", async () => {
+    const data = subsection({
+      roleId: "passive_limitations",
+      state: "approved",
+      stale: true,
+      staleReason: null,
+      approvalChallenge: { ...subsection().approvalChallenge!, carriedSeedIds: [] },
+    });
+    await render(SeedSubsectionPane, paneProps(data, { title: "Limitations", reopened: true }));
+    await expect.element(page.getByRole("heading", { name: "Limitations" })).toBeVisible();
+    expect(page.getByRole("button", { name: "Keep as is", exact: true }).elements()).toHaveLength(0);
+    expect(document.querySelector("[data-step-review-notice]")?.textContent).toContain(
+      "A pick here matches a claim exclusion in the Brief, so confirm this step below."
+    );
+  });
+
+  it("notes once, without chips, that a step's ideas predate an earlier change (review P3 f)", async () => {
+    const data = subsection({
+      roleId: "passive_limitations",
+      state: "in_progress",
+      stale: false,
+      staleReason: null,
+      items: [outdatedCard({ roleId: "passive_limitations" })],
+      approvalChallenge: { ...clean(), shownBatchOutdated: true, changedRoleIds: ["goal_problem"] },
+    });
+    const view = await render(SeedSubsectionPane, paneProps(data, { title: "Limitations" }));
+    await expect.element(page.getByRole("heading", { name: "Limitations" })).toBeVisible();
+    const notes = view.container.querySelectorAll("[data-older-ideas-note]");
+    expect(notes).toHaveLength(1);
+    expect(notes[0].textContent).toBe("These ideas were written before you changed Goal / Problem.");
+    expect(view.container.querySelector("[data-step-review-notice]")).toBeNull();
+    expect(view.container.querySelector("[data-seed-marker]")).toBeNull();
+    expect(view.container.textContent).not.toMatch(/Outdated|Review suggested/);
+  });
+
+  it("says what Keep all kept (review P3 c)", async () => {
+    const data = subsection({ roleId: "goal_problem", approvalChallenge: clean() });
+    __setMutationResult("seeds:keep", { seedStageVersion: 8, kept: ["passive_limitations", "technological_objective"], needsAttention: [] });
+    await render(SeedSubsectionPane, paneProps(data, {
+      title: "Goal / Problem",
+      laterReview: { roleIds: ["passive_limitations", "technological_objective"], firstRoleId: "passive_limitations" },
+    }));
+    await page.getByRole("button", { name: "Keep all", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-pane-announcement]")?.textContent).toBe(
+      "Kept 2 steps as they are: Technological limitations, Technological objectives."
+    );
+    expect(document.querySelector("[data-keep-attention]")).toBeNull();
   });
 });

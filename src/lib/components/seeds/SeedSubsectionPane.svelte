@@ -98,7 +98,7 @@
     afterPicks?: boolean;
     /** 2026-09-28 (seventh): on the step whose change marked later steps for
      * review, how many are marked and the first of them. */
-    laterReview?: { count: number; firstRoleId: string } | null;
+    laterReview?: { roleIds: string[]; firstRoleId: string } | null;
     /** Opens a step in the workspace ("Review each"). */
     onReviewEach?: (roleId: string) => void;
   } = $props();
@@ -370,26 +370,59 @@
     NO_SELECTION: "it has no picks",
     UNLINKED_ADVANCEMENT: "its advancements must come from uncertainties and experiments you picked",
     CLAIM_EXCLUSION: "a pick matches a claim exclusion in the Brief, so confirm it on that step",
+    READ_LIMIT: "it could not be checked within the safe processing limit, so confirm it on that step",
   };
+  const label = (roleId: string) => pdSubsectionOutlineLabel(roleId as PdSubsectionRoleId);
   async function keep(scope: "step" | "later") {
     keepAttention = null;
-    let left: Array<{ roleId: string; reason: string }> = [];
-    const kept = await mutate(
-      async () => {
-        left = (await keepSteps({ ...common(), scope })).needsAttention;
-      },
-      scope === "step" ? "Step kept as is." : "Later steps kept."
+    let answer: { kept: string[]; needsAttention: Array<{ roleId: string; reason: string }> } | null = null;
+    const saved = await mutate(async () => {
+      answer = await keepSteps({ ...common(), scope });
+    }, "");
+    const result = answer as { kept: string[]; needsAttention: Array<{ roleId: string; reason: string }> } | null;
+    if (!saved || destroyed || !result) return;
+    // One status that says what happened (review P3 c): what was kept, what
+    // was left and why, or that nothing was kept.
+    const kept = result.kept.map(label);
+    const keptLine = kept.length
+      ? `Kept ${kept.length === 1 ? "1 step" : `${kept.length} steps`} as ${kept.length === 1 ? "it is" : "they are"}: ${kept.join(", ")}.`
+      : "Nothing was kept.";
+    const left = result.needsAttention.map(
+      ({ roleId, reason }) => `${label(roleId)} needs your attention: ${KEEP_REFUSAL[reason] ?? "review it"}.`
     );
-    if (!kept || destroyed || left.length === 0) return;
-    keepAttention = left
-      .map(({ roleId, reason }) => `${pdSubsectionOutlineLabel(roleId as PdSubsectionRoleId)} needs your attention: ${KEEP_REFUSAL[reason] ?? "review it"}.`)
-      .join(" ");
+    announcement = [keptLine, ...left].join(" ");
+    keepAttention = left.length ? [kept.length ? keptLine : "Nothing was kept.", ...left].join(" ") : null;
   }
+  const changedNames = $derived(
+    (data.staleReason?.changedRoleIds ?? []).filter((roleId) => roleId !== data.roleId).map(label)
+  );
   const reviewNotice = $derived.by(() => {
-    const changed = (data.staleReason?.changedRoleIds ?? []).map((roleId) => pdSubsectionOutlineLabel(roleId));
-    const where = changed.length ? `An earlier step changed (${changed.join(", ")})` : "An earlier step changed";
-    return `${where} after these ideas were written. Check they still fit, then keep this step as it is, or regenerate and pick again.`;
+    const where = changedNames.length ? `An earlier step changed (${changedNames.join(", ")})` : "An earlier step changed";
+    // Readers get what happened, not actions they cannot take (review P3 e).
+    return canEdit
+      ? `${where} after these ideas were written. Check they still fit, then keep this step as it is, or regenerate and pick again.`
+      : `${where} after these ideas were written, so this step needs another look before it is approved again.`;
   });
+  // A pick matching a Claim Exclusion needs its own confirmation, so "Keep
+  // as is" is not offered for it (review P3 d).
+  const keepAsIsOffered = $derived(canEdit && !(data.approvalChallenge?.exclusionEntryIds.length ?? 0));
+  // Review P3 f: a step not yet approved whose shown ideas were written
+  // before an earlier step changed gets one quiet note, no chips.
+  const olderIdeasNote = $derived.by(() => {
+    const challenge = data.approvalChallenge;
+    if (data.stale || data.state === "approved" || data.state === "skipped" || !challenge?.shownBatchOutdated) return null;
+    const names = challenge.changedRoleIds.filter((roleId) => roleId !== data.roleId).map(label);
+    return names.length
+      ? `These ideas were written before you changed ${names.join(", ")}.`
+      : "These ideas were written before an earlier change.";
+  });
+  // Review P3 l: the confirmation names ideas by their words, not ids.
+  function ideaText(seedId: string) {
+    const item = data.items.find((candidate) => String(candidate.seedId) === seedId);
+    const words = item?.bullets[0] ?? "";
+    if (!words) return "an idea not shown here";
+    return `"${words.length > 80 ? `${words.slice(0, 77).trimEnd()}...` : words}"`;
+  }
 
   // Boards F3 and F5: Regenerate keeps its full ink while ideas are being
   // written, but a Batch already on its way is not replaced: the control is
@@ -976,14 +1009,18 @@
         <!-- One notice for a step marked for review; its cards carry none. -->
         <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status" data-step-review-notice>
           <p>{reviewNotice}</p>
-          {#if canEdit}
+          {#if keepAsIsOffered}
             <Button class="mt-2" size="sm" variant="secondary" disabled={busy || picksPending} onclick={() => void keep("step")} data-keep-step>Keep as is</Button>
+          {:else if canEdit}
+            <p class="mt-1">A pick here matches a claim exclusion in the Brief, so confirm this step below.</p>
           {/if}
         </div>
+      {:else if olderIdeasNote}
+        <p class="text-[0.75rem] leading-4 text-ink-muted" data-older-ideas-note>{olderIdeasNote}</p>
       {/if}
       {#if laterReview}
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-primary-wash px-3 py-2 text-body text-ink" data-later-review>
-          <p class="min-w-0 flex-1">This may affect {laterReview.count} later {laterReview.count === 1 ? "step" : "steps"}.</p>
+          <p class="min-w-0 flex-1">This may affect {laterReview.roleIds.length} later {laterReview.roleIds.length === 1 ? "step" : "steps"}: {laterReview.roleIds.map(label).join(", ")}.</p>
           <div class="flex shrink-0 gap-2">
             {#if canEdit}
               <Button size="sm" variant="secondary" disabled={busy || picksPending} onclick={() => void keep("later")} data-keep-all>Keep all</Button>
@@ -1006,7 +1043,7 @@
           {#each Object.entries(pickRefusals) as [seedId, message] (seedId)}<p>{message}</p>{/each}
         </div>
       {/if}
-      <p class="sr-only" aria-live="polite">{announcement}</p>
+      <p class="sr-only" aria-live="polite" data-pane-announcement>{announcement}</p>
       {#if data.truncated && historyReviewRefused}
         <p class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">
           The server could not form a complete approval decision within its safe processing limit. Approval remains unavailable.
@@ -1031,16 +1068,28 @@
           <Checkbox
             checked={confirmedChallengeKey === challengeKey}
             onCheckedChange={(checked) => (confirmedChallengeKey = checked ? challengeKey : null)}
-            labelText={`I acknowledge ${approvalChallenge?.carriedSeedIds.length ?? 0} carried selection(s) and ${approvalChallenge?.exclusionEntryIds.length ?? 0} Claim Exclusion match(es).`}
+            labelText="I checked these picks and want to keep them."
           />
           {#if approvalChallenge}
-            <dl class="mt-2 space-y-1 pl-7 text-xs">
-              <div><dt class="inline">Carried Seed IDs: </dt><dd class="inline break-all">{approvalChallenge.carriedSeedIds.join(", ") || "none"}</dd></div>
-              <div><dt class="inline">Changed roles: </dt><dd class="inline">{approvalChallenge.changedRoleIds.join(", ") || "none"}</dd></div>
+            <div class="mt-2 space-y-2 pl-7 text-xs" data-acknowledgment-details>
+              {#if approvalChallenge.carriedSeedIds.length}
+                {@const changed = approvalChallenge.changedRoleIds.filter((roleId) => roleId !== data.roleId).map(label)}
+                <div>
+                  <p>{changed.length ? `Written before you changed ${changed.join(", ")}:` : "Written before an earlier change:"}</p>
+                  <ul class="mt-0.5 list-disc pl-4">
+                    {#each approvalChallenge.carriedSeedIds as seedId (seedId)}<li>{ideaText(String(seedId))}</li>{/each}
+                  </ul>
+                </div>
+              {/if}
               {#each approvalChallenge.exclusions as exclusion (exclusion.entryId)}
-                <div><dt class="inline">Claim Exclusion {exclusion.entryId}: </dt><dd class="inline">{exclusion.text} (Seeds {exclusion.seedIds.join(", ")})</dd></div>
+                <div>
+                  <p>Matches the claim exclusion "{exclusion.text}" in the Brief:</p>
+                  <ul class="mt-0.5 list-disc pl-4">
+                    {#each exclusion.seedIds as seedId (seedId)}<li>{ideaText(String(seedId))}</li>{/each}
+                  </ul>
+                </div>
               {/each}
-            </dl>
+            </div>
           {/if}
         </div>
       {/if}
