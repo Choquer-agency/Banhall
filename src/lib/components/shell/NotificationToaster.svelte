@@ -12,6 +12,11 @@
    * keeps the menu shadow and a close button, which the board does not draw.
    * On tablet and phone the stack sits above any sticky action bar (H1, H2
    * start bar, H4 cancel bar) so it never covers the page's primary action.
+   *
+   * Owner, 2026-09-28 (eighth): only notifications that arrive while this
+   * tab is open (or just before it opened) show as cards. Older unseen ones
+   * wait behind one small "N updates while you were away" pill that opens
+   * them as cards, so hours-old news never covers the page on arrival.
    */
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
@@ -26,6 +31,10 @@
 
   const SHOW_FOR_MS = 24 * 60 * 60 * 1000;
   const MAX_CARDS = 3;
+  // A notification written up to this long before the tab opened (a reload
+  // right after it arrived) still counts as new.
+  const NEW_GRACE_MS = 2 * 60 * 1000;
+  const openedAt = Date.now();
 
   const auth = useAuth();
   const recentQ = useQuery(api.notifications.listRecent, () =>
@@ -52,9 +61,11 @@
   }
 
   const onThisPage = $derived(unseen.filter((row) => pathOf(row.href) === page.url.pathname));
-  const cards = $derived(
-    unseen.filter((row) => pathOf(row.href) !== page.url.pathname).slice(0, MAX_CARDS)
-  );
+  const elsewhere = $derived(unseen.filter((row) => pathOf(row.href) !== page.url.pathname));
+  const arrivedNow = $derived(elsewhere.filter((row) => row.createdAt >= openedAt - NEW_GRACE_MS));
+  const waiting = $derived(elsewhere.filter((row) => row.createdAt < openedAt - NEW_GRACE_MS));
+  let showWaiting = $state(false);
+  const cards = $derived([...arrivedNow, ...(showWaiting ? waiting : [])].slice(0, MAX_CARDS));
 
   async function markSeen(ids: Id<"notifications">[]) {
     if (ids.length === 0) return;
@@ -79,13 +90,28 @@
   }
 </script>
 
-{#if cards.length > 0}
+{#if cards.length > 0 || waiting.length > 0}
   <section
     aria-label="Notifications"
     data-notification-toaster
     style:bottom={`calc(1rem + ${stickyActionBarHeight()}px)`}
     class="pointer-events-none fixed right-4 z-[100] flex w-[min(22.5rem,calc(100vw-2rem))] flex-col-reverse gap-2"
   >
+    {#if waiting.length > 0 && !showWaiting}
+      <button
+        type="button"
+        data-notification-waiting
+        onclick={() => (showWaiting = true)}
+        class="pointer-events-auto self-end rounded-xl border border-line-soft bg-surface px-3.5 py-2 text-sm leading-5 font-medium text-ink shadow-menu transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none"
+      >{waiting.length === 1 ? "1 update while you were away" : `${waiting.length} updates while you were away`}</button>
+    {:else if showWaiting && waiting.length > 1}
+      <button
+        type="button"
+        data-notification-dismiss-waiting
+        onclick={() => void markSeen(waiting.map((row) => row._id))}
+        class="pointer-events-auto self-end rounded-xl border border-line-soft bg-surface px-3 py-1.5 text-[0.8125rem] leading-[1.125rem] text-ink-muted shadow-menu transition-colors hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
+      >Dismiss all {waiting.length} earlier updates</button>
+    {/if}
     {#each cards as row (row._id)}
       <div
         data-notification={row.kind}

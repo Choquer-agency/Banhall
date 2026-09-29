@@ -171,7 +171,9 @@
   let busy = $state(false);
   let error = $state<string | null>(null);
   // Steps "Keep" left for the writer, named in plain words (2026-09-28 seventh).
-  let keepAttention = $state<string | null>(null);
+  // What the last Keep did, shown until the next decision (eighth: visible
+  // too, not only announced).
+  let keepResult = $state<{ text: string; attention: boolean } | null>(null);
   let announcement = $state("");
   let confirmedChallengeKey = $state<string | null>(null);
   let historyOpen = $state(false);
@@ -217,6 +219,8 @@
     const key = String(seedId);
     const token = ++pickToken;
     pendingPicks = { ...pendingPicks, [key]: { selected, token } };
+    // A new pick can mark later steps again; an old Keep result would contradict it.
+    keepResult = null;
     // The pick's own step and run, fixed now: the save outlives this pane.
     const target = { generationId, roleId: data.roleId };
     // The live read is only trusted while this pane is open on the pick's run:
@@ -281,7 +285,7 @@
     historyRefusal = null;
     historyApprovalReview = null;
     historyReviewRefused = false;
-    keepAttention = null;
+    keepResult = null;
   });
 
   // A destroyed pane owns no pending walk: a page or challenge that resolves
@@ -333,6 +337,7 @@
     if (exclusive) busy = true;
     error = null;
     pickRefusals = {};
+    keepResult = null;
     try {
       await action();
       announcement = success;
@@ -349,6 +354,7 @@
   }
 
   async function approveCurrent() {
+    if (keepMode) return keep("step");
     const challenge = approvalChallenge;
     if (!canEdit || !challenge) return;
     // A reopened step is confirmed in place; a first approval moves on. The
@@ -381,7 +387,7 @@
   };
   const label = (roleId: string) => pdSubsectionOutlineLabel(roleId as PdSubsectionRoleId);
   async function keep(scope: "step" | "later") {
-    keepAttention = null;
+    keepResult = null;
     let answer: { kept: string[]; needsAttention: Array<{ roleId: string; reason: string }> } | null = null;
     const saved = await mutate(async () => {
       answer = await keepSteps({ ...common(), scope });
@@ -398,7 +404,7 @@
       ({ roleId, reason }) => `${label(roleId)} needs your attention: ${KEEP_REFUSAL[reason] ?? "review it"}.`
     );
     announcement = [keptLine, ...left].join(" ");
-    keepAttention = left.length ? [kept.length ? keptLine : "Nothing was kept.", ...left].join(" ") : null;
+    keepResult = { text: announcement, attention: left.length > 0 };
   }
   const changedNames = $derived(
     (data.staleReason?.changedRoleIds ?? []).filter((roleId) => roleId !== data.roleId).map(label)
@@ -406,6 +412,7 @@
   const reviewNotice = $derived.by(() => {
     const where = changedNames.length ? `An earlier step changed (${changedNames.join(", ")})` : "An earlier step changed";
     // Readers get what happened, not actions they cannot take (review P3 e).
+    if (canEdit && keepAsIsOffered) return `${where} after these ideas were written. Check they still fit, then choose Keep as is, or regenerate and pick again.`;
     return canEdit
       ? `${where} after these ideas were written. Check they still fit, then keep this step as it is, or regenerate and pick again.`
       : `${where} after these ideas were written, so this step needs another look before it is approved again.`;
@@ -413,15 +420,28 @@
   // A pick matching a Claim Exclusion needs its own confirmation, so "Keep
   // as is" is not offered for it (review P3 d).
   const keepAsIsOffered = $derived(canEdit && !(data.approvalChallenge?.exclusionEntryIds.length ?? 0));
+  // Owner, 2026-09-28 (eighth): on a step marked for review, Keep as is is
+  // the step's one way to confirm. The footer button does it too, and the
+  // "I checked these picks" box is not shown beside it.
+  const keepMode = $derived(data.stale && data.state === "approved" && keepAsIsOffered);
+  // What changed since ideas were written, in plain words (eighth): earlier
+  // steps by name, and this step's own feedback or wording (part of its
+  // context) as such, never "an earlier change" when it happened here.
+  function sinceWhat(changedRoleIds: readonly string[]) {
+    const names = changedRoleIds.filter((roleId) => roleId !== data.roleId).map(label);
+    const here = changedRoleIds.includes(data.roleId);
+    if (names.length && here) return `you changed ${names.join(", ")}, and feedback or wording on this step`;
+    if (names.length) return `you changed ${names.join(", ")}`;
+    return here ? "you changed feedback or wording on this step" : "the plan changed";
+  }
   // Review P3 f: a step not yet approved whose shown ideas were written
-  // before an earlier step changed gets one quiet note, no chips.
+  // before a change gets one quiet note, no chips. The confirmation box says
+  // the same with the ideas listed, so the note waits while it shows.
   const olderIdeasNote = $derived.by(() => {
     const challenge = data.approvalChallenge;
     if (data.stale || data.state === "approved" || data.state === "skipped" || !challenge?.shownBatchOutdated) return null;
-    const names = challenge.changedRoleIds.filter((roleId) => roleId !== data.roleId).map(label);
-    return names.length
-      ? `These ideas were written before you changed ${names.join(", ")}.`
-      : "These ideas were written before an earlier change.";
+    if (acknowledgmentShown) return null;
+    return `These ideas were written before ${sinceWhat(challenge.changedRoleIds)}.`;
   });
   // Review P3 l: the confirmation names ideas by their words, not ids.
   function ideaText(seedId: string) {
@@ -530,6 +550,10 @@
       (approvalChallenge.carriedSeedIds.length > 0 ||
         approvalChallenge.exclusionEntryIds.length > 0)
   );
+  // The "I checked these picks" box; not beside Keep as is (eighth).
+  const acknowledgmentShown = $derived(
+    needsConfirmation && canEdit && !(data.state === "approved" && !data.stale) && !keepMode
+  );
   // The cards on screen are a projection. When the server cut that projection
   // short, their selected count is only a lower bound until the complete
   // server review of the current scope returns its own count (A4); that
@@ -551,7 +575,7 @@
       !approvalChallenge ||
       approvalSelectedCount === 0 ||
       data.state === "skipped" ||
-      (needsConfirmation && confirmedChallengeKey !== challengeKey)
+      (needsConfirmation && !keepMode && confirmedChallengeKey !== challengeKey)
   );
 
   // "Previous batch" is offered only when an earlier Batch is known to
@@ -849,8 +873,9 @@
               disabled={approvalDisabled}
               onclick={approveCurrent}
               data-approve-step
+              data-keep-step={keepMode || undefined}
               aria-keyshortcuts={platform === "mac" ? "Meta+Enter" : "Control+Enter"}
-            >{isReopened ? "Confirm and approve" : "Approve and continue"}</Button>
+            >{keepMode ? "Keep as is" : isReopened ? "Confirm and approve" : "Approve and continue"}</Button>
           {/snippet}
         </Tooltip>
       </div>
@@ -1016,9 +1041,8 @@
         <!-- One notice for a step marked for review; its cards carry none. -->
         <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status" data-step-review-notice>
           <p>{reviewNotice}</p>
-          {#if keepAsIsOffered}
-            <Button class="mt-2" size="sm" variant="secondary" disabled={busy || picksPending} onclick={() => void keep("step")} data-keep-step>Keep as is</Button>
-          {:else if canEdit}
+          <!-- Keep as is is the step's footer action (eighth), not a second button here. -->
+          {#if canEdit && !keepAsIsOffered}
             <p class="mt-1">A pick here matches a claim exclusion in the Brief, so confirm this step below.</p>
           {/if}
         </div>
@@ -1038,9 +1062,13 @@
           </div>
         </div>
       {/if}
-      {#if keepAttention}
+      {#if keepResult}
         <!-- Read out once by the pane's live region below, not here too. -->
-        <p class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" data-keep-attention>{keepAttention}</p>
+        <p
+          class={`rounded-lg px-3 py-2 text-body ${keepResult.attention ? "bg-gap-bg text-gap-text!" : "bg-primary-wash text-ink"}`}
+          data-keep-result
+          data-keep-attention={keepResult.attention || undefined}
+        >{keepResult.text}</p>
       {/if}
     </header>
 
@@ -1071,7 +1099,7 @@
           {/if}
         </div>
       {/if}
-      {#if needsConfirmation && canEdit && !(data.state === "approved" && !data.stale)}
+      {#if acknowledgmentShown}
         <div class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" data-approval-acknowledgment>
           <Checkbox
             checked={confirmedChallengeKey === challengeKey}
@@ -1081,9 +1109,8 @@
           {#if approvalChallenge}
             <div class="mt-2 space-y-2 pl-7 text-xs" data-acknowledgment-details>
               {#if approvalChallenge.carriedSeedIds.length}
-                {@const changed = approvalChallenge.changedRoleIds.filter((roleId) => roleId !== data.roleId).map(label)}
                 <div>
-                  <p>{changed.length ? `Written before you changed ${changed.join(", ")}:` : "Written before an earlier change:"}</p>
+                  <p>Written before {sinceWhat(approvalChallenge.changedRoleIds)}:</p>
                   <ul class="mt-0.5 list-disc pl-4">
                     {#each approvalChallenge.carriedSeedIds as seedId (seedId)}<li>{ideaText(String(seedId))}</li>{/each}
                   </ul>

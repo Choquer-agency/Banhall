@@ -4564,6 +4564,12 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     expect(view.container.textContent).not.toMatch(/Outdated|Stale|stale/);
     expect(view.container.querySelector("[data-seed-marker]")).toBeNull();
     expect(view.container.querySelector('[data-step-chip="stale"]')).toBeNull();
+    // One way to confirm (owner, 2026-09-28 eighth): Keep as is is the step's
+    // footer action, with no "I checked these picks" box beside it.
+    expect(notices[0].textContent).toContain("then choose Keep as is, or regenerate and pick again.");
+    expect(view.container.querySelector("[data-approval-acknowledgment]")).toBeNull();
+    expect(page.getByRole("button", { name: "Keep as is", exact: true }).elements()).toHaveLength(1);
+    expect(view.container.querySelector("[data-approve-step]")?.textContent).toBe("Keep as is");
 
     await page.getByRole("button", { name: "Keep as is", exact: true }).click();
     expect(__mutationCalls("seeds:keep")).toEqual([
@@ -4701,5 +4707,46 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
       "Kept 2 steps as they are: Technological limitations, Technological objectives."
     );
     expect(document.querySelector("[data-keep-attention]")).toBeNull();
+    // Shown too, not only announced (owner, 2026-09-28 eighth), until the next pick.
+    expect(document.querySelector("[data-keep-result]")?.textContent).toBe(
+      "Kept 2 steps as they are: Technological limitations, Technological objectives."
+    );
+    __setMutationResult("seeds:select", { seedStageVersion: 9 });
+    await page.getByRole("checkbox").first().click();
+    await expect.poll(() => document.querySelector("[data-keep-result]")).toBeNull();
+  });
+
+  it("says a change on this step happened on this step, not earlier (owner, 2026-09-28 eighth)", async () => {
+    const data = subsection({
+      roleId: "company_context",
+      state: "in_progress",
+      stale: false,
+      staleReason: null,
+      items: [outdatedCard({ roleId: "company_context" })],
+      approvalChallenge: { ...clean(), carriedSeedIds: ["seed-1" as Id<"seeds">], shownBatchOutdated: true, changedRoleIds: ["company_context"] },
+    });
+    const view = await render(SeedSubsectionPane, paneProps(data, { title: "Company / Context" }));
+    await expect.poll(() => view.container.querySelector("[data-approval-acknowledgment]")).not.toBeNull();
+    const box = view.container.querySelector("[data-approval-acknowledgment]");
+    expect(box?.textContent).toContain("Written before you changed feedback or wording on this step:");
+    expect(view.container.textContent).not.toContain("an earlier change");
+    // The box lists the ideas, so the quiet note does not say it again.
+    expect(view.container.querySelector("[data-older-ideas-note]")).toBeNull();
+  });
+
+  it("names earlier steps and this step's own change together in the quiet note (owner, 2026-09-28 eighth)", async () => {
+    const data = subsection({
+      roleId: "passive_limitations",
+      state: "in_progress",
+      stale: false,
+      staleReason: null,
+      items: [outdatedCard({ roleId: "passive_limitations" })],
+      approvalChallenge: { ...clean(), shownBatchOutdated: true, changedRoleIds: ["goal_problem", "passive_limitations"] },
+    });
+    const view = await render(SeedSubsectionPane, paneProps(data, { title: "Limitations" }));
+    await expect.element(page.getByRole("heading", { name: "Limitations" })).toBeVisible();
+    expect(view.container.querySelector("[data-older-ideas-note]")?.textContent).toBe(
+      "These ideas were written before you changed Goal / Problem, and feedback or wording on this step."
+    );
   });
 });

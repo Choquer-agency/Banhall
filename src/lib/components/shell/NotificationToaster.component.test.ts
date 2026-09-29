@@ -78,6 +78,25 @@ describe("NotificationToaster (I3, F6 card)", () => {
     expect(Math.round(window.innerWidth - section.right)).toBe(16);
   });
 
+  it("keeps notifications from before this tab opened behind one pill (owner, 2026-09-28 eighth)", async () => {
+    const hoursAgo = now - 3 * 60 * 60 * 1000;
+    __setQueryData("notifications:listRecent", [
+      row("new"),
+      row("earlier-1", { createdAt: hoursAgo }),
+      row("earlier-2", { createdAt: hoursAgo - 1000 }),
+    ]);
+    await render(NotificationToaster, {});
+    await expect.poll(() => cards().length).toBe(1);
+    expect(cards()[0].textContent).toContain("Project new is with you");
+
+    await page.getByRole("button", { name: "2 updates while you were away", exact: true }).click();
+    await expect.poll(() => cards().length).toBe(3);
+    await page.getByRole("button", { name: "Dismiss all 2 earlier updates", exact: true }).click();
+    await expect.poll(() => cards().length).toBe(1);
+    expect(__mutationCalls("notifications:markSeen")).toEqual([{ ids: ["earlier-1", "earlier-2"] }]);
+    expect(document.querySelector("[data-notification-waiting]")).toBeNull();
+  });
+
   it("closing marks the notification seen and hides it at once", async () => {
     __setQueryData("notifications:listRecent", [row("a")]);
     await render(NotificationToaster, {});
