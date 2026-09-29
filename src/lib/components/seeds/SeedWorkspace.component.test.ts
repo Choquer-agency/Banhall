@@ -762,6 +762,108 @@ describe("Seed workspace", () => {
     await expect.element(page.getByText(rules)).not.toBeInTheDocument();
   });
 
+  describe("links follow the uncertainty the experiments tested (2026-09-29, first amendment)", () => {
+    // Release suite run 6 (Marrowgate, fictional): the writer dropped the
+    // cold-water start-up uncertainty while every picked experiment tested it.
+    const startUp = "Whether stepwise acclimation could shorten nitrification start-up below 10 C was unknown.";
+    const clean = () => ({
+      ...subsection().approvalChallenge!,
+      carriedSeedIds: [],
+      exclusionEntryIds: [],
+      changedRoleIds: [],
+      shownBatchOutdated: false,
+      exclusions: [],
+    });
+    const approveButton = () => page.getByRole("button", { name: "Approve and continue", exact: true });
+
+    it("names experiments that tested a dropped uncertainty on the step and on the card, and holds approval", async () => {
+      const trial = seed({
+        seedId: "trial-1" as Id<"seeds">,
+        roleId: "experimentation",
+        bullets: ["Trial one ran three loops at 8 C."],
+        linkedUncertainty: { seedId: "u1" as Id<"seeds">, bullets: [startUp], picked: false },
+      });
+      const data = subsection({
+        roleId: "experimentation",
+        items: [trial],
+        approvalChallenge: clean(),
+        linkNotice: { kind: "experiments_for_dropped_uncertainty", seedIds: ["trial-1" as Id<"seeds">], uncertainties: [startUp] },
+      });
+      const view = await render(SeedSubsectionPane, paneProps(data, { title: "Experimentation / Iterations", kind: "multiple" }));
+      await expect.element(page.getByText(
+        'A picked experiment tested an uncertainty you no longer have picked: "Whether stepwise acclimation could shorten nitrification start-up below 10 C...". Untick it, pick that uncertainty again in Technological uncertainties, or regenerate this step and pick experiments for the uncertainties you kept.'
+      )).toBeVisible();
+      expect(document.querySelector("[data-link-notice]")?.getAttribute("data-link-notice")).toBe("experiments_for_dropped_uncertainty");
+      expect(document.querySelector('[data-seed-link="tested-dropped"]')?.textContent).toBe(
+        'Tested an uncertainty you no longer have picked: "Whether stepwise acclimation could shorten nitrification start-up below 10 C..."'
+      );
+      await expect.element(approveButton()).toBeDisabled();
+
+      // Readers learn what happened, not actions they cannot take.
+      await view.rerender(paneProps(data, { title: "Experimentation / Iterations", kind: "multiple", canEdit: false }));
+      const reader = document.querySelector("[data-link-notice]")?.textContent ?? "";
+      expect(reader).toContain("tested an uncertainty the writer no longer has picked");
+      expect(reader).not.toMatch(/Untick|regenerate/);
+
+      // Once the experiment tests a picked uncertainty, the card says so and approval returns.
+      await view.rerender(paneProps(subsection({
+        roleId: "experimentation",
+        items: [seed({ ...trial, linkedUncertainty: { seedId: "u2" as Id<"seeds">, bullets: ["Whether feed-forward dosing could hold TAN under 1 mg/L was unresolved."], picked: true } })],
+        approvalChallenge: clean(),
+      }), { title: "Experimentation / Iterations", kind: "multiple" }));
+      expect(document.querySelector("[data-link-notice]")).toBeNull();
+      expect(document.querySelector('[data-seed-link="tested"]')?.textContent).toBe(
+        'Tested: "Whether feed-forward dosing could hold TAN under 1 mg/L was unresolved."'
+      );
+      await expect.element(approveButton()).toBeEnabled();
+    });
+
+    it("says no advancement can be linked yet and how to fix it, and names unlinked picks", async () => {
+      const advancement = seed({
+        seedId: "adv-1" as Id<"seeds">,
+        roleId: "specific_advancements",
+        bullets: ["Stepwise acclimation resolved the cold-water start-up uncertainty."],
+        linkedUncertainty: { seedId: "u3" as Id<"seeds">, bullets: ["Sensor accuracy under biofilm was unknown."], picked: true },
+      });
+      const props = (overrides: Partial<SeedSubsectionData>, canEdit = true) =>
+        paneProps(subsection({ roleId: "specific_advancements", items: [advancement], approvalChallenge: clean(), ...overrides }), {
+          title: "Specific technological advancements",
+          kind: "multiple",
+          canEdit,
+        });
+      const view = await render(SeedSubsectionPane, props({ linkNotice: { kind: "no_linkable_experiment", experimentsPicked: true } }));
+      await expect.element(page.getByText(
+        "No advancement can be linked yet: none of the experiments you picked tested an uncertainty you still have picked. In Experimentation / Iterations, pick an experiment for one of your uncertainties, or pick the dropped uncertainty again in Technological uncertainties, then regenerate this step."
+      )).toBeVisible();
+      await expect.element(approveButton()).toBeDisabled();
+      expect(document.querySelector('[data-seed-link="uncertainty"]')?.textContent).toBe('Uncertainty: "Sensor accuracy under biofilm was unknown."');
+
+      await view.rerender(props({ linkNotice: { kind: "no_linkable_experiment", experimentsPicked: false } }));
+      await expect.element(page.getByText(
+        "No advancement can be linked yet: no experiment is picked. Pick the experiments behind these advancements in Experimentation / Iterations, then regenerate this step."
+      )).toBeVisible();
+
+      await view.rerender(props({ linkNotice: { kind: "unlinked_advancements", seedIds: ["adv-1" as Id<"seeds">] } }));
+      await expect.element(page.getByText(
+        'A picked advancement is not linked to an uncertainty you picked and experiments that tested it: "Stepwise acclimation resolved the cold-water start-up uncertainty.". Untick it, or regenerate this step and pick again.'
+      )).toBeVisible();
+      await expect.element(approveButton()).toBeDisabled();
+
+      await view.rerender(props({ linkNotice: { kind: "no_linkable_experiment", experimentsPicked: true } }, false));
+      expect(document.querySelector("[data-link-notice]")?.textContent).toBe(
+        "No advancement can be linked yet: none of the picked experiments tested a picked uncertainty."
+      );
+    });
+
+    it("says why when experiments keep naming no picked uncertainty", async () => {
+      const empty = { state: "failed" as const, items: [], shownBatchId: null, approvalChallenge: null };
+      await render(SeedSubsectionPane, paneProps(subsection({ ...empty, roleId: "experimentation", lastAttemptFailed: true, repeatedInvalidOutput: "experiment_links" })));
+      await expect.element(page.getByText(
+        "The AI kept writing experiments without naming an uncertainty you picked. Each experiment must name the uncertainty it tested. Try again, or check your picks in Technological uncertainties."
+      )).toBeVisible();
+    });
+  });
+
   it("rechecks edit capability at dispatch, so a revocation landing before an interaction dispatches sends nothing (A3, R6-08)", async () => {
     __setQueryData("seeds:listBatches", {
       page: [{
@@ -4641,11 +4743,11 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     await render(SeedWorkspace, workspaceProps());
     await page.getByRole("button", { name: "Keep all", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-keep-attention]")?.textContent).toBe(
-      "Nothing was kept. Specific advancements needs your attention: its advancements must come from uncertainties and experiments you picked."
+      "Nothing was kept. Specific advancements needs your attention: its advancements must come from uncertainties you picked and experiments that tested them."
     );
     // One status, no contradicting "kept" announcement (review P3 c).
     expect(document.querySelector("[data-pane-announcement]")?.textContent).toBe(
-      "Nothing was kept. Specific advancements needs your attention: its advancements must come from uncertainties and experiments you picked."
+      "Nothing was kept. Specific advancements needs your attention: its advancements must come from uncertainties you picked and experiments that tested them."
     );
   });
 

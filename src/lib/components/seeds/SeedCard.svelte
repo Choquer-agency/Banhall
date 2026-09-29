@@ -357,6 +357,24 @@
     void onSelect(!item.selected);
   }
 
+  // 2026-09-29 (first): the uncertainty an experiment tested, or an
+  // advancement links, so the writer can check the AI's link, and whether it
+  // is still picked.
+  const linkLine = $derived.by(() => {
+    const linked = item.linkedUncertainty;
+    if (!linked) return null;
+    const first = linked.bullets[0] ?? "";
+    const words = `"${first.length > 80 ? `${first.slice(0, 77).trimEnd()}...` : first}"`;
+    if (roleId === "experimentation") {
+      return linked.picked
+        ? { text: `Tested: ${words}`, kind: "tested", dropped: false }
+        : { text: `Tested an uncertainty you no longer have picked: ${words}`, kind: "tested-dropped", dropped: true };
+    }
+    return linked.picked
+      ? { text: `Uncertainty: ${words}`, kind: "uncertainty", dropped: false }
+      : { text: `Its uncertainty is no longer picked: ${words}`, kind: "uncertainty-dropped", dropped: true };
+  });
+
   // Card tools (board 3.1): 28px tiles, 14px strokes in secondary ink.
   const tile =
     "inline-flex size-7 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11";
@@ -693,6 +711,9 @@
         </ul>
         {#if showOriginal && item.edited}
           <p class="text-[0.75rem] leading-4 text-ink-muted">Original wording: {item.originalBullets.join(" ")}</p>
+        {/if}
+        {#if linkLine}
+          <p class={`text-[0.75rem] leading-4 ${linkLine.dropped ? "text-gap-text!" : "text-ink-muted"}`} data-seed-link={linkLine.kind}>{linkLine.text}</p>
         {/if}
       {/if}
 

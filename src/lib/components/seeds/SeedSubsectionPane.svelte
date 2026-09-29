@@ -385,7 +385,8 @@
   // carried selections and names any step it had to leave.
   const KEEP_REFUSAL: Record<string, string> = {
     NO_SELECTION: "it has no picks",
-    UNLINKED_ADVANCEMENT: "its advancements must come from uncertainties and experiments you picked",
+    UNLINKED_ADVANCEMENT: "its advancements must come from uncertainties you picked and experiments that tested them",
+    EXPERIMENT_FOR_DROPPED_UNCERTAINTY: "some picked experiments tested an uncertainty you no longer have picked",
     CLAIM_EXCLUSION: "a pick matches a claim exclusion in the Brief, so confirm it on that step",
     READ_LIMIT: "it could not be checked within the safe processing limit, so confirm it on that step",
   };
@@ -457,6 +458,44 @@
     if (!words) return "an idea not shown here";
     return `"${words.length > 80 ? `${words.slice(0, 77).trimEnd()}...` : words}"`;
   }
+
+  // 2026-09-29 (first): why this step's links stop its approval, said
+  // before the writer tries, with the ways forward. Never a silent relink:
+  // links change only when the writer regenerates or picks again.
+  function quoted(words: string) {
+    return `"${words.length > 80 ? `${words.slice(0, 77).trimEnd()}...` : words}"`;
+  }
+  const linkNoticeText = $derived.by(() => {
+    const notice = data.linkNotice;
+    if (!notice || data.state === "skipped") return null;
+    if (notice.kind === "experiments_for_dropped_uncertainty") {
+      const count = notice.seedIds.length;
+      const which = count === 1 ? "A picked experiment" : `${count} picked experiments`;
+      const several = notice.uncertainties.length > 1;
+      const names = notice.uncertainties.map((words) => (words ? quoted(words) : "an uncertainty not shown here")).join(", ");
+      const what = several ? "uncertainties" : "an uncertainty";
+      if (!canEdit) return `${which} tested ${what} the writer no longer has picked: ${names}. This step cannot be approved until that changes.`;
+      return `${which} tested ${what} you no longer have picked: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again in Technological uncertainties, or regenerate this step and pick experiments for the uncertainties you kept.`;
+    }
+    if (notice.kind === "no_linkable_experiment") {
+      if (!notice.experimentsPicked) {
+        return canEdit
+          ? "No advancement can be linked yet: no experiment is picked. Pick the experiments behind these advancements in Experimentation / Iterations, then regenerate this step."
+          : "No advancement can be linked yet: no experiment is picked.";
+      }
+      return canEdit
+        ? "No advancement can be linked yet: none of the experiments you picked tested an uncertainty you still have picked. In Experimentation / Iterations, pick an experiment for one of your uncertainties, or pick the dropped uncertainty again in Technological uncertainties, then regenerate this step."
+        : "No advancement can be linked yet: none of the picked experiments tested a picked uncertainty.";
+    }
+    const count = notice.seedIds.length;
+    const which = count === 1 ? "A picked advancement is" : `${count} picked advancements are`;
+    const ideas = notice.seedIds.map((seedId) => ideaText(String(seedId))).join(", ");
+    return canEdit
+      ? `${which} not linked to an uncertainty you picked and experiments that tested it: ${ideas}. Untick ${count === 1 ? "it" : "them"}, or regenerate this step and pick again.`
+      : `${which} not linked to a picked uncertainty and experiments that tested it: ${ideas}. This step cannot be approved until that changes.`;
+  });
+  // The server refuses approval while a link notice stands; the notice says why.
+  const linkBlocked = $derived(!!linkNoticeText);
 
   // Boards F3 and F5: Regenerate keeps its full ink while ideas are being
   // written, but a Batch already on its way is not replaced: the control is
@@ -582,6 +621,7 @@
       !approvalChallenge ||
       approvalSelectedCount === 0 ||
       data.state === "skipped" ||
+      linkBlocked ||
       (needsConfirmation && !keepMode && confirmedChallengeKey !== challengeKey)
   );
 
@@ -1055,6 +1095,9 @@
         </div>
       {:else if olderIdeasNote}
         <p class="text-[0.75rem] leading-4 text-ink-muted" data-older-ideas-note>{olderIdeasNote}</p>
+      {/if}
+      {#if linkNoticeText}
+        <p class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status" data-link-notice={data.linkNotice?.kind}>{linkNoticeText}</p>
       {/if}
       {#if laterReview}
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-primary-wash px-3 py-2 text-body text-ink" data-later-review>
