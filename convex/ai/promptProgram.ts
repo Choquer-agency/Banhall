@@ -753,10 +753,10 @@ export const generationPromptProgram = {
       callSite: "generation:repair:<n>",
       maxPerSection: 1,
       recheck: "deterministic-only",
-      // 2026-09-30 (second, review P2-1): a repair that carried Line 244's
-      // work fix or a targets fix is set aside when it holds a signed-off
-      // figure in fewer paragraphs than the checked draft (Locked Rules first).
-      evidenceGuard: "work-and-targets-fixes-keep-every-signed-off-figure-paragraph",
+      // 2026-09-30 (second, review P2-1 and re-check): a repair that carried
+      // Line 244's work fix is set aside when it mentions a signed-off figure
+      // fewer times than the checked draft (Locked Rules first).
+      evidenceGuard: "work-fixes-keep-every-signed-off-figure-mention",
       // 2026-09-30 (third): in a signed-off plan run, report text that names
       // a source is found deterministically and repaired (never a Must keep
       // line), and Confidence Map, Storyline and Glossary fixes get a fixed

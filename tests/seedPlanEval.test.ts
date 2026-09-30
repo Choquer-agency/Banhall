@@ -638,8 +638,9 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
   }
 
   it("reads figures with a unit, normalised, lists included", () => {
+    // Re-check: a bare "degrees" is an angle, never a temperature.
     expect(figuresOf("At 6 degrees C the loops took 44 and 29 days; 15 percent seed, from 14 to 8 degrees.")).toEqual([
-      "6 C", "44 days", "29 days", "15 percent", "14 C", "8 C",
+      "6 C", "44 days", "29 days", "15 percent", "14 degrees", "8 degrees",
     ]);
     // 2026-09-30 (second, review P2-5): a hyphenated unit is read too.
     expect(figuresOf("A 5-week target, 10% seed and 2.3 mg/L TAN at 7 C.")).toEqual(["5 weeks", "10 percent", "2.3 mg/L", "7 C"]);

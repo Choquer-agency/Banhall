@@ -3,8 +3,9 @@ import { distinctiveFigures, droppedUncertaintyFigures, figuresOf } from "./plan
 
 describe("figures with a unit (2026-09-30 second, shared by the product and the release suite)", () => {
   it("reads the release suite's forms, a hyphenated unit included", () => {
+    // Re-check: a bare "degrees" is an angle, never a temperature.
     expect(figuresOf("At 6 degrees C the loops took 44 and 29 days; 15 percent seed, from 14 to 8 degrees.")).toEqual([
-      "6 C", "44 days", "29 days", "15 percent", "14 C", "8 C",
+      "6 C", "44 days", "29 days", "15 percent", "14 degrees", "8 degrees",
     ]);
     // Review P2-5: "a 5-week target" is "5 weeks".
     expect(figuresOf("A 5-week target, 10% seed and 2.3 mg/L TAN at 7 C.")).toEqual(["5 weeks", "10 percent", "2.3 mg/L", "7 C"]);
@@ -41,6 +42,16 @@ describe("figures with a unit (2026-09-30 second, shared by the product and the 
     expect(figuresOf("from -5 to 5 C, and \u22123 C overnight")).toEqual(["-5 C", "5 C", "-3 C"]);
     // A hyphen after a number is a range, never a minus.
     expect(figuresOf("in 6-12 C water")).toEqual(["6 C", "12 C"]);
+  });
+
+  it("re-check: reads a bare degree or degree sign as an angle, never as degrees C (withdrawn-feedback, run 11)", () => {
+    expect(figuresOf(
+      "The team then tested two images per edge, at 15 and 60 degree lighting angles, using two-angle differencing to separate burr shadow from surface reflection."
+    )).toEqual(["15 degrees", "60 degrees"]);
+    expect(figuresOf("a 45 degree chamfer and a 30° bevel")).toEqual(["45 degrees", "30 degrees"]);
+    // A temperature says C, Celsius or a degree sign with C.
+    expect(figuresOf("at 60 degrees C, 60 degrees Celsius and 60°C")).toEqual(["60 C"]);
+    expect(figuresOf("at 60 degrees C")).not.toContain("60 degrees");
   });
 
   it("review P2-5: never reads a capital label, a decade or a glued letter as a unit", () => {

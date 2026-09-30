@@ -141,24 +141,54 @@ const SOURCE_TALK_PATTERNS: readonly RegExp[] = [
 
 /**
  * 2026-09-30 (third, review P2-4): the head nouns of source talk, each with
- * the word forms that make it the project's own subject. A hit whose head
- * noun has a form among the subject's words is not reported: an interview
- * scheduling product, a speech-to-text engine ("in the transcript"), credit
- * memos, light sources, event logs. "recorded elsewhere", "the Brief" and
- * "Confidence Map" have no such head and are always source talk.
+ * the noun forms that make it the project's own subject. A hit whose head
+ * noun the subject uses as a noun is not reported: an interview scheduling
+ * product, a speech-to-text engine ("in the transcript"), credit memos,
+ * event logs. "recorded elsewhere", "the Brief" and "Confidence Map" have no
+ * such head and are always source talk. Re-check: noun forms only, so a
+ * verb or an adjective ("documented", "logged", "transcribed",
+ * "interviewing") never makes a head the subject; "minutes" is the subject
+ * only as meeting minutes (MEETING_MINUTES); and "source" is matched with
+ * its modifier (sourceModifiers).
  */
 const SOURCE_HEAD_NOUNS: ReadonlyArray<readonly string[]> = [
-  ["interview", "interviews", "interviewee", "interviewees", "interviewer", "interviewers", "interviewing"],
-  ["transcript", "transcripts", "transcription", "transcriptions", "transcribe", "transcribed", "transcribes"],
+  ["interview", "interviews", "interviewee", "interviewees", "interviewer", "interviewers"],
+  ["transcript", "transcripts", "transcription", "transcriptions"],
   ["memo", "memos"],
-  ["document", "documents", "documentation", "documented"],
+  ["document", "documents", "documentation"],
   ["record", "records"],
   ["note", "notes"],
-  ["log", "logs", "logged", "logging"],
+  ["log", "logs"],
   ["minutes"],
   ["source", "sources"],
   ["storyline", "storylines"],
 ];
+
+/** Re-check: "minutes" is the project's subject only in a meeting sense. */
+const MEETING_MINUTES = /\bmeeting minutes\b|\bminutes of (?:the |a |each |every )?meetings?\b/iu;
+
+/** Words before "source" that name no kind of source. */
+const NO_MODIFIER = new Set([
+  "the", "a", "an", "one", "each", "both", "two", "three", "all", "these", "those", "this", "that",
+  "our", "their", "its", "other", "another", "single", "which", "any", "to", "on", "of", "per", "and", "or",
+]);
+
+/**
+ * The modifier of each "source" or "sources" in some words: the word before
+ * it ("light", "measurement"), or "" when none names a kind of source ("the
+ * sources", "two sources"). A "source of ..." ("source of error") is a cause,
+ * not a kind of source, and is left out.
+ */
+function sourceModifiers(words: readonly string[], options: { skipSourceOf: boolean }): string[] {
+  const out: string[] = [];
+  words.forEach((word, index) => {
+    if (word !== "source" && word !== "sources") return;
+    if (options.skipSourceOf && words[index + 1] === "of") return;
+    const before = words[index - 1];
+    out.push(before && !NO_MODIFIER.has(before) ? before : "");
+  });
+  return out;
+}
 
 /**
  * 2026-09-30 (third, review P2-4): the project's own subject for
@@ -183,15 +213,31 @@ function wordsOf(text: string): string[] {
  * third). `subjectText` is the project's own subject: every signed-off
  * item's wording across all Lines, the Glossary Terms and the writer's
  * edited terms. A hit whose head noun (interview, transcript, memo,
- * document, record, notes, log, source, storyline) the subject uses in any
- * of its forms is not reported. Hits are in text order, one per position.
+ * document, record, notes, log, meeting minutes, storyline) the subject
+ * uses as a noun is not reported, and a "source" hit only where the subject
+ * uses "source" with the same modifier. Hits are in text order, one per
+ * position.
  */
 export function findSourceTalk(
   text: string,
   options: { subjectText?: readonly string[] } = {}
 ): SourceTalkHit[] {
-  const subject = new Set((options.subjectText ?? []).flatMap(wordsOf));
-  const subjectHeads = SOURCE_HEAD_NOUNS.filter((forms) => forms.some((form) => subject.has(form)));
+  const subjectTexts = options.subjectText ?? [];
+  const subject = new Set(subjectTexts.flatMap(wordsOf));
+  const meetingMinutes = subjectTexts.some((text) => MEETING_MINUTES.test(text));
+  const subjectHeads = SOURCE_HEAD_NOUNS.filter((forms) =>
+    forms[0] === "source"
+      ? false
+      : forms[0] === "minutes"
+        ? meetingMinutes
+        : forms.some((form) => subject.has(form)));
+  // Re-check: a source hit is the subject only where the subject uses the
+  // same modifier ("measurement source" silences "depending on the
+  // measurement source"; "light source" or "source of error" silences no
+  // bare "the sources").
+  const subjectSources = new Set(
+    subjectTexts.flatMap((text) => sourceModifiers(wordsOf(text), { skipSourceOf: true }))
+  );
   const hits: SourceTalkHit[] = [];
   for (const pattern of SOURCE_TALK_PATTERNS) {
     pattern.lastIndex = 0;
@@ -200,6 +246,8 @@ export function findSourceTalk(
       const phrase = match[0];
       const words = wordsOf(phrase);
       if (subjectHeads.some((forms) => forms.some((form) => words.includes(form)))) continue;
+      const hitSources = sourceModifiers(words, { skipSourceOf: false });
+      if (hitSources.length > 0 && hitSources.every((modifier) => subjectSources.has(modifier))) continue;
       const start = Math.max(0, match.index - 30);
       const end = Math.min(text.length, match.index + phrase.length + 30);
       hits.push({

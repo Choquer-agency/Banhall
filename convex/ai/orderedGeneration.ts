@@ -112,7 +112,7 @@ import {
   type SummaryPlanRuleId,
 } from "../lib/seedRevisions";
 import { sectionParagraphs } from "../lib/tiptapReport";
-import { droppedUncertaintyFigures, figuresOf } from "../../shared/planFigures";
+import { droppedUncertaintyFigures, figureCounts, figuresOf } from "../../shared/planFigures";
 import { isNearCopy } from "../lib/droppedUncertainties";
 import { forwardOrderedPayload } from "../lib/orderedPayloadStore";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
@@ -622,11 +622,12 @@ export function leaveOutFigureBackstop(args: {
 
 /**
  * Review P2-1: the first signed-off figure (one found in any signed-off
- * item's wording, any Line) that the repaired text holds in fewer paragraphs
- * than the checked draft, or undefined. A repair made for Line 244's work
- * check or the targets check that loses one may have cut the work a
- * signed-off item needs as its evidence (carried-old-selections, run 11: the
- * capture trials behind goal item 13 hold "20 ppi").
+ * item's wording, any Line) that the repaired text mentions fewer times than
+ * the checked draft, or undefined. A Rule C repair that loses one may have
+ * cut the work a signed-off item needs as its evidence (carried-old-
+ * selections, run 11: the capture trials behind goal item 13 mention "20
+ * ppi" and "30 ppi"). Re-check: mentions are counted over the whole text,
+ * not per paragraph, so a repair that only merges paragraphs keeps them.
  */
 export function lostPlanFigure(
   checked: string,
@@ -634,26 +635,18 @@ export function lostPlanFigure(
   planWording: ReadonlyArray<readonly string[]>
 ): { figure: string; before: number; after: number } | undefined {
   const planFigures = new Set(planWording.flatMap((wording) => figuresOf(wording.join(" "))));
-  const counts = (text: string) => {
-    const out = new Map<string, number>();
-    for (const paragraph of sectionParagraphs(text)) {
-      for (const figure of new Set(figuresOf(paragraph))) {
-        if (planFigures.has(figure)) out.set(figure, (out.get(figure) ?? 0) + 1);
-      }
-    }
-    return out;
-  };
-  const after = counts(repaired);
-  for (const [figure, before] of counts(checked)) {
+  const after = figureCounts(repaired);
+  for (const [figure, before] of figureCounts(checked)) {
+    if (!planFigures.has(figure)) continue;
     const kept = after.get(figure) ?? 0;
     if (kept < before) return { figure, before, after: kept };
   }
   return undefined;
 }
 
-/** Review P2-1: why a repair that lost a signed-off figure was not used. */
+/** Review P2-1: why a Rule C repair that lost a signed-off figure was not used. */
 export function repairLostPlanFigureReason(lost: { figure: string; before: number; after: number }): string {
-  return `the repaired text holds the signed-off figure "${lost.figure}" in ${lost.after} ${lost.after === 1 ? "paragraph" : "paragraphs"} where the checked draft held it in ${lost.before}, and a fix that leaves out work or restates a result must keep the evidence a signed-off item needs, so the checked draft was kept`;
+  return `the repaired text mentions the signed-off figure "${lost.figure}" ${lost.after === 1 ? "once" : `${lost.after} times`} where the checked draft mentioned it ${lost.before === 1 ? "once" : `${lost.before} times`}, and a fix that leaves out work must keep the evidence a signed-off item needs, so the checked draft was kept`;
 }
 
 /** Every LEAVE OUT verdict the figure backstop replaces, replaced. */
@@ -1234,9 +1227,12 @@ export async function draftCheckedSection(input: {
   // Must keep lines for the repair's compression, whose number and negation
   // guard would otherwise protect the very words they remove.
   const leaveOutIssues = new Set<string>();
-  // Review P2-1: fixes whose repair must keep every signed-off figure the
-  // checked draft held (Line 244's work check and the targets check).
+  // Review P2-1: Rule C fixes, whose repair must keep every signed-off
+  // figure the checked draft mentions. Re-check: a targets fix restates
+  // rather than removes work, so it is not figure-guarded; the COVER
+  // rollback below protects it (targetsIssues).
   const evidenceIssues = new Set<string>();
+  const targetsIssues = new Set<string>();
   const planIssues = modelCheck.ok
     ? planVerdicts.flatMap((verdict) => {
         const expected = claim.planChecks.find((check) => sameSummaryPlanRef(verdict, check));
@@ -1264,7 +1260,7 @@ export async function draftCheckedSection(input: {
         // to state something, so it stays a Must keep line.
         if (expected?.instruction === "match_targets") {
           const issue = leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason);
-          evidenceIssues.add(issue);
+          targetsIssues.add(issue);
           return [issue];
         }
         return [verdict.repairText ?? verdict.repairGuidance ?? verdict.reason];
@@ -1360,11 +1356,12 @@ export async function draftCheckedSection(input: {
         // a draft further over the limit never comes back for a kept idea.
         const keptOverLimit =
           droppedKept.length > 0 && overLimitMore(text, fit.text);
-        // Review P2-1: a repair that carried Line 244's work fix or a
-        // targets fix must keep the evidence signed-off items need. It is
-        // set aside when it holds a signed-off figure in fewer paragraphs
-        // than the checked draft, unless the checked draft is further over a
-        // Locked limit (Locked Rules first).
+        // Review P2-1: a repair that carried Line 244's work fix must keep
+        // the evidence signed-off items need. It is set aside when it
+        // mentions a signed-off figure fewer times than the checked draft
+        // (re-check: counted over the whole text, so merged paragraphs keep
+        // their count), unless the checked draft is further over a Locked
+        // limit (Locked Rules first).
         const lostFigure = evidenceIssues.size > 0 ? lostPlanFigure(text, fit.text, planWording) : undefined;
         const figureOverLimit = lostFigure !== undefined && overLimitMore(text, fit.text);
         const failure =
@@ -1514,7 +1511,7 @@ export async function draftCheckedSection(input: {
   // over a Locked limit (Locked Rules first). With no final verdict to read,
   // nothing shows a loss, and the repair stays.
   // Review P3 (targets): a targets fix must keep what the plan holds too.
-  if (repair.succeeded && finalCoverage?.ok && (leaveOutIssues.size > 0 || evidenceIssues.size > 0)) {
+  if (repair.succeeded && finalCoverage?.ok && (leaveOutIssues.size > 0 || targetsIssues.size > 0)) {
     const coverage = finalCoverage;
     const lost = claim.planChecks.filter((planCheck) => {
       if (planCheck.instruction !== "cover" || planCheck.confirmedExclusion) return false;

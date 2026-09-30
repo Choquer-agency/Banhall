@@ -447,8 +447,28 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: `P2 adds sensor work, not in 242.; repair not used (the repaired text holds the signed-off figure "8 C" in 0 paragraphs where the checked draft held it in 1, and a fix that leaves out work or restates a result must keep the evidence a signed-off item needs, so the checked draft was kept)`,
+      reason: `P2 adds sensor work, not in 242.; repair not used (the repaired text mentions the signed-off figure "8 C" 0 times where the checked draft mentioned it once, and a fix that leaves out work must keep the evidence a signed-off item needs, so the checked draft was kept)`,
     });
+  });
+
+  it("re-check: uses a Rule C repair that removes Brief-only work and merges two paragraphs, since every signed-off figure keeps its count", async () => {
+    // The sensor paragraph goes, and P2 and P3 become one paragraph: the
+    // per-paragraph count of "8 C", "19 days" and "2.3 mg/L" would change,
+    // but their mentions in the text do not.
+    const merged = [P1, `${P2} ${P3}`].join("\n\n");
+    expect(lostPlanFigure(DRAFT, merged, PLAN_WORDING)).toBeUndefined();
+    const sent = installFetch({
+      draft: DRAFT,
+      repair: merged,
+      checks: [
+        [skipHonoured, ...allCovered, sensorStray],
+        [skipHonoured, covered(ITEM.workplan, 1), covered(ITEM.stall, 2), covered(ITEM.dose, 2), workAnswers],
+      ],
+    });
+    const result = await draft("244", claimDrafted());
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(result.draftText).toBe(merged);
+    expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({ outcome: "applied", repaired: true });
   });
 
   it("sets aside a Rule C repair that cuts the capture trials behind goal item 13, and lets the sensor experiment go (release suite run 11)", async () => {
@@ -561,7 +581,7 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({ outcome: "applied", repaired: true });
   });
 
-  it("sets aside a targets repair that loses a signed-off figure, and a targets repair that loses a COVER item (review P2-1 and P3)", async () => {
+  it("re-check: uses a targets repair that drops a figure mention, and sets aside a targets repair that loses a COVER item (review P3)", async () => {
     const plan = buildFrozenSummaryPlan({
       section: "s244",
       items: ITEMS,
@@ -578,12 +598,15 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
       repairGuidance: "Say 1.2 mg/L missed the under-1 target.",
     };
     const targetsMet = { ruleId: "results_against_targets", mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Results match targets." };
-    // The repair restates P3 and drops "2.3 mg/L".
+    // The repair restates P3 and drops "2.3 mg/L". A targets fix restates
+    // rather than removes work, so no figure guard sets it aside; the check
+    // of its final text decides.
     const restated = [P1, P2, "Feed-forward dosing cut peak TAN to 1.2 mg/L, which missed the under-1 target."].join("\n\n");
+    expect(lostPlanFigure(REPAIRED, restated, PLAN_WORDING)).toMatchObject({ figure: "2.3 mg/L" });
     const sent = installFetch({
       draft: REPAIRED,
       repair: restated,
-      checks: [[skipHonoured, ...allCovered, targets, workAnswers]],
+      checks: [[skipHonoured, ...allCovered, targets, workAnswers], [skipHonoured, ...allCovered, targetsMet, workAnswers]],
     });
     const result = await draft("244", claimFor({
       section: "244",
@@ -591,11 +614,12 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
       priorSections: [{ section: "242", text: LINE_242 }],
       workAnswers242: { line242Drafted: true, line246Items: ITEMS_246 },
     }));
-    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
-    expect(result.draftText).toBe(REPAIRED);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(result.draftText).toBe(restated);
     expect(rowOf(result, (ref) => ref.ruleId === "results_against_targets")).toMatchObject({
-      outcome: "not_applied",
-      reason: `P3 hides that 1.2 mg/L missed the target.; repair not used (${repairLostPlanFigureReason({ figure: "2.3 mg/L", before: 1, after: 0 })})`,
+      outcome: "applied",
+      repaired: true,
+      reason: "Results match targets.",
     });
 
     // A targets repair that keeps every figure but loses the work plan
@@ -621,6 +645,58 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
       outcome: "not_applied",
       reason: `P3 hides that 1.2 mg/L missed the target.; repair not used (${repairDroppedCoverItemReason({ wording: [WORKPLAN] })})`,
     });
+  });
+
+  it("re-check: uses a Line 246 targets repair that corrects a met target and drops a repeated figure (withdrawn-feedback, run 11)", async () => {
+    // Run 11's Line 246 and its signed-off Line 246 items. P1 calls two met
+    // targets "close to but not exceeding"; the repair says they were met and
+    // drops P1's repeat of "0.6 mm", which P3 still states.
+    const science = ["Two-angle imaging cut vision error to 0.07 millimetres RMS at 95 milliseconds per edge, meeting both targets.", "The non-linear force map, with a knee near 0.6 millimetres, let force scale correctly with burr height across the range."];
+    const single = ["Single-angle 2D vision on cast aluminium failed to reach the accuracy or speed target.", "The error was 0.18 millimetres RMS at 210 milliseconds per edge, revealing a limit of single-angle imaging."];
+    const status = ["The project remains active in the pilot cell in Bay 4, with no production cell shipped yet.", "The team is running parts close to the cycle time limit, leaving no room for extra steps."];
+    const goals = ["The project set out to replace manual deburring with a controlled process holding edge radius within 0.2 to 0.5 millimetres.", "The knowledge gained lets the compliant spindle set force per edge from a 2D burr height estimate, meeting that original goal."];
+    const items = [
+      { itemId: "item-wf-science", roleId: "overall_advancement" as const, kind: "standard" as const, bullets: science, support: "source_supported" as const },
+      { itemId: "item-wf-single", roleId: "specific_advancements" as const, kind: "multiple" as const, bullets: single, support: "source_supported" as const },
+      { itemId: "item-wf-status", roleId: "project_status" as const, kind: "standard" as const, bullets: status, support: "source_supported" as const },
+      { itemId: "item-wf-goals", roleId: "goal_improvements" as const, kind: "standard" as const, bullets: goals, support: "source_supported" as const },
+    ];
+    const plan = buildFrozenSummaryPlan({ section: "s246", items, skippedRoleIds: [], resultsAgainstTargets: true });
+    const P1_WF = "The technological objective was to advance real-time 2D vision-based burr height estimation and adaptive force control of a compliant spindle for deburring cast A357 aerospace brackets. This objective was met. Two-angle imaging cut vision error to 0.07 mm RMS at 95 ms per edge, meeting both targets, and the non-linear force map, with a knee near 0.6 mm, let force scale correctly with burr height across the range. Combined, these results reached 97.8 percent of edges in the edge radius window and 2.6 percent rejects, close to but not exceeding the 97 percent and 3 percent targets.";
+    const rest = [
+      "Single-angle 2D vision on cast aluminum could not reach the accuracy or speed target needed for per-edge force control. The 0.18 mm RMS error at 210 ms per edge revealed a limit of single-angle imaging, traced to specular reflection on machined faces.",
+      "The relationship between burr height and required compliant spindle force is non-linear, with a repeatable knee near 0.6 mm. This was used to build a force map that scales contact force correctly across the 0.1-1.2 mm burr range.",
+      "The project remains active in the pilot cell in Bay 4, with no production cell shipped. Cycle time now runs close to the 4-minute limit, leaving no margin for added steps.",
+      "The original goal was to replace manual deburring with a controlled process holding edge radius within the 0.2 to 0.5 mm edge radius window. The knowledge gained lets the compliant spindle set force per edge from a 2D burr height estimate, meeting that goal and cutting rejects from 9 percent under manual deburring to 2.6 percent.",
+    ];
+    const text = [P1_WF, ...rest].join("\n\n");
+    const corrected = [
+      "The technological objective was to advance real-time 2D vision-based burr height estimation and adaptive force control of a compliant spindle for deburring cast A357 aerospace brackets. This objective was met. Two-angle imaging cut vision error to 0.07 mm RMS at 95 ms per edge, meeting both targets, and the non-linear force map let force scale correctly with burr height. Combined, these results reached 97.8 percent of edges in the edge radius window, meeting the 97 percent target, and 2.6 percent rejects, within the 3 percent limit.",
+      ...rest,
+    ].join("\n\n");
+    // P1 drops its repeat of "0.6 mm": a Rule C guard would have counted a loss.
+    expect(lostPlanFigure(text, corrected, items.map((item) => item.bullets))).toEqual({ figure: "0.6 mm", before: 2, after: 1 });
+    const coverAnswers = [covered("item-wf-science", 1), covered("item-wf-single", 2), covered("item-wf-status", 4), covered("item-wf-goals", 5)];
+    const misstated = {
+      ruleId: "results_against_targets",
+      mergedItemIds: [],
+      paragraph: 1,
+      outcome: "not_applied",
+      reason: "P1 calls met targets close to but not exceeding.",
+      repairGuidance: "Say both targets were met.",
+    };
+    const sent = installFetch({
+      draft: text,
+      repair: corrected,
+      checks: [
+        [...coverAnswers, misstated],
+        [...coverAnswers, { ruleId: "results_against_targets", mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Results match targets." }],
+      ],
+    });
+    const result = await draft("246", claimFor({ section: "246", plan, planWording: items.map((item) => item.bullets) }));
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(result.draftText).toBe(corrected);
+    expect(rowOf(result, (ref) => ref.ruleId === "results_against_targets")).toMatchObject({ outcome: "applied", repaired: true });
   });
 
   it("honours Rule C by absence: a break with no paragraph is not repaired, and a missing verdict is asked for once", async () => {

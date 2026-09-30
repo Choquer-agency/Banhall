@@ -9,7 +9,8 @@
  * applied (convex/ai/orderedGeneration.ts), and a repair that keeps fewer
  * paragraphs holding a signed-off figure is set aside. Review fixes: a hyphen
  * between number and unit, spelled units, thousands separators, a minus
- * sign, and a capital label such as "Trial 4 C" read right; product and
+ * sign, and a capital label such as "Trial 4 C" read right, and a bare
+ * "degree" is an angle (re-check); product and
  * suite compute a dropped uncertainty's own figures by one rule
  * (droppedUncertaintyFigures).
  */
@@ -19,7 +20,10 @@ const UNITS: ReadonlyArray<[string, string]> = [
   [String.raw`degrees?\s*celsius`, "C"],
   [String.raw`degrees?\s*c`, "C"],
   [String.raw`[°º]\s*c`, "C"],
-  [String.raw`degrees?`, "C"],
+  // Re-check: a bare "degree" or degree sign is an angle ("a 45 degree
+  // chamfer", "15 and 60 degree lighting"), never a temperature.
+  [String.raw`degrees?`, "degrees"],
+  [String.raw`[°º]`, "degrees"],
   [String.raw`per\s*cent`, "percent"],
   [String.raw`percent`, "percent"],
   [String.raw`%`, "percent"],
@@ -123,7 +127,23 @@ function numberOf(raw: string): string {
  * target" is "5 weeks"; "1,350 C" is "1350 C"; "-5 C" keeps its minus).
  */
 export function figuresOf(text: string): string[] {
-  const found = new Set<string>();
+  return [...new Set(figureMentions(text))];
+}
+
+/**
+ * Re-check: how many times each figure is mentioned in a text, in the order
+ * first seen ("44 and 29 days" mentions each once). Merging two paragraphs
+ * keeps every count; cutting a paragraph lowers the counts of its figures.
+ */
+export function figureCounts(text: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const figure of figureMentions(text)) counts.set(figure, (counts.get(figure) ?? 0) + 1);
+  return counts;
+}
+
+/** Every figure mention in a text, in order, repeats included. */
+function figureMentions(text: string): string[] {
+  const found: string[] = [];
   for (const match of text.matchAll(FIGURE)) {
     const before = text.slice(0, match.index);
     const unit = unitOf(match[3]!, before);
@@ -135,9 +155,9 @@ export function figuresOf(text: string): string[] {
       ...(label && LABEL_WORDS.test(label[1]!) ? [] : match[1]!.match(NUMBERS) ?? []),
       match[2]!,
     ];
-    for (const number of listed) found.add(`${numberOf(number)} ${unit}`);
+    for (const number of listed) found.push(`${numberOf(number)} ${unit}`);
   }
-  return [...found];
+  return found;
 }
 
 /**
