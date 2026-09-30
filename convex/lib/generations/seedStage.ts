@@ -58,7 +58,8 @@ import { SEED_DECISION_COLLECTION_ROWS } from "../seedDecisionState";
 import { editedTermsOf, MAX_EDITED_TERMS_PER_LINE } from "../editedTerms";
 import {
   feedbackForLine,
-  glossaryTermsSetAside,
+  glossaryTermPrecedence,
+  type FeedbackGovernedTerm,
   type GlossarySetAside,
   type WriterFeedback,
 } from "../writerPrecedence";
@@ -761,9 +762,11 @@ async function activeFeedbackRows(
 
 /**
  * 2026-09-29 (second): for the assembled-draft consistency pass, which Lines
- * carry an idea the writer kept despite each Claim Exclusion, and which
- * Lines set each Glossary Term aside (the same rules as the drafting plan,
- * without reading the plan's evidence). Null without a signed-off Summary.
+ * carry an idea the writer kept despite each Claim Exclusion, which Lines a
+ * signed-off edit sets each Glossary Term aside in, and which Lines the
+ * writer's Feedback governs each one in, with that Feedback (the same rules
+ * as the drafting plan, without reading the plan's evidence). Null without a
+ * signed-off Summary.
  */
 export async function loadWriterPrecedenceByLine(
   ctx: { db: QueryCtx["db"] },
@@ -772,6 +775,7 @@ export async function loadWriterPrecedenceByLine(
 ): Promise<{
   keptExclusions: Array<{ text: string; sections: SectionNumber[] }>;
   glossarySetAside: Array<{ term: string; sections: SectionNumber[] }>;
+  feedbackTerms: Array<{ term: string; sections: SectionNumber[]; feedback: WriterFeedback[] }>;
 } | null> {
   if (!generation.summaryVersionId || !brief) return null;
   const summary = await ctx.db.get(generation.summaryVersionId);
@@ -786,6 +790,7 @@ export async function loadWriterPrecedenceByLine(
   const feedbackRows = await activeFeedbackRows(ctx, generation, originGenerationId);
   const keptExclusions: Array<{ text: string; sections: SectionNumber[] }> = [];
   const glossarySetAside: Array<{ term: string; sections: SectionNumber[] }> = [];
+  const feedbackTerms: Array<{ term: string; sections: SectionNumber[]; feedback: WriterFeedback[] }> = [];
   const push = <T extends { sections: SectionNumber[] }>(
     list: T[],
     find: (entry: T) => boolean,
@@ -815,17 +820,27 @@ export async function loadWriterPrecedenceByLine(
       if (stableSerialize(item.bullets) === stableSerialize(seed.bullets)) continue;
       editedItems.push({ original: seed.bullets, edited: item.bullets });
     }
-    const aside = glossaryTermsSetAside({
+    const precedence = glossaryTermPrecedence({
       glossaryTerms: brief.glossaryTerms,
       feedback: feedbackForLine(section, feedbackRows, summary.skippedRoleIds),
       editedItems,
       selectionWording: lineItems.map((item) => item.bullets),
     });
-    for (const entry of aside) {
+    for (const entry of precedence.setAside) {
       push(glossarySetAside, (known) => known.term === entry.term, () => ({ term: entry.term, sections: [] }), section);
     }
+    for (const entry of precedence.governed) {
+      push(feedbackTerms, (known) => known.term === entry.term, () => ({ term: entry.term, sections: [], feedback: [] }), section);
+      // Every instruction that governs the term in any of its Lines, once.
+      const known = feedbackTerms.find((candidate) => candidate.term === entry.term)!;
+      for (const feedback of entry.feedback) {
+        if (!known.feedback.some((seen) => seen.roleId === feedback.roleId && seen.instruction === feedback.instruction)) {
+          known.feedback.push(feedback);
+        }
+      }
+    }
   }
-  return { keptExclusions, glossarySetAside };
+  return { keptExclusions, glossarySetAside, feedbackTerms };
 }
 
 export async function loadFrozenSectionPlan(
@@ -834,7 +849,8 @@ export async function loadFrozenSectionPlan(
   section: SectionNumber,
   /**
    * 2026-09-29 (second): the frozen Brief's Glossary Terms, so the plan can
-   * say which ones the writer's own wording sets aside in this Line.
+   * say which ones the writer's Feedback governs in this Line and which ones
+   * a signed-off edit sets aside.
    */
   options: { glossaryTerms?: readonly string[] } = {}
 ): Promise<{
@@ -873,8 +889,13 @@ export async function loadFrozenSectionPlan(
    * Withdrawn Feedback, and Feedback a Skip suspended, never does.
    */
   writerFeedback: WriterFeedback[];
-  /** The Glossary Terms the writer's own wording governs in this Line. */
+  /** The Glossary Terms a signed-off edit set aside in this Line. */
   glossarySetAside: GlossarySetAside[];
+  /**
+   * PR #22 lead decision: the Glossary Terms the Line's active Feedback
+   * names, which that Feedback governs here, each with the instructions.
+   */
+  feedbackTerms: FeedbackGovernedTerm[];
 }> {
   if (!generation.summaryVersionId) {
     return {
@@ -884,6 +905,7 @@ export async function loadFrozenSectionPlan(
       editedTerms: [],
       writerFeedback: [],
       glossarySetAside: [],
+      feedbackTerms: [],
     };
   }
   const summary = await ctx.db.get(generation.summaryVersionId);
@@ -961,7 +983,7 @@ export async function loadFrozenSectionPlan(
     await activeFeedbackRows(ctx, generation, originGenerationId),
     summary.skippedRoleIds
   );
-  const glossarySetAside = glossaryTermsSetAside({
+  const precedence = glossaryTermPrecedence({
     glossaryTerms: options.glossaryTerms ?? [],
     feedback: writerFeedback,
     editedItems,
@@ -971,7 +993,8 @@ export async function loadFrozenSectionPlan(
   });
   return {
     writerFeedback,
-    glossarySetAside,
+    glossarySetAside: precedence.setAside,
+    feedbackTerms: precedence.governed,
     editedTerms: editedTerms.slice(0, MAX_EDITED_TERMS_PER_LINE),
     planBlock: `\n\n${plan.block}`,
     planChecksBlock: plan.checksBlock,

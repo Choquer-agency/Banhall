@@ -12,8 +12,9 @@
  *   enforced.
  *
  * This module decides, from stored rows only, which ideas the writer kept
- * despite a Claim Exclusion, which active Feedback reaches a Line and which
- * Glossary Terms the writer's own wording sets aside there.
+ * despite a Claim Exclusion, which active Feedback reaches a Line, which
+ * Glossary Terms the writer's Feedback governs there and which ones a
+ * signed-off edit sets aside.
  */
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { matchesClaimExclusion, normalizeExclusionMatch } from "./claimExclusionMatcher";
@@ -23,8 +24,23 @@ import type { SectionNumber } from "./orderedChain";
 /** One active Feedback instruction and the step it was given on. */
 export type WriterFeedback = { roleId: PdSubsectionRoleId; instruction: string };
 
-/** A Glossary Term the writer's wording governs in a Line, and why. */
+/** A Glossary Term a signed-off edit took out of a Line, and why. */
 export type GlossarySetAside = { term: string; reason: string };
+
+/**
+ * A Glossary Term the writer's active Feedback names in a Line, with every
+ * instruction that names it: that Feedback governs the term there, not the
+ * Brief (2026-09-29 second, rule 5(c)).
+ */
+export type FeedbackGovernedTerm = { term: string; feedback: WriterFeedback[] };
+
+/** What the writer's wording decides about the Brief's Glossary Terms in a Line. */
+export type GlossaryPrecedence = {
+  /** Set aside by a signed-off edit: not enforced, no Self-check label. */
+  setAside: GlossarySetAside[];
+  /** Governed by the writer's Feedback: checked by its own Self-check label. */
+  governed: FeedbackGovernedTerm[];
+};
 
 export type ClaimExclusionLike = { text: string; exactExcerpt?: string; reason?: string };
 
@@ -137,147 +153,20 @@ function lastWordForms(word: string): string[] {
   return [...forms];
 }
 
-/** A term as a pattern over normalized words (see `namesTerm`). */
-function termPattern(term: string, flags = ""): RegExp | null {
-  const words = normalizeWords(term).split(" ").filter(Boolean);
-  if (words.length === 0) return null;
-  const last = words.pop() as string;
-  const pattern = [
-    ...words.map(escapeRegExp),
-    `(?:${lastWordForms(last).map(escapeRegExp).join("|")})`,
-  ].join(" ");
-  return new RegExp(`(?<![a-z0-9'])${pattern}(?![a-z0-9])`, flags);
-}
-
 /**
  * Whether a text names a term (2026-09-29, second, review P3-2): case aside,
  * a hyphen and a space alike ("floating-head" names "floating head"), the
  * last word singular or plural, and never inside a longer word.
  */
 export function namesTerm(text: string, term: string): boolean {
-  return termPattern(term)?.test(normalizeWords(text)) ?? false;
-}
-
-const EDGE_BEFORE = "(?<![a-z0-9'])";
-const EDGE_AFTER = "(?![a-z0-9'])";
-
-/** Whole words or phrases, over normalized words. */
-function wordsPattern(alternatives: readonly string[], flags = ""): RegExp {
-  return new RegExp(`${EDGE_BEFORE}(?:${alternatives.join("|")})${EDGE_AFTER}`, flags);
-}
-
-/**
- * Words that rule out what follows them in the same stretch: "never the
- * floating head", "don't call it", "avoid", "instead of", "stop calling".
- * Contractions with or without the apostrophe ("don't", "dont"). "No other"
- * and "not only" endorse, so they do not count.
- */
-const RULING_OUT = wordsPattern([
-  "never",
-  "not(?! only)",
-  "no(?! other| one else)",
-  "no longer",
-  "nor",
-  "cannot",
-  "without",
-  "[a-z]+n't",
-  "(?:do|does|did|wo|should|would|could|ca|is|are|was|were|must|need)nt",
-  "avoid(?:s|ed|ing)?",
-  "instead of",
-  "rather than",
-  "in place of",
-  "(?:stop|stops|stopped|quit) (?:calling|using|saying|writing|referring)",
-  "drop(?:s|ped|ping)?",
-  "remov(?:e|es|ed|ing)",
-  "delet(?:e|es|ed|ing)",
-  "ban(?:s|ned)?",
-  "forbid(?:s|den)?",
-  "prohibit(?:s|ed|ing)?",
-  "disallow(?:s|ed|ing)?",
-  "get rid of",
-  "stay away from",
-  "steer clear of",
-]);
-
-/**
- * Words whose object is the old word until a switch word brings in the new
- * one: "replace X with Y", "change X to Y", "rename X as Y", "switch from X
- * to Y".
- */
-const REPLACING = wordsPattern([
-  "replac(?:e|es|ed|ing)",
-  "swap(?:s|ped|ping)?(?: out)?",
-  "chang(?:e|es|ed|ing)",
-  "renam(?:e|es|ed|ing)",
-  "switch(?:es|ed|ing)?(?: from)?",
-], "g");
-const REPLACEMENT_SWITCH = wordsPattern(["with", "by", "for", "to", "into", "as"]);
-
-/**
- * A verdict right after the term in its stretch: "the floating head is
- * wrong", "floating head should not be used", "floating head should be
- * replaced", "floating head -> compliant spindle".
- */
-const RULED_OUT_AFTER = new RegExp(
-  `^(?:${[
-    "(?:is|are|was|were|sounds|reads|feels) (?:wrong|incorrect|inaccurate|outdated|banned|forbidden|off limits|not (?:right|correct|accurate|the right (?:word|term|name)))",
-    "(?:should|must|can|may|will|shall)(?: not|n't|not) be (?:used|said|written|mentioned|called|kept)",
-    "(?:cannot|can't|cant|won't|wont|shouldn't|shouldnt|mustn't|mustnt) be (?:used|said|written|mentioned|called|kept)",
-    "(?:should|must|needs to|has to|is to|will) be (?:replaced|changed|renamed|dropped|removed|avoided|retired)",
-    "(?:is|are) (?:no longer|not) (?:used|right|correct|accurate)",
-    // "is not allowed" bans the term; "is not allowed to be removed" keeps it.
-    "(?:is|are|was|were)(?: not|n't|nt) (?:(?:allowed|permitted|acceptable|approved|ok|okay|wanted)(?! to (?:be )?(?:remov|chang|replac|drop|delet|renam|swap|alter|edit|modif|touch|cut))|to be used)",
-    "(?:is|are|was|were) (?:prohibited|disallowed|off-limits|not to be used)",
-    "(?:is|are) out",
-  ].join("|")})${EDGE_AFTER}|^(?:=?>|\u2192|\u21d2)`
-);
-
-/**
- * Where a new instruction starts inside a sentence: at "but" ("not the
- * floating head but the compliant spindle"), and at a comma, "and" or "then"
- * that brings in a verb of its own ("Don't call it X, call it Y"; "Stop
- * saying X and say Y"; "Avoid X, because Y is the shop's word").
- */
-const STRETCH_BREAK = new RegExp(
-  `${EDGE_BEFORE}but${EDGE_AFTER}|(?:,|${EDGE_BEFORE}(?:and|then)${EDGE_AFTER}) ?(?:(?:and|then|so|please|just|instead|always) )*(?=(?:call|calling|use|say|write|keep|prefer|stick|go|refer|name|describe|always|which|because|since|it's|it is)${EDGE_AFTER})`
-);
-
-/** Whether the words before a term, in its stretch, rule it out. */
-function rulesOutBefore(before: string): boolean {
-  if (RULING_OUT.test(before)) return true;
-  let afterReplacing = -1;
-  for (const match of before.matchAll(REPLACING)) afterReplacing = match.index + match[0].length;
-  return afterReplacing >= 0 && !REPLACEMENT_SWITCH.test(before.slice(afterReplacing));
-}
-
-/**
- * Whether a Feedback instruction rules a term out (2026-09-29 second, rule
- * 5(c), PR #22 review G10): it rejects the term ("never the floating head",
- * "don't say floating head", "avoid", "stop calling it", "the floating head
- * is wrong") or replaces it ("replace the floating head with ...", "the
- * compliant spindle instead of the floating head", "call it Y, not X"). A
- * mention that uses or endorses the term ("call the deburring tool the
- * floating head") does not. The cue comes before the term in the same
- * stretch of the instruction (a sentence, cut again at "but" and where a new
- * verb starts after a comma or "and"), or a verdict follows it there. Case
- * aside, hyphens and spaces alike, curly and plain apostrophes alike. One
- * mention that rules the term out is enough.
- */
-export function feedbackRulesOutTerm(instruction: string, term: string): boolean {
-  const pattern = termPattern(term, "g");
-  if (!pattern) return false;
-  for (const sentence of instruction.split(/[.;:!?\r\n]+/)) {
-    for (const stretch of normalizeWords(sentence).split(STRETCH_BREAK)) {
-      for (const match of stretch.matchAll(pattern)) {
-        const before = stretch.slice(0, match.index);
-        const after = stretch
-          .slice(match.index + match[0].length)
-          .replace(/^[\s"'`)\]]+/, "");
-        if (rulesOutBefore(before) || RULED_OUT_AFTER.test(after)) return true;
-      }
-    }
-  }
-  return false;
+  const words = normalizeWords(term).split(" ").filter(Boolean);
+  if (words.length === 0) return false;
+  const last = words.pop() as string;
+  const pattern = [
+    ...words.map(escapeRegExp),
+    `(?:${lastWordForms(last).map(escapeRegExp).join("|")})`,
+  ].join(" ");
+  return new RegExp(`(?<![a-z0-9'])${pattern}(?![a-z0-9])`).test(normalizeWords(text));
 }
 
 function uniqueTerms(terms: readonly string[]): string[] {
@@ -293,49 +182,78 @@ function uniqueTerms(terms: readonly string[]): string[] {
 }
 
 /**
- * The Glossary Terms the writer's own wording governs in a Line (CAP-13 rule
- * 5: Locked Rules, then the signed-off selections, then the writer's active
- * Feedback, then the Brief; Glossary Terms normalize wording only). A term
- * is set aside when an active Feedback instruction that reaches the Line
- * rules it out (rejects it or replaces it with another word; a mention that
- * endorses it keeps it in force, PR #22 review G10), or when the writer's
- * edit to a signed-off idea of the Line took it out of the model's wording,
- * and no signed-off idea drafted in the Line still uses it (review P3-2: an
- * idea that uses it outranks the Feedback, and a term one edit dropped
- * while other ideas keep it is still the Line's word). The Brief then
- * neither requires nor replaces wording with it in that Line.
+ * What the writer's wording decides about the Brief's Glossary Terms in a
+ * Line (CAP-13 rule 5: Locked Rules, then the signed-off selections, then
+ * the writer's active Feedback, then the Brief; Glossary Terms normalize
+ * wording only). For each term, in precedence order:
+ * - a signed-off idea drafted in the Line uses it: it stays in force as a
+ *   Glossary Term (review P3-2: the selections outrank the Feedback, and a
+ *   term one edit dropped while other ideas keep it is still the Line's
+ *   word);
+ * - else a signed-off edit to an idea of the Line took it out of the model's
+ *   wording: it is set aside, deterministically;
+ * - else an active Feedback instruction that reaches the Line names it: that
+ *   Feedback governs it (PR #22 lead decision, replacing the ban and endorse
+ *   phrase rules): the Brief does not enforce it, the drafting request says
+ *   to follow the Feedback for it, and a Self-check label checks that the
+ *   text does, whichever way the Feedback points.
  */
-export function glossaryTermsSetAside(args: {
+export function glossaryTermPrecedence(args: {
   glossaryTerms: readonly string[];
   feedback: readonly WriterFeedback[];
   editedItems: ReadonlyArray<{ original: readonly string[]; edited: readonly string[] }>;
   /** The signed wording of every idea drafted in the Line, kept ideas included. */
   selectionWording: ReadonlyArray<readonly string[]>;
-}): GlossarySetAside[] {
-  const out: GlossarySetAside[] = [];
+}): GlossaryPrecedence {
+  const setAside: GlossarySetAside[] = [];
+  const governed: FeedbackGovernedTerm[] = [];
   for (const term of uniqueTerms(args.glossaryTerms)) {
     if (args.selectionWording.some((wording) => namesTerm(wording.join("\n"), term))) continue;
-    const byFeedback = args.feedback.find((feedback) =>
-      feedbackRulesOutTerm(feedback.instruction, term)
-    );
-    if (byFeedback) {
-      out.push({
-        term,
-        reason: `the writer's Feedback on ${stepTitle(byFeedback.roleId)} rules out this term: "${byFeedback.instruction}"`,
-      });
-      continue;
-    }
     const byEdit = args.editedItems.find((item) =>
       namesTerm(item.original.join("\n"), term) && !namesTerm(item.edited.join("\n"), term)
     );
     if (byEdit) {
-      out.push({
+      setAside.push({
         term,
         reason: `the writer's edit to the signed-off idea "${ideaWords(byEdit.edited, 120)}" took this term out`,
       });
+      continue;
+    }
+    const naming = args.feedback.filter((feedback) => namesTerm(feedback.instruction, term));
+    if (naming.length > 0) {
+      governed.push({ term, feedback: naming.map((entry) => ({ ...entry })) });
     }
   }
-  return out;
+  return { setAside, governed };
+}
+
+/**
+ * The writer's Feedback for a governed term, as the drafting block, the
+ * Self-check label, the repair issue and the consistency pass quote it:
+ * 'on Company / Context: "..."', several joined by "; ". Each instruction is
+ * quoted on one line (quoteForPrompt), so it can never close a block.
+ */
+export function governingFeedbackPhrase(feedback: readonly WriterFeedback[]): string {
+  return feedback
+    .map((entry) => `on ${stepTitle(entry.roleId)}: ${quoteForPrompt(entry.instruction)}`)
+    .join("; ");
+}
+
+/**
+ * The Compliance Note reason of a Glossary Term the writer's Feedback
+ * governs in a Line. Fixed wording that quotes the writer's instruction and
+ * never the model's text; the Self-check verdict for the term's label
+ * decides the outcome and `state` says which it was.
+ */
+export function governedTermReason(
+  feedback: readonly WriterFeedback[],
+  state: "followed" | "not_followed" | "not_checked" | "check_failed"
+): string {
+  const base = `The writer's Feedback governs this term in this Line, not the Brief: follow the writer's Feedback ${governingFeedbackPhrase(feedback)}.`;
+  if (state === "followed") return `${base} The Self-check found that the text follows it.`;
+  if (state === "not_followed") return `${base} The Self-check found that the text does not follow it`;
+  if (state === "not_checked") return `${base} The Self-check gave no verdict for it, so it is not checked.`;
+  return `${base} The Self-check did not run, so it is not checked.`;
 }
 
 /** Whether a Claim Exclusion's words stand in a text (the deterministic check's match). */

@@ -20,7 +20,13 @@ import {
 } from "./promptDefinitions";
 import { sectionParagraphs } from "../lib/tiptapReport";
 import { containsTerm } from "../lib/editedTerms";
-import { quoteForPrompt, stepTitle, type WriterFeedback } from "../lib/writerPrecedence";
+import {
+  governingFeedbackPhrase,
+  quoteForPrompt,
+  stepTitle,
+  type FeedbackGovernedTerm,
+  type WriterFeedback,
+} from "../lib/writerPrecedence";
 import {
   isSectionNumber,
   type SectionNumber,
@@ -566,6 +572,12 @@ export type SelfCheckModelInput = {
    * outranks the Brief. Summary mode only.
    */
   writerFeedback?: readonly WriterFeedback[];
+  /**
+   * PR #22 lead decision: the Glossary Terms that Feedback names, each
+   * checked by its own "feedback:F<n>" label (never a Glossary candidate).
+   * Summary mode only, never the final coverage check.
+   */
+  feedbackTerms?: readonly FeedbackGovernedTerm[];
 };
 
 function summaryEditedTerms(input: SelfCheckModelInput): string[] {
@@ -593,7 +605,14 @@ function summaryOrdinaryChecks(input: SelfCheckModelInput): SummaryOrdinaryCheck
     glossaryTerms: input.glossaryCandidates,
     writerFlavor: input.writerInstructions,
     rules: input.rules,
+    feedbackTerms: summaryFeedbackTerms(input).map((entry) => entry.term),
   });
+}
+
+/** The governed terms a Summary request labels (none in the final coverage check). */
+function summaryFeedbackTerms(input: SelfCheckModelInput): readonly FeedbackGovernedTerm[] {
+  if (!input.planChecks?.length || input.coverageOnly) return [];
+  return (input.feedbackTerms ?? []).filter((entry) => entry.term.trim() && entry.feedback.length > 0);
 }
 
 /** The instruction line and data blocks, without the Summary checklist. */
@@ -684,9 +703,23 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
         .join(writer.separator)
     ));
   }
+  // PR #22 lead decision: each Glossary Term that Feedback names has its
+  // own label, with the Feedback quoted as data, and after the blocks the
+  // rule for judging it. Absent without such a term.
+  const governed = hasSummaryPlan ? summaryFeedbackTerms(input) : [];
+  const governedScaffold = SUMMARY_PLAN_SELF_CHECK_REQUEST.feedbackTerms;
+  if (governed.length > 0) {
+    blocks.push(block(
+      governedScaffold.blockLabel,
+      governed.map((entry) => {
+        const label = ordinary.find((check) => check.feedbackTerm === entry.term)?.label;
+        return `${governedScaffold.linePrefix}${label ? `[${label}] ` : ""}${governedScaffold.termPrefix}${quoteForPrompt(entry.term)}${governedScaffold.feedbackMiddle}${governingFeedbackPhrase(entry.feedback)}`;
+      }).join(governedScaffold.separator)
+    ));
+  }
   return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}${
     terms.length > 0 ? exact.instruction : ""
-  }${feedback.length > 0 ? writer.instruction : ""}`;
+  }${feedback.length > 0 ? writer.instruction : ""}${governed.length > 0 ? governedScaffold.instruction : ""}`;
 }
 
 export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
@@ -1366,6 +1399,9 @@ export async function runModelSelfCheck(
             verdict.repairGuidance?.trim() || verdict.reason.trim()
           )
         : undefined;
+      const ordinary = hasSummaryPlan
+        ? ordinaryChecks.find((check) => check.label === verdict.instruction)
+        : undefined;
       return {
         paragraphIndex: hasSummaryPlan
           ? verdict.paragraph === 0
@@ -1374,9 +1410,9 @@ export async function runModelSelfCheck(
           : clampParagraph(verdict.paragraph, count, true),
         check: verdict.check,
         instruction: hasSummaryPlan
-          ? ordinaryChecks.find((check) => check.label === verdict.instruction)?.instruction ??
-            `${verdict.check} check`
+          ? ordinary?.instruction ?? `${verdict.check} check`
           : verdict.instruction.trim() || `${verdict.check} check`,
+        ...(ordinary?.feedbackTerm !== undefined ? { feedbackTerm: ordinary.feedbackTerm } : {}),
         outcome: verdict.outcome,
         reason: verdict.reason.trim(),
         ...(verdict.repairGuidance?.trim()
@@ -1409,6 +1445,7 @@ export async function runModelSelfCheck(
         ...(verdict.paragraphIndex === undefined ? {} : { paragraphIndex: verdict.paragraphIndex }),
         check: verdict.check,
         instruction: verdict.instruction,
+        ...(verdict.feedbackTerm !== undefined ? { feedbackTerm: verdict.feedbackTerm } : {}),
         outcome: "applied",
         reason: EDITED_TERM_ALLOWED_REASON,
       };
@@ -1428,6 +1465,7 @@ export async function runModelSelfCheck(
     verdicts.push({
       check: check.check,
       instruction: check.instruction,
+      ...(check.feedbackTerm !== undefined ? { feedbackTerm: check.feedbackTerm } : {}),
       outcome: "not_applied",
       reason: NOT_CHECKED_REASON,
       notChecked: true,
@@ -1560,12 +1598,17 @@ export type ConsistencyInput = {
   model: string;
   /**
    * 2026-09-29 (second): the Lines where the writer kept an idea despite a
-   * Claim Exclusion, and where the writer's wording sets a Glossary Term
-   * aside (loadWriterPrecedenceByLine).
+   * Claim Exclusion, where a signed-off edit sets a Glossary Term aside, and
+   * where the writer's Feedback governs one (loadWriterPrecedenceByLine).
    */
   writerPrecedence?: {
     keptExclusions: ReadonlyArray<{ text: string; sections: readonly SectionNumber[] }>;
     glossarySetAside: ReadonlyArray<{ term: string; sections: readonly SectionNumber[] }>;
+    feedbackTerms?: ReadonlyArray<{
+      term: string;
+      sections: readonly SectionNumber[];
+      feedback: readonly WriterFeedback[];
+    }>;
   } | null;
 };
 
@@ -1584,6 +1627,7 @@ export function buildConsistencyUserMessage(input: ConsistencyInput): string {
   const scaffold = CONSISTENCY_REQUEST.writerPrecedence;
   const kept = input.writerPrecedence?.keptExclusions ?? [];
   const aside = input.writerPrecedence?.glossarySetAside ?? [];
+  const governed = input.writerPrecedence?.feedbackTerms ?? [];
   if (input.claimExclusions.length > 0) {
     blocks.push(
       block("CLAIM EXCLUSIONS", input.claimExclusions.map((text) => {
@@ -1595,8 +1639,14 @@ export function buildConsistencyUserMessage(input: ConsistencyInput): string {
   if (input.glossaryTerms.length > 0) {
     blocks.push(
       block("GLOSSARY TERMS", input.glossaryTerms.map((term) => {
-        const lines = aside.find((entry) => entry.term.toLowerCase() === term.trim().toLowerCase())?.sections ?? [];
-        return `- ${term}${lines.length > 0 ? `${scaffold.setAsidePrefix}${linesPhrase(lines)}${scaffold.setAsideSuffix}` : ""}`;
+        const key = term.trim().toLowerCase();
+        const lines = aside.find((entry) => entry.term.toLowerCase() === key)?.sections ?? [];
+        const byFeedback = governed.find((entry) => entry.term.toLowerCase() === key);
+        return `- ${term}${lines.length > 0 ? `${scaffold.setAsidePrefix}${linesPhrase(lines)}${scaffold.setAsideSuffix}` : ""}${
+          byFeedback && byFeedback.sections.length > 0 && byFeedback.feedback.length > 0
+            ? `${scaffold.governedPrefix}${linesPhrase(byFeedback.sections)}${scaffold.governedMiddle}${governingFeedbackPhrase(byFeedback.feedback)}${scaffold.governedSuffix}`
+            : ""
+        }`;
       }).join("\n"))
     );
   }

@@ -56,6 +56,7 @@ import { runSeedDraftingInputs, settleFirstSeedBatch } from "./seedStartup.fixtu
 import schema from "./schema";
 import { agentOutputsOf } from "./lib/generationOutputs";
 import { STORYLINE_QUESTION_WITHHELD_REASON } from "./lib/storylineQuestionNote";
+import { governedTermReason } from "./lib/writerPrecedence";
 import planCoverageReplayKit from "../test-data/plan-coverage-replay.json?raw";
 
 /** Self-check reasons Sonnet 5 really wrote (fictional demo project). */
@@ -257,7 +258,7 @@ function providerContentPlanRows(
 
 function providerOrdinaryVerdicts(params: GenerationMessageParams) {
   const labels = [...providerUser(params).matchAll(
-    /\[(storyline|confidence:C\d+|glossary:G\d+|writer:profile|rule:R\d+)\]/g
+    /\[(storyline|confidence:C\d+|glossary:G\d+|writer:profile|rule:R\d+|feedback:F\d+)\]/g
   )].map((match) => match[1]);
   return [...new Set(labels)].map((label) => ({
     paragraph: 1,
@@ -2148,16 +2149,19 @@ describe("seed Summary sign-off and recovery", () => {
       { roleId: "experimentation", instruction: "Name each test by its month." },
     ]);
     expect(plans.s246.writerFeedback).toEqual(plans.s244.writerFeedback);
-    const aside = [{
+    // PR #22 lead decision: the Feedback names "floating head", so it governs
+    // that term in the Lines it reaches; nothing reads what the words mean.
+    const governed = [{
       term: "floating head",
-      reason: `the writer's Feedback on Company / Context rules out this term: "${spindle}"`,
+      feedback: [{ roleId: "company_context", instruction: spindle }],
     }];
-    expect(plans.s242.glossarySetAside).toEqual(aside);
+    expect(plans.s242.feedbackTerms).toEqual(governed);
     // Line 244's signed-off idea says "floating-head": the Glossary Term
     // stays in force there (review P3-2, lead decision P2-2).
-    expect(plans.s244.glossarySetAside).toEqual([]);
-    expect(plans.s246.glossarySetAside).toEqual(aside);
-    expect(plans.withoutBrief.glossarySetAside).toEqual([]);
+    expect(plans.s244.feedbackTerms).toEqual([]);
+    expect(plans.s246.feedbackTerms).toEqual(governed);
+    expect(plans.withoutBrief.feedbackTerms).toEqual([]);
+    for (const plan of Object.values(plans)) expect(plan.glossarySetAside).toEqual([]);
     for (const plan of Object.values(plans)) {
       expect(JSON.stringify(plan)).not.toContain("Kestrel");
     }
@@ -2172,7 +2176,12 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(byLine).toEqual({
       keptExclusions: [{ text: "Final specific_advancements wording.", sections: ["246"] }],
-      glossarySetAside: [{ term: "floating head", sections: ["242", "246"] }],
+      glossarySetAside: [],
+      feedbackTerms: [{
+        term: "floating head",
+        sections: ["242", "246"],
+        feedback: [{ roleId: "company_context", instruction: spindle }],
+      }],
     });
 
     // The claim reads the frozen Brief's terms and the drafting request
@@ -2208,14 +2217,20 @@ describe("seed Summary sign-off and recovery", () => {
     const user = providerUser(draftRequest);
     expect(user).toContain("# WRITER'S DECISIONS (outrank the Brief)");
     expect(user).toContain(`- On Company / Context: "${spindle}"`);
-    expect(user).toContain("Glossary Terms set aside in this Line.");
-    expect(user).toContain("\n- \"floating head\"");
+    expect(user).toContain("Glossary Terms the writer's Feedback governs in this Line.");
+    expect(user).toContain(
+      `\n- For the term "floating head", follow the writer's Feedback on Company / Context: "${spindle}"`
+    );
+    expect(user).not.toContain("Glossary Terms set aside in this Line.");
     expect(user).not.toContain("Kestrel");
     const selfCheck = network.create.mock.calls
       .map(([params]) => params as GenerationMessageParams)
       .find((params) => params.tool_choice?.name === "submit_self_check");
     if (!selfCheck) throw new Error("No Self-check request");
     expect(providerUser(selfCheck)).toContain(`--- BEGIN [WRITER'S FEEDBACK] ---\n- On Company / Context: "${spindle}"`);
+    expect(providerUser(selfCheck)).toContain(
+      `- [feedback:F1] the term "floating head": follow the writer's Feedback on Company / Context: "${spindle}"`
+    );
     expect(providerUser(selfCheck)).not.toContain("Kestrel");
     const row = await s.t.run(async (ctx) => {
       for (const section of ["242", "244", "246"] as const) {
@@ -2227,7 +2242,15 @@ describe("seed Summary sign-off and recovery", () => {
       }
       return null;
     });
-    expect(row).toMatchObject({ outcome: "not_applied", tier: "conflict", repaired: false });
+    // The Self-check verdict for the term's label decides the row, whose
+    // words quote the Feedback.
+    expect(row).toMatchObject({
+      source: "model",
+      outcome: "applied",
+      tier: "conflict",
+      repaired: false,
+      reason: governedTermReason([{ roleId: "company_context", instruction: spindle }], "followed"),
+    });
     vi.unstubAllEnvs();
   });
 

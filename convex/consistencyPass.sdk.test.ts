@@ -238,7 +238,9 @@ describe("the consistency pass reads what it can (real SDK, fetch stubbed)", () 
 describe("the consistency pass knows the writer's decisions (2026-09-29 second)", () => {
   const BILLING = "Migration of the customer billing portal was routine IT work.";
 
-  it("names the Lines where the writer kept an idea despite a Claim Exclusion or set a Glossary Term aside", async () => {
+  it("names the Lines where the writer kept an idea despite a Claim Exclusion, an edit set a Glossary Term aside or the writer's Feedback governs one", async () => {
+    const spindle =
+      "Call the deburring tool the compliant spindle, never the floating head, here and in every later step";
     const users = installFetch([{ findings: [] }]);
     const t = convexTest(schema, modules);
     rateLimiterTest.register(t);
@@ -252,7 +254,12 @@ describe("the consistency pass knows the writer's decisions (2026-09-29 second)"
           model: SONNET,
           writerPrecedence: {
             keptExclusions: [{ text: BILLING, sections: ["244"] }],
-            glossarySetAside: [{ term: "floating head", sections: ["246", "242", "244"] }],
+            glossarySetAside: [{ term: "pilot cell", sections: ["244"] }],
+            feedbackTerms: [{
+              term: "floating head",
+              sections: ["246", "242", "244"],
+              feedback: [{ roleId: "company_context", instruction: spindle }],
+            }],
           },
         }
       )
@@ -260,8 +267,13 @@ describe("the consistency pass knows the writer's decisions (2026-09-29 second)"
     expect(users[0]).toContain(
       `--- BEGIN [CLAIM EXCLUSIONS] ---\n- ${BILLING} (the writer kept one signed-off idea with this content in Line 244: do not report that idea, but report any other content that claims this work)\n- Dealer training was a business activity.\n--- END [CLAIM EXCLUSIONS] ---`
     );
+    // PR #22 lead decision: the consistency pass is told the same as the
+    // drafting request and the Self-check.
     expect(users[0]).toContain(
-      "--- BEGIN [GLOSSARY TERMS] ---\n- floating head (set aside by the writer's own wording in Lines 242, 244 and 246; do not report another name for it there)\n- pilot cell\n--- END [GLOSSARY TERMS] ---"
+      "--- BEGIN [GLOSSARY TERMS] ---\n" +
+        `- floating head (the writer's Feedback governs this term in Lines 242, 244 and 246: follow the Feedback there, not the Glossary Term; do not report wording that follows it, and report wording that goes against it. The writer's Feedback on Company / Context: ${JSON.stringify(spindle)})\n` +
+        "- pilot cell (set aside by the writer's own wording in Line 244; do not report another name for it there)\n" +
+        "--- END [GLOSSARY TERMS] ---"
     );
   });
 
@@ -269,7 +281,7 @@ describe("the consistency pass knows the writer's decisions (2026-09-29 second)"
     const users = installFetch([{ findings: [] }, { findings: [] }]);
     const t = convexTest(schema, modules);
     rateLimiterTest.register(t);
-    for (const writerPrecedence of [undefined, { keptExclusions: [], glossarySetAside: [] }]) {
+    for (const writerPrecedence of [undefined, { keptExclusions: [], glossarySetAside: [], feedbackTerms: [] }]) {
       await t.action(async (ctx: ActionCtx) =>
         await runConsistencyPass(
           instrumentedAnthropic(ctx, { callSite: "generation:consistency" }) as unknown as GenerationClient,

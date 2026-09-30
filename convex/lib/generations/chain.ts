@@ -302,7 +302,8 @@ export async function orderedSectionClaim(
   const orderIndex = args.row.orderIndex ?? 0;
   const { briefBlock, brief } = args.executionBrief ?? await loadBriefCheck(ctx, args.generation);
   // 2026-09-29 (second): the plan says which Glossary Terms the writer's
-  // own wording sets aside in this Line, so it reads the Brief's terms.
+  // Feedback governs and which a signed-off edit sets aside in this Line, so
+  // it reads the Brief's terms.
   const plan = await loadFrozenSectionPlan(ctx, args.generation, args.section, {
     glossaryTerms: brief?.glossaryTerms ?? [],
   });

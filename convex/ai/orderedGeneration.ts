@@ -93,10 +93,12 @@ import {
   confirmedConflictParagraph,
   confirmedConflictsOf,
   conflictExclusionsPhrase,
+  governingFeedbackPhrase,
   ideaWords,
   quoteForPrompt,
   stepTitle,
   type ConfirmedConflict,
+  type FeedbackGovernedTerm,
   type GlossarySetAside,
   type WriterFeedback,
 } from "../lib/writerPrecedence";
@@ -173,16 +175,24 @@ export function repairGuidanceBlock(
  * 2026-09-29 (second): the writer's decisions that outrank the Brief (CAP-13
  * rules 4 and 5), read after the plan and the Brief and before the writer's
  * exact terms and the Locked length: the ideas kept despite a Claim
- * Exclusion, the active Feedback that reaches the Line and the Glossary
- * Terms the writer's wording sets aside there. Empty without any, so those
- * requests are unchanged.
+ * Exclusion, the active Feedback that reaches the Line, the Glossary Terms
+ * that Feedback governs there (PR #22 lead decision: "For the term X, follow
+ * the writer's Feedback ...") and the ones a signed-off edit set aside.
+ * Empty without any, so those requests are unchanged.
  */
 export function writerDecisionsBlock(args: {
   confirmed: readonly ConfirmedConflict[];
   feedback: readonly WriterFeedback[];
   glossarySetAside: readonly GlossarySetAside[];
+  feedbackTerms?: readonly FeedbackGovernedTerm[];
 }): string {
-  if (args.confirmed.length === 0 && args.feedback.length === 0 && args.glossarySetAside.length === 0) {
+  const governedTerms = args.feedbackTerms ?? [];
+  if (
+    args.confirmed.length === 0 &&
+    args.feedback.length === 0 &&
+    args.glossarySetAside.length === 0 &&
+    governedTerms.length === 0
+  ) {
     return "";
   }
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.writerDecisions;
@@ -205,12 +215,18 @@ export function writerDecisionsBlock(args: {
           `${scaffold.feedbackPrefix}${stepTitle(entry.roleId)}${scaffold.feedbackMiddle}${quoteForPrompt(entry.instruction)}`)
         .join("")}${scaffold.feedbackEnd}`
     : "";
+  const governed = governedTerms.length > 0
+    ? `${scaffold.governedIntro}${governedTerms
+        .map((entry) =>
+          `${scaffold.governedPrefix}${quoteForPrompt(entry.term)}${scaffold.governedMiddle}${governingFeedbackPhrase(entry.feedback)}`)
+        .join("")}`
+    : "";
   const glossary = args.glossarySetAside.length > 0
     ? `${scaffold.glossaryIntro}${args.glossarySetAside
         .map((entry) => `${scaffold.glossaryPrefix}${quoteForPrompt(entry.term)}`)
         .join("")}`
     : "";
-  return `${scaffold.heading}${kept}${feedback}${glossary}`;
+  return `${scaffold.heading}${kept}${feedback}${governed}${glossary}`;
 }
 
 /**
@@ -692,7 +708,15 @@ export async function draftCheckedSection(input: {
   const confirmed = confirmedConflictsOf(claim.planChecks, claim.brief?.claimExclusions ?? []);
   const writerFeedback: readonly WriterFeedback[] = claim.writerFeedback ?? [];
   const glossarySetAside: readonly GlossarySetAside[] = claim.glossarySetAside ?? [];
-  const decisions = writerDecisionsBlock({ confirmed, feedback: writerFeedback, glossarySetAside });
+  // PR #22 lead decision: a Glossary Term the Line's Feedback names is
+  // governed by that Feedback, checked by its own Self-check label.
+  const feedbackTerms: readonly FeedbackGovernedTerm[] = claim.feedbackTerms ?? [];
+  const decisions = writerDecisionsBlock({
+    confirmed,
+    feedback: writerFeedback,
+    glossarySetAside,
+    feedbackTerms,
+  });
   // Review P3-6: the checked text is over a Locked limit and further over
   // it than the other text, which must never be traded back for it.
   const overLimitMore = (checked: string, other: string) =>
@@ -770,6 +794,7 @@ export async function draftCheckedSection(input: {
         .filter((planCheck) => planCheck.confirmedExclusion)
         .map((planCheck) => planCheck.wording),
       glossarySetAside,
+      feedbackTerms: feedbackTerms.map((entry) => entry.term),
     });
   const before = check(text);
 
@@ -792,6 +817,7 @@ export async function draftCheckedSection(input: {
       planChecksBlock: claim.planChecksBlock,
       editedTerms: claim.editedTerms,
       ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
+      ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
     });
     verdicts = result.verdicts;
     storylineQuestion = result.storylineQuestion;
@@ -843,7 +869,7 @@ export async function draftCheckedSection(input: {
         return [verdict.repairText ?? verdict.repairGuidance ?? verdict.reason];
       })
     : [];
-  const issues = [...repairIssues(before, verdicts), ...planIssues];
+  const issues = [...repairIssues(before, verdicts, feedbackTerms), ...planIssues];
   const repair: {
     attempted: boolean;
     succeeded: boolean;
@@ -1057,6 +1083,7 @@ export async function draftCheckedSection(input: {
         ? { failure: normalizeProviderError(keptFit.error).code }
         : {}),
     },
+    ...(feedbackTerms.length > 0 ? { governed: feedbackTerms } : {}),
   });
   const rows = [...baseRows];
   let planRows: ComplianceNoteDraft[] = [];

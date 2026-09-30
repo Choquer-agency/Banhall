@@ -34,7 +34,7 @@ export const MAX_SUMMARY_SELF_CHECK_PARAGRAPH = 9_999_999_999;
  */
 export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v1";
 export const SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION =
-  "summary-ordinary-labels-v1";
+  "summary-ordinary-labels-v2";
 
 export type FrozenSourceIdMap = ReadonlyArray<{
   originSourceId: string;
@@ -139,6 +139,11 @@ export type SummaryOrdinaryCheck = {
   label: string;
   check: "storyline" | "confidence" | "glossary" | "instruction";
   instruction: string;
+  /**
+   * PR #22 lead decision: the Glossary Term a "feedback:F<n>" label checks,
+   * which the Line's active Feedback governs in place of the Brief.
+   */
+  feedbackTerm?: string;
 };
 
 export type SummarySelfCheckCapacity = {
@@ -309,6 +314,12 @@ export function projectSummaryOrdinaryChecks(args: {
   glossaryTerms: readonly string[];
   writerFlavor?: string;
   rules: readonly { instruction: string }[];
+  /**
+   * PR #22 lead decision (v2): Glossary Terms the Line's active Feedback
+   * governs, each checked by its own label in place of a Glossary label, so
+   * the count never exceeds the one admitted at sign-off.
+   */
+  feedbackTerms?: readonly string[];
 }): SummaryOrdinaryCheck[] {
   const checks: SummaryOrdinaryCheck[] = [];
   if (args.storylineText.trim()) {
@@ -340,6 +351,14 @@ export function projectSummaryOrdinaryChecks(args: {
       label: `rule:R${index + 1}`,
       check: "instruction",
       instruction: rule.instruction,
+    });
+  });
+  (args.feedbackTerms ?? []).forEach((term, index) => {
+    checks.push({
+      label: `feedback:F${index + 1}`,
+      check: "instruction",
+      instruction: `Glossary Term: ${term}`,
+      feedbackTerm: term,
     });
   });
   return checks;

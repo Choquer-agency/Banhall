@@ -42,6 +42,7 @@ import {
   selectionRevision,
   serializeFrozenSummaryPlanChecks,
   stableSerialize,
+  SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
   summarySelfCheckWorstCaseResponse,
   type FrozenSummaryPlanCheck,
   type SeedContextItem,
@@ -742,6 +743,43 @@ describe("seed revisions", () => {
     expect(plan.checksBlock).toContain('"support":"source_supported"');
     expect(plan.checksBlock).toContain('"originatingItemId":"adv-a"');
     expect(plan.checksBlock).toContain('"originatingItemId":"adv-b"');
+  });
+
+  it("labels a Glossary Term the writer's Feedback governs in place of its Glossary label (PR #22 lead decision)", () => {
+    // Sign-off admits a label for every Glossary Term of the Brief.
+    const admitted = projectSummaryOrdinaryChecks({
+      storylineText: "",
+      confidenceMap: [],
+      glossaryTerms: ["floating head", "pilot cell"],
+      rules: [],
+    });
+    // At drafting a governed term is never a Glossary candidate: its own
+    // label checks it, so the count never grows past the admitted one.
+    const runtime = projectSummaryOrdinaryChecks({
+      storylineText: "",
+      confidenceMap: [],
+      glossaryTerms: ["pilot cell"],
+      rules: [{ instruction: "Name each test by its month." }],
+      feedbackTerms: ["floating head"],
+    });
+    expect(runtime).toEqual([
+      { label: "glossary:G1", check: "glossary", instruction: "Glossary Term: pilot cell" },
+      { label: "rule:R1", check: "instruction", instruction: "Name each test by its month." },
+      {
+        label: "feedback:F1",
+        check: "instruction",
+        instruction: "Glossary Term: floating head",
+        feedbackTerm: "floating head",
+      },
+    ]);
+    expect(runtime.filter((check) => check.check === "glossary" || check.feedbackTerm).length)
+      .toBe(admitted.length);
+    expect(SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION).toBe("summary-ordinary-labels-v2");
+    expect(projectSummarySelfCheckWorstCaseResponse({
+      ordinaryChecks: runtime,
+      planChecks: [],
+      includeStorylineQuestion: false,
+    })).toContain('"instruction":"feedback:F1"');
   });
 
   it("enforces independent Summary response counts and the exact 16,384-byte envelope", async () => {

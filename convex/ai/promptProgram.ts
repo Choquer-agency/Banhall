@@ -686,8 +686,11 @@ export const generationPromptProgram = {
         // 2026-09-29 (second): an idea the writer kept despite a Claim
         // Exclusion is judged for coverage like any item and never repaired
         // away; the Line's active Feedback is sent as data that outranks the
-        // Brief, and a Glossary Term it names is not a candidate.
-        writerPrecedence: "kept-ideas-judged-for-coverage-feedback-outranks-brief",
+        // Brief. PR #22 lead decision: a Glossary Term that Feedback names is
+        // not a Glossary candidate; its own label checks that the section
+        // follows the Feedback, whichever way it points, and is repaired
+        // like any ordinary label.
+        writerPrecedence: "kept-ideas-judged-for-coverage-feedback-governs-named-glossary-terms-by-label",
       },
     },
     // Story 2 (CAP-9): the repair is the section agent itself, re-run once

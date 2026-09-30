@@ -18,6 +18,11 @@ import {
   type OrderedProfileContext,
   type SectionNumber,
 } from "./orderedChain";
+import {
+  governedTermReason,
+  governingFeedbackPhrase,
+  type FeedbackGovernedTerm,
+} from "./writerPrecedence";
 
 /**
  * Story 2 (CAP-9, AD-25): the deterministic half of a section's Self-check.
@@ -52,6 +57,12 @@ export type ModelVerdict = {
    * even after its one follow-up. Recorded as not_applied, never repaired.
    */
   notChecked?: true;
+  /**
+   * Summary only, in memory only (PR #22 lead decision): the Glossary Term a
+   * "feedback:F<n>" label checks, which the writer's Feedback governs in the
+   * Line. Its row is written in fixed words; the verdict decides the outcome.
+   */
+  feedbackTerm?: string;
 };
 
 /** One finding from the assembled-draft consistency pass. */
@@ -182,11 +193,18 @@ export function runDeterministicSelfCheck(input: {
   /** Signed plan items whose matching Brief exclusions were human-confirmed. */
   confirmedPlanConflicts?: readonly (readonly string[])[];
   /**
-   * 2026-09-29 (second): Glossary Terms the writer's own wording governs in
-   * this Line (writerPrecedence.ts). They are neither required nor used to
+   * 2026-09-29 (second): Glossary Terms a signed-off edit took out of this
+   * Line (writerPrecedence.ts). They are neither required nor used to
    * replace wording; each gets a conflict row saying why.
    */
   glossarySetAside?: readonly { term: string; reason: string }[];
+  /**
+   * PR #22 lead decision: Glossary Terms the writer's Feedback governs in
+   * this Line. They are not checked here and are never Glossary candidates:
+   * their own Self-check label checks them, and their row comes from its
+   * verdict (assembleSectionNotes).
+   */
+  feedbackTerms?: readonly string[];
 }): DeterministicSelfCheck {
   const { section, text, brief, profile, isFirstInOrder } = input;
   const key = sectionKeyOf(section);
@@ -424,9 +442,13 @@ export function runDeterministicSelfCheck(input: {
   // absent concept).
   const glossaryCandidates: string[] = [];
   const setAside = input.glossarySetAside ?? [];
+  const governed = new Set((input.feedbackTerms ?? []).map((term) => term.trim().toLowerCase()));
   for (const term of uniqueTerms(brief?.glossaryTerms ?? [])) {
+    // CAP-13 rule 5: the writer's Feedback governs a term it names in this
+    // Line; its own Self-check label checks it (PR #22 lead decision).
+    if (governed.has(term.toLowerCase())) continue;
     // CAP-13 rule 5 (2026-09-29, second): the writer's wording outranks a
-    // Glossary Term. A term it sets aside is not checked in this Line.
+    // Glossary Term. A term a signed-off edit sets aside is not checked.
     const aside = setAside.find((entry) => entry.term.trim().toLowerCase() === term.toLowerCase());
     if (aside) {
       add(`glossary:${term.toLowerCase()}`, {
@@ -456,10 +478,16 @@ export function runDeterministicSelfCheck(input: {
   return { entries, glossaryCandidates, modelRules, paragraphs };
 }
 
-/** Every issue a repair must fix: deterministic guidance plus model verdicts. */
+/**
+ * Every issue a repair must fix: deterministic guidance plus model verdicts.
+ * A Glossary Term the writer's Feedback governs is repaired toward that
+ * Feedback, quoted, with the check's guidance after it (PR #22 lead
+ * decision).
+ */
 export function repairIssues(
   before: DeterministicSelfCheck,
-  verdicts: ModelVerdict[]
+  verdicts: ModelVerdict[],
+  governed: readonly FeedbackGovernedTerm[] = []
 ): string[] {
   const issues = before.entries
     .filter((entry) => entry.repairable && entry.row.outcome === "not_applied")
@@ -471,6 +499,15 @@ export function repairIssues(
       verdict.paragraphIndex === undefined
         ? "Whole section"
         : `Paragraph ${verdict.paragraphIndex + 1}`;
+    const term = verdict.feedbackTerm === undefined
+      ? undefined
+      : governed.find((entry) => entry.term === verdict.feedbackTerm);
+    if (term) {
+      issues.push(
+        `${where}: follow the writer's Feedback for the term "${term.term}" (${governingFeedbackPhrase(term.feedback)}).${fix.trim() ? ` ${fix.trim()}` : ""}`
+      );
+      continue;
+    }
     issues.push(`${where}: ${fix}`);
   }
   return issues;
@@ -524,6 +561,12 @@ export function assembleSectionNotes(input: {
    * them, if any (review P2-2, P3-6).
    */
   compression?: { passes: number; failure?: string };
+  /**
+   * PR #22 lead decision: the Glossary Terms the writer's Feedback governs
+   * in this Line. Each gets one row in fixed words that quote the Feedback,
+   * decided by its label's verdict, or not checked when there is none.
+   */
+  governed?: readonly FeedbackGovernedTerm[];
 }): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
   const { section, before, verdicts, repair } = input;
   const failedBefore = new Set(
@@ -573,7 +616,43 @@ export function assembleSectionNotes(input: {
     (entry) => entry.repairable && entry.row.outcome === "not_applied"
   ).length;
 
+  const governed = input.governed ?? [];
+  const governedRowFor = new Set<string>();
   for (const verdict of verdicts) {
+    const term = verdict.feedbackTerm === undefined
+      ? undefined
+      : governed.find((entry) => entry.term === verdict.feedbackTerm);
+    if (term) {
+      // Fixed words that quote the writer's Feedback, never the model's
+      // text; the verdict decides the outcome (PR #22 lead decision).
+      governedRowFor.add(term.term);
+      const base = {
+        section,
+        paragraphIndex: verdict.paragraphIndex,
+        source: "model" as const,
+        instruction: `Glossary Term: ${term.term}`,
+        tier: "conflict" as const,
+      };
+      if (verdict.outcome === "applied") {
+        rows.push(noteDraft({ ...base, outcome: "applied", reason: governedTermReason(term.feedback, "followed") }));
+        continue;
+      }
+      if (verdict.notChecked) {
+        rows.push(noteDraft({ ...base, outcome: "not_applied", reason: governedTermReason(term.feedback, "not_checked") }));
+        continue;
+      }
+      const notFollowed = governedTermReason(term.feedback, "not_followed");
+      const repairedFully = repair.attempted && repair.succeeded && !repair.shortened;
+      const reason = !repair.attempted
+        ? `${notFollowed}.`
+        : !repair.succeeded
+          ? `${notFollowed}; ${repairNotDone}.`
+          : repair.shortened
+            ? `${notFollowed}; repaired, then shortened to fit the Line limit, so not re-verified.`
+            : `${notFollowed}; repaired (not re-verified by the model).`;
+      rows.push(noteDraft({ ...base, outcome: "not_applied", reason, repaired: repairedFully }));
+      continue;
+    }
     const tier: ComplianceTier =
       verdict.check === "confidence" && verdict.outcome === "not_applied"
         ? "missing_fact"
@@ -619,6 +698,20 @@ export function assembleSectionNotes(input: {
       reason = `${reason}; ${repairNotDone}`;
     }
     rows.push(noteDraft({ ...base, outcome, reason, repaired }));
+  }
+
+  // A governed term whose label got no verdict at all: the Self-check call
+  // failed as a whole. It is recorded, never enforced as a Glossary Term.
+  for (const term of governed) {
+    if (governedRowFor.has(term.term)) continue;
+    rows.push(noteDraft({
+      section,
+      source: "model",
+      instruction: `Glossary Term: ${term.term}`,
+      outcome: "not_applied",
+      tier: "conflict",
+      reason: governedTermReason(term.feedback, "check_failed"),
+    }));
   }
 
   if (input.storylineQuestion) {
