@@ -4,6 +4,7 @@ import {
   confirmedConflictsOf,
   conflictExclusionsPhrase,
   feedbackForLine,
+  GOVERNING_FEEDBACK_TIE_BREAK,
   glossaryTermPrecedence,
   governedTermReason,
   governingFeedbackPhrase,
@@ -108,6 +109,54 @@ describe("Glossary Terms the writer's Feedback governs (2026-09-29 second, CAP-1
     expect(namesTerm("glass", "glas")).toBe(false);
   });
 
+  it("round 4 review P3-3: reads y and ies after a consonant as one word, and keeps s and es", () => {
+    expect(namesTerm("Two test assemblies failed.", "test assembly")).toBe(true);
+    expect(namesTerm("The test assembly failed.", "test assemblies")).toBe(true);
+    expect(namesTerm("The relays tripped.", "relay")).toBe(true);
+    expect(namesTerm("The relaies tripped.", "relay")).toBe(false);
+    expect(namesTerm("Two floating heads.", "floating head")).toBe(true);
+    expect(namesTerm("Two batches.", "batch")).toBe(true);
+    expect(namesTerm("The test assemblage.", "test assembly")).toBe(false);
+    expect(precedence("Never say test assemblies.", "test assembly").governed).toHaveLength(1);
+  });
+
+  it("round 4 review P2-1: a term in quotes or with a possessive is named; an apostrophe inside a word is no edge", () => {
+    for (const text of [
+      "Never say 'floating head'.",
+      "Never say \u2018floating head\u2019.",
+      "Never say \"floating head\".",
+      "Never say \u201cfloating head\u201d.",
+      "'Floating-Head' is the shop's word.",
+      "The floating head's radius drifted.",
+      "Both floating heads' radii drifted.",
+    ]) {
+      expect(namesTerm(text, "floating head"), text).toBe(true);
+    }
+    expect(namesTerm("The o'floating head is a fixture.", "floating head")).toBe(false);
+    expect(namesTerm("The o\u2019floating head is a fixture.", "floating head")).toBe(false);
+    expect(namesTerm("The xfloating head.", "floating head")).toBe(false);
+    // The same edge rule holds for the Feedback, the ideas and the edits.
+    expect(precedence("Never say 'floating head'.")).toEqual({
+      setAside: [],
+      governed: [{ term: "floating head", feedback: [company("Never say 'floating head'.")] }],
+    });
+    expect(glossaryTermPrecedence({
+      glossaryTerms: ["floating head"],
+      feedback: [company("Never say 'floating head'.")],
+      editedItems: [],
+      selectionWording: [["Force control came from the \u2018floating head\u2019."]],
+    })).toEqual({ setAside: [], governed: [] });
+    expect(glossaryTermPrecedence({
+      glossaryTerms: ["floating head"],
+      feedback: [],
+      editedItems: [{
+        original: ["Force control came from the 'floating head'."],
+        edited: ["Force control came from a compliant spindle."],
+      }],
+      selectionWording: [["Force control came from a compliant spindle."]],
+    }).setAside).toHaveLength(1);
+  });
+
   it("lists every instruction that names the term, in the order they reach the Line, and leaves other terms alone", () => {
     const feedback = [
       company(SPINDLE),
@@ -183,10 +232,31 @@ describe("Glossary Terms the writer's Feedback governs (2026-09-29 second, CAP-1
     })).toEqual({ setAside: [], governed: [] });
   });
 
+  it("round 4 review P3-2: lists several instructions in the order given and says the latest wins where they disagree", () => {
+    const ban = company("Never say floating head.");
+    const endorse = company("Call it the floating head after all.");
+    expect(GOVERNING_FEEDBACK_TIE_BREAK).toBe("where they disagree, the latest instruction wins");
+    // A ban, then a later endorsement; and the reverse.
+    expect(glossaryTermPrecedence({
+      glossaryTerms: ["floating head"],
+      feedback: [ban, endorse],
+      editedItems: [],
+      selectionWording: [],
+    }).governed).toEqual([{ term: "floating head", feedback: [ban, endorse] }]);
+    expect(governingFeedbackPhrase([ban, endorse])).toBe(
+      'on Company / Context: "Never say floating head."; then on Company / Context: "Call it the floating head after all." (where they disagree, the latest instruction wins)'
+    );
+    expect(governingFeedbackPhrase([endorse, ban])).toBe(
+      'on Company / Context: "Call it the floating head after all."; then on Company / Context: "Never say floating head." (where they disagree, the latest instruction wins)'
+    );
+    // One instruction needs no tie-break.
+    expect(governingFeedbackPhrase([ban])).toBe('on Company / Context: "Never say floating head."');
+  });
+
   it("words the governed row in fixed text that quotes the Feedback, never the model's", () => {
     const feedback = [company(SPINDLE), { roleId: "experimentation" as const, instruction: "Keep \"floating head\" out of test names." }];
     const phrase =
-      `on Company / Context: "${SPINDLE}"; on Experimentation / Iterations: "Keep \\"floating head\\" out of test names."`;
+      `on Company / Context: "${SPINDLE}"; then on Experimentation / Iterations: "Keep \\"floating head\\" out of test names." (where they disagree, the latest instruction wins)`;
     expect(governingFeedbackPhrase(feedback)).toBe(phrase);
     const base = `The writer's Feedback governs this term in this Line, not the Brief: follow the writer's Feedback ${phrase}.`;
     expect(governedTermReason(feedback, "followed")).toBe(`${base} The Self-check found that the text follows it.`);

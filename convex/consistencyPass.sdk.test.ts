@@ -241,6 +241,7 @@ describe("the consistency pass knows the writer's decisions (2026-09-29 second)"
   it("names the Lines where the writer kept an idea despite a Claim Exclusion, an edit set a Glossary Term aside or the writer's Feedback governs one", async () => {
     const spindle =
       "Call the deburring tool the compliant spindle, never the floating head, here and in every later step";
+    const months = "Name each test by its month, never by the floating head.";
     const users = installFetch([{ findings: [] }]);
     const t = convexTest(schema, modules);
     rateLimiterTest.register(t);
@@ -255,10 +256,20 @@ describe("the consistency pass knows the writer's decisions (2026-09-29 second)"
           writerPrecedence: {
             keptExclusions: [{ text: BILLING, sections: ["244"] }],
             glossarySetAside: [{ term: "pilot cell", sections: ["244"] }],
+            // Round 4 review P3-1: the Experimentation instruction reaches
+            // Lines 244 and 246 only.
             feedbackTerms: [{
               term: "floating head",
-              sections: ["246", "242", "244"],
-              feedback: [{ roleId: "company_context", instruction: spindle }],
+              lines: [
+                { sections: ["242"], feedback: [{ roleId: "company_context", instruction: spindle }] },
+                {
+                  sections: ["246", "244"],
+                  feedback: [
+                    { roleId: "company_context", instruction: spindle },
+                    { roleId: "experimentation", instruction: months },
+                  ],
+                },
+              ],
             }],
           },
         }
@@ -271,7 +282,7 @@ describe("the consistency pass knows the writer's decisions (2026-09-29 second)"
     // drafting request and the Self-check.
     expect(users[0]).toContain(
       "--- BEGIN [GLOSSARY TERMS] ---\n" +
-        `- floating head (the writer's Feedback governs this term in Lines 242, 244 and 246: follow the Feedback there, not the Glossary Term; do not report wording that follows it, and report wording that goes against it. The writer's Feedback on Company / Context: ${JSON.stringify(spindle)})\n` +
+        `- floating head (the writer's Feedback governs this term. In Line 242, the writer's Feedback on Company / Context: ${JSON.stringify(spindle)}. In Lines 244 and 246, the writer's Feedback on Company / Context: ${JSON.stringify(spindle)}; then on Experimentation / Iterations: ${JSON.stringify(months)} (where they disagree, the latest instruction wins). Follow that Feedback in those Lines, not the Glossary Term: do not report wording that follows it there, and report wording that goes against it)\n` +
         "- pilot cell (set aside by the writer's own wording in Line 244; do not report another name for it there)\n" +
         "--- END [GLOSSARY TERMS] ---"
     );

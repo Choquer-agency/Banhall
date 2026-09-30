@@ -1606,8 +1606,7 @@ export type ConsistencyInput = {
     glossarySetAside: ReadonlyArray<{ term: string; sections: readonly SectionNumber[] }>;
     feedbackTerms?: ReadonlyArray<{
       term: string;
-      sections: readonly SectionNumber[];
-      feedback: readonly WriterFeedback[];
+      lines: ReadonlyArray<{ sections: readonly SectionNumber[]; feedback: readonly WriterFeedback[] }>;
     }>;
   } | null;
 };
@@ -1641,10 +1640,16 @@ export function buildConsistencyUserMessage(input: ConsistencyInput): string {
       block("GLOSSARY TERMS", input.glossaryTerms.map((term) => {
         const key = term.trim().toLowerCase();
         const lines = aside.find((entry) => entry.term.toLowerCase() === key)?.sections ?? [];
-        const byFeedback = governed.find((entry) => entry.term.toLowerCase() === key);
+        // Round 4 review P3-1: each Line quotes only the Feedback that
+        // reached it.
+        const groups = (governed.find((entry) => entry.term.toLowerCase() === key)?.lines ?? [])
+          .filter((group) => group.sections.length > 0 && group.feedback.length > 0);
         return `- ${term}${lines.length > 0 ? `${scaffold.setAsidePrefix}${linesPhrase(lines)}${scaffold.setAsideSuffix}` : ""}${
-          byFeedback && byFeedback.sections.length > 0 && byFeedback.feedback.length > 0
-            ? `${scaffold.governedPrefix}${linesPhrase(byFeedback.sections)}${scaffold.governedMiddle}${governingFeedbackPhrase(byFeedback.feedback)}${scaffold.governedSuffix}`
+          groups.length > 0
+            ? `${scaffold.governedPrefix}${groups
+                .map((group) =>
+                  `${scaffold.governedLinePrefix}${linesPhrase(group.sections)}${scaffold.governedLineMiddle}${governingFeedbackPhrase(group.feedback)}${scaffold.governedLineSuffix}`)
+                .join("")}${scaffold.governedSuffix}`
             : ""
         }`;
       }).join("\n"))

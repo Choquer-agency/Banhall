@@ -504,7 +504,7 @@ export function repairIssues(
       : governed.find((entry) => entry.term === verdict.feedbackTerm);
     if (term) {
       issues.push(
-        `${where}: follow the writer's Feedback for the term "${term.term}" (${governingFeedbackPhrase(term.feedback)}).${fix.trim() ? ` ${fix.trim()}` : ""}`
+        `${where}: for the term "${term.term}", follow the writer's Feedback ${governingFeedbackPhrase(term.feedback)}.${fix.trim() ? ` ${fix.trim()}` : ""}`
       );
       continue;
     }

@@ -859,6 +859,9 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
       "Replace the floating head with the compliant spindle.",
       "Floating head is not allowed to be removed.",
       "Floating head is not allowed to be removed and not allowed to be used.",
+      // Round 4 review P2-1: a term in quotes is named.
+      "Never say 'floating head'.",
+      "Never say \u2018floating head\u2019.",
     ]) {
       const feedback: WriterFeedback[] = [{ roleId: "company_context", instruction }];
       const precedence = precedenceFor(feedback);
@@ -944,7 +947,7 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
       ]);
       const repair = sent.find((request) => request.stage === "repair")!;
       expect(repair.user, entry.term).toContain(
-        `- Paragraph ${paragraph}: follow the writer's Feedback for the term "${entry.term}" (on Company / Context: ${quoteForPrompt(entry.instruction)}). ${entry.guidance}`
+        `- Paragraph ${paragraph}: for the term "${entry.term}", follow the writer's Feedback on Company / Context: ${quoteForPrompt(entry.instruction)}. ${entry.guidance}`
       );
       expect(repair.user).toContain(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.writerDecisions);
       expect(result.draftText, entry.term).toBe(entry.fixed);
@@ -959,6 +962,41 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
       // Fixed words only: the model's reason and guidance are not stored.
       expect(row.reason).not.toContain(entry.reason);
       expect(row.reason).not.toContain(entry.guidance);
+    }
+  });
+
+  it("round 4 review P3-2: several instructions are listed in the order given, and the latest wins where they disagree", async () => {
+    const ban = "Never say floating head.";
+    const endorse = "Call the deburring tool the floating head after all.";
+    for (const order of [[ban, endorse], [endorse, ban]]) {
+      const feedback: WriterFeedback[] = order.map((instruction) => ({ roleId: "company_context", instruction }));
+      const precedence = precedenceFor(feedback);
+      expect(precedence.governed).toEqual([{ term: "floating head", feedback }]);
+      const listed =
+        `on Company / Context: ${quoteForPrompt(order[0]!)}; then on Company / Context: ${quoteForPrompt(order[1]!)} (where they disagree, the latest instruction wins)`;
+      const sent = installFetch({
+        draft: SPINDLE_DRAFT,
+        repair: SPINDLE_DRAFT,
+        checks: [[covered(ITEM_CONTEXT, 2)]],
+        ordinaryAnswers: [[feedbackVerdict("not_applied", 2, "P2 goes against it.", "Follow the latest instruction.")]],
+      });
+      const result = await draft("242", claimFor({
+        planChecks: PLAN_242,
+        brief: BRIEF_242,
+        writerFeedback: feedback,
+        feedbackTerms: precedence.governed,
+      }));
+      const section = sent.find((request) => request.stage === "section")!;
+      expect(section.user, order[0]).toContain(`\n- For the term "floating head", follow the writer's Feedback ${listed}`);
+      const check = sent.find((request) => request.stage === "submit_self_check")!;
+      expect(check.user, order[0]).toContain(`- [feedback:F1] the term "floating head": follow the writer's Feedback ${listed}`);
+      const repair = sent.find((request) => request.stage === "repair")!;
+      expect(repair.user, order[0]).toContain(
+        `- Paragraph 2: for the term "floating head", follow the writer's Feedback ${listed}. Follow the latest instruction.`
+      );
+      expect(termRow(result).reason, order[0]).toBe(
+        `The writer's Feedback governs this term in this Line, not the Brief: follow the writer's Feedback ${listed}. The Self-check found that the text does not follow it; repaired (not re-verified by the model).`
+      );
     }
   });
 

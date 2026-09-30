@@ -143,11 +143,17 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** The simple singular and plural forms of a term's last word. */
+/**
+ * The simple singular and plural forms of a term's last word: an added "s"
+ * or "es" ("head", "heads"; "batch", "batches"), and "y" and "ies" after a
+ * consonant ("assembly", "assemblies"; review P3-3).
+ */
 function lastWordForms(word: string): string[] {
   const forms = new Set([word]);
   if (/(?:s|x|z|ch|sh)es$/.test(word) && word.length > 4) forms.add(word.slice(0, -2));
   if (/s$/.test(word) && !/ss$/.test(word) && word.length > 3) forms.add(word.slice(0, -1));
+  if (/[^aeiou]ies$/.test(word) && word.length > 4) forms.add(`${word.slice(0, -3)}y`);
+  if (/[^aeiouy]y$/.test(word)) forms.add(`${word.slice(0, -1)}ies`);
   if (/(?:s|x|z|ch|sh)$/.test(word)) forms.add(`${word}es`);
   else forms.add(`${word}s`);
   return [...forms];
@@ -156,7 +162,11 @@ function lastWordForms(word: string): string[] {
 /**
  * Whether a text names a term (2026-09-29, second, review P3-2): case aside,
  * a hyphen and a space alike ("floating-head" names "floating head"), the
- * last word singular or plural, and never inside a longer word.
+ * last word singular or plural, and never inside a longer word. A quote is a
+ * word edge (round 4 review P2-1): a term in single or double quotes,
+ * straight or curly ('floating head', or with curly marks), is named, and so
+ * is a possessive ("floating head's"), but an apostrophe inside a word
+ * ("o'floating head") is not an edge.
  */
 export function namesTerm(text: string, term: string): boolean {
   const words = normalizeWords(term).split(" ").filter(Boolean);
@@ -166,7 +176,7 @@ export function namesTerm(text: string, term: string): boolean {
     ...words.map(escapeRegExp),
     `(?:${lastWordForms(last).map(escapeRegExp).join("|")})`,
   ].join(" ");
-  return new RegExp(`(?<![a-z0-9'])${pattern}(?![a-z0-9])`).test(normalizeWords(text));
+  return new RegExp(`(?<![a-z0-9])(?<![a-z0-9]')${pattern}(?![a-z0-9])`).test(normalizeWords(text));
 }
 
 function uniqueTerms(terms: readonly string[]): string[] {
@@ -227,16 +237,23 @@ export function glossaryTermPrecedence(args: {
   return { setAside, governed };
 }
 
+/** What decides between several instructions that govern one term (round 4 review P3-2). */
+export const GOVERNING_FEEDBACK_TIE_BREAK = "where they disagree, the latest instruction wins";
+
 /**
  * The writer's Feedback for a governed term, as the drafting block, the
- * Self-check label, the repair issue and the consistency pass quote it:
- * 'on Company / Context: "..."', several joined by "; ". Each instruction is
- * quoted on one line (quoteForPrompt), so it can never close a block.
+ * Self-check label, the repair issue, the row and the consistency pass quote
+ * it: 'on Company / Context: "..."'. Several are listed in the order they
+ * reach the Line (step order, then the order given; feedbackForLine), joined
+ * by "; then ", and end with the tie-break, so the one listed last wins
+ * where they disagree. Each instruction is quoted on one line
+ * (quoteForPrompt), so it can never close a block.
  */
 export function governingFeedbackPhrase(feedback: readonly WriterFeedback[]): string {
-  return feedback
+  const listed = feedback
     .map((entry) => `on ${stepTitle(entry.roleId)}: ${quoteForPrompt(entry.instruction)}`)
-    .join("; ");
+    .join("; then ");
+  return feedback.length > 1 ? `${listed} (${GOVERNING_FEEDBACK_TIE_BREAK})` : listed;
 }
 
 /**

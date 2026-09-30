@@ -2068,11 +2068,12 @@ describe("seed Summary sign-off and recovery", () => {
     expect(advancementChecks.every((check) => check.mergedItemIds.length === 2)).toBe(true);
   });
 
-  it("reaches drafting with the writer's active Feedback and sets aside the Glossary Term it names (2026-09-29 second)", async () => {
+  it("reaches drafting with the writer's active Feedback, which governs the Glossary Term it names (2026-09-29 second)", async () => {
     const s = await productionInitializedFixture();
     await makeReady(s);
     const spindle =
       "Call the deburring tool the compliant spindle, never the floating head, here and in every later step";
+    const months = "Name each test by its month, never by the floating head.";
     await s.t.run(async (ctx) => {
       // Two Glossary Terms in the frozen Brief (fictional).
       for (const text of ["floating head", "pilot cell"]) {
@@ -2113,7 +2114,9 @@ describe("seed Summary sign-off and recovery", () => {
       });
       await feedback("company_context", spindle, "active");
       await feedback("company_context", "Call the pilot cell the Kestrel line", "withdrawn");
-      await feedback("experimentation", "Name each test by its month.", "active");
+      // Round 4 review P3-1: this one also names the term, and reaches
+      // Lines 244 and 246 only.
+      await feedback("experimentation", months, "active");
       // Lead decision P2-2: a later signed-off edit in Line 244 uses the
       // term the Feedback forbids; the edit wins in its Line.
       const experiment = (await ctx.db.query("seedSelections")
@@ -2146,20 +2149,18 @@ describe("seed Summary sign-off and recovery", () => {
     expect(plans.s242.writerFeedback).toEqual([{ roleId: "company_context", instruction: spindle }]);
     expect(plans.s244.writerFeedback).toEqual([
       { roleId: "company_context", instruction: spindle },
-      { roleId: "experimentation", instruction: "Name each test by its month." },
+      { roleId: "experimentation", instruction: months },
     ]);
     expect(plans.s246.writerFeedback).toEqual(plans.s244.writerFeedback);
     // PR #22 lead decision: the Feedback names "floating head", so it governs
     // that term in the Lines it reaches; nothing reads what the words mean.
-    const governed = [{
-      term: "floating head",
-      feedback: [{ roleId: "company_context", instruction: spindle }],
-    }];
-    expect(plans.s242.feedbackTerms).toEqual(governed);
+    const bySpindle = { roleId: "company_context" as const, instruction: spindle };
+    const byMonths = { roleId: "experimentation" as const, instruction: months };
+    expect(plans.s242.feedbackTerms).toEqual([{ term: "floating head", feedback: [bySpindle] }]);
     // Line 244's signed-off idea says "floating-head": the Glossary Term
     // stays in force there (review P3-2, lead decision P2-2).
     expect(plans.s244.feedbackTerms).toEqual([]);
-    expect(plans.s246.feedbackTerms).toEqual(governed);
+    expect(plans.s246.feedbackTerms).toEqual([{ term: "floating head", feedback: [bySpindle, byMonths] }]);
     expect(plans.withoutBrief.feedbackTerms).toEqual([]);
     for (const plan of Object.values(plans)) expect(plan.glossarySetAside).toEqual([]);
     for (const plan of Object.values(plans)) {
@@ -2177,10 +2178,13 @@ describe("seed Summary sign-off and recovery", () => {
     expect(byLine).toEqual({
       keptExclusions: [{ text: "Final specific_advancements wording.", sections: ["246"] }],
       glossarySetAside: [],
+      // Each Line keeps only the Feedback that reached it.
       feedbackTerms: [{
         term: "floating head",
-        sections: ["242", "246"],
-        feedback: [{ roleId: "company_context", instruction: spindle }],
+        lines: [
+          { sections: ["242"], feedback: [bySpindle] },
+          { sections: ["246"], feedback: [bySpindle, byMonths] },
+        ],
       }],
     });
 
@@ -2218,9 +2222,11 @@ describe("seed Summary sign-off and recovery", () => {
     expect(user).toContain("# WRITER'S DECISIONS (outrank the Brief)");
     expect(user).toContain(`- On Company / Context: "${spindle}"`);
     expect(user).toContain("Glossary Terms the writer's Feedback governs in this Line.");
-    expect(user).toContain(
-      `\n- For the term "floating head", follow the writer's Feedback on Company / Context: "${spindle}"`
-    );
+    // The first Line drafted is 246, which both instructions reach: listed
+    // in step order, with the tie-break (round 4 review P3-2).
+    const governing =
+      `on Company / Context: "${spindle}"; then on Experimentation / Iterations: "${months}" (where they disagree, the latest instruction wins)`;
+    expect(user).toContain(`\n- For the term "floating head", follow the writer's Feedback ${governing}`);
     expect(user).not.toContain("Glossary Terms set aside in this Line.");
     expect(user).not.toContain("Kestrel");
     const selfCheck = network.create.mock.calls
@@ -2229,7 +2235,7 @@ describe("seed Summary sign-off and recovery", () => {
     if (!selfCheck) throw new Error("No Self-check request");
     expect(providerUser(selfCheck)).toContain(`--- BEGIN [WRITER'S FEEDBACK] ---\n- On Company / Context: "${spindle}"`);
     expect(providerUser(selfCheck)).toContain(
-      `- [feedback:F1] the term "floating head": follow the writer's Feedback on Company / Context: "${spindle}"`
+      `- [feedback:F1] the term "floating head": follow the writer's Feedback ${governing}`
     );
     expect(providerUser(selfCheck)).not.toContain("Kestrel");
     const row = await s.t.run(async (ctx) => {
@@ -2245,11 +2251,12 @@ describe("seed Summary sign-off and recovery", () => {
     // The Self-check verdict for the term's label decides the row, whose
     // words quote the Feedback.
     expect(row).toMatchObject({
+      section: "246",
       source: "model",
       outcome: "applied",
       tier: "conflict",
       repaired: false,
-      reason: governedTermReason([{ roleId: "company_context", instruction: spindle }], "followed"),
+      reason: governedTermReason([bySpindle, byMonths], "followed"),
     });
     vi.unstubAllEnvs();
   });

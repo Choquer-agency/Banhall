@@ -901,11 +901,14 @@ export const CONSISTENCY_REQUEST = {
     setAsidePrefix: " (set aside by the writer's own wording in ",
     setAsideSuffix: "; do not report another name for it there)",
     // PR #22 lead decision: a Glossary Term the writer's Feedback names is
-    // governed by that Feedback in those Lines, whichever way it points.
-    governedPrefix: " (the writer's Feedback governs this term in ",
-    governedMiddle:
-      ": follow the Feedback there, not the Glossary Term; do not report wording that follows it, and report wording that goes against it. The writer's Feedback ",
-    governedSuffix: ")",
+    // governed by that Feedback in those Lines, whichever way it points. Each
+    // Line quotes only the Feedback that reached it (round 4 review P3-1).
+    governedPrefix: " (the writer's Feedback governs this term.",
+    governedLinePrefix: " In ",
+    governedLineMiddle: ", the writer's Feedback ",
+    governedLineSuffix: ".",
+    governedSuffix:
+      " Follow that Feedback in those Lines, not the Glossary Term: do not report wording that follows it there, and report wording that goes against it)",
     oneLine: "Line ",
     manyLines: "Lines ",
     lineSeparator: ", ",

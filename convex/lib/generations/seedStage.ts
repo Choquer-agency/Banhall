@@ -775,7 +775,14 @@ export async function loadWriterPrecedenceByLine(
 ): Promise<{
   keptExclusions: Array<{ text: string; sections: SectionNumber[] }>;
   glossarySetAside: Array<{ term: string; sections: SectionNumber[] }>;
-  feedbackTerms: Array<{ term: string; sections: SectionNumber[]; feedback: WriterFeedback[] }>;
+  /**
+   * Round 4 review P3-1: per term, the Lines it is governed in, grouped by
+   * the Feedback that reached them, so each Line quotes only its own.
+   */
+  feedbackTerms: Array<{
+    term: string;
+    lines: Array<{ sections: SectionNumber[]; feedback: WriterFeedback[] }>;
+  }>;
 } | null> {
   if (!generation.summaryVersionId || !brief) return null;
   const summary = await ctx.db.get(generation.summaryVersionId);
@@ -790,7 +797,10 @@ export async function loadWriterPrecedenceByLine(
   const feedbackRows = await activeFeedbackRows(ctx, generation, originGenerationId);
   const keptExclusions: Array<{ text: string; sections: SectionNumber[] }> = [];
   const glossarySetAside: Array<{ term: string; sections: SectionNumber[] }> = [];
-  const feedbackTerms: Array<{ term: string; sections: SectionNumber[]; feedback: WriterFeedback[] }> = [];
+  const feedbackTerms: Array<{
+    term: string;
+    lines: Array<{ sections: SectionNumber[]; feedback: WriterFeedback[] }>;
+  }> = [];
   const push = <T extends { sections: SectionNumber[] }>(
     list: T[],
     find: (entry: T) => boolean,
@@ -830,14 +840,14 @@ export async function loadWriterPrecedenceByLine(
       push(glossarySetAside, (known) => known.term === entry.term, () => ({ term: entry.term, sections: [] }), section);
     }
     for (const entry of precedence.governed) {
-      push(feedbackTerms, (known) => known.term === entry.term, () => ({ term: entry.term, sections: [], feedback: [] }), section);
-      // Every instruction that governs the term in any of its Lines, once.
-      const known = feedbackTerms.find((candidate) => candidate.term === entry.term)!;
-      for (const feedback of entry.feedback) {
-        if (!known.feedback.some((seen) => seen.roleId === feedback.roleId && seen.instruction === feedback.instruction)) {
-          known.feedback.push(feedback);
-        }
-      }
+      const known = feedbackTerms.find((candidate) => candidate.term === entry.term) ??
+        (feedbackTerms.push({ term: entry.term, lines: [] }), feedbackTerms[feedbackTerms.length - 1]!);
+      // Lines reached by the same instructions share one group; a Line never
+      // quotes an instruction that did not reach it.
+      const same = known.lines.find((group) =>
+        stableSerialize(group.feedback) === stableSerialize(entry.feedback));
+      if (same) same.sections.push(section);
+      else known.lines.push({ sections: [section], feedback: entry.feedback });
     }
   }
   return { keptExclusions, glossarySetAside, feedbackTerms };
