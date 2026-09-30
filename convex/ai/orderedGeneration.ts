@@ -112,7 +112,8 @@ import {
   type SummaryPlanRuleId,
 } from "../lib/seedRevisions";
 import { sectionParagraphs } from "../lib/tiptapReport";
-import { distinctiveFigures, figuresOf } from "../../shared/planFigures";
+import { droppedUncertaintyFigures, figuresOf } from "../../shared/planFigures";
+import { isNearCopy } from "../lib/droppedUncertainties";
 import { forwardOrderedPayload } from "../lib/orderedPayloadStore";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 
@@ -472,7 +473,7 @@ export const ANSWERS_242_INSTRUCTION =
 
 /** 2026-09-30 (second, Rule C): the Compliance Note instruction for Line 244's work check. */
 export const WORK_ANSWERS_242_INSTRUCTION =
-  "Describe work only for an uncertainty Line 242 states, or work a signed-off item holds or needs as its evidence";
+  "Describe work only for an uncertainty Line 242 states, or work that is the evidence a signed-off item needs";
 
 /** How a plan check reads as a Compliance Note instruction. */
 function planInstruction(expected: PlanCheck): string {
@@ -550,18 +551,25 @@ function leavesContentOut(instruction: FrozenSummaryPlanInstruction | undefined)
 /** How many of the dropped uncertainty's own figures a backstop reason names. */
 const MAX_BACKSTOP_FIGURES_NAMED = 6;
 
+/** The sentences of a text, split after a full stop, question or exclamation mark. */
+function sentencesOf(text: string): string[] {
+  return sectionParagraphs(text).flatMap((paragraph) =>
+    paragraph.split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()).filter(Boolean));
+}
+
 /**
  * 2026-09-30 (second): the deterministic backstop for LEAVE OUT verdicts.
  * Release suite run 11 recorded Line 244's LEAVE OUT row not applied ("P3
  * states stall durations (19 vs 6 days), close to dropped...") for signed-off
- * experiment item 9. A not applied verdict that names a paragraph holding
- * none of the dropped uncertainty's distinctive figures (a figure with its
- * unit in its wording or its Seeds' wording that no signed-off item uses),
- * whose reason cites at least one figure, each in a signed-off item's
- * wording, flagged a signed-off item: it is recorded applied with a fixed
- * reason and sent to no repair. A dropped uncertainty with no distinctive
- * figure, a reason citing none, or a paragraph holding one keeps the model's
- * verdict. Returns the replacement verdict, or null.
+ * experiment item 9. A not applied verdict that names a valid paragraph is
+ * recorded applied with a fixed reason, and sent to no repair, only when all
+ * of these hold (review P2-5 tightened each): the dropped uncertainty has
+ * figures of its own (droppedUncertaintyFigures, the rule the release suite
+ * uses too); no paragraph of the Line holds one of them; no sentence of the
+ * Line is a near copy of the dropped wording; and the verdict's reason, its
+ * guidance and its unclipped text together cite at least one figure, every
+ * one in a signed-off item's wording. Returns the replacement verdict, or
+ * null.
  */
 export function leaveOutFigureBackstop(args: {
   check: {
@@ -579,27 +587,73 @@ export function leaveOutFigureBackstop(args: {
   if (check.instruction !== "leave_out" || check.droppedSeedId === undefined) return null;
   if (verdict.outcome !== "not_applied" || verdict.actionableRepair === false) return null;
   if (verdict.paragraphIndex === undefined) return null;
-  const paragraph = sectionParagraphs(args.text)[verdict.paragraphIndex];
-  if (paragraph === undefined) return null;
-  const planTexts = args.planWording.map((wording) => wording.join(" "));
-  const dropped = distinctiveFigures(
-    [check.wording.join(" "), ...check.relationshipReferences.map((reference) => reference.wording.join(" "))],
-    planTexts
-  );
+  const paragraphs = sectionParagraphs(args.text);
+  if (paragraphs[verdict.paragraphIndex] === undefined) return null;
+  const dropped = droppedUncertaintyFigures({
+    wording: check.wording,
+    references: check.relationshipReferences,
+    planWording: args.planWording,
+  });
   if (dropped.length === 0) return null;
-  const present = new Set(figuresOf(paragraph));
-  if (dropped.some((figure) => present.has(figure))) return null;
-  const cited = figuresOf(verdict.reason);
+  // Review P2-5 (a): no paragraph of the Line, not only the flagged one.
+  const inLine = new Set(paragraphs.flatMap(figuresOf));
+  if (dropped.some((figure) => inLine.has(figure))) return null;
+  // Review P2-5 (d): a sentence restating the dropped uncertainty is a leak
+  // whatever its figures.
+  const sentences = sentencesOf(args.text);
+  const nearCopy = [check.wording, ...check.wording.map((bullet) => [bullet])].some((wording) =>
+    sentences.some((sentence) => isNearCopy(wording, [sentence])));
+  if (nearCopy) return null;
+  // Review P2-5 (b): what the verdict cites, not only its clipped reason.
+  const cited = [...new Set(
+    [verdict.reason, verdict.repairGuidance ?? "", verdict.repairText ?? ""].flatMap(figuresOf)
+  )];
   if (cited.length === 0) return null;
-  const planFigures = new Set(planTexts.flatMap(figuresOf));
+  const planFigures = new Set(args.planWording.flatMap((wording) => figuresOf(wording.join(" "))));
   if (!cited.every((figure) => planFigures.has(figure))) return null;
   const named = dropped.slice(0, MAX_BACKSTOP_FIGURES_NAMED).join(", ");
   return {
     droppedSeedId: check.droppedSeedId,
     mergedItemIds: [...verdict.mergedItemIds],
     outcome: "applied",
-    reason: `The flagged content is a signed-off item: the Self-check flagged paragraph ${verdict.paragraphIndex + 1} ("${verdict.reason}"), but every figure it cited (${cited.join(", ")}) is in the signed-off plan's wording, and the paragraph holds none of the dropped uncertainty's own figures (${named}${dropped.length > MAX_BACKSTOP_FIGURES_NAMED ? ", ..." : ""}). Not sent to the repair.`,
+    reason: `The flagged content is a signed-off item: the Self-check flagged paragraph ${verdict.paragraphIndex + 1} ("${verdict.reason}"), but every figure it cited (${cited.join(", ")}) is in the signed-off plan's wording, and no paragraph of this Line holds one of the dropped uncertainty's own figures (${named}${dropped.length > MAX_BACKSTOP_FIGURES_NAMED ? ", ..." : ""}) or restates it. Not sent to the repair.`,
   };
+}
+
+/**
+ * Review P2-1: the first signed-off figure (one found in any signed-off
+ * item's wording, any Line) that the repaired text holds in fewer paragraphs
+ * than the checked draft, or undefined. A repair made for Line 244's work
+ * check or the targets check that loses one may have cut the work a
+ * signed-off item needs as its evidence (carried-old-selections, run 11: the
+ * capture trials behind goal item 13 hold "20 ppi").
+ */
+export function lostPlanFigure(
+  checked: string,
+  repaired: string,
+  planWording: ReadonlyArray<readonly string[]>
+): { figure: string; before: number; after: number } | undefined {
+  const planFigures = new Set(planWording.flatMap((wording) => figuresOf(wording.join(" "))));
+  const counts = (text: string) => {
+    const out = new Map<string, number>();
+    for (const paragraph of sectionParagraphs(text)) {
+      for (const figure of new Set(figuresOf(paragraph))) {
+        if (planFigures.has(figure)) out.set(figure, (out.get(figure) ?? 0) + 1);
+      }
+    }
+    return out;
+  };
+  const after = counts(repaired);
+  for (const [figure, before] of counts(checked)) {
+    const kept = after.get(figure) ?? 0;
+    if (kept < before) return { figure, before, after: kept };
+  }
+  return undefined;
+}
+
+/** Review P2-1: why a repair that lost a signed-off figure was not used. */
+export function repairLostPlanFigureReason(lost: { figure: string; before: number; after: number }): string {
+  return `the repaired text holds the signed-off figure "${lost.figure}" in ${lost.after} ${lost.after === 1 ? "paragraph" : "paragraphs"} where the checked draft held it in ${lost.before}, and a fix that leaves out work or restates a result must keep the evidence a signed-off item needs, so the checked draft was kept`;
 }
 
 /** Every LEAVE OUT verdict the figure backstop replaces, replaced. */
@@ -651,8 +705,9 @@ export function advancementsAnswer242Block(
 /**
  * 2026-09-30 (second, Rule C): Line 244's drafting instruction in a
  * signed-off plan run, read after the WRITER'S DECISIONS: its work is for an
- * uncertainty Line 242 states, or work a COVER item holds or needs as its
- * evidence. The signed-off Line 246 items follow it by step (and, before Line
+ * uncertainty Line 242 states, or is the evidence a signed-off item needs
+ * (review P2-2: an area the work plan names keeps no Brief experiment). The
+ * signed-off Line 246 items follow it by step (and, before Line
  * 242 is drafted, Line 242's). Empty for every other Line and every run
  * without a signed-off plan.
  */
@@ -1179,6 +1234,9 @@ export async function draftCheckedSection(input: {
   // Must keep lines for the repair's compression, whose number and negation
   // guard would otherwise protect the very words they remove.
   const leaveOutIssues = new Set<string>();
+  // Review P2-1: fixes whose repair must keep every signed-off figure the
+  // checked draft held (Line 244's work check and the targets check).
+  const evidenceIssues = new Set<string>();
   const planIssues = modelCheck.ok
     ? planVerdicts.flatMap((verdict) => {
         const expected = claim.planChecks.find((check) => sameSummaryPlanRef(verdict, check));
@@ -1198,13 +1256,16 @@ export async function draftCheckedSection(input: {
         if (leavesContentOut(expected?.instruction) && expected) {
           const issue = leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason);
           leaveOutIssues.add(issue);
+          if (expected.instruction === "work_answer_242") evidenceIssues.add(issue);
           return [issue];
         }
         // 2026-09-30 (third): a result misstated against its target goes
         // to the repair with a fixed start and the check's guidance. It asks
         // to state something, so it stays a Must keep line.
         if (expected?.instruction === "match_targets") {
-          return [leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason)];
+          const issue = leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason);
+          evidenceIssues.add(issue);
+          return [issue];
         }
         return [verdict.repairText ?? verdict.repairGuidance ?? verdict.reason];
       })
@@ -1299,6 +1360,13 @@ export async function draftCheckedSection(input: {
         // a draft further over the limit never comes back for a kept idea.
         const keptOverLimit =
           droppedKept.length > 0 && overLimitMore(text, fit.text);
+        // Review P2-1: a repair that carried Line 244's work fix or a
+        // targets fix must keep the evidence signed-off items need. It is
+        // set aside when it holds a signed-off figure in fewer paragraphs
+        // than the checked draft, unless the checked draft is further over a
+        // Locked limit (Locked Rules first).
+        const lostFigure = evidenceIssues.size > 0 ? lostPlanFigure(text, fit.text, planWording) : undefined;
+        const figureOverLimit = lostFigure !== undefined && overLimitMore(text, fit.text);
         const failure =
           fit.error === undefined
             ? undefined
@@ -1316,6 +1384,9 @@ export async function draftCheckedSection(input: {
           repair.notUsedReason = `${repairDroppedTermReason(droppedTerm)}${failure ? `; ${failure}` : ""}`;
         } else if (droppedKept.length > 0 && !keptOverLimit) {
           repair.notUsedReason = `${repairDroppedKeptIdeaReason(droppedKept[0]!)}${failure ? `; ${failure}` : ""}`;
+        } else if (lostFigure !== undefined && !figureOverLimit) {
+          console.warn(`generation:repair:${section}: the repair holds a signed-off figure in fewer paragraphs; the checked draft is kept`);
+          repair.notUsedReason = `${repairLostPlanFigureReason(lostFigure)}${failure ? `; ${failure}` : ""}`;
         } else {
           if (keptOverLimit) for (const conflict of droppedKept) droppedForLimit.add(conflict.itemId);
           finalText = fit.text;
@@ -1442,7 +1513,8 @@ export async function draftCheckedSection(input: {
   // draft is kept, as for a kept idea, unless the checked draft is further
   // over a Locked limit (Locked Rules first). With no final verdict to read,
   // nothing shows a loss, and the repair stays.
-  if (repair.succeeded && finalCoverage?.ok && leaveOutIssues.size > 0) {
+  // Review P3 (targets): a targets fix must keep what the plan holds too.
+  if (repair.succeeded && finalCoverage?.ok && (leaveOutIssues.size > 0 || evidenceIssues.size > 0)) {
     const coverage = finalCoverage;
     const lost = claim.planChecks.filter((planCheck) => {
       if (planCheck.instruction !== "cover" || planCheck.confirmedExclusion) return false;

@@ -730,7 +730,7 @@ export const generationPromptProgram = {
         // its figures is recorded applied and never repaired.
         workAnswers242: "line-244-plan-check-with-line-242-text-and-line-246-items-as-data-honoured-by-absence",
         coverItemsFirst: "leave-out-and-rule-checks-compare-every-cover-item-before-not-applied",
-        leaveOutFigureBackstop: "not-applied-leave-out-on-a-paragraph-without-dropped-figures-citing-only-plan-figures-recorded-applied-no-repair",
+        leaveOutFigureBackstop: "not-applied-leave-out-with-no-dropped-figure-or-near-copy-in-the-line-citing-only-plan-figures-recorded-applied-no-repair",
         extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
         // 2026-09-30 (third): Lines 244 and 246 of a signed-off plan have one
         // plan check that each result is stated against its target as the
@@ -753,6 +753,10 @@ export const generationPromptProgram = {
       callSite: "generation:repair:<n>",
       maxPerSection: 1,
       recheck: "deterministic-only",
+      // 2026-09-30 (second, review P2-1): a repair that carried Line 244's
+      // work fix or a targets fix is set aside when it holds a signed-off
+      // figure in fewer paragraphs than the checked draft (Locked Rules first).
+      evidenceGuard: "work-and-targets-fixes-keep-every-signed-off-figure-paragraph",
       // 2026-09-30 (third): in a signed-off plan run, report text that names
       // a source is found deterministically and repaired (never a Must keep
       // line), and Confidence Map, Storyline and Glossary fixes get a fixed

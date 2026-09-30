@@ -249,9 +249,9 @@ function uniqueTerms(terms: readonly string[]): string[] {
  * Line (CAP-13 rule 5: Locked Rules, then the signed-off selections, then
  * the writer's active Feedback, then the Brief; Glossary Terms normalize
  * wording only). For each term, in precedence order:
- * - the writer's own edit put or kept it in an idea drafted in the Line: it
- *   stays in force as a Glossary Term (review P3-2: the writer's edits
- *   outrank the Feedback);
+ * - the writer's own edit put it in an idea drafted in the Line, or kept it
+ *   in a sentence the writer changed (editChoseTerm): it stays in force as a
+ *   Glossary Term (review P3-2: the writer's edits outrank the Feedback);
  * - else an unedited signed-off idea drafted in the Line uses it: an active
  *   Feedback instruction that reaches the Line and names it governs it all
  *   the same (2026-09-30 second, release suite run 11: renaming a term is
@@ -282,8 +282,10 @@ export function glossaryTermPrecedence(args: {
     const naming = inOrderGiven(
       args.feedback.filter((feedback) => namesTerm(feedback.instruction, term))
     );
-    // The writer's own edit put or kept the term in an idea: the edit wins.
-    if (args.editedItems.some((item) => namesTerm(item.edited.join("\n"), term))) continue;
+    // The writer's own edit put the term in, or kept it in a sentence the
+    // writer changed: the edit wins (review P3-4). An edit elsewhere in the
+    // item leaves the term in the model's wording.
+    if (args.editedItems.some((item) => editChoseTerm(item, term))) continue;
     if (args.selectionWording.some((wording) => namesTerm(wording.join("\n"), term))) {
       // 2026-09-30 (second): an unedited idea's term is model wording, which
       // the writer's Feedback outranks: renaming it keeps the idea's meaning.
@@ -307,6 +309,34 @@ export function glossaryTermPrecedence(args: {
     }
   }
   return { setAside, governed };
+}
+
+/** One sentence as an edit is compared: white space and case aside. */
+function sentenceKey(sentence: string): string {
+  return sentence.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** The sentences of an idea's wording, split after a full stop, question or exclamation mark. */
+function ideaSentences(wording: readonly string[]): string[] {
+  return wording.flatMap((bullet) =>
+    bullet.split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()).filter(Boolean));
+}
+
+/**
+ * Review P3-4: whether the writer's edit chose a term: it put the term in
+ * (the model's wording did not name it), or kept it in a sentence the writer
+ * changed. An edit that only changed another sentence, a figure there for
+ * example, leaves the term in the model's own sentence.
+ */
+export function editChoseTerm(
+  item: { original: readonly string[]; edited: readonly string[] },
+  term: string
+): boolean {
+  if (!namesTerm(item.edited.join("\n"), term)) return false;
+  if (!namesTerm(item.original.join("\n"), term)) return true;
+  const original = new Set(ideaSentences(item.original).map(sentenceKey));
+  return ideaSentences(item.edited).some((sentence) =>
+    namesTerm(sentence, term) && !original.has(sentenceKey(sentence)));
 }
 
 /** What decides between several instructions that govern one term (round 4 review P3-2). */
