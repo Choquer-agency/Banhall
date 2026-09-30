@@ -983,6 +983,10 @@ export async function draftCheckedSection(input: {
     | { ok: true; verdicts: PlanVerdicts }
     | { ok: false; reason: string; detail: string }
     | undefined;
+  // Greptile round 4, P2: the same request judges the labels of the Glossary
+  // Terms the writer's Feedback governs on the final text, so their rows
+  // describe it; no request is added.
+  let governedFinal: { ok: true; verdicts: ModelVerdict[] } | { ok: false } | undefined;
   if (
     payload.summaryVersionId &&
     claim.planChecks.length > 0 &&
@@ -990,21 +994,21 @@ export async function draftCheckedSection(input: {
     !sameUtf8Bytes(text, finalText)
   ) {
     try {
-      finalCoverage = {
-        ok: true,
-        verdicts: await runFinalCoverageSelfCheck(
-          clientFor(`generation:selfCheck:${section}`),
-          {
-            section,
-            text: finalText,
-            model: clientFor.modelFor(`generation:selfCheck:${section}`),
-            planChecks: claim.planChecks,
-            planChecksBlock: claim.planChecksBlock,
-            editedTerms: claim.editedTerms,
-            ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
-          }
-        ),
-      };
+      const final = await runFinalCoverageSelfCheck(
+        clientFor(`generation:selfCheck:${section}`),
+        {
+          section,
+          text: finalText,
+          model: clientFor.modelFor(`generation:selfCheck:${section}`),
+          planChecks: claim.planChecks,
+          planChecksBlock: claim.planChecksBlock,
+          editedTerms: claim.editedTerms,
+          ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
+          ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
+        }
+      );
+      finalCoverage = { ok: true, verdicts: final.planVerdicts };
+      if (feedbackTerms.length > 0) governedFinal = { ok: true, verdicts: final.verdicts };
     } catch (error) {
       // Stored beside modelCheckDetail with the same diagnostic: the clause,
       // positions, byte counts and app-supplied ids, never model text.
@@ -1014,6 +1018,7 @@ export async function draftCheckedSection(input: {
         `generation:selfCheck:${section}: final coverage Self-check failed (${reason}): ${detail}`
       );
       finalCoverage = { ok: false, reason, detail };
+      if (feedbackTerms.length > 0) governedFinal = { ok: false };
     }
   }
 
@@ -1056,6 +1061,7 @@ export async function draftCheckedSection(input: {
       keptFit = firstFit;
       after = null;
       finalCoverage = undefined;
+      governedFinal = undefined;
     }
   }
 
@@ -1084,6 +1090,7 @@ export async function draftCheckedSection(input: {
         : {}),
     },
     ...(feedbackTerms.length > 0 ? { governed: feedbackTerms } : {}),
+    ...(governedFinal ? { governedFinal } : {}),
   });
   const rows = [...baseRows];
   let planRows: ComplianceNoteDraft[] = [];

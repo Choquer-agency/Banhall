@@ -253,6 +253,54 @@ describe("Glossary Terms the writer's Feedback governs (2026-09-29 second, CAP-1
     expect(governingFeedbackPhrase([ban])).toBe('on Company / Context: "Never say floating head."');
   });
 
+  it("Greptile round 4, P1: orders a term's instructions by when the writer gave them, whatever their steps", () => {
+    const older = "Call the deburring tool the floating head.";
+    const newer = "Never say floating head.";
+    const rows = [
+      { roleId: "experimentation" as const, instruction: older, status: "active", _creationTime: 100, _id: "b" },
+      { roleId: "company_context" as const, instruction: newer, status: "active", _creationTime: 200, _id: "a" },
+      { roleId: "company_context" as const, instruction: "Say Bay 4.", status: "active", _creationTime: 300, _id: "c" },
+    ];
+    // The Line's Feedback stays in step order and keeps when each was given.
+    const line246 = feedbackForLine("246", rows);
+    expect(line246).toEqual([
+      { roleId: "company_context", instruction: newer, givenAt: 200, feedbackId: "a" },
+      { roleId: "company_context", instruction: "Say Bay 4.", givenAt: 300, feedbackId: "c" },
+      { roleId: "experimentation", instruction: older, givenAt: 100, feedbackId: "b" },
+    ]);
+    // The governing list is in time order, so the newer one is listed last
+    // and wins where they disagree.
+    const governed = glossaryTermPrecedence({
+      glossaryTerms: ["floating head"],
+      feedback: line246,
+      editedItems: [],
+      selectionWording: [],
+    }).governed;
+    expect(governed[0]!.feedback.map((entry) => entry.instruction)).toEqual([older, newer]);
+    expect(governingFeedbackPhrase(governed[0]!.feedback)).toBe(
+      `on Experimentation / Iterations: "${older}"; then on Company / Context: "${newer}" (where they disagree, the latest instruction wins)`
+    );
+    // Only Feedback that reached the Line counts: Line 242 never gets the
+    // Experimentation instruction.
+    expect(glossaryTermPrecedence({
+      glossaryTerms: ["floating head"],
+      feedback: feedbackForLine("242", rows),
+      editedItems: [],
+      selectionWording: [],
+    }).governed[0]!.feedback.map((entry) => entry.instruction)).toEqual([newer]);
+    // Equal times fall back to the id.
+    const tied = glossaryTermPrecedence({
+      glossaryTerms: ["floating head"],
+      feedback: [
+        { roleId: "company_context", instruction: "Say floating head.", givenAt: 5, feedbackId: "y" },
+        { roleId: "company_context", instruction: "Never floating head.", givenAt: 5, feedbackId: "x" },
+      ],
+      editedItems: [],
+      selectionWording: [],
+    }).governed[0]!.feedback.map((entry) => entry.instruction);
+    expect(tied).toEqual(["Never floating head.", "Say floating head."]);
+  });
+
   it("words the governed row in fixed text that quotes the Feedback, never the model's", () => {
     const feedback = [company(SPINDLE), { roleId: "experimentation" as const, instruction: "Keep \"floating head\" out of test names." }];
     const phrase =
@@ -260,9 +308,34 @@ describe("Glossary Terms the writer's Feedback governs (2026-09-29 second, CAP-1
     expect(governingFeedbackPhrase(feedback)).toBe(phrase);
     const base = `The writer's Feedback governs this term in this Line, not the Brief: follow the writer's Feedback ${phrase}.`;
     expect(governedTermReason(feedback, "followed")).toBe(`${base} The Self-check found that the text follows it.`);
-    expect(governedTermReason(feedback, "not_followed")).toBe(`${base} The Self-check found that the text does not follow it`);
+    expect(governedTermReason(feedback, "not_followed")).toBe(`${base} The Self-check found that the text does not follow it.`);
+    expect(governedTermReason(feedback, "not_followed", "the repair left the text unchanged")).toBe(
+      `${base} The Self-check found that the text does not follow it; the repair left the text unchanged.`
+    );
     expect(governedTermReason(feedback, "not_checked")).toBe(`${base} The Self-check gave no verdict for it, so it is not checked.`);
     expect(governedTermReason(feedback, "check_failed")).toBe(`${base} The Self-check did not run, so it is not checked.`);
+    // Greptile round 4, P2: after a used repair the final text decides.
+    expect(governedTermReason(feedback, "repaired")).toBe(
+      `${base} The Self-check found that the text did not follow it; the repair fixed that, and the check of the final text found that it follows it.`
+    );
+    expect(governedTermReason(feedback, "followed_final")).toBe(
+      `${base} The check of the final text after the repair found that it follows it.`
+    );
+    expect(governedTermReason(feedback, "still_not_followed")).toBe(
+      `${base} The Self-check found that the text did not follow it, and the check of the final text after the repair found that it still does not.`
+    );
+    expect(governedTermReason(feedback, "broken_by_repair")).toBe(
+      `${base} The Self-check found that the text followed it, but the check of the final text after the repair found that it no longer does.`
+    );
+    expect(governedTermReason(feedback, "final_not_followed")).toBe(
+      `${base} The check of the final text after the repair found that it does not follow it.`
+    );
+    expect(governedTermReason(feedback, "final_not_checked")).toBe(
+      `${base} The repair changed the text, and the check of the final text gave no verdict for it, so it is not checked.`
+    );
+    expect(governedTermReason(feedback, "final_check_failed")).toBe(
+      `${base} The repair changed the text, and the check of the final text did not complete, so it is not checked.`
+    );
   });
 });
 

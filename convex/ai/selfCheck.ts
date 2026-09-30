@@ -559,7 +559,9 @@ export type SelfCheckModelInput = {
   planChecksBlock?: string;
   /**
    * 2026-09-28 (third): plan verdicts only, on the final text. Set only by
-   * runFinalCoverageSelfCheck, whose input carries no ordinary labels.
+   * runFinalCoverageSelfCheck, whose input carries no ordinary labels but
+   * the labels of the Glossary Terms the writer's Feedback governs
+   * (Greptile round 4, P2).
    */
   coverageOnly?: boolean;
   /**
@@ -575,7 +577,8 @@ export type SelfCheckModelInput = {
   /**
    * PR #22 lead decision: the Glossary Terms that Feedback names, each
    * checked by its own "feedback:F<n>" label (never a Glossary candidate).
-   * Summary mode only, never the final coverage check.
+   * Summary mode only; the final coverage check carries them too, so a
+   * repaired text is judged for them (Greptile round 4, P2).
    */
   feedbackTerms?: readonly FeedbackGovernedTerm[];
 };
@@ -609,9 +612,9 @@ function summaryOrdinaryChecks(input: SelfCheckModelInput): SummaryOrdinaryCheck
   });
 }
 
-/** The governed terms a Summary request labels (none in the final coverage check). */
+/** The governed terms a Summary request labels, the final coverage check included. */
 function summaryFeedbackTerms(input: SelfCheckModelInput): readonly FeedbackGovernedTerm[] {
-  if (!input.planChecks?.length || input.coverageOnly) return [];
+  if (!input.planChecks?.length) return [];
   return (input.feedbackTerms ?? []).filter((entry) => entry.term.trim() && entry.feedback.length > 0);
 }
 
@@ -727,9 +730,12 @@ export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
   if (!input.planChecks?.length) return message;
   const separator = SUMMARY_PLAN_SELF_CHECK_REQUEST.checklist.separator;
   const checklist = summaryChecklist(summaryOrdinaryChecks(input), input.planChecks);
+  const finalCoverage = SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage;
   const parts = [
     message,
-    ...(input.coverageOnly ? [SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction] : []),
+    ...(input.coverageOnly
+      ? [summaryFeedbackTerms(input).length > 0 ? finalCoverage.labelsInstruction : finalCoverage.instruction]
+      : []),
     ...(checklist ? [checklist] : []),
   ];
   return parts.join(separator);
@@ -1555,11 +1561,13 @@ export async function runModelSelfCheck(
 /**
  * 2026-09-28 (third): the coverage-only Self-check of a Section's final text,
  * run when an accepted repair (and its compression) changed the text the
- * first Self-check saw. Plan verdicts only: no ordinary labels, no Storyline
- * question. The same Summary rules, frozen checking model and single
- * attempt, with the same one follow-up for plan checks the answer missed;
- * whatever is still missing comes back as not checked. Throws when the check
- * fails as a whole, as runModelSelfCheck does.
+ * first Self-check saw. Plan verdicts, and the labels of the Glossary Terms
+ * the writer's Feedback governs (Greptile round 4, P2), in the same request:
+ * no other ordinary label, no Storyline question. The same Summary rules,
+ * frozen checking model and single attempt, with the same one follow-up for
+ * plan checks and labels the answer missed; whatever is still missing comes
+ * back as not checked. Throws when the check fails as a whole, as
+ * runModelSelfCheck does.
  */
 export async function runFinalCoverageSelfCheck(
   client: GenerationClient,
@@ -1571,9 +1579,14 @@ export async function runFinalCoverageSelfCheck(
     planChecksBlock?: string;
     editedTerms?: readonly string[];
     writerFeedback?: readonly WriterFeedback[];
+    feedbackTerms?: readonly FeedbackGovernedTerm[];
   }
-): Promise<ModelSelfCheckResult["planVerdicts"]> {
-  if (input.planChecks.length === 0) return [];
+): Promise<{
+  planVerdicts: ModelSelfCheckResult["planVerdicts"];
+  /** The governed terms' label verdicts on the final text. */
+  verdicts: ModelVerdict[];
+}> {
+  if (input.planChecks.length === 0) return { planVerdicts: [], verdicts: [] };
   const result = await runModelSelfCheck(client, {
     section: input.section,
     text: input.text,
@@ -1587,8 +1600,12 @@ export async function runFinalCoverageSelfCheck(
     coverageOnly: true,
     ...(input.editedTerms?.length ? { editedTerms: input.editedTerms } : {}),
     ...(input.writerFeedback?.length ? { writerFeedback: input.writerFeedback } : {}),
+    ...(input.feedbackTerms?.length ? { feedbackTerms: input.feedbackTerms } : {}),
   });
-  return result.planVerdicts;
+  return {
+    planVerdicts: result.planVerdicts,
+    verdicts: result.verdicts.filter((verdict) => verdict.feedbackTerm !== undefined),
+  };
 }
 
 export type ConsistencyInput = {

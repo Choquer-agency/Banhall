@@ -855,7 +855,8 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
    * as data. The verdict says whether the section follows the Feedback for
    * the term, whichever way it points; a not applied verdict is repaired like
    * any ordinary label. Only present when the Line has such a term, in the
-   * first request and its follow-up, never the final coverage check.
+   * first request, the check of the final text after a used repair (Greptile
+   * round 4, P2) and their follow-ups.
    */
   feedbackTerms: {
     blockLabel: "GLOSSARY TERMS THE WRITER'S FEEDBACK GOVERNS",
@@ -869,6 +870,11 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
   finalCoverage: {
     instruction:
       "This check covers the content plan only, on the section's final text. Return an empty verdicts list and leave out storylineQuestion.",
+    // Greptile round 4, P2: after a used repair, the labels of the Glossary
+    // Terms the writer's Feedback governs are checked on the final text in
+    // the same request. Only present when the Line has such a term.
+    labelsInstruction:
+      "This check covers the content plan and the labels listed below only, on the section's final text. Leave out storylineQuestion.",
   },
 } as const;
 

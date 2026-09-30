@@ -19,9 +19,12 @@ import {
   type SectionNumber,
 } from "./orderedChain";
 import {
+  governedTermFollowed,
+  governedTermNotFollowed,
   governedTermReason,
   governingFeedbackPhrase,
   type FeedbackGovernedTerm,
+  type GovernedTermState,
 } from "./writerPrecedence";
 
 /**
@@ -567,6 +570,12 @@ export function assembleSectionNotes(input: {
    * decided by its label's verdict, or not checked when there is none.
    */
   governed?: readonly FeedbackGovernedTerm[];
+  /**
+   * Greptile round 4, P2: the governed terms' label verdicts from the check
+   * of the final text, present only when a used repair changed the checked
+   * text. They decide the rows then, never the repair's own success.
+   */
+  governedFinal?: { ok: true; verdicts: readonly ModelVerdict[] } | { ok: false };
 }): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
   const { section, before, verdicts, repair } = input;
   const failedBefore = new Set(
@@ -617,40 +626,15 @@ export function assembleSectionNotes(input: {
   ).length;
 
   const governed = input.governed ?? [];
-  const governedRowFor = new Set<string>();
+  // The first verdict for each governed term's label; its row is written
+  // below, from the final text's verdict when there is one.
+  const firstGoverned = new Map<string, ModelVerdict>();
   for (const verdict of verdicts) {
     const term = verdict.feedbackTerm === undefined
       ? undefined
       : governed.find((entry) => entry.term === verdict.feedbackTerm);
     if (term) {
-      // Fixed words that quote the writer's Feedback, never the model's
-      // text; the verdict decides the outcome (PR #22 lead decision).
-      governedRowFor.add(term.term);
-      const base = {
-        section,
-        paragraphIndex: verdict.paragraphIndex,
-        source: "model" as const,
-        instruction: `Glossary Term: ${term.term}`,
-        tier: "conflict" as const,
-      };
-      if (verdict.outcome === "applied") {
-        rows.push(noteDraft({ ...base, outcome: "applied", reason: governedTermReason(term.feedback, "followed") }));
-        continue;
-      }
-      if (verdict.notChecked) {
-        rows.push(noteDraft({ ...base, outcome: "not_applied", reason: governedTermReason(term.feedback, "not_checked") }));
-        continue;
-      }
-      const notFollowed = governedTermReason(term.feedback, "not_followed");
-      const repairedFully = repair.attempted && repair.succeeded && !repair.shortened;
-      const reason = !repair.attempted
-        ? `${notFollowed}.`
-        : !repair.succeeded
-          ? `${notFollowed}; ${repairNotDone}.`
-          : repair.shortened
-            ? `${notFollowed}; repaired, then shortened to fit the Line limit, so not re-verified.`
-            : `${notFollowed}; repaired (not re-verified by the model).`;
-      rows.push(noteDraft({ ...base, outcome: "not_applied", reason, repaired: repairedFully }));
+      if (!firstGoverned.has(term.term)) firstGoverned.set(term.term, verdict);
       continue;
     }
     const tier: ComplianceTier =
@@ -700,17 +684,58 @@ export function assembleSectionNotes(input: {
     rows.push(noteDraft({ ...base, outcome, reason, repaired }));
   }
 
-  // A governed term whose label got no verdict at all: the Self-check call
-  // failed as a whole. It is recorded, never enforced as a Glossary Term.
+  // One row per governed term, in fixed words that quote the Feedback,
+  // never the model's text (PR #22 lead decision). The final text decides
+  // (Greptile round 4, P2): when a used repair changed the checked text, the
+  // check of the final text judged its label again, and that verdict, or its
+  // absence, decides the row; otherwise the first verdict describes the
+  // final text. The repair's own success never marks the term followed.
   for (const term of governed) {
-    if (governedRowFor.has(term.term)) continue;
+    const first = firstGoverned.get(term.term);
+    const firstFailed = first !== undefined && first.outcome === "not_applied" && !first.notChecked;
+    const firstFollowed = first !== undefined && first.outcome === "applied";
+    let state: GovernedTermState;
+    let detail: string | undefined;
+    const final = input.governedFinal;
+    if (final) {
+      const verdict = final.ok
+        ? final.verdicts.find((candidate) => candidate.feedbackTerm === term.term)
+        : undefined;
+      if (!final.ok) state = "final_check_failed";
+      else if (!verdict || verdict.notChecked) state = "final_not_checked";
+      else if (verdict.outcome === "applied") state = firstFailed ? "repaired" : "followed_final";
+      else state = firstFailed ? "still_not_followed" : firstFollowed ? "broken_by_repair" : "final_not_followed";
+    } else if (!first) {
+      state = input.modelCheck.ok ? "not_checked" : "check_failed";
+    } else if (first.notChecked) {
+      state = "not_checked";
+    } else if (first.outcome === "applied") {
+      state = "followed";
+    } else {
+      state = "not_followed";
+      // The checked text is the final text: the repair was not used, failed
+      // or left the text as it was.
+      detail = !repair.attempted
+        ? undefined
+        : !repair.succeeded
+          ? repairNotDone
+          : "the repair left the text unchanged";
+    }
+    const verdict = input.governedFinal?.ok
+      ? input.governedFinal.verdicts.find((candidate) => candidate.feedbackTerm === term.term)
+      : input.governedFinal ? undefined : first;
+    if (governedTermNotFollowed(state) && repair.attempted) remainingFailures += 1;
     rows.push(noteDraft({
       section,
+      ...(verdict && !verdict.notChecked && verdict.paragraphIndex !== undefined
+        ? { paragraphIndex: verdict.paragraphIndex }
+        : {}),
       source: "model",
       instruction: `Glossary Term: ${term.term}`,
-      outcome: "not_applied",
+      outcome: governedTermFollowed(state) ? "applied" : "not_applied",
       tier: "conflict",
-      reason: governedTermReason(term.feedback, "check_failed"),
+      reason: governedTermReason(term.feedback, state, detail),
+      repaired: state === "repaired",
     }));
   }
 

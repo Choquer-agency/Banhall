@@ -21,8 +21,18 @@ import { matchesClaimExclusion, normalizeExclusionMatch } from "./claimExclusion
 import { sectionParagraphs } from "./tiptapReport";
 import type { SectionNumber } from "./orderedChain";
 
-/** One active Feedback instruction and the step it was given on. */
-export type WriterFeedback = { roleId: PdSubsectionRoleId; instruction: string };
+/**
+ * One active Feedback instruction and the step it was given on. `givenAt`
+ * and `feedbackId` (the Feedback row's creation time and id) say when the
+ * writer gave it, so the instructions that govern one term are ordered by
+ * time (Greptile round 4, P1). Never sent to a model.
+ */
+export type WriterFeedback = {
+  roleId: PdSubsectionRoleId;
+  instruction: string;
+  givenAt?: number;
+  feedbackId?: string;
+};
 
 /** A Glossary Term a signed-off edit took out of a Line, and why. */
 export type GlossarySetAside = { term: string; reason: string };
@@ -108,11 +118,18 @@ function lastStepOrderOf(section: SectionNumber): number {
  * reaches every Line that holds its step or a later one: Feedback on Company
  * / Context reaches Lines 242, 244 and 246, Feedback on Experimentation Lines
  * 244 and 246. Withdrawn Feedback, and Feedback suspended by a Skip, never
- * does. In step order, then in the order given.
+ * does. In step order, then in the order given; each keeps when it was given
+ * (the row's creation time and id), when the row has them.
  */
 export function feedbackForLine(
   section: SectionNumber,
-  rows: ReadonlyArray<{ roleId: PdSubsectionRoleId; instruction: string; status: string }>,
+  rows: ReadonlyArray<{
+    roleId: PdSubsectionRoleId;
+    instruction: string;
+    status: string;
+    _creationTime?: number;
+    _id?: string;
+  }>,
   skippedRoleIds: readonly PdSubsectionRoleId[] = []
 ): WriterFeedback[] {
   const last = lastStepOrderOf(section);
@@ -126,7 +143,28 @@ export function feedbackForLine(
       stepOrder(row.roleId) <= last
     )
     .sort((a, b) => stepOrder(a.row.roleId) - stepOrder(b.row.roleId) || a.index - b.index)
-    .map(({ row }) => ({ roleId: row.roleId, instruction: row.instruction.trim() }));
+    .map(({ row }) => ({
+      roleId: row.roleId,
+      instruction: row.instruction.trim(),
+      ...(row._creationTime !== undefined ? { givenAt: row._creationTime } : {}),
+      ...(row._id !== undefined ? { feedbackId: String(row._id) } : {}),
+    }));
+}
+
+/**
+ * Instructions in the order the writer gave them: by creation time, then
+ * id. Without a time on every one (older callers, fixtures), the order they
+ * came in is kept.
+ */
+function inOrderGiven(feedback: readonly WriterFeedback[]): WriterFeedback[] {
+  if (!feedback.every((entry) => entry.givenAt !== undefined)) return [...feedback];
+  return feedback
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) =>
+      (a.entry.givenAt ?? 0) - (b.entry.givenAt ?? 0) ||
+      (a.entry.feedbackId ?? "").localeCompare(b.entry.feedbackId ?? "") ||
+      a.index - b.index)
+    .map(({ entry }) => entry);
 }
 
 /** Lower case, curly apostrophes plain, hyphens and runs of spaces as one space. */
@@ -229,7 +267,11 @@ export function glossaryTermPrecedence(args: {
       });
       continue;
     }
-    const naming = args.feedback.filter((feedback) => namesTerm(feedback.instruction, term));
+    // Greptile round 4, P1: in the order the writer gave them, so the one
+    // listed last is the most recent, whatever step each was given on.
+    const naming = inOrderGiven(
+      args.feedback.filter((feedback) => namesTerm(feedback.instruction, term))
+    );
     if (naming.length > 0) {
       governed.push({ term, feedback: naming.map((entry) => ({ ...entry })) });
     }
@@ -243,11 +285,11 @@ export const GOVERNING_FEEDBACK_TIE_BREAK = "where they disagree, the latest ins
 /**
  * The writer's Feedback for a governed term, as the drafting block, the
  * Self-check label, the repair issue, the row and the consistency pass quote
- * it: 'on Company / Context: "..."'. Several are listed in the order they
- * reach the Line (step order, then the order given; feedbackForLine), joined
- * by "; then ", and end with the tie-break, so the one listed last wins
- * where they disagree. Each instruction is quoted on one line
- * (quoteForPrompt), so it can never close a block.
+ * it: 'on Company / Context: "..."'. Several are listed in the order the
+ * writer gave them (glossaryTermPrecedence), joined by "; then ", and end
+ * with the tie-break, so the most recent, listed last, wins where they
+ * disagree. Each instruction is quoted on one line (quoteForPrompt), so it
+ * can never close a block.
  */
 export function governingFeedbackPhrase(feedback: readonly WriterFeedback[]): string {
   const listed = feedback
@@ -257,20 +299,82 @@ export function governingFeedbackPhrase(feedback: readonly WriterFeedback[]): st
 }
 
 /**
+ * How a governed term's row ends, from its label's verdicts on the checked
+ * text and, when a used repair changed the text, on the final text
+ * (Greptile round 4, P2): the final text decides whenever it was checked.
+ */
+export type GovernedTermState =
+  /** The checked text follows the Feedback and is the final text. */
+  | "followed"
+  /** The checked text does not follow it and is the final text. */
+  | "not_followed"
+  /** No verdict for the label on the checked text, which is the final text. */
+  | "not_checked"
+  /** The Self-check call failed as a whole. */
+  | "check_failed"
+  /** The first check found it not followed; the final text follows it. */
+  | "repaired"
+  /** The final text follows it (the first check found it followed, or gave no verdict). */
+  | "followed_final"
+  /** The first check found it not followed, and so does the final check. */
+  | "still_not_followed"
+  /** The first check found it followed; the repair's final text does not. */
+  | "broken_by_repair"
+  /** The first check gave no verdict; the final text does not follow it. */
+  | "final_not_followed"
+  /** The final check gave no verdict for the label. */
+  | "final_not_checked"
+  /** The final check failed as a whole. */
+  | "final_check_failed";
+
+/** Whether a governed term's row is recorded applied. */
+export function governedTermFollowed(state: GovernedTermState): boolean {
+  return state === "followed" || state === "repaired" || state === "followed_final";
+}
+
+/** Whether a governed term's row records a text that does not follow the Feedback. */
+export function governedTermNotFollowed(state: GovernedTermState): boolean {
+  return state === "not_followed" || state === "still_not_followed" ||
+    state === "broken_by_repair" || state === "final_not_followed";
+}
+
+/**
  * The Compliance Note reason of a Glossary Term the writer's Feedback
  * governs in a Line. Fixed wording that quotes the writer's instruction and
- * never the model's text; the Self-check verdict for the term's label
- * decides the outcome and `state` says which it was.
+ * never the model's text; the label's verdicts decide the state. `detail`
+ * (app text only) says why a checked text that does not follow it is still
+ * the final text: the repair was not used, failed, or changed nothing.
  */
 export function governedTermReason(
   feedback: readonly WriterFeedback[],
-  state: "followed" | "not_followed" | "not_checked" | "check_failed"
+  state: GovernedTermState,
+  detail?: string
 ): string {
   const base = `The writer's Feedback governs this term in this Line, not the Brief: follow the writer's Feedback ${governingFeedbackPhrase(feedback)}.`;
-  if (state === "followed") return `${base} The Self-check found that the text follows it.`;
-  if (state === "not_followed") return `${base} The Self-check found that the text does not follow it`;
-  if (state === "not_checked") return `${base} The Self-check gave no verdict for it, so it is not checked.`;
-  return `${base} The Self-check did not run, so it is not checked.`;
+  switch (state) {
+    case "followed":
+      return `${base} The Self-check found that the text follows it.`;
+    case "not_followed":
+      return `${base} The Self-check found that the text does not follow it${detail ? `; ${detail}` : ""}.`;
+    case "not_checked":
+      return `${base} The Self-check gave no verdict for it, so it is not checked.`;
+    case "check_failed":
+      return `${base} The Self-check did not run, so it is not checked.`;
+    case "repaired":
+      return `${base} The Self-check found that the text did not follow it; the repair fixed that, and the check of the final text found that it follows it.`;
+    case "followed_final":
+      return `${base} The check of the final text after the repair found that it follows it.`;
+    case "still_not_followed":
+      return `${base} The Self-check found that the text did not follow it, and the check of the final text after the repair found that it still does not.`;
+    case "broken_by_repair":
+      return `${base} The Self-check found that the text followed it, but the check of the final text after the repair found that it no longer does.`;
+    case "final_not_followed":
+      return `${base} The check of the final text after the repair found that it does not follow it.`;
+    case "final_not_checked":
+      return `${base} The repair changed the text, and the check of the final text gave no verdict for it, so it is not checked.`;
+    case "final_check_failed":
+      return `${base} The repair changed the text, and the check of the final text did not complete, so it is not checked.`;
+  }
 }
 
 /** Whether a Claim Exclusion's words stand in a text (the deterministic check's match). */

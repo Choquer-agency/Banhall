@@ -671,7 +671,7 @@ export const generationPromptProgram = {
         schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
         structuredPolicy: "single-attempt-then-missing-labels-follow-up",
         encodedJsonRecovery: "disabled",
-        finalCoverage: "plan-verdicts-only-on-the-changed-final-text",
+        finalCoverage: "plan-verdicts-and-feedback-term-labels-on-the-changed-final-text",
         // 2026-09-28, run 4: an invalid verdict is dropped and its label or
         // plan check asked for in the follow-up; only an answer with more
         // invalid verdicts than valid ones is rejected whole.

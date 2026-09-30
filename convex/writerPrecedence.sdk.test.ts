@@ -51,6 +51,7 @@ import {
 import type { OrderedPayload } from "./lib/orderedChain";
 import { sectionMetrics } from "./lib/lineLimits";
 import {
+  feedbackForLine,
   glossaryTermPrecedence,
   governedTermReason,
   ideaWords,
@@ -123,7 +124,12 @@ function installFetch(script: {
   /** "unreadable" answers with neither verdict list, so the check fails whole. */
   checks: Array<PlanAnswer[] | "unreadable">;
   ordinary?: unknown[];
-  /** Ordinary verdicts per Self-check request that is not the final coverage check, in order; `ordinary` after. */
+  /**
+   * Ordinary verdicts per Self-check request, in order: the first check, its
+   * follow-up, and the final check when it carries labels (Greptile round 4,
+   * P2) and its follow-up; `ordinary` after. A final check without labels
+   * always gets none.
+   */
   ordinaryAnswers?: unknown[][];
 }): Sent[] {
   const sent: Sent[] = [];
@@ -926,10 +932,11 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
         draft: entry.drafted,
         repair: entry.fixed,
         checks: [[covered(ITEM_CONTEXT, 2)], [covered(ITEM_CONTEXT, 2)]],
-        ordinaryAnswers: [[
-          ...entry.otherLabels,
-          feedbackVerdict("not_applied", paragraph, entry.reason, entry.guidance),
-        ]],
+        ordinaryAnswers: [
+          [...entry.otherLabels, feedbackVerdict("not_applied", paragraph, entry.reason, entry.guidance)],
+          // Greptile round 4, P2: the check of the final text judges the label again.
+          [feedbackVerdict("applied", paragraph, "Follows it now.")],
+        ],
       });
       const result = await draft("242", claimFor({
         planChecks: PLAN_242,
@@ -937,14 +944,20 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
         writerFeedback: feedback,
         feedbackTerms: precedence.governed,
       }));
-      // One repair, then the coverage-only check of the changed text: the
-      // per-Line request count is unchanged.
+      // One repair, then the check of the changed text, which carries the
+      // label in the same request: the per-Line request count is unchanged.
       expect(sent.map((request) => request.stage), entry.term).toEqual([
         "section",
         "submit_self_check",
         "repair",
         "submit_self_check",
       ]);
+      const final = sent[3]!;
+      expect(final.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.labelsInstruction);
+      expect(final.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+      expect(final.user).toContain(governedLabelLine(entry.instruction, entry.term));
+      expect(final.user).toContain("- feedback:F1 (check instruction)");
+      expect(final.user).not.toContain("glossary:G");
       const repair = sent.find((request) => request.stage === "repair")!;
       expect(repair.user, entry.term).toContain(
         `- Paragraph ${paragraph}: for the term "${entry.term}", follow the writer's Feedback on Company / Context: ${quoteForPrompt(entry.instruction)}. ${entry.guidance}`
@@ -952,13 +965,16 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
       expect(repair.user).toContain(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.writerDecisions);
       expect(result.draftText, entry.term).toBe(entry.fixed);
       const row = termRow(result, entry.term);
+      // The final text follows the Feedback: the row says so, from the
+      // final check's verdict.
       expect(row, entry.term).toMatchObject({
         source: "model",
-        outcome: "not_applied",
+        outcome: "applied",
         tier: "conflict",
         repaired: true,
-        reason: `${governedTermReason(feedback, "not_followed")}; repaired (not re-verified by the model).`,
+        reason: governedTermReason(feedback, "repaired"),
       });
+      expect(row.reason).toContain("the repair fixed that, and the check of the final text found that it follows it.");
       // Fixed words only: the model's reason and guidance are not stored.
       expect(row.reason).not.toContain(entry.reason);
       expect(row.reason).not.toContain(entry.guidance);
@@ -994,10 +1010,155 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
       expect(repair.user, order[0]).toContain(
         `- Paragraph 2: for the term "floating head", follow the writer's Feedback ${listed}. Follow the latest instruction.`
       );
-      expect(termRow(result).reason, order[0]).toBe(
-        `The writer's Feedback governs this term in this Line, not the Brief: follow the writer's Feedback ${listed}. The Self-check found that the text does not follow it; repaired (not re-verified by the model).`
-      );
+      // The repair came back unchanged, so no final check ran and the row
+      // says the text still does not follow it.
+      expect(sent.map((request) => request.stage)).toEqual(["section", "submit_self_check", "repair"]);
+      expect(termRow(result, "floating head"), order[0]).toMatchObject({
+        outcome: "not_applied",
+        repaired: false,
+        reason: `The writer's Feedback governs this term in this Line, not the Brief: follow the writer's Feedback ${listed}. The Self-check found that the text does not follow it; the repair left the text unchanged.`,
+      });
     }
+  });
+
+  it("Greptile round 4, P2: after a used repair the final text decides the row, whatever the repair's own success", async () => {
+    const drafted = SPINDLE_DRAFT.replace("a compliant spindle", "the floating head");
+    const missed = feedbackVerdict("not_applied", 2, "P2 says floating head.", "Say compliant spindle in paragraph 2.");
+    const cases: Array<{
+      name: string;
+      draft: string;
+      first: unknown[];
+      /** Plan verdicts of the first check: a missing item forces a repair. */
+      firstPlan: PlanAnswer[];
+      final: Array<PlanAnswer[] | "unreadable">;
+      finalOrdinary: unknown[][];
+      stages: string[];
+      state: Parameters<typeof governedTermReason>[1];
+      outcome: "applied" | "not_applied";
+    }> = [
+      {
+        name: "still not followed",
+        draft: drafted,
+        first: [missed],
+        firstPlan: [covered(ITEM_CONTEXT, 2)],
+        final: [[covered(ITEM_CONTEXT, 2)]],
+        finalOrdinary: [[feedbackVerdict("not_applied", 2, "P2 still says it.")]],
+        stages: ["section", "submit_self_check", "repair", "submit_self_check"],
+        state: "still_not_followed",
+        outcome: "not_applied",
+      },
+      {
+        name: "broken by a repair for another issue",
+        draft: SPINDLE_DRAFT,
+        first: [feedbackVerdict("applied", 2, "Follows it.")],
+        firstPlan: [missing(ITEM_CONTEXT, "P2 misses the robotic cells.", "Name the robotic finishing cells in paragraph 2.")],
+        final: [[covered(ITEM_CONTEXT, 2)]],
+        finalOrdinary: [[feedbackVerdict("not_applied", 2, "P2 now says floating head.")]],
+        stages: ["section", "submit_self_check", "repair", "submit_self_check"],
+        state: "broken_by_repair",
+        outcome: "not_applied",
+      },
+      {
+        name: "no verdict on the final text, even after the one follow-up",
+        draft: drafted,
+        first: [missed],
+        firstPlan: [covered(ITEM_CONTEXT, 2)],
+        final: [[covered(ITEM_CONTEXT, 2)], []],
+        finalOrdinary: [[], []],
+        stages: ["section", "submit_self_check", "repair", "submit_self_check", "submit_self_check"],
+        state: "final_not_checked",
+        outcome: "not_applied",
+      },
+      {
+        name: "the final check fails",
+        draft: drafted,
+        first: [missed],
+        firstPlan: [covered(ITEM_CONTEXT, 2)],
+        final: ["unreadable"],
+        finalOrdinary: [],
+        stages: ["section", "submit_self_check", "repair", "submit_self_check"],
+        state: "final_check_failed",
+        outcome: "not_applied",
+      },
+    ];
+    for (const entry of cases) {
+      const sent = installFetch({
+        draft: entry.draft,
+        repair: SPINDLE_DRAFT.replace("instead of one fixed force", "in place of one fixed force"),
+        checks: [entry.firstPlan, ...entry.final],
+        ordinaryAnswers: [entry.first, ...entry.finalOrdinary],
+      });
+      const result = await draft("242", claimFor({
+        planChecks: PLAN_242,
+        brief: BRIEF_242,
+        writerFeedback: FEEDBACK,
+        feedbackTerms: GOVERNED,
+      }));
+      // No request is added: the label rides in the check of the final text.
+      expect(sent.map((request) => request.stage), entry.name).toEqual(entry.stages);
+      expect(sent[3]!.user, entry.name).toContain(governedLabelLine(SPINDLE));
+      const row = termRow(result);
+      expect(row, entry.name).toMatchObject({
+        outcome: entry.outcome,
+        tier: "conflict",
+        repaired: false,
+        reason: governedTermReason(FEEDBACK, entry.state),
+      });
+      expect(row.reason, entry.name).not.toMatch(/P2 (?:still|now) says/);
+    }
+  });
+
+  it("Greptile round 4, P1: newer Feedback on an earlier step is listed last and wins over older Feedback on a later step", async () => {
+    const older = "Call the deburring tool the floating head.";
+    const newer = "Never say floating head; call it the compliant spindle.";
+    // Rows as the store keeps them: the older instruction was given on a
+    // later step (Technological objectives), and the writer then went back to
+    // Company / Context and gave the newer one.
+    const rows = [
+      { roleId: "technological_objective" as const, instruction: older, status: "active", _creationTime: 100, _id: "feedback-older" },
+      { roleId: "company_context" as const, instruction: newer, status: "active", _creationTime: 200, _id: "feedback-newer" },
+    ];
+    const feedback = feedbackForLine("242", rows);
+    // The WRITER'S FEEDBACK block keeps step order.
+    expect(feedback.map((entry) => entry.instruction)).toEqual([newer, older]);
+    const precedence = precedenceFor(feedback);
+    expect(precedence.governed.map((entry) => entry.feedback.map((item) => item.instruction)))
+      .toEqual([[older, newer]]);
+    const listed =
+      `on Technological objectives: ${quoteForPrompt(older)}; then on Company / Context: ${quoteForPrompt(newer)} (where they disagree, the latest instruction wins)`;
+    const sent = installFetch({
+      draft: SPINDLE_DRAFT.replace("a compliant spindle", "the floating head"),
+      repair: SPINDLE_DRAFT,
+      checks: [[covered(ITEM_CONTEXT, 2)], [covered(ITEM_CONTEXT, 2)]],
+      ordinaryAnswers: [
+        [feedbackVerdict("not_applied", 2, "P2 says floating head.", "Say compliant spindle in paragraph 2.")],
+        [feedbackVerdict("applied", 2, "Follows it now.")],
+      ],
+    });
+    const result = await draft("242", claimFor({
+      planChecks: PLAN_242,
+      brief: BRIEF_242,
+      writerFeedback: feedback,
+      feedbackTerms: precedence.governed,
+    }));
+    const section = sent.find((request) => request.stage === "section")!;
+    expect(section.user).toContain(`\n- For the term "floating head", follow the writer's Feedback ${listed}`);
+    expect(section.user.indexOf(`- On Company / Context: ${quoteForPrompt(newer)}`))
+      .toBeLessThan(section.user.indexOf(`- On Technological objectives: ${quoteForPrompt(older)}`));
+    const [check, final] = sent.filter((request) => request.stage === "submit_self_check");
+    const label = `- [feedback:F1] the term "floating head": follow the writer's Feedback ${listed}`;
+    expect(check!.user).toContain(label);
+    expect(final!.user).toContain(label);
+    const repair = sent.find((request) => request.stage === "repair")!;
+    expect(repair.user).toContain(
+      `- Paragraph 2: for the term "floating head", follow the writer's Feedback ${listed}. Say compliant spindle in paragraph 2.`
+    );
+    expect(result.draftText).toBe(SPINDLE_DRAFT);
+    expect(termRow(result)).toMatchObject({
+      outcome: "applied",
+      repaired: true,
+      reason: `The writer's Feedback governs this term in this Line, not the Brief: follow the writer's Feedback ${listed}. The Self-check found that the text did not follow it; the repair fixed that, and the check of the final text found that it follows it.`,
+    });
   });
 
   it("a label the Self-check leaves unanswered is recorded as not checked, never repaired or enforced as a Glossary Term", async () => {
@@ -1240,7 +1401,7 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
       ],
       ordinary: [feedbackVerdict("applied", 2, "Follows the Feedback.")],
     });
-    await draft("242", claimFor({
+    const result = await draft("242", claimFor({
       planChecks: PLAN_242,
       brief: BRIEF_242,
       writerFeedback: FEEDBACK,
@@ -1252,11 +1413,17 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
     expect(repair.user).toContain(`- On Company / Context: ${JSON.stringify(SPINDLE)}`);
     // A followed Feedback label is not an issue.
     expect(repair.user).not.toContain("follow the writer's Feedback for the term");
-    // The final coverage check gets the Feedback too, but no ordinary label.
+    // The final coverage check gets the Feedback too, and the governed
+    // term's label, which the final text still follows.
     const checks = sent.filter((request) => request.stage === "submit_self_check");
     expect(checks).toHaveLength(2);
-    expect(checks[1]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+    expect(checks[1]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.labelsInstruction);
     expect(checks[1]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.writerFeedback.instruction);
-    expect(checks[1]!.user).not.toContain("feedback:F1");
+    expect(checks[1]!.user).toContain(governedLabelLine(SPINDLE));
+    expect(termRow(result)).toMatchObject({
+      outcome: "applied",
+      repaired: false,
+      reason: governedTermReason(FEEDBACK, "followed_final"),
+    });
   });
 });

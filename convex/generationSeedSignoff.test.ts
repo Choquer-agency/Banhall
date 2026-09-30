@@ -38,7 +38,7 @@ import {
   type GenerationMessageParams,
 } from "./ai/openrouterCore";
 import { currentPromptVersion } from "./ai/promptProgram";
-import { summaryPlanSelfCheckSchemaFor } from "./ai/selfCheck";
+import { buildConsistencyUserMessage, summaryPlanSelfCheckSchemaFor } from "./ai/selfCheck";
 import { summarizeSlotUsage } from "./ai/instrument";
 import { COMPRESSION_REQUEST, SUMMARY_PLAN_SELF_CHECK_REQUEST } from "./ai/promptDefinitions";
 import { SECTION_246_REQUEST } from "./ai/section246Agent";
@@ -2074,6 +2074,7 @@ describe("seed Summary sign-off and recovery", () => {
     const spindle =
       "Call the deburring tool the compliant spindle, never the floating head, here and in every later step";
     const months = "Name each test by its month, never by the floating head.";
+    const later = "Call the deburring tool the floating head in the test names after all.";
     await s.t.run(async (ctx) => {
       // Two Glossary Terms in the frozen Brief (fictional).
       for (const text of ["floating head", "pilot cell"]) {
@@ -2117,6 +2118,9 @@ describe("seed Summary sign-off and recovery", () => {
       // Round 4 review P3-1: this one also names the term, and reaches
       // Lines 244 and 246 only.
       await feedback("experimentation", months, "active");
+      // Greptile round 4, P1: the writer goes back to Company / Context and
+      // gives newer Feedback that contradicts the older Experimentation one.
+      await feedback("company_context", later, "active");
       // Lead decision P2-2: a later signed-off edit in Line 244 uses the
       // term the Feedback forbids; the edit wins in its Line.
       const experiment = (await ctx.db.query("seedSelections")
@@ -2146,21 +2150,29 @@ describe("seed Summary sign-off and recovery", () => {
       };
     });
     // Feedback reaches its step's Line and every later Line; withdrawn never.
-    expect(plans.s242.writerFeedback).toEqual([{ roleId: "company_context", instruction: spindle }]);
-    expect(plans.s244.writerFeedback).toEqual([
-      { roleId: "company_context", instruction: spindle },
-      { roleId: "experimentation", instruction: months },
-    ]);
-    expect(plans.s246.writerFeedback).toEqual(plans.s244.writerFeedback);
-    // PR #22 lead decision: the Feedback names "floating head", so it governs
-    // that term in the Lines it reaches; nothing reads what the words mean.
+    // The Line's Feedback is in step order and keeps when each was given.
+    const plain = (list: ReadonlyArray<{ roleId: string; instruction: string }>) =>
+      list.map(({ roleId, instruction }) => ({ roleId, instruction }));
     const bySpindle = { roleId: "company_context" as const, instruction: spindle };
     const byMonths = { roleId: "experimentation" as const, instruction: months };
-    expect(plans.s242.feedbackTerms).toEqual([{ term: "floating head", feedback: [bySpindle] }]);
+    const byLater = { roleId: "company_context" as const, instruction: later };
+    expect(plain(plans.s242.writerFeedback)).toEqual([bySpindle, byLater]);
+    expect(plain(plans.s244.writerFeedback)).toEqual([bySpindle, byLater, byMonths]);
+    expect(plain(plans.s246.writerFeedback)).toEqual(plain(plans.s244.writerFeedback));
+    for (const entry of plans.s246.writerFeedback) {
+      expect(entry).toMatchObject({ givenAt: expect.any(Number), feedbackId: expect.any(String) });
+    }
+    // PR #22 lead decision: the Feedback names "floating head", so it governs
+    // that term in the Lines it reaches; nothing reads what the words mean.
+    // Greptile round 4, P1: in the order the writer gave it, so the newer
+    // Company / Context instruction is listed last in Line 246.
+    const governing = (plan: typeof plans.s242) =>
+      plan.feedbackTerms.map((entry) => ({ term: entry.term, feedback: plain(entry.feedback) }));
+    expect(governing(plans.s242)).toEqual([{ term: "floating head", feedback: [bySpindle, byLater] }]);
     // Line 244's signed-off idea says "floating-head": the Glossary Term
     // stays in force there (review P3-2, lead decision P2-2).
     expect(plans.s244.feedbackTerms).toEqual([]);
-    expect(plans.s246.feedbackTerms).toEqual([{ term: "floating head", feedback: [bySpindle, byMonths] }]);
+    expect(governing(plans.s246)).toEqual([{ term: "floating head", feedback: [bySpindle, byMonths, byLater] }]);
     expect(plans.withoutBrief.feedbackTerms).toEqual([]);
     for (const plan of Object.values(plans)) expect(plan.glossarySetAside).toEqual([]);
     for (const plan of Object.values(plans)) {
@@ -2175,18 +2187,39 @@ describe("seed Summary sign-off and recovery", () => {
         glossaryTerms: ["floating head", "pilot cell"],
       });
     });
-    expect(byLine).toEqual({
+    expect(byLine && {
+      ...byLine,
+      feedbackTerms: byLine.feedbackTerms.map((entry) => ({
+        term: entry.term,
+        lines: entry.lines.map((group) => ({ sections: group.sections, feedback: plain(group.feedback) })),
+      })),
+    }).toEqual({
       keptExclusions: [{ text: "Final specific_advancements wording.", sections: ["246"] }],
       glossarySetAside: [],
-      // Each Line keeps only the Feedback that reached it.
+      // Each Line keeps only the Feedback that reached it, in the order given.
       feedbackTerms: [{
         term: "floating head",
         lines: [
-          { sections: ["242"], feedback: [bySpindle] },
-          { sections: ["246"], feedback: [bySpindle, byMonths] },
+          { sections: ["242"], feedback: [bySpindle, byLater] },
+          { sections: ["246"], feedback: [bySpindle, byMonths, byLater] },
         ],
       }],
     });
+    // The consistency line quotes them the same way: the newer instruction
+    // listed last and winning.
+    const consistency = buildConsistencyUserMessage({
+      sections: [{ section: "242", text: "The compliant spindle ran." }],
+      claimExclusions: [],
+      glossaryTerms: ["floating head"],
+      model: "claude-sonnet-5",
+      writerPrecedence: byLine,
+    });
+    expect(consistency).toContain(
+      `In Line 246, the writer's Feedback on Company / Context: "${spindle}"; then on Experimentation / Iterations: "${months}"; then on Company / Context: "${later}" (where they disagree, the latest instruction wins).`
+    );
+    expect(consistency).toContain(
+      `In Line 242, the writer's Feedback on Company / Context: "${spindle}"; then on Company / Context: "${later}" (where they disagree, the latest instruction wins).`
+    );
 
     // The claim reads the frozen Brief's terms and the drafting request
     // carries the decisions, never the withdrawn instruction.
@@ -2222,11 +2255,11 @@ describe("seed Summary sign-off and recovery", () => {
     expect(user).toContain("# WRITER'S DECISIONS (outrank the Brief)");
     expect(user).toContain(`- On Company / Context: "${spindle}"`);
     expect(user).toContain("Glossary Terms the writer's Feedback governs in this Line.");
-    // The first Line drafted is 246, which both instructions reach: listed
-    // in step order, with the tie-break (round 4 review P3-2).
-    const governing =
-      `on Company / Context: "${spindle}"; then on Experimentation / Iterations: "${months}" (where they disagree, the latest instruction wins)`;
-    expect(user).toContain(`\n- For the term "floating head", follow the writer's Feedback ${governing}`);
+    // The first Line drafted is 246, which all three instructions reach:
+    // listed in the order the writer gave them, with the tie-break.
+    const governingPhrase =
+      `on Company / Context: "${spindle}"; then on Experimentation / Iterations: "${months}"; then on Company / Context: "${later}" (where they disagree, the latest instruction wins)`;
+    expect(user).toContain(`\n- For the term "floating head", follow the writer's Feedback ${governingPhrase}`);
     expect(user).not.toContain("Glossary Terms set aside in this Line.");
     expect(user).not.toContain("Kestrel");
     const selfCheck = network.create.mock.calls
@@ -2235,7 +2268,7 @@ describe("seed Summary sign-off and recovery", () => {
     if (!selfCheck) throw new Error("No Self-check request");
     expect(providerUser(selfCheck)).toContain(`--- BEGIN [WRITER'S FEEDBACK] ---\n- On Company / Context: "${spindle}"`);
     expect(providerUser(selfCheck)).toContain(
-      `- [feedback:F1] the term "floating head": follow the writer's Feedback ${governing}`
+      `- [feedback:F1] the term "floating head": follow the writer's Feedback ${governingPhrase}`
     );
     expect(providerUser(selfCheck)).not.toContain("Kestrel");
     const row = await s.t.run(async (ctx) => {
@@ -2256,7 +2289,7 @@ describe("seed Summary sign-off and recovery", () => {
       outcome: "applied",
       tier: "conflict",
       repaired: false,
-      reason: governedTermReason([bySpindle, byMonths], "followed"),
+      reason: governedTermReason([bySpindle, byMonths, byLater], "followed"),
     });
     vi.unstubAllEnvs();
   });
