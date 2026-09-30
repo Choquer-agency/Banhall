@@ -18,6 +18,8 @@ import {
   exclusionBullet,
   experimentsCoveringUncertainties,
   formatWait,
+  goalStatementScore,
+  goalSwitchChoice,
   rateLimitBudget,
   rateLimitRetryAfterMs,
   waitOutRateLimits,
@@ -30,6 +32,7 @@ import {
   renderFixturePack,
   renderSummary,
   rerenderResults,
+  resultAnsweringKept,
   reservePackDir,
   runChecks,
   runFixture,
@@ -153,6 +156,91 @@ describe("scripted sessions", () => {
     expect(links.lastIndexOf("recordLinkNotice")).toBeLessThan(links.indexOf("approve:unlinkedRefused"));
     expect(links.indexOf("approve:droppedRefused")).toBeLessThan(links.indexOf("deselectExperimentsForDroppedUncertainty"));
     expect(links.indexOf("deselectExperimentsForDroppedUncertainty")).toBeLessThan(links.indexOf("approve:unlinkedRefused"));
+    // 2026-09-30 (fourth): after the experiments, Advancement to science
+    // (step 10) is fixed before the advancements (step 11), and goal
+    // improvements (step 13) after them, before the Stale steps are confirmed.
+    const plan = buildPlan(byCase("changed_advancement_links"));
+    const resolves = plan.flatMap((step, index) => (step.op === "resolveResultsForDroppedUncertainty" ? [[step.role, index] as const] : []));
+    expect(resolves.map(([role]) => role)).toEqual(["overall_advancement", "goal_improvements"]);
+    const approveAt = (role: string, expect?: string) =>
+      plan.findIndex((step) => step.op === "approve" && step.role === role && (step.expect ?? "") === (expect ?? ""));
+    expect(approveAt("experimentation")).toBeLessThan(resolves[0]![1]);
+    expect(resolves[0]![1]).toBeLessThan(approveAt("specific_advancements", "unlinkedRefused"));
+    expect(plan.findLastIndex((step) => step.op === "approve" && step.role === "specific_advancements")).toBeLessThan(resolves[1]![1]);
+    expect(resolves[1]![1]).toBeLessThan(links.indexOf("reapproveStale"));
+    expect(describeStep(plan[resolves[0]![1]]!)).toBe(
+      "Advancement to science / technology: read what the step says about its links, expect the refusal where a pick answers the dropped uncertainty, then untick it and pick (or regenerate for) an idea that answers a kept uncertainty",
+    );
+    // Carried old selections: the goal switch names what it looks for.
+    const carriedPlan = buildPlan(byCase("carried_old_selections"));
+    const switchStep = carriedPlan.find((step) => step.op === "switchSelection");
+    expect(switchStep && describeStep(switchStep)).toBe(
+      "Goal / Problem: select a different Seed that states a goal (else the next Seed on the page) and untick the earlier selection (writer switches the goal framing)",
+    );
+  });
+
+  it("switches the goal to another Seed that states a goal, with the next Seed as the fallback (2026-09-30, fourth)", () => {
+    const goal = (seedId: string, bullets: string[], selected = false) => ({
+      seedId,
+      batchId: "b",
+      bullets,
+      selected,
+      edited: false,
+      revisionOfSeedId: null,
+      feedbackRequestId: null,
+      uncertaintySeedId: null,
+      experimentSeedIds: [],
+    });
+    // Run 11's Goal / Problem page (carried-old-selections, fictional).
+    const earlier = goal("g1", ["The company sought to build a single replicated foam filter with a pore size gradient through its thickness."], true);
+    const page = [
+      earlier,
+      goal("g2", ["The core manufacturing process is replication: a polyurethane sponge is coated with ceramic slurry, excess squeezed out, dried and fired."]),
+      goal("g3", ["The goal was raising capture of fine oxide inclusions in the 20 to 80 micron range without killing flow."]),
+      goal("g4", ["The practical target was a filter tougher against breakage and cleaner at capturing fine inclusions than existing options."]),
+      goal("g5", ["The working hypothesis targeted a two-zone sponge template with matched slurry mass per unit volume across zones."]),
+    ];
+    expect(page.map((item) => goalStatementScore(item.bullets))).toEqual([1, 0, 2, 1, 0]);
+    // Run 11 took g2, a process card; the switch now takes the goal.
+    expect(goalSwitchChoice(page, [earlier])).toEqual({ item: page[2], fallback: false });
+    // Among equally plain goals, the one sharing the fewest words with the earlier pick.
+    const targets = [
+      earlier,
+      goal("t1", ["The target was a single replicated foam filter with a finer pore size gradient."]),
+      goal("t2", ["The target was fewer cracked filters in field returns."]),
+    ];
+    expect(goalSwitchChoice(targets, [earlier])?.item.seedId).toBe("t2");
+    // No other Seed states a goal: the next Seed on the page, marked as the fallback.
+    expect(goalSwitchChoice([earlier, page[1]!, page[4]!], [earlier])).toEqual({ item: page[1], fallback: true });
+    expect(goalSwitchChoice([earlier], [earlier])).toBeNull();
+  });
+
+  it("picks an Advancement to science or goal improvements idea that answers only kept uncertainties (2026-09-30, fourth)", () => {
+    const result = (seedId: string, answeredUncertaintySeedIds: string[] | undefined, selected = false) => ({
+      seedId,
+      batchId: "b",
+      bullets: ["x"],
+      selected,
+      edited: false,
+      revisionOfSeedId: null,
+      feedbackRequestId: null,
+      uncertaintySeedId: null,
+      experimentSeedIds: [],
+      ...(answeredUncertaintySeedIds ? { answeredUncertaintySeedIds } : {}),
+    });
+    const page = [
+      result("r1", ["u1"]),
+      result("r2", ["u1", "u2"]),
+      result("r3", []),
+      result("r4", undefined),
+      result("r5", ["u2"], true),
+      result("r6", ["u2"]),
+    ];
+    // u1 was dropped: not r1 or r2 (answer it), r3 or r4 (answer none), r5 (picked).
+    expect(resultAnsweringKept(page, new Set(["u2"]))?.seedId).toBe("r6");
+    expect(resultAnsweringKept(page.slice(0, 5), new Set(["u2"]))).toBeNull();
+    // A revision of a kept uncertainty counts as it.
+    expect(resultAnsweringKept([result("r7", ["u2"])], new Set(["u2b"]), (id) => (id === "u2b" ? "u2" : id))?.seedId).toBe("r7");
   });
 
   it("builds edits and picks within the server's rules", () => {
@@ -587,6 +675,76 @@ describe("automatic checks", () => {
     expect(status(moved, "links-valid")).toBe("fail");
     expect(status(moved, "removed-uncertainty-gone")).toBe("fail");
   });
+
+  // 2026-09-30 (fourth): run 11's gap. The acclimation result refused in
+  // Subsection 11 survived in Subsections 10 and 13.
+  it("checks that Advancement to science and goal improvements answer uncertainties the plan holds, and the refusal where a pick answered the dropped one", () => {
+    const fixture = byCase("changed_advancement_links");
+    const c = baseCollected();
+    c.summary!.items = [
+      summaryItem("iu2", "active_uncertainties", "u2"),
+      summaryItem("ie1", "experimentation", "e1", { uncertaintySeedId: "u2" }),
+      summaryItem("ia1", "specific_advancements", "a1", { uncertaintySeedId: "u2", experimentSeedIds: ["e1"] }),
+      summaryItem("io1", "overall_advancement", "o2", { answeredUncertaintySeedIds: ["u2"], bullets: ["Nitrite oxidizers were confirmed as the bottleneck."] }),
+      summaryItem("ig1", "goal_improvements", "g2", { answeredUncertaintySeedIds: [], bullets: ["The goal was start-up under 5 weeks."] }),
+    ];
+    const log: RunLog = {
+      ...emptyRunLog(fixture.id, 0),
+      removedUncertaintySeedId: "u1",
+      linkNotices: { overall_advancement: "results_for_dropped_uncertainty", goal_improvements: null },
+      droppedResultPicks: { overall_advancement: 1, goal_improvements: 0 },
+      refusals: [{ roleId: "overall_advancement", key: "droppedResults:overall_advancement", code: "INVALID_STATE", reason: "RESULT_FOR_DROPPED_UNCERTAINTY" }],
+    };
+    const checks = runChecks(fixture, c, log);
+    expect(status(checks, "dropped-results-named")).toBe("pass");
+    expect(status(checks, "dropped-results-refused")).toBe("pass");
+    expect(checks.find((item) => item.id === "dropped-results-refused")?.evidence).toBe(
+      "Advancement to science / technology: INVALID_STATE / RESULT_FOR_DROPPED_UNCERTAINTY",
+    );
+    expect(status(checks, "results-answer-kept-uncertainties")).toBe("pass");
+    expect(checks.find((item) => item.id === "results-answer-kept-uncertainties")?.evidence).toBe(
+      "2 item(s), each answering only uncertainties the plan holds; 1 goal improvements item(s) restate the goal and answer none",
+    );
+
+    // Run 11's plan: items 10 and 13 carried no link and stated the dropped result.
+    const run11 = baseCollected();
+    run11.summary!.items = [
+      ...c.summary!.items.slice(0, 3),
+      summaryItem("io1", "overall_advancement", "o1", { bullets: ["Stepwise acclimation of seed media cut cold-water start-up roughly in half."] }),
+      summaryItem("ig1", "goal_improvements", "g1", { answeredUncertaintySeedIds: ["u1"], bullets: ["Stepwise acclimation closed that gap, reaching about 31 days at 8 C."] }),
+    ];
+    const run11Log: RunLog = { ...emptyRunLog(fixture.id, 0), removedUncertaintySeedId: "u1" };
+    const run11Checks = runChecks(fixture, run11, run11Log);
+    expect(status(run11Checks, "results-answer-kept-uncertainties")).toBe("fail");
+    expect(run11Checks.find((item) => item.id === "results-answer-kept-uncertainties")?.evidence).toBe(
+      '"Stepwise acclimation of seed media cut cold-water start-u..." records no uncertainty it answers; "Stepwise acclimation closed that gap, reaching about 31 d..." answers 1 uncertainty the plan does not hold',
+    );
+    // Older results record no result picks: shown as information, never passed.
+    expect(run11Checks.find((item) => item.id === "dropped-results-refused")).toMatchObject({
+      status: "info",
+      evidence: "not recorded (a run from before the 2026-09-30 fourth amendment)",
+    });
+
+    // A pick answered the dropped uncertainty but approval was not refused,
+    // or the step said nothing first: both fail.
+    const unrefused = runChecks(fixture, c, {
+      ...log,
+      linkNotices: {},
+      refusals: [{ roleId: "overall_advancement", key: "droppedResults:overall_advancement", code: null, reason: "NOT_REFUSED" }],
+    });
+    expect(status(unrefused, "dropped-results-named")).toBe("fail");
+    expect(status(unrefused, "dropped-results-refused")).toBe("fail");
+    // No pick answered it: not applicable, as information.
+    const none = runChecks(fixture, c, { ...log, droppedResultPicks: { overall_advancement: 0, goal_improvements: 0 }, refusals: [] });
+    expect(none.find((item) => item.id === "dropped-results-refused")).toMatchObject({
+      status: "info",
+      evidence: "not applicable: no picked Advancement to science or goal improvements idea answered the dropped uncertainty",
+    });
+    // Earlier checks are unchanged by the new ones.
+    for (const id of ["links-valid", "advancements-follow-experiments", "experiments-hold-uncertainties"]) {
+      expect({ id, status: status(checks, id) }).toEqual({ id, status: "pass" });
+    }
+  });
 });
 
 describe("what the writer dropped stays out (2026-09-30, first)", () => {
@@ -768,6 +926,12 @@ describe("judging pack", () => {
     expect(linksText).toContain("Fixture notes:");
     for (const note of links.notes ?? []) expect(linksText).toContain(`- ${note}`);
     expect(links.notes?.length).toBeGreaterThan(0);
+    // 2026-09-30 (fourth): both fixtures record the new scripted steps.
+    expect(links.notes?.some((note) => note.includes("run 11 (commit 9de29da9)"))).toBe(true);
+    const carried = byCase("carried_old_selections");
+    const carriedText = renderFixturePack({ fixture: carried, log: emptyRunLog(carried.id, 0), collected: null, checks: [] }, context);
+    expect(carried.notes?.some((note) => note.includes("states a goal"))).toBe(true);
+    for (const note of carried.notes ?? []) expect(carriedText).toContain(`- ${note}`);
 
     const summary = renderSummary([{ fixture, log, collected: c, checks }], context);
     expect(summary).toContain("| [skipped-role-supported](skipped-role-supported.md) | Skipped role supported by the Brief |");
