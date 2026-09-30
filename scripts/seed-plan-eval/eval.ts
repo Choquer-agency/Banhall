@@ -8,7 +8,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
+import { droppedUncertaintyFigures, figuresOf } from "../../shared/planFigures";
 import { releaseEvalProjectTitle } from "../../shared/releaseEval";
+import { findSourceTalk, sourceTalkSubject } from "../../shared/humanProse";
 import {
   RESULT_ROLE_IDS,
   advancementLinkProblem,
@@ -1794,11 +1796,17 @@ export type Collected = {
     /** 2026-09-30 (first): the dropped uncertainties frozen at sign-off; absent in older results. */
     droppedUncertaintySeedIds?: string[];
     /**
-     * 2026-09-30 (fourth, review P2-1): each frozen dropped uncertainty's
-     * wording and the wording of its frozen related Seeds; absent in older
-     * results.
+     * 2026-09-30 (second, review P3-2): the frozen rows themselves, so the
+     * suite reads a dropped uncertainty's own figures from what the product
+     * reads; absent in older results.
      */
-    droppedUncertainties?: Array<{ seedId: string; wording: string[]; related: string[][] }>;
+    droppedUncertainties?: Array<{
+      seedId: string;
+      wording: string[];
+      experiments: Array<{ seedId: string; wording: string[] }>;
+      advancements: Array<{ seedId: string; wording: string[] }>;
+      notChecked: boolean;
+    }>;
     signedOffAt: number;
     items: Array<{
       itemId: string;
@@ -1877,32 +1885,12 @@ export function contentWordOverlap(phrase: string, text: string): number {
   return words.filter((word) => haystack.includes(word)).length / words.length;
 }
 
-const FIGURE_UNITS: ReadonlyArray<[RegExp, string]> = [
-  [/^(?:degrees?\s*c|degrees?|c)$/i, "C"],
-  [/^(?:percent|%)$/i, "percent"],
-  [/^days?$/i, "days"],
-  [/^weeks?$/i, "weeks"],
-  [/^months?$/i, "months"],
-  [/^hours?$/i, "hours"],
-  [/^minutes?$/i, "minutes"],
-  [/^mg\/l$/i, "mg/L"],
-  [/^ppm$/i, "ppm"],
-];
-const FIGURE = /((?:\d+(?:\.\d+)?\s*(?:,|and|or|to|-)\s*)*)(\d+(?:\.\d+)?)\s*(degrees?\s*C|degrees?|percent|%|days?|weeks?|months?|hours?|minutes?|mg\/L|ppm|C)(?![A-Za-z])/gi;
-
 /**
- * 2026-09-30 (first): the figures with a unit in a text, normalised ("6
- * degrees C" and "6 C" read alike; "44 and 29 days" gives both).
+ * 2026-09-30 (first): the figures with a unit in a text, normalised. Since
+ * 2026-09-30 (second) the reading lives in shared/planFigures.ts, which the
+ * product's LEAVE OUT figure check uses too.
  */
-export function figuresOf(text: string): string[] {
-  const found = new Set<string>();
-  for (const match of text.matchAll(FIGURE)) {
-    const unit = FIGURE_UNITS.find(([pattern]) => pattern.test(match[3]!.replace(/\s+/g, " ").trim()))?.[1];
-    if (!unit) continue;
-    for (const number of [...(match[1]!.match(/\d+(?:\.\d+)?/g) ?? []), match[2]!]) found.add(`${number} ${unit}`);
-  }
-  return [...found];
-}
+export { figuresOf };
 
 /** One paragraph of a Line that holds a dropped uncertainty's words or figures. */
 export type DroppedHit = { section: "242" | "244" | "246"; paragraph: number; overlap: number; figures: string[]; text: string };
@@ -1913,22 +1901,28 @@ export const DROPPED_WORDS_HIT_SHARE = 0.3;
 /**
  * 2026-09-30 (first): every paragraph of every Line that shares at least
  * DROPPED_WORDS_HIT_SHARE of the dropped uncertainty's content words, or
- * holds a distinctive figure of it or its experiments (one that no
- * signed-off item uses).
+ * holds a distinctive figure of it. Since (second, review P3-2) its figures
+ * come from droppedUncertaintyFigures, the product's rule: its wording and
+ * the experiments and advancements that recorded it, against every
+ * signed-off item (skipped steps aside).
  */
 export function droppedUncertaintyHits(args: {
   sections: { s242: string; s244: string; s246: string };
-  droppedWords: string;
-  experimentWords: readonly string[];
-  planWords: readonly string[];
+  droppedWording: readonly string[];
+  references: ReadonlyArray<{ wording: readonly string[] }>;
+  planWording: ReadonlyArray<readonly string[]>;
 }): { figures: string[]; hits: DroppedHit[] } {
-  const common = new Set(args.planWords.flatMap(figuresOf));
-  const figures = [...new Set([args.droppedWords, ...args.experimentWords].flatMap(figuresOf))].filter((figure) => !common.has(figure));
+  const droppedWords = args.droppedWording.join(" ");
+  const figures = droppedUncertaintyFigures({
+    wording: args.droppedWording,
+    references: args.references,
+    planWording: args.planWording,
+  });
   const hits: DroppedHit[] = [];
   for (const section of ["242", "244", "246"] as const) {
     const paragraphs = args.sections[`s${section}`].split(/\n\s*\n/).map((text) => text.trim()).filter(Boolean);
     paragraphs.forEach((text, index) => {
-      const overlap = args.droppedWords ? contentWordOverlap(args.droppedWords, text) : 0;
+      const overlap = droppedWords ? contentWordOverlap(droppedWords, text) : 0;
       const present = figuresOf(text);
       const matched = figures.filter((figure) => present.includes(figure));
       if (overlap >= DROPPED_WORDS_HIT_SHARE || matched.length > 0) {
@@ -2046,6 +2040,33 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
       leaveOutRepairEvidence(c),
     ),
   );
+  // 2026-09-30 (second, Rule C): informational for every fixture. Line
+  // 244's work check is the checking model's own verdict; the judges remain
+  // the proof.
+  checks.push(
+    info(
+      "work-answers-242",
+      "Line 244 Rule C row (its work answers a Line 242 uncertainty or a signed-off item), its repair, and COVER rows not applied after such a repair (informational; self-reported by the checking model)",
+      workAnswers242Evidence(c),
+    ),
+  );
+  // 2026-09-30 (third): informational for every fixture. The source-talk
+  // row reruns the Self-check's own detector on the final text; the targets
+  // row is the checking model's own verdict. The judges remain the proof.
+  checks.push(
+    info(
+      "source-talk",
+      "Report text that names a source, per Line, and the Self-check's row (informational; the Self-check's own detector)",
+      sourceTalkEvidence(c),
+    ),
+  );
+  checks.push(
+    info(
+      "results-against-targets",
+      "Results stated against their targets, Lines 244 and 246 (informational; self-reported by the checking model)",
+      resultsAgainstTargetsEvidence(c),
+    ),
+  );
   const requests = seedRequestCount(c);
   checks.push(
     info(
@@ -2065,7 +2086,8 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
  */
 export function leaveOutRepairEvidence(c: Collected): string {
   const rows = c.complianceNotes.filter((note) => note.section === "246" && note.planRef);
-  const special = rows.filter((note) => note.planRef?.droppedSeedId || note.planRef?.ruleId);
+  // 2026-09-30 (third): Rule B by its own id; the targets check has its own row.
+  const special = rows.filter((note) => note.planRef?.droppedSeedId || note.planRef?.ruleId === ANSWERS_242_RULE_ID);
   if (special.length === 0) return "no LEAVE OUT or Rule B row in Line 246";
   const described = special.map((note) => {
     const name = note.planRef?.ruleId ? "Rule B" : `left out ${note.planRef?.droppedSeedId}`;
@@ -2080,6 +2102,71 @@ export function leaveOutRepairEvidence(c: Collected): string {
   return `${described.join("; ")}; COVER rows not applied after such a repair: ${
     coverLost.length ? coverLost.map((note) => `${note.planRef?.itemId} (${quote(note.reason, 80)})`).join(", ") : "none"
   }${keptDraft ? "; a repair that lost a COVER item was set aside" : ""}`;
+}
+
+/**
+ * 2026-09-30 (second, Rule C): Line 244's work check row with its outcome,
+ * whether a repair fixed it or was set aside, its reason, and the Line 244
+ * COVER rows not applied whenever its fix went to the repair (review P3-3:
+ * repaired, set aside, or still not applied at a paragraph after the repair).
+ */
+export function workAnswers242Evidence(c: Collected): string {
+  const rows = c.complianceNotes.filter((note) => note.section === "244" && note.planRef);
+  const rule = rows.find((note) => note.planRef?.ruleId === "work_answers_242");
+  if (!rule) return "no Rule C row in Line 244";
+  const repair = rule.repaired ? ", repaired" : rule.reason.includes("repair not used") ? ", repair not used" : "";
+  const fixInRepair = rule.repaired || rule.reason.includes("repair not used") ||
+    (rule.outcome !== "applied" && rule.paragraphIndex !== null);
+  const coverLost = fixInRepair
+    ? rows.filter((note) => note.planRef?.itemId && note.tier !== "conflict" && note.outcome !== "applied")
+    : [];
+  return `Rule C: ${rule.outcome}${repair} (${quote(rule.reason, 120)}); COVER rows not applied after such a repair: ${
+    coverLost.length ? coverLost.map((note) => `${note.planRef?.itemId} (${quote(note.reason, 80)})`).join(", ") : "none"
+  }`;
+}
+
+/** 2026-09-30 (second): how a LEAVE OUT row the figure backstop recorded applied begins. */
+export const LEAVE_OUT_FIGURE_BACKSTOP_PREFIX = "The flagged content is a signed-off item:";
+
+const ANSWERS_242_RULE_ID = "advancements_answer_242";
+const TARGETS_RULE_ID = "results_against_targets";
+/** The Compliance Note instruction of the deterministic source-talk row. */
+const SOURCE_TALK_ROW = "State facts without naming their source";
+
+/** A row's outcome and whether a repair fixed it or was not used. */
+function rowState(note: Collected["complianceNotes"][number]): string {
+  const repair = note.repaired ? ", repaired" : note.reason.includes("repair not used") ? ", repair not used" : "";
+  return `${note.outcome}${repair}`;
+}
+
+/**
+ * 2026-09-30 (third): per Line, the phrases of the final text that name a
+ * source (the Self-check's own detector, with the signed-off wording and
+ * the Glossary Terms as the project's subject), then that Line's row.
+ */
+export function sourceTalkEvidence(c: Collected): string {
+  if (!c.report) return "no report";
+  // Review P2-4: the product's own subject rule (sourceTalkSubject).
+  const skipped = c.summary?.skippedRoleIds ?? [];
+  const subjectText = sourceTalkSubject({
+    planWording: (c.summary?.items ?? []).filter((item) => !skipped.includes(item.roleId)).map((item) => item.bullets),
+    glossaryTerms: c.briefEntries.filter((entry) => entry.group === "glossaryTerm").map((entry) => entry.text),
+  });
+  return (["242", "244", "246"] as const).map((section) => {
+    const paragraphs = c.report!.sections[`s${section}`].split(/\n\s*\n/).map((text) => text.trim()).filter(Boolean);
+    const hits = paragraphs.flatMap((text, index) =>
+      findSourceTalk(text, { subjectText }).map((hit) => `P${index + 1} "${hit.phrase}"`));
+    const row = c.complianceNotes.find((note) => note.section === section && note.instruction === SOURCE_TALK_ROW);
+    return `${section}: ${hits.length ? hits.join(", ") : "none"} (${row ? `row ${rowState(row)}` : "no row"})`;
+  }).join("; ");
+}
+
+/** 2026-09-30 (third): Lines 244 and 246's targets rows, with their reasons. */
+export function resultsAgainstTargetsEvidence(c: Collected): string {
+  return (["244", "246"] as const).map((section) => {
+    const row = c.complianceNotes.find((note) => note.section === section && note.planRef?.ruleId === TARGETS_RULE_ID);
+    return `${section}: ${row ? `${rowState(row)} (${quote(row.reason, 100)})` : "no row"}`;
+  }).join("; ");
 }
 
 /** One failed Batch in a line: role, error, detail and each answer's counts. */
@@ -2482,14 +2569,23 @@ function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[
       const closest = paragraphs
         .map((text, index) => ({ index, text, overlap: contentWordOverlap(droppedWords, text) }))
         .sort((a, b) => b.overlap - a.overlap)[0];
+      // Review P3-2: the product's input rule. The frozen row gives the
+      // dropped wording and the experiments and advancements that recorded
+      // it; results read back before it existed fall back to the Seeds.
+      const frozenDropped = c.summary?.droppedUncertainties?.find((entry) => entry.seedId === removed);
+      const skippedRoles = new Set(c.summary?.skippedRoleIds ?? []);
       const scan = c.report && droppedWords
         ? droppedUncertaintyHits({
             sections: c.report.sections,
-            droppedWords,
-            experimentWords: c.seeds
-              .filter((seed) => seed.roleId === "experimentation" && seed.uncertaintySeedId === removed)
-              .map((seed) => seed.bullets.join(" ")),
-            planWords: items.map((item) => item.bullets.join(" ")),
+            droppedWording: frozenDropped?.wording ?? c.seeds.find((seed) => seed.seedId === removed)?.bullets ?? [],
+            references: frozenDropped
+              ? [...frozenDropped.experiments, ...frozenDropped.advancements]
+              : c.seeds
+                  .filter((seed) =>
+                    (seed.roleId === "experimentation" || seed.roleId === "specific_advancements") &&
+                    seed.uncertaintySeedId === removed)
+                  .map((seed) => ({ wording: seed.bullets })),
+            planWording: items.filter((item) => !skippedRoles.has(item.roleId)).map((item) => item.bullets),
           })
         : null;
       const scanText = scan
@@ -2519,15 +2615,36 @@ function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[
         section,
         row: c.complianceNotes.find((note) => note.section === section && !!removed && note.planRef?.droppedSeedId === removed),
       }));
+      // Review P3-1: a row the product's figure check recorded applied
+      // passes only when the suite's own whole-Line scan finds no
+      // distinctive figure of the dropped uncertainty in that Line.
+      const scanFigureHits = (section: "242" | "244" | "246") =>
+        (scan?.hits ?? []).filter((hit) => hit.section === section && hit.figures.length > 0);
+      const byBackstop = (row: (typeof leftOutRows)[number]["row"]) =>
+        row?.outcome === "applied" && row.reason.startsWith(LEAVE_OUT_FIGURE_BACKSTOP_PREFIX);
+      const rowPasses = ({ section, row }: (typeof leftOutRows)[number]) =>
+        row?.outcome === "applied" && (!byBackstop(row) || (scan !== null && scanFigureHits(section).length === 0));
       checks.push(
         check(
           "dropped-uncertainty-left-out",
           "Every Line records the dropped uncertainty as left out",
-          !!removed && leftOutRows.every(({ row }) => row?.outcome === "applied"),
+          !!removed && leftOutRows.every(rowPasses),
           !removed
             ? "no uncertainty was dropped"
             : `${leftOutRows
-                .map(({ section, row }) => `${section}: ${row ? (row.outcome === "applied" ? "applied" : `${row.outcome} (${quote(row.reason, 100)})`) : "no row"}`)
+                .map(({ section, row }) => `${section}: ${row
+                  ? row.outcome === "applied"
+                    ? byBackstop(row)
+                      ? scan === null
+                        ? `applied by the figure check, not confirmed: the suite could not scan the Lines (${quote(row.reason, 160)})`
+                        : scanFigureHits(section).length > 0
+                          ? `applied by the figure check, but the suite's scan finds ${scanFigureHits(section)
+                              .map((hit) => `${hit.figures.join(", ")} in P${hit.paragraph}`)
+                              .join("; ")} (${quote(row.reason, 160)})`
+                          : `applied by the figure check (${quote(row.reason, 160)})`
+                      : "applied"
+                    : `${row.outcome} (${quote(row.reason, 100)})`
+                  : "no row"}`)
                 .join("; ")}${c.summary?.droppedUncertaintySeedIds ? `; frozen at sign-off: ${c.summary.droppedUncertaintySeedIds.join(", ") || "none"}` : ""}`,
         ),
       );
@@ -2630,10 +2747,12 @@ function resultLinkChecks(c: Collected, log: RunLog, planUncertainties: Readonly
 /**
  * 2026-09-30 (fourth, review P2-1): a link can be wrong, so the words are
  * read too. Fails when a signed-off Advancement to science or goal
- * improvements item states a distinctive figure of a dropped uncertainty:
- * a figure with its unit in that uncertainty's wording or its frozen related
- * Seeds (for results read back before they were exported, the run's Seeds
- * that recorded it), and in no signed-off item of another step.
+ * improvements item states a figure of a dropped uncertainty's results, read
+ * by the product's rule (droppedUncertaintyFigures in shared/planFigures.ts):
+ * the figures of its frozen related Seeds (for results read back before
+ * they were exported, the run's Seeds that recorded it), not of its own
+ * wording, that no signed-off item of another step states. The two result
+ * steps never vouch for each other.
  */
 export function droppedFiguresCheck(c: Collected, log: RunLog): Check {
   const label = "No signed-off Advancement to science or goal improvements item states a figure only the dropped uncertainty's work gave";
@@ -2641,22 +2760,19 @@ export function droppedFiguresCheck(c: Collected, log: RunLog): Check {
   const frozen = c.summary?.droppedUncertainties;
   const removed = log.removedUncertaintySeedId;
   const dropped = frozen?.length
-    ? frozen.map((entry) => ({ seedId: entry.seedId, words: [entry.wording.join(" "), ...entry.related.map((bullets) => bullets.join(" "))] }))
+    ? frozen.map((entry) => ({ seedId: entry.seedId, references: [...entry.experiments, ...entry.advancements] }))
     : removed
       ? [{
           seedId: removed,
-          words: [
-            (c.seeds.find((seed) => seed.seedId === removed)?.bullets ?? []).join(" "),
-            ...c.seeds
-              .filter((seed) => seed.uncertaintySeedId === removed || (seed.answeredUncertaintySeedIds ?? []).includes(removed))
-              .map((seed) => seed.bullets.join(" ")),
-          ],
+          references: c.seeds
+            .filter((seed) => seed.uncertaintySeedId === removed || (seed.answeredUncertaintySeedIds ?? []).includes(removed))
+            .map((seed) => ({ wording: seed.bullets })),
         }]
       : [];
   if (dropped.length === 0) return info("results-state-no-dropped-figures", label, "no uncertainty was dropped");
-  const common = new Set(items.filter((item) => !isResultRole(item.roleId)).flatMap((item) => figuresOf(item.bullets.join(" "))));
+  const planWording = items.filter((item) => !isResultRole(item.roleId)).map((item) => item.bullets);
   const hits = dropped.flatMap((entry) => {
-    const own = new Set(entry.words.flatMap(figuresOf).filter((figure) => !common.has(figure)));
+    const own = new Set(droppedUncertaintyFigures({ wording: [], references: entry.references, planWording }));
     return items
       .filter((item) => isResultRole(item.roleId))
       .flatMap((item) => {
@@ -2668,7 +2784,7 @@ export function droppedFiguresCheck(c: Collected, log: RunLog): Check {
     "results-state-no-dropped-figures",
     label,
     hits.length === 0,
-    hits.length ? hits.join("; ") : `${dropped.length} dropped uncertainty(ies) read${frozen?.length ? " from the frozen Summary" : " from the run's Seeds"}; no item states one of their distinctive figures`,
+    hits.length ? hits.join("; ") : `${dropped.length} dropped uncertainty(ies) read${frozen?.length ? " from the frozen Summary" : " from the run's Seeds"}; no item states one of their results' figures`,
   );
 }
 

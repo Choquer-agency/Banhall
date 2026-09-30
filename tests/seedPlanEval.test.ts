@@ -774,7 +774,9 @@ describe("automatic checks", () => {
     c.summary!.droppedUncertainties = [{
       seedId: "u1",
       wording: [acclimation],
-      related: [["Stepwise acclimation cuts cold-water start-up roughly in half, 31 days at 8 C, against 47 days unacclimated."]],
+      experiments: [],
+      advancements: [{ seedId: "a1", wording: ["Stepwise acclimation cuts cold-water start-up roughly in half, 31 days at 8 C, against 47 days unacclimated."] }],
+      notChecked: false,
     }];
     c.summary!.items = [
       summaryItem("iob", "technological_objective", "ob", { bullets: ["A start-up protocol reaching full nitrification in under 5 weeks at 8 degrees C."] }),
@@ -798,7 +800,7 @@ describe("automatic checks", () => {
     );
     expect(droppedFiguresCheck(c, log)).toMatchObject({
       status: "pass",
-      evidence: "1 dropped uncertainty(ies) read from the frozen Summary; no item states one of their distinctive figures",
+      evidence: "1 dropped uncertainty(ies) read from the frozen Summary; no item states one of their results' figures",
     });
     // Results read back before the export: the run's Seeds that recorded it.
     const older = { ...c, summary: { ...c.summary!, droppedUncertainties: undefined, items: [...c.summary!.items.slice(0, 2), summaryItem("io1", "overall_advancement", "o1", { bullets: ["It took 47 days."] })] } };
@@ -860,10 +862,12 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
   }
 
   it("reads figures with a unit, normalised, lists included", () => {
+    // Re-check: a bare "degrees" is an angle, never a temperature.
     expect(figuresOf("At 6 degrees C the loops took 44 and 29 days; 15 percent seed, from 14 to 8 degrees.")).toEqual([
-      "6 C", "44 days", "29 days", "15 percent", "14 C", "8 C",
+      "6 C", "44 days", "29 days", "15 percent", "14 degrees", "8 degrees",
     ]);
-    expect(figuresOf("A 5-week target, 10% seed and 2.3 mg/L TAN at 7 C.")).toEqual(["10 percent", "2.3 mg/L", "7 C"]);
+    // 2026-09-30 (second, review P2-5): a hyphenated unit is read too.
+    expect(figuresOf("A 5-week target, 10% seed and 2.3 mg/L TAN at 7 C.")).toEqual(["5 weeks", "10 percent", "2.3 mg/L", "7 C"]);
     expect(figuresOf("No unit here: 44, 2025.")).toEqual([]);
   });
 
@@ -908,6 +912,80 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
       .toBe("no LEAVE OUT or Rule B row in Line 246");
   });
 
+  it("reports Line 244's Rule C row and any COVER row lost after its repair, for every fixture, as information (2026-09-30, second)", () => {
+    const { c, log } = run10();
+    const workRow = (extra: Partial<Collected["complianceNotes"][number]> = {}) => ({
+      section: "244",
+      paragraphIndex: null,
+      source: "model",
+      instruction: "Describe work only for an uncertainty Line 242 states, or work that is the evidence a signed-off item needs",
+      outcome: "applied",
+      tier: "none",
+      reason: "All work answers 242 or a plan item.",
+      repaired: false,
+      planRef: { itemId: null, skippedRoleId: null, droppedSeedId: null, ruleId: "work_answers_242", mergedItemIds: [] },
+      ...extra,
+    });
+    c.complianceNotes = [cover("ie1", "244", ["ie1"], { outcome: "not_applied", reason: "Trial 1 is gone." }), workRow({ repaired: true })];
+    for (const fixture of fixtures) {
+      const row = runChecks(fixture, c, log).find((item) => item.id === "work-answers-242");
+      expect(row?.status).toBe("info");
+      expect(row?.evidence).toBe('Rule C: applied, repaired ("All work answers 242 or a plan item."); COVER rows not applied after such a repair: ie1 ("Trial 1 is gone.")');
+    }
+    c.complianceNotes = [workRow({ outcome: "not_applied", reason: "P5 narrates a sensor trial.; repair not used (the repaired text no longer covers...)" })];
+    expect(runChecks(byCase("carried_old_selections"), c, log).find((item) => item.id === "work-answers-242")?.evidence)
+      .toBe('Rule C: not_applied, repair not used ("P5 narrates a sensor trial.; repair not used (the repaired text no longer covers...)"); COVER rows not applied after such a repair: none');
+    // Review P3-3: whenever the fix went to the repair, even when the
+    // final text still breaks the rule, the COVER rows lost are listed.
+    c.complianceNotes = [
+      cover("ie1", "244", ["ie1"], { outcome: "not_applied", reason: "Trial 1 is gone." }),
+      workRow({ outcome: "not_applied", paragraphIndex: 4, reason: "P5 still narrates the sensor trial." }),
+    ];
+    expect(runChecks(byCase("changed_advancement_links"), c, log).find((item) => item.id === "work-answers-242")?.evidence)
+      .toBe('Rule C: not_applied ("P5 still narrates the sensor trial."); COVER rows not applied after such a repair: ie1 ("Trial 1 is gone.")');
+    // A rule the first check found applied sent nothing to the repair.
+    c.complianceNotes = [cover("ie1", "244", ["ie1"], { outcome: "not_applied", reason: "Trial 1 is gone." }), workRow()];
+    expect(runChecks(byCase("changed_advancement_links"), c, log).find((item) => item.id === "work-answers-242")?.evidence)
+      .toBe('Rule C: applied ("All work answers 242 or a plan item."); COVER rows not applied after such a repair: none');
+    c.complianceNotes = [cover("ie1", "244")];
+    expect(runChecks(byCase("exclusion_conflict"), c, log).find((item) => item.id === "work-answers-242")?.evidence)
+      .toBe("no Rule C row in Line 244");
+  });
+
+  it("passes a LEAVE OUT row the figure check recorded applied only when the suite's own scan finds no dropped figure in that Line (review P3-1)", () => {
+    const { c, log } = run10();
+    const backstop = 'The flagged content is a signed-off item: the Self-check flagged paragraph 3 ("P3 states stall durations (19 vs 6 days)."), but every figure it cited (19 days, 6 days) is in the signed-off plan\'s wording, and no paragraph of this Line holds one of the dropped uncertainty\'s own figures (44 days) or restates it. Not sent to the repair.';
+    c.complianceNotes = [leaveOutRow("242"), { ...leaveOutRow("244"), reason: backstop }, leaveOutRow("246"), answersRow()];
+    // Line 244 P4 holds 6 C, 5 percent, 15 percent, 44 days and 29 days.
+    const leaking = runChecks(byCase("changed_advancement_links"), c, log);
+    expect(status(leaking, "dropped-uncertainty-left-out")).toBe("fail");
+    expect(leaking.find((item) => item.id === "dropped-uncertainty-left-out")?.evidence)
+      .toMatch(/^242: applied; 244: applied by the figure check, but the suite's scan finds 6 C, 5 percent, 15 percent, 44 days, 29 days in P4 \("The flagged content is a signed-off item: .*"\); 246: applied; frozen at sign-off: u1$/);
+    // Without the leak the scan finds nothing, and the row passes.
+    c.report!.sections.s244 = "Trial 1 ran three loops at 8 C.\n\nThe loops were sampled daily.\n\nNitrite stalled for 6 days.";
+    const clean = runChecks(byCase("changed_advancement_links"), c, log);
+    expect(status(clean, "dropped-uncertainty-left-out")).toBe("pass");
+    expect(clean.find((item) => item.id === "dropped-uncertainty-left-out")?.evidence)
+      .toMatch(/^242: applied; 244: applied by the figure check \("The flagged content is a signed-off item: .*"\); 246: applied; frozen at sign-off: u1$/);
+  });
+
+  it("reads the dropped uncertainty's own figures from the frozen row, as the product does (review P3-2)", () => {
+    const { c, log } = run10();
+    // The frozen row records an advancement with a figure of its own; the
+    // Seeds read back do not hold it.
+    c.summary!.droppedUncertainties = [{
+      seedId: "u1",
+      wording: [SEED_FRACTION],
+      experiments: [{ seedId: "e2", wording: ["Trial 2 at 6 C compared 5 and 15 percent acclimated seed.", "The loops took 44 and 29 days."] }],
+      advancements: [{ seedId: "a9", wording: ["Unacclimated seed took 47 days at 8 C."] }],
+      notChecked: false,
+    }];
+    c.report!.sections.s246 = `${c.report!.sections.s246}\n\nUnacclimated seed took 47 days.`;
+    const hint = runChecks(byCase("changed_advancement_links"), c, log).find((item) => item.id === "dropped-uncertainty-drafted");
+    expect(hint?.evidence).toContain("distinctive figures: 6 C, 5 percent, 15 percent, 44 days, 29 days, 47 days");
+    expect(hint?.evidence).toContain("Line 246 P4 (");
+  });
+
   it("names every paragraph of every Line that holds the dropped uncertainty's words or its experiments' distinctive figures", () => {
     const { c, log } = run10();
     const hint = runChecks(byCase("changed_advancement_links"), c, log).find((item) => item.id === "dropped-uncertainty-drafted");
@@ -923,9 +1001,9 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     expect(hint?.evidence).not.toContain("Line 242 P");
     const scan = droppedUncertaintyHits({
       sections: c.report!.sections,
-      droppedWords: SEED_FRACTION,
-      experimentWords: ["Trial 2 at 6 C compared 5 and 15 percent acclimated seed. The loops took 44 and 29 days."],
-      planWords: c.summary!.items.map((item) => item.bullets.join(" ")),
+      droppedWording: [SEED_FRACTION],
+      references: [{ wording: ["Trial 2 at 6 C compared 5 and 15 percent acclimated seed.", "The loops took 44 and 29 days."] }],
+      planWording: c.summary!.items.map((item) => item.bullets),
     });
     expect(scan.hits.map((hit) => `${hit.section} P${hit.paragraph}`)).toEqual(["244 P4", "246 P3"]);
   });
@@ -1308,5 +1386,76 @@ describe("first contact fixes", () => {
     const { log } = await runFixture(byCase("skipped_role_supported"), driver);
     expect(log.error).toBe('projects:createProject returned no projectId ({"transcriptIds":[]})');
     expect(log.projectId).toBeNull();
+  });
+});
+
+describe("results against targets and no talk about sources (2026-09-30, third)", () => {
+  const targetsRow = (section: string, outcome: "applied" | "not_applied", repaired = false) => ({
+    section,
+    paragraphIndex: null,
+    source: "model",
+    instruction: "State each result against its target as the numbers show",
+    outcome,
+    tier: "none",
+    reason: outcome === "applied" ? "Every comparison matches." : "P1 calls met targets close.",
+    repaired,
+    planRef: { itemId: null, skippedRoleId: null, droppedSeedId: null, ruleId: "results_against_targets", mergedItemIds: [] },
+  });
+  const sourceRow = (section: string, outcome: "applied" | "not_applied", repaired = false) => ({
+    section,
+    paragraphIndex: null,
+    source: "deterministic",
+    instruction: "State facts without naming their source",
+    outcome,
+    tier: "none",
+    reason: outcome === "applied" ? "no talk about sources found" : 'names a source in paragraph 2 ("the test memo indicates")',
+    repaired,
+    planRef: null,
+  });
+  const run = () => {
+    const c = baseCollected();
+    c.summary!.items = [summaryItem("ie1", "experimentation", "e1", { bullets: ["The engine ranked each interviewee by availability."] })];
+    c.report = {
+      ...c.report!,
+      sections: {
+        s242: "The company builds interview scheduling engines.\n\nIt was uncertain whether each interviewee could be ranked in time.",
+        s244: "The team ran four trials.\n\nOver 240 runs, the test memo indicates the rank held.\n\nThe two sources disagree on the time, and a light source was not used.",
+        s246: "The objective was met: 97.8 percent against the 97 percent target.",
+      },
+    };
+    return c;
+  };
+
+  it("reports, per Line and for every fixture, the source talk left in the final text and the Self-check's row", () => {
+    const c = run();
+    c.complianceNotes = [sourceRow("242", "applied"), sourceRow("244", "not_applied", true)];
+    for (const fixture of fixtures) {
+      const row = runChecks(fixture, c, emptyRunLog(fixture.id, 0)).find((item) => item.id === "source-talk");
+      expect(row?.status).toBe("info");
+      // "interviewee" is the project's own subject (the signed-off wording).
+      expect(row?.evidence).toBe(
+        '242: none (row applied); 244: P2 "the test memo indicates", P3 "The two sources disagree" (row not_applied, repaired); 246: none (no row)'
+      );
+    }
+    expect(runChecks(fixtures[0]!, { ...c, report: null }, emptyRunLog(fixtures[0]!.id, 0))
+      .find((item) => item.id === "source-talk")?.evidence ?? "no report").toBe("no report");
+  });
+
+  it("reports Lines 244 and 246's targets rows for every fixture, and never names the targets row Rule B", () => {
+    const c = run();
+    c.complianceNotes = [targetsRow("244", "applied"), targetsRow("246", "applied", true)];
+    for (const fixture of fixtures) {
+      const checks = runChecks(fixture, c, emptyRunLog(fixture.id, 0));
+      expect(checks.find((item) => item.id === "results-against-targets")).toEqual({
+        id: "results-against-targets",
+        label: "Results stated against their targets, Lines 244 and 246 (informational; self-reported by the checking model)",
+        status: "info",
+        evidence: '244: applied ("Every comparison matches."); 246: applied, repaired ("Every comparison matches.")',
+      });
+      expect(checks.find((item) => item.id === "leave-out-repairs-246")?.evidence).toBe("no LEAVE OUT or Rule B row in Line 246");
+    }
+    c.complianceNotes = [targetsRow("246", "not_applied")];
+    expect(runChecks(fixtures[0]!, c, emptyRunLog(fixtures[0]!.id, 0)).find((item) => item.id === "results-against-targets")?.evidence)
+      .toBe('244: no row; 246: not_applied ("P1 calls met targets close.")');
   });
 });

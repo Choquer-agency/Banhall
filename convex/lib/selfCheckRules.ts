@@ -6,6 +6,8 @@ import { LINE_LIMITS, WORD_CAPS, sectionMetrics } from "./lineLimits";
 import { STORYLINE_QUESTION_WITHHELD_REASON } from "./storylineQuestionNote";
 import { sectionParagraphs } from "./tiptapReport";
 import { matchGlossaryTerms } from "./glossaryMatcher";
+import { isNearCopy } from "./droppedUncertainties";
+import { contentWords } from "./seedQuoteSupport";
 import {
   noteDraft,
   type ComplianceNoteDraft,
@@ -19,6 +21,7 @@ import {
   type SectionNumber,
 } from "./orderedChain";
 import {
+  GOVERNED_IN_IDEA_CLAUSE,
   governedTermFollowed,
   governedTermNotFollowed,
   governedTermReason,
@@ -26,6 +29,7 @@ import {
   type FeedbackGovernedTerm,
   type GovernedTermState,
 } from "./writerPrecedence";
+import { findSourceTalk, SOURCE_TALK } from "../../shared/humanProse";
 
 /**
  * Story 2 (CAP-9, AD-25): the deterministic half of a section's Self-check.
@@ -139,6 +143,25 @@ function paragraphContaining(paragraphs: string[], needle: string): number {
   );
 }
 
+/**
+ * 2026-09-30 (second): the first paragraph holding a close form of a Claim
+ * Exclusion's words: one of its sentences holds at least NEAR_COPY_SHARE of
+ * the exclusion's content words, case, punctuation, stop words and light
+ * plurals aside (the near-copy guard of convex/lib/droppedUncertainties.ts).
+ * Release suite run 11 (exclusion-conflict, Line 244 paragraph 3) wrote
+ * "this work also covered migration of the customer billing portal to a new
+ * cloud host, which was routine IT work following a vendor migration guide",
+ * which the exact match misses. Only the suspended row's wording reads it.
+ */
+export function paragraphWithCloseForm(paragraphs: readonly string[], needle: string): number {
+  if (contentWords(needle).length === 0) return -1;
+  return paragraphs.findIndex((paragraph) =>
+    paragraph
+      .split(/(?<=[.!?])\s+/)
+      .some((sentence) => isNearCopy([needle], [sentence]))
+  );
+}
+
 /** Rule-based verbatim/inflected Glossary Term match (glossaryMatcher.ts). */
 export function glossaryTermPresent(term: string, text: string): boolean {
   const canonical = term.trim();
@@ -208,6 +231,15 @@ export function runDeterministicSelfCheck(input: {
    * verdict (assembleSectionNotes).
    */
   feedbackTerms?: readonly string[];
+  /**
+   * 2026-09-30 (third): signed-off plan runs only. Report text that names
+   * where a fact came from (an interviewee, the test memo, the Brief) is
+   * found here and sent to the repair. `subjectText` is the plan's wording
+   * and the Glossary Terms: their words are the project's own subject and
+   * are never reported. Absent: no such check and no row, so Single draft
+   * and Compare keep their rows and requests.
+   */
+  sourceTalk?: { subjectText: readonly string[] };
 }): DeterministicSelfCheck {
   const { section, text, brief, profile, isFirstInOrder } = input;
   const key = sectionKeyOf(section);
@@ -406,14 +438,25 @@ export function runDeterministicSelfCheck(input: {
         matchesClaimExclusion(wording, exclusion.text, exclusion.exactExcerpt)
     );
     if (confirmedPlanConflict) {
+      // 2026-09-30 (second): with its words not in the Line as written, a
+      // close form of them is named where one appears (release suite run 11).
+      let close = -1;
+      if (found < 0) {
+        for (const needle of needles) {
+          close = paragraphWithCloseForm(paragraphs, needle);
+          if (close >= 0) break;
+        }
+      }
       add(`exclusion:${index}`, {
         instruction,
-        ...(found >= 0 ? { paragraphIndex: found } : {}),
+        ...(found >= 0 ? { paragraphIndex: found } : close >= 0 ? { paragraphIndex: close } : {}),
         outcome: "not_applied",
         tier: "conflict",
         reason: found >= 0
           ? `suspended in this Line for the idea the writer kept despite this Claim Exclusion: its words appear in paragraph ${found + 1} (${label}) and are not repaired away; this word check cannot tell that idea from other content with the same words`
-          : `suspended in this Line for the idea the writer kept despite this Claim Exclusion (${label}); its words are not in this Line as written, and the idea's own row says whether it was drafted`,
+          : close >= 0
+            ? `suspended in this Line for the idea the writer kept despite this Claim Exclusion (${label}): its exact words are not in this Line, but a close form of its words is in paragraph ${close + 1} and is not repaired away; the idea's own row says whether it was drafted`
+            : `suspended in this Line for the idea the writer kept despite this Claim Exclusion (${label}); its words are not in this Line as written, and the idea's own row says whether it was drafted`,
       });
       return;
     }
@@ -478,7 +521,69 @@ export function runDeterministicSelfCheck(input: {
     });
   }
 
+  // 2026-09-30 (third): no talk about sources in report text. One row per
+  // Line; a hit goes to the repair with a fixed fix that names its words.
+  if (input.sourceTalk) {
+    const subjectText = input.sourceTalk.subjectText;
+    const found = paragraphs.flatMap((paragraph, index) =>
+      findSourceTalk(paragraph, { subjectText }).map((hit) => ({ index, phrase: hit.phrase })));
+    if (found.length === 0) {
+      add(SOURCE_TALK_KEY, {
+        instruction: SOURCE_TALK.instruction,
+        outcome: "applied",
+        tier: "none",
+        reason: SOURCE_TALK.applied,
+      });
+    } else {
+      add(
+        SOURCE_TALK_KEY,
+        {
+          instruction: SOURCE_TALK.instruction,
+          paragraphIndex: found[0]!.index,
+          outcome: "not_applied",
+          tier: "none",
+          reason: `names a source in ${sourceTalkPlaces(found)}`,
+        },
+        true,
+        sourceTalkRepairIssue(found)
+      );
+    }
+  }
+
   return { entries, glossaryCandidates, modelRules, paragraphs };
+}
+
+/** The deterministic entry key of the source-talk check (2026-09-30, third). */
+export const SOURCE_TALK_KEY = "sourceTalk";
+
+/** At most this many source-talk phrases are named in a row or a fix. */
+const SOURCE_TALK_NAMED = 4;
+
+function joinedList(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/** 'paragraph 1 ("interviewees") and paragraph 3 ("recorded elsewhere", "Storyline")'. */
+function sourceTalkPlaces(found: ReadonlyArray<{ index: number; phrase: string }>): string {
+  const named = found.slice(0, SOURCE_TALK_NAMED);
+  const paragraphs = [...new Set(named.map((hit) => hit.index))].map((index) =>
+    `paragraph ${index + 1} (${named.filter((hit) => hit.index === index).map((hit) => `"${hit.phrase}"`).join(", ")})`);
+  const more = found.length - named.length;
+  return joinedList(more > 0 ? [...paragraphs, `${more} more`] : paragraphs);
+}
+
+/**
+ * The repair fix for source talk: the paragraphs, the phrases as written
+ * and the rule, in fixed words (SOURCE_TALK in shared/humanProse.ts).
+ */
+export function sourceTalkRepairIssue(found: ReadonlyArray<{ index: number; phrase: string }>): string {
+  const paragraphs = [...new Set(found.map((hit) => hit.index + 1))];
+  const where = paragraphs.length === 1
+    ? `Paragraph ${paragraphs[0]}`
+    : `Paragraphs ${joinedList(paragraphs.map(String))}`;
+  const phrases = [...new Set(found.map((hit) => `"${hit.phrase}"`))].slice(0, SOURCE_TALK_NAMED);
+  return `${where}: ${SOURCE_TALK.fix} (${phrases.join(", ")}). ${SOURCE_TALK.rule}`;
 }
 
 /**
@@ -490,7 +595,16 @@ export function runDeterministicSelfCheck(input: {
 export function repairIssues(
   before: DeterministicSelfCheck,
   verdicts: ModelVerdict[],
-  governed: readonly FeedbackGovernedTerm[] = []
+  governed: readonly FeedbackGovernedTerm[] = [],
+  options: {
+    /**
+     * 2026-09-30 (third): signed-off plan runs only. A fixed start for a
+     * verdict's fix (how to hedge a Confidence Map or Storyline issue, how
+     * to use a Glossary Term), put before the check's own guidance. Absent,
+     * or "", leaves the issue as before.
+     */
+    verdictPrefix?: (verdict: ModelVerdict) => string;
+  } = {}
 ): string[] {
   const issues = before.entries
     .filter((entry) => entry.repairable && entry.row.outcome === "not_applied")
@@ -506,18 +620,22 @@ export function repairIssues(
       ? undefined
       : governed.find((entry) => entry.term === verdict.feedbackTerm);
     if (term) {
+      // 2026-09-30 (second): a term an unedited signed-off idea uses is
+      // renamed there too; renaming is wording, not meaning.
       issues.push(
-        `${where}: for the term "${term.term}", follow the writer's Feedback ${governingFeedbackPhrase(term.feedback)}.${fix.trim() ? ` ${fix.trim()}` : ""}`
+        `${where}: for the term "${term.term}", follow the writer's Feedback ${governingFeedbackPhrase(term.feedback)}${
+          term.inSignedOffIdea ? GOVERNED_IN_IDEA_CLAUSE : ""
+        }.${fix.trim() ? ` ${fix.trim()}` : ""}`
       );
       continue;
     }
-    issues.push(`${where}: ${fix}`);
+    issues.push(`${where}: ${options.verdictPrefix?.(verdict) ?? ""}${fix}`);
   }
   return issues;
 }
 
 /** The Glossary Term a glossary verdict names (the candidate it mentions). */
-function glossaryTermOf(verdict: ModelVerdict, candidates: string[]): string {
+export function glossaryTermOf(verdict: ModelVerdict, candidates: string[]): string {
   const normalized = normalizeForMatch(verdict.instruction);
   return (
     candidates.find((term) => normalized.includes(normalizeForMatch(term))) ??
@@ -734,7 +852,7 @@ export function assembleSectionNotes(input: {
       instruction: `Glossary Term: ${term.term}`,
       outcome: governedTermFollowed(state) ? "applied" : "not_applied",
       tier: "conflict",
-      reason: governedTermReason(term.feedback, state, detail),
+      reason: governedTermReason(term.feedback, state, detail, term.inSignedOffIdea === true),
       repaired: state === "repaired",
     }));
   }

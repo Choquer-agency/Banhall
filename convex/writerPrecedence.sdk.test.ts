@@ -52,6 +52,7 @@ import type { OrderedPayload } from "./lib/orderedChain";
 import { sectionMetrics } from "./lib/lineLimits";
 import {
   feedbackForLine,
+  GOVERNED_IN_IDEA_CLAUSE,
   glossaryTermPrecedence,
   governedTermReason,
   ideaWords,
@@ -747,11 +748,15 @@ const SPINDLE_DRAFT = [
 ].join("\n\n");
 
 /** What the frozen plan decides for the Line (loadFrozenSectionPlan's rule). */
-function precedenceFor(feedback: WriterFeedback[], plan: FrozenSummaryPlanCheck[] = PLAN_242) {
+function precedenceFor(
+  feedback: WriterFeedback[],
+  plan: FrozenSummaryPlanCheck[] = PLAN_242,
+  editedItems: Array<{ original: string[]; edited: string[] }> = []
+) {
   return glossaryTermPrecedence({
     glossaryTerms: BRIEF_242.glossaryTerms,
     feedback,
-    editedItems: [],
+    editedItems,
     selectionWording: plan.filter((check) => check.instruction === "cover").map((check) => check.wording),
   });
 }
@@ -1351,7 +1356,8 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
       support: "writer_asserted",
       wording: ["Tessrow builds robotic finishing cells and kept per-edge force control on the \"floating head\"."],
     }];
-    expect(precedenceFor(FEEDBACK, edited)).toEqual({ setAside: [], governed: [] });
+    expect(precedenceFor(FEEDBACK, edited, [{ original: PLAN_242[0]!.wording, edited: edited[0]!.wording }]))
+      .toEqual({ setAside: [], governed: [] });
     const draftText = SPINDLE_DRAFT.replace("a compliant spindle", "the floating head");
     const sent = installFetch({ draft: draftText, checks: [[covered(ITEM_CONTEXT, 2)]] });
     const result = await draft("242", claimFor({
@@ -1475,5 +1481,121 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
       repaired: false,
       reason: governedTermReason(FEEDBACK, "followed_final"),
     });
+  });
+});
+
+// ─── 2026-09-30 (second): the Feedback governs a term an unedited idea uses ─
+
+describe("the writer's Feedback governs a term an unedited signed-off idea uses (release suite run 11, real SDK, fetch stubbed)", () => {
+  // withdrawn-feedback, run 11: signed-off uncertainty item 5a is the
+  // model's wording and says "floating head force"; the active Feedback
+  // renames the tool. Line 242's row read "Glossary Term: floating head |
+  // not_applied | none | ... repair failed" while Lines 244 and 246 recorded
+  // the Feedback governing it.
+  const ITEM_5A = "item-tessrow-5a" as Id<"summaryItems">;
+  const UNEDITED_5A = "It was unknown how floating head force should vary with edge radius on cast aluminium brackets.";
+  const PLAN_5A: FrozenSummaryPlanCheck[] = [{
+    itemId: ITEM_5A,
+    roleId: "active_uncertainties",
+    mergedItemIds: [ITEM_5A],
+    instruction: "cover",
+    confirmedExclusion: false,
+    support: "source_supported",
+    wording: [UNEDITED_5A],
+    relationshipReferences: [],
+    sourceReferences: [],
+  }];
+  const P1_5A = "Tessrow builds robotic finishing cells for aerospace brackets and runs its trials in the pilot cell in Bay 4.";
+  const WITH_HEAD = [P1_5A, UNEDITED_5A].join("\n\n");
+  const RENAMED = [P1_5A, "It was unknown how compliant spindle force should vary with edge radius on cast aluminium brackets."].join("\n\n");
+
+  it("renames the term in the idea's wording, and every request, issue and row says renaming is wording, not meaning", async () => {
+    const precedence = precedenceFor(FEEDBACK, PLAN_5A);
+    expect(precedence).toEqual({ setAside: [], governed: [{ term: "floating head", feedback: FEEDBACK, inSignedOffIdea: true }] });
+    const sent = installFetch({
+      draft: WITH_HEAD,
+      repair: RENAMED,
+      checks: [[covered(ITEM_5A, 2)], [covered(ITEM_5A, 2)]],
+      ordinaryAnswers: [
+        [feedbackVerdict("not_applied", 2, "P2 says floating head force.", "Say compliant spindle force in P2.")],
+        [feedbackVerdict("applied", 2, "P2 says compliant spindle.")],
+      ],
+    });
+    const result = await draft("242", claimFor({
+      planChecks: PLAN_5A,
+      brief: BRIEF_242,
+      writerFeedback: FEEDBACK,
+      feedbackTerms: precedence.governed,
+    }));
+    expect(sent.map((request) => request.stage)).toEqual(["section", "submit_self_check", "repair", "submit_self_check"]);
+    expect(result.draftText).toBe(RENAMED);
+
+    // Drafting: the WRITER'S DECISIONS say renaming a governed term is not
+    // rewording the idea, and the term's line says so too.
+    const scaffold = ORDERED_PROMPT_SCAFFOLDS.writerDecisions;
+    const block = writerDecisionsBlock({ confirmed: [], feedback: FEEDBACK, glossarySetAside: [], feedbackTerms: precedence.governed });
+    expect(block).toBe(
+      DECISIONS_HEADING +
+        scaffold.feedbackIntroRenaming +
+        "\n--- BEGIN [WRITER'S FEEDBACK] ---" +
+        `\n- On Company / Context: ${JSON.stringify(SPINDLE)}` +
+        "\n--- END [WRITER'S FEEDBACK] ---" +
+        GOVERNED_INTRO +
+        `\n- For the term "floating head", follow the writer's Feedback on Company / Context: ${JSON.stringify(SPINDLE)}${GOVERNED_IN_IDEA_CLAUSE}`
+    );
+    expect(scaffold.feedbackIntroRenaming).toContain(
+      "but never drop, reword or contradict a signed-off idea or a writer's edit to follow it. Renaming a Glossary Term the Feedback governs (listed below) is not rewording an idea: use the Feedback's wording for that term even where a signed-off idea uses the term, and keep the idea's meaning."
+    );
+    expect(scaffold.feedbackIntroRenaming.replace(" Renaming a Glossary Term the Feedback governs (listed below) is not rewording an idea: use the Feedback's wording for that term even where a signed-off idea uses the term, and keep the idea's meaning.", ""))
+      .toBe(FEEDBACK_INTRO);
+    const section = sent.find((request) => request.stage === "section")!;
+    expect(section.user).toContain(block);
+    expect(section.user).not.toContain(FEEDBACK_INTRO);
+
+    // The Self-check: the label line, the Feedback rule and the governed rule.
+    const check = sent[1]!;
+    const governed = SUMMARY_PLAN_SELF_CHECK_REQUEST.feedbackTerms;
+    const feedback = SUMMARY_PLAN_SELF_CHECK_REQUEST.writerFeedback;
+    expect(check.user).toContain(`${governedLabelLine(SPINDLE)}${GOVERNED_IN_IDEA_CLAUSE}\n--- END [${governed.blockLabel}] ---`);
+    expect(check.user).toContain(`${feedback.renamingInstruction}${governed.instruction}${governed.renamingInstruction}`);
+    expect(check.user).not.toContain(feedback.instruction);
+    expect(feedback.renamingInstruction).toContain(
+      "and so is wording a signed-off idea or a writer's edit uses, except a term in the GLOSSARY TERMS THE WRITER'S FEEDBACK GOVERNS block, where the Feedback decides even against a signed-off idea's wording."
+    );
+    expect(check.user).not.toContain("GLOSSARY CANDIDATES");
+
+    // The repair: the issue and the renaming line.
+    const repair = sent[2]!;
+    expect(repair.user).toContain(
+      `- Paragraph 2: for the term "floating head", follow the writer's Feedback on Company / Context: ${JSON.stringify(SPINDLE)}${GOVERNED_IN_IDEA_CLAUSE}. Say compliant spindle force in P2.`
+    );
+    expect(repair.user).toContain(`${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.writerDecisions}${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.governedRename}`);
+
+    // The final text is checked for the label in the same request.
+    expect(sent[3]!.user).toContain(`${governedLabelLine(SPINDLE)}${GOVERNED_IN_IDEA_CLAUSE}`);
+    expect(termRow(result)).toMatchObject({
+      outcome: "applied",
+      tier: "conflict",
+      repaired: true,
+      reason: governedTermReason(FEEDBACK, "repaired", undefined, true),
+    });
+    expect(termRow(result).reason.startsWith(
+      "The writer's Feedback governs this term in this Line, not the Brief, even where a signed-off idea uses it (renaming is wording, not meaning, so the idea's meaning stays): "
+    )).toBe(true);
+    // The renamed idea is covered.
+    expect(result.notes.find((note) => note.planRef?.itemId === ITEM_5A)).toMatchObject({ outcome: "applied" });
+  });
+
+  it("keeps every request of a governed term no signed-off idea uses as before", async () => {
+    const sent = installFetch({
+      draft: SPINDLE_DRAFT,
+      checks: [[covered(ITEM_CONTEXT, 2)]],
+      ordinary: [feedbackVerdict("applied", 2, "P2 says compliant spindle.")],
+    });
+    await draft("242", claimFor({ planChecks: PLAN_242, brief: BRIEF_242, writerFeedback: FEEDBACK, feedbackTerms: GOVERNED }));
+    expect(sent[0]!.user).toContain(FEEDBACK_INTRO);
+    expect(sent[0]!.user).not.toContain(GOVERNED_IN_IDEA_CLAUSE);
+    expect(sent[1]!.user).toContain(`${SUMMARY_PLAN_SELF_CHECK_REQUEST.writerFeedback.instruction}${SUMMARY_PLAN_SELF_CHECK_REQUEST.feedbackTerms.instruction}`);
+    expect(sent[1]!.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.feedbackTerms.renamingInstruction);
   });
 });

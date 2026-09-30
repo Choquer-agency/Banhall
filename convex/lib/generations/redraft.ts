@@ -1014,6 +1014,9 @@ export async function getSeedRedraftInputHandler(
     brief,
     // 2026-09-29 (second): what the consistency pass must not report.
     writerPrecedence: await loadWriterPrecedenceByLine(ctx, generation, brief),
+    // 2026-09-30 (second): a signed-off plan's consistency pass is told what
+    // Rules A, B and C leave out on purpose.
+    signedOffPlan: generation.summaryVersionId !== undefined,
     sections: await redraftCheckedSections(ctx, generation._id, generation.redraft, run._id),
   };
 }

@@ -38,6 +38,7 @@ import type {
   ModelVerdict,
 } from "../lib/selfCheckRules";
 import {
+  ADVANCEMENTS_ANSWER_242_RULE_ID,
   clipJsonEscapedUtf8,
   jsonEscapedUtf8Bytes,
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
@@ -48,6 +49,7 @@ import {
   MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   projectSummaryOrdinaryChecks,
+  RESULTS_AGAINST_TARGETS_RULE_ID,
   SeedContextLimitError,
   sameSummaryPlanRef,
   serializeFrozenSummaryPlanChecks,
@@ -56,6 +58,7 @@ import {
   type FrozenSummaryPlanCheck,
   type SummaryOrdinaryCheck,
   type SummaryPlanRefFields,
+  WORK_ANSWERS_242_RULE_ID,
 } from "../lib/seedRevisions";
 
 /**
@@ -708,6 +711,11 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
     ? (input.writerFeedback ?? []).filter((entry) => entry.instruction.trim())
     : [];
   const writer = SUMMARY_PLAN_SELF_CHECK_REQUEST.writerFeedback;
+  // 2026-09-30 (second): a governed term an unedited signed-off idea uses.
+  // Only then do the Feedback and governed-term rules say that renaming it
+  // is wording, not meaning; every other request keeps its bytes.
+  const governed = hasSummaryPlan ? summaryFeedbackTerms(input) : [];
+  const renaming = governed.some((entry) => entry.inSignedOffIdea === true);
   if (feedback.length > 0) {
     blocks.push(block(
       writer.blockLabel,
@@ -719,27 +727,40 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
   // PR #22 lead decision: each Glossary Term that Feedback names has its
   // own label, with the Feedback quoted as data, and after the blocks the
   // rule for judging it. Absent without such a term.
-  const governed = hasSummaryPlan ? summaryFeedbackTerms(input) : [];
   const governedScaffold = SUMMARY_PLAN_SELF_CHECK_REQUEST.feedbackTerms;
   if (governed.length > 0) {
     blocks.push(block(
       governedScaffold.blockLabel,
       governed.map((entry) => {
         const label = ordinary.find((check) => check.feedbackTerm === entry.term)?.label;
-        return `${governedScaffold.linePrefix}${label ? `[${label}] ` : ""}${governedScaffold.termPrefix}${quoteForPrompt(entry.term)}${governedScaffold.feedbackMiddle}${governingFeedbackPhrase(entry.feedback)}`;
+        return `${governedScaffold.linePrefix}${label ? `[${label}] ` : ""}${governedScaffold.termPrefix}${quoteForPrompt(entry.term)}${governedScaffold.feedbackMiddle}${governingFeedbackPhrase(entry.feedback)}${
+          entry.inSignedOffIdea ? governedScaffold.inIdeaSuffix : ""
+        }`;
       }).join(governedScaffold.separator)
     ));
   }
   // 2026-09-30 (first): the rule for LEAVE OUT checks and for Line 246's
-  // advancement check, after the data blocks. Absent without such a check,
-  // so those requests are unchanged.
+  // advancement check, after the data blocks; since (second) for Line 244's
+  // work check too, and since (third) for the targets check, last. Each rule
+  // is named by its own ruleId. Absent without such a check, so those
+  // requests are unchanged.
   const leaveOut = (input.planChecks ?? []).some((check) => check.droppedSeedId !== undefined);
-  const answers242 = (input.planChecks ?? []).some((check) => check.ruleId !== undefined);
+  const answers242 = (input.planChecks ?? []).some((check) => check.ruleId === ADVANCEMENTS_ANSWER_242_RULE_ID);
+  const workAnswers242 = (input.planChecks ?? []).some((check) => check.ruleId === WORK_ANSWERS_242_RULE_ID);
+  const targets = (input.planChecks ?? []).some((check) => check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID);
   return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}${
     terms.length > 0 ? exact.instruction : ""
-  }${feedback.length > 0 ? writer.instruction : ""}${governed.length > 0 ? governedScaffold.instruction : ""}${
+  }${feedback.length > 0 ? (renaming ? writer.renamingInstruction : writer.instruction) : ""}${
+    governed.length > 0
+      ? `${governedScaffold.instruction}${renaming ? governedScaffold.renamingInstruction : ""}`
+      : ""
+  }${
     leaveOut ? SUMMARY_PLAN_SELF_CHECK_REQUEST.leaveOut.instruction : ""
-  }${answers242 ? SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.instruction : ""}`;
+  }${answers242 ? SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.instruction : ""}${
+    workAnswers242 ? SUMMARY_PLAN_SELF_CHECK_REQUEST.workAnswers242.instruction : ""
+  }${
+    targets ? SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.instruction : ""
+  }`;
 }
 
 export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
@@ -1280,16 +1301,30 @@ export const PLAN_RULE_NOT_CHECKED_REASON =
   "Not checked: the plan coverage Self-check gave no verdict for whether every advancement answers a Line 242 uncertainty.";
 export const RULE_BREAK_UNLOCATED_REASON =
   "Advancement reported as answering no Line 242 uncertainty named no valid paragraph.";
+/** 2026-09-30 (second, Rule C): the same reasons for Line 244's work check. */
+export const PLAN_WORK_RULE_NOT_CHECKED_REASON =
+  "Not checked: the plan coverage Self-check gave no verdict for whether all work answers a Line 242 uncertainty or a signed-off item.";
+export const WORK_RULE_BREAK_UNLOCATED_REASON =
+  "Work reported as answering no Line 242 uncertainty named no valid paragraph.";
+/** 2026-09-30 (third): the same reasons for the targets check. */
+export const PLAN_TARGETS_NOT_CHECKED_REASON =
+  "Not checked: the plan coverage Self-check gave no verdict for whether each result is stated against its target as the numbers show.";
+export const TARGETS_BREAK_UNLOCATED_REASON =
+  "Result reported as misstated against its target named no valid paragraph.";
 
 function planNotCheckedReason(check: SummaryPlanRefFields): string {
   if (check.itemId) return PLAN_ITEM_NOT_CHECKED_REASON;
   if (check.droppedSeedId) return PLAN_LEAVE_OUT_NOT_CHECKED_REASON;
+  if (check.ruleId === WORK_ANSWERS_242_RULE_ID) return PLAN_WORK_RULE_NOT_CHECKED_REASON;
+  if (check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID) return PLAN_TARGETS_NOT_CHECKED_REASON;
   if (check.ruleId) return PLAN_RULE_NOT_CHECKED_REASON;
   return PLAN_SKIP_NOT_CHECKED_REASON;
 }
 
 function planBreakUnlocatedReason(check: SummaryPlanRefFields): string {
   if (check.droppedSeedId) return LEAVE_OUT_BREAK_UNLOCATED_REASON;
+  if (check.ruleId === WORK_ANSWERS_242_RULE_ID) return WORK_RULE_BREAK_UNLOCATED_REASON;
+  if (check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID) return TARGETS_BREAK_UNLOCATED_REASON;
   if (check.ruleId) return RULE_BREAK_UNLOCATED_REASON;
   return SKIP_BREAK_UNLOCATED_REASON;
 }
@@ -1702,6 +1737,14 @@ export type ConsistencyInput = {
       lines: ReadonlyArray<{ sections: readonly SectionNumber[]; feedback: readonly WriterFeedback[] }>;
     }>;
   } | null;
+  /**
+   * 2026-09-30 (second): the draft follows a signed-off content plan, so the
+   * pass is told what Rules A, B and C leave out on purpose, and that a range
+   * and a value inside it, or two events at different times, do not
+   * contradict. Absent in Single draft and Compare, whose requests are
+   * unchanged.
+   */
+  signedOffPlan?: boolean;
 };
 
 /** "Line 244", or "Lines 242, 244 and 246". */
@@ -1748,7 +1791,9 @@ export function buildConsistencyUserMessage(input: ConsistencyInput): string {
       }).join("\n"))
     );
   }
-  return `${CONSISTENCY_REQUEST.userScaffold.prefix}${blocks.join(CONSISTENCY_REQUEST.userScaffold.blockSeparator)}`;
+  return `${CONSISTENCY_REQUEST.userScaffold.prefix}${blocks.join(CONSISTENCY_REQUEST.userScaffold.blockSeparator)}${
+    input.signedOffPlan ? CONSISTENCY_REQUEST.signedOffPlan : ""
+  }`;
 }
 
 /** What one consistency pass found, and how many findings it could not read. */
