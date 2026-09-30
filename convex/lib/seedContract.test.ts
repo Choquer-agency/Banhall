@@ -649,7 +649,8 @@ describe("an advancement follows the uncertainty its experiments tested (2026-09
       for (const [seed, roleId, reason] of [
         [answers(), "overall_advancement", "missing_link"],
         [answers(), "goal_improvements", "missing_link"],
-        [answers([]), "overall_advancement", "missing_link"],
+        // Review P3-1: an empty list has its own reason and hint.
+        [answers([]), "overall_advancement", "empty_answers"],
         [answers(["u3-sensors"]), "overall_advancement", "unknown_uncertainty"],
         [answers(["u1-acclimation", "e1-trial"]), "goal_improvements", "unknown_uncertainty"],
       ] as const) {

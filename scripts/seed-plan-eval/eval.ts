@@ -75,6 +75,8 @@ export type CaseParams = {
     editSentence: string;
     switchRole: PdSubsectionRoleId;
     regenerateRole: PdSubsectionRoleId;
+    /** 2026-09-30 (fourth, review P3-6): the framing the writer switches to. */
+    switchHint?: string;
   };
   skipped_role_supported: { skipRole: PdSubsectionRoleId; priorYearMarker: string };
   withdrawn_feedback: {
@@ -235,6 +237,10 @@ export function validateFixture(fixture: Fixture): string[] {
         (roleDef(text("switchRole"))?.order ?? 99) < (roleDef(text("regenerateRole"))?.order ?? 0),
         "params.switchRole must come before params.regenerateRole",
       );
+      need(
+        p.switchHint === undefined || (text("switchHint").trim() !== "" && contentWordOverlap(text("switchHint"), combined) === 1),
+        "params.switchHint must use words from the sources",
+      );
       break;
     case "skipped_role_supported":
       role("skipRole", "optional");
@@ -279,7 +285,7 @@ export type Step =
   | { op: "open"; role: PdSubsectionRoleId }
   | { op: "select"; role: PdSubsectionRoleId; pick: Pick }
   | { op: "deselect"; role: PdSubsectionRoleId; pick: Pick; note?: string }
-  | { op: "switchSelection"; role: PdSubsectionRoleId; note?: string }
+  | { op: "switchSelection"; role: PdSubsectionRoleId; note?: string; hint?: string }
   | { op: "selectSharedAdvancements"; n: number }
   | { op: "selectCoveringExperiments"; n: number; minUncertainties: number }
   | { op: "deselectMostLinkedUncertainty" }
@@ -331,7 +337,12 @@ export function buildPlan(fixture: FixtureManifest): Step[] {
         ...defaults("goal_problem", "experimentation"),
         // The writer changes their mind about the goal after later steps were
         // approved: every approved successor goes Stale.
-        { op: "switchSelection", role: params.switchRole, note: "writer switches the goal framing" },
+        {
+          op: "switchSelection",
+          role: params.switchRole,
+          note: "writer switches the goal framing",
+          ...(params.switchHint ? { hint: params.switchHint } : {}),
+        },
         { op: "approve", role: params.switchRole },
         // A fresh Batch for the uncertainties; the writer keeps the old
         // selections and must confirm them as carried.
@@ -459,9 +470,11 @@ export function describeStep(step: Step): string {
     case "deselect":
       return `${title(step.role)}: untick ${pick(step.pick)}${step.note ? ` (${step.note})` : ""}`;
     case "switchSelection":
-      return step.role === "goal_problem"
-        ? `${title(step.role)}: select a different Seed that states a goal (else the next Seed on the page) and untick the earlier selection${step.note ? ` (${step.note})` : ""}`
-        : `${title(step.role)}: select a different Seed and untick the earlier selection${step.note ? ` (${step.note})` : ""}`;
+      return step.hint
+        ? `${title(step.role)}: select the Seed closest to "${step.hint}" (else one that states a goal, else the next Seed on the page) and untick the earlier selection${step.note ? ` (${step.note})` : ""}`
+        : step.role === "goal_problem"
+          ? `${title(step.role)}: select a different Seed that states a goal (else the next Seed on the page) and untick the earlier selection${step.note ? ` (${step.note})` : ""}`
+          : `${title(step.role)}: select a different Seed and untick the earlier selection${step.note ? ` (${step.note})` : ""}`;
     case "selectSharedAdvancements":
       return `Specific technological advancements: select ${step.n} linked advancements sharing one uncertainty (regenerating up to twice to find them)`;
     case "selectCoveringExperiments":
@@ -747,7 +760,7 @@ type SubsectionView = {
   pendingBatchId: string | null;
   lastAttemptFailed?: boolean;
   /** 2026-09-29 (first): why the step's links stop its approval. */
-  linkNotice?: { kind: string } | null;
+  linkNotice?: { kind: string; seedIds?: string[] } | null;
 };
 type OutlineView = {
   rows: Array<{ roleId: PdSubsectionRoleId; state: string; stale: boolean }>;
@@ -886,19 +899,31 @@ export function goalStatementScore(bullets: readonly string[]): number {
   return 0;
 }
 
+/** A switch hint picks a Seed holding at least this share of its words. */
+export const SWITCH_HINT_SHARE = 0.5;
+
 /**
  * 2026-09-30 (fourth, carried-old-selections): the goal the writer switches
- * to. Among the Seeds on the page not picked, the one that most plainly
- * states a goal, and among those the one that shares the fewest words with
- * the earlier pick (a different framing), then page order. When no other
- * Seed states a goal, the next Seed on the page, as before (`fallback`).
+ * to, among the Seeds on the page not picked. First (review P3-6) the one
+ * holding the most of the fixture's `hint` words, the framing it switches
+ * to, when it holds at least SWITCH_HINT_SHARE of them. Else the one that
+ * most plainly states a goal, and among those the one that shares the
+ * fewest words with the earlier pick, then page order. Else the next Seed
+ * on the page, as before.
  */
 export function goalSwitchChoice(
   items: readonly SeedItem[],
   earlier: readonly SeedItem[],
-): { item: SeedItem; fallback: boolean } | null {
+  hint?: string,
+): { item: SeedItem; via: "hint" | "goal" | "next" } | null {
   const candidates = items.filter((item) => !item.selected);
   if (candidates.length === 0) return null;
+  if (hint) {
+    const best = candidates
+      .map((item, index) => ({ item, index, share: contentWordOverlap(hint, item.bullets.join(" ")) }))
+      .sort((a, b) => b.share - a.share || a.index - b.index)[0];
+    if (best && best.share >= SWITCH_HINT_SHARE) return { item: best.item, via: "hint" };
+  }
   const earlierWords = earlier.map((item) => item.bullets.join(" ")).join(" ");
   const ranked = candidates
     .map((item, index) => ({
@@ -909,7 +934,7 @@ export function goalSwitchChoice(
     }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.overlap - b.overlap || a.index - b.index);
-  return ranked[0] ? { item: ranked[0].item, fallback: false } : { item: candidates[0]!, fallback: true };
+  return ranked[0] ? { item: ranked[0].item, via: "goal" } : { item: candidates[0]!, via: "next" };
 }
 
 /**
@@ -1263,10 +1288,18 @@ export async function runFixture(
         // Seed that states a goal (run 11 took a process card), else the
         // next Seed on the page, as before.
         let replacement: SeedItem | undefined;
-        if (step.role === "goal_problem") {
-          const choice = goalSwitchChoice(shownItems(view), earlier);
+        if (step.role === "goal_problem" || step.hint) {
+          const choice = goalSwitchChoice(shownItems(view), earlier, step.hint);
           replacement = choice?.item;
-          if (choice) say(choice.fallback ? "no other Seed on the page states a goal; taking the next Seed" : `switching to a Seed that states a goal: ${choice.item.seedId}`);
+          if (choice) {
+            say(
+              choice.via === "hint"
+                ? `switching to the Seed closest to "${step.hint}": ${choice.item.seedId}`
+                : choice.via === "goal"
+                  ? `${step.hint ? `no Seed holds most of "${step.hint}"; ` : ""}switching to a Seed that states a goal: ${choice.item.seedId}`
+                  : "no other Seed on the page states a goal; taking the next Seed",
+            );
+          }
         } else {
           replacement = shownItems(view).find((item) => !item.selected);
         }
@@ -1363,17 +1396,24 @@ export async function runFixture(
       }
       case "resolveResultsForDroppedUncertainty": {
         const role = step.role;
-        const notice = (await subsection(role)).linkNotice?.kind ?? null;
+        const flaggedBy = (view: SubsectionView) =>
+          new Set(view.linkNotice?.kind === "results_for_dropped_uncertainty" ? (view.linkNotice.seedIds ?? []) : []);
+        const first = await subsection(role);
+        const notice = first.linkNotice?.kind ?? null;
         log.linkNotices = { ...(log.linkNotices ?? {}), [role]: notice };
         say(`${role} link notice: ${notice ?? "none"}`);
         const uncertainties = await activeIds("active_uncertainties");
         const rootOf = await uncertaintyRootOf();
-        const picks = (await subsection(role)).items.filter((item) => item.selected);
-        const answering = resultsForDroppedUncertainties(
+        const picks = first.items.filter((item) => item.selected);
+        // A pick answers the dropped uncertainty by its link, or (review
+        // P2-1) states its result: the step names both.
+        const byLink = resultsForDroppedUncertainties(
           uncertainties,
           picks.map((item) => ({ seedId: item.seedId, answeredUncertaintySeedIds: item.answeredUncertaintySeedIds ?? [] })),
           rootOf,
-        );
+        ).map((result) => result.seedId);
+        const flagged = flaggedBy(first);
+        const answering = picks.filter((item) => byLink.includes(item.seedId) || flagged.has(item.seedId));
         log.droppedResultPicks = { ...(log.droppedResultPicks ?? {}), [role]: answering.length };
         if (answering.length === 0) {
           say(`${role}: no pick answers the dropped uncertainty`);
@@ -1390,31 +1430,41 @@ export async function runFixture(
           log.refusals.push({ roleId: role, key, code: refused.code ?? null, reason: refused.reason ?? refused.message });
           say(`${role}: refused (${refused.reason ?? refused.message})`);
         }
-        for (const result of answering) {
-          await setSelected(role, result.seedId, false);
-          say(`untick ${role} idea ${result.seedId}, which answers the dropped uncertainty`);
-        }
-        // As the step advises: pick an idea that answers a kept uncertainty,
-        // regenerating up to twice when the page has none.
-        for (let round = 0; !(await subsection(role)).items.some((item) => item.selected); round += 1) {
+        // As the step advises: untick what it names, pick an idea that
+        // answers a kept uncertainty and that the step does not name,
+        // regenerating up to twice. Goal improvements takes a goal
+        // restatement after one regeneration (review P3-5).
+        const tried = new Set<string>();
+        for (let round = 0; ; ) {
           const view = await subsection(role);
-          const replacement = resultAnsweringKept(shownItems(view), uncertainties, rootOf);
+          const named = flaggedBy(view);
+          for (const item of view.items.filter((candidate) => candidate.selected && (named.has(candidate.seedId) || answering.some((pick) => pick.seedId === candidate.seedId)))) {
+            await setSelected(role, item.seedId, false);
+            tried.add(item.seedId);
+            say(`untick ${role} idea ${item.seedId}, which answers or states a result of the dropped uncertainty`);
+          }
+          const current = await subsection(role);
+          if (current.items.some((item) => item.selected) && flaggedBy(current).size === 0) break;
+          const page = shownItems(current).filter((item) => !tried.has(item.seedId));
+          const replacement = resultAnsweringKept(page, uncertainties, rootOf);
           if (replacement) {
+            tried.add(replacement.seedId);
             await setSelected(role, replacement.seedId, true);
             say(`${role}: picked ${replacement.seedId}, which answers a kept uncertainty`);
-            break;
+            continue;
           }
-          if (round >= 2) {
-            // A goal improvement may restate the goal and answer none.
-            const restatement =
-              role === "goal_improvements"
-                ? shownItems(view).find((item) => !item.selected && (item.answeredUncertaintySeedIds ?? []).length === 0)
-                : undefined;
-            if (!restatement) throw new Error(`${role}: no idea answers a kept uncertainty after two regenerations`);
+          const restatement =
+            role === "goal_improvements" && round >= 1
+              ? page.find((item) => !item.selected && (item.answeredUncertaintySeedIds ?? []).length === 0)
+              : undefined;
+          if (restatement) {
+            tried.add(restatement.seedId);
             await setSelected(role, restatement.seedId, true);
-            say(`${role}: no idea answers a kept uncertainty after two regenerations; picked a goal restatement`);
-            break;
+            say(`${role}: no idea answers a kept uncertainty after one regeneration; picked a goal restatement`);
+            continue;
           }
+          if (round >= 2) throw new Error(`${role}: no idea answers a kept uncertainty after two regenerations`);
+          round += 1;
           say(`${role}: no idea on the page answers a kept uncertainty; regenerating`);
           const before = await waitIdle(role);
           await decide("seeds:regenerate", role, { commandId: commandId(fixture.id, `regenerate-results-${role}`, next()) });
@@ -1743,6 +1793,12 @@ export type Collected = {
     skippedRoleIds: string[];
     /** 2026-09-30 (first): the dropped uncertainties frozen at sign-off; absent in older results. */
     droppedUncertaintySeedIds?: string[];
+    /**
+     * 2026-09-30 (fourth, review P2-1): each frozen dropped uncertainty's
+     * wording and the wording of its frozen related Seeds; absent in older
+     * results.
+     */
+    droppedUncertainties?: Array<{ seedId: string; wording: string[]; related: string[][] }>;
     signedOffAt: number;
     items: Array<{
       itemId: string;
@@ -2557,6 +2613,7 @@ function resultLinkChecks(c: Collected, log: RunLog, planUncertainties: Readonly
     return outside.length ? [`${quote(item.bullets.join(" "), 60)} answers ${outside.length} uncertainty the plan does not hold`] : [];
   });
   const restatements = items.filter((item) => item.roleId === "goal_improvements" && (item.answeredUncertaintySeedIds ?? []).length === 0).length;
+  checks.push(droppedFiguresCheck(c, log));
   checks.push(
     check(
       "results-answer-kept-uncertainties",
@@ -2568,6 +2625,51 @@ function resultLinkChecks(c: Collected, log: RunLog, planUncertainties: Readonly
     ),
   );
   return checks;
+}
+
+/**
+ * 2026-09-30 (fourth, review P2-1): a link can be wrong, so the words are
+ * read too. Fails when a signed-off Advancement to science or goal
+ * improvements item states a distinctive figure of a dropped uncertainty:
+ * a figure with its unit in that uncertainty's wording or its frozen related
+ * Seeds (for results read back before they were exported, the run's Seeds
+ * that recorded it), and in no signed-off item of another step.
+ */
+export function droppedFiguresCheck(c: Collected, log: RunLog): Check {
+  const label = "No signed-off Advancement to science or goal improvements item states a figure only the dropped uncertainty's work gave";
+  const items = c.summary?.items ?? [];
+  const frozen = c.summary?.droppedUncertainties;
+  const removed = log.removedUncertaintySeedId;
+  const dropped = frozen?.length
+    ? frozen.map((entry) => ({ seedId: entry.seedId, words: [entry.wording.join(" "), ...entry.related.map((bullets) => bullets.join(" "))] }))
+    : removed
+      ? [{
+          seedId: removed,
+          words: [
+            (c.seeds.find((seed) => seed.seedId === removed)?.bullets ?? []).join(" "),
+            ...c.seeds
+              .filter((seed) => seed.uncertaintySeedId === removed || (seed.answeredUncertaintySeedIds ?? []).includes(removed))
+              .map((seed) => seed.bullets.join(" ")),
+          ],
+        }]
+      : [];
+  if (dropped.length === 0) return info("results-state-no-dropped-figures", label, "no uncertainty was dropped");
+  const common = new Set(items.filter((item) => !isResultRole(item.roleId)).flatMap((item) => figuresOf(item.bullets.join(" "))));
+  const hits = dropped.flatMap((entry) => {
+    const own = new Set(entry.words.flatMap(figuresOf).filter((figure) => !common.has(figure)));
+    return items
+      .filter((item) => isResultRole(item.roleId))
+      .flatMap((item) => {
+        const figures = figuresOf(item.bullets.join(" ")).filter((figure) => own.has(figure));
+        return figures.length ? [`${quote(item.bullets.join(" "), 60)} states ${figures.join(", ")}`] : [];
+      });
+  });
+  return check(
+    "results-state-no-dropped-figures",
+    label,
+    hits.length === 0,
+    hits.length ? hits.join("; ") : `${dropped.length} dropped uncertainty(ies) read${frozen?.length ? " from the frozen Summary" : " from the run's Seeds"}; no item states one of their distinctive figures`,
+  );
 }
 
 /** Identical reasons collapse to one entry with a count. */

@@ -11,6 +11,7 @@ import {
   contentWordOverlap,
   deploymentRefusal,
   describeStep,
+  droppedFiguresCheck,
   droppedUncertaintyHits,
   figuresOf,
   distribution,
@@ -92,6 +93,15 @@ describe("fixtures", () => {
     expect(problems).toContain('"cascade-fired" must not appear in the sources');
     expect(problems).toContain('"cascade-fired lattice" must not appear in the sources');
     expect(problems).toContain("params.editSentence must contain params.editedTerm");
+
+    // Review P3-6: the switch hint must use words from the sources.
+    expect(validateFixture(base)).toEqual([]);
+    expect(validateFixture({ ...base, params: { ...base.params, switchHint: "sensor drift in cold water" } })).toContain(
+      "params.switchHint must use words from the sources",
+    );
+    expect(validateFixture({ ...base, params: { ...base.params, switchHint: " " } })).toContain(
+      "params.switchHint must use words from the sources",
+    );
 
     const short: Fixture = { ...base, texts: Object.fromEntries(Object.keys(base.texts).map((file) => [file, "Too short."])) };
     expect(validateFixture(short).some((problem) => problem.includes("a fixture needs at least"))).toBe(true);
@@ -175,11 +185,11 @@ describe("scripted sessions", () => {
     const carriedPlan = buildPlan(byCase("carried_old_selections"));
     const switchStep = carriedPlan.find((step) => step.op === "switchSelection");
     expect(switchStep && describeStep(switchStep)).toBe(
-      "Goal / Problem: select a different Seed that states a goal (else the next Seed on the page) and untick the earlier selection (writer switches the goal framing)",
+      'Goal / Problem: select the Seed closest to "capture of fine inclusions" (else one that states a goal, else the next Seed on the page) and untick the earlier selection (writer switches the goal framing)',
     );
   });
 
-  it("switches the goal to another Seed that states a goal, with the next Seed as the fallback (2026-09-30, fourth)", () => {
+  it("switches the goal to the fixture's framing, else a Seed that states a goal, else the next Seed (2026-09-30, fourth, review P3-6)", () => {
     const goal = (seedId: string, bullets: string[], selected = false) => ({
       seedId,
       batchId: "b",
@@ -201,8 +211,17 @@ describe("scripted sessions", () => {
       goal("g5", ["The working hypothesis targeted a two-zone sponge template with matched slurry mass per unit volume across zones."]),
     ];
     expect(page.map((item) => goalStatementScore(item.bullets))).toEqual([1, 0, 2, 1, 0]);
-    // Run 11 took g2, a process card; the switch now takes the goal.
-    expect(goalSwitchChoice(page, [earlier])).toEqual({ item: page[2], fallback: false });
+    // Run 11 took g2, a process card. With the fixture's hint the switch
+    // takes the fine-inclusion goal ("capturing" does not hold "capture",
+    // so g4 holds two of three words and g3 all three).
+    const hint = byCase("carried_old_selections").params.switchHint as string;
+    expect(hint).toBe("capture of fine inclusions");
+    expect(goalSwitchChoice(page, [earlier], hint)).toEqual({ item: page[2], via: "hint" });
+    // The hint wins over the goal words: a hint only g4 matches picks g4.
+    expect(goalSwitchChoice(page, [earlier], "tougher against breakage")).toEqual({ item: page[3], via: "hint" });
+    // A hint no Seed holds half of: the goal heuristic, as before.
+    expect(goalSwitchChoice(page, [earlier], "sensor drift in cold water")).toEqual({ item: page[2], via: "goal" });
+    expect(goalSwitchChoice(page, [earlier])).toEqual({ item: page[2], via: "goal" });
     // Among equally plain goals, the one sharing the fewest words with the earlier pick.
     const targets = [
       earlier,
@@ -211,7 +230,7 @@ describe("scripted sessions", () => {
     ];
     expect(goalSwitchChoice(targets, [earlier])?.item.seedId).toBe("t2");
     // No other Seed states a goal: the next Seed on the page, marked as the fallback.
-    expect(goalSwitchChoice([earlier, page[1]!, page[4]!], [earlier])).toEqual({ item: page[1], fallback: true });
+    expect(goalSwitchChoice([earlier, page[1]!, page[4]!], [earlier])).toEqual({ item: page[1], via: "next" });
     expect(goalSwitchChoice([earlier], [earlier])).toBeNull();
   });
 
@@ -744,6 +763,51 @@ describe("automatic checks", () => {
     for (const id of ["links-valid", "advancements-follow-experiments", "experiments-hold-uncertainties"]) {
       expect({ id, status: status(checks, id) }).toEqual({ id, status: "pass" });
     }
+  });
+
+  // Review P2-1: a link can be wrong, so the words are read too.
+  it("fails when a signed-off Advancement to science or goal improvements item states a figure only the dropped uncertainty's work gave", () => {
+    const fixture = byCase("changed_advancement_links");
+    const c = baseCollected();
+    const acclimation = "It was uncertain whether stepwise acclimation would actually work rather than just delay cold shock.";
+    c.summary!.droppedUncertaintySeedIds = ["u1"];
+    c.summary!.droppedUncertainties = [{
+      seedId: "u1",
+      wording: [acclimation],
+      related: [["Stepwise acclimation cuts cold-water start-up roughly in half, 31 days at 8 C, against 47 days unacclimated."]],
+    }];
+    c.summary!.items = [
+      summaryItem("iob", "technological_objective", "ob", { bullets: ["A start-up protocol reaching full nitrification in under 5 weeks at 8 degrees C."] }),
+      summaryItem("iu2", "active_uncertainties", "u2"),
+      // Run 11's items 10 and 13, the first now under a kept link, the second with an empty list.
+      summaryItem("io1", "overall_advancement", "o1", { answeredUncertaintySeedIds: ["u2"], bullets: ["The U1 objective was achieved, reaching about 31 days."] }),
+      summaryItem("ig1", "goal_improvements", "g1", { answeredUncertaintySeedIds: [], bullets: ["Acclimation closed that gap, reaching about 31 days at 8 C."] }),
+    ];
+    const log: RunLog = { ...emptyRunLog(fixture.id, 0), removedUncertaintySeedId: "u1" };
+    const checks = runChecks(fixture, c, log);
+    // The id check passes; the words give the claim away (8 C is in the objective).
+    expect(status(checks, "results-answer-kept-uncertainties")).toBe("pass");
+    expect(checks.find((item) => item.id === "results-state-no-dropped-figures")).toMatchObject({
+      status: "fail",
+      evidence: '"The U1 objective was achieved, reaching about 31 days." states 31 days; "Acclimation closed that gap, reaching about 31 days at 8 C." states 31 days',
+    });
+
+    // Items stating only kept figures pass.
+    c.summary!.items = c.summary!.items.map((item) =>
+      item.roleId === "overall_advancement" || item.roleId === "goal_improvements" ? { ...item, bullets: ["The nitrite stall fell from 19 to 6 days."] } : item,
+    );
+    expect(droppedFiguresCheck(c, log)).toMatchObject({
+      status: "pass",
+      evidence: "1 dropped uncertainty(ies) read from the frozen Summary; no item states one of their distinctive figures",
+    });
+    // Results read back before the export: the run's Seeds that recorded it.
+    const older = { ...c, summary: { ...c.summary!, droppedUncertainties: undefined, items: [...c.summary!.items.slice(0, 2), summaryItem("io1", "overall_advancement", "o1", { bullets: ["It took 47 days."] })] } };
+    older.seeds = [
+      { seedId: "u1", batchId: "b", roleId: "active_uncertainties", bullets: [acclimation], support: "source_supported", revisionOfSeedId: null, feedbackRequestId: null, uncertaintySeedId: null, experimentSeedIds: [] },
+      { seedId: "a9", batchId: "b", roleId: "specific_advancements", bullets: ["Unacclimated seed took 47 days."], support: "source_supported", revisionOfSeedId: null, feedbackRequestId: null, uncertaintySeedId: "u1", experimentSeedIds: [] },
+    ];
+    expect(droppedFiguresCheck(older, log)).toMatchObject({ status: "fail", evidence: '"It took 47 days." states 47 days' });
+    expect(droppedFiguresCheck(older, { ...log, removedUncertaintySeedId: null })).toMatchObject({ status: "info", evidence: "no uncertainty was dropped" });
   });
 });
 

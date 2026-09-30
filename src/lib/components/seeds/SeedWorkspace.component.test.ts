@@ -982,6 +982,49 @@ describe("Seed workspace", () => {
       expect(document.querySelector("[data-seed-link-answers]")).toBeNull();
     });
 
+    it("says an idea states a result of a dropped uncertainty, with its figures, on the step and the card (2026-09-30, fourth, review P2-1)", async () => {
+      const acclimation = "It was uncertain whether stepwise acclimation would actually work rather than just delay cold shock.";
+      const nitrite = "Nitrite oxidizing bacteria were suspected but not confirmed as the bottleneck.";
+      const result = seed({
+        seedId: "overall-2" as Id<"seeds">,
+        roleId: "overall_advancement",
+        bullets: ["The objective was achieved, reaching about 31 days."],
+        answeredUncertaintySeedIds: ["u2" as Id<"seeds">],
+        answeredUncertainties: [{ seedId: "u2" as Id<"seeds">, bullets: [nitrite], picked: true }],
+        statesDroppedResult: [{ seedId: "u1" as Id<"seeds">, bullets: [acclimation], figures: ["31 days"] }],
+      });
+      const notice = {
+        kind: "results_for_dropped_uncertainty" as const,
+        seedIds: ["overall-2" as Id<"seeds">],
+        uncertainties: [acclimation],
+        figures: ["31 days"],
+      };
+      const props = (canEdit: boolean) =>
+        paneProps(subsection({ roleId: "overall_advancement", items: [result], approvalChallenge: clean(), linkNotice: notice }), {
+          title: "Advancement to science / technology",
+          canEdit,
+        });
+      const view = await render(SeedSubsectionPane, props(true));
+      await expect.element(page.getByText(
+        'A picked idea states a result of an uncertainty you no longer have picked (31 days): "It was uncertain whether stepwise acclimation would actually work rather than...". Untick it, pick that uncertainty again on the Uncertainties step, or regenerate this step and pick an idea that answers an uncertainty you kept.'
+      )).toBeVisible();
+      await expect.element(approveButton()).toBeDisabled();
+      // The link line says what the AI recorded; the words line says what the idea states.
+      expect(document.querySelector('[data-seed-link-answers="picked"]')?.textContent).toBe(
+        'Answers: "Nitrite oxidizing bacteria were suspected but not confirmed as the bottleneck."'
+      );
+      expect(document.querySelector("[data-seed-states-dropped-result]")?.textContent).toBe(
+        'States a result of an uncertainty you no longer have picked: "It was uncertain whether stepwise acclimation would actually work rather than..." (31 days)'
+      );
+      await view.rerender(props(false));
+      expect(document.querySelector("[data-link-notice]")?.textContent).toBe(
+        'A picked idea states a result of an uncertainty the writer no longer has picked (31 days): "It was uncertain whether stepwise acclimation would actually work rather than...". This step cannot be approved until that changes.'
+      );
+      expect(document.querySelector("[data-seed-states-dropped-result]")?.textContent).toBe(
+        'States a result of an uncertainty the writer no longer has picked: "It was uncertain whether stepwise acclimation would actually work rather than..." (31 days)'
+      );
+    });
+
     it("names two picks and two dropped uncertainties, and says why when results keep naming no picked uncertainty (2026-09-30, fourth)", async () => {
       const notice = {
         kind: "results_for_dropped_uncertainty" as const,
@@ -4967,7 +5010,7 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     await render(SeedWorkspace, workspaceProps());
     await page.getByRole("button", { name: "Keep all", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-keep-attention]")?.textContent).toBe(
-      "Nothing was kept. Overall advancement needs your attention: a pick answers an uncertainty you no longer have picked."
+      "Nothing was kept. Overall advancement needs your attention: a pick answers or states a result of an uncertainty you no longer have picked."
     );
   });
 

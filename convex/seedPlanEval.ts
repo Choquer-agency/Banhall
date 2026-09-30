@@ -276,6 +276,13 @@ export const collect = internalQuery({
           version: version.version,
           skippedRoleIds: version.skippedRoleIds,
           droppedUncertaintySeedIds: (version.droppedUncertainties ?? []).map((entry) => entry.seedId),
+          // 2026-09-30 (fourth, review P2-1): the frozen wording, so the
+          // release suite can read a dropped uncertainty's figures.
+          droppedUncertainties: (version.droppedUncertainties ?? []).map((entry) => ({
+            seedId: entry.seedId,
+            wording: entry.wording,
+            related: [...entry.experiments, ...entry.advancements].map((related) => related.wording),
+          })),
           signedOffAt: version.signedOffAt,
           items: bounded("summaryItems", items, LIMITS.summaryItems).map((item) => ({
             itemId: item._id,

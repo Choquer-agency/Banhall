@@ -12,7 +12,7 @@
   "purpose": "The writer approves through Experimentation, then switches the goal framing (from filter breakage to fine-inclusion capture, both supported by the sources). Every approved successor goes Stale. The writer regenerates Technological uncertainties but keeps the older selections and must Confirm and approve them as carried; the other Stale steps are confirmed the same way. Company / Context carries a writer edit with a term that is in no source, which must reach the drafted Section 242, and that edited item is writer-asserted.",
   "notes": [
     "2026-09-30: in run 11 (commit 9de29da9) the scripted goal switch took the next Seed on the Goal / Problem page, which was a process card (\"The core manufacturing process is replication ...\"), so Line 242 took its goal from the Brief. A fixture-script weakness, not a product defect.",
-    "The scripted writer now switches to another Goal / Problem Seed that states a goal: one that says \"goal\" first, then one that says aim, target, objective or sought, and among those the one that shares the fewest words with the earlier pick (a different framing). When no other Seed on the page states a goal, it takes the next Seed on the page, as before, and the run log says so. No check was removed or weakened."
+    "The scripted writer now switches to the Goal / Problem Seed closest to the framing this fixture switches to, params.switchHint (\"capture of fine inclusions\"), when a Seed holds at least half of its words. Otherwise it takes another Seed that states a goal: one that says \"goal\" first, then one that says aim, target, objective or sought, and among those the one that shares the fewest words with the earlier pick. When no other Seed on the page states a goal, it takes the next Seed on the page, as before, and the run log says which way it chose. No check was removed or weakened."
   ],
   "sources": [
     {
@@ -39,7 +39,8 @@
     "editedTerm": "cascade-fired lattice",
     "editSentence": "The team calls the graded structure the cascade-fired lattice.",
     "switchRole": "goal_problem",
-    "regenerateRole": "active_uncertainties"
+    "regenerateRole": "active_uncertainties",
+    "switchHint": "capture of fine inclusions"
   },
   "judgmentQuestions": [
     "Section 242 states the goal the writer switched to, not the first framing, and the carried uncertainties still read as consistent with it.",

@@ -413,7 +413,7 @@
     NO_SELECTION: "it has no picks",
     UNLINKED_ADVANCEMENT: "its advancements must come from uncertainties you picked and experiments that tested them",
     EXPERIMENT_FOR_DROPPED_UNCERTAINTY: "some picked experiments tested an uncertainty you no longer have picked",
-    RESULT_FOR_DROPPED_UNCERTAINTY: "a pick answers an uncertainty you no longer have picked",
+    RESULT_FOR_DROPPED_UNCERTAINTY: "a pick answers or states a result of an uncertainty you no longer have picked",
     CLAIM_EXCLUSION: "a pick matches a claim exclusion in the Brief, so confirm it on that step",
     READ_LIMIT: "it could not be checked within the safe processing limit, so confirm it on that step",
   };
@@ -507,12 +507,17 @@
     if (notice.kind === "results_for_dropped_uncertainty") {
       // 2026-09-30 (fourth): Advancement to science and goal improvements.
       const count = notice.seedIds.length;
-      const which = count === 1 ? "A picked idea answers" : `${count} picked ideas answer`;
+      // Review P2-1: when the words, not only the link, give the idea away,
+      // say it states the result, and name the figures.
+      const stated = notice.figures?.length ? ` (${notice.figures.join(", ")})` : "";
+      const which = stated
+        ? count === 1 ? "A picked idea states a result of" : `${count} picked ideas state results of`
+        : count === 1 ? "A picked idea answers" : `${count} picked ideas answer`;
       const several = notice.uncertainties.length > 1;
       const names = notice.uncertainties.map((words) => (words ? quoted(words) : "an uncertainty not shown here")).join(", ");
       const what = several ? "uncertainties" : "an uncertainty";
-      if (!canEdit) return `${which} ${what} the writer no longer has picked: ${names}. This step cannot be approved until that changes.`;
-      return `${which} ${what} you no longer have picked: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again on the ${UNCERTAINTIES} step, or regenerate this step and pick an idea that answers an uncertainty you kept.`;
+      if (!canEdit) return `${which} ${what} the writer no longer has picked${stated}: ${names}. This step cannot be approved until that changes.`;
+      return `${which} ${what} you no longer have picked${stated}: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again on the ${UNCERTAINTIES} step, or regenerate this step and pick an idea that answers an uncertainty you kept.`;
     }
     if (notice.kind === "no_linkable_experiment") {
       if (!notice.experimentsPicked) {

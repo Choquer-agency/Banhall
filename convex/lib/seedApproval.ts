@@ -70,18 +70,24 @@ export function droppedUncertaintyExperimentIds(state: SeedDecisionState): Id<"s
  * 2026-09-30 (fourth): selected Advancement to science and goal improvements
  * Seeds (of one of those steps, when `roleId` is given) that answer an
  * uncertainty the writer no longer has picked. Approval, Keep and readiness
- * refuse them; a result recording no uncertainty is never one of them.
+ * refuse them; a result recording no uncertainty is never one of them by
+ * its link. Review P2-1: `figureConflicts` (loadResultFigureConflicts) adds
+ * the picks whose wording states a dropped uncertainty's result, whatever
+ * their link says.
  */
 export function droppedUncertaintyResultIds(
   state: Pick<SeedDecisionState, "subsections" | "seeds" | "selectionRows">,
-  roleId?: ResultRoleId
+  roleId?: ResultRoleId,
+  figureConflicts: ReadonlyArray<{ seedId: string; roleId: ResultRoleId }> = []
 ): Id<"seeds">[] {
   const { active, uncertaintySeedIds, rootOf } = pickedLinks(state);
   const seeds = new Map(state.seeds.map(seed => [seed._id as string, seed]));
   const results = active
     .filter(s => isResultRole(s.roleId) && (!roleId || s.roleId === roleId))
     .map(s => ({ seedId: s.seedId, answeredUncertaintySeedIds: seeds.get(s.seedId)?.answeredUncertaintySeedIds ?? [] }));
-  return resultsForDroppedUncertainties(new Set<string>(uncertaintySeedIds), results, rootOf).map(r => r.seedId as Id<"seeds">);
+  const byLink = new Set<string>(resultsForDroppedUncertainties(new Set<string>(uncertaintySeedIds), results, rootOf).map(r => r.seedId));
+  const byFigure = new Set<string>(figureConflicts.filter(c => !roleId || c.roleId === roleId).map(c => c.seedId));
+  return results.filter(r => byLink.has(r.seedId) || byFigure.has(r.seedId)).map(r => r.seedId as Id<"seeds">);
 }
 export async function buildSeedApprovalChallenge(ctx: Ctx, state: SeedDecisionState, row: Doc<"seedSubsections">): Promise<SeedApprovalChallenge> {
   if (!state.complete) processingLimit(row.roleId);

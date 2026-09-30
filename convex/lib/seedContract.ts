@@ -133,7 +133,10 @@ export type SeedLinkIssueReason =
   | "uncertainty_without_tested_experiment"
   | "unknown_experiment"
   | "duplicate_experiment"
-  | "experiment_tested_other";
+  | "experiment_tested_other"
+  // 2026-09-30 (fourth, review P3-1): an Advancement to science Seed sent an
+  // empty list; it must name at least one uncertainty.
+  | "empty_answers";
 
 export type SeedValidationIssue = {
   code: SeedValidationIssueCode;
@@ -462,7 +465,7 @@ function validateResultReferences(args: {
   if (answered.some((seedId) => !validReference(seedId, "active_uncertainties", context))) {
     return issue("unknown_uncertainty");
   }
-  if (args.roleId === "overall_advancement" && answered.length === 0) return issue("missing_link");
+  if (args.roleId === "overall_advancement" && answered.length === 0) return issue("empty_answers");
   return [];
 }
 

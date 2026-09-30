@@ -10,7 +10,7 @@ import { loadSeedDispatchSnapshot } from "../lib/seedSnapshotLoader";
 import { emptySelectionRevision, MAX_SEED_PROMPT_UTF8_BYTES } from "../lib/seedRevisions";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
-import { seedToolSchema } from "../lib/seedContract";
+import { seedToolSchema, validateBatch } from "../lib/seedContract";
 import { seedLinkRepairText, seedQuoteRepairText, seedRepairSummary } from "./seeds";
 import { resetGenerationPlaceholderCache } from "./providers";
 import { STRUCTURED_OUTPUT_PROGRAM } from "./structured";
@@ -1408,6 +1408,23 @@ describe("seed Node action request boundary", () => {
         ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
       );
       expect(persisted.map((seed) => seed.answeredUncertaintySeedIds)).toEqual([[u1], [u1], [u1]]);
+    });
+
+    it("names the minimum of one for an empty Advancement to science list, apart from a missing one (review P3-1)", () => {
+      const references = [{ seedId: "u1", generationId: "g1", roleId: "active_uncertainties" as const, active: true }];
+      const result = validateBatch({
+        roleId: "overall_advancement",
+        mode: "batch",
+        seeds: [
+          { ...validSeeds[0], answeredUncertaintySeedIds: [] },
+          validSeeds[1],
+          { ...validSeeds[2], answeredUncertaintySeedIds: ["u1"] },
+        ],
+        referenceContext: { generationId: "g1", references },
+      });
+      expect(seedRepairSummary(result, 3, "batch")).toBe(
+        "1 of 3 Seeds valid; return 3 to 5 valid Seeds; list at least one answered uncertainty from FROZEN RESULT LINKS (Seed 1); set answeredUncertaintySeedIds to answered ids from FROZEN RESULT LINKS (Seed 2); use at least two different tags"
+      );
     });
 
     it("says why after two attempts in a row write results that name no picked uncertainty", async () => {

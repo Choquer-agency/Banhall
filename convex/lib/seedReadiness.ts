@@ -20,6 +20,7 @@ import {
   type ResultAnswers,
   type ResultRoleId,
 } from "../../shared/advancementLinks";
+import { loadResultFigureConflicts } from "./droppedResultFigures";
 import {
   loadSeedDecisionState,
   type SeedDecisionReadBudget,
@@ -78,9 +79,13 @@ function roleStale(subsection: SeedSubsectionRevisionState): boolean {
  * advancement links a picked uncertainty and picked experiments that tested
  * it, and no selected experiment tested an uncertainty the writer dropped.
  * 2026-09-30 (fourth): no selected Advancement to science or goal
- * improvements Seed answers an uncertainty the writer dropped.
+ * improvements Seed answers an uncertainty the writer dropped, or (review
+ * P2-1, `figureConflicts`) states its result.
  */
-function linkReview(input: SeedReadinessInput): {
+function linkReview(
+  input: SeedReadinessInput,
+  figureConflicts: ReadonlyArray<{ roleId: ResultRoleId }> = []
+): {
   advancementsLinked: boolean;
   droppedUncertaintyExperiments: number;
   droppedUncertaintyResultRoles: ResultRoleId[];
@@ -139,6 +144,7 @@ function linkReview(input: SeedReadinessInput): {
     ).length,
     droppedUncertaintyResultRoles: RESULT_ROLE_IDS.filter(
       (roleId) =>
+        figureConflicts.some((conflict) => conflict.roleId === roleId) ||
         resultsForDroppedUncertainties(
           picked.uncertaintySeedIds,
           results.filter((result) => result.roleId === roleId),
@@ -148,8 +154,15 @@ function linkReview(input: SeedReadinessInput): {
   };
 }
 
-/** The one pure seed-stage readiness rule shared by query and mutation callers. */
-export function computeSeedReadiness(input: SeedReadinessInput): SeedReadiness {
+/**
+ * The one pure seed-stage readiness rule shared by query and mutation
+ * callers. Review P2-1: callers with a database pass the picks whose wording
+ * states a dropped uncertainty's result (loadResultFigureConflicts).
+ */
+export function computeSeedReadiness(
+  input: SeedReadinessInput,
+  options: { resultFigureConflicts?: ReadonlyArray<{ roleId: ResultRoleId }> } = {}
+): SeedReadiness {
   const blockers: SeedReadinessBlocker[] = [];
   if (!input.complete) {
     blockers.push({
@@ -200,7 +213,7 @@ export function computeSeedReadiness(input: SeedReadinessInput): SeedReadiness {
     }
   }
 
-  const links = linkReview(input);
+  const links = linkReview(input, options.resultFigureConflicts);
   if (links.droppedUncertaintyExperiments > 0) {
     blockers.push({
       code: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY",
@@ -222,7 +235,7 @@ export function computeSeedReadiness(input: SeedReadinessInput): SeedReadiness {
     blockers.push({
       code: "RESULT_FOR_DROPPED_UNCERTAINTY",
       roleId,
-      message: `${title} has a picked idea that answers an uncertainty you no longer have picked`,
+      message: `${title} has a picked idea that answers or states a result of an uncertainty you no longer have picked`,
     });
   }
 
@@ -257,7 +270,9 @@ export async function readSeedReadiness(
     ...(options.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }),
   });
   return {
-    ...computeSeedReadiness(state),
+    ...computeSeedReadiness(state, {
+      resultFigureConflicts: await loadResultFigureConflicts(ctx, state),
+    }),
     readBudget: state.budget.snapshot(),
     ...(options.includeState ? { state } : {}),
   };

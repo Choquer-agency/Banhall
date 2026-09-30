@@ -10113,10 +10113,12 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     });
     const frozen = await frozenLines(s);
     const advancements = [
-      // Ticked at some point first, then the order the run wrote them.
+      // Ticked at some point first, then by step (review P3-3: specific
+      // advancements, the most direct statements, before the results), then
+      // the order the run wrote them; the goal improvement falls past the cap.
       { seedId: ids.overallDropped, wording: ["15 percent acclimated seed met the 5-week target even at 6 C."] },
       { seedId: ids.seedRule, wording: ["Required seed fraction rises as temperature drops."] },
-      { seedId: ids.goalDropped, wording: ["More seed closed the start-up gap at 6 C as well."] },
+      { seedId: ids.seedRule2, wording: ["Gains from more seed flattened past 15 percent."] },
     ];
     expect(frozen.summary?.droppedUncertainties).toEqual([
       { seedId: ids.dropped, wording: DROPPED_UNCERTAINTY, experiments: [], advancements },
@@ -10124,6 +10126,33 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     for (const line of [frozen.s242, frozen.s244, frozen.s246]) {
       expect(line.planChecks.find((check) => check.instruction === "leave_out")?.relationshipReferences).toEqual(advancements);
     }
+  });
+
+  it("reads a result step's newest Seeds for the reference (2026-09-30, fourth, review P3-4)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const filler = Array.from({ length: 128 }, (_, index) => ({
+      key: `filler${index}`,
+      roleId: "goal_improvements" as const,
+      bullets: [`Goal restatement ${index}.`],
+      ticked: "never" as const,
+      answersKeys: [] as string[],
+    }));
+    const ids = await addDecisions(s, [
+      { key: "dropped", roleId: "active_uncertainties", bullets: DROPPED_UNCERTAINTY, ticked: "unticked" },
+      { key: "oldest", roleId: "goal_improvements", bullets: ["The oldest idea answered the seed fraction."], ticked: "never", answersKeys: ["dropped"] },
+      ...filler,
+      { key: "newest", roleId: "goal_improvements", bullets: ["The newest idea answered the seed fraction."], ticked: "never", answersKeys: ["dropped"] },
+    ]);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const frozen = await frozenLines(s);
+    // 128 of the step's 131 Seeds are read, newest first: the oldest is not.
+    expect(frozen.summary?.droppedUncertainties?.[0]?.advancements).toEqual([
+      { seedId: ids.newest, wording: ["The newest idea answered the seed fraction."] },
+    ]);
   });
 
   it("freezes what a signed-off result answers, named by the uncertainty the plan holds (2026-09-30, fourth)", async () => {

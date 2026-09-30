@@ -444,6 +444,24 @@
     return { text: `Answers ${what} ${who} picked: ${listed(dropped)}`, dropped: true };
   });
 
+  // Review P2-1: the idea's words state a result of an uncertainty the
+  // writer dropped, whatever its link says; named with the figures found.
+  const statedLine = $derived.by(() => {
+    const stated = item.statesDroppedResult;
+    if (!stated?.length) return null;
+    const who = canEdit ? "you no longer have" : "the writer no longer has";
+    const what = stated.length === 1 ? "an uncertainty" : "uncertainties";
+    const max = stated.length === 1 ? 80 : 60;
+    const words = stated
+      .map((uncertainty) => {
+        const first = uncertainty.bullets[0] ?? "";
+        const text = first.length > max ? `${first.slice(0, max - 3).trimEnd()}...` : first;
+        return `"${text}" (${uncertainty.figures.join(", ")})`;
+      })
+      .join("; ");
+    return `States a result of ${what} ${who} picked: ${words}`;
+  });
+
   // Card tools (board 3.1): 28px tiles, 14px strokes in secondary ink.
   const tile =
     "inline-flex size-7 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11";
@@ -791,6 +809,9 @@
         {/if}
         {#if answersLine}
           <p class={`text-[0.75rem] leading-4 ${answersLine.dropped ? "text-gap-text!" : "text-ink-muted"}`} data-seed-link-answers={answersLine.dropped ? "dropped" : "picked"}>{answersLine.text}</p>
+        {/if}
+        {#if statedLine}
+          <p class="text-[0.75rem] leading-4 text-gap-text!" data-seed-states-dropped-result>{statedLine}</p>
         {/if}
       {/if}
 

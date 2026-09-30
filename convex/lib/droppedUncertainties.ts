@@ -139,8 +139,10 @@ export type RelatedSeeds = {
  *
  * 2026-09-30 (fourth): the Advancement to science and goal improvements
  * Seeds whose `answeredUncertaintySeedIds` hold it are advancements here,
- * within the same cap: the three steps' Seeds are ordered together, ticked first,
- * then in the order the run wrote them.
+ * within the same cap: ticked first, then by step (specific advancements,
+ * the most direct statements, before Advancement to science, then goal
+ * improvements, review P3-3), then in the order the run wrote them. Their
+ * newest Seeds are read (review P3-4), as the `deselect` events are.
  */
 export async function relatedSeedsOfDropped(
   ctx: { db: QueryCtx["db"] },
@@ -171,31 +173,37 @@ export async function relatedSeedsOfDropped(
       ],
     ],
   ] as const) {
-    const candidates: Array<{ seed: Doc<"seeds">; ticked: boolean }> = [];
-    for (const [roleId, scanned] of roles) {
-      const seeds = await ctx.db
+    const candidates: Array<{ seed: Doc<"seeds">; ticked: boolean; step: number }> = [];
+    for (const [step, [roleId, scanned]] of roles.entries()) {
+      const result = roleId === "overall_advancement" || roleId === "goal_improvements";
+      const query = ctx.db
         .query("seeds")
         .withIndex("by_generationId_and_roleId", (q) =>
-          q.eq("generationId", args.generationId).eq("roleId", roleId))
-        .take(scanned);
+          q.eq("generationId", args.generationId).eq("roleId", roleId));
+      // Review P3-4: a result step's newest Seeds, like its deselect events.
+      const seeds = await (result ? query.order("desc") : query).take(scanned);
       const deselected = await deselectedSeedIds(ctx, {
         generationId: args.generationId,
         roleId,
-        limit: roleId === "overall_advancement" || roleId === "goal_improvements" ? scanned : undefined,
+        limit: result ? scanned : undefined,
       });
       for (const seed of seeds) {
         if (seed.projectId !== args.projectId || recorded(seed).length === 0) continue;
         candidates.push({
           seed,
           ticked: selectionBySeed.get(seed._id)?.selected === true || deselected.has(seed._id),
+          step,
         });
       }
     }
-    // The order the run wrote them: each role's index is in creation order,
-    // and across roles creation time decides.
+    // Ticked first, then by step (review P3-3), then in the order the run
+    // wrote them. With one step this is the earlier order: its index is in
+    // creation order.
     const ordered = candidates.sort(
       (left, right) =>
-        Number(right.ticked) - Number(left.ticked) || left.seed._creationTime - right.seed._creationTime
+        Number(right.ticked) - Number(left.ticked) ||
+        left.step - right.step ||
+        left.seed._creationTime - right.seed._creationTime
     );
     for (const { seed } of ordered) {
       for (const uncertaintySeedId of new Set(recorded(seed))) {

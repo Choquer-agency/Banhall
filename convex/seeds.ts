@@ -46,6 +46,7 @@ import {
   droppedUncertaintyResultIds,
 } from "./lib/seedApproval";
 import { isResultRole } from "../shared/advancementLinks";
+import { loadResultFigureConflicts } from "./lib/droppedResultFigures";
 import {
   appendSeedRoleEvent,
   disposeSeedEpisode,
@@ -916,14 +917,19 @@ export const approve = mutation({
         { reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" },
       );
     // 2026-09-30 (fourth): a result that answers an uncertainty the writer
-    // dropped cannot be approved into the plan either.
+    // dropped, or (review P2-1) whose wording states its result, cannot be
+    // approved into the plan either.
     if (
       isResultRole(args.roleId) &&
-      droppedUncertaintyResultIds(state, args.roleId).length
+      droppedUncertaintyResultIds(
+        state,
+        args.roleId,
+        await loadResultFigureConflicts(ctx, state),
+      ).length
     )
       domainError(
         "INVALID_STATE",
-        "A picked idea answers an uncertainty you no longer have picked. Untick it, pick that uncertainty again, or regenerate this step.",
+        "A picked idea answers or states a result of an uncertainty you no longer have picked. Untick it, pick that uncertainty again, or regenerate this step.",
         { reason: "RESULT_FOR_DROPPED_UNCERTAINTY" },
       );
     const challenge = await buildSeedApprovalChallenge(ctx, state, f.row);
@@ -1041,6 +1047,10 @@ export const keep = mutation({
     }> = [];
     const unlinked = unlinkedAdvancementIds(state).length > 0;
     const droppedTests = droppedUncertaintyExperimentIds(state).length > 0;
+    // Review P2-1: read once, and only when a result step is to be kept.
+    const figureConflicts = targets.some((row) => isResultRole(row.roleId))
+      ? await loadResultFigureConflicts(ctx, state)
+      : [];
     for (const row of targets) {
       const selectedRows = state.selectionRows.filter(
         (s) => s.roleId === row.roleId && s.selected,
@@ -1057,7 +1067,7 @@ export const keep = mutation({
         needsAttention.push({ roleId: row.roleId, reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" });
         continue;
       }
-      if (isResultRole(row.roleId) && droppedUncertaintyResultIds(state, row.roleId).length > 0) {
+      if (isResultRole(row.roleId) && droppedUncertaintyResultIds(state, row.roleId, figureConflicts).length > 0) {
         needsAttention.push({ roleId: row.roleId, reason: "RESULT_FOR_DROPPED_UNCERTAINTY" });
         continue;
       }

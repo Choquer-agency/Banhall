@@ -1584,6 +1584,7 @@ export default defineSchema({
     // 2026-09-30 (fourth) widen: the uncertainties an Advancement to science
     // or goal improvements item answers, each named by the picked revision
     // (or original) the plan holds. Absent when its Seed records none.
+    // Evidence only (review P3-2): drafting and the Self-check do not read it.
     answeredUncertaintySeedIds: v.optional(v.array(v.id("seeds"))),
     // The writer explicitly acknowledged a frozen Brief Claim Exclusion for
     // this role before sign-off. Drafting still follows the signed plan; the

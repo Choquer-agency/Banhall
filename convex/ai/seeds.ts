@@ -59,6 +59,7 @@ import {
   type FrozenSeedSource,
   type SeedBatchMode,
   type SeedAnswerCounts,
+  type SeedLinkIssueReason,
   type SeedReference,
   type SeedToolKind,
   type SeedToolInputSchema,
@@ -276,6 +277,14 @@ function seedIssueHints(mode: SeedBatchMode, minimum?: number): Record<SeedValid
 const REPAIR_OMITTED = "more issues omitted";
 
 /**
+ * 2026-09-30 (fourth, review P3-1): a link reason whose fix differs from its
+ * rule's hint gets its own hint and is listed on its own.
+ */
+const REASON_HINTS: Partial<Record<SeedLinkIssueReason, string>> = {
+  empty_answers: "list at least one answered uncertainty from FROZEN RESULT LINKS",
+};
+
+/**
  * 2026-09-29 (first, run 7 re-check): which Seed tool a request forces: the
  * advancement tool when it sends FROZEN ADVANCEMENT LINKS, the experiment
  * tool when it sends FROZEN EXPERIMENT LINKS, the result tool when it sends
@@ -389,7 +398,8 @@ function seedRuleSummary(
   const maxBytes =
     SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes -
     "(root): ".length;
-  const seedsByRule = new Map<SeedValidationIssueCode, Set<number>>();
+  // Keyed by rule, or by rule and reason when the reason has its own hint.
+  const seedsByRule = new Map<string, { hint: string; seeds: Set<number> }>();
   const batchRules = new Set<SeedValidationIssueCode>();
   for (const issue of result.issues) {
     if (!hints[issue.code]) continue;
@@ -397,9 +407,11 @@ function seedRuleSummary(
       batchRules.add(issue.code);
       continue;
     }
-    const seeds = seedsByRule.get(issue.code) ?? new Set<number>();
-    seeds.add(issue.seedIndex + 1);
-    seedsByRule.set(issue.code, seeds);
+    const reasonHint = issue.linkReason ? REASON_HINTS[issue.linkReason] : undefined;
+    const key = reasonHint ? `${issue.code}:${issue.linkReason}` : issue.code;
+    const entry = seedsByRule.get(key) ?? { hint: reasonHint ?? hints[issue.code], seeds: new Set<number>() };
+    entry.seeds.add(issue.seedIndex + 1);
+    seedsByRule.set(key, entry);
   }
   // Variety is counted over valid Seeds only, so a variety hint can repeat
   // what a dropped Seed already broke; it can also be the only reason the
@@ -407,11 +419,11 @@ function seedRuleSummary(
   const parts = [
     `${result.seeds.length} of ${returned} ${returned === 1 ? "Seed" : "Seeds"} valid`,
     ...(batchRules.has("INVALID_BATCH_SIZE") ? [hints.INVALID_BATCH_SIZE] : []),
-    ...[...seedsByRule.entries()]
-      .sort(([, left], [, right]) => right.size - left.size)
-      .map(([code, seeds]) => {
+    ...[...seedsByRule.values()]
+      .sort((left, right) => right.seeds.size - left.seeds.size)
+      .map(({ hint, seeds }) => {
         const list = [...seeds].sort((left, right) => left - right).join(", ");
-        return `${hints[code]} (${seeds.size === 1 ? "Seed" : "Seeds"} ${list})`;
+        return `${hint} (${seeds.size === 1 ? "Seed" : "Seeds"} ${list})`;
       }),
     ...[...batchRules]
       .filter((code) => code !== "INVALID_BATCH_SIZE")
