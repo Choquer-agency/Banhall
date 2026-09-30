@@ -51,6 +51,8 @@ import {
   SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
   SUMMARY_PLAN_SERIALIZER_VERSION,
   summarySelfCheckWorstCaseResponse,
+  line244Reference,
+  WORK_ANSWERS_242_RULE_ID,
   type FrozenSummaryPlanCheck,
   type SeedContextItem,
   type SeedContextSnapshot,
@@ -1380,6 +1382,121 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     expect(itemBytes).toBeGreaterThan(20 * 100);
   });
 
+  it("gives Line 244 alone one work check with Line 242's items, its drafted text, then Line 246's items (Rule C)", () => {
+    const line242 = "It was uncertain whether nitrite oxidizers were the bottleneck under cold shock.";
+    const items = [
+      { itemId: "item-goal", roleId: "goal_problem" as const, kind: "standard" as const, bullets: ["Start-up under 5 weeks at 8 C."], support: "source_supported" as const },
+      { itemId: "item-uncertainty", roleId: "active_uncertainties" as const, kind: "standard" as const, bullets: ["Whether nitrite oxidizers were the bottleneck."], support: "source_supported" as const },
+      { itemId: "item-trial", roleId: "experimentation" as const, kind: "multiple" as const, bullets: ["The stall lasted 19 days unacclimated, 6 days acclimated."], support: "source_supported" as const },
+      { itemId: "item-science", roleId: "overall_advancement" as const, kind: "standard" as const, bullets: ["Acclimation cut start-up roughly in half."], support: "source_supported" as const },
+      { itemId: "item-status", roleId: "project_status" as const, kind: "standard" as const, bullets: ["Used on one client farm."], support: "source_supported" as const },
+      { itemId: "item-goals", roleId: "goal_improvements" as const, kind: "standard" as const, bullets: ["Both goals met together."], support: "writer_asserted" as const },
+    ];
+    for (const section of ["s242", "s246"] as const) {
+      expect(buildFrozenSummaryPlan({ section, items, skippedRoleIds: [], workAnswers242: { line242Text: line242 } })
+        .checks.some((check) => check.ruleId === WORK_ANSWERS_242_RULE_ID)).toBe(false);
+    }
+    // Rule B's argument gives Line 244 no check, and Rule C's none to Line 246.
+    expect(buildFrozenSummaryPlan({ section: "s244", items, skippedRoleIds: [], answers242: { line242Text: line242 } })
+      .checks.some((check) => check.ruleId)).toBe(false);
+    const plan = buildFrozenSummaryPlan({ section: "s244", items, skippedRoleIds: [], workAnswers242: { line242Text: line242 } });
+    const planItems242 = [
+      FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading,
+      "- Goal / Problem: Start-up under 5 weeks at 8 C.",
+      "- Technological uncertainties: Whether nitrite oxidizers were the bottleneck.",
+    ].join("\n");
+    const planItems246 = [
+      FROZEN_SUMMARY_PLAN_SCAFFOLD.line246PlanHeading,
+      "- Advancement to science / technology: Acclimation cut start-up roughly in half.",
+      "- Project status and next steps: Used on one client farm.",
+      "- Overall company / project goal improvements: Both goals met together.",
+    ].join("\n");
+    expect(plan.checks.at(-1)).toEqual({
+      ruleId: WORK_ANSWERS_242_RULE_ID,
+      roleId: "experimentation",
+      mergedItemIds: [],
+      instruction: "work_answer_242",
+      confirmedExclusion: false,
+      wording: [`${planItems242}\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242DraftedHeading}\n${line242}\n\n${planItems246}`],
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
+    expect(plan.checks.at(-1)!.wording[0]).toBe(line244Reference({
+      items242: [
+        { roleId: "goal_problem", wording: ["Start-up under 5 weeks at 8 C."] },
+        { roleId: "active_uncertainties", wording: ["Whether nitrite oxidizers were the bottleneck."] },
+      ],
+      line242Text: line242,
+      items246: [
+        { roleId: "overall_advancement", wording: ["Acclimation cut start-up roughly in half."] },
+        { roleId: "project_status", wording: ["Used on one client farm."] },
+        { roleId: "goal_improvements", wording: ["Both goals met together."] },
+      ],
+    }));
+    // The drafting plan block never carries it, and the COVER entries are unchanged.
+    expect(plan.block).not.toContain(WORK_ANSWERS_242_RULE_ID);
+    expect(plan.block).toBe(buildFrozenSummaryPlan({ section: "s244", items, skippedRoleIds: [] }).block);
+    // Before Line 242 is drafted, the items stand alone; a skipped step and
+    // an empty Line read as such.
+    expect(buildFrozenSummaryPlan({ section: "s244", items, skippedRoleIds: [], workAnswers242: {} }).checks.at(-1)?.wording)
+      .toEqual([`${planItems242}\n\n${planItems246}`]);
+    expect(buildFrozenSummaryPlan({ section: "s244", items, skippedRoleIds: ["project_status"], workAnswers242: {} }).checks.at(-1)?.wording)
+      .toEqual([`${planItems242}\n\n${planItems246.replace("\n- Project status and next steps: Used on one client farm.", "")}`]);
+    expect(buildFrozenSummaryPlan({ section: "s244", items: [], skippedRoleIds: [], workAnswers242: {} }).checks.at(-1)?.wording)
+      .toEqual([`${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading}\n- ${FROZEN_SUMMARY_PLAN_SCAFFOLD.empty}\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line246PlanHeading}\n- ${FROZEN_SUMMARY_PLAN_SCAFFOLD.empty}`]);
+  });
+
+  it("clips only Line 242's drafted text in Line 244's work check, and admits it at the exact 64,000-byte boundary (Rule C)", () => {
+    const items242 = Array.from({ length: 12 }, (_, index) => ({
+      itemId: `item-u${index}`,
+      roleId: "active_uncertainties" as const,
+      kind: "standard" as const,
+      bullets: [`Uncertainty ${index}: whether graded templates survive firing at zone ${index} without delamination.`],
+      support: "source_supported" as const,
+    }));
+    const items246 = Array.from({ length: 12 }, (_, index) => ({
+      itemId: `item-a${index}`,
+      roleId: "specific_advancements" as const,
+      kind: "multiple" as const,
+      bullets: [`Advancement ${index}: shrinkage mismatch tracks slurry mass per volume in zone ${index}, and “curly” quotes stay whole.`],
+      support: "source_supported" as const,
+    }));
+    const trial = {
+      itemId: "item-trial",
+      roleId: "experimentation" as const,
+      kind: "multiple" as const,
+      bullets: ["Trial 1 bonded 10 ppi and 30 ppi sheets."],
+      support: "writer_asserted" as const,
+    };
+    const all = [...items242, ...items246, trial];
+    const longLine242 = "“Curly” quotes, a line break\nand é in Line 242. ".repeat(400);
+    const plan = buildFrozenSummaryPlan({ section: "s244", items: all, skippedRoleIds: [], workAnswers242: { line242Text: longLine242 } });
+    const wording = plan.checks.find((check) => check.ruleId === WORK_ANSWERS_242_RULE_ID)!.wording[0]!;
+    const [planPart, rest] = wording.split(`\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242DraftedHeading}\n`);
+    const [draftedPart, part246] = rest!.split(`\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line246PlanHeading}\n`);
+    expect(planPart).toBe([
+      FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading,
+      ...items242.map((item) => `- Technological uncertainties: ${item.bullets[0]}`),
+    ].join("\n"));
+    // Every Line 246 item survives whole, after the clipped text.
+    expect(part246).toBe(items246.map((item) => `- Specific technological advancements: ${item.bullets[0]}`).join("\n"));
+    expect(endsWithClipMark(draftedPart!)).toBe(true);
+    expect(jsonEscapedUtf8Bytes(draftedPart!)).toBeLessThanOrEqual(MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES);
+    // Admission counts the same items with the drafted text at its reservation.
+    const admitted = (excerpt = "") => buildFrozenSummaryPlan({
+      section: "s244",
+      items: all,
+      skippedRoleIds: [],
+      sourceRefsByItemId: new Map([["item-trial", [{ sourceId: "source", exactExcerpt: excerpt }]]]),
+      workAnswers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE },
+    });
+    expect(bytes(plan.checksBlock)).toBeLessThanOrEqual(bytes(admitted().checksBlock));
+    const fill = MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES - bytes(admitted().checksBlock);
+    expect(fill).toBeGreaterThan(0);
+    expect(bytes(admitted("x".repeat(fill)).checksBlock)).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    expect(() => admitted("x".repeat(fill + 1))).toThrow("Expanded Summary plan checks");
+  });
+
   it("counts LEAVE OUT and advancement verdicts in the exact 16,384-byte response envelope", () => {
     const ordinary = projectSummaryOrdinaryChecks({
       storylineText: "Storyline",
@@ -1456,6 +1573,16 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     })).toThrow("worst-case response exceeds 16384 UTF-8 bytes");
     // Without the new checks the same items are admitted with room to spare.
     expect(bytes(envelope(padded))).toBeLessThan(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES - 300);
+    // 2026-09-30 (second, Rule C): Line 244's work verdict is counted the
+    // same way, by its own rule id.
+    const workRule: FrozenSummaryPlanCheck = { ...rule, ruleId: WORK_ANSWERS_242_RULE_ID, roleId: "experimentation", instruction: "work_answer_242" };
+    const withWork = [item("item-a"), leaveOut("u-dropped"), workRule];
+    expect(envelope(withWork)).toBe(literalSummaryEnvelopeOracle({
+      ordinaryLabels: ordinary.map((check) => check.label),
+      planChecks: withWork,
+      includeStorylineQuestion: true,
+    }));
+    expect(envelope(withWork)).toContain(`"ruleId":"${WORK_ANSWERS_242_RULE_ID}"`);
     // A check must name exactly one reference.
     expect(() => envelope([{ ...leaveOut("u"), skippedRoleId: "prior_year_status" }]))
       .toThrow("exactly one item, Skip, dropped uncertainty or rule identifier");
@@ -1479,7 +1606,7 @@ describe("results stated against their targets (2026-09-30, third)", () => {
   });
 
   it("adds one targets check to Lines 244 and 246 only, when asked, before Rule B, with no plan entry", () => {
-    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v3");
+    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v4");
     for (const section of ["s242", "s244", "s246"] as const) {
       const without = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [] });
       const withTargets = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [], resultsAgainstTargets: true });

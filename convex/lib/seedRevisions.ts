@@ -63,12 +63,18 @@ export const ANSWERS_242_WORST_CASE_REFERENCE = "x".repeat(
 /** 2026-09-30 (first): the id of Line 246's advancement check. */
 export const ADVANCEMENTS_ANSWER_242_RULE_ID = "advancements_answer_242" as const;
 /**
+ * 2026-09-30 (second, Rule C): the id of Line 244's check that its work is
+ * for an uncertainty Line 242 states or for a signed-off item.
+ */
+export const WORK_ANSWERS_242_RULE_ID = "work_answers_242" as const;
+/**
  * 2026-09-30 (third): the id of the check, in Lines 244 and 246, that every
  * result the Line compares with its target is stated as the numbers show.
  */
 export const RESULTS_AGAINST_TARGETS_RULE_ID = "results_against_targets" as const;
 export type SummaryPlanRuleId =
   | typeof ADVANCEMENTS_ANSWER_242_RULE_ID
+  | typeof WORK_ANSWERS_242_RULE_ID
   | typeof RESULTS_AGAINST_TARGETS_RULE_ID;
 /** 2026-09-30 (third): the Lines whose plan carries the targets check. */
 export const RESULTS_AGAINST_TARGETS_SECTIONS: readonly PdSection[] = ["s244", "s246"];
@@ -78,10 +84,12 @@ export const RESULTS_AGAINST_TARGETS_SECTIONS: readonly PdSection[] = ["s244", "
  * ordinary label projection changes. Dynamic data stays outside the version.
  * v2 (2026-09-30, first): LEAVE OUT entries and checks (`droppedSeedId`) and
  * Line 246's advancement check (`ruleId`).
- * v3 (2026-09-30, third): the targets check (`instruction: "match_targets"`,
+ * v3 (2026-09-30, second): Line 244's work check (`ruleId`
+ * work_answers_242), with Line 242 and Line 246's signed-off items as data.
+ * v4 (2026-09-30, third): the targets check (`instruction: "match_targets"`,
  * `ruleId: "results_against_targets"`) in Lines 244 and 246.
  */
-export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v3";
+export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v4";
 export const SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION =
   "summary-ordinary-labels-v2";
 
@@ -169,16 +177,18 @@ export type FrozenDroppedUncertainty<SeedId extends string = string> = {
 
 /**
  * A plan check's instruction: cover a signed-off item, honour a Skip,
- * leave out an uncertainty the writer dropped (2026-09-30, first), on
- * Line 246 claim advancements only for uncertainties Line 242 states, or, in
- * Lines 244 and 246, state each result against its target as the numbers
- * show (2026-09-30, third).
+ * leave out an uncertainty the writer dropped (2026-09-30, first), on Line
+ * 246 claim advancements only for uncertainties Line 242 states (Rule B),
+ * on Line 244, describe work only for them or for a signed-off item
+ * (2026-09-30 second, Rule C), or, in Lines 244 and 246, state each result
+ * against its target as the numbers show (2026-09-30, third).
  */
 export type FrozenSummaryPlanInstruction =
   | "cover"
   | "skip"
   | "leave_out"
   | "answer_242"
+  | "work_answer_242"
   | "match_targets";
 
 export type FrozenSummaryPlanCheck<
@@ -252,6 +262,9 @@ export const FROZEN_SUMMARY_PLAN_SCAFFOLD = {
   // part clipped (the items alone before Line 242 is drafted).
   line242PlanHeading: "Signed-off plan items for Line 242, by step:",
   line242DraftedHeading: "Line 242 as drafted:",
+  // 2026-09-30 (second, Rule C): Line 244's work check carries Line 246's
+  // signed-off items after Line 242, whole, so the work behind them stays.
+  line246PlanHeading: "Signed-off plan items for Line 246, by step:",
   empty: "(none)",
   end: "--- END [SIGNED-OFF CONTENT PLAN] ---",
 } as const;
@@ -615,6 +628,24 @@ export function assertSummarySelfCheckResponseWithinLimit(serialized: string): v
 }
 
 /**
+ * The signed-off plan items of one Line's steps that are not skipped, in
+ * step order and, within a step, in the order given.
+ */
+export function linePlanItems<Role extends { roleId: PdSubsectionRoleId; bullets: readonly string[] }>(
+  section: PdSection,
+  items: readonly Role[],
+  skippedRoleIds: readonly PdSubsectionRoleId[]
+): Array<{ roleId: PdSubsectionRoleId; wording: string[] }> {
+  const skipped = new Set(skippedRoleIds);
+  return PD_SUBSECTIONS
+    .filter((role) => role.section === section && !skipped.has(role.roleId))
+    .flatMap((role) =>
+      items
+        .filter((item) => item.roleId === role.roleId)
+        .map((item) => ({ roleId: role.roleId, wording: [...item.bullets] })));
+}
+
+/**
  * 2026-09-30 (first): the signed-off plan items of Line 242's steps that are
  * not skipped, in step order and, within a step, in the order given.
  */
@@ -622,13 +653,29 @@ export function line242PlanItems<Role extends { roleId: PdSubsectionRoleId; bull
   items: readonly Role[],
   skippedRoleIds: readonly PdSubsectionRoleId[]
 ): Array<{ roleId: PdSubsectionRoleId; wording: string[] }> {
-  const skipped = new Set(skippedRoleIds);
-  return PD_SUBSECTIONS
-    .filter((role) => role.section === "s242" && !skipped.has(role.roleId))
-    .flatMap((role) =>
-      items
-        .filter((item) => item.roleId === role.roleId)
-        .map((item) => ({ roleId: role.roleId, wording: [...item.bullets] })));
+  return linePlanItems("s242", items, skippedRoleIds);
+}
+
+/** 2026-09-30 (second, Rule C): the same for Line 246. */
+export function line246PlanItems<Role extends { roleId: PdSubsectionRoleId; bullets: readonly string[] }>(
+  items: readonly Role[],
+  skippedRoleIds: readonly PdSubsectionRoleId[]
+): Array<{ roleId: PdSubsectionRoleId; wording: string[] }> {
+  return linePlanItems("s246", items, skippedRoleIds);
+}
+
+function planItemsByStep(
+  heading: string,
+  items: ReadonlyArray<{ roleId: PdSubsectionRoleId; wording: readonly string[] }>
+): string {
+  const title = (roleId: PdSubsectionRoleId) =>
+    PD_SUBSECTIONS.find((role) => role.roleId === roleId)?.title ?? roleId;
+  return [
+    heading,
+    ...(items.length > 0
+      ? items.map((item) => `- ${title(item.roleId)}: ${item.wording.join(" ")}`)
+      : [`- ${FROZEN_SUMMARY_PLAN_SCAFFOLD.empty}`]),
+  ].join("\n");
 }
 
 /**
@@ -642,19 +689,29 @@ export function line242Reference(args: {
   items: ReadonlyArray<{ roleId: PdSubsectionRoleId; wording: readonly string[] }>;
   line242Text?: string;
 }): string {
-  const title = (roleId: PdSubsectionRoleId) =>
-    PD_SUBSECTIONS.find((role) => role.roleId === roleId)?.title ?? roleId;
-  const plan = [
-    FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading,
-    ...(args.items.length > 0
-      ? args.items.map((item) => `- ${title(item.roleId)}: ${item.wording.join(" ")}`)
-      : [`- ${FROZEN_SUMMARY_PLAN_SCAFFOLD.empty}`]),
-  ].join("\n");
+  const plan = planItemsByStep(FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading, args.items);
   const drafted = args.line242Text?.trim() ?? "";
   if (!drafted) return plan;
   return `${plan}\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242DraftedHeading}\n${clipJsonEscapedUtf8(
     drafted,
     MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES
+  )}`;
+}
+
+/**
+ * 2026-09-30 (second, Rule C): the wording of Line 244's work check. Line
+ * 242 as in Rule B (its signed-off items whole, then its drafted text, the
+ * only part clipped, to the same reservation), then Line 246's signed-off
+ * items, whole: frozen at sign-off, so admission counts their exact bytes.
+ */
+export function line244Reference(args: {
+  items242: ReadonlyArray<{ roleId: PdSubsectionRoleId; wording: readonly string[] }>;
+  line242Text?: string;
+  items246: ReadonlyArray<{ roleId: PdSubsectionRoleId; wording: readonly string[] }>;
+}): string {
+  return `${line242Reference({ items: args.items242, line242Text: args.line242Text })}\n\n${planItemsByStep(
+    FROZEN_SUMMARY_PLAN_SCAFFOLD.line246PlanHeading,
+    args.items246
   )}`;
 }
 
@@ -688,6 +745,12 @@ export function buildFrozenSummaryPlan<
    * No text: the items alone. Absent: no such check.
    */
   answers242?: { line242Text?: string };
+  /**
+   * 2026-09-30 (second, Rule C): Line 244 only. Its work check carries Line
+   * 242 as `answers242` does, then Line 246's signed-off items from `items`,
+   * whole. Absent: no such check.
+   */
+  workAnswers242?: { line242Text?: string };
   /**
    * 2026-09-30 (third): Lines 244 and 246 only. One check that every result
    * the Line compares with its target is stated as the numbers show. It
@@ -831,8 +894,8 @@ export function buildFrozenSummaryPlan<
     });
   }
   // 2026-09-30 (third): results stated against their targets as the numbers
-  // show, in the Lines that report results. Before Rule B, so Rule B stays
-  // the last check of Line 246.
+  // show, in the Lines that report results. Before the chain rules, so Rule B
+  // stays the last check of Line 246 and Rule C the last of Line 244.
   if (args.resultsAgainstTargets && RESULTS_AGAINST_TARGETS_SECTIONS.includes(args.section)) {
     checks.push({
       ruleId: RESULTS_AGAINST_TARGETS_RULE_ID,
@@ -859,6 +922,26 @@ export function buildFrozenSummaryPlan<
       wording: [line242Reference({
         items: line242PlanItems(args.items, args.skippedRoleIds),
         line242Text: args.answers242.line242Text,
+      })],
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
+  }
+  // 2026-09-30 (second, Rule C): Line 244 describes work only for an
+  // uncertainty Line 242 states, or work a COVER item holds or needs as its
+  // evidence. The check carries Line 242 as Rule B does, then Line 246's
+  // signed-off items, whole.
+  if (args.workAnswers242 && args.section === "s244") {
+    checks.push({
+      ruleId: WORK_ANSWERS_242_RULE_ID,
+      roleId: "experimentation",
+      mergedItemIds: [],
+      instruction: "work_answer_242",
+      confirmedExclusion: false,
+      wording: [line244Reference({
+        items242: line242PlanItems(args.items, args.skippedRoleIds),
+        line242Text: args.workAnswers242.line242Text,
+        items246: line246PlanItems(args.items, args.skippedRoleIds),
       })],
       relationshipReferences: [],
       sourceReferences: [],

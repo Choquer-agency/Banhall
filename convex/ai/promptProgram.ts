@@ -648,6 +648,10 @@ export const generationPromptProgram = {
       instructionTemplateSet: "writing.sectionInstructionTemplates.section244",
       request: SECTION_244_REQUEST,
       model: { kind: "generation-step", step: "section", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
+      // 2026-09-30 (second, Rule C): a signed-off plan run's Line 244 request
+      // (and its repair) reads ORDERED_PROMPT_SCAFFOLDS.workAnswers242 after
+      // the WRITER'S DECISIONS, with the signed-off Line 246 items.
+      signedOffPlan: "work-answers-line-242-or-a-signed-off-item-after-writer-decisions",
       reportFacts: REPORT_FACTS_PLACEMENT,
     },
     section246: {
@@ -706,7 +710,10 @@ export const generationPromptProgram = {
         // not a Glossary candidate; its own label checks that the section
         // follows the Feedback, whichever way it points, and is repaired
         // like any ordinary label.
-        writerPrecedence: "kept-ideas-judged-for-coverage-feedback-governs-named-glossary-terms-by-label",
+        // 2026-09-30 (second): the Feedback governs a term it names even
+        // where an unedited signed-off idea uses it; the writer's own edit
+        // still wins.
+        writerPrecedence: "kept-ideas-judged-for-coverage-feedback-governs-named-glossary-terms-by-label-even-in-unedited-signed-off-ideas",
         // 2026-09-30 (first): each uncertainty the writer dropped (at most
         // three) is a LEAVE OUT plan check in every Line, and Line 246 of a
         // signed-off plan has one plan check, with Line 242's text as data,
@@ -716,6 +723,14 @@ export const generationPromptProgram = {
         // only when the request has such a check.
         droppedUncertainties: "left-out-in-every-line-one-plan-check-each-by-dropped-seed-id-at-most-three",
         advancementsAnswer242: "line-246-plan-check-with-line-242-text-as-data-honoured-by-absence",
+        // 2026-09-30 (second, Rule C): Line 244's one plan check, with Line
+        // 242 and the signed-off Line 246 items as data. The LEAVE OUT, Rule
+        // B and Rule C rules compare with every COVER item before judging not
+        // applied, and a LEAVE OUT verdict that flags a signed-off item by
+        // its figures is recorded applied and never repaired.
+        workAnswers242: "line-244-plan-check-with-line-242-text-and-line-246-items-as-data-honoured-by-absence",
+        coverItemsFirst: "leave-out-and-rule-checks-compare-every-cover-item-before-not-applied",
+        leaveOutFigureBackstop: "not-applied-leave-out-on-a-paragraph-without-dropped-figures-citing-only-plan-figures-recorded-applied-no-repair",
         extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
         // 2026-09-30 (third): Lines 244 and 246 of a signed-off plan have one
         // plan check that each result is stated against its target as the
@@ -760,6 +775,9 @@ export const generationPromptProgram = {
       // and an unreadable finding is left out and counted; a pass that fails
       // as a whole stores why (validation path and code, never model text).
       readPolicy: "each-finding-read-on-its-own-string-lists-read-unreadable-counted",
+      // 2026-09-30 (second): a signed-off plan run's pass reads
+      // CONSISTENCY_REQUEST.signedOffPlan after the data blocks.
+      signedOffPlan: "rules-a-b-c-left-out-on-purpose-ranges-and-times-do-not-contradict",
     },
     qa: {
       kind: "structured",

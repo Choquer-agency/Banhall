@@ -26,6 +26,7 @@ import { instrumentedAnthropic } from "./ai/instrument";
 import type { GenerationClient } from "./ai/openrouterCore";
 import { normalizeProviderError, resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { consistencyFailureReason, runConsistencyPass } from "./ai/selfCheck";
+import { CONSISTENCY_REQUEST } from "./ai/promptDefinitions";
 import { consistencySummaryNote } from "./lib/selfCheckRules";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -309,5 +310,36 @@ describe("the consistency pass knows the writer's decisions (2026-09-29 second)"
     expect(users[0]).toContain(`--- BEGIN [CLAIM EXCLUSIONS] ---\n- ${BILLING}\n--- END [CLAIM EXCLUSIONS] ---`);
     expect(users[0]).toContain("--- BEGIN [GLOSSARY TERMS] ---\n- floating head\n--- END [GLOSSARY TERMS] ---");
     expect(users[1]).toBe(users[0]);
+  });
+
+  it("tells a signed-off plan's pass what Rules A, B and C leave out, and that ranges and times do not contradict (2026-09-30, second)", async () => {
+    // Release suite run 11 reported "36-40 days" against "38 days", and a
+    // fall 2025 shadow trial against spring shadow mode, as contradictions.
+    const users = installFetch([{ findings: [] }, { findings: [] }]);
+    const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
+    for (const signedOffPlan of [true, undefined]) {
+      await t.action(async (ctx: ActionCtx) =>
+        await runConsistencyPass(
+          instrumentedAnthropic(ctx, { callSite: "generation:consistency" }) as unknown as GenerationClient,
+          {
+            sections: SECTIONS,
+            claimExclusions: [BILLING],
+            glossaryTerms: ["floating head"],
+            model: SONNET,
+            writerPrecedence: { keptExclusions: [], glossarySetAside: [], feedbackTerms: [] },
+            ...(signedOffPlan ? { signedOffPlan } : {}),
+          }
+        )
+      );
+    }
+    const rule = CONSISTENCY_REQUEST.signedOffPlan;
+    expect(users[0]!.endsWith(`--- END [GLOSSARY TERMS] ---${rule}`)).toBe(true);
+    expect(rule).toBe(
+      "\n\nThis draft follows a signed-off content plan. Some content is left out on purpose: an uncertainty the writer dropped while planning, the work that tested it and its results; any advancement or result for an uncertainty Line 242 does not state; and any work in Line 244 for an uncertainty Line 242 does not state, unless a signed-off item needs it. Never report that such content is missing, and never ask to add it back. A contradiction needs two statements that cannot both be true. A range and a value inside it do not contradict (\"36 to 40 days\" and \"38 days\"), and neither do two events at different times (a shadow trial last fall and shadow mode this spring)."
+    );
+    // Single draft and Compare send no such line.
+    expect(users[1]).toBe(users[0]!.slice(0, -rule.length));
+    expect(users[1]).not.toContain("signed-off content plan");
   });
 });

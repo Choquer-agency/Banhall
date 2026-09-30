@@ -6,6 +6,8 @@ import { LINE_LIMITS, WORD_CAPS, sectionMetrics } from "./lineLimits";
 import { STORYLINE_QUESTION_WITHHELD_REASON } from "./storylineQuestionNote";
 import { sectionParagraphs } from "./tiptapReport";
 import { matchGlossaryTerms } from "./glossaryMatcher";
+import { isNearCopy } from "./droppedUncertainties";
+import { contentWords } from "./seedQuoteSupport";
 import {
   noteDraft,
   type ComplianceNoteDraft,
@@ -19,6 +21,7 @@ import {
   type SectionNumber,
 } from "./orderedChain";
 import {
+  GOVERNED_IN_IDEA_CLAUSE,
   governedTermFollowed,
   governedTermNotFollowed,
   governedTermReason,
@@ -137,6 +140,25 @@ function paragraphContaining(paragraphs: string[], needle: string): number {
   const normalized = normalizeForMatch(needle);
   return paragraphs.findIndex((paragraph) =>
     normalizeForMatch(paragraph).includes(normalized)
+  );
+}
+
+/**
+ * 2026-09-30 (second): the first paragraph holding a close form of a Claim
+ * Exclusion's words: one of its sentences holds at least NEAR_COPY_SHARE of
+ * the exclusion's content words, case, punctuation, stop words and light
+ * plurals aside (the near-copy guard of convex/lib/droppedUncertainties.ts).
+ * Release suite run 11 (exclusion-conflict, Line 244 paragraph 3) wrote
+ * "this work also covered migration of the customer billing portal to a new
+ * cloud host, which was routine IT work following a vendor migration guide",
+ * which the exact match misses. Only the suspended row's wording reads it.
+ */
+export function paragraphWithCloseForm(paragraphs: readonly string[], needle: string): number {
+  if (contentWords(needle).length === 0) return -1;
+  return paragraphs.findIndex((paragraph) =>
+    paragraph
+      .split(/(?<=[.!?])\s+/)
+      .some((sentence) => isNearCopy([needle], [sentence]))
   );
 }
 
@@ -416,14 +438,25 @@ export function runDeterministicSelfCheck(input: {
         matchesClaimExclusion(wording, exclusion.text, exclusion.exactExcerpt)
     );
     if (confirmedPlanConflict) {
+      // 2026-09-30 (second): with its words not in the Line as written, a
+      // close form of them is named where one appears (release suite run 11).
+      let close = -1;
+      if (found < 0) {
+        for (const needle of needles) {
+          close = paragraphWithCloseForm(paragraphs, needle);
+          if (close >= 0) break;
+        }
+      }
       add(`exclusion:${index}`, {
         instruction,
-        ...(found >= 0 ? { paragraphIndex: found } : {}),
+        ...(found >= 0 ? { paragraphIndex: found } : close >= 0 ? { paragraphIndex: close } : {}),
         outcome: "not_applied",
         tier: "conflict",
         reason: found >= 0
           ? `suspended in this Line for the idea the writer kept despite this Claim Exclusion: its words appear in paragraph ${found + 1} (${label}) and are not repaired away; this word check cannot tell that idea from other content with the same words`
-          : `suspended in this Line for the idea the writer kept despite this Claim Exclusion (${label}); its words are not in this Line as written, and the idea's own row says whether it was drafted`,
+          : close >= 0
+            ? `suspended in this Line for the idea the writer kept despite this Claim Exclusion (${label}): its exact words are not in this Line, but a close form of its words is in paragraph ${close + 1} and is not repaired away; the idea's own row says whether it was drafted`
+            : `suspended in this Line for the idea the writer kept despite this Claim Exclusion (${label}); its words are not in this Line as written, and the idea's own row says whether it was drafted`,
       });
       return;
     }
@@ -587,8 +620,12 @@ export function repairIssues(
       ? undefined
       : governed.find((entry) => entry.term === verdict.feedbackTerm);
     if (term) {
+      // 2026-09-30 (second): a term an unedited signed-off idea uses is
+      // renamed there too; renaming is wording, not meaning.
       issues.push(
-        `${where}: for the term "${term.term}", follow the writer's Feedback ${governingFeedbackPhrase(term.feedback)}.${fix.trim() ? ` ${fix.trim()}` : ""}`
+        `${where}: for the term "${term.term}", follow the writer's Feedback ${governingFeedbackPhrase(term.feedback)}${
+          term.inSignedOffIdea ? GOVERNED_IN_IDEA_CLAUSE : ""
+        }.${fix.trim() ? ` ${fix.trim()}` : ""}`
       );
       continue;
     }
@@ -815,7 +852,7 @@ export function assembleSectionNotes(input: {
       instruction: `Glossary Term: ${term.term}`,
       outcome: governedTermFollowed(state) ? "applied" : "not_applied",
       tier: "conflict",
-      reason: governedTermReason(term.feedback, state, detail),
+      reason: governedTermReason(term.feedback, state, detail, term.inSignedOffIdea === true),
       repaired: state === "repaired",
     }));
   }

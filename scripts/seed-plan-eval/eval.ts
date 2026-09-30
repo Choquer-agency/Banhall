@@ -8,6 +8,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
+import { distinctiveFigures, figuresOf } from "../../shared/planFigures";
 import { releaseEvalProjectTitle } from "../../shared/releaseEval";
 import { findSourceTalk } from "../../shared/humanProse";
 import {
@@ -1664,32 +1665,12 @@ export function contentWordOverlap(phrase: string, text: string): number {
   return words.filter((word) => haystack.includes(word)).length / words.length;
 }
 
-const FIGURE_UNITS: ReadonlyArray<[RegExp, string]> = [
-  [/^(?:degrees?\s*c|degrees?|c)$/i, "C"],
-  [/^(?:percent|%)$/i, "percent"],
-  [/^days?$/i, "days"],
-  [/^weeks?$/i, "weeks"],
-  [/^months?$/i, "months"],
-  [/^hours?$/i, "hours"],
-  [/^minutes?$/i, "minutes"],
-  [/^mg\/l$/i, "mg/L"],
-  [/^ppm$/i, "ppm"],
-];
-const FIGURE = /((?:\d+(?:\.\d+)?\s*(?:,|and|or|to|-)\s*)*)(\d+(?:\.\d+)?)\s*(degrees?\s*C|degrees?|percent|%|days?|weeks?|months?|hours?|minutes?|mg\/L|ppm|C)(?![A-Za-z])/gi;
-
 /**
- * 2026-09-30 (first): the figures with a unit in a text, normalised ("6
- * degrees C" and "6 C" read alike; "44 and 29 days" gives both).
+ * 2026-09-30 (first): the figures with a unit in a text, normalised. Since
+ * 2026-09-30 (second) the reading lives in shared/planFigures.ts, which the
+ * product's LEAVE OUT figure check uses too.
  */
-export function figuresOf(text: string): string[] {
-  const found = new Set<string>();
-  for (const match of text.matchAll(FIGURE)) {
-    const unit = FIGURE_UNITS.find(([pattern]) => pattern.test(match[3]!.replace(/\s+/g, " ").trim()))?.[1];
-    if (!unit) continue;
-    for (const number of [...(match[1]!.match(/\d+(?:\.\d+)?/g) ?? []), match[2]!]) found.add(`${number} ${unit}`);
-  }
-  return [...found];
-}
+export { figuresOf };
 
 /** One paragraph of a Line that holds a dropped uncertainty's words or figures. */
 export type DroppedHit = { section: "242" | "244" | "246"; paragraph: number; overlap: number; figures: string[]; text: string };
@@ -1709,8 +1690,7 @@ export function droppedUncertaintyHits(args: {
   experimentWords: readonly string[];
   planWords: readonly string[];
 }): { figures: string[]; hits: DroppedHit[] } {
-  const common = new Set(args.planWords.flatMap(figuresOf));
-  const figures = [...new Set([args.droppedWords, ...args.experimentWords].flatMap(figuresOf))].filter((figure) => !common.has(figure));
+  const figures = distinctiveFigures([args.droppedWords, ...args.experimentWords], args.planWords);
   const hits: DroppedHit[] = [];
   for (const section of ["242", "244", "246"] as const) {
     const paragraphs = args.sections[`s${section}`].split(/\n\s*\n/).map((text) => text.trim()).filter(Boolean);
@@ -1833,6 +1813,16 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
       leaveOutRepairEvidence(c),
     ),
   );
+  // 2026-09-30 (second, Rule C): informational for every fixture. Line
+  // 244's work check is the checking model's own verdict; the judges remain
+  // the proof.
+  checks.push(
+    info(
+      "work-answers-242",
+      "Line 244 Rule C row (its work answers a Line 242 uncertainty or a signed-off item), its repair, and COVER rows not applied after such a repair (informational; self-reported by the checking model)",
+      workAnswers242Evidence(c),
+    ),
+  );
   // 2026-09-30 (third): informational for every fixture. The source-talk
   // row reruns the Self-check's own detector on the final text; the targets
   // row is the checking model's own verdict. The judges remain the proof.
@@ -1886,6 +1876,27 @@ export function leaveOutRepairEvidence(c: Collected): string {
     coverLost.length ? coverLost.map((note) => `${note.planRef?.itemId} (${quote(note.reason, 80)})`).join(", ") : "none"
   }${keptDraft ? "; a repair that lost a COVER item was set aside" : ""}`;
 }
+
+/**
+ * 2026-09-30 (second, Rule C): Line 244's work check row with its outcome,
+ * whether a repair fixed it or was set aside, its reason, and the Line 244
+ * COVER rows not applied after such a repair was used.
+ */
+export function workAnswers242Evidence(c: Collected): string {
+  const rows = c.complianceNotes.filter((note) => note.section === "244" && note.planRef);
+  const rule = rows.find((note) => note.planRef?.ruleId === "work_answers_242");
+  if (!rule) return "no Rule C row in Line 244";
+  const repair = rule.repaired ? ", repaired" : rule.reason.includes("repair not used") ? ", repair not used" : "";
+  const coverLost = rule.repaired
+    ? rows.filter((note) => note.planRef?.itemId && note.tier !== "conflict" && note.outcome !== "applied")
+    : [];
+  return `Rule C: ${rule.outcome}${repair} (${quote(rule.reason, 120)}); COVER rows not applied after such a repair: ${
+    coverLost.length ? coverLost.map((note) => `${note.planRef?.itemId} (${quote(note.reason, 80)})`).join(", ") : "none"
+  }`;
+}
+
+/** 2026-09-30 (second): how a LEAVE OUT row the figure backstop recorded applied begins. */
+export const LEAVE_OUT_FIGURE_BACKSTOP_PREFIX = "The flagged content is a signed-off item:";
 
 const ANSWERS_242_RULE_ID = "advancements_answer_242";
 const TARGETS_RULE_ID = "results_against_targets";
@@ -2370,7 +2381,13 @@ function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[
           !removed
             ? "no uncertainty was dropped"
             : `${leftOutRows
-                .map(({ section, row }) => `${section}: ${row ? (row.outcome === "applied" ? "applied" : `${row.outcome} (${quote(row.reason, 100)})`) : "no row"}`)
+                .map(({ section, row }) => `${section}: ${row
+                  ? row.outcome === "applied"
+                    ? row.reason.startsWith(LEAVE_OUT_FIGURE_BACKSTOP_PREFIX)
+                      ? `applied by the figure check (${quote(row.reason, 160)})`
+                      : "applied"
+                    : `${row.outcome} (${quote(row.reason, 100)})`
+                  : "no row"}`)
                 .join("; ")}${c.summary?.droppedUncertaintySeedIds ? `; frozen at sign-off: ${c.summary.droppedUncertaintySeedIds.join(", ") || "none"}` : ""}`,
         ),
       );

@@ -686,6 +686,44 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
       .toBe("no LEAVE OUT or Rule B row in Line 246");
   });
 
+  it("reports Line 244's Rule C row and any COVER row lost after its repair, for every fixture, as information (2026-09-30, second)", () => {
+    const { c, log } = run10();
+    const workRow = (extra: Partial<Collected["complianceNotes"][number]> = {}) => ({
+      section: "244",
+      paragraphIndex: null,
+      source: "model",
+      instruction: "Describe work only for an uncertainty Line 242 states, or work a signed-off item holds or needs as its evidence",
+      outcome: "applied",
+      tier: "none",
+      reason: "All work answers 242 or a plan item.",
+      repaired: false,
+      planRef: { itemId: null, skippedRoleId: null, droppedSeedId: null, ruleId: "work_answers_242", mergedItemIds: [] },
+      ...extra,
+    });
+    c.complianceNotes = [cover("ie1", "244", ["ie1"], { outcome: "not_applied", reason: "Trial 1 is gone." }), workRow({ repaired: true })];
+    for (const fixture of fixtures) {
+      const row = runChecks(fixture, c, log).find((item) => item.id === "work-answers-242");
+      expect(row?.status).toBe("info");
+      expect(row?.evidence).toBe('Rule C: applied, repaired ("All work answers 242 or a plan item."); COVER rows not applied after such a repair: ie1 ("Trial 1 is gone.")');
+    }
+    c.complianceNotes = [workRow({ outcome: "not_applied", reason: "P5 narrates a sensor trial.; repair not used (the repaired text no longer covers...)" })];
+    expect(runChecks(byCase("carried_old_selections"), c, log).find((item) => item.id === "work-answers-242")?.evidence)
+      .toBe('Rule C: not_applied, repair not used ("P5 narrates a sensor trial.; repair not used (the repaired text no longer covers...)"); COVER rows not applied after such a repair: none');
+    c.complianceNotes = [cover("ie1", "244")];
+    expect(runChecks(byCase("exclusion_conflict"), c, log).find((item) => item.id === "work-answers-242")?.evidence)
+      .toBe("no Rule C row in Line 244");
+  });
+
+  it("names a LEAVE OUT row the figure check recorded applied (2026-09-30, second)", () => {
+    const { c, log } = run10();
+    const backstop = 'The flagged content is a signed-off item: the Self-check flagged paragraph 3 ("P3 states stall durations (19 vs 6 days)."), but every figure it cited (19 days, 6 days) is in the signed-off plan\'s wording, and the paragraph holds none of the dropped uncertainty\'s own figures (44 days). Not sent to the repair.';
+    c.complianceNotes = [leaveOutRow("242"), { ...leaveOutRow("244"), reason: backstop }, leaveOutRow("246"), answersRow()];
+    const checks = runChecks(byCase("changed_advancement_links"), c, log);
+    expect(status(checks, "dropped-uncertainty-left-out")).toBe("pass");
+    expect(checks.find((item) => item.id === "dropped-uncertainty-left-out")?.evidence)
+      .toMatch(/^242: applied; 244: applied by the figure check \("The flagged content is a signed-off item: .*"\); 246: applied; frozen at sign-off: u1$/);
+  });
+
   it("names every paragraph of every Line that holds the dropped uncertainty's words or its experiments' distinctive figures", () => {
     const { c, log } = run10();
     const hint = runChecks(byCase("changed_advancement_links"), c, log).find((item) => item.id === "dropped-uncertainty-drafted");

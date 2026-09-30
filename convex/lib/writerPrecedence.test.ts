@@ -149,10 +149,25 @@ describe("Glossary Terms the writer's Feedback governs (2026-09-29 second, CAP-1
       setAside: [],
       governed: [{ term: "floating head", feedback: [company("Never say 'floating head'.")] }],
     });
+    // An unedited idea names the term in curly quotes: since 2026-09-30
+    // (second) the Feedback governs it there too, marked as in the idea.
     expect(glossaryTermPrecedence({
       glossaryTerms: ["floating head"],
       feedback: [company("Never say 'floating head'.")],
       editedItems: [],
+      selectionWording: [["Force control came from the \u2018floating head\u2019."]],
+    })).toEqual({
+      setAside: [],
+      governed: [{ term: "floating head", feedback: [company("Never say 'floating head'.")], inSignedOffIdea: true }],
+    });
+    // The writer's edit named it the same way: the edit wins.
+    expect(glossaryTermPrecedence({
+      glossaryTerms: ["floating head"],
+      feedback: [company("Never say 'floating head'.")],
+      editedItems: [{
+        original: ["Force control came from a spindle."],
+        edited: ["Force control came from the \u2018floating head\u2019."],
+      }],
       selectionWording: [["Force control came from the \u2018floating head\u2019."]],
     })).toEqual({ setAside: [], governed: [] });
     expect(glossaryTermPrecedence({
@@ -183,9 +198,9 @@ describe("Glossary Terms the writer's Feedback governs (2026-09-29 second, CAP-1
     });
   });
 
-  it("keeps a term in force while a signed-off idea drafted in the Line uses it, whatever the Feedback says", () => {
-    // Lead decision P2-2: the signed-off selections, edits included, outrank
-    // the Feedback.
+  it("keeps a term in force while the writer's own edit put or kept it in an idea, whatever the Feedback says", () => {
+    // Lead decision P2-2: the writer's edits outrank the Feedback. The edit
+    // put the term in.
     expect(glossaryTermPrecedence({
       glossaryTerms: ["floating head"],
       feedback: [company(SPINDLE)],
@@ -195,12 +210,58 @@ describe("Glossary Terms the writer's Feedback governs (2026-09-29 second, CAP-1
       }],
       selectionWording: [["Force control came from the floating head after all."]],
     })).toEqual({ setAside: [], governed: [] });
+    // The edit kept it: the writer changed other words and left the term.
+    expect(glossaryTermPrecedence({
+      glossaryTerms: ["floating head"],
+      feedback: [company(SPINDLE)],
+      editedItems: [{
+        original: ["Force control came from the floating head."],
+        edited: ["Per-edge force control came from the floating head."],
+      }],
+      selectionWording: [["Per-edge force control came from the floating head."], ["Burr height varied."]],
+    })).toEqual({ setAside: [], governed: [] });
+    // Without Feedback that names it, an unedited idea's term stays in force.
+    expect(glossaryTermPrecedence({
+      glossaryTerms: ["floating head"],
+      feedback: [company("Name each test by its month.")],
+      editedItems: [],
+      selectionWording: [["The floating head held the radius."]],
+    })).toEqual({ setAside: [], governed: [] });
+  });
+
+  it("2026-09-30 (second): lets the Feedback govern a term an unedited signed-off idea uses (release suite run 11)", () => {
+    // withdrawn-feedback, run 11: signed-off uncertainty item 5a is the
+    // model's wording and says "floating head force"; the active Feedback
+    // renames the tool. Renaming is wording, not meaning.
+    const item5a = [
+      "It was unknown how floating head force should vary with edge radius on cast aluminium brackets.",
+    ];
+    expect(glossaryTermPrecedence({
+      glossaryTerms: ["floating head", "burr height"],
+      feedback: [company(SPINDLE)],
+      editedItems: [],
+      selectionWording: [item5a, ["Burr height ranged from 0.1 to 0.6 mm."]],
+    })).toEqual({
+      setAside: [],
+      governed: [{ term: "floating head", feedback: [company(SPINDLE)], inSignedOffIdea: true }],
+    });
+    // An edited idea elsewhere in the Line that does not name it changes
+    // nothing: only an edit that names the term wins.
+    expect(glossaryTermPrecedence({
+      glossaryTerms: ["floating head"],
+      feedback: [company(SPINDLE)],
+      editedItems: [{ original: ["Burr height varied."], edited: ["Burr height varied a lot."] }],
+      selectionWording: [item5a, ["Burr height varied a lot."]],
+    }).governed).toEqual([{ term: "floating head", feedback: [company(SPINDLE)], inSignedOffIdea: true }]);
+    // The generic naming rule reads no meaning: "sensor" in "sensor array"
+    // is named, so an idea's "sensor" follows that Feedback too; its label
+    // judges whether the text does.
     expect(glossaryTermPrecedence({
       glossaryTerms: ["sensor"],
       feedback: [company("Say sensor array, not sensor bank.")],
       editedItems: [],
       selectionWording: [["Each sensor drifted by 2 C per month."]],
-    })).toEqual({ setAside: [], governed: [] });
+    }).governed).toEqual([{ term: "sensor", feedback: [company("Say sensor array, not sensor bank.")], inSignedOffIdea: true }]);
   });
 
   it("sets aside a term a signed-off edit took out, even where Feedback names it, unless another idea still uses it", () => {
