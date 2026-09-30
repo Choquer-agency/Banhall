@@ -39,6 +39,7 @@ import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai
 import {
   buildFrozenSummaryPlan,
   FROZEN_SUMMARY_PLAN_SCAFFOLD,
+  line242Reference,
   type FrozenDroppedUncertainty,
 } from "./lib/seedRevisions";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
@@ -139,18 +140,30 @@ function plan244(dropped: FrozenDroppedUncertainty[] = [DROPPED]) {
   });
 }
 
-function plan246(reference: string) {
+const ITEM_UNCERTAINTY_242 = "item-acclimation-uncertainty" as Id<"summaryItems">;
+
+function plan246(line242Text?: string) {
   return buildFrozenSummaryPlan({
     section: "s246",
-    items: [{
-      itemId: ITEM_ADVANCEMENT,
-      roleId: "specific_advancements",
-      kind: "multiple",
-      bullets: ["Stepwise acclimation cut cold-water start-up roughly in half at 8 C."],
-      support: "writer_asserted",
-    }],
+    items: [
+      // A Line 242 item: not in Line 246's plan, but in its advancement check.
+      {
+        itemId: ITEM_UNCERTAINTY_242,
+        roleId: "active_uncertainties",
+        kind: "standard",
+        bullets: [KEPT_UNCERTAINTY],
+        support: "source_supported",
+      },
+      {
+        itemId: ITEM_ADVANCEMENT,
+        roleId: "specific_advancements",
+        kind: "multiple",
+        bullets: ["Stepwise acclimation cut cold-water start-up roughly in half at 8 C."],
+        support: "writer_asserted",
+      },
+    ],
     skippedRoleIds: [],
-    answers242: { reference },
+    answers242: line242Text === undefined ? {} : { line242Text },
   });
 }
 
@@ -492,7 +505,9 @@ describe("every Line 246 advancement answers a Line 242 uncertainty (real SDK, f
     );
     // The Self-check: Line 242's text as data in the check, its rule and schema.
     const check = sent[1]!;
-    expect(check.user).toContain(`"ruleId":"advancements_answer_242","sourceReferences":[],"wording":${JSON.stringify([LINE_242])}`);
+    expect(check.user).toContain(`"ruleId":"advancements_answer_242","sourceReferences":[],"wording":${JSON.stringify([
+      line242Reference({ items: [{ roleId: "active_uncertainties", wording: [KEPT_UNCERTAINTY] }], line242Text: LINE_242 }),
+    ])}`);
     expect(check.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.instruction);
     expect(check.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.leaveOut.instruction);
     expect(check.user.endsWith(`- itemId ${ITEM_ADVANCEMENT}\n- ruleId advancements_answer_242`)).toBe(true);
@@ -521,7 +536,7 @@ describe("every Line 246 advancement answers a Line 242 uncertainty (real SDK, f
     const sent = installFetch({ draft: DRAFT_246, checks: [[advancementCovered, answers]] });
     await draft("246", claimFor({
       section: "246",
-      plan: plan246(`- ${KEPT_UNCERTAINTY}`),
+      plan: plan246(),
       answers242: {
         line242Drafted: false,
         items: [
@@ -535,7 +550,9 @@ describe("every Line 246 advancement answers a Line 242 uncertainty (real SDK, f
       `${scaffold.heading}${scaffold.planned}${scaffold.rest}\n- Technological limitations: "Warm seed goes into shock in 8 degree water."\n- Technological uncertainties: "${KEPT_UNCERTAINTY}"`
     );
     expect(sent[0]!.user).not.toContain(ORDERED_PROMPT_SCAFFOLDS.draftedPriorSections.prefix);
-    expect(sent[1]!.user).toContain(`"wording":${JSON.stringify([`- ${KEPT_UNCERTAINTY}`])}`);
+    expect(sent[1]!.user).toContain(`"wording":${JSON.stringify([
+      `${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading}\n- Technological uncertainties: ${KEPT_UNCERTAINTY}`,
+    ])}`);
   });
 
   // Review P2-2: a repair made for a leave-out fix must keep what the plan

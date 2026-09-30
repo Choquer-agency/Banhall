@@ -1276,38 +1276,106 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     expect(plan.checks.map((check) => check.droppedSeedId)).toEqual(["u-0", "u-1", "u-2"]);
   });
 
-  it("gives Line 246 alone one advancement check with Line 242's text, clipped to the reservation", () => {
+  it("gives Line 246 alone one advancement check with Line 242's plan items, then its drafted text", () => {
     const line242 = "It was uncertain whether stepwise acclimation would beat unacclimated seed.\n\nIt was also uncertain whether nitrite oxidizers were the bottleneck.";
+    const items = [
+      { itemId: "item-goal", roleId: "goal_problem" as const, kind: "standard" as const, bullets: ["Start-up under 5 weeks at 8 C."], support: "source_supported" as const },
+      { itemId: "item-uncertainty", roleId: "active_uncertainties" as const, kind: "standard" as const, bullets: ["Whether acclimation beats unacclimated seed."], support: "source_supported" as const },
+    ];
     for (const section of ["s242", "s244"] as const) {
-      expect(buildFrozenSummaryPlan({ section, items: [], skippedRoleIds: [], answers242: { reference: line242 } }).checks).toEqual([]);
+      expect(buildFrozenSummaryPlan({ section, items, skippedRoleIds: [], answers242: { line242Text: line242 } }).checks.some((check) => check.ruleId)).toBe(false);
     }
-    const plan = buildFrozenSummaryPlan({ section: "s246", items: [], skippedRoleIds: [], answers242: { reference: line242 } });
+    const plan = buildFrozenSummaryPlan({ section: "s246", items, skippedRoleIds: [], answers242: { line242Text: line242 } });
+    const planItems = [
+      FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading,
+      "- Goal / Problem: Start-up under 5 weeks at 8 C.",
+      "- Technological uncertainties: Whether acclimation beats unacclimated seed.",
+    ].join("\n");
     expect(plan.checks).toEqual([{
       ruleId: ADVANCEMENTS_ANSWER_242_RULE_ID,
       roleId: "specific_advancements",
       mergedItemIds: [],
       instruction: "answer_242",
       confirmedExclusion: false,
-      wording: [line242],
+      wording: [`${planItems}\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242DraftedHeading}\n${line242}`],
       relationshipReferences: [],
       sourceReferences: [],
     }]);
     // The drafting plan block never carries it: the drafter reads Line 242
     // as a prior section.
     expect(plan.block).not.toContain("advancements_answer_242");
-    expect(buildFrozenSummaryPlan({ section: "s246", items: [], skippedRoleIds: [], answers242: { reference: "  " } }).checks[0]?.wording)
-      .toEqual([FROZEN_SUMMARY_PLAN_SCAFFOLD.empty]);
-
-    // Line 242 at its Locked cap: 50 lines of 78 characters, reserved twice over.
+    // Before Line 242 is drafted, the items stand alone; a skipped step and an
+    // empty plan read as such.
+    expect(buildFrozenSummaryPlan({ section: "s246", items, skippedRoleIds: [], answers242: {} }).checks[0]?.wording).toEqual([planItems]);
+    expect(buildFrozenSummaryPlan({ section: "s246", items, skippedRoleIds: ["goal_problem"], answers242: { line242Text: "  " } }).checks[0]?.wording)
+      .toEqual([`${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading}\n- Technological uncertainties: Whether acclimation beats unacclimated seed.`]);
+    expect(buildFrozenSummaryPlan({ section: "s246", items: [], skippedRoleIds: [], answers242: {} }).checks[0]?.wording)
+      .toEqual([`${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading}\n- ${FROZEN_SUMMARY_PLAN_SCAFFOLD.empty}`]);
     expect(MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES).toBe(7_800);
     expect(jsonEscapedUtf8Bytes(ANSWERS_242_WORST_CASE_REFERENCE)).toBe(7_800);
-    const worst = buildFrozenSummaryPlan({ section: "s246", items: [], skippedRoleIds: [], answers242: { reference: ANSWERS_242_WORST_CASE_REFERENCE } });
-    const long = "“Curly” quotes, a line break\nand é. ".repeat(600);
-    const clipped = buildFrozenSummaryPlan({ section: "s246", items: [], skippedRoleIds: [], answers242: { reference: long } });
-    const wording = clipped.checks[0]!.wording[0]!;
-    expect(endsWithClipMark(wording)).toBe(true);
-    expect(jsonEscapedUtf8Bytes(wording)).toBeLessThanOrEqual(MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES);
-    expect(bytes(clipped.checksBlock)).toBeLessThanOrEqual(bytes(worst.checksBlock));
+  });
+
+  it("never clips a Line 242 plan item: only the drafted text is clipped, and admission counts every item (Greptile P1)", () => {
+    // Twenty signed-off Line 242 items, the last an uncertainty an advancement answers.
+    const items = Array.from({ length: 20 }, (_, index) => ({
+      itemId: `item-u${index}`,
+      roleId: "active_uncertainties" as const,
+      kind: "standard" as const,
+      bullets: [`Uncertainty ${index}: whether stepwise acclimation holds at ${index} degrees with seed from warm systems and cold intake water.`],
+      support: "source_supported" as const,
+    }));
+    const advancement = {
+      itemId: "item-advancement",
+      roleId: "specific_advancements" as const,
+      kind: "multiple" as const,
+      bullets: ["Acclimation holds at 19 degrees."],
+      support: "writer_asserted" as const,
+    };
+    const all = [...items, advancement];
+    // A drafted Line 242 far past its cap, with multi-byte characters.
+    const longLine242 = "“Curly” quotes, a line break\nand é in Line 242. ".repeat(400);
+    const plan = buildFrozenSummaryPlan({ section: "s246", items: all, skippedRoleIds: [], answers242: { line242Text: longLine242 } });
+    const wording = plan.checks.find((check) => check.ruleId)!.wording[0]!;
+    const [planPart, draftedPart] = wording.split(`\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242DraftedHeading}\n`);
+    // Every item survives whole, first, in order.
+    expect(planPart).toBe([
+      FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading,
+      ...items.map((item) => `- Technological uncertainties: ${item.bullets[0]}`),
+    ].join("\n"));
+    // Only the drafted text is clipped, with the mark, within the reservation.
+    expect(endsWithClipMark(draftedPart!)).toBe(true);
+    expect(jsonEscapedUtf8Bytes(draftedPart!)).toBeLessThanOrEqual(MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES);
+    expect(longLine242.startsWith(draftedPart!.slice(0, -1).trimEnd())).toBe(true);
+    // Admission counts the same items with the drafted text at its reservation.
+    const admitted = buildFrozenSummaryPlan({ section: "s246", items: all, skippedRoleIds: [], answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } });
+    expect(admitted.checks.find((check) => check.ruleId)!.wording[0]!.startsWith(`${planPart}\n\n`)).toBe(true);
+    expect(bytes(plan.checksBlock)).toBeLessThanOrEqual(bytes(admitted.checksBlock));
+    expect(bytes(buildFrozenSummaryPlan({ section: "s246", items: all, skippedRoleIds: [], answers242: {} }).checksBlock))
+      .toBeLessThan(bytes(admitted.checksBlock));
+    // The exact boundary with every item counted: a cited excerpt fills the
+    // admitted checks block to exactly 64,000 bytes, and one more byte is refused.
+    const withExcerpt = (excerpt: string) => buildFrozenSummaryPlan({
+      section: "s246",
+      items: all,
+      skippedRoleIds: [],
+      sourceRefsByItemId: new Map([["item-advancement", [{ sourceId: "source", exactExcerpt: excerpt }]]]),
+      answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE },
+    });
+    const fill = MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES - bytes(withExcerpt("").checksBlock);
+    expect(fill).toBeGreaterThan(0);
+    // The excerpt appears in the drafting block and the checks block; only
+    // the checks block has the 64,000-byte limit.
+    expect(bytes(withExcerpt("x".repeat(fill)).checksBlock)).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    expect(() => withExcerpt("x".repeat(fill + 1))).toThrow("Expanded Summary plan checks");
+    // A Line 242 at its Locked cap (50 lines of 78 characters) is never clipped.
+    const atCap = Array.from({ length: 50 }, (_, index) => `L${String(index).padStart(2, "0")} ${"w".repeat(74)}`).join(" ");
+    expect(atCap).toHaveLength(50 * 78 + 49);
+    const atCapWording = buildFrozenSummaryPlan({ section: "s246", items: all, skippedRoleIds: [], answers242: { line242Text: atCap } })
+      .checks.find((check) => check.ruleId)!.wording[0]!;
+    expect(atCapWording).toBe(`${planPart}\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242DraftedHeading}\n${atCap}`);
+    // Without counting the items, the same plan would have looked 20 items smaller.
+    const itemBytes = bytes(planPart!);
+    expect(itemBytes).toBeGreaterThan(20 * 100);
   });
 
   it("counts LEAVE OUT and advancement verdicts in the exact 16,384-byte response envelope", () => {

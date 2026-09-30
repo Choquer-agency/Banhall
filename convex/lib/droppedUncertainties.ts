@@ -50,7 +50,8 @@ export const MAX_DESELECT_EVENTS_READ_PER_ROLE = 1024;
  * The Seeds of one step the writer unticked at least once: each `deselect`
  * decision event names its Seed. Only the `select` mutation unticks a Seed,
  * and it always writes that event, so a Seed with one was ticked, then
- * unticked (review P2-1). Read through the event index, bounded.
+ * unticked (review P2-1). Read through the event index, newest first,
+ * bounded.
  */
 export async function deselectedSeedIds(
   ctx: { db: QueryCtx["db"] },
@@ -60,6 +61,9 @@ export async function deselectedSeedIds(
     .query("seedDecisionEvents")
     .withIndex("by_generationId_and_roleId_and_kind_and_at", (q) =>
       q.eq("generationId", args.generationId).eq("roleId", args.roleId).eq("kind", "deselect"))
+    // Review P3-B: newest first, so the latest decisions are read if the
+    // bound is ever reached.
+    .order("desc")
     .take(MAX_DESELECT_EVENTS_READ_PER_ROLE);
   return new Set(events.flatMap((event) => (event.seedId ? [event.seedId] : [])));
 }

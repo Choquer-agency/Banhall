@@ -1488,7 +1488,7 @@ async function frozenSectionPlan(
       // 2026-09-30 (first): as admitted, with the dropped uncertainties and
       // Line 246's advancement check at its reserved worst case.
       droppedUncertainties: (summary.droppedUncertainties ?? []).filter((entry) => !entry.notChecked),
-      ...(section === "s246" ? { answers242: { reference: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+      ...(section === "s246" ? { answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
     });
   });
 }
@@ -10037,7 +10037,8 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
       mergedItemIds: [],
     });
     expect(frozen.s246.answers242).toEqual({ line242Drafted: true });
-    // Line 242's signed-off plan items follow its drafted text (review P3-1).
+    // Line 242's signed-off plan items come first, whole, then its drafted
+    // text (review P3-1, Greptile P1).
     const line242Plan = [
       FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading,
       "- Company / Context: Final company_context wording.",
@@ -10047,7 +10048,7 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
       `- Technological uncertainties: ${KEPT_UNCERTAINTY}`,
     ].join("\n");
     expect(frozen.s246.planChecks.at(-1)?.wording).toEqual([
-      `Line 242 as drafted.\n\nIt states the acclimation uncertainty.\n\n${line242Plan}`,
+      `${line242Plan}\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242DraftedHeading}\nLine 242 as drafted.\n\nIt states the acclimation uncertainty.`,
     ]);
     // Before Line 242 is drafted, all of its signed-off plan items stand in.
     expect(frozen.s246Before242.answers242).toEqual({
@@ -10192,7 +10193,9 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     });
     const probePlan = await frozenSectionPlan(probe, "s246");
     const ruleCheck = probePlan.checks.find((check) => check.ruleId);
-    expect(ruleCheck?.wording).toEqual([ANSWERS_242_WORST_CASE_REFERENCE]);
+    // Line 242's plan items, whole, then the drafted text at its reservation.
+    expect(ruleCheck?.wording[0]?.startsWith(FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading)).toBe(true);
+    expect(ruleCheck?.wording[0]?.endsWith(`\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242DraftedHeading}\n${ANSWERS_242_WORST_CASE_REFERENCE}`)).toBe(true);
     expect(utf8Bytes(ANSWERS_242_WORST_CASE_REFERENCE)).toBe(MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES);
     const excerptLength = MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES - utf8Bytes(projectFrozenSummaryPlanChecks(probePlan.checks));
     expect(excerptLength).toBeGreaterThan(0);

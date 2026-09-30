@@ -38,7 +38,7 @@ import {
   resolveFrozenSourceId,
   MAX_SEED_SNAPSHOT_ROWS,
   ANSWERS_242_WORST_CASE_REFERENCE,
-  FROZEN_SUMMARY_PLAN_SCAFFOLD,
+  line242PlanItems,
   type FrozenDroppedUncertainty,
   type FrozenSummaryPlanInstruction,
   type SummaryPlanRuleId,
@@ -65,7 +65,6 @@ import { editedTermsOf, MAX_EDITED_TERMS_PER_LINE } from "../editedTerms";
 import {
   feedbackForLine,
   glossaryTermPrecedence,
-  stepTitle,
   type FeedbackGovernedTerm,
   type GlossarySetAside,
   type WriterFeedback,
@@ -586,7 +585,7 @@ export async function signOffSeedStageHandler(
         referencesBySeedId,
         sourceRefsByItemId,
         droppedUncertainties: checkedDroppedUncertainties(droppedUncertainties),
-        ...(section === "246" ? { answers242: { reference: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        ...(section === "246" ? { answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
       });
       const ordinaryChecks = summaryOrdinaryAdmission({
         section,
@@ -1070,28 +1069,17 @@ export async function loadFrozenSectionPlan(
   );
   const { sourceRefsByItemId, quotesLeftOut } = await loadSummarySourceRefs(ctx, generation, items);
   const pdSection = section === "242" ? "s242" : section === "244" ? "s244" : "s246";
-  // 2026-09-30 (first, Rule B): Line 242 as drafted, then its signed-off
-  // plan items by step (review P3-1); before it is drafted, the items alone.
-  // The whole reference is clipped to the reservation admission counted.
-  const skippedRoles = new Set(summary.skippedRoleIds);
-  const line242Items = PD_SUBSECTIONS
-    .filter((role) => role.section === "s242" && !skippedRoles.has(role.roleId))
-    .flatMap((role) =>
-      items
-        .filter((item) => item.roleId === role.roleId)
-        .map((item) => ({ roleId: role.roleId, wording: item.bullets })));
-  const line242Plan = [
-    FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading,
-    ...(line242Items.length > 0
-      ? line242Items.map((item) => `- ${stepTitle(item.roleId)}: ${item.wording.join(" ")}`)
-      : [`- ${FROZEN_SUMMARY_PLAN_SCAFFOLD.empty}`]),
-  ].join("\n");
+  // 2026-09-30 (first, Rule B): Line 242's signed-off plan items, whole, then
+  // its drafted text, clipped alone (Greptile P1); before it is drafted, the
+  // items alone. Admission counts the same items with the text at its
+  // reservation (worst_case), so admission and runtime agree.
+  const line242Items = line242PlanItems(items, summary.skippedRoleIds);
   const line242Text = options.answers242?.kind === "drafted" ? options.answers242.line242Text?.trim() ?? "" : "";
-  const answers242Reference = section !== "246" || !options.answers242
+  const answers242 = section !== "246" || !options.answers242
     ? undefined
     : options.answers242.kind === "worst_case"
-      ? ANSWERS_242_WORST_CASE_REFERENCE
-      : line242Text ? `${line242Text}\n\n${line242Plan}` : line242Plan;
+      ? { line242Text: ANSWERS_242_WORST_CASE_REFERENCE }
+      : { line242Text };
   const plan = buildFrozenSummaryPlan({
     section: pdSection,
     items: items.map((item) => ({
@@ -1112,7 +1100,7 @@ export async function loadFrozenSectionPlan(
     referencesBySeedId,
     sourceRefsByItemId,
     droppedUncertainties: checkedDroppedUncertainties(summary.droppedUncertainties),
-    ...(answers242Reference !== undefined ? { answers242: { reference: answers242Reference } } : {}),
+    ...(answers242 !== undefined ? { answers242 } : {}),
   });
   // An edited item's terms: what the writer changed or added compared with
   // the model's original Seed (immutable). Items frozen before 2026-09-24
@@ -1165,7 +1153,7 @@ export async function loadFrozenSectionPlan(
     droppedNotChecked: (summary.droppedUncertainties ?? [])
       .filter((row) => row.notChecked === true)
       .map((row) => ({ seedId: row.seedId, wording: row.wording })),
-    answers242: answers242Reference === undefined
+    answers242: answers242 === undefined
       ? null
       : line242Text
         ? { line242Drafted: true as const }

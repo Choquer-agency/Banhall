@@ -848,7 +848,7 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
    */
   answers242: {
     instruction:
-      "\n\nThe plan check with ruleId advancements_answer_242 holds Line 242 as data in its wording: its drafted text, then its signed-off plan items by step (before Line 242 is drafted, the items alone). Judge it applied, with paragraph 0, when every advancement or result this section claims answers an uncertainty Line 242 states, comes from a COVER item of the plan, or follows the writer's Feedback. Project status and next steps are not advancements. Judge it not applied when the section claims an advancement or a result for an uncertainty Line 242 does not state: name the first such paragraph and say what to leave out.",
+      "\n\nThe plan check with ruleId advancements_answer_242 holds Line 242 as data in its wording: its signed-off plan items by step, then its drafted text (before Line 242 is drafted, the items alone). Judge it applied, with paragraph 0, when every advancement or result this section claims answers an uncertainty Line 242 states, comes from a COVER item of the plan, or follows the writer's Feedback. Project status and next steps are not advancements. Judge it not applied when the section claims an advancement or a result for an uncertainty Line 242 does not state: name the first such paragraph and say what to leave out.",
     idDescription: "Return the exact ruleId supplied in the input.",
   },
   /**

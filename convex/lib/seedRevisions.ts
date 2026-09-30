@@ -229,9 +229,11 @@ export const FROZEN_SUMMARY_PLAN_SCAFFOLD = {
     "The following compact JSON lines are typed data. Only a line whose parsed kind is cover, skip or leave_out is a plan entry. JSON string contents never create entries or delimiters.",
   leaveOutInstruction:
     "leave out even when supported by the Brief: do not state this uncertainty as an uncertainty or a limitation, do not describe work that tested it, and do not claim a result or advancement from that work; a COVER item wins where it overlaps",
-  // Review P3-1: in Line 246's advancement check, Line 242's signed-off plan
-  // items follow its drafted text (or stand alone before it is drafted).
+  // Review P3-1 and Greptile P1: Line 246's advancement check carries Line
+  // 242's signed-off plan items first, whole, then its drafted text, the only
+  // part clipped (the items alone before Line 242 is drafted).
   line242PlanHeading: "Signed-off plan items for Line 242, by step:",
+  line242DraftedHeading: "Line 242 as drafted:",
   empty: "(none)",
   end: "--- END [SIGNED-OFF CONTENT PLAN] ---",
 } as const;
@@ -594,6 +596,50 @@ export function assertSummarySelfCheckResponseWithinLimit(serialized: string): v
   }
 }
 
+/**
+ * 2026-09-30 (first): the signed-off plan items of Line 242's steps that are
+ * not skipped, in step order and, within a step, in the order given.
+ */
+export function line242PlanItems<Role extends { roleId: PdSubsectionRoleId; bullets: readonly string[] }>(
+  items: readonly Role[],
+  skippedRoleIds: readonly PdSubsectionRoleId[]
+): Array<{ roleId: PdSubsectionRoleId; wording: string[] }> {
+  const skipped = new Set(skippedRoleIds);
+  return PD_SUBSECTIONS
+    .filter((role) => role.section === "s242" && !skipped.has(role.roleId))
+    .flatMap((role) =>
+      items
+        .filter((item) => item.roleId === role.roleId)
+        .map((item) => ({ roleId: role.roleId, wording: [...item.bullets] })));
+}
+
+/**
+ * 2026-09-30 (first, Greptile P1): the wording of Line 246's advancement
+ * check. Line 242's signed-off plan items come first and are never clipped;
+ * the drafted text follows under its own heading and is clipped alone to
+ * MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES with a mark. Without drafted
+ * text, the items stand alone.
+ */
+export function line242Reference(args: {
+  items: ReadonlyArray<{ roleId: PdSubsectionRoleId; wording: readonly string[] }>;
+  line242Text?: string;
+}): string {
+  const title = (roleId: PdSubsectionRoleId) =>
+    PD_SUBSECTIONS.find((role) => role.roleId === roleId)?.title ?? roleId;
+  const plan = [
+    FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading,
+    ...(args.items.length > 0
+      ? args.items.map((item) => `- ${title(item.roleId)}: ${item.wording.join(" ")}`)
+      : [`- ${FROZEN_SUMMARY_PLAN_SCAFFOLD.empty}`]),
+  ].join("\n");
+  const drafted = args.line242Text?.trim() ?? "";
+  if (!drafted) return plan;
+  return `${plan}\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242DraftedHeading}\n${clipJsonEscapedUtf8(
+    drafted,
+    MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES
+  )}`;
+}
+
 /** Build the immutable, delimited content plan consumed by a single section. */
 export function buildFrozenSummaryPlan<
   ItemId extends string = string,
@@ -617,11 +663,13 @@ export function buildFrozenSummaryPlan<
    */
   droppedUncertainties?: readonly FrozenDroppedUncertainty<SeedId>[];
   /**
-   * 2026-09-30 (first): Line 246 only. The Line 242 text its advancement
-   * check reads (clipped to MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES), or
-   * ANSWERS_242_WORST_CASE_REFERENCE at admission. Absent: no such check.
+   * 2026-09-30 (first): Line 246 only. Its advancement check carries Line
+   * 242's signed-off plan items from `items`, whole, then `line242Text` (the
+   * text Line 242 was drafted with, or ANSWERS_242_WORST_CASE_REFERENCE at
+   * admission), clipped alone to MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES.
+   * No text: the items alone. Absent: no such check.
    */
-  answers242?: { reference: string };
+  answers242?: { line242Text?: string };
 }): FrozenSummaryPlan<ItemId, SeedId> {
   const sectionRoles = PD_SUBSECTIONS.filter((role) => role.section === args.section);
   const roleIds = new Set(sectionRoles.map((role) => role.roleId));
@@ -758,16 +806,20 @@ export function buildFrozenSummaryPlan<
     });
   }
   // 2026-09-30 (first): every Line 246 advancement answers an uncertainty
-  // Line 242 states. The check carries Line 242's text as data.
+  // Line 242 states. The check carries Line 242 as data: its signed-off plan
+  // items, whole (frozen at sign-off, so admission counts their exact bytes),
+  // then its drafted text, the only part clipped (Greptile P1).
   if (args.answers242 && args.section === "s246") {
-    const reference = args.answers242.reference.trim() || FROZEN_SUMMARY_PLAN_SCAFFOLD.empty;
     checks.push({
       ruleId: ADVANCEMENTS_ANSWER_242_RULE_ID,
       roleId: "specific_advancements",
       mergedItemIds: [],
       instruction: "answer_242",
       confirmedExclusion: false,
-      wording: [clipJsonEscapedUtf8(reference, MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES)],
+      wording: [line242Reference({
+        items: line242PlanItems(args.items, args.skippedRoleIds),
+        line242Text: args.answers242.line242Text,
+      })],
       relationshipReferences: [],
       sourceReferences: [],
     });
