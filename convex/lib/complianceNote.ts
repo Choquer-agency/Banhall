@@ -19,8 +19,10 @@ export const compliancePlanRefValidator = v.object({
   // 2026-09-30 (first): the row for an uncertainty the writer dropped, left
   // out of this Line, and the row for Line 246's check that every advancement
   // answers an uncertainty Line 242 states. Absent on every other row.
+  // (second, Rule C, widened): the row for Line 244's check that its work
+  // answers Line 242 or a signed-off item.
   droppedSeedId: v.optional(v.id("seeds")),
-  ruleId: v.optional(v.literal("advancements_answer_242")),
+  ruleId: v.optional(v.union(v.literal("advancements_answer_242"), v.literal("work_answers_242"))),
   mergedItemIds: v.array(v.id("summaryItems")),
 });
 export type CompliancePlanRef = Infer<typeof compliancePlanRefValidator>;

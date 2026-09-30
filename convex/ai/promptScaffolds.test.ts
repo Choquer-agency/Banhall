@@ -516,9 +516,12 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       invalidVerdicts: "dropped-and-asked-for-unless-most-are-invalid",
       unreadableLists: "read-as-empty-and-asked-for-unless-neither-is-a-list",
       editedTerms: "allowed-word-for-word-invention-objections-set-aside",
-      writerPrecedence: "kept-ideas-judged-for-coverage-feedback-governs-named-glossary-terms-by-label",
+      writerPrecedence: "kept-ideas-judged-for-coverage-feedback-governs-named-glossary-terms-by-label-even-in-unedited-signed-off-ideas",
       droppedUncertainties: "left-out-in-every-line-one-plan-check-each-by-dropped-seed-id-at-most-three",
       advancementsAnswer242: "line-246-plan-check-with-line-242-text-as-data-honoured-by-absence",
+      workAnswers242: "line-244-plan-check-with-line-242-text-and-line-246-items-as-data-honoured-by-absence",
+      coverItemsFirst: "leave-out-and-rule-checks-compare-every-cover-item-before-not-applied",
+      leaveOutFigureBackstop: "not-applied-leave-out-on-a-paragraph-without-dropped-figures-citing-only-plan-figures-recorded-applied-no-repair",
       extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
     });
     expect(generationPromptProgram.templates.seeds.summaryPlan).toEqual({
@@ -585,7 +588,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
           ...generationPromptProgram.templates.seeds,
           summaryPlan: {
             ...generationPromptProgram.templates.seeds.summaryPlan,
-            serializerVersion: "summary-plan-jsonl-v3",
+            serializerVersion: "summary-plan-jsonl-v4",
           },
         },
       },

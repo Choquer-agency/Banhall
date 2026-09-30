@@ -109,6 +109,8 @@ import {
   type FrozenSummaryPlanInstruction,
   type SummaryPlanRuleId,
 } from "../lib/seedRevisions";
+import { sectionParagraphs } from "../lib/tiptapReport";
+import { distinctiveFigures, figuresOf } from "../../shared/planFigures";
 import { forwardOrderedPayload } from "../lib/orderedPayloadStore";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 
@@ -165,7 +167,12 @@ export function repairGuidanceBlock(
   draft: string,
   editedTerms: readonly string[] = [],
   /** 2026-09-29 (second): the Line has WRITER'S DECISIONS. */
-  writerDecisions = false
+  writerDecisions = false,
+  /**
+   * 2026-09-30 (second): a Glossary Term the writer's Feedback governs is
+   * used by an unedited signed-off idea of the Line.
+   */
+  governedInIdea = false
 ): string {
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.repairGuidance;
   const terms =
@@ -174,7 +181,9 @@ export function repairGuidanceBlock(
       : "";
   return `${scaffold.prefix}${issues
     .map((issue) => `${scaffold.issuePrefix}${issue}`)
-    .join(scaffold.issueSeparator)}${terms}${writerDecisions ? scaffold.writerDecisions : ""}${scaffold.draftPrefix}${draft}`;
+    .join(scaffold.issueSeparator)}${terms}${writerDecisions ? scaffold.writerDecisions : ""}${
+    governedInIdea ? scaffold.governedRename : ""
+  }${scaffold.draftPrefix}${draft}`;
 }
 
 /**
@@ -202,6 +211,10 @@ export function writerDecisionsBlock(args: {
     return "";
   }
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.writerDecisions;
+  // 2026-09-30 (second): a governed term an unedited signed-off idea uses is
+  // renamed there as the Feedback asks; the intro says renaming is not
+  // rewording. Every other Line keeps its bytes.
+  const renaming = governedTerms.some((entry) => entry.inSignedOffIdea === true);
   const kept = args.confirmed.length > 0
     ? `${scaffold.keptIntro}${args.confirmed
         .map((conflict) =>
@@ -216,7 +229,7 @@ export function writerDecisionsBlock(args: {
   // line (quoteForPrompt), so an instruction can never close the block or
   // pose as a rule, and a name after a line break is still masked.
   const feedback = args.feedback.length > 0
-    ? `${scaffold.feedbackIntro}${scaffold.feedbackBegin}${args.feedback
+    ? `${renaming ? scaffold.feedbackIntroRenaming : scaffold.feedbackIntro}${scaffold.feedbackBegin}${args.feedback
         .map((entry) =>
           `${scaffold.feedbackPrefix}${stepTitle(entry.roleId)}${scaffold.feedbackMiddle}${quoteForPrompt(entry.instruction)}`)
         .join("")}${scaffold.feedbackEnd}`
@@ -224,7 +237,9 @@ export function writerDecisionsBlock(args: {
   const governed = governedTerms.length > 0
     ? `${scaffold.governedIntro}${governedTerms
         .map((entry) =>
-          `${scaffold.governedPrefix}${quoteForPrompt(entry.term)}${scaffold.governedMiddle}${governingFeedbackPhrase(entry.feedback)}`)
+          `${scaffold.governedPrefix}${quoteForPrompt(entry.term)}${scaffold.governedMiddle}${governingFeedbackPhrase(entry.feedback)}${
+            entry.inSignedOffIdea ? scaffold.governedInIdea : ""
+          }`)
         .join("")}`
     : "";
   const glossary = args.glossarySetAside.length > 0
@@ -423,6 +438,10 @@ export function leaveOutInstruction(wording: readonly string[]): string {
 export const ANSWERS_242_INSTRUCTION =
   "Claim an advancement only for an uncertainty Line 242 states";
 
+/** 2026-09-30 (second, Rule C): the Compliance Note instruction for Line 244's work check. */
+export const WORK_ANSWERS_242_INSTRUCTION =
+  "Describe work only for an uncertainty Line 242 states, or work a signed-off item holds or needs as its evidence";
+
 /** How a plan check reads as a Compliance Note instruction. */
 function planInstruction(expected: PlanCheck): string {
   switch (expected.instruction) {
@@ -432,6 +451,8 @@ function planInstruction(expected: PlanCheck): string {
       return leaveOutInstruction(expected.wording);
     case "answer_242":
       return ANSWERS_242_INSTRUCTION;
+    case "work_answer_242":
+      return WORK_ANSWERS_242_INSTRUCTION;
     default:
       return `Cover signed-off Summary item ${expected.itemId}`;
   }
@@ -465,7 +486,8 @@ export function droppedNotCheckedNoteDrafts(args: {
 /**
  * 2026-09-30 (first): the repair issue for a LEAVE OUT check or Line 246's
  * advancement check the Self-check found broken: a fixed start naming what
- * to leave out, then the check's own guidance.
+ * to leave out, then the check's own guidance. Since (second) Line 244's
+ * work check too (Rule C).
  */
 export function leaveOutRepairIssue(
   check: Pick<PlanCheck, "instruction" | "wording">,
@@ -478,8 +500,92 @@ export function leaveOutRepairIssue(
     : `${scaffold.paragraphPrefix}${verdict.paragraphIndex + 1}${scaffold.paragraphSuffix}`;
   const fix = check.instruction === "leave_out"
     ? `${scaffold.leaveOutPrefix}${quoteForPrompt(ideaWords(check.wording, 200))}${scaffold.leaveOutSuffix}`
-    : scaffold.answers242Issue;
+    : check.instruction === "work_answer_242"
+      ? scaffold.workAnswers242Issue
+      : scaffold.answers242Issue;
   return `${where}${fix}${guidance}`;
+}
+
+/** The plan checks whose fix leaves content out, repaired with a fixed start. */
+function leavesContentOut(instruction: FrozenSummaryPlanInstruction | undefined): boolean {
+  return instruction === "leave_out" || instruction === "answer_242" || instruction === "work_answer_242";
+}
+
+/** How many of the dropped uncertainty's own figures a backstop reason names. */
+const MAX_BACKSTOP_FIGURES_NAMED = 6;
+
+/**
+ * 2026-09-30 (second): the deterministic backstop for LEAVE OUT verdicts.
+ * Release suite run 11 recorded Line 244's LEAVE OUT row not applied ("P3
+ * states stall durations (19 vs 6 days), close to dropped...") for signed-off
+ * experiment item 9. A not applied verdict that names a paragraph holding
+ * none of the dropped uncertainty's distinctive figures (a figure with its
+ * unit in its wording or its Seeds' wording that no signed-off item uses),
+ * whose reason cites at least one figure, each in a signed-off item's
+ * wording, flagged a signed-off item: it is recorded applied with a fixed
+ * reason and sent to no repair. A dropped uncertainty with no distinctive
+ * figure, a reason citing none, or a paragraph holding one keeps the model's
+ * verdict. Returns the replacement verdict, or null.
+ */
+export function leaveOutFigureBackstop(args: {
+  check: {
+    instruction: FrozenSummaryPlanInstruction;
+    droppedSeedId?: string;
+    wording: readonly string[];
+    relationshipReferences: ReadonlyArray<{ wording: readonly string[] }>;
+  };
+  verdict: PlanVerdicts[number];
+  text: string;
+  /** The wording of every signed-off item of the plan, skipped steps aside. */
+  planWording: ReadonlyArray<readonly string[]>;
+}): PlanVerdicts[number] | null {
+  const { check, verdict } = args;
+  if (check.instruction !== "leave_out" || check.droppedSeedId === undefined) return null;
+  if (verdict.outcome !== "not_applied" || verdict.actionableRepair === false) return null;
+  if (verdict.paragraphIndex === undefined) return null;
+  const paragraph = sectionParagraphs(args.text)[verdict.paragraphIndex];
+  if (paragraph === undefined) return null;
+  const planTexts = args.planWording.map((wording) => wording.join(" "));
+  const dropped = distinctiveFigures(
+    [check.wording.join(" "), ...check.relationshipReferences.map((reference) => reference.wording.join(" "))],
+    planTexts
+  );
+  if (dropped.length === 0) return null;
+  const present = new Set(figuresOf(paragraph));
+  if (dropped.some((figure) => present.has(figure))) return null;
+  const cited = figuresOf(verdict.reason);
+  if (cited.length === 0) return null;
+  const planFigures = new Set(planTexts.flatMap(figuresOf));
+  if (!cited.every((figure) => planFigures.has(figure))) return null;
+  const named = dropped.slice(0, MAX_BACKSTOP_FIGURES_NAMED).join(", ");
+  return {
+    droppedSeedId: check.droppedSeedId,
+    mergedItemIds: [...verdict.mergedItemIds],
+    outcome: "applied",
+    reason: `The flagged content is a signed-off item: the Self-check flagged paragraph ${verdict.paragraphIndex + 1} ("${verdict.reason}"), but every figure it cited (${cited.join(", ")}) is in the signed-off plan's wording, and the paragraph holds none of the dropped uncertainty's own figures (${named}${dropped.length > MAX_BACKSTOP_FIGURES_NAMED ? ", ..." : ""}). Not sent to the repair.`,
+  };
+}
+
+/** Every LEAVE OUT verdict the figure backstop replaces, replaced. */
+function withLeaveOutBackstop(
+  verdicts: PlanVerdicts,
+  checks: readonly PlanCheck[],
+  text: string,
+  planWording: ReadonlyArray<readonly string[]>,
+  label: string
+): PlanVerdicts {
+  let replaced = 0;
+  const out = verdicts.map((verdict) => {
+    const check = checks.find((candidate) => sameSummaryPlanRef(verdict, candidate));
+    const backstop = check ? leaveOutFigureBackstop({ check, verdict, text, planWording }) : null;
+    if (!backstop) return verdict;
+    replaced += 1;
+    return backstop;
+  });
+  if (replaced > 0) {
+    console.warn(`${label}: ${replaced} LEAVE OUT verdict(s) flagged a signed-off item by its figures; recorded applied and not repaired`);
+  }
+  return out;
 }
 
 /**
@@ -504,6 +610,41 @@ export function advancementsAnswer242Block(
         .join("")
     : scaffold.none;
   return `${scaffold.heading}${scaffold.planned}${scaffold.rest}${listed}`;
+}
+
+/**
+ * 2026-09-30 (second, Rule C): Line 244's drafting instruction in a
+ * signed-off plan run, read after the WRITER'S DECISIONS: its work is for an
+ * uncertainty Line 242 states, or work a COVER item holds or needs as its
+ * evidence. The signed-off Line 246 items follow it by step (and, before Line
+ * 242 is drafted, Line 242's). Empty for every other Line and every run
+ * without a signed-off plan.
+ */
+export function workAnswers242Block(
+  workAnswers242:
+    | null
+    | undefined
+    | {
+        line242Drafted: true;
+        line246Items: ReadonlyArray<{ roleId: PdSubsectionRoleId; wording: readonly string[] }>;
+      }
+    | {
+        line242Drafted: false;
+        items: ReadonlyArray<{ roleId: PdSubsectionRoleId; wording: readonly string[] }>;
+        line246Items: ReadonlyArray<{ roleId: PdSubsectionRoleId; wording: readonly string[] }>;
+      }
+): string {
+  if (!workAnswers242) return "";
+  const scaffold = ORDERED_PROMPT_SCAFFOLDS.workAnswers242;
+  const listed = (items: ReadonlyArray<{ roleId: PdSubsectionRoleId; wording: readonly string[] }>) =>
+    items.length > 0
+      ? items
+          .map((item) => `${scaffold.itemPrefix}${stepTitle(item.roleId)}${scaffold.itemMiddle}${quoteForPrompt(item.wording.join(" "))}`)
+          .join("")
+      : scaffold.none;
+  const line246 = `${scaffold.line246Heading}${listed(workAnswers242.line246Items)}`;
+  if (workAnswers242.line242Drafted) return `${scaffold.heading}${scaffold.drafted}${scaffold.rest}${line246}`;
+  return `${scaffold.heading}${scaffold.planned}${scaffold.rest}${scaffold.line242Heading}${listed(workAnswers242.items)}${line246}`;
 }
 
 /**
@@ -826,8 +967,19 @@ export async function draftCheckedSection(input: {
     feedbackTerms,
   });
   // 2026-09-30 (first, Rule B): Line 246 of a signed-off plan run claims an
-  // advancement only for an uncertainty Line 242 states. Empty otherwise.
-  const answers242 = section === "246" ? advancementsAnswer242Block(claim.answers242) : "";
+  // advancement only for an uncertainty Line 242 states. (second, Rule C):
+  // Line 244 describes work only for one, or for a signed-off item. Empty
+  // otherwise.
+  const answers242 = section === "246"
+    ? advancementsAnswer242Block(claim.answers242)
+    : section === "244"
+      ? workAnswers242Block(claim.workAnswers242)
+      : "";
+  // 2026-09-30 (second): the wording of every signed-off item, for the LEAVE
+  // OUT figure backstop. Claims loaded before carry none: the Line's own
+  // COVER items stand in.
+  const planWording: ReadonlyArray<readonly string[]> = claim.planWording ??
+    claim.planChecks.filter((planCheck) => planCheck.instruction === "cover").map((planCheck) => planCheck.wording);
   // Review P3-6: the checked text is over a Locked limit and further over
   // it than the other text, which must never be traded back for it.
   const overLimitMore = (checked: string, other: string) =>
@@ -933,7 +1085,13 @@ export async function draftCheckedSection(input: {
     verdicts = result.verdicts;
     storylineQuestion = result.storylineQuestion;
     storylineQuestionWithheld = result.storylineQuestionWithheld;
-    planVerdicts = result.planVerdicts;
+    planVerdicts = withLeaveOutBackstop(
+      result.planVerdicts,
+      claim.planChecks,
+      text,
+      planWording,
+      `generation:selfCheck:${section}`
+    );
     if (storylineQuestionWithheld) {
       console.warn(
         `generation:selfCheck:${section}: Storyline question withheld: ${storylineQuestionWithheld}`
@@ -981,8 +1139,9 @@ export async function draftCheckedSection(input: {
         }
         // 2026-09-30 (first): content of an uncertainty the writer dropped,
         // or a Line 246 advancement that answers no Line 242 uncertainty,
-        // goes to the repair with a fixed start and the check's guidance.
-        if (expected?.instruction === "leave_out" || expected?.instruction === "answer_242") {
+        // goes to the repair with a fixed start and the check's guidance;
+        // since (second) Line 244 work for one too (Rule C).
+        if (leavesContentOut(expected?.instruction) && expected) {
           const issue = leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason);
           leaveOutIssues.add(issue);
           return [issue];
@@ -1012,7 +1171,13 @@ export async function draftCheckedSection(input: {
       // appended: a separate model interaction, never an inline edit.
       const repaired = await draftWith(
         `generation:repair:${section}`,
-        repairGuidanceBlock(issues, text, claim.editedTerms, decisions !== "")
+        repairGuidanceBlock(
+          issues,
+          text,
+          claim.editedTerms,
+          decisions !== "",
+          feedbackTerms.some((entry) => entry.inSignedOffIdea === true)
+        )
       );
       if (repaired.trim()) {
         // 2026-09-28 (second): the repair is a whole new draft, so it is
@@ -1129,7 +1294,16 @@ export async function draftCheckedSection(input: {
           ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
         }
       );
-      finalCoverage = { ok: true, verdicts: final.planVerdicts };
+      finalCoverage = {
+        ok: true,
+        verdicts: withLeaveOutBackstop(
+          final.planVerdicts,
+          claim.planChecks,
+          finalText,
+          planWording,
+          `generation:selfCheck:${section}: final coverage`
+        ),
+      };
       if (feedbackTerms.length > 0) governedFinal = { ok: true, verdicts: final.verdicts };
     } catch (error) {
       // Stored beside modelCheckDetail with the same diagnostic: the clause,
@@ -1511,6 +1685,8 @@ export const finalizeOrderedCandidate = internalAction({
             glossaryTerms: drafts.brief?.glossaryTerms ?? [],
             model: clientFor.modelFor("generation:consistency"),
             writerPrecedence: drafts.writerPrecedence,
+            // 2026-09-30 (second): Rules A, B and C, ranges and times.
+            ...(payload.summaryVersionId !== undefined ? { signedOffPlan: true } : {}),
           });
           notes = [
             ...consistencyNoteDrafts(pass.findings),
@@ -1803,6 +1979,8 @@ export const finalizeSeedRedraft = internalAction({
           glossaryTerms: input.brief?.glossaryTerms ?? [],
           model: route.model,
           writerPrecedence: input.writerPrecedence,
+          // 2026-09-30 (second): Rules A, B and C, ranges and times.
+          ...(input.signedOffPlan ? { signedOffPlan: true } : {}),
         });
         notes = [
           ...consistencyNoteDrafts(pass.findings),

@@ -41,9 +41,23 @@ export type GlossarySetAside = { term: string; reason: string };
 /**
  * A Glossary Term the writer's active Feedback names in a Line, with every
  * instruction that names it: that Feedback governs the term there, not the
- * Brief (2026-09-29 second, rule 5(c)).
+ * Brief (2026-09-29 second, rule 5(c)). `inSignedOffIdea` (2026-09-30,
+ * second): an unedited signed-off idea of the Line uses the term, and the
+ * Feedback still governs it, since renaming is wording, not meaning. Absent
+ * otherwise, so those requests keep their bytes.
  */
-export type FeedbackGovernedTerm = { term: string; feedback: WriterFeedback[] };
+export type FeedbackGovernedTerm = {
+  term: string;
+  feedback: WriterFeedback[];
+  inSignedOffIdea?: true;
+};
+
+/**
+ * 2026-09-30 (second): what the drafting block, the Self-check label and the
+ * repair issue add after a governed term an unedited signed-off idea uses.
+ */
+export const GOVERNED_IN_IDEA_CLAUSE =
+  ", also where a signed-off idea uses the term (renaming it is wording, not meaning: keep the idea's meaning)";
 
 /** What the writer's wording decides about the Brief's Glossary Terms in a Line. */
 export type GlossaryPrecedence = {
@@ -235,10 +249,16 @@ function uniqueTerms(terms: readonly string[]): string[] {
  * Line (CAP-13 rule 5: Locked Rules, then the signed-off selections, then
  * the writer's active Feedback, then the Brief; Glossary Terms normalize
  * wording only). For each term, in precedence order:
- * - a signed-off idea drafted in the Line uses it: it stays in force as a
- *   Glossary Term (review P3-2: the selections outrank the Feedback, and a
- *   term one edit dropped while other ideas keep it is still the Line's
- *   word);
+ * - the writer's own edit put or kept it in an idea drafted in the Line: it
+ *   stays in force as a Glossary Term (review P3-2: the writer's edits
+ *   outrank the Feedback);
+ * - else an unedited signed-off idea drafted in the Line uses it: an active
+ *   Feedback instruction that reaches the Line and names it governs it all
+ *   the same (2026-09-30 second, release suite run 11: renaming a term is
+ *   wording, not meaning, and the idea's meaning stays), marked
+ *   `inSignedOffIdea`; without such Feedback it stays in force as a Glossary
+ *   Term (a term one edit dropped while other ideas keep it is still the
+ *   Line's word);
  * - else a signed-off edit to an idea of the Line took it out of the model's
  *   wording: it is set aside, deterministically;
  * - else an active Feedback instruction that reaches the Line names it: that
@@ -257,7 +277,21 @@ export function glossaryTermPrecedence(args: {
   const setAside: GlossarySetAside[] = [];
   const governed: FeedbackGovernedTerm[] = [];
   for (const term of uniqueTerms(args.glossaryTerms)) {
-    if (args.selectionWording.some((wording) => namesTerm(wording.join("\n"), term))) continue;
+    // Greptile round 4, P1: in the order the writer gave them, so the one
+    // listed last is the most recent, whatever step each was given on.
+    const naming = inOrderGiven(
+      args.feedback.filter((feedback) => namesTerm(feedback.instruction, term))
+    );
+    // The writer's own edit put or kept the term in an idea: the edit wins.
+    if (args.editedItems.some((item) => namesTerm(item.edited.join("\n"), term))) continue;
+    if (args.selectionWording.some((wording) => namesTerm(wording.join("\n"), term))) {
+      // 2026-09-30 (second): an unedited idea's term is model wording, which
+      // the writer's Feedback outranks: renaming it keeps the idea's meaning.
+      if (naming.length > 0) {
+        governed.push({ term, feedback: naming.map((entry) => ({ ...entry })), inSignedOffIdea: true });
+      }
+      continue;
+    }
     const byEdit = args.editedItems.find((item) =>
       namesTerm(item.original.join("\n"), term) && !namesTerm(item.edited.join("\n"), term)
     );
@@ -268,11 +302,6 @@ export function glossaryTermPrecedence(args: {
       });
       continue;
     }
-    // Greptile round 4, P1: in the order the writer gave them, so the one
-    // listed last is the most recent, whatever step each was given on.
-    const naming = inOrderGiven(
-      args.feedback.filter((feedback) => namesTerm(feedback.instruction, term))
-    );
     if (naming.length > 0) {
       governed.push({ term, feedback: naming.map((entry) => ({ ...entry })) });
     }
@@ -349,9 +378,13 @@ export function governedTermNotFollowed(state: GovernedTermState): boolean {
 export function governedTermReason(
   feedback: readonly WriterFeedback[],
   state: GovernedTermState,
-  detail?: string
+  detail?: string,
+  /** 2026-09-30 (second): an unedited signed-off idea of the Line uses the term. */
+  inSignedOffIdea = false
 ): string {
-  const base = `The writer's Feedback governs this term in this Line, not the Brief: follow the writer's Feedback ${governingFeedbackPhrase(feedback)}.`;
+  const base = inSignedOffIdea
+    ? `The writer's Feedback governs this term in this Line, not the Brief, even where a signed-off idea uses it (renaming is wording, not meaning, so the idea's meaning stays): follow the writer's Feedback ${governingFeedbackPhrase(feedback)}.`
+    : `The writer's Feedback governs this term in this Line, not the Brief: follow the writer's Feedback ${governingFeedbackPhrase(feedback)}.`;
   switch (state) {
     case "followed":
       return `${base} The Self-check found that the text follows it.`;

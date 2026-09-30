@@ -308,6 +308,7 @@ export async function orderedSectionClaim(
     glossaryTerms: brief?.glossaryTerms ?? [],
     // 2026-09-30 (first, Rule B): Line 246's advancement check reads Line
     // 242 as drafted before it (the drafter reads the same prior section).
+    // (second, Rule C): so does Line 244's work check.
     answers242: {
       kind: "drafted",
       line242Text: args.priorSections.find((prior) => prior.section === "242")?.text,

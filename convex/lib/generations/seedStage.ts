@@ -39,6 +39,7 @@ import {
   MAX_SEED_SNAPSHOT_ROWS,
   ANSWERS_242_WORST_CASE_REFERENCE,
   line242PlanItems,
+  line246PlanItems,
   type FrozenDroppedUncertainty,
   type FrozenSummaryPlanInstruction,
   type SummaryPlanRuleId,
@@ -578,6 +579,8 @@ export async function signOffSeedStageHandler(
       // 2026-09-30 (first): every Line's LEAVE OUT checks, and Line 246's
       // advancement check with Line 242 at its reserved worst case, are
       // counted, so the runtime requests never exceed what is admitted.
+      // (second, Rule C): so is Line 244's work check, with Line 242 at the
+      // same reservation and Line 246's signed-off items whole.
       const plan = buildFrozenSummaryPlan({
         section: `s${section}`,
         items: frozenItems,
@@ -586,6 +589,7 @@ export async function signOffSeedStageHandler(
         sourceRefsByItemId,
         droppedUncertainties: checkedDroppedUncertainties(droppedUncertainties),
         ...(section === "246" ? { answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        ...(section === "244" ? { workAnswers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
       });
       const ordinaryChecks = summaryOrdinaryAdmission({
         section,
@@ -967,10 +971,11 @@ export async function loadFrozenSectionPlan(
   options: {
     glossaryTerms?: readonly string[];
     /**
-     * 2026-09-30 (first): Line 246 only, Rule B. `worst_case` at admission,
-     * where Line 242 is reserved at its cap; otherwise the text Line 242 was
-     * drafted with, when it was drafted before this Line (without it, the
-     * plan's signed-off uncertainties stand in). Absent: no such check.
+     * 2026-09-30 (first): Line 246 only, Rule B; since (second) Line 244 too,
+     * Rule C. `worst_case` at admission, where Line 242 is reserved at its
+     * cap; otherwise the text Line 242 was drafted with, when it was drafted
+     * before this Line (without it, the plan's signed-off items stand in).
+     * Absent: no such check.
      */
     answers242?: { kind: "worst_case" } | { kind: "drafted"; line242Text?: string };
   } = {}
@@ -1035,6 +1040,28 @@ export async function loadFrozenSectionPlan(
     | null
     | { line242Drafted: true }
     | { line242Drafted: false; items: Array<{ roleId: PdSubsectionRoleId; wording: string[] }> };
+  /**
+   * 2026-09-30 (second, Rule C): Line 244 of a signed-off plan only. Whether
+   * Line 242 was drafted before it, otherwise its signed-off items by step,
+   * and Line 246's signed-off items by step, whose work stays in Line 244.
+   */
+  workAnswers242:
+    | null
+    | {
+        line242Drafted: true;
+        line246Items: Array<{ roleId: PdSubsectionRoleId; wording: string[] }>;
+      }
+    | {
+        line242Drafted: false;
+        items: Array<{ roleId: PdSubsectionRoleId; wording: string[] }>;
+        line246Items: Array<{ roleId: PdSubsectionRoleId; wording: string[] }>;
+      };
+  /**
+   * 2026-09-30 (second): the wording of every signed-off item of the plan
+   * (skipped steps aside), whatever its Line. The LEAVE OUT figure check
+   * reads which figures the plan uses. Never sent to a model.
+   */
+  planWording: string[][];
 }> {
   if (!generation.summaryVersionId) {
     return {
@@ -1047,6 +1074,8 @@ export async function loadFrozenSectionPlan(
       feedbackTerms: [],
       droppedNotChecked: [],
       answers242: null,
+      workAnswers242: null,
+      planWording: [],
     };
   }
   const summary = await ctx.db.get(generation.summaryVersionId);
@@ -1075,11 +1104,16 @@ export async function loadFrozenSectionPlan(
   // reservation (worst_case), so admission and runtime agree.
   const line242Items = line242PlanItems(items, summary.skippedRoleIds);
   const line242Text = options.answers242?.kind === "drafted" ? options.answers242.line242Text?.trim() ?? "" : "";
-  const answers242 = section !== "246" || !options.answers242
+  const line242Reference = !options.answers242
     ? undefined
     : options.answers242.kind === "worst_case"
       ? { line242Text: ANSWERS_242_WORST_CASE_REFERENCE }
       : { line242Text };
+  const answers242 = section === "246" ? line242Reference : undefined;
+  // 2026-09-30 (second, Rule C): Line 244's work check reads Line 242 the
+  // same way, then Line 246's signed-off items, whole.
+  const workAnswers242 = section === "244" ? line242Reference : undefined;
+  const line246Items = line246PlanItems(items, summary.skippedRoleIds);
   const plan = buildFrozenSummaryPlan({
     section: pdSection,
     items: items.map((item) => ({
@@ -1101,6 +1135,7 @@ export async function loadFrozenSectionPlan(
     sourceRefsByItemId,
     droppedUncertainties: checkedDroppedUncertainties(summary.droppedUncertainties),
     ...(answers242 !== undefined ? { answers242 } : {}),
+    ...(workAnswers242 !== undefined ? { workAnswers242 } : {}),
   });
   // An edited item's terms: what the writer changed or added compared with
   // the model's original Seed (immutable). Items frozen before 2026-09-24
@@ -1158,6 +1193,14 @@ export async function loadFrozenSectionPlan(
       : line242Text
         ? { line242Drafted: true as const }
         : { line242Drafted: false as const, items: line242Items },
+    workAnswers242: workAnswers242 === undefined
+      ? null
+      : line242Text
+        ? { line242Drafted: true as const, line246Items }
+        : { line242Drafted: false as const, items: line242Items, line246Items },
+    planWording: items
+      .filter((item) => !summary.skippedRoleIds.includes(item.roleId))
+      .map((item) => [...item.bullets]),
     planBlock: `\n\n${plan.block}`,
     planChecksBlock: plan.checksBlock,
     planChecks: plan.checks.map((check) => ({
@@ -1200,7 +1243,8 @@ export async function assertFrozenSummaryRuntimeAdmission(
   try {
     for (const section of ["242", "244", "246"] as const) {
       // 2026-09-30 (first): Line 246's advancement check is admitted with
-      // Line 242 at its reserved worst case, as at sign-off.
+      // Line 242 at its reserved worst case, as at sign-off; since (second)
+      // Line 244's work check too (Rule C).
       const plan = await loadFrozenSectionPlan(ctx, generation, section, {
         answers242: { kind: "worst_case" },
       });

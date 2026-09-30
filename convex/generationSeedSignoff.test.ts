@@ -43,7 +43,7 @@ import {
 import { currentPromptVersion } from "./ai/promptProgram";
 import { buildConsistencyUserMessage, summaryPlanSelfCheckSchemaFor } from "./ai/selfCheck";
 import { summarizeSlotUsage } from "./ai/instrument";
-import { COMPRESSION_REQUEST, SUMMARY_PLAN_SELF_CHECK_REQUEST } from "./ai/promptDefinitions";
+import { COMPRESSION_REQUEST, CONSISTENCY_REQUEST, SUMMARY_PLAN_SELF_CHECK_REQUEST } from "./ai/promptDefinitions";
 import { SECTION_246_REQUEST } from "./ai/section246Agent";
 import type {
   getOutline,
@@ -1205,7 +1205,13 @@ async function frozenS242OracleChecks(
 }
 
 async function frozenS244OracleChecks(
-  s: Awaited<ReturnType<typeof decisionFixture>>
+  s: Awaited<ReturnType<typeof decisionFixture>>,
+  /**
+   * 2026-09-30 (second, Rule C): the text Line 242 was drafted with. The
+   * oracle then ends with Line 244's work check, built here word by word
+   * from the persisted items, independent of the production builder.
+   */
+  line242Text?: string
 ): Promise<FrozenSummaryPlanCheck[]> {
   return await s.t.run(async (ctx) => {
     const generation = await ctx.db.get(s.generationId);
@@ -1258,6 +1264,32 @@ async function frozenS244OracleChecks(
           });
         }
       }
+    }
+    if (line242Text !== undefined) {
+      const lineItems = (section: "s242" | "s246") => PD_SUBSECTIONS
+        .filter((role) => role.section === section && !summary.skippedRoleIds.includes(role.roleId))
+        .flatMap((role) => items
+          .filter((item) => item.roleId === role.roleId)
+          .map((item) => `- ${role.title}: ${item.bullets.join(" ")}`));
+      checks.push({
+        ruleId: "work_answers_242",
+        roleId: "experimentation",
+        mergedItemIds: [],
+        instruction: "work_answer_242",
+        confirmedExclusion: false,
+        wording: [[
+          "Signed-off plan items for Line 242, by step:",
+          ...lineItems("s242"),
+          "",
+          "Line 242 as drafted:",
+          line242Text,
+          "",
+          "Signed-off plan items for Line 246, by step:",
+          ...lineItems("s246"),
+        ].join("\n")],
+        relationshipReferences: [],
+        sourceReferences: [],
+      });
     }
     return checks;
   });
@@ -1486,9 +1518,11 @@ async function frozenSectionPlan(
       referencesBySeedId,
       sourceRefsByItemId,
       // 2026-09-30 (first): as admitted, with the dropped uncertainties and
-      // Line 246's advancement check at its reserved worst case.
+      // Line 246's advancement check at its reserved worst case; (second)
+      // and Line 244's work check (Rule C).
       droppedUncertainties: (summary.droppedUncertainties ?? []).filter((entry) => !entry.notChecked),
       ...(section === "s246" ? { answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+      ...(section === "s244" ? { workAnswers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
     });
   });
 }
@@ -3072,7 +3106,9 @@ describe("seed Summary sign-off and recovery", () => {
       .find((params) => params.tool_choice?.name === "submit_self_check");
     if (!selfCheckRequest) throw new Error("Missing Section 244 Self-check request");
     const providerChecks = providerPlanChecks(selfCheckRequest);
-    const persistedChecks = await frozenS244OracleChecks(s);
+    // 2026-09-30 (second, Rule C): the request ends with Line 244's work
+    // check, with Line 242 as drafted before it.
+    const persistedChecks = await frozenS244OracleChecks(s, "The team tested a repaired control response.");
     expect(providerChecks).toEqual(persistedChecks);
     expect(() => assertClosedOracleChecks(persistedChecks)).not.toThrow();
     expect(persistedChecks.filter((check) => check.skippedRoleId)).toHaveLength(2);
@@ -3119,11 +3155,13 @@ describe("seed Summary sign-off and recovery", () => {
       replayHashes[mutation] = await testSha256(mutatedProduction);
     }
     expect(productionSerialized).toBe(fixedExpectedOracle);
+    // Re-pinned 2026-09-30 (second): the envelope gains Line 244's work
+    // verdict (Rule C); it still equals the independent oracle above.
     expect(replayHashes).toEqual({
-      restored: "981cec4726216ac6144df2e26241835d85ff2a3e32acabbab71ad9c623acb919",
-      omit_storyline: "590eb330445d72f365a18d8174c0f621a7e9221ca659a9136a51017d73afd43f",
-      omit_repeated_merge: "e62250d2a28d0110b214efe1665a4b6393cb50e939aad3864b5d059f13b68545",
-      short_reason: "e376f9cf32b700b43281bed0464f639cfb8a1b9a2b50a51af411396d10ece0b3",
+      restored: "568704afee90b29907b5ac4f6959203db1b641fd1bcdc37b8f7543f02b5067e0",
+      omit_storyline: "ba0ef0df05421f2a1a9b9816e47ad08a52dfec5c7d8b3520c76439a1f4dca30c",
+      omit_repeated_merge: "b68af24328399d0d5b4fc64451232416a739efdeb6d29ca392a070e0529ddf10",
+      short_reason: "bfd7284f52c5610bb7be267e0b2ffd5aba342fb5b56c2e574f4b6bf52df77e2b",
     });
   });
 
@@ -4917,7 +4955,9 @@ describe("seed Summary sign-off and recovery", () => {
       const row = rows244.find((candidate) => samePlanRow(candidate, check));
       expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
       expect(row?.outcome).toBe("applied");
-      expect(row?.paragraphIndex).toBe(check.skippedRoleId ? undefined : 0);
+      // A Skip and Line 244's work check (2026-09-30 second, Rule C) are
+      // honoured by absence and carry no paragraph.
+      expect(row?.paragraphIndex).toBe(check.itemId ? 0 : undefined);
     }
     const calls244 = network.create.mock.calls.map(([params]) => params as GenerationMessageParams);
     expect(calls244.filter(isFirstSelfCheckRequest)).toHaveLength(1);
@@ -7027,6 +7067,9 @@ describe("seed Summary sign-off and recovery", () => {
     expect(providerUser(consistencyRequest)).toContain(
       "- Final specific_advancements wording. (the writer kept one signed-off idea with this content in Line 246: do not report that idea, but report any other content that claims this work)"
     );
+    // 2026-09-30 (second): a signed-off plan's pass is told what Rules A, B
+    // and C leave out on purpose, and how ranges and times read.
+    expect(providerUser(consistencyRequest).endsWith(CONSISTENCY_REQUEST.signedOffPlan)).toBe(true);
 
     const completed = await s.t.run(async (ctx) => {
       const report = await ctx.db.query("reports")
@@ -8669,6 +8712,8 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     expect(JSON.stringify(consistencyCall)).toContain("Writer started 244.");
     expect(JSON.stringify(consistencyCall)).toContain("RaceRedraft draft 1.");
     expect(JSON.stringify(consistencyCall)).not.toContain("RaceRedraft draft 2.");
+    // 2026-09-30 (second): the redraft's pass follows the signed-off plan too.
+    expect(providerUser(consistencyCall).endsWith(CONSISTENCY_REQUEST.signedOffPlan)).toBe(true);
     const report = await reportOf(s);
     expect(report.content).toContain("RaceRedraft draft 1.");
     expect(report.content).toContain("Writer started 244.");
@@ -9927,6 +9972,11 @@ async function frozenLines(s: ReadyFixture, generationId: Id<"generations"> = s.
         answers242: { kind: "drafted", line242Text: "Line 242 as drafted.\n\nIt states the acclimation uncertainty." },
       }),
       s246Before242: await loadFrozenSectionPlan(ctx, generation, "246", { answers242: { kind: "drafted" } }),
+      // 2026-09-30 (second, Rule C): Line 244 as the chain claims it.
+      s244Claimed: await loadFrozenSectionPlan(ctx, generation, "244", {
+        answers242: { kind: "drafted", line242Text: "Line 242 as drafted.\n\nIt states the acclimation uncertainty." },
+      }),
+      s244Before242: await loadFrozenSectionPlan(ctx, generation, "244", { answers242: { kind: "drafted" } }),
     };
   });
 }
@@ -10179,8 +10229,70 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
       expect(line.planBlock).toContain(`\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.precedence}\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.format}\n`);
       expect(line.planBlock).not.toContain("leave_out");
     }
-    // Rule B holds for every signed-off plan's Line 246.
+    // Rule B holds for every signed-off plan's Line 246, and Rule C for
+    // every signed-off plan's Line 244 (2026-09-30, second).
     expect(frozen.s246.planChecks.filter((check) => check.ruleId)).toHaveLength(1);
+    expect(frozen.s244Claimed.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
+      .toEqual(["work_answers_242"]);
+    expect(frozen.s244Claimed.answers242).toBeNull();
+    expect(frozen.s246.workAnswers242).toBeNull();
+    expect(frozen.s242.workAnswers242).toBeNull();
+  });
+
+  it("gives Line 244 its work check with Line 242 and Line 246's signed-off items, and the plan's wording for the figure check (Rule C)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const frozen = await frozenLines(s);
+    const line246Items = frozen.s244Claimed.workAnswers242?.line246Items ?? [];
+    // Line 246's steps only, in step order.
+    const stepOrder = (roleId: PdSubsectionRoleId) => PD_SUBSECTIONS.findIndex((role) => role.roleId === roleId);
+    const orders = line246Items.map((item) => stepOrder(item.roleId));
+    expect(orders).toEqual([...orders].sort((a, b) => a - b));
+    expect(line246Items.every((item) => PD_SUBSECTIONS.find((role) => role.roleId === item.roleId)?.section === "s246")).toBe(true);
+    expect(line246Items.length).toBeGreaterThan(0);
+    const line246Plan = [
+      FROZEN_SUMMARY_PLAN_SCAFFOLD.line246PlanHeading,
+      ...line246Items.map((item) => `- ${PD_SUBSECTIONS.find((role) => role.roleId === item.roleId)!.title}: ${item.wording.join(" ")}`),
+    ].join("\n");
+    const before = frozen.s244Before242.workAnswers242;
+    if (!before || before.line242Drafted) throw new Error("Missing Line 242 items");
+    expect(before.items.map((item) => item.roleId)).toEqual([
+      "company_context", "goal_problem", "passive_limitations", "technological_objective", "active_uncertainties",
+    ]);
+    const line242Plan = [
+      FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading,
+      ...before.items.map((item) => `- ${PD_SUBSECTIONS.find((role) => role.roleId === item.roleId)!.title}: ${item.wording.join(" ")}`),
+    ].join("\n");
+    expect(frozen.s244Claimed.planChecks.at(-1)).toEqual({
+      ruleId: "work_answers_242",
+      roleId: "experimentation",
+      mergedItemIds: [],
+      instruction: "work_answer_242",
+      confirmedExclusion: false,
+      wording: [`${line242Plan}\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242DraftedHeading}\nLine 242 as drafted.\n\nIt states the acclimation uncertainty.\n\n${line246Plan}`],
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
+    expect(frozen.s244Claimed.workAnswers242).toEqual({ line242Drafted: true, line246Items });
+    // Before Line 242 is drafted, its signed-off items stand in.
+    expect(frozen.s244Before242.workAnswers242).toMatchObject({ line242Drafted: false, line246Items });
+    expect(frozen.s244Before242.planChecks.at(-1)?.wording).toEqual([`${line242Plan}\n\n${line246Plan}`]);
+    // Every signed-off item's wording, whatever its Line, skipped steps aside.
+    const items = await s.t.run(async (ctx) => {
+      const generation = await ctx.db.get(s.generationId);
+      return await ctx.db.query("summaryItems")
+        .withIndex("by_summaryVersionId_and_order", (q) => q.eq("summaryVersionId", generation!.summaryVersionId!))
+        .take(64);
+    });
+    const skipped = frozen.summary?.skippedRoleIds ?? [];
+    expect(frozen.s244Claimed.planWording).toEqual(
+      items.filter((item) => !skipped.includes(item.roleId)).map((item) => item.bullets)
+    );
+    expect(frozen.s242.planWording).toEqual(frozen.s244Claimed.planWording);
   });
 
   it("admits Line 246 with Line 242 reserved at its cap: exactly 64,000 plan-check bytes commit and 64,001 roll back", async () => {
@@ -10225,6 +10337,64 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     const refused = await decisionFixture();
     await makeReady(refused);
     await addProvenance(refused, "overall_advancement", "x".repeat(excerptLength + 1));
+    const refusedBefore = await signoffWriteFootprint(refused);
+    await expect(refused.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: refused.generationId,
+      expectedSeedStageVersion: 0,
+    })).rejects.toMatchObject({
+      data: {
+        code: "INVALID_INPUT",
+        reason: "SUMMARY_CAPACITY_EXCEEDED",
+        limit: "summary_plan_check_input_utf8_bytes",
+      },
+    });
+    expect(await signoffWriteFootprint(refused)).toEqual(refusedBefore);
+  });
+
+  it("admits Line 244 with Line 242 reserved at its cap and Line 246's items whole: exactly 64,000 plan-check bytes commit and 64,001 roll back (Rule C)", async () => {
+    const probe = await decisionFixture();
+    await makeReady(probe);
+    await addProvenance(probe, "hypothesis", "");
+    await probe.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: probe.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const probePlan = await frozenSectionPlan(probe, "s244");
+    const ruleCheck = probePlan.checks.find((check) => check.ruleId === "work_answers_242");
+    expect(ruleCheck?.wording[0]?.startsWith(FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading)).toBe(true);
+    expect(ruleCheck?.wording[0]).toContain(`\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242DraftedHeading}\n${ANSWERS_242_WORST_CASE_REFERENCE}\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line246PlanHeading}\n`);
+    // The runtime admission of a newer deployment builds the same bytes.
+    const probeRuntime = await probe.t.run(async (ctx) => {
+      const generation = await ctx.db.get(probe.generationId);
+      return await loadFrozenSectionPlan(ctx, generation!, "244", { answers242: { kind: "worst_case" } });
+    });
+    expect(probeRuntime.planChecksBlock).toBe(projectFrozenSummaryPlanChecks(probePlan.checks));
+    const excerptLength = MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES - utf8Bytes(projectFrozenSummaryPlanChecks(probePlan.checks));
+    expect(excerptLength).toBeGreaterThan(0);
+
+    const accepted = await decisionFixture();
+    await makeReady(accepted);
+    await addProvenance(accepted, "hypothesis", "x".repeat(excerptLength));
+    await accepted.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: accepted.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const acceptedPlan = await frozenSectionPlan(accepted, "s244");
+    expect(utf8Bytes(projectFrozenSummaryPlanChecks(acceptedPlan.checks))).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    const runtime = await accepted.t.run(async (ctx) => {
+      const generation = await ctx.db.get(accepted.generationId);
+      if (!generation) throw new Error("Missing generation");
+      return {
+        worst: await loadFrozenSectionPlan(ctx, generation, "244", { answers242: { kind: "worst_case" } }),
+        long: await loadFrozenSectionPlan(ctx, generation, "244", { answers242: { kind: "drafted", line242Text: "“Curly” text. ".repeat(4_000) } }),
+      };
+    });
+    expect(utf8Bytes(runtime.worst.planChecksBlock)).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    expect(utf8Bytes(runtime.long.planChecksBlock)).toBeLessThanOrEqual(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+
+    const refused = await decisionFixture();
+    await makeReady(refused);
+    await addProvenance(refused, "hypothesis", "x".repeat(excerptLength + 1));
     const refusedBefore = await signoffWriteFootprint(refused);
     await expect(refused.writer.mutation(api.generations.signOffSeedStage, {
       generationId: refused.generationId,
