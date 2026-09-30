@@ -38,6 +38,7 @@ import { keptIdeaReason, planComplianceNoteDrafts } from "./orderedGeneration";
 import {
   NOT_CHECKED_REASON,
   PLAN_ITEM_NOT_CHECKED_REASON,
+  PLAN_RULE_NOT_CHECKED_REASON,
   PLAN_SKIP_NOT_CHECKED_REASON,
   runModelSelfCheck,
   selfCheckFailureDiagnostic,
@@ -2363,3 +2364,95 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
 
 // Unused-import guard for the Id type in helper signatures.
 export type _GenerationIdForTests = Id<"generations">;
+
+describe("LEAVE OUT and Line 246 advancement verdicts (2026-09-30, first)", () => {
+  const leaveOut: SelfCheckPlanCheck = {
+    droppedSeedId: "u-seed-fraction",
+    roleId: "active_uncertainties",
+    mergedItemIds: [],
+    instruction: "leave_out",
+    confirmedExclusion: false,
+    wording: ["It was unclear what seed fraction would be needed at 6 degrees C."],
+    relationshipReferences: [],
+    sourceReferences: [],
+  };
+  const rule: SelfCheckPlanCheck = {
+    ruleId: "advancements_answer_242",
+    roleId: "specific_advancements",
+    mergedItemIds: [],
+    instruction: "answer_242",
+    confirmedExclusion: false,
+    wording: ["Line 242 as drafted."],
+    relationshipReferences: [],
+    sourceReferences: [],
+  };
+
+  it("drops a verdict naming two references or an unknown rule, asks once for them, and keeps each key on its verdict", async () => {
+    const base = replayInput();
+    const planChecks = [...base.planChecks, leaveOut, rule];
+    const input = { ...base, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks) };
+    const first = replayResponse();
+    const answers = [
+      {
+        ...first,
+        planVerdicts: [
+          ...first.planVerdicts,
+          // Two references in one verdict, and a rule nobody supplied.
+          { droppedSeedId: "u-seed-fraction", itemId: base.planChecks[0]!.itemId, mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Absent." },
+          { ruleId: "some_other_rule", mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Fine." },
+        ],
+      },
+      {
+        verdicts: [],
+        planVerdicts: [{ droppedSeedId: "u-seed-fraction", mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "No seed fraction content." }],
+      },
+    ];
+    const client = {
+      messages: {
+        create: vi.fn(async (params: GenerationMessageParams) => ({
+          content: [{
+            type: "tool_use" as const,
+            id: "leave-out-replay",
+            name: params.tool_choice?.name ?? "submit_self_check",
+            input: answers.shift(),
+          }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        })),
+      },
+    };
+    const result = await runModelSelfCheck(client as GenerationClient, input);
+    expect(client.messages.create).toHaveBeenCalledTimes(2);
+    const followUp = userText(client.messages.create.mock.calls[1]![0]);
+    expect(followUp).toContain("Return exactly 2 planVerdicts, one for each plan check below:\n- droppedSeedId u-seed-fraction\n- ruleId advancements_answer_242");
+    expect(followUp).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.leaveOut.instruction);
+    expect(followUp).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.instruction);
+    expect(result.planVerdicts.slice(-2)).toEqual([
+      { droppedSeedId: "u-seed-fraction", mergedItemIds: [], outcome: "applied", reason: "No seed fraction content." },
+      {
+        ruleId: "advancements_answer_242",
+        mergedItemIds: [],
+        outcome: "not_applied",
+        reason: PLAN_RULE_NOT_CHECKED_REASON,
+        actionableRepair: false,
+      },
+    ]);
+  });
+
+  it("adds the verdict fields and oneOf branches to a request's schema only when it has such a check", () => {
+    const item = replayPlanChecks()[0]!;
+    const without = summaryPlanSelfCheckSchemaFor([], [item]);
+    expect(without.properties.planVerdicts.items.properties).not.toHaveProperty("droppedSeedId");
+    expect(without.properties.planVerdicts.items.properties).not.toHaveProperty("ruleId");
+    expect(without.properties.planVerdicts.items.oneOf).toEqual([{ required: ["itemId"] }, { required: ["skippedRoleId"] }]);
+    const withBoth = summaryPlanSelfCheckSchemaFor([], [item, leaveOut, rule]);
+    const properties = withBoth.properties.planVerdicts.items.properties as unknown as Record<string, { enum?: readonly string[] }>;
+    expect(properties.droppedSeedId?.enum).toEqual(["u-seed-fraction"]);
+    expect(properties.ruleId?.enum).toEqual(["advancements_answer_242"]);
+    expect(withBoth.properties.planVerdicts.items.oneOf).toEqual([
+      { required: ["itemId"] },
+      { required: ["skippedRoleId"] },
+      { required: ["droppedSeedId"] },
+      { required: ["ruleId"] },
+    ]);
+  });
+});

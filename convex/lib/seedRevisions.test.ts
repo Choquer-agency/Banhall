@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  ADVANCEMENTS_ANSWER_242_RULE_ID,
+  ANSWERS_242_WORST_CASE_REFERENCE,
+  FROZEN_SUMMARY_PLAN_SCAFFOLD,
+  MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES,
+  MAX_DROPPED_UNCERTAINTY_RELATED_PER_KIND,
   EMPTY_CONTEXT_REVISION,
   EMPTY_SELECTION_REVISION,
   MAX_SEED_CONTEXT_ROW_UTF8_BYTES,
@@ -83,8 +88,11 @@ function assertClosedPlanFixture(checks: readonly FrozenSummaryPlanCheck[]): voi
   }
   for (const check of checks) {
     const hasItem = check.itemId !== undefined;
-    const hasSkip = check.skippedRoleId !== undefined;
-    if (hasItem === hasSkip) throw new Error("each plan row must own one item or Skip");
+    // 2026-09-30 (first): a Skip, a LEAVE OUT or Line 246's rule check.
+    const others = [check.skippedRoleId, check.droppedSeedId, check.ruleId].filter((id) => id !== undefined);
+    if (hasItem ? others.length !== 0 : others.length !== 1) {
+      throw new Error("each plan row must own one item, Skip, dropped uncertainty or rule");
+    }
     if (!hasItem) {
       if (check.mergedItemIds.length !== 0) throw new Error("Skip cannot own merge ids");
       continue;
@@ -143,14 +151,32 @@ function literalSummaryEnvelopeOracle(args: {
           reason,
           repairGuidance,
         })
-      : JSON.stringify({
-          mergedItemIds,
-          outcome: "not_applied",
-          paragraph,
-          reason,
-          repairGuidance,
-          skippedRoleId: check.skippedRoleId,
-        });
+      : check.droppedSeedId
+        ? JSON.stringify({
+            droppedSeedId: check.droppedSeedId,
+            mergedItemIds,
+            outcome: "not_applied",
+            paragraph,
+            reason,
+            repairGuidance,
+          })
+        : check.ruleId
+          ? JSON.stringify({
+              mergedItemIds,
+              outcome: "not_applied",
+              paragraph,
+              reason,
+              repairGuidance,
+              ruleId: check.ruleId,
+            })
+          : JSON.stringify({
+              mergedItemIds,
+              outcome: "not_applied",
+              paragraph,
+              reason,
+              repairGuidance,
+              skippedRoleId: check.skippedRoleId,
+            });
   });
   const storyline = args.includeStorylineQuestion && args.mutation !== "omit_storyline"
     ? `,"storylineQuestion":${JSON.stringify({
@@ -1157,5 +1183,211 @@ describe("clipJsonEscapedUtf8 (Summary Self-check free text)", () => {
     // Longer text ending in an ellipsis was never clipped.
     expect(isClippedStorylineAlternative(`${reason}…`)).toBe(false);
     expect(isClippedStorylineAlternative(reason)).toBe(false);
+  });
+});
+
+// Fictional Marrowgate cold-water biofilter plan (release suite run 10).
+const SEED_FRACTION = [
+  "It was unclear what seed fraction would be needed once water dropped further to 6 degrees C.",
+  "The team did not know if gains from more seed would keep scaling or flatten at some point.",
+];
+const droppedSeedFraction = {
+  seedId: "u-seed-fraction",
+  wording: SEED_FRACTION,
+  experiments: [1, 2, 3, 4].map((trial) => ({
+    seedId: `e-trial-${trial}`,
+    wording: [`Trial ${trial} at 6 C compared 5 and 15 percent acclimated seed.`],
+  })),
+  advancements: [{ seedId: "a-seed-rule", wording: ["Required seed fraction rises as temperature drops."] }],
+};
+const trialOne = {
+  itemId: "item-trial-1",
+  roleId: "experimentation" as const,
+  kind: "multiple" as const,
+  bullets: ["Trial 1 ran three loops at 8 C."],
+  support: "source_supported" as const,
+};
+
+describe("what the writer dropped stays out (2026-09-30, first)", () => {
+  it("gives every Line one LEAVE OUT entry and plan check per dropped uncertainty, with its work as reference", () => {
+    for (const section of ["s242", "s244", "s246"] as const) {
+      const plan = buildFrozenSummaryPlan({
+        section,
+        items: [trialOne],
+        skippedRoleIds: [],
+        droppedUncertainties: [droppedSeedFraction],
+      });
+      const references = [
+        ...droppedSeedFraction.experiments.slice(0, MAX_DROPPED_UNCERTAINTY_RELATED_PER_KIND),
+        ...droppedSeedFraction.advancements,
+      ];
+      const rows = planDataRows(plan.block);
+      expect(rows.at(-1)).toEqual({
+        droppedSeedId: "u-seed-fraction",
+        instruction: FROZEN_SUMMARY_PLAN_SCAFFOLD.leaveOutInstruction,
+        kind: "leave_out",
+        relationshipReferences: references,
+        wording: SEED_FRACTION,
+      });
+      expect(plan.block.split("\n").slice(0, 3)).toEqual([
+        FROZEN_SUMMARY_PLAN_SCAFFOLD.begin,
+        FROZEN_SUMMARY_PLAN_SCAFFOLD.leaveOutPrecedence,
+        FROZEN_SUMMARY_PLAN_SCAFFOLD.leaveOutFormat,
+      ]);
+      expect(plan.checks.at(-1)).toEqual({
+        droppedSeedId: "u-seed-fraction",
+        roleId: "active_uncertainties",
+        mergedItemIds: [],
+        instruction: "leave_out",
+        confirmedExclusion: false,
+        wording: SEED_FRACTION,
+        relationshipReferences: references,
+        sourceReferences: [],
+      });
+      // The fourth experiment is past the per-kind cap.
+      expect(JSON.stringify(plan.checks)).not.toContain("e-trial-4");
+      expect(plan.checks.some((check) => check.ruleId)).toBe(false);
+    }
+  });
+
+  it("sends a plan with no dropped uncertainty byte for byte as before", () => {
+    const before = buildFrozenSummaryPlan({ section: "s244", items: [trialOne], skippedRoleIds: ["prior_year_status"] });
+    const withNone = buildFrozenSummaryPlan({
+      section: "s244",
+      items: [trialOne],
+      skippedRoleIds: ["prior_year_status"],
+      droppedUncertainties: [],
+    });
+    expect(withNone).toEqual(before);
+    expect(before.block.split("\n").slice(1, 3)).toEqual([
+      FROZEN_SUMMARY_PLAN_SCAFFOLD.precedence,
+      FROZEN_SUMMARY_PLAN_SCAFFOLD.format,
+    ]);
+    expect(before.block).not.toContain("leave_out");
+  });
+
+  it("checks at most three dropped uncertainties per Line", () => {
+    const plan = buildFrozenSummaryPlan({
+      section: "s242",
+      items: [],
+      skippedRoleIds: [],
+      droppedUncertainties: [0, 1, 2, 3].map((index) => ({ ...droppedSeedFraction, seedId: `u-${index}` })),
+    });
+    expect(plan.checks.map((check) => check.droppedSeedId)).toEqual(["u-0", "u-1", "u-2"]);
+  });
+
+  it("gives Line 246 alone one advancement check with Line 242's text, clipped to the reservation", () => {
+    const line242 = "It was uncertain whether stepwise acclimation would beat unacclimated seed.\n\nIt was also uncertain whether nitrite oxidizers were the bottleneck.";
+    for (const section of ["s242", "s244"] as const) {
+      expect(buildFrozenSummaryPlan({ section, items: [], skippedRoleIds: [], answers242: { reference: line242 } }).checks).toEqual([]);
+    }
+    const plan = buildFrozenSummaryPlan({ section: "s246", items: [], skippedRoleIds: [], answers242: { reference: line242 } });
+    expect(plan.checks).toEqual([{
+      ruleId: ADVANCEMENTS_ANSWER_242_RULE_ID,
+      roleId: "specific_advancements",
+      mergedItemIds: [],
+      instruction: "answer_242",
+      confirmedExclusion: false,
+      wording: [line242],
+      relationshipReferences: [],
+      sourceReferences: [],
+    }]);
+    // The drafting plan block never carries it: the drafter reads Line 242
+    // as a prior section.
+    expect(plan.block).not.toContain("advancements_answer_242");
+    expect(buildFrozenSummaryPlan({ section: "s246", items: [], skippedRoleIds: [], answers242: { reference: "  " } }).checks[0]?.wording)
+      .toEqual([FROZEN_SUMMARY_PLAN_SCAFFOLD.empty]);
+
+    // Line 242 at its Locked cap: 50 lines of 78 characters, reserved twice over.
+    expect(MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES).toBe(7_800);
+    expect(jsonEscapedUtf8Bytes(ANSWERS_242_WORST_CASE_REFERENCE)).toBe(7_800);
+    const worst = buildFrozenSummaryPlan({ section: "s246", items: [], skippedRoleIds: [], answers242: { reference: ANSWERS_242_WORST_CASE_REFERENCE } });
+    const long = "“Curly” quotes, a line break\nand é. ".repeat(600);
+    const clipped = buildFrozenSummaryPlan({ section: "s246", items: [], skippedRoleIds: [], answers242: { reference: long } });
+    const wording = clipped.checks[0]!.wording[0]!;
+    expect(endsWithClipMark(wording)).toBe(true);
+    expect(jsonEscapedUtf8Bytes(wording)).toBeLessThanOrEqual(MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES);
+    expect(bytes(clipped.checksBlock)).toBeLessThanOrEqual(bytes(worst.checksBlock));
+  });
+
+  it("counts LEAVE OUT and advancement verdicts in the exact 16,384-byte response envelope", () => {
+    const ordinary = projectSummaryOrdinaryChecks({
+      storylineText: "Storyline",
+      confidenceMap: [{ text: "Confidence" }],
+      glossaryTerms: [],
+      writerFlavor: undefined,
+      rules: [],
+    });
+    const item = (itemId: string): FrozenSummaryPlanCheck => ({
+      itemId,
+      roleId: "specific_advancements",
+      mergedItemIds: [itemId],
+      instruction: "cover",
+      confirmedExclusion: false,
+      wording: ["Wording."],
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
+    const leaveOut = (droppedSeedId: string): FrozenSummaryPlanCheck => ({
+      droppedSeedId,
+      roleId: "active_uncertainties",
+      mergedItemIds: [],
+      instruction: "leave_out",
+      confirmedExclusion: false,
+      wording: SEED_FRACTION,
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
+    const rule: FrozenSummaryPlanCheck = {
+      ruleId: ADVANCEMENTS_ANSWER_242_RULE_ID,
+      roleId: "specific_advancements",
+      mergedItemIds: [],
+      instruction: "answer_242",
+      confirmedExclusion: false,
+      wording: [ANSWERS_242_WORST_CASE_REFERENCE],
+      relationshipReferences: [],
+      sourceReferences: [],
+    };
+    const envelope = (checks: FrozenSummaryPlanCheck[]) =>
+      projectSummarySelfCheckWorstCaseResponse({ ordinaryChecks: ordinary, planChecks: checks, includeStorylineQuestion: true });
+    // The projection matches the literal oracle, new verdicts included.
+    const sample = [item("item-a"), leaveOut("u-dropped"), rule];
+    expect(envelope(sample)).toBe(literalSummaryEnvelopeOracle({
+      ordinaryLabels: ordinary.map((check) => check.label),
+      planChecks: sample,
+      includeStorylineQuestion: true,
+    }));
+    // Fill with items, then pad ids so the envelope is exactly 16,384 bytes
+    // with one LEAVE OUT and the advancement check in it.
+    const fillers: FrozenSummaryPlanCheck[] = [];
+    while (bytes(envelope([...fillers, item(`i${fillers.length}`), leaveOut("d"), rule])) <= MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES) {
+      fillers.push(item(`i${fillers.length}`));
+    }
+    let gap = MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES - bytes(envelope([...fillers, leaveOut("d"), rule]));
+    // A dropped id appears once in its verdict; an item id twice.
+    let droppedId = "d";
+    const grow = Math.min(gap % 2 === 0 ? 60 : 61, gap);
+    droppedId += "d".repeat(grow);
+    gap -= grow;
+    const padded = fillers.map((check) => {
+      const extra = Math.min(gap / 2, 60);
+      gap -= extra * 2;
+      return item(`${check.itemId}${"p".repeat(extra)}`);
+    });
+    expect(gap).toBe(0);
+    const exact = [...padded, leaveOut(droppedId), rule];
+    expect(bytes(envelope(exact))).toBe(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+    expect(() => summarySelfCheckWorstCaseResponse({ ordinaryChecks: ordinary, planChecks: exact, includeStorylineQuestion: true }))
+      .not.toThrow();
+    expect(() => summarySelfCheckWorstCaseResponse({
+      ordinaryChecks: ordinary,
+      planChecks: [...padded, leaveOut(`${droppedId}d`), rule],
+      includeStorylineQuestion: true,
+    })).toThrow("worst-case response exceeds 16384 UTF-8 bytes");
+    // Without the new checks the same items are admitted with room to spare.
+    expect(bytes(envelope(padded))).toBeLessThan(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES - 300);
+    // A check must name exactly one reference.
+    expect(() => envelope([{ ...leaveOut("u"), skippedRoleId: "prior_year_status" }]))
+      .toThrow("exactly one item, Skip, dropped uncertainty or rule identifier");
   });
 });

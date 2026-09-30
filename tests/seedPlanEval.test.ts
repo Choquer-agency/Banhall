@@ -11,6 +11,8 @@ import {
   contentWordOverlap,
   deploymentRefusal,
   describeStep,
+  droppedUncertaintyHits,
+  figuresOf,
   distribution,
   emptyRunLog,
   exclusionBullet,
@@ -584,6 +586,109 @@ describe("automatic checks", () => {
     const moved = runChecks(fixture, c, log);
     expect(status(moved, "links-valid")).toBe("fail");
     expect(status(moved, "removed-uncertainty-gone")).toBe("fail");
+  });
+});
+
+describe("what the writer dropped stays out (2026-09-30, first)", () => {
+  const SEED_FRACTION = "It was unclear what seed fraction would be needed once water dropped further to 6 degrees C. The team did not know if gains from more seed would keep scaling or flatten at some point.";
+  const leaveOutRow = (section: string, outcome: "applied" | "not_applied" = "applied") => ({
+    section,
+    paragraphIndex: null,
+    source: "model",
+    instruction: "Leave out the uncertainty the writer dropped: \"It was unclear...\"",
+    outcome,
+    tier: "none",
+    reason: outcome === "applied" ? "Nothing on seed fraction." : "P4 narrates Trial 2 at 6 C.",
+    repaired: false,
+    planRef: { itemId: null, skippedRoleId: null, droppedSeedId: "u1", ruleId: null, mergedItemIds: [] },
+  });
+  const answersRow = (outcome: "applied" | "not_applied" = "applied") => ({
+    section: "246",
+    paragraphIndex: null,
+    source: "model",
+    instruction: "Claim an advancement only for an uncertainty Line 242 states",
+    outcome,
+    tier: "none",
+    reason: outcome === "applied" ? "Every advancement answers Line 242." : "P4 claims dosing.",
+    repaired: false,
+    planRef: { itemId: null, skippedRoleId: null, droppedSeedId: null, ruleId: "advancements_answer_242", mergedItemIds: [] },
+  });
+  function run10(): { c: Collected; log: RunLog } {
+    const c = baseCollected();
+    c.summary!.items = [
+      summaryItem("iu2", "active_uncertainties", "u2", { bullets: ["It was uncertain whether stepwise acclimation would beat unacclimated seed at 8 C."] }),
+      summaryItem("ie1", "experimentation", "e1", { uncertaintySeedId: "u2", bullets: ["Trial 1 ran three loops at 8 C for the 5-week target."] }),
+      summaryItem("ia1", "specific_advancements", "a1", { uncertaintySeedId: "u2", experimentSeedIds: ["e1"] }),
+    ];
+    c.summary!.droppedUncertaintySeedIds = ["u1"];
+    c.seeds = [
+      { seedId: "u1", batchId: "b", roleId: "active_uncertainties", bullets: [SEED_FRACTION], support: "source_supported", revisionOfSeedId: null, feedbackRequestId: null, uncertaintySeedId: null, experimentSeedIds: [] },
+      { seedId: "e2", batchId: "b", roleId: "experimentation", bullets: ["Trial 2 at 6 C compared 5 and 15 percent acclimated seed.", "The loops took 44 and 29 days."], support: "source_supported", revisionOfSeedId: null, feedbackRequestId: null, uncertaintySeedId: "u1", experimentSeedIds: [] },
+    ] as Collected["seeds"];
+    c.report = {
+      ...c.report!,
+      sections: {
+        s242: "Marrowgate builds biofilters.\n\nIt was uncertain whether stepwise acclimation would beat unacclimated seed at 8 C.",
+        s244: "Trial 1 ran three loops at 8 C.\n\nThe loops were sampled daily.\n\nNitrite stalled for 6 days.\n\nAt 6 C, a 5 percent acclimated-seed loop took 44 days, while a 15 percent loop took 29 days.",
+        s246: "The objective was largely achieved.\n\nStepwise acclimation cut start-up to 31 days at 8 C.\n\nRequired seed fraction rises as temperature drops: 15 percent acclimated seed meets the 5-week target at 6 C, with returns flattening.",
+      },
+    };
+    c.complianceNotes = [leaveOutRow("242"), leaveOutRow("244"), leaveOutRow("246"), answersRow()];
+    return { c, log: { ...emptyRunLog(byCase("changed_advancement_links").id, 0), removedUncertaintySeedId: "u1" } };
+  }
+
+  it("reads figures with a unit, normalised, lists included", () => {
+    expect(figuresOf("At 6 degrees C the loops took 44 and 29 days; 15 percent seed, from 14 to 8 degrees.")).toEqual([
+      "6 C", "44 days", "29 days", "15 percent", "14 C", "8 C",
+    ]);
+    expect(figuresOf("A 5-week target, 10% seed and 2.3 mg/L TAN at 7 C.")).toEqual(["10 percent", "2.3 mg/L", "7 C"]);
+    expect(figuresOf("No unit here: 44, 2025.")).toEqual([]);
+  });
+
+  it("passes when every Line records the dropped uncertainty as left out and Line 246's advancements answer Line 242", () => {
+    const { c, log } = run10();
+    const checks = runChecks(byCase("changed_advancement_links"), c, log);
+    expect(status(checks, "dropped-uncertainty-left-out")).toBe("pass");
+    expect(checks.find((item) => item.id === "dropped-uncertainty-left-out")?.evidence)
+      .toBe("242: applied; 244: applied; 246: applied; frozen at sign-off: u1");
+    expect(status(checks, "advancements-answer-242")).toBe("pass");
+  });
+
+  it("fails when a Line holds it, has no row, or Line 246 claims an advancement Line 242 does not state", () => {
+    const { c, log } = run10();
+    c.complianceNotes = [leaveOutRow("242"), leaveOutRow("244", "not_applied"), answersRow("not_applied")];
+    const checks = runChecks(byCase("changed_advancement_links"), c, log);
+    expect(status(checks, "dropped-uncertainty-left-out")).toBe("fail");
+    expect(checks.find((item) => item.id === "dropped-uncertainty-left-out")?.evidence)
+      .toBe('242: applied; 244: not_applied ("P4 narrates Trial 2 at 6 C."); 246: no row; frozen at sign-off: u1');
+    expect(status(checks, "advancements-answer-242")).toBe("fail");
+    c.complianceNotes = [];
+    const none = runChecks(byCase("changed_advancement_links"), c, log);
+    expect(none.find((item) => item.id === "advancements-answer-242")?.evidence).toBe("no Line 246 row for this check");
+    // A run read back before the amendment (no dropped id recorded) fails too.
+    expect(status(runChecks(byCase("changed_advancement_links"), c, { ...log, removedUncertaintySeedId: null }), "dropped-uncertainty-left-out")).toBe("fail");
+  });
+
+  it("names every paragraph of every Line that holds the dropped uncertainty's words or its experiments' distinctive figures", () => {
+    const { c, log } = run10();
+    const hint = runChecks(byCase("changed_advancement_links"), c, log).find((item) => item.id === "dropped-uncertainty-drafted");
+    expect(hint?.status).toBe("info");
+    // The closest Line 246 paragraph first, as before.
+    expect(hint?.evidence).toMatch(/^paragraph 3 shares \d+ percent of its content words/);
+    // "8 C", "5-week" and the like are in signed-off items, so they are not distinctive.
+    expect(hint?.evidence).toContain("distinctive figures: 6 C, 5 percent, 15 percent, 44 days, 29 days");
+    expect(hint?.evidence).toContain("Line 244 P4 (");
+    expect(hint?.evidence).toContain("6 C, 5 percent, 15 percent, 44 days, 29 days");
+    expect(hint?.evidence).toContain("Line 246 P3 (");
+    expect(hint?.evidence).not.toContain("Line 244 P1 ");
+    expect(hint?.evidence).not.toContain("Line 242 P");
+    const scan = droppedUncertaintyHits({
+      sections: c.report!.sections,
+      droppedWords: SEED_FRACTION,
+      experimentWords: ["Trial 2 at 6 C compared 5 and 15 percent acclimated seed. The loops took 44 and 29 days."],
+      planWords: c.summary!.items.map((item) => item.bullets.join(" ")),
+    });
+    expect(scan.hits.map((hit) => `${hit.section} P${hit.paragraph}`)).toEqual(["244 P4", "246 P3"]);
   });
 });
 

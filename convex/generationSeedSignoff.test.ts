@@ -28,6 +28,8 @@ import {
   MAX_SUMMARY_PLAN_VERDICTS,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   ANSWERS_242_WORST_CASE_REFERENCE,
+  FROZEN_SUMMARY_PLAN_SCAFFOLD,
+  MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES,
   buildFrozenSummaryPlan,
   projectFrozenSummaryPlanChecks,
   projectSummaryOrdinaryChecks,
@@ -2126,6 +2128,15 @@ describe("seed Summary sign-off and recovery", () => {
     expect(frozen.s244.planBlock).toContain("Revised active_uncertainties wording.");
     const advancementChecks = frozen.s246.planChecks.filter((check) => check.roleId === "specific_advancements");
     expect(advancementChecks.every((check) => check.mergedItemIds.length === 2)).toBe(true);
+    // 2026-09-30 (first): the unticked original is in the kept revision's
+    // own chain, so it was replaced, not dropped, and nothing is left out.
+    const summaryRow = await s.t.run(async (ctx) => {
+      const generation = await ctx.db.get(s.generationId);
+      return generation?.summaryVersionId ? await ctx.db.get(generation.summaryVersionId) : null;
+    });
+    expect(summaryRow).not.toBeNull();
+    expect(summaryRow).not.toHaveProperty("droppedUncertainties");
+    expect(frozen.s244.planChecks.some((check) => check.droppedSeedId)).toBe(false);
   });
 
   it("reaches drafting with the writer's active Feedback, which governs the Glossary Term it names (2026-09-29 second)", async () => {
@@ -9818,5 +9829,312 @@ describe("Seed workspace read models (stories 5-6)", () => {
       frozen.page.map((item) => item.seedId)
     );
     expect(explicit.page.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── 2026-09-30 (first): what the writer dropped stays out ─────────────────
+
+const KEPT_UNCERTAINTY =
+  "It was uncertain whether stepwise acclimation from 14 to 8 degrees would beat unacclimated seed enough to hit the 5-week target.";
+const DROPPED_UNCERTAINTY = [
+  "It was unclear what seed fraction would be needed once water dropped further to 6 degrees C.",
+  "The team did not know if gains from more seed would keep scaling or flatten at some point.",
+];
+
+/**
+ * The fictional Marrowgate plan of release suite run 10: the kept
+ * uncertainty's wording, then Seeds the writer ticked and unticked (a
+ * selection row with `selected: false`) or never ticked (no row).
+ */
+async function addDecisions(
+  s: ReadyFixture,
+  seeds: ReadonlyArray<{
+    key: string;
+    roleId: PdSubsectionRoleId;
+    bullets: string[];
+    ticked: "unticked" | "never";
+    recordsKey?: string;
+  }>
+): Promise<Record<string, Id<"seeds">>> {
+  return await s.t.run(async (ctx) => {
+    const selectedRow = async (roleId: PdSubsectionRoleId) => {
+      const rows = await ctx.db.query("seedSelections")
+        .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", roleId))
+        .take(10);
+      const row = rows.find((candidate) => candidate.selected);
+      if (!row) throw new Error(`Missing selected ${roleId}`);
+      return row;
+    };
+    const kept = await selectedRow("active_uncertainties");
+    await ctx.db.patch(kept._id, { editedBullets: [KEPT_UNCERTAINTY] });
+    const ids: Record<string, Id<"seeds">> = {};
+    for (const [index, seed] of seeds.entries()) {
+      const anchor = await ctx.db.get((await selectedRow(seed.roleId)).seedId);
+      if (!anchor) throw new Error(`Missing ${seed.roleId} anchor`);
+      ids[seed.key] = await ctx.db.insert("seeds", {
+        projectId: s.projectId,
+        generationId: s.generationId,
+        batchId: anchor.batchId,
+        roleId: seed.roleId,
+        order: 10 + index,
+        bullets: seed.bullets,
+        tags: ["technical"],
+        support: "source_supported",
+        originalSupport: "source_supported",
+        ...(seed.recordsKey ? { uncertaintySeedId: ids[seed.recordsKey] } : {}),
+      });
+      if (seed.ticked === "unticked") {
+        await ctx.db.insert("seedSelections", {
+          projectId: s.projectId,
+          generationId: s.generationId,
+          seedId: ids[seed.key]!,
+          roleId: seed.roleId,
+          selected: false,
+          selectedAt: 30 + index,
+          version: 2,
+        });
+      }
+    }
+    return ids;
+  });
+}
+
+async function frozenLines(s: ReadyFixture, generationId: Id<"generations"> = s.generationId) {
+  return await s.t.run(async (ctx) => {
+    const generation = await ctx.db.get(generationId);
+    if (!generation?.summaryVersionId) throw new Error("Missing signed Summary");
+    return {
+      summary: await ctx.db.get(generation.summaryVersionId),
+      s242: await loadFrozenSectionPlan(ctx, generation, "242"),
+      s244: await loadFrozenSectionPlan(ctx, generation, "244"),
+      s246: await loadFrozenSectionPlan(ctx, generation, "246", {
+        answers242: { kind: "drafted", line242Text: "Line 242 as drafted.\n\nIt states the acclimation uncertainty." },
+      }),
+      s246Before242: await loadFrozenSectionPlan(ctx, generation, "246", { answers242: { kind: "drafted" } }),
+    };
+  });
+}
+
+async function addProvenance(s: ReadyFixture, roleId: PdSubsectionRoleId, exactExcerpt: string): Promise<void> {
+  await s.t.run(async (ctx) => {
+    const seed = await ctx.db.query("seeds")
+      .withIndex("by_generationId_and_roleId", (q) =>
+        q.eq("generationId", s.generationId).eq("roleId", roleId))
+      .first();
+    if (!seed) throw new Error(`Missing ${roleId} seed`);
+    const sourceId = await ctx.db.insert("generationSources", {
+      projectId: s.projectId,
+      generationId: s.generationId,
+      kind: "project_document",
+      label: "Exact Line 246 capacity evidence",
+      content: exactExcerpt,
+      contentHash: `capacity-246-${exactExcerpt.length}`,
+      truncated: false,
+      originalLength: exactExcerpt.length,
+      capturedAt: 25,
+    });
+    await ctx.db.insert("seedProvenance", {
+      seedId: seed._id,
+      projectId: s.projectId,
+      generationId: s.generationId,
+      sourceId,
+      sourceContentHash: `capacity-246-${exactExcerpt.length}`,
+      startOffset: 0,
+      endOffset: exactExcerpt.length,
+      exactExcerpt,
+    });
+  });
+}
+
+describe("what the writer dropped stays out of every Line (2026-09-30, first)", () => {
+  it("freezes an uncertainty the writer ticked, then unticked, with the work that recorded it, and leaves it out of every Line", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const ids = await addDecisions(s, [
+      { key: "dropped", roleId: "active_uncertainties", bullets: DROPPED_UNCERTAINTY, ticked: "unticked" },
+      // A near copy of the kept uncertainty: the writer replaced it.
+      {
+        key: "nearCopy",
+        roleId: "active_uncertainties",
+        bullets: ["It was uncertain whether stepwise acclimation from 14 to 8 degrees would beat unacclimated seed by enough to reach the 5-week target."],
+        ticked: "unticked",
+      },
+      // Never ticked: not a decision, never left out.
+      { key: "neverTicked", roleId: "active_uncertainties", bullets: ["Whether sensors drift in biofilm-heavy water was unknown."], ticked: "never" },
+      {
+        key: "trial2",
+        roleId: "experimentation",
+        bullets: ["Trial 2 at 6 C compared 5 and 15 percent acclimated seed.", "The loops took 44 and 29 days."],
+        ticked: "unticked",
+        recordsKey: "dropped",
+      },
+      {
+        key: "seedRule",
+        roleId: "specific_advancements",
+        bullets: ["Required seed fraction rises as temperature drops."],
+        ticked: "never",
+        recordsKey: "dropped",
+      },
+    ]);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const frozen = await frozenLines(s);
+    const expectedFrozen = {
+      seedId: ids.dropped,
+      wording: DROPPED_UNCERTAINTY,
+      // The unticked experiment the writer ticked once comes first.
+      experiments: [{ seedId: ids.trial2, wording: ["Trial 2 at 6 C compared 5 and 15 percent acclimated seed.", "The loops took 44 and 29 days."] }],
+      advancements: [{ seedId: ids.seedRule, wording: ["Required seed fraction rises as temperature drops."] }],
+    };
+    expect(frozen.summary?.droppedUncertainties).toEqual([expectedFrozen]);
+    for (const line of [frozen.s242, frozen.s244, frozen.s246]) {
+      const leaveOut = line.planChecks.filter((check) => check.instruction === "leave_out");
+      expect(leaveOut).toEqual([{
+        droppedSeedId: ids.dropped,
+        roleId: "active_uncertainties",
+        mergedItemIds: [],
+        instruction: "leave_out",
+        confirmedExclusion: false,
+        wording: DROPPED_UNCERTAINTY,
+        relationshipReferences: [
+          { seedId: ids.trial2, wording: expectedFrozen.experiments[0]!.wording },
+          { seedId: ids.seedRule, wording: expectedFrozen.advancements[0]!.wording },
+        ],
+        sourceReferences: [],
+      }]);
+      expect(line.planBlock).toContain(FROZEN_SUMMARY_PLAN_SCAFFOLD.leaveOutPrecedence);
+      expect(line.planBlock).toContain(FROZEN_SUMMARY_PLAN_SCAFFOLD.leaveOutFormat);
+      expect(line.planBlock).not.toContain(`\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.precedence}\n`);
+      expect(line.planBlock).toContain(`"droppedSeedId":"${ids.dropped}","instruction":"${FROZEN_SUMMARY_PLAN_SCAFFOLD.leaveOutInstruction}","kind":"leave_out"`);
+      expect(line.planChecksBlock).toContain(`"droppedSeedId":"${ids.dropped}","instruction":"leave_out"`);
+      expect(line.droppedNotChecked).toEqual([]);
+    }
+    // Rule B: only Line 246, last, with Line 242 as drafted.
+    expect(frozen.s242.planChecks.some((check) => check.ruleId)).toBe(false);
+    expect(frozen.s244.planChecks.some((check) => check.ruleId)).toBe(false);
+    expect(frozen.s246.planChecks.at(-1)).toMatchObject({
+      ruleId: "advancements_answer_242",
+      instruction: "answer_242",
+      roleId: "specific_advancements",
+      mergedItemIds: [],
+      wording: ["Line 242 as drafted.\n\nIt states the acclimation uncertainty."],
+    });
+    expect(frozen.s246.answers242).toEqual({ line242Drafted: true });
+    // Before Line 242 is drafted, its signed-off uncertainties stand in.
+    expect(frozen.s246Before242.answers242).toEqual({ line242Drafted: false, uncertainties: [[KEPT_UNCERTAINTY]] });
+    expect(frozen.s246Before242.planChecks.at(-1)?.wording).toEqual([`- ${KEPT_UNCERTAINTY}`]);
+
+    // A Summary recovery reuses the frozen row: the same checks.
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare a recovery",
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    const recovered = await frozenLines(s, recoveryId);
+    expect(recovered.s244.planChecks.filter((check) => check.droppedSeedId))
+      .toEqual(frozen.s244.planChecks.filter((check) => check.droppedSeedId));
+  });
+
+  it("caps the checked dropped uncertainties at three and names the rest as not checked", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const topics = ["alkalinity dosing", "media fill ratio", "sensor drift", "membrane life", "fish size"];
+    const ids = await addDecisions(s, topics.map((topic, index) => ({
+      key: `u${index}`,
+      roleId: "active_uncertainties" as const,
+      bullets: [`It was unknown how ${topic} would behave in cold biofilters.`],
+      ticked: "unticked" as const,
+    })));
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const frozen = await frozenLines(s);
+    expect(frozen.summary?.droppedUncertainties?.map((entry) => [entry.seedId, entry.notChecked ?? false]))
+      .toEqual([[ids.u0, false], [ids.u1, false], [ids.u2, false], [ids.u3, true], [ids.u4, true]]);
+    for (const line of [frozen.s242, frozen.s244, frozen.s246]) {
+      expect(line.planChecks.filter((check) => check.droppedSeedId).map((check) => check.droppedSeedId))
+        .toEqual([ids.u0, ids.u1, ids.u2]);
+      expect(line.droppedNotChecked).toEqual([
+        { seedId: ids.u3, wording: ["It was unknown how membrane life would behave in cold biofilters."] },
+        { seedId: ids.u4, wording: ["It was unknown how fish size would behave in cold biofilters."] },
+      ]);
+    }
+  });
+
+  it("freezes nothing when the writer dropped nothing, as for a Summary signed off before", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const frozen = await frozenLines(s);
+    expect(frozen.summary).not.toHaveProperty("droppedUncertainties");
+    for (const line of [frozen.s242, frozen.s244, frozen.s246]) {
+      expect(line.planChecks.some((check) => check.droppedSeedId)).toBe(false);
+      expect(line.planBlock).toContain(`\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.precedence}\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.format}\n`);
+      expect(line.planBlock).not.toContain("leave_out");
+    }
+    // Rule B holds for every signed-off plan's Line 246.
+    expect(frozen.s246.planChecks.filter((check) => check.ruleId)).toHaveLength(1);
+  });
+
+  it("admits Line 246 with Line 242 reserved at its cap: exactly 64,000 plan-check bytes commit and 64,001 roll back", async () => {
+    const probe = await decisionFixture();
+    await makeReady(probe);
+    await addProvenance(probe, "overall_advancement", "");
+    await probe.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: probe.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const probePlan = await frozenSectionPlan(probe, "s246");
+    const ruleCheck = probePlan.checks.find((check) => check.ruleId);
+    expect(ruleCheck?.wording).toEqual([ANSWERS_242_WORST_CASE_REFERENCE]);
+    expect(utf8Bytes(ANSWERS_242_WORST_CASE_REFERENCE)).toBe(MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES);
+    const excerptLength = MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES - utf8Bytes(projectFrozenSummaryPlanChecks(probePlan.checks));
+    expect(excerptLength).toBeGreaterThan(0);
+
+    const accepted = await decisionFixture();
+    await makeReady(accepted);
+    await addProvenance(accepted, "overall_advancement", "x".repeat(excerptLength));
+    await accepted.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: accepted.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const acceptedPlan = await frozenSectionPlan(accepted, "s246");
+    expect(utf8Bytes(projectFrozenSummaryPlanChecks(acceptedPlan.checks))).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    // At runtime Line 242's real text is shorter than the reservation, and
+    // a Line 242 far over its cap is clipped to it: never over what was admitted.
+    const runtime = await accepted.t.run(async (ctx) => {
+      const generation = await ctx.db.get(accepted.generationId);
+      if (!generation) throw new Error("Missing generation");
+      return {
+        short: await loadFrozenSectionPlan(ctx, generation, "246", { answers242: { kind: "drafted", line242Text: "Line 242 as drafted." } }),
+        long: await loadFrozenSectionPlan(ctx, generation, "246", { answers242: { kind: "drafted", line242Text: "“Curly” text. ".repeat(4_000) } }),
+      };
+    });
+    expect(utf8Bytes(runtime.short.planChecksBlock)).toBeLessThan(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    expect(utf8Bytes(runtime.long.planChecksBlock)).toBeLessThanOrEqual(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+
+    const refused = await decisionFixture();
+    await makeReady(refused);
+    await addProvenance(refused, "overall_advancement", "x".repeat(excerptLength + 1));
+    const refusedBefore = await signoffWriteFootprint(refused);
+    await expect(refused.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: refused.generationId,
+      expectedSeedStageVersion: 0,
+    })).rejects.toMatchObject({
+      data: {
+        code: "INVALID_INPUT",
+        reason: "SUMMARY_CAPACITY_EXCEEDED",
+        limit: "summary_plan_check_input_utf8_bytes",
+      },
+    });
+    expect(await signoffWriteFootprint(refused)).toEqual(refusedBefore);
   });
 });
