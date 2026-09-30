@@ -1822,6 +1822,16 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
         : "no Seed Batch failed",
     ),
   );
+  // 2026-09-30 (first, review P3-5): informational for every fixture. The
+  // LEAVE OUT and Rule B rows are the checking model's own verdicts; the
+  // judges remain the proof.
+  checks.push(
+    info(
+      "leave-out-repairs-246",
+      "Line 246 LEAVE OUT and Rule B rows, their repairs, and COVER rows not applied after such a repair (informational; self-reported by the checking model)",
+      leaveOutRepairEvidence(c),
+    ),
+  );
   const requests = seedRequestCount(c);
   checks.push(
     info(
@@ -1832,6 +1842,30 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
   );
   void fixture;
   return checks;
+}
+
+/**
+ * 2026-09-30 (first, review P3-5): Line 246's LEAVE OUT and Rule B rows with
+ * their outcome and whether a repair fixed them or was set aside, and the
+ * COVER rows not applied after such a repair was used.
+ */
+export function leaveOutRepairEvidence(c: Collected): string {
+  const rows = c.complianceNotes.filter((note) => note.section === "246" && note.planRef);
+  const special = rows.filter((note) => note.planRef?.droppedSeedId || note.planRef?.ruleId);
+  if (special.length === 0) return "no LEAVE OUT or Rule B row in Line 246";
+  const described = special.map((note) => {
+    const name = note.planRef?.ruleId ? "Rule B" : `left out ${note.planRef?.droppedSeedId}`;
+    const repair = note.repaired ? ", repaired" : note.reason.includes("repair not used") ? ", repair not used" : "";
+    return `${name}: ${note.outcome}${repair}`;
+  });
+  const repairUsed = special.some((note) => note.repaired);
+  const coverLost = repairUsed
+    ? rows.filter((note) => note.planRef?.itemId && note.tier !== "conflict" && note.outcome !== "applied")
+    : [];
+  const keptDraft = special.some((note) => note.reason.includes("no longer covers the signed-off item"));
+  return `${described.join("; ")}; COVER rows not applied after such a repair: ${
+    coverLost.length ? coverLost.map((note) => `${note.planRef?.itemId} (${quote(note.reason, 80)})`).join(", ") : "none"
+  }${keptDraft ? "; a repair that lost a COVER item was set aside" : ""}`;
 }
 
 /** One failed Batch in a line: role, error, detail and each answer's counts. */

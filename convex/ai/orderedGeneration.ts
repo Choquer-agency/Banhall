@@ -245,6 +245,15 @@ export function repairDroppedKeptIdeaReason(conflict: Pick<ConfirmedConflict, "w
   return `the repaired text no longer covers the idea the writer kept despite a Claim Exclusion ("${ideaWords(conflict.wording, 120)}"), so the checked draft was kept`;
 }
 
+/**
+ * 2026-09-30 (first, review P2-2): why a repair made for a LEAVE OUT or Line
+ * 246's advancement check was not used: its final text no longer covers a
+ * signed-off item the checked draft covered.
+ */
+export function repairDroppedCoverItemReason(item: Pick<PlanCheck, "wording">): string {
+  return `the repaired text no longer covers the signed-off item "${ideaWords(item.wording, 120)}", and a leave-out fix must keep what a COVER item holds, so the checked draft was kept`;
+}
+
 /** The repair fix for an idea the writer kept despite a Claim Exclusion that the draft does not cover. */
 export function keptIdeaRepairIssue(conflict: Pick<ConfirmedConflict, "wording" | "exclusions">): string {
   return `Whole section: state the idea the writer kept despite ${conflictExclusionsPhrase(conflict.exclusions.map((entry) => entry.text))} as work the project did, as the plan gives it: ${quoteForPrompt(ideaWords(conflict.wording, 600))}. A disclaimer or a "not claimed" mention does not cover it.`;
@@ -479,17 +488,22 @@ export function leaveOutRepairIssue(
  * every run without a signed-off plan, so those requests are unchanged.
  */
 export function advancementsAnswer242Block(
-  answers242: null | undefined | { line242Drafted: true } | { line242Drafted: false; uncertainties: readonly (readonly string[])[] }
+  answers242:
+    | null
+    | undefined
+    | { line242Drafted: true }
+    | { line242Drafted: false; items: ReadonlyArray<{ roleId: PdSubsectionRoleId; wording: readonly string[] }> }
 ): string {
   if (!answers242) return "";
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.advancementsAnswer242;
-  if (answers242.line242Drafted) return `${scaffold.heading}${scaffold.drafted}`;
-  const listed = answers242.uncertainties.length > 0
-    ? answers242.uncertainties
-        .map((wording) => `${scaffold.uncertaintyPrefix}${quoteForPrompt(wording.join(" "))}`)
+  if (answers242.line242Drafted) return `${scaffold.heading}${scaffold.drafted}${scaffold.rest}`;
+  // Review P3-1: every signed-off Line 242 item, by step, quoted on one line.
+  const listed = answers242.items.length > 0
+    ? answers242.items
+        .map((item) => `${scaffold.itemPrefix}${stepTitle(item.roleId)}${scaffold.itemMiddle}${quoteForPrompt(item.wording.join(" "))}`)
         .join("")
     : scaffold.none;
-  return `${scaffold.heading}${scaffold.planned}${listed}`;
+  return `${scaffold.heading}${scaffold.planned}${scaffold.rest}${listed}`;
 }
 
 /**
@@ -1166,6 +1180,35 @@ export async function draftCheckedSection(input: {
       repair.succeeded = false;
       repair.shortened = undefined;
       repair.notUsedReason = repairDroppedKeptIdeaReason(dropped[0]!);
+      keptFit = firstFit;
+      after = null;
+      finalCoverage = undefined;
+      governedFinal = undefined;
+    }
+  }
+
+  // 2026-09-30 (first, review P2-2): a repair made for a LEAVE OUT or Line
+  // 246's advancement check must keep what the signed-off plan holds. When
+  // it carried such a fix and the coverage check of its final text finds a
+  // COVER item not covered that the first check found covered, the checked
+  // draft is kept, as for a kept idea, unless the checked draft is further
+  // over a Locked limit (Locked Rules first). With no final verdict to read,
+  // nothing shows a loss, and the repair stays.
+  if (repair.succeeded && finalCoverage?.ok && leaveOutIssues.size > 0) {
+    const coverage = finalCoverage;
+    const lost = claim.planChecks.filter((planCheck) => {
+      if (planCheck.instruction !== "cover" || planCheck.confirmedExclusion) return false;
+      const before = planVerdictFor(planVerdicts, planCheck);
+      if (before?.outcome !== "applied" || before.actionableRepair === false) return false;
+      const later = planVerdictFor(coverage.verdicts, planCheck);
+      return later !== undefined && later.actionableRepair !== false && later.outcome !== "applied";
+    });
+    if (lost.length > 0 && !overLimitMore(text, finalText)) {
+      console.warn(`generation:repair:${section}: a leave-out repair no longer covers a signed-off item; the checked draft is kept`);
+      finalText = text;
+      repair.succeeded = false;
+      repair.shortened = undefined;
+      repair.notUsedReason = repairDroppedCoverItemReason(lost[0]!);
       keptFit = firstFit;
       after = null;
       finalCoverage = undefined;

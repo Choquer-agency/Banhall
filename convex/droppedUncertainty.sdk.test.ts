@@ -328,7 +328,7 @@ describe("a dropped uncertainty stays out of every Line (real SDK, fetch stubbed
     ]);
     // The repair gets a fixed start naming the words, then the guidance.
     expect(sent[2]!.user).toContain(
-      `- Paragraph 4: leave out the uncertainty the writer dropped ("${SEED_FRACTION.join(" ")}"), the work that tested it and its results. Remove the Trial 2 paragraph.`
+      `- Paragraph 4: leave out the uncertainty the writer dropped ("${SEED_FRACTION.join(" ")}"), the work that tested it and its results, but keep everything a COVER item holds. Remove the Trial 2 paragraph.`
     );
     // The final coverage check judges it again on the final text.
     expect(sent[3]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.leaveOut.instruction);
@@ -478,13 +478,17 @@ describe("every Line 246 advancement answers a Line 242 uncertainty (real SDK, f
     // and the Brief, before the Locked length.
     const drafting = sent[0]!.user;
     const scaffold = ORDERED_PROMPT_SCAFFOLDS.advancementsAnswer242;
-    const rule = `${scaffold.heading}${scaffold.drafted}`;
+    const rule = `${scaffold.heading}${scaffold.drafted}${scaffold.rest}`;
     expect(drafting).toContain(`${ORDERED_PROMPT_SCAFFOLDS.draftedPriorSections.itemTitlePrefix}Line 242 (Uncertainty)${ORDERED_PROMPT_SCAFFOLDS.draftedPriorSections.itemTitleSuffix}${LINE_242}`);
     expect(drafting).toContain(rule);
     expect(drafting.indexOf(FROZEN_SUMMARY_PLAN_SCAFFOLD.end)).toBeLessThan(drafting.indexOf(rule));
     expect(drafting.indexOf(rule)).toBeLessThan(drafting.indexOf(ORDERED_PROMPT_SCAFFOLDS.planLengthBudget.prefix));
+    // Review P3-2: advancements and results only, below the writer's Feedback.
     expect(drafting).toContain(
-      "Claim an advancement in this Line only for an uncertainty that Line 242 states. Line 242 is among the previously drafted sections above."
+      "Claim an advancement or a result in this Line only for an uncertainty that Line 242 states. Line 242 is among the previously drafted sections above. Leave out Brief content that claims an advancement or a result for any other uncertainty, even where the Storyline or the Confidence Map supports it. Project status and next steps are not advancements: this rule does not remove them."
+    );
+    expect(drafting).toContain(
+      "The writer's Feedback outranks this rule, as it outranks the Brief. Claim Exclusions still apply to it: never claim excluded work because a Feedback instruction asks for it."
     );
     // The Self-check: Line 242's text as data in the check, its rule and schema.
     const check = sent[1]!;
@@ -497,7 +501,7 @@ describe("every Line 246 advancement answers a Line 242 uncertainty (real SDK, f
     expect(schema.properties).not.toHaveProperty("droppedSeedId");
     expect(schema.oneOf).toEqual([{ required: ["itemId"] }, { required: ["skippedRoleId"] }, { required: ["ruleId"] }]);
     expect(sent[2]!.user).toContain(
-      "- Paragraph 3: claim an advancement only for an uncertainty Line 242 states, and leave out the rest. Leave out the dosing and fill ratio advancement."
+      "- Paragraph 3: claim an advancement or a result only for an uncertainty Line 242 states, and leave out the rest, but keep everything a COVER item holds. Leave out the dosing and fill ratio advancement."
     );
     expect(sent[3]!.user.endsWith("- ruleId advancements_answer_242")).toBe(true);
     expect(rowOf(result, (ref) => ref.ruleId === "advancements_answer_242")).toEqual({
@@ -513,17 +517,81 @@ describe("every Line 246 advancement answers a Line 242 uncertainty (real SDK, f
     expect(planCoverage(result)).toEqual({ status: "complete", applied: 2, total: 2 });
   });
 
-  it("lists the signed-off uncertainties when Line 246 is drafted before Line 242", async () => {
+  it("lists Line 242's signed-off plan items by step when Line 246 is drafted before Line 242 (review P3-1)", async () => {
     const sent = installFetch({ draft: DRAFT_246, checks: [[advancementCovered, answers]] });
     await draft("246", claimFor({
       section: "246",
       plan: plan246(`- ${KEPT_UNCERTAINTY}`),
-      answers242: { line242Drafted: false, uncertainties: [[KEPT_UNCERTAINTY]] },
+      answers242: {
+        line242Drafted: false,
+        items: [
+          { roleId: "passive_limitations", wording: ["Warm seed goes into shock in 8 degree water."] },
+          { roleId: "active_uncertainties", wording: [KEPT_UNCERTAINTY] },
+        ],
+      },
     }));
     const scaffold = ORDERED_PROMPT_SCAFFOLDS.advancementsAnswer242;
-    expect(sent[0]!.user).toContain(`${scaffold.heading}${scaffold.planned}\n- "${KEPT_UNCERTAINTY}"`);
+    expect(sent[0]!.user).toContain(
+      `${scaffold.heading}${scaffold.planned}${scaffold.rest}\n- Technological limitations: "Warm seed goes into shock in 8 degree water."\n- Technological uncertainties: "${KEPT_UNCERTAINTY}"`
+    );
     expect(sent[0]!.user).not.toContain(ORDERED_PROMPT_SCAFFOLDS.draftedPriorSections.prefix);
     expect(sent[1]!.user).toContain(`"wording":${JSON.stringify([`- ${KEPT_UNCERTAINTY}`])}`);
+  });
+
+  // Review P2-2: a repair made for a leave-out fix must keep what the plan
+  // holds. Line 246 P1 mixes the COVER advancement with Brief-only dosing
+  // content; the repair drops the whole paragraph.
+  const MIXED_246 = [
+    "Stepwise acclimation cut cold-water start-up roughly in half at 8 C, and feed-forward dosing held TAN under 1 mg/L.",
+    "The start-up method is in use on one client farm.",
+  ].join("\n\n");
+  const GUTTED_246 = "The start-up method is in use on one client farm.";
+  const coveredInP1 = { itemId: ITEM_ADVANCEMENT, mergedItemIds: [ITEM_ADVANCEMENT], paragraph: 1, outcome: "applied", reason: "P1 states it." };
+  const dosingInP1 = { ...strays, paragraph: 1, reason: "P1 claims dosing, not in Line 242." };
+  const advancementGone = { itemId: ITEM_ADVANCEMENT, mergedItemIds: [ITEM_ADVANCEMENT], paragraph: 0, outcome: "not_applied", reason: "The acclimation advancement is gone." };
+  const claim246 = () => claimFor({
+    section: "246",
+    plan: plan246(LINE_242),
+    priorSections: [{ section: "242", text: LINE_242 }],
+    answers242: { line242Drafted: true },
+  });
+
+  it("keeps the checked draft when a leave-out repair loses a COVER item the first check found covered (review P2-2)", async () => {
+    const sent = installFetch({
+      draft: MIXED_246,
+      repair: GUTTED_246,
+      checks: [[coveredInP1, dosingInP1], [advancementGone, answers]],
+    });
+    const result = await draft("246", claim246());
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(sent[2]!.user).toContain("but keep everything a COVER item holds.");
+    expect(result.draftText).toBe(MIXED_246);
+    const reason = 'the repaired text no longer covers the signed-off item "Stepwise acclimation cut cold-water start-up roughly in half at 8 C.", and a leave-out fix must keep what a COVER item holds, so the checked draft was kept';
+    expect(rowOf(result, (ref) => ref.itemId === ITEM_ADVANCEMENT)).toMatchObject({ outcome: "applied", repaired: false, paragraphIndex: 0 });
+    expect(rowOf(result, (ref) => ref.ruleId === "advancements_answer_242")).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: `P1 claims dosing, not in Line 242.; repair not used (${reason})`,
+    });
+  });
+
+  it("keeps such a repair when the checked draft is further over a Locked limit (Locked Rules first)", async () => {
+    const filler = (index: number) =>
+      `Paragraph ${index}: the loops were sampled for ammonia, nitrite and nitrate every day and the readings were logged against the acclimation schedule for each loop and its control.`;
+    const overLimit = [MIXED_246, ...Array.from({ length: 14 }, (_, index) => filler(index + 3))].join("\n\n");
+    installFetch({
+      draft: overLimit,
+      repair: GUTTED_246,
+      checks: [[coveredInP1, dosingInP1], [advancementGone, answers]],
+    });
+    const result = await draft("246", claim246());
+    expect(result.draftText).toBe(GUTTED_246);
+    expect(rowOf(result, (ref) => ref.itemId === ITEM_ADVANCEMENT)).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: "The acclimation advancement is gone.",
+    });
+    expect(rowOf(result, (ref) => ref.ruleId === "advancements_answer_242")).toMatchObject({ outcome: "applied", repaired: true });
   });
 
   it("gives Lines 242 and 244 no advancement rule", async () => {

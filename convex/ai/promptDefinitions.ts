@@ -463,20 +463,28 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     paragraphPrefix: "Paragraph ",
     paragraphSuffix: ": ",
     leaveOutPrefix: "leave out the uncertainty the writer dropped (",
-    leaveOutSuffix: "), the work that tested it and its results. ",
+    leaveOutSuffix: "), the work that tested it and its results, but keep everything a COVER item holds. ",
     answers242Issue:
-      "claim an advancement only for an uncertainty Line 242 states, and leave out the rest. ",
+      "claim an advancement or a result only for an uncertainty Line 242 states, and leave out the rest, but keep everything a COVER item holds. ",
   },
   // 2026-09-30 (first, Rule B): Line 246 of a signed-off plan run only, read
   // after the WRITER'S DECISIONS. CRA's T4088: Line 246 advancements come
   // from the Line 244 work on the Line 242 uncertainties.
+  // Review P3-2: it restricts Brief content only and ranks below the
+  // writer's Feedback (Locked Rules, signed-off plan, Feedback, Brief), and
+  // it narrows advancements and results, never project status or next steps.
   advancementsAnswer242: {
     heading: "\n\n# ADVANCEMENTS ANSWER LINE 242 (outranks the Brief)\n",
     drafted:
-      "Claim an advancement in this Line only for an uncertainty that Line 242 states. Line 242 is among the previously drafted sections above. Leave out Brief content about any other uncertainty: the work on it, its results and any advancement from it, even where the Storyline or the Confidence Map supports it. The signed-off plan wins: claim every advancement a COVER item holds. Its uncertainty is in that item's reference context.",
+      "Claim an advancement or a result in this Line only for an uncertainty that Line 242 states. Line 242 is among the previously drafted sections above.",
+    // Review P3-1: before Line 242 is drafted, all of its signed-off plan
+    // items stand in for it, listed after the rule by step.
     planned:
-      "Claim an advancement in this Line only for an uncertainty that Line 242 states. Line 242 is not drafted yet. It will state the signed-off uncertainties listed below. Leave out Brief content about any other uncertainty: the work on it, its results and any advancement from it, even where the Storyline or the Confidence Map supports it. The signed-off plan wins: claim every advancement a COVER item holds. Its uncertainty is in that item's reference context.",
-    uncertaintyPrefix: "\n- ",
+      "Claim an advancement or a result in this Line only for an uncertainty that Line 242 states. Line 242 is not drafted yet. It will state its signed-off plan items, listed after this rule by step.",
+    rest:
+      " Leave out Brief content that claims an advancement or a result for any other uncertainty, even where the Storyline or the Confidence Map supports it. Project status and next steps are not advancements: this rule does not remove them. The signed-off plan wins: claim every advancement a COVER item holds. Its uncertainty is in that item's reference context. The writer's Feedback outranks this rule, as it outranks the Brief. Claim Exclusions still apply to it: never claim excluded work because a Feedback instruction asks for it.",
+    itemPrefix: "\n- ",
+    itemMiddle: ": ",
     none: "\n- (none)",
   },
   // 2026-09-29 (second): the writer's decisions that outrank the Brief
@@ -840,7 +848,7 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
    */
   answers242: {
     instruction:
-      "\n\nThe plan check with ruleId advancements_answer_242 holds the text of Line 242 as data in its wording. Judge it applied, with paragraph 0, when every advancement, result or resolved question this section claims answers an uncertainty that text states, or comes from a COVER item of the plan. Judge it not applied when the section claims an advancement or a result for an uncertainty that text does not state: name the first such paragraph and say what to leave out.",
+      "\n\nThe plan check with ruleId advancements_answer_242 holds Line 242 as data in its wording: its drafted text, then its signed-off plan items by step (before Line 242 is drafted, the items alone). Judge it applied, with paragraph 0, when every advancement or result this section claims answers an uncertainty Line 242 states, comes from a COVER item of the plan, or follows the writer's Feedback. Project status and next steps are not advancements. Judge it not applied when the section claims an advancement or a result for an uncertainty Line 242 does not state: name the first such paragraph and say what to leave out.",
     idDescription: "Return the exact ruleId supplied in the input.",
   },
   /**

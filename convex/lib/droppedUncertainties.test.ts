@@ -36,26 +36,38 @@ describe("near-copy guard (2026-09-30, first)", () => {
     expect(isNearCopy([reworded], [KEPT])).toBe(true);
   });
 
-  it("reads both sides of the 0.7 threshold, on each side's words", () => {
+  it("reads both sides of the 0.7 threshold on the dropped uncertainty's words only (review P3-3)", () => {
     expect(NEAR_COPY_SHARE).toBe(0.7);
-    // Just over on both sides: a near copy.
-    const over = "Stepwise acclimation from 14 to 8 degrees might beat unacclimated seed at the 5-week target in cold water trials.";
-    const [overDropped, overKept] = shares(over, KEPT);
-    expect(overDropped).toBeGreaterThanOrEqual(NEAR_COPY_SHARE);
-    expect(overKept).toBeGreaterThanOrEqual(NEAR_COPY_SHARE);
-    expect(overKept).toBeLessThan(0.85);
+    // 9 of 12 of the dropped one's content words are in the kept one: replaced.
+    const over = "It was uncertain whether stepwise acclimation from 14 to 8 degrees would beat unacclimated seed in cold pump loops.";
+    expect(shares(over, KEPT)[0]).toBe(0.75);
     expect(isNearCopy([over], [KEPT])).toBe(true);
-    // Just under on the kept side (69 percent): not a near copy.
-    const under = "It was uncertain whether stepwise acclimation from 14 to 8 degrees would beat unacclimated seed in cold loops.";
-    const [underDropped, underKept] = shares(under, KEPT);
-    expect(underDropped).toBeGreaterThanOrEqual(NEAR_COPY_SHARE);
-    expect(underKept).toBeLessThan(NEAR_COPY_SHARE);
-    expect(underKept).toBeGreaterThan(0.65);
+    // 9 of 13: not replaced.
+    const under = "It was uncertain whether stepwise acclimation from 14 to 8 degrees would beat unacclimated seed in cold pump loops at farms.";
+    expect(shares(under, KEPT)[0]).toBeCloseTo(9 / 13);
     expect(isNearCopy([under], [KEPT])).toBe(false);
-    // A dropped uncertainty inside a longer kept one is not replaced by it.
+    // A dropped uncertainty contained in a longer kept one is replaced by it,
+    // however many other words the kept one has.
     const subset = "It was uncertain whether stepwise acclimation would beat unacclimated seed.";
-    expect(shares(subset, KEPT)[0]).toBe(1);
-    expect(isNearCopy([subset], [KEPT])).toBe(false);
+    expect(shares(subset, KEPT)).toEqual([1, expect.any(Number)]);
+    expect(shares(subset, KEPT)[1]).toBeLessThan(0.5);
+    expect(isNearCopy([subset], [KEPT])).toBe(true);
+  });
+
+  it("counts a kept uncertainty that merges two originals as replacing each", () => {
+    const merged = [
+      "It was uncertain whether stepwise acclimation from 14 to 8 degrees would beat unacclimated seed enough to hit the 5-week target,",
+      "and whether nitrite oxidizing bacteria were the true bottleneck under cold shock.",
+    ];
+    const acclimation = [KEPT];
+    const bottleneck = ["Whether nitrite oxidizing bacteria were the true bottleneck under cold shock was only inferred."];
+    expect(isNearCopy(acclimation, merged)).toBe(true);
+    expect(isNearCopy(bottleneck, merged)).toBe(true);
+    expect(chooseDroppedUncertainties({
+      unticked: [{ seedId: "acclimation", wording: acclimation }, { seedId: "bottleneck", wording: bottleneck }],
+      kept: [{ seedId: "merged", wording: merged }],
+      rootOf: (id) => id,
+    })).toEqual({ checked: [], notChecked: [] });
   });
 
   it("never matches wording with no content words", () => {

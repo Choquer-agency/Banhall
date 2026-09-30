@@ -51,6 +51,8 @@ import type {
   getSourceAttributionByIds,
   getSummary,
   select,
+  edit,
+  restoreWording,
 } from "./seeds";
 import type { completeAttempt, dispatch } from "./seedRuns";
 import { readSeedReadiness } from "./lib/seedReadiness";
@@ -136,6 +138,8 @@ const getSourceAttributionByIdsRef = queryReference<typeof getSourceAttributionB
 const getSummaryRef = queryReference<typeof getSummary>("seeds:getSummary");
 type SummaryPage = FunctionReturnType<typeof getSummaryRef>;
 const selectRef = decisionMutation<typeof select>("seeds:select");
+const editRef = decisionMutation<typeof edit>("seeds:edit");
+const restoreWordingRef = decisionMutation<typeof restoreWording>("seeds:restoreWording");
 const completeAttemptRef = decisionMutation<typeof completeAttempt>(
   "seedRuns:completeAttempt"
 );
@@ -9893,6 +9897,18 @@ async function addDecisions(
           selectedAt: 30 + index,
           version: 2,
         });
+        // What the select mutation writes when the writer unticks a Seed
+        // (review P2-1: the evidence of an untick).
+        await ctx.db.insert("seedDecisionEvents", {
+          projectId: s.projectId,
+          generationId: s.generationId,
+          roleId: seed.roleId,
+          kind: "deselect",
+          at: 30 + index,
+          actorUserId: s.userId,
+          seedId: ids[seed.key]!,
+          batchId: anchor.batchId,
+        });
       }
     }
     return ids;
@@ -10019,12 +10035,32 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
       instruction: "answer_242",
       roleId: "specific_advancements",
       mergedItemIds: [],
-      wording: ["Line 242 as drafted.\n\nIt states the acclimation uncertainty."],
     });
     expect(frozen.s246.answers242).toEqual({ line242Drafted: true });
-    // Before Line 242 is drafted, its signed-off uncertainties stand in.
-    expect(frozen.s246Before242.answers242).toEqual({ line242Drafted: false, uncertainties: [[KEPT_UNCERTAINTY]] });
-    expect(frozen.s246Before242.planChecks.at(-1)?.wording).toEqual([`- ${KEPT_UNCERTAINTY}`]);
+    // Line 242's signed-off plan items follow its drafted text (review P3-1).
+    const line242Plan = [
+      FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading,
+      "- Company / Context: Final company_context wording.",
+      "- Goal / Problem: Final goal_problem wording.",
+      "- Technological limitations: Final passive_limitations wording.",
+      "- Technological objectives: Final technological_objective wording.",
+      `- Technological uncertainties: ${KEPT_UNCERTAINTY}`,
+    ].join("\n");
+    expect(frozen.s246.planChecks.at(-1)?.wording).toEqual([
+      `Line 242 as drafted.\n\nIt states the acclimation uncertainty.\n\n${line242Plan}`,
+    ]);
+    // Before Line 242 is drafted, all of its signed-off plan items stand in.
+    expect(frozen.s246Before242.answers242).toEqual({
+      line242Drafted: false,
+      items: [
+        { roleId: "company_context", wording: ["Final company_context wording."] },
+        { roleId: "goal_problem", wording: ["Final goal_problem wording."] },
+        { roleId: "passive_limitations", wording: ["Final passive_limitations wording."] },
+        { roleId: "technological_objective", wording: ["Final technological_objective wording."] },
+        { roleId: "active_uncertainties", wording: [KEPT_UNCERTAINTY] },
+      ],
+    });
+    expect(frozen.s246Before242.planChecks.at(-1)?.wording).toEqual([line242Plan]);
 
     // A Summary recovery reuses the frozen row: the same checks.
     await s.t.mutation(internal.generations.failGeneration, {
@@ -10037,6 +10073,68 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     const recovered = await frozenLines(s, recoveryId);
     expect(recovered.s244.planChecks.filter((check) => check.droppedSeedId))
       .toEqual(frozen.s244.planChecks.filter((check) => check.droppedSeedId));
+  });
+
+  it("never freezes an uncertainty the writer edited or restored but never ticked (review P2-1)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const ids = await addDecisions(s, [
+      { key: "edited", roleId: "active_uncertainties", bullets: ["Whether sensors drift in biofilm-heavy water was unknown."], ticked: "never" },
+      { key: "restored", roleId: "active_uncertainties", bullets: ["Whether dosing should follow fish size was unknown."], ticked: "never" },
+      { key: "dropped", roleId: "active_uncertainties", bullets: DROPPED_UNCERTAINTY, ticked: "unticked" },
+    ]);
+    const common = { generationId: s.generationId, roleId: "active_uncertainties" as const };
+    await s.writer.mutation(editRef, {
+      ...common,
+      expectedSeedStageVersion: await stageVersion(s),
+      seedId: ids.edited!,
+      bullets: ["Whether in-tank sensors drift in biofilm-heavy water was unknown."],
+    });
+    await s.writer.mutation(editRef, {
+      ...common,
+      expectedSeedStageVersion: await stageVersion(s),
+      seedId: ids.restored!,
+      bullets: ["Whether the dosing rule should follow fish size was unknown."],
+    });
+    await s.writer.mutation(restoreWordingRef, {
+      ...common,
+      expectedSeedStageVersion: await stageVersion(s),
+      seedId: ids.restored!,
+    });
+    // Editing and restoring left a selection row with selected false and no
+    // deselect event for each card.
+    const rows = await s.t.run(async (ctx) => Promise.all([ids.edited!, ids.restored!].map(async (seedId) => ({
+      selection: await ctx.db.query("seedSelections").withIndex("by_seedId", (q) => q.eq("seedId", seedId)).unique(),
+      deselects: (await ctx.db.query("seedDecisionEvents")
+        .withIndex("by_generationId_and_roleId_and_kind_and_at", (q) =>
+          q.eq("generationId", s.generationId).eq("roleId", "active_uncertainties").eq("kind", "deselect"))
+        .take(20)).filter((event) => event.seedId === seedId).length,
+    }))));
+    for (const row of rows) {
+      expect(row.selection?.selected).toBe(false);
+      expect(row.deselects).toBe(0);
+    }
+    // The edits recomputed the decisions; the writer reviews and approves
+    // each step again, as the stale steps ask.
+    await s.t.run(async (ctx) => {
+      const steps = await ctx.db.query("seedSubsections")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(20);
+      for (const row of steps.filter((step) => step.state !== "skipped")) {
+        await ctx.db.patch(row._id, {
+          state: "approved",
+          approvedContextRevision: row.currentContextRevision,
+          approvedSelectionRevision: row.selectionRevision,
+        });
+      }
+    });
+    expect(await s.writer.query(readinessRef, { generationId: s.generationId })).toMatchObject({ ready: true });
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const frozen = await frozenLines(s);
+    expect(frozen.summary?.droppedUncertainties?.map((entry) => entry.seedId)).toEqual([ids.dropped]);
   });
 
   it("caps the checked dropped uncertainties at three and names the rest as not checked", async () => {

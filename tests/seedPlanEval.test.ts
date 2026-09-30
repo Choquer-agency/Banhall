@@ -669,6 +669,23 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     expect(status(runChecks(byCase("changed_advancement_links"), c, { ...log, removedUncertaintySeedId: null }), "dropped-uncertainty-left-out")).toBe("fail");
   });
 
+  it("reports Line 246's LEAVE OUT and Rule B repairs and any COVER row lost after one, for every fixture, as information (review P3-5)", () => {
+    const { c, log } = run10();
+    c.complianceNotes = [
+      cover("ia1", "246", ["ia1"], { outcome: "not_applied", reason: "The acclimation advancement is gone." }),
+      { ...answersRow(), repaired: true },
+      leaveOutRow("246"),
+    ];
+    for (const fixture of fixtures) {
+      const row = runChecks(fixture, c, log).find((item) => item.id === "leave-out-repairs-246");
+      expect(row?.status).toBe("info");
+      expect(row?.evidence).toBe('Rule B: applied, repaired; left out u1: applied; COVER rows not applied after such a repair: ia1 ("The acclimation advancement is gone.")');
+    }
+    c.complianceNotes = [cover("ia1", "246")];
+    expect(runChecks(byCase("skipped_role_supported"), c, log).find((item) => item.id === "leave-out-repairs-246")?.evidence)
+      .toBe("no LEAVE OUT or Rule B row in Line 246");
+  });
+
   it("names every paragraph of every Line that holds the dropped uncertainty's words or its experiments' distinctive figures", () => {
     const { c, log } = run10();
     const hint = runChecks(byCase("changed_advancement_links"), c, log).find((item) => item.id === "dropped-uncertainty-drafted");

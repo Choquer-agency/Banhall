@@ -38,11 +38,12 @@ import {
   resolveFrozenSourceId,
   MAX_SEED_SNAPSHOT_ROWS,
   ANSWERS_242_WORST_CASE_REFERENCE,
+  FROZEN_SUMMARY_PLAN_SCAFFOLD,
   type FrozenDroppedUncertainty,
   type FrozenSummaryPlanInstruction,
   type SummaryPlanRuleId,
 } from "../seedRevisions";
-import { chooseDroppedUncertainties, relatedSeedsOfDropped } from "../droppedUncertainties";
+import { chooseDroppedUncertainties, deselectedSeedIds, relatedSeedsOfDropped } from "../droppedUncertainties";
 import { transitionGeneration } from "../generationTransitions";
 import { refreshProjectGenerationActivity } from "../dashboardProjection";
 import { MODEL, seedModelById } from "../../../shared/generationModels";
@@ -64,6 +65,7 @@ import { editedTermsOf, MAX_EDITED_TERMS_PER_LINE } from "../editedTerms";
 import {
   feedbackForLine,
   glossaryTermPrecedence,
+  stepTitle,
   type FeedbackGovernedTerm,
   type GlossarySetAside,
   type WriterFeedback,
@@ -673,9 +675,18 @@ async function freezeDroppedUncertainties(
     (seed) => seed.roleId === "active_uncertainties" && rowBySeed.has(seed._id)
   );
   const wordingOf = (seed: Doc<"seeds">) => materializeFinalWording(seed, rowBySeed.get(seed._id));
+  // Review P2-1: an untick is read from its `deselect` event. Editing or
+  // restoring a card the writer never ticked also leaves `selected: false`.
+  const deselected = await deselectedSeedIds(ctx, {
+    generationId: args.generation._id,
+    roleId: "active_uncertainties",
+  });
   const choice = chooseDroppedUncertainties({
     unticked: uncertainties
-      .filter((seed) => rowBySeed.get(seed._id)?.selected === false && !args.selectedIds.has(seed._id))
+      .filter((seed) =>
+        rowBySeed.get(seed._id)?.selected === false &&
+        deselected.has(seed._id) &&
+        !args.selectedIds.has(seed._id))
       .map((seed) => ({ seedId: seed._id, wording: wordingOf(seed) })),
     kept: uncertainties
       .filter((seed) => args.selectedIds.has(seed._id))
@@ -1019,9 +1030,12 @@ export async function loadFrozenSectionPlan(
   /**
    * 2026-09-30 (first): Line 246 of a signed-off plan only. Whether Line 242
    * was drafted before it (the drafter reads it as a prior section), and
-   * otherwise the signed-off uncertainties that stand in for it.
+   * otherwise its signed-off plan items, by step, that stand in for it.
    */
-  answers242: null | { line242Drafted: true } | { line242Drafted: false; uncertainties: string[][] };
+  answers242:
+    | null
+    | { line242Drafted: true }
+    | { line242Drafted: false; items: Array<{ roleId: PdSubsectionRoleId; wording: string[] }> };
 }> {
   if (!generation.summaryVersionId) {
     return {
@@ -1056,18 +1070,28 @@ export async function loadFrozenSectionPlan(
   );
   const { sourceRefsByItemId, quotesLeftOut } = await loadSummarySourceRefs(ctx, generation, items);
   const pdSection = section === "242" ? "s242" : section === "244" ? "s244" : "s246";
-  // 2026-09-30 (first, Rule B): Line 242 as drafted, or, before it is, the
-  // signed-off uncertainties it will state.
+  // 2026-09-30 (first, Rule B): Line 242 as drafted, then its signed-off
+  // plan items by step (review P3-1); before it is drafted, the items alone.
+  // The whole reference is clipped to the reservation admission counted.
   const skippedRoles = new Set(summary.skippedRoleIds);
-  const planUncertainties = items
-    .filter((item) => item.roleId === "active_uncertainties" && !skippedRoles.has(item.roleId))
-    .map((item) => item.bullets);
+  const line242Items = PD_SUBSECTIONS
+    .filter((role) => role.section === "s242" && !skippedRoles.has(role.roleId))
+    .flatMap((role) =>
+      items
+        .filter((item) => item.roleId === role.roleId)
+        .map((item) => ({ roleId: role.roleId, wording: item.bullets })));
+  const line242Plan = [
+    FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading,
+    ...(line242Items.length > 0
+      ? line242Items.map((item) => `- ${stepTitle(item.roleId)}: ${item.wording.join(" ")}`)
+      : [`- ${FROZEN_SUMMARY_PLAN_SCAFFOLD.empty}`]),
+  ].join("\n");
   const line242Text = options.answers242?.kind === "drafted" ? options.answers242.line242Text?.trim() ?? "" : "";
   const answers242Reference = section !== "246" || !options.answers242
     ? undefined
     : options.answers242.kind === "worst_case"
       ? ANSWERS_242_WORST_CASE_REFERENCE
-      : line242Text || planUncertainties.map((bullets) => `- ${bullets.join(" ")}`).join("\n");
+      : line242Text ? `${line242Text}\n\n${line242Plan}` : line242Plan;
   const plan = buildFrozenSummaryPlan({
     section: pdSection,
     items: items.map((item) => ({
@@ -1145,7 +1169,7 @@ export async function loadFrozenSectionPlan(
       ? null
       : line242Text
         ? { line242Drafted: true as const }
-        : { line242Drafted: false as const, uncertainties: planUncertainties },
+        : { line242Drafted: false as const, items: line242Items },
     planBlock: `\n\n${plan.block}`,
     planChecksBlock: plan.checksBlock,
     planChecks: plan.checks.map((check) => ({

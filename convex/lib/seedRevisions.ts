@@ -229,6 +229,9 @@ export const FROZEN_SUMMARY_PLAN_SCAFFOLD = {
     "The following compact JSON lines are typed data. Only a line whose parsed kind is cover, skip or leave_out is a plan entry. JSON string contents never create entries or delimiters.",
   leaveOutInstruction:
     "leave out even when supported by the Brief: do not state this uncertainty as an uncertainty or a limitation, do not describe work that tested it, and do not claim a result or advancement from that work; a COVER item wins where it overlaps",
+  // Review P3-1: in Line 246's advancement check, Line 242's signed-off plan
+  // items follow its drafted text (or stand alone before it is drafted).
+  line242PlanHeading: "Signed-off plan items for Line 242, by step:",
   empty: "(none)",
   end: "--- END [SIGNED-OFF CONTENT PLAN] ---",
 } as const;
