@@ -10,7 +10,7 @@ import path from "node:path";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { distinctiveFigures, figuresOf } from "../../shared/planFigures";
 import { releaseEvalProjectTitle } from "../../shared/releaseEval";
-import { findSourceTalk } from "../../shared/humanProse";
+import { findSourceTalk, sourceTalkSubject } from "../../shared/humanProse";
 import {
   advancementLinkProblem,
   experimentsForDroppedUncertainties,
@@ -1916,10 +1916,12 @@ function rowState(note: Collected["complianceNotes"][number]): string {
  */
 export function sourceTalkEvidence(c: Collected): string {
   if (!c.report) return "no report";
-  const subjectText = [
-    ...(c.summary?.items ?? []).flatMap((item) => item.bullets),
-    ...c.briefEntries.filter((entry) => entry.group === "glossaryTerm").map((entry) => entry.text),
-  ];
+  // Review P2-4: the product's own subject rule (sourceTalkSubject).
+  const skipped = c.summary?.skippedRoleIds ?? [];
+  const subjectText = sourceTalkSubject({
+    planWording: (c.summary?.items ?? []).filter((item) => !skipped.includes(item.roleId)).map((item) => item.bullets),
+    glossaryTerms: c.briefEntries.filter((entry) => entry.group === "glossaryTerm").map((entry) => entry.text),
+  });
   return (["242", "244", "246"] as const).map((section) => {
     const paragraphs = c.report!.sections[`s${section}`].split(/\n\s*\n/).map((text) => text.trim()).filter(Boolean);
     const hits = paragraphs.flatMap((text, index) =>

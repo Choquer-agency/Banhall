@@ -8,7 +8,11 @@ import {
   RULES_REPORT_FACTS,
   RULES_SEED_WORDING,
   SOURCE_TALK,
+  sourceTalkSubject,
+  TARGET_DIRECTIONS,
+  TARGET_RULES,
 } from "./humanProse";
+import run11 from "./__fixtures__/release-suite-run11-report-text.json";
 
 const hits = (t: string) => findDashConnectors(t).length;
 
@@ -118,8 +122,9 @@ describe("report text rules (2026-09-30, third)", () => {
   it("carries both rules in plain words, with no typographic dash, apart from RULES_HUMAN_PROSE", () => {
     expect(findDashConnectors(RULES_REPORT_FACTS)).toEqual([]);
     expect(Object.values(SOURCE_TALK).flatMap((text) => findDashConnectors(text))).toEqual([]);
-    expect(RULES_REPORT_FACTS).toContain("A result at or past its target met it.");
-    expect(RULES_REPORT_FACTS).toContain("for a limit to stay under");
+    expect(RULES_REPORT_FACTS).toContain(TARGET_RULES.reach);
+    expect(RULES_REPORT_FACTS).toContain(TARGET_RULES.limit);
+    expect(RULES_REPORT_FACTS).toContain("Where you cannot tell which way a target runs");
     expect(RULES_REPORT_FACTS).toContain("Never carry it to a later or final result.");
     expect(RULES_REPORT_FACTS).toContain("State the fact, never where it came from.");
     // Notes, QA and the Brief name their sources on purpose.
@@ -169,5 +174,85 @@ describe("report text rules (2026-09-30, third)", () => {
     const hits = findSourceTalk("Per the test memo, the memo states 2.4 percent.");
     expect(hits.map((hit) => [hit.phrase, hit.index])).toEqual([["Per the test memo", 0], ["the memo states", 19]]);
     expect(hits[0]!.context).toContain("Per the test memo");
+  });
+});
+
+describe("results against targets, split by direction (review P2-3)", () => {
+  // The list's own reading: a word the direction forbids for a met target,
+  // unless negated ("not exceeding" says a limit was met).
+  const misstates = (direction: keyof typeof TARGET_DIRECTIONS, phrase: string) =>
+    TARGET_DIRECTIONS[direction].misstated.filter((word) =>
+      new RegExp(`(?<!\\bnot )\\b${word}\\b`, "i").test(phrase));
+  const RUN_11 =
+    "Combined, these results reached 97.8 percent of edges in the edge radius window and 2.6 percent rejects, close to but not exceeding the 97 percent and 3 percent targets.";
+
+  it("keeps one list, and never forbids below or not exceeding for a limit", () => {
+    expect(TARGET_DIRECTIONS.reach.misstated).toContain("below");
+    expect(TARGET_DIRECTIONS.limit.misstated).not.toContain("below");
+    expect(TARGET_RULES.reach).toBe(
+      "For a target to reach, a result at or above it met it; never call a met one close to, short of, just under, below or only approached."
+    );
+    expect(TARGET_RULES.limit).toBe(
+      "For a limit to stay under, a result at or below it met it; never call a met one over, above or exceeding it."
+    );
+    // The limit rule's own example says "below" for a met limit.
+    expect(RULES_REPORT_FACTS).toContain("scrap below 2 percent");
+  });
+
+  it("reads run 11's sentence as wrong for the 97 percent reach target and fine for the 3 percent limit", () => {
+    expect(misstates("reach", RUN_11)).toEqual(["close to"]);
+    expect(misstates("limit", RUN_11)).toEqual([]);
+  });
+
+  it("reads reach and limit cases both ways", () => {
+    // A target to reach, met.
+    expect(misstates("reach", "97.8 percent of edges, above the 97 percent target")).toEqual([]);
+    expect(misstates("reach", "97.8 percent, just under the 97 percent threshold")).toEqual(["just under"]);
+    expect(misstates("reach", "97.8 percent, which only approached the 97 percent target")).toEqual(["only approached"]);
+    expect(misstates("reach", "97.8 percent, not below the 97 percent target")).toEqual([]);
+    // A limit to stay under, met.
+    expect(misstates("limit", "2.6 percent rejects, below the 3 percent limit")).toEqual([]);
+    expect(misstates("limit", "2.6 percent rejects, not exceeding the 3 percent limit")).toEqual([]);
+    expect(misstates("limit", "2.6 percent rejects, above the 3 percent limit")).toEqual(["above"]);
+    expect(misstates("limit", "2.6 percent rejects, exceeding the 3 percent limit")).toEqual(["exceeding"]);
+  });
+});
+
+describe("source talk and the project's own subject (review P2-4)", () => {
+  const phrases = (text: string, planWording: string[][] = [], glossaryTerms: string[] = []) =>
+    findSourceTalk(text, { subjectText: sourceTalkSubject({ planWording, glossaryTerms }) }).map((hit) => hit.phrase);
+
+  it("never reports a head noun the project's subject uses, in any of its forms", () => {
+    const cases: Array<[string, string[][], string[]]> = [
+      ["Each interview ran 30 minutes, and the interview slot moved.", [["The engine ranks interview slots."]], ["Each interview", "the interview"]],
+      ["The word error rate in the transcript fell to 4 percent.", [["Speech-to-text transcription of call audio."]], ["in the transcript"]],
+      ["The totals from the credit memo matched the ledger.", [["Credit memos are matched to invoices."]], ["from the credit memo"]],
+      ["Each source puts 5 W on the target, and both sources differ by 2 nm.", [["Two light sources illuminate the sample."]], ["Each source puts", "both sources differ"]],
+      ["The event log indicated a 40 ms stall.", [["The agent parses event logs."]], ["The event log indicated"]],
+    ];
+    for (const [text, plan, found] of cases) {
+      expect(phrases(text)).toEqual(found);
+      expect(phrases(text, plan)).toEqual([]);
+    }
+    // A Glossary Term is subject too.
+    expect(phrases("The totals from the credit memo matched.", [], ["credit memo"])).toEqual([]);
+  });
+
+  it("matches Storyline and Confidence Map by case only", () => {
+    expect(phrases("The storyline engine branched at each choice.")).toEqual([]);
+    expect(phrases("A stereo confidence map rated each pixel.")).toEqual([]);
+    expect(phrases("The Storyline says so, and the Confidence Map agrees.")).toEqual(["Storyline", "Confidence Map"]);
+  });
+
+  it("still finds all four run 10 and 11 phrases in the real run 11 text, with the real subject", () => {
+    const fixture = run11.fixtures as Record<string, { planWording: string[][]; glossaryTerms: string[]; sections: Record<string, string> }>;
+    const found = (id: string, section: string) => {
+      const entry = fixture[id]!;
+      return phrases(entry.sections[section]!, entry.planWording, entry.glossaryTerms);
+    };
+    expect(found("carried-old-selections", "s242")).toContain("interviewees");
+    expect(found("carried-old-selections", "s244")).toEqual(expect.arrayContaining(["recorded elsewhere", "depending on the measurement source"]));
+    expect(found("withdrawn-feedback", "s244")).toContain("the test memo indicates");
+    expect(found("withdrawn-feedback", "s246")).toEqual([]);
   });
 });

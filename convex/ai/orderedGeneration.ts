@@ -61,7 +61,7 @@ import {
 } from "./promptDefinitions";
 import { scrubBannedWordsUnlessWaived } from "../../shared/bannedWords";
 import { normalizeStyleOverrides } from "../../shared/styleOverrides";
-import { detectFirstPersonPreference } from "../../shared/humanProse";
+import { detectFirstPersonPreference, sourceTalkSubject } from "../../shared/humanProse";
 import { buildTiptapDocument } from "../lib/tiptapReport";
 import {
   LINE_LIMITS,
@@ -1099,18 +1099,16 @@ export async function draftCheckedSection(input: {
       glossarySetAside,
       feedbackTerms: feedbackTerms.map((entry) => entry.term),
       // 2026-09-30 (third): no talk about sources, signed-off plan runs only.
-      // The plan's own wording and the Glossary Terms are the project's
-      // subject, never source talk.
+      // The project's subject is every signed-off item's wording across all
+      // Lines (review P2-4), the Glossary Terms and the edited terms.
       ...(planRun
         ? {
             sourceTalk: {
-              subjectText: [
-                ...claim.planChecks
-                  .filter((planCheck) => planCheck.instruction === "cover")
-                  .flatMap((planCheck) => planCheck.wording),
-                ...(brief?.glossaryTerms ?? []),
-                ...claim.editedTerms,
-              ],
+              subjectText: sourceTalkSubject({
+                planWording,
+                glossaryTerms: brief?.glossaryTerms ?? [],
+                editedTerms: claim.editedTerms,
+              }),
             },
           }
         : {}),

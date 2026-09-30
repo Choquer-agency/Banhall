@@ -47,6 +47,29 @@ export const RULES_SEED_WORDING = `SEED WORDING (MANDATORY):
 - Ranges and paired names take the plain hyphen: 10-20, 2019-2024, Newton-Raphson.
 - Plain, specific words in the client's own terms: name the measurement, the material or the failure. No filler qualifiers ("very", "really"), no superlatives, no sales language, no exclamation marks.`;
 
+/** "a, b or c". */
+function orList(words: readonly string[]): string {
+  return words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} or ${words[words.length - 1]}`;
+}
+
+/**
+ * 2026-09-30 (third, review P2-3): how a result is stated against its target,
+ * by the target's direction. The one list of words that misstate a met
+ * target, used by the drafting rule, the Self-check and the repair. For a
+ * limit to stay under, "below" and "not exceeding" say it was met, so they
+ * are never forbidden there.
+ */
+export const TARGET_DIRECTIONS = {
+  reach: { met: "at or above it", misstated: ["close to", "short of", "just under", "below", "only approached"] },
+  limit: { met: "at or below it", misstated: ["over", "above", "exceeding"] },
+} as const;
+
+/** The rule for each direction, and for a direction that is unclear, in the same words everywhere. */
+export const TARGET_RULES = {
+  reach: `For a target to reach, a result ${TARGET_DIRECTIONS.reach.met} met it; never call a met one ${orList(TARGET_DIRECTIONS.reach.misstated)}.`,
+  limit: `For a limit to stay under, a result ${TARGET_DIRECTIONS.limit.met} met it; never call a met one ${orList(TARGET_DIRECTIONS.limit.misstated)} it.`,
+} as const;
+
 // 2026-09-30 (third, release suite runs 6, 10 and 11): two rules for report
 // text (the PD Lines) only. Notes, QA findings and the Brief name their
 // sources on purpose, so this block is not part of RULES_HUMAN_PROSE. Sent
@@ -54,8 +77,10 @@ export const RULES_SEED_WORDING = `SEED WORDING (MANDATORY):
 // Single draft and Compare keep their requests byte for byte.
 export const RULES_REPORT_FACTS = `RESULTS AND SOURCES (MANDATORY in the report text):
 Results against targets:
-- State each result against its target as the numbers show. A result at or past its target met it. Mind the direction: for a target to reach (at least 95 percent yield), a higher result met it; for a limit to stay under (scrap below 2 percent, an error under 0.5 mm, a cycle under 30 s), a lower result met it.
-- Never call a met target close to, short of, just under, below or not exceeding the target, and never say it was only approached. Say a result missed its target only when the numbers show it did.
+- State each result against its target as the numbers show, and mind the direction.
+- ${TARGET_RULES.reach} Example: at least 95 percent yield.
+- ${TARGET_RULES.limit} Examples: scrap below 2 percent, an error under 0.5 mm, a cycle under 30 s.
+- Say a result missed its target only when the numbers show it did. Where you cannot tell which way a target runs, give the result and the target as numbers, with no word for met or missed.
 - A qualifier about one result (only approached, not fully met, short of the target) belongs to the test it names. Never carry it to a later or final result.
 No talk about sources:
 - State the fact, never where it came from. Do not name an interview, an interviewee, a transcript, a memo, notes, a record, a document, the Brief, the Storyline, the Confidence Map or "the sources" in the report text.
@@ -110,33 +135,71 @@ const SOURCE_TALK_PATTERNS: readonly RegExp[] = [
   // Case matters for the Brief's own names: a lowercase "brief" or
   // "confidence map" is ordinary or technical English.
   /\b[Tt]he (?:Generation )?Brief\b/gu,
-  /\b[Ss]torylines?\b/gu,
+  /\bStorylines?\b/gu,
   /\bConfidence Maps?\b/gu,
 ];
 
-function normalizedWords(text: string): string {
-  return ` ${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()} `;
+/**
+ * 2026-09-30 (third, review P2-4): the head nouns of source talk, each with
+ * the word forms that make it the project's own subject. A hit whose head
+ * noun has a form among the subject's words is not reported: an interview
+ * scheduling product, a speech-to-text engine ("in the transcript"), credit
+ * memos, light sources, event logs. "recorded elsewhere", "the Brief" and
+ * "Confidence Map" have no such head and are always source talk.
+ */
+const SOURCE_HEAD_NOUNS: ReadonlyArray<readonly string[]> = [
+  ["interview", "interviews", "interviewee", "interviewees", "interviewer", "interviewers", "interviewing"],
+  ["transcript", "transcripts", "transcription", "transcriptions", "transcribe", "transcribed", "transcribes"],
+  ["memo", "memos"],
+  ["document", "documents", "documentation", "documented"],
+  ["record", "records"],
+  ["note", "notes"],
+  ["log", "logs", "logged", "logging"],
+  ["minutes"],
+  ["source", "sources"],
+  ["storyline", "storylines"],
+];
+
+/**
+ * 2026-09-30 (third, review P2-4): the project's own subject for
+ * `findSourceTalk`, the same in the product and the release suite: every
+ * signed-off item's wording across all Lines (skipped steps aside), the
+ * Glossary Terms and the writer's edited terms.
+ */
+export function sourceTalkSubject(args: {
+  planWording: ReadonlyArray<readonly string[]>;
+  glossaryTerms?: readonly string[];
+  editedTerms?: readonly string[];
+}): string[] {
+  return [...args.planWording.flat(), ...(args.glossaryTerms ?? []), ...(args.editedTerms ?? [])];
+}
+
+function wordsOf(text: string): string[] {
+  return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
 /**
  * The phrases in `text` that name where a fact came from (2026-09-30,
- * third). A phrase that also appears in `subjectText` (the signed-off plan's
- * wording, the Glossary Terms) is the project's own subject, say an interview
- * scheduling product, and is not reported. Hits are in text order, one per
- * position.
+ * third). `subjectText` is the project's own subject: every signed-off
+ * item's wording across all Lines, the Glossary Terms and the writer's
+ * edited terms. A hit whose head noun (interview, transcript, memo,
+ * document, record, notes, log, source, storyline) the subject uses in any
+ * of its forms is not reported. Hits are in text order, one per position.
  */
 export function findSourceTalk(
   text: string,
   options: { subjectText?: readonly string[] } = {}
 ): SourceTalkHit[] {
-  const subject = normalizedWords((options.subjectText ?? []).join(" \n "));
+  const subject = new Set((options.subjectText ?? []).flatMap(wordsOf));
+  const subjectHeads = SOURCE_HEAD_NOUNS.filter((forms) => forms.some((form) => subject.has(form)));
   const hits: SourceTalkHit[] = [];
   for (const pattern of SOURCE_TALK_PATTERNS) {
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(text)) !== null) {
       const phrase = match[0];
-      if (subject.includes(normalizedWords(phrase))) continue;
+      const words = wordsOf(phrase);
+      if (subjectHeads.some((forms) => forms.some((form) => words.includes(form)))) continue;
       const start = Math.max(0, match.index - 30);
       const end = Math.min(text.length, match.index + phrase.length + 30);
       hits.push({

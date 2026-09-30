@@ -1,0 +1,163 @@
+{
+ "source": "_bmad-output/test-artifacts/seed-plan-eval/2026-09-30-run2/results.json (release suite run 11 at 9de29da9)",
+ "fixtures": {
+  "carried-old-selections": {
+   "planWording": [
+    [
+     "The company has made foam-ceramic filters for metal foundries for a little over twenty years. The team calls the graded structure the cascade-fired lattice.",
+     "Its engineering group of five people includes a process lead with six years in firing curves and shrinkage."
+    ],
+    [
+     "The core manufacturing process is replication: a polyurethane sponge is coated with ceramic slurry, excess squeezed out, dried and fired.",
+     "Firing burns out the sponge, leaving a ceramic copy of the foam as the finished filter."
+    ],
+    [
+     "Standard practice was stacking a coarse and fine filter or buying a thicker fine filter to raise capture.",
+     "Stacking doubled cost and left a bypass gap, and thicker fine filters cracked worse as thermal stress rose with thickness."
+    ],
+    [
+     "The team sought new knowledge on whether templates of different pore sizes could be bonded or graded and survive firing without delaminating.",
+     "This knowledge was meant to enable a replicated foam filter combining a tough entry face with a fine capture layer."
+    ],
+    [
+     "It was unknown whether two-zone sponge templates could survive firing without delaminating at the bond line.",
+     "Shrinkage could not be calculated because it depends on slurry loading, pore size, viscosity and roller pressure."
+    ],
+    [
+     "Struts are hollow after the sponge burns out, making interface stress too hard to model analytically."
+    ],
+    [
+     "The working hypothesis proposed a two-zone template, 10 ppi entry and 30 ppi exit, matched for slurry mass per volume.",
+     "This was expected to hold shrinkage mismatch within 0.5 percent and survive firing without delamination."
+    ],
+    [
+     "If a two-zone template matches slurry mass per volume, then shrinkage mismatch stays within 0.5 percent and survives firing without delamination.",
+     "If that hypothesis holds, then capture rises at least 30 percent over the 20 ppi standard with no more than a 10 percent flow penalty."
+    ],
+    [
+     "Trial 1 bonded 10 ppi and 30 ppi sponge sheets with adhesive and a single slurry dip.",
+     "Eighteen of 24 parts delaminated at the bond line, with a 1.4 percent shrinkage mismatch."
+    ],
+    [
+     "Trial 2 replaced adhesive with a thermal fused bond and added a two stage slurry dip.",
+     "Delamination dropped to 9 of 40 parts, about 22 percent, with mismatch down to 0.7 percent."
+    ],
+    [
+     "Trial 3 slowed the ramp through 1,100 to 1,350 C, meeting the 0.5 percent mismatch target.",
+     "This confirmed the hypothesis that matching slurry mass per volume controls firing survival."
+    ],
+    [
+     "Trial 1 and trial 2 findings showed shrinkage mismatch tracks slurry mass per volume more than pore size itself.",
+     "This reframed the delamination problem from a pore-size issue to a slurry pick-up control issue."
+    ],
+    [
+     "Trial 1 revealed that adhesive bonding cannot survive firing because it burns out before the ceramic sinters.",
+     "This knowledge ruled out adhesive bonding entirely for any graded template approach."
+    ],
+    [
+     "The customer pour trial at one foundry showed zero breakage across 200 graded filters used.",
+     "X-ray rejects on thin-wall housings dropped from 6.2 percent to 4.5 percent over the trial period."
+    ],
+    [
+     "The graded filter program aimed to combine breakage resistance with fine inclusion capture in one part.",
+     "Trial results confirmed the two zone approach met both the firing survival and capture goals together."
+    ]
+   ],
+   "glossaryTerms": [
+    "pore-size gradient",
+    "replicated foam filter",
+    "fine inclusion capture",
+    "priming head",
+    "shrinkage mismatch",
+    "pores per inch (ppi)",
+    "delamination",
+    "thermal-fused bond",
+    "two-stage dip",
+    "crack arrester"
+   ],
+   "sections": {
+    "s242": "Brackenridge Kilnworks Ltd. has made foam-ceramic filters for metal foundries for a little over twenty years, from its plant in Dunmore Falls, Ontario. Its core process is replication: a polyurethane sponge is coated with ceramic slurry, the excess squeezed out, then dried and fired so the sponge burns out, leaving a ceramic copy of the foam as the finished filter. A five-person engineering group holds the firing-curve and shrinkage know-how, including a process lead with six years in firing curves and shrinkage. The two interviewees describe the motivation differently, one emphasizing breakage and the other capture, but both agree the goal was pursued through what the team calls the cascade-fired lattice: a single replicated filter with a pore-size gradient through its thickness, pairing a coarse entry face against thermal shock with a fine exit face for inclusion capture.\n\nStandard practice was stacking a coarse and fine filter, or buying a thicker fine filter. Stacking doubled cost and left a bypass gap; thicker fine filters cracked worse as thermal stress rose with thickness. No method existed for grading or bonding sponge templates of different pore sizes through firing without delamination. Shrinkage mismatch between zones could not be calculated, since it depends on slurry loading, pore size, viscosity and roller pressure, none quantified for a graded part. Because struts are hollow after sponge burnout, interfacial stress during firing was too hard to model analytically.\n\nThe team sought new knowledge on whether templates of different pore sizes could be bonded or graded and survive firing without delaminating, meant to enable a replicated foam filter combining a tough entry face with a fine capture layer.\n\nIt was unknown whether two-zone sponge templates could survive firing without delaminating at the bond line. It was also uncertain how the interface would behave under thermal shock, since hollow struts made interfacial stress too complex to model, and whether cracks would arrest or initiate could not be predicted from the literature.\n\n",
+    "s244": "The technological problem was whether a replicated foam filter could carry a pore-size gradient through a 50 mm fired part without the zones tearing apart at the interface, and whether it would raise fine inclusion capture without choking flow or worsening cracking under thermal shock. The company ran a planned trial series, moving from bonding method through slurry control, firing curve, flow/capture testing and thermal shock testing, with each result fixing the variable for the next since bonding method, shrinkage mismatch, fine zone thickness and interface quality interacted rather than acting independently.\n\nThe working hypothesis proposed a two-zone template, 10 pores per inch (ppi) entry and 30 ppi exit, matched for slurry mass per volume. This was expected to hold shrinkage mismatch within 0.5 percent and survive firing without delamination. If that held, capture was expected to rise at least 30 percent over the 20 ppi standard with no more than a 10 percent flow penalty.\n\nTrial 1 bonded 10 ppi and 30 ppi sponge sheets with polyurethane adhesive, applied a single slurry dip, and fired 24 parts. Eighteen of 24 delaminated at the bond line, with survivors showing a 1.4 percent shrinkage mismatch; the trial log recorded higher slurry pick-up on the 30 ppi side than expected. This showed the adhesive bond left a burnout gap before the ceramic sintered, and that mismatch tracked slurry pick-up rather than pore size, so the bonding method changed for the next trial.\n\nTrial 2 replaced adhesive with a thermal-fused bond and added a two-stage dip (thin slurry over the whole part, then thick slurry on the coarse half only), firing 40 parts. Delamination dropped to 9 of 40, about 22 percent, with mismatch down to 0.7 percent, still short of the 0.5 percent target. This indicated the two-stage dip fixed most, but not all, of the pick-up imbalance, leaving the firing curve as the remaining lever.\n\nTrial 3 kept the two-stage dip and slowed the firing ramp to 1 C per minute through the 1,100 to 1,350 C sintering window, adding a 45 minute hold before the final ramp to 1,580 C, across 36 parts. Delamination fell to 2 of 36 (6 percent) and mismatch measured 0.4 percent, meeting the target at a cost of roughly 3 extra hours of kiln time per load (recorded elsewhere as a door-to-door increase from about 19 to 22 hours). This confirmed mismatch is governed more by slurry mass per volume than pore size, and that a slower sintering-window ramp closes the gap the dip alone could not.\n\nTrial 4 used a flow rig with 50 kg A356 pours at 720 C to compare standard 20 ppi, standard 30 ppi, and a graded filter with a 25 mm fine zone, 6 pours each. The graded filter flowed at 3.8 kg/s, roughly 7 to 8 percent below the 20 ppi baseline depending on the measurement source, and captured 41 percent more inclusions, but 2 of 6 pours choked late as inclusion cake built on the fine face, so the fine zone needed to be thinner before the capture gain could be used.\n\nTrial 5 cut the fine zone to 15 mm against a 35 mm coarse zone, testing 8 pours of the full 50 kg charge. Flow held at 3.9 kg/s with no choking, and capture reached 36 percent above the 20 ppi standard, an acceptable trade-off against the earlier 41 percent. This established 15 mm as the fine zone thickness that avoids choking without giving up most of the capture benefit.\n\nTrial 6 ran quench-and-crush tests (700 C to room-temperature water, then crush) and cold burst tests, comparing standard 20 ppi, well-matched trial 3 parts, and poorly matched trial 2 parts. Well-matched graded filters retained 68 percent strength after quench versus 55 percent for standard, and only 1 of 20 cracked in burst testing (crack stopping at the interface) versus 3 of 20 standard; poorly matched parts cracked along the interface in 4 of 10 cases. This showed a well-matched interface acts as a crack arrester while a poorly matched one becomes a failure plane, linking the firing-survival and thermal-shock questions.\n\n",
+    "s246": "The technological objective was to determine whether a replicated foam filter could carry a pore-size gradient through a 50 mm fired part, resisting thermal shock while raising fine inclusion capture without unacceptable flow penalty. That objective was achieved. The hypothesis was proven in part and revised in part: matching slurry mass per unit volume across zones did control shrinkage mismatch, confirmed when trial 3's slow ramp through 1,100 to 1,350 C met the 0.5 percent mismatch target. The 30 percent capture target was met only after the predicted fine-zone thickness was revised from 25 mm to 15 mm to avoid choking.\n\nIt was determined that shrinkage mismatch between graded zones (10 ppi entry, 30 ppi exit) tracks slurry mass per unit volume more than pore size itself, and that a slow ramp through the primary sintering window closes the remaining gap a two-stage dip alone cannot. This resolved the uncertainty over whether graded templates could survive firing at production scale without delaminating. This knowledge was applied to a two-stage dip and thermal-fused bond, which held delamination to 6 percent and mismatch to 0.4 percent in trial 3.\n\nIt was established that adhesive bonding cannot survive firing, since it burns out before the ceramic sinters, while a thermal-fused bond carries the graded part through intact. This resolved the bonding-method question directly, ruling out adhesive bonding for any graded replicated foam filter.\n\nWork continues into fiscal 2027 on 30 mm parts, a continuous gradient, and an alternative binder to shorten the ramp, each unresolved because the mechanisms established at 50 mm have not been tested at other thicknesses or gradient forms. The replicated foam filter combined breakage resistance with fine inclusion capture in one part, meeting both original goals together, as shown by a customer pour trial of 200 filters with zero breakage and X-ray rejects falling from 6.2 to 4.5 percent at one foundry with one alloy.\n\n"
+   }
+  },
+  "withdrawn-feedback": {
+   "planWording": [
+    [
+     "The company designs and builds robotic finishing cells for grinding, sanding, polishing and deburring parts.",
+     "Work focuses mostly on aerospace customers with some medical parts as well."
+    ],
+    [
+     "The company sought a robotic process to deburr cast A357 aluminium brackets automatically, replacing manual work.",
+     "The goal was to hold edge radius within 0.2 to 0.5 millimetres on nearly every edge without over-rounding."
+    ],
+    [
+     "A fixed force, fixed path robotic cell could not work because one setting either over-rounded small burrs or left large ones.",
+     "Burr height varied from about 0.1 to 1.2 millimetres, so a single force setting could not satisfy the whole range."
+    ],
+    [
+     "The team sought to learn whether burr height could be estimated from 2D images accurately and quickly enough to set contact force per edge.",
+     "This knowledge gap existed because nobody had done burr height estimation from 2D on shiny, dull cast aluminium surfaces before."
+    ],
+    [
+     "It was unclear whether a stable, controllable relationship existed linking burr height, force and resulting radius.",
+     "No existing model connected burr size, floating head force and the final edge radius achieved."
+    ],
+    [
+     "The vision outcome was uncertain because the cast aluminium surface was shiny in places and dull in others.",
+     "The burr itself was small compared to the part, making reliable 2D estimation an open question."
+    ],
+    [
+     "The team planned a staged approach, starting with a fixed force baseline in the pilot cell in Bay 4.",
+     "Each step built on the last: vision estimation, then force mapping, then targeted fixes for edge cases."
+    ],
+    [
+     "The hypothesis names a specific edge-in-window target of at least 97 percent of edges."
+    ],
+    [
+     "Test one used a fixed 20 newton force baseline, giving 14 percent rejects, worse than manual deburring."
+    ],
+    [
+     "A single-angle 2D vision setup gave 0.18 millimetres RMS error and took 210 milliseconds per edge.",
+     "Specular reflection on machined faces caused many burrs to be overestimated, so this attempt was dropped."
+    ],
+    [
+     "Two-angle imaging cut vision error to 0.07 millimetres RMS at 95 milliseconds per edge, meeting both targets.",
+     "The non-linear force map, with a knee near 0.6 millimetres, let force scale correctly with burr height across the range."
+    ],
+    [
+     "Single-angle 2D vision on cast aluminium failed to reach the accuracy or speed target.",
+     "The error was 0.18 millimetres RMS at 210 milliseconds per edge, revealing a limit of single-angle imaging."
+    ],
+    [
+     "Test two revealed that specular reflection on machined faces was the main cause of overestimated burr height.",
+     "Thirty one of four hundred edges were overestimated by more than 0.4 millimetres, all on machined faces."
+    ],
+    [
+     "The project remains active in the pilot cell in Bay 4, with no production cell shipped yet.",
+     "The team is running parts close to the cycle time limit, leaving no room for extra steps."
+    ],
+    [
+     "The project set out to replace manual deburring with a controlled process holding edge radius within 0.2 to 0.5 millimetres.",
+     "The knowledge gained lets the compliant spindle set force per edge from a 2D burr height estimate, meeting that original goal."
+    ]
+   ],
+   "glossaryTerms": [
+    "a357",
+    "floating head",
+    "cycle time",
+    "force map",
+    "reference coupon",
+    "two-angle differencing",
+    "burr height estimation",
+    "edge radius window",
+    "thin flange chatter"
+   ],
+   "sections": {
+    "s242": "The company designs and builds robotic finishing cells for grinding, sanding, polishing and deburring, working mostly with aerospace customers and some medical parts, integrating industrial robotic arms with proprietary tooling, fixturing and control software. This background in force-controlled tooling and vision integration gave the company the operational base to take on an aerospace customer's cast A357 aluminum bracket, previously deburred by hand.\n\nThe company sought a robotic process to deburr these cast A357 brackets automatically, replacing the manual operation and its 9% reject rate. The goal was to hold edge radius within the 0.2-0.5 mm edge radius window on nearly every edge, without over-rounding smaller burrs while still removing the largest ones.\n\nThe limitations to standard practice were that a fixed-force, fixed-path robotic cell could not work: a force high enough to remove a 1.2 mm burr over-rounded edges carrying only a 0.1 mm burr. No documented method existed for estimating burr height quickly from 2D images on cast aluminum, where surfaces are partly shiny and partly dull and burrs are small relative to the part. No model existed relating burr height, compliant spindle contact force, feed rate, abrasive wear and edge stiffness to the resulting edge radius for this class of casting.\n\nThe technological objective was to advance the understanding of real-time 2D vision-based burr height estimation and adaptive force control of a compliant spindle deburring tool, for the purposes of creating a robotic deburring process able to hold edge radius within a tight tolerance window despite variable incoming burr geometry, inside a constrained cycle time.\n\nIt was uncertain whether a stable, controllable relationship, a force map linking burr height, contact force and resulting radius, even existed, since no model connected these variables for cast A357 brackets. It was uncertain whether burr height could be estimated reliably from 2D images because the cast aluminum surface was shiny in some areas and dull in others, and the burr was small relative to the part, conditions under which no comparable estimation method had been documented.\n\n",
+    "s244": "The company used a staged approach: fixed-force baseline, then burr height estimation, then force mapping, then targeted fixes for edge cases such as thin flange chatter and abrasive wear drift. The team began by measuring a fixed-force baseline in the pilot cell in Bay 4 to quantify how far standard practice fell short of the edge radius window. Each step built on the last, vision estimation, then force mapping, then targeted fixes for edge cases, isolating each uncertainty before combining them into a working process.\n\nIt was hypothesized that if burr height per edge could be estimated from 2D images to within 0.1 mm RMS in under 120 ms per edge, and compliant spindle contact force set from that estimate, then edge radius would stay in window on at least 97 percent of edges and bracket reject rate would fall below 3 percent, within a 4-minute cycle.\n\nTest one used a fixed 20 N force baseline over a fixed tool path, run across 120 brackets. Rejects came in at 14 percent, worse than manual deburring, with most failures from leftover burr on high-burr edges and over-rounding on low-burr edges. This confirmed that no single force setting could serve the full range of burr sizes and that a burr-height-linked force adjustment was required.\n\nThe second test checked whether burr height could be estimated fast and accurately enough from 2D images using a single lighting angle. The team imaged 400 edges with a 12MP camera and a low-angle ring light, against laser profiler reference readings. Error came in at 0.18 mm RMS at 210 ms per edge, missing both targets, because specular reflection on machined faces caused many burrs to be overestimated, so this attempt was dropped. This ruled out single-angle 2D imaging and pointed toward a method that could separate reflection from shadow.\n\nBefore pursuing that, the team tested a borrowed 3D structured-light camera, reasoning that direct depth measurement might avoid the reflection problem. Depth resolution came in at about 0.2 mm, no better than the 2D result, and capture time ran near 400 ms per edge, slower and with added equipment cost. 3D profiling offered no advantage here, so the team returned to refining 2D imaging.\n\nThe team then tested two images per edge, at 15 and 60 degree lighting angles, using two-angle differencing to separate burr shadow from surface reflection, cropped to a CAD-defined region of interest and processed on GPU. On the same 400 edges, error dropped to 0.07 mm RMS at 95 ms per edge, meeting both accuracy and speed targets. Two-angle differencing, not single-angle imaging or 3D profiling, resolved the vision uncertainty.\n\nWith vision working, the team checked whether a stable relationship existed between burr height and required contact force. Sixty coupons with burrs from 0.1 to 1.2 mm were run through a force sweep of 8-40 N, mapped into a force map tested on 300 brackets. The relationship proved non-linear, rising steeply above a 0.6 mm knee; applying the force map brought rejects to 4.3 percent with 96.1 percent of edges in window, short of the hypothesis target. The force-radius relationship was real and repeatable, but a further source of error remained.\n\nThat error traced to thin, 2.5 mm flange walls, where forces above about 28 N caused thin flange chatter against part deflection. A second pass on those edges was tried first, but capping force at 26 N and slowing feed rate from 40 to 25 mm/s worked better, eliminating chatter and bringing rejects to 2.6 percent with 97.8 percent of edges in window. On flexible features, force had to be traded for dwell time rather than increased.\n\nFinally, the team addressed radius drift from abrasive wear over extended runs, adding a reference coupon check every 25 brackets to rescale the force table. Over 240 brackets, the test memo indicates reject rate held stable at 2.4 percent with no drift trend, suggesting wear could be tracked and corrected without a fixed replacement schedule.\n\n",
+    "s246": "The technological objective was to advance real-time 2D vision-based burr height estimation and adaptive force control of a compliant spindle for deburring cast A357 aerospace brackets. This objective was met. Two-angle imaging cut vision error to 0.07 mm RMS at 95 ms per edge, meeting both targets, and the non-linear force map, with a knee near 0.6 mm, let force scale correctly with burr height across the range. Combined, these results reached 97.8 percent of edges in the edge radius window and 2.6 percent rejects, close to but not exceeding the 97 percent and 3 percent targets.\n\nSingle-angle 2D vision on cast aluminum could not reach the accuracy or speed target needed for per-edge force control. The 0.18 mm RMS error at 210 ms per edge revealed a limit of single-angle imaging, traced to specular reflection on machined faces. Thirty one of 400 edges were overestimated by more than 0.4 mm, all on machined faces, confirming reflection as the dominant failure mode. This was resolved by moving to two-angle differencing, separating shadow from reflection and meeting both targets.\n\nThe relationship between burr height and required compliant spindle force is non-linear, with a repeatable knee near 0.6 mm, resolving the uncertainty over whether a stable, controllable force-to-radius relationship existed for A357 brackets. This was used to build a force map that scales contact force correctly across the 0.1-1.2 mm burr range.\n\nThe project remains active in the pilot cell in Bay 4, with no production cell shipped. Cycle time now runs close to the 4-minute limit, leaving no margin for added steps, which keeps GPU processing time reduction an open question for the next period.\n\nThe original goal was to replace manual deburring with a controlled process holding edge radius within the 0.2 to 0.5 mm edge radius window. The knowledge gained lets the compliant spindle set force per edge from a 2D burr height estimate, meeting that goal and cutting rejects from 9 percent under manual deburring to 2.6 percent.\n\n"
+   }
+  }
+ }
+}

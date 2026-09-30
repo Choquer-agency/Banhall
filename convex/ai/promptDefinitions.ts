@@ -20,6 +20,7 @@ import {
   RULES_REPORT_FACTS,
   RULES_SEED_WORDING,
   SOURCE_TALK,
+  TARGET_RULES,
 } from "../../shared/humanProse";
 import { GOVERNED_IN_IDEA_CLAUSE } from "../lib/writerPrecedence";
 
@@ -492,8 +493,9 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     glossaryIssuePrefix: "use the Glossary Term ",
     glossaryIssueSuffix:
       " only in place of the words that name that same thing another way. Never add it beside words that already say it, never force it into a sentence where it does not fit, keep the sentence grammatical, and never use it to put the solution into the objective or to change the meaning. ",
+    // Review P2-3: split by direction, in TARGET_RULES' words.
     targetsIssue:
-      "state each result against its target as the numbers show: a result at or past its target met it, and for a limit to stay under, a lower result met it. Never call a met target close to, short of, just under or not exceeding it. ",
+      `state each result against its target as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} Where the direction is unclear, change nothing. `,
     // The deterministic source-talk fix (shared/humanProse.ts), hashed here
     // with the rest of the repair's wording.
     sourceTalk: SOURCE_TALK,
@@ -949,8 +951,10 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
    * line after the data blocks is only present when the request has it.
    */
   resultsAgainstTargets: {
+    // Review P2-3: split by direction, in TARGET_RULES' words; a comparison
+    // whose direction is unclear is judged applied.
     instruction:
-      "\n\nThe plan check with ruleId results_against_targets asks whether each result the section compares with a target (a hypothesis target, a goal, a limit or a threshold) is stated as the numbers show. A result at or past its target met it. Mind the direction: for a target to reach, a higher result met it; for a limit to stay under (a reject rate, an error, a time), a lower result met it. A qualifier about one test applies only to that test. Judge it applied, with paragraph 0, when every such comparison matches the numbers, or when the section compares no result with a target. Judge it not applied when the section calls a met target close to, short of, just under, below or not exceeding it, says it was only approached, calls a missed target met, or carries a qualifier about one test to another test or to the final result: name the first such paragraph and give the comparison as the numbers show.",
+      `\n\nThe plan check with ruleId results_against_targets asks whether each result the section compares with a target (a hypothesis target, a goal, a limit or a threshold) is stated as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} A qualifier about one test applies only to that test. Judge it applied, with paragraph 0, when every such comparison matches the numbers, when the section compares no result with a target, or when you cannot tell which way a target runs. Judge it not applied when the section calls a met target by a word the rule for its direction forbids, calls a missed target met, or carries a qualifier about one test to another test or to the final result: name the first such paragraph and give the comparison as the numbers show.`,
   },
   /**
    * The one follow-up for an answer that missed labels, sent in place of the

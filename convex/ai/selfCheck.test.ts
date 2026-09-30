@@ -34,7 +34,7 @@ import {
   runDeterministicSelfCheck,
   SOURCE_TALK_KEY,
 } from "../lib/selfCheckRules";
-import { SOURCE_TALK } from "../../shared/humanProse";
+import { RULES_REPORT_FACTS, SOURCE_TALK, TARGET_RULES } from "../../shared/humanProse";
 import type { OrderedProfileContext } from "../lib/orderedChain";
 import {
   keptIdeaReason,
@@ -2648,5 +2648,25 @@ describe("results against targets, no talk about sources and Glossary repairs (2
       reason: "Every comparison matches.",
       planRef: { summaryVersionId: "summary-version", ruleId: "results_against_targets", mergedItemIds: [] },
     })]);
+  });
+});
+
+describe("the targets rule in the same words everywhere (review P2-3)", () => {
+  it("sends the drafting rule, the Self-check rule and the repair fix split by direction, from one list", () => {
+    for (const text of [
+      RULES_REPORT_FACTS,
+      SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.instruction,
+      ORDERED_PROMPT_SCAFFOLDS.repairGuidance.targetsIssue,
+    ]) {
+      expect(text).toContain(TARGET_RULES.reach);
+      expect(text).toContain(TARGET_RULES.limit);
+      // No sentence forbids "below" or "not exceeding" outside the reach rule.
+      expect(text.replace(TARGET_RULES.reach, "")).not.toMatch(/never call a met (?:target|one)[^.]*\bbelow\b/);
+      expect(text).not.toContain("not exceeding");
+    }
+    // A direction that is unclear is judged applied, and the repair changes nothing.
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.instruction)
+      .toContain("Judge it applied, with paragraph 0, when every such comparison matches the numbers, when the section compares no result with a target, or when you cannot tell which way a target runs.");
+    expect(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.targetsIssue).toContain("Where the direction is unclear, change nothing.");
   });
 });

@@ -126,7 +126,7 @@ function plan246() {
   });
 }
 
-function claimFor(plan?: ReturnType<typeof plan246>) {
+function claimFor(plan?: ReturnType<typeof plan246>, planWording?: string[][]) {
   return {
     projectId: "project-pellow",
     model: SONNET,
@@ -143,6 +143,7 @@ function claimFor(plan?: ReturnType<typeof plan246>) {
     editedTerms: [],
     droppedNotChecked: [],
     answers242: null,
+    ...(planWording ? { planWording } : {}),
   } as unknown as Parameters<typeof draftCheckedSection>[0]["claim"];
 }
 
@@ -361,6 +362,24 @@ describe("results, sources and Glossary repairs in a signed-off plan run (real S
       repaired: true,
       reason: 'names a source in paragraph 2 ("the memo states"); repair failed',
     });
+  });
+});
+
+describe("the project's own subject comes from every Line (review P2-4, real SDK, fetch stubbed)", () => {
+  it("never reports a head noun a signed-off item of another Line uses, and still reports one it does not", async () => {
+    const memoDraft = [
+      "The objective was met: 96.4 percent yield against the 95 percent target.",
+      "Totals taken from the credit memo matched the ledger in 300 parts.",
+      "The pad pressure map set pad force per zone.",
+    ].join("\n\n");
+    const answers = { verdicts: Object.values(ordinary).map((verdict) => ({ ...verdict, outcome: "applied" })), planVerdicts: [covered, targetsMet] };
+    installFetch({ draft: memoDraft, checks: [answers] });
+    // A Line 242 item names credit memos: the project's subject.
+    const subject = await draft("246", claimFor(plan246(), [["Credit memos are matched to parts."], ["Per-zone pad pressure lifted yield."]]), SUMMARY_VERSION);
+    expect(subject.notes.find((row) => row.instruction === SOURCE_TALK.instruction)).toMatchObject({ outcome: "applied" });
+    installFetch({ draft: memoDraft, repair: memoDraft.replace("taken from the credit memo ", ""), checks: [answers, { verdicts: [], planVerdicts: [covered, targetsMet] }] });
+    const other = await draft("246", claimFor(plan246(), [["Per-zone pad pressure lifted yield."]]), SUMMARY_VERSION);
+    expect(other.notes.find((row) => row.instruction === SOURCE_TALK.instruction)).toMatchObject({ outcome: "applied", repaired: true });
   });
 });
 
