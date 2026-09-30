@@ -4,6 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { domainError } from "./contracts";
+import { loadDroppedResultFigures, type DroppedResultFigure } from "./droppedResultFigures";
 import { SEED_DECISION_COLLECTION_ROWS, materializeActiveSelections, materializeCompleteDecisionSnapshot, type SeedDecisionState } from "./seedDecisionState";
 import { completeContributionHashes, contributionHashesFromRows, explainChange, materializeFinalWording, sha256Text, stableSerialize } from "./seedRevisions";
 
@@ -15,6 +16,13 @@ export type SeedApprovalChallenge = {
   changedRoleIds: PdSubsectionRoleId[];
   shownBatchOutdated: boolean;
   exclusions: Array<{ entryId: Id<"generationBriefEntries">; text: string; seedIds: Id<"seeds">[] }>;
+  /**
+   * 2026-09-30 (fourth, review re-check): the picks of step 10 or 13 whose
+   * words state a dropped uncertainty's result (loadDroppedResultFigures),
+   * and their ids, which approval must acknowledge.
+   */
+  droppedResults: DroppedResultFigure[];
+  droppedResultSeedIds: Id<"seeds">[];
   contributionHashes: Array<{ roleId: PdSubsectionRoleId; contributionHash: string }>;
 };
 function processingLimit(roleId: PdSubsectionRoleId): never {
@@ -70,24 +78,20 @@ export function droppedUncertaintyExperimentIds(state: SeedDecisionState): Id<"s
  * 2026-09-30 (fourth): selected Advancement to science and goal improvements
  * Seeds (of one of those steps, when `roleId` is given) that answer an
  * uncertainty the writer no longer has picked. Approval, Keep and readiness
- * refuse them; a result recording no uncertainty is never one of them by
- * its link. Review P2-1: `figureConflicts` (loadResultFigureConflicts) adds
- * the picks whose wording states a dropped uncertainty's result, whatever
- * their link says.
+ * refuse them; a result recording no uncertainty is never one of them. A pick
+ * whose words state a dropped uncertainty's result asks for an
+ * acknowledgement instead (`droppedResults` in the approval challenge).
  */
 export function droppedUncertaintyResultIds(
   state: Pick<SeedDecisionState, "subsections" | "seeds" | "selectionRows">,
-  roleId?: ResultRoleId,
-  figureConflicts: ReadonlyArray<{ seedId: string; roleId: ResultRoleId }> = []
+  roleId?: ResultRoleId
 ): Id<"seeds">[] {
   const { active, uncertaintySeedIds, rootOf } = pickedLinks(state);
   const seeds = new Map(state.seeds.map(seed => [seed._id as string, seed]));
   const results = active
     .filter(s => isResultRole(s.roleId) && (!roleId || s.roleId === roleId))
     .map(s => ({ seedId: s.seedId, answeredUncertaintySeedIds: seeds.get(s.seedId)?.answeredUncertaintySeedIds ?? [] }));
-  const byLink = new Set<string>(resultsForDroppedUncertainties(new Set<string>(uncertaintySeedIds), results, rootOf).map(r => r.seedId));
-  const byFigure = new Set<string>(figureConflicts.filter(c => !roleId || c.roleId === roleId).map(c => c.seedId));
-  return results.filter(r => byLink.has(r.seedId) || byFigure.has(r.seedId)).map(r => r.seedId as Id<"seeds">);
+  return resultsForDroppedUncertainties(new Set<string>(uncertaintySeedIds), results, rootOf).map(r => r.seedId as Id<"seeds">);
 }
 export async function buildSeedApprovalChallenge(ctx: Ctx, state: SeedDecisionState, row: Doc<"seedSubsections">): Promise<SeedApprovalChallenge> {
   if (!state.complete) processingLimit(row.roleId);
@@ -124,8 +128,12 @@ export async function buildSeedApprovalChallenge(ctx: Ctx, state: SeedDecisionSt
     if (seedIds.length) exclusions.push({ entryId: entry._id, text: entry.text, seedIds });
   }
   const exclusionEntryIds = exclusions.map(e => e.entryId).sort();
+  const droppedResults = await loadDroppedResultFigures(ctx, state, row.roleId);
+  const droppedResultSeedIds = droppedResults.map(r => r.seedId).sort();
   const changedRoleIds = PD_SUBSECTIONS.filter(r => changed.has(r.roleId)).map(r => r.roleId);
   const selectedHashes = await Promise.all(selected.sort((a,b) => a._id.localeCompare(b._id)).map(async seed => ({ seedId: seed._id, batchId: seed.batchId, wordingHash: await sha256Text(stableSerialize(materializeFinalWording(seed, state.selectionRows.find(s => s.seedId === seed._id)))) })));
-  const approvalChallenge = await sha256Text(stableSerialize({ seedStageVersion: state.generation.seedStageVersion ?? 0, selected: selectedHashes, changedRoleIds, matchingExclusionEntryIds: exclusionEntryIds }));
-  return { approvalChallenge, carriedSeedIds, exclusionEntryIds, changedRoleIds, shownBatchOutdated: !!row.shownBatchId && outdated.has(row.shownBatchId), exclusions, contributionHashes: [...currentHashes].map(([roleId, contributionHash]) => ({ roleId, contributionHash })) };
+  // The figures are part of what is acknowledged; absent when there are none,
+  // so every other challenge hashes as before.
+  const approvalChallenge = await sha256Text(stableSerialize({ seedStageVersion: state.generation.seedStageVersion ?? 0, selected: selectedHashes, changedRoleIds, matchingExclusionEntryIds: exclusionEntryIds, ...(droppedResults.length ? { droppedResults: droppedResults.map(r => ({ seedId: r.seedId, figures: r.figures })) } : {}) }));
+  return { approvalChallenge, carriedSeedIds, exclusionEntryIds, changedRoleIds, shownBatchOutdated: !!row.shownBatchId && outdated.has(row.shownBatchId), exclusions, droppedResults, droppedResultSeedIds, contributionHashes: [...currentHashes].map(([roleId, contributionHash]) => ({ roleId, contributionHash })) };
 }

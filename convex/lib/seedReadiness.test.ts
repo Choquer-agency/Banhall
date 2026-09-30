@@ -453,7 +453,7 @@ describe("seed readiness", () => {
       expect.objectContaining({
         code: "RESULT_FOR_DROPPED_UNCERTAINTY",
         roleId: "overall_advancement",
-        message: "Advancement to science / technology has a picked idea that answers or states a result of an uncertainty you no longer have picked",
+        message: "Advancement to science / technology has a picked idea that answers an uncertainty you no longer have picked",
       }),
     ]);
     await result("goal_improvements", [dropped]);

@@ -195,22 +195,30 @@ describe("keep later steps after an earlier change", () => {
     ]);
   });
 
-  it("leaves a result whose words state the dropped uncertainty's figure, whatever its link says (2026-09-30, fourth, review P2-1)", async () => {
+  it("leaves a result whose words state the dropped uncertainty's result for its acknowledgement, whatever its link says (2026-09-30, fourth, review re-check)", async () => {
     const s = await decisionFixture();
     const uncertainty = await addDecisionSeed(s, "active_uncertainties");
-    await s.t.run((ctx) => ctx.db.patch(uncertainty.seedId, { bullets: ["Whether acclimated seed could reach full nitrification in 31 days was unknown."] }));
     await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: uncertainty.seedId, selected: true });
+    const experiment = await approvedLaterStep(s, "experimentation");
     const overall = await approvedLaterStep(s, "overall_advancement");
     const goal = await approvedLaterStep(s, "goal_improvements");
-    // No link to the uncertainty at all, and a goal restatement with none: only the words give the first away.
+    // The experiment that tested it states 31 days; the overall advancement
+    // states it with no link at all; the goal improvement restates the goal.
     await s.t.run(async (ctx) => {
+      await ctx.db.patch(experiment.seedId, { uncertaintySeedId: uncertainty.seedId, bullets: ["Acclimated seed reached full nitrification in 31 days."] });
       await ctx.db.patch(overall.seedId, { bullets: ["Acclimated seed reached full nitrification in 31 days."] });
       await ctx.db.patch(goal.seedId, { answeredUncertaintySeedIds: [] });
     });
     await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: uncertainty.seedId, selected: false });
     const result = await s.writer.mutation(keep, { ...args(s, await version(s), "active_uncertainties"), scope: "later" });
     expect(result.kept).toEqual(["goal_improvements"]);
-    expect(result.needsAttention).toEqual([{ roleId: "overall_advancement", reason: "RESULT_FOR_DROPPED_UNCERTAINTY" }]);
+    expect(result.needsAttention).toEqual([
+      { roleId: "experimentation", reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" },
+      { roleId: "overall_advancement", reason: "DROPPED_RESULT_FIGURES" },
+    ]);
+    // Not a readiness blocker: the writer acknowledges it at approval.
+    const ready = await s.writer.query(readiness, { generationId: s.generationId });
+    expect(ready.blockers.some((blocker) => blocker.code === "RESULT_FOR_DROPPED_UNCERTAINTY")).toBe(false);
   });
 
   it("keeps a goal improvement that restates the goal, and a pick from before the rule, after an uncertainty is dropped (2026-09-30, fourth)", async () => {

@@ -46,7 +46,6 @@ import {
   droppedUncertaintyResultIds,
 } from "./lib/seedApproval";
 import { isResultRole } from "../shared/advancementLinks";
-import { loadResultFigureConflicts } from "./lib/droppedResultFigures";
 import {
   appendSeedRoleEvent,
   disposeSeedEpisode,
@@ -832,6 +831,21 @@ async function recordSeedApproval(
       ? { exclusionAcknowledgedAt: Date.now() }
       : {}),
   });
+  // 2026-09-30 (fourth, review re-check): each kept pick whose words state a
+  // dropped uncertainty's result records the acknowledgement on its
+  // selection, as evidence. The selection's wording and revision are unchanged.
+  for (const result of challenge.droppedResults) {
+    const selection = selectedRows.find((s) => s.seedId === result.seedId);
+    if (!selection) continue;
+    await ctx.db.patch(selection._id, {
+      droppedResultAcknowledgement: {
+        acknowledgedAt: Date.now(),
+        acknowledgedBy: userId,
+        figures: result.figures,
+        uncertaintySeedIds: result.uncertaintySeedIds,
+      },
+    });
+  }
   const approveEventId = await appendSeedRoleEvent(
     ctx,
     row,
@@ -881,6 +895,9 @@ export const approve = mutation({
     approvalChallenge: v.string(),
     acknowledgedCarriedSeedIds: v.array(v.id("seeds")),
     acknowledgedExclusionEntryIds: v.array(v.id("generationBriefEntries")),
+    // 2026-09-30 (fourth, review re-check): the step 10 or 13 picks whose
+    // words state a dropped uncertainty's result, which the writer keeps.
+    acknowledgedDroppedResultSeedIds: v.optional(v.array(v.id("seeds"))),
   },
   handler: async (ctx, args) => {
     const f = await decisionFence(ctx, args);
@@ -917,26 +934,23 @@ export const approve = mutation({
         { reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" },
       );
     // 2026-09-30 (fourth): a result that answers an uncertainty the writer
-    // dropped, or (review P2-1) whose wording states its result, cannot be
-    // approved into the plan either.
+    // dropped cannot be approved into the plan either. One whose words state
+    // its result needs the writer's acknowledgement (the challenge below).
     if (
       isResultRole(args.roleId) &&
-      droppedUncertaintyResultIds(
-        state,
-        args.roleId,
-        await loadResultFigureConflicts(ctx, state),
-      ).length
+      droppedUncertaintyResultIds(state, args.roleId).length
     )
       domainError(
         "INVALID_STATE",
-        "A picked idea answers or states a result of an uncertainty you no longer have picked. Untick it, pick that uncertainty again, or regenerate this step.",
+        "A picked idea answers an uncertainty you no longer have picked. Untick it, pick that uncertainty again, or regenerate this step.",
         { reason: "RESULT_FOR_DROPPED_UNCERTAINTY" },
       );
     const challenge = await buildSeedApprovalChallenge(ctx, state, f.row);
     if (
       challenge.approvalChallenge !== args.approvalChallenge ||
       !sameIds(challenge.carriedSeedIds, args.acknowledgedCarriedSeedIds) ||
-      !sameIds(challenge.exclusionEntryIds, args.acknowledgedExclusionEntryIds)
+      !sameIds(challenge.exclusionEntryIds, args.acknowledgedExclusionEntryIds) ||
+      !sameIds(challenge.droppedResultSeedIds, args.acknowledgedDroppedResultSeedIds ?? [])
     )
       domainError(
         "INVALID_INPUT",
@@ -998,6 +1012,7 @@ export type SeedKeepRefusal =
   | "UNLINKED_ADVANCEMENT"
   | "EXPERIMENT_FOR_DROPPED_UNCERTAINTY"
   | "RESULT_FOR_DROPPED_UNCERTAINTY"
+  | "DROPPED_RESULT_FIGURES"
   | "CLAIM_EXCLUSION"
   | "READ_LIMIT";
 /**
@@ -1047,10 +1062,6 @@ export const keep = mutation({
     }> = [];
     const unlinked = unlinkedAdvancementIds(state).length > 0;
     const droppedTests = droppedUncertaintyExperimentIds(state).length > 0;
-    // Review P2-1: read once, and only when a result step is to be kept.
-    const figureConflicts = targets.some((row) => isResultRole(row.roleId))
-      ? await loadResultFigureConflicts(ctx, state)
-      : [];
     for (const row of targets) {
       const selectedRows = state.selectionRows.filter(
         (s) => s.roleId === row.roleId && s.selected,
@@ -1067,7 +1078,7 @@ export const keep = mutation({
         needsAttention.push({ roleId: row.roleId, reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" });
         continue;
       }
-      if (isResultRole(row.roleId) && droppedUncertaintyResultIds(state, row.roleId, figureConflicts).length > 0) {
+      if (isResultRole(row.roleId) && droppedUncertaintyResultIds(state, row.roleId).length > 0) {
         needsAttention.push({ roleId: row.roleId, reason: "RESULT_FOR_DROPPED_UNCERTAINTY" });
         continue;
       }
@@ -1081,6 +1092,12 @@ export const keep = mutation({
       }
       if (challenge.exclusionEntryIds.length) {
         needsAttention.push({ roleId: row.roleId, reason: "CLAIM_EXCLUSION" });
+        continue;
+      }
+      // 2026-09-30 (fourth, review re-check): a pick whose words state a
+      // dropped uncertainty's result needs its own acknowledgement.
+      if (challenge.droppedResultSeedIds.length) {
+        needsAttention.push({ roleId: row.roleId, reason: "DROPPED_RESULT_FIGURES" });
         continue;
       }
       keepable.push({ row, selectedRows, challenge });

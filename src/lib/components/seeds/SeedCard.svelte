@@ -46,6 +46,7 @@
     retained = true,
     unavailableNotice = "Editing is unavailable with your current access.",
     below = undefined,
+    droppedResult = undefined,
   }: {
     generationId: string;
     roleId: string;
@@ -83,6 +84,9 @@
     /** Rendered inside the card under its own content: the revised seeds
      * its feedback produced (board 3.2). */
     below?: Snippet;
+    /** 2026-09-30 (fourth, review re-check): the approval challenge found
+     * this idea's words state a result of an uncertainty the writer dropped. */
+    droppedResult?: { figures: string[]; uncertainties: string[] };
   } = $props();
 
   /** One-click revision requests from the feedback menu (section 3). */
@@ -444,22 +448,20 @@
     return { text: `Answers ${what} ${who} picked: ${listed(dropped)}`, dropped: true };
   });
 
-  // Review P2-1: the idea's words state a result of an uncertainty the
-  // writer dropped, whatever its link says; named with the figures found.
+  // 2026-09-30 (fourth, review re-check): the idea's words state a result
+  // of an uncertainty the writer dropped, whatever its link says. Approval
+  // asks the writer to acknowledge it; the card names the figures.
   const statedLine = $derived.by(() => {
-    const stated = item.statesDroppedResult;
-    if (!stated?.length) return null;
+    if (!droppedResult?.figures.length) return null;
+    const figures = droppedResult.figures;
+    const listed = figures.length === 1 ? figures[0] : `${figures.slice(0, -1).join(", ")} and ${figures.at(-1)}`;
     const who = canEdit ? "you no longer have" : "the writer no longer has";
-    const what = stated.length === 1 ? "an uncertainty" : "uncertainties";
-    const max = stated.length === 1 ? 80 : 60;
-    const words = stated
-      .map((uncertainty) => {
-        const first = uncertainty.bullets[0] ?? "";
-        const text = first.length > max ? `${first.slice(0, max - 3).trimEnd()}...` : first;
-        return `"${text}" (${uncertainty.figures.join(", ")})`;
-      })
+    const which = droppedResult.uncertainties.length > 1 ? "the uncertainties" : "the uncertainty";
+    const max = droppedResult.uncertainties.length === 1 ? 80 : 60;
+    const words = droppedResult.uncertainties
+      .map((first) => `"${first.length > max ? `${first.slice(0, max - 3).trimEnd()}...` : first}"`)
       .join("; ");
-    return `States a result of ${what} ${who} picked: ${words}`;
+    return `States ${listed}, a result of ${which} ${who} picked: ${words}`;
   });
 
   // Card tools (board 3.1): 28px tiles, 14px strokes in secondary ink.

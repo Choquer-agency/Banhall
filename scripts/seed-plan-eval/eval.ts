@@ -428,17 +428,20 @@ export function buildPlan(fixture: FixtureManifest): Step[] {
         { op: "approve", role: "experimentation", expect: "droppedRefused", key: "droppedExperiments" },
         { op: "deselectExperimentsForDroppedUncertainty" },
         { op: "approve", role: "experimentation" },
-        // 2026-09-30 (fourth): Advancement to science records the
-        // uncertainties it answers. Where its pick answers the dropped one,
-        // the step says so, approval is refused, and the writer unticks it
-        // and picks (or regenerates for) an idea for a kept uncertainty.
-        { op: "resolveResultsForDroppedUncertainty", role: "overall_advancement" },
         { op: "recordLinkNotice", role: "specific_advancements" },
         { op: "approve", role: "specific_advancements", expect: "unlinkedRefused", key: "unlinked" },
         { op: "regenerate", role: "specific_advancements" },
         { op: "deselectUnlinkedAdvancements" },
         { op: "selectSharedAdvancements", n: 2 },
         { op: "approve", role: "specific_advancements" },
+        // 2026-09-30 (fourth): Advancement to science and goal improvements
+        // record the uncertainties they answer. Once step 11 is fixed (its
+        // picks no longer state the dropped results), where a pick answers
+        // the dropped uncertainty the step says so and approval is refused;
+        // where its words state a dropped result, approval asks to
+        // acknowledge it. Either way the writer unticks it and picks (or
+        // regenerates for) an idea for a kept uncertainty.
+        { op: "resolveResultsForDroppedUncertainty", role: "overall_advancement" },
         { op: "resolveResultsForDroppedUncertainty", role: "goal_improvements" },
         { op: "reapproveStale" },
         { op: "signOff" },
@@ -490,7 +493,7 @@ export function describeStep(step: Step): string {
     case "deselectUnlinkedAdvancements":
       return "Specific technological advancements: untick advancements whose links are no longer active";
     case "resolveResultsForDroppedUncertainty":
-      return `${title(step.role)}: read what the step says about its links, expect the refusal where a pick answers the dropped uncertainty, then untick it and pick (or regenerate for) an idea that answers a kept uncertainty`;
+      return `${title(step.role)}: read what the step says about its links and what approval asks to acknowledge, expect the refusal where a pick answers the dropped uncertainty, untick every pick that answers it or states its result, and pick (or regenerate for) an idea that answers a kept uncertainty`;
     case "edit":
       return step.transform.kind === "appendSentence"
         ? `${title(step.role)}: edit the selected Seed, adding "${step.transform.sentence}"`
@@ -776,6 +779,8 @@ type Challenge = {
   carriedSeedIds: string[];
   exclusionEntryIds: string[];
   changedRoleIds: string[];
+  /** 2026-09-30 (fourth): picks whose words state a dropped result; absent before. */
+  droppedResultSeedIds?: string[];
 };
 
 export type RunLog = {
@@ -798,6 +803,12 @@ export type RunLog = {
    * Absent in older results.
    */
   droppedResultPicks?: Record<string, number>;
+  /**
+   * 2026-09-30 (fourth, review re-check): how many picks approval asked the
+   * writer to acknowledge, their words stating a dropped result. Absent in
+   * older results.
+   */
+  droppedResultAcknowledgements?: Record<string, number>;
   retries: number;
   singleBaseline: { generationId: string; requestedAt: number; reportGeneratedAt: number } | null;
   error: string | null;
@@ -1253,6 +1264,115 @@ export async function runFixture(
     }
   };
 
+  /** The approval challenge as the approve button reads it. */
+  const reviewOf = async (role: PdSubsectionRoleId): Promise<Challenge> => {
+    const { seedStageVersion } = await outline();
+    return ((await driver.query("seeds:getApprovalReview", {
+      generationId,
+      roleId: role,
+      expectedSeedStageVersion: seedStageVersion,
+    })) as { approvalChallenge: Challenge }).approvalChallenge;
+  };
+
+  /**
+   * 2026-09-30 (fourth): a result step after the drop. A pick that answers
+   * the dropped uncertainty is named by the step and refused (the refusal
+   * is expected and recorded); a pick whose words state a dropped result is
+   * shown at approval for an acknowledgement (review re-check), which the
+   * scripted writer does not give. It unticks both kinds, picks an idea that
+   * answers only kept uncertainties and that neither names, and otherwise
+   * regenerates up to twice; goal improvements takes a goal restatement
+   * after one regeneration (review P3-5). `approveWhenClean` approves a step
+   * that needed nothing (reapproveStale), as its plain approval did.
+   */
+  const resolveResults = async (role: ResultRoleId, options: { approveWhenClean: boolean }) => {
+    const namedBy = (view: SubsectionView) =>
+      new Set(view.linkNotice?.kind === "results_for_dropped_uncertainty" ? (view.linkNotice.seedIds ?? []) : []);
+    const first = await subsection(role);
+    const notice = first.linkNotice?.kind ?? null;
+    const firstLook = !(role in (log.droppedResultPicks ?? {}));
+    if (firstLook) {
+      log.linkNotices = { ...(log.linkNotices ?? {}), [role]: notice };
+      say(`${role} link notice: ${notice ?? "none"}`);
+    }
+    const uncertainties = await activeIds("active_uncertainties");
+    const rootOf = await uncertaintyRootOf();
+    const picks = first.items.filter((item) => item.selected);
+    const byLink = resultsForDroppedUncertainties(
+      uncertainties,
+      picks.map((item) => ({ seedId: item.seedId, answeredUncertaintySeedIds: item.answeredUncertaintySeedIds ?? [] })),
+      rootOf,
+    ).map((result) => result.seedId);
+    const named = namedBy(first);
+    const answering = picks.filter((item) => byLink.includes(item.seedId) || named.has(item.seedId));
+    const acknowledging = picks.length ? (await reviewOf(role)).droppedResultSeedIds ?? [] : [];
+    if (firstLook) {
+      log.droppedResultPicks = { ...(log.droppedResultPicks ?? {}), [role]: answering.length };
+      log.droppedResultAcknowledgements = { ...(log.droppedResultAcknowledgements ?? {}), [role]: acknowledging.length };
+      if (acknowledging.length) say(`${role}: approval asks to acknowledge ${acknowledging.length} pick(s) that state a dropped result`);
+    }
+    if (answering.length === 0 && acknowledging.length === 0) {
+      if (!options.approveWhenClean) {
+        say(`${role}: no pick answers the dropped uncertainty or states its result`);
+        return;
+      }
+      await approve(role);
+      return;
+    }
+    if (answering.length) {
+      const key = `droppedResults:${role}`;
+      try {
+        await approve(role, key);
+        log.refusals.push({ roleId: role, key, code: null, reason: "NOT_REFUSED" });
+        say(`${role}: approval was NOT refused`);
+        return;
+      } catch (error) {
+        const refused = error as EvalCallError;
+        log.refusals.push({ roleId: role, key, code: refused.code ?? null, reason: refused.reason ?? refused.message });
+        say(`${role}: refused (${refused.reason ?? refused.message})`);
+      }
+    }
+    const tried = new Set<string>();
+    const flagged = async (view: SubsectionView) =>
+      new Set([...namedBy(view), ...(view.items.some((item) => item.selected) ? (await reviewOf(role)).droppedResultSeedIds ?? [] : [])]);
+    for (let round = 0; ; ) {
+      const view = await subsection(role);
+      const drop = await flagged(view);
+      for (const item of view.items.filter((candidate) => candidate.selected && (drop.has(candidate.seedId) || answering.some((pick) => pick.seedId === candidate.seedId)))) {
+        await setSelected(role, item.seedId, false);
+        tried.add(item.seedId);
+        say(`untick ${role} idea ${item.seedId}, which answers the dropped uncertainty or states its result`);
+      }
+      const current = await subsection(role);
+      if (current.items.some((item) => item.selected) && (await flagged(current)).size === 0) break;
+      const page = shownItems(current).filter((item) => !tried.has(item.seedId));
+      const replacement = resultAnsweringKept(page, uncertainties, rootOf);
+      if (replacement) {
+        tried.add(replacement.seedId);
+        await setSelected(role, replacement.seedId, true);
+        say(`${role}: picked ${replacement.seedId}, which answers a kept uncertainty`);
+        continue;
+      }
+      const restatement =
+        role === "goal_improvements" && round >= 1
+          ? page.find((item) => !item.selected && (item.answeredUncertaintySeedIds ?? []).length === 0)
+          : undefined;
+      if (restatement) {
+        tried.add(restatement.seedId);
+        await setSelected(role, restatement.seedId, true);
+        say(`${role}: no idea answers a kept uncertainty after one regeneration; picked a goal restatement`);
+        continue;
+      }
+      if (round >= 2) throw new Error(`${role}: no idea answers a kept uncertainty after two regenerations`);
+      round += 1;
+      say(`${role}: no idea on the page answers a kept uncertainty; regenerating`);
+      const before = await waitIdle(role);
+      await decide("seeds:regenerate", role, { commandId: commandId(fixture.id, `regenerate-results-${role}`, next()) });
+      await waitShown(role, before.shownBatchId);
+    }
+    await approve(role);
+  };
+
   const perform = async (step: Step): Promise<void> => {
     say(describeStep(step));
     switch (step.op) {
@@ -1397,82 +1517,7 @@ export async function runFixture(
         return;
       }
       case "resolveResultsForDroppedUncertainty": {
-        const role = step.role;
-        const flaggedBy = (view: SubsectionView) =>
-          new Set(view.linkNotice?.kind === "results_for_dropped_uncertainty" ? (view.linkNotice.seedIds ?? []) : []);
-        const first = await subsection(role);
-        const notice = first.linkNotice?.kind ?? null;
-        log.linkNotices = { ...(log.linkNotices ?? {}), [role]: notice };
-        say(`${role} link notice: ${notice ?? "none"}`);
-        const uncertainties = await activeIds("active_uncertainties");
-        const rootOf = await uncertaintyRootOf();
-        const picks = first.items.filter((item) => item.selected);
-        // A pick answers the dropped uncertainty by its link, or (review
-        // P2-1) states its result: the step names both.
-        const byLink = resultsForDroppedUncertainties(
-          uncertainties,
-          picks.map((item) => ({ seedId: item.seedId, answeredUncertaintySeedIds: item.answeredUncertaintySeedIds ?? [] })),
-          rootOf,
-        ).map((result) => result.seedId);
-        const flagged = flaggedBy(first);
-        const answering = picks.filter((item) => byLink.includes(item.seedId) || flagged.has(item.seedId));
-        log.droppedResultPicks = { ...(log.droppedResultPicks ?? {}), [role]: answering.length };
-        if (answering.length === 0) {
-          say(`${role}: no pick answers the dropped uncertainty`);
-          return;
-        }
-        const key = `droppedResults:${role}`;
-        try {
-          await approve(role, key);
-          log.refusals.push({ roleId: role, key, code: null, reason: "NOT_REFUSED" });
-          say(`${role}: approval was NOT refused`);
-          return;
-        } catch (error) {
-          const refused = error as EvalCallError;
-          log.refusals.push({ roleId: role, key, code: refused.code ?? null, reason: refused.reason ?? refused.message });
-          say(`${role}: refused (${refused.reason ?? refused.message})`);
-        }
-        // As the step advises: untick what it names, pick an idea that
-        // answers a kept uncertainty and that the step does not name,
-        // regenerating up to twice. Goal improvements takes a goal
-        // restatement after one regeneration (review P3-5).
-        const tried = new Set<string>();
-        for (let round = 0; ; ) {
-          const view = await subsection(role);
-          const named = flaggedBy(view);
-          for (const item of view.items.filter((candidate) => candidate.selected && (named.has(candidate.seedId) || answering.some((pick) => pick.seedId === candidate.seedId)))) {
-            await setSelected(role, item.seedId, false);
-            tried.add(item.seedId);
-            say(`untick ${role} idea ${item.seedId}, which answers or states a result of the dropped uncertainty`);
-          }
-          const current = await subsection(role);
-          if (current.items.some((item) => item.selected) && flaggedBy(current).size === 0) break;
-          const page = shownItems(current).filter((item) => !tried.has(item.seedId));
-          const replacement = resultAnsweringKept(page, uncertainties, rootOf);
-          if (replacement) {
-            tried.add(replacement.seedId);
-            await setSelected(role, replacement.seedId, true);
-            say(`${role}: picked ${replacement.seedId}, which answers a kept uncertainty`);
-            continue;
-          }
-          const restatement =
-            role === "goal_improvements" && round >= 1
-              ? page.find((item) => !item.selected && (item.answeredUncertaintySeedIds ?? []).length === 0)
-              : undefined;
-          if (restatement) {
-            tried.add(restatement.seedId);
-            await setSelected(role, restatement.seedId, true);
-            say(`${role}: no idea answers a kept uncertainty after one regeneration; picked a goal restatement`);
-            continue;
-          }
-          if (round >= 2) throw new Error(`${role}: no idea answers a kept uncertainty after two regenerations`);
-          round += 1;
-          say(`${role}: no idea on the page answers a kept uncertainty; regenerating`);
-          const before = await waitIdle(role);
-          await decide("seeds:regenerate", role, { commandId: commandId(fixture.id, `regenerate-results-${role}`, next()) });
-          await waitShown(role, before.shownBatchId);
-        }
-        await approve(role);
+        await resolveResults(step.role, { approveWhenClean: false });
         return;
       }
       case "edit": {
@@ -1576,6 +1621,10 @@ export async function runFixture(
             const view = await subsection(row.roleId);
             if (!view.items.some((item) => item.selected)) continue;
             if (row.roleId === "specific_advancements") await approveOrRepair(row.roleId);
+            // 2026-09-30 (fourth, review re-check): a result step goes through
+            // the same resolver, so a pick that answers or states a dropped
+            // result is replaced, never approved.
+            else if (isResultRole(row.roleId)) await resolveResults(row.roleId, { approveWhenClean: true });
             else await approve(row.roleId);
           }
         }
@@ -2720,6 +2769,16 @@ function resultLinkChecks(c: Collected, log: RunLog, planUncertainties: Readonly
       ),
     );
   }
+  const acknowledged = log.droppedResultAcknowledgements;
+  checks.push(
+    info(
+      "dropped-results-acknowledged",
+      "Picks whose words stated a dropped result, which approval asked the writer to acknowledge (the scripted writer replaced them)",
+      acknowledged
+        ? RESULT_ROLE_IDS.map((role) => `${title(role)}: ${acknowledged[role] ?? 0}`).join("; ")
+        : "not recorded (a run from before the review re-check)",
+    ),
+  );
   const items = (c.summary?.items ?? []).filter((item) => isResultRole(item.roleId));
   const problems = items.flatMap((item) => {
     const answered = item.answeredUncertaintySeedIds ?? [];

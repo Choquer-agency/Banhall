@@ -141,8 +141,9 @@ export type RelatedSeeds = {
  * Seeds whose `answeredUncertaintySeedIds` hold it are advancements here,
  * within the same cap: ticked first, then by step (specific advancements,
  * the most direct statements, before Advancement to science, then goal
- * improvements, review P3-3), then in the order the run wrote them. Their
- * newest Seeds are read (review P3-4), as the `deselect` events are.
+ * improvements, review P3-3), then in the order the run wrote them. Each
+ * step's newest Seeds are read (review P3-4 and its re-check), as the
+ * `deselect` events are.
  */
 export async function relatedSeedsOfDropped(
   ctx: { db: QueryCtx["db"] },
@@ -180,8 +181,9 @@ export async function relatedSeedsOfDropped(
         .query("seeds")
         .withIndex("by_generationId_and_roleId", (q) =>
           q.eq("generationId", args.generationId).eq("roleId", roleId));
-      // Review P3-4: a result step's newest Seeds, like its deselect events.
-      const seeds = await (result ? query.order("desc") : query).take(scanned);
+      // Review P3-4 and its re-check: every step's newest Seeds, like its
+      // deselect events.
+      const seeds = await query.order("desc").take(scanned);
       const deselected = await deselectedSeedIds(ctx, {
         generationId: args.generationId,
         roleId,

@@ -399,6 +399,10 @@
           approvalChallenge: challenge.approvalChallenge,
           acknowledgedCarriedSeedIds: challenge.carriedSeedIds,
           acknowledgedExclusionEntryIds: challenge.exclusionEntryIds,
+          // Only when a pick needs it, so every other approval is sent as before.
+          ...((challenge.droppedResultSeedIds ?? []).length
+            ? { acknowledgedDroppedResultSeedIds: challenge.droppedResultSeedIds }
+            : {}),
         }),
       "Step approved."
     );
@@ -413,7 +417,8 @@
     NO_SELECTION: "it has no picks",
     UNLINKED_ADVANCEMENT: "its advancements must come from uncertainties you picked and experiments that tested them",
     EXPERIMENT_FOR_DROPPED_UNCERTAINTY: "some picked experiments tested an uncertainty you no longer have picked",
-    RESULT_FOR_DROPPED_UNCERTAINTY: "a pick answers or states a result of an uncertainty you no longer have picked",
+    RESULT_FOR_DROPPED_UNCERTAINTY: "a pick answers an uncertainty you no longer have picked",
+    DROPPED_RESULT_FIGURES: "a pick states a result of an uncertainty you no longer have picked, so confirm it on that step",
     CLAIM_EXCLUSION: "a pick matches a claim exclusion in the Brief, so confirm it on that step",
     READ_LIMIT: "it could not be checked within the safe processing limit, so confirm it on that step",
   };
@@ -454,7 +459,12 @@
   // The full challenge decides, including one loaded from Batch history for
   // a cut-short step, and it must be there: without it an exclusion match
   // cannot be ruled out (review of the eighth amendment).
-  const keepAsIsOffered = $derived(canEdit && !!approvalChallenge && approvalChallenge.exclusionEntryIds.length === 0);
+  const keepAsIsOffered = $derived(
+    canEdit &&
+      !!approvalChallenge &&
+      approvalChallenge.exclusionEntryIds.length === 0 &&
+      (approvalChallenge.droppedResultSeedIds ?? []).length === 0
+  );
   // Owner, 2026-09-28 (eighth): on a step marked for review, Keep as is is
   // the step's one way to confirm. The footer button does it too, and the
   // "I checked these picks" box is not shown beside it.
@@ -507,17 +517,12 @@
     if (notice.kind === "results_for_dropped_uncertainty") {
       // 2026-09-30 (fourth): Advancement to science and goal improvements.
       const count = notice.seedIds.length;
-      // Review P2-1: when the words, not only the link, give the idea away,
-      // say it states the result, and name the figures.
-      const stated = notice.figures?.length ? ` (${notice.figures.join(", ")})` : "";
-      const which = stated
-        ? count === 1 ? "A picked idea states a result of" : `${count} picked ideas state results of`
-        : count === 1 ? "A picked idea answers" : `${count} picked ideas answer`;
+      const which = count === 1 ? "A picked idea answers" : `${count} picked ideas answer`;
       const several = notice.uncertainties.length > 1;
       const names = notice.uncertainties.map((words) => (words ? quoted(words) : "an uncertainty not shown here")).join(", ");
       const what = several ? "uncertainties" : "an uncertainty";
-      if (!canEdit) return `${which} ${what} the writer no longer has picked${stated}: ${names}. This step cannot be approved until that changes.`;
-      return `${which} ${what} you no longer have picked${stated}: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again on the ${UNCERTAINTIES} step, or regenerate this step and pick an idea that answers an uncertainty you kept.`;
+      if (!canEdit) return `${which} ${what} the writer no longer has picked: ${names}. This step cannot be approved until that changes.`;
+      return `${which} ${what} you no longer have picked: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again on the ${UNCERTAINTIES} step, or regenerate this step and pick an idea that answers an uncertainty you kept.`;
     }
     if (notice.kind === "no_linkable_experiment") {
       if (!notice.experimentsPicked) {
@@ -636,8 +641,24 @@
   const needsConfirmation = $derived(
     !!approvalChallenge &&
       (approvalChallenge.carriedSeedIds.length > 0 ||
-        approvalChallenge.exclusionEntryIds.length > 0)
+        approvalChallenge.exclusionEntryIds.length > 0 ||
+        (approvalChallenge.droppedResultSeedIds ?? []).length > 0)
   );
+  // 2026-09-30 (fourth, review re-check): a pick whose words state a result
+  // of an uncertainty the writer dropped is kept only with the writer's
+  // acknowledgement, which says what to do instead.
+  function droppedResultText(result: { figures: string[]; uncertaintySeedIds: unknown[] }) {
+    const figures = listed(result.figures);
+    const which = result.uncertaintySeedIds.length > 1 ? "the uncertainties" : "the uncertainty";
+    const that = result.figures.length > 1 ? "those figures" : "that figure";
+    return `This idea states ${figures}, a result of ${which} you no longer have picked. Keep it only if it is a result of an uncertainty you kept; otherwise untick it or edit ${that} out.`;
+  }
+  function listed(items: readonly string[]) {
+    return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+  }
+  function droppedResultOf(seedId: string) {
+    return (approvalChallenge?.droppedResults ?? []).find((result) => String(result.seedId) === seedId);
+  }
   // The "I checked these picks" box; not beside Keep as is (eighth).
   const acknowledgmentShown = $derived(
     needsConfirmation && canEdit && !(data.state === "approved" && !data.stale) && !keepMode
@@ -832,6 +853,7 @@
     roleId={data.roleId}
     seedStageVersion={data.seedStageVersion}
     item={withPick(item)}
+    droppedResult={droppedResultOf(String(item.seedId))}
     {canEdit}
     {busy}
     waiting={picksPending}
@@ -1139,6 +1161,9 @@
           {#if canEdit && (approvalChallenge?.exclusionEntryIds.length ?? 0) > 0}
             <p class="mt-1">A pick here matches a claim exclusion in the Brief, so confirm this step below.</p>
           {/if}
+          {#if canEdit && (approvalChallenge?.droppedResultSeedIds ?? []).length > 0}
+            <p class="mt-1">A pick here states a result of an uncertainty you no longer have picked, so confirm this step below.</p>
+          {/if}
         </div>
       {:else if olderIdeasNote}
         <p class="text-[0.75rem] leading-4 text-ink-muted" data-older-ideas-note>{olderIdeasNote}</p>
@@ -1219,6 +1244,12 @@
                   <ul class="mt-0.5 list-disc pl-4">
                     {#each exclusion.seedIds as seedId (seedId)}<li>{ideaText(String(seedId))}</li>{/each}
                   </ul>
+                </div>
+              {/each}
+              {#each approvalChallenge.droppedResults ?? [] as result (result.seedId)}
+                <div data-dropped-result-acknowledgment>
+                  <p>{droppedResultText(result)}</p>
+                  <ul class="mt-0.5 list-disc pl-4"><li>{ideaText(String(result.seedId))}</li></ul>
                 </div>
               {/each}
             </div>

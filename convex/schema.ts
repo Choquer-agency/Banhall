@@ -1476,6 +1476,18 @@ export default defineSchema({
     selectedAt: v.number(),
     version: v.number(),
     orderKey: v.optional(v.string()),
+    // 2026-09-30 (fourth, review re-check) widen: the writer kept this
+    // Advancement to science or goal improvements pick although its words
+    // state a dropped uncertainty's result (these figures), at approval.
+    // Evidence only; no hash or revision reads it.
+    droppedResultAcknowledgement: v.optional(
+      v.object({
+        acknowledgedAt: v.number(),
+        acknowledgedBy: v.id("users"),
+        figures: v.array(v.string()),
+        uncertaintySeedIds: v.array(v.id("seeds")),
+      })
+    ),
   })
     .index("by_generationId_and_roleId", ["generationId", "roleId"])
     .index("by_generationId_and_roleId_and_selected_and_orderKey", ["generationId", "roleId", "selected", "orderKey"])

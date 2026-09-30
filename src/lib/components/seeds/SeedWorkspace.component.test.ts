@@ -137,6 +137,8 @@ function subsection(overrides: Partial<SeedSubsectionData> = {}): SeedSubsection
         text: "Marketing work is excluded.",
         seedIds: ["seed-carried" as Id<"seeds">],
       }],
+      droppedResults: [],
+      droppedResultSeedIds: [],
       contributionHashes: [{ roleId: "goal_problem", contributionHash: "hash-a" }],
     },
     seedStageVersion: 7,
@@ -982,7 +984,7 @@ describe("Seed workspace", () => {
       expect(document.querySelector("[data-seed-link-answers]")).toBeNull();
     });
 
-    it("says an idea states a result of a dropped uncertainty, with its figures, on the step and the card (2026-09-30, fourth, review P2-1)", async () => {
+    it("asks the writer to acknowledge an idea whose words state a dropped uncertainty's result, on the card and at approval (2026-09-30, fourth, review re-check)", async () => {
       const acclimation = "It was uncertain whether stepwise acclimation would actually work rather than just delay cold shock.";
       const nitrite = "Nitrite oxidizing bacteria were suspected but not confirmed as the bottleneck.";
       const result = seed({
@@ -991,37 +993,79 @@ describe("Seed workspace", () => {
         bullets: ["The objective was achieved, reaching about 31 days."],
         answeredUncertaintySeedIds: ["u2" as Id<"seeds">],
         answeredUncertainties: [{ seedId: "u2" as Id<"seeds">, bullets: [nitrite], picked: true }],
-        statesDroppedResult: [{ seedId: "u1" as Id<"seeds">, bullets: [acclimation], figures: ["31 days"] }],
       });
-      const notice = {
-        kind: "results_for_dropped_uncertainty" as const,
-        seedIds: ["overall-2" as Id<"seeds">],
-        uncertainties: [acclimation],
-        figures: ["31 days"],
+      const challenge = {
+        ...clean(),
+        approvalChallenge: "challenge-dropped-result",
+        droppedResults: [{
+          seedId: "overall-2" as Id<"seeds">,
+          figures: ["31 days"],
+          uncertaintySeedIds: ["u1" as Id<"seeds">],
+          uncertainties: [acclimation],
+        }],
+        droppedResultSeedIds: ["overall-2" as Id<"seeds">],
       };
       const props = (canEdit: boolean) =>
-        paneProps(subsection({ roleId: "overall_advancement", items: [result], approvalChallenge: clean(), linkNotice: notice }), {
+        paneProps(subsection({ roleId: "overall_advancement", items: [result], approvalChallenge: challenge }), {
           title: "Advancement to science / technology",
           canEdit,
         });
       const view = await render(SeedSubsectionPane, props(true));
-      await expect.element(page.getByText(
-        'A picked idea states a result of an uncertainty you no longer have picked (31 days): "It was uncertain whether stepwise acclimation would actually work rather than...". Untick it, pick that uncertainty again on the Uncertainties step, or regenerate this step and pick an idea that answers an uncertainty you kept.'
-      )).toBeVisible();
+      // Not a refusal: no link notice; approval waits for the acknowledgement.
+      expect(document.querySelector("[data-link-notice]")).toBeNull();
       await expect.element(approveButton()).toBeDisabled();
+      expect(document.querySelector("[data-dropped-result-acknowledgment]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+        'This idea states 31 days, a result of the uncertainty you no longer have picked. Keep it only if it is a result of an uncertainty you kept; otherwise untick it or edit that figure out. "The objective was achieved, reaching about 31 days."'
+      );
       // The link line says what the AI recorded; the words line says what the idea states.
       expect(document.querySelector('[data-seed-link-answers="picked"]')?.textContent).toBe(
         'Answers: "Nitrite oxidizing bacteria were suspected but not confirmed as the bottleneck."'
       );
       expect(document.querySelector("[data-seed-states-dropped-result]")?.textContent).toBe(
-        'States a result of an uncertainty you no longer have picked: "It was uncertain whether stepwise acclimation would actually work rather than..." (31 days)'
+        'States 31 days, a result of the uncertainty you no longer have picked: "It was uncertain whether stepwise acclimation would actually work rather than..."'
       );
+      await page.getByRole("checkbox", { name: "I checked these picks and want to keep them." }).click();
+      await approveButton().click();
+      expect(__mutationCalls("seeds:approve")).toEqual([{
+        generationId,
+        roleId: "overall_advancement",
+        expectedSeedStageVersion: 7,
+        approvalChallenge: "challenge-dropped-result",
+        acknowledgedCarriedSeedIds: [],
+        acknowledgedExclusionEntryIds: [],
+        acknowledgedDroppedResultSeedIds: ["overall-2"],
+      }]);
+      // A reader sees the card line in their own words.
       await view.rerender(props(false));
-      expect(document.querySelector("[data-link-notice]")?.textContent).toBe(
-        'A picked idea states a result of an uncertainty the writer no longer has picked (31 days): "It was uncertain whether stepwise acclimation would actually work rather than...". This step cannot be approved until that changes.'
-      );
       expect(document.querySelector("[data-seed-states-dropped-result]")?.textContent).toBe(
-        'States a result of an uncertainty the writer no longer has picked: "It was uncertain whether stepwise acclimation would actually work rather than..." (31 days)'
+        'States 31 days, a result of the uncertainty the writer no longer has picked: "It was uncertain whether stepwise acclimation would actually work rather than..."'
+      );
+    });
+
+    it("names several figures, and offers no Keep as is for a step that needs the acknowledgement (2026-09-30, fourth, review re-check)", async () => {
+      const data = subsection({
+        roleId: "goal_improvements",
+        state: "approved",
+        stale: true,
+        staleReason: null,
+        approvalChallenge: {
+          ...clean(),
+          droppedResults: [{
+            seedId: "seed-1" as Id<"seeds">,
+            figures: ["31 days", "47 days"],
+            uncertaintySeedIds: ["u1" as Id<"seeds">],
+            uncertainties: ["Whether acclimation would work was unknown."],
+          }],
+          droppedResultSeedIds: ["seed-1" as Id<"seeds">],
+        },
+      });
+      await render(SeedSubsectionPane, paneProps(data, { title: "Overall company / project goal improvements", laterReview: { roleIds: [], firstRoleId: null } }));
+      expect(page.getByRole("button", { name: "Keep as is", exact: true }).elements()).toHaveLength(0);
+      expect(document.querySelector("[data-step-review-notice]")?.textContent).toContain(
+        "A pick here states a result of an uncertainty you no longer have picked, so confirm this step below."
+      );
+      expect(document.querySelector("[data-dropped-result-acknowledgment] p")?.textContent).toBe(
+        "This idea states 31 days and 47 days, a result of the uncertainty you no longer have picked. Keep it only if it is a result of an uncertainty you kept; otherwise untick it or edit those figures out."
       );
     });
 
@@ -4089,6 +4133,8 @@ const plainChallenge = {
   changedRoleIds: [],
   shownBatchOutdated: false,
   exclusions: [],
+  droppedResults: [],
+  droppedResultSeedIds: [],
   contributionHashes: [],
 };
 const textOf = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
@@ -5005,12 +5051,19 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     );
     __setQueryData("seeds:getOutline", { ...outline(), rows });
     __setQueryData("seeds:getSubsection", subsection({ roleId: "goal_problem", approvalChallenge: clean() }));
-    __setMutationResult("seeds:keep", { seedStageVersion: 8, kept: [], needsAttention: [{ roleId: "overall_advancement", reason: "RESULT_FOR_DROPPED_UNCERTAINTY" }] });
+    __setMutationResult("seeds:keep", {
+      seedStageVersion: 8,
+      kept: [],
+      needsAttention: [
+        { roleId: "overall_advancement", reason: "RESULT_FOR_DROPPED_UNCERTAINTY" },
+        { roleId: "goal_improvements", reason: "DROPPED_RESULT_FIGURES" },
+      ],
+    });
     localStorage.setItem(`seeds.openRole:writer-1:${generationId}`, "goal_problem");
     await render(SeedWorkspace, workspaceProps());
     await page.getByRole("button", { name: "Keep all", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-keep-attention]")?.textContent).toBe(
-      "Nothing was kept. Overall advancement needs your attention: a pick answers or states a result of an uncertainty you no longer have picked."
+      "Nothing was kept. Overall advancement needs your attention: a pick answers an uncertainty you no longer have picked. Goal improvements needs your attention: a pick states a result of an uncertainty you no longer have picked, so confirm it on that step."
     );
   });
 

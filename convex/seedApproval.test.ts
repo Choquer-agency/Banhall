@@ -1742,7 +1742,7 @@ describe("public seed approval", () => {
     // Experiment and advancement lines are not shown on a result card.
     expect(card).not.toHaveProperty("linkedUncertainty");
     await expect(tryApprove(fixture)).rejects.toThrow(
-      /A picked idea answers or states a result of an uncertainty you no longer have picked\. Untick it, pick that uncertainty again, or regenerate this step\./,
+      /A picked idea answers an uncertainty you no longer have picked\. Untick it, pick that uncertainty again, or regenerate this step\./,
     );
     await expect(tryApprove(fixture)).rejects.toThrow(/RESULT_FOR_DROPPED_UNCERTAINTY/);
 
@@ -1763,26 +1763,35 @@ describe("public seed approval", () => {
     await expect(fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId))).resolves.toMatchObject({ state: "approved" });
   });
 
-  // Review P2-1: the link is the model's call, so the words are read too.
-  test("refuses an idea whose words state a dropped uncertainty's result under a kept link, names the figures, and approves once it goes (2026-09-30, fourth, review P2-1)", async () => {
+  // Review P2-1 and its re-check: the link is the model's call, so the words
+  // are read too, and approval asks the writer to acknowledge them.
+  test("asks the writer to acknowledge an idea whose words state a dropped uncertainty's result, records it on the selection, and never lets a refused pick vouch (2026-09-30, fourth, review re-check)", async () => {
     const fixture = await approvalFixture({
       roleId: "overall_advancement",
       bullet: "Acclimated seed met the 5-week start-up objective, reaching about 31 days.",
     });
     const acclimation = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: ACCLIMATION, selected: false });
     const nitrite = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: NITRITE, selected: true });
-    // The refused and unticked Subsection 11 advancement of run 11.
+    // Run 11's Subsection 11 pick, still ticked and still linked to the
+    // dropped uncertainty: it is refused, so it cannot vouch for 31 days.
     await linkSeed(fixture, {
       roleId: "specific_advancements",
-      bullet: "Stepwise acclimation cuts cold-water start-up roughly in half, 31 days at 8 C, against 47 days unacclimated.",
-      selected: false,
+      bullet: "Acclimated seed reached full nitrification in 31 days at 8 C, against 47 days unacclimated.",
+      selected: true,
+      uncertaintySeedId: acclimation,
+    });
+    // A Seed nobody ticked gives no outcome.
+    await linkSeed(fixture, {
+      roleId: "experimentation",
+      bullet: "The 15 percent seed fraction reached full nitrification in 29 days.",
+      selected: "never",
       uncertaintySeedId: acclimation,
     });
     await fixture.t.run((ctx) => ctx.db.patch(fixture.seedId, { answeredUncertaintySeedIds: [nitrite] }));
-    await skipLaterSteps(fixture, ["specific_advancements", "project_status", "goal_improvements"]);
+    await skipLaterSteps(fixture, ["project_status", "goal_improvements"]);
 
-    // No deselect event: the writer never ticked it, so it is not dropped.
-    expect((await subsection(fixture)).linkNotice).toBeUndefined();
+    // No deselect event: the writer never ticked the uncertainty, so nothing was dropped.
+    expect((await subsection(fixture)).approvalChallenge?.droppedResults).toEqual([]);
     await fixture.t.run(async (ctx) => {
       const seed = await ctx.db.get(acclimation);
       await ctx.db.insert("seedDecisionEvents", {
@@ -1798,32 +1807,80 @@ describe("public seed approval", () => {
     });
 
     const view = await subsection(fixture);
-    expect(view.linkNotice).toEqual({
-      kind: "results_for_dropped_uncertainty",
-      seedIds: [fixture.seedId],
-      figures: ["31 days"],
-      uncertainties: [ACCLIMATION],
-    });
-    const card = view.items.find((item) => item.seedId === fixture.seedId);
-    expect(card?.answeredUncertainties).toEqual([{ seedId: nitrite, bullets: [NITRITE], picked: true }]);
-    expect(card?.statesDroppedResult).toEqual([{ seedId: acclimation, bullets: [ACCLIMATION], figures: ["31 days"] }]);
-    await expect(tryApprove(fixture)).rejects.toThrow(/RESULT_FOR_DROPPED_UNCERTAINTY/);
+    expect(view.approvalChallenge?.droppedResults).toEqual([
+      { seedId: fixture.seedId, figures: ["31 days"], uncertaintySeedIds: [acclimation], uncertainties: [ACCLIMATION] },
+    ]);
+    expect(view.approvalChallenge?.droppedResultSeedIds).toEqual([fixture.seedId]);
+    // Not a refusal: no link notice and no readiness blocker for this step.
+    expect(view.linkNotice).toBeUndefined();
     const readiness = await fixture.t.run((ctx) => readSeedReadiness(ctx, fixture.generationId));
-    expect(readiness.blockers).toContainEqual(
-      expect.objectContaining({ code: "RESULT_FOR_DROPPED_UNCERTAINTY", roleId: "overall_advancement" }),
+    expect(readiness.blockers.filter((blocker) => blocker.roleId === "overall_advancement").map((blocker) => blocker.code)).not.toContain(
+      "RESULT_FOR_DROPPED_UNCERTAINTY",
     );
-
-    // An idea stating only the kept work's figures is approved.
-    await resultSeed(fixture, {
-      roleId: "overall_advancement",
-      bullet: "The nitrite stall fell from 19 to 6 days with acclimated seed.",
-      selected: true,
-      answered: [nitrite],
+    // Approval without the acknowledgement is refused; with it, it goes through.
+    await expect(tryApprove(fixture)).rejects.toThrow(/Approval challenge or acknowledgments changed/);
+    const challenge = view.approvalChallenge!;
+    await fixture.writer.mutation(approveRef, {
+      generationId: fixture.generationId,
+      roleId: fixture.roleId,
+      expectedSeedStageVersion: view.seedStageVersion,
+      approvalChallenge: challenge.approvalChallenge,
+      acknowledgedCarriedSeedIds: challenge.carriedSeedIds,
+      acknowledgedExclusionEntryIds: challenge.exclusionEntryIds,
+      acknowledgedDroppedResultSeedIds: challenge.droppedResultSeedIds,
     });
-    await untick(fixture, fixture.seedId);
-    expect((await subsection(fixture)).linkNotice).toBeUndefined();
+    const after = await fixture.t.run(async (ctx) => ({
+      row: await ctx.db.get(fixture.subsectionId),
+      selection: await ctx.db.query("seedSelections").withIndex("by_seedId", (q) => q.eq("seedId", fixture.seedId)).unique(),
+    }));
+    expect(after.row).toMatchObject({ state: "approved" });
+    expect(after.selection?.droppedResultAcknowledgement).toMatchObject({
+      acknowledgedBy: fixture.userId,
+      figures: ["31 days"],
+      uncertaintySeedIds: [acclimation],
+    });
+    // The acknowledgement changes no revision: the step is not stale.
+    expect(after.row?.approvedSelectionRevision).toBe(after.row?.selectionRevision);
+  });
+
+  test("raises nothing for a figure a kept pick of another step states, or for a result that states none (2026-09-30, fourth, review re-check)", async () => {
+    const fixture = await approvalFixture({
+      roleId: "goal_improvements",
+      bullet: "Unacclimated seed took 47 days, the baseline the method improved on.",
+    });
+    const acclimation = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: ACCLIMATION, selected: false });
+    await linkSeed(fixture, { roleId: "active_uncertainties", bullet: NITRITE, selected: true });
+    await linkSeed(fixture, {
+      roleId: "specific_advancements",
+      bullet: "Acclimated seed reached full nitrification in 31 days at 8 C, against 47 days unacclimated.",
+      selected: false,
+      uncertaintySeedId: acclimation,
+    });
+    await fixture.t.run(async (ctx) => {
+      for (const [roleId, seedId] of [["active_uncertainties", acclimation]] as const) {
+        const seed = await ctx.db.get(seedId);
+        await ctx.db.insert("seedDecisionEvents", {
+          projectId: fixture.projectId, generationId: fixture.generationId, roleId, kind: "deselect", at: 10,
+          actorUserId: fixture.userId, seedId, batchId: seed!.batchId,
+        });
+      }
+    });
+    // The unticked Subsection 11 advancement was never ticked (no deselect
+    // event for it), so it is no outcome: nothing is raised.
+    expect((await subsection(fixture)).approvalChallenge?.droppedResults).toEqual([]);
+    // Once it was ticked at some point, its 47 days is a dropped result...
+    await fixture.t.run(async (ctx) => {
+      const advancement = (await ctx.db.query("seeds").withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", fixture.generationId).eq("roleId", "specific_advancements")).take(5))[0]!;
+      await ctx.db.insert("seedDecisionEvents", {
+        projectId: fixture.projectId, generationId: fixture.generationId, roleId: "specific_advancements", kind: "deselect", at: 11,
+        actorUserId: fixture.userId, seedId: advancement._id, batchId: advancement.batchId,
+      });
+    });
+    expect((await subsection(fixture)).approvalChallenge?.droppedResults.map((result) => result.figures)).toEqual([["47 days"]]);
+    // ...unless a kept pick of another step states it: a baseline the kept work gives.
+    await linkSeed(fixture, { roleId: "experimentation", bullet: "The unacclimated loop took 47 days to nitrify.", selected: true });
+    expect((await subsection(fixture)).approvalChallenge?.droppedResults).toEqual([]);
     await approveExact(fixture);
-    await expect(fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId))).resolves.toMatchObject({ state: "approved" });
   });
 
   test("never refuses a goal improvement that restates the goal, one written before the rule, or one that names the original of a revised uncertainty (2026-09-30, fourth)", async () => {

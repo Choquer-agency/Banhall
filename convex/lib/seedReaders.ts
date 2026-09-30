@@ -29,7 +29,6 @@ import {
   type SeedDecisionState,
 } from "./seedDecisionState";
 import { computeSeedReadiness } from "./seedReadiness";
-import { loadResultFigureConflicts, type ResultFigureConflict } from "./droppedResultFigures";
 import {
   completeContributionHashes,
   contributionHashesFromRows,
@@ -198,9 +197,7 @@ export async function getOutlineData(
   return {
     generationId,
     rows,
-    readiness: computeSeedReadiness(state, {
-      resultFigureConflicts: await loadResultFigureConflicts(ctx, state),
-    }),
+    readiness: computeSeedReadiness(state),
     usage: {
       requests: state.generation.seedRequestsReserved ?? 0,
       notice: (state.generation.seedRequestsReserved ?? 0) >= 40,
@@ -290,29 +287,6 @@ function answeredUncertaintiesOf(
 }
 
 /**
- * Review P2-1: the dropped uncertainties whose result a result card's
- * wording states, each with its words and the distinctive figures found.
- * Null when there is none.
- */
-function statedDroppedResultsOf(
-  state: SeedDecisionState,
-  seed: Doc<"seeds">,
-  figureConflicts: readonly ResultFigureConflict[]
-) {
-  const stated = figureConflicts.filter((conflict) => conflict.seedId === seed._id);
-  if (stated.length === 0) return null;
-  return stated.map((conflict) => {
-    const uncertainty = state.seeds.find((candidate) => candidate._id === conflict.droppedSeedId);
-    const selection = state.selectionRows.find((candidate) => candidate.seedId === conflict.droppedSeedId);
-    return {
-      seedId: conflict.droppedSeedId,
-      bullets: uncertainty ? materializeFinalWording(uncertainty, selection) : [],
-      figures: conflict.figures,
-    };
-  });
-}
-
-/**
  * 2026-09-29 (first, lead decision 4 of the run 7 re-check): the experiments
  * an advancement links, each by its current first bullet and whether it is
  * still picked, so the writer can see what the advancement claims to come
@@ -397,43 +371,32 @@ export type SeedLinkNotice =
       kind: "results_for_dropped_uncertainty";
       seedIds: Id<"seeds">[];
       uncertainties: string[];
-      /**
-       * Review P2-1: the dropped uncertainties' distinctive figures a pick
-       * states, when its wording (not only its link) gave it away.
-       */
-      figures?: string[];
     };
 
 function linkNoticeOf(
   state: SeedDecisionState,
-  roleId: PdSubsectionRoleId,
-  figureConflicts: readonly ResultFigureConflict[] = []
+  roleId: PdSubsectionRoleId
 ): SeedLinkNotice | null {
   if (!state.complete) return null;
   if (isResultRole(roleId)) {
     // 2026-09-30 (fourth): picked results that answer an uncertainty the
-    // writer dropped, or (review P2-1) state its result, named with the
-    // dropped uncertainties' words.
-    const seedIds = droppedUncertaintyResultIds(state, roleId, figureConflicts);
+    // writer dropped, named with the dropped uncertainties' words.
+    const seedIds = droppedUncertaintyResultIds(state, roleId);
     if (seedIds.length === 0) return null;
     const { uncertaintySeedIds, rootOf } = pickedLinks(state);
     const pickedRoots = new Set(uncertaintySeedIds.map((seedId) => rootOf(seedId)));
-    const stated = figureConflicts.filter((conflict) => conflict.roleId === roleId);
     const droppedIds = [
-      ...new Set([
-        ...seedIds.flatMap((seedId) =>
+      ...new Set(
+        seedIds.flatMap((seedId) =>
           (state.seeds.find((candidate) => candidate._id === seedId)?.answeredUncertaintySeedIds ?? []).filter(
             (answered) => !pickedRoots.has(rootOf(answered))
           )
-        ),
-        ...stated.map((conflict) => conflict.droppedSeedId),
-      ]),
+        )
+      ),
     ];
-    const figures = [...new Set(stated.flatMap((conflict) => conflict.figures))];
     return {
       kind: "results_for_dropped_uncertainty",
       seedIds,
-      ...(figures.length ? { figures } : {}),
       uncertainties: droppedIds.map((seedId) => {
         const uncertainty = state.seeds.find((candidate) => candidate._id === seedId);
         const selection = state.selectionRows.find((candidate) => candidate.seedId === seedId);
@@ -474,8 +437,7 @@ async function seedCard(
     rootOf: UncertaintyRoot;
     experiments: readonly { seedId: string }[];
   } | null,
-  experimentsReadById: ReadonlyMap<string, Doc<"seeds">>,
-  figureConflicts: readonly ResultFigureConflict[] = []
+  experimentsReadById: ReadonlyMap<string, Doc<"seeds">>
 ) {
   const selection = state.selectionRows.find(
     (candidate) => candidate.seedId === seed._id
@@ -532,7 +494,6 @@ async function seedCard(
   const linked = linkedUncertaintyOf(state, seed, pickedUncertainties);
   const linkedExperiments = linkedExperimentsOf(state, seed, pickedUncertainties, experimentsReadById);
   const answeredUncertainties = answeredUncertaintiesOf(state, seed, pickedUncertainties);
-  const statesDroppedResult = statedDroppedResultsOf(state, seed, figureConflicts);
   return {
     seedId: seed._id,
     batchId: seed.batchId,
@@ -557,7 +518,6 @@ async function seedCard(
     ...(linked ? { linkedUncertainty: linked } : {}),
     ...(linkedExperiments ? { linkedExperiments } : {}),
     ...(answeredUncertainties ? { answeredUncertainties } : {}),
-    ...(statesDroppedResult ? { statesDroppedResult } : {}),
   };
 }
 
@@ -667,11 +627,9 @@ export async function getSubsectionData(
     pickedUncertainties && roleId === "specific_advancements"
       ? await loadLinkedExperiments(ctx, state, generationId, ordered)
       : new Map<string, Doc<"seeds">>();
-  // Review P2-1: picks whose wording states a dropped uncertainty's result.
-  const figureConflicts = pickedUncertainties && isResultRole(roleId) ? await loadResultFigureConflicts(ctx, state) : [];
   const items = [];
   for (const seed of ordered) {
-    items.push(await seedCard(ctx, state, row, seed, pickedUncertainties, experimentsReadById, figureConflicts));
+    items.push(await seedCard(ctx, state, row, seed, pickedUncertainties, experimentsReadById));
   }
 
   let approvalChallenge = null;
@@ -688,7 +646,7 @@ export async function getSubsectionData(
     state.budget.snapshot().exhausted ||
     currentStaleReason?.incomplete === true;
   if (truncated) approvalChallenge = null;
-  const linkNotice = linkNoticeOf(state, roleId, figureConflicts);
+  const linkNotice = linkNoticeOf(state, roleId);
 
   return {
     generationId,

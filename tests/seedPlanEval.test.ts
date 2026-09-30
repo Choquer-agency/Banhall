@@ -166,20 +166,18 @@ describe("scripted sessions", () => {
     expect(links.lastIndexOf("recordLinkNotice")).toBeLessThan(links.indexOf("approve:unlinkedRefused"));
     expect(links.indexOf("approve:droppedRefused")).toBeLessThan(links.indexOf("deselectExperimentsForDroppedUncertainty"));
     expect(links.indexOf("deselectExperimentsForDroppedUncertainty")).toBeLessThan(links.indexOf("approve:unlinkedRefused"));
-    // 2026-09-30 (fourth): after the experiments, Advancement to science
-    // (step 10) is fixed before the advancements (step 11), and goal
-    // improvements (step 13) after them, before the Stale steps are confirmed.
+    // 2026-09-30 (fourth, review re-check): both result steps are resolved
+    // once step 11 is fixed, so its refused picks no longer state the dropped
+    // results, and before the Stale steps are confirmed.
     const plan = buildPlan(byCase("changed_advancement_links"));
     const resolves = plan.flatMap((step, index) => (step.op === "resolveResultsForDroppedUncertainty" ? [[step.role, index] as const] : []));
     expect(resolves.map(([role]) => role)).toEqual(["overall_advancement", "goal_improvements"]);
-    const approveAt = (role: string, expect?: string) =>
-      plan.findIndex((step) => step.op === "approve" && step.role === role && (step.expect ?? "") === (expect ?? ""));
-    expect(approveAt("experimentation")).toBeLessThan(resolves[0]![1]);
-    expect(resolves[0]![1]).toBeLessThan(approveAt("specific_advancements", "unlinkedRefused"));
-    expect(plan.findLastIndex((step) => step.op === "approve" && step.role === "specific_advancements")).toBeLessThan(resolves[1]![1]);
+    const lastSpecificApproval = plan.findLastIndex((step) => step.op === "approve" && step.role === "specific_advancements");
+    expect(lastSpecificApproval).toBeLessThan(resolves[0]![1]);
+    expect(resolves[0]![1]).toBeLessThan(resolves[1]![1]);
     expect(resolves[1]![1]).toBeLessThan(links.indexOf("reapproveStale"));
     expect(describeStep(plan[resolves[0]![1]]!)).toBe(
-      "Advancement to science / technology: read what the step says about its links, expect the refusal where a pick answers the dropped uncertainty, then untick it and pick (or regenerate for) an idea that answers a kept uncertainty",
+      "Advancement to science / technology: read what the step says about its links and what approval asks to acknowledge, expect the refusal where a pick answers the dropped uncertainty, untick every pick that answers it or states its result, and pick (or regenerate for) an idea that answers a kept uncertainty",
     );
     // Carried old selections: the goal switch names what it looks for.
     const carriedPlan = buildPlan(byCase("carried_old_selections"));
@@ -712,6 +710,7 @@ describe("automatic checks", () => {
       removedUncertaintySeedId: "u1",
       linkNotices: { overall_advancement: "results_for_dropped_uncertainty", goal_improvements: null },
       droppedResultPicks: { overall_advancement: 1, goal_improvements: 0 },
+      droppedResultAcknowledgements: { overall_advancement: 0, goal_improvements: 1 },
       refusals: [{ roleId: "overall_advancement", key: "droppedResults:overall_advancement", code: "INVALID_STATE", reason: "RESULT_FOR_DROPPED_UNCERTAINTY" }],
     };
     const checks = runChecks(fixture, c, log);
@@ -720,6 +719,11 @@ describe("automatic checks", () => {
     expect(checks.find((item) => item.id === "dropped-results-refused")?.evidence).toBe(
       "Advancement to science / technology: INVALID_STATE / RESULT_FOR_DROPPED_UNCERTAINTY",
     );
+    // Review re-check: the picks approval asked to acknowledge, as information.
+    expect(checks.find((item) => item.id === "dropped-results-acknowledged")).toMatchObject({
+      status: "info",
+      evidence: "Advancement to science / technology: 0; Overall company / project goal improvements: 1",
+    });
     expect(status(checks, "results-answer-kept-uncertainties")).toBe("pass");
     expect(checks.find((item) => item.id === "results-answer-kept-uncertainties")?.evidence).toBe(
       "2 item(s), each answering only uncertainties the plan holds; 1 goal improvements item(s) restate the goal and answer none",
