@@ -22,6 +22,7 @@ import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import {
   allowedAdvancementLinks,
+  isResultRole,
   pickedUncertaintyFor,
   type AllowedAdvancementLink,
 } from "../../shared/advancementLinks";
@@ -713,6 +714,12 @@ export type SeedPromptProjection = {
    * selections, the uncertainty ids an experiment may name, as canonical JSON.
    */
   experimentLinks?: string;
+  /**
+   * 2026-09-30 (fourth): for Advancement to science and goal improvements
+   * with frozen uncertainty selections, the uncertainty ids a result may
+   * answer, as canonical JSON.
+   */
+  resultLinks?: string;
 };
 
 export type SeedTrustedContextInput = {
@@ -831,6 +838,23 @@ export function seedExperimentLinkIds(
   return uncertaintySeedIds.length > 0 ? { uncertaintySeedIds } : null;
 }
 
+/**
+ * 2026-09-30 (fourth): the uncertainty ids an Advancement to science or goal
+ * improvements Seed may answer, the frozen active_uncertainties selections.
+ * Null for any other role, or with no frozen uncertainty, where these Seeds
+ * carry no link.
+ */
+export function seedResultLinkIds(
+  snapshot: SeedContextSnapshot,
+  roleId: PdSubsectionRoleId
+): { uncertaintySeedIds: string[] } | null {
+  if (!isResultRole(roleId)) return null;
+  const uncertaintySeedIds = snapshot.items.flatMap((item) =>
+    item.kind === "selection" && item.roleId === "active_uncertainties" ? [item.seedId] : []
+  );
+  return uncertaintySeedIds.length > 0 ? { uncertaintySeedIds } : null;
+}
+
 export function seedPromptProjection(
   snapshot: SeedContextSnapshot,
   roleId?: PdSubsectionRoleId,
@@ -838,6 +862,7 @@ export function seedPromptProjection(
 ) {
   const links = roleId ? seedAdvancementLinkIds(snapshot, roleId, uncertaintyRoots) : null;
   const tested = roleId ? seedExperimentLinkIds(snapshot, roleId) : null;
+  const answers = roleId ? seedResultLinkIds(snapshot, roleId) : null;
   const decisions = withPickedTestedUncertainties(snapshot.items, uncertaintyRoots).filter(
     (item) =>
       item.kind === "selection" ||
@@ -854,6 +879,7 @@ export function seedPromptProjection(
       : {}),
     ...(links ? { advancementLinks: stableSeedPromptJson(links) } : {}),
     ...(tested ? { experimentLinks: stableSeedPromptJson(tested) } : {}),
+    ...(answers ? { resultLinks: stableSeedPromptJson(answers) } : {}),
   };
 }
 
@@ -980,6 +1006,9 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
       : []),
     ...(input.projection.advancementLinks !== undefined
       ? [seedBlock(prompt.blocks.advancementLinks, input.projection.advancementLinks)]
+      : []),
+    ...(input.projection.resultLinks !== undefined
+      ? [seedBlock(prompt.blocks.resultLinks, input.projection.resultLinks)]
       : []),
     seedBlock(prompt.blocks.feedback, input.projection.feedback),
     seedBlock(

@@ -165,6 +165,49 @@ describe("keep later steps after an earlier change", () => {
     expect(await staleOf(s, experiment.rowId)).toBe(true);
   });
 
+  it("leaves Advancement to science and goal improvements picks that answer an uncertainty the writer dropped, and names each step (2026-09-30, fourth)", async () => {
+    const s = await decisionFixture();
+    const uncertainty = await addDecisionSeed(s, "active_uncertainties");
+    await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: uncertainty.seedId, selected: true });
+    const workplan = await approvedLaterStep(s, "workplan");
+    const overall = await approvedLaterStep(s, "overall_advancement");
+    const goal = await approvedLaterStep(s, "goal_improvements");
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(overall.seedId, { answeredUncertaintySeedIds: [uncertainty.seedId] });
+      await ctx.db.patch(goal.seedId, { answeredUncertaintySeedIds: [uncertainty.seedId] });
+    });
+    // The writer drops the uncertainty both picks answer.
+    await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: uncertainty.seedId, selected: false });
+    const result = await s.writer.mutation(keep, { ...args(s, await version(s), "active_uncertainties"), scope: "later" });
+    expect(result.kept).toEqual(["workplan"]);
+    expect(result.needsAttention).toEqual([
+      { roleId: "overall_advancement", reason: "RESULT_FOR_DROPPED_UNCERTAINTY" },
+      { roleId: "goal_improvements", reason: "RESULT_FOR_DROPPED_UNCERTAINTY" },
+    ]);
+    expect(await staleOf(s, workplan.rowId)).toBe(false);
+    expect(await staleOf(s, overall.rowId)).toBe(true);
+    expect(await staleOf(s, goal.rowId)).toBe(true);
+    // Readiness names both steps.
+    const ready = await s.writer.query(readiness, { generationId: s.generationId });
+    expect(ready.blockers.filter((blocker) => blocker.code === "RESULT_FOR_DROPPED_UNCERTAINTY").map((blocker) => blocker.roleId)).toEqual([
+      "overall_advancement",
+      "goal_improvements",
+    ]);
+  });
+
+  it("keeps a goal improvement that restates the goal, and a pick from before the rule, after an uncertainty is dropped (2026-09-30, fourth)", async () => {
+    const s = await decisionFixture();
+    const uncertainty = await addDecisionSeed(s, "active_uncertainties");
+    await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: uncertainty.seedId, selected: true });
+    const overall = await approvedLaterStep(s, "overall_advancement");
+    const goal = await approvedLaterStep(s, "goal_improvements");
+    await s.t.run((ctx) => ctx.db.patch(goal.seedId, { answeredUncertaintySeedIds: [] }));
+    await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: uncertainty.seedId, selected: false });
+    const result = await s.writer.mutation(keep, { ...args(s, await version(s), "active_uncertainties"), scope: "later" });
+    expect(result).toMatchObject({ kept: ["overall_advancement", "goal_improvements"], needsAttention: [] });
+    expect(await staleOf(s, overall.rowId)).toBe(false);
+  });
+
   it("keeps experiments whose uncertainty the writer revised through Feedback (review P2-2)", async () => {
     const s = await decisionFixture();
     const uncertainty = await addDecisionSeed(s, "active_uncertainties");

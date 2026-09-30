@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  RESULT_ROLE_IDS,
   advancementLinkProblem,
   allowedAdvancementLinks,
   experimentsForDroppedUncertainties,
+  isResultRole,
   pickedLinkSelections,
   pickedUncertaintyFor,
+  resultsForDroppedUncertainties,
   revisionRoots,
 } from "./advancementLinks";
 
@@ -100,5 +103,33 @@ describe("advancement links follow the uncertainty the experiments tested", () =
     expect(pickedUncertaintyFor("u1", ["u2", "u1c"], rootOf)).toBe("u1c");
     expect(pickedUncertaintyFor("u2", ["u2", "u1c"], rootOf)).toBe("u2");
     expect(pickedUncertaintyFor("u3", ["u2", "u1c"], rootOf)).toBeNull();
+  });
+});
+
+// 2026-09-30 (fourth amendment). Run 11 (Marrowgate, fictional): the writer
+// dropped U1 (acclimation), and the Advancement to science and goal
+// improvements picks that stated its result were never refused.
+describe("results answer the uncertainties they record", () => {
+  it("names the two result steps", () => {
+    expect(RESULT_ROLE_IDS).toEqual(["overall_advancement", "goal_improvements"]);
+    expect(isResultRole("overall_advancement")).toBe(true);
+    expect(isResultRole("goal_improvements")).toBe(true);
+    expect(isResultRole("specific_advancements")).toBe(false);
+    expect(isResultRole("project_status")).toBe(false);
+  });
+
+  it("finds picked results that answer a dropped uncertainty, never one that records none", () => {
+    const results = [
+      { seedId: "acclimation-result", answeredUncertaintySeedIds: ["u1", "u2"] },
+      { seedId: "nitrite-result", answeredUncertaintySeedIds: ["u2"] },
+      { seedId: "goal-restatement", answeredUncertaintySeedIds: [] },
+    ];
+    expect(resultsForDroppedUncertainties(new Set(["u2"]), results).map((result) => result.seedId)).toEqual([
+      "acclimation-result",
+    ]);
+    expect(resultsForDroppedUncertainties(new Set(["u1", "u2"]), results)).toEqual([]);
+    // An uncertainty and its Feedback revision are one.
+    const rootOf = revisionRoots([{ seedId: "u1b", revisionOfSeedId: "u1" }]);
+    expect(resultsForDroppedUncertainties(new Set(["u1b", "u2"]), results, rootOf)).toEqual([]);
   });
 });

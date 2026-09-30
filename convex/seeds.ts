@@ -43,7 +43,9 @@ import {
   buildSeedApprovalChallenge,
   unlinkedAdvancementIds,
   droppedUncertaintyExperimentIds,
+  droppedUncertaintyResultIds,
 } from "./lib/seedApproval";
+import { isResultRole } from "../shared/advancementLinks";
 import {
   appendSeedRoleEvent,
   disposeSeedEpisode,
@@ -913,6 +915,17 @@ export const approve = mutation({
         "Some picked experiments tested an uncertainty you no longer have picked. Untick them, pick that uncertainty again, or regenerate this step.",
         { reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" },
       );
+    // 2026-09-30 (fourth): a result that answers an uncertainty the writer
+    // dropped cannot be approved into the plan either.
+    if (
+      isResultRole(args.roleId) &&
+      droppedUncertaintyResultIds(state, args.roleId).length
+    )
+      domainError(
+        "INVALID_STATE",
+        "A picked idea answers an uncertainty you no longer have picked. Untick it, pick that uncertainty again, or regenerate this step.",
+        { reason: "RESULT_FOR_DROPPED_UNCERTAINTY" },
+      );
     const challenge = await buildSeedApprovalChallenge(ctx, state, f.row);
     if (
       challenge.approvalChallenge !== args.approvalChallenge ||
@@ -978,6 +991,7 @@ export type SeedKeepRefusal =
   | "NO_SELECTION"
   | "UNLINKED_ADVANCEMENT"
   | "EXPERIMENT_FOR_DROPPED_UNCERTAINTY"
+  | "RESULT_FOR_DROPPED_UNCERTAINTY"
   | "CLAIM_EXCLUSION"
   | "READ_LIMIT";
 /**
@@ -989,7 +1003,9 @@ export type SeedKeepRefusal =
  * the normal decision fence and edit access. Nothing is regenerated and no
  * selection changes. A step is left for the writer, and named, when it has
  * no selection, when its advancements no longer link selected work, when its
- * experiments tested an uncertainty the writer dropped (2026-09-29 first), when a
+ * experiments tested an uncertainty the writer dropped (2026-09-29 first),
+ * when its Advancement to science or goal improvements picks answer one
+ * (2026-09-30 fourth), when a
  * selection matches a Claim Exclusion (that needs its own acknowledgment),
  * or when it does not fit the read budget; the others are kept. A request
  * made against older decisions is refused only when a step it names could
@@ -1039,6 +1055,10 @@ export const keep = mutation({
       }
       if (row.roleId === "experimentation" && droppedTests) {
         needsAttention.push({ roleId: row.roleId, reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" });
+        continue;
+      }
+      if (isResultRole(row.roleId) && droppedUncertaintyResultIds(state, row.roleId).length > 0) {
+        needsAttention.push({ roleId: row.roleId, reason: "RESULT_FOR_DROPPED_UNCERTAINTY" });
         continue;
       }
       let challenge;

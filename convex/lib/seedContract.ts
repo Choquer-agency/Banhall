@@ -3,6 +3,7 @@ import { isDashClean } from "../../shared/humanProse";
 import {
   advancementLinkProblem,
   allowedAdvancementLinks,
+  isResultRole,
   pickedLinkSelections,
 } from "../../shared/advancementLinks";
 import { speakerOfTranscriptLine, speakersAtOffsets } from "../../shared/transcriptParse";
@@ -45,6 +46,11 @@ export type SeedCandidate = {
   provenance: SeedCandidateProvenance[];
   uncertaintySeedId?: string;
   experimentSeedIds?: string[];
+  /**
+   * 2026-09-30 (fourth): on an Advancement to science or goal improvements
+   * Seed, the picked uncertainties whose result it states.
+   */
+  answeredUncertaintySeedIds?: string[];
 };
 
 export type ValidatedSeedProvenance = SeedCandidateProvenance & {
@@ -111,6 +117,7 @@ export type SeedValidationIssueCode =
   | "DUPLICATE_TAG"
   | "INVALID_ADVANCEMENT_REFERENCE"
   | "INVALID_EXPERIMENT_REFERENCE"
+  | "INVALID_RESULT_REFERENCE"
   | "INVALID_PROVENANCE"
   | "INVALID_BATCH_SIZE"
   | "INSUFFICIENT_TAG_DIVERSITY"
@@ -276,6 +283,12 @@ function parseSeedCandidate(
   ) {
     return null;
   }
+  if (
+    value.answeredUncertaintySeedIds !== undefined &&
+    !isStringArray(value.answeredUncertaintySeedIds)
+  ) {
+    return null;
+  }
   const tags: SeedTag[] = [];
   for (const tag of value.tags) {
     if (!isSeedTag(tag)) return null;
@@ -291,6 +304,10 @@ function parseSeedCandidate(
         : {}),
       ...(value.experimentSeedIds !== undefined
         ? { experimentSeedIds: [...value.experimentSeedIds] }
+        : {}),
+      // A repeated id is one answer (the schema asks for unique items).
+      ...(value.answeredUncertaintySeedIds !== undefined
+        ? { answeredUncertaintySeedIds: [...new Set(value.answeredUncertaintySeedIds)] }
         : {}),
     },
     malformedProvenance,
@@ -373,6 +390,11 @@ function withoutUnrequestedLinks(
   if (roleId === "specific_advancements" && pickedFromContext(context).allowed.length === 0) {
     return withoutAdvancementLinks(candidate);
   }
+  // 2026-09-30 (fourth): with no uncertainty picked, a result has nothing
+  // to answer and no list was sent.
+  if (isResultRole(roleId) && activeReferences(context, "active_uncertainties").length === 0) {
+    return withoutAdvancementLinks(candidate);
+  }
   return candidate;
 }
 
@@ -406,6 +428,41 @@ function validateExperimentReference(args: {
       },
     ];
   }
+  return [];
+}
+
+/**
+ * 2026-09-30 (fourth): an Advancement to science or goal improvements Seed
+ * records the picked uncertainties whose result it states. When the
+ * request's decisions hold uncertainty selections, every such Seed must set
+ * answeredUncertaintySeedIds, each id a picked uncertainty of this
+ * generation; an Advancement to science Seed names at least one, and a goal
+ * improvements Seed may name none when it only restates the goal. With no
+ * uncertainty picked, it carries no link.
+ */
+function validateResultReferences(args: {
+  candidate: SeedCandidate;
+  roleId: PdSubsectionRoleId;
+  referenceContext?: SeedReferenceContext;
+}): SeedValidationIssue[] {
+  if (!isResultRole(args.roleId)) return [];
+  const context = args.referenceContext;
+  const uncertainties = activeReferences(context, "active_uncertainties");
+  const answered = args.candidate.answeredUncertaintySeedIds;
+  if (uncertainties.length === 0 && answered === undefined) return [];
+  const issue = (linkReason: SeedLinkIssueReason): SeedValidationIssue[] => [
+    {
+      code: "INVALID_RESULT_REFERENCE",
+      message:
+        "A result must name the active uncertainty selections it answers, from this generation",
+      linkReason,
+    },
+  ];
+  if (!context || answered === undefined) return issue("missing_link");
+  if (answered.some((seedId) => !validReference(seedId, "active_uncertainties", context))) {
+    return issue("unknown_uncertainty");
+  }
+  if (args.roleId === "overall_advancement" && answered.length === 0) return issue("missing_link");
   return [];
 }
 
@@ -592,6 +649,7 @@ function withoutAdvancementLinks(candidate: SeedCandidate): SeedCandidate {
   const {
     uncertaintySeedId: _uncertainty,
     experimentSeedIds: _experiments,
+    answeredUncertaintySeedIds: _answered,
     ...rest
   } = candidate;
   return rest;
@@ -599,7 +657,19 @@ function withoutAdvancementLinks(candidate: SeedCandidate): SeedCandidate {
 
 /** 2026-09-29 (first): an experiment keeps the uncertainty it tested only. */
 function withExperimentLinkOnly(candidate: SeedCandidate): SeedCandidate {
-  const { experimentSeedIds: _experiments, ...rest } = candidate;
+  const { experimentSeedIds: _experiments, answeredUncertaintySeedIds: _answered, ...rest } = candidate;
+  return rest;
+}
+
+/** 2026-09-29 (first): an advancement keeps its uncertainty and experiments only. */
+function withAdvancementLinksOnly(candidate: SeedCandidate): SeedCandidate {
+  const { answeredUncertaintySeedIds: _answered, ...rest } = candidate;
+  return rest;
+}
+
+/** 2026-09-30 (fourth): a result keeps the uncertainties it answers only. */
+function withResultLinksOnly(candidate: SeedCandidate): SeedCandidate {
+  const { uncertaintySeedId: _uncertainty, experimentSeedIds: _experiments, ...rest } = candidate;
   return rest;
 }
 
@@ -616,16 +686,20 @@ export function validateSeed(args: {
       issues: [{ code: "INVALID_SHAPE", message: "Seed has an invalid shape" }],
     };
   }
-  // Link fields belong to specific advancements, and since 2026-09-29
-  // (first) an experiment's uncertainty to experimentation. The shared
-  // provider schema allows them on every role, so they are dropped
-  // elsewhere rather than stored on a Seed they cannot describe.
+  // Link fields belong to specific advancements, since 2026-09-29 (first)
+  // an experiment's uncertainty to experimentation, and since 2026-09-30
+  // (fourth) the answered uncertainties to Advancement to science and goal
+  // improvements. The shared provider schema allows some of them on every
+  // role, so they are dropped elsewhere rather than stored on a Seed they
+  // cannot describe.
   const candidate = withoutUnrequestedLinks(
     args.roleId === "specific_advancements"
-      ? parsed.candidate
+      ? withAdvancementLinksOnly(parsed.candidate)
       : args.roleId === "experimentation"
         ? withExperimentLinkOnly(parsed.candidate)
-        : withoutAdvancementLinks(parsed.candidate),
+        : isResultRole(args.roleId)
+          ? withResultLinksOnly(parsed.candidate)
+          : withoutAdvancementLinks(parsed.candidate),
     args.roleId,
     args.referenceContext
   );
@@ -674,6 +748,11 @@ export function validateSeed(args: {
       referenceContext: args.referenceContext,
     }),
     ...validateExperimentReference({
+      candidate,
+      roleId: args.roleId,
+      referenceContext: args.referenceContext,
+    }),
+    ...validateResultReferences({
       candidate,
       roleId: args.roleId,
       referenceContext: args.referenceContext,
@@ -857,22 +936,26 @@ export type SeedToolInputSchema = {
 /**
  * 2026-09-29 (first, run 7 re-check): which Seed tool a request forces. A
  * request that sends a FROZEN EXPERIMENT LINKS block forces the experiment
- * tool, one that sends FROZEN ADVANCEMENT LINKS the advancement tool, and
+ * tool, one that sends FROZEN ADVANCEMENT LINKS the advancement tool, one
+ * that sends FROZEN RESULT LINKS (2026-09-30 fourth) the result tool, and
  * every other request the shared one.
  */
-export type SeedToolKind = "shared" | "experiment" | "advancement";
+export type SeedToolKind = "shared" | "experiment" | "advancement" | "result";
 
 /**
- * The two linked Seed schemas, fixed for every request so the tools list is
+ * The linked Seed schemas, fixed for every request so the tools list is
  * byte-stable across a generation's Seed requests. The experiment schema
  * requires uncertaintySeedId and has no experiment list; the advancement
- * schema requires uncertaintySeedId and experimentSeedIds (at least one).
- * Which ids are allowed is never in the schema: the request's link block
- * lists them and validateSeed enforces them.
+ * schema requires uncertaintySeedId and experimentSeedIds (at least one);
+ * the result schema (2026-09-30 fourth) requires answeredUncertaintySeedIds,
+ * a list that may be empty, and has neither of the others. Which ids are
+ * allowed is never in the schema: the request's link block lists them and
+ * validateSeed enforces them, with the Advancement to science minimum of one.
  */
 export function linkedSeedSchemas(base: SeedToolInputSchema): {
   experiment: SeedToolInputSchema;
   advancement: SeedToolInputSchema;
+  result: SeedToolInputSchema;
 } {
   type Mutable = SeedToolInputSchema & {
     properties: { seeds: { items: { required: string[]; properties: Record<string, unknown> } } };
@@ -884,7 +967,17 @@ export function linkedSeedSchemas(base: SeedToolInputSchema): {
   const advancement = structuredClone(base) as Mutable;
   const advancementItem = advancement.properties.seeds.items;
   advancementItem.required = [...advancementItem.required, "uncertaintySeedId", "experimentSeedIds"];
-  return { experiment, advancement };
+  const result = structuredClone(base) as Mutable;
+  const resultItem = result.properties.seeds.items;
+  delete resultItem.properties.uncertaintySeedId;
+  delete resultItem.properties.experimentSeedIds;
+  resultItem.properties.answeredUncertaintySeedIds = {
+    type: "array",
+    uniqueItems: true,
+    items: { type: "string" },
+  };
+  resultItem.required = [...resultItem.required, "answeredUncertaintySeedIds"];
+  return { experiment, advancement, result };
 }
 
 /**

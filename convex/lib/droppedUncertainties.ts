@@ -8,7 +8,9 @@
  * or restoring an unticked card writes one too. It is frozen on the
  * Summary at sign-off, with the wording of the run's experiments and
  * advancements that recorded it, so drafting and the Self-check can
- * recognise its content. An uncertainty the writer never ticked is not a
+ * recognise its content. Since 2026-09-30 (fourth), the Advancement to
+ * science and goal improvements Seeds that recorded answering it go with
+ * the advancements. An uncertainty the writer never ticked is not a
  * decision and is never listed.
  *
  * Two guards keep a replacement from reading as a drop: a dropped Seed in the
@@ -43,6 +45,13 @@ export const NEAR_COPY_SHARE = 0.7;
 /** How many of the run's experiments, and of its advancements, are read to find what recorded a dropped uncertainty. */
 export const MAX_RELATED_SEEDS_SCANNED_PER_ROLE = 512;
 
+/**
+ * 2026-09-30 (fourth): how many of the run's Advancement to science Seeds,
+ * and of its goal improvements Seeds, are read for the same purpose. These
+ * steps pick one idea or a few, so a run writes far fewer of them.
+ */
+export const MAX_RELATED_RESULT_SEEDS_SCANNED_PER_ROLE = 128;
+
 /** How many `deselect` events of one step are read at sign-off. */
 export const MAX_DESELECT_EVENTS_READ_PER_ROLE = 1024;
 
@@ -55,7 +64,7 @@ export const MAX_DESELECT_EVENTS_READ_PER_ROLE = 1024;
  */
 export async function deselectedSeedIds(
   ctx: { db: QueryCtx["db"] },
-  args: { generationId: Id<"generations">; roleId: PdSubsectionRoleId }
+  args: { generationId: Id<"generations">; roleId: PdSubsectionRoleId; limit?: number }
 ): Promise<Set<Id<"seeds">>> {
   const events = await ctx.db
     .query("seedDecisionEvents")
@@ -64,7 +73,7 @@ export async function deselectedSeedIds(
     // Review P3-B: newest first, so the latest decisions are read if the
     // bound is ever reached.
     .order("desc")
-    .take(MAX_DESELECT_EVENTS_READ_PER_ROLE);
+    .take(args.limit ?? MAX_DESELECT_EVENTS_READ_PER_ROLE);
   return new Set(events.flatMap((event) => (event.seedId ? [event.seedId] : [])));
 }
 
@@ -127,6 +136,11 @@ export type RelatedSeeds = {
  * some point first (ticked now, or with a `deselect` event), then the rest,
  * each in the order the run wrote them. The wording is the writer's, when
  * they edited it.
+ *
+ * 2026-09-30 (fourth): the Advancement to science and goal improvements
+ * Seeds whose `answeredUncertaintySeedIds` hold it are advancements here,
+ * within the same cap: the three steps' Seeds are ordered together, ticked first,
+ * then in the order the run wrote them.
  */
 export async function relatedSeedsOfDropped(
   ctx: { db: QueryCtx["db"] },
@@ -142,31 +156,56 @@ export async function relatedSeedsOfDropped(
   );
   if (related.size === 0) return related;
   const selectionBySeed = new Map(args.selectionRows.map((row) => [row.seedId, row] as const));
-  for (const [roleId, kind] of [
-    ["experimentation", "experiments"],
-    ["specific_advancements", "advancements"],
+  const recorded = (seed: Doc<"seeds">): readonly Id<"seeds">[] =>
+    seed.roleId === "experimentation" || seed.roleId === "specific_advancements"
+      ? (seed.uncertaintySeedId ? [seed.uncertaintySeedId] : [])
+      : (seed.answeredUncertaintySeedIds ?? []);
+  for (const [kind, roles] of [
+    ["experiments", [["experimentation", MAX_RELATED_SEEDS_SCANNED_PER_ROLE]]],
+    [
+      "advancements",
+      [
+        ["specific_advancements", MAX_RELATED_SEEDS_SCANNED_PER_ROLE],
+        ["overall_advancement", MAX_RELATED_RESULT_SEEDS_SCANNED_PER_ROLE],
+        ["goal_improvements", MAX_RELATED_RESULT_SEEDS_SCANNED_PER_ROLE],
+      ],
+    ],
   ] as const) {
-    const seeds = await ctx.db
-      .query("seeds")
-      .withIndex("by_generationId_and_roleId", (q) =>
-        q.eq("generationId", args.generationId).eq("roleId", roleId))
-      .take(MAX_RELATED_SEEDS_SCANNED_PER_ROLE);
-    const deselected = await deselectedSeedIds(ctx, { generationId: args.generationId, roleId });
-    const ordered = seeds
-      .filter((seed) => seed.projectId === args.projectId && seed.uncertaintySeedId !== undefined)
-      .map((seed, index) => ({
-        seed,
-        index,
-        ticked: selectionBySeed.get(seed._id)?.selected === true || deselected.has(seed._id),
-      }))
-      .sort((left, right) => Number(right.ticked) - Number(left.ticked) || left.index - right.index);
-    for (const { seed } of ordered) {
-      const entry = related.get(seed.uncertaintySeedId!);
-      if (!entry || entry[kind].length >= MAX_DROPPED_UNCERTAINTY_RELATED_PER_KIND) continue;
-      entry[kind].push({
-        seedId: seed._id,
-        wording: materializeFinalWording(seed, selectionBySeed.get(seed._id)),
+    const candidates: Array<{ seed: Doc<"seeds">; ticked: boolean }> = [];
+    for (const [roleId, scanned] of roles) {
+      const seeds = await ctx.db
+        .query("seeds")
+        .withIndex("by_generationId_and_roleId", (q) =>
+          q.eq("generationId", args.generationId).eq("roleId", roleId))
+        .take(scanned);
+      const deselected = await deselectedSeedIds(ctx, {
+        generationId: args.generationId,
+        roleId,
+        limit: roleId === "overall_advancement" || roleId === "goal_improvements" ? scanned : undefined,
       });
+      for (const seed of seeds) {
+        if (seed.projectId !== args.projectId || recorded(seed).length === 0) continue;
+        candidates.push({
+          seed,
+          ticked: selectionBySeed.get(seed._id)?.selected === true || deselected.has(seed._id),
+        });
+      }
+    }
+    // The order the run wrote them: each role's index is in creation order,
+    // and across roles creation time decides.
+    const ordered = candidates.sort(
+      (left, right) =>
+        Number(right.ticked) - Number(left.ticked) || left.seed._creationTime - right.seed._creationTime
+    );
+    for (const { seed } of ordered) {
+      for (const uncertaintySeedId of new Set(recorded(seed))) {
+        const entry = related.get(uncertaintySeedId);
+        if (!entry || entry[kind].length >= MAX_DROPPED_UNCERTAINTY_RELATED_PER_KIND) continue;
+        entry[kind].push({
+          seedId: seed._id,
+          wording: materializeFinalWording(seed, selectionBySeed.get(seed._id)),
+        });
+      }
     }
   }
   return related;

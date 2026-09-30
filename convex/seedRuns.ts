@@ -88,6 +88,8 @@ const seedCandidateValidator = v.object({
   ),
   uncertaintySeedId: v.optional(v.id("seeds")),
   experimentSeedIds: v.optional(v.array(v.id("seeds"))),
+  // 2026-09-30 (fourth): the uncertainties a result answers.
+  answeredUncertaintySeedIds: v.optional(v.array(v.id("seeds"))),
 });
 const failureCodeValidator = v.union(
   v.literal("PROVIDER_FAILED"),
@@ -100,7 +102,8 @@ const failureCodeValidator = v.union(
 
 const failureDetailValidator = v.union(
   v.literal("advancement_links"),
-  v.literal("experiment_links")
+  v.literal("experiment_links"),
+  v.literal("result_links")
 );
 
 type SeedFailureCode =
@@ -764,7 +767,7 @@ async function failSeedAttempt(
     batch: Doc<"seedBatches">;
     requestsMade: number;
     errorCode: SeedFailureCode;
-    errorDetail?: "advancement_links" | "experiment_links";
+    errorDetail?: "advancement_links" | "experiment_links" | "result_links";
     /** 2026-09-29 (first, run 7): the rejected answers as counts. */
     invalidAnswers?: Infer<typeof seedAnswerCountsValidator>[];
     actorSystem?: boolean;
@@ -1109,6 +1112,9 @@ export const completeAttempt = internalMutation({
       experimentSeedIds: seed.experimentSeedIds?.map((id) =>
         ctx.db.normalizeId("seeds", id)
       ),
+      answeredUncertaintySeedIds: seed.answeredUncertaintySeedIds?.map((id) =>
+        ctx.db.normalizeId("seeds", id)
+      ),
       provenance: seed.provenance.map((citation) => ({
         citation,
         sourceId: ctx.db.normalizeId("generationSources", citation.sourceId),
@@ -1116,9 +1122,10 @@ export const completeAttempt = internalMutation({
     }));
     if (
       preparedSeeds.some(
-        ({ seed, uncertaintySeedId, experimentSeedIds, provenance }) =>
+        ({ seed, uncertaintySeedId, experimentSeedIds, answeredUncertaintySeedIds, provenance }) =>
           (seed.uncertaintySeedId !== undefined && !uncertaintySeedId) ||
           experimentSeedIds?.some((id) => id === null) ||
+          answeredUncertaintySeedIds?.some((id) => id === null) ||
           provenance.some(({ sourceId }) => sourceId === null)
       )
     ) {
@@ -1158,6 +1165,7 @@ export const completeAttempt = internalMutation({
       const seed = prepared.seed;
       const uncertaintySeedId = prepared.uncertaintySeedId;
       const experimentSeedIds = prepared.experimentSeedIds;
+      const answeredUncertaintySeedIds = prepared.answeredUncertaintySeedIds;
       const seedId = await ctx.db.insert("seeds", {
         projectId: batch.projectId,
         generationId: batch.generationId,
@@ -1177,6 +1185,11 @@ export const completeAttempt = internalMutation({
         ...(uncertaintySeedId ? { uncertaintySeedId } : {}),
         ...(experimentSeedIds
           ? { experimentSeedIds: experimentSeedIds.filter((id) => id !== null) }
+          : {}),
+        // 2026-09-30 (fourth): an empty list is kept: the model said the
+        // goal improvement states no result.
+        ...(answeredUncertaintySeedIds
+          ? { answeredUncertaintySeedIds: answeredUncertaintySeedIds.filter((id) => id !== null) }
           : {}),
       });
       for (const { citation, sourceId } of prepared.provenance) {

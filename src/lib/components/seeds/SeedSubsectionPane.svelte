@@ -177,6 +177,9 @@
       "The AI kept linking advancements to work you did not select, or to experiments that tested another uncertainty. Each advancement must come from experiments you selected that tested the uncertainty it names. Try again, or select the experiments these advancements came from.",
     experiment_links:
       `The AI kept writing experiments without naming an uncertainty you picked. Each experiment must name the uncertainty it tested. Try again, or check your picks on the ${UNCERTAINTIES} step.`,
+    // 2026-09-30 (fourth): Advancement to science and goal improvements.
+    result_links:
+      `The AI kept writing ideas without naming the uncertainties they answer. Each idea that states a result must name an uncertainty you picked. Try again, or check your picks on the ${UNCERTAINTIES} step.`,
     seed_rules: "The AI kept writing seeds that break the seed rules, so none could be shown. Try again.",
   } as const;
   const repeatedFailure = $derived(
@@ -410,6 +413,7 @@
     NO_SELECTION: "it has no picks",
     UNLINKED_ADVANCEMENT: "its advancements must come from uncertainties you picked and experiments that tested them",
     EXPERIMENT_FOR_DROPPED_UNCERTAINTY: "some picked experiments tested an uncertainty you no longer have picked",
+    RESULT_FOR_DROPPED_UNCERTAINTY: "a pick answers an uncertainty you no longer have picked",
     CLAIM_EXCLUSION: "a pick matches a claim exclusion in the Brief, so confirm it on that step",
     READ_LIMIT: "it could not be checked within the safe processing limit, so confirm it on that step",
   };
@@ -499,6 +503,16 @@
       const what = several ? "uncertainties" : "an uncertainty";
       if (!canEdit) return `${which} tested ${what} the writer no longer has picked: ${names}. This step cannot be approved until that changes.`;
       return `${which} tested ${what} you no longer have picked: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again on the ${UNCERTAINTIES} step, or regenerate this step and pick experiments for the uncertainties you kept.`;
+    }
+    if (notice.kind === "results_for_dropped_uncertainty") {
+      // 2026-09-30 (fourth): Advancement to science and goal improvements.
+      const count = notice.seedIds.length;
+      const which = count === 1 ? "A picked idea answers" : `${count} picked ideas answer`;
+      const several = notice.uncertainties.length > 1;
+      const names = notice.uncertainties.map((words) => (words ? quoted(words) : "an uncertainty not shown here")).join(", ");
+      const what = several ? "uncertainties" : "an uncertainty";
+      if (!canEdit) return `${which} ${what} the writer no longer has picked: ${names}. This step cannot be approved until that changes.`;
+      return `${which} ${what} you no longer have picked: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again on the ${UNCERTAINTIES} step, or regenerate this step and pick an idea that answers an uncertainty you kept.`;
     }
     if (notice.kind === "no_linkable_experiment") {
       if (!notice.experimentsPicked) {

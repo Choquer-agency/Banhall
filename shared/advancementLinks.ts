@@ -184,3 +184,39 @@ export function pickedUncertaintyFor(
   const root = rootOf(seedId);
   return uncertaintySeedIds.find((candidate) => rootOf(candidate) === root) ?? null;
 }
+
+/**
+ * 2026-09-30 (fourth): the two steps whose Seeds state a result and record
+ * the picked uncertainties they answer, in `answeredUncertaintySeedIds`:
+ * Advancement to science / technology (Subsection 10) and Overall company /
+ * project goal improvements (Subsection 13).
+ */
+export const RESULT_ROLE_IDS = ["overall_advancement", "goal_improvements"] as const;
+export type ResultRoleId = (typeof RESULT_ROLE_IDS)[number];
+
+export function isResultRole(roleId: string): roleId is ResultRoleId {
+  return (RESULT_ROLE_IDS as readonly string[]).includes(roleId);
+}
+
+/** A picked result Seed and the uncertainties it records answering. */
+export type ResultAnswers = {
+  seedId: string;
+  answeredUncertaintySeedIds: readonly string[];
+};
+
+/**
+ * 2026-09-30 (fourth): picked results that answer an uncertainty the writer
+ * no longer has picked, in any of its revisions. A result that records no
+ * uncertainty (written before this rule, or a goal restatement) is never
+ * one of them.
+ */
+export function resultsForDroppedUncertainties(
+  uncertaintySeedIds: ReadonlySet<string>,
+  results: readonly ResultAnswers[],
+  rootOf: UncertaintyRoot = sameId
+): ResultAnswers[] {
+  const roots = new Set([...uncertaintySeedIds].map(rootOf));
+  return results.filter((result) =>
+    result.answeredUncertaintySeedIds.some((seedId) => !roots.has(rootOf(seedId)))
+  );
+}

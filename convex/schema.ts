@@ -1293,8 +1293,14 @@ export default defineSchema({
         failures: v.number(),
         // 2026-09-29 (first) widen: "experiment_links" when experiment
         // Seeds kept naming no picked uncertainty, or one outside the list.
+        // 2026-09-30 (fourth) widen: "result_links" for Advancement to
+        // science and goal improvements Seeds.
         detail: v.optional(
-          v.union(v.literal("advancement_links"), v.literal("experiment_links"))
+          v.union(
+            v.literal("advancement_links"),
+            v.literal("experiment_links"),
+            v.literal("result_links")
+          )
         ),
       })
     ),
@@ -1358,8 +1364,13 @@ export default defineSchema({
     // 2026-09-28 (fourth) widen: with error INVALID_OUTPUT, why the last
     // answer broke the Seed contract when the writer can act on it.
     // 2026-09-29 (first) widen: "experiment_links" for experiment links.
+    // 2026-09-30 (fourth) widen: "result_links" for result links.
     errorDetail: v.optional(
-      v.union(v.literal("advancement_links"), v.literal("experiment_links"))
+      v.union(
+        v.literal("advancement_links"),
+        v.literal("experiment_links"),
+        v.literal("result_links")
+      )
     ),
     // 2026-09-29 (first, run 7) widen: each rejected answer of a failed
     // attempt as counts by rule and link reason, never model text.
@@ -1412,6 +1423,11 @@ export default defineSchema({
     feedbackRequestId: v.optional(v.id("seedFeedbackRequests")),
     uncertaintySeedId: v.optional(v.id("seeds")),
     experimentSeedIds: v.optional(v.array(v.id("seeds"))),
+    // 2026-09-30 (fourth) widen: on an Advancement to science or goal
+    // improvements Seed, the picked uncertainties whose result it states
+    // (empty: a goal restatement). Absent on Seeds written before, and when
+    // no uncertainty was picked. No backfill.
+    answeredUncertaintySeedIds: v.optional(v.array(v.id("seeds"))),
   })
     .index("by_batchId", ["batchId"])
     .index("by_generationId_and_roleId", ["generationId", "roleId"])
@@ -1565,6 +1581,10 @@ export default defineSchema({
     tags: v.array(v.string()),
     uncertaintySeedId: v.optional(v.id("seeds")),
     experimentSeedIds: v.optional(v.array(v.id("seeds"))),
+    // 2026-09-30 (fourth) widen: the uncertainties an Advancement to science
+    // or goal improvements item answers, each named by the picked revision
+    // (or original) the plan holds. Absent when its Seed records none.
+    answeredUncertaintySeedIds: v.optional(v.array(v.id("seeds"))),
     // The writer explicitly acknowledged a frozen Brief Claim Exclusion for
     // this role before sign-off. Drafting still follows the signed plan; the
     // conflict is retained as unrepaired compliance evidence.

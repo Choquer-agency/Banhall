@@ -1664,6 +1664,156 @@ describe("public seed approval", () => {
     });
   });
 
+  // 2026-09-30 (fourth amendment), release suite run 11 (Marrowgate,
+  // fictional): the acclimation result survived in Advancement to science
+  // and goal improvements after its uncertainty was dropped.
+  async function resultSeed(
+    fixture: Fixture,
+    args: {
+      roleId: "overall_advancement" | "goal_improvements";
+      bullet: string;
+      selected: boolean;
+      answered?: Id<"seeds">[];
+    },
+  ) {
+    const batchId = await seedBatch(fixture, { roleId: args.roleId, key: `${args.roleId}-${args.bullet.slice(0, 12)}` });
+    return await fixture.t.run(async (ctx) => {
+      const seedId = await ctx.db.insert("seeds", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        batchId,
+        roleId: args.roleId,
+        order: 0,
+        bullets: [args.bullet],
+        tags: ["technical"],
+        support: "source_supported",
+        originalSupport: "source_supported",
+        ...(args.answered ? { answeredUncertaintySeedIds: args.answered } : {}),
+      });
+      await ctx.db.insert("seedSelections", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        seedId,
+        roleId: args.roleId,
+        selected: args.selected,
+        selectedAt: NOW,
+        version: 1,
+      });
+      return seedId;
+    });
+  }
+
+  async function untick(fixture: Fixture, seedId: Id<"seeds">) {
+    await fixture.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("seedSelections")
+        .withIndex("by_seedId", (q) => q.eq("seedId", seedId))
+        .unique();
+      await ctx.db.patch(row!._id, { selected: false });
+    });
+  }
+
+  const ACCLIMATION = "It was uncertain whether stepwise acclimation would actually work rather than just delay cold shock.";
+  const NITRITE = "Nitrite oxidizing bacteria were suspected but not confirmed as the rate-limiting bottleneck under cold shock.";
+
+  test("refuses an Advancement to science idea that answers an uncertainty the writer dropped, says so first, shows what it answers, and approves once it goes (2026-09-30, fourth)", async () => {
+    const fixture = await approvalFixture({
+      roleId: "overall_advancement",
+      bullet: "Stepwise acclimation of seed media cut cold-water start-up roughly in half versus unacclimated seed.",
+    });
+    const acclimation = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: ACCLIMATION, selected: false });
+    const nitrite = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: NITRITE, selected: true });
+    await fixture.t.run((ctx) => ctx.db.patch(fixture.seedId, { answeredUncertaintySeedIds: [acclimation, nitrite] }));
+    await skipLaterSteps(fixture, ["specific_advancements", "project_status", "goal_improvements"]);
+
+    const before = await subsection(fixture);
+    expect(before.linkNotice).toEqual({
+      kind: "results_for_dropped_uncertainty",
+      seedIds: [fixture.seedId],
+      uncertainties: [ACCLIMATION],
+    });
+    const card = before.items.find((item) => item.seedId === fixture.seedId);
+    expect(card?.answeredUncertaintySeedIds).toEqual([acclimation, nitrite]);
+    expect(card?.answeredUncertainties).toEqual([
+      { seedId: acclimation, bullets: [ACCLIMATION], picked: false },
+      { seedId: nitrite, bullets: [NITRITE], picked: true },
+    ]);
+    // Experiment and advancement lines are not shown on a result card.
+    expect(card).not.toHaveProperty("linkedUncertainty");
+    await expect(tryApprove(fixture)).rejects.toThrow(
+      /A picked idea answers an uncertainty you no longer have picked\. Untick it, pick that uncertainty again, or regenerate this step\./,
+    );
+    await expect(tryApprove(fixture)).rejects.toThrow(/RESULT_FOR_DROPPED_UNCERTAINTY/);
+
+    // The writer picks an idea that answers the kept uncertainty and unticks the other.
+    const kept = await resultSeed(fixture, {
+      roleId: "overall_advancement",
+      bullet: "Nitrite oxidizers were confirmed as the bottleneck of cold-water start-up.",
+      selected: true,
+      answered: [nitrite],
+    });
+    await untick(fixture, fixture.seedId);
+    const fixed = await subsection(fixture);
+    expect(fixed.linkNotice).toBeUndefined();
+    expect(fixed.items.find((item) => item.seedId === kept)?.answeredUncertainties).toEqual([
+      { seedId: nitrite, bullets: [NITRITE], picked: true },
+    ]);
+    await approveExact(fixture);
+    await expect(fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId))).resolves.toMatchObject({ state: "approved" });
+  });
+
+  test("never refuses a goal improvement that restates the goal, one written before the rule, or one that names the original of a revised uncertainty (2026-09-30, fourth)", async () => {
+    const fixture = await approvalFixture({
+      roleId: "goal_improvements",
+      bullet: "Stepwise acclimation of seed media closed that gap, reaching full nitrification in about 31 days at 8 C.",
+    });
+    const acclimation = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: ACCLIMATION, selected: false });
+    const revised = await linkSeed(fixture, {
+      roleId: "active_uncertainties",
+      bullet: "Whether acclimated seed reaches full nitrification within five weeks at 8 C was unknown.",
+      selected: true,
+    });
+    const nitrite = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: NITRITE, selected: true });
+    await fixture.t.run((ctx) => ctx.db.patch(fixture.seedId, { answeredUncertaintySeedIds: [acclimation] }));
+
+    // Answers the dropped uncertainty: refused, and the notice names it.
+    expect((await subsection(fixture)).linkNotice).toMatchObject({ kind: "results_for_dropped_uncertainty", uncertainties: [ACCLIMATION] });
+    await expect(tryApprove(fixture)).rejects.toThrow(/RESULT_FOR_DROPPED_UNCERTAINTY/);
+
+    // A goal restatement that answers none, and a Seed from before the rule.
+    await untick(fixture, fixture.seedId);
+    await resultSeed(fixture, {
+      roleId: "goal_improvements",
+      bullet: "The original goal was start-up under 5 weeks at 8 C instead of 9 to 10 weeks.",
+      selected: true,
+      answered: [],
+    });
+    await resultSeed(fixture, {
+      roleId: "goal_improvements",
+      bullet: "The start-up protocol now rests on the confirmed nitrite bottleneck.",
+      selected: true,
+    });
+    expect((await subsection(fixture)).linkNotice).toBeUndefined();
+
+    // Review P2-2 for results: an idea naming the original of a revised
+    // uncertainty answers the picked revision, and is shown with its words.
+    await fixture.t.run((ctx) => ctx.db.patch(revised, { revisionOfSeedId: acclimation }));
+    const viaOriginal = await resultSeed(fixture, {
+      roleId: "goal_improvements",
+      bullet: "Acclimated seed met the five-week start-up target at 8 C.",
+      selected: true,
+      answered: [acclimation, nitrite],
+    });
+    const view = await subsection(fixture);
+    expect(view.linkNotice).toBeUndefined();
+    expect(view.items.find((item) => item.seedId === viaOriginal)?.answeredUncertainties).toEqual([
+      { seedId: revised, bullets: ["Whether acclimated seed reaches full nitrification within five weeks at 8 C was unknown."], picked: true },
+      { seedId: nitrite, bullets: [NITRITE], picked: true },
+    ]);
+    await approveExact(fixture);
+    await expect(fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId))).resolves.toMatchObject({ state: "approved" });
+  });
+
   test("approves out of order and prefetches only its first untouched successor", async () => {
     const fixture = await approvalFixture({ roleId: "passive_limitations" });
     await fixture.t.run(async (ctx) => {

@@ -320,15 +320,16 @@ const seedProviderSchema = seedToolSchema();
 // fact pack for every transcript sends this schema instead, for every role
 // and mode, with SEED_PROMPT_PROGRAM.user.factGuidance.
 const seedFactProviderSchema = seedToolSchemaForFacts();
-// 2026-09-29 (first, run 7 re-check): the two linked tools every Seed request
-// also sends, in both citation modes.
+// 2026-09-29 (first, run 7 re-check): the linked tools every Seed request
+// also sends, in both citation modes (three since 2026-09-30, fourth).
 const seedLinkedProviderSchemas = linkedSeedSchemas(seedProviderSchema);
 const seedFactLinkedProviderSchemas = linkedSeedSchemas(seedFactProviderSchema);
 const SEED_SCHEMA_POLICY = {
-  // 2026-09-29 (first, run 7 re-check): the same three tools in every Seed
-  // request (shared, experiment, advancement), so the tools cache is shared;
-  // tool_choice forces the linked one when a link block is sent.
-  provider: "three-fixed-tools-for-every-role-and-mode-tool_choice-picks-one",
+  // 2026-09-29 (first, run 7 re-check): the same tools in every Seed
+  // request (shared, experiment, advancement, and since 2026-09-30 fourth
+  // result), so the tools cache is shared; tool_choice forces the linked
+  // one when a link block is sent.
+  provider: "four-fixed-tools-for-every-role-and-mode-tool_choice-picks-one",
   application: "validateBatch-enforces-mode-count-and-role-links",
   factMode: {
     selectedBy: "every-frozen-transcript-has-a-fact-pack",

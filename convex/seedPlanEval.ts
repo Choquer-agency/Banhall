@@ -288,6 +288,8 @@ export const collect = internalQuery({
             tags: item.tags,
             uncertaintySeedId: item.uncertaintySeedId ?? null,
             experimentSeedIds: item.experimentSeedIds ?? [],
+            // 2026-09-30 (fourth): the uncertainties a result item answers.
+            answeredUncertaintySeedIds: item.answeredUncertaintySeedIds ?? [],
             confirmedExclusion: item.confirmedExclusion ?? false,
             edited: item.edited ?? null,
           })),
@@ -380,6 +382,7 @@ export const collect = internalQuery({
         feedbackRequestId: seed.feedbackRequestId ?? null,
         uncertaintySeedId: seed.uncertaintySeedId ?? null,
         experimentSeedIds: seed.experimentSeedIds ?? [],
+        answeredUncertaintySeedIds: seed.answeredUncertaintySeedIds ?? [],
       })),
       feedback: feedback.map((request) => ({
         feedbackRequestId: request._id,

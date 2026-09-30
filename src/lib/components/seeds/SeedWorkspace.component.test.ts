@@ -914,6 +914,92 @@ describe("Seed workspace", () => {
         "The AI kept writing experiments without naming an uncertainty you picked. Each experiment must name the uncertainty it tested. Try again, or check your picks on the Uncertainties step."
       )).toBeVisible();
     });
+
+    // 2026-09-30 (fourth amendment), release suite run 11: the acclimation
+    // result survived in Advancement to science and goal improvements after
+    // its uncertainty was dropped.
+    it("names Advancement to science picks that answer a dropped uncertainty on the step and on the card, and holds approval (2026-09-30, fourth)", async () => {
+      const acclimation = "It was uncertain whether stepwise acclimation would actually work rather than just delay cold shock.";
+      const nitrite = "Nitrite oxidizing bacteria were suspected but not confirmed as the bottleneck.";
+      const result = seed({
+        seedId: "overall-1" as Id<"seeds">,
+        roleId: "overall_advancement",
+        bullets: ["Stepwise acclimation of seed media cut cold-water start-up roughly in half."],
+        answeredUncertaintySeedIds: ["u1" as Id<"seeds">, "u2" as Id<"seeds">],
+        answeredUncertainties: [
+          { seedId: "u1" as Id<"seeds">, bullets: [acclimation], picked: false },
+          { seedId: "u2" as Id<"seeds">, bullets: [nitrite], picked: true },
+        ],
+      });
+      const props = (items: SeedCardData[], overrides: Partial<SeedSubsectionData> = {}, canEdit = true) =>
+        paneProps(subsection({ roleId: "overall_advancement", items, approvalChallenge: clean(), ...overrides }), {
+          title: "Advancement to science / technology",
+          canEdit,
+        });
+      const view = await render(
+        SeedSubsectionPane,
+        props([result], { linkNotice: { kind: "results_for_dropped_uncertainty", seedIds: ["overall-1" as Id<"seeds">], uncertainties: [acclimation] } })
+      );
+      await expect.element(page.getByText(
+        'A picked idea answers an uncertainty you no longer have picked: "It was uncertain whether stepwise acclimation would actually work rather than...". Untick it, pick that uncertainty again on the Uncertainties step, or regenerate this step and pick an idea that answers an uncertainty you kept.'
+      )).toBeVisible();
+      expect(document.querySelector("[data-link-notice]")?.getAttribute("data-link-notice")).toBe("results_for_dropped_uncertainty");
+      expect(document.querySelector('[data-seed-link-answers="dropped"]')?.textContent).toBe(
+        'Answers an uncertainty you no longer have picked: "It was uncertain whether stepwise acclimation would actually work rather than..."'
+      );
+      await expect.element(approveButton()).toBeDisabled();
+
+      // Readers learn what happened, not actions they cannot take.
+      await view.rerender(
+        props([result], { linkNotice: { kind: "results_for_dropped_uncertainty", seedIds: ["overall-1" as Id<"seeds">], uncertainties: [acclimation] } }, false)
+      );
+      const reader = document.querySelector("[data-link-notice]")?.textContent ?? "";
+      expect(reader).toBe(
+        'A picked idea answers an uncertainty the writer no longer has picked: "It was uncertain whether stepwise acclimation would actually work rather than...". This step cannot be approved until that changes.'
+      );
+      expect(document.querySelector('[data-seed-link-answers="dropped"]')?.textContent).toBe(
+        'Answers an uncertainty the writer no longer has picked: "It was uncertain whether stepwise acclimation would actually work rather than..."'
+      );
+
+      // Once the pick answers kept uncertainties, the card says what it answers and approval returns.
+      const kept = seed({
+        ...result,
+        answeredUncertainties: [
+          { seedId: "u2" as Id<"seeds">, bullets: [nitrite], picked: true },
+          { seedId: "u3" as Id<"seeds">, bullets: ["Whether feed-forward dosing could hold TAN under 1 mg/L was unresolved."], picked: true },
+        ],
+      });
+      await view.rerender(props([kept]));
+      expect(document.querySelector("[data-link-notice]")).toBeNull();
+      expect(document.querySelector('[data-seed-link-answers="picked"]')?.textContent).toBe(
+        // Two uncertainties: 60 characters of each.
+        'Answers: "Nitrite oxidizing bacteria were suspected but not confirm..."; "Whether feed-forward dosing could hold TAN under 1 mg/L w..."'
+      );
+      await expect.element(approveButton()).toBeEnabled();
+
+      // A goal restatement that answers none carries no line.
+      await view.rerender(props([seed({ ...result, roleId: "overall_advancement", answeredUncertaintySeedIds: [], answeredUncertainties: undefined })]));
+      expect(document.querySelector("[data-seed-link-answers]")).toBeNull();
+    });
+
+    it("names two picks and two dropped uncertainties, and says why when results keep naming no picked uncertainty (2026-09-30, fourth)", async () => {
+      const notice = {
+        kind: "results_for_dropped_uncertainty" as const,
+        seedIds: ["goal-1" as Id<"seeds">, "goal-2" as Id<"seeds">],
+        uncertainties: ["Whether acclimation would work was unknown.", "The seed fraction needed at 6 C was unknown."],
+      };
+      const view = await render(SeedSubsectionPane, paneProps(subsection({ roleId: "goal_improvements", approvalChallenge: clean(), linkNotice: notice }), {
+        title: "Overall company / project goal improvements",
+      }));
+      await expect.element(page.getByText(
+        '2 picked ideas answer uncertainties you no longer have picked: "Whether acclimation would work was unknown.", "The seed fraction needed at 6 C was unknown.". Untick them, pick those uncertainties again on the Uncertainties step, or regenerate this step and pick an idea that answers an uncertainty you kept.'
+      )).toBeVisible();
+      const empty = { state: "failed" as const, items: [], shownBatchId: null, approvalChallenge: null };
+      await view.rerender(paneProps(subsection({ ...empty, roleId: "goal_improvements", lastAttemptFailed: true, repeatedInvalidOutput: "result_links" })));
+      await expect.element(page.getByText(
+        "The AI kept writing ideas without naming the uncertainties they answer. Each idea that states a result must name an uncertainty you picked. Try again, or check your picks on the Uncertainties step."
+      )).toBeVisible();
+    });
   });
 
   it("rechecks edit capability at dispatch, so a revocation landing before an interaction dispatches sends nothing (A3, R6-08)", async () => {
@@ -4861,6 +4947,27 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     // One status, no contradicting "kept" announcement (review P3 c).
     expect(document.querySelector("[data-pane-announcement]")?.textContent).toBe(
       "Nothing was kept. Specific advancements needs your attention: its advancements must come from uncertainties you picked and experiments that tested them."
+    );
+  });
+
+  it("names a result step Keep all had to leave for a dropped uncertainty (2026-09-30, fourth)", async () => {
+    const rows = outline().rows.map((row) =>
+      row.roleId === "goal_problem"
+        ? { ...row, state: "in_progress" }
+        : row.roleId === "overall_advancement"
+          ? { ...row, state: "approved", stale: true }
+          : row.roleId === "company_context"
+            ? { ...row, state: "approved" }
+            : { ...row, state: "untouched" }
+    );
+    __setQueryData("seeds:getOutline", { ...outline(), rows });
+    __setQueryData("seeds:getSubsection", subsection({ roleId: "goal_problem", approvalChallenge: clean() }));
+    __setMutationResult("seeds:keep", { seedStageVersion: 8, kept: [], needsAttention: [{ roleId: "overall_advancement", reason: "RESULT_FOR_DROPPED_UNCERTAINTY" }] });
+    localStorage.setItem(`seeds.openRole:writer-1:${generationId}`, "goal_problem");
+    await render(SeedWorkspace, workspaceProps());
+    await page.getByRole("button", { name: "Keep all", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-keep-attention]")?.textContent).toBe(
+      "Nothing was kept. Overall advancement needs your attention: a pick answers an uncertainty you no longer have picked."
     );
   });
 

@@ -6,6 +6,7 @@ import {
 } from "../../shared/pdSubsections";
 import {
   buildSeedApprovalChallenge,
+  droppedUncertaintyResultIds,
   pickedLinks,
   seedBatchIsOutdated,
   unlinkedAdvancementIds,
@@ -13,6 +14,7 @@ import {
 import {
   allowedAdvancementLinks,
   experimentsForDroppedUncertainties,
+  isResultRole,
   pickedUncertaintyFor,
   type UncertaintyRoot,
 } from "../../shared/advancementLinks";
@@ -258,6 +260,33 @@ function linkedUncertaintyOf(
 }
 
 /**
+ * 2026-09-30 (fourth): the uncertainties an Advancement to science or goal
+ * improvements Seed answers, each in its current wording (a picked revision
+ * or original stands for it) and whether it is still picked. Null for other
+ * roles, for a Seed recording none, or when the decisions were not read in
+ * full. An uncertainty that is not a loaded uncertainty Seed is left out.
+ */
+function answeredUncertaintiesOf(
+  state: SeedDecisionState,
+  seed: Doc<"seeds">,
+  picked: { uncertaintySeedIds: readonly string[]; rootOf: UncertaintyRoot } | null
+) {
+  if (!picked || !isResultRole(seed.roleId) || !seed.answeredUncertaintySeedIds?.length) return null;
+  const answers = seed.answeredUncertaintySeedIds.flatMap((seedId) => {
+    const standIn = pickedUncertaintyFor(seedId, picked.uncertaintySeedIds, picked.rootOf);
+    const uncertainty = state.seeds.find((candidate) => candidate._id === (standIn ?? seedId));
+    if (!uncertainty || uncertainty.roleId !== "active_uncertainties") return [];
+    const selection = state.selectionRows.find((candidate) => candidate.seedId === uncertainty._id);
+    return [{
+      seedId: uncertainty._id,
+      bullets: materializeFinalWording(uncertainty, selection),
+      picked: standIn !== null,
+    }];
+  });
+  return answers.length > 0 ? answers : null;
+}
+
+/**
  * 2026-09-29 (first, lead decision 4 of the run 7 re-check): the experiments
  * an advancement links, each by its current first bullet and whether it is
  * still picked, so the writer can see what the advancement claims to come
@@ -336,13 +365,45 @@ export type SeedLinkNotice =
       uncertainties: string[];
     }
   | { kind: "no_linkable_experiment"; experimentsPicked: boolean }
-  | { kind: "unlinked_advancements"; seedIds: Id<"seeds">[] };
+  | { kind: "unlinked_advancements"; seedIds: Id<"seeds">[] }
+  | {
+      // 2026-09-30 (fourth): Advancement to science or goal improvements.
+      kind: "results_for_dropped_uncertainty";
+      seedIds: Id<"seeds">[];
+      uncertainties: string[];
+    };
 
 function linkNoticeOf(
   state: SeedDecisionState,
   roleId: PdSubsectionRoleId
 ): SeedLinkNotice | null {
   if (!state.complete) return null;
+  if (isResultRole(roleId)) {
+    // 2026-09-30 (fourth): picked results that answer an uncertainty the
+    // writer dropped, named with the dropped uncertainties' words.
+    const seedIds = droppedUncertaintyResultIds(state, roleId);
+    if (seedIds.length === 0) return null;
+    const { uncertaintySeedIds, rootOf } = pickedLinks(state);
+    const pickedRoots = new Set(uncertaintySeedIds.map((seedId) => rootOf(seedId)));
+    const droppedIds = [
+      ...new Set(
+        seedIds.flatMap((seedId) =>
+          (state.seeds.find((candidate) => candidate._id === seedId)?.answeredUncertaintySeedIds ?? []).filter(
+            (answered) => !pickedRoots.has(rootOf(answered))
+          )
+        )
+      ),
+    ];
+    return {
+      kind: "results_for_dropped_uncertainty",
+      seedIds,
+      uncertainties: droppedIds.map((seedId) => {
+        const uncertainty = state.seeds.find((candidate) => candidate._id === seedId);
+        const selection = state.selectionRows.find((candidate) => candidate.seedId === seedId);
+        return uncertainty ? (materializeFinalWording(uncertainty, selection)[0] ?? "") : "";
+      }),
+    };
+  }
   if (roleId !== "experimentation" && roleId !== "specific_advancements") return null;
   const { uncertaintySeedIds, experiments, rootOf } = pickedLinks(state);
   if (roleId === "experimentation") {
@@ -432,6 +493,7 @@ async function seedCard(
   }
   const linked = linkedUncertaintyOf(state, seed, pickedUncertainties);
   const linkedExperiments = linkedExperimentsOf(state, seed, pickedUncertainties, experimentsReadById);
+  const answeredUncertainties = answeredUncertaintiesOf(state, seed, pickedUncertainties);
   return {
     seedId: seed._id,
     batchId: seed.batchId,
@@ -447,11 +509,15 @@ async function seedCard(
     feedbackRequestId: seed.feedbackRequestId ?? null,
     uncertaintySeedId: seed.uncertaintySeedId ?? null,
     experimentSeedIds: seed.experimentSeedIds ?? [],
+    // 2026-09-30 (fourth): the uncertainties a result answers, as recorded
+    // (empty: a goal restatement). Absent when the Seed records none.
+    ...(seed.answeredUncertaintySeedIds ? { answeredUncertaintySeedIds: seed.answeredUncertaintySeedIds } : {}),
     provenance: citations.rows,
     provenanceTruncated: !citations.complete,
     outdated,
     ...(linked ? { linkedUncertainty: linked } : {}),
     ...(linkedExperiments ? { linkedExperiments } : {}),
+    ...(answeredUncertainties ? { answeredUncertainties } : {}),
   };
 }
 
@@ -554,7 +620,7 @@ export async function getSubsectionData(
   });
   // 2026-09-29 (first): read once for every card's linked uncertainty.
   const pickedUncertainties =
-    state.complete && (roleId === "experimentation" || roleId === "specific_advancements")
+    state.complete && (roleId === "experimentation" || roleId === "specific_advancements" || isResultRole(roleId))
       ? pickedLinks(state)
       : null;
   const experimentsReadById =

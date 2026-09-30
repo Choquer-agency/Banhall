@@ -1,5 +1,5 @@
 import { matchesClaimExclusion } from "./claimExclusionMatcher";
-import { advancementLinkProblem, experimentsForDroppedUncertainties, pickedLinkSelections, revisionRoots, type ExperimentTest } from "../../shared/advancementLinks";
+import { advancementLinkProblem, experimentsForDroppedUncertainties, isResultRole, pickedLinkSelections, resultsForDroppedUncertainties, revisionRoots, type ExperimentTest, type ResultRoleId } from "../../shared/advancementLinks";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
@@ -65,6 +65,23 @@ export function unlinkedAdvancementIds(state: SeedDecisionState): Id<"seeds">[] 
 export function droppedUncertaintyExperimentIds(state: SeedDecisionState): Id<"seeds">[] {
   const { uncertaintySeedIds, experiments, rootOf } = pickedLinks(state);
   return experimentsForDroppedUncertainties(new Set<string>(uncertaintySeedIds), experiments, rootOf).map(e => e.seedId as Id<"seeds">);
+}
+/**
+ * 2026-09-30 (fourth): selected Advancement to science and goal improvements
+ * Seeds (of one of those steps, when `roleId` is given) that answer an
+ * uncertainty the writer no longer has picked. Approval, Keep and readiness
+ * refuse them; a result recording no uncertainty is never one of them.
+ */
+export function droppedUncertaintyResultIds(
+  state: Pick<SeedDecisionState, "subsections" | "seeds" | "selectionRows">,
+  roleId?: ResultRoleId
+): Id<"seeds">[] {
+  const { active, uncertaintySeedIds, rootOf } = pickedLinks(state);
+  const seeds = new Map(state.seeds.map(seed => [seed._id as string, seed]));
+  const results = active
+    .filter(s => isResultRole(s.roleId) && (!roleId || s.roleId === roleId))
+    .map(s => ({ seedId: s.seedId, answeredUncertaintySeedIds: seeds.get(s.seedId)?.answeredUncertaintySeedIds ?? [] }));
+  return resultsForDroppedUncertainties(new Set<string>(uncertaintySeedIds), results, rootOf).map(r => r.seedId as Id<"seeds">);
 }
 export async function buildSeedApprovalChallenge(ctx: Ctx, state: SeedDecisionState, row: Doc<"seedSubsections">): Promise<SeedApprovalChallenge> {
   if (!state.complete) processingLimit(row.roleId);

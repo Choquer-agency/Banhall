@@ -9,10 +9,11 @@ export const PINNED_ADVANCEMENT_LINK_RULES =
 
 /**
  * A request body as JSON text with the current link rules (the advancement
- * rules of the 2026-09-28 fourth amendment and the experiment rules of the
- * 2026-09-29 first) put back to the pinned sentence: the only bytes those
- * amendments changed in a request that has no FROZEN EXPERIMENT LINKS or
- * FROZEN ADVANCEMENT LINKS block.
+ * rules of the 2026-09-28 fourth amendment, the experiment rules of the
+ * 2026-09-29 first and the result rules of the 2026-09-30 fourth) put back
+ * to the pinned sentence: the only bytes those amendments changed in a
+ * request that has no FROZEN EXPERIMENT LINKS, FROZEN ADVANCEMENT LINKS or
+ * FROZEN RESULT LINKS block.
  */
 export function withPinnedAdvancementLinkRules(body: string): string {
   return body
@@ -21,9 +22,10 @@ export function withPinnedAdvancementLinkRules(body: string): string {
 }
 
 /**
- * 2026-09-29 (first, run 7 re-check): every Seed request also sends the two
- * linked Seed tools after the shared one; the pinned bodies hold the shared
- * one only. A request body as JSON with the linked tools taken out.
+ * 2026-09-29 (first, run 7 re-check): every Seed request also sends the
+ * linked Seed tools after the shared one (three since 2026-09-30, fourth);
+ * the pinned bodies hold the shared one only. A request body as JSON with
+ * the linked tools taken out.
  */
 export function withSharedSeedToolOnly<T extends Record<string, unknown>>(json: T): T {
   const tools = json.tools as Array<{ name: string }> | undefined;

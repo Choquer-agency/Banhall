@@ -327,7 +327,7 @@ describe("seed contract", () => {
     const base = seedToolSchema();
     const item = (schema: unknown) =>
       (schema as { properties: { seeds: { items: { required: string[]; properties: Record<string, unknown> } } } }).properties.seeds.items;
-    const { experiment, advancement } = linkedSeedSchemas(base);
+    const { experiment, advancement, result } = linkedSeedSchemas(base);
     expect(item(advancement).required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId", "experimentSeedIds"]);
     expect(item(advancement).properties.uncertaintySeedId).toEqual({ type: "string" });
     expect(item(advancement).properties.experimentSeedIds).toEqual({ type: "array", minItems: 1, uniqueItems: true, items: { type: "string" } });
@@ -335,7 +335,7 @@ describe("seed contract", () => {
     expect(item(experiment).properties.uncertaintySeedId).toEqual({ type: "string" });
     expect(item(experiment).properties).not.toHaveProperty("experimentSeedIds");
     // Fixed: the same bytes every time, and the shared schema never changes.
-    expect(JSON.stringify(linkedSeedSchemas(seedToolSchema()))).toBe(JSON.stringify({ experiment, advancement }));
+    expect(JSON.stringify(linkedSeedSchemas(seedToolSchema()))).toBe(JSON.stringify({ experiment, advancement, result }));
     expect(item(base).required).toEqual(["bullets", "tags", "provenance"]);
   });
 
@@ -433,8 +433,11 @@ describe("an advancement follows the uncertainty its experiments tested (2026-09
   });
   const advancement = (uncertaintySeedId: string, experimentSeedIds: string[]) =>
     candidate([one], ["technical"], { uncertaintySeedId, experimentSeedIds });
-  const check = (seed: SeedCandidate, references: ReturnType<typeof reference>[], roleId: "specific_advancements" | "experimentation" = "specific_advancements") =>
-    validateSeed({ roleId, seed, referenceContext: { generationId: "generation-1", references } });
+  const check = (
+    seed: SeedCandidate,
+    references: ReturnType<typeof reference>[],
+    roleId: "specific_advancements" | "experimentation" | "overall_advancement" | "goal_improvements" | "project_status" = "specific_advancements"
+  ) => validateSeed({ roleId, seed, referenceContext: { generationId: "generation-1", references } });
 
   it("refuses an advancement linked to an uncertainty its experiments did not test", () => {
     const run6 = [
@@ -610,6 +613,102 @@ describe("an advancement follows the uncertainty its experiments tested (2026-09
     const unrequested = check(candidate([one], ["technical"], { uncertaintySeedId: "u1-startup" }), [], "experimentation");
     expect(unrequested.ok).toBe(true);
     if (unrequested.ok) expect(unrequested.seed).not.toHaveProperty("uncertaintySeedId");
+  });
+
+  // 2026-09-30 (fourth): run 11's Marrowgate plan. The acclimation result
+  // ("cut cold-water start-up roughly in half ... 31 days at 8 C") was
+  // refused in Subsection 11 but survived in Subsections 10 and 13, which
+  // recorded no uncertainty.
+  describe("Advancement to science and goal improvements record the uncertainties they answer (2026-09-30, fourth)", () => {
+    const acclimation = "Stepwise acclimation of seed media cut cold-water start-up roughly in half versus unacclimated seed.";
+    const picked = [
+      reference("u1-acclimation", "active_uncertainties"),
+      reference("u2-nitrite", "active_uncertainties"),
+      reference("e1-trial", "experimentation", "u2-nitrite"),
+    ];
+    const answers = (answeredUncertaintySeedIds?: string[], extra: Partial<SeedCandidate> = {}) =>
+      candidate([acclimation], ["technical"], {
+        ...(answeredUncertaintySeedIds ? { answeredUncertaintySeedIds } : {}),
+        ...extra,
+      });
+
+    it("keeps each picked uncertainty a result names, and only those", () => {
+      const both = check(answers(["u1-acclimation", "u2-nitrite"], { uncertaintySeedId: "u2-nitrite", experimentSeedIds: ["e1-trial"] }), picked, "overall_advancement");
+      expect(both.ok).toBe(true);
+      if (!both.ok) return;
+      expect(both.seed.answeredUncertaintySeedIds).toEqual(["u1-acclimation", "u2-nitrite"]);
+      // A result carries no advancement or experiment link.
+      expect(both.seed).not.toHaveProperty("uncertaintySeedId");
+      expect(both.seed).not.toHaveProperty("experimentSeedIds");
+      // A repeated id is one answer.
+      const repeated = check(answers(["u2-nitrite", "u2-nitrite"]), picked, "goal_improvements");
+      expect(repeated.ok && repeated.seed.answeredUncertaintySeedIds).toEqual(["u2-nitrite"]);
+    });
+
+    it("refuses a result that names no picked uncertainty, one outside the picks, or none for Advancement to science", () => {
+      for (const [seed, roleId, reason] of [
+        [answers(), "overall_advancement", "missing_link"],
+        [answers(), "goal_improvements", "missing_link"],
+        [answers([]), "overall_advancement", "missing_link"],
+        [answers(["u3-sensors"]), "overall_advancement", "unknown_uncertainty"],
+        [answers(["u1-acclimation", "e1-trial"]), "goal_improvements", "unknown_uncertainty"],
+      ] as const) {
+        const refused = check(seed, picked, roleId);
+        expect(refused.ok, `${roleId} ${JSON.stringify(seed.answeredUncertaintySeedIds)}`).toBe(false);
+        expect(refused.issues).toEqual([
+          expect.objectContaining({ code: "INVALID_RESULT_REFERENCE", linkReason: reason }),
+        ]);
+      }
+    });
+
+    it("lets a goal improvement that only restates the goal answer none", () => {
+      const restated = check(answers([]), picked, "goal_improvements");
+      expect(restated.ok).toBe(true);
+      if (restated.ok) expect(restated.seed.answeredUncertaintySeedIds).toEqual([]);
+    });
+
+    it("drops result links where no uncertainty is picked, and on every other step", () => {
+      const unrequested = check(answers(["u1-acclimation"]), [], "overall_advancement");
+      expect(unrequested.ok).toBe(true);
+      if (unrequested.ok) expect(unrequested.seed).not.toHaveProperty("answeredUncertaintySeedIds");
+      expect(check(answers(), [], "overall_advancement").ok).toBe(true);
+      for (const roleId of ["project_status", "experimentation", "specific_advancements"] as const) {
+        const other = check(
+          answers(["u1-acclimation"], roleId === "experimentation" ? { uncertaintySeedId: "u2-nitrite" } : roleId === "specific_advancements" ? { uncertaintySeedId: "u2-nitrite", experimentSeedIds: ["e1-trial"] } : {}),
+          picked,
+          roleId
+        );
+        expect(other.ok, roleId).toBe(true);
+        if (other.ok) expect(other.seed).not.toHaveProperty("answeredUncertaintySeedIds");
+      }
+    });
+
+    it("counts a broken result link by reason (run 7 counts)", () => {
+      const batch = validateBatch({
+        roleId: "overall_advancement",
+        mode: "batch",
+        seeds: [answers(["u1-acclimation"]), answers(), answers(["u3-sensors"])],
+        referenceContext: { generationId: "generation-1", references: picked },
+      });
+      expect(batch.ok).toBe(false);
+      expect(seedAnswerCounts(batch, 3).issues).toEqual(
+        expect.arrayContaining([
+          { code: "INVALID_RESULT_REFERENCE", reason: "missing_link", seeds: 1 },
+          { code: "INVALID_RESULT_REFERENCE", reason: "unknown_uncertainty", seeds: 1 },
+        ])
+      );
+    });
+
+    it("builds a fixed result schema that requires the list, allows it empty and holds no ids", () => {
+      const { result } = linkedSeedSchemas(seedToolSchema());
+      const item = (result as unknown as { properties: { seeds: { items: { required: string[]; properties: Record<string, unknown> } } } }).properties.seeds.items;
+      expect(item.required).toEqual(["bullets", "tags", "provenance", "answeredUncertaintySeedIds"]);
+      expect(item.properties.answeredUncertaintySeedIds).toEqual({ type: "array", uniqueItems: true, items: { type: "string" } });
+      expect(item.properties).not.toHaveProperty("uncertaintySeedId");
+      expect(item.properties).not.toHaveProperty("experimentSeedIds");
+      // The shared schema is unchanged: no result field in it.
+      expect(JSON.stringify(seedToolSchema())).not.toContain("answeredUncertaintySeedIds");
+    });
   });
 });
 

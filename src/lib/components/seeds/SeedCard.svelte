@@ -420,6 +420,30 @@
     };
   });
 
+  // 2026-09-30 (fourth): the uncertainties an Advancement to science or goal
+  // improvements idea answers, so the writer can check the AI's link. When
+  // one is no longer picked, the line names it in the warning colour.
+  const answersLine = $derived.by(() => {
+    const answered = item.answeredUncertainties;
+    if (!answered?.length) return null;
+    // One uncertainty shows 80 characters of its words, several 60 each.
+    const listed = (uncertainties: typeof answered) => {
+      const max = uncertainties.length === 1 ? 80 : 60;
+      return uncertainties
+        .map((uncertainty) => {
+          const first = uncertainty.bullets[0] ?? "";
+          return `"${first.length > max ? `${first.slice(0, max - 3).trimEnd()}...` : first}"`;
+        })
+        .join("; ");
+    };
+    const dropped = answered.filter((uncertainty) => !uncertainty.picked);
+    if (dropped.length === 0) return { text: `Answers: ${listed(answered)}`, dropped: false };
+    // Readers did not drop it; the writer did.
+    const who = canEdit ? "you no longer have" : "the writer no longer has";
+    const what = dropped.length === 1 ? "an uncertainty" : "uncertainties";
+    return { text: `Answers ${what} ${who} picked: ${listed(dropped)}`, dropped: true };
+  });
+
   // Card tools (board 3.1): 28px tiles, 14px strokes in secondary ink.
   const tile =
     "inline-flex size-7 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11";
@@ -764,6 +788,9 @@
         {/if}
         {#if experimentsLine}
           <p class={`text-[0.75rem] leading-4 ${experimentsLine.dropped ? "text-gap-text!" : "text-ink-muted"}`} data-seed-link-experiments>{experimentsLine.text}</p>
+        {/if}
+        {#if answersLine}
+          <p class={`text-[0.75rem] leading-4 ${answersLine.dropped ? "text-gap-text!" : "text-ink-muted"}`} data-seed-link-answers={answersLine.dropped ? "dropped" : "picked"}>{answersLine.text}</p>
         {/if}
       {/if}
 

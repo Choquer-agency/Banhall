@@ -9858,6 +9858,8 @@ async function addDecisions(
     bullets: string[];
     ticked: "unticked" | "never";
     recordsKey?: string;
+    /** 2026-09-30 (fourth): the uncertainties a result answers, by key. */
+    answersKeys?: string[];
   }>
 ): Promise<Record<string, Id<"seeds">>> {
   return await s.t.run(async (ctx) => {
@@ -9886,6 +9888,7 @@ async function addDecisions(
         support: "source_supported",
         originalSupport: "source_supported",
         ...(seed.recordsKey ? { uncertaintySeedId: ids[seed.recordsKey] } : {}),
+        ...(seed.answersKeys ? { answeredUncertaintySeedIds: seed.answersKeys.map((key) => ids[key]!) } : {}),
       });
       if (seed.ticked === "unticked") {
         await ctx.db.insert("seedSelections", {
@@ -10074,6 +10077,95 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     const recovered = await frozenLines(s, recoveryId);
     expect(recovered.s244.planChecks.filter((check) => check.droppedSeedId))
       .toEqual(frozen.s244.planChecks.filter((check) => check.droppedSeedId));
+  });
+
+  // 2026-09-30 (fourth): run 11's acclimation result survived in
+  // Advancement to science and goal improvements. Their Seeds that answered
+  // the dropped uncertainty now go with its reference, as advancements,
+  // within the same cap of three: ticked first, then in the order written.
+  it("freezes the Advancement to science and goal improvements ideas that answered a dropped uncertainty as its reference, within the cap (2026-09-30, fourth)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const ids = await addDecisions(s, [
+      { key: "dropped", roleId: "active_uncertainties", bullets: DROPPED_UNCERTAINTY, ticked: "unticked" },
+      { key: "seedRule", roleId: "specific_advancements", bullets: ["Required seed fraction rises as temperature drops."], ticked: "never", recordsKey: "dropped" },
+      {
+        key: "overallDropped",
+        roleId: "overall_advancement",
+        bullets: ["15 percent acclimated seed met the 5-week target even at 6 C."],
+        ticked: "unticked",
+        answersKeys: ["dropped"],
+      },
+      {
+        key: "goalDropped",
+        roleId: "goal_improvements",
+        bullets: ["More seed closed the start-up gap at 6 C as well."],
+        ticked: "never",
+        answersKeys: ["dropped"],
+      },
+      { key: "seedRule2", roleId: "specific_advancements", bullets: ["Gains from more seed flattened past 15 percent."], ticked: "never", recordsKey: "dropped" },
+      // A result for another uncertainty is not its reference.
+      { key: "unrelated", roleId: "goal_improvements", bullets: ["The goal was a faster cold start-up."], ticked: "never", answersKeys: [] },
+    ]);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const frozen = await frozenLines(s);
+    const advancements = [
+      // Ticked at some point first, then the order the run wrote them.
+      { seedId: ids.overallDropped, wording: ["15 percent acclimated seed met the 5-week target even at 6 C."] },
+      { seedId: ids.seedRule, wording: ["Required seed fraction rises as temperature drops."] },
+      { seedId: ids.goalDropped, wording: ["More seed closed the start-up gap at 6 C as well."] },
+    ];
+    expect(frozen.summary?.droppedUncertainties).toEqual([
+      { seedId: ids.dropped, wording: DROPPED_UNCERTAINTY, experiments: [], advancements },
+    ]);
+    for (const line of [frozen.s242, frozen.s244, frozen.s246]) {
+      expect(line.planChecks.find((check) => check.instruction === "leave_out")?.relationshipReferences).toEqual(advancements);
+    }
+  });
+
+  it("freezes what a signed-off result answers, named by the uncertainty the plan holds (2026-09-30, fourth)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const ids = await addDecisions(s, [
+      { key: "original", roleId: "active_uncertainties", bullets: ["Whether acclimation could shorten start-up below 10 C was unknown."], ticked: "unticked" },
+    ]);
+    const picked = await s.t.run(async (ctx) => {
+      const selected = async (roleId: PdSubsectionRoleId) => {
+        const rows = await ctx.db.query("seedSelections")
+          .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", roleId))
+          .take(10);
+        return rows.find((row) => row.selected)!.seedId;
+      };
+      const uncertainty = await selected("active_uncertainties");
+      const overall = await selected("overall_advancement");
+      const goal = await selected("goal_improvements");
+      // The kept uncertainty is a Feedback revision of the unticked one; the
+      // overall advancement names the original, the goal improvement none.
+      await ctx.db.patch(uncertainty, { revisionOfSeedId: ids.original });
+      await ctx.db.patch(overall, { answeredUncertaintySeedIds: [ids.original!] });
+      await ctx.db.patch(goal, { answeredUncertaintySeedIds: [] });
+      return { uncertainty, overall, goal };
+    });
+    expect(await s.writer.query(readinessRef, { generationId: s.generationId })).toMatchObject({ ready: true });
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const items = await s.t.run(async (ctx) => {
+      const generation = await ctx.db.get(s.generationId);
+      return await ctx.db.query("summaryItems")
+        .withIndex("by_summaryVersionId_and_order", (q) => q.eq("summaryVersionId", generation!.summaryVersionId!))
+        .take(50);
+    });
+    expect(items.find((item) => item.seedId === picked.overall)?.answeredUncertaintySeedIds).toEqual([picked.uncertainty]);
+    // An empty list records nothing to answer, so the item carries none.
+    expect(items.find((item) => item.seedId === picked.goal)).not.toHaveProperty("answeredUncertaintySeedIds");
+    // A revision is the kept uncertainty, not a drop.
+    const summary = await s.t.run(async (ctx) => ctx.db.get((await ctx.db.get(s.generationId))!.summaryVersionId!));
+    expect(summary).not.toHaveProperty("droppedUncertainties");
   });
 
   it("never freezes an uncertainty the writer edited or restored but never ticked (review P2-1)", async () => {

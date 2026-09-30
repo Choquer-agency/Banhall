@@ -390,6 +390,81 @@ describe("seed readiness", () => {
     ]);
   });
 
+  it("blocks Advancement to science and goal improvements picks that answer a dropped uncertainty, never a goal restatement (2026-09-30, fourth)", async () => {
+    const s = await fixture();
+    const result = async (roleId: "overall_advancement" | "goal_improvements", answeredUncertaintySeedIds?: Id<"seeds">[]) =>
+      await s.t.run(async (ctx) => {
+        const seedId = await ctx.db.insert("seeds", {
+          projectId: s.projectId,
+          generationId: s.generationId,
+          batchId: s.batchId,
+          roleId,
+          order: 9,
+          bullets: ["Stepwise acclimation cut cold-water start-up roughly in half."],
+          tags: ["technical"],
+          support: "source_supported",
+          originalSupport: "source_supported",
+          ...(answeredUncertaintySeedIds ? { answeredUncertaintySeedIds } : {}),
+        });
+        await ctx.db.insert("seedSelections", {
+          projectId: s.projectId,
+          generationId: s.generationId,
+          seedId,
+          roleId,
+          selected: true,
+          selectedAt: 1,
+          version: 1,
+        });
+        return seedId;
+      });
+    const dropped = await s.t.run(async (ctx) => {
+      const seedId = await ctx.db.insert("seeds", {
+        projectId: s.projectId,
+        generationId: s.generationId,
+        batchId: s.batchId,
+        roleId: "active_uncertainties",
+        order: 8,
+        bullets: ["Whether stepwise acclimation would actually work was unknown."],
+        tags: ["technical"],
+        support: "source_supported",
+        originalSupport: "source_supported",
+      });
+      await ctx.db.insert("seedSelections", {
+        projectId: s.projectId,
+        generationId: s.generationId,
+        seedId,
+        roleId: "active_uncertainties",
+        selected: false,
+        selectedAt: 1,
+        version: 1,
+      });
+      return seedId;
+    });
+    // Answers a kept uncertainty, restates the goal, or predates the rule: ready.
+    await result("overall_advancement", [s.uncertaintySeedId]);
+    await result("goal_improvements", []);
+    await result("goal_improvements");
+    expect((await s.t.run((ctx) => readSeedReadiness(ctx, s.generationId))).ready).toBe(true);
+
+    await result("overall_advancement", [s.uncertaintySeedId, dropped]);
+    const one = await s.t.run((ctx) => readSeedReadiness(ctx, s.generationId));
+    expect(one.ready).toBe(false);
+    expect(one.blockers).toEqual([
+      expect.objectContaining({
+        code: "RESULT_FOR_DROPPED_UNCERTAINTY",
+        roleId: "overall_advancement",
+        message: "Advancement to science / technology has a picked idea that answers an uncertainty you no longer have picked",
+      }),
+    ]);
+    await result("goal_improvements", [dropped]);
+    const both = await s.t.run((ctx) => readSeedReadiness(ctx, s.generationId));
+    expect(both.blockingRoleIds).toEqual(["overall_advancement", "goal_improvements"]);
+    expect(both.blockers.map((blocker) => blocker.code)).toEqual([
+      "RESULT_FOR_DROPPED_UNCERTAINTY",
+      "RESULT_FOR_DROPPED_UNCERTAINTY",
+    ]);
+  });
+
   it("never reports ready from an incomplete read and performs no writes", async () => {
     const s = await fixture();
     const before = await s.t.run(async (ctx) => ({

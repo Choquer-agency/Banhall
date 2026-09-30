@@ -508,6 +508,21 @@ export async function signOffSeedStageHandler(
     signedOffBy: user._id,
     signedOffAt: now,
   });
+  // 2026-09-30 (fourth): the uncertainties a result answers, each named by
+  // the picked revision (or original) the plan holds. Approval refuses a
+  // result that answers a dropped one, so each has a stand-in; an id with
+  // none is kept as recorded.
+  const planAnswers = (seed: Doc<"seeds">): Id<"seeds">[] | undefined =>
+    seed.answeredUncertaintySeedIds?.length
+      ? [
+          ...new Set(
+            seed.answeredUncertaintySeedIds.map(
+              (seedId) =>
+                (pickedUncertaintyFor(seedId, links.uncertaintySeedIds, links.rootOf) as Id<"seeds"> | null) ?? seedId
+            )
+          ),
+        ]
+      : undefined;
   const planUncertainty = (seed: Doc<"seeds">): Id<"seeds"> | undefined => {
     if (!seed.uncertaintySeedId) return undefined;
     if (seed.roleId !== "experimentation" && seed.roleId !== "specific_advancements") return seed.uncertaintySeedId;
@@ -553,6 +568,7 @@ export async function signOffSeedStageHandler(
       edited: selection.editedBullets !== undefined,
       ...(planUncertainty(seed) ? { uncertaintySeedId: planUncertainty(seed) } : {}),
       ...(seed.experimentSeedIds ? { experimentSeedIds: seed.experimentSeedIds } : {}),
+      ...(planAnswers(seed) ? { answeredUncertaintySeedIds: planAnswers(seed) } : {}),
       ...(confirmedExclusion ? { confirmedExclusion: true } : {}),
     });
     frozenItems.push({

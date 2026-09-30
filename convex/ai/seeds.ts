@@ -33,6 +33,7 @@ import {
   seedBlock,
   seedExperimentLinkIds,
   seedPromptProjection,
+  seedResultLinkIds,
 } from "./trustedContext";
 import {
   MAX_SEED_PROMPT_UTF8_BYTES,
@@ -262,6 +263,9 @@ function seedIssueHints(mode: SeedBatchMode, minimum?: number): Record<SeedValid
     // 2026-09-29 (first): an experiment names the uncertainty it tested.
     INVALID_EXPERIMENT_REFERENCE:
       "set uncertaintySeedId to the tested uncertainty from FROZEN EXPERIMENT LINKS",
+    // 2026-09-30 (fourth): a result names the uncertainties it answers.
+    INVALID_RESULT_REFERENCE:
+      "set answeredUncertaintySeedIds to answered ids from FROZEN RESULT LINKS",
     INVALID_PROVENANCE: "",
     INVALID_BATCH_SIZE: `return ${min} to ${max} valid Seeds`,
     INSUFFICIENT_TAG_DIVERSITY: "use at least two different tags",
@@ -274,7 +278,8 @@ const REPAIR_OMITTED = "more issues omitted";
 /**
  * 2026-09-29 (first, run 7 re-check): which Seed tool a request forces: the
  * advancement tool when it sends FROZEN ADVANCEMENT LINKS, the experiment
- * tool when it sends FROZEN EXPERIMENT LINKS, else the shared one.
+ * tool when it sends FROZEN EXPERIMENT LINKS, the result tool when it sends
+ * FROZEN RESULT LINKS (2026-09-30 fourth), else the shared one.
  */
 export function seedToolKindFor(
   snapshot: SeedContextSnapshot,
@@ -283,11 +288,12 @@ export function seedToolKindFor(
 ): SeedToolKind {
   if (seedAdvancementLinkIds(snapshot, roleId, uncertaintyRoots)) return "advancement";
   if (seedExperimentLinkIds(snapshot, roleId)) return "experiment";
+  if (seedResultLinkIds(snapshot, roleId)) return "result";
   return "shared";
 }
 
 /**
- * The three Seed tools every request sends, always the same bytes for one
+ * The four Seed tools every request sends, always the same bytes for one
  * citation mode, so the cached tools prefix is shared; and the name of the
  * one `kind` forces.
  */
@@ -298,13 +304,10 @@ export function seedTools(base: SeedToolInputSchema, kind: SeedToolKind) {
     { name: request.toolName, description: request.description, input_schema: base },
     { ...request.linkedTools.experiment, input_schema: linked.experiment },
     { ...request.linkedTools.advancement, input_schema: linked.advancement },
+    { ...request.linkedTools.result, input_schema: linked.result },
   ];
   const toolName =
-    kind === "advancement"
-      ? request.linkedTools.advancement.name
-      : kind === "experiment"
-        ? request.linkedTools.experiment.name
-        : request.toolName;
+    kind === "shared" ? request.toolName : request.linkedTools[kind].name;
   return { tools, toolName };
 }
 
@@ -312,11 +315,18 @@ export function seedTools(base: SeedToolInputSchema, kind: SeedToolKind) {
  * 2026-09-29 (first, run 7 re-check): the repair of an invalid answer to a
  * request with a link block shows that answer as data and asks to keep each
  * Seed's links unless an issue names it, so a repair for another rule never
- * loses them. Omitted (null) when the prompt has no room for it.
+ * loses them. A request with FROZEN RESULT LINKS asks to keep
+ * answeredUncertaintySeedIds (2026-09-30 fourth). Omitted (null) when the
+ * prompt has no room for it.
  */
-export function seedLinkRepairText(answer: unknown, promptBytes: number): string | null {
+export function seedLinkRepairText(
+  answer: unknown,
+  promptBytes: number,
+  kind: Exclude<SeedToolKind, "shared"> = "advancement"
+): string | null {
   const text = SEED_PROMPT_PROGRAM.request.linkRepair;
-  const repair = `${text.opening}${seedBlock(text.earlierAnswerLabel, JSON.stringify(answer))}`;
+  const opening = kind === "result" ? text.resultOpening : text.opening;
+  const repair = `${opening}${seedBlock(text.earlierAnswerLabel, JSON.stringify(answer))}`;
   const bytes = (value: string) => new TextEncoder().encode(value).byteLength;
   const reserved =
     bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix) +
@@ -512,9 +522,11 @@ function validatedBatchSchema(args: {
  * linked ids outside the frozen uncertainty and experiment selections, or
  * (2026-09-29 first) paired an uncertainty with experiments that did not
  * test it. "experiment_links" (2026-09-29 first): experiment Seeds named no
- * frozen uncertainty selection, or one outside them.
+ * frozen uncertainty selection, or one outside them. "result_links"
+ * (2026-09-30 fourth): Advancement to science or goal improvements Seeds
+ * named no answered uncertainty, or one outside the picked ones.
  */
-export type SeedFailureDetail = "advancement_links" | "experiment_links";
+export type SeedFailureDetail = "advancement_links" | "experiment_links" | "result_links";
 
 function failureDetail(
   error: unknown,
@@ -524,8 +536,11 @@ function failureDetail(
   if (lastRejection.issues.some((issue) => issue.code === "INVALID_ADVANCEMENT_REFERENCE")) {
     return "advancement_links";
   }
-  return lastRejection.issues.some((issue) => issue.code === "INVALID_EXPERIMENT_REFERENCE")
-    ? "experiment_links"
+  if (lastRejection.issues.some((issue) => issue.code === "INVALID_EXPERIMENT_REFERENCE")) {
+    return "experiment_links";
+  }
+  return lastRejection.issues.some((issue) => issue.code === "INVALID_RESULT_REFERENCE")
+    ? "result_links"
     : undefined;
 }
 
@@ -539,11 +554,13 @@ function failureCode(error: unknown):
   const provider = normalizeProviderError(error);
   if (provider.code !== "unknown") return "PROVIDER_FAILED";
   if (error instanceof StructuredValidationError) return "INVALID_OUTPUT";
-  // Any of the three Seed tools (2026-09-29 first, run 7 re-check).
+  // Any of the Seed tools (2026-09-29 first, run 7 re-check; 2026-09-30
+  // fourth: the result tool).
   const toolNames = [
     SEED_PROMPT_PROGRAM.request.toolName,
     SEED_PROMPT_PROGRAM.request.linkedTools.experiment.name,
     SEED_PROMPT_PROGRAM.request.linkedTools.advancement.name,
+    SEED_PROMPT_PROGRAM.request.linkedTools.result.name,
   ];
   if (
     error instanceof Error &&
@@ -674,9 +691,9 @@ export const generateBatch = internalAction({
       const output = await generateStructured<ValidatedSeedBatch>(client, {
         system: request.system,
         user: request.userBlocks,
-        // 2026-09-29 (first, run 7 re-check): three fixed tools in every
-        // Seed request; the forced one requires the links when the request
-        // sends a link block.
+        // 2026-09-29 (first, run 7 re-check): fixed tools in every Seed
+        // request (four since 2026-09-30, fourth); the forced one requires
+        // the links when the request sends a link block.
         ...seedTools(factMode ? seedToolSchemaForFacts() : seedToolSchema(), toolKind),
         description: SEED_PROMPT_PROGRAM.request.description,
         // The same tools for every role and mode keep the cached tools
@@ -684,9 +701,9 @@ export const generateBatch = internalAction({
         // offered ids. A generation that reads fact packs uses the fact
         // schemas for all.
         ...(toolKind !== "shared"
-          ? { invalidAnswerRepair: (answer: unknown) => seedLinkRepairText(answer, request.promptBytes) }
+          ? { invalidAnswerRepair: (answer: unknown) => seedLinkRepairText(answer, request.promptBytes, toolKind) }
           : {}),
-        // PR #22 review (G13): an answer from another of the three tools is
+        // PR #22 review (G13): an answer from another of the Seed tools is
         // refused and repaired (a model that cannot be forced may pick
         // one), and counted. It is not a link failure, so the writer is not
         // told the links were wrong.
@@ -738,6 +755,13 @@ export const generateBatch = internalAction({
         ...(seed.experimentSeedIds
           ? {
               experimentSeedIds: seed.experimentSeedIds.map((seedId) =>
+                validatedId<"seeds">(seedId)
+              ),
+            }
+          : {}),
+        ...(seed.answeredUncertaintySeedIds
+          ? {
+              answeredUncertaintySeedIds: seed.answeredUncertaintySeedIds.map((seedId) =>
                 validatedId<"seeds">(seedId)
               ),
             }

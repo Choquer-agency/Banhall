@@ -141,7 +141,7 @@ async function toolAskedBy(input: RequestInfo | URL, init?: RequestInit): Promis
     if (body.tool_choice?.type === "tool" && body.tool_choice.name) return body.tool_choice.name;
     const system = JSON.stringify(body.system ?? "");
     return (
-      [request.linkedTools.advancement.name, request.linkedTools.experiment.name, request.toolName].find((name) =>
+      [request.linkedTools.advancement.name, request.linkedTools.experiment.name, request.linkedTools.result.name, request.toolName].find((name) =>
         system.includes(`calling the ${name} tool`)
       ) ?? request.toolName
     );
@@ -1200,6 +1200,251 @@ describe("seed Node action request boundary", () => {
     expect(await pane()).toMatchObject({ lastAttemptFailed: true, repeatedInvalidOutput: "experiment_links" });
   });
 
+  // 2026-09-30 (fourth amendment), release suite run 11 (fixture
+  // "changed-advancement-links", Marrowgate, fictional): the acclimation
+  // result refused as unlinked in Subsection 11 survived in Advancement to
+  // science and goal improvements, which recorded no uncertainty. Those
+  // Seeds now record the uncertainties they answer.
+  describe("Advancement to science and goal improvements record the uncertainties they answer (2026-09-30, fourth)", () => {
+    const acclimation = "It was uncertain whether stepwise acclimation would actually work rather than just delay cold shock.";
+    const nitrite = "Nitrite oxidizing bacteria were suspected but not confirmed as the rate-limiting bottleneck under cold shock.";
+    const trial = "The nitrite stall lasted 19 days in unacclimated seed but only 6 days in acclimated seed.";
+    const result = (text: string, tag: ProviderSeed["tags"][number], answeredUncertaintySeedIds?: string[]) => ({
+      bullets: [text],
+      tags: [tag],
+      provenance: [] as [],
+      ...(answeredUncertaintySeedIds ? { answeredUncertaintySeedIds } : {}),
+    });
+    const toolsOf = async (request: Request) => JSON.stringify((await request.clone().json()).tools);
+
+    it("lists the picked uncertainties, forces the result tool, repairs a missing or unlisted answer with the earlier answer shown, and stores the answers", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, {
+        targetRoleId: "overall_advancement",
+        decisions: [
+          { roleId: "company_context", bullets: ["Marrowgate designs recirculating aquaculture systems for trout farms."] },
+          { roleId: "active_uncertainties", bullets: [acclimation] },
+          { roleId: "active_uncertainties", bullets: [nitrite] },
+          { roleId: "active_uncertainties", bullets: ["The team did not know whether fouled sensors stay accurate."], selected: false },
+          { roleId: "experimentation", bullets: [trial], tested: 2 },
+        ],
+      });
+      const [, u1, u2, u3] = fixture.decisions.map((decision) => decision.seedId);
+      const requests: Request[] = [];
+      stubSeedFetch(
+        vi.fn<typeof fetch>(async (input, init) => {
+          requests.push(new Request(input, init));
+          return requests.length === 1
+            ? providerResponse({
+                seeds: [
+                  result("Stepwise acclimation cut cold-water start-up roughly in half versus unacclimated seed.", "detailed", [u1!]),
+                  // No answer recorded.
+                  result("Nitrite oxidizers were confirmed as the start-up bottleneck.", "technical"),
+                  // An uncertainty the writer did not pick.
+                  result("A screened bypass loop kept sensors accurate for 28 days.", "conservative", [u3!]),
+                ],
+              }, 1)
+            : providerResponse({
+                seeds: [
+                  result("Stepwise acclimation cut cold-water start-up roughly in half versus unacclimated seed.", "detailed", [u1!]),
+                  result("Nitrite oxidizers were confirmed as the start-up bottleneck.", "technical", [u2!]),
+                  result("Acclimation and the nitrite finding together met the 5-week start-up objective.", "conservative", [u1!, u2!]),
+                ],
+              }, 2);
+        })
+      );
+
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+      expect(requests).toHaveLength(2);
+      const bodies = await Promise.all(requests.map((request) => request.clone().json()));
+      const first = requestText(bodies[0].messages[0].content);
+      expect(linkBlock(first, "FROZEN RESULT LINKS")).toEqual({ uncertaintySeedIds: [u1, u2].sort() });
+      expect(first).not.toContain("--- BEGIN [FROZEN EXPERIMENT LINKS] ---");
+      expect(first).not.toContain("--- BEGIN [FROZEN ADVANCEMENT LINKS] ---");
+      expect(first).toContain("every Seed must set answeredUncertaintySeedIds to the ids, copied exactly from that block's uncertaintySeedIds list");
+      // The block renders after the decisions, before the own feedback.
+      expect(first.indexOf("--- END [FROZEN PREDECESSOR DECISIONS] ---")).toBeLessThan(first.indexOf("--- BEGIN [FROZEN RESULT LINKS] ---"));
+      expect(first.indexOf("--- END [FROZEN RESULT LINKS] ---")).toBeLessThan(first.indexOf("--- BEGIN [FROZEN OWN FEEDBACK] ---"));
+      for (const body of bodies) {
+        expect(body.tool_choice).toEqual({ type: "tool", name: "submit_result_seed_batch" });
+        expect(body.tools.map((tool: { name: string }) => tool.name)).toEqual([
+          "submit_seed_batch",
+          "submit_experiment_seed_batch",
+          "submit_advancement_seed_batch",
+          "submit_result_seed_batch",
+        ]);
+        expect(body.tools[3].input_schema.properties.seeds.items.required).toEqual(["bullets", "tags", "provenance", "answeredUncertaintySeedIds"]);
+      }
+      const second = requestText(bodies[1].messages[0].content);
+      expect(second).toContain(
+        "Your previous tool output was invalid: (root): 1 of 3 Seeds valid; return 3 to 5 valid Seeds; set answeredUncertaintySeedIds to answered ids from FROZEN RESULT LINKS (Seeds 2, 3); use at least two different tags."
+      );
+      // The repair shows the earlier answer and asks to keep the answers.
+      expect(second).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.resultOpening);
+      expect(second).toContain("--- BEGIN [EARLIER ANSWER] ---");
+      const persisted = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+      );
+      expect(persisted.map((seed) => seed.answeredUncertaintySeedIds)).toEqual([[u1], [u2], [u1, u2]]);
+      expect(persisted.every((seed) => seed.uncertaintySeedId === undefined && seed.experimentSeedIds === undefined)).toBe(true);
+      expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({ status: "shown", requestsMade: 2 });
+    });
+
+    it("keeps a goal improvement that only restates the goal with an empty list, and the same tools bytes as another step", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, {
+        targetRoleId: "goal_improvements",
+        decisions: [
+          { roleId: "active_uncertainties", bullets: [acclimation] },
+          { roleId: "active_uncertainties", bullets: [nitrite] },
+        ],
+      });
+      const [u1] = fixture.decisions.map((decision) => decision.seedId);
+      const requests: Request[] = [];
+      stubSeedFetch(
+        vi.fn<typeof fetch>(async (input, init) => {
+          requests.push(new Request(input, init));
+          return providerResponse({
+            seeds: [
+              result("The original goal was start-up under 5 weeks at 8 C instead of 9 to 10 weeks.", "high_level", []),
+              result("Stepwise acclimation closed that gap, reaching full nitrification in about 31 days at 8 C.", "detailed", [u1!]),
+              result("The start-up protocol now rests on the acclimation result.", "technical", [u1!]),
+            ],
+          }, requests.length);
+        })
+      );
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(requests).toHaveLength(1);
+      const persisted = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+      );
+      expect(persisted.map((seed) => seed.answeredUncertaintySeedIds)).toEqual([[], [u1], [u1]]);
+
+      // Another step of another generation sends the same four tools.
+      const other = await dispatchedAttempt(t, {
+        targetRoleId: "project_status",
+        decisions: [{ roleId: "active_uncertainties", bullets: [acclimation] }],
+      });
+      stubSeedFetch(
+        vi.fn<typeof fetch>(async (input, init) => {
+          requests.push(new Request(input, init));
+          return providerResponse({ seeds: [{ ...validSeeds[0], answeredUncertaintySeedIds: [u1!] }, validSeeds[1], validSeeds[2]] }, requests.length);
+        })
+      );
+      await t.action(generateBatchRef, { batchId: other.batchId });
+      expect(requests).toHaveLength(2);
+      expect(await toolsOf(requests[1]!)).toBe(await toolsOf(requests[0]!));
+      const statusBody = await requests[1]!.clone().json();
+      expect(statusBody.tool_choice).toEqual({ type: "tool", name: "submit_seed_batch" });
+      expect(requestText(statusBody.messages[0].content)).not.toContain("--- BEGIN [FROZEN RESULT LINKS] ---");
+      // A result field on another step is dropped, never stored.
+      const statusSeeds = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", other.batchId)).collect()
+      );
+      expect(statusSeeds.every((seed) => seed.answeredUncertaintySeedIds === undefined)).toBe(true);
+    });
+
+    it("sends no result block with no uncertainty picked and keeps an unrequested answer unlinked", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, {
+        targetRoleId: "overall_advancement",
+        decisions: [{ roleId: "active_uncertainties", bullets: [acclimation], selected: false }],
+      });
+      const [u1] = fixture.decisions.map((decision) => decision.seedId);
+      const requests: Request[] = [];
+      stubSeedFetch(
+        vi.fn<typeof fetch>(async (input, init) => {
+          requests.push(new Request(input, init));
+          return providerResponse({ seeds: validSeeds.map((seed) => ({ ...seed, answeredUncertaintySeedIds: [u1!] })) }, requests.length);
+        })
+      );
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(requests).toHaveLength(1);
+      const body = await requests[0]!.clone().json();
+      expect(body.tool_choice).toEqual({ type: "tool", name: "submit_seed_batch" });
+      expect(requestText(body.messages[0].content)).not.toContain("--- BEGIN [FROZEN RESULT LINKS] ---");
+      const persisted = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+      );
+      expect(persisted).toHaveLength(3);
+      expect(persisted.every((seed) => seed.answeredUncertaintySeedIds === undefined)).toBe(true);
+    });
+
+    it("names the result tool in the system line for a model that cannot be forced, and refuses another tool's answer", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, {
+        targetRoleId: "overall_advancement",
+        model: "claude-opus-5-5",
+        decisions: [{ roleId: "active_uncertainties", bullets: [acclimation] }],
+      });
+      const [u1] = fixture.decisions.map((decision) => decision.seedId);
+      const answer = {
+        seeds: [
+          result("Stepwise acclimation cut cold-water start-up roughly in half.", "detailed", [u1!]),
+          result("The acclimated loop reached full nitrification in about 31 days.", "technical", [u1!]),
+          result("The 5-week start-up objective at 8 C was met.", "conservative", [u1!]),
+        ],
+      };
+      const requests: Request[] = [];
+      stubSeedFetch(
+        vi.fn<typeof fetch>(async (input, init) => {
+          requests.push(new Request(input, init));
+          // First the shared tool (wrong), then the result tool.
+          return providerResponse(answer, requests.length, requests.length === 1 ? SEED_PROMPT_PROGRAM.request.toolName : askedTool);
+        })
+      );
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(requests).toHaveLength(2);
+      const bodies = await Promise.all(requests.map((request) => request.clone().json()));
+      for (const body of bodies) {
+        expect(body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
+        expect(JSON.stringify(body.system)).toContain("Reply only by calling the submit_result_seed_batch tool, exactly once.");
+      }
+      const repair = requestText(bodies[1].messages[0].content);
+      expect(repair).toContain("it called submit_seed_batch, but this request must be answered with submit_result_seed_batch");
+      expect(repair).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.resultOpening);
+      const persisted = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+      );
+      expect(persisted.map((seed) => seed.answeredUncertaintySeedIds)).toEqual([[u1], [u1], [u1]]);
+    });
+
+    it("says why after two attempts in a row write results that name no picked uncertainty", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, {
+        targetRoleId: "overall_advancement",
+        decisions: [{ roleId: "active_uncertainties", bullets: [acclimation] }],
+      });
+      stubSeedFetch(vi.fn<typeof fetch>(async () => providerResponse({ seeds: validSeeds }, 1)));
+      const pane = () =>
+        t
+          .withIdentity({ subject: "seed-dispatch-overall_advancement" })
+          .query(api.seeds.getSubsection, { generationId: fixture.generationId, roleId: "overall_advancement" });
+
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+        status: "failed",
+        error: "INVALID_OUTPUT",
+        errorDetail: "result_links",
+        invalidAnswers: [
+          expect.objectContaining({ seedsReturned: 3, seedsValid: 0, issues: expect.arrayContaining([{ code: "INVALID_RESULT_REFERENCE", reason: "missing_link", seeds: 3 }]) }),
+          expect.anything(),
+        ],
+      });
+      const again = await t.mutation(dispatchRef, {
+        generationId: fixture.generationId,
+        roleId: "overall_advancement",
+        operation: "retry",
+        commandId: "result-links-again",
+        actorUserId: fixture.userId,
+      });
+      if (again.kind !== "dispatched") throw new Error(`Seed attempt was not dispatched: ${again.kind}`);
+      await t.action(generateBatchRef, { batchId: again.batchId });
+      expect(await pane()).toMatchObject({ lastAttemptFailed: true, repeatedInvalidOutput: "result_links" });
+    });
+  });
+
   it("pairs each uncertainty with the experiments that tested it and repairs a crossed pairing", async () => {
     const t = convexTest(schema, modules);
     const fixture = await dispatchedAttempt(t, {
@@ -1767,7 +2012,7 @@ describe("seed Node action request boundary", () => {
       const tools = await Promise.all(requests.map(toolsOf));
       expect(new Set(tools).size).toBe(1);
       const toolList = JSON.parse(tools[0]!) as Array<{ name: string; input_schema: { properties: { seeds: { items: { required: string[] } } } } }>;
-      expect(toolList.map((tool) => tool.name)).toEqual(["submit_seed_batch", "submit_experiment_seed_batch", "submit_advancement_seed_batch"]);
+      expect(toolList.map((tool) => tool.name)).toEqual(["submit_seed_batch", "submit_experiment_seed_batch", "submit_advancement_seed_batch", "submit_result_seed_batch"]);
       expect(toolList[2]!.input_schema.properties.seeds.items.required).toEqual(["bullets", "tags", "provenance", "uncertaintySeedId", "experimentSeedIds"]);
       // Every Subsection 11 request forces the advancement tool; the other role the shared one.
       const forced = await Promise.all(requests.map(forcedTool));
@@ -1915,6 +2160,7 @@ describe("seed Node action request boundary", () => {
           tools.toolName,
           tools.linkedTools.experiment.name,
           tools.linkedTools.advancement.name,
+          tools.linkedTools.result.name,
         ]);
       }
       const repair = requestText(run.bodies[1].messages[0].content);
