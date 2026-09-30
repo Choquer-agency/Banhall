@@ -3,6 +3,7 @@ import {
   confirmedConflictParagraph,
   confirmedConflictsOf,
   conflictExclusionsPhrase,
+  editChoseTerm,
   feedbackForLine,
   GOVERNING_FEEDBACK_TIE_BREAK,
   glossaryTermPrecedence,
@@ -227,6 +228,37 @@ describe("Glossary Terms the writer's Feedback governs (2026-09-29 second, CAP-1
       editedItems: [],
       selectionWording: [["The floating head held the radius."]],
     })).toEqual({ setAside: [], governed: [] });
+  });
+
+  it("review P3-4: counts only an edit that put the term in, or kept it in a sentence the writer changed", () => {
+    const modelSentence = "Force control came from the floating head.";
+    // The writer changed only a figure in another sentence of the item: the
+    // term is still the model's wording, so the Feedback governs it.
+    const elsewhere = {
+      original: [modelSentence, "Burr height ranged from 0.1 to 0.6 mm."],
+      edited: [modelSentence, "Burr height ranged from 0.1 to 0.8 mm."],
+    };
+    expect(editChoseTerm(elsewhere, "floating head")).toBe(false);
+    expect(glossaryTermPrecedence({
+      glossaryTerms: ["floating head"],
+      feedback: [company(SPINDLE)],
+      editedItems: [elsewhere],
+      selectionWording: [elsewhere.edited],
+    })).toEqual({
+      setAside: [],
+      governed: [{ term: "floating head", feedback: [company(SPINDLE)], inSignedOffIdea: true }],
+    });
+    // A figure changed in the term's own sentence is a sentence the writer changed.
+    const sameSentence = {
+      original: ["Force control came from the floating head at 20 N."],
+      edited: ["Force control came from the floating head at 28 N."],
+    };
+    expect(editChoseTerm(sameSentence, "floating head")).toBe(true);
+    // Case and white space alone change no sentence.
+    expect(editChoseTerm({ original: [modelSentence], edited: [` ${modelSentence.toUpperCase()}  `] }, "floating head")).toBe(false);
+    // An edit that put the term in, or took it out, is read as before.
+    expect(editChoseTerm({ original: ["Force came from a spindle."], edited: ["Force came from the floating head."] }, "floating head")).toBe(true);
+    expect(editChoseTerm({ original: [modelSentence], edited: ["Force control came from a spindle."] }, "floating head")).toBe(false);
   });
 
   it("2026-09-30 (second): lets the Feedback govern a term an unedited signed-off idea uses (release suite run 11)", () => {

@@ -928,8 +928,8 @@ export function buildFrozenSummaryPlan<
     });
   }
   // 2026-09-30 (second, Rule C): Line 244 describes work only for an
-  // uncertainty Line 242 states, or work a COVER item holds or needs as its
-  // evidence. The check carries Line 242 as Rule B does, then Line 246's
+  // uncertainty Line 242 states, or work that is the evidence a signed-off
+  // item needs. The check carries Line 242 as Rule B does, then Line 246's
   // signed-off items, whole.
   if (args.workAnswers242 && args.section === "s244") {
     checks.push({

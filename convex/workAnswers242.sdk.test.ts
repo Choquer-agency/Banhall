@@ -28,6 +28,9 @@ import {
   draftCheckedSection,
   leaveOutFigureBackstop,
   leaveOutInstruction,
+  lostPlanFigure,
+  repairDroppedCoverItemReason,
+  repairLostPlanFigureReason,
   WORK_ANSWERS_242_INSTRUCTION,
 } from "./ai/orderedGeneration";
 import {
@@ -323,7 +326,7 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     expect(drafting.indexOf(rule)).toBeLessThan(drafting.indexOf(ORDERED_PROMPT_SCAFFOLDS.planLengthBudget.prefix));
     expect(drafting).not.toContain(ORDERED_PROMPT_SCAFFOLDS.advancementsAnswer242.heading);
     expect(drafting).toContain(
-      "\n\n# WORK ANSWERS LINE 242 (outranks the Brief)\nDescribe work in this Line only for an uncertainty that Line 242 states, or work a COVER item holds or needs as its evidence. Line 242 is among the previously drafted sections above. Work a COVER item holds is a COVER experiment of this Line and what its work plan and hypothesis items state. Work a COVER item needs as its evidence is the work and figures behind a signed-off Line 246 item: those items are listed after this rule by step, and their work stays in this Line. Leave out Brief content that describes work on any other uncertainty, even where the Storyline or the Confidence Map supports it. Project status and next steps are not work to remove."
+      "\n\n# WORK ANSWERS LINE 242 (outranks the Brief)\nDescribe work in this Line only for an uncertainty that Line 242 states, or work that is the evidence a signed-off item needs. Line 242 is among the previously drafted sections above. The evidence a signed-off item of any Line needs is a COVER experiment of this Line, the work behind a COVER hypothesis, and the work and figures behind a signed-off Line 246 item: those items are listed after this rule by step, and their work stays in this Line. Keep the work plan's own sentences as written, but an area the work plan names is no reason to describe a Brief experiment on an uncertainty Line 242 does not state. Leave out Brief content that describes work on any other uncertainty, even where the Storyline or the Confidence Map supports it. Project status and next steps are not work to remove."
     );
     expect(drafting).toContain(
       "The writer's Feedback outranks this rule, as it outranks the Brief. Claim Exclusions still apply to it: never claim excluded work because a Feedback instruction asks for it."
@@ -334,9 +337,11 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
       line244Reference({ items242: ITEMS_242, line242Text: LINE_242, items246: ITEMS_246 }),
     ])}`);
     expect(check.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.workAnswers242.instruction);
+    // Review P2-2: naming an area in the work plan licenses no Brief experiment.
     expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.workAnswers242.instruction).toContain(
-      "Before you judge it not applied, compare the work with every COVER item in the plan checks and every Line 246 item in the wording. Work one of them states, and the work and figures that are its evidence, never make this check not applied."
+      "is the evidence a signed-off item of any Line needs (a COVER experiment, the work behind a COVER hypothesis, or the work and figures behind a signed-off Line 246 item), or follows the writer's Feedback. The work plan's own sentences are covered as written, but an area the work plan names is no reason to describe a Brief experiment on an uncertainty Line 242 does not state."
     );
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.workAnswers242.instruction).not.toContain("what a work plan or hypothesis item states");
     expect(check.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.instruction);
     expect(check.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.leaveOut.instruction);
     expect(check.user.endsWith(
@@ -348,7 +353,7 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     expect(schema.oneOf).toEqual([{ required: ["itemId"] }, { required: ["skippedRoleId"] }, { required: ["ruleId"] }]);
     // The repair gets a fixed start, then the guidance.
     expect(sent[2]!.user).toContain(
-      "- Paragraph 4: describe work only for an uncertainty Line 242 states, or work a COVER item holds or needs as its evidence, and leave out the rest, but keep everything a COVER item holds or needs as its evidence. Leave out the sensor experiment in P4."
+      "- Paragraph 4: describe work only for an uncertainty Line 242 states, or work that is the evidence a signed-off item needs, and leave out the rest (an area the work plan names is no reason to keep a Brief experiment), but keep the work plan's own sentences, every COVER experiment and the evidence a signed-off item needs. Leave out the sensor experiment in P4."
     );
     expect(sent[3]!.user.endsWith("- ruleId work_answers_242")).toBe(true);
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toEqual({
@@ -362,7 +367,7 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
       planRef: { summaryVersionId: SUMMARY_VERSION, ruleId: "work_answers_242", mergedItemIds: [] },
     });
     expect(WORK_ANSWERS_242_INSTRUCTION).toBe(
-      "Describe work only for an uncertainty Line 242 states, or work a signed-off item holds or needs as its evidence"
+      "Describe work only for an uncertainty Line 242 states, or work that is the evidence a signed-off item needs"
     );
     expect(planCoverage(result)).toEqual({ status: "complete", applied: 5, total: 5 });
   });
@@ -422,26 +427,199 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     ])}`);
   });
 
-  it("keeps the checked draft when a Rule C repair loses a COVER item the first check found covered (review P2-2)", async () => {
+  it("sets a Rule C repair aside when it loses a signed-off figure, before any check of its text (review P2-1)", async () => {
     // P2 mixes the signed-off stall result with Brief-only sensor work; the
-    // repair drops the whole paragraph.
+    // repair drops the whole paragraph, and with it "8 C", "19 days" and
+    // "6 days", which signed-off items use.
     const mixed = [P1, `${P2} The same loops also tested in-tank sensors, which drifted 8 percent by day 10.`, P3].join("\n\n");
     const gutted = [P1, P3].join("\n\n");
-    installFetch({
+    const sent = installFetch({
       draft: mixed,
       repair: gutted,
-      checks: [
-        [skipHonoured, ...allCovered, { ...sensorStray, paragraph: 2, reason: "P2 adds sensor work, not in 242." }],
-        [skipHonoured, covered(ITEM.workplan, 1), { itemId: ITEM.stall, mergedItemIds: [ITEM.stall], paragraph: 0, outcome: "not_applied", reason: "The stall result is gone." }, covered(ITEM.dose, 2), workAnswers],
-      ],
+      checks: [[skipHonoured, ...allCovered, { ...sensorStray, paragraph: 2, reason: "P2 adds sensor work, not in 242." }]],
     });
     const result = await draft("244", claimDrafted());
+    // No check of the repaired text is needed: nothing replaced the draft.
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
     expect(result.draftText).toBe(mixed);
+    expect(lostPlanFigure(mixed, gutted, PLAN_WORDING)).toEqual({ figure: "8 C", before: 1, after: 0 });
     expect(rowOf(result, (ref) => ref.itemId === ITEM.stall)).toMatchObject({ outcome: "applied", repaired: false });
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: `P2 adds sensor work, not in 242.; repair not used (the repaired text no longer covers the signed-off item "${STALL}", and a leave-out fix must keep what a COVER item holds, so the checked draft was kept)`,
+      reason: `P2 adds sensor work, not in 242.; repair not used (the repaired text holds the signed-off figure "8 C" in 0 paragraphs where the checked draft held it in 1, and a fix that leaves out work or restates a result must keep the evidence a signed-off item needs, so the checked draft was kept)`,
+    });
+  });
+
+  it("sets aside a Rule C repair that cuts the capture trials behind goal item 13, and lets the sensor experiment go (release suite run 11)", async () => {
+    // carried-old-selections, run 11: Line 244 as drafted, and the signed-off
+    // items (skipped steps aside) as frozen. Goal item 13 says both goals were
+    // met together; the capture trials (P6, P7) are its evidence and hold
+    // "20 ppi" and "30 ppi", which the hypothesis and work plan items use.
+    const capturePlan = {
+      items: [
+        ["It was unknown whether two-zone sponge templates could survive firing without delaminating at the bond line.", "Shrinkage could not be calculated because it depends on slurry loading, pore size, viscosity and roller pressure."],
+        ["The working hypothesis proposed a two-zone template, 10 ppi entry and 30 ppi exit, matched for slurry mass per volume.", "This was expected to hold shrinkage mismatch within 0.5 percent and survive firing without delamination."],
+        ["If a two-zone template matches slurry mass per volume, then shrinkage mismatch stays within 0.5 percent and survives firing without delamination.", "If that hypothesis holds, then capture rises at least 30 percent over the 20 ppi standard with no more than a 10 percent flow penalty."],
+        ["Trial 1 bonded 10 ppi and 30 ppi sponge sheets with adhesive and a single slurry dip.", "Eighteen of 24 parts delaminated at the bond line, with a 1.4 percent shrinkage mismatch."],
+        ["Trial 3 slowed the ramp through 1,100 to 1,350 C, meeting the 0.5 percent mismatch target.", "This confirmed the hypothesis that matching slurry mass per volume controls firing survival."],
+        ["The graded filter program aimed to combine breakage resistance with fine inclusion capture in one part.", "Trial results confirmed the two zone approach met both the firing survival and capture goals together."],
+      ],
+      roles: ["active_uncertainties", "workplan", "hypothesis", "experimentation", "overall_advancement", "goal_improvements"] as PdSubsectionRoleId[],
+    };
+    const items = capturePlan.items.map((bullets, index) => ({
+      itemId: `item-capture-${index}`,
+      roleId: capturePlan.roles[index]!,
+      kind: capturePlan.roles[index] === "experimentation" ? "multiple" as const : "standard" as const,
+      bullets,
+      support: "source_supported" as const,
+    }));
+    const plan = buildFrozenSummaryPlan({ section: "s244", items, skippedRoleIds: ["prior_year_status"], workAnswers242: { line242Text: "It was unknown whether two-zone templates survive firing." } });
+    const paragraphs = [
+      "The company ran a planned trial series, from bonding method through slurry control, firing curve, flow and capture testing and thermal shock testing.",
+      "The working hypothesis proposed a two-zone template, 10 pores per inch (ppi) entry and 30 ppi exit, matched for slurry mass per volume. If that held, capture was expected to rise at least 30 percent over the 20 ppi standard with no more than a 10 percent flow penalty.",
+      "Trial 1 bonded 10 ppi and 30 ppi sponge sheets with polyurethane adhesive, applied a single slurry dip, and fired 24 parts. Eighteen of 24 delaminated at the bond line, with survivors showing a 1.4 percent shrinkage mismatch.",
+      "Trial 3 kept the two-stage dip and slowed the firing ramp through the 1,100 to 1,350 C sintering window. Mismatch measured 0.4 percent, meeting the 0.5 percent target.",
+      "Trial 4 used a flow rig with 50 kg A356 pours at 720 C to compare standard 20 ppi, standard 30 ppi, and a graded filter with a 25 mm fine zone. The graded filter flowed at 3.8 kg/s and captured 41 percent more inclusions, but 2 of 6 pours choked late.",
+      "Trial 5 cut the fine zone to 15 mm against a 35 mm coarse zone. Flow held at 3.9 kg/s with no choking, and capture reached 36 percent above the 20 ppi standard.",
+    ];
+    const text = paragraphs.join("\n\n");
+    const withoutCapture = paragraphs.slice(0, 4).join("\n\n");
+    const coverAnswers = plan.checks.flatMap((check) =>
+      check.itemId ? [covered(check.itemId, check.roleId === "workplan" ? 1 : check.roleId === "hypothesis" ? 2 : 3)] : []);
+    const sent = installFetch({
+      draft: text,
+      repair: withoutCapture,
+      checks: [[skipHonoured, ...coverAnswers, { ...sensorStray, paragraph: 5, reason: "P5 and P6 test capture, not in 242.", repairGuidance: "Leave out Trials 4 and 5." }]],
+    });
+    const result = await draft("244", claimFor({
+      section: "244",
+      plan,
+      priorSections: [{ section: "242", text: "It was unknown whether two-zone templates survive firing." }],
+      workAnswers242: { line242Drafted: true, line246Items: [{ roleId: "goal_improvements", wording: capturePlan.items[5]! }] },
+      planWording: capturePlan.items,
+    }));
+    const lost = lostPlanFigure(text, withoutCapture, capturePlan.items)!;
+    expect(lost).toMatchObject({ after: lost.before - (lost.figure === "20 ppi" ? 2 : 1) });
+    expect(["20 ppi", "30 ppi"]).toContain(lost.figure);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
+    expect(result.draftText).toBe(text);
+    expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: `P5 and P6 test capture, not in 242.; repair not used (${repairLostPlanFigureReason(lost)})`,
+    });
+  });
+
+  it("lets a Rule C repair remove run 11's Brief-only sensor experiment: it holds no signed-off figure (changed-advancement-links)", async () => {
+    const runItems = [
+      ["Nitrite oxidizing bacteria were suspected but not confirmed as the rate-limiting bottleneck under cold shock.", "The duration of the nitrite stall under acclimation versus no acclimation was unknown before testing."],
+      ["The three uncertainties were investigated separately because they fail on different timescales and mechanisms.", "Start-up runs over weeks, feeding spikes over hours and sensor reliability is a continuous measurement question."],
+      ["If alkalinity is dosed ahead of each feeding in proportion to feed mass, then the biofilter keeps nitrifying at full rate through the ammonia pulse.", "This feed-forward approach should hold total ammonia nitrogen under 1 mg per litre, unlike reactive pH-setpoint dosing."],
+      ["The nitrite stall lasted 19 days in unacclimated seed but only 6 days in acclimated seed.", "This confirmed nitrite oxidizing bacteria as the rate-limiting step under cold shock."],
+      ["Baseline pH-setpoint dosing let TAN peak at 2.3 mg/L with alkalinity and pH falling during the pulse.", "Switching to feed-forward dosing cut peak TAN to 1.2 mg/L and held alkalinity above 130 mg/L."],
+      ["The original goal was to shorten biofilter start-up below 10 C from 9 to 10 weeks toward under 5 weeks.", "Stepwise acclimation of seed media closed that gap, reaching full nitrification in about 31 days at 8 C."],
+    ];
+    const roles: PdSubsectionRoleId[] = ["active_uncertainties", "workplan", "hypothesis", "experimentation", "experimentation", "goal_improvements"];
+    const items = runItems.map((bullets, index) => ({
+      itemId: `item-run11-${index}`,
+      roleId: roles[index]!,
+      kind: roles[index] === "experimentation" ? "multiple" as const : "standard" as const,
+      bullets,
+      support: "source_supported" as const,
+    }));
+    const plan = buildFrozenSummaryPlan({ section: "s244", items, skippedRoleIds: ["prior_year_status"], workAnswers242: { line242Text: LINE_242 } });
+    const paragraphs = [
+      "The company undertook a series of experiments covering biofilter start-up speed below 10°C, ammonia control through feeding-induced spikes, and sensor accuracy in biofilm-heavy water. Start-up runs over weeks, feeding spikes over hours, and sensor reliability is a continuous measurement question.",
+      "It was hypothesized that if alkalinity is dosed ahead of each feeding in proportion to feed mass, then the biofilter keeps nitrifying at full rate. This feed-forward approach should hold total ammonia nitrogen under 1 mg per litre.",
+      "Three pilot loops at 8°C were run in parallel. The nitrite stall lasted 19 days in the unacclimated loop but only 6 days in the acclimated loop.",
+      "Baseline pH-setpoint dosing let total ammonia nitrogen peak at 2.3 mg/L. Feed-forward dosing cut peak total ammonia nitrogen to 1.2 mg/L and held alkalinity above 130 mg/L.",
+      "Direct in-tank sensors cleaned weekly by hand were compared against a bypass sampling loop fitted with a 50-micron screen and automatic compressed-air blast every 6 hours. The direct sensors drifted 8% low on dissolved oxygen by day 10 and 0.4 mg/L per week on ammonium. The bypass configuration held dissolved oxygen within 3% for 28 days, improving further to within 0.12 mg/L over 4 weeks.",
+    ];
+    const text = paragraphs.join("\n\n");
+    const withoutSensor = paragraphs.slice(0, 4).join("\n\n");
+    expect(lostPlanFigure(text, withoutSensor, runItems)).toBeUndefined();
+    const coverAnswers = plan.checks.flatMap((check) =>
+      check.itemId ? [covered(check.itemId, check.roleId === "workplan" ? 1 : check.roleId === "hypothesis" ? 2 : check.itemId === "item-run11-3" ? 3 : 4)] : []);
+    const sent = installFetch({
+      draft: text,
+      repair: withoutSensor,
+      checks: [
+        [skipHonoured, ...coverAnswers, { ...sensorStray, paragraph: 5, reason: "P5 narrates a sensor trial, not in 242." }],
+        [skipHonoured, ...coverAnswers, workAnswers],
+      ],
+    });
+    const result = await draft("244", claimFor({
+      section: "244",
+      plan,
+      priorSections: [{ section: "242", text: LINE_242 }],
+      workAnswers242: { line242Drafted: true, line246Items: [{ roleId: "goal_improvements", wording: runItems[5]! }] },
+      planWording: runItems,
+    }));
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(result.draftText).toBe(withoutSensor);
+    expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({ outcome: "applied", repaired: true });
+  });
+
+  it("sets aside a targets repair that loses a signed-off figure, and a targets repair that loses a COVER item (review P2-1 and P3)", async () => {
+    const plan = buildFrozenSummaryPlan({
+      section: "s244",
+      items: ITEMS,
+      skippedRoleIds: ["prior_year_status"],
+      resultsAgainstTargets: true,
+      workAnswers242: { line242Text: LINE_242 },
+    });
+    const targets = {
+      ruleId: "results_against_targets",
+      mergedItemIds: [],
+      paragraph: 3,
+      outcome: "not_applied",
+      reason: "P3 hides that 1.2 mg/L missed the target.",
+      repairGuidance: "Say 1.2 mg/L missed the under-1 target.",
+    };
+    const targetsMet = { ruleId: "results_against_targets", mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Results match targets." };
+    // The repair restates P3 and drops "2.3 mg/L".
+    const restated = [P1, P2, "Feed-forward dosing cut peak TAN to 1.2 mg/L, which missed the under-1 target."].join("\n\n");
+    const sent = installFetch({
+      draft: REPAIRED,
+      repair: restated,
+      checks: [[skipHonoured, ...allCovered, targets, workAnswers]],
+    });
+    const result = await draft("244", claimFor({
+      section: "244",
+      plan,
+      priorSections: [{ section: "242", text: LINE_242 }],
+      workAnswers242: { line242Drafted: true, line246Items: ITEMS_246 },
+    }));
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
+    expect(result.draftText).toBe(REPAIRED);
+    expect(rowOf(result, (ref) => ref.ruleId === "results_against_targets")).toMatchObject({
+      outcome: "not_applied",
+      reason: `P3 hides that 1.2 mg/L missed the target.; repair not used (${repairLostPlanFigureReason({ figure: "2.3 mg/L", before: 1, after: 0 })})`,
+    });
+
+    // A targets repair that keeps every figure but loses the work plan
+    // sentence: the check of its final text finds the COVER item gone.
+    const workplanGone = ["The team compared loops.", P2, `${P3} This missed the under-1 target.`].join("\n\n");
+    const second = installFetch({
+      draft: REPAIRED,
+      repair: workplanGone,
+      checks: [
+        [skipHonoured, ...allCovered, targets, workAnswers],
+        [skipHonoured, { itemId: ITEM.workplan, mergedItemIds: [ITEM.workplan], paragraph: 0, outcome: "not_applied", reason: "The work plan is gone." }, covered(ITEM.stall, 2), covered(ITEM.dose, 3), targetsMet, workAnswers],
+      ],
+    });
+    const kept = await draft("244", claimFor({
+      section: "244",
+      plan,
+      priorSections: [{ section: "242", text: LINE_242 }],
+      workAnswers242: { line242Drafted: true, line246Items: ITEMS_246 },
+    }));
+    expect(second.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(kept.draftText).toBe(REPAIRED);
+    expect(rowOf(kept, (ref) => ref.ruleId === "results_against_targets")).toMatchObject({
+      outcome: "not_applied",
+      reason: `P3 hides that 1.2 mg/L missed the target.; repair not used (${repairDroppedCoverItemReason({ wording: [WORKPLAN] })})`,
     });
   });
 
@@ -510,7 +688,7 @@ const onTheStall = {
   repairGuidance: "Remove the stall figures from P2.",
 };
 const backstopReason = (paragraph: number, reason: string, cited: string) =>
-  `The flagged content is a signed-off item: the Self-check flagged paragraph ${paragraph} ("${reason}"), but every figure it cited (${cited}) is in the signed-off plan's wording, and the paragraph holds none of the dropped uncertainty's own figures (${DROPPED_FIGURES}). Not sent to the repair.`;
+  `The flagged content is a signed-off item: the Self-check flagged paragraph ${paragraph} ("${reason}"), but every figure it cited (${cited}) is in the signed-off plan's wording, and no paragraph of this Line holds one of the dropped uncertainty's own figures (${DROPPED_FIGURES}) or restates it. Not sent to the repair.`;
 const claimLeaveOut = () => claimFor({ section: "244", plan: plan244({ rule: false, dropped: [DROPPED] }) });
 
 describe("a LEAVE OUT verdict that flags a signed-off item by its figures is recorded applied (real SDK, fetch stubbed)", () => {
@@ -596,6 +774,50 @@ describe("a LEAVE OUT verdict that flags a signed-off item by its figures is rec
       reason: backstopReason(2, onTheStall.reason, "19 days, 6 days"),
     });
     expect(rowOf(result, (ref) => ref.itemId === ITEM.dose)).toMatchObject({ outcome: "applied", repaired: true });
+  });
+
+  it("review P2-5: keeps a verdict when another paragraph of the Line holds a dropped figure, when a sentence restates the dropped uncertainty, or when its guidance cites a figure no signed-off item uses", async () => {
+    const check = plan244({ rule: false, dropped: [DROPPED] }).checks.find((candidate) => candidate.droppedSeedId)!;
+    const verdict = { droppedSeedId: DROPPED_ID, mergedItemIds: [], paragraphIndex: 1, outcome: "not_applied" as const, reason: onTheStall.reason, actionableRepair: true };
+    // (a) The flagged P2 holds none, but P4 holds 44 days and 6 C.
+    const leakElsewhere = [P1, P2, P3, P4_LEAK].join("\n\n");
+    expect(leaveOutFigureBackstop({ check, verdict, text: leakElsewhere, planWording: PLAN_WORDING })).toBeNull();
+    // (c) A "44-day" run is the dropped figure too.
+    expect(leaveOutFigureBackstop({ check, verdict, text: `${REPAIRED}\n\nA later 44-day run confirmed it.`, planWording: PLAN_WORDING })).toBeNull();
+    // (d) A sentence of the Line restates the dropped uncertainty, with no figure.
+    const restated = REPAIRED.replace(P1, `${P1} It was uncertain whether stepwise acclimation would actually work or only delay cold shock.`);
+    expect(leaveOutFigureBackstop({ check, verdict, text: restated, planWording: PLAN_WORDING })).toBeNull();
+    // (b) The reason cites no figure, the guidance cites signed-off ones: applied.
+    expect(leaveOutFigureBackstop({
+      check,
+      verdict: { ...verdict, reason: "P2 flags the stall result.", repairGuidance: "Drop the 19 vs 6 days result." },
+      text: REPAIRED,
+      planWording: PLAN_WORDING,
+    })?.outcome).toBe("applied");
+    // (b) The guidance, or the unclipped text, cites a dropped figure: kept.
+    expect(leaveOutFigureBackstop({
+      check,
+      verdict: { ...verdict, repairGuidance: "Drop 19 vs 6 days and the 29 days result." },
+      text: REPAIRED,
+      planWording: PLAN_WORDING,
+    })).toBeNull();
+    expect(leaveOutFigureBackstop({
+      check,
+      verdict: { ...verdict, repairText: "P2 states 19 vs 6 days, and the Trial 2 run took 29 days." },
+      text: REPAIRED,
+      planWording: PLAN_WORDING,
+    })).toBeNull();
+
+    // End to end: the leak in P4 keeps run 11's verdict, which goes to the repair.
+    const sent = installFetch({
+      draft: leakElsewhere,
+      repair: REPAIRED,
+      checks: [[skipHonoured, ...allCovered, onTheStall], [skipHonoured, ...allCovered, leftOut]],
+    });
+    const result = await draft("244", claimLeaveOut());
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(result.draftText).toBe(REPAIRED);
+    expect(rowOf(result, (ref) => ref.droppedSeedId === DROPPED_ID)).toMatchObject({ outcome: "applied", repaired: true });
   });
 
   it("reads nothing when the dropped uncertainty has no figure of its own, or the check is not a LEAVE OUT", () => {

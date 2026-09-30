@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
-import { distinctiveFigures, figuresOf } from "../../shared/planFigures";
+import { droppedUncertaintyFigures, figuresOf } from "../../shared/planFigures";
 import { releaseEvalProjectTitle } from "../../shared/releaseEval";
 import { findSourceTalk } from "../../shared/humanProse";
 import {
@@ -1589,6 +1589,18 @@ export type Collected = {
     skippedRoleIds: string[];
     /** 2026-09-30 (first): the dropped uncertainties frozen at sign-off; absent in older results. */
     droppedUncertaintySeedIds?: string[];
+    /**
+     * 2026-09-30 (second, review P3-2): the frozen rows themselves, so the
+     * suite reads a dropped uncertainty's own figures from what the product
+     * reads; absent in older results.
+     */
+    droppedUncertainties?: Array<{
+      seedId: string;
+      wording: string[];
+      experiments: Array<{ seedId: string; wording: string[] }>;
+      advancements: Array<{ seedId: string; wording: string[] }>;
+      notChecked: boolean;
+    }>;
     signedOffAt: number;
     items: Array<{
       itemId: string;
@@ -1681,21 +1693,28 @@ export const DROPPED_WORDS_HIT_SHARE = 0.3;
 /**
  * 2026-09-30 (first): every paragraph of every Line that shares at least
  * DROPPED_WORDS_HIT_SHARE of the dropped uncertainty's content words, or
- * holds a distinctive figure of it or its experiments (one that no
- * signed-off item uses).
+ * holds a distinctive figure of it. Since (second, review P3-2) its figures
+ * come from droppedUncertaintyFigures, the product's rule: its wording and
+ * the experiments and advancements that recorded it, against every
+ * signed-off item (skipped steps aside).
  */
 export function droppedUncertaintyHits(args: {
   sections: { s242: string; s244: string; s246: string };
-  droppedWords: string;
-  experimentWords: readonly string[];
-  planWords: readonly string[];
+  droppedWording: readonly string[];
+  references: ReadonlyArray<{ wording: readonly string[] }>;
+  planWording: ReadonlyArray<readonly string[]>;
 }): { figures: string[]; hits: DroppedHit[] } {
-  const figures = distinctiveFigures([args.droppedWords, ...args.experimentWords], args.planWords);
+  const droppedWords = args.droppedWording.join(" ");
+  const figures = droppedUncertaintyFigures({
+    wording: args.droppedWording,
+    references: args.references,
+    planWording: args.planWording,
+  });
   const hits: DroppedHit[] = [];
   for (const section of ["242", "244", "246"] as const) {
     const paragraphs = args.sections[`s${section}`].split(/\n\s*\n/).map((text) => text.trim()).filter(Boolean);
     paragraphs.forEach((text, index) => {
-      const overlap = args.droppedWords ? contentWordOverlap(args.droppedWords, text) : 0;
+      const overlap = droppedWords ? contentWordOverlap(droppedWords, text) : 0;
       const present = figuresOf(text);
       const matched = figures.filter((figure) => present.includes(figure));
       if (overlap >= DROPPED_WORDS_HIT_SHARE || matched.length > 0) {
@@ -1880,14 +1899,17 @@ export function leaveOutRepairEvidence(c: Collected): string {
 /**
  * 2026-09-30 (second, Rule C): Line 244's work check row with its outcome,
  * whether a repair fixed it or was set aside, its reason, and the Line 244
- * COVER rows not applied after such a repair was used.
+ * COVER rows not applied whenever its fix went to the repair (review P3-3:
+ * repaired, set aside, or still not applied at a paragraph after the repair).
  */
 export function workAnswers242Evidence(c: Collected): string {
   const rows = c.complianceNotes.filter((note) => note.section === "244" && note.planRef);
   const rule = rows.find((note) => note.planRef?.ruleId === "work_answers_242");
   if (!rule) return "no Rule C row in Line 244";
   const repair = rule.repaired ? ", repaired" : rule.reason.includes("repair not used") ? ", repair not used" : "";
-  const coverLost = rule.repaired
+  const fixInRepair = rule.repaired || rule.reason.includes("repair not used") ||
+    (rule.outcome !== "applied" && rule.paragraphIndex !== null);
+  const coverLost = fixInRepair
     ? rows.filter((note) => note.planRef?.itemId && note.tier !== "conflict" && note.outcome !== "applied")
     : [];
   return `Rule C: ${rule.outcome}${repair} (${quote(rule.reason, 120)}); COVER rows not applied after such a repair: ${
@@ -2336,14 +2358,23 @@ function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[
       const closest = paragraphs
         .map((text, index) => ({ index, text, overlap: contentWordOverlap(droppedWords, text) }))
         .sort((a, b) => b.overlap - a.overlap)[0];
+      // Review P3-2: the product's input rule. The frozen row gives the
+      // dropped wording and the experiments and advancements that recorded
+      // it; results read back before it existed fall back to the Seeds.
+      const frozenDropped = c.summary?.droppedUncertainties?.find((entry) => entry.seedId === removed);
+      const skippedRoles = new Set(c.summary?.skippedRoleIds ?? []);
       const scan = c.report && droppedWords
         ? droppedUncertaintyHits({
             sections: c.report.sections,
-            droppedWords,
-            experimentWords: c.seeds
-              .filter((seed) => seed.roleId === "experimentation" && seed.uncertaintySeedId === removed)
-              .map((seed) => seed.bullets.join(" ")),
-            planWords: items.map((item) => item.bullets.join(" ")),
+            droppedWording: frozenDropped?.wording ?? c.seeds.find((seed) => seed.seedId === removed)?.bullets ?? [],
+            references: frozenDropped
+              ? [...frozenDropped.experiments, ...frozenDropped.advancements]
+              : c.seeds
+                  .filter((seed) =>
+                    (seed.roleId === "experimentation" || seed.roleId === "specific_advancements") &&
+                    seed.uncertaintySeedId === removed)
+                  .map((seed) => ({ wording: seed.bullets })),
+            planWording: items.filter((item) => !skippedRoles.has(item.roleId)).map((item) => item.bullets),
           })
         : null;
       const scanText = scan
@@ -2373,18 +2404,33 @@ function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[
         section,
         row: c.complianceNotes.find((note) => note.section === section && !!removed && note.planRef?.droppedSeedId === removed),
       }));
+      // Review P3-1: a row the product's figure check recorded applied
+      // passes only when the suite's own whole-Line scan finds no
+      // distinctive figure of the dropped uncertainty in that Line.
+      const scanFigureHits = (section: "242" | "244" | "246") =>
+        (scan?.hits ?? []).filter((hit) => hit.section === section && hit.figures.length > 0);
+      const byBackstop = (row: (typeof leftOutRows)[number]["row"]) =>
+        row?.outcome === "applied" && row.reason.startsWith(LEAVE_OUT_FIGURE_BACKSTOP_PREFIX);
+      const rowPasses = ({ section, row }: (typeof leftOutRows)[number]) =>
+        row?.outcome === "applied" && (!byBackstop(row) || (scan !== null && scanFigureHits(section).length === 0));
       checks.push(
         check(
           "dropped-uncertainty-left-out",
           "Every Line records the dropped uncertainty as left out",
-          !!removed && leftOutRows.every(({ row }) => row?.outcome === "applied"),
+          !!removed && leftOutRows.every(rowPasses),
           !removed
             ? "no uncertainty was dropped"
             : `${leftOutRows
                 .map(({ section, row }) => `${section}: ${row
                   ? row.outcome === "applied"
-                    ? row.reason.startsWith(LEAVE_OUT_FIGURE_BACKSTOP_PREFIX)
-                      ? `applied by the figure check (${quote(row.reason, 160)})`
+                    ? byBackstop(row)
+                      ? scan === null
+                        ? `applied by the figure check, not confirmed: the suite could not scan the Lines (${quote(row.reason, 160)})`
+                        : scanFigureHits(section).length > 0
+                          ? `applied by the figure check, but the suite's scan finds ${scanFigureHits(section)
+                              .map((hit) => `${hit.figures.join(", ")} in P${hit.paragraph}`)
+                              .join("; ")} (${quote(row.reason, 160)})`
+                          : `applied by the figure check (${quote(row.reason, 160)})`
                       : "applied"
                     : `${row.outcome} (${quote(row.reason, 100)})`
                   : "no row"}`)

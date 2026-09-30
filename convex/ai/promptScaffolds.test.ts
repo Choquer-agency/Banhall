@@ -524,7 +524,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       advancementsAnswer242: "line-246-plan-check-with-line-242-text-as-data-honoured-by-absence",
       workAnswers242: "line-244-plan-check-with-line-242-text-and-line-246-items-as-data-honoured-by-absence",
       coverItemsFirst: "leave-out-and-rule-checks-compare-every-cover-item-before-not-applied",
-      leaveOutFigureBackstop: "not-applied-leave-out-on-a-paragraph-without-dropped-figures-citing-only-plan-figures-recorded-applied-no-repair",
+      leaveOutFigureBackstop: "not-applied-leave-out-with-no-dropped-figure-or-near-copy-in-the-line-citing-only-plan-figures-recorded-applied-no-repair",
       extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
       resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
       hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",

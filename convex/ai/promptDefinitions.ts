@@ -473,9 +473,10 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     answers242Issue:
       "claim an advancement or a result only for an uncertainty Line 242 states, and leave out the rest, but keep everything a COVER item holds. ",
     // 2026-09-30 (second, Rule C): the fixed start of the repair issue for
-    // Line 244 work on an uncertainty Line 242 does not state.
+    // Line 244 work on an uncertainty Line 242 does not state. Review P2-2:
+    // an area the work plan names keeps no Brief experiment.
     workAnswers242Issue:
-      "describe work only for an uncertainty Line 242 states, or work a COVER item holds or needs as its evidence, and leave out the rest, but keep everything a COVER item holds or needs as its evidence. ",
+      "describe work only for an uncertainty Line 242 states, or work that is the evidence a signed-off item needs, and leave out the rest (an area the work plan names is no reason to keep a Brief experiment), but keep the work plan's own sentences, every COVER experiment and the evidence a signed-off item needs. ",
     // 2026-09-30 (second): only present when a Glossary Term the writer's
     // Feedback governs is used by an unedited signed-off idea of the Line
     // (release suite run 11, withdrawn-feedback, Line 242).
@@ -536,15 +537,17 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
   // narrated a Brief-only sensor experiment for an uncertainty Line 242 never
   // states; in carried-old-selections the capture trials back signed-off Line
   // 246 item 13, so the work behind a Line 246 item stays. It restricts Brief
-  // content only and ranks below the writer's Feedback, like Rule B.
+  // content only and ranks below the writer's Feedback, like Rule B. Review
+  // P2-2 (lead decision): the work plan's own sentences stay as written, but
+  // an area it names ("sensor reliability") keeps no Brief experiment.
   workAnswers242: {
     heading: "\n\n# WORK ANSWERS LINE 242 (outranks the Brief)\n",
     drafted:
-      "Describe work in this Line only for an uncertainty that Line 242 states, or work a COVER item holds or needs as its evidence. Line 242 is among the previously drafted sections above.",
+      "Describe work in this Line only for an uncertainty that Line 242 states, or work that is the evidence a signed-off item needs. Line 242 is among the previously drafted sections above.",
     planned:
-      "Describe work in this Line only for an uncertainty that Line 242 states, or work a COVER item holds or needs as its evidence. Line 242 is not drafted yet. It will state its signed-off plan items, listed after this rule by step.",
+      "Describe work in this Line only for an uncertainty that Line 242 states, or work that is the evidence a signed-off item needs. Line 242 is not drafted yet. It will state its signed-off plan items, listed after this rule by step.",
     rest:
-      " Work a COVER item holds is a COVER experiment of this Line and what its work plan and hypothesis items state. Work a COVER item needs as its evidence is the work and figures behind a signed-off Line 246 item: those items are listed after this rule by step, and their work stays in this Line. Leave out Brief content that describes work on any other uncertainty, even where the Storyline or the Confidence Map supports it. Project status and next steps are not work to remove. The signed-off plan wins: keep everything a COVER item holds or needs as its evidence. The writer's Feedback outranks this rule, as it outranks the Brief. Claim Exclusions still apply to it: never claim excluded work because a Feedback instruction asks for it.",
+      " The evidence a signed-off item of any Line needs is a COVER experiment of this Line, the work behind a COVER hypothesis, and the work and figures behind a signed-off Line 246 item: those items are listed after this rule by step, and their work stays in this Line. Keep the work plan's own sentences as written, but an area the work plan names is no reason to describe a Brief experiment on an uncertainty Line 242 does not state. Leave out Brief content that describes work on any other uncertainty, even where the Storyline or the Confidence Map supports it. Project status and next steps are not work to remove. The signed-off plan wins: keep every COVER item and the evidence a signed-off item needs. The writer's Feedback outranks this rule, as it outranks the Brief. Claim Exclusions still apply to it: never claim excluded work because a Feedback instruction asks for it.",
     line242Heading: "\nSigned-off Line 242 items, by step:",
     line246Heading: "\nSigned-off Line 246 items, by step:",
     itemPrefix: "\n- ",
@@ -935,11 +938,12 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
    * 2026-09-30 (second, Rule C): Line 244 of a signed-off plan only. Its one
    * check carries Line 242 as Rule B's does, then the signed-off Line 246
    * items; Line 244 work must answer an uncertainty Line 242 states or be
-   * work a COVER item holds or needs as its evidence (CRA's T4088).
+   * the evidence a signed-off item needs (CRA's T4088). Review P2-2: an area
+   * the work plan names keeps no Brief experiment.
    */
   workAnswers242: {
     instruction:
-      "\n\nThe plan check with ruleId work_answers_242 holds as data in its wording Line 242's signed-off plan items by step, then Line 242's drafted text (before Line 242 is drafted, the items alone), then the signed-off Line 246 items by step. Judge it applied, with paragraph 0, when all work this section describes is for an uncertainty Line 242 states, is work a COVER item holds (a COVER experiment, or what a work plan or hypothesis item states), is the work and figures that are the evidence for a signed-off Line 246 item, or follows the writer's Feedback. Project status and next steps are not work to remove. Before you judge it not applied, compare the work with every COVER item in the plan checks and every Line 246 item in the wording. Work one of them states, and the work and figures that are its evidence, never make this check not applied. Judge it not applied only when the section describes work for an uncertainty Line 242 does not state that is neither: name the first such paragraph, say what to leave out, and name in the reason the words that are neither.",
+      "\n\nThe plan check with ruleId work_answers_242 holds as data in its wording Line 242's signed-off plan items by step, then Line 242's drafted text (before Line 242 is drafted, the items alone), then the signed-off Line 246 items by step. Judge it applied, with paragraph 0, when all work this section describes is for an uncertainty Line 242 states, is the evidence a signed-off item of any Line needs (a COVER experiment, the work behind a COVER hypothesis, or the work and figures behind a signed-off Line 246 item), or follows the writer's Feedback. The work plan's own sentences are covered as written, but an area the work plan names is no reason to describe a Brief experiment on an uncertainty Line 242 does not state. Project status and next steps are not work to remove. Before you judge it not applied, compare the work with every COVER item in the plan checks and every Line 246 item in the wording. A COVER experiment, and the work and figures that are the evidence a signed-off item needs, never make this check not applied. Judge it not applied only when the section describes work for an uncertainty Line 242 does not state that is neither: name the first such paragraph, say what to leave out, and name in the reason the words that are neither.",
   },
   /**
    * 2026-09-30 (third): Lines 244 and 246 of a signed-off plan. Its one
