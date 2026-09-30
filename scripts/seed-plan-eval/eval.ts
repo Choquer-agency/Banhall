@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from "node:path";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { releaseEvalProjectTitle } from "../../shared/releaseEval";
+import { findSourceTalk } from "../../shared/humanProse";
 import {
   advancementLinkProblem,
   experimentsForDroppedUncertainties,
@@ -1832,6 +1833,23 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
       leaveOutRepairEvidence(c),
     ),
   );
+  // 2026-09-30 (third): informational for every fixture. The source-talk
+  // row reruns the Self-check's own detector on the final text; the targets
+  // row is the checking model's own verdict. The judges remain the proof.
+  checks.push(
+    info(
+      "source-talk",
+      "Report text that names a source, per Line, and the Self-check's row (informational; the Self-check's own detector)",
+      sourceTalkEvidence(c),
+    ),
+  );
+  checks.push(
+    info(
+      "results-against-targets",
+      "Results stated against their targets, Lines 244 and 246 (informational; self-reported by the checking model)",
+      resultsAgainstTargetsEvidence(c),
+    ),
+  );
   const requests = seedRequestCount(c);
   checks.push(
     info(
@@ -1851,7 +1869,8 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
  */
 export function leaveOutRepairEvidence(c: Collected): string {
   const rows = c.complianceNotes.filter((note) => note.section === "246" && note.planRef);
-  const special = rows.filter((note) => note.planRef?.droppedSeedId || note.planRef?.ruleId);
+  // 2026-09-30 (third): Rule B by its own id; the targets check has its own row.
+  const special = rows.filter((note) => note.planRef?.droppedSeedId || note.planRef?.ruleId === ANSWERS_242_RULE_ID);
   if (special.length === 0) return "no LEAVE OUT or Rule B row in Line 246";
   const described = special.map((note) => {
     const name = note.planRef?.ruleId ? "Rule B" : `left out ${note.planRef?.droppedSeedId}`;
@@ -1866,6 +1885,45 @@ export function leaveOutRepairEvidence(c: Collected): string {
   return `${described.join("; ")}; COVER rows not applied after such a repair: ${
     coverLost.length ? coverLost.map((note) => `${note.planRef?.itemId} (${quote(note.reason, 80)})`).join(", ") : "none"
   }${keptDraft ? "; a repair that lost a COVER item was set aside" : ""}`;
+}
+
+const ANSWERS_242_RULE_ID = "advancements_answer_242";
+const TARGETS_RULE_ID = "results_against_targets";
+/** The Compliance Note instruction of the deterministic source-talk row. */
+const SOURCE_TALK_ROW = "State facts without naming their source";
+
+/** A row's outcome and whether a repair fixed it or was not used. */
+function rowState(note: Collected["complianceNotes"][number]): string {
+  const repair = note.repaired ? ", repaired" : note.reason.includes("repair not used") ? ", repair not used" : "";
+  return `${note.outcome}${repair}`;
+}
+
+/**
+ * 2026-09-30 (third): per Line, the phrases of the final text that name a
+ * source (the Self-check's own detector, with the signed-off wording and
+ * the Glossary Terms as the project's subject), then that Line's row.
+ */
+export function sourceTalkEvidence(c: Collected): string {
+  if (!c.report) return "no report";
+  const subjectText = [
+    ...(c.summary?.items ?? []).flatMap((item) => item.bullets),
+    ...c.briefEntries.filter((entry) => entry.group === "glossaryTerm").map((entry) => entry.text),
+  ];
+  return (["242", "244", "246"] as const).map((section) => {
+    const paragraphs = c.report!.sections[`s${section}`].split(/\n\s*\n/).map((text) => text.trim()).filter(Boolean);
+    const hits = paragraphs.flatMap((text, index) =>
+      findSourceTalk(text, { subjectText }).map((hit) => `P${index + 1} "${hit.phrase}"`));
+    const row = c.complianceNotes.find((note) => note.section === section && note.instruction === SOURCE_TALK_ROW);
+    return `${section}: ${hits.length ? hits.join(", ") : "none"} (${row ? `row ${rowState(row)}` : "no row"})`;
+  }).join("; ");
+}
+
+/** 2026-09-30 (third): Lines 244 and 246's targets rows, with their reasons. */
+export function resultsAgainstTargetsEvidence(c: Collected): string {
+  return (["244", "246"] as const).map((section) => {
+    const row = c.complianceNotes.find((note) => note.section === section && note.planRef?.ruleId === TARGETS_RULE_ID);
+    return `${section}: ${row ? `${rowState(row)} (${quote(row.reason, 100)})` : "no row"}`;
+  }).join("; ");
 }
 
 /** One failed Batch in a line: role, error, detail and each answer's counts. */

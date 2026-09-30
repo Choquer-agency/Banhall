@@ -26,6 +26,7 @@ import {
   type FeedbackGovernedTerm,
   type GovernedTermState,
 } from "./writerPrecedence";
+import { findSourceTalk, SOURCE_TALK } from "../../shared/humanProse";
 
 /**
  * Story 2 (CAP-9, AD-25): the deterministic half of a section's Self-check.
@@ -208,6 +209,15 @@ export function runDeterministicSelfCheck(input: {
    * verdict (assembleSectionNotes).
    */
   feedbackTerms?: readonly string[];
+  /**
+   * 2026-09-30 (third): signed-off plan runs only. Report text that names
+   * where a fact came from (an interviewee, the test memo, the Brief) is
+   * found here and sent to the repair. `subjectText` is the plan's wording
+   * and the Glossary Terms: their words are the project's own subject and
+   * are never reported. Absent: no such check and no row, so Single draft
+   * and Compare keep their rows and requests.
+   */
+  sourceTalk?: { subjectText: readonly string[] };
 }): DeterministicSelfCheck {
   const { section, text, brief, profile, isFirstInOrder } = input;
   const key = sectionKeyOf(section);
@@ -478,7 +488,69 @@ export function runDeterministicSelfCheck(input: {
     });
   }
 
+  // 2026-09-30 (third): no talk about sources in report text. One row per
+  // Line; a hit goes to the repair with a fixed fix that names its words.
+  if (input.sourceTalk) {
+    const subjectText = input.sourceTalk.subjectText;
+    const found = paragraphs.flatMap((paragraph, index) =>
+      findSourceTalk(paragraph, { subjectText }).map((hit) => ({ index, phrase: hit.phrase })));
+    if (found.length === 0) {
+      add(SOURCE_TALK_KEY, {
+        instruction: SOURCE_TALK.instruction,
+        outcome: "applied",
+        tier: "none",
+        reason: SOURCE_TALK.applied,
+      });
+    } else {
+      add(
+        SOURCE_TALK_KEY,
+        {
+          instruction: SOURCE_TALK.instruction,
+          paragraphIndex: found[0]!.index,
+          outcome: "not_applied",
+          tier: "none",
+          reason: `names a source in ${sourceTalkPlaces(found)}`,
+        },
+        true,
+        sourceTalkRepairIssue(found)
+      );
+    }
+  }
+
   return { entries, glossaryCandidates, modelRules, paragraphs };
+}
+
+/** The deterministic entry key of the source-talk check (2026-09-30, third). */
+export const SOURCE_TALK_KEY = "sourceTalk";
+
+/** At most this many source-talk phrases are named in a row or a fix. */
+const SOURCE_TALK_NAMED = 4;
+
+function joinedList(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/** 'paragraph 1 ("interviewees") and paragraph 3 ("recorded elsewhere", "Storyline")'. */
+function sourceTalkPlaces(found: ReadonlyArray<{ index: number; phrase: string }>): string {
+  const named = found.slice(0, SOURCE_TALK_NAMED);
+  const paragraphs = [...new Set(named.map((hit) => hit.index))].map((index) =>
+    `paragraph ${index + 1} (${named.filter((hit) => hit.index === index).map((hit) => `"${hit.phrase}"`).join(", ")})`);
+  const more = found.length - named.length;
+  return joinedList(more > 0 ? [...paragraphs, `${more} more`] : paragraphs);
+}
+
+/**
+ * The repair fix for source talk: the paragraphs, the phrases as written
+ * and the rule, in fixed words (SOURCE_TALK in shared/humanProse.ts).
+ */
+export function sourceTalkRepairIssue(found: ReadonlyArray<{ index: number; phrase: string }>): string {
+  const paragraphs = [...new Set(found.map((hit) => hit.index + 1))];
+  const where = paragraphs.length === 1
+    ? `Paragraph ${paragraphs[0]}`
+    : `Paragraphs ${joinedList(paragraphs.map(String))}`;
+  const phrases = [...new Set(found.map((hit) => `"${hit.phrase}"`))].slice(0, SOURCE_TALK_NAMED);
+  return `${where}: ${SOURCE_TALK.fix} (${phrases.join(", ")}). ${SOURCE_TALK.rule}`;
 }
 
 /**
@@ -490,7 +562,16 @@ export function runDeterministicSelfCheck(input: {
 export function repairIssues(
   before: DeterministicSelfCheck,
   verdicts: ModelVerdict[],
-  governed: readonly FeedbackGovernedTerm[] = []
+  governed: readonly FeedbackGovernedTerm[] = [],
+  options: {
+    /**
+     * 2026-09-30 (third): signed-off plan runs only. A fixed start for a
+     * verdict's fix (how to hedge a Confidence Map or Storyline issue, how
+     * to use a Glossary Term), put before the check's own guidance. Absent,
+     * or "", leaves the issue as before.
+     */
+    verdictPrefix?: (verdict: ModelVerdict) => string;
+  } = {}
 ): string[] {
   const issues = before.entries
     .filter((entry) => entry.repairable && entry.row.outcome === "not_applied")
@@ -511,13 +592,13 @@ export function repairIssues(
       );
       continue;
     }
-    issues.push(`${where}: ${fix}`);
+    issues.push(`${where}: ${options.verdictPrefix?.(verdict) ?? ""}${fix}`);
   }
   return issues;
 }
 
 /** The Glossary Term a glossary verdict names (the candidate it mentions). */
-function glossaryTermOf(verdict: ModelVerdict, candidates: string[]): string {
+export function glossaryTermOf(verdict: ModelVerdict, candidates: string[]): string {
   const normalized = normalizeForMatch(verdict.instruction);
   return (
     candidates.find((term) => normalized.includes(normalizeForMatch(term))) ??

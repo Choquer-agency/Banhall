@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   detectFirstPersonPreference,
   findDashConnectors,
+  findSourceTalk,
   isDashClean,
   RULES_HUMAN_PROSE,
+  RULES_REPORT_FACTS,
   RULES_SEED_WORDING,
+  SOURCE_TALK,
 } from "./humanProse";
 
 const hits = (t: string) => findDashConnectors(t).length;
@@ -105,5 +108,66 @@ describe("RULES_SEED_WORDING", () => {
   it("never tells a Seed to split into two sentences and contains no dash of its own", () => {
     expect(RULES_SEED_WORDING).toContain("never split a bullet into two sentences");
     expect(findDashConnectors(RULES_SEED_WORDING)).toEqual([]);
+  });
+});
+
+describe("report text rules (2026-09-30, third)", () => {
+  const phrases = (text: string, subjectText: readonly string[] = []) =>
+    findSourceTalk(text, { subjectText }).map((hit) => hit.phrase);
+
+  it("carries both rules in plain words, with no typographic dash, apart from RULES_HUMAN_PROSE", () => {
+    expect(findDashConnectors(RULES_REPORT_FACTS)).toEqual([]);
+    expect(Object.values(SOURCE_TALK).flatMap((text) => findDashConnectors(text))).toEqual([]);
+    expect(RULES_REPORT_FACTS).toContain("A result at or past its target met it.");
+    expect(RULES_REPORT_FACTS).toContain("for a limit to stay under");
+    expect(RULES_REPORT_FACTS).toContain("Never carry it to a later or final result.");
+    expect(RULES_REPORT_FACTS).toContain("State the fact, never where it came from.");
+    // Notes, QA and the Brief name their sources on purpose.
+    expect(RULES_HUMAN_PROSE).not.toContain(RULES_REPORT_FACTS);
+  });
+
+  it("finds the phrases the release suite judges flagged in runs 10 and 11", () => {
+    expect(phrases("The two interviewees describe the motivation differently, one emphasizing breakage.")).toEqual(["interviewees"]);
+    expect(phrases("roughly 3 extra hours per load (recorded elsewhere as a rise from about 19 to 22 hours)")).toEqual(["recorded elsewhere"]);
+    expect(phrases("roughly 7 to 8 percent below the baseline depending on the measurement source, and")).toEqual(["depending on the measurement source"]);
+    expect(phrases("Over 240 brackets, the test memo indicates reject rate held stable at 2.4 percent.")).toEqual(["the test memo indicates"]);
+  });
+
+  it("finds the other clear ways of naming a source", () => {
+    expect(phrases("In the interview, the lead said the kiln ran hot.")).toEqual(["the interview"]);
+    expect(phrases("According to the trial log, 2 of 36 parts delaminated.")).toEqual(["According to the trial log"]);
+    expect(phrases("According to the interview notes, the flow held.")).toEqual(["According to the interview notes"]);
+    expect(phrases("The transcript says the ramp was slowed.")).toEqual(["The transcript says"]);
+    expect(phrases("The figure in the transcript is 7 percent.")).toEqual(["in the transcript"]);
+    expect(phrases("The sources disagree on the driver, and one source puts it at 8 percent.")).toEqual(["The sources disagree", "one source puts"]);
+    expect(phrases("As the Brief notes, the Storyline and the Confidence Map agree.")).toEqual(["the Brief", "Storyline", "Confidence Map"]);
+    expect(phrases("The Brief says so.")).toEqual(["The Brief"]);
+  });
+
+  it("never fires on technical uses of source, a lowercase confidence map or brief, or heat and light sources", () => {
+    const technical = [
+      "A light source and a heat source were compared against a reference source.",
+      "The sources of error were stray reflection and thermal drift.",
+      "An open-source solver read the source code, and the power source held 24 V.",
+      "Two light sources were used. The sources gave 5 W each.",
+      "A stereo confidence map rated each depth pixel.",
+      "The brief exposure lasted 3 s, and the result was brief.",
+      "The model accuracy varied depending on the data source.",
+      "A data source was added, and the source term was linearized.",
+      "The storyboard and the memory map were checked.",
+    ].join(" ");
+    expect(phrases(technical)).toEqual([]);
+  });
+
+  it("treats the project's own subject, named in the plan or a Glossary Term, as subject, not source talk", () => {
+    const text = "The engine ranked each interviewee by availability after the interview.";
+    expect(phrases(text)).toEqual(["interviewee", "the interview"]);
+    expect(phrases(text, ["Scheduling each interviewee", "the interview slot"])).toEqual([]);
+  });
+
+  it("returns each hit once, in text order, with a short context", () => {
+    const hits = findSourceTalk("Per the test memo, the memo states 2.4 percent.");
+    expect(hits.map((hit) => [hit.phrase, hit.index])).toEqual([["Per the test memo", 0], ["the memo states", 19]]);
+    expect(hits[0]!.context).toContain("Per the test memo");
   });
 });

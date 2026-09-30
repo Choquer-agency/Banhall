@@ -82,8 +82,10 @@ import {
   assembleSectionNotes,
   consistencyNoteDrafts,
   consistencySummaryNote,
+  glossaryTermOf,
   repairIssues,
   runDeterministicSelfCheck,
+  SOURCE_TALK_KEY,
   type DeterministicSelfCheck,
   type ModelVerdict,
 } from "../lib/selfCheckRules";
@@ -412,6 +414,36 @@ function planVerdictFor(
 }
 
 /**
+ * 2026-09-30 (third): the report-text rules of shared/humanProse.ts (results
+ * against targets, no talk about sources) and how they bear on the Brief,
+ * read right after the Brief in a signed-off plan run's drafting request and
+ * its repair. Single draft and Compare requests never carry it.
+ */
+export function reportFactsBlock(): string {
+  const scaffold = ORDERED_PROMPT_SCAFFOLDS.reportFacts;
+  return `${scaffold.prefix}${scaffold.rules}${scaffold.brief}`;
+}
+
+/**
+ * 2026-09-30 (third): the fixed start of a signed-off plan run's repair fix
+ * for a Confidence Map or Storyline verdict (hedge without naming a source)
+ * and for a Glossary verdict (replace the other name, never force the term
+ * in). Every other verdict's fix is sent as before.
+ */
+export function reportFactsIssuePrefix(verdict: ModelVerdict, glossaryCandidates: string[]): string {
+  const scaffold = ORDERED_PROMPT_SCAFFOLDS.repairGuidance;
+  if (verdict.check === "confidence" || verdict.check === "storyline") return scaffold.hedgeIssue;
+  if (verdict.check === "glossary") {
+    return `${scaffold.glossaryIssuePrefix}${quoteForPrompt(glossaryTermOf(verdict, glossaryCandidates))}${scaffold.glossaryIssueSuffix}`;
+  }
+  return "";
+}
+
+/** 2026-09-30 (third): the Compliance Note instruction for the targets check. */
+export const TARGETS_INSTRUCTION =
+  "State each result against its target as the numbers show";
+
+/**
  * 2026-09-30 (first): the Compliance Note instruction for a LEAVE OUT row,
  * naming the dropped uncertainty by its first words, never an id.
  */
@@ -432,6 +464,8 @@ function planInstruction(expected: PlanCheck): string {
       return leaveOutInstruction(expected.wording);
     case "answer_242":
       return ANSWERS_242_INSTRUCTION;
+    case "match_targets":
+      return TARGETS_INSTRUCTION;
     default:
       return `Cover signed-off Summary item ${expected.itemId}`;
   }
@@ -478,7 +512,9 @@ export function leaveOutRepairIssue(
     : `${scaffold.paragraphPrefix}${verdict.paragraphIndex + 1}${scaffold.paragraphSuffix}`;
   const fix = check.instruction === "leave_out"
     ? `${scaffold.leaveOutPrefix}${quoteForPrompt(ideaWords(check.wording, 200))}${scaffold.leaveOutSuffix}`
-    : scaffold.answers242Issue;
+    : check.instruction === "match_targets"
+      ? scaffold.targetsIssue
+      : scaffold.answers242Issue;
   return `${where}${fix}${guidance}`;
 }
 
@@ -828,6 +864,10 @@ export async function draftCheckedSection(input: {
   // 2026-09-30 (first, Rule B): Line 246 of a signed-off plan run claims an
   // advancement only for an uncertainty Line 242 states. Empty otherwise.
   const answers242 = section === "246" ? advancementsAnswer242Block(claim.answers242) : "";
+  // 2026-09-30 (third): a signed-off plan run's report-text rules, right
+  // after the Brief. Single draft and Compare requests are unchanged.
+  const planRun = Boolean(claim.planBlock);
+  const reportFacts = planRun ? reportFactsBlock() : "";
   // Review P3-6: the checked text is over a Locked limit and further over
   // it than the other text, which must never be traded back for it.
   const overLimitMore = (checked: string, other: string) =>
@@ -846,7 +886,7 @@ export async function draftCheckedSection(input: {
         // A signed-off plan run restates the Locked length last, after the
         // plan and the Brief (review P3-5).
         claim.planBlock
-          ? claim.briefBlock + decisions + answers242 + editedTermsBlock(claim.editedTerms) + planLengthBudgetBlock(key, lengthTarget)
+          ? claim.briefBlock + reportFacts + decisions + answers242 + editedTermsBlock(claim.editedTerms) + planLengthBudgetBlock(key, lengthTarget)
           : claim.briefBlock,
         claim.planBlock
       ),
@@ -906,6 +946,22 @@ export async function draftCheckedSection(input: {
         .map((planCheck) => planCheck.wording),
       glossarySetAside,
       feedbackTerms: feedbackTerms.map((entry) => entry.term),
+      // 2026-09-30 (third): no talk about sources, signed-off plan runs only.
+      // The plan's own wording and the Glossary Terms are the project's
+      // subject, never source talk.
+      ...(planRun
+        ? {
+            sourceTalk: {
+              subjectText: [
+                ...claim.planChecks
+                  .filter((planCheck) => planCheck.instruction === "cover")
+                  .flatMap((planCheck) => planCheck.wording),
+                ...(brief?.glossaryTerms ?? []),
+                ...claim.editedTerms,
+              ],
+            },
+          }
+        : {}),
     });
   const before = check(text);
 
@@ -987,10 +1043,29 @@ export async function draftCheckedSection(input: {
           leaveOutIssues.add(issue);
           return [issue];
         }
+        // 2026-09-30 (third): a result misstated against its target goes
+        // to the repair with a fixed start and the check's guidance. It asks
+        // to state something, so it stays a Must keep line.
+        if (expected?.instruction === "match_targets") {
+          return [leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason)];
+        }
         return [verdict.repairText ?? verdict.repairGuidance ?? verdict.reason];
       })
     : [];
-  const issues = [...repairIssues(before, verdicts, feedbackTerms), ...planIssues];
+  // 2026-09-30 (third): in a signed-off plan run a Confidence Map or
+  // Storyline fix says how to hedge, and a Glossary fix how to use the term.
+  const issues = [
+    ...repairIssues(before, verdicts, feedbackTerms, planRun
+      ? { verdictPrefix: (verdict) => reportFactsIssuePrefix(verdict, before.glossaryCandidates) }
+      : {}),
+    ...planIssues,
+  ];
+  // 2026-09-30 (third): the source-talk fix asks to take words out, so, like
+  // a leave-out fix, it is never a Must keep line of the repair's
+  // compression, whose guard would otherwise protect the words it removes.
+  const sourceTalkIssue = before.entries.find(
+    (entry) => entry.key === SOURCE_TALK_KEY && entry.repairable && entry.row.outcome === "not_applied"
+  )?.guidance;
   const repair: {
     attempted: boolean;
     succeeded: boolean;
@@ -1027,6 +1102,7 @@ export async function draftCheckedSection(input: {
           (issue) =>
             !issue.startsWith("Shorten ") &&
             !leaveOutIssues.has(issue) &&
+            issue !== sourceTalkIssue &&
             !claim.editedTerms.some((term) => containsTerm(issue, term))
         );
         const fit = await compressWithinLimit(

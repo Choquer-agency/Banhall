@@ -586,6 +586,8 @@ export async function signOffSeedStageHandler(
         sourceRefsByItemId,
         droppedUncertainties: checkedDroppedUncertainties(droppedUncertainties),
         ...(section === "246" ? { answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        // 2026-09-30 (third): Lines 244 and 246 carry the targets check.
+        resultsAgainstTargets: true,
       });
       const ordinaryChecks = summaryOrdinaryAdmission({
         section,
@@ -1101,6 +1103,10 @@ export async function loadFrozenSectionPlan(
     sourceRefsByItemId,
     droppedUncertainties: checkedDroppedUncertainties(summary.droppedUncertainties),
     ...(answers242 !== undefined ? { answers242 } : {}),
+    // 2026-09-30 (third): every signed-off Line 244 and 246, at sign-off
+    // admission, runtime admission and drafting alike, carries the check
+    // that each result is stated against its target as the numbers show.
+    resultsAgainstTargets: true,
   });
   // An edited item's terms: what the writer changed or added compared with
   // the model's original Seed (immutable). Items frozen before 2026-09-24

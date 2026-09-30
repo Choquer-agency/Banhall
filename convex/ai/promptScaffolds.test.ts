@@ -26,9 +26,12 @@ import { priorSectionsBlock } from "./iterative";
 import { buildStyleGuidance, lengthBudgetBlock, toContextDocs } from "./pipeline";
 import {
   CONTEXT_INPUTS_GUIDANCE,
+  SELF_CHECK_SYSTEM_PROMPT,
+  SUMMARY_PLAN_REPORT_FACTS_RULES,
   SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
   waivedCategoryLabels,
 } from "./prompts";
+import { RULES_REPORT_FACTS, SOURCE_TALK } from "../../shared/humanProse";
 import { numberParagraphs } from "./qaAgent";
 import { CHARS_PER_LINE, LINE_LIMITS, wordBudget } from "../lib/lineLimits";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
@@ -520,7 +523,21 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       droppedUncertainties: "left-out-in-every-line-one-plan-check-each-by-dropped-seed-id-at-most-three",
       advancementsAnswer242: "line-246-plan-check-with-line-242-text-as-data-honoured-by-absence",
       extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
+      resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
+      hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",
     });
+    // 2026-09-30 (third): the Summary system prompt ends with the rules for
+    // hedges, sources and Glossary candidates; the legacy one never has them.
+    expect(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT.endsWith(`\n\n${SUMMARY_PLAN_REPORT_FACTS_RULES}`)).toBe(true);
+    expect(SELF_CHECK_SYSTEM_PROMPT).not.toContain(SUMMARY_PLAN_REPORT_FACTS_RULES);
+    for (const section of ["section242", "section244", "section246"] as const) {
+      expect(generationPromptProgram.calls[section].reportFacts)
+        .toBe("results-and-sources-rules-after-the-brief-in-signed-off-plan-runs");
+    }
+    expect(generationPromptProgram.calls.repair.signedOffPlan)
+      .toBe("source-talk-found-deterministically-hedge-and-glossary-fixes-get-a-fixed-start");
+    expect(generationPromptProgram.templates.ordered.scaffolds.reportFacts.rules).toBe(RULES_REPORT_FACTS);
+    expect(generationPromptProgram.templates.ordered.scaffolds.repairGuidance.sourceTalk).toBe(SOURCE_TALK);
     expect(generationPromptProgram.templates.seeds.summaryPlan).toEqual({
       drafting: FROZEN_SUMMARY_PLAN_SCAFFOLD,
       checks: FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
@@ -585,7 +602,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
           ...generationPromptProgram.templates.seeds,
           summaryPlan: {
             ...generationPromptProgram.templates.seeds.summaryPlan,
-            serializerVersion: "summary-plan-jsonl-v3",
+            serializerVersion: "summary-plan-jsonl-v4",
           },
         },
       },

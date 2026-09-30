@@ -20,7 +20,12 @@ export const compliancePlanRefValidator = v.object({
   // out of this Line, and the row for Line 246's check that every advancement
   // answers an uncertainty Line 242 states. Absent on every other row.
   droppedSeedId: v.optional(v.id("seeds")),
-  ruleId: v.optional(v.literal("advancements_answer_242")),
+  // 2026-09-30 (third, widened): the row for Lines 244 and 246's check that
+  // every result is stated against its target as the numbers show.
+  ruleId: v.optional(v.union(
+    v.literal("advancements_answer_242"),
+    v.literal("results_against_targets")
+  )),
   mergedItemIds: v.array(v.id("summaryItems")),
 });
 export type CompliancePlanRef = Infer<typeof compliancePlanRefValidator>;

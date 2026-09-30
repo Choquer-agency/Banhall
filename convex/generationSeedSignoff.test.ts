@@ -43,7 +43,11 @@ import {
 import { currentPromptVersion } from "./ai/promptProgram";
 import { buildConsistencyUserMessage, summaryPlanSelfCheckSchemaFor } from "./ai/selfCheck";
 import { summarizeSlotUsage } from "./ai/instrument";
-import { COMPRESSION_REQUEST, SUMMARY_PLAN_SELF_CHECK_REQUEST } from "./ai/promptDefinitions";
+import {
+  COMPRESSION_REQUEST,
+  ORDERED_PROMPT_SCAFFOLDS,
+  SUMMARY_PLAN_SELF_CHECK_REQUEST,
+} from "./ai/promptDefinitions";
 import { SECTION_246_REQUEST } from "./ai/section246Agent";
 import type {
   getOutline,
@@ -1259,6 +1263,18 @@ async function frozenS244OracleChecks(
         }
       }
     }
+    // 2026-09-30 (third): every signed-off Line 244 ends with the check that
+    // each result is stated against its target as the numbers show.
+    checks.push({
+      ruleId: "results_against_targets",
+      roleId: "experimentation",
+      mergedItemIds: [],
+      instruction: "match_targets",
+      confirmedExclusion: false,
+      wording: [],
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
     return checks;
   });
 }
@@ -1489,6 +1505,8 @@ async function frozenSectionPlan(
       // Line 246's advancement check at its reserved worst case.
       droppedUncertainties: (summary.droppedUncertainties ?? []).filter((entry) => !entry.notChecked),
       ...(section === "s246" ? { answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+      // 2026-09-30 (third): as admitted, with the targets check in Lines 244 and 246.
+      resultsAgainstTargets: true,
     });
   });
 }
@@ -3119,11 +3137,13 @@ describe("seed Summary sign-off and recovery", () => {
       replayHashes[mutation] = await testSha256(mutatedProduction);
     }
     expect(productionSerialized).toBe(fixedExpectedOracle);
+    // Re-pinned 2026-09-30 (third): the envelope now ends its plan verdicts
+    // with the targets check's, as the independent oracle above does.
     expect(replayHashes).toEqual({
-      restored: "981cec4726216ac6144df2e26241835d85ff2a3e32acabbab71ad9c623acb919",
-      omit_storyline: "590eb330445d72f365a18d8174c0f621a7e9221ca659a9136a51017d73afd43f",
-      omit_repeated_merge: "e62250d2a28d0110b214efe1665a4b6393cb50e939aad3864b5d059f13b68545",
-      short_reason: "e376f9cf32b700b43281bed0464f639cfb8a1b9a2b50a51af411396d10ece0b3",
+      restored: "3742a141bc23efa64ef3b74b9cf82ca30d49901a37b4d9df9b4d2b8c0fb1e0c1",
+      omit_storyline: "ad989a373883868f9548d60e0c048feec5b00c012e3c9a40b74d5c83f8b3251a",
+      omit_repeated_merge: "6f66c4df952b7c49abd019388f98d97ebcb114b742319ce4884ed6b5addffc42",
+      short_reason: "03120f703078fbae5c3cfb2722b19a2b72195349bc5792a4cbdf18ffa21951e3",
     });
   });
 
@@ -4611,7 +4631,11 @@ describe("seed Summary sign-off and recovery", () => {
     expect(repairs).toHaveLength(1);
     // The repair works from the model's whole instruction, not a fragment.
     expect(providerUser(repairs[0]!)).toContain(planGuidance);
-    expect(providerUser(repairs[0]!)).toContain(`Paragraph 1: ${ordinaryReason}`);
+    // 2026-09-30 (third): a Storyline fix in a signed-off plan run starts
+    // with how to hedge, then the model's whole instruction.
+    expect(providerUser(repairs[0]!)).toContain(
+      `Paragraph 1: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.hedgeIssue}${ordinaryReason}`
+    );
 
     const rows = await s.t.run(async (ctx) =>
       await ctx.db.query("complianceNotes")
@@ -4917,7 +4941,8 @@ describe("seed Summary sign-off and recovery", () => {
       const row = rows244.find((candidate) => samePlanRow(candidate, check));
       expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
       expect(row?.outcome).toBe("applied");
-      expect(row?.paragraphIndex).toBe(check.skippedRoleId ? undefined : 0);
+      // 2026-09-30 (third): the targets check is honoured by absence too.
+      expect(row?.paragraphIndex).toBe(check.itemId ? 0 : undefined);
     }
     const calls244 = network.create.mock.calls.map(([params]) => params as GenerationMessageParams);
     expect(calls244.filter(isFirstSelfCheckRequest)).toHaveLength(1);
@@ -10029,7 +10054,25 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     }
     // Rule B: only Line 246, last, with Line 242 as drafted.
     expect(frozen.s242.planChecks.some((check) => check.ruleId)).toBe(false);
-    expect(frozen.s244.planChecks.some((check) => check.ruleId)).toBe(false);
+    expect(frozen.s244.planChecks.some((check) => check.ruleId === "advancements_answer_242")).toBe(false);
+    // 2026-09-30 (third): the targets check in Lines 244 and 246 only, and
+    // in Line 246 just before Rule B.
+    expect(frozen.s244.planChecks.at(-1)).toEqual({
+      ruleId: "results_against_targets",
+      roleId: "experimentation",
+      mergedItemIds: [],
+      instruction: "match_targets",
+      confirmedExclusion: false,
+      wording: [],
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
+    expect(frozen.s246.planChecks.at(-2)).toMatchObject({
+      ruleId: "results_against_targets",
+      roleId: "overall_advancement",
+      instruction: "match_targets",
+      wording: [],
+    });
     expect(frozen.s246.planChecks.at(-1)).toMatchObject({
       ruleId: "advancements_answer_242",
       instruction: "answer_242",
@@ -10179,8 +10222,13 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
       expect(line.planBlock).toContain(`\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.precedence}\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.format}\n`);
       expect(line.planBlock).not.toContain("leave_out");
     }
-    // Rule B holds for every signed-off plan's Line 246.
-    expect(frozen.s246.planChecks.filter((check) => check.ruleId)).toHaveLength(1);
+    // Rule B holds for every signed-off plan's Line 246, and the targets
+    // check for every Line 244 and 246 (2026-09-30, third).
+    expect(frozen.s246.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
+      .toEqual(["results_against_targets", "advancements_answer_242"]);
+    expect(frozen.s244.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
+      .toEqual(["results_against_targets"]);
+    expect(frozen.s242.planChecks.some((check) => check.ruleId)).toBe(false);
   });
 
   it("admits Line 246 with Line 242 reserved at its cap: exactly 64,000 plan-check bytes commit and 64,001 roll back", async () => {
@@ -10192,7 +10240,7 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
       expectedSeedStageVersion: 0,
     });
     const probePlan = await frozenSectionPlan(probe, "s246");
-    const ruleCheck = probePlan.checks.find((check) => check.ruleId);
+    const ruleCheck = probePlan.checks.find((check) => check.ruleId === "advancements_answer_242");
     // Line 242's plan items, whole, then the drafted text at its reservation.
     expect(ruleCheck?.wording[0]?.startsWith(FROZEN_SUMMARY_PLAN_SCAFFOLD.line242PlanHeading)).toBe(true);
     expect(ruleCheck?.wording[0]?.endsWith(`\n\n${FROZEN_SUMMARY_PLAN_SCAFFOLD.line242DraftedHeading}\n${ANSWERS_242_WORST_CASE_REFERENCE}`)).toBe(true);

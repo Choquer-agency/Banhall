@@ -44,10 +44,12 @@ import {
   projectSummaryOrdinaryChecks,
   projectSummarySelfCheckWorstCaseResponse,
   resolveFrozenSourceId,
+  RESULTS_AGAINST_TARGETS_RULE_ID,
   selectionRevision,
   serializeFrozenSummaryPlanChecks,
   stableSerialize,
   SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
+  SUMMARY_PLAN_SERIALIZER_VERSION,
   summarySelfCheckWorstCaseResponse,
   type FrozenSummaryPlanCheck,
   type SeedContextItem,
@@ -1457,5 +1459,60 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     // A check must name exactly one reference.
     expect(() => envelope([{ ...leaveOut("u"), skippedRoleId: "prior_year_status" }]))
       .toThrow("exactly one item, Skip, dropped uncertainty or rule identifier");
+  });
+});
+
+describe("results stated against their targets (2026-09-30, third)", () => {
+  const items = [
+    { itemId: "item-hypothesis", roleId: "hypothesis" as const, kind: "standard" as const, bullets: ["At least 95 percent yield."], support: "source_supported" as const },
+    { itemId: "item-advance", roleId: "overall_advancement" as const, kind: "standard" as const, bullets: ["Yield reached 96 percent."], support: "source_supported" as const },
+  ];
+  const targets = (section: "s244" | "s246"): FrozenSummaryPlanCheck => ({
+    ruleId: RESULTS_AGAINST_TARGETS_RULE_ID,
+    roleId: section === "s244" ? "experimentation" : "overall_advancement",
+    mergedItemIds: [],
+    instruction: "match_targets",
+    confirmedExclusion: false,
+    wording: [],
+    relationshipReferences: [],
+    sourceReferences: [],
+  });
+
+  it("adds one targets check to Lines 244 and 246 only, when asked, before Rule B, with no plan entry", () => {
+    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v3");
+    for (const section of ["s242", "s244", "s246"] as const) {
+      const without = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [] });
+      const withTargets = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [], resultsAgainstTargets: true });
+      // The drafting block never changes: the drafting rule is RULES_REPORT_FACTS.
+      expect(withTargets.block).toBe(without.block);
+      if (section === "s242") {
+        expect(withTargets).toEqual(without);
+        continue;
+      }
+      expect(withTargets.checks).toEqual([...without.checks, targets(section)]);
+      expect(withTargets.checksBlock).toBe(serializeFrozenSummaryPlanChecks([...without.checks, targets(section)]));
+      expect(withTargets.checksBlock).toContain(
+        `{"confirmedExclusion":false,"instruction":"match_targets","mergedItemIds":[],"relationshipReferences":[],"roleId":"${targets(section).roleId}","ruleId":"results_against_targets","sourceReferences":[],"wording":[]}`
+      );
+    }
+    const both = buildFrozenSummaryPlan({ section: "s246", items, skippedRoleIds: [], resultsAgainstTargets: true, answers242: {} });
+    expect(both.checks.map((check) => check.ruleId).filter(Boolean)).toEqual([RESULTS_AGAINST_TARGETS_RULE_ID, ADVANCEMENTS_ANSWER_242_RULE_ID]);
+  });
+
+  it("counts the targets verdict in the worst-case response like any rule verdict", () => {
+    const ordinary = projectSummaryOrdinaryChecks({ storylineText: "Storyline", confidenceMap: [], glossaryTerms: [], rules: [] });
+    const plan = buildFrozenSummaryPlan({ section: "s244", items, skippedRoleIds: [] });
+    const envelope = (checks: FrozenSummaryPlanCheck[]) =>
+      projectSummarySelfCheckWorstCaseResponse({ ordinaryChecks: ordinary, planChecks: checks, includeStorylineQuestion: false });
+    const verdict = JSON.stringify({
+      mergedItemIds: [],
+      outcome: "not_applied",
+      paragraph: 9_999_999_999,
+      reason: "r".repeat(64),
+      repairGuidance: "g".repeat(96),
+      ruleId: RESULTS_AGAINST_TARGETS_RULE_ID,
+    });
+    expect(bytes(envelope([...plan.checks, targets("s244")])) - bytes(envelope(plan.checks))).toBe(bytes(verdict) + 1);
+    expect(envelope([...plan.checks, targets("s244")])).toContain(verdict);
   });
 });

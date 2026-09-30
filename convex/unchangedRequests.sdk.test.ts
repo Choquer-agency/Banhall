@@ -11,6 +11,14 @@
  *
  * Only APIs that existed at 5c2350ac are used here, so the file runs there
  * unchanged to reproduce the pins.
+ *
+ * 2026-09-30 (third): a signed-off plan's requests now carry the report-text
+ * rules on purpose (the drafting and repair requests read
+ * ORDERED_PROMPT_SCAFFOLDS.reportFacts after the Brief, and the Summary
+ * Self-check system prompt ends with SUMMARY_PLAN_REPORT_FACTS_RULES). The
+ * signed-off tests check those additions are there, take exactly them out,
+ * and compare the rest with the same 5c2350ac pins. The single-draft
+ * requests carry neither and are compared as they are.
  */
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
@@ -20,7 +28,8 @@ import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { instrumentedAnthropic } from "./ai/instrument";
 import type { GenerationClient } from "./ai/openrouterCore";
-import { draftCheckedSection } from "./ai/orderedGeneration";
+import { draftCheckedSection, reportFactsBlock } from "./ai/orderedGeneration";
+import { SUMMARY_PLAN_REPORT_FACTS_RULES } from "./ai/prompts";
 import { ORDERED_PROMPT_SCAFFOLDS, SUMMARY_PLAN_SELF_CHECK_REQUEST } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
@@ -195,11 +204,27 @@ async function sha256Hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/** A text as it appears inside a JSON string of a request body. */
+function inJson(text: string): string {
+  return JSON.stringify(text).slice(1, -1);
+}
+
+/**
+ * 2026-09-30 (third): the parts of a signed-off plan's requests this
+ * amendment adds, by stage. Each must be in its request exactly once.
+ */
+const THIRD_AMENDMENT_ADDITIONS: Record<string, string[]> = {
+  section: [inJson(reportFactsBlock())],
+  repair: [inJson(reportFactsBlock())],
+  selfCheck: [inJson(`\n\n${SUMMARY_PLAN_REPORT_FACTS_RULES}`)],
+  finalCoverage: [inJson(`\n\n${SUMMARY_PLAN_REPORT_FACTS_RULES}`)],
+};
+
 async function draftAndHash(args: {
   section: SectionNumber;
   plan?: ReturnType<typeof signedOffPlan>;
   script: { repair?: string; checks: unknown[] };
-}): Promise<{ stages: string[]; hash: string }> {
+}): Promise<{ stages: string[]; hash: string; hashWithoutThirdAmendment: string; additionsFound: boolean }> {
   const sent = installFetch(args.script);
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
@@ -215,9 +240,17 @@ async function draftAndHash(args: {
       clientFor,
     });
   });
+  let additionsFound = true;
+  const withoutAdditions = sent.map((request) =>
+    (THIRD_AMENDMENT_ADDITIONS[request.stage] ?? []).reduce((body, addition) => {
+      if (body.split(addition).length !== 2) additionsFound = false;
+      return body.split(addition).join("");
+    }, request.body));
   return {
     stages: sent.map((request) => request.stage),
     hash: await sha256Hex(JSON.stringify(sent.map((request) => request.body))),
+    hashWithoutThirdAmendment: await sha256Hex(JSON.stringify(withoutAdditions)),
+    additionsFound,
   };
 }
 
@@ -268,7 +301,11 @@ describe("requests without a dropped uncertainty are unchanged (2026-09-30, firs
       },
     });
     expect(result.stages).toEqual(["section", "selfCheck"]);
-    expect(result.hash).toBe(PINNED_5C2350AC.signedOff244);
+    // 2026-09-30 (third): the report-text rules are added on purpose; the
+    // rest of every request is byte for byte as at 5c2350ac.
+    expect(result.additionsFound).toBe(true);
+    expect(result.hash).not.toBe(PINNED_5C2350AC.signedOff244);
+    expect(result.hashWithoutThirdAmendment).toBe(PINNED_5C2350AC.signedOff244);
   });
 
   it("sends a signed-off Line 242's draft, Self-check, repair and final coverage check byte for byte as before", async () => {
@@ -298,6 +335,8 @@ describe("requests without a dropped uncertainty are unchanged (2026-09-30, firs
       },
     });
     expect(result.stages).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
-    expect(result.hash).toBe(PINNED_5C2350AC.signedOff242Repaired);
+    expect(result.additionsFound).toBe(true);
+    expect(result.hash).not.toBe(PINNED_5C2350AC.signedOff242Repaired);
+    expect(result.hashWithoutThirdAmendment).toBe(PINNED_5C2350AC.signedOff242Repaired);
   });
 });

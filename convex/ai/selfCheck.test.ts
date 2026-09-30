@@ -32,15 +32,24 @@ import {
   assembleSectionNotes,
   repairIssues,
   runDeterministicSelfCheck,
+  SOURCE_TALK_KEY,
 } from "../lib/selfCheckRules";
+import { SOURCE_TALK } from "../../shared/humanProse";
 import type { OrderedProfileContext } from "../lib/orderedChain";
-import { keptIdeaReason, planComplianceNoteDrafts } from "./orderedGeneration";
+import {
+  keptIdeaReason,
+  planComplianceNoteDrafts,
+  reportFactsIssuePrefix,
+  TARGETS_INSTRUCTION,
+} from "./orderedGeneration";
 import {
   NOT_CHECKED_REASON,
   PLAN_ITEM_NOT_CHECKED_REASON,
   PLAN_RULE_NOT_CHECKED_REASON,
   PLAN_SKIP_NOT_CHECKED_REASON,
+  PLAN_TARGETS_NOT_CHECKED_REASON,
   runModelSelfCheck,
+  TARGETS_BREAK_UNLOCATED_REASON,
   selfCheckFailureDiagnostic,
   summaryPlanSelfCheckSchemaFor,
   type SelfCheckPlanCheck,
@@ -2454,5 +2463,190 @@ describe("LEAVE OUT and Line 246 advancement verdicts (2026-09-30, first)", () =
       { required: ["droppedSeedId"] },
       { required: ["ruleId"] },
     ]);
+  });
+});
+
+describe("results against targets, no talk about sources and Glossary repairs (2026-09-30, third)", () => {
+  // Fictional Tessrow-like text: a met target called close, a memo named.
+  const TEXT = [
+    "The team tested two-angle imaging on 400 edges.",
+    "Over 240 brackets, the test memo indicates reject rate held at 2.4 percent.",
+    "The two interviewees describe the goal differently, and the flow was 7 to 8 percent lower depending on the measurement source.",
+  ].join("\n\n");
+  const deterministic = (text: string, sourceTalk?: { subjectText: readonly string[] }) =>
+    runDeterministicSelfCheck({
+      section: "244",
+      text,
+      brief: null,
+      profile: PROFILE,
+      isFirstInOrder: false,
+      ...(sourceTalk ? { sourceTalk } : {}),
+    });
+
+  it("finds talk about sources only in a signed-off plan run, names each paragraph and phrase, and sends a fixed fix to the repair", () => {
+    // Single draft and Compare: no such check, no row.
+    expect(deterministic(TEXT).entries.some((entry) => entry.key === SOURCE_TALK_KEY)).toBe(false);
+    const found = deterministic(TEXT, { subjectText: [] }).entries.find((entry) => entry.key === SOURCE_TALK_KEY);
+    expect(found).toEqual({
+      key: SOURCE_TALK_KEY,
+      repairable: true,
+      guidance:
+        `Paragraphs 2 and 3: ${SOURCE_TALK.fix} ("the test memo indicates", "interviewees", "depending on the measurement source"). ${SOURCE_TALK.rule}`,
+      row: {
+        section: "244",
+        paragraphIndex: 1,
+        source: "deterministic",
+        instruction: SOURCE_TALK.instruction,
+        outcome: "not_applied",
+        tier: "none",
+        reason: 'names a source in paragraph 2 ("the test memo indicates") and paragraph 3 ("interviewees", "depending on the measurement source")',
+        repaired: false,
+      },
+    });
+    const before = deterministic(TEXT, { subjectText: [] });
+    expect(repairIssues(before, [])).toEqual([found!.guidance]);
+  });
+
+  it("records clean text as applied and never fires on technical uses of source or on the project's own subject", () => {
+    const technical = [
+      "A light source and a heat source were compared; the sources of error were stray reflection and drift.",
+      "The open-source solver read the source code, and the power source held 24 V.",
+      "A stereo confidence map rated each depth pixel, and the brief exposure lasted 3 s.",
+      "Two light sources were used. The sources gave 5 W each.",
+    ].join("\n\n");
+    expect(deterministic(technical, { subjectText: [] }).entries.find((entry) => entry.key === SOURCE_TALK_KEY)?.row)
+      .toMatchObject({ outcome: "applied", reason: SOURCE_TALK.applied });
+    // An interview scheduling product: the plan's own words are its subject.
+    const product = "The engine ranked each interviewee by availability.";
+    expect(deterministic(product, { subjectText: ["The engine schedules each interviewee."] })
+      .entries.find((entry) => entry.key === SOURCE_TALK_KEY)?.row.outcome).toBe("applied");
+    expect(deterministic(product, { subjectText: [] })
+      .entries.find((entry) => entry.key === SOURCE_TALK_KEY)?.row.outcome).toBe("not_applied");
+  });
+
+  it("marks the row repaired when the repair took the source talk out", () => {
+    const before = deterministic(TEXT, { subjectText: [] });
+    const after = deterministic("The team tested two-angle imaging on 400 edges.", { subjectText: [] });
+    const { rows } = assembleSectionNotes({
+      section: "244",
+      before,
+      after,
+      verdicts: [],
+      modelCheck: { ok: true },
+      storylineQuestion: null,
+      repair: { attempted: true, succeeded: true },
+      finalText: "The team tested two-angle imaging on 400 edges.",
+    });
+    expect(rows.find((row) => row.instruction === SOURCE_TALK.instruction)).toMatchObject({
+      outcome: "applied",
+      repaired: true,
+      reason: `${SOURCE_TALK.applied}; repaired`,
+    });
+  });
+
+  it("gives a signed-off plan run's hedge and Glossary fixes a fixed start, and leaves every other fix as before", () => {
+    const before = deterministic("Text.", undefined);
+    const verdicts = [
+      { paragraphIndex: 1, check: "confidence" as const, instruction: "Confidence Map: Wear drift given only in the memo.", outcome: "not_applied" as const, reason: "P2 states wear flatly.", repairGuidance: "Hedge the wear figure." },
+      { paragraphIndex: 0, check: "storyline" as const, instruction: "Storyline", outcome: "not_applied" as const, reason: "P1 drifts.", repairGuidance: "Follow the Storyline." },
+      { paragraphIndex: 3, check: "glossary" as const, instruction: "Glossary Term: fine inclusion capture", outcome: "not_applied" as const, reason: "P4 says capture.", repairGuidance: "Replace capture." },
+      { paragraphIndex: 2, check: "instruction" as const, instruction: "Lead with the result.", outcome: "not_applied" as const, reason: "P3 buries it.", repairGuidance: "Lead with it." },
+    ];
+    expect(repairIssues(before, verdicts)).toEqual([
+      "Paragraph 2: Hedge the wear figure.",
+      "Paragraph 1: Follow the Storyline.",
+      "Paragraph 4: Replace capture.",
+      "Paragraph 3: Lead with it.",
+    ]);
+    const scaffold = ORDERED_PROMPT_SCAFFOLDS.repairGuidance;
+    expect(repairIssues(before, verdicts, [], {
+      verdictPrefix: (verdict) => reportFactsIssuePrefix(verdict, ["fine inclusion capture"]),
+    })).toEqual([
+      `Paragraph 2: ${scaffold.hedgeIssue}Hedge the wear figure.`,
+      `Paragraph 1: ${scaffold.hedgeIssue}Follow the Storyline.`,
+      `Paragraph 4: ${scaffold.glossaryIssuePrefix}"fine inclusion capture"${scaffold.glossaryIssueSuffix}Replace capture.`,
+      "Paragraph 3: Lead with it.",
+    ]);
+  });
+
+  const targets: SelfCheckPlanCheck = {
+    ruleId: "results_against_targets",
+    roleId: "overall_advancement",
+    mergedItemIds: [],
+    instruction: "match_targets",
+    confirmedExclusion: false,
+    wording: [],
+    relationshipReferences: [],
+    sourceReferences: [],
+  };
+
+  it("sends the targets check with its own rule, never Rule B's, and reads a verdict with no paragraph as not located", async () => {
+    const base = replayInput();
+    const planChecks = [...base.planChecks, targets];
+    const input = { ...base, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks) };
+    const first = replayResponse();
+    const answers = [{
+      ...first,
+      planVerdicts: [
+        ...first.planVerdicts,
+        { ruleId: "results_against_targets", mergedItemIds: [], paragraph: 0, outcome: "not_applied", reason: "Calls a met target close.", repairGuidance: "Say 97.8% met the 97% target." },
+      ],
+    }];
+    const client = {
+      messages: {
+        create: vi.fn(async (params: GenerationMessageParams) => ({
+          content: [{ type: "tool_use" as const, id: "targets", name: params.tool_choice?.name ?? "submit_self_check", input: answers.shift() }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        })),
+      },
+    };
+    const result = await runModelSelfCheck(client as GenerationClient, input);
+    const request = client.messages.create.mock.calls[0]![0];
+    const user = userText(request);
+    expect(user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.instruction);
+    expect(user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.instruction);
+    expect(user).toContain("- ruleId results_against_targets");
+    expect(request.system).toBe(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT);
+    // A not applied verdict must name the paragraph; this one did not.
+    expect(result.planVerdicts.at(-1)).toEqual({
+      ruleId: "results_against_targets",
+      mergedItemIds: [],
+      outcome: "not_applied",
+      reason: TARGETS_BREAK_UNLOCATED_REASON,
+      actionableRepair: false,
+    });
+  });
+
+  it("records a missing targets verdict as not checked, and a row by its own instruction and rule id", async () => {
+    const base = replayInput();
+    const planChecks = [...base.planChecks, targets];
+    const input = { ...base, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks) };
+    const answers = [replayResponse(), { verdicts: [], planVerdicts: [] }];
+    const client = {
+      messages: {
+        create: vi.fn(async (params: GenerationMessageParams) => ({
+          content: [{ type: "tool_use" as const, id: "targets-missing", name: params.tool_choice?.name ?? "submit_self_check", input: answers.shift() }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        })),
+      },
+    };
+    const result = await runModelSelfCheck(client as GenerationClient, input);
+    expect(client.messages.create).toHaveBeenCalledTimes(2);
+    expect(result.planVerdicts.at(-1)).toMatchObject({ outcome: "not_applied", reason: PLAN_TARGETS_NOT_CHECKED_REASON, actionableRepair: false });
+    const rows = planComplianceNoteDrafts({
+      section: "246",
+      summaryVersionId: "summary-version" as Id<"summaryVersions">,
+      checks: [targets as never],
+      verdicts: [{ ruleId: "results_against_targets", mergedItemIds: [], paragraphIndex: 0, outcome: "not_applied", reason: "P1 calls a met target close.", repairGuidance: "Say it met the target.", actionableRepair: true }],
+      repairSucceeded: true,
+      finalCoverage: { ok: true, verdicts: [{ ruleId: "results_against_targets", mergedItemIds: [], outcome: "applied", reason: "Every comparison matches." }] },
+    });
+    expect(rows).toEqual([expect.objectContaining({
+      instruction: TARGETS_INSTRUCTION,
+      outcome: "applied",
+      repaired: true,
+      reason: "Every comparison matches.",
+      planRef: { summaryVersionId: "summary-version", ruleId: "results_against_targets", mergedItemIds: [] },
+    })]);
   });
 });

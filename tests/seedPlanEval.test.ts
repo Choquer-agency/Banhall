@@ -1082,3 +1082,74 @@ describe("first contact fixes", () => {
     expect(log.projectId).toBeNull();
   });
 });
+
+describe("results against targets and no talk about sources (2026-09-30, third)", () => {
+  const targetsRow = (section: string, outcome: "applied" | "not_applied", repaired = false) => ({
+    section,
+    paragraphIndex: null,
+    source: "model",
+    instruction: "State each result against its target as the numbers show",
+    outcome,
+    tier: "none",
+    reason: outcome === "applied" ? "Every comparison matches." : "P1 calls met targets close.",
+    repaired,
+    planRef: { itemId: null, skippedRoleId: null, droppedSeedId: null, ruleId: "results_against_targets", mergedItemIds: [] },
+  });
+  const sourceRow = (section: string, outcome: "applied" | "not_applied", repaired = false) => ({
+    section,
+    paragraphIndex: null,
+    source: "deterministic",
+    instruction: "State facts without naming their source",
+    outcome,
+    tier: "none",
+    reason: outcome === "applied" ? "no talk about sources found" : 'names a source in paragraph 2 ("the test memo indicates")',
+    repaired,
+    planRef: null,
+  });
+  const run = () => {
+    const c = baseCollected();
+    c.summary!.items = [summaryItem("ie1", "experimentation", "e1", { bullets: ["The engine ranked each interviewee by availability."] })];
+    c.report = {
+      ...c.report!,
+      sections: {
+        s242: "The company builds interview scheduling engines.\n\nIt was uncertain whether each interviewee could be ranked in time.",
+        s244: "The team ran four trials.\n\nOver 240 runs, the test memo indicates the rank held.\n\nThe two sources disagree on the time, and a light source was not used.",
+        s246: "The objective was met: 97.8 percent against the 97 percent target.",
+      },
+    };
+    return c;
+  };
+
+  it("reports, per Line and for every fixture, the source talk left in the final text and the Self-check's row", () => {
+    const c = run();
+    c.complianceNotes = [sourceRow("242", "applied"), sourceRow("244", "not_applied", true)];
+    for (const fixture of fixtures) {
+      const row = runChecks(fixture, c, emptyRunLog(fixture.id, 0)).find((item) => item.id === "source-talk");
+      expect(row?.status).toBe("info");
+      // "interviewee" is the project's own subject (the signed-off wording).
+      expect(row?.evidence).toBe(
+        '242: none (row applied); 244: P2 "the test memo indicates", P3 "The two sources disagree" (row not_applied, repaired); 246: none (no row)'
+      );
+    }
+    expect(runChecks(fixtures[0]!, { ...c, report: null }, emptyRunLog(fixtures[0]!.id, 0))
+      .find((item) => item.id === "source-talk")?.evidence ?? "no report").toBe("no report");
+  });
+
+  it("reports Lines 244 and 246's targets rows for every fixture, and never names the targets row Rule B", () => {
+    const c = run();
+    c.complianceNotes = [targetsRow("244", "applied"), targetsRow("246", "applied", true)];
+    for (const fixture of fixtures) {
+      const checks = runChecks(fixture, c, emptyRunLog(fixture.id, 0));
+      expect(checks.find((item) => item.id === "results-against-targets")).toEqual({
+        id: "results-against-targets",
+        label: "Results stated against their targets, Lines 244 and 246 (informational; self-reported by the checking model)",
+        status: "info",
+        evidence: '244: applied ("Every comparison matches."); 246: applied, repaired ("Every comparison matches.")',
+      });
+      expect(checks.find((item) => item.id === "leave-out-repairs-246")?.evidence).toBe("no LEAVE OUT or Rule B row in Line 246");
+    }
+    c.complianceNotes = [targetsRow("246", "not_applied")];
+    expect(runChecks(fixtures[0]!, c, emptyRunLog(fixtures[0]!.id, 0)).find((item) => item.id === "results-against-targets")?.evidence)
+      .toBe('244: no row; 246: not_applied ("P1 calls met targets close.")');
+  });
+});

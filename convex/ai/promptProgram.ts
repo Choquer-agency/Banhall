@@ -359,6 +359,12 @@ const derivedWordBudgets = Object.keys(LINE_LIMITS).flatMap((section) =>
 });
 
 /**
+ * 2026-09-30 (third): where a signed-off plan run's section request reads the
+ * report-text rules (ORDERED_PROMPT_SCAFFOLDS.reportFacts).
+ */
+const REPORT_FACTS_PLACEMENT = "results-and-sources-rules-after-the-brief-in-signed-off-plan-runs";
+
+/**
  * The deployment-level provider-facing program. It deliberately contains no
  * project, user, transcript, report, Brain result, digest, or other per-call
  * content. Named sentinels describe those runtime slots without filling them.
@@ -632,6 +638,9 @@ export const generationPromptProgram = {
       instructionTemplateSet: "writing.sectionInstructionTemplates.section242",
       request: SECTION_242_REQUEST,
       model: { kind: "generation-step", step: "section", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
+      // 2026-09-30 (third): a signed-off plan run's request (and its repair)
+      // reads ORDERED_PROMPT_SCAFFOLDS.reportFacts right after the Brief.
+      reportFacts: REPORT_FACTS_PLACEMENT,
     },
     section244: {
       kind: "text",
@@ -639,6 +648,7 @@ export const generationPromptProgram = {
       instructionTemplateSet: "writing.sectionInstructionTemplates.section244",
       request: SECTION_244_REQUEST,
       model: { kind: "generation-step", step: "section", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
+      reportFacts: REPORT_FACTS_PLACEMENT,
     },
     section246: {
       kind: "text",
@@ -650,6 +660,7 @@ export const generationPromptProgram = {
       // (and its repair) reads ORDERED_PROMPT_SCAFFOLDS.advancementsAnswer242
       // after the WRITER'S DECISIONS.
       signedOffPlan: "advancements-answer-line-242-after-writer-decisions",
+      reportFacts: REPORT_FACTS_PLACEMENT,
     },
     compression: {
       kind: "text",
@@ -706,6 +717,13 @@ export const generationPromptProgram = {
         droppedUncertainties: "left-out-in-every-line-one-plan-check-each-by-dropped-seed-id-at-most-three",
         advancementsAnswer242: "line-246-plan-check-with-line-242-text-as-data-honoured-by-absence",
         extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
+        // 2026-09-30 (third): Lines 244 and 246 of a signed-off plan have one
+        // plan check that each result is stated against its target as the
+        // numbers show, honoured by absence, repaired and judged again on
+        // the final text. The Summary system prompt also says how to judge
+        // hedges, sources and Glossary candidates.
+        resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
+        hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",
       },
     },
     // Story 2 (CAP-9): the repair is the section agent itself, re-run once
@@ -720,6 +738,11 @@ export const generationPromptProgram = {
       callSite: "generation:repair:<n>",
       maxPerSection: 1,
       recheck: "deterministic-only",
+      // 2026-09-30 (third): in a signed-off plan run, report text that names
+      // a source is found deterministically and repaired (never a Must keep
+      // line), and Confidence Map, Storyline and Glossary fixes get a fixed
+      // start.
+      signedOffPlan: "source-talk-found-deterministically-hedge-and-glossary-fixes-get-a-fixed-start",
     },
     // Story 2 (CAP-10, AD-24): one pass over the assembled draft per candidate.
     consistency: {

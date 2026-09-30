@@ -38,6 +38,7 @@ import type {
   ModelVerdict,
 } from "../lib/selfCheckRules";
 import {
+  ADVANCEMENTS_ANSWER_242_RULE_ID,
   clipJsonEscapedUtf8,
   jsonEscapedUtf8Bytes,
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
@@ -48,6 +49,7 @@ import {
   MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   projectSummaryOrdinaryChecks,
+  RESULTS_AGAINST_TARGETS_RULE_ID,
   SeedContextLimitError,
   sameSummaryPlanRef,
   serializeFrozenSummaryPlanChecks,
@@ -732,14 +734,18 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
   }
   // 2026-09-30 (first): the rule for LEAVE OUT checks and for Line 246's
   // advancement check, after the data blocks. Absent without such a check,
-  // so those requests are unchanged.
+  // so those requests are unchanged. Since 2026-09-30 (third) each rule is
+  // named by its own ruleId, and the targets check has its own rule, last.
   const leaveOut = (input.planChecks ?? []).some((check) => check.droppedSeedId !== undefined);
-  const answers242 = (input.planChecks ?? []).some((check) => check.ruleId !== undefined);
+  const answers242 = (input.planChecks ?? []).some((check) => check.ruleId === ADVANCEMENTS_ANSWER_242_RULE_ID);
+  const targets = (input.planChecks ?? []).some((check) => check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID);
   return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}${
     terms.length > 0 ? exact.instruction : ""
   }${feedback.length > 0 ? writer.instruction : ""}${governed.length > 0 ? governedScaffold.instruction : ""}${
     leaveOut ? SUMMARY_PLAN_SELF_CHECK_REQUEST.leaveOut.instruction : ""
-  }${answers242 ? SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.instruction : ""}`;
+  }${answers242 ? SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.instruction : ""}${
+    targets ? SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.instruction : ""
+  }`;
 }
 
 export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
@@ -1280,16 +1286,23 @@ export const PLAN_RULE_NOT_CHECKED_REASON =
   "Not checked: the plan coverage Self-check gave no verdict for whether every advancement answers a Line 242 uncertainty.";
 export const RULE_BREAK_UNLOCATED_REASON =
   "Advancement reported as answering no Line 242 uncertainty named no valid paragraph.";
+/** 2026-09-30 (third): the same reasons for the targets check. */
+export const PLAN_TARGETS_NOT_CHECKED_REASON =
+  "Not checked: the plan coverage Self-check gave no verdict for whether each result is stated against its target as the numbers show.";
+export const TARGETS_BREAK_UNLOCATED_REASON =
+  "Result reported as misstated against its target named no valid paragraph.";
 
 function planNotCheckedReason(check: SummaryPlanRefFields): string {
   if (check.itemId) return PLAN_ITEM_NOT_CHECKED_REASON;
   if (check.droppedSeedId) return PLAN_LEAVE_OUT_NOT_CHECKED_REASON;
+  if (check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID) return PLAN_TARGETS_NOT_CHECKED_REASON;
   if (check.ruleId) return PLAN_RULE_NOT_CHECKED_REASON;
   return PLAN_SKIP_NOT_CHECKED_REASON;
 }
 
 function planBreakUnlocatedReason(check: SummaryPlanRefFields): string {
   if (check.droppedSeedId) return LEAVE_OUT_BREAK_UNLOCATED_REASON;
+  if (check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID) return TARGETS_BREAK_UNLOCATED_REASON;
   if (check.ruleId) return RULE_BREAK_UNLOCATED_REASON;
   return SKIP_BREAK_UNLOCATED_REASON;
 }

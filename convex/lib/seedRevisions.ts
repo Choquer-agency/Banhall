@@ -62,15 +62,26 @@ export const ANSWERS_242_WORST_CASE_REFERENCE = "x".repeat(
 );
 /** 2026-09-30 (first): the id of Line 246's advancement check. */
 export const ADVANCEMENTS_ANSWER_242_RULE_ID = "advancements_answer_242" as const;
-export type SummaryPlanRuleId = typeof ADVANCEMENTS_ANSWER_242_RULE_ID;
+/**
+ * 2026-09-30 (third): the id of the check, in Lines 244 and 246, that every
+ * result the Line compares with its target is stated as the numbers show.
+ */
+export const RESULTS_AGAINST_TARGETS_RULE_ID = "results_against_targets" as const;
+export type SummaryPlanRuleId =
+  | typeof ADVANCEMENTS_ANSWER_242_RULE_ID
+  | typeof RESULTS_AGAINST_TARGETS_RULE_ID;
+/** 2026-09-30 (third): the Lines whose plan carries the targets check. */
+export const RESULTS_AGAINST_TARGETS_SECTIONS: readonly PdSection[] = ["s244", "s246"];
 
 /**
  * Bump these versions whenever provider-facing Summary serialization or
  * ordinary label projection changes. Dynamic data stays outside the version.
  * v2 (2026-09-30, first): LEAVE OUT entries and checks (`droppedSeedId`) and
  * Line 246's advancement check (`ruleId`).
+ * v3 (2026-09-30, third): the targets check (`instruction: "match_targets"`,
+ * `ruleId: "results_against_targets"`) in Lines 244 and 246.
  */
-export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v2";
+export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v3";
 export const SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION =
   "summary-ordinary-labels-v2";
 
@@ -158,10 +169,17 @@ export type FrozenDroppedUncertainty<SeedId extends string = string> = {
 
 /**
  * A plan check's instruction: cover a signed-off item, honour a Skip,
- * leave out an uncertainty the writer dropped (2026-09-30, first) or, on
- * Line 246, claim advancements only for uncertainties Line 242 states.
+ * leave out an uncertainty the writer dropped (2026-09-30, first), on
+ * Line 246 claim advancements only for uncertainties Line 242 states, or, in
+ * Lines 244 and 246, state each result against its target as the numbers
+ * show (2026-09-30, third).
  */
-export type FrozenSummaryPlanInstruction = "cover" | "skip" | "leave_out" | "answer_242";
+export type FrozenSummaryPlanInstruction =
+  | "cover"
+  | "skip"
+  | "leave_out"
+  | "answer_242"
+  | "match_targets";
 
 export type FrozenSummaryPlanCheck<
   ItemId extends string = string,
@@ -670,6 +688,13 @@ export function buildFrozenSummaryPlan<
    * No text: the items alone. Absent: no such check.
    */
   answers242?: { line242Text?: string };
+  /**
+   * 2026-09-30 (third): Lines 244 and 246 only. One check that every result
+   * the Line compares with its target is stated as the numbers show. It
+   * carries no wording and adds no plan entry: the drafting rule is in
+   * RULES_REPORT_FACTS. Absent: no such check.
+   */
+  resultsAgainstTargets?: boolean;
 }): FrozenSummaryPlan<ItemId, SeedId> {
   const sectionRoles = PD_SUBSECTIONS.filter((role) => role.section === args.section);
   const roleIds = new Set(sectionRoles.map((role) => role.roleId));
@@ -802,6 +827,21 @@ export function buildFrozenSummaryPlan<
       confirmedExclusion: false,
       wording: [...uncertainty.wording],
       relationshipReferences,
+      sourceReferences: [],
+    });
+  }
+  // 2026-09-30 (third): results stated against their targets as the numbers
+  // show, in the Lines that report results. Before Rule B, so Rule B stays
+  // the last check of Line 246.
+  if (args.resultsAgainstTargets && RESULTS_AGAINST_TARGETS_SECTIONS.includes(args.section)) {
+    checks.push({
+      ruleId: RESULTS_AGAINST_TARGETS_RULE_ID,
+      roleId: args.section === "s244" ? "experimentation" : "overall_advancement",
+      mergedItemIds: [],
+      instruction: "match_targets",
+      confirmedExclusion: false,
+      wording: [],
+      relationshipReferences: [],
       sourceReferences: [],
     });
   }

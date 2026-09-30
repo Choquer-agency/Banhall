@@ -47,6 +47,117 @@ export const RULES_SEED_WORDING = `SEED WORDING (MANDATORY):
 - Ranges and paired names take the plain hyphen: 10-20, 2019-2024, Newton-Raphson.
 - Plain, specific words in the client's own terms: name the measurement, the material or the failure. No filler qualifiers ("very", "really"), no superlatives, no sales language, no exclamation marks.`;
 
+// 2026-09-30 (third, release suite runs 6, 10 and 11): two rules for report
+// text (the PD Lines) only. Notes, QA findings and the Brief name their
+// sources on purpose, so this block is not part of RULES_HUMAN_PROSE. Sent
+// in the drafting and repair requests of signed-off plan runs (Step by step);
+// Single draft and Compare keep their requests byte for byte.
+export const RULES_REPORT_FACTS = `RESULTS AND SOURCES (MANDATORY in the report text):
+Results against targets:
+- State each result against its target as the numbers show. A result at or past its target met it. Mind the direction: for a target to reach (at least 95 percent yield), a higher result met it; for a limit to stay under (scrap below 2 percent, an error under 0.5 mm, a cycle under 30 s), a lower result met it.
+- Never call a met target close to, short of, just under, below or not exceeding the target, and never say it was only approached. Say a result missed its target only when the numbers show it did.
+- A qualifier about one result (only approached, not fully met, short of the target) belongs to the test it names. Never carry it to a later or final result.
+No talk about sources:
+- State the fact, never where it came from. Do not name an interview, an interviewee, a transcript, a memo, notes, a record, a document, the Brief, the Storyline, the Confidence Map or "the sources" in the report text.
+- Where a point is open or disputed, state the uncertainty or the range itself ("about 10 to 12 percent lower", "was not confirmed"), never who said what or which document says it.`;
+
+/**
+ * 2026-09-30 (third): the Compliance Note instruction and the repair fix for
+ * report text that names where a fact came from. The deterministic Self-check
+ * of a signed-off plan run finds it with `findSourceTalk`.
+ */
+export const SOURCE_TALK = {
+  instruction: "State facts without naming their source",
+  applied: "no talk about sources found",
+  fix: "state the fact itself, not where it came from",
+  rule:
+    "Never name an interview, an interviewee, a transcript, a memo, a document, the Brief, the Storyline or the Confidence Map in the report. Where a point is open or disputed, state the uncertainty or the range itself.",
+} as const;
+
+export interface SourceTalkHit {
+  /** The words that name a source, as they appear in the text. */
+  phrase: string;
+  index: number;
+  /** Short window around the hit for the writer or a judge to locate it. */
+  context: string;
+}
+
+// Verbs that report what a source says. "show", "give" and "found" are left
+// out: "the sources gave 5 W each" is about heat or light sources.
+const SAYS =
+  "(?:say|says|said|state|states|stated|note|notes|noted|indicate|indicates|indicated|suggest|suggests|suggested|report|reports|reported|record|records|recorded|mention|mentions|mentioned|describe|describes|described|confirm|confirms|confirmed)";
+
+/**
+ * Clear phrases that talk about the sources rather than the work. Each is
+ * narrow on purpose: "light source", "heat source", "sources of error",
+ * "open-source", "source code", a lowercase "confidence map" (a vision
+ * term) and "the brief exposure" never match.
+ */
+const SOURCE_TALK_PATTERNS: readonly RegExp[] = [
+  /\binterviewees?\b/giu,
+  /\b(?:the|an|this|that|each|both|two|these|those|our|their|one|separate|later|earlier) interviews?\b/giu,
+  /\binterview (?:transcripts?|notes|records?|recordings?)\b/giu,
+  /\b(?:in|from|per|according to|based on) (?:the |an |a |one |each |both |this |that )?transcripts?\b/giu,
+  new RegExp(`\\bthe transcripts? ${SAYS}\\b`, "giu"),
+  new RegExp(`\\b(?:the (?:[\\p{L}-]+ )?)?memos? ${SAYS}\\b`, "giu"),
+  /\b(?:in|from|per|based on) the (?:[\p{L}-]+ ){0,2}memos?\b/giu,
+  /\b(?:recorded|reported|stated|given|noted|documented|described) elsewhere\b/giu,
+  /\bdepending on (?:the |which )?measurement sources?\b/giu,
+  /\baccording to (?:the |an |a |one |each |both |our |their |this |that )?(?:[\p{L}-]+ ){0,2}(?:interviews?|interviewees?|memos?|notes|records?|transcripts?|documents?|documentation|logs?|minutes|sources)\b/giu,
+  new RegExp(`\\bthe (?:[\\p{L}-]+ )?(?:documents?|records|notes|logs?) (?:say|says|said|state|states|stated|indicate|indicates|indicated|suggest|suggests|suggested|note|notes|noted|mention|mentions|mentioned)\\b`, "giu"),
+  /\b(?:the two|the|both|two|all|these|those|other) sources (?:agree|agreed|disagree|disagreed|differ|differed|conflict|conflicted|say|said|state|stated|report|reported|indicate|indicated|suggest|suggested|note|noted|mention|mentioned)\b/giu,
+  /\b(?:one|another|a single|the other|each) source (?:says|said|states|stated|puts|put|reports|reported|indicates|indicated|suggests|suggested)\b/giu,
+  // Case matters for the Brief's own names: a lowercase "brief" or
+  // "confidence map" is ordinary or technical English.
+  /\b[Tt]he (?:Generation )?Brief\b/gu,
+  /\b[Ss]torylines?\b/gu,
+  /\bConfidence Maps?\b/gu,
+];
+
+function normalizedWords(text: string): string {
+  return ` ${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()} `;
+}
+
+/**
+ * The phrases in `text` that name where a fact came from (2026-09-30,
+ * third). A phrase that also appears in `subjectText` (the signed-off plan's
+ * wording, the Glossary Terms) is the project's own subject, say an interview
+ * scheduling product, and is not reported. Hits are in text order, one per
+ * position.
+ */
+export function findSourceTalk(
+  text: string,
+  options: { subjectText?: readonly string[] } = {}
+): SourceTalkHit[] {
+  const subject = normalizedWords((options.subjectText ?? []).join(" \n "));
+  const hits: SourceTalkHit[] = [];
+  for (const pattern of SOURCE_TALK_PATTERNS) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      const phrase = match[0];
+      if (subject.includes(normalizedWords(phrase))) continue;
+      const start = Math.max(0, match.index - 30);
+      const end = Math.min(text.length, match.index + phrase.length + 30);
+      hits.push({
+        phrase,
+        index: match.index,
+        context: "..." + text.slice(start, end).replace(/\r?\n/g, " ") + "...",
+      });
+    }
+  }
+  // In text order, the longest first where two start together; a hit inside
+  // one already kept is the same words and is dropped.
+  hits.sort((left, right) => left.index - right.index || right.phrase.length - left.phrase.length);
+  const kept: SourceTalkHit[] = [];
+  for (const hit of hits) {
+    const last = kept[kept.length - 1];
+    if (last && hit.index < last.index + last.phrase.length) continue;
+    kept.push(hit);
+  }
+  return kept;
+}
+
 /** For prompts whose output is not report prose (notes, findings, questions,
  * summaries, research proposals, release notes): the same rules, applied to
  * the model's own wording, with quotations left exactly as they are. */

@@ -15,7 +15,12 @@ import {
   MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
 } from "../lib/seedRevisions";
-import { RULES_HUMAN_PROSE, RULES_SEED_WORDING } from "../../shared/humanProse";
+import {
+  RULES_HUMAN_PROSE,
+  RULES_REPORT_FACTS,
+  RULES_SEED_WORDING,
+  SOURCE_TALK,
+} from "../../shared/humanProse";
 
 export const LENGTH_BUDGET_SCAFFOLD = {
   prefix:
@@ -466,6 +471,34 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     leaveOutSuffix: "), the work that tested it and its results, but keep everything a COVER item holds. ",
     answers242Issue:
       "claim an advancement or a result only for an uncertainty Line 242 states, and leave out the rest, but keep everything a COVER item holds. ",
+    // 2026-09-30 (third): signed-off plan runs only. Fixed starts for the fix
+    // of a Confidence Map or Storyline issue, a Glossary issue and the
+    // targets check; the Self-check's own guidance follows each. Release
+    // suite runs 10 and 11: repairs wrote "the test memo indicates", "The
+    // two interviewees describe ..." and "capture more fine inclusion
+    // capture", and one put the solution into the objective.
+    hedgeIssue:
+      "hedge by stating the uncertainty or the range itself, never by naming where the fact came from, and apply a qualifier about one test only to that test. ",
+    glossaryIssuePrefix: "use the Glossary Term ",
+    glossaryIssueSuffix:
+      " only in place of the words that name that same thing another way. Never add it beside words that already say it, never force it into a sentence where it does not fit, keep the sentence grammatical, and never use it to put the solution into the objective or to change the meaning. ",
+    targetsIssue:
+      "state each result against its target as the numbers show: a result at or past its target met it, and for a limit to stay under, a lower result met it. Never call a met target close to, short of, just under or not exceeding it. ",
+    // The deterministic source-talk fix (shared/humanProse.ts), hashed here
+    // with the rest of the repair's wording.
+    sourceTalk: SOURCE_TALK,
+  },
+  // 2026-09-30 (third): a signed-off plan run's drafting request, and its
+  // repair, which reuses it, read the report-text rules of
+  // shared/humanProse.ts right after the Brief, then how they bear on the
+  // Brief. Release suite runs 6 and 11 called a met target "just under" and
+  // "close to but not exceeding" it, from a Confidence Map hedge about an
+  // earlier test. Single draft and Compare requests do not carry it.
+  reportFacts: {
+    prefix: "\n\n# ",
+    rules: RULES_REPORT_FACTS,
+    brief:
+      "\nFrom the Brief: a qualifier the Confidence Map or the Storyline gives about a result applies only to the test it names, never to a later or final result. Their notes on where a fact came from, and on which sources agree or differ, are for you, not for the report.",
   },
   // 2026-09-30 (first, Rule B): Line 246 of a signed-off plan run only, read
   // after the WRITER'S DECISIONS. CRA's T4088: Line 246 advancements come
@@ -850,6 +883,17 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     instruction:
       "\n\nThe plan check with ruleId advancements_answer_242 holds Line 242 as data in its wording: its signed-off plan items by step, then its drafted text (before Line 242 is drafted, the items alone). Judge it applied, with paragraph 0, when every advancement or result this section claims answers an uncertainty Line 242 states, comes from a COVER item of the plan, or follows the writer's Feedback. Project status and next steps are not advancements. Judge it not applied when the section claims an advancement or a result for an uncertainty Line 242 does not state: name the first such paragraph and say what to leave out.",
     idDescription: "Return the exact ruleId supplied in the input.",
+  },
+  /**
+   * 2026-09-30 (third): Lines 244 and 246 of a signed-off plan. Its one
+   * check asks whether every result the section compares with a target is
+   * stated as the numbers show (release suite runs 6 and 11: 97.8 percent
+   * called "close to but not exceeding" a 97 percent target it met). The
+   * line after the data blocks is only present when the request has it.
+   */
+  resultsAgainstTargets: {
+    instruction:
+      "\n\nThe plan check with ruleId results_against_targets asks whether each result the section compares with a target (a hypothesis target, a goal, a limit or a threshold) is stated as the numbers show. A result at or past its target met it. Mind the direction: for a target to reach, a higher result met it; for a limit to stay under (a reject rate, an error, a time), a lower result met it. A qualifier about one test applies only to that test. Judge it applied, with paragraph 0, when every such comparison matches the numbers, or when the section compares no result with a target. Judge it not applied when the section calls a met target close to, short of, just under, below or not exceeding it, says it was only approached, calls a missed target met, or carries a qualifier about one test to another test or to the final result: name the first such paragraph and give the comparison as the numbers show.",
   },
   /**
    * The one follow-up for an answer that missed labels, sent in place of the
