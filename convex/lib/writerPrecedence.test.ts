@@ -28,19 +28,28 @@ describe("the active Feedback that reaches a Line (2026-09-29 second, CAP-13 rul
     { roleId: "project_status" as const, instruction: "Say the cell is still in Bay 4.", status: "active" },
   ];
 
-  it("reaches the Line of its step and every later Line, in step order", () => {
+  it("reaches the Line of its step and every later Line, in the order the writer gave it", () => {
+    // Rows without a time keep the order they came in (the loader sorts by
+    // creation time): here the Experimentation instruction came first.
     expect(feedbackForLine("242", rows)).toEqual([
       { roleId: "company_context", instruction: SPINDLE },
     ]);
     expect(feedbackForLine("244", rows)).toEqual([
-      { roleId: "company_context", instruction: SPINDLE },
       { roleId: "experimentation", instruction: "Name each test by its month." },
+      { roleId: "company_context", instruction: SPINDLE },
     ]);
     expect(feedbackForLine("246", rows)).toEqual([
-      { roleId: "company_context", instruction: SPINDLE },
       { roleId: "experimentation", instruction: "Name each test by its month." },
+      { roleId: "company_context", instruction: SPINDLE },
       { roleId: "project_status", instruction: "Say the cell is still in Bay 4." },
     ]);
+    // With times, creation time decides, then the id, whatever the step.
+    const timed = [
+      { roleId: "project_status" as const, instruction: "C", status: "active", _creationTime: 30, _id: "c" },
+      { roleId: "company_context" as const, instruction: "B", status: "active", _creationTime: 20, _id: "z" },
+      { roleId: "experimentation" as const, instruction: "A", status: "active", _creationTime: 20, _id: "y" },
+    ];
+    expect(feedbackForLine("246", timed).map((entry) => entry.instruction)).toEqual(["A", "B", "C"]);
   });
 
   it("never carries withdrawn Feedback, Feedback a Skip suspended, or Feedback on a skipped step", () => {
@@ -261,12 +270,12 @@ describe("Glossary Terms the writer's Feedback governs (2026-09-29 second, CAP-1
       { roleId: "company_context" as const, instruction: newer, status: "active", _creationTime: 200, _id: "a" },
       { roleId: "company_context" as const, instruction: "Say Bay 4.", status: "active", _creationTime: 300, _id: "c" },
     ];
-    // The Line's Feedback stays in step order and keeps when each was given.
+    // The Line's Feedback is in the order given and keeps when each was given.
     const line246 = feedbackForLine("246", rows);
     expect(line246).toEqual([
+      { roleId: "experimentation", instruction: older, givenAt: 100, feedbackId: "b" },
       { roleId: "company_context", instruction: newer, givenAt: 200, feedbackId: "a" },
       { roleId: "company_context", instruction: "Say Bay 4.", givenAt: 300, feedbackId: "c" },
-      { roleId: "experimentation", instruction: older, givenAt: 100, feedbackId: "b" },
     ]);
     // The governing list is in time order, so the newer one is listed last
     // and wins where they disagree.

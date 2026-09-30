@@ -2150,14 +2150,15 @@ describe("seed Summary sign-off and recovery", () => {
       };
     });
     // Feedback reaches its step's Line and every later Line; withdrawn never.
-    // The Line's Feedback is in step order and keeps when each was given.
+    // The Line's Feedback is in the order the writer gave it and keeps when
+    // each was given.
     const plain = (list: ReadonlyArray<{ roleId: string; instruction: string }>) =>
       list.map(({ roleId, instruction }) => ({ roleId, instruction }));
     const bySpindle = { roleId: "company_context" as const, instruction: spindle };
     const byMonths = { roleId: "experimentation" as const, instruction: months };
     const byLater = { roleId: "company_context" as const, instruction: later };
     expect(plain(plans.s242.writerFeedback)).toEqual([bySpindle, byLater]);
-    expect(plain(plans.s244.writerFeedback)).toEqual([bySpindle, byLater, byMonths]);
+    expect(plain(plans.s244.writerFeedback)).toEqual([bySpindle, byMonths, byLater]);
     expect(plain(plans.s246.writerFeedback)).toEqual(plain(plans.s244.writerFeedback));
     for (const entry of plans.s246.writerFeedback) {
       expect(entry).toMatchObject({ givenAt: expect.any(Number), feedbackId: expect.any(String) });
@@ -2253,7 +2254,12 @@ describe("seed Summary sign-off and recovery", () => {
     const draftRequest = await runNextSectionAction(s, s.generationId);
     const user = providerUser(draftRequest);
     expect(user).toContain("# WRITER'S DECISIONS (outrank the Brief)");
-    expect(user).toContain(`- On Company / Context: "${spindle}"`);
+    // Line 246's WRITER'S FEEDBACK block is in the order given, and says the
+    // latest one wins.
+    expect(user).toContain(
+      `--- BEGIN [WRITER'S FEEDBACK] ---\n- On Company / Context: "${spindle}"\n- On Experimentation / Iterations: "${months}"\n- On Company / Context: "${later}"\n--- END [WRITER'S FEEDBACK] ---`
+    );
+    expect(user).toContain("The instructions are listed in the order the writer gave them: where instructions disagree, the latest one wins.");
     expect(user).toContain("Glossary Terms the writer's Feedback governs in this Line.");
     // The first Line drafted is 246, which all three instructions reach:
     // listed in the order the writer gave them, with the tie-break.

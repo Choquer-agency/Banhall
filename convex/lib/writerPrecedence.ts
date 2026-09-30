@@ -118,8 +118,10 @@ function lastStepOrderOf(section: SectionNumber): number {
  * reaches every Line that holds its step or a later one: Feedback on Company
  * / Context reaches Lines 242, 244 and 246, Feedback on Experimentation Lines
  * 244 and 246. Withdrawn Feedback, and Feedback suspended by a Skip, never
- * does. In step order, then in the order given; each keeps when it was given
- * (the row's creation time and id), when the row has them.
+ * does. In the order the writer gave it (the row's creation time, then its
+ * id), whatever the step, so every request that carries the Line's Feedback
+ * can say the latest one wins where instructions disagree; rows without a
+ * time keep the order they came in (the loader sorts by creation time).
  */
 export function feedbackForLine(
   section: SectionNumber,
@@ -134,21 +136,19 @@ export function feedbackForLine(
 ): WriterFeedback[] {
   const last = lastStepOrderOf(section);
   const skipped = new Set(skippedRoleIds);
-  return rows
-    .map((row, index) => ({ row, index }))
-    .filter(({ row }) =>
+  return inOrderGiven(rows
+    .filter((row) =>
       row.status === "active" &&
       !skipped.has(row.roleId) &&
       row.instruction.trim() !== "" &&
       stepOrder(row.roleId) <= last
     )
-    .sort((a, b) => stepOrder(a.row.roleId) - stepOrder(b.row.roleId) || a.index - b.index)
-    .map(({ row }) => ({
+    .map((row) => ({
       roleId: row.roleId,
       instruction: row.instruction.trim(),
       ...(row._creationTime !== undefined ? { givenAt: row._creationTime } : {}),
       ...(row._id !== undefined ? { feedbackId: String(row._id) } : {}),
-    }));
+    })));
 }
 
 /**
