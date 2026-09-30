@@ -37,6 +37,7 @@ import {
   SEED_EXPERIMENT_LINK_RULES,
   SEED_LINK_RULES,
   SEED_PROMPT_PROGRAM,
+  SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
 } from "./promptDefinitions";
@@ -516,6 +517,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       unreadableLists: "read-as-empty-and-asked-for-unless-neither-is-a-list",
       editedTerms: "allowed-word-for-word-invention-objections-set-aside",
       writerPrecedence: "kept-ideas-judged-for-coverage-feedback-governs-named-glossary-terms-by-label",
+      droppedUncertainties: "left-out-in-every-line-one-plan-check-each-by-dropped-seed-id-at-most-three",
+      advancementsAnswer242: "line-246-plan-check-with-line-242-text-as-data-honoured-by-absence",
+      extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
     });
     expect(generationPromptProgram.templates.seeds.summaryPlan).toEqual({
       drafting: FROZEN_SUMMARY_PLAN_SCAFFOLD,
@@ -581,7 +585,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
           ...generationPromptProgram.templates.seeds,
           summaryPlan: {
             ...generationPromptProgram.templates.seeds.summaryPlan,
-            serializerVersion: "summary-plan-jsonl-v2",
+            serializerVersion: "summary-plan-jsonl-v3",
           },
         },
       },

@@ -275,6 +275,7 @@ export const collect = internalQuery({
           summaryVersionId: version._id,
           version: version.version,
           skippedRoleIds: version.skippedRoleIds,
+          droppedUncertaintySeedIds: (version.droppedUncertainties ?? []).map((entry) => entry.seedId),
           signedOffAt: version.signedOffAt,
           items: bounded("summaryItems", items, LIMITS.summaryItems).map((item) => ({
             itemId: item._id,
@@ -417,6 +418,10 @@ export const collect = internalQuery({
             ? {
                 itemId: note.planRef.itemId ?? null,
                 skippedRoleId: note.planRef.skippedRoleId ?? null,
+                // 2026-09-30 (first): the LEAVE OUT rows and Line 246's
+                // advancement row.
+                droppedSeedId: note.planRef.droppedSeedId ?? null,
+                ruleId: note.planRef.ruleId ?? null,
                 mergedItemIds: note.planRef.mergedItemIds,
               }
             : null,

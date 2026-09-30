@@ -97,6 +97,7 @@ import {
   SELF_CHECK_REQUEST,
   SELF_CHECK_SCHEMA,
   SEED_PROMPT_PROGRAM,
+  SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
   STYLE_GUIDANCE_SCAFFOLDS,
@@ -645,6 +646,10 @@ export const generationPromptProgram = {
       instructionTemplateSet: "writing.sectionInstructionTemplates.section246",
       request: SECTION_246_REQUEST,
       model: { kind: "generation-step", step: "section", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
+      // 2026-09-30 (first, Rule B): a signed-off plan run's Line 246 request
+      // (and its repair) reads ORDERED_PROMPT_SCAFFOLDS.advancementsAnswer242
+      // after the WRITER'S DECISIONS.
+      signedOffPlan: "advancements-answer-line-242-after-writer-decisions",
     },
     compression: {
       kind: "text",
@@ -691,6 +696,16 @@ export const generationPromptProgram = {
         // follows the Feedback, whichever way it points, and is repaired
         // like any ordinary label.
         writerPrecedence: "kept-ideas-judged-for-coverage-feedback-governs-named-glossary-terms-by-label",
+        // 2026-09-30 (first): each uncertainty the writer dropped (at most
+        // three) is a LEAVE OUT plan check in every Line, and Line 246 of a
+        // signed-off plan has one plan check, with Line 242's text as data,
+        // that every advancement answers a Line 242 uncertainty. Both are
+        // honoured by absence, repaired like other plan issues and judged
+        // again on the final text; their verdict fields join the tool schema
+        // only when the request has such a check.
+        droppedUncertainties: "left-out-in-every-line-one-plan-check-each-by-dropped-seed-id-at-most-three",
+        advancementsAnswer242: "line-246-plan-check-with-line-242-text-as-data-honoured-by-absence",
+        extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
       },
     },
     // Story 2 (CAP-9): the repair is the section agent itself, re-run once

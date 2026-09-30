@@ -103,6 +103,12 @@ import {
   type WriterFeedback,
 } from "../lib/writerPrecedence";
 import { generationPromptVersion } from "./promptProgram";
+import {
+  MAX_DROPPED_UNCERTAINTY_CHECKS,
+  sameSummaryPlanRef,
+  type FrozenSummaryPlanInstruction,
+  type SummaryPlanRuleId,
+} from "../lib/seedRevisions";
 import { forwardOrderedPayload } from "../lib/orderedPayloadStore";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 
@@ -308,9 +314,13 @@ export function repairOverLimitReason(section: SectionNumber, words: number, lin
 type PlanCheck = {
   itemId?: Id<"summaryItems">;
   skippedRoleId?: PdSubsectionRoleId;
+  /** 2026-09-30 (first): a dropped uncertainty this Line leaves out. */
+  droppedSeedId?: Id<"seeds">;
+  /** 2026-09-30 (first): Line 246's advancement check. */
+  ruleId?: SummaryPlanRuleId;
   roleId: PdSubsectionRoleId;
   mergedItemIds: Id<"summaryItems">[];
-  instruction: "cover" | "skip";
+  instruction: FrozenSummaryPlanInstruction;
   confirmedExclusion: boolean;
   support?: "source_supported" | "writer_asserted";
   wording: string[];
@@ -387,11 +397,99 @@ export function finalCoverageFailureNoteDraft(
 
 function planVerdictFor(
   verdicts: PlanVerdicts,
-  check: Pick<PlanCheck, "itemId" | "skippedRoleId">
+  check: Pick<PlanCheck, "itemId" | "skippedRoleId" | "droppedSeedId" | "ruleId">
 ): PlanVerdicts[number] | undefined {
-  return verdicts.find((verdict) =>
-    check.itemId ? verdict.itemId === check.itemId : verdict.skippedRoleId === check.skippedRoleId
-  );
+  return verdicts.find((verdict) => sameSummaryPlanRef(check, verdict));
+}
+
+/**
+ * 2026-09-30 (first): the Compliance Note instruction for a LEAVE OUT row,
+ * naming the dropped uncertainty by its first words, never an id.
+ */
+export function leaveOutInstruction(wording: readonly string[]): string {
+  return `Leave out the uncertainty the writer dropped: "${ideaWords(wording, 100)}"`;
+}
+
+/** 2026-09-30 (first): the Compliance Note instruction for Line 246's advancement check. */
+export const ANSWERS_242_INSTRUCTION =
+  "Claim an advancement only for an uncertainty Line 242 states";
+
+/** How a plan check reads as a Compliance Note instruction. */
+function planInstruction(expected: PlanCheck): string {
+  switch (expected.instruction) {
+    case "skip":
+      return `Omit signed-off role ${expected.skippedRoleId}`;
+    case "leave_out":
+      return leaveOutInstruction(expected.wording);
+    case "answer_242":
+      return ANSWERS_242_INSTRUCTION;
+    default:
+      return `Cover signed-off Summary item ${expected.itemId}`;
+  }
+}
+
+/**
+ * 2026-09-30 (first): the Compliance Note rows for the dropped uncertainties
+ * beyond the cap, which no Line checks. Each counts as a plan row that is
+ * not applied, so plan coverage never reads complete while one is unchecked.
+ */
+export function droppedNotCheckedNoteDrafts(args: {
+  section: SectionNumber;
+  summaryVersionId: Id<"summaryVersions">;
+  dropped: ReadonlyArray<{ seedId: Id<"seeds">; wording: readonly string[] }>;
+}): ComplianceNoteDraft[] {
+  return args.dropped.map((entry) => noteDraft({
+    section: args.section,
+    source: "deterministic",
+    instruction: leaveOutInstruction(entry.wording),
+    outcome: "not_applied",
+    tier: "none",
+    reason: `Not checked: the writer dropped more than ${MAX_DROPPED_UNCERTAINTY_CHECKS} uncertainties, and only the first ${MAX_DROPPED_UNCERTAINTY_CHECKS} are left out and checked. Confirm this Line does not state this one, describe work that tested it or claim its results.`,
+    planRef: {
+      summaryVersionId: args.summaryVersionId,
+      droppedSeedId: entry.seedId,
+      mergedItemIds: [],
+    },
+  }));
+}
+
+/**
+ * 2026-09-30 (first): the repair issue for a LEAVE OUT check or Line 246's
+ * advancement check the Self-check found broken: a fixed start naming what
+ * to leave out, then the check's own guidance.
+ */
+export function leaveOutRepairIssue(
+  check: Pick<PlanCheck, "instruction" | "wording">,
+  verdict: { paragraphIndex?: number },
+  guidance: string
+): string {
+  const scaffold = ORDERED_PROMPT_SCAFFOLDS.repairGuidance;
+  const where = verdict.paragraphIndex === undefined
+    ? scaffold.wholeSection
+    : `${scaffold.paragraphPrefix}${verdict.paragraphIndex + 1}${scaffold.paragraphSuffix}`;
+  const fix = check.instruction === "leave_out"
+    ? `${scaffold.leaveOutPrefix}${quoteForPrompt(ideaWords(check.wording, 200))}${scaffold.leaveOutSuffix}`
+    : scaffold.answers242Issue;
+  return `${where}${fix}${guidance}`;
+}
+
+/**
+ * 2026-09-30 (first, Rule B): Line 246's drafting instruction in a signed-off
+ * plan run, read after the WRITER'S DECISIONS. Empty for every other Line and
+ * every run without a signed-off plan, so those requests are unchanged.
+ */
+export function advancementsAnswer242Block(
+  answers242: null | undefined | { line242Drafted: true } | { line242Drafted: false; uncertainties: readonly (readonly string[])[] }
+): string {
+  if (!answers242) return "";
+  const scaffold = ORDERED_PROMPT_SCAFFOLDS.advancementsAnswer242;
+  if (answers242.line242Drafted) return `${scaffold.heading}${scaffold.drafted}`;
+  const listed = answers242.uncertainties.length > 0
+    ? answers242.uncertainties
+        .map((wording) => `${scaffold.uncertaintyPrefix}${quoteForPrompt(wording.join(" "))}`)
+        .join("")
+    : scaffold.none;
+  return `${scaffold.heading}${scaffold.planned}${listed}`;
 }
 
 /**
@@ -432,11 +530,7 @@ export function planComplianceNoteDrafts(args: {
   }>;
 }): ComplianceNoteDraft[] {
   return args.verdicts.flatMap((verdict) => {
-    const expected = args.checks.find((check) =>
-      verdict.itemId
-        ? check.itemId === verdict.itemId
-        : check.skippedRoleId === verdict.skippedRoleId
-    );
+    const expected = args.checks.find((check) => sameSummaryPlanRef(verdict, check));
     if (!expected) return [];
     const conflict = expected.confirmedExclusion;
     const sentToRepair =
@@ -449,11 +543,11 @@ export function planComplianceNoteDrafts(args: {
       summaryVersionId: args.summaryVersionId,
       ...(expected.itemId ? { itemId: expected.itemId } : {}),
       ...(expected.skippedRoleId ? { skippedRoleId: expected.skippedRoleId } : {}),
+      ...(expected.droppedSeedId ? { droppedSeedId: expected.droppedSeedId } : {}),
+      ...(expected.ruleId ? { ruleId: expected.ruleId } : {}),
       mergedItemIds: expected.mergedItemIds,
     };
-    const instruction = expected.instruction === "skip"
-      ? `Omit signed-off role ${expected.skippedRoleId}`
-      : `Cover signed-off Summary item ${expected.itemId}`;
+    const instruction = planInstruction(expected);
     if (conflict) {
       // CAP-13 rule 4 (2026-09-29, second): the idea is drafted and kept,
       // and its row says so from the verdict that describes the final text
@@ -717,6 +811,9 @@ export async function draftCheckedSection(input: {
     glossarySetAside,
     feedbackTerms,
   });
+  // 2026-09-30 (first, Rule B): Line 246 of a signed-off plan run claims an
+  // advancement only for an uncertainty Line 242 states. Empty otherwise.
+  const answers242 = section === "246" ? advancementsAnswer242Block(claim.answers242) : "";
   // Review P3-6: the checked text is over a Locked limit and further over
   // it than the other text, which must never be traded back for it.
   const overLimitMore = (checked: string, other: string) =>
@@ -735,7 +832,7 @@ export async function draftCheckedSection(input: {
         // A signed-off plan run restates the Locked length last, after the
         // plan and the Brief (review P3-5).
         claim.planBlock
-          ? claim.briefBlock + decisions + editedTermsBlock(claim.editedTerms) + planLengthBudgetBlock(key, lengthTarget)
+          ? claim.briefBlock + decisions + answers242 + editedTermsBlock(claim.editedTerms) + planLengthBudgetBlock(key, lengthTarget)
           : claim.briefBlock,
         claim.planBlock
       ),
@@ -844,19 +941,21 @@ export async function draftCheckedSection(input: {
     planVerdicts = claim.planChecks.map((check) => ({
       ...(check.itemId ? { itemId: check.itemId } : {}),
       ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+      ...(check.droppedSeedId ? { droppedSeedId: check.droppedSeedId } : {}),
+      ...(check.ruleId ? { ruleId: check.ruleId } : {}),
       mergedItemIds: [...check.mergedItemIds],
       outcome: "not_applied" as const,
       reason: "The plan coverage Self-check did not complete.",
     }));
   }
 
+  // 2026-09-30 (first): fixes that ask to leave content out. They are never
+  // Must keep lines for the repair's compression, whose number and negation
+  // guard would otherwise protect the very words they remove.
+  const leaveOutIssues = new Set<string>();
   const planIssues = modelCheck.ok
     ? planVerdicts.flatMap((verdict) => {
-        const expected = claim.planChecks.find((check) =>
-          verdict.itemId
-            ? check.itemId === verdict.itemId
-            : check.skippedRoleId === verdict.skippedRoleId
-        );
+        const expected = claim.planChecks.find((check) => sameSummaryPlanRef(verdict, check));
         if (verdict.outcome !== "not_applied" || verdict.actionableRepair === false) return [];
         // CAP-13 rule 4: an idea the writer kept despite a Claim Exclusion
         // that the check found not covered (left out, or disclaimed) goes
@@ -865,6 +964,14 @@ export async function draftCheckedSection(input: {
         if (expected?.confirmedExclusion) {
           const kept = confirmed.find((conflict) => conflict.itemId === expected.itemId);
           return kept ? [keptIdeaRepairIssue(kept)] : [];
+        }
+        // 2026-09-30 (first): content of an uncertainty the writer dropped,
+        // or a Line 246 advancement that answers no Line 242 uncertainty,
+        // goes to the repair with a fixed start and the check's guidance.
+        if (expected?.instruction === "leave_out" || expected?.instruction === "answer_242") {
+          const issue = leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason);
+          leaveOutIssues.add(issue);
+          return [issue];
         }
         return [verdict.repairText ?? verdict.repairGuidance ?? verdict.reason];
       })
@@ -905,6 +1012,7 @@ export async function draftCheckedSection(input: {
         const fixes = issues.filter(
           (issue) =>
             !issue.startsWith("Shorten ") &&
+            !leaveOutIssues.has(issue) &&
             !claim.editedTerms.some((term) => containsTerm(issue, term))
         );
         const fit = await compressWithinLimit(
@@ -1112,6 +1220,13 @@ export async function draftCheckedSection(input: {
         ...(droppedForLimit.has(conflict.itemId) ? { droppedForLimit: true } : {}),
       }])),
     });
+    // 2026-09-30 (first): dropped uncertainties beyond the cap are named as
+    // not checked, and count as plan rows that are not applied.
+    planRows.push(...droppedNotCheckedNoteDrafts({
+      section,
+      summaryVersionId: payload.summaryVersionId,
+      dropped: claim.droppedNotChecked ?? [],
+    }));
     rows.push(...planRows);
     if (finalCoverage && !finalCoverage.ok) {
       rows.push(finalCoverageFailureNoteDraft(section, finalCoverage.reason, finalCoverage.detail));

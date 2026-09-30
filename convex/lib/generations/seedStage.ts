@@ -37,7 +37,12 @@ import {
   stableSerialize,
   resolveFrozenSourceId,
   MAX_SEED_SNAPSHOT_ROWS,
+  ANSWERS_242_WORST_CASE_REFERENCE,
+  type FrozenDroppedUncertainty,
+  type FrozenSummaryPlanInstruction,
+  type SummaryPlanRuleId,
 } from "../seedRevisions";
+import { chooseDroppedUncertainties, relatedSeedsOfDropped } from "../droppedUncertainties";
 import { transitionGeneration } from "../generationTransitions";
 import { refreshProjectGenerationActivity } from "../dashboardProjection";
 import { MODEL, seedModelById } from "../../../shared/generationModels";
@@ -476,6 +481,18 @@ export async function signOffSeedStageHandler(
     lengthTarget: generation.lengthTarget,
   }));
   const now = Date.now();
+  // 2026-09-29 (first, review P2-2): an experiment or advancement that names
+  // an uncertainty later revised through Feedback names the picked revision
+  // (or original) in the frozen plan, so the plan only refers to uncertainties
+  // it holds and advancements sharing one uncertainty are merged.
+  const links = pickedLinks(state);
+  const droppedUncertainties = await freezeDroppedUncertainties(ctx, {
+    generation,
+    state,
+    orderedSeeds: orderShownSet({ seeds: state.seeds, batches: state.batches }),
+    selectedIds,
+    rootOf: links.rootOf,
+  });
   const summaryVersionId = await ctx.db.insert("summaryVersions", {
     projectId: generation.projectId,
     generationId: generation._id,
@@ -485,15 +502,11 @@ export async function signOffSeedStageHandler(
     reportTitle: project.title,
     settingsHash,
     skippedRoleIds,
+    ...(droppedUncertainties.length > 0 ? { droppedUncertainties } : {}),
     readiness: true,
     signedOffBy: user._id,
     signedOffAt: now,
   });
-  // 2026-09-29 (first, review P2-2): an experiment or advancement that names
-  // an uncertainty later revised through Feedback names the picked revision
-  // (or original) in the frozen plan, so the plan only refers to uncertainties
-  // it holds and advancements sharing one uncertainty are merged.
-  const links = pickedLinks(state);
   const planUncertainty = (seed: Doc<"seeds">): Id<"seeds"> | undefined => {
     if (!seed.uncertaintySeedId) return undefined;
     if (seed.roleId !== "experimentation" && seed.roleId !== "specific_advancements") return seed.uncertaintySeedId;
@@ -561,12 +574,17 @@ export async function signOffSeedStageHandler(
   const payload = await frozenOrderedPayload(ctx, generation, summaryVersionId);
   try {
     for (const section of ["242", "244", "246"] as const) {
+      // 2026-09-30 (first): every Line's LEAVE OUT checks, and Line 246's
+      // advancement check with Line 242 at its reserved worst case, are
+      // counted, so the runtime requests never exceed what is admitted.
       const plan = buildFrozenSummaryPlan({
         section: `s${section}`,
         items: frozenItems,
         skippedRoleIds,
         referencesBySeedId,
         sourceRefsByItemId,
+        droppedUncertainties: checkedDroppedUncertainties(droppedUncertainties),
+        ...(section === "246" ? { answers242: { reference: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
       });
       const ordinaryChecks = summaryOrdinaryAdmission({
         section,
@@ -626,6 +644,80 @@ export async function signOffSeedStageHandler(
   );
   await refreshProjectGenerationActivity(ctx, generation.projectId);
   return { summaryVersionId, candidateRunId: chain.candidateRunId };
+}
+
+type FrozenDroppedUncertaintyRow = NonNullable<Doc<"summaryVersions">["droppedUncertainties"]>[number];
+
+/**
+ * 2026-09-30 (first): the uncertainties the writer ticked, then unticked, as
+ * frozen on the Summary (convex/lib/droppedUncertainties.ts): the first
+ * three with the experiments and advancements that recorded them, the rest
+ * marked not checked.
+ */
+async function freezeDroppedUncertainties(
+  ctx: MutationCtx,
+  args: {
+    generation: Doc<"generations">;
+    state: {
+      seeds: Doc<"seeds">[];
+      selectionRows: Doc<"seedSelections">[];
+    };
+    /** The run's Seeds in Shown Set order. */
+    orderedSeeds: Doc<"seeds">[];
+    selectedIds: ReadonlySet<Id<"seeds">>;
+    rootOf: (seedId: string) => string;
+  }
+): Promise<FrozenDroppedUncertaintyRow[]> {
+  const rowBySeed = new Map(args.state.selectionRows.map((row) => [row.seedId, row] as const));
+  const uncertainties = args.orderedSeeds.filter(
+    (seed) => seed.roleId === "active_uncertainties" && rowBySeed.has(seed._id)
+  );
+  const wordingOf = (seed: Doc<"seeds">) => materializeFinalWording(seed, rowBySeed.get(seed._id));
+  const choice = chooseDroppedUncertainties({
+    unticked: uncertainties
+      .filter((seed) => rowBySeed.get(seed._id)?.selected === false && !args.selectedIds.has(seed._id))
+      .map((seed) => ({ seedId: seed._id, wording: wordingOf(seed) })),
+    kept: uncertainties
+      .filter((seed) => args.selectedIds.has(seed._id))
+      .map((seed) => ({ seedId: seed._id, wording: wordingOf(seed) })),
+    rootOf: args.rootOf,
+  });
+  if (choice.checked.length === 0) return [];
+  const related = await relatedSeedsOfDropped(ctx, {
+    generationId: args.generation._id,
+    projectId: args.generation.projectId,
+    droppedSeedIds: choice.checked.map((entry) => entry.seedId),
+    selectionRows: args.state.selectionRows,
+  });
+  return [
+    ...choice.checked.map((entry) => ({
+      seedId: entry.seedId,
+      wording: entry.wording,
+      experiments: related.get(entry.seedId)?.experiments ?? [],
+      advancements: related.get(entry.seedId)?.advancements ?? [],
+    })),
+    ...choice.notChecked.map((entry) => ({
+      seedId: entry.seedId,
+      wording: entry.wording,
+      experiments: [],
+      advancements: [],
+      notChecked: true,
+    })),
+  ];
+}
+
+/** The frozen dropped uncertainties each Line leaves out and checks. */
+function checkedDroppedUncertainties(
+  rows: readonly FrozenDroppedUncertaintyRow[] | undefined
+): FrozenDroppedUncertainty<Id<"seeds">>[] {
+  return (rows ?? [])
+    .filter((row) => row.notChecked !== true)
+    .map((row) => ({
+      seedId: row.seedId,
+      wording: row.wording,
+      experiments: row.experiments,
+      advancements: row.advancements,
+    }));
 }
 
 /** Argument validators of generations.beginSummaryRecovery. */
@@ -862,16 +954,29 @@ export async function loadFrozenSectionPlan(
    * say which ones the writer's Feedback governs in this Line and which ones
    * a signed-off edit sets aside.
    */
-  options: { glossaryTerms?: readonly string[] } = {}
+  options: {
+    glossaryTerms?: readonly string[];
+    /**
+     * 2026-09-30 (first): Line 246 only, Rule B. `worst_case` at admission,
+     * where Line 242 is reserved at its cap; otherwise the text Line 242 was
+     * drafted with, when it was drafted before this Line (without it, the
+     * plan's signed-off uncertainties stand in). Absent: no such check.
+     */
+    answers242?: { kind: "worst_case" } | { kind: "drafted"; line242Text?: string };
+  } = {}
 ): Promise<{
   planBlock: string;
   planChecksBlock: string;
   planChecks: Array<{
     itemId?: Id<"summaryItems">;
     skippedRoleId?: PdSubsectionRoleId;
+    /** 2026-09-30 (first): a dropped uncertainty this Line leaves out. */
+    droppedSeedId?: Id<"seeds">;
+    /** 2026-09-30 (first): Line 246's advancement check. */
+    ruleId?: SummaryPlanRuleId;
     roleId: PdSubsectionRoleId;
     mergedItemIds: Id<"summaryItems">[];
-    instruction: "cover" | "skip";
+    instruction: FrozenSummaryPlanInstruction;
     confirmedExclusion: boolean;
     support?: "source_supported" | "writer_asserted";
     wording: string[];
@@ -906,6 +1011,17 @@ export async function loadFrozenSectionPlan(
    * names, which that Feedback governs here, each with the instructions.
    */
   feedbackTerms: FeedbackGovernedTerm[];
+  /**
+   * 2026-09-30 (first): the dropped uncertainties beyond the cap, which this
+   * Line does not check; the Compliance Note names each as not checked.
+   */
+  droppedNotChecked: Array<{ seedId: Id<"seeds">; wording: string[] }>;
+  /**
+   * 2026-09-30 (first): Line 246 of a signed-off plan only. Whether Line 242
+   * was drafted before it (the drafter reads it as a prior section), and
+   * otherwise the signed-off uncertainties that stand in for it.
+   */
+  answers242: null | { line242Drafted: true } | { line242Drafted: false; uncertainties: string[][] };
 }> {
   if (!generation.summaryVersionId) {
     return {
@@ -916,6 +1032,8 @@ export async function loadFrozenSectionPlan(
       writerFeedback: [],
       glossarySetAside: [],
       feedbackTerms: [],
+      droppedNotChecked: [],
+      answers242: null,
     };
   }
   const summary = await ctx.db.get(generation.summaryVersionId);
@@ -938,6 +1056,18 @@ export async function loadFrozenSectionPlan(
   );
   const { sourceRefsByItemId, quotesLeftOut } = await loadSummarySourceRefs(ctx, generation, items);
   const pdSection = section === "242" ? "s242" : section === "244" ? "s244" : "s246";
+  // 2026-09-30 (first, Rule B): Line 242 as drafted, or, before it is, the
+  // signed-off uncertainties it will state.
+  const skippedRoles = new Set(summary.skippedRoleIds);
+  const planUncertainties = items
+    .filter((item) => item.roleId === "active_uncertainties" && !skippedRoles.has(item.roleId))
+    .map((item) => item.bullets);
+  const line242Text = options.answers242?.kind === "drafted" ? options.answers242.line242Text?.trim() ?? "" : "";
+  const answers242Reference = section !== "246" || !options.answers242
+    ? undefined
+    : options.answers242.kind === "worst_case"
+      ? ANSWERS_242_WORST_CASE_REFERENCE
+      : line242Text || planUncertainties.map((bullets) => `- ${bullets.join(" ")}`).join("\n");
   const plan = buildFrozenSummaryPlan({
     section: pdSection,
     items: items.map((item) => ({
@@ -957,6 +1087,8 @@ export async function loadFrozenSectionPlan(
     skippedRoleIds: summary.skippedRoleIds,
     referencesBySeedId,
     sourceRefsByItemId,
+    droppedUncertainties: checkedDroppedUncertainties(summary.droppedUncertainties),
+    ...(answers242Reference !== undefined ? { answers242: { reference: answers242Reference } } : {}),
   });
   // An edited item's terms: what the writer changed or added compared with
   // the model's original Seed (immutable). Items frozen before 2026-09-24
@@ -1006,11 +1138,21 @@ export async function loadFrozenSectionPlan(
     glossarySetAside: precedence.setAside,
     feedbackTerms: precedence.governed,
     editedTerms: editedTerms.slice(0, MAX_EDITED_TERMS_PER_LINE),
+    droppedNotChecked: (summary.droppedUncertainties ?? [])
+      .filter((row) => row.notChecked === true)
+      .map((row) => ({ seedId: row.seedId, wording: row.wording })),
+    answers242: answers242Reference === undefined
+      ? null
+      : line242Text
+        ? { line242Drafted: true as const }
+        : { line242Drafted: false as const, uncertainties: planUncertainties },
     planBlock: `\n\n${plan.block}`,
     planChecksBlock: plan.checksBlock,
     planChecks: plan.checks.map((check) => ({
       ...(check.itemId ? { itemId: check.itemId } : {}),
       ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+      ...(check.droppedSeedId ? { droppedSeedId: check.droppedSeedId } : {}),
+      ...(check.ruleId ? { ruleId: check.ruleId } : {}),
       roleId: check.roleId,
       mergedItemIds: check.mergedItemIds,
       instruction: check.instruction,
@@ -1045,7 +1187,11 @@ export async function assertFrozenSummaryRuntimeAdmission(
   }
   try {
     for (const section of ["242", "244", "246"] as const) {
-      const plan = await loadFrozenSectionPlan(ctx, generation, section);
+      // 2026-09-30 (first): Line 246's advancement check is admitted with
+      // Line 242 at its reserved worst case, as at sign-off.
+      const plan = await loadFrozenSectionPlan(ctx, generation, section, {
+        answers242: { kind: "worst_case" },
+      });
       const ordinaryChecks = summaryOrdinaryAdmission({
         section,
         storylineText: loadedBrief.briefDoc.storylineText,

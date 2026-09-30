@@ -15,6 +15,7 @@ import {
   ORDERED_SECTION_TITLES,
   SELF_CHECK_REQUEST,
   SELF_CHECK_SCHEMA,
+  SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
 } from "./promptDefinitions";
@@ -48,10 +49,13 @@ import {
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   projectSummaryOrdinaryChecks,
   SeedContextLimitError,
+  sameSummaryPlanRef,
   serializeFrozenSummaryPlanChecks,
+  summaryPlanRefsOf,
   summarySelfCheckWorstCaseResponse,
   type FrozenSummaryPlanCheck,
   type SummaryOrdinaryCheck,
+  type SummaryPlanRefFields,
 } from "../lib/seedRevisions";
 
 /**
@@ -118,6 +122,10 @@ type RawSelfCheck = {
 type RawPlanVerdict = {
   itemId?: string;
   skippedRoleId?: string;
+  /** 2026-09-30 (first): a LEAVE OUT check's dropped uncertainty. */
+  droppedSeedId?: string;
+  /** 2026-09-30 (first): Line 246's advancement check. */
+  ruleId?: string;
   mergedItemIds: string[];
   paragraph?: number;
   outcome: "applied" | "not_applied";
@@ -163,6 +171,8 @@ const summaryVerdictOutputSchema = z.object({
 const summaryPlanVerdictOutputSchema = z.object({
   itemId: z.string().optional(),
   skippedRoleId: z.string().optional(),
+  droppedSeedId: z.string().optional(),
+  ruleId: z.string().optional(),
   mergedItemIds: z.array(z.string()),
   // AC11 deliberately treats absent or non-evidentiary numeric paragraph
   // values as not_applied. All other Summary fields remain required.
@@ -720,9 +730,16 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
       }).join(governedScaffold.separator)
     ));
   }
+  // 2026-09-30 (first): the rule for LEAVE OUT checks and for Line 246's
+  // advancement check, after the data blocks. Absent without such a check,
+  // so those requests are unchanged.
+  const leaveOut = (input.planChecks ?? []).some((check) => check.droppedSeedId !== undefined);
+  const answers242 = (input.planChecks ?? []).some((check) => check.ruleId !== undefined);
   return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}${
     terms.length > 0 ? exact.instruction : ""
-  }${feedback.length > 0 ? writer.instruction : ""}${governed.length > 0 ? governedScaffold.instruction : ""}`;
+  }${feedback.length > 0 ? writer.instruction : ""}${governed.length > 0 ? governedScaffold.instruction : ""}${
+    leaveOut ? SUMMARY_PLAN_SELF_CHECK_REQUEST.leaveOut.instruction : ""
+  }${answers242 ? SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.instruction : ""}`;
 }
 
 export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
@@ -783,7 +800,11 @@ export function summaryChecklist(
                 id: check.itemId,
                 ids: check.mergedItemIds.length ? check.mergedItemIds.join(", ") : "none",
               })
-          : fillRuntime(list.skipLine, { id: check.skippedRoleId ?? "" })),
+          : check.droppedSeedId !== undefined
+            ? fillRuntime(list.leaveOutLine, { id: check.droppedSeedId })
+            : check.ruleId !== undefined
+              ? fillRuntime(list.ruleLine, { id: check.ruleId })
+              : fillRuntime(list.skipLine, { id: check.skippedRoleId ?? "" })),
     ].join(list.lineSeparator));
   }
   return parts.join(list.separator);
@@ -796,7 +817,7 @@ export function summaryChecklist(
  */
 export function summaryPlanSelfCheckSchemaFor(
   ordinary: readonly Pick<SummaryOrdinaryCheck, "label">[],
-  planChecks: readonly { itemId?: string; skippedRoleId?: string }[],
+  planChecks: readonly SummaryPlanRefFields[],
   options: { coverageOnly?: boolean } = {}
 ) {
   const base = SUMMARY_PLAN_SELF_CHECK_SCHEMA;
@@ -804,6 +825,19 @@ export function summaryPlanSelfCheckSchemaFor(
   const itemIds = planChecks.flatMap((check) => (check.itemId ? [check.itemId] : []));
   const skipIds = planChecks.flatMap((check) =>
     check.skippedRoleId ? [check.skippedRoleId] : []);
+  // 2026-09-30 (first): a LEAVE OUT check's and a rule check's fields, and
+  // their oneOf branches, only in a request that has such a check.
+  const droppedIds = planChecks.flatMap((check) =>
+    check.droppedSeedId ? [check.droppedSeedId] : []);
+  const ruleIds = planChecks.flatMap((check) => (check.ruleId ? [check.ruleId] : []));
+  const extraProperties = {
+    ...(droppedIds.length > 0
+      ? { droppedSeedId: { ...SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS.droppedSeedId, enum: droppedIds } }
+      : {}),
+    ...(ruleIds.length > 0
+      ? { ruleId: { ...SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS.ruleId, enum: ruleIds } }
+      : {}),
+  };
   const plan = base.properties.planVerdicts;
   // The final coverage check (2026-09-28, third) never asks a Storyline
   // question, so its schema has no place for one.
@@ -843,7 +877,17 @@ export function summaryPlanSelfCheckSchemaFor(
               ...plan.items.properties.skippedRoleId,
               ...(skipIds.length > 0 ? { enum: skipIds } : {}),
             },
+            ...extraProperties,
           },
+          ...(droppedIds.length > 0 || ruleIds.length > 0
+            ? {
+                oneOf: [
+                  ...plan.items.oneOf,
+                  ...(droppedIds.length > 0 ? [{ required: ["droppedSeedId"] }] : []),
+                  ...(ruleIds.length > 0 ? [{ required: ["ruleId"] }] : []),
+                ],
+              }
+            : {}),
         },
       },
     },
@@ -867,6 +911,10 @@ export type ModelSelfCheckResult = {
   planVerdicts: Array<{
     itemId?: string;
     skippedRoleId?: string;
+    /** 2026-09-30 (first): a LEAVE OUT check's dropped uncertainty. */
+    droppedSeedId?: string;
+    /** 2026-09-30 (first): Line 246's advancement check. */
+    ruleId?: string;
     mergedItemIds: string[];
     paragraphIndex?: number;
     outcome: "applied" | "not_applied";
@@ -930,8 +978,27 @@ type SummaryCoverageGap = {
   plans: SelfCheckPlanCheck[];
 };
 
-function planRefOf(check: { itemId?: string; skippedRoleId?: string }): string {
-  return check.itemId ? `item:${check.itemId}` : `skip:${check.skippedRoleId ?? ""}`;
+const PLAN_REF_PREFIX = {
+  itemId: "item",
+  skippedRoleId: "skip",
+  droppedSeedId: "drop",
+  ruleId: "rule",
+} as const;
+
+/** A plan check's or verdict's one reference as text; "" without exactly one. */
+function planRefOf(check: SummaryPlanRefFields): string {
+  const refs = summaryPlanRefsOf(check);
+  return refs.length === 1 && refs[0]!.id !== ""
+    ? `${PLAN_REF_PREFIX[refs[0]!.key]}:${refs[0]!.id}`
+    : "";
+}
+
+/** How a plan check is named in a diagnostic (ids this app supplied only). */
+function planCheckName(check: SummaryPlanRefFields): string {
+  if (check.itemId) return `item ${check.itemId}`;
+  if (check.droppedSeedId) return `left-out uncertainty ${check.droppedSeedId}`;
+  if (check.ruleId) return `rule ${check.ruleId}`;
+  return `Skip ${check.skippedRoleId ?? ""}`;
 }
 
 /**
@@ -1022,28 +1089,21 @@ function validateSummaryOutput(args: {
   const seenPlanRefs = new Set<string>();
   const rawPlans = raw.planVerdicts ?? [];
   const planVerdicts = rawPlans.filter((verdict, index) => {
-    const ref = verdict.itemId
-      ? `item:${verdict.itemId}`
-      : verdict.skippedRoleId
-        ? `skip:${verdict.skippedRoleId}`
-        : "";
     // Check the reference before looking up its plan check: with no usable
     // reference, the lookup would match an unrelated item's undefined
-    // skippedRoleId and the diagnostic would name that item.
-    const usable =
-      (verdict.itemId !== undefined) !== (verdict.skippedRoleId !== undefined) && ref !== "";
+    // skippedRoleId and the diagnostic would name that item. Since
+    // 2026-09-30 (first) a verdict may also name a dropped uncertainty or a
+    // rule; it still names exactly one reference.
+    const ref = planRefOf(verdict);
+    const usable = ref !== "";
+    const [field] = summaryPlanRefsOf(verdict);
     const expected = usable
-      ? planChecks.find((check) =>
-          verdict.itemId
-            ? check.itemId === verdict.itemId
-            : check.skippedRoleId === verdict.skippedRoleId
-        )
+      ? planChecks.find((check) => sameSummaryPlanRef(verdict, check))
       : undefined;
     const problem = ((): string | null => {
-      if (!usable) return "needs exactly one non-empty itemId or skippedRoleId";
+      if (!usable) return "needs exactly one non-empty itemId, skippedRoleId, droppedSeedId or ruleId";
       if (!expected) {
-        const field = verdict.itemId ? "itemId" : "skippedRoleId";
-        return `${field} of ${jsonEscapedUtf8Bytes(verdict.itemId ?? verdict.skippedRoleId ?? "")} escaped bytes matches no plan check`;
+        return `${field?.key ?? "itemId"} of ${jsonEscapedUtf8Bytes(field?.id ?? "")} escaped bytes matches no plan check`;
       }
       if (seenPlanRefs.has(ref)) return "plan reference repeats";
       if (verdict.paragraph !== undefined && !withinSummaryNumberReservation(verdict.paragraph)) {
@@ -1058,7 +1118,7 @@ function validateSummaryOutput(args: {
       return (
         overLimit(
           "id",
-          verdict.itemId ?? verdict.skippedRoleId ?? "",
+          field?.id ?? "",
           MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
         ) ??
         verdict.mergedItemIds
@@ -1077,11 +1137,7 @@ function validateSummaryOutput(args: {
     if (problem) {
       problems.push(
         `plan verdict ${verdict.position ?? index + 1}${
-          expected
-            ? expected.itemId
-              ? ` (item ${expected.itemId})`
-              : ` (Skip ${expected.skippedRoleId})`
-            : ""
+          expected ? ` (${planCheckName(expected)})` : ""
         }: ${problem}`
       );
       return false;
@@ -1214,6 +1270,29 @@ export const ITEM_EVIDENCE_UNLOCATED_REASON =
  */
 export const SKIP_BREAK_UNLOCATED_REASON =
   "Skip reported as not honoured named no valid paragraph.";
+/** 2026-09-30 (first): the same reasons for a LEAVE OUT check. */
+export const PLAN_LEAVE_OUT_NOT_CHECKED_REASON =
+  "Not checked: the plan coverage Self-check gave no verdict for this uncertainty the writer dropped.";
+export const LEAVE_OUT_BREAK_UNLOCATED_REASON =
+  "Dropped uncertainty reported as present named no valid paragraph.";
+/** 2026-09-30 (first): the same reasons for Line 246's advancement check. */
+export const PLAN_RULE_NOT_CHECKED_REASON =
+  "Not checked: the plan coverage Self-check gave no verdict for whether every advancement answers a Line 242 uncertainty.";
+export const RULE_BREAK_UNLOCATED_REASON =
+  "Advancement reported as answering no Line 242 uncertainty named no valid paragraph.";
+
+function planNotCheckedReason(check: SummaryPlanRefFields): string {
+  if (check.itemId) return PLAN_ITEM_NOT_CHECKED_REASON;
+  if (check.droppedSeedId) return PLAN_LEAVE_OUT_NOT_CHECKED_REASON;
+  if (check.ruleId) return PLAN_RULE_NOT_CHECKED_REASON;
+  return PLAN_SKIP_NOT_CHECKED_REASON;
+}
+
+function planBreakUnlocatedReason(check: SummaryPlanRefFields): string {
+  if (check.droppedSeedId) return LEAVE_OUT_BREAK_UNLOCATED_REASON;
+  if (check.ruleId) return RULE_BREAK_UNLOCATED_REASON;
+  return SKIP_BREAK_UNLOCATED_REASON;
+}
 
 /**
  * The follow-up request: the data blocks, the follow-up text and only what
@@ -1318,8 +1397,7 @@ async function completeSummarySelfCheck(
     );
     const verdicts = answer.verdicts.filter((verdict) => !answeredLabels.has(verdict.instruction));
     const planVerdicts = (answer.planVerdicts ?? []).filter((verdict) =>
-      (verdict.itemId === undefined) === (verdict.skippedRoleId === undefined) ||
-      !answeredPlans.has(planRefOf(verdict)));
+      planRefOf(verdict) === "" || !answeredPlans.has(planRefOf(verdict)));
     const dropped =
       answer.verdicts.length - verdicts.length +
       (answer.planVerdicts ?? []).length - planVerdicts.length;
@@ -1491,11 +1569,7 @@ export async function runModelSelfCheck(
   return {
     verdicts,
     planVerdicts: (input.planChecks ?? []).map((expected) => {
-      const verdict = raw.planVerdicts?.find((candidate) =>
-        expected.itemId
-          ? candidate.itemId === expected.itemId
-          : candidate.skippedRoleId === expected.skippedRoleId
-      );
+      const verdict = raw.planVerdicts?.find((candidate) => sameSummaryPlanRef(expected, candidate));
       const paragraphIndex = verdict
         ? exactPlanParagraphIndex(verdict.paragraph, count)
         : undefined;
@@ -1504,7 +1578,9 @@ export async function runModelSelfCheck(
       // (0 or none), while a Skip that is not honoured must name the
       // paragraph where the role appears. A verdict that claims text is
       // there without naming a valid paragraph is not applied and asks for
-      // no repair: nothing located a prose defect.
+      // no repair: nothing located a prose defect. Since 2026-09-30 (first)
+      // a LEAVE OUT check and Line 246's advancement check are honoured by
+      // absence too, like a Skip.
       const skip = expected.itemId === undefined;
       const applied = verdict?.outcome === "applied" &&
         (skip || paragraphIndex !== undefined);
@@ -1524,15 +1600,15 @@ export async function runModelSelfCheck(
       return {
         ...(expected.itemId ? { itemId: expected.itemId } : {}),
         ...(expected.skippedRoleId ? { skippedRoleId: expected.skippedRoleId } : {}),
+        ...(expected.droppedSeedId ? { droppedSeedId: expected.droppedSeedId } : {}),
+        ...(expected.ruleId ? { ruleId: expected.ruleId } : {}),
         mergedItemIds: [...expected.mergedItemIds],
         ...(cited ? { paragraphIndex } : {}),
         outcome: applied ? "applied" as const : "not_applied" as const,
         reason: !verdict
-          ? expected.itemId
-            ? PLAN_ITEM_NOT_CHECKED_REASON
-            : PLAN_SKIP_NOT_CHECKED_REASON
+          ? planNotCheckedReason(expected)
           : evidenceDowngraded
-            ? skip ? SKIP_BREAK_UNLOCATED_REASON : ITEM_EVIDENCE_UNLOCATED_REASON
+            ? skip ? planBreakUnlocatedReason(expected) : ITEM_EVIDENCE_UNLOCATED_REASON
             : verdict.reason.trim() || "Plan verdict was not applied.",
         ...(!evidenceDowngraded && verdict?.repairGuidance?.trim()
           ? { repairGuidance: verdict.repairGuidance.trim() }

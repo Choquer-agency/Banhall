@@ -2169,7 +2169,7 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
       mutate: (response: ReturnType<typeof replayResponse>) => {
         Reflect.deleteProperty(response.planVerdicts[1], "itemId");
       },
-      detail: "plan verdict 2: needs exactly one non-empty itemId or skippedRoleId",
+      detail: "plan verdict 2: needs exactly one non-empty itemId, skippedRoleId, droppedSeedId or ruleId",
       missing: { plan: 1 },
     },
     {
@@ -2177,7 +2177,7 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
       mutate: (response: ReturnType<typeof replayResponse>) => {
         response.planVerdicts[2].itemId = "";
       },
-      detail: "plan verdict 3: needs exactly one non-empty itemId or skippedRoleId",
+      detail: "plan verdict 3: needs exactly one non-empty itemId, skippedRoleId, droppedSeedId or ruleId",
       missing: { plan: 2 },
     },
     {

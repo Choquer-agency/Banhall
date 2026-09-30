@@ -20,6 +20,7 @@ import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsecti
 import { matchesClaimExclusion, normalizeExclusionMatch } from "./claimExclusionMatcher";
 import { sectionParagraphs } from "./tiptapReport";
 import type { SectionNumber } from "./orderedChain";
+import type { FrozenSummaryPlanInstruction } from "./seedRevisions";
 
 /**
  * One active Feedback instruction and the step it was given on. `givenAt`
@@ -391,7 +392,7 @@ function exclusionNeedles(exclusion: ClaimExclusionLike): string[] {
 export function confirmedConflictsOf(
   planChecks: ReadonlyArray<{
     itemId?: string;
-    instruction: "cover" | "skip";
+    instruction: FrozenSummaryPlanInstruction;
     confirmedExclusion: boolean;
     wording: readonly string[];
   }>,

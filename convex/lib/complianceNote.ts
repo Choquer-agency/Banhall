@@ -16,6 +16,11 @@ export const compliancePlanRefValidator = v.object({
   summaryVersionId: v.id("summaryVersions"),
   itemId: v.optional(v.id("summaryItems")),
   skippedRoleId: v.optional(planRoleIdValidator),
+  // 2026-09-30 (first): the row for an uncertainty the writer dropped, left
+  // out of this Line, and the row for Line 246's check that every advancement
+  // answers an uncertainty Line 242 states. Absent on every other row.
+  droppedSeedId: v.optional(v.id("seeds")),
+  ruleId: v.optional(v.literal("advancements_answer_242")),
   mergedItemIds: v.array(v.id("summaryItems")),
 });
 export type CompliancePlanRef = Infer<typeof compliancePlanRefValidator>;

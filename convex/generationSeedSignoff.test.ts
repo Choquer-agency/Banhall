@@ -27,6 +27,7 @@ import {
   MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
   MAX_SUMMARY_PLAN_VERDICTS,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+  ANSWERS_242_WORST_CASE_REFERENCE,
   buildFrozenSummaryPlan,
   projectFrozenSummaryPlanChecks,
   projectSummaryOrdinaryChecks,
@@ -178,8 +179,10 @@ function providerUser(params: GenerationMessageParams): string {
 type ProviderPlanCheck = {
   itemId?: string;
   skippedRoleId?: string;
+  droppedSeedId?: string;
+  ruleId?: string;
   roleId: PdSubsectionRoleId;
-  instruction: "cover" | "skip";
+  instruction: "cover" | "skip" | "leave_out" | "answer_242";
   mergedItemIds: string[];
   confirmedExclusion: boolean;
   support?: "source_supported" | "writer_asserted";
@@ -235,6 +238,28 @@ function providerPlanChecks(params: GenerationMessageParams): ProviderPlanCheck[
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as ProviderPlanCheck) ?? [];
+}
+
+/**
+ * 2026-09-30 (first): a verdict answering a LEAVE OUT check or Line 246's
+ * advancement check echoes its reference, as it does an item or a Skip.
+ */
+function extraPlanRefs(check: { droppedSeedId?: string; ruleId?: string }) {
+  return {
+    ...(check.droppedSeedId ? { droppedSeedId: check.droppedSeedId } : {}),
+    ...(check.ruleId ? { ruleId: check.ruleId } : {}),
+  };
+}
+
+/** Whether a Compliance Note row records this plan check (any reference kind). */
+function samePlanRow(
+  row: { planRef?: { itemId?: string; skippedRoleId?: string; droppedSeedId?: string; ruleId?: string } },
+  check: { itemId?: string; skippedRoleId?: string; droppedSeedId?: string; ruleId?: string }
+): boolean {
+  if (check.itemId) return row.planRef?.itemId === check.itemId;
+  if (check.droppedSeedId) return row.planRef?.droppedSeedId === check.droppedSeedId;
+  if (check.ruleId) return row.planRef?.ruleId === check.ruleId;
+  return row.planRef?.skippedRoleId === check.skippedRoleId && !row.planRef?.droppedSeedId && !row.planRef?.ruleId;
 }
 
 function providerContentPlanRows(
@@ -641,6 +666,7 @@ function configureSummaryActionProvider(args: {
     const planVerdicts = planChecks.map((check) => ({
       ...(check.itemId ? { itemId: check.itemId } : {}),
       ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+      ...extraPlanRefs(check),
       mergedItemIds: check.mergedItemIds,
       paragraph: 1,
       outcome: "applied",
@@ -677,6 +703,7 @@ function configureSuccessfulSummaryFinalization(prefix: string) {
         planVerdicts: checks.map((check) => ({
           ...(check.itemId ? { itemId: check.itemId } : {}),
           ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+          ...extraPlanRefs(check),
           mergedItemIds: [...check.mergedItemIds],
           paragraph: 1,
           outcome: "applied",
@@ -727,7 +754,11 @@ function expectCompletePlanRows(
   for (const check of checks) {
     const row = rows.find((candidate) => check.itemId
       ? candidate.planRef?.itemId === check.itemId
-      : candidate.planRef?.skippedRoleId === check.skippedRoleId);
+      : check.droppedSeedId
+        ? candidate.planRef?.droppedSeedId === check.droppedSeedId
+        : check.ruleId
+          ? candidate.planRef?.ruleId === check.ruleId
+          : candidate.planRef?.skippedRoleId === check.skippedRoleId);
     expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
   }
 }
@@ -748,7 +779,8 @@ function assertClosedOracleChecks(checks: readonly FrozenSummaryPlanCheck[]): vo
   if (owners.size !== itemChecks.length) throw new Error("duplicate plan owner");
   for (const check of checks) {
     if (check.itemId === undefined) {
-      if (!check.skippedRoleId || check.mergedItemIds.length > 0) {
+      const refs = [check.skippedRoleId, check.droppedSeedId, check.ruleId].filter(Boolean);
+      if (refs.length !== 1 || check.mergedItemIds.length > 0) {
         throw new Error("invalid Skip owner");
       }
       continue;
@@ -773,6 +805,7 @@ function literalPlanChecksOracle(checks: readonly FrozenSummaryPlanCheck[]): str
   assertClosedOracleChecks(checks);
   const body = checks.map((check) => JSON.stringify({
     confirmedExclusion: check.confirmedExclusion,
+    ...(check.droppedSeedId ? { droppedSeedId: check.droppedSeedId } : {}),
     instruction: check.instruction,
     ...(check.itemId ? { itemId: check.itemId } : {}),
     mergedItemIds: [...check.mergedItemIds],
@@ -781,6 +814,7 @@ function literalPlanChecksOracle(checks: readonly FrozenSummaryPlanCheck[]): str
       wording: [...reference.wording],
     })),
     roleId: check.roleId,
+    ...(check.ruleId ? { ruleId: check.ruleId } : {}),
     ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
     sourceReferences: check.sourceReferences.map((reference) => ({
       exactExcerpt: reference.exactExcerpt,
@@ -811,14 +845,32 @@ function literalSummaryResponseOracle(args: {
         reason,
         repairGuidance,
       })
-    : JSON.stringify({
-        mergedItemIds: [],
-        outcome: "not_applied",
-        paragraph,
-        reason,
-        repairGuidance,
-        skippedRoleId: check.skippedRoleId,
-      }));
+    : check.droppedSeedId
+      ? JSON.stringify({
+          droppedSeedId: check.droppedSeedId,
+          mergedItemIds: [],
+          outcome: "not_applied",
+          paragraph,
+          reason,
+          repairGuidance,
+        })
+      : check.ruleId
+        ? JSON.stringify({
+            mergedItemIds: [],
+            outcome: "not_applied",
+            paragraph,
+            reason,
+            repairGuidance,
+            ruleId: check.ruleId,
+          })
+        : JSON.stringify({
+            mergedItemIds: [],
+            outcome: "not_applied",
+            paragraph,
+            reason,
+            repairGuidance,
+            skippedRoleId: check.skippedRoleId,
+          }));
   const ordinaryVerdicts = args.ordinaryLabels.map((instruction) => JSON.stringify({
     check: "instruction",
     instruction,
@@ -1427,6 +1479,10 @@ async function frozenSectionPlan(
       skippedRoleIds: summary.skippedRoleIds,
       referencesBySeedId,
       sourceRefsByItemId,
+      // 2026-09-30 (first): as admitted, with the dropped uncertainties and
+      // Line 246's advancement check at its reserved worst case.
+      droppedUncertainties: (summary.droppedUncertainties ?? []).filter((entry) => !entry.notChecked),
+      ...(section === "s246" ? { answers242: { reference: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
     });
   });
 }
@@ -1619,6 +1675,8 @@ function fixedWidthPlanChecks(
       ? { itemId: substitute(itemIds, check.itemId, "i") }
       : {}),
     ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+    ...(check.droppedSeedId ? { droppedSeedId: substitute(seedIds, check.droppedSeedId, "r") } : {}),
+    ...(check.ruleId ? { ruleId: check.ruleId } : {}),
     roleId: check.roleId,
     mergedItemIds: check.mergedItemIds.map((itemId) =>
       substitute(itemIds, itemId, "i")),
@@ -1816,6 +1874,7 @@ describe("seed Summary sign-off and recovery", () => {
       const planVerdicts = providerPlanChecks(params).map((check) => ({
         ...(check.itemId ? { itemId: check.itemId } : {}),
         ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+        ...extraPlanRefs(check),
         mergedItemIds: check.mergedItemIds,
         paragraph: 1,
         outcome: "applied",
@@ -1897,6 +1956,7 @@ describe("seed Summary sign-off and recovery", () => {
               planVerdicts: providerPlanChecks(params).map((check) => ({
                 ...(check.itemId ? { itemId: check.itemId } : {}),
                 ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+                ...extraPlanRefs(check),
                 mergedItemIds: check.mergedItemIds,
                 paragraph: 1,
                 outcome: "applied",
@@ -2236,6 +2296,7 @@ describe("seed Summary sign-off and recovery", () => {
               planVerdicts: providerPlanChecks(params).map((check) => ({
                 ...(check.itemId ? { itemId: check.itemId } : {}),
                 ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+                ...extraPlanRefs(check),
                 mergedItemIds: check.mergedItemIds,
                 paragraph: 1,
                 outcome: "applied",
@@ -2342,6 +2403,7 @@ describe("seed Summary sign-off and recovery", () => {
                 planVerdicts: checks.map((check) => ({
                   ...(check.itemId ? { itemId: check.itemId } : {}),
                   ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+                  ...extraPlanRefs(check),
                   mergedItemIds: [...check.mergedItemIds],
                   paragraph: 1,
                   outcome: "applied",
@@ -3534,6 +3596,7 @@ describe("seed Summary sign-off and recovery", () => {
               planVerdicts: checks.map((check) => ({
                 ...(check.itemId ? { itemId: check.itemId } : {}),
                 ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+                ...extraPlanRefs(check),
                 mergedItemIds: [...check.mergedItemIds],
                 paragraph: 1,
                 outcome: "applied",
@@ -4504,6 +4567,7 @@ describe("seed Summary sign-off and recovery", () => {
             planVerdicts: checks.map((check) => ({
               ...(check.itemId ? { itemId: check.itemId } : {}),
               ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+              ...extraPlanRefs(check),
               mergedItemIds: [...check.mergedItemIds],
               paragraph: 1,
               ...(check.itemId === repairedItemId
@@ -4628,9 +4692,7 @@ describe("seed Summary sign-off and recovery", () => {
     expect(state.rows).toHaveLength(checks.length);
     expect(state.rows.every((row) => row.repaired === false)).toBe(true);
     for (const check of checks) {
-      const row = state.rows.find((candidate) => check.itemId
-        ? candidate.planRef?.itemId === check.itemId
-        : candidate.planRef?.skippedRoleId === check.skippedRoleId);
+      const row = state.rows.find((candidate) => samePlanRow(candidate, check));
       expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
       expect(row?.outcome).toBe("not_applied");
       if (check.confirmedExclusion) {
@@ -4784,9 +4846,7 @@ describe("seed Summary sign-off and recovery", () => {
     const rows246 = state246.rows;
     expect(rows246).toHaveLength(checks246.length);
     for (const check of checks246) {
-      const row = rows246.find((candidate) => check.itemId
-        ? candidate.planRef?.itemId === check.itemId
-        : candidate.planRef?.skippedRoleId === check.skippedRoleId);
+      const row = rows246.find((candidate) => samePlanRow(candidate, check));
       expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
       if (check.confirmedExclusion) {
         // 2026-09-29 (second, CAP-13 rule 4): the verdict missed it, but its
@@ -4801,8 +4861,9 @@ describe("seed Summary sign-off and recovery", () => {
       }
       if (!row) throw new Error("Missing durable 246 plan row");
       expect(row.outcome).toBe("applied");
-      // A Skip is honoured by absence and carries no paragraph.
-      expect(row.paragraphIndex).toBe(check.skippedRoleId ? undefined : 0);
+      // A Skip, a LEAVE OUT and Line 246's advancement check are honoured
+      // by absence and carry no paragraph (2026-09-30, first).
+      expect(row.paragraphIndex).toBe(check.itemId ? 0 : undefined);
       expect(row.reason).toBe("Covered.");
     }
     const persistedSummary = JSON.parse(state246.run?.selfCheck ?? "{}") as {
@@ -4838,9 +4899,7 @@ describe("seed Summary sign-off and recovery", () => {
         .take(30)).filter((row) => row.planRef));
     expect(rows244).toHaveLength(checks244.length);
     for (const check of checks244) {
-      const row = rows244.find((candidate) => check.itemId
-        ? candidate.planRef?.itemId === check.itemId
-        : candidate.planRef?.skippedRoleId === check.skippedRoleId);
+      const row = rows244.find((candidate) => samePlanRow(candidate, check));
       expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
       expect(row?.outcome).toBe("applied");
       expect(row?.paragraphIndex).toBe(check.skippedRoleId ? undefined : 0);
@@ -4935,6 +4994,7 @@ describe("seed Summary sign-off and recovery", () => {
             planVerdicts: checks.map((check) => ({
               ...(check.itemId ? { itemId: check.itemId } : {}),
               ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+              ...extraPlanRefs(check),
               mergedItemIds: [...check.mergedItemIds],
               paragraph: 1,
               outcome: "applied",
@@ -5009,6 +5069,7 @@ describe("seed Summary sign-off and recovery", () => {
             planVerdicts: checks.map((check) => ({
               ...(check.itemId ? { itemId: check.itemId } : {}),
               ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+              ...extraPlanRefs(check),
               mergedItemIds: [...check.mergedItemIds],
               paragraph: 1,
               outcome: "applied",
@@ -5109,6 +5170,7 @@ describe("seed Summary sign-off and recovery", () => {
               planVerdicts: checks.map((check) => ({
                 ...(check.itemId ? { itemId: check.itemId } : {}),
                 ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+                ...extraPlanRefs(check),
                 mergedItemIds: [...check.mergedItemIds],
                 paragraph: 1,
                 outcome: "applied",
@@ -5267,6 +5329,7 @@ describe("seed Summary sign-off and recovery", () => {
         planVerdicts: checks.map((check) => ({
           ...(check.itemId ? { itemId: check.itemId } : {}),
           ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+          ...extraPlanRefs(check),
           mergedItemIds: [...check.mergedItemIds],
           paragraph: 1,
           outcome: "applied",
@@ -5343,6 +5406,7 @@ describe("seed Summary sign-off and recovery", () => {
         planVerdicts: checks.map((check) => ({
           ...(check.itemId ? { itemId: check.itemId } : {}),
           ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+          ...extraPlanRefs(check),
           mergedItemIds: [...check.mergedItemIds],
           paragraph: 1,
           outcome: "applied",
@@ -5435,6 +5499,7 @@ describe("seed Summary sign-off and recovery", () => {
             planVerdicts: checks.map((check) => ({
               ...(check.itemId ? { itemId: check.itemId } : {}),
               ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+              ...extraPlanRefs(check),
               mergedItemIds: [...check.mergedItemIds],
               paragraph: 1,
               outcome: "applied",
@@ -5527,6 +5592,7 @@ describe("seed Summary sign-off and recovery", () => {
               planVerdicts: checks.map((check) => ({
                 ...(check.itemId ? { itemId: check.itemId } : {}),
                 ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+                ...extraPlanRefs(check),
                 mergedItemIds: [...check.mergedItemIds],
                 paragraph: 3,
                 outcome: "applied",
@@ -5563,8 +5629,10 @@ describe("seed Summary sign-off and recovery", () => {
         expect(state.rows.find((row) =>
           row.source === "model" && row.instruction === "Storyline"
         )).toMatchObject({ outcome: "not_applied", reason: expect.stringMatching(/^Not checked:/) });
+        // Items name their paragraph; Line 246's advancement check is
+        // honoured by absence (2026-09-30, first).
         expect(state.rows.filter((row) => row.planRef && row.tier !== "conflict").every((row) =>
-          row.outcome === "applied" && row.paragraphIndex !== undefined
+          row.outcome === "applied" && (row.planRef?.itemId === undefined || row.paragraphIndex !== undefined)
         )).toBe(true);
         expect(state.run?.selfCheck).toContain('"modelCheck":"ok"');
       }
@@ -5600,6 +5668,7 @@ describe("seed Summary sign-off and recovery", () => {
             planVerdicts: checks.map((check, index) => ({
               ...(check.itemId ? { itemId: check.itemId } : {}),
               ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+              ...extraPlanRefs(check),
               mergedItemIds: [...check.mergedItemIds],
               paragraph: paragraphs[index] ?? 1,
               outcome: "applied",
@@ -5630,9 +5699,7 @@ describe("seed Summary sign-off and recovery", () => {
         .take(30)).filter((row) => row.planRef));
     expectCompletePlanRows(checks, rows);
     const rowsInRequestOrder = checks.slice(0, paragraphs.length).map((check) =>
-      rows.find((candidate) => check.itemId
-        ? candidate.planRef?.itemId === check.itemId
-        : candidate.planRef?.skippedRoleId === check.skippedRoleId));
+      rows.find((candidate) => samePlanRow(candidate, check)));
     // An applied item needs a valid paragraph; an applied Skip is honoured
     // by absence and needs none (2026-09-28, third).
     const requestOrder = checks.slice(0, paragraphs.length);
@@ -5690,6 +5757,7 @@ describe("seed Summary sign-off and recovery", () => {
               const verdict = {
                 ...(check.itemId ? { itemId: check.itemId } : {}),
                 ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+                ...extraPlanRefs(check),
                 mergedItemIds: [...check.mergedItemIds],
                 outcome: "applied",
                 reason: "Covered.",
@@ -5719,9 +5787,7 @@ describe("seed Summary sign-off and recovery", () => {
           q.eq("generationId", s.generationId).eq("section", "246"))
         .take(30)).filter((row) => row.planRef));
     expectCompletePlanRows(checks, rows);
-    const invalidRow = rows.find((row) => invalidCheck.itemId
-      ? row.planRef?.itemId === invalidCheck.itemId
-      : row.planRef?.skippedRoleId === invalidCheck.skippedRoleId);
+    const invalidRow = rows.find((row) => samePlanRow(row, invalidCheck));
     expect(invalidRow).toMatchObject({ outcome: "not_applied", repaired: false });
     expect(invalidRow?.reason).toBe(
       "Applied plan verdict did not identify valid paragraph evidence."
@@ -5731,10 +5797,11 @@ describe("seed Summary sign-off and recovery", () => {
       !check.confirmedExclusion && check !== invalidCheck);
     expect(validSiblingChecks.length).toBeGreaterThan(0);
     for (const check of validSiblingChecks) {
-      const row = rows.find((candidate) => check.itemId
-        ? candidate.planRef?.itemId === check.itemId
-        : candidate.planRef?.skippedRoleId === check.skippedRoleId);
-      expect(row).toMatchObject({ outcome: "applied", paragraphIndex: 0 });
+      const row = rows.find((candidate) => samePlanRow(candidate, check));
+      // Line 246's advancement check is honoured by absence (2026-09-30, first).
+      if (check.itemId) expect(row).toMatchObject({ outcome: "applied", paragraphIndex: 0 });
+      else expect(row).toMatchObject({ outcome: "applied" });
+      if (!check.itemId) expect(row?.paragraphIndex).toBeUndefined();
     }
     expect(network.create.mock.calls.filter(([params]) =>
       !(params as GenerationMessageParams).tool_choice &&
@@ -5787,6 +5854,7 @@ describe("seed Summary sign-off and recovery", () => {
             planVerdicts: checks.map((check) => ({
               ...(check.itemId ? { itemId: check.itemId } : {}),
               ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+              ...extraPlanRefs(check),
               mergedItemIds: [...check.mergedItemIds],
               paragraph: check === invalidCheck ? 2 : 1,
               outcome: "applied",
@@ -5832,9 +5900,7 @@ describe("seed Summary sign-off and recovery", () => {
     }));
     const planRows = state.rows.filter((row) => row.planRef);
     expectCompletePlanRows(checks, planRows);
-    const invalidRow = planRows.find((row) => target.itemId
-      ? row.planRef?.itemId === target.itemId
-      : row.planRef?.skippedRoleId === target.skippedRoleId);
+    const invalidRow = planRows.find((row) => samePlanRow(row, target));
     expect(invalidRow).toMatchObject({
       outcome: "not_applied",
       reason: "Applied plan verdict did not identify valid paragraph evidence.",
@@ -5873,6 +5939,7 @@ describe("seed Summary sign-off and recovery", () => {
           planVerdicts: checks.map((check) => ({
             ...(check.itemId ? { itemId: check.itemId } : {}),
             ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+            ...extraPlanRefs(check),
             mergedItemIds: [...check.mergedItemIds],
             paragraph: 1,
             outcome: "applied",
@@ -5920,6 +5987,7 @@ describe("seed Summary sign-off and recovery", () => {
         planVerdicts: checks.map((check) => ({
           ...(check.itemId ? { itemId: check.itemId } : {}),
           ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+          ...extraPlanRefs(check),
           mergedItemIds: [...check.mergedItemIds],
           paragraph: 1,
           outcome: "applied",
@@ -5994,6 +6062,7 @@ describe("seed Summary sign-off and recovery", () => {
         const planVerdicts = providerPlanChecks(params).map((check) => ({
           ...(check.itemId ? { itemId: check.itemId } : {}),
           ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+          ...extraPlanRefs(check),
           mergedItemIds: [...check.mergedItemIds],
           paragraph: 1,
           outcome: check.confirmedExclusion ? "not_applied" : "applied",
@@ -6027,9 +6096,7 @@ describe("seed Summary sign-off and recovery", () => {
       expectCompletePlanRows(checks, state.rows);
       expect(state.run?.selfCheck).toContain('"modelCheck":"ok"');
       const first = checks[0]!;
-      const firstRow = state.rows.find((row) => first.itemId
-        ? row.planRef?.itemId === first.itemId
-        : row.planRef?.skippedRoleId === first.skippedRoleId);
+      const firstRow = state.rows.find((row) => samePlanRow(row, first));
       expect(firstRow).toMatchObject({ outcome: "not_applied", repaired: false });
       expect(firstRow?.reason.startsWith("Not checked:")).toBe(true);
       expect(state.rows.filter((row) => row !== firstRow && row.tier !== "conflict")
@@ -6072,6 +6139,7 @@ describe("seed Summary sign-off and recovery", () => {
         const planVerdicts = checks.map((check) => ({
           ...(check.itemId ? { itemId: check.itemId } : {}),
           ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+          ...extraPlanRefs(check),
           mergedItemIds: [...check.mergedItemIds],
           paragraph: 1,
           outcome: "applied",
@@ -6157,10 +6225,7 @@ describe("seed Summary sign-off and recovery", () => {
       expect(rows).toHaveLength(checks.length);
       expect(rows.every((row) => row.repaired === false)).toBe(true);
       for (const check of checks) {
-        const row = rows.find((candidate) =>
-          check.itemId
-            ? candidate.planRef?.itemId === check.itemId
-            : candidate.planRef?.skippedRoleId === check.skippedRoleId);
+        const row = rows.find((candidate) => samePlanRow(candidate, check));
         expect(row?.planRef?.mergedItemIds).toEqual(check.mergedItemIds);
         expect(row?.outcome).toBe("not_applied");
         if (check.confirmedExclusion) {
@@ -6202,6 +6267,7 @@ describe("seed Summary sign-off and recovery", () => {
                   planVerdicts: checks.slice(1).map((check) => ({
                     ...(check.itemId ? { itemId: check.itemId } : {}),
                     ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+                    ...extraPlanRefs(check),
                     mergedItemIds: [...check.mergedItemIds],
                     paragraph: 1,
                     outcome: "applied",
@@ -6255,10 +6321,7 @@ describe("seed Summary sign-off and recovery", () => {
     }));
     const planRows = state.rows.filter((row) => row.planRef);
     expect(planRows).toHaveLength(checks.length);
-    const rowFor = (check: ProviderPlanCheck) => planRows.find((row) =>
-      check.itemId
-        ? row.planRef?.itemId === check.itemId
-        : row.planRef?.skippedRoleId === check.skippedRoleId);
+    const rowFor = (check: ProviderPlanCheck) => planRows.find((row) => samePlanRow(row, check));
     expect(rowFor(omitted!)).toMatchObject({
       outcome: "not_applied",
       repaired: false,
@@ -6294,6 +6357,7 @@ describe("seed Summary sign-off and recovery", () => {
         return {
           ...(check.itemId ? { itemId: check.itemId } : {}),
           ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+          ...extraPlanRefs(check),
           mergedItemIds: check.mergedItemIds,
           paragraph: 1,
           outcome: check.confirmedExclusion || needsRepair ? "not_applied" : "applied",
@@ -6890,6 +6954,7 @@ describe("seed Summary sign-off and recovery", () => {
           planVerdicts: checks.map((check) => ({
             ...(check.itemId ? { itemId: check.itemId } : {}),
             ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+            ...extraPlanRefs(check),
             mergedItemIds: [...check.mergedItemIds],
             paragraph: 1,
             outcome: "applied",
@@ -7031,6 +7096,7 @@ describe("seed Summary sign-off and recovery", () => {
             planVerdicts: checks.map((check) => ({
               ...(check.itemId ? { itemId: check.itemId } : {}),
               ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+              ...extraPlanRefs(check),
               mergedItemIds: [...check.mergedItemIds],
               paragraph: 1,
               outcome: "applied",
@@ -7181,6 +7247,7 @@ describe("seed Summary sign-off and recovery", () => {
           planVerdicts: checks.map((check) => ({
             ...(check.itemId ? { itemId: check.itemId } : {}),
             ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+            ...extraPlanRefs(check),
             mergedItemIds: [...check.mergedItemIds],
             paragraph: 1,
             outcome: "applied",
@@ -8206,6 +8273,7 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
             planVerdicts: checks.map((check) => ({
               ...(check.itemId ? { itemId: check.itemId } : {}),
               ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+              ...extraPlanRefs(check),
               mergedItemIds: [...check.mergedItemIds],
               paragraph: 1,
               outcome: "applied",

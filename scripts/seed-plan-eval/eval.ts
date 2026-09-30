@@ -1585,6 +1585,8 @@ export type Collected = {
     summaryVersionId: string;
     version: number;
     skippedRoleIds: string[];
+    /** 2026-09-30 (first): the dropped uncertainties frozen at sign-off; absent in older results. */
+    droppedUncertaintySeedIds?: string[];
     signedOffAt: number;
     items: Array<{
       itemId: string;
@@ -1610,7 +1612,14 @@ export type Collected = {
     tier: string;
     reason: string;
     repaired: boolean;
-    planRef: null | { itemId: string | null; skippedRoleId: string | null; mergedItemIds: string[] };
+    planRef: null | {
+      itemId: string | null;
+      skippedRoleId: string | null;
+      /** 2026-09-30 (first): absent in results read back before it existed. */
+      droppedSeedId?: string | null;
+      ruleId?: string | null;
+      mergedItemIds: string[];
+    };
   }>;
   report: null | { reportId: string; generatedAt: number; sections: { s242: string; s244: string; s246: string } };
   briefEntries: Array<{ entryId: string; group: string; text: string; reason: string | null }>;
@@ -1652,6 +1661,68 @@ export function contentWordOverlap(phrase: string, text: string): number {
   if (!words.length) return 0;
   const haystack = text.toLowerCase();
   return words.filter((word) => haystack.includes(word)).length / words.length;
+}
+
+const FIGURE_UNITS: ReadonlyArray<[RegExp, string]> = [
+  [/^(?:degrees?\s*c|degrees?|c)$/i, "C"],
+  [/^(?:percent|%)$/i, "percent"],
+  [/^days?$/i, "days"],
+  [/^weeks?$/i, "weeks"],
+  [/^months?$/i, "months"],
+  [/^hours?$/i, "hours"],
+  [/^minutes?$/i, "minutes"],
+  [/^mg\/l$/i, "mg/L"],
+  [/^ppm$/i, "ppm"],
+];
+const FIGURE = /((?:\d+(?:\.\d+)?\s*(?:,|and|or|to|-)\s*)*)(\d+(?:\.\d+)?)\s*(degrees?\s*C|degrees?|percent|%|days?|weeks?|months?|hours?|minutes?|mg\/L|ppm|C)(?![A-Za-z])/gi;
+
+/**
+ * 2026-09-30 (first): the figures with a unit in a text, normalised ("6
+ * degrees C" and "6 C" read alike; "44 and 29 days" gives both).
+ */
+export function figuresOf(text: string): string[] {
+  const found = new Set<string>();
+  for (const match of text.matchAll(FIGURE)) {
+    const unit = FIGURE_UNITS.find(([pattern]) => pattern.test(match[3]!.replace(/\s+/g, " ").trim()))?.[1];
+    if (!unit) continue;
+    for (const number of [...(match[1]!.match(/\d+(?:\.\d+)?/g) ?? []), match[2]!]) found.add(`${number} ${unit}`);
+  }
+  return [...found];
+}
+
+/** One paragraph of a Line that holds a dropped uncertainty's words or figures. */
+export type DroppedHit = { section: "242" | "244" | "246"; paragraph: number; overlap: number; figures: string[]; text: string };
+
+/** Paragraphs sharing at least this share of the dropped uncertainty's content words count as a hit. */
+export const DROPPED_WORDS_HIT_SHARE = 0.3;
+
+/**
+ * 2026-09-30 (first): every paragraph of every Line that shares at least
+ * DROPPED_WORDS_HIT_SHARE of the dropped uncertainty's content words, or
+ * holds a distinctive figure of it or its experiments (one that no
+ * signed-off item uses).
+ */
+export function droppedUncertaintyHits(args: {
+  sections: { s242: string; s244: string; s246: string };
+  droppedWords: string;
+  experimentWords: readonly string[];
+  planWords: readonly string[];
+}): { figures: string[]; hits: DroppedHit[] } {
+  const common = new Set(args.planWords.flatMap(figuresOf));
+  const figures = [...new Set([args.droppedWords, ...args.experimentWords].flatMap(figuresOf))].filter((figure) => !common.has(figure));
+  const hits: DroppedHit[] = [];
+  for (const section of ["242", "244", "246"] as const) {
+    const paragraphs = args.sections[`s${section}`].split(/\n\s*\n/).map((text) => text.trim()).filter(Boolean);
+    paragraphs.forEach((text, index) => {
+      const overlap = args.droppedWords ? contentWordOverlap(args.droppedWords, text) : 0;
+      const present = figuresOf(text);
+      const matched = figures.filter((figure) => present.includes(figure));
+      if (overlap >= DROPPED_WORDS_HIT_SHARE || matched.length > 0) {
+        hits.push({ section, paragraph: index + 1, overlap, figures: matched, text });
+      }
+    });
+  }
+  return { figures, hits };
 }
 
 function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[] {
@@ -2153,21 +2224,71 @@ function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[
       );
       // A hint for the judge, not a verdict: the drafted text cannot be
       // tied to an uncertainty mechanically, so show the Line 246 paragraph
-      // that shares the most words with the dropped uncertainty.
+      // that shares the most words with the dropped uncertainty, then
+      // (2026-09-30, first) every paragraph of every Line that shares its
+      // words or holds a distinctive figure of it or its experiments (run
+      // 10's hint named Line 246 P2 and missed P3 and Line 244 P4).
       const droppedWords = c.seeds.find((seed) => seed.seedId === removed)?.bullets.join(" ") ?? "";
       const paragraphs = (c.report?.sections.s246 ?? "").split(/\n\s*\n/).map((text) => text.trim()).filter(Boolean);
       const closest = paragraphs
         .map((text, index) => ({ index, text, overlap: contentWordOverlap(droppedWords, text) }))
         .sort((a, b) => b.overlap - a.overlap)[0];
+      const scan = c.report && droppedWords
+        ? droppedUncertaintyHits({
+            sections: c.report.sections,
+            droppedWords,
+            experimentWords: c.seeds
+              .filter((seed) => seed.roleId === "experimentation" && seed.uncertaintySeedId === removed)
+              .map((seed) => seed.bullets.join(" ")),
+            planWords: items.map((item) => item.bullets.join(" ")),
+          })
+        : null;
+      const scanText = scan
+        ? `; distinctive figures: ${scan.figures.join(", ") || "none"}; ${
+            scan.hits.length
+              ? `paragraphs with a hit: ${scan.hits
+                  .map((hit) => `Line ${hit.section} P${hit.paragraph} (${Math.round(hit.overlap * 100)} percent of its words${hit.figures.length ? `; ${hit.figures.join(", ")}` : ""}): ${quote(hit.text, 120)}`)
+                  .join("; ")}`
+              : "no paragraph of any Line has a hit"
+          }`
+        : "";
       checks.push(
         info(
           "dropped-uncertainty-drafted",
-          "Where the dropped uncertainty's words appear in Line 246 (a hint for the judge)",
+          "Where the dropped uncertainty's words and its experiments' figures appear, in every Line (a hint for the judge)",
           !droppedWords
             ? "the dropped uncertainty's wording was not read back"
             : closest
-              ? `paragraph ${closest.index + 1} shares ${Math.round(closest.overlap * 100)} percent of its content words: ${quote(closest.text, 200)}`
+              ? `paragraph ${closest.index + 1} shares ${Math.round(closest.overlap * 100)} percent of its content words: ${quote(closest.text, 200)}${scanText}`
               : "Line 246 was not drafted",
+        ),
+      );
+      // 2026-09-30 (first): the Compliance Note records, per Line, whether
+      // the dropped uncertainty was left out, and whether every Line 246
+      // advancement answers a Line 242 uncertainty.
+      const leftOutRows = (["242", "244", "246"] as const).map((section) => ({
+        section,
+        row: c.complianceNotes.find((note) => note.section === section && !!removed && note.planRef?.droppedSeedId === removed),
+      }));
+      checks.push(
+        check(
+          "dropped-uncertainty-left-out",
+          "Every Line records the dropped uncertainty as left out",
+          !!removed && leftOutRows.every(({ row }) => row?.outcome === "applied"),
+          !removed
+            ? "no uncertainty was dropped"
+            : `${leftOutRows
+                .map(({ section, row }) => `${section}: ${row ? (row.outcome === "applied" ? "applied" : `${row.outcome} (${quote(row.reason, 100)})`) : "no row"}`)
+                .join("; ")}${c.summary?.droppedUncertaintySeedIds ? `; frozen at sign-off: ${c.summary.droppedUncertaintySeedIds.join(", ") || "none"}` : ""}`,
+        ),
+      );
+      const answersRow = c.complianceNotes.find((note) => note.section === "246" && note.planRef?.ruleId === "advancements_answer_242");
+      checks.push(
+        check(
+          "advancements-answer-242",
+          "Line 246 records every advancement as answering a Line 242 uncertainty",
+          answersRow?.outcome === "applied",
+          answersRow ? `${answersRow.outcome}: ${quote(answersRow.reason, 120)}` : "no Line 246 row for this check",
         ),
       );
       const byUncertainty = new Map<string, string[]>();

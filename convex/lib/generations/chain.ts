@@ -306,6 +306,12 @@ export async function orderedSectionClaim(
   // it reads the Brief's terms.
   const plan = await loadFrozenSectionPlan(ctx, args.generation, args.section, {
     glossaryTerms: brief?.glossaryTerms ?? [],
+    // 2026-09-30 (first, Rule B): Line 246's advancement check reads Line
+    // 242 as drafted before it (the drafter reads the same prior section).
+    answers242: {
+      kind: "drafted",
+      line242Text: args.priorSections.find((prior) => prior.section === "242")?.text,
+    },
   });
   return {
     projectId: args.generation.projectId,

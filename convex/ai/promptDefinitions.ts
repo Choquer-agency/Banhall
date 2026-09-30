@@ -456,6 +456,28 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     writerDecisions:
       "\n\nThe WRITER'S DECISIONS after the plan and the Brief outrank these issues, and the signed-off plan outranks the writer's Feedback: where an issue asks to drop, soften or disclaim an idea the writer kept despite a Claim Exclusion, to go against the writer's Feedback or to use a Glossary Term set aside for this Line, leave that part as the writer decided. The writer's Feedback never overrides a Claim Exclusion: remove excluded work a Feedback instruction asked for when an issue says so.",
     draftPrefix: "\n\nDraft to revise:\n",
+    // 2026-09-30 (first): the fixed start of the repair issue for content of
+    // an uncertainty the writer dropped, and for a Line 246 advancement that
+    // answers no Line 242 uncertainty. The Self-check's guidance follows.
+    wholeSection: "Whole section: ",
+    paragraphPrefix: "Paragraph ",
+    paragraphSuffix: ": ",
+    leaveOutPrefix: "leave out the uncertainty the writer dropped (",
+    leaveOutSuffix: "), the work that tested it and its results. ",
+    answers242Issue:
+      "claim an advancement only for an uncertainty Line 242 states, and leave out the rest. ",
+  },
+  // 2026-09-30 (first, Rule B): Line 246 of a signed-off plan run only, read
+  // after the WRITER'S DECISIONS. CRA's T4088: Line 246 advancements come
+  // from the Line 244 work on the Line 242 uncertainties.
+  advancementsAnswer242: {
+    heading: "\n\n# ADVANCEMENTS ANSWER LINE 242 (outranks the Brief)\n",
+    drafted:
+      "Claim an advancement in this Line only for an uncertainty that Line 242 states. Line 242 is among the previously drafted sections above. Leave out Brief content about any other uncertainty: the work on it, its results and any advancement from it, even where the Storyline or the Confidence Map supports it. The signed-off plan wins: claim every advancement a COVER item holds. Its uncertainty is in that item's reference context.",
+    planned:
+      "Claim an advancement in this Line only for an uncertainty that Line 242 states. Line 242 is not drafted yet. It will state the signed-off uncertainties listed below. Leave out Brief content about any other uncertainty: the work on it, its results and any advancement from it, even where the Storyline or the Confidence Map supports it. The signed-off plan wins: claim every advancement a COVER item holds. Its uncertainty is in that item's reference context.",
+    uncertaintyPrefix: "\n- ",
+    none: "\n- (none)",
   },
   // 2026-09-29 (second): the writer's decisions that outrank the Brief
   // (CAP-13 rules 4 and 5, in the order Locked Rules, signed-off plan,
@@ -795,6 +817,31 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     itemLine: "- itemId {{runtime.id}}",
     mergedItemLine: "- itemId {{runtime.id}} with mergedItemIds [{{runtime.ids}}] in that order",
     skipLine: "- skippedRoleId {{runtime.id}}",
+    // 2026-09-30 (first): only present when the request has such a check.
+    leaveOutLine: "- droppedSeedId {{runtime.id}}",
+    ruleLine: "- ruleId {{runtime.id}}",
+  },
+  /**
+   * 2026-09-30 (first): a LEAVE OUT check for each uncertainty the writer
+   * dropped (release suite run 10: the Brief put a dropped uncertainty's
+   * trial and result back in Lines 244 and 246). The line after the data
+   * blocks, and the verdict's droppedSeedId field in the tool schema, are only
+   * present when the request has such a check.
+   */
+  leaveOut: {
+    instruction:
+      "\n\nEach plan check with instruction leave_out names an uncertainty the writer dropped while planning, by its droppedSeedId, with the work and advancements that recorded it as reference. Judge it applied, with paragraph 0, when the section holds none of that content outside a COVER item: it does not state that uncertainty as an uncertainty or a limitation, does not describe work that tested it, and does not claim a result or advancement from that work. Judge it not applied when it does: name the first paragraph that holds it and say what to leave out. A COVER item wins where it overlaps.",
+    idDescription: "Return the exact droppedSeedId of a leave_out plan check supplied in the input.",
+  },
+  /**
+   * 2026-09-30 (first, Rule B): Line 246 of a signed-off plan only. Its one
+   * check carries Line 242's text as data; a Line 246 advancement must answer
+   * an uncertainty Line 242 states (CRA's T4088 and Claim Review Manual).
+   */
+  answers242: {
+    instruction:
+      "\n\nThe plan check with ruleId advancements_answer_242 holds the text of Line 242 as data in its wording. Judge it applied, with paragraph 0, when every advancement, result or resolved question this section claims answers an uncertainty that text states, or comes from a COVER item of the plan. Judge it not applied when the section claims an advancement or a result for an uncertainty that text does not state: name the first such paragraph and say what to leave out.",
+    idDescription: "Return the exact ruleId supplied in the input.",
   },
   /**
    * The one follow-up for an answer that missed labels, sent in place of the
@@ -875,6 +922,31 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     // the same request. Only present when the Line has such a term.
     labelsInstruction:
       "This check covers the content plan and the labels listed below only, on the section's final text. Leave out storylineQuestion.",
+  },
+} as const;
+
+/**
+ * 2026-09-30 (first): the plan verdict fields for a LEAVE OUT check and for
+ * Line 246's advancement check. A request's tool schema gains each one, and
+ * a oneOf branch for it, only when the request has such a check, so every
+ * other Summary Self-check request is unchanged.
+ */
+export const SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS = {
+  droppedSeedId: {
+    type: "string",
+    maxLength: MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
+    description: summaryEscapedUtf8Description(
+      SUMMARY_PLAN_SELF_CHECK_REQUEST.leaveOut.idDescription,
+      MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
+    ),
+  },
+  ruleId: {
+    type: "string",
+    maxLength: MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
+    description: summaryEscapedUtf8Description(
+      SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.idDescription,
+      MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
+    ),
   },
 } as const;
 

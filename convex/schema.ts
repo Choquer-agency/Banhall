@@ -1530,6 +1530,21 @@ export default defineSchema({
     reportTitle: v.optional(v.string()),
     settingsHash: v.string(),
     skippedRoleIds: v.array(seedRoleIdValidator),
+    // 2026-09-30 (first): the uncertainties the writer ticked, then
+    // unticked, frozen at sign-off (convex/lib/droppedUncertainties.ts), in
+    // Shown Set order, at most 16. The first three are left out of every Line
+    // and checked there, each with the wording of the experiments and
+    // advancements that recorded it; the rest carry `notChecked` and are named
+    // in the Compliance Note as not checked. Absent on rows signed off before,
+    // and when the writer dropped none: nothing is left out. Recoveries reuse
+    // this row.
+    droppedUncertainties: v.optional(v.array(v.object({
+      seedId: v.id("seeds"),
+      wording: v.array(v.string()),
+      experiments: v.array(v.object({ seedId: v.id("seeds"), wording: v.array(v.string()) })),
+      advancements: v.array(v.object({ seedId: v.id("seeds"), wording: v.array(v.string()) })),
+      notChecked: v.optional(v.boolean()),
+    }))),
     readiness: v.boolean(),
     signedOffBy: v.id("users"),
     signedOffAt: v.number(),
