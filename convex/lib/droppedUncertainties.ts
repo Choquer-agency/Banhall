@@ -151,6 +151,8 @@ export type RelatedSeeds = {
  * statements of the work, first, then hypotheses, then work plans. A Seed
  * with `answeredUncertaintySeedIds` (these steps and the result steps) counts
  * only when every uncertainty it records is dropped, none kept (review P2).
+ * Every kind is matched by revision root (Greptile P1): a Seed that recorded
+ * an earlier revision of the dropped uncertainty is its too.
  */
 export async function relatedSeedsOfDropped(
   ctx: { db: QueryCtx["db"] },
@@ -177,6 +179,11 @@ export async function relatedSeedsOfDropped(
   if (related.size === 0) return related;
   const selectionBySeed = new Map(args.selectionRows.map((row) => [row.seedId, row] as const));
   const rootOf = args.rootOf ?? ((seedId: string) => seedId);
+  // Greptile P1: looked up by revision root, so a Seed that recorded an
+  // earlier revision of the dropped uncertainty is found; with no rootOf,
+  // every id is its own root, as before.
+  const byRoot = new Map<string, RelatedSeeds>();
+  for (const [seedId, entry] of related) if (!byRoot.has(rootOf(seedId))) byRoot.set(rootOf(seedId), entry);
   const recorded = (seed: Doc<"seeds">): readonly Id<"seeds">[] => {
     if (seed.roleId === "experimentation" || seed.roleId === "specific_advancements") {
       return seed.uncertaintySeedId ? [seed.uncertaintySeedId] : [];
@@ -239,8 +246,8 @@ export async function relatedSeedsOfDropped(
         left.seed._creationTime - right.seed._creationTime
     );
     for (const { seed } of ordered) {
-      for (const uncertaintySeedId of new Set(recorded(seed))) {
-        const entry = related.get(uncertaintySeedId);
+      for (const root of new Set(recorded(seed).map((seedId) => rootOf(seedId)))) {
+        const entry = byRoot.get(root);
         if (!entry || entry[kind].length >= MAX_DROPPED_UNCERTAINTY_RELATED_PER_KIND) continue;
         entry[kind].push({
           seedId: seed._id,

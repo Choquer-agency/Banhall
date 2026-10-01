@@ -10338,6 +10338,33 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
       .toEqual([ids.only]);
   });
 
+  // Greptile P1: the reference is matched by revision root.
+  it("finds the hypothesis and experiment that recorded an earlier revision of the dropped uncertainty (2026-09-30, fifth, Greptile P1)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const ids = await addDecisions(s, [
+      // The original, never ticked; the writer's Feedback revision of it, ticked, then unticked.
+      { key: "original", roleId: "active_uncertainties", bullets: ["It was unclear how much seed would be needed at 6 C."], ticked: "never" },
+      { key: "revision", roleId: "active_uncertainties", bullets: DROPPED_UNCERTAINTY, ticked: "unticked" },
+      // Both were written against the original's id.
+      { key: "trial", roleId: "experimentation", bullets: ["Trial 2 compared 5 and 15 percent seed at 6 C."], ticked: "unticked", recordsKey: "original" },
+      { key: "hypothesis", roleId: "hypothesis", bullets: ["If 15 percent seed is used, start-up at 6 C meets the target."], ticked: "unticked", answersKeys: ["original"] },
+    ]);
+    await s.t.run((ctx) => ctx.db.patch(ids.revision!, { revisionOfSeedId: ids.original }));
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const frozen = await frozenLines(s);
+    expect(frozen.summary?.droppedUncertainties?.map((entry) => entry.seedId)).toEqual([ids.revision]);
+    expect(frozen.summary?.droppedUncertainties?.[0]?.experiments).toEqual([
+      { seedId: ids.trial, wording: ["Trial 2 compared 5 and 15 percent seed at 6 C."] },
+      { seedId: ids.hypothesis, wording: ["If 15 percent seed is used, start-up at 6 C meets the target."] },
+    ]);
+    expect(frozen.s244.planChecks.find((check) => check.instruction === "leave_out")?.relationshipReferences.map((reference) => reference.seedId))
+      .toEqual([ids.trial, ids.hypothesis]);
+  });
+
   it("freezes what a signed-off Hypothesis and Work plan item tests, named by the uncertainty the plan holds (2026-09-30, fifth)", async () => {
     const s = await decisionFixture();
     await makeReady(s);
