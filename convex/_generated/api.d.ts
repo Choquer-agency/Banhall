@@ -111,6 +111,7 @@ import type * as lib_briefPreparationRefs from "../lib/briefPreparationRefs.js";
 import type * as lib_briefPreparationTrigger from "../lib/briefPreparationTrigger.js";
 import type * as lib_briefRender from "../lib/briefRender.js";
 import type * as lib_briefRequest from "../lib/briefRequest.js";
+import type * as lib_chatProposalTurns from "../lib/chatProposalTurns.js";
 import type * as lib_chatPublicOutput from "../lib/chatPublicOutput.js";
 import type * as lib_citationSpeakers from "../lib/citationSpeakers.js";
 import type * as lib_citations from "../lib/citations.js";
@@ -371,6 +372,7 @@ declare const fullApi: ApiFromModules<{
   "lib/briefPreparationTrigger": typeof lib_briefPreparationTrigger;
   "lib/briefRender": typeof lib_briefRender;
   "lib/briefRequest": typeof lib_briefRequest;
+  "lib/chatProposalTurns": typeof lib_chatProposalTurns;
   "lib/chatPublicOutput": typeof lib_chatPublicOutput;
   "lib/citationSpeakers": typeof lib_citationSpeakers;
   "lib/citations": typeof lib_citations;
