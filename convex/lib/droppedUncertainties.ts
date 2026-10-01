@@ -47,8 +47,9 @@ export const MAX_RELATED_SEEDS_SCANNED_PER_ROLE = 512;
 
 /**
  * 2026-09-30 (fourth): how many of the run's Advancement to science Seeds,
- * and of its goal improvements Seeds, are read for the same purpose. These
- * steps pick one idea or a few, so a run writes far fewer of them.
+ * and of its goal improvements Seeds, are read for the same purpose; (fifth)
+ * also of its Hypothesis and Work plan Seeds. These steps pick one idea or a
+ * few, so a run writes far fewer of them.
  */
 export const MAX_RELATED_RESULT_SEEDS_SCANNED_PER_ROLE = 128;
 
@@ -144,6 +145,10 @@ export type RelatedSeeds = {
  * improvements, review P3-3), then in the order the run wrote them. Each
  * step's newest Seeds are read (review P3-4 and its re-check), as the
  * `deselect` events are.
+ *
+ * 2026-09-30 (fifth): the Hypothesis and Work plan Seeds that recorded it
+ * go with the experiments, within the same cap: experiments, the most direct
+ * statements of the work, first, then hypotheses, then work plans.
  */
 export async function relatedSeedsOfDropped(
   ctx: { db: QueryCtx["db"] },
@@ -164,7 +169,14 @@ export async function relatedSeedsOfDropped(
       ? (seed.uncertaintySeedId ? [seed.uncertaintySeedId] : [])
       : (seed.answeredUncertaintySeedIds ?? []);
   for (const [kind, roles] of [
-    ["experiments", [["experimentation", MAX_RELATED_SEEDS_SCANNED_PER_ROLE]]],
+    [
+      "experiments",
+      [
+        ["experimentation", MAX_RELATED_SEEDS_SCANNED_PER_ROLE],
+        ["hypothesis", MAX_RELATED_RESULT_SEEDS_SCANNED_PER_ROLE],
+        ["workplan", MAX_RELATED_RESULT_SEEDS_SCANNED_PER_ROLE],
+      ],
+    ],
     [
       "advancements",
       [
@@ -176,7 +188,8 @@ export async function relatedSeedsOfDropped(
   ] as const) {
     const candidates: Array<{ seed: Doc<"seeds">; ticked: boolean; step: number }> = [];
     for (const [step, [roleId, scanned]] of roles.entries()) {
-      const result = roleId === "overall_advancement" || roleId === "goal_improvements";
+      // Steps that pick one idea or a few read fewer Seeds and events.
+      const result = roleId !== "experimentation" && roleId !== "specific_advancements";
       const query = ctx.db
         .query("seeds")
         .withIndex("by_generationId_and_roleId", (q) =>

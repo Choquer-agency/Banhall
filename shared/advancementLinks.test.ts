@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  ANSWER_ROLE_IDS,
+  PLAN_ROLE_IDS,
   RESULT_ROLE_IDS,
   advancementLinkProblem,
   allowedAdvancementLinks,
   experimentsForDroppedUncertainties,
+  isAnswerRole,
+  isPlanRole,
   isResultRole,
   pickedLinkSelections,
   pickedUncertaintyFor,
@@ -131,5 +135,19 @@ describe("results answer the uncertainties they record", () => {
     // An uncertainty and its Feedback revision are one.
     const rootOf = revisionRoots([{ seedId: "u1b", revisionOfSeedId: "u1" }]);
     expect(resultsForDroppedUncertainties(new Set(["u1b", "u2"]), results, rootOf)).toEqual([]);
+  });
+});
+
+// 2026-09-30 (fifth amendment). Run 12: the Hypothesis step carried no link.
+describe("Hypothesis and Work plan record the uncertainties they test", () => {
+  it("names the plan steps and every step that records the uncertainties it addresses, in step order", () => {
+    expect(PLAN_ROLE_IDS).toEqual(["workplan", "hypothesis"]);
+    expect(ANSWER_ROLE_IDS).toEqual(["workplan", "hypothesis", "overall_advancement", "goal_improvements"]);
+    expect(isPlanRole("hypothesis")).toBe(true);
+    expect(isPlanRole("overall_advancement")).toBe(false);
+    expect(isAnswerRole("workplan")).toBe(true);
+    expect(isAnswerRole("experimentation")).toBe(false);
+    // The figure acknowledgement stays with the result steps.
+    expect(isResultRole("hypothesis")).toBe(false);
   });
 });

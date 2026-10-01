@@ -440,12 +440,15 @@
         })
         .join("; ");
     };
+    // 2026-09-30 (fifth): a hypothesis tests its uncertainties, a work plan
+    // plans for them; a result answers them.
+    const verb = roleId === "hypothesis" ? "Tests" : roleId === "workplan" ? "Plans for" : "Answers";
     const dropped = answered.filter((uncertainty) => !uncertainty.picked);
-    if (dropped.length === 0) return { text: `Answers: ${listed(answered)}`, dropped: false };
+    if (dropped.length === 0) return { text: `${verb}: ${listed(answered)}`, dropped: false };
     // Readers did not drop it; the writer did.
     const who = canEdit ? "you no longer have" : "the writer no longer has";
     const what = dropped.length === 1 ? "an uncertainty" : "uncertainties";
-    return { text: `Answers ${what} ${who} picked: ${listed(dropped)}`, dropped: true };
+    return { text: `${verb} ${what} ${who} picked: ${listed(dropped)}`, dropped: true };
   });
 
   // 2026-09-30 (fourth, review re-check): the idea's words state a result

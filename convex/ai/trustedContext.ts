@@ -22,7 +22,7 @@ import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import {
   allowedAdvancementLinks,
-  isResultRole,
+  isAnswerRole,
   pickedUncertaintyFor,
   type AllowedAdvancementLink,
 } from "../../shared/advancementLinks";
@@ -840,15 +840,16 @@ export function seedExperimentLinkIds(
 
 /**
  * 2026-09-30 (fourth): the uncertainty ids an Advancement to science or goal
- * improvements Seed may answer, the frozen active_uncertainties selections.
- * Null for any other role, or with no frozen uncertainty, where these Seeds
- * carry no link.
+ * improvements Seed may answer, the frozen active_uncertainties selections;
+ * (fifth) also those a Hypothesis Seed may test and a Work plan Seed may plan
+ * work for. Null for any other role, or with no frozen uncertainty, where
+ * these Seeds carry no link.
  */
 export function seedResultLinkIds(
   snapshot: SeedContextSnapshot,
   roleId: PdSubsectionRoleId
 ): { uncertaintySeedIds: string[] } | null {
-  if (!isResultRole(roleId)) return null;
+  if (!isAnswerRole(roleId)) return null;
   const uncertaintySeedIds = snapshot.items.flatMap((item) =>
     item.kind === "selection" && item.roleId === "active_uncertainties" ? [item.seedId] : []
   );

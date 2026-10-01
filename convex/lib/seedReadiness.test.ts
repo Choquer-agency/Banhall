@@ -463,6 +463,17 @@ describe("seed readiness", () => {
       "RESULT_FOR_DROPPED_UNCERTAINTY",
       "RESULT_FOR_DROPPED_UNCERTAINTY",
     ]);
+
+    // 2026-09-30 (fifth): a hypothesis or work plan for the dropped
+    // uncertainty is its own blocker, listed in step order before results.
+    await result("hypothesis" as never, [dropped]);
+    const plans = await s.t.run((ctx) => readSeedReadiness(ctx, s.generationId));
+    expect(plans.blockingRoleIds).toEqual(["hypothesis", "overall_advancement", "goal_improvements"]);
+    expect(plans.blockers.find((blocker) => blocker.roleId === "hypothesis")).toEqual({
+      code: "PLAN_FOR_DROPPED_UNCERTAINTY",
+      roleId: "hypothesis",
+      message: "Hypothesis has a picked hypothesis that tests an uncertainty you no longer have picked",
+    });
   });
 
   it("never reports ready from an incomplete read and performs no writes", async () => {

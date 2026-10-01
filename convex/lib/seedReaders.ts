@@ -14,7 +14,8 @@ import {
 import {
   allowedAdvancementLinks,
   experimentsForDroppedUncertainties,
-  isResultRole,
+  isAnswerRole,
+  isPlanRole,
   pickedUncertaintyFor,
   type UncertaintyRoot,
 } from "../../shared/advancementLinks";
@@ -271,7 +272,7 @@ function answeredUncertaintiesOf(
   seed: Doc<"seeds">,
   picked: { uncertaintySeedIds: readonly string[]; rootOf: UncertaintyRoot } | null
 ) {
-  if (!picked || !isResultRole(seed.roleId) || !seed.answeredUncertaintySeedIds?.length) return null;
+  if (!picked || !isAnswerRole(seed.roleId) || !seed.answeredUncertaintySeedIds?.length) return null;
   const answers = seed.answeredUncertaintySeedIds.flatMap((seedId) => {
     const standIn = pickedUncertaintyFor(seedId, picked.uncertaintySeedIds, picked.rootOf);
     const uncertainty = state.seeds.find((candidate) => candidate._id === (standIn ?? seedId));
@@ -367,8 +368,9 @@ export type SeedLinkNotice =
   | { kind: "no_linkable_experiment"; experimentsPicked: boolean }
   | { kind: "unlinked_advancements"; seedIds: Id<"seeds">[] }
   | {
-      // 2026-09-30 (fourth): Advancement to science or goal improvements.
-      kind: "results_for_dropped_uncertainty";
+      // 2026-09-30 (fourth): Advancement to science or goal improvements;
+      // (fifth) "plans_for_dropped_uncertainty" for Hypothesis and Work plan.
+      kind: "results_for_dropped_uncertainty" | "plans_for_dropped_uncertainty";
       seedIds: Id<"seeds">[];
       uncertainties: string[];
     };
@@ -378,7 +380,7 @@ function linkNoticeOf(
   roleId: PdSubsectionRoleId
 ): SeedLinkNotice | null {
   if (!state.complete) return null;
-  if (isResultRole(roleId)) {
+  if (isAnswerRole(roleId)) {
     // 2026-09-30 (fourth): picked results that answer an uncertainty the
     // writer dropped, named with the dropped uncertainties' words.
     const seedIds = droppedUncertaintyResultIds(state, roleId);
@@ -395,7 +397,7 @@ function linkNoticeOf(
       ),
     ];
     return {
-      kind: "results_for_dropped_uncertainty",
+      kind: isPlanRole(roleId) ? "plans_for_dropped_uncertainty" : "results_for_dropped_uncertainty",
       seedIds,
       uncertainties: droppedIds.map((seedId) => {
         const uncertainty = state.seeds.find((candidate) => candidate._id === seedId);
@@ -620,7 +622,7 @@ export async function getSubsectionData(
   });
   // 2026-09-29 (first): read once for every card's linked uncertainty.
   const pickedUncertainties =
-    state.complete && (roleId === "experimentation" || roleId === "specific_advancements" || isResultRole(roleId))
+    state.complete && (roleId === "experimentation" || roleId === "specific_advancements" || isAnswerRole(roleId))
       ? pickedLinks(state)
       : null;
   const experimentsReadById =

@@ -198,6 +198,30 @@ export function isResultRole(roleId: string): roleId is ResultRoleId {
   return (RESULT_ROLE_IDS as readonly string[]).includes(roleId);
 }
 
+/**
+ * 2026-09-30 (fifth): Work plan (Subsection 7) and Hypothesis (Subsection 8)
+ * Seeds record the picked uncertainties they plan work for or test, in the
+ * same `answeredUncertaintySeedIds`.
+ */
+export const PLAN_ROLE_IDS = ["workplan", "hypothesis"] as const;
+export type PlanRoleId = (typeof PLAN_ROLE_IDS)[number];
+
+export function isPlanRole(roleId: string): roleId is PlanRoleId {
+  return (PLAN_ROLE_IDS as readonly string[]).includes(roleId);
+}
+
+/**
+ * Every step whose Seeds record the picked uncertainties they address, in
+ * step order: the plan steps (2026-09-30 fifth) and the result steps
+ * (fourth). Only the result steps get the figure acknowledgement.
+ */
+export const ANSWER_ROLE_IDS = [...PLAN_ROLE_IDS, ...RESULT_ROLE_IDS] as const;
+export type AnswerRoleId = (typeof ANSWER_ROLE_IDS)[number];
+
+export function isAnswerRole(roleId: string): roleId is AnswerRoleId {
+  return (ANSWER_ROLE_IDS as readonly string[]).includes(roleId);
+}
+
 /** A picked result Seed and the uncertainties it records answering. */
 export type ResultAnswers = {
   seedId: string;

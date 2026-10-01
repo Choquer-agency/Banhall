@@ -45,7 +45,7 @@ import {
   droppedUncertaintyExperimentIds,
   droppedUncertaintyResultIds,
 } from "./lib/seedApproval";
-import { isResultRole } from "../shared/advancementLinks";
+import { isAnswerRole, isPlanRole } from "../shared/advancementLinks";
 import {
   appendSeedRoleEvent,
   disposeSeedEpisode,
@@ -941,14 +941,20 @@ export const approve = mutation({
     // 2026-09-30 (fourth): a result that answers an uncertainty the writer
     // dropped cannot be approved into the plan either. One whose words state
     // its result needs the writer's acknowledgement (the challenge below).
+    // 2026-09-30 (fifth): nor a hypothesis that tests one, or a work plan
+    // that plans work for one.
     if (
-      isResultRole(args.roleId) &&
+      isAnswerRole(args.roleId) &&
       droppedUncertaintyResultIds(state, args.roleId).length
     )
       domainError(
         "INVALID_STATE",
-        "A picked idea answers an uncertainty you no longer have picked. Untick it, pick that uncertainty again, or regenerate this step.",
-        { reason: "RESULT_FOR_DROPPED_UNCERTAINTY" },
+        args.roleId === "hypothesis"
+          ? "A picked hypothesis tests an uncertainty you no longer have picked. Untick it, pick that uncertainty again, or regenerate this step."
+          : args.roleId === "workplan"
+            ? "A picked work plan plans work for an uncertainty you no longer have picked. Untick it, pick that uncertainty again, or regenerate this step."
+            : "A picked idea answers an uncertainty you no longer have picked. Untick it, pick that uncertainty again, or regenerate this step.",
+        { reason: isPlanRole(args.roleId) ? "PLAN_FOR_DROPPED_UNCERTAINTY" : "RESULT_FOR_DROPPED_UNCERTAINTY" },
       );
     const challenge = await buildSeedApprovalChallenge(ctx, state, f.row);
     if (
@@ -1017,6 +1023,7 @@ export type SeedKeepRefusal =
   | "UNLINKED_ADVANCEMENT"
   | "EXPERIMENT_FOR_DROPPED_UNCERTAINTY"
   | "RESULT_FOR_DROPPED_UNCERTAINTY"
+  | "PLAN_FOR_DROPPED_UNCERTAINTY"
   | "DROPPED_RESULT_FIGURES"
   | "CLAIM_EXCLUSION"
   | "READ_LIMIT";
@@ -1083,8 +1090,11 @@ export const keep = mutation({
         needsAttention.push({ roleId: row.roleId, reason: "EXPERIMENT_FOR_DROPPED_UNCERTAINTY" });
         continue;
       }
-      if (isResultRole(row.roleId) && droppedUncertaintyResultIds(state, row.roleId).length > 0) {
-        needsAttention.push({ roleId: row.roleId, reason: "RESULT_FOR_DROPPED_UNCERTAINTY" });
+      if (isAnswerRole(row.roleId) && droppedUncertaintyResultIds(state, row.roleId).length > 0) {
+        needsAttention.push({
+          roleId: row.roleId,
+          reason: isPlanRole(row.roleId) ? "PLAN_FOR_DROPPED_UNCERTAINTY" : "RESULT_FOR_DROPPED_UNCERTAINTY",
+        });
         continue;
       }
       let challenge;

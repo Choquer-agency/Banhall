@@ -182,8 +182,15 @@
       `The AI kept writing ideas without naming the uncertainties they answer. Each idea that states a result must name an uncertainty you picked. Try again, or check your picks on the ${UNCERTAINTIES} step.`,
     seed_rules: "The AI kept writing seeds that break the seed rules, so none could be shown. Try again.",
   } as const;
+  // 2026-09-30 (fifth): Hypothesis and Work plan name the uncertainties they
+  // test or plan work for, not results.
+  const PLAN_LINKS_FAILURE = `The AI kept writing ideas without naming the uncertainties they test or plan work for. Each idea must name an uncertainty you picked. Try again, or check your picks on the ${UNCERTAINTIES} step.`;
   const repeatedFailure = $derived(
-    data.repeatedInvalidOutput ? REPEATED_INVALID_OUTPUT[data.repeatedInvalidOutput] : null
+    data.repeatedInvalidOutput === "result_links" && (data.roleId === "hypothesis" || data.roleId === "workplan")
+      ? PLAN_LINKS_FAILURE
+      : data.repeatedInvalidOutput
+        ? REPEATED_INVALID_OUTPUT[data.repeatedInvalidOutput]
+        : null
   );
 
   let busy = $state(false);
@@ -418,6 +425,7 @@
     UNLINKED_ADVANCEMENT: "its advancements must come from uncertainties you picked and experiments that tested them",
     EXPERIMENT_FOR_DROPPED_UNCERTAINTY: "some picked experiments tested an uncertainty you no longer have picked",
     RESULT_FOR_DROPPED_UNCERTAINTY: "a pick answers an uncertainty you no longer have picked",
+    PLAN_FOR_DROPPED_UNCERTAINTY: "a pick tests or plans work for an uncertainty you no longer have picked",
     DROPPED_RESULT_FIGURES: "a pick states a result of an uncertainty you no longer have picked, so confirm it on that step",
     CLAIM_EXCLUSION: "a pick matches a claim exclusion in the Brief, so confirm it on that step",
     READ_LIMIT: "it could not be checked within the safe processing limit, so confirm it on that step",
@@ -523,6 +531,20 @@
       const what = several ? "uncertainties" : "an uncertainty";
       if (!canEdit) return `${which} ${what} the writer no longer has picked: ${names}. This step cannot be approved until that changes.`;
       return `${which} ${what} you no longer have picked: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again on the ${UNCERTAINTIES} step, or regenerate this step and pick an idea that answers an uncertainty you kept.`;
+    }
+    if (notice.kind === "plans_for_dropped_uncertainty") {
+      // 2026-09-30 (fifth): Hypothesis and Work plan.
+      const count = notice.seedIds.length;
+      const hypothesis = data.roleId === "hypothesis";
+      const which = hypothesis
+        ? count === 1 ? "A picked hypothesis tests" : `${count} picked hypotheses test`
+        : count === 1 ? "A picked work plan plans work for" : `${count} picked work plans plan work for`;
+      const several = notice.uncertainties.length > 1;
+      const names = notice.uncertainties.map((words) => (words ? quoted(words) : "an uncertainty not shown here")).join(", ");
+      const what = several ? "uncertainties" : "an uncertainty";
+      if (!canEdit) return `${which} ${what} the writer no longer has picked: ${names}. This step cannot be approved until that changes.`;
+      const instead = hypothesis ? "a hypothesis for an uncertainty you kept" : "a work plan for the uncertainties you kept";
+      return `${which} ${what} you no longer have picked: ${names}. Untick ${count === 1 ? "it" : "them"}, pick ${several ? "those uncertainties" : "that uncertainty"} again on the ${UNCERTAINTIES} step, or regenerate this step and pick ${instead}.`;
     }
     if (notice.kind === "no_linkable_experiment") {
       if (!notice.experimentsPicked) {

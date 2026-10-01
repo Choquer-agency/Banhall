@@ -1069,6 +1069,69 @@ describe("Seed workspace", () => {
       );
     });
 
+    // 2026-09-30 (fifth amendment), release suite run 12: Hypothesis item 8
+    // tested the dosing uncertainty the writer dropped.
+    it("names a Hypothesis or Work plan pick for a dropped uncertainty on the step and the card, and holds approval (2026-09-30, fifth)", async () => {
+      const dosing = "It was unknown whether dosing alkalinity ahead of feeding would hold nitrification capacity through the pulse.";
+      const nitrite = "Nitrite oxidizing bacteria were suspected but not confirmed as the bottleneck.";
+      const hypothesis = seed({
+        seedId: "hyp-1" as Id<"seeds">,
+        roleId: "hypothesis",
+        bullets: ["If alkalinity is dosed ahead of each feeding, TAN stays under 1 mg per litre."],
+        answeredUncertaintySeedIds: ["u3" as Id<"seeds">],
+        answeredUncertainties: [{ seedId: "u3" as Id<"seeds">, bullets: [dosing], picked: false }],
+      });
+      const notice = { kind: "plans_for_dropped_uncertainty" as const, seedIds: ["hyp-1" as Id<"seeds">], uncertainties: [dosing] };
+      const props = (roleId: "hypothesis" | "workplan", items: SeedCardData[], overrides: Partial<SeedSubsectionData> = {}, canEdit = true) =>
+        paneProps(subsection({ roleId, items, approvalChallenge: clean(), ...overrides }), {
+          title: roleId === "hypothesis" ? "Hypothesis" : "Work plan",
+          canEdit,
+        });
+      const view = await render(SeedSubsectionPane, props("hypothesis", [hypothesis], { linkNotice: notice }));
+      await expect.element(page.getByText(
+        'A picked hypothesis tests an uncertainty you no longer have picked: "It was unknown whether dosing alkalinity ahead of feeding would hold nitrific...". Untick it, pick that uncertainty again on the Uncertainties step, or regenerate this step and pick a hypothesis for an uncertainty you kept.'
+      )).toBeVisible();
+      expect(document.querySelector("[data-link-notice]")?.getAttribute("data-link-notice")).toBe("plans_for_dropped_uncertainty");
+      expect(document.querySelector('[data-seed-link-answers="dropped"]')?.textContent).toBe(
+        'Tests an uncertainty you no longer have picked: "It was unknown whether dosing alkalinity ahead of feeding would hold nitrific..."'
+      );
+      await expect.element(approveButton()).toBeDisabled();
+      await view.rerender(props("hypothesis", [hypothesis], { linkNotice: notice }, false));
+      expect(document.querySelector("[data-link-notice]")?.textContent).toBe(
+        'A picked hypothesis tests an uncertainty the writer no longer has picked: "It was unknown whether dosing alkalinity ahead of feeding would hold nitrific...". This step cannot be approved until that changes.'
+      );
+
+      // A hypothesis for the kept uncertainty: "Tests:", and approval returns.
+      const kept = seed({ ...hypothesis, answeredUncertainties: [{ seedId: "u2" as Id<"seeds">, bullets: [nitrite], picked: true }] });
+      await view.rerender(props("hypothesis", [kept]));
+      expect(document.querySelector("[data-link-notice]")).toBeNull();
+      expect(document.querySelector('[data-seed-link-answers="picked"]')?.textContent).toBe(
+        'Tests: "Nitrite oxidizing bacteria were suspected but not confirmed as the bottleneck."'
+      );
+      await expect.element(approveButton()).toBeEnabled();
+
+      // A work plan: "Plans for:", its own notice and failure wording.
+      const plan = seed({ ...kept, seedId: "plan-1" as Id<"seeds">, roleId: "workplan", bullets: ["Start-up trials ran first, over weeks."] });
+      await view.rerender(props("workplan", [plan]));
+      expect(document.querySelector('[data-seed-link-answers="picked"]')?.textContent).toBe(
+        'Plans for: "Nitrite oxidizing bacteria were suspected but not confirmed as the bottleneck."'
+      );
+      await view.rerender(props("workplan", [seed({ ...plan, answeredUncertainties: hypothesis.answeredUncertainties })], {
+        linkNotice: { ...notice, seedIds: ["plan-1" as Id<"seeds">, "plan-2" as Id<"seeds">] },
+      }));
+      expect(document.querySelector("[data-link-notice]")?.textContent).toBe(
+        '2 picked work plans plan work for an uncertainty you no longer have picked: "It was unknown whether dosing alkalinity ahead of feeding would hold nitrific...". Untick them, pick that uncertainty again on the Uncertainties step, or regenerate this step and pick a work plan for the uncertainties you kept.'
+      );
+      expect(document.querySelector('[data-seed-link-answers="dropped"]')?.textContent).toBe(
+        'Plans for an uncertainty you no longer have picked: "It was unknown whether dosing alkalinity ahead of feeding would hold nitrific..."'
+      );
+      const empty = { state: "failed" as const, items: [], shownBatchId: null, approvalChallenge: null };
+      await view.rerender(paneProps(subsection({ ...empty, roleId: "workplan", lastAttemptFailed: true, repeatedInvalidOutput: "result_links" })));
+      await expect.element(page.getByText(
+        "The AI kept writing ideas without naming the uncertainties they test or plan work for. Each idea must name an uncertainty you picked. Try again, or check your picks on the Uncertainties step."
+      )).toBeVisible();
+    });
+
     it("names two picks and two dropped uncertainties, and says why when results keep naming no picked uncertainty (2026-09-30, fourth)", async () => {
       const notice = {
         kind: "results_for_dropped_uncertainty" as const,
@@ -5055,6 +5118,7 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
       seedStageVersion: 8,
       kept: [],
       needsAttention: [
+        { roleId: "hypothesis", reason: "PLAN_FOR_DROPPED_UNCERTAINTY" },
         { roleId: "overall_advancement", reason: "RESULT_FOR_DROPPED_UNCERTAINTY" },
         { roleId: "goal_improvements", reason: "DROPPED_RESULT_FIGURES" },
       ],
@@ -5063,7 +5127,7 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     await render(SeedWorkspace, workspaceProps());
     await page.getByRole("button", { name: "Keep all", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-keep-attention]")?.textContent).toBe(
-      "Nothing was kept. Overall advancement needs your attention: a pick answers an uncertainty you no longer have picked. Goal improvements needs your attention: a pick states a result of an uncertainty you no longer have picked, so confirm it on that step."
+      "Nothing was kept. Hypothesis needs your attention: a pick tests or plans work for an uncertainty you no longer have picked. Overall advancement needs your attention: a pick answers an uncertainty you no longer have picked. Goal improvements needs your attention: a pick states a result of an uncertainty you no longer have picked, so confirm it on that step."
     );
   });
 

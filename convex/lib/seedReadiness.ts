@@ -9,16 +9,17 @@ import {
   type SeedSubsectionRevisionState,
 } from "./seedRevisions";
 import {
-  RESULT_ROLE_IDS,
+  ANSWER_ROLE_IDS,
   advancementLinkProblem,
   experimentsForDroppedUncertainties,
-  isResultRole,
+  isAnswerRole,
+  isPlanRole,
   pickedLinkSelections,
   resultsForDroppedUncertainties,
   revisionRoots,
   type ExperimentTest,
+  type AnswerRoleId,
   type ResultAnswers,
-  type ResultRoleId,
 } from "../../shared/advancementLinks";
 import {
   loadSeedDecisionState,
@@ -37,7 +38,8 @@ export type SeedReadinessBlocker = {
     | "ROLE_STALE"
     | "UNLINKED_ADVANCEMENT"
     | "EXPERIMENT_FOR_DROPPED_UNCERTAINTY"
-    | "RESULT_FOR_DROPPED_UNCERTAINTY";
+    | "RESULT_FOR_DROPPED_UNCERTAINTY"
+    | "PLAN_FOR_DROPPED_UNCERTAINTY";
   roleId?: PdSubsectionRoleId;
   message: string;
 };
@@ -80,12 +82,13 @@ function roleStale(subsection: SeedSubsectionRevisionState): boolean {
  * 2026-09-30 (fourth): no selected Advancement to science or goal
  * improvements Seed answers an uncertainty the writer dropped. A pick whose
  * words state its result is not a blocker: approval asks the writer to
- * acknowledge it.
+ * acknowledge it. 2026-09-30 (fifth): nor does a selected Hypothesis or Work
+ * plan Seed test or plan work for one.
  */
 function linkReview(input: SeedReadinessInput): {
   advancementsLinked: boolean;
   droppedUncertaintyExperiments: number;
-  droppedUncertaintyResultRoles: ResultRoleId[];
+  droppedUncertaintyResultRoles: AnswerRoleId[];
 } {
   const skipped = new Set(
     input.subsections
@@ -96,7 +99,7 @@ function linkReview(input: SeedReadinessInput): {
   const uncertaintySeedIds: string[] = [];
   const experiments: ExperimentTest[] = [];
   const advancements = [];
-  const results: Array<ResultAnswers & { roleId: ResultRoleId }> = [];
+  const results: Array<ResultAnswers & { roleId: AnswerRoleId }> = [];
 
   for (const selection of input.selectionRows) {
     if (!selection.selected || skipped.has(selection.roleId)) continue;
@@ -115,7 +118,7 @@ function linkReview(input: SeedReadinessInput): {
       });
     } else if (selection.roleId === "specific_advancements") {
       advancements.push(sameDecision ? seed : undefined);
-    } else if (isResultRole(selection.roleId) && sameDecision) {
+    } else if (isAnswerRole(selection.roleId) && sameDecision) {
       results.push({
         roleId: selection.roleId,
         seedId: selection.seedId,
@@ -139,7 +142,7 @@ function linkReview(input: SeedReadinessInput): {
       experiments,
       rootOf
     ).length,
-    droppedUncertaintyResultRoles: RESULT_ROLE_IDS.filter(
+    droppedUncertaintyResultRoles: ANSWER_ROLE_IDS.filter(
       (roleId) =>
         resultsForDroppedUncertainties(
           picked.uncertaintySeedIds,
@@ -221,11 +224,23 @@ export function computeSeedReadiness(input: SeedReadinessInput): SeedReadiness {
   }
   for (const roleId of links.droppedUncertaintyResultRoles) {
     const title = PD_SUBSECTIONS.find((role) => role.roleId === roleId)?.title ?? roleId;
-    blockers.push({
-      code: "RESULT_FOR_DROPPED_UNCERTAINTY",
-      roleId,
-      message: `${title} has a picked idea that answers an uncertainty you no longer have picked`,
-    });
+    blockers.push(
+      isPlanRole(roleId)
+        ? {
+            // 2026-09-30 (fifth).
+            code: "PLAN_FOR_DROPPED_UNCERTAINTY",
+            roleId,
+            message:
+              roleId === "hypothesis"
+                ? `${title} has a picked hypothesis that tests an uncertainty you no longer have picked`
+                : `${title} has a picked work plan that plans work for an uncertainty you no longer have picked`,
+          }
+        : {
+            code: "RESULT_FOR_DROPPED_UNCERTAINTY",
+            roleId,
+            message: `${title} has a picked idea that answers an uncertainty you no longer have picked`,
+          }
+    );
   }
 
   const blockingRoles = new Set(

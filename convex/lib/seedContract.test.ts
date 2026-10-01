@@ -436,7 +436,7 @@ describe("an advancement follows the uncertainty its experiments tested (2026-09
   const check = (
     seed: SeedCandidate,
     references: ReturnType<typeof reference>[],
-    roleId: "specific_advancements" | "experimentation" | "overall_advancement" | "goal_improvements" | "project_status" = "specific_advancements"
+    roleId: "specific_advancements" | "experimentation" | "overall_advancement" | "goal_improvements" | "project_status" | "hypothesis" | "workplan" = "specific_advancements"
   ) => validateSeed({ roleId, seed, referenceContext: { generationId: "generation-1", references } });
 
   it("refuses an advancement linked to an uncertainty its experiments did not test", () => {
@@ -681,6 +681,32 @@ describe("an advancement follows the uncertainty its experiments tested (2026-09
         );
         expect(other.ok, roleId).toBe(true);
         if (other.ok) expect(other.seed).not.toHaveProperty("answeredUncertaintySeedIds");
+      }
+    });
+
+    // 2026-09-30 (fifth): run 12's Hypothesis item 8 was the dosing hypothesis
+    // of an uncertainty the writer dropped, with no link to show it.
+    it("makes a hypothesis and a work plan name at least one picked uncertainty they test or plan work for (2026-09-30, fifth)", () => {
+      const dosingHypothesis = "If alkalinity is dosed ahead of each feeding in proportion to feed mass, then TAN will stay under 1 mg per litre.";
+      for (const roleId of ["hypothesis", "workplan"] as const) {
+        const kept = check(candidate([dosingHypothesis], ["technical"], { answeredUncertaintySeedIds: ["u2-nitrite"], uncertaintySeedId: "u2-nitrite" }), picked, roleId);
+        expect(kept.ok, roleId).toBe(true);
+        if (kept.ok) {
+          expect(kept.seed.answeredUncertaintySeedIds).toEqual(["u2-nitrite"]);
+          expect(kept.seed).not.toHaveProperty("uncertaintySeedId");
+        }
+        for (const [seed, reason] of [
+          [candidate([dosingHypothesis]), "missing_link"],
+          [candidate([dosingHypothesis], ["technical"], { answeredUncertaintySeedIds: [] }), "empty_answers"],
+          [candidate([dosingHypothesis], ["technical"], { answeredUncertaintySeedIds: ["u3-dosing"] }), "unknown_uncertainty"],
+        ] as const) {
+          const refused = check(seed, picked, roleId);
+          expect(refused.ok, `${roleId} ${reason}`).toBe(false);
+          expect(refused.issues).toEqual([expect.objectContaining({ code: "INVALID_RESULT_REFERENCE", linkReason: reason })]);
+        }
+        // No uncertainty picked: no list was sent, so an answer is dropped.
+        const unrequested = check(candidate([dosingHypothesis], ["technical"], { answeredUncertaintySeedIds: ["u2-nitrite"] }), [], roleId);
+        expect(unrequested.ok && unrequested.seed).not.toHaveProperty("answeredUncertaintySeedIds");
       }
     });
 

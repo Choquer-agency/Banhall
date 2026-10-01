@@ -33,6 +33,7 @@ import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsecti
 import { droppedUncertaintyFigures, figuresOf } from "../../shared/planFigures";
 import {
   advancementLinkProblem,
+  isAnswerRole,
   isResultRole,
   pickedLinkSelections,
   revisionRoots,
@@ -160,7 +161,7 @@ export async function loadDroppedResultFigures(
   const recordedRoots = (seed: Doc<"seeds"> | undefined): string[] =>
     !seed
       ? []
-      : (isResultRole(seed.roleId)
+      : (isAnswerRole(seed.roleId)
           ? (seed.answeredUncertaintySeedIds ?? [])
           : seed.uncertaintySeedId && (seed.roleId === "experimentation" || seed.roleId === "specific_advancements")
             ? [seed.uncertaintySeedId]

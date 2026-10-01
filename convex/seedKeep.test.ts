@@ -234,6 +234,34 @@ describe("keep later steps after an earlier change", () => {
     expect(await staleOf(s, overall.rowId)).toBe(false);
   });
 
+  it("marks Work plan and Hypothesis for review when an uncertainty is unticked, and leaves a pick that records it (2026-09-30, fifth)", async () => {
+    const s = await decisionFixture();
+    const dropped = await addDecisionSeed(s, "active_uncertainties");
+    const kept = await addDecisionSeed(s, "active_uncertainties");
+    for (const uncertainty of [dropped, kept]) {
+      await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: uncertainty.seedId, selected: true });
+    }
+    const workplan = await approvedLaterStep(s, "workplan");
+    const hypothesis = await approvedLaterStep(s, "hypothesis");
+    await s.t.run(async (ctx) => {
+      // Run 12: the hypothesis tests the uncertainty the writer drops; the
+      // work plan plans work for the kept one only.
+      await ctx.db.patch(hypothesis.seedId, { answeredUncertaintySeedIds: [dropped.seedId] });
+      await ctx.db.patch(workplan.seedId, { answeredUncertaintySeedIds: [kept.seedId] });
+    });
+    expect(await staleOf(s, hypothesis.rowId)).toBe(false);
+    await s.writer.mutation(select, { ...args(s, await version(s), "active_uncertainties"), seedId: dropped.seedId, selected: false });
+    // Both come after Technological uncertainties, so the untick marks them for review.
+    expect(await staleOf(s, workplan.rowId)).toBe(true);
+    expect(await staleOf(s, hypothesis.rowId)).toBe(true);
+    const result = await s.writer.mutation(keep, { ...args(s, await version(s), "active_uncertainties"), scope: "later" });
+    expect(result.kept).toEqual(["workplan"]);
+    expect(result.needsAttention).toEqual([{ roleId: "hypothesis", reason: "PLAN_FOR_DROPPED_UNCERTAINTY" }]);
+    expect(await staleOf(s, hypothesis.rowId)).toBe(true);
+    const ready = await s.writer.query(readiness, { generationId: s.generationId });
+    expect(ready.blockers.filter((blocker) => blocker.code === "PLAN_FOR_DROPPED_UNCERTAINTY").map((blocker) => blocker.roleId)).toEqual(["hypothesis"]);
+  });
+
   it("keeps experiments whose uncertainty the writer revised through Feedback (review P2-2)", async () => {
     const s = await decisionFixture();
     const uncertainty = await addDecisionSeed(s, "active_uncertainties");

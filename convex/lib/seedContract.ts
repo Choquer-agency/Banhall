@@ -3,7 +3,7 @@ import { isDashClean } from "../../shared/humanProse";
 import {
   advancementLinkProblem,
   allowedAdvancementLinks,
-  isResultRole,
+  isAnswerRole,
   pickedLinkSelections,
 } from "../../shared/advancementLinks";
 import { speakerOfTranscriptLine, speakersAtOffsets } from "../../shared/transcriptParse";
@@ -394,8 +394,8 @@ function withoutUnrequestedLinks(
     return withoutAdvancementLinks(candidate);
   }
   // 2026-09-30 (fourth): with no uncertainty picked, a result has nothing
-  // to answer and no list was sent.
-  if (isResultRole(roleId) && activeReferences(context, "active_uncertainties").length === 0) {
+  // to answer and no list was sent; (fifth) nor a hypothesis or work plan.
+  if (isAnswerRole(roleId) && activeReferences(context, "active_uncertainties").length === 0) {
     return withoutAdvancementLinks(candidate);
   }
   return candidate;
@@ -441,14 +441,16 @@ function validateExperimentReference(args: {
  * answeredUncertaintySeedIds, each id a picked uncertainty of this
  * generation; an Advancement to science Seed names at least one, and a goal
  * improvements Seed may name none when it only restates the goal. With no
- * uncertainty picked, it carries no link.
+ * uncertainty picked, it carries no link. 2026-09-30 (fifth): a Hypothesis
+ * Seed names the picked uncertainties it tests and a Work plan Seed the ones
+ * it plans work for, each at least one, by the same rule.
  */
 function validateResultReferences(args: {
   candidate: SeedCandidate;
   roleId: PdSubsectionRoleId;
   referenceContext?: SeedReferenceContext;
 }): SeedValidationIssue[] {
-  if (!isResultRole(args.roleId)) return [];
+  if (!isAnswerRole(args.roleId)) return [];
   const context = args.referenceContext;
   const uncertainties = activeReferences(context, "active_uncertainties");
   const answered = args.candidate.answeredUncertaintySeedIds;
@@ -465,7 +467,7 @@ function validateResultReferences(args: {
   if (answered.some((seedId) => !validReference(seedId, "active_uncertainties", context))) {
     return issue("unknown_uncertainty");
   }
-  if (args.roleId === "overall_advancement" && answered.length === 0) return issue("empty_answers");
+  if (args.roleId !== "goal_improvements" && answered.length === 0) return issue("empty_answers");
   return [];
 }
 
@@ -700,7 +702,7 @@ export function validateSeed(args: {
       ? withAdvancementLinksOnly(parsed.candidate)
       : args.roleId === "experimentation"
         ? withExperimentLinkOnly(parsed.candidate)
-        : isResultRole(args.roleId)
+        : isAnswerRole(args.roleId)
           ? withResultLinksOnly(parsed.candidate)
           : withoutAdvancementLinks(parsed.candidate),
     args.roleId,

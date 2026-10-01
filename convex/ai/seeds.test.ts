@@ -1410,6 +1410,102 @@ describe("seed Node action request boundary", () => {
       expect(persisted.map((seed) => seed.answeredUncertaintySeedIds)).toEqual([[u1], [u1], [u1]]);
     });
 
+    // 2026-09-30 (fifth amendment), release suite run 12: Hypothesis item 8
+    // was the dosing hypothesis of an uncertainty the writer dropped.
+    it("asks a hypothesis for the uncertainties it tests through the result tool, repairs a missing or empty answer with the earlier answer shown, and stores them (2026-09-30, fifth)", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, {
+        targetRoleId: "hypothesis",
+        decisions: [
+          { roleId: "active_uncertainties", bullets: [acclimation] },
+          { roleId: "active_uncertainties", bullets: [nitrite] },
+          { roleId: "active_uncertainties", bullets: ["It was unknown whether feed-forward dosing would hold TAN under 1 mg per litre."], selected: false },
+        ],
+      });
+      const [u1, u2] = fixture.decisions.map((decision) => decision.seedId);
+      const requests: Request[] = [];
+      stubSeedFetch(
+        vi.fn<typeof fetch>(async (input, init) => {
+          requests.push(new Request(input, init));
+          return requests.length === 1
+            ? providerResponse({
+                seeds: [
+                  result("If seed media is acclimated stepwise, start-up at 8 C falls under 5 weeks.", "detailed", [u1!]),
+                  // No answer, and an empty one.
+                  result("If nitrite oxidizers are the bottleneck, their stall sets start-up time.", "technical"),
+                  result("If acclimation works, seed fraction matters less.", "conservative", []),
+                ],
+              }, 1)
+            : providerResponse({
+                seeds: [
+                  result("If seed media is acclimated stepwise, start-up at 8 C falls under 5 weeks.", "detailed", [u1!]),
+                  result("If nitrite oxidizers are the bottleneck, their stall sets start-up time.", "technical", [u2!]),
+                  result("If acclimation works, the nitrite stall shortens.", "conservative", [u1!, u2!]),
+                ],
+              }, 2);
+        })
+      );
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(requests).toHaveLength(2);
+      const bodies = await Promise.all(requests.map((request) => request.clone().json()));
+      const first = requestText(bodies[0].messages[0].content);
+      expect(linkBlock(first, "FROZEN RESULT LINKS")).toEqual({ uncertaintySeedIds: [u1, u2].sort() });
+      expect(first).toContain("every Seed must set answeredUncertaintySeedIds to the ids, copied exactly, of the uncertainties a hypothesis tests or a work plan plans work for, at least one");
+      for (const body of bodies) {
+        expect(body.tool_choice).toEqual({ type: "tool", name: "submit_result_seed_batch" });
+        expect(body.tools.map((tool: { name: string }) => tool.name)).toEqual([
+          "submit_seed_batch",
+          "submit_experiment_seed_batch",
+          "submit_advancement_seed_batch",
+          "submit_result_seed_batch",
+        ]);
+      }
+      const second = requestText(bodies[1].messages[0].content);
+      expect(second).toContain(
+        "Your previous tool output was invalid: (root): 1 of 3 Seeds valid; return 3 to 5 valid Seeds; set answeredUncertaintySeedIds to answered ids from FROZEN RESULT LINKS (Seed 2); list at least one answered uncertainty from FROZEN RESULT LINKS (Seed 3)"
+      );
+      expect(second).toContain(SEED_PROMPT_PROGRAM.request.linkRepair.resultOpening);
+      const persisted = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+      );
+      expect(persisted.map((seed) => seed.answeredUncertaintySeedIds)).toEqual([[u1], [u2], [u1, u2]]);
+    });
+
+    it("refuses a work plan answered with the shared tool on the auto path, names the result tool, and stores the repaired answer (2026-09-30, fifth)", async () => {
+      const t = convexTest(schema, modules);
+      const fixture = await dispatchedAttempt(t, {
+        targetRoleId: "workplan",
+        model: "claude-opus-5-5",
+        decisions: [{ roleId: "active_uncertainties", bullets: [acclimation] }],
+      });
+      const [u1] = fixture.decisions.map((decision) => decision.seedId);
+      const answer = {
+        seeds: [
+          result("Start-up trials run first because they take weeks.", "detailed", [u1!]),
+          result("Each loop tests one seed treatment at 8 C.", "technical", [u1!]),
+          result("Trials are compared against an unseeded control loop.", "conservative", [u1!]),
+        ],
+      };
+      const requests: Request[] = [];
+      stubSeedFetch(
+        vi.fn<typeof fetch>(async (input, init) => {
+          requests.push(new Request(input, init));
+          return providerResponse(answer, requests.length, requests.length === 1 ? SEED_PROMPT_PROGRAM.request.toolName : askedTool);
+        })
+      );
+      await t.action(generateBatchRef, { batchId: fixture.batchId });
+      expect(requests).toHaveLength(2);
+      const bodies = await Promise.all(requests.map((request) => request.clone().json()));
+      expect(JSON.stringify(bodies[0].system)).toContain("Reply only by calling the submit_result_seed_batch tool, exactly once.");
+      expect(requestText(bodies[1].messages[0].content)).toContain(
+        "it called submit_seed_batch, but this request must be answered with submit_result_seed_batch"
+      );
+      const persisted = await t.run((ctx) =>
+        ctx.db.query("seeds").withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId)).collect()
+      );
+      expect(persisted.map((seed) => seed.answeredUncertaintySeedIds)).toEqual([[u1], [u1], [u1]]);
+    });
+
     it("names the minimum of one for an empty Advancement to science list, apart from a missing one (review P3-1)", () => {
       const references = [{ seedId: "u1", generationId: "g1", roleId: "active_uncertainties" as const, active: true }];
       const result = validateBatch({

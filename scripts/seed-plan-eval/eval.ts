@@ -12,14 +12,17 @@ import { droppedUncertaintyFigures, figuresOf, LEAVE_OUT_FIGURE_NOTE_PREFIX } fr
 import { releaseEvalProjectTitle } from "../../shared/releaseEval";
 import { findSourceTalk, sourceTalkSubject } from "../../shared/humanProse";
 import {
+  PLAN_ROLE_IDS,
   RESULT_ROLE_IDS,
   advancementLinkProblem,
   experimentsForDroppedUncertainties,
+  isAnswerRole,
+  isPlanRole,
   isResultRole,
   pickedLinkSelections,
   resultsForDroppedUncertainties,
   revisionRoots,
-  type ResultRoleId,
+  type AnswerRoleId,
   type UncertaintyRoot,
 } from "../../shared/advancementLinks";
 
@@ -294,7 +297,7 @@ export type Step =
   | { op: "deselectExperimentsForDroppedUncertainty" }
   | { op: "recordLinkNotice"; role: PdSubsectionRoleId }
   | { op: "deselectUnlinkedAdvancements" }
-  | { op: "resolveResultsForDroppedUncertainty"; role: ResultRoleId }
+  | { op: "resolveResultsForDroppedUncertainty"; role: AnswerRoleId }
   | { op: "edit"; role: PdSubsectionRoleId; transform: EditTransform; key: string }
   | { op: "feedback"; role: PdSubsectionRoleId; key: string; target: "selected" | "notSelected"; instruction: string }
   | { op: "selectRevised"; role: PdSubsectionRoleId; key: string; deselectTarget: boolean }
@@ -421,6 +424,13 @@ export function buildPlan(fixture: FixtureManifest): Step[] {
         // The writer drops the uncertainty most advancements link to.
         { op: "deselectMostLinkedUncertainty" },
         { op: "approve", role: "active_uncertainties" },
+        // 2026-09-30 (fifth): Work plan and Hypothesis record the
+        // uncertainties they plan work for or test. In step order, before
+        // the experiments: where a pick records the dropped uncertainty, the
+        // step says so, approval is refused, and the writer unticks it and
+        // picks (or regenerates for) one for a kept uncertainty.
+        { op: "resolveResultsForDroppedUncertainty", role: "workplan" },
+        { op: "resolveResultsForDroppedUncertainty", role: "hypothesis" },
         // Its experiments can no longer be approved into the plan: the step
         // says so, approval is refused, and the writer unticks them (or
         // picks experiments for a kept uncertainty when none is left).
@@ -493,6 +503,9 @@ export function describeStep(step: Step): string {
     case "deselectUnlinkedAdvancements":
       return "Specific technological advancements: untick advancements whose links are no longer active";
     case "resolveResultsForDroppedUncertainty":
+      if (isPlanRole(step.role)) {
+        return `${title(step.role)}: read what the step says about its links, expect the refusal where a pick ${step.role === "hypothesis" ? "tests" : "plans work for"} the dropped uncertainty, untick it, and pick (or regenerate for) one for a kept uncertainty`;
+      }
       return `${title(step.role)}: read what the step says about its links and what approval asks to acknowledge, expect the refusal where a pick answers the dropped uncertainty, untick every pick that answers it or states its result, and pick (or regenerate for) an idea that answers a kept uncertainty`;
     case "edit":
       return step.transform.kind === "appendSentence"
@@ -1309,9 +1322,15 @@ export async function runFixture(
    * after one regeneration (review P3-5). `approveWhenClean` approves a step
    * that needed nothing (reapproveStale), as its plain approval did.
    */
-  const resolveResults = async (role: ResultRoleId, options: { approveWhenClean: boolean }) => {
+  const resolveResults = async (role: AnswerRoleId, options: { approveWhenClean: boolean }) => {
+    // 2026-09-30 (fifth): Hypothesis and Work plan name their picks with
+    // their own notice kind.
     const namedBy = (view: SubsectionView) =>
-      new Set(view.linkNotice?.kind === "results_for_dropped_uncertainty" ? (view.linkNotice.seedIds ?? []) : []);
+      new Set(
+        view.linkNotice?.kind === "results_for_dropped_uncertainty" || view.linkNotice?.kind === "plans_for_dropped_uncertainty"
+          ? (view.linkNotice.seedIds ?? [])
+          : [],
+      );
     const first = await subsection(role);
     const notice = first.linkNotice?.kind ?? null;
     const firstLook = !(role in (log.droppedResultPicks ?? {}));
@@ -1648,7 +1667,8 @@ export async function runFixture(
             // 2026-09-30 (fourth, review re-check): a result step goes through
             // the same resolver, so a pick that answers or states a dropped
             // result is replaced, never approved.
-            else if (isResultRole(row.roleId)) await resolveResults(row.roleId, { approveWhenClean: true });
+            // 2026-09-30 (fifth): and so do Hypothesis and Work plan.
+            else if (isAnswerRole(row.roleId)) await resolveResults(row.roleId, { approveWhenClean: true });
             else await approve(row.roleId);
           }
         }
@@ -2635,6 +2655,7 @@ function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[
         ),
       );
       checks.push(...resultLinkChecks(c, log, uncertaintySeeds));
+      checks.push(...planLinkChecks(c, log, uncertaintySeeds));
       // A hint for the judge, not a verdict: the drafted text cannot be
       // tied to an uncertainty mechanically, so show the Line 246 paragraph
       // that shares the most words with the dropped uncertainty, then
@@ -2886,6 +2907,61 @@ export function droppedFiguresCheck(c: Collected, log: RunLog): Check {
     hits.length === 0,
     hits.length ? hits.join("; ") : `${dropped.length} dropped uncertainty(ies) read from ${source}; no item states one of their results' figures`,
   );
+}
+
+/**
+ * 2026-09-30 (fifth): Hypothesis and Work plan record the uncertainties they
+ * test or plan work for. Where a pick recorded the dropped uncertainty,
+ * approving it was refused (information when no pick did, or for results
+ * from before); and every signed-off Hypothesis and Work plan item records
+ * at least one uncertainty, each one the plan still holds (run 12's
+ * Hypothesis item 8 recorded none and tested the dropped one).
+ */
+function planLinkChecks(c: Collected, log: RunLog, planUncertainties: ReadonlySet<string>): Check[] {
+  const checks: Check[] = [];
+  const recorded = log.droppedResultPicks;
+  const needed = PLAN_ROLE_IDS.filter((role) => (recorded?.[role] ?? 0) > 0);
+  const title = (role: string) => roleDef(role)?.title ?? role;
+  const label = "After the uncertainty was dropped, approving a Hypothesis or Work plan pick that tested it was refused";
+  if (needed.length === 0) {
+    checks.push(
+      info(
+        "dropped-plans-refused",
+        label,
+        recorded && PLAN_ROLE_IDS.some((role) => role in recorded)
+          ? "not applicable: no picked Hypothesis or Work plan idea recorded the dropped uncertainty"
+          : "not recorded (a run from before the 2026-09-30 fifth amendment)",
+      ),
+    );
+  } else {
+    const refusals = needed.map((role) => ({ role, refusal: log.refusals.find((candidate) => candidate.key === `droppedResults:${role}`) }));
+    checks.push(
+      check(
+        "dropped-plans-refused",
+        label,
+        refusals.every(({ refusal }) => refusal?.reason === "PLAN_FOR_DROPPED_UNCERTAINTY"),
+        refusals
+          .map(({ role, refusal }) => `${title(role)}: ${refusal ? `${refusal.code ?? "no code"} / ${refusal.reason ?? "no reason"}` : "no approval attempt recorded"}`)
+          .join("; "),
+      ),
+    );
+  }
+  const items = (c.summary?.items ?? []).filter((item) => isPlanRole(item.roleId));
+  const problems = items.flatMap((item) => {
+    const answered = item.answeredUncertaintySeedIds ?? [];
+    if (answered.length === 0) return [`${quote(item.bullets.join(" "), 60)} records no uncertainty`];
+    const outside = answered.filter((seedId) => !planUncertainties.has(seedId));
+    return outside.length ? [`${quote(item.bullets.join(" "), 60)} records ${outside.length} uncertainty the plan does not hold`] : [];
+  });
+  checks.push(
+    check(
+      "plans-hold-kept-uncertainties",
+      "Every signed-off Hypothesis and Work plan item records only uncertainties the plan still holds",
+      problems.length === 0,
+      problems.length ? problems.join("; ") : `${items.length} item(s), each recording only uncertainties the plan holds`,
+    ),
+  );
+  return checks;
 }
 
 /** Identical reasons collapse to one entry with a count. */

@@ -1671,7 +1671,7 @@ describe("public seed approval", () => {
   async function resultSeed(
     fixture: Fixture,
     args: {
-      roleId: "overall_advancement" | "goal_improvements";
+      roleId: "overall_advancement" | "goal_improvements" | "hypothesis" | "workplan";
       bullet: string;
       selected: boolean;
       answered?: Id<"seeds">[];
@@ -2011,6 +2011,90 @@ describe("public seed approval", () => {
       { seedId: revised, bullets: ["Whether acclimated seed reaches full nitrification within five weeks at 8 C was unknown."], picked: true },
       { seedId: nitrite, bullets: [NITRITE], picked: true },
     ]);
+    await approveExact(fixture);
+    await expect(fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId))).resolves.toMatchObject({ state: "approved" });
+  });
+
+  // 2026-09-30 (fifth amendment), release suite run 12 (Marrowgate,
+  // fictional): Hypothesis item 8 was the dosing hypothesis, carried and
+  // confirmed after the writer dropped the dosing uncertainty.
+  const DOSING = "It was unknown whether dosing alkalinity ahead of feeding would hold nitrification capacity through the ammonia pulse.";
+  const DOSING_HYPOTHESIS = "If alkalinity is dosed ahead of each feeding in proportion to feed mass, then TAN will stay under 1 mg per litre through the pulse.";
+
+  test("refuses a hypothesis that tests an uncertainty the writer dropped, says so first, shows what it tests, and keeps a carried one approvable (2026-09-30, fifth)", async () => {
+    const fixture = await approvalFixture({ roleId: "hypothesis", bullet: DOSING_HYPOTHESIS });
+    const dosing = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: DOSING, selected: false });
+    const nitrite = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: NITRITE, selected: true });
+    await fixture.t.run((ctx) => ctx.db.patch(fixture.seedId, { answeredUncertaintySeedIds: [dosing] }));
+    await skipLaterSteps(fixture, ["experimentation", "overall_advancement", "specific_advancements", "project_status", "goal_improvements"]);
+
+    const view = await subsection(fixture);
+    expect(view.linkNotice).toEqual({ kind: "plans_for_dropped_uncertainty", seedIds: [fixture.seedId], uncertainties: [DOSING] });
+    expect(view.items.find((item) => item.seedId === fixture.seedId)?.answeredUncertainties).toEqual([
+      { seedId: dosing, bullets: [DOSING], picked: false },
+    ]);
+    // No figure acknowledgement for a plan step.
+    expect(view.approvalChallenge?.droppedResults).toEqual([]);
+    await expect(tryApprove(fixture)).rejects.toThrow(
+      /A picked hypothesis tests an uncertainty you no longer have picked\. Untick it, pick that uncertainty again, or regenerate this step\./,
+    );
+    await expect(tryApprove(fixture)).rejects.toThrow(/PLAN_FOR_DROPPED_UNCERTAINTY/);
+    const readiness = await fixture.t.run((ctx) => readSeedReadiness(ctx, fixture.generationId));
+    expect(readiness.blockers).toContainEqual(
+      expect.objectContaining({
+        code: "PLAN_FOR_DROPPED_UNCERTAINTY",
+        roleId: "hypothesis",
+        message: "Hypothesis has a picked hypothesis that tests an uncertainty you no longer have picked",
+      }),
+    );
+
+    // A hypothesis for the kept uncertainty, and a carried one that records
+    // nothing (written before this amendment), are approved.
+    const kept = await resultSeed(fixture, {
+      roleId: "hypothesis",
+      bullet: "If nitrite oxidizers are the cold bottleneck, acclimated seed shortens their stall.",
+      selected: true,
+      answered: [nitrite],
+    });
+    await resultSeed(fixture, { roleId: "hypothesis", bullet: "If acclimation works, start-up falls under 5 weeks.", selected: true });
+    await untick(fixture, fixture.seedId);
+    const fixed = await subsection(fixture);
+    expect(fixed.linkNotice).toBeUndefined();
+    expect(fixed.items.find((item) => item.seedId === kept)?.answeredUncertainties).toEqual([
+      { seedId: nitrite, bullets: [NITRITE], picked: true },
+    ]);
+    await approveExact(fixture);
+    await expect(fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId))).resolves.toMatchObject({ state: "approved" });
+  });
+
+  test("refuses a work plan that plans work for an uncertainty the writer dropped, with its own notice and blocker (2026-09-30, fifth)", async () => {
+    const fixture = await approvalFixture({
+      roleId: "workplan",
+      bullet: "The team kept the three biofilter uncertainties separate because they fail differently.",
+    });
+    const dosing = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: DOSING, selected: false });
+    const nitrite = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: NITRITE, selected: true });
+    await fixture.t.run((ctx) => ctx.db.patch(fixture.seedId, { answeredUncertaintySeedIds: [nitrite, dosing] }));
+    await skipLaterSteps(fixture, ["hypothesis", "experimentation", "overall_advancement", "specific_advancements", "project_status", "goal_improvements"]);
+    expect((await subsection(fixture)).linkNotice).toEqual({
+      kind: "plans_for_dropped_uncertainty",
+      seedIds: [fixture.seedId],
+      uncertainties: [DOSING],
+    });
+    await expect(tryApprove(fixture)).rejects.toThrow(
+      /A picked work plan plans work for an uncertainty you no longer have picked\. Untick it, pick that uncertainty again, or regenerate this step\./,
+    );
+    await expect(tryApprove(fixture)).rejects.toThrow(/PLAN_FOR_DROPPED_UNCERTAINTY/);
+    const readiness = await fixture.t.run((ctx) => readSeedReadiness(ctx, fixture.generationId));
+    expect(readiness.blockers).toContainEqual(
+      expect.objectContaining({
+        code: "PLAN_FOR_DROPPED_UNCERTAINTY",
+        roleId: "workplan",
+        message: "Work plan has a picked work plan that plans work for an uncertainty you no longer have picked",
+      }),
+    );
+    await resultSeed(fixture, { roleId: "workplan", bullet: "Start-up trials ran first, over weeks.", selected: true, answered: [nitrite] });
+    await untick(fixture, fixture.seedId);
     await approveExact(fixture);
     await expect(fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId))).resolves.toMatchObject({ state: "approved" });
   });

@@ -174,12 +174,26 @@ describe("scripted sessions", () => {
     // results, and before the Stale steps are confirmed.
     const plan = buildPlan(byCase("changed_advancement_links"));
     const resolves = plan.flatMap((step, index) => (step.op === "resolveResultsForDroppedUncertainty" ? [[step.role, index] as const] : []));
-    expect(resolves.map(([role]) => role)).toEqual(["overall_advancement", "goal_improvements"]);
-    const lastSpecificApproval = plan.findLastIndex((step) => step.op === "approve" && step.role === "specific_advancements");
-    expect(lastSpecificApproval).toBeLessThan(resolves[0]![1]);
+    // 2026-09-30 (fifth): Work plan and Hypothesis first, right after the
+    // drop, in step order and before the experiments.
+    expect(resolves.map(([role]) => role)).toEqual(["workplan", "hypothesis", "overall_advancement", "goal_improvements"]);
+    const dropAt = plan.findIndex((step) => step.op === "deselectMostLinkedUncertainty");
+    const firstExperimentNotice = plan.findIndex((step) => step.op === "recordLinkNotice" && step.role === "experimentation");
+    expect(dropAt).toBeLessThan(resolves[0]![1]);
     expect(resolves[0]![1]).toBeLessThan(resolves[1]![1]);
-    expect(resolves[1]![1]).toBeLessThan(links.indexOf("reapproveStale"));
+    expect(resolves[1]![1]).toBeLessThan(firstExperimentNotice);
+    expect(describeStep(plan[resolves[1]![1]]!)).toBe(
+      "Hypothesis: read what the step says about its links, expect the refusal where a pick tests the dropped uncertainty, untick it, and pick (or regenerate for) one for a kept uncertainty",
+    );
     expect(describeStep(plan[resolves[0]![1]]!)).toBe(
+      "Work plan: read what the step says about its links, expect the refusal where a pick plans work for the dropped uncertainty, untick it, and pick (or regenerate for) one for a kept uncertainty",
+    );
+    const resultResolves = resolves.slice(2);
+    const lastSpecificApproval = plan.findLastIndex((step) => step.op === "approve" && step.role === "specific_advancements");
+    expect(lastSpecificApproval).toBeLessThan(resultResolves[0]![1]);
+    expect(resultResolves[0]![1]).toBeLessThan(resultResolves[1]![1]);
+    expect(resultResolves[1]![1]).toBeLessThan(links.indexOf("reapproveStale"));
+    expect(describeStep(plan[resultResolves[0]![1]]!)).toBe(
       "Advancement to science / technology: read what the step says about its links and what approval asks to acknowledge, expect the refusal where a pick answers the dropped uncertainty, untick every pick that answers it or states its result, and pick (or regenerate for) an idea that answers a kept uncertainty",
     );
     // Carried old selections: the goal switch names what it looks for.
@@ -790,6 +804,58 @@ describe("automatic checks", () => {
     for (const id of ["links-valid", "advancements-follow-experiments", "experiments-hold-uncertainties"]) {
       expect({ id, status: status(checks, id) }).toEqual({ id, status: "pass" });
     }
+  });
+
+  // 2026-09-30 (fifth): run 12's Hypothesis item 8 tested the dropped dosing
+  // uncertainty and recorded no link.
+  it("checks that Hypothesis and Work plan items record only uncertainties the plan holds, and the refusal where a pick recorded the dropped one", () => {
+    const fixture = byCase("changed_advancement_links");
+    const c = baseCollected();
+    const DOSING_HYPOTHESIS = "If alkalinity is dosed ahead of each feeding in proportion to feed mass, then TAN will stay under 1 mg per litre through the pulse.";
+    c.summary!.items = [
+      summaryItem("iu2", "active_uncertainties", "u2"),
+      summaryItem("iw", "workplan", "w2", { answeredUncertaintySeedIds: ["u2"], bullets: ["Start-up trials ran first, over weeks."] }),
+      summaryItem("ih", "hypothesis", "h2", { answeredUncertaintySeedIds: ["u2"], bullets: ["If seed is acclimated stepwise, start-up falls under 5 weeks."] }),
+    ];
+    const log: RunLog = {
+      ...emptyRunLog(fixture.id, 0),
+      removedUncertaintySeedId: "u1",
+      droppedResultPicks: { workplan: 0, hypothesis: 1 },
+      refusals: [{ roleId: "hypothesis", key: "droppedResults:hypothesis", code: "INVALID_STATE", reason: "PLAN_FOR_DROPPED_UNCERTAINTY" }],
+    };
+    const checks = runChecks(fixture, c, log);
+    expect(checks.find((item) => item.id === "dropped-plans-refused")).toMatchObject({
+      status: "pass",
+      label: "After the uncertainty was dropped, approving a Hypothesis or Work plan pick that tested it was refused",
+      evidence: "Hypothesis: INVALID_STATE / PLAN_FOR_DROPPED_UNCERTAINTY",
+    });
+    expect(checks.find((item) => item.id === "plans-hold-kept-uncertainties")).toMatchObject({
+      status: "pass",
+      label: "Every signed-off Hypothesis and Work plan item records only uncertainties the plan still holds",
+      evidence: "2 item(s), each recording only uncertainties the plan holds",
+    });
+
+    // Run 12's plan: item 8 recorded nothing; another records the dropped uncertainty.
+    const run12 = baseCollected();
+    run12.summary!.items = [
+      summaryItem("iu2", "active_uncertainties", "u2"),
+      summaryItem("ih8", "hypothesis", "h8", { bullets: [DOSING_HYPOTHESIS] }),
+      summaryItem("iw", "workplan", "w1", { answeredUncertaintySeedIds: ["u2", "u1"], bullets: ["The team kept the three biofilter uncertainties separate."] }),
+    ];
+    const run12Checks = runChecks(fixture, run12, { ...emptyRunLog(fixture.id, 0), removedUncertaintySeedId: "u1" });
+    expect(run12Checks.find((item) => item.id === "plans-hold-kept-uncertainties")).toMatchObject({
+      status: "fail",
+      evidence: '"If alkalinity is dosed ahead of each feeding in proportio..." records no uncertainty; "The team kept the three biofilter uncertainties separate." records 1 uncertainty the plan does not hold',
+    });
+    expect(run12Checks.find((item) => item.id === "dropped-plans-refused")).toMatchObject({
+      status: "info",
+      evidence: "not recorded (a run from before the 2026-09-30 fifth amendment)",
+    });
+    // Recorded, but no plan pick recorded the dropped uncertainty: information.
+    expect(runChecks(fixture, c, { ...log, droppedResultPicks: { workplan: 0, hypothesis: 0 }, refusals: [] }).find((item) => item.id === "dropped-plans-refused"))
+      .toMatchObject({ status: "info", evidence: "not applicable: no picked Hypothesis or Work plan idea recorded the dropped uncertainty" });
+    // Not refused: fails.
+    expect(status(runChecks(fixture, c, { ...log, refusals: [{ roleId: "hypothesis", key: "droppedResults:hypothesis", code: null, reason: "NOT_REFUSED" }] }), "dropped-plans-refused")).toBe("fail");
   });
 
   // Review P2-1: a link can be wrong, so the words are read too.

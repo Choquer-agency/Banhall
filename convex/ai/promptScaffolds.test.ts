@@ -39,6 +39,7 @@ import {
   SEED_ADVANCEMENT_LINK_RULES,
   SEED_EXPERIMENT_LINK_RULES,
   SEED_LINK_RULES,
+  SEED_PLAN_LINK_RULES,
   SEED_PROMPT_PROGRAM,
   SEED_RESULT_LINK_RULES,
   SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
@@ -380,7 +381,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("names each experiment's uncertainty and makes advancements follow it (2026-09-29, first amendment)", () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-30.1");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-30.2");
     expect(SEED_PROMPT_PROGRAM.user.blocks.experimentLinks).toBe("FROZEN EXPERIMENT LINKS");
     // Run 7: the exact pairs in a repair have their own reserved bytes.
     expect(SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes).toBe(768);
@@ -401,7 +402,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     expect(order.indexOf("{{runtime.decisions}}")).toBeLessThan(order.indexOf("{{runtime.experimentLinks}}"));
     expect(order.indexOf("{{runtime.experimentLinks}}")).toBeLessThan(order.indexOf("{{runtime.advancementLinks}}"));
     expect(SEED_PROMPT_PROGRAM.user.runtimeSentinels).toContain("{{runtime.experimentLinks}}");
-    expect(SEED_LINK_RULES).toBe(SEED_EXPERIMENT_LINK_RULES + SEED_ADVANCEMENT_LINK_RULES + SEED_RESULT_LINK_RULES);
+    expect(SEED_LINK_RULES.startsWith(SEED_EXPERIMENT_LINK_RULES + SEED_ADVANCEMENT_LINK_RULES + SEED_RESULT_LINK_RULES)).toBe(true);
     for (const guidance of [SEED_PROMPT_PROGRAM.user.guidance, SEED_PROMPT_PROGRAM.user.factGuidance]) {
       expect(guidance.endsWith(SEED_LINK_RULES)).toBe(true);
       expect(guidance).toContain(
@@ -432,8 +433,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     expect(SEED_PROMPT_PROGRAM.user.runtimeSentinels).toContain("{{runtime.resultLinks}}");
     expect(SEED_PROMPT_PROGRAM.request.linkedTools.result).toEqual({
       name: "submit_result_seed_batch",
+      // 2026-09-30 (fifth): the description now names the plan steps too.
       description:
-        "Submit the complete Seed Batch for the overall advancement or goal improvements when the request has a FROZEN RESULT LINKS block: every Seed lists the uncertainties whose result it states.",
+        "Submit the complete Seed Batch for the work plan, a hypothesis, the overall advancement or goal improvements when the request has a FROZEN RESULT LINKS block: every Seed lists the uncertainties it plans work for, tests or states a result of.",
     });
     expect(SEED_PROMPT_PROGRAM.request.linkRepair.resultOpening).toContain("Keep each Seed's answeredUncertaintySeedIds exactly as it was");
     expect(generationPromptProgram.calls.seeds.linkedSchemas.result).toEqual(linkedSeedSchemas(seedToolSchema()).result);
@@ -442,14 +444,25 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       " For the overall advancement and for goal improvements, when the request has a FROZEN RESULT LINKS block, every Seed must set answeredUncertaintySeedIds to the ids, copied exactly from that block's uncertaintySeedIds list, of the uncertainties whose result the Seed states, and omit uncertaintySeedId and experimentSeedIds. An overall advancement Seed states the result for at least one listed uncertainty, so its list holds one or more ids. A goal improvements Seed lists each uncertainty whose result it states, or has an empty list when it only restates the goal without stating a result. State a result only for a listed uncertainty, and never list one whose result the Seed does not state. When there is no FROZEN RESULT LINKS block, omit answeredUncertaintySeedIds."
     );
     for (const guidance of [SEED_PROMPT_PROGRAM.user.guidance, SEED_PROMPT_PROGRAM.user.factGuidance]) {
-      expect(guidance.endsWith(SEED_RESULT_LINK_RULES)).toBe(true);
+      // 2026-09-30 (fifth): the plan rules follow the result rules.
+      expect(guidance.endsWith(SEED_RESULT_LINK_RULES + SEED_PLAN_LINK_RULES)).toBe(true);
       expect(guidance).not.toMatch(/[\u2013\u2014]/);
     }
     expect(JSON.stringify(SEED_PROMPT_PROGRAM.request)).not.toMatch(/[\u2013\u2014]/);
   });
 
+  it("asks Hypothesis and Work plan for the uncertainties they test (2026-09-30, fifth amendment)", () => {
+    expect(SEED_PLAN_LINK_RULES).toBe(
+      " For a hypothesis and for the work plan, when the request has a FROZEN RESULT LINKS block, its uncertaintySeedIds list holds the only uncertainties these Seeds may name: every Seed must set answeredUncertaintySeedIds to the ids, copied exactly, of the uncertainties a hypothesis tests or a work plan plans work for, at least one, and omit uncertaintySeedId and experimentSeedIds. Write a hypothesis or a work plan only for listed uncertainties, and never list one the Seed does not test or plan work for."
+    );
+    expect(SEED_LINK_RULES).toBe(SEED_EXPERIMENT_LINK_RULES + SEED_ADVANCEMENT_LINK_RULES + SEED_RESULT_LINK_RULES + SEED_PLAN_LINK_RULES);
+    // The same four tools, names and order: only the result tool's description moved.
+    expect(Object.keys(SEED_PROMPT_PROGRAM.request.linkedTools)).toEqual(["experiment", "advancement", "result"]);
+    expect(SEED_PLAN_LINK_RULES).not.toMatch(/[\u2013\u2014]/);
+  });
+
   it("versions the Seed quote rules (2026-09-27, third amendment)", async () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-30.1");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-30.2");
     expect(SEED_PROMPT_PROGRAM.request.quoteRepair.opening).toContain("Some quotes may not back their idea card.");
     expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.quoteRepair)).not.toMatch(/[\u2013\u2014]/);
     expect(generationPromptProgram.templates.seeds.scaffolds.version).toBe(SEED_PROMPT_PROGRAM.version);

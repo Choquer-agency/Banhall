@@ -10248,6 +10248,65 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     ]);
   });
 
+  it("freezes the Hypothesis and Work plan Seeds that recorded a dropped uncertainty with its experiments, within the cap (2026-09-30, fifth)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const ids = await addDecisions(s, [
+      { key: "dropped", roleId: "active_uncertainties", bullets: DROPPED_UNCERTAINTY, ticked: "unticked" },
+      { key: "trial", roleId: "experimentation", bullets: ["Trial 2 compared 5 and 15 percent seed at 6 C."], ticked: "unticked", recordsKey: "dropped" },
+      { key: "hypothesis", roleId: "hypothesis", bullets: ["If 15 percent seed is used, start-up at 6 C meets the target."], ticked: "never", answersKeys: ["dropped"] },
+      // The ready plan skips Work plan (optional), so a second hypothesis, ticked once, stands for the plan steps here.
+      { key: "plan", roleId: "hypothesis", bullets: ["If the seed fraction trials run after the 8 C trials, the 6 C dose is found."], ticked: "unticked", answersKeys: ["dropped"] },
+      { key: "trial3", roleId: "experimentation", bullets: ["Trial 3 repeated the 6 C loops."], ticked: "never", recordsKey: "dropped" },
+    ]);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const frozen = await frozenLines(s);
+    // Ticked first, then by step (experiments before hypotheses), within the cap of three.
+    expect(frozen.summary?.droppedUncertainties?.[0]?.experiments).toEqual([
+      { seedId: ids.trial, wording: ["Trial 2 compared 5 and 15 percent seed at 6 C."] },
+      { seedId: ids.plan, wording: ["If the seed fraction trials run after the 8 C trials, the 6 C dose is found."] },
+      { seedId: ids.trial3, wording: ["Trial 3 repeated the 6 C loops."] },
+    ]);
+    expect(frozen.s244.planChecks.find((check) => check.instruction === "leave_out")?.relationshipReferences.map((reference) => reference.seedId))
+      .toEqual([ids.trial, ids.plan, ids.trial3]);
+  });
+
+  it("freezes what a signed-off Hypothesis and Work plan item tests, named by the uncertainty the plan holds (2026-09-30, fifth)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const ids = await addDecisions(s, [
+      { key: "original", roleId: "active_uncertainties", bullets: ["Whether acclimation could shorten start-up below 10 C was unknown."], ticked: "unticked" },
+    ]);
+    const picked = await s.t.run(async (ctx) => {
+      const selected = async (roleId: PdSubsectionRoleId) => {
+        const rows = await ctx.db.query("seedSelections")
+          .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", roleId))
+          .take(10);
+        return rows.find((row) => row.selected)!.seedId;
+      };
+      const uncertainty = await selected("active_uncertainties");
+      const hypothesis = await selected("hypothesis");
+      await ctx.db.patch(uncertainty, { revisionOfSeedId: ids.original });
+      await ctx.db.patch(hypothesis, { answeredUncertaintySeedIds: [ids.original!] });
+      return { uncertainty, hypothesis };
+    });
+    expect(await s.writer.query(readinessRef, { generationId: s.generationId })).toMatchObject({ ready: true });
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const items = await s.t.run(async (ctx) => {
+      const generation = await ctx.db.get(s.generationId);
+      return await ctx.db.query("summaryItems")
+        .withIndex("by_summaryVersionId_and_order", (q) => q.eq("summaryVersionId", generation!.summaryVersionId!))
+        .take(50);
+    });
+    expect(items.find((item) => item.seedId === picked.hypothesis)?.answeredUncertaintySeedIds).toEqual([picked.uncertainty]);
+  });
+
   it("freezes what a signed-off result answers, named by the uncertainty the plan holds (2026-09-30, fourth)", async () => {
     const s = await decisionFixture();
     await makeReady(s);
