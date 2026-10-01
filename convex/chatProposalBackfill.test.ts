@@ -250,3 +250,47 @@ describe("listProposals places rows saved without a prompt", () => {
     expect(after).toEqual(before);
   });
 });
+
+// PR #24, Greptile round 3: the step-limit note points the writer at cards
+// only when the turn saved an edit they can apply.
+describe("turnSavedEditProposal", () => {
+  async function saved(f: Fixture, rows: Array<{ kind: "replacements" | "references"; pairs: number }>) {
+    await f.t.run(async (ctx) => {
+      for (const [index, row] of rows.entries()) {
+        await ctx.db.insert("chatProposals", {
+          agentThreadId: "thread-a",
+          toolCallId: `call-${index}`,
+          promptMessageId: "p1",
+          projectId: f.projectId,
+          reportId: f.reportId,
+          kind: row.kind,
+          ...(row.kind === "replacements"
+            ? {
+                replacements: Array.from({ length: row.pairs }, (_, i) => ({
+                  find: `Passage ${index}-${i}.`,
+                  replaceWith: `Revised ${index}-${i}.`,
+                })),
+                requireUniqueTargets: true,
+              }
+            : { references: ["Passage."] }),
+          state: row.kind === "references" || row.pairs === 0 ? "applied" : "pending",
+          createdAt: T0,
+        });
+      }
+    });
+    return await f.t.query(internal.chatV2.turnSavedEditProposal, {
+      agentThreadId: "thread-a",
+      promptMessageId: "p1",
+    });
+  }
+
+  test("a record-only revision and a highlight are not edits to apply", async () => {
+    const f = await setup();
+    expect(await saved(f, [{ kind: "replacements", pairs: 0 }, { kind: "references", pairs: 0 }])).toBe(false);
+  });
+
+  test("a revision with an edit is", async () => {
+    const f = await setup();
+    expect(await saved(f, [{ kind: "replacements", pairs: 0 }, { kind: "replacements", pairs: 2 }])).toBe(true);
+  });
+});

@@ -967,9 +967,11 @@ export const isTurnActive = internalQuery({
 });
 
 /**
- * Whether a turn saved at least one edit proposal (not a highlight). Read
- * only when a turn ends on the step limit, to pick its closing note: a failed
- * edit call saves nothing, so it must not point the writer at cards.
+ * Whether a turn saved at least one edit the writer can apply. Read only when
+ * a turn ends on the step limit, to pick its closing note: a failed edit call
+ * saves nothing, and a highlight or a record-only revision (every item blocked
+ * or conflicting, no edits) has nothing to apply, so none of them may point
+ * the writer at cards (PR #24, Greptile round 3).
  */
 export const turnSavedEditProposal = internalQuery({
   args: { agentThreadId: v.string(), promptMessageId: v.string() },
@@ -981,7 +983,7 @@ export const turnSavedEditProposal = internalQuery({
         q.eq("agentThreadId", args.agentThreadId).eq("promptMessageId", args.promptMessageId)
       );
     for await (const row of rows) {
-      if (row.kind !== "references") return true;
+      if (row.kind !== "references" && !isRecordOnlyProposal(row)) return true;
     }
     return false;
   },
