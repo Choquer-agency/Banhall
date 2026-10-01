@@ -63,6 +63,14 @@ export const BULK_EDIT_CALLS_PER_REPLY = 3;
 /** The size rule, stated once for the tool description and the chat prompt. */
 export const BULK_EDIT_SIZE_RULE = `Keep each call small enough to finish: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text across its edits, about four rewritten paragraphs. For a larger revision, make several proposeBulkEdits calls one at a time, one per Line or per few paragraphs, and wait for each result before the next call. Each call lands as its own card. Put every blocked and conflicting item in the first call; each call's findings also cover the items its own edits resolve, so the calls together account for every item exactly once. Make at most ${BULK_EDIT_CALLS_PER_REPLY} proposeBulkEdits calls in one reply. If items are still left after that, name their ids in your closing text and ask the writer to tell you to continue.`;
 
+/**
+ * PR #24 round 2 (lead decision): a bulk card applies as a whole, so a later
+ * card that refines one of its passages leaves the others with no card of
+ * their own. Re-proposing the whole set keeps every passage on the newest
+ * card. Stated once for the tool description and the chat prompt.
+ */
+export const BULK_EDIT_REFINE_RULE = "A proposeBulkEdits card applies as a whole. To change part of an earlier pending proposeBulkEdits card in this conversation, propose its whole set again as one card: the unchanged passages plus the changed one, so the newest card carries every passage.";
+
 const MAX_TEXT_CHARS = 1000;
 
 function bounded(text: string): string {

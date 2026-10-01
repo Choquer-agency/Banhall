@@ -12,7 +12,7 @@ import {
   CHAT_STEP_LIMIT_REPLY_OTHER,
   cutOffInstruction,
 } from "./ai/chatAgentV2";
-import { BULK_EDIT_SIZE_RULE } from "./lib/completionReport";
+import { BULK_EDIT_REFINE_RULE, BULK_EDIT_SIZE_RULE } from "./lib/completionReport";
 import { correlateProposals } from "../src/lib/chat/turnParts";
 
 /**
@@ -228,7 +228,7 @@ describe("a bulk revision cut off at the output limit", () => {
     expect(sent[0]!.max_tokens).toBe(CHAT_MAX_OUTPUT_TOKENS);
     const bulkTool = (sent[0]!.tools as Array<{ name: string; description: string }>)
       .find((tool) => tool.name === "proposeBulkEdits");
-    expect(bulkTool?.description).toContain(BULK_EDIT_SIZE_RULE);
+    expect(bulkTool?.description).toContain(`${BULK_EDIT_SIZE_RULE} ${BULK_EDIT_REFINE_RULE}`);
     expect(JSON.stringify(sent[0]!.system)).toContain(BULK_EDIT_SIZE_RULE);
 
     // The model reads the fixed instruction, not the parse error that echoes
@@ -414,6 +414,24 @@ describe("turns the output limit does not cut a tool call from", () => {
     const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
     expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY_OTHER);
     expect(CHAT_STEP_LIMIT_REPLY_OTHER).toBe("I stopped at the step limit for one reply. Ask me to continue.");
+  });
+
+  // PR #24 round 2: a failed edit call saves no card, so the note must not
+  // point the writer at cards.
+  test("a turn whose edit calls all fail and that ends on the step limit gets the plain note", async () => {
+    const f = await setup();
+    const missing = { ...smallInput, edits: [{ targetText: "Not in the report.", newText: "Still not." }] };
+    const sent = stubAnthropic(
+      Array.from({ length: CHAT_MAX_STEPS }, (_, i) => () =>
+        toolAnswer(`msg_${i + 1}`, `toolu_fail${i + 1}`, JSON.stringify(missing), "tool_use"))
+    );
+    await f.run();
+
+    expect(sent).toHaveLength(CHAT_MAX_STEPS);
+    expect(toolResult(sent[1]!, "toolu_fail1")?.content).toMatch(/^Proposal NOT created/);
+    expect(await f.t.run((ctx) => ctx.db.query("chatProposals").collect())).toEqual([]);
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY_OTHER);
   });
 
   test("a reply cut off in its text keeps the general failure message", async () => {

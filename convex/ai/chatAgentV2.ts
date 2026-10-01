@@ -22,6 +22,7 @@ import { MODEL } from "./model";
 import { buildChatSystemPromptV2 } from "./prompts";
 import {
   BULK_EDIT_NEW_WORDS_PER_CALL,
+  BULK_EDIT_REFINE_RULE,
   BULK_EDIT_SIZE_RULE,
   bulkEditInputSchema,
   completionReportChecklist,
@@ -151,7 +152,7 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
 // rows cannot drift. The tool still creates ONE proposal a human applies. The
 // body is `runProposeBulkEdits` below, so the gate can drive it.
 const makeProposeBulkEdits = (bannedWordsWaived: boolean) => createTool({
-  description: `Propose a coordinated revision of different report passages in one reviewable card, plus a Completion Report for the items it covers. Each target must be unique and passages must not overlap. Reuse the item ids the Deviation Inventory or the Reference PD comparison produced, anchor each finding to the section and 1-based paragraph it belongs to, and mark it resolved, blocked or conflicting. The writer applies the proposal. ${BULK_EDIT_SIZE_RULE} If every item is blocked or conflicting, call it with an empty edits list and every finding: the report is recorded for the writer and there is nothing to apply. Never invent a dummy edit.`,
+  description: `Propose a coordinated revision of different report passages in one reviewable card, plus a Completion Report for the items it covers. Each target must be unique and passages must not overlap. Reuse the item ids the Deviation Inventory or the Reference PD comparison produced, anchor each finding to the section and 1-based paragraph it belongs to, and mark it resolved, blocked or conflicting. The writer applies the proposal. ${BULK_EDIT_SIZE_RULE} ${BULK_EDIT_REFINE_RULE} If every item is blocked or conflicting, call it with an empty edits list and every finding: the report is recorded for the writer and there is nothing to apply. Never invent a dummy edit.`,
   inputSchema: bulkEditInputSchema,
   execute: async (ctx, input, options): Promise<string> =>
     await runProposeBulkEdits(ctx, input, {
@@ -560,22 +561,16 @@ export const CHAT_CUT_OFF_REPLY =
 
 /**
  * What the writer reads when a turn ends on the step limit (its last step was
- * a tool call, so the model never wrote its closing text) after it proposed
- * edits: a split revision has parts left.
+ * a tool call, so the model never wrote its closing text) after it saved an
+ * edit proposal: a split revision has parts left.
  */
 export const CHAT_STEP_LIMIT_REPLY =
   "I stopped at the step limit for one reply, so this revision is not finished. Review the cards above, then ask me to continue with the rest.";
 
-/** The same, for a turn that proposed no edit (PR #24 review P3). */
+/** The same, for a turn that saved no edit proposal (PR #24 review P3). */
 export const CHAT_STEP_LIMIT_REPLY_OTHER =
   "I stopped at the step limit for one reply. Ask me to continue.";
 
-/** The tools whose calls are a revision of the report. */
-const EDIT_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "proposeEdit",
-  "proposeReplacements",
-  "proposeBulkEdits",
-]);
 
 /** The parts of an AI SDK step result the cut-off rules read. */
 type CutOffStep = { finishReason: string; content: ReadonlyArray<unknown> };
@@ -947,7 +942,6 @@ export const streamChatReply = internalAction({
     let heldBackStep: UsageStep | undefined;
     // After a held-back step the agent no longer sees a Stop (review P3).
     let agentStreamBlind = false;
-    let proposedEdits = false;
     // Where the turn's latest model request went, for the failure log.
     let served: Readonly<ChatServedState> | undefined;
 
@@ -1069,9 +1063,7 @@ export const streamChatReply = internalAction({
           },
           onStepFinish: async (step) => {
             for (const toolCall of step.toolCalls) {
-              if (!toolCall) continue;
-              toolCallIds.add(toolCall.toolCallId);
-              if (EDIT_TOOL_NAMES.has(toolCall.toolName)) proposedEdits = true;
+              if (toolCall) toolCallIds.add(toolCall.toolCallId);
             }
             finishedSteps.push(step);
             lastStepCutToolCall =
@@ -1150,13 +1142,19 @@ export const streamChatReply = internalAction({
         finishedSteps.length >= CHAT_MAX_STEPS &&
         finished.status === "completed"
       ) {
+        // PR #24 round 2: only a saved proposal means there are cards to
+        // review; a failed edit call saves nothing.
+        const savedEdit: boolean = await ctx.runQuery(internal.chatV2.turnSavedEditProposal, {
+          agentThreadId: args.agentThreadId,
+          promptMessageId: args.promptMessageId,
+        });
         await saveMessage(ctx, components.agent, {
           threadId: args.agentThreadId,
           agentName: "report-editor",
           promptMessageId: args.promptMessageId,
           message: {
             role: "assistant",
-            content: proposedEdits ? CHAT_STEP_LIMIT_REPLY : CHAT_STEP_LIMIT_REPLY_OTHER,
+            content: savedEdit ? CHAT_STEP_LIMIT_REPLY : CHAT_STEP_LIMIT_REPLY_OTHER,
           },
         });
       }

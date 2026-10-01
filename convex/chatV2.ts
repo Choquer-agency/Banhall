@@ -966,6 +966,27 @@ export const isTurnActive = internalQuery({
   },
 });
 
+/**
+ * Whether a turn saved at least one edit proposal (not a highlight). Read
+ * only when a turn ends on the step limit, to pick its closing note: a failed
+ * edit call saves nothing, so it must not point the writer at cards.
+ */
+export const turnSavedEditProposal = internalQuery({
+  args: { agentThreadId: v.string(), promptMessageId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const rows = ctx.db
+      .query("chatProposals")
+      .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+        q.eq("agentThreadId", args.agentThreadId).eq("promptMessageId", args.promptMessageId)
+      );
+    for await (const row of rows) {
+      if (row.kind !== "references") return true;
+    }
+    return false;
+  },
+});
+
 export const markTurnStarted = internalMutation({
   args: {
     agentThreadId: v.string(),

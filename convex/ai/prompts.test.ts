@@ -28,7 +28,7 @@ import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { BRIEF_SYSTEM_PROMPT } from "./brief";
 import { CHRONOLOGY_SYSTEM_PROMPT } from "./chronologyAgent";
 import { buildSeedSystemPrompt } from "./trustedContext";
-import { BULK_EDIT_SIZE_RULE } from "../lib/completionReport";
+import { BULK_EDIT_REFINE_RULE, BULK_EDIT_SIZE_RULE } from "../lib/completionReport";
 
 // PSOS-49: prompt assembly under per-writer house-style waivers. A waived
 // category's rule text must be OMITTED (conflict resolved before the prompt),
@@ -372,7 +372,12 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     expect(BULK_EDIT_SIZE_RULE).toContain(
       "If items are still left after that, name their ids in your closing text and ask the writer to tell you to continue."
     );
-    expect(prompt).toContain(`when they fit in one call. ${BULK_EDIT_SIZE_RULE}`);
+    expect(prompt).toContain(`when they fit in one call. ${BULK_EDIT_SIZE_RULE} ${BULK_EDIT_REFINE_RULE}`);
+    // PR #24 round 2: a bulk card applies as a whole, so a refinement
+    // re-proposes the whole set.
+    expect(BULK_EDIT_REFINE_RULE).toBe(
+      "A proposeBulkEdits card applies as a whole. To change part of an earlier pending proposeBulkEdits card in this conversation, propose its whole set again as one card: the unchanged passages plus the changed one, so the newest card carries every passage."
+    );
     expect(prompt).not.toContain("Gather ALL affected passages into ONE coordinated proposal");
     expect(prompt).not.toContain("in one pass");
   });
