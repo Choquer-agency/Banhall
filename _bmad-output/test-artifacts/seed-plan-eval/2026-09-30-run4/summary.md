@@ -23,7 +23,7 @@ Raw data for every fixture is in `results.json`.
 
 ## Judgment, 2026-09-30 (run 13)
 
-Judged on the product owner's instruction by two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each briefed for high effort (the Agent tool sets no effort of its own), under the AGENTS.md reviewer rule, and by the lead (Claude Opus 5.5). The judges agreed on every verdict: 5 pass. The release gate (checklist step 3) is **met** at commit `e8112000`, which adds the owner-approved fifth amendment (Hypothesis and Work plan record the uncertainties they test).
+Judged on the product owner's instruction by two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each run as a subagent at the harness default effort, which the Agent tool can neither set nor report (the briefs asked for high effort; the effort actually used is not recorded, so it is not claimed), under the AGENTS.md reviewer rule, and by the lead (Claude Opus 5.5 at extra-high effort). The judges agreed on every verdict: 5 pass. The release gate (checklist step 3) is **met** at commit `e8112000`, which adds the owner-approved fifth amendment (Hypothesis and Work plan record the uncertainties they test).
 
 The fifth amendment worked live in changed-advancement-links: run 12's hypothesis omission is fixed, and the refusals for a dropped uncertainty fired at Hypothesis, Experimentation, Specific advancements, Advancement to science and goal improvements. No signed-off work was removed in any fixture.
 

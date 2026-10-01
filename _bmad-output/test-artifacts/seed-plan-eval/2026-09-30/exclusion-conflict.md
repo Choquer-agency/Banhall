@@ -22,7 +22,7 @@ Read the plan and the drafted Sections below, then answer each question and give
    - Answer: Yes. Plain prose, no headings, within caps (339, 673, 343). Line 242 names "Quillmere Analytics Ltd., based in Carrow, Saskatchewan", matching the manifest.
 
 - Verdict (pass or fail): pass
-- Judged by: Claude Opus 5.5 (lead), on two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each briefed for high effort (the Agent tool sets no effort of its own), delegated by the product owner
+- Judged by: Claude Opus 5.5 at extra-high effort (lead), on two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each run as a subagent at the harness default effort, which the Agent tool can neither set nor report (the briefs asked for high effort; the effort actually used is not recorded, so it is not claimed), delegated by the product owner
 - Date: 2026-09-30
 - Notes: Both judges pass, high confidence. Run 6 defects fixed: the kept selection is drafted and its conflict row is decided from the text, and the company name is right ("Quillmere Client" 0 times). Minors: "In parallel" is invented (the migration was in the fall), a few inferences the sources do not make, and false contradictions from the consistency pass. Every figure checked matches the sources.
 

@@ -22,7 +22,7 @@ Read the plan and the drafted Sections below, then answer each question and give
    - Answer: Mostly. Plain prose, no headings; one garbled sentence from a Glossary repair in Line 244 paragraph 2 ("capture more fine inclusion capture than").
 
 - Verdict (pass or fail): pass
-- Judged by: Claude Opus 5.5 (lead), on two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each briefed for high effort (the Agent tool sets no effort of its own), delegated by the product owner
+- Judged by: Claude Opus 5.5 at extra-high effort (lead), on two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each run as a subagent at the harness default effort, which the Agent tool can neither set nor report (the briefs asked for high effort; the effort actually used is not recorded, so it is not claimed), delegated by the product owner
 - Date: 2026-09-30
 - Notes: Both judges pass (Judge A medium, Judge B medium-high confidence). Run 6 issues fixed: Line 242 now states the third uncertainty Line 244 cites, and the consistency pass ran. Major (both judges): Line 244 covers Trials 1 to 3 only (the scripted writer picked firing experiments), yet Line 246 says the capture and thermal shock objective was largely met; Trials 4 to 6 are in the sources, so a consultant can add them. Minor, product: the deterministic Glossary substitution does not check grammar.
 
