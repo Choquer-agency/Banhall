@@ -28,6 +28,7 @@ import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { BRIEF_SYSTEM_PROMPT } from "./brief";
 import { CHRONOLOGY_SYSTEM_PROMPT } from "./chronologyAgent";
 import { buildSeedSystemPrompt } from "./trustedContext";
+import { BULK_EDIT_REFINE_RULE, BULK_EDIT_SIZE_RULE } from "../lib/completionReport";
 
 // PSOS-49: prompt assembly under per-writer house-style waivers. A waived
 // category's rule text must be OMITTED (conflict resolved before the prompt),
@@ -358,6 +359,27 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     }
     // Both new tools are read only and say so.
     expect(prompt).toContain("call the matching read-only tool FIRST");
+  });
+
+  // 2026-10-01 (first) and its review P2-2: a large revision is split into
+  // calls of about 600 words, at most 3 per reply, blocked and conflicting
+  // items first, so a turn's 5 steps hold the inventory, the calls and the
+  // closing reply.
+  it("tells the model to split a large revision within one reply's budget", () => {
+    expect(BULK_EDIT_SIZE_RULE).toContain("at most about 600 words of new text across its edits");
+    expect(BULK_EDIT_SIZE_RULE).toContain("Put every blocked and conflicting item in the first call");
+    expect(BULK_EDIT_SIZE_RULE).toContain("Make at most 3 proposeBulkEdits calls in one reply.");
+    expect(BULK_EDIT_SIZE_RULE).toContain(
+      "If items are still left after that, name their ids in your closing text and ask the writer to tell you to continue."
+    );
+    expect(prompt).toContain(`when they fit in one call. ${BULK_EDIT_SIZE_RULE} ${BULK_EDIT_REFINE_RULE}`);
+    // PR #24 round 2: a bulk card applies as a whole, so a refinement
+    // re-proposes the whole set.
+    expect(BULK_EDIT_REFINE_RULE).toBe(
+      "A proposeBulkEdits card applies as a whole. To change part of an earlier pending proposeBulkEdits card in this conversation, propose its whole set again as one card: the unchanged passages plus the changed one, so the newest card carries every passage."
+    );
+    expect(prompt).not.toContain("Gather ALL affected passages into ONE coordinated proposal");
+    expect(prompt).not.toContain("in one pass");
   });
 
   it("carries the three Completion Report statuses and no old status word", () => {

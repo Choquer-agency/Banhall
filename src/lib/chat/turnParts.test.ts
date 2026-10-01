@@ -544,6 +544,114 @@ describe("correlateProposals", () => {
     expect(owned[0]._id).toBe("new");
   });
 
+  // 2026-10-01 (first): a large revision is split into several bulk cards in
+  // one turn. Each targets different passages, so every card stays.
+  it("keeps every pending card of a split revision from the same prompt", () => {
+    const bulk = (id: string, toolCallId: string, finds: string[]) =>
+      proposal({
+        _id: id,
+        toolCallId,
+        promptMessageId: "u1",
+        kind: "replacements",
+        targetText: undefined,
+        newText: undefined,
+        replacements: finds.map((find) => ({ find, replaceWith: `${find} revised` })),
+        requireUniqueTargets: true,
+        state: "pending",
+      });
+    const split = assistant(
+      [
+        toolPart({ type: "tool-proposeBulkEdits", toolCallId: "bulk-1" }),
+        toolPart({ type: "tool-proposeBulkEdits", toolCallId: "bulk-2" }),
+      ],
+      { id: "a1", order: 2 }
+    );
+    const { byMessageId } = correlateProposals(
+      [split],
+      [
+        bulk("first", "bulk-1", ["Paragraph one.", "Paragraph two."]),
+        bulk("second", "bulk-2", ["Paragraph three."]),
+      ]
+    );
+    expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["first", "second"]);
+  });
+
+  it("still lets a later pending card for the same passage supersede the earlier one", () => {
+    const { byMessageId } = correlateProposals(
+      [reply],
+      [
+        proposal({ _id: "old", messageId: "a1", promptMessageId: "u1", targetText: "Paragraph one." }),
+        proposal({ _id: "other", messageId: "a1", promptMessageId: "u1", targetText: "Paragraph two." }),
+        proposal({ _id: "new", messageId: "a1", promptMessageId: "u1", targetText: "Paragraph one." }),
+      ]
+    );
+    expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["other", "new"]);
+  });
+
+  // PR #24 P1: a refinement of one passage must not hide the other passages
+  // of a coordinated revision, their Apply button or its findings.
+  describe("a coordinated revision with several targets", () => {
+    const bulkCard = (id: string, finds: string[]) =>
+      proposal({
+        _id: id,
+        messageId: "a1",
+        promptMessageId: "u1",
+        kind: "replacements",
+        targetText: undefined,
+        newText: undefined,
+        replacements: finds.map((find) => ({ find, replaceWith: `${find} revised` })),
+        requireUniqueTargets: true,
+      });
+    const editCard = (id: string, targetText: string) =>
+      proposal({ _id: id, messageId: "a1", promptMessageId: "u1", targetText });
+    const visible = (cards: Doc<"chatProposals">[]) =>
+      (correlateProposals([reply], cards).byMessageId.get("a1") ?? []).map((p) => p._id);
+    const A = "Paragraph A says one thing.";
+    const B = "Paragraph B says another.";
+
+    it("stays when a later card refines only one of its passages", () => {
+      expect(visible([bulkCard("ab", [A, B]), editCard("b", B)])).toEqual(["ab", "b"]);
+    });
+
+    it("is hidden when later cards together cover every passage", () => {
+      expect(visible([bulkCard("ab", [A, B]), editCard("a", A), bulkCard("b", [B])])).toEqual(["a", "b"]);
+    });
+  });
+
+  it("a short find-all term never hides an earlier card whose passage contains it", () => {
+    const { byMessageId } = correlateProposals(
+      [reply],
+      [
+        proposal({ _id: "passage", messageId: "a1", promptMessageId: "u1", targetText: "We utilize the rig daily." }),
+        proposal({
+          _id: "term",
+          messageId: "a1",
+          promptMessageId: "u1",
+          kind: "replacements",
+          targetText: undefined,
+          newText: undefined,
+          replacements: [{ find: "utilize", replaceWith: "use" }],
+        }),
+      ]
+    );
+    expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["passage", "term"]);
+  });
+
+  // Review P3-1: a refinement often widens or narrows its target.
+  it.each([
+    ["widened", "Trial 1 described a pressure range.", "Trial 1 described a  pressure range. It ran twice."],
+    ["narrowed", "Trial 1 described a pressure range. It ran twice.", "a pressure\nrange"],
+  ])("a later card whose target is %s still supersedes the earlier one", (_name, first, later) => {
+    const { byMessageId } = correlateProposals(
+      [reply],
+      [
+        proposal({ _id: "old", messageId: "a1", promptMessageId: "u1", targetText: first }),
+        proposal({ _id: "new", messageId: "a1", promptMessageId: "u1", targetText: later }),
+      ]
+    );
+    expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["new"]);
+  });
+
   it("keeps non-pending history from the same prompt", () => {
     const { byMessageId } = correlateProposals(
       [reply],

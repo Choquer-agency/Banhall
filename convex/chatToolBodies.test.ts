@@ -3,8 +3,10 @@ import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import type { Id } from "./_generated/dataModel";
+import { api } from "./_generated/api";
 import schema from "./schema";
 import {
+  proposalPromptMessageId,
   runCompareReferencePd,
   runDeviationInventory,
   runProposeBulkEdits,
@@ -580,7 +582,12 @@ describe("runProposeBulkEdits", () => {
     expect(state.items.map((row) => row.itemId)).toEqual(["c-242-2-1", "x-242-3-1"]);
   });
 
-  test("tells the model not to retry a stopped turn", async () => {
+  // The agent puts the prompt on the tool ctx as `promptMessageId` (its
+  // client/start.js); `messageId` is the older name the type declares.
+  test.each([
+    ["promptMessageId", { promptMessageId: "prompt-stopped" }],
+    ["messageId", { messageId: "prompt-stopped" }],
+  ])("tells the model not to retry a stopped turn (prompt on %s)", async (_name, prompt) => {
     const f = await setup();
     await f.t.run(async (ctx) => {
       await ctx.db.insert("chatTurns", {
@@ -592,12 +599,50 @@ describe("runProposeBulkEdits", () => {
       });
     });
     const reply = await runProposeBulkEdits(
-      { ...f.ctx, messageId: "prompt-stopped" },
+      { ...f.ctx, ...prompt },
       input,
       { toolCallId: "call-stopped", bannedWordsWaived: false }
     );
     expect(reply).toContain("Stop requested:");
     expect(reply).toContain("Do not retry.");
     expect((await itemRows(f)).items).toEqual([]);
+  });
+
+  // Alerts triage 2026-10-01 (first), alert 2026-09-29: four bulk cards were
+  // saved without their prompt, so listProposals never returned them. The
+  // old body read only `messageId`, which the agent never sets.
+  test("anchors the card to the turn's prompt, so listProposals returns it", async () => {
+    const f = await setup();
+    const authId = await f.t.run(async (ctx) => (await ctx.db.query("users").first())!.authId);
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("chatTurns", {
+        agentThreadId: f.agentThreadId,
+        promptMessageId: "prompt-running",
+        order: 1,
+        status: "running",
+        startedAt: Date.now(),
+        stepCount: 0,
+      });
+    });
+    const reply = await runProposeBulkEdits(
+      { ...f.ctx, promptMessageId: "prompt-running" },
+      input,
+      { toolCallId: "call-anchored", bannedWordsWaived: false }
+    );
+    expect(reply).toContain("Coordinated revision proposed");
+    const [stored] = (await itemRows(f)).proposals;
+    expect(stored).toMatchObject({ promptMessageId: "prompt-running", toolCallId: "call-anchored" });
+    const listed = await f.t
+      .withIdentity({ subject: authId })
+      .query(api.chatV2.listProposals, { threadId: f.agentThreadId });
+    expect(listed.map((proposal) => proposal.toolCallId)).toEqual(["call-anchored"]);
+  });
+});
+
+describe("proposalPromptMessageId", () => {
+  test("reads the agent's runtime promptMessageId first, then messageId", () => {
+    expect(proposalPromptMessageId({ promptMessageId: "p", messageId: "m" })).toBe("p");
+    expect(proposalPromptMessageId({ messageId: "m" })).toBe("m");
+    expect(proposalPromptMessageId({})).toBeUndefined();
   });
 });

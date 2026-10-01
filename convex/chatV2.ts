@@ -68,6 +68,7 @@ import {
 import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
 import type { Doc, Id } from "./_generated/dataModel";
 import { outputArtifact, outputsInArtifacts } from "./lib/generationOutputs";
+import { matchProposalTurn } from "./lib/chatProposalTurns";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -204,12 +205,25 @@ export const listMessages = query({
 });
 
 /**
+ * How many of a thread's newest proposals saved without a promptMessageId
+ * `listProposals` reads to place by run time (2026-10-01, first).
+ */
+const UNANCHORED_PROPOSAL_LIMIT = 50;
+
+/**
  * Proposals linked to the newest turns in an inclusive order window.
  *
  * Empty only when no thread mapping exists; an existing thread the caller may
  * not read throws the typed NOT_AUTHENTICATED / NOT_AUTHORIZED error, like
- * listMessages. Proposals without a promptMessageId anchor (legacy rows) are
- * never returned because their window membership cannot be proven.
+ * listMessages.
+ *
+ * 2026-10-01 (first), alerts triage: a proposal saved without its
+ * promptMessageId (bulk edit cards before the fix, or rows an older deployment
+ * writes after the backfill ran) is returned when exactly one window turn's
+ * run time holds its createdAt (`matchProposalTurn`, the backfill's rule), with
+ * that turn's promptMessageId filled in, as the backfill would store it. One
+ * extra bounded index read; a row no window turn holds stays hidden, because
+ * its window membership cannot be proven.
  */
 export const listProposals = query({
   args: {
@@ -245,9 +259,23 @@ export const listProposals = query({
       )
     );
 
+    const unanchored = await ctx.db
+      .query("chatProposals")
+      .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+        q.eq("agentThreadId", args.threadId).eq("promptMessageId", undefined)
+      )
+      .order("desc")
+      .take(UNANCHORED_PROPOSAL_LIMIT);
+    const placed = unanchored.flatMap((proposal) => {
+      const match = matchProposalTurn(proposal.createdAt, turns);
+      return match.kind === "match"
+        ? [{ ...proposal, promptMessageId: match.turn.promptMessageId }]
+        : [];
+    });
+
     // Same order the by_agentThreadId index yields: creation time, then id.
     // Plain code-point comparison keeps the tie-break locale-independent.
-    return proposalsByTurn.flat().sort((left, right) => {
+    return [...proposalsByTurn.flat(), ...placed].sort((left, right) => {
       const creationTimeDifference = left._creationTime - right._creationTime;
       if (creationTimeDifference !== 0) return creationTimeDifference;
       if (left._id === right._id) return 0;
@@ -938,6 +966,29 @@ export const isTurnActive = internalQuery({
   },
 });
 
+/**
+ * Whether a turn saved at least one edit the writer can apply. Read only when
+ * a turn ends on the step limit, to pick its closing note: a failed edit call
+ * saves nothing, and a highlight or a record-only revision (every item blocked
+ * or conflicting, no edits) has nothing to apply, so none of them may point
+ * the writer at cards (PR #24, Greptile round 3).
+ */
+export const turnSavedEditProposal = internalQuery({
+  args: { agentThreadId: v.string(), promptMessageId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const rows = ctx.db
+      .query("chatProposals")
+      .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+        q.eq("agentThreadId", args.agentThreadId).eq("promptMessageId", args.promptMessageId)
+      );
+    for await (const row of rows) {
+      if (row.kind !== "references" && !isRecordOnlyProposal(row)) return true;
+    }
+    return false;
+  },
+});
+
 export const markTurnStarted = internalMutation({
   args: {
     agentThreadId: v.string(),
@@ -1071,6 +1122,123 @@ export const failStaleChatTurns = internalMutation({
       }
     }
     return { failed };
+  },
+});
+
+/** Proposals one backfill run reads. */
+const BACKFILL_PROPOSAL_BATCH = 10;
+/** Turns read per proposal, latest start first. */
+const BACKFILL_TURN_SCAN = 50;
+/**
+ * A turn ends within an hour of its start: the reply stops at 540 s, the
+ * action at 10 minutes, and the reaper fails a stranded turn within about 16
+ * minutes of its start. A turn that started earlier than this before a
+ * proposal cannot hold it.
+ */
+const BACKFILL_TURN_SPAN_MS = 60 * 60 * 1000;
+
+const proposalBackfillTotals = {
+  scanned: v.number(),
+  set: v.number(),
+  noTurn: v.number(),
+  ambiguous: v.number(),
+  research: v.number(),
+};
+
+/**
+ * A Contextual Research proposal: its thread is `research:<session id>` and it
+ * never had a prompt, so the backfill skips it (review P3-4).
+ */
+function isResearchProposal(proposal: Doc<"chatProposals">): boolean {
+  return (
+    proposal.researchSessionId !== undefined ||
+    proposal.agentThreadId.startsWith("research:")
+  );
+}
+
+/**
+ * The thread's turns that could hold a proposal's createdAt: those that
+ * started in the BACKFILL_TURN_SPAN_MS before it, latest start first, at most
+ * BACKFILL_TURN_SCAN. Read by start time (PR #24 P2), so a proposal far back
+ * in a long thread is found as cheaply as a recent one.
+ */
+async function turnsThatMayHold(ctx: QueryCtx, proposal: Doc<"chatProposals">) {
+  return await ctx.db
+    .query("chatTurns")
+    .withIndex("by_agentThreadId_and_startedAt", (q) =>
+      q
+        .eq("agentThreadId", proposal.agentThreadId)
+        .gte("startedAt", proposal.createdAt - BACKFILL_TURN_SPAN_MS)
+        .lte("startedAt", proposal.createdAt)
+    )
+    .order("desc")
+    .take(BACKFILL_TURN_SCAN);
+}
+
+/**
+ * 2026-10-01 (first), alerts triage: proposals saved without their
+ * promptMessageId (every proposeBulkEdits card before the fix, and older edit
+ * and highlight rows) get the promptMessageId of the one turn of their thread
+ * whose run time holds their createdAt (`matchProposalTurn`). A row no turn
+ * holds, or two turns hold, is left alone and counted; a Contextual Research
+ * proposal never had a prompt and is skipped and counted on its own. Pages
+ * through the rows still missing it, BACKFILL_PROPOSAL_BATCH at a time, and
+ * schedules itself until done; the last run logs the totals. A dry run (the
+ * default) writes nothing. A second run finds only the rows the first left
+ * alone and sets none.
+ * `npx convex run chatV2:backfillProposalPromptMessageIds '{"dryRun":true}'`
+ * then the same with `'{"dryRun":false}'`.
+ */
+export const backfillProposalPromptMessageIds = internalMutation({
+  args: {
+    dryRun: v.optional(v.boolean()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    totals: v.optional(v.object(proposalBackfillTotals)),
+  },
+  returns: v.object({
+    dryRun: v.boolean(),
+    done: v.boolean(),
+    ...proposalBackfillTotals,
+  }),
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? true;
+    const totals = {
+      ...(args.totals ?? { scanned: 0, set: 0, noTurn: 0, ambiguous: 0, research: 0 }),
+    };
+    const page = await ctx.db
+      .query("chatProposals")
+      .withIndex("by_promptMessageId", (q) => q.eq("promptMessageId", undefined))
+      .paginate({ numItems: BACKFILL_PROPOSAL_BATCH, cursor: args.cursor ?? null });
+    for (const proposal of page.page) {
+      totals.scanned += 1;
+      if (isResearchProposal(proposal)) {
+        totals.research += 1;
+        continue;
+      }
+      const match = matchProposalTurn(proposal.createdAt, await turnsThatMayHold(ctx, proposal));
+      if (match.kind === "match") {
+        totals.set += 1;
+        if (!dryRun) {
+          await ctx.db.patch(proposal._id, { promptMessageId: match.turn.promptMessageId });
+        }
+      } else if (match.kind === "ambiguous") {
+        totals.ambiguous += 1;
+      } else {
+        totals.noTurn += 1;
+      }
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.chatV2.backfillProposalPromptMessageIds, {
+        dryRun,
+        cursor: page.continueCursor,
+        totals,
+      });
+    } else {
+      console.info(
+        `backfillProposalPromptMessageIds ${dryRun ? "dry run " : ""}done: ${totals.scanned} scanned, ${totals.set} ${dryRun ? "would be set" : "set"}, ${totals.noTurn} with no turn, ${totals.ambiguous} ambiguous, ${totals.research} research skipped`
+      );
+    }
+    return { dryRun, done: page.isDone, ...totals };
   },
 });
 

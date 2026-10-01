@@ -15,7 +15,7 @@
  */
 import type { UIMessage } from "@convex-dev/agent";
 import type { Doc } from "../../../convex/_generated/dataModel";
-import { isRecordOnlyProposal } from "../../../shared/chatProposals";
+import { isRecordOnlyProposal, proposalReferences } from "../../../shared/chatProposals";
 
 export type ToolPartState =
   | "input-streaming"
@@ -495,6 +495,69 @@ function normalizeParts(message: UIMessage | undefined): {
 
 // ─── Proposal correlation ────────────────────────────────────────────────────
 
+/** A proposal's targets with whitespace collapsed; blank targets dropped. */
+function passageKeys(proposal: Doc<"chatProposals">): string[] {
+  return proposalReferences(proposal)
+    .map((target) => target.replace(/\s+/g, " ").trim())
+    .filter((target) => target.length > 0);
+}
+
+/**
+ * Whether each target names exactly one passage: a proposeEdit target or a
+ * coordinated revision's targets. A proposeReplacements find replaces every
+ * occurrence, so it names a term, not a passage.
+ */
+function hasUniqueTargets(proposal: Doc<"chatProposals">): boolean {
+  return proposal.kind === "edit" || proposal.requireUniqueTargets === true;
+}
+
+/**
+ * Two targets name one passage when they are equal, or, when both name exactly
+ * one passage, when either contains the other (a widened or narrowed
+ * refinement). A short find-all term such as "utilize" never stands for the
+ * longer passage that merely contains it.
+ */
+function samePassage(
+  left: string,
+  leftUnique: boolean,
+  right: string,
+  rightUnique: boolean
+): boolean {
+  if (left === right) return true;
+  return leftUnique && rightUnique && (left.includes(right) || right.includes(left));
+}
+
+/**
+ * Pending cards a later pending card from the same prompt supersedes: only
+ * the latest actionable wording for a passage belongs in the transcript. A
+ * card with one target is superseded by any later card for that passage. A
+ * card with several targets (a coordinated revision) is superseded only when
+ * the later cards together cover every one of its targets; otherwise it stays,
+ * so a later refinement of one passage never hides the others, their Apply
+ * button or the findings recorded with them (2026-10-01, first, PR #24 P1).
+ */
+function supersededProposals(proposals: readonly Doc<"chatProposals">[]): Set<number> {
+  const superseded = new Set<number>();
+  proposals.forEach((proposal, index) => {
+    if (proposal.state !== "pending" || !proposal.promptMessageId) return;
+    const targets = passageKeys(proposal);
+    if (targets.length === 0) return;
+    const unique = hasUniqueTargets(proposal);
+    const later = proposals
+      .slice(index + 1)
+      .filter(
+        (other) =>
+          other.state === "pending" && other.promptMessageId === proposal.promptMessageId
+      )
+      .map((other) => ({ keys: passageKeys(other), unique: hasUniqueTargets(other) }));
+    const covered = targets.filter((own) =>
+      later.some((other) => other.keys.some((key) => samePassage(own, unique, key, other.unique)))
+    );
+    if (covered.length === targets.length) superseded.add(index);
+  });
+  return superseded;
+}
+
 /**
  * Map chatProposals rows onto the assistant message that produced them.
  *
@@ -523,23 +586,12 @@ export function correlateProposals(
   }
   const messageById = new Map(messages.map((message) => [message.id, message]));
 
-  // A refinement turn supersedes the previous pending card from the same
-  // prompt — only the latest actionable wording belongs in the transcript.
-  const latestPendingIndexByPrompt = new Map<string, number>();
-  proposals.forEach((proposal, index) => {
-    if (proposal.state === "pending" && proposal.promptMessageId) {
-      latestPendingIndexByPrompt.set(proposal.promptMessageId, index);
-    }
-  });
+  // A later pending card for the same passage supersedes an earlier one; see
+  // supersededProposals for how a split revision keeps its cards.
+  const superseded = supersededProposals(proposals);
 
   for (const [index, proposal] of proposals.entries()) {
-    if (
-      proposal.state === "pending" &&
-      proposal.promptMessageId &&
-      latestPendingIndexByPrompt.get(proposal.promptMessageId) !== index
-    ) {
-      continue;
-    }
+    if (superseded.has(index)) continue;
 
     let owner = proposal.toolCallId ? toolOwners.get(proposal.toolCallId) : undefined;
     if (!owner && proposal.promptMessageId) {

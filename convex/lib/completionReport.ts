@@ -41,6 +41,36 @@ export const MAX_COMPLETION_REPORT_FINDINGS = 80;
  */
 export const COMPLETION_REPORT_TARGET_ITEMS = 30;
 
+/**
+ * 2026-10-01 (first), alerts triage: one chat step shares the 16,384-token
+ * output limit (`CHAT_MAX_OUTPUT_TOKENS`) between thinking, the tool call's
+ * JSON and the reply. An 11-paragraph revision written as one call was cut off
+ * at that limit twice. About 600 words of new text is about 800 tokens, and
+ * its verbatim targets about as many, so a call this size leaves most of the
+ * limit for thinking and the reply. Guidance the tool description and the chat
+ * prompt both quote, not a schema limit: refusing a call that would have fit
+ * is worse than proposing it.
+ */
+export const BULK_EDIT_NEW_WORDS_PER_CALL = 600;
+
+/**
+ * Review P2-2: a turn has 5 steps (`CHAT_MAX_STEPS`). The Deviation Inventory,
+ * three bulk calls and the closing reply fill them, so a reply makes at most
+ * this many bulk calls and names what is left for the next message.
+ */
+export const BULK_EDIT_CALLS_PER_REPLY = 3;
+
+/** The size rule, stated once for the tool description and the chat prompt. */
+export const BULK_EDIT_SIZE_RULE = `Keep each call small enough to finish: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text across its edits, about four rewritten paragraphs. For a larger revision, make several proposeBulkEdits calls one at a time, one per Line or per few paragraphs, and wait for each result before the next call. Each call lands as its own card. Put every blocked and conflicting item in the first call; each call's findings also cover the items its own edits resolve, so the calls together account for every item exactly once. Make at most ${BULK_EDIT_CALLS_PER_REPLY} proposeBulkEdits calls in one reply. If items are still left after that, name their ids in your closing text and ask the writer to tell you to continue.`;
+
+/**
+ * PR #24 round 2 (lead decision): a bulk card applies as a whole, so a later
+ * card that refines one of its passages leaves the others with no card of
+ * their own. Re-proposing the whole set keeps every passage on the newest
+ * card. Stated once for the tool description and the chat prompt.
+ */
+export const BULK_EDIT_REFINE_RULE = "A proposeBulkEdits card applies as a whole. To change part of an earlier pending proposeBulkEdits card in this conversation, propose its whole set again as one card: the unchanged passages plus the changed one, so the newest card carries every passage.";
+
 const MAX_TEXT_CHARS = 1000;
 
 function bounded(text: string): string {
