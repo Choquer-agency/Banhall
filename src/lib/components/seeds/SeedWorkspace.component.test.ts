@@ -5118,6 +5118,7 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
       seedStageVersion: 8,
       kept: [],
       needsAttention: [
+        { roleId: "workplan", reason: "PLAN_FOR_DROPPED_UNCERTAINTY" },
         { roleId: "hypothesis", reason: "PLAN_FOR_DROPPED_UNCERTAINTY" },
         { roleId: "overall_advancement", reason: "RESULT_FOR_DROPPED_UNCERTAINTY" },
         { roleId: "goal_improvements", reason: "DROPPED_RESULT_FIGURES" },
@@ -5127,7 +5128,7 @@ describe("later steps after an earlier change (2026-09-28 seventh)", () => {
     await render(SeedWorkspace, workspaceProps());
     await page.getByRole("button", { name: "Keep all", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-keep-attention]")?.textContent).toBe(
-      "Nothing was kept. Hypothesis needs your attention: a pick tests or plans work for an uncertainty you no longer have picked. Overall advancement needs your attention: a pick answers an uncertainty you no longer have picked. Goal improvements needs your attention: a pick states a result of an uncertainty you no longer have picked, so confirm it on that step."
+      "Nothing was kept. Work plan needs your attention: a pick plans work for an uncertainty you no longer have picked. Hypothesis needs your attention: a pick tests an uncertainty you no longer have picked. Overall advancement needs your attention: a pick answers an uncertainty you no longer have picked. Goal improvements needs your attention: a pick states a result of an uncertainty you no longer have picked, so confirm it on that step."
     );
   });
 

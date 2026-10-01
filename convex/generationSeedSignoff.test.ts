@@ -9944,13 +9944,43 @@ async function addDecisions(
     const kept = await selectedRow("active_uncertainties");
     await ctx.db.patch(kept._id, { editedBullets: [KEPT_UNCERTAINTY] });
     const ids: Record<string, Id<"seeds">> = {};
+    // A step the ready plan skips (Work plan) has no picked Seed to anchor
+    // on: its Seeds get a Batch of their own.
+    const batchFor = async (roleId: PdSubsectionRoleId): Promise<Id<"seedBatches">> => {
+      const rows = await ctx.db.query("seedSelections")
+        .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", roleId))
+        .take(10);
+      const row = rows.find((candidate) => candidate.selected);
+      if (row) return (await ctx.db.get(row.seedId))!.batchId;
+      return await ctx.db.insert("seedBatches", {
+        projectId: s.projectId,
+        generationId: s.generationId,
+        roleId,
+        operation: "open",
+        dedupeKey: `added-${roleId}`,
+        commandId: `added-${roleId}`,
+        attemptId: `added-${roleId}`,
+        consumedContextRevision: await emptyContextRevision(),
+        briefVersionId: s.briefId,
+        settingsHash: "settings",
+        status: "shown",
+        queuedAt: 1,
+        leaseExpiresAt: 2,
+        completedAt: 2,
+        model: "claude-sonnet-5",
+        slot: `generation:seeds:${roleId}`,
+        promptVersion: "prompt",
+        requestsReserved: 2,
+        requestsMade: 1,
+        settledAt: 2,
+      });
+    };
     for (const [index, seed] of seeds.entries()) {
-      const anchor = await ctx.db.get((await selectedRow(seed.roleId)).seedId);
-      if (!anchor) throw new Error(`Missing ${seed.roleId} anchor`);
+      const batchId = await batchFor(seed.roleId);
       ids[seed.key] = await ctx.db.insert("seeds", {
         projectId: s.projectId,
         generationId: s.generationId,
-        batchId: anchor.batchId,
+        batchId,
         roleId: seed.roleId,
         order: 10 + index,
         bullets: seed.bullets,
@@ -9980,7 +10010,7 @@ async function addDecisions(
           at: 30 + index,
           actorUserId: s.userId,
           seedId: ids[seed.key]!,
-          batchId: anchor.batchId,
+          batchId,
         });
       }
     }
@@ -10272,6 +10302,40 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     ]);
     expect(frozen.s244.planChecks.find((check) => check.instruction === "leave_out")?.relationshipReferences.map((reference) => reference.seedId))
       .toEqual([ids.trial, ids.plan, ids.trial3]);
+  });
+
+  // Review P2: a Seed that also records a kept uncertainty is not the dropped one's.
+  it("leaves a work plan that records kept and dropped uncertainties out of the reference, and keeps one that records only the dropped one (2026-09-30, fifth, review P2)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const kept = await s.t.run(async (ctx) => {
+      const rows = await ctx.db.query("seedSelections")
+        .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", "active_uncertainties"))
+        .take(10);
+      return rows.find((row) => row.selected)!.seedId;
+    });
+    const ids = await addDecisions(s, [
+      { key: "dropped", roleId: "active_uncertainties", bullets: DROPPED_UNCERTAINTY, ticked: "unticked" },
+      // Run 12's general work plan: every uncertainty, then refused and unticked.
+      { key: "general", roleId: "workplan", bullets: ["The team kept the three biofilter uncertainties separate."], ticked: "unticked", answersKeys: ["dropped"] },
+      { key: "only", roleId: "workplan", bullets: ["The seed fraction trials at 6 C ran last."], ticked: "unticked", answersKeys: ["dropped"] },
+      // A result for both, ticked once: not the dropped one's either.
+      { key: "both", roleId: "overall_advancement", bullets: ["Acclimation and seed fraction both shortened start-up."], ticked: "unticked", answersKeys: ["dropped"] },
+    ]);
+    await s.t.run(async (ctx) => {
+      for (const key of ["general", "both"]) await ctx.db.patch(ids[key]!, { answeredUncertaintySeedIds: [kept, ids.dropped!] });
+    });
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: await stageVersion(s),
+    });
+    const frozen = await frozenLines(s);
+    expect(frozen.summary?.droppedUncertainties?.[0]?.experiments).toEqual([
+      { seedId: ids.only, wording: ["The seed fraction trials at 6 C ran last."] },
+    ]);
+    expect(frozen.summary?.droppedUncertainties?.[0]?.advancements).toEqual([]);
+    expect(frozen.s244.planChecks.find((check) => check.instruction === "leave_out")?.relationshipReferences.map((reference) => reference.seedId))
+      .toEqual([ids.only]);
   });
 
   it("freezes what a signed-off Hypothesis and Work plan item tests, named by the uncertainty the plan holds (2026-09-30, fifth)", async () => {

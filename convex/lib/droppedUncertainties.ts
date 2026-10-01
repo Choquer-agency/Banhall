@@ -148,7 +148,9 @@ export type RelatedSeeds = {
  *
  * 2026-09-30 (fifth): the Hypothesis and Work plan Seeds that recorded it
  * go with the experiments, within the same cap: experiments, the most direct
- * statements of the work, first, then hypotheses, then work plans.
+ * statements of the work, first, then hypotheses, then work plans. A Seed
+ * with `answeredUncertaintySeedIds` (these steps and the result steps) counts
+ * only when every uncertainty it records is dropped, none kept (review P2).
  */
 export async function relatedSeedsOfDropped(
   ctx: { db: QueryCtx["db"] },
@@ -157,6 +159,16 @@ export async function relatedSeedsOfDropped(
     projectId: Id<"projects">;
     droppedSeedIds: readonly Id<"seeds">[];
     selectionRows: readonly Doc<"seedSelections">[];
+    /**
+     * 2026-09-30 (fifth, review P2): the revision roots of every uncertainty
+     * the writer dropped (checked or not), and how to read a Seed's root. A
+     * Seed whose `answeredUncertaintySeedIds` records anything else (a kept
+     * uncertainty) is not the dropped one's: a general work plan, or a result
+     * for both, would put kept work in the dropped uncertainty's reference.
+     * Absent: every recorded id counts, as before.
+     */
+    droppedRoots?: ReadonlySet<string>;
+    rootOf?: (seedId: string) => string;
   }
 ): Promise<Map<Id<"seeds">, RelatedSeeds>> {
   const related = new Map<Id<"seeds">, RelatedSeeds>(
@@ -164,10 +176,16 @@ export async function relatedSeedsOfDropped(
   );
   if (related.size === 0) return related;
   const selectionBySeed = new Map(args.selectionRows.map((row) => [row.seedId, row] as const));
-  const recorded = (seed: Doc<"seeds">): readonly Id<"seeds">[] =>
-    seed.roleId === "experimentation" || seed.roleId === "specific_advancements"
-      ? (seed.uncertaintySeedId ? [seed.uncertaintySeedId] : [])
-      : (seed.answeredUncertaintySeedIds ?? []);
+  const rootOf = args.rootOf ?? ((seedId: string) => seedId);
+  const recorded = (seed: Doc<"seeds">): readonly Id<"seeds">[] => {
+    if (seed.roleId === "experimentation" || seed.roleId === "specific_advancements") {
+      return seed.uncertaintySeedId ? [seed.uncertaintySeedId] : [];
+    }
+    const answered = seed.answeredUncertaintySeedIds ?? [];
+    // Review P2: related only when every uncertainty it records is dropped.
+    const dropped = args.droppedRoots;
+    return !dropped || answered.every((seedId) => dropped.has(rootOf(seedId))) ? answered : [];
+  };
   for (const [kind, roles] of [
     [
       "experiments",

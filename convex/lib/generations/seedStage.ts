@@ -720,6 +720,10 @@ async function freezeDroppedUncertainties(
     projectId: args.generation.projectId,
     droppedSeedIds: choice.checked.map((entry) => entry.seedId),
     selectionRows: args.state.selectionRows,
+    // 2026-09-30 (fifth, review P2): a Seed that also records an uncertainty
+    // the writer did not drop is not the dropped one's.
+    droppedRoots: new Set([...choice.checked, ...choice.notChecked].map((entry) => args.rootOf(entry.seedId))),
+    rootOf: args.rootOf,
   });
   return [
     ...choice.checked.map((entry) => ({

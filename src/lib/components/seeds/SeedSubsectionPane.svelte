@@ -425,6 +425,7 @@
     UNLINKED_ADVANCEMENT: "its advancements must come from uncertainties you picked and experiments that tested them",
     EXPERIMENT_FOR_DROPPED_UNCERTAINTY: "some picked experiments tested an uncertainty you no longer have picked",
     RESULT_FOR_DROPPED_UNCERTAINTY: "a pick answers an uncertainty you no longer have picked",
+    // Review P3: split by step below, as the notice is.
     PLAN_FOR_DROPPED_UNCERTAINTY: "a pick tests or plans work for an uncertainty you no longer have picked",
     DROPPED_RESULT_FIGURES: "a pick states a result of an uncertainty you no longer have picked, so confirm it on that step",
     CLAIM_EXCLUSION: "a pick matches a claim exclusion in the Brief, so confirm it on that step",
@@ -446,7 +447,14 @@
       ? `Kept ${kept.length === 1 ? "1 step" : `${kept.length} steps`} as ${kept.length === 1 ? "it is" : "they are"}: ${kept.join(", ")}.`
       : "Nothing was kept.";
     const left = result.needsAttention.map(
-      ({ roleId, reason }) => `${label(roleId)} needs your attention: ${KEEP_REFUSAL[reason] ?? "review it"}.`
+      ({ roleId, reason }) =>
+        `${label(roleId)} needs your attention: ${
+          reason === "PLAN_FOR_DROPPED_UNCERTAINTY" && roleId === "hypothesis"
+            ? "a pick tests an uncertainty you no longer have picked"
+            : reason === "PLAN_FOR_DROPPED_UNCERTAINTY" && roleId === "workplan"
+              ? "a pick plans work for an uncertainty you no longer have picked"
+              : (KEEP_REFUSAL[reason] ?? "review it")
+        }.`
     );
     announcement = [keptLine, ...left].join(" ");
     keepResult = { text: announcement, attention: left.length > 0 };
