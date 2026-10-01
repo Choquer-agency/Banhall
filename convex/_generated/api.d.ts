@@ -124,6 +124,8 @@ import type * as lib_dashboardProjection from "../lib/dashboardProjection.js";
 import type * as lib_deidentify from "../lib/deidentify.js";
 import type * as lib_deviationInventory from "../lib/deviationInventory.js";
 import type * as lib_draftingInputsFailure from "../lib/draftingInputsFailure.js";
+import type * as lib_droppedResultFigures from "../lib/droppedResultFigures.js";
+import type * as lib_droppedUncertainties from "../lib/droppedUncertainties.js";
 import type * as lib_editDistance from "../lib/editDistance.js";
 import type * as lib_editProvenance from "../lib/editProvenance.js";
 import type * as lib_editedTerms from "../lib/editedTerms.js";
@@ -382,6 +384,8 @@ declare const fullApi: ApiFromModules<{
   "lib/deidentify": typeof lib_deidentify;
   "lib/deviationInventory": typeof lib_deviationInventory;
   "lib/draftingInputsFailure": typeof lib_draftingInputsFailure;
+  "lib/droppedResultFigures": typeof lib_droppedResultFigures;
+  "lib/droppedUncertainties": typeof lib_droppedUncertainties;
   "lib/editDistance": typeof lib_editDistance;
   "lib/editProvenance": typeof lib_editProvenance;
   "lib/editedTerms": typeof lib_editedTerms;
