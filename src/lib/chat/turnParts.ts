@@ -495,6 +495,18 @@ function normalizeParts(message: UIMessage | undefined): {
 
 // ─── Proposal correlation ────────────────────────────────────────────────────
 
+/** A proposal's targets with whitespace collapsed; blank targets dropped. */
+function passageKeys(proposal: Doc<"chatProposals">): string[] {
+  return proposalReferences(proposal)
+    .map((target) => target.replace(/\s+/g, " ").trim())
+    .filter((target) => target.length > 0);
+}
+
+/** Two targets name one passage when either contains the other. */
+function samePassage(left: string, right: string): boolean {
+  return left.includes(right) || right.includes(left);
+}
+
 /**
  * Map chatProposals rows onto the assistant message that produced them.
  *
@@ -525,17 +537,19 @@ export function correlateProposals(
 
   // A later pending card from the same prompt that targets the same passage
   // supersedes the earlier one: only the latest actionable wording for a
-  // passage belongs in the transcript. Cards for different passages all stay,
+  // passage belongs in the transcript. A target that contains the other
+  // (whitespace aside) is the same passage, so a widened or narrowed later
+  // card still hides the earlier one. Cards for different passages all stay,
   // since a large revision is split into several cards (2026-10-01, first).
   const superseded = new Set<number>();
   proposals.forEach((proposal, index) => {
     if (proposal.state !== "pending" || !proposal.promptMessageId) return;
-    const targets = new Set(proposalReferences(proposal));
+    const targets = passageKeys(proposal);
     const later = proposals.slice(index + 1).some(
       (other) =>
         other.state === "pending" &&
         other.promptMessageId === proposal.promptMessageId &&
-        proposalReferences(other).some((target) => targets.has(target))
+        passageKeys(other).some((target) => targets.some((own) => samePassage(own, target)))
     );
     if (later) superseded.add(index);
   });

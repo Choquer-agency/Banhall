@@ -1118,7 +1118,19 @@ const proposalBackfillTotals = {
   set: v.number(),
   noTurn: v.number(),
   ambiguous: v.number(),
+  research: v.number(),
 };
+
+/**
+ * A Contextual Research proposal: its thread is `research:<session id>` and it
+ * never had a prompt, so the backfill skips it (review P3-4).
+ */
+function isResearchProposal(proposal: Doc<"chatProposals">): boolean {
+  return (
+    proposal.researchSessionId !== undefined ||
+    proposal.agentThreadId.startsWith("research:")
+  );
+}
 
 /**
  * The thread's turns that could hold a proposal's createdAt: queued at or
@@ -1150,10 +1162,12 @@ async function turnsThatMayHold(ctx: QueryCtx, proposal: Doc<"chatProposals">) {
  * promptMessageId (every proposeBulkEdits card before the fix, and older edit
  * and highlight rows) get the promptMessageId of the one turn of their thread
  * whose run time holds their createdAt (`matchProposalTurn`). A row no turn
- * holds, or two turns hold, is left alone and counted. Pages through the rows
- * still missing it, BACKFILL_PROPOSAL_BATCH at a time, and schedules itself
- * until done; the last run logs the totals. A dry run (the default) writes
- * nothing. A second run finds only the rows the first left alone and sets none.
+ * holds, or two turns hold, is left alone and counted; a Contextual Research
+ * proposal never had a prompt and is skipped and counted on its own. Pages
+ * through the rows still missing it, BACKFILL_PROPOSAL_BATCH at a time, and
+ * schedules itself until done; the last run logs the totals. A dry run (the
+ * default) writes nothing. A second run finds only the rows the first left
+ * alone and sets none.
  * `npx convex run chatV2:backfillProposalPromptMessageIds '{"dryRun":true}'`
  * then the same with `'{"dryRun":false}'`.
  */
@@ -1170,13 +1184,19 @@ export const backfillProposalPromptMessageIds = internalMutation({
   }),
   handler: async (ctx, args) => {
     const dryRun = args.dryRun ?? true;
-    const totals = { ...(args.totals ?? { scanned: 0, set: 0, noTurn: 0, ambiguous: 0 }) };
+    const totals = {
+      ...(args.totals ?? { scanned: 0, set: 0, noTurn: 0, ambiguous: 0, research: 0 }),
+    };
     const page = await ctx.db
       .query("chatProposals")
       .withIndex("by_promptMessageId", (q) => q.eq("promptMessageId", undefined))
       .paginate({ numItems: BACKFILL_PROPOSAL_BATCH, cursor: args.cursor ?? null });
     for (const proposal of page.page) {
       totals.scanned += 1;
+      if (isResearchProposal(proposal)) {
+        totals.research += 1;
+        continue;
+      }
       const match = matchProposalTurn(proposal.createdAt, await turnsThatMayHold(ctx, proposal));
       if (match.kind === "match") {
         totals.set += 1;
@@ -1197,7 +1217,7 @@ export const backfillProposalPromptMessageIds = internalMutation({
       });
     } else {
       console.info(
-        `backfillProposalPromptMessageIds ${dryRun ? "dry run " : ""}done: ${totals.scanned} scanned, ${totals.set} ${dryRun ? "would be set" : "set"}, ${totals.noTurn} with no turn, ${totals.ambiguous} ambiguous`
+        `backfillProposalPromptMessageIds ${dryRun ? "dry run " : ""}done: ${totals.scanned} scanned, ${totals.set} ${dryRun ? "would be set" : "set"}, ${totals.noTurn} with no turn, ${totals.ambiguous} ambiguous, ${totals.research} research skipped`
       );
     }
     return { dryRun, done: page.isDone, ...totals };

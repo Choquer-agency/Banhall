@@ -532,22 +532,46 @@ export const CHAT_MAX_STEPS = 5;
  * 2026-10-01 (first), alerts triage. A step cut off at the output limit while
  * it was writing a tool call leaves an invalid call (its JSON never closed),
  * and the AI SDK answers it with the parse error, which echoes the whole cut
- * input and tells the model nothing it can act on. This fixed text replaces
- * that error, so the model splits the revision and goes on within the turn's
- * step and time limits.
+ * input and tells the model nothing it can act on. A fixed text per tool
+ * replaces that error, so the model makes the call smaller and goes on within
+ * the turn's step and time limits.
  */
-export const CHAT_CUT_OFF_INSTRUCTION = `Your last tool call was cut off at the output limit before it finished, so nothing was proposed. Split the revision into smaller proposeBulkEdits calls made one at a time: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text each, about four paragraphs, one per Line or per few paragraphs. Make the first call now.`;
+export const CHAT_CUT_OFF_INSTRUCTIONS: Readonly<Record<string, string>> = Object.freeze({
+  proposeBulkEdits: `Your proposeBulkEdits call was cut off at the output limit before it finished, so nothing was proposed. Split the revision into smaller proposeBulkEdits calls made one at a time: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text each, about four paragraphs, one per Line or per few paragraphs. Make the first call now.`,
+  proposeEdit:
+    "Your proposeEdit call was cut off at the output limit before it finished, so nothing was proposed. Call it again for one passage only, with targetText and newText kept to that passage. For changes across several passages, use proposeBulkEdits calls made one at a time.",
+  proposeReplacements:
+    "Your proposeReplacements call was cut off at the output limit before it finished, so nothing was proposed. Call it again with fewer find and replace pairs, each only as long as it needs to be to stay specific.",
+  highlightPassages:
+    "Your highlightPassages call was cut off at the output limit before it finished, so nothing was highlighted. Call it again with fewer passages, a short distinctive clause for each.",
+});
+
+/** The fixed text for a tool with none of its own. */
+export const CHAT_CUT_OFF_INSTRUCTION_OTHER =
+  "Your last tool call was cut off at the output limit before it finished, so it did not run. Call it again with a shorter input.";
+
+export function cutOffInstruction(toolName: string): string {
+  return CHAT_CUT_OFF_INSTRUCTIONS[toolName] ?? CHAT_CUT_OFF_INSTRUCTION_OTHER;
+}
 
 /** What the writer reads when a cut-off tool call ends the turn. */
 export const CHAT_CUT_OFF_REPLY =
   "That revision was too long to write in one reply. Ask for it a few paragraphs at a time.";
 
+/**
+ * What the writer reads when a turn ends on the step limit in the middle of a
+ * split revision (its last step was a tool call, so the model never wrote its
+ * closing text).
+ */
+export const CHAT_STEP_LIMIT_REPLY =
+  "I stopped at the step limit for one reply, so this revision is not finished. Review the cards above, then ask me to continue with the rest.";
+
 /** The parts of an AI SDK step result the cut-off rules read. */
 type CutOffStep = { finishReason: string; content: ReadonlyArray<unknown> };
 
-function isInvalidToolCall(
-  part: unknown
-): part is { type: "tool-call"; toolCallId: string; invalid: true } {
+type CutOffCall = { toolCallId: string; toolName: string; input: unknown };
+
+function isInvalidToolCall(part: unknown): part is CutOffCall & { type: "tool-call"; invalid: true } {
   return (
     typeof part === "object" &&
     part !== null &&
@@ -556,7 +580,9 @@ function isInvalidToolCall(
     "invalid" in part &&
     part.invalid === true &&
     "toolCallId" in part &&
-    typeof part.toolCallId === "string"
+    typeof part.toolCallId === "string" &&
+    "toolName" in part &&
+    typeof part.toolName === "string"
   );
 }
 
@@ -564,18 +590,27 @@ function isInvalidToolCall(
  * The tool calls a step was writing when the output limit cut it off: the
  * invalid calls of a step that finished with "length". Anthropic closes the
  * cut tool_use block before its max_tokens stop, so the SDK records the call
- * with input it cannot parse.
+ * with input it cannot parse (the raw text it received).
  */
-export function cutOffToolCallIds(step: CutOffStep): string[] {
+export function cutOffToolCalls(step: CutOffStep): CutOffCall[] {
   if (step.finishReason !== "length") return [];
-  return step.content.flatMap((part) => (isInvalidToolCall(part) ? [part.toolCallId] : []));
+  return step.content.flatMap((part) =>
+    isInvalidToolCall(part)
+      ? [{ toolCallId: part.toolCallId, toolName: part.toolName, input: part.input }]
+      : []
+  );
+}
+
+export function cutOffToolCallIds(step: CutOffStep): string[] {
+  return cutOffToolCalls(step).map((call) => call.toolCallId);
 }
 
 /**
- * The step's request with every cut-off call's error result replaced by
- * CHAT_CUT_OFF_INSTRUCTION. Applied to every later step, not only the next
- * one, so the history each request sends stays the same from step to step.
- * Returns the messages unchanged (the same array) when nothing was cut off.
+ * The step's request with every cut-off call's error result replaced by its
+ * tool's fixed text (`cutOffInstruction`). Applied to every later step, not
+ * only the next one, so the history each request sends stays the same from
+ * step to step. Returns the messages unchanged (the same array) when nothing
+ * was cut off.
  */
 export function withCutOffInstruction(
   messages: ModelMessage[],
@@ -589,7 +624,7 @@ export function withCutOffInstruction(
       ...message,
       content: message.content.map((part) =>
         part.type === "tool-result" && cut.has(part.toolCallId)
-          ? { ...part, output: { type: "error-text" as const, value: CHAT_CUT_OFF_INSTRUCTION } }
+          ? { ...part, output: { type: "error-text" as const, value: cutOffInstruction(part.toolName) } }
           : part
       ),
     };
@@ -597,12 +632,43 @@ export function withCutOffInstruction(
 }
 
 /**
- * The model gets the split instruction once. A second cut-off tool call in the
- * same turn stops the turn there, rather than spend another full step of
- * output on the same mistake; the writer then reads CHAT_CUT_OFF_REPLY.
+ * The model gets the instruction once. A second cut-off tool call in the same
+ * turn stops the turn there, rather than spend another full step of output on
+ * the same mistake; the writer then reads CHAT_CUT_OFF_REPLY.
  */
 export function stopAfterSecondCutOff({ steps }: { steps: ReadonlyArray<CutOffStep> }): boolean {
   return steps.filter((step) => cutOffToolCallIds(step).length > 0).length >= 2;
+}
+
+/** The turn's stop conditions: the step limit, and a second cut-off. */
+export function chatTurnStops(steps: ReadonlyArray<CutOffStep>): boolean {
+  return steps.length >= CHAT_MAX_STEPS || stopAfterSecondCutOff({ steps });
+}
+
+type UsageStep = CutOffStep & {
+  toolCalls: ReadonlyArray<unknown>;
+  usage: Parameters<UsageHandler>[1]["usage"];
+  providerMetadata: Parameters<UsageHandler>[1]["providerMetadata"];
+};
+
+/**
+ * Review P2-1: `@convex-dev/agent` 0.6.4 saves a step, and so logs its usage,
+ * only when the step finished with "tool-calls" or ended the turn. A step that
+ * finished otherwise (a cut-off call) but that the AI SDK still continues from
+ * (every call answered, no stop condition met) is replaced by the next one
+ * unsaved, so its request would never reach aiUsage. True for exactly that
+ * step: the app logs its usage itself, and the agent never does, so every
+ * request writes one usage row.
+ */
+export function stepUsageDroppedByAgent(step: UsageStep, steps: ReadonlyArray<CutOffStep>): boolean {
+  if (step.finishReason === "tool-calls" || step.toolCalls.length === 0) return false;
+  const answered = step.content.filter((part) =>
+    typeof part === "object" &&
+    part !== null &&
+    "type" in part &&
+    (part.type === "tool-result" || part.type === "tool-error")
+  ).length;
+  return answered >= step.toolCalls.length && !chatTurnStops(steps);
 }
 
 /**
@@ -804,6 +870,20 @@ export function chatStreamTimeoutMs(startedAt: number, now: number): number {
   return Math.max(1, startedAt + ACTION_REQUEST_WINDOW_MS - now);
 }
 
+/**
+ * The thread's owner, as the agent library resolves the user it passes to the
+ * usage handler. Read only when the app logs a step's usage itself.
+ */
+async function threadUserId(ctx: ActionCtx, threadId: string): Promise<string | undefined> {
+  try {
+    const thread = await ctx.runQuery(components.agent.threads.getThread, { threadId });
+    return thread?.userId ?? undefined;
+  } catch (error) {
+    console.error("chat thread owner lookup failed", safeErrorDetails(error));
+    return undefined;
+  }
+}
+
 /** The assistant message a failed turn leaves in the thread. */
 export function chatFailureReply(error: unknown): string {
   switch (error instanceof Error ? error.message : "") {
@@ -848,6 +928,7 @@ export const streamChatReply = internalAction({
     // call whose block never closed, so the step recorded no call at all.
     let sawToolInput = false;
     let lastStepCutToolCall = false;
+    const finishedSteps: CutOffStep[] = [];
     // Where the turn's latest model request went, for the failure log.
     let served: Readonly<ChatServedState> | undefined;
 
@@ -946,8 +1027,8 @@ export const streamChatReply = internalAction({
           // comment. Without it, multi-step tool turns lose the thinking
           // signature and the model's reasoning is dropped between steps.
           experimental_transform: preserveReasoningSignature<typeof CHAT_TOOLS>(),
-          // 2026-10-01 (first): a call cut off at the output limit gets the
-          // fixed split instruction instead of its parse error, and a second
+          // 2026-10-01 (first): a call cut off at the output limit gets its
+          // tool's fixed instruction instead of its parse error, and a second
           // cut-off ends the turn. A turn that is never cut off sends exactly
           // the requests it sent before (the same messages array).
           stopWhen: [stepCountIs(CHAT_MAX_STEPS), stopAfterSecondCutOff],
@@ -958,14 +1039,39 @@ export const streamChatReply = internalAction({
           onChunk: ({ chunk }) => {
             if (chunk.type === "tool-input-start") sawToolInput = true;
           },
-          onStepFinish: (step) => {
+          onStepFinish: async (step) => {
             for (const toolCall of step.toolCalls) {
               if (toolCall) toolCallIds.add(toolCall.toolCallId);
             }
+            finishedSteps.push(step);
             lastStepCutToolCall =
               step.finishReason === "length" &&
               (sawToolInput || step.toolCalls.length > 0);
             sawToolInput = false;
+            // Sizes only, never report text: to tune the per-call bound.
+            for (const call of cutOffToolCalls(step)) {
+              console.warn("chat tool call cut off at the output limit", {
+                threadId: args.agentThreadId,
+                toolName: call.toolName,
+                inputChars:
+                  typeof call.input === "string"
+                    ? call.input.length
+                    : JSON.stringify(call.input ?? null).length,
+                outputTokens: step.usage.outputTokens ?? null,
+              });
+            }
+            // Review P2-1: the agent never logs this step's usage.
+            if (stepUsageDroppedByAgent(step, finishedSteps)) {
+              await turnModel.usageHandler(ctx, {
+                userId: await threadUserId(ctx, args.agentThreadId),
+                threadId: args.agentThreadId,
+                agentName: "report-editor",
+                model: turnModel.model.modelId,
+                provider: turnModel.model.provider,
+                usage: step.usage,
+                providerMetadata: step.providerMetadata,
+              });
+            }
           },
         },
         {
@@ -991,13 +1097,29 @@ export const streamChatReply = internalAction({
       if (finishReason === "content-filter" || finishReason === "length") {
         throw new Error("CHAT_INCOMPLETE_RESPONSE");
       }
-      await ctx.runMutation(internal.chatV2.finishTurn, {
+      const finished: {
+        status: "queued" | "running" | "completed" | "failed" | "aborted";
+      } = await ctx.runMutation(internal.chatV2.finishTurn, {
         agentThreadId: args.agentThreadId,
         promptMessageId: args.promptMessageId,
         requestedStatus: "completed",
         endedAt: Date.now(),
         stepCount: toolCallIds.size,
       });
+      // Review P2-2: the step limit ended the turn on a tool call, so the
+      // model never wrote its closing text. Say the revision continues.
+      if (
+        finishReason === "tool-calls" &&
+        finishedSteps.length >= CHAT_MAX_STEPS &&
+        finished.status === "completed"
+      ) {
+        await saveMessage(ctx, components.agent, {
+          threadId: args.agentThreadId,
+          agentName: "report-editor",
+          promptMessageId: args.promptMessageId,
+          message: { role: "assistant", content: CHAT_STEP_LIMIT_REPLY },
+        });
+      }
     } catch (error) {
       const finish: {
         status: "queued" | "running" | "completed" | "failed" | "aborted";

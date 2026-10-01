@@ -5,9 +5,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import {
-  CHAT_CUT_OFF_INSTRUCTION,
   CHAT_CUT_OFF_REPLY,
   CHAT_MAX_OUTPUT_TOKENS,
+  CHAT_MAX_STEPS,
+  CHAT_STEP_LIMIT_REPLY,
+  cutOffInstruction,
 } from "./ai/chatAgentV2";
 import { BULK_EDIT_SIZE_RULE } from "./lib/completionReport";
 import { correlateProposals } from "../src/lib/chat/turnParts";
@@ -60,14 +62,21 @@ const thinking = (id: string): Event[] => [
 ];
 
 /**
- * A proposeBulkEdits answer. With `stop: "max_tokens"` the input JSON is cut
- * where the output limit fell; the API still closes the block first.
+ * A tool answer (proposeBulkEdits unless named). With `stop: "max_tokens"` the
+ * input JSON is cut where the output limit fell; the API still closes the
+ * block first.
  */
-function toolAnswer(id: string, toolUseId: string, json: string, stop: "tool_use" | "max_tokens") {
+function toolAnswer(
+  id: string,
+  toolUseId: string,
+  json: string,
+  stop: "tool_use" | "max_tokens",
+  tool = "proposeBulkEdits"
+) {
   const events: Event[] = [
     messageStart(id),
     ...thinking(id),
-    { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: toolUseId, name: "proposeBulkEdits", input: {} } },
+    { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: toolUseId, name: tool, input: {} } },
   ];
   for (let at = 0; at < json.length; at += 40) {
     events.push({ type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: json.slice(at, at + 40) } });
@@ -165,7 +174,16 @@ async function setup() {
     (await actor.query(api.chatV2.listMessages, {
       threadId: sent.threadId, paginationOpts: { cursor: null, numItems: 50 }, streamArgs: undefined,
     })).page;
-  return { t, actor, ...ids, threadId: sent.threadId, promptMessageId: sent.messageId, run, turn, messages };
+  /** The output tokens of every chat usage row, once queued rows are written. */
+  const usageOutputTokens = async () => {
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const rows = await t.run((ctx) => ctx.db.query("aiUsage").collect());
+    return rows.filter((row) => row.callSite === "chat_v2").map((row) => row.outputTokens);
+  };
+  return {
+    t, actor, ...ids, threadId: sent.threadId, promptMessageId: sent.messageId,
+    run, turn, messages, usageOutputTokens,
+  };
 }
 
 /** The tool_result block a request sends for one tool call. */
@@ -211,7 +229,10 @@ describe("a bulk revision cut off at the output limit", () => {
 
     // The model reads the fixed instruction, not the parse error that echoes
     // the cut input, and every later step sends the same history.
-    const instruction = { type: "tool_result", tool_use_id: "toolu_cut", content: CHAT_CUT_OFF_INSTRUCTION, is_error: true };
+    const instruction = {
+      type: "tool_result", tool_use_id: "toolu_cut", content: cutOffInstruction("proposeBulkEdits"), is_error: true,
+    };
+    expect(instruction.content).toMatch(/^Your proposeBulkEdits call was cut off at the output limit/);
     expect(toolResult(sent[1]!, "toolu_cut")).toEqual(instruction);
     expect(toolResult(sent[2]!, "toolu_cut")).toEqual(instruction);
     expect(JSON.stringify(sent.slice(1))).not.toContain("JSON parsing failed");
@@ -233,11 +254,15 @@ describe("a bulk revision cut off at the output limit", () => {
     expect(orphans).toEqual([]);
     const reply = messages.find((message) => message.role === "assistant");
     expect(byMessageId.get(reply!.id)?.map((row) => row.toolCallId)).toEqual(["toolu_part1"]);
+
+    // Review P2-1: one usage row per request, the cut-off request included.
+    expect(await f.usageOutputTokens()).toEqual([CHAT_MAX_OUTPUT_TOKENS, 300, 20]);
   });
 
   test("a second cut-off ends the turn and tells the writer what to do", async () => {
     const f = await setup();
     vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const sent = stubAnthropic([
       () => toolAnswer("msg_1", "toolu_cut_1", cutJson, "max_tokens"),
       () => toolAnswer("msg_2", "toolu_cut_2", cutJson, "max_tokens"),
@@ -246,7 +271,7 @@ describe("a bulk revision cut off at the output limit", () => {
 
     // No third request: the instruction is given once.
     expect(sent).toHaveLength(2);
-    expect(toolResult(sent[1]!, "toolu_cut_1")).toMatchObject({ content: CHAT_CUT_OFF_INSTRUCTION });
+    expect(toolResult(sent[1]!, "toolu_cut_1")).toMatchObject({ content: cutOffInstruction("proposeBulkEdits") });
     expect((await f.turn()).status).toBe("failed");
     expect(await f.t.run((ctx) => ctx.db.query("chatProposals").collect())).toEqual([]);
     const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
@@ -254,6 +279,37 @@ describe("a bulk revision cut off at the output limit", () => {
     expect(CHAT_CUT_OFF_REPLY).toBe(
       "That revision was too long to write in one reply. Ask for it a few paragraphs at a time."
     );
+
+    // Review P2-1: both requests are logged once each.
+    expect(await f.usageOutputTokens()).toEqual([CHAT_MAX_OUTPUT_TOKENS, CHAT_MAX_OUTPUT_TOKENS]);
+    // Review P3-6: each cut-off is logged by tool and size, never its text.
+    const cutLogs = warn.mock.calls.filter((call) => call[0] === "chat tool call cut off at the output limit");
+    expect(cutLogs.map((call) => call[1])).toEqual([
+      { threadId: f.threadId, toolName: "proposeBulkEdits", inputChars: cutJson.length, outputTokens: CHAT_MAX_OUTPUT_TOKENS },
+      { threadId: f.threadId, toolName: "proposeBulkEdits", inputChars: cutJson.length, outputTokens: CHAT_MAX_OUTPUT_TOKENS },
+    ]);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("Trial 1");
+  });
+
+  // Review P3-5: each tool gets its own fixed text.
+  test("a cut-off highlightPassages call gets the highlight instruction", async () => {
+    const f = await setup();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sent = stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_cut", JSON.stringify({ references: [P1, P2] }).slice(0, 30), "max_tokens", "highlightPassages"),
+      () => textAnswer("msg_2", "I could not highlight those passages."),
+    ]);
+    await f.run();
+
+    expect(sent).toHaveLength(2);
+    expect(toolResult(sent[1]!, "toolu_cut")).toMatchObject({
+      content: cutOffInstruction("highlightPassages"),
+      is_error: true,
+    });
+    expect(cutOffInstruction("highlightPassages")).toMatch(/^Your highlightPassages call was cut off/);
+    expect(cutOffInstruction("proposeEdit")).toMatch(/^Your proposeEdit call was cut off/);
+    expect(cutOffInstruction("searchBrain")).toMatch(/^Your last tool call was cut off/);
+    expect((await f.turn()).status).toBe("completed");
   });
 
   test("a cut tool block that never closed still gets the plain message", async () => {
@@ -289,10 +345,30 @@ describe("turns the output limit does not cut a tool call from", () => {
 
     expect(sent).toHaveLength(2);
     expect(toolResult(sent[1]!, "toolu_ok")?.content).toMatch(/^Coordinated revision proposed for writer review/);
-    expect(JSON.stringify(sent)).not.toContain(CHAT_CUT_OFF_INSTRUCTION);
+    expect(JSON.stringify(sent)).not.toContain("was cut off at the output limit");
     expect(sent[1]!.messages.slice(0, sent[0]!.messages.length)).toEqual(sent[0]!.messages);
     expect((await f.turn()).status).toBe("completed");
     expect(await f.actor.query(api.chatV2.listProposals, { threadId: f.threadId })).toHaveLength(1);
+  });
+
+  // Review P2-2 (c): five tool steps fill the turn, so the model never writes
+  // its closing text; the writer is told the revision goes on.
+  test("a turn that ends on the step limit says the revision continues", async () => {
+    const f = await setup();
+    const sent = stubAnthropic(
+      Array.from({ length: CHAT_MAX_STEPS }, (_, i) => () =>
+        toolAnswer(`msg_${i + 1}`, `toolu_part${i + 1}`, JSON.stringify(smallInput), "tool_use"))
+    );
+    await f.run();
+
+    expect(sent).toHaveLength(CHAT_MAX_STEPS);
+    expect((await f.turn()).status).toBe("completed");
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY);
+    expect(CHAT_STEP_LIMIT_REPLY).toBe(
+      "I stopped at the step limit for one reply, so this revision is not finished. Review the cards above, then ask me to continue with the rest."
+    );
+    expect(await f.usageOutputTokens()).toEqual(Array.from({ length: CHAT_MAX_STEPS }, () => 300));
   });
 
   test("a reply cut off in its text keeps the general failure message", async () => {

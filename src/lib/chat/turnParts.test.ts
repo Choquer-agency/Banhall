@@ -588,6 +588,21 @@ describe("correlateProposals", () => {
     expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["other", "new"]);
   });
 
+  // Review P3-1: a refinement often widens or narrows its target.
+  it.each([
+    ["widened", "Trial 1 described a pressure range.", "Trial 1 described a  pressure range. It ran twice."],
+    ["narrowed", "Trial 1 described a pressure range. It ran twice.", "a pressure\nrange"],
+  ])("a later card whose target is %s still supersedes the earlier one", (_name, first, later) => {
+    const { byMessageId } = correlateProposals(
+      [reply],
+      [
+        proposal({ _id: "old", messageId: "a1", promptMessageId: "u1", targetText: first }),
+        proposal({ _id: "new", messageId: "a1", promptMessageId: "u1", targetText: later }),
+      ]
+    );
+    expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["new"]);
+  });
+
   it("keeps non-pending history from the same prompt", () => {
     const { byMessageId } = correlateProposals(
       [reply],

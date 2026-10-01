@@ -53,8 +53,15 @@ export const COMPLETION_REPORT_TARGET_ITEMS = 30;
  */
 export const BULK_EDIT_NEW_WORDS_PER_CALL = 600;
 
+/**
+ * Review P2-2: a turn has 5 steps (`CHAT_MAX_STEPS`). The Deviation Inventory,
+ * three bulk calls and the closing reply fill them, so a reply makes at most
+ * this many bulk calls and names what is left for the next message.
+ */
+export const BULK_EDIT_CALLS_PER_REPLY = 3;
+
 /** The size rule, stated once for the tool description and the chat prompt. */
-export const BULK_EDIT_SIZE_RULE = `Keep each call small enough to finish: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text across its edits, about four rewritten paragraphs. For a larger revision, make several proposeBulkEdits calls one at a time, one per Line or per few paragraphs, and wait for each result before the next call. Each call lands as its own card. Its findings cover the items its own edits resolve; put blocked and conflicting items in the last call, so the calls together account for every item exactly once.`;
+export const BULK_EDIT_SIZE_RULE = `Keep each call small enough to finish: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text across its edits, about four rewritten paragraphs. For a larger revision, make several proposeBulkEdits calls one at a time, one per Line or per few paragraphs, and wait for each result before the next call. Each call lands as its own card. Put every blocked and conflicting item in the first call; each call's findings also cover the items its own edits resolve, so the calls together account for every item exactly once. Make at most ${BULK_EDIT_CALLS_PER_REPLY} proposeBulkEdits calls in one reply. If items are still left after that, name their ids in your closing text and ask the writer to tell you to continue.`;
 
 const MAX_TEXT_CHARS = 1000;
 

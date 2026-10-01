@@ -129,6 +129,9 @@ async function seed(f: Fixture) {
   // Same time as turn p1 but another thread: never matched across threads.
   await f.proposal({ thread: "thread-b", toolCallId: "other-thread", createdAt: T0 + 30 * SECOND });
   await f.proposal({ thread: "thread-a", toolCallId: "anchored", createdAt: T0 + 40 * SECOND, promptMessageId: "p1" });
+  // A Contextual Research proposal (thread research:<session id>) never has
+  // a prompt, so the backfill skips it and counts it apart (review P3-4).
+  await f.proposal({ thread: "research:session-1", toolCallId: "research", createdAt: T0 + 30 * SECOND });
 }
 
 /** Starts the backfill, runs every scheduled page, returns the logged totals. */
@@ -151,19 +154,19 @@ describe("backfillProposalPromptMessageIds", () => {
     await seed(f);
     const before = await f.prompts();
     const { first, done } = await runBackfill(f, {});
-    expect(first).toEqual({ dryRun: true, done: false, scanned: 10, set: 10, noTurn: 0, ambiguous: 0 });
+    expect(first).toEqual({ dryRun: true, done: false, scanned: 10, set: 10, noTurn: 0, ambiguous: 0, research: 0 });
     expect(done).toEqual([
-      "backfillProposalPromptMessageIds dry run done: 16 scanned, 13 would be set, 2 with no turn, 1 ambiguous",
+      "backfillProposalPromptMessageIds dry run done: 17 scanned, 13 would be set, 2 with no turn, 1 ambiguous, 1 research skipped",
     ]);
     expect(await f.prompts()).toEqual(before);
   });
 
-  test("sets the prompt from the turn that holds each row, leaves the rest, and a second run does nothing", async () => {
+  test("sets the prompt from the turn that holds each row, leaves the rest, skips research, and a second run does nothing", async () => {
     const f = await setup();
     await seed(f);
     const { done } = await runBackfill(f, { dryRun: false });
     expect(done).toEqual([
-      "backfillProposalPromptMessageIds done: 16 scanned, 13 set, 2 with no turn, 1 ambiguous",
+      "backfillProposalPromptMessageIds done: 17 scanned, 13 set, 2 with no turn, 1 ambiguous, 1 research skipped",
     ]);
     expect(await f.prompts()).toEqual({
       ...Object.fromEntries(IN_P1.map((id) => [id, "p1"])),
@@ -172,13 +175,14 @@ describe("backfillProposalPromptMessageIds", () => {
       "two-turns": null,
       "other-thread": null,
       anchored: "p1",
+      research: null,
     });
 
     const after = await f.prompts();
     const second = await runBackfill(f, { dryRun: false });
-    expect(second.first).toEqual({ dryRun: false, done: true, scanned: 3, set: 0, noTurn: 2, ambiguous: 1 });
+    expect(second.first).toEqual({ dryRun: false, done: true, scanned: 4, set: 0, noTurn: 2, ambiguous: 1, research: 1 });
     expect(second.done).toEqual([
-      "backfillProposalPromptMessageIds done: 3 scanned, 0 set, 2 with no turn, 1 ambiguous",
+      "backfillProposalPromptMessageIds done: 4 scanned, 0 set, 2 with no turn, 1 ambiguous, 1 research skipped",
     ]);
     expect(await f.prompts()).toEqual(after);
   });
@@ -191,7 +195,7 @@ describe("backfillProposalPromptMessageIds", () => {
     await f.proposal({ thread: "thread-a", toolCallId: "during-running", createdAt: T0 + 2 * MINUTE });
     const { done } = await runBackfill(f, { dryRun: false });
     expect(done).toEqual([
-      "backfillProposalPromptMessageIds done: 1 scanned, 0 set, 1 with no turn, 0 ambiguous",
+      "backfillProposalPromptMessageIds done: 1 scanned, 0 set, 1 with no turn, 0 ambiguous, 0 research skipped",
     ]);
     expect(await f.prompts()).toEqual({ "during-running": null });
   });
