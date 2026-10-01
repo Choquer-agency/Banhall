@@ -1570,21 +1570,22 @@ export async function draftCheckedSection(input: {
   // must satisfy Rule C. When the check of its final text still judges it
   // not applied, the checked draft, which keeps all the evidence, comes
   // back, unless it is further over a Locked limit (Locked Rules first).
-  // Greptile round 2 (lead decision): only when every fix the repair carried
-  // was a Rule C or leave-out fix. A repair that also carried other fixes (a
-  // target, a hedge, a Glossary Term) is kept for them, and the Rule C row
-  // records the final text's verdict with REPAIR_KEPT_DESPITE_WORK_RULE_REASON.
+  // Greptile rounds 2 and 3 (lead decisions): only when every fix the
+  // repair carried was a Rule C fix. A repair that also carried any other
+  // fix (a Rule A leave-out fix, a target, a hedge, a Glossary Term) is kept
+  // for it, so that fix never vanishes, and the Rule C row records the final
+  // text's verdict with REPAIR_KEPT_DESPITE_WORK_RULE_REASON.
   let workRuleKeptBroken = false;
   if (repair.succeeded && finalCoverage?.ok && evidenceIssues.size > 0) {
     const coverage = finalCoverage;
     const workRule = claim.planChecks.find((planCheck) => planCheck.instruction === "work_answer_242");
     const later = workRule ? planVerdictFor(coverage.verdicts, workRule) : undefined;
     const stillBroken = later !== undefined && later.actionableRepair !== false && later.outcome !== "applied";
-    const onlyLeaveOutFixes = issues.every((issue) => leaveOutIssues.has(issue));
-    if (stillBroken && !onlyLeaveOutFixes) workRuleKeptBroken = true;
+    const onlyRuleCFixes = issues.every((issue) => evidenceIssues.has(issue));
+    if (stillBroken && !onlyRuleCFixes) workRuleKeptBroken = true;
     if (
       stillBroken &&
-      onlyLeaveOutFixes &&
+      onlyRuleCFixes &&
       !overLimitMore(text, finalText)
     ) {
       console.warn(`generation:repair:${section}: the repaired text still breaks Line 244's work rule; the checked draft is kept`);

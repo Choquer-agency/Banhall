@@ -527,6 +527,45 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     );
   });
 
+  it("Greptile round 3: keeps a repair that also carried a leave-out fix, so that fix stands, and records Rule C not applied on its final text", async () => {
+    // Line 244 holds the dropped uncertainty's Trial 2 (P4) and a Brief-only
+    // sensor experiment (P5). The repair leaves Trial 2 out but only rewords
+    // the sensor experiment.
+    const plan = plan244({ line242Text: LINE_242, dropped: [DROPPED] });
+    const text = [P1, P2, P3, P4_LEAK, P4_SENSOR].join("\n\n");
+    const repaired = [P1, P2, P3, "A third experiment compared in-tank sensors with a bypass loop, and the direct sensors drifted."].join("\n\n");
+    expect(lostPlanFigure(text, repaired, PLAN_WORDING)).toBeUndefined();
+    const leakInP4 = { ...onTheStall, paragraph: 4, reason: "P4 narrates Trial 2 at 6 C (44 days)." };
+    const sent = installFetch({
+      draft: text,
+      repair: repaired,
+      checks: [
+        [skipHonoured, ...allCovered, leakInP4, { ...sensorStray, paragraph: 5, reason: "P5 narrates a sensor trial, not in 242." }],
+        [skipHonoured, ...allCovered, leftOut, { ...sensorStray, reason: "P4 still narrates a sensor trial." }],
+      ],
+    });
+    const result = await draft("244", claimFor({
+      section: "244",
+      plan,
+      priorSections: [{ section: "242", text: LINE_242 }],
+      workAnswers242: { line242Drafted: true, line246Items: ITEMS_246 },
+    }));
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(sent[2]!.user).toContain("- Paragraph 4: leave out the uncertainty the writer dropped (");
+    // The leave-out fix stands: Trial 2 is gone from the final text.
+    expect(result.draftText).toBe(repaired);
+    expect(rowOf(result, (ref) => ref.droppedSeedId === DROPPED_ID)).toMatchObject({
+      outcome: "applied",
+      repaired: true,
+      reason: "Nothing of the dropped uncertainty.",
+    });
+    expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: `P4 still narrates a sensor trial.; ${REPAIR_KEPT_DESPITE_WORK_RULE_REASON}`,
+    });
+  });
+
   it("Greptile round: uses a Rule C repair that cuts the capture trials behind a figure-free goal item, whose figures stay elsewhere (known limitation)", async () => {
     // carried-old-selections, run 11: Line 244 as drafted, and the signed-off
     // items (skipped steps aside) as frozen. Goal item 13 says both goals were
