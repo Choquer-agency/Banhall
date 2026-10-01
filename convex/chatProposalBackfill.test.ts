@@ -187,6 +187,28 @@ describe("backfillProposalPromptMessageIds", () => {
     expect(await f.prompts()).toEqual(after);
   });
 
+  // PR #24 P2: the scan starts at the card's time, not at the newest turn.
+  test("finds a card's turn behind more than 200 newer turns", async () => {
+    const f = await setup();
+    await f.turn({ thread: "thread-a", prompt: "early", order: 1, queuedAt: T0, startedAt: T0 + SECOND, endedAt: T0 + MINUTE });
+    vi.setSystemTime(T0 + 2 * MINUTE);
+    await f.t.run(async (ctx) => {
+      for (let i = 0; i < 205; i += 1) {
+        const at = T0 + 2 * MINUTE + i * MINUTE;
+        await ctx.db.insert("chatTurns", {
+          agentThreadId: "thread-a", promptMessageId: `later-${i}`, order: i + 2, status: "completed",
+          startedAt: at, endedAt: at + 30 * SECOND, stepCount: 1,
+        });
+      }
+    });
+    await f.proposal({ thread: "thread-a", toolCallId: "far-back", createdAt: T0 + 30 * SECOND });
+    const { done } = await runBackfill(f, { dryRun: false });
+    expect(done).toEqual([
+      "backfillProposalPromptMessageIds done: 1 scanned, 1 set, 0 with no turn, 0 ambiguous, 0 research skipped",
+    ]);
+    expect(await f.prompts()).toEqual({ "far-back": "early" });
+  });
+
   test("a turn without both ends holds nothing", async () => {
     const f = await setup();
     await f.turn({ thread: "thread-a", prompt: "queued", order: 1, queuedAt: T0 });

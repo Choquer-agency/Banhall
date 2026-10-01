@@ -1764,6 +1764,9 @@ export default defineSchema({
       "promptMessageId",
     ])
     .index("by_agentThreadId_and_order", ["agentThreadId", "order"])
+    // 2026-10-01 (first): the proposal backfill reads the few turns that
+    // started shortly before a proposal, however long the thread is.
+    .index("by_agentThreadId_and_startedAt", ["agentThreadId", "startedAt"])
     // One turn at a time per thread (security wave 1, a4 #17).
     .index("by_agentThreadId_and_status", ["agentThreadId", "status"])
     .index("by_userId_and_status", ["userId", "status"])

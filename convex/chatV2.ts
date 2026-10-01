@@ -1104,12 +1104,13 @@ export const failStaleChatTurns = internalMutation({
 
 /** Proposals one backfill run reads. */
 const BACKFILL_PROPOSAL_BATCH = 10;
-/** Turns read per proposal, newest first, before the row is left alone. */
-const BACKFILL_TURN_SCAN = 200;
+/** Turns read per proposal, latest start first. */
+const BACKFILL_TURN_SCAN = 50;
 /**
- * A turn runs within an hour of being queued: the reply stops at 540 s, the
- * action at 10 minutes, and the reaper fails a stranded turn within about 16.
- * A turn queued more than this before a proposal cannot hold it.
+ * A turn ends within an hour of its start: the reply stops at 540 s, the
+ * action at 10 minutes, and the reaper fails a stranded turn within about 16
+ * minutes of its start. A turn that started earlier than this before a
+ * proposal cannot hold it.
  */
 const BACKFILL_TURN_SPAN_MS = 60 * 60 * 1000;
 
@@ -1133,28 +1134,22 @@ function isResearchProposal(proposal: Doc<"chatProposals">): boolean {
 }
 
 /**
- * The thread's turns that could hold a proposal's createdAt: queued at or
- * before it, newest first, back to BACKFILL_TURN_SPAN_MS before it, reading at
- * most BACKFILL_TURN_SCAN turns.
+ * The thread's turns that could hold a proposal's createdAt: those that
+ * started in the BACKFILL_TURN_SPAN_MS before it, latest start first, at most
+ * BACKFILL_TURN_SCAN. Read by start time (PR #24 P2), so a proposal far back
+ * in a long thread is found as cheaply as a recent one.
  */
 async function turnsThatMayHold(ctx: QueryCtx, proposal: Doc<"chatProposals">) {
-  const turns: Doc<"chatTurns">[] = [];
-  let read = 0;
-  const newestFirst = ctx.db
+  return await ctx.db
     .query("chatTurns")
-    .withIndex("by_agentThreadId_and_order", (q) =>
-      q.eq("agentThreadId", proposal.agentThreadId)
+    .withIndex("by_agentThreadId_and_startedAt", (q) =>
+      q
+        .eq("agentThreadId", proposal.agentThreadId)
+        .gte("startedAt", proposal.createdAt - BACKFILL_TURN_SPAN_MS)
+        .lte("startedAt", proposal.createdAt)
     )
-    .order("desc");
-  for await (const turn of newestFirst) {
-    read += 1;
-    if (turn._creationTime <= proposal.createdAt) {
-      turns.push(turn);
-      if (turn._creationTime < proposal.createdAt - BACKFILL_TURN_SPAN_MS) break;
-    }
-    if (read >= BACKFILL_TURN_SCAN) break;
-  }
-  return turns;
+    .order("desc")
+    .take(BACKFILL_TURN_SCAN);
 }
 
 /**

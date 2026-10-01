@@ -9,6 +9,7 @@ import {
   CHAT_MAX_OUTPUT_TOKENS,
   CHAT_MAX_STEPS,
   CHAT_STEP_LIMIT_REPLY,
+  CHAT_STEP_LIMIT_REPLY_OTHER,
   cutOffInstruction,
 } from "./ai/chatAgentV2";
 import { BULK_EDIT_SIZE_RULE } from "./lib/completionReport";
@@ -109,7 +110,7 @@ function textAnswer(id: string, text: string, stop: "end_turn" | "max_tokens" = 
 }
 
 /** Answers each request with the next answer; a request past the list fails the test. */
-function stubAnthropic(answers: Array<() => Response>): Body[] {
+function stubAnthropic(answers: Array<() => Response | Promise<Response>>): Body[] {
   const sent: Body[] = [];
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
     const request = new Request(input, init);
@@ -174,11 +175,14 @@ async function setup() {
     (await actor.query(api.chatV2.listMessages, {
       threadId: sent.threadId, paginationOpts: { cursor: null, numItems: 50 }, streamArgs: undefined,
     })).page;
-  /** The output tokens of every chat usage row, once queued rows are written. */
+  /** The output tokens of every chat usage row, smallest first, once queued rows are written. */
   const usageOutputTokens = async () => {
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     const rows = await t.run((ctx) => ctx.db.query("aiUsage").collect());
-    return rows.filter((row) => row.callSite === "chat_v2").map((row) => row.outputTokens);
+    return rows
+      .filter((row) => row.callSite === "chat_v2")
+      .map((row) => row.outputTokens)
+      .sort((left, right) => left - right);
   };
   return {
     t, actor, ...ids, threadId: sent.threadId, promptMessageId: sent.messageId,
@@ -256,7 +260,7 @@ describe("a bulk revision cut off at the output limit", () => {
     expect(byMessageId.get(reply!.id)?.map((row) => row.toolCallId)).toEqual(["toolu_part1"]);
 
     // Review P2-1: one usage row per request, the cut-off request included.
-    expect(await f.usageOutputTokens()).toEqual([CHAT_MAX_OUTPUT_TOKENS, 300, 20]);
+    expect(await f.usageOutputTokens()).toEqual([20, 300, CHAT_MAX_OUTPUT_TOKENS]);
   });
 
   test("a second cut-off ends the turn and tells the writer what to do", async () => {
@@ -332,6 +336,31 @@ describe("a bulk revision cut off at the output limit", () => {
     const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
     expect(texts.at(-1)).toBe(CHAT_CUT_OFF_REPLY);
   });
+
+  // PR #24 review P3: after a cut-off step the agent no longer streams, so it
+  // cannot see a Stop; the turn checks before paying for the next step.
+  test("a Stop pressed during a cut-off step ends the turn before the next request", async () => {
+    const f = await setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sent = stubAnthropic([
+      async () => {
+        const { order } = await f.turn();
+        await f.actor.mutation(api.chatV2.abortStreaming, { threadId: f.threadId, order });
+        return toolAnswer("msg_1", "toolu_cut", cutJson, "max_tokens");
+      },
+      () => toolAnswer("msg_2", "toolu_part1", JSON.stringify(smallInput), "tool_use"),
+    ]);
+    await f.run();
+
+    expect(sent).toHaveLength(1);
+    expect((await f.turn()).status).toBe("aborted");
+    expect(await f.t.run((ctx) => ctx.db.query("chatProposals").collect())).toEqual([]);
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts).not.toContain(CHAT_CUT_OFF_REPLY);
+    // The one request is logged once: the agent saves the step it held.
+    expect(await f.usageOutputTokens()).toEqual([CHAT_MAX_OUTPUT_TOKENS]);
+  });
 });
 
 describe("turns the output limit does not cut a tool call from", () => {
@@ -369,6 +398,22 @@ describe("turns the output limit does not cut a tool call from", () => {
       "I stopped at the step limit for one reply, so this revision is not finished. Review the cards above, then ask me to continue with the rest."
     );
     expect(await f.usageOutputTokens()).toEqual(Array.from({ length: CHAT_MAX_STEPS }, () => 300));
+  });
+
+  // PR #24 review P3: the note says a revision is unfinished only after edits.
+  test("a turn that ends on the step limit without edits just asks to continue", async () => {
+    const f = await setup();
+    const sent = stubAnthropic(
+      Array.from({ length: CHAT_MAX_STEPS }, (_, i) => () =>
+        toolAnswer(`msg_${i + 1}`, `toolu_list${i + 1}`, "{}", "tool_use", "deviationInventory"))
+    );
+    await f.run();
+
+    expect(sent).toHaveLength(CHAT_MAX_STEPS);
+    expect((await f.turn()).status).toBe("completed");
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY_OTHER);
+    expect(CHAT_STEP_LIMIT_REPLY_OTHER).toBe("I stopped at the step limit for one reply. Ask me to continue.");
   });
 
   test("a reply cut off in its text keeps the general failure message", async () => {

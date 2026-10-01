@@ -559,12 +559,23 @@ export const CHAT_CUT_OFF_REPLY =
   "That revision was too long to write in one reply. Ask for it a few paragraphs at a time.";
 
 /**
- * What the writer reads when a turn ends on the step limit in the middle of a
- * split revision (its last step was a tool call, so the model never wrote its
- * closing text).
+ * What the writer reads when a turn ends on the step limit (its last step was
+ * a tool call, so the model never wrote its closing text) after it proposed
+ * edits: a split revision has parts left.
  */
 export const CHAT_STEP_LIMIT_REPLY =
   "I stopped at the step limit for one reply, so this revision is not finished. Review the cards above, then ask me to continue with the rest.";
+
+/** The same, for a turn that proposed no edit (PR #24 review P3). */
+export const CHAT_STEP_LIMIT_REPLY_OTHER =
+  "I stopped at the step limit for one reply. Ask me to continue.";
+
+/** The tools whose calls are a revision of the report. */
+const EDIT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "proposeEdit",
+  "proposeReplacements",
+  "proposeBulkEdits",
+]);
 
 /** The parts of an AI SDK step result the cut-off rules read. */
 type CutOffStep = { finishReason: string; content: ReadonlyArray<unknown> };
@@ -655,12 +666,14 @@ type UsageStep = CutOffStep & {
  * Review P2-1: `@convex-dev/agent` 0.6.4 saves a step, and so logs its usage,
  * only when the step finished with "tool-calls" or ended the turn. A step that
  * finished otherwise (a cut-off call) but that the AI SDK still continues from
- * (every call answered, no stop condition met) is replaced by the next one
- * unsaved, so its request would never reach aiUsage. True for exactly that
- * step: the app logs its usage itself, and the agent never does, so every
- * request writes one usage row.
+ * (every call answered, no stop condition met) is held back as the turn's last
+ * step; the agent also stops streaming deltas for the turn, so it no longer
+ * sees a Stop. True for exactly that step. If a later step finishes, the agent
+ * has replaced it and never logs it, so the app does; if the turn ends first
+ * (a stop, an error, the time limit), the agent saves the held step and logs
+ * it.
  */
-export function stepUsageDroppedByAgent(step: UsageStep, steps: ReadonlyArray<CutOffStep>): boolean {
+export function stepHeldBackByAgent(step: UsageStep, steps: ReadonlyArray<CutOffStep>): boolean {
   if (step.finishReason === "tool-calls" || step.toolCalls.length === 0) return false;
   const answered = step.content.filter((part) =>
     typeof part === "object" &&
@@ -929,6 +942,12 @@ export const streamChatReply = internalAction({
     let sawToolInput = false;
     let lastStepCutToolCall = false;
     const finishedSteps: CutOffStep[] = [];
+    // Review P2-1: a step the agent held back, logged once a later step
+    // finishes (see stepHeldBackByAgent).
+    let heldBackStep: UsageStep | undefined;
+    // After a held-back step the agent no longer sees a Stop (review P3).
+    let agentStreamBlind = false;
+    let proposedEdits = false;
     // Where the turn's latest model request went, for the failure log.
     let served: Readonly<ChatServedState> | undefined;
 
@@ -1032,7 +1051,16 @@ export const streamChatReply = internalAction({
           // cut-off ends the turn. A turn that is never cut off sends exactly
           // the requests it sent before (the same messages array).
           stopWhen: [stepCountIs(CHAT_MAX_STEPS), stopAfterSecondCutOff],
-          prepareStep: ({ steps, messages }) => {
+          prepareStep: async ({ steps, messages }) => {
+            // PR #24 review P3: once the agent stopped streaming, check the
+            // writer did not press Stop before paying for another step.
+            if (agentStreamBlind) {
+              const active: boolean = await ctx.runQuery(internal.chatV2.isTurnActive, {
+                agentThreadId: args.agentThreadId,
+                promptMessageId: args.promptMessageId,
+              });
+              if (!active) throw new Error("CHAT_STOPPED_AFTER_CUT_OFF");
+            }
             const next = withCutOffInstruction(messages, steps);
             return next === messages ? undefined : { messages: next };
           },
@@ -1041,7 +1069,9 @@ export const streamChatReply = internalAction({
           },
           onStepFinish: async (step) => {
             for (const toolCall of step.toolCalls) {
-              if (toolCall) toolCallIds.add(toolCall.toolCallId);
+              if (!toolCall) continue;
+              toolCallIds.add(toolCall.toolCallId);
+              if (EDIT_TOOL_NAMES.has(toolCall.toolName)) proposedEdits = true;
             }
             finishedSteps.push(step);
             lastStepCutToolCall =
@@ -1060,17 +1090,24 @@ export const streamChatReply = internalAction({
                 outputTokens: step.usage.outputTokens ?? null,
               });
             }
-            // Review P2-1: the agent never logs this step's usage.
-            if (stepUsageDroppedByAgent(step, finishedSteps)) {
+            // Review P2-1: a later step finished, so the agent replaced the
+            // step it held back and will never log that step's usage.
+            const replaced = heldBackStep;
+            heldBackStep = undefined;
+            if (replaced) {
               await turnModel.usageHandler(ctx, {
                 userId: await threadUserId(ctx, args.agentThreadId),
                 threadId: args.agentThreadId,
                 agentName: "report-editor",
                 model: turnModel.model.modelId,
                 provider: turnModel.model.provider,
-                usage: step.usage,
-                providerMetadata: step.providerMetadata,
+                usage: replaced.usage,
+                providerMetadata: replaced.providerMetadata,
               });
+            }
+            if (stepHeldBackByAgent(step, finishedSteps)) {
+              heldBackStep = step;
+              agentStreamBlind = true;
             }
           },
         },
@@ -1107,7 +1144,7 @@ export const streamChatReply = internalAction({
         stepCount: toolCallIds.size,
       });
       // Review P2-2: the step limit ended the turn on a tool call, so the
-      // model never wrote its closing text. Say the revision continues.
+      // model never wrote its closing text. Say what is left.
       if (
         finishReason === "tool-calls" &&
         finishedSteps.length >= CHAT_MAX_STEPS &&
@@ -1117,7 +1154,10 @@ export const streamChatReply = internalAction({
           threadId: args.agentThreadId,
           agentName: "report-editor",
           promptMessageId: args.promptMessageId,
-          message: { role: "assistant", content: CHAT_STEP_LIMIT_REPLY },
+          message: {
+            role: "assistant",
+            content: proposedEdits ? CHAT_STEP_LIMIT_REPLY : CHAT_STEP_LIMIT_REPLY_OTHER,
+          },
         });
       }
     } catch (error) {

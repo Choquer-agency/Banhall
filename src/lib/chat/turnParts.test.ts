@@ -588,6 +588,55 @@ describe("correlateProposals", () => {
     expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["other", "new"]);
   });
 
+  // PR #24 P1: a refinement of one passage must not hide the other passages
+  // of a coordinated revision, their Apply button or its findings.
+  describe("a coordinated revision with several targets", () => {
+    const bulkCard = (id: string, finds: string[]) =>
+      proposal({
+        _id: id,
+        messageId: "a1",
+        promptMessageId: "u1",
+        kind: "replacements",
+        targetText: undefined,
+        newText: undefined,
+        replacements: finds.map((find) => ({ find, replaceWith: `${find} revised` })),
+        requireUniqueTargets: true,
+      });
+    const editCard = (id: string, targetText: string) =>
+      proposal({ _id: id, messageId: "a1", promptMessageId: "u1", targetText });
+    const visible = (cards: Doc<"chatProposals">[]) =>
+      (correlateProposals([reply], cards).byMessageId.get("a1") ?? []).map((p) => p._id);
+    const A = "Paragraph A says one thing.";
+    const B = "Paragraph B says another.";
+
+    it("stays when a later card refines only one of its passages", () => {
+      expect(visible([bulkCard("ab", [A, B]), editCard("b", B)])).toEqual(["ab", "b"]);
+    });
+
+    it("is hidden when later cards together cover every passage", () => {
+      expect(visible([bulkCard("ab", [A, B]), editCard("a", A), bulkCard("b", [B])])).toEqual(["a", "b"]);
+    });
+  });
+
+  it("a short find-all term never hides an earlier card whose passage contains it", () => {
+    const { byMessageId } = correlateProposals(
+      [reply],
+      [
+        proposal({ _id: "passage", messageId: "a1", promptMessageId: "u1", targetText: "We utilize the rig daily." }),
+        proposal({
+          _id: "term",
+          messageId: "a1",
+          promptMessageId: "u1",
+          kind: "replacements",
+          targetText: undefined,
+          newText: undefined,
+          replacements: [{ find: "utilize", replaceWith: "use" }],
+        }),
+      ]
+    );
+    expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["passage", "term"]);
+  });
+
   // Review P3-1: a refinement often widens or narrows its target.
   it.each([
     ["widened", "Trial 1 described a pressure range.", "Trial 1 described a  pressure range. It ran twice."],
