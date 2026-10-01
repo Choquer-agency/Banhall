@@ -28,6 +28,7 @@ import {
   draftCheckedSection,
   leaveOutFigureNote,
   LEAVE_OUT_FIGURE_NOTE_PREFIX,
+  REPAIR_KEPT_DESPITE_WORK_RULE_REASON,
   REPAIR_STILL_BREAKS_WORK_RULE_REASON,
   leaveOutInstruction,
   lostPlanFigure,
@@ -469,6 +470,61 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
     expect(result.draftText).toBe(merged);
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({ outcome: "applied", repaired: true });
+  });
+
+  it("Greptile round 2: keeps a repair that also fixed a target, and records Rule C not applied on its final text", async () => {
+    const plan = buildFrozenSummaryPlan({
+      section: "s244",
+      items: ITEMS,
+      skippedRoleIds: ["prior_year_status"],
+      resultsAgainstTargets: true,
+      workAnswers242: { line242Text: LINE_242 },
+    });
+    const targets = {
+      ruleId: "results_against_targets",
+      mergedItemIds: [],
+      paragraph: 3,
+      outcome: "not_applied",
+      reason: "P3 hides that 1.2 mg/L missed the target.",
+      repairGuidance: "Say 1.2 mg/L missed the under-1 target.",
+    };
+    const targetsMet = { ruleId: "results_against_targets", mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Results match targets." };
+    // The repair fixes P3's target and rewords the sensor experiment
+    // instead of leaving it out; every signed-off figure stays.
+    const repaired = [
+      P1,
+      P2,
+      "Feed-forward dosing cut peak TAN from 2.3 mg/L to 1.2 mg/L, which missed the under-1 target.",
+      "A third experiment compared in-tank sensors with a bypass loop, and the direct sensors drifted.",
+    ].join("\n\n");
+    expect(lostPlanFigure(DRAFT, repaired, PLAN_WORDING)).toBeUndefined();
+    const sent = installFetch({
+      draft: DRAFT,
+      repair: repaired,
+      checks: [
+        [skipHonoured, ...allCovered, targets, sensorStray],
+        [skipHonoured, ...allCovered, targetsMet, { ...sensorStray, reason: "P4 still narrates a sensor trial." }],
+      ],
+    });
+    const result = await draft("244", claimFor({
+      section: "244",
+      plan,
+      priorSections: [{ section: "242", text: LINE_242 }],
+      workAnswers242: { line242Drafted: true, line246Items: ITEMS_246 },
+    }));
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    // The target fix stands.
+    expect(result.draftText).toBe(repaired);
+    expect(rowOf(result, (ref) => ref.ruleId === "results_against_targets")).toMatchObject({ outcome: "applied", repaired: true });
+    expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      paragraphIndex: 3,
+      reason: `P4 still narrates a sensor trial.; ${REPAIR_KEPT_DESPITE_WORK_RULE_REASON}`,
+    });
+    expect(REPAIR_KEPT_DESPITE_WORK_RULE_REASON).toBe(
+      "the repair was kept for its other fixes, but the check of its final text still found work for an uncertainty Line 242 does not state: leave that work out before filing"
+    );
   });
 
   it("Greptile round: uses a Rule C repair that cuts the capture trials behind a figure-free goal item, whose figures stay elsewhere (known limitation)", async () => {
@@ -978,6 +1034,28 @@ describe("a LEAVE OUT verdict that cites only signed-off figures keeps its verdi
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
     expect(result.draftText).toBe(REPAIRED);
     expect(rowOf(result, (ref) => ref.droppedSeedId === DROPPED_ID)).toMatchObject({ outcome: "applied", repaired: true });
+  });
+
+  it("Greptile round 2: names each signed-off item with the cited figures it holds when no one item holds them all", () => {
+    const check = plan244({ rule: false, dropped: [DROPPED] }).checks.find((candidate) => candidate.droppedSeedId)!;
+    const verdict = {
+      droppedSeedId: DROPPED_ID,
+      mergedItemIds: [],
+      paragraphIndex: 1,
+      outcome: "not_applied" as const,
+      reason: "P2 states 19 days and 2.3 mg/L.",
+      actionableRepair: true,
+    };
+    expect(leaveOutFigureNote({ check, verdict, text: REPAIRED, planWording: PLAN_WORDING })).toBe(
+      `${LEAVE_OUT_FIGURE_NOTE_PREFIX}every figure it cites is in a signed-off item (19 days in "${STALL}"; 2.3 mg/L in "${DOSE}"), and no paragraph of this Line holds one of the dropped uncertainty's own figures (${DROPPED_FIGURES}) or restates it: check whether the flagged content is one of those items]`
+    );
+    // Two figures of one item and one of another: grouped by item.
+    expect(leaveOutFigureNote({
+      check,
+      verdict: { ...verdict, reason: "P2 states 19 vs 6 days and 1.2 mg/L." },
+      text: REPAIRED,
+      planWording: PLAN_WORDING,
+    })).toContain(`(19 days, 6 days in "${STALL}"; 1.2 mg/L in "${DOSE}")`);
   });
 
   it("reads nothing when the dropped uncertainty has no figure of its own, or the check is not a LEAVE OUT", () => {

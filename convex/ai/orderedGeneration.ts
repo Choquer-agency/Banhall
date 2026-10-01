@@ -616,14 +616,26 @@ export function leaveOutFigureNote(args: {
   if (cited.length === 0) return null;
   const itemFigures = args.planWording.map((wording) => new Set(figuresOf(wording.join(" "))));
   if (!cited.every((figure) => itemFigures.some((figures) => figures.has(figure)))) return null;
-  // The signed-off item that holds every cited figure, else the first figure's.
-  const holder = args.planWording[
-    itemFigures.findIndex((figures) => cited.every((figure) => figures.has(figure))) >= 0
-      ? itemFigures.findIndex((figures) => cited.every((figure) => figures.has(figure)))
-      : itemFigures.findIndex((figures) => figures.has(cited[0]!))
-  ]!;
   const named = dropped.slice(0, MAX_NOTE_FIGURES_NAMED).join(", ");
-  return `${LEAVE_OUT_FIGURE_NOTE_PREFIX}every figure it cites (${cited.join(", ")}) is in the signed-off item "${ideaWords(holder, 120)}", and no paragraph of this Line holds one of the dropped uncertainty's own figures (${named}${dropped.length > MAX_NOTE_FIGURES_NAMED ? ", ..." : ""}) or restates it: check whether the flagged content is that item]`;
+  const rest = `no paragraph of this Line holds one of the dropped uncertainty's own figures (${named}${dropped.length > MAX_NOTE_FIGURES_NAMED ? ", ..." : ""}) or restates it`;
+  // One signed-off item that holds every cited figure is named alone.
+  const whole = itemFigures.findIndex((figures) => cited.every((figure) => figures.has(figure)));
+  if (whole >= 0) {
+    return `${LEAVE_OUT_FIGURE_NOTE_PREFIX}every figure it cites (${cited.join(", ")}) is in the signed-off item "${ideaWords(args.planWording[whole]!, 120)}", and ${rest}: check whether the flagged content is that item]`;
+  }
+  // Greptile round 2: otherwise each item that holds a cited figure is named
+  // with the cited figures it holds, in the order first cited.
+  const holders: Array<{ index: number; figures: string[] }> = [];
+  for (const figure of cited) {
+    const index = itemFigures.findIndex((figures) => figures.has(figure));
+    const known = holders.find((holder) => holder.index === index);
+    if (known) known.figures.push(figure);
+    else holders.push({ index, figures: [figure] });
+  }
+  const listed = holders
+    .map((holder) => `${holder.figures.join(", ")} in "${ideaWords(args.planWording[holder.index]!, 120)}"`)
+    .join("; ");
+  return `${LEAVE_OUT_FIGURE_NOTE_PREFIX}every figure it cites is in a signed-off item (${listed}), and ${rest}: check whether the flagged content is one of those items]`;
 }
 
 /**
@@ -657,6 +669,14 @@ export function repairLostPlanFigureReason(lost: { figure: string }): string {
  */
 export const REPAIR_STILL_BREAKS_WORK_RULE_REASON =
   "the check of the repaired text still found work for an uncertainty Line 242 does not state, and the checked draft keeps all the evidence, so the checked draft was kept";
+
+/**
+ * Greptile round 2 (lead decision): added to the Rule C row when the repair
+ * also carried other fixes, so it was kept for them although the check of its
+ * final text still found Rule C not applied.
+ */
+export const REPAIR_KEPT_DESPITE_WORK_RULE_REASON =
+  "the repair was kept for its other fixes, but the check of its final text still found work for an uncertainty Line 242 does not state: leave that work out before filing";
 
 /** Every LEAVE OUT verdict with its figure note, where one applies; no verdict changes. */
 function withLeaveOutFigureNotes(
@@ -1550,14 +1570,21 @@ export async function draftCheckedSection(input: {
   // must satisfy Rule C. When the check of its final text still judges it
   // not applied, the checked draft, which keeps all the evidence, comes
   // back, unless it is further over a Locked limit (Locked Rules first).
+  // Greptile round 2 (lead decision): only when every fix the repair carried
+  // was a Rule C or leave-out fix. A repair that also carried other fixes (a
+  // target, a hedge, a Glossary Term) is kept for them, and the Rule C row
+  // records the final text's verdict with REPAIR_KEPT_DESPITE_WORK_RULE_REASON.
+  let workRuleKeptBroken = false;
   if (repair.succeeded && finalCoverage?.ok && evidenceIssues.size > 0) {
     const coverage = finalCoverage;
     const workRule = claim.planChecks.find((planCheck) => planCheck.instruction === "work_answer_242");
     const later = workRule ? planVerdictFor(coverage.verdicts, workRule) : undefined;
+    const stillBroken = later !== undefined && later.actionableRepair !== false && later.outcome !== "applied";
+    const onlyLeaveOutFixes = issues.every((issue) => leaveOutIssues.has(issue));
+    if (stillBroken && !onlyLeaveOutFixes) workRuleKeptBroken = true;
     if (
-      later !== undefined &&
-      later.actionableRepair !== false &&
-      later.outcome !== "applied" &&
+      stillBroken &&
+      onlyLeaveOutFixes &&
       !overLimitMore(text, finalText)
     ) {
       console.warn(`generation:repair:${section}: the repaired text still breaks Line 244's work rule; the checked draft is kept`);
@@ -1619,6 +1646,14 @@ export async function draftCheckedSection(input: {
         ...(droppedForLimit.has(conflict.itemId) ? { droppedForLimit: true } : {}),
       }])),
     });
+    // Greptile round 2: a repair kept for its other fixes says why the Rule
+    // C row is still not applied on its final text.
+    if (workRuleKeptBroken) {
+      planRows = planRows.map((row) =>
+        row.planRef?.ruleId === "work_answers_242" && row.outcome !== "applied"
+          ? { ...row, reason: `${row.reason}; ${REPAIR_KEPT_DESPITE_WORK_RULE_REASON}` }
+          : row);
+    }
     // 2026-09-30 (first): dropped uncertainties beyond the cap are named as
     // not checked, and count as plan rows that are not applied.
     planRows.push(...droppedNotCheckedNoteDrafts({
