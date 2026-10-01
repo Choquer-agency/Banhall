@@ -8,7 +8,7 @@
   import { Dialog } from "bits-ui";
   import { overlayFade, modalPop } from "$lib/motion";
   import ModelLogo from "./ModelLogo.svelte";
-  import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
+  import { pickerModels } from "$lib/modelPicker";
   import { useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
 
@@ -32,21 +32,16 @@
 
   // Grey out models whose gateway key isn't configured.
   const capabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
-  const available = $derived(
-    new Set(
-      capabilitiesQ.data?.availableCandidateModels ??
-        CANDIDATE_MODELS.map((m) => m.id as string)
-    )
-  );
-
   const rows = $derived(
-    CANDIDATE_MODELS.filter((m) => m.id !== excludeId).map((m) => ({
-      id: m.id as string,
-      label: m.label,
-      provider: m.provider,
-      description: m.description,
-      disabled: !available.has(m.id),
-    }))
+    pickerModels(capabilitiesQ.data)
+      .filter((m) => m.id !== excludeId)
+      .map((m) => ({
+        id: m.id,
+        label: m.label,
+        provider: m.provider,
+        description: m.description,
+        disabled: !m.available,
+      }))
   );
   const filtered = $derived(
     search.trim()
@@ -83,7 +78,7 @@
             <div
               {...props}
               transition:modalPop
-              class="card pointer-events-auto flex h-[min(380px,calc(100dvh-2rem))] w-full max-w-xl flex-col overflow-hidden p-0 shadow-xl"
+              class="card pointer-events-auto flex h-[min(23.75rem,calc(100dvh-2rem))] w-full max-w-xl flex-col overflow-hidden p-0 shadow-xl"
             >
               <Dialog.Title class="sr-only">{title}</Dialog.Title>
               <!-- Search -->
@@ -126,7 +121,7 @@
                     >
                       <ModelLogo size="sm" provider={row.provider} />
                       <span class="min-w-0 flex-1 truncate text-xs font-medium">{row.label}</span>
-                      <span class="shrink-0 text-[10px] uppercase tracking-wide text-gray-300">{row.provider}</span>
+                      <span class="shrink-0 text-[0.625rem] uppercase tracking-wide text-gray-300">{row.provider}</span>
                       {#if value === row.id}
                         <svg class="h-4 w-4 shrink-0 text-primary" fill="currentColor" viewBox="0 0 24 24">
                           <path fill-rule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.74a.75.75 0 011.04-.207z" clip-rule="evenodd" />

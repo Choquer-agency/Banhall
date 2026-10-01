@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildTrustedContext, DEFAULT_CONTEXT_BUDGET } from "./trustedContext";
 import { CONDENSE_SCHEMA, CONDENSE_SYSTEM_PROMPT } from "./condenseAgent";
-import { BRIEF_REQUEST, BRIEF_SCHEMA, BRIEF_SYSTEM_PROMPT } from "./brief";
+import {
+  BRIEF_INPUT_BUDGET,
+  BRIEF_OMITTED_SOURCES_NOTICE,
+  BRIEF_REQUEST,
+  BRIEF_SCHEMA,
+  BRIEF_SYSTEM_PROMPT,
+} from "./brief";
 import {
   ANALYSIS_TOOL_SCHEMA,
   STYLE_ANALYSIS_REQUEST,
@@ -18,10 +24,42 @@ import {
 } from "../lib/transcripts";
 import { priorSectionsBlock } from "./iterative";
 import { buildStyleGuidance, lengthBudgetBlock, toContextDocs } from "./pipeline";
-import { CONTEXT_INPUTS_GUIDANCE, waivedCategoryLabels } from "./prompts";
+import {
+  CONTEXT_INPUTS_GUIDANCE,
+  SELF_CHECK_SYSTEM_PROMPT,
+  SUMMARY_PLAN_REPORT_FACTS_RULES,
+  SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
+  waivedCategoryLabels,
+} from "./prompts";
+import { RULES_REPORT_FACTS, SOURCE_TALK } from "../../shared/humanProse";
 import { numberParagraphs } from "./qaAgent";
 import { CHARS_PER_LINE, LINE_LIMITS, wordBudget } from "../lib/lineLimits";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
+import {
+  SEED_ADVANCEMENT_LINK_RULES,
+  SEED_EXPERIMENT_LINK_RULES,
+  SEED_LINK_RULES,
+  SEED_PLAN_LINK_RULES,
+  SEED_PROMPT_PROGRAM,
+  SEED_RESULT_LINK_RULES,
+  SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
+  SUMMARY_PLAN_SELF_CHECK_REQUEST,
+  SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+} from "./promptDefinitions";
+import {
+  FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
+  FROZEN_SUMMARY_PLAN_SCAFFOLD,
+  MAX_SUMMARY_ORDINARY_VERDICTS,
+  MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
+  MAX_SUMMARY_PLAN_VERDICTS,
+  MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+  SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
+  SUMMARY_PLAN_SERIALIZER_VERSION,
+} from "../lib/seedRevisions";
+import { seedToolSchemaForFacts } from "../lib/seedFacts";
+import { linkedSeedSchemas, seedToolSchema } from "../lib/seedContract";
+import { FACTS_SCHEMA, FACTS_SYSTEM_PROMPT } from "./transcriptFactsAgent";
+import { FACTS_VERSION } from "../lib/transcriptFacts";
 
 /**
  * Story 10 split the inline prompt templates into fragment tables that both
@@ -36,7 +74,7 @@ describe("prompt scaffold composition", () => {
     const words = wordBudget("s244", "standard");
     const lines = LINE_LIMITS.s244;
     expect(lengthBudgetBlock("s244", "standard")).toBe(
-      `\n\n# LENGTH BUDGET (CRA form constraint — hard requirement)\nThe CRA form field for this section holds at most ${lines} lines of ${CHARS_PER_LINE} characters, and EVERY blank line between paragraphs also costs one full line. Write AT MOST ${words} words total. Prefer fewer, denser paragraphs (each blank line spent on a paragraph break is a line of content lost). Do NOT pad. If the material exceeds the budget, keep the most technically load-bearing content and cut the rest.`,
+      `\n\n# LENGTH BUDGET (CRA form constraint, hard requirement)\nThe CRA form field for this section holds at most ${lines} lines of ${CHARS_PER_LINE} characters, and EVERY blank line between paragraphs also costs one full line. Write AT MOST ${words} words total. Prefer fewer, denser paragraphs (each blank line spent on a paragraph break is a line of content lost). Do NOT pad. If the material exceeds the budget, keep the most technically load-bearing content and cut the rest.`,
     );
   });
 
@@ -75,7 +113,7 @@ describe("prompt scaffold composition", () => {
         { section: "s244", text: "Approved 244 text." },
       ]),
     ).toBe(
-      "\n\n## Approved prior sections (canonical — the writer has reviewed and edited these; align terminology, chronology, and claims with them; do not contradict them)\n### Line 242 — Uncertainty (APPROVED)\nApproved 242 text.\n\n### Line 244 — Work performed (APPROVED)\nApproved 244 text.",
+      "\n\n## Approved prior sections (canonical: the writer has reviewed and edited these; align terminology, chronology, and claims with them; do not contradict them)\n### Line 242 (Uncertainty) (APPROVED)\nApproved 242 text.\n\n### Line 244 (Work performed) (APPROVED)\nApproved 244 text.",
     );
   });
 
@@ -160,15 +198,16 @@ describe("prompt scaffold composition", () => {
  * moves promptVersion and is disclosed on every generation that reads them.
  */
 describe("the condense call belongs to the prompt program (AC5)", () => {
-  it("declares the call with its fixed model, schema and single-attempt policy", () => {
+  it("declares the call with its frozen condense-role model, schema and single-attempt policy", () => {
     expect(generationPromptProgram.calls.condense).toEqual({
       kind: "structured",
       systemTemplate: CONDENSE_SYSTEM_PROMPT,
       request: generationPromptProgram.calls.condense.request,
       schema: CONDENSE_SCHEMA,
       model: {
-        kind: "fixed",
-        modelId: generationPromptProgram.configuration.models.defaultModelId,
+        kind: "frozen-role",
+        role: "condense",
+        legacyModelId: generationPromptProgram.configuration.models.defaultModelId,
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
@@ -213,12 +252,244 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       kind: "structured",
       systemTemplate: BRIEF_SYSTEM_PROMPT,
       request: BRIEF_REQUEST,
+      // Cost phase 1: the Brief's input selection and budget are disclosed.
+      // 2026-09-24 (transcript method): fact packs first, then digests.
+      inputSelection: "fact-pack-else-digest-replaces-its-transcript",
+      factModeCitations: "quote-located-in-a-verified-fact-span-on-the-transcript-row",
+      contextBudget: BRIEF_INPUT_BUDGET,
+      omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
       schema: BRIEF_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: generationPromptProgram.calls.brief.model.fallbackModelId },
+      // Owner decision 43: the frozen planning model; the selected model before step routing.
+      model: {
+        kind: "generation-step",
+        step: "brief",
+        beforeStepRouting: { kind: "candidate", fallbackModelId: generationPromptProgram.calls.brief.model.beforeStepRouting.fallbackModelId },
+      },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:brief",
     });
+  });
+
+  it("declares both seed modes from the hashed scaffold with a two-request repair envelope", async () => {
+    expect(generationPromptProgram.templates.seeds.scaffolds).toBe(
+      SEED_PROMPT_PROGRAM
+    );
+    expect(generationPromptProgram.templates.seeds.roles).toHaveLength(13);
+    expect(SEED_PROMPT_PROGRAM.user.guidance).toContain(
+      "when the request has a FROZEN ADVANCEMENT LINKS block"
+    );
+    expect(SEED_PROMPT_PROGRAM.user.guidance).toContain(
+      "When there is no FROZEN ADVANCEMENT LINKS block, omit both link fields."
+    );
+    expect(
+      generationPromptProgram.templates.seeds.roles.find(
+        (role) => role.roleId === "specific_advancements"
+      )
+    ).toMatchObject({ objective: expect.any(String) });
+    // Cost phase 1: one provider schema for every role and both modes.
+    expect(generationPromptProgram.calls.seeds.schema).toBe(
+      generationPromptProgram.calls.seedFeedback.schema
+    );
+    expect(generationPromptProgram.calls.seeds).toMatchObject({
+      systemTemplate: SEED_PROMPT_PROGRAM.systemPolicy,
+      userScaffold: SEED_PROMPT_PROGRAM.user,
+      request: SEED_PROMPT_PROGRAM.request,
+      structuredPolicy: "two-attempt-repair",
+      callSite: "generation:seeds:<roleId>",
+    });
+    expect(generationPromptProgram.calls.seedFeedback).toMatchObject({
+      systemTemplate: SEED_PROMPT_PROGRAM.systemPolicy,
+      userScaffold: SEED_PROMPT_PROGRAM.user,
+      request: SEED_PROMPT_PROGRAM.request,
+      structuredPolicy: "two-attempt-repair",
+      callSite: "generation:seedFeedback:<roleId>",
+    });
+    const current = await hashPromptProgram(generationPromptProgram);
+    const changedObjective = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          roles: generationPromptProgram.templates.seeds.roles.map((role) =>
+            role.roleId === "active_uncertainties"
+              ? { ...role, objective: `${role.objective} Changed.` }
+              : role
+          ),
+        },
+      },
+    });
+    const changedSchema = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        seeds: {
+          ...generationPromptProgram.calls.seeds,
+          schema: { type: "object", required: [] },
+        },
+      },
+    });
+    expect(changedObjective).not.toBe(current);
+    expect(changedSchema).not.toBe(current);
+  });
+
+  it("declares the fact-mode Seed schema and guidance (2026-09-24, transcript method)", async () => {
+    expect(generationPromptProgram.calls.seeds.factSchema).toEqual(seedToolSchemaForFacts());
+    expect(generationPromptProgram.calls.seedFeedback.factSchema).toBe(
+      generationPromptProgram.calls.seeds.factSchema
+    );
+    expect(SEED_PROMPT_PROGRAM.user.factGuidance).toContain("cite it by its factId");
+    expect(SEED_PROMPT_PROGRAM.user.factGuidance).toContain(
+      "Never cite a transcript by excerpt or by character offsets."
+    );
+    // The same link rules as the offsets guidance.
+    expect(SEED_PROMPT_PROGRAM.user.factGuidance).toContain(
+      "When there is no FROZEN ADVANCEMENT LINKS block, omit both link fields."
+    );
+    expect(generationPromptProgram.calls.transcriptFacts).toMatchObject({
+      systemTemplate: FACTS_SYSTEM_PROMPT,
+      adapters: { openrouter: { schema: FACTS_SCHEMA } },
+      model: { kind: "frozen-role", role: "condense" },
+      callSite: "generation:facts",
+    });
+    expect(generationPromptProgram.configuration.transcriptFacts.factsVersion).toBe(FACTS_VERSION);
+    const current = await hashPromptProgram(generationPromptProgram);
+    const changedGuidance = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          scaffolds: {
+            ...SEED_PROMPT_PROGRAM,
+            user: { ...SEED_PROMPT_PROGRAM.user, factGuidance: "Changed." },
+          },
+        },
+      },
+    });
+    expect(changedGuidance).not.toBe(current);
+  });
+
+  it("versions the advancement link rules (2026-09-28, fourth amendment)", () => {
+    expect(SEED_PROMPT_PROGRAM.user.blocks.advancementLinks).toBe("FROZEN ADVANCEMENT LINKS");
+    expect(SEED_PROMPT_PROGRAM.user.order).toContain("{{runtime.advancementLinks}}");
+    for (const guidance of [SEED_PROMPT_PROGRAM.user.guidance, SEED_PROMPT_PROGRAM.user.factGuidance]) {
+      expect(guidance).toContain(SEED_ADVANCEMENT_LINK_RULES);
+      expect(guidance).not.toMatch(/[\u2013\u2014]/);
+    }
+  });
+
+  it("names each experiment's uncertainty and makes advancements follow it (2026-09-29, first amendment)", () => {
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-30.2");
+    expect(SEED_PROMPT_PROGRAM.user.blocks.experimentLinks).toBe("FROZEN EXPERIMENT LINKS");
+    // Run 7: the exact pairs in a repair have their own reserved bytes.
+    expect(SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes).toBe(768);
+    // Targeted run 2 and its re-check: the fixed tools (the linked ones
+    // require their links) and the repair that keeps them are part of the
+    // hashed program. 2026-09-30 (fourth): a fourth, the result tool.
+    expect(SEED_PROMPT_PROGRAM.request.linkedToolPolicy).toBe(
+      "four-fixed-tools-in-every-seed-request-tool_choice-forces-the-linked-one-when-a-link-block-is-sent"
+    );
+    expect(SEED_PROMPT_PROGRAM.request.linkedTools.experiment.name).toBe("submit_experiment_seed_batch");
+    expect(SEED_PROMPT_PROGRAM.request.linkedTools.advancement.name).toBe("submit_advancement_seed_batch");
+    expect(generationPromptProgram.calls.seeds.linkedSchemas).toEqual(linkedSeedSchemas(seedToolSchema()));
+    expect(generationPromptProgram.calls.seedFeedback.factLinkedSchemas).toEqual(linkedSeedSchemas(seedToolSchemaForFacts()));
+    expect(SEED_PROMPT_PROGRAM.request.linkRepair.opening).toContain("Keep each Seed's link fields");
+    expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.linkRepair)).not.toMatch(/[\u2013\u2014]/);
+    // The experiment block renders after the decisions, before the advancement block.
+    const order: readonly string[] = SEED_PROMPT_PROGRAM.user.order;
+    expect(order.indexOf("{{runtime.decisions}}")).toBeLessThan(order.indexOf("{{runtime.experimentLinks}}"));
+    expect(order.indexOf("{{runtime.experimentLinks}}")).toBeLessThan(order.indexOf("{{runtime.advancementLinks}}"));
+    expect(SEED_PROMPT_PROGRAM.user.runtimeSentinels).toContain("{{runtime.experimentLinks}}");
+    expect(SEED_LINK_RULES.startsWith(SEED_EXPERIMENT_LINK_RULES + SEED_ADVANCEMENT_LINK_RULES + SEED_RESULT_LINK_RULES)).toBe(true);
+    for (const guidance of [SEED_PROMPT_PROGRAM.user.guidance, SEED_PROMPT_PROGRAM.user.factGuidance]) {
+      expect(guidance.endsWith(SEED_LINK_RULES)).toBe(true);
+      expect(guidance).toContain(
+        "every Seed must set uncertaintySeedId to the one id from that block's uncertaintySeedIds list that names the uncertainty the experiment tested"
+      );
+      expect(guidance).toContain("never name an uncertainty an experiment did not test");
+      expect(guidance).toContain(
+        "its links list holds the only allowed pairs: each entry is one uncertainty and the picked experiments that tested it. Every Seed uses exactly one listed pair: copy the uncertaintySeedId of one entry exactly and set experimentSeedIds to one or more ids from that same entry's experimentSeedIds list. Never mix experiments from different entries in one Seed. Several Seeds may use the same entry. In a fresh Batch, write 3 to 5 advancements even when the list holds only one or two entries: split the findings of one entry into distinct advancements. A feedback revision keeps to its one to three Seeds, each on one listed pair."
+      );
+      // Run 7: an uncertainty no picked experiment tested gets no advancement.
+      expect(guidance).toContain("such as one in the block's uncertaintiesWithoutTestedExperiments list, has no picked experiment that tested it, so write no advancement for it.");
+      // The run 5 sentence stays where it applied (lead decision 3).
+      expect(guidance).toContain("Work that is not one of those experiments cannot be an advancement here, even when a source or another step's selection describes it, and an advancement never claims to resolve an uncertainty it does not link;");
+      expect(guidance).not.toContain("as few Seeds");
+      expect(guidance).toContain(
+        "Each advancement states what was learned about the uncertainty it links, from the experiments it links."
+      );
+      expect(guidance).toContain("an advancement never claims to resolve an uncertainty it does not link");
+      expect(guidance).not.toMatch(/[\u2013\u2014]/);
+    }
+  });
+
+  it("asks Advancement to science and goal improvements for the uncertainties they answer (2026-09-30, fourth amendment)", () => {
+    expect(SEED_PROMPT_PROGRAM.user.blocks.resultLinks).toBe("FROZEN RESULT LINKS");
+    const order: readonly string[] = SEED_PROMPT_PROGRAM.user.order;
+    expect(order.indexOf("{{runtime.advancementLinks}}")).toBeLessThan(order.indexOf("{{runtime.resultLinks}}"));
+    expect(order.indexOf("{{runtime.resultLinks}}")).toBeLessThan(order.indexOf("{{runtime.feedback}}"));
+    expect(SEED_PROMPT_PROGRAM.user.runtimeSentinels).toContain("{{runtime.resultLinks}}");
+    expect(SEED_PROMPT_PROGRAM.request.linkedTools.result).toEqual({
+      name: "submit_result_seed_batch",
+      // 2026-09-30 (fifth): the description now names the plan steps too.
+      description:
+        "Submit the complete Seed Batch for the work plan, a hypothesis, the overall advancement or goal improvements when the request has a FROZEN RESULT LINKS block: every Seed lists the uncertainties it plans work for, tests or states a result of.",
+    });
+    expect(SEED_PROMPT_PROGRAM.request.linkRepair.resultOpening).toContain("Keep each Seed's answeredUncertaintySeedIds exactly as it was");
+    expect(generationPromptProgram.calls.seeds.linkedSchemas.result).toEqual(linkedSeedSchemas(seedToolSchema()).result);
+    expect(generationPromptProgram.calls.seedFeedback.factLinkedSchemas.result).toEqual(linkedSeedSchemas(seedToolSchemaForFacts()).result);
+    expect(SEED_RESULT_LINK_RULES).toBe(
+      " For the overall advancement and for goal improvements, when the request has a FROZEN RESULT LINKS block, every Seed must set answeredUncertaintySeedIds to the ids, copied exactly from that block's uncertaintySeedIds list, of the uncertainties whose result the Seed states, and omit uncertaintySeedId and experimentSeedIds. An overall advancement Seed states the result for at least one listed uncertainty, so its list holds one or more ids. A goal improvements Seed lists each uncertainty whose result it states, or has an empty list when it only restates the goal without stating a result. State a result only for a listed uncertainty, and never list one whose result the Seed does not state. When there is no FROZEN RESULT LINKS block, omit answeredUncertaintySeedIds."
+    );
+    for (const guidance of [SEED_PROMPT_PROGRAM.user.guidance, SEED_PROMPT_PROGRAM.user.factGuidance]) {
+      // 2026-09-30 (fifth): the plan rules follow the result rules.
+      expect(guidance.endsWith(SEED_RESULT_LINK_RULES + SEED_PLAN_LINK_RULES)).toBe(true);
+      expect(guidance).not.toMatch(/[\u2013\u2014]/);
+    }
+    expect(JSON.stringify(SEED_PROMPT_PROGRAM.request)).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("asks Hypothesis and Work plan for the uncertainties they test (2026-09-30, fifth amendment)", () => {
+    expect(SEED_PLAN_LINK_RULES).toBe(
+      " For a hypothesis and for the work plan, when the request has a FROZEN RESULT LINKS block, its uncertaintySeedIds list holds the only uncertainties these Seeds may name: every Seed must set answeredUncertaintySeedIds to the ids, copied exactly, of the uncertainties a hypothesis tests or a work plan plans work for, at least one, and omit uncertaintySeedId and experimentSeedIds. Write a hypothesis or a work plan only for listed uncertainties, and never list one the Seed does not test or plan work for."
+    );
+    expect(SEED_LINK_RULES).toBe(SEED_EXPERIMENT_LINK_RULES + SEED_ADVANCEMENT_LINK_RULES + SEED_RESULT_LINK_RULES + SEED_PLAN_LINK_RULES);
+    // The same four tools, names and order: only the result tool's description moved.
+    expect(Object.keys(SEED_PROMPT_PROGRAM.request.linkedTools)).toEqual(["experiment", "advancement", "result"]);
+    expect(SEED_PLAN_LINK_RULES).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("versions the Seed quote rules (2026-09-27, third amendment)", async () => {
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-30.2");
+    expect(SEED_PROMPT_PROGRAM.request.quoteRepair.opening).toContain("Some quotes may not back their idea card.");
+    expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.quoteRepair)).not.toMatch(/[\u2013\u2014]/);
+    expect(generationPromptProgram.templates.seeds.scaffolds.version).toBe(SEED_PROMPT_PROGRAM.version);
+    for (const guidance of [SEED_PROMPT_PROGRAM.user.guidance, SEED_PROMPT_PROGRAM.user.factGuidance]) {
+      expect(guidance).toContain("reuse a short phrase of four or more words from the cited");
+      expect(guidance).toMatch(/Do not cite the same (fact or )?excerpt on two Seeds unless both claims come from it\./);
+      expect(guidance).not.toMatch(/[\u2013\u2014]/);
+      // Review P3-7: a reused phrase may change punctuation; the dash rule holds.
+      expect(guidance).toContain(
+        "A reused phrase may change its punctuation, and the dash rule still applies: a dash in the source becomes a comma, a colon or a plain hyphen."
+      );
+    }
+    expect(generationPromptProgram.calls.seeds.schemaPolicy.quoteCheck).toMatchObject({
+      onIssue: "one-soft-repair-within-the-two-attempts-then-keep-and-mark-needsQuoteCheck",
+    });
+    const current = await hashPromptProgram(generationPromptProgram);
+    const changedVersion = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          scaffolds: { ...SEED_PROMPT_PROGRAM, version: "seeds.previous" },
+        },
+      },
+    });
+    expect(changedVersion).not.toBe(current);
   });
 
   it("declares the settings-document classifier with the PSOS-50 prompt, request and schema verbatim (story 3, AD-27)", async () => {
@@ -228,8 +499,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       request: STYLE_ANALYSIS_REQUEST,
       schema: ANALYSIS_TOOL_SCHEMA,
       model: {
-        kind: "fixed",
-        modelId: generationPromptProgram.configuration.models.defaultModelId,
+        kind: "frozen-role",
+        role: "analysis",
+        legacyModelId: generationPromptProgram.configuration.models.defaultModelId,
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
@@ -260,6 +532,178 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     expect(edited).not.toBe(current);
     // The unedited program hashes stably.
     expect(await hashPromptProgram({ ...generationPromptProgram })).toBe(current);
+  });
+
+  it("fingerprints the executable Summary plan and its conditional Self-check contract", async () => {
+    expect(SUMMARY_PLAN_SELF_CHECK_SCHEMA.additionalProperties).toBe(false);
+    expect(SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.verdicts.items.additionalProperties)
+      .toBe(false);
+    expect(SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.storylineQuestion.additionalProperties)
+      .toBe(false);
+    const planSchema = SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.planVerdicts.items;
+    expect(planSchema.additionalProperties).toBe(false);
+    expect(planSchema.oneOf).toEqual([
+      { required: ["itemId"] },
+      { required: ["skippedRoleId"] },
+    ]);
+    expect(planSchema.required).not.toContain("paragraph");
+    expect(generationPromptProgram.calls.selfCheck.summaryPlan).toEqual({
+      systemTemplate: SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
+      requestScaffold: SUMMARY_PLAN_SELF_CHECK_REQUEST,
+      schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+      structuredPolicy: "single-attempt-then-missing-labels-follow-up",
+      encodedJsonRecovery: "disabled",
+      finalCoverage: "plan-verdicts-and-feedback-term-labels-on-the-changed-final-text",
+      invalidVerdicts: "dropped-and-asked-for-unless-most-are-invalid",
+      unreadableLists: "read-as-empty-and-asked-for-unless-neither-is-a-list",
+      editedTerms: "allowed-word-for-word-invention-objections-set-aside",
+      writerPrecedence: "kept-ideas-judged-for-coverage-feedback-governs-named-glossary-terms-by-label-even-in-unedited-signed-off-ideas",
+      droppedUncertainties: "left-out-in-every-line-one-plan-check-each-by-dropped-seed-id-at-most-three",
+      advancementsAnswer242: "line-246-plan-check-with-line-242-text-as-data-honoured-by-absence",
+      workAnswers242: "line-244-plan-check-with-line-242-text-and-line-246-items-as-data-honoured-by-absence",
+      coverItemsFirst: "leave-out-and-rule-checks-compare-every-cover-item-before-not-applied",
+      leaveOutFigureBackstop: "not-applied-leave-out-with-no-dropped-figure-or-near-copy-in-the-line-citing-only-plan-figures-recorded-applied-no-repair",
+      extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
+      resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
+      hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",
+    });
+    // 2026-09-30 (third): the Summary system prompt ends with the rules for
+    // hedges, sources and Glossary candidates; the legacy one never has them.
+    expect(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT.endsWith(`\n\n${SUMMARY_PLAN_REPORT_FACTS_RULES}`)).toBe(true);
+    expect(SELF_CHECK_SYSTEM_PROMPT).not.toContain(SUMMARY_PLAN_REPORT_FACTS_RULES);
+    for (const section of ["section242", "section244", "section246"] as const) {
+      expect(generationPromptProgram.calls[section].reportFacts)
+        .toBe("results-and-sources-rules-after-the-brief-in-signed-off-plan-runs");
+    }
+    expect(generationPromptProgram.calls.repair.signedOffPlan)
+      .toBe("source-talk-found-deterministically-hedge-and-glossary-fixes-get-a-fixed-start");
+    expect(generationPromptProgram.templates.ordered.scaffolds.reportFacts.rules).toBe(RULES_REPORT_FACTS);
+    expect(generationPromptProgram.templates.ordered.scaffolds.repairGuidance.sourceTalk).toBe(SOURCE_TALK);
+    expect(generationPromptProgram.templates.seeds.summaryPlan).toEqual({
+      drafting: FROZEN_SUMMARY_PLAN_SCAFFOLD,
+      checks: FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
+      serializerVersion: SUMMARY_PLAN_SERIALIZER_VERSION,
+      ordinaryLabelProjectionVersion:
+        SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
+      capacity: {
+        maxOrdinaryVerdicts: MAX_SUMMARY_ORDINARY_VERDICTS,
+        maxPlanVerdicts: MAX_SUMMARY_PLAN_VERDICTS,
+        maxCheckInputUtf8Bytes: MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
+        maxResponseUtf8Bytes: MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+      },
+    });
+    const current = await hashPromptProgram(generationPromptProgram);
+    const changedSelfCheck = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        selfCheck: {
+          ...generationPromptProgram.calls.selfCheck,
+          summaryPlan: {
+            ...generationPromptProgram.calls.selfCheck.summaryPlan,
+            systemTemplate: `${SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT}\nChanged.`,
+          },
+        },
+      },
+    });
+    const changedPlanScaffold = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          summaryPlan: {
+            ...generationPromptProgram.templates.seeds.summaryPlan,
+            drafting: {
+              ...generationPromptProgram.templates.seeds.summaryPlan.drafting,
+              precedence: `${FROZEN_SUMMARY_PLAN_SCAFFOLD.precedence} Changed.`,
+            },
+          },
+        },
+      },
+    });
+    const changedStructuredPolicy = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        selfCheck: {
+          ...generationPromptProgram.calls.selfCheck,
+          summaryPlan: {
+            ...generationPromptProgram.calls.selfCheck.summaryPlan,
+            structuredPolicy: "changed-policy" as "single-attempt-then-missing-labels-follow-up",
+          },
+        },
+      },
+    });
+    const changedSerializerVersion = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          summaryPlan: {
+            ...generationPromptProgram.templates.seeds.summaryPlan,
+            serializerVersion: "summary-plan-jsonl-v5",
+          },
+        },
+      },
+    });
+    const changedOrdinaryProjectionVersion = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          summaryPlan: {
+            ...generationPromptProgram.templates.seeds.summaryPlan,
+            ordinaryLabelProjectionVersion: "summary-ordinary-labels-v3",
+          },
+        },
+      },
+    });
+    const changedEncodedJsonPolicy = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        selfCheck: {
+          ...generationPromptProgram.calls.selfCheck,
+          summaryPlan: {
+            ...generationPromptProgram.calls.selfCheck.summaryPlan,
+            encodedJsonRecovery: "enabled" as "disabled",
+          },
+        },
+      },
+    });
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).toBe(
+      MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
+    );
+    const changedAllowanceProgram = structuredClone(generationPromptProgram);
+    Object.assign(
+      changedAllowanceProgram.calls.selfCheck.summaryPlan.requestScaffold,
+      { maxTokens: 4096 }
+    );
+    const changedSummaryAllowance = await hashPromptProgram(changedAllowanceProgram);
+    const changedCapacityProgram = structuredClone(generationPromptProgram);
+    Object.assign(
+      changedCapacityProgram.templates.seeds.summaryPlan.capacity,
+      { maxResponseUtf8Bytes: 4_096 }
+    );
+    const changedResponseCapacity = await hashPromptProgram(changedCapacityProgram);
+    const changedSchemaProgram = structuredClone(generationPromptProgram);
+    Object.assign(
+      changedSchemaProgram.calls.selfCheck.summaryPlan.schema,
+      { additionalProperties: true }
+    );
+    const changedSummarySchema = await hashPromptProgram(changedSchemaProgram);
+    expect(changedSelfCheck).not.toBe(current);
+    expect(changedPlanScaffold).not.toBe(current);
+    expect(changedSerializerVersion).not.toBe(current);
+    expect(changedOrdinaryProjectionVersion).not.toBe(current);
+    expect(changedStructuredPolicy).not.toBe(current);
+    expect(changedEncodedJsonPolicy).not.toBe(current);
+    expect(changedSummarySchema).not.toBe(current);
+    expect(changedSummaryAllowance).not.toBe(current);
+    expect(changedResponseCapacity).not.toBe(current);
   });
 
   it("moves promptVersion, so no generation reports a stale contract", async () => {

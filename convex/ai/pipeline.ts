@@ -4,9 +4,20 @@ import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
-import { instrumentedAnthropic } from "./instrument";
-import { clientForModel } from "./providers";
-import type { GenerationClient } from "./openrouterCore";
+import {
+  clientForModel,
+  describeProviderFailure,
+  generationStepClients,
+  registerGenerationModels,
+  startActionDeadline,
+} from "./providers";
+import {
+  OutputLimitError,
+  firstResponseText,
+  isCutOffStopReason,
+  type GenerationClient,
+  type GenerationResponse,
+} from "./openrouterCore";
 import { runAnalyzerAgent, parseTranscriptAnalysis, type TranscriptAnalysis } from "./analyzerAgent";
 import { runGenerationBriefStage } from "./brief";
 import {
@@ -24,8 +35,9 @@ import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
-import { MODEL, CANDIDATE_MODELS, candidateModelsForMode } from "./model";
-import { normalizeProviderError } from "./providers";
+import { MODEL, candidateModelsForMode } from "./model";
+import { modelById, type ModelEntry } from "../../shared/generationModels";
+import { RETRIEVAL_BRIEF_MODEL } from "./brain/query";
 import { buildTiptapDocument } from "../lib/tiptapReport";
 import {
   retrieveBrainBlocks,
@@ -34,7 +46,9 @@ import {
 import {
   sectionMetrics,
   wordBudget,
+  GAP_MARKER_RE,
   LINE_LIMITS,
+  WORD_CAPS,
   CHARS_PER_LINE,
   type LengthTarget,
   type SectionKey,
@@ -43,11 +57,14 @@ import { sha256 } from "../lib/contracts";
 import {
   describeTranscriptInput,
   mapClaimToPart,
+  type TranscriptCitation,
 } from "../lib/transcripts";
+import type { FactQuoteCitation } from "../lib/seedFacts";
 import {
-  anthropicCondenser,
+  condenserFor,
   describeGenerationFailure,
   ensureCondensedInputs,
+  ensureFactInputs,
 } from "./condense";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
 import {
@@ -64,13 +81,15 @@ import { waivedCategoryLabels } from "./prompts";
 import { readOrderedProfileContext } from "./writerStyle";
 import { resolveGenerationWriterSettings } from "./writerSettings";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
-import { currentPromptVersion } from "./promptProgram";
+import { generationPromptVersion } from "./promptProgram";
 import { orderedProfileContextValidator } from "../lib/orderedChain";
 import {
   COMPRESSION_REQUEST,
   LENGTH_BUDGET_SCAFFOLD,
+  ORDERED_PROMPT_SCAFFOLDS,
   STYLE_GUIDANCE_SCAFFOLDS,
 } from "./promptDefinitions";
+import { containsTerm } from "../lib/editedTerms";
 
 export type { BrainExemplarBlocks };
 
@@ -85,37 +104,180 @@ export {
   STYLE_GUIDANCE_SCAFFOLDS,
 } from "./promptDefinitions";
 
-/** BNH-45: the length-budget instruction appended to each drafter prompt. */
-export function lengthBudgetBlock(section: SectionKey, target: LengthTarget): string {
-  const words = wordBudget(section, target);
+/**
+ * BNH-45: the length-budget instruction appended to each drafter prompt.
+ * `words` defaults to the length budget; the ordered chain passes its draft
+ * target (2026-09-28 second, full suite).
+ */
+export function lengthBudgetBlock(
+  section: SectionKey,
+  target: LengthTarget,
+  words: number = wordBudget(section, target)
+): string {
   const lines = LINE_LIMITS[section];
   return `${LENGTH_BUDGET_SCAFFOLD.prefix}${lines}${LENGTH_BUDGET_SCAFFOLD.linesToChars}${CHARS_PER_LINE}${LENGTH_BUDGET_SCAFFOLD.charsToWords}${words}${LENGTH_BUDGET_SCAFFOLD.suffix}`;
 }
 
-/** BNH-45: compression pass for a section that overflows the form.
- * `squeeze` < 1 tightens the word ask on retry. */
+/**
+ * The word target of one compression pass (2026-09-28, second): the
+ * section's length budget, never above `capHeadroom` of its Locked word cap,
+ * times the pass's squeeze (< 1 tightens the ask on retry). A section over
+ * its line limit (review P3-2) is also held to the words that fit its lines
+ * at its current words per line, with the same headroom, so a section over
+ * on lines alone is asked for fewer words than it has.
+ */
+export function compressionTargetWords(
+  section: SectionKey,
+  target: LengthTarget,
+  squeeze = 1,
+  current?: { words: number; lines: number }
+): number {
+  let words = Math.min(
+    wordBudget(section, target),
+    Math.floor(WORD_CAPS[section] * COMPRESSION_REQUEST.capHeadroom)
+  );
+  if (current && current.lines > LINE_LIMITS[section]) {
+    words = Math.min(
+      words,
+      Math.floor(
+        ((current.words * LINE_LIMITS[section]) / current.lines) * COMPRESSION_REQUEST.capHeadroom
+      )
+    );
+  }
+  return Math.round(words * squeeze);
+}
+
+/** Review P2-1: the lines a compression must keep, as the request's opening block. */
+function mustKeepBlock(mustKeep: readonly string[]): string {
+  const items = mustKeep.map((line) => line.trim()).filter(Boolean);
+  if (items.length === 0) return "";
+  const scaffold = COMPRESSION_REQUEST.mustKeep;
+  return `${scaffold.prefix}${items
+    .map((line) => `${scaffold.itemPrefix}${line}`)
+    .join(scaffold.itemSeparator)}${scaffold.suffix}`;
+}
+
+/** A list of a writer's exact terms as every request writes it: "a", "b". */
+export function quotedTerms(terms: readonly string[]): string {
+  const list = ORDERED_PROMPT_SCAFFOLDS.exactTermList;
+  return terms.map((term) => `${list.termPrefix}${term}${list.termSuffix}`).join(list.separator);
+}
+
+/** 2026-09-28 (second, edited terms): the writer's exact terms, word for word. */
+function exactTermsBlock(exactTerms: readonly string[]): string {
+  const terms = exactTerms.map((term) => term.trim()).filter(Boolean);
+  if (terms.length === 0) return "";
+  const scaffold = COMPRESSION_REQUEST.exactTerms;
+  return `${scaffold.prefix}${quotedTerms(terms)}${scaffold.suffix}`;
+}
+
+/** BNH-45: compression pass for a section that overflows the form. */
 export async function compressSection(
   anthropic: GenerationClient,
   modelId: string,
   section: SectionKey,
   text: string,
   target: LengthTarget,
-  squeeze = 1
+  squeeze = 1,
+  mustKeep: readonly string[] = [],
+  exactTerms: readonly string[] = []
 ): Promise<string> {
   const m = sectionMetrics(text, section);
-  const words = Math.round(wordBudget(section, target) * squeeze);
-  const response = await anthropic.messages.create({
-    model: modelId,
-    max_tokens: COMPRESSION_REQUEST.maxTokens,
-    system: COMPRESSION_REQUEST.system,
-    messages: [
-      {
-        role: "user",
-        content: `${COMPRESSION_REQUEST.userScaffold.prefix}${m.lines}${COMPRESSION_REQUEST.userScaffold.linesToWords}${m.words}${COMPRESSION_REQUEST.userScaffold.wordsToLimit}${m.limit}${COMPRESSION_REQUEST.userScaffold.limitToChars}${CHARS_PER_LINE}${COMPRESSION_REQUEST.userScaffold.charsToTarget}${words}${COMPRESSION_REQUEST.userScaffold.targetToText}${text}`,
-      },
-    ],
-  });
-  const out = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+  const words = compressionTargetWords(section, target, squeeze, m);
+  // 2026-09-28 (second, full suite): the request says how much to cut, not only where to
+  // land. A Section over on lines alone is asked for fewer words than it has.
+  const cut = Math.max(m.words - words, 1);
+  const cutPercent = Math.max(Math.round((cut / Math.max(m.words, 1)) * 100), 1);
+  const scaffold = COMPRESSION_REQUEST.userScaffold;
+  return await requestCompression(
+    anthropic,
+    modelId,
+    text,
+    `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToTarget}${words}${scaffold.targetToCut}${cut}${scaffold.cutToPercent}${cutPercent}${scaffold.percentToText}${text}`
+  );
+}
+
+/**
+ * 2026-09-28 (fifth): the targeted pass's word target, `finalCut.capHeadroom`
+ * of the Locked word cap (332 for Lines 242 and 246, 665 for Line 244), or of
+ * the words that fit the Line's lines when it is over on lines.
+ */
+export function finalCutTargetWords(
+  section: SectionKey,
+  current: { words: number; lines: number }
+): number {
+  const headroom = COMPRESSION_REQUEST.finalCut.capHeadroom;
+  let words = Math.floor(WORD_CAPS[section] * headroom);
+  if (current.lines > LINE_LIMITS[section]) {
+    words = Math.min(
+      words,
+      Math.floor(((current.words * LINE_LIMITS[section]) / current.lines) * headroom)
+    );
+  }
+  return words;
+}
+
+/**
+ * 2026-09-28 (fifth): whether the targeted pass applies: the text is over a
+ * Locked limit, and over each limit by at most `finalCut.maxOverage` of it.
+ */
+export function withinFinalCutReach(metrics: {
+  overLimit: boolean;
+  words: number;
+  wordCap: number;
+  lines: number;
+  limit: number;
+}): boolean {
+  const reach = 1 + COMPRESSION_REQUEST.finalCut.maxOverage;
+  return metrics.overLimit && metrics.words <= metrics.wordCap * reach && metrics.lines <= metrics.limit * reach;
+}
+
+/** 2026-09-28 (fifth): the one targeted pass, asking for a stated cut. */
+async function finalCutSection(
+  anthropic: GenerationClient,
+  modelId: string,
+  section: SectionKey,
+  text: string,
+  mustKeep: readonly string[],
+  exactTerms: readonly string[]
+): Promise<string> {
+  const m = sectionMetrics(text, section);
+  const words = finalCutTargetWords(section, m);
+  const cut = Math.max(m.words - words, 1);
+  const scaffold = COMPRESSION_REQUEST.finalCut.userScaffold;
+  return await requestCompression(
+    anthropic,
+    modelId,
+    text,
+    `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToCut}${cut}${scaffold.cutToTarget}${words}${scaffold.targetToText}${text}`
+  );
+}
+
+/** One compression request; a cut-off or empty answer returns `text` as given. */
+async function requestCompression(
+  anthropic: GenerationClient,
+  modelId: string,
+  text: string,
+  content: string
+): Promise<string> {
+  let response: GenerationResponse;
+  try {
+    response = await anthropic.messages.create({
+      model: modelId,
+      max_tokens: COMPRESSION_REQUEST.maxTokens,
+      system: COMPRESSION_REQUEST.system,
+      messages: [{ role: "user", content }],
+    });
+  } catch (error) {
+    // The OpenRouter adapter throws on a cut-off answer; treat it exactly
+    // like the direct Anthropic cut-off below instead of failing the section.
+    if (error instanceof OutputLimitError) return text;
+    throw error;
+  }
+  // A reply cut off at the token limit (thinking shares the budget on Opus
+  // 5.5 and Fable 5.1) is a partial section; keep the original instead.
+  if (isCutOffStopReason(response.stop_reason)) return text;
+  const out = firstResponseText(response).trim();
   return out || text;
 }
 
@@ -155,11 +317,204 @@ export function buildStyleGuidance(
 }
 
 /**
+ * How far `text` is from its Locked limits: the larger of its word and line
+ * ratios to the caps (at most 1 when it is within both).
+ */
+export function limitOverage(text: string, key: SectionKey): number {
+  const metrics = sectionMetrics(text, key);
+  return Math.max(metrics.words / metrics.wordCap, metrics.lines / metrics.limit);
+}
+
+const NUMBER_RE = /\d+(?:[.,]\d+)*/g;
+/**
+ * A negation and the word it negates. "n't" and "cannot" read as "not", and
+ * an article or a form of "be" after the negation is skipped, so "is not a
+ * flat filter" reads "not flat" and "didn't crack" reads "not crack".
+ */
+const NEGATION_PHRASE_RE =
+  /\b(not|no|never|none|neither|nor|without)\s+(?:(?:a|an|the|be|been|being)\s+)?([a-z0-9][a-z0-9-]*)/g;
+
+function numbersIn(text: string): Set<string> {
+  // "1,200" and "1200" are the same number; a trailing comma is punctuation.
+  return new Set([...text.matchAll(NUMBER_RE)].map((match) => match[0].replace(/,/g, "")));
+}
+
+function negationsIn(text: string): Set<string> {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/\bcannot\b/g, "can not")
+    .replace(/n't\b/g, " not");
+  return new Set([...normalized.matchAll(NEGATION_PHRASE_RE)].map((match) => `${match[1]} ${match[2]}`));
+}
+
+/**
+ * Why a compression pass dropped required content, or null when it kept it
+ * (review P2-1; 2026-09-28 second, full suite). A pass must keep every [GAP] marker of
+ * the text it was given verbatim. A number, or a negation read with the word
+ * it negates, that the text holds and a Must keep line also holds must still
+ * appear somewhere in the pass; any other number or negation may go with the
+ * detail it belongs to (the request forbids changing one). A pass under
+ * `targetFloor` of its word target cut content, not wording. A writer's
+ * edited term the text holds must still appear word for word (containsTerm;
+ * 2026-09-28 second, edited terms).
+ */
+export function compressionLoss(
+  input: string,
+  output: string,
+  key: SectionKey,
+  targetWords: number,
+  mustKeep: readonly string[] = [],
+  exactTerms: readonly string[] = []
+): string | null {
+  for (const match of input.matchAll(new RegExp(GAP_MARKER_RE.source, "gi"))) {
+    if (!output.includes(match[0])) return `dropped the marker ${match[0]}`;
+  }
+  for (const term of exactTerms) {
+    if (containsTerm(input, term) && !containsTerm(output, term)) {
+      return `dropped the writer's term "${term}"`;
+    }
+  }
+  // A Self-check fix names where it applies ("Paragraph 2: ..."); that
+  // label is not content the text must keep.
+  const required = mustKeep
+    .map((line) => line.replace(/^(?:Paragraph \d+|Whole section):\s*/, ""))
+    .join("\n");
+  const requiredNumbers = numbersIn(required);
+  const keptNumbers = numbersIn(output);
+  for (const number of numbersIn(input)) {
+    if (requiredNumbers.has(number) && !keptNumbers.has(number)) {
+      return `dropped the number ${number}, which a Must keep line holds`;
+    }
+  }
+  const requiredNegations = negationsIn(required);
+  const keptNegations = negationsIn(output);
+  for (const negation of negationsIn(input)) {
+    if (requiredNegations.has(negation) && !keptNegations.has(negation)) {
+      return `dropped the negation "${negation}", which a Must keep line holds`;
+    }
+  }
+  const words = sectionMetrics(output, key).words;
+  const floor = Math.floor(targetWords * COMPRESSION_REQUEST.targetFloor);
+  if (words < floor) return `came out at ${words} words, under the ${floor}-word floor`;
+  return null;
+}
+
+/**
+ * What the compression passes left: the text kept, how many passes were
+ * sent, whether it is still over, and the error that stopped them, if any.
+ */
+export type LimitFit = {
+  text: string;
+  passes: number;
+  overLimit: boolean;
+  error?: unknown;
+};
+
+/**
  * BNH-45 enforcement: still over the form limit after the budgeted draft →
  * up to two compression passes for the offending section; the second asks for
- * 15% fewer words (models routinely land a hair over on the first squeeze —
+ * 15% fewer words (models routinely land a hair over on the first squeeze;
  * e2e saw a 51/50). Output is re-scrubbed for banned words each pass.
+ *
+ * 2026-09-28 (second): each pass is measured before it is kept. A pass that
+ * comes back no closer to the limits, empty after the scrub, or missing
+ * required content (compressionLoss) never replaces the text it was given,
+ * so the result is the best attempt, and the next pass works from that. A
+ * pass that fails (a provider error, the action deadline) ends the passes
+ * and is returned as `error`, with the best text so far. Nothing is ever cut
+ * to fit: a Section still over after every pass keeps the model's own best
+ * text and says so.
+ *
+ * 2026-09-28 (fifth, release suite run 6): with `finalCut` (the ordered
+ * chain), when the best text after the squeezes is still over a Locked limit
+ * by at most 10 percent of it, one more targeted pass asks for a stated
+ * number of words cut (finalCutSection), measured and guarded like the
+ * others; it is also not kept when it ends a paragraph mid-sentence. So a
+ * call makes at most `squeezes.length + 1` requests.
  */
+export async function compressWithinLimit(
+  anthropicFor: (callSite: string) => GenerationClient,
+  modelId: string,
+  key: SectionKey,
+  text: string,
+  lengthTarget: LengthTarget,
+  styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES,
+  mustKeep: readonly string[] = [],
+  exactTerms: readonly string[] = [],
+  options: { finalCut?: boolean } = {}
+): Promise<LimitFit> {
+  let best = text;
+  let passes = 0;
+  const callSite = `generation:compression:${key.slice(1)}`;
+  // A pass's answer replaces `best` only when it is closer to the limits
+  // and keeps the required content.
+  const keep = (compressed: string, targetWords: number, finalCut: boolean) => {
+    // PSOS-49: a bannedWords waiver exempts this writer from the scrub;
+    // re-scrubbing here would sneak the house vocabulary back in.
+    const out = scrubBannedWordsUnlessWaived(compressed, styleOverrides.bannedWords);
+    if (!out.trim() || limitOverage(out, key) >= limitOverage(best, key)) return;
+    const loss =
+      compressionLoss(best, out, key, targetWords, mustKeep, exactTerms) ??
+      (finalCut ? endedMidSentence(best, out) : null);
+    if (loss) {
+      console.warn(`${callSite}: pass ${passes} not kept: it ${loss}`);
+      return;
+    }
+    best = out;
+  };
+  for (const squeeze of COMPRESSION_REQUEST.squeezes) {
+    const metrics = sectionMetrics(best, key);
+    if (!metrics.overLimit) break;
+    let compressed: string;
+    try {
+      passes += 1;
+      compressed = await compressSection(
+        anthropicFor(callSite),
+        modelId,
+        key,
+        best,
+        lengthTarget,
+        squeeze,
+        mustKeep,
+        exactTerms
+      );
+    } catch (error) {
+      return { text: best, passes, overLimit: metrics.overLimit, error };
+    }
+    keep(compressed, compressionTargetWords(key, lengthTarget, squeeze, metrics), false);
+  }
+  const metrics = sectionMetrics(best, key);
+  if (options.finalCut && withinFinalCutReach(metrics)) {
+    let compressed: string;
+    try {
+      passes += 1;
+      compressed = await finalCutSection(anthropicFor(callSite), modelId, key, best, mustKeep, exactTerms);
+    } catch (error) {
+      return { text: best, passes, overLimit: true, error };
+    }
+    keep(compressed, finalCutTargetWords(key, metrics), true);
+  }
+  return { text: best, passes, overLimit: sectionMetrics(best, key).overLimit };
+}
+
+/** Where a paragraph may end: sentence punctuation, a closing quote or bracket. */
+const PARAGRAPH_END_RE = /[.!?:;)\]"'”’]$/;
+
+/**
+ * 2026-09-28 (fifth): why a targeted pass ended a paragraph mid-sentence,
+ * or null. Only a paragraph end the input never had counts, so a text whose
+ * paragraphs already end oddly is judged by its other guards.
+ */
+export function endedMidSentence(input: string, output: string): string | null {
+  const ends = (text: string) =>
+    text.split(/\n\s*\n/).map((paragraph) => paragraph.trim()).filter(Boolean);
+  if (!ends(input).every((paragraph) => PARAGRAPH_END_RE.test(paragraph))) return null;
+  const position = ends(output).findIndex((paragraph) => !PARAGRAPH_END_RE.test(paragraph));
+  return position < 0 ? null : `ended paragraph ${position + 1} mid-sentence`;
+}
+
+/** compressWithinLimit for callers that only need the text. */
 export async function compressToFit(
   anthropicFor: (callSite: string) => GenerationClient,
   modelId: string,
@@ -168,22 +523,10 @@ export async function compressToFit(
   lengthTarget: LengthTarget,
   styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): Promise<string> {
-  let out = text;
-  for (const squeeze of COMPRESSION_REQUEST.squeezes) {
-    if (!sectionMetrics(out, key).overLimit) return out;
-    const compressed = await compressSection(
-      anthropicFor(`generation:compression:${key.slice(1)}`),
-      modelId,
-      key,
-      out,
-      lengthTarget,
-      squeeze
-    );
-    // PSOS-49: a bannedWords waiver exempts this writer from the scrub —
-    // re-scrubbing here would sneak the house vocabulary back in.
-    out = scrubBannedWordsUnlessWaived(compressed, styleOverrides.bannedWords);
-  }
-  return out;
+  const fit = await compressWithinLimit(anthropicFor, modelId, key, text, lengthTarget, styleOverrides);
+  // A pass that failed before any pass was kept fails the step, as before.
+  if (fit.error !== undefined && fit.text === text) throw fit.error;
+  return fit.text;
 }
 
 export function toContextDocs(
@@ -295,16 +638,56 @@ export type ProvenanceDraft = {
   section: "242" | "244" | "246";
   claimText: string;
   sourceQuote?: string;
+  /**
+   * 2026-09-24 (transcript method, plan step 8): the quote's own span on
+   * the frozen transcript row when it came from a verified fact, so it is
+   * cited where the fact was verified, never at another occurrence.
+   */
+  citation?: TranscriptCitation;
 };
 
+/** A verified fact quote on its frozen transcript row (getGenerationInput). */
+export type FactQuote = Pick<
+  FactQuoteCitation,
+  "sourceId" | "sourceContentHash" | "startOffset" | "endOffset" | "exactExcerpt"
+>;
+
+/**
+ * Pairs each paragraph of the drafted sections with the quote that shares
+ * the most words with it. The pool is the analyzer's useful quotes found
+ * verbatim in the transcript text, or, when the generation reads fact packs,
+ * the packs' verified client quotes (plan step 8), each with its citation.
+ */
 export function provenanceDrafts(
   sections: Array<{ section: ProvenanceDraft["section"]; text: string }>,
   transcript: string,
-  usefulQuotes: string[]
+  usefulQuotes: string[],
+  factQuotes?: readonly FactQuote[]
 ): ProvenanceDraft[] {
-  const exactQuotes = usefulQuotes
-    .map((quote) => quote.trim().replace(/^['"]|['"]$/g, ""))
-    .filter((quote) => quote.length >= 20 && transcript.includes(quote));
+  const citations = new Map<string, TranscriptCitation>();
+  if (factQuotes) {
+    for (const quote of factQuotes) {
+      if (quote.exactExcerpt.length < 20 || citations.has(quote.exactExcerpt)) continue;
+      citations.set(quote.exactExcerpt, {
+        generationSourceId: quote.sourceId as Id<"generationSources">,
+        sourceContentHash: quote.sourceContentHash,
+        exactExcerpt: quote.exactExcerpt,
+        startOffset: quote.startOffset,
+        endOffset: quote.endOffset,
+      });
+    }
+  }
+  const exactQuotes = factQuotes
+    ? [...citations.keys()]
+    : usefulQuotes
+        .map((quote) => quote.trim().replace(/^['"]|['"]$/g, ""))
+        .filter((quote) => quote.length >= 20 && transcript.includes(quote));
+  // Each quote is tokenized once, not once per paragraph (review 2026-09-25,
+  // P3-8): in fact mode the pool can hold thousands of quotes.
+  const quoteTokens = exactQuotes.map((quote) => ({
+    quote,
+    tokens: new Set(quote.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []),
+  }));
   const drafts: ProvenanceDraft[] = [];
   for (const { section, text } of sections) {
     const paragraphs = text
@@ -318,10 +701,9 @@ export function provenanceDrafts(
       );
       let sourceQuote: string | undefined;
       let bestOverlap = 1;
-      for (const quote of exactQuotes) {
-        const quoteTokens = new Set(quote.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []);
+      for (const { quote, tokens } of quoteTokens) {
         let overlap = 0;
-        for (const token of quoteTokens) {
+        for (const token of tokens) {
           if (claimTokens.has(token)) overlap += 1;
         }
         if (overlap > bestOverlap) {
@@ -329,11 +711,13 @@ export function provenanceDrafts(
           sourceQuote = quote;
         }
       }
+      const citation = sourceQuote ? citations.get(sourceQuote) : undefined;
       drafts.push({
         claimId: `${section}-${index + 1}`,
         section,
         claimText,
         sourceQuote,
+        ...(citation ? { citation } : {}),
       });
     });
   }
@@ -352,14 +736,23 @@ export async function recordCandidateProvenance(
       transcriptId?: Id<"transcripts">;
       transcriptIds?: Id<"transcripts">[];
       digestIds?: Id<"transcriptDigests">[];
+      /** Present when the generation reads fact packs. */
+      transcriptReading?: "facts" | "digest" | "full";
+      transcriptRows?: Parameters<typeof mapClaimToPart>[0];
     };
     content: string;
     claimDrafts: ProvenanceDraft[];
   }
 ) {
+  // Reading fact packs, a claim cites the frozen transcript row, never the
+  // pack (plan step 8); every other generation cites what it read, as before.
+  const parts =
+    args.input.transcriptReading === "facts" && args.input.transcriptRows
+      ? args.input.transcriptRows
+      : args.input.transcriptParts;
   const claims = await Promise.all(
     args.claimDrafts.map(async (claim) => {
-      const citation = mapClaimToPart(args.input.transcriptParts, claim);
+      const citation = claim.citation ?? mapClaimToPart(parts, claim);
       return {
         claimId: claim.claimId,
         section: claim.section,
@@ -420,7 +813,14 @@ export async function runPipelineForModel(
   // Story 1 (CAP-1/2/4): the stored Brief, rendered as an AD-11 delimited
   // data block. "" when the generation has no Brief (not yet derived, or
   // derivation failed — Brief is read-only guidance, never generation-fatal).
-  briefBlock: string = ""
+  briefBlock: string = "",
+  // 2026-09-24 (plan step 8): the verified fact quotes a generation reading
+  // fact packs cites from; absent otherwise.
+  factQuotes?: readonly FactQuote[],
+  // Owner decision 43: the model each call site's request names, from the
+  // same step routing as `anthropicFor`. Every call names `modelId` when
+  // absent, as before step routing.
+  modelFor: (callSite: string) => string = () => modelId
 ): Promise<{
   content: string;
   agentOutputs: string;
@@ -430,7 +830,7 @@ export async function runPipelineForModel(
   const analysis = sharedAnalysis ?? await runAnalyzerAgent(
     anthropicFor("generation:analyzer"),
     analyzerUserMessage,
-    modelId,
+    modelFor("generation:analyzer"),
     brainExemplars.analyzer
   );
   const styleGuidance = buildStyleGuidance(draftStyle, writerFlavor, styleOverrides);
@@ -475,8 +875,8 @@ export async function runPipelineForModel(
   // have received — losing a full multi-model draft because a scorecard came
   // back malformed is far worse than shipping the draft with no scorecard.
   const [qaSettled, chronologySettled] = await Promise.allSettled([
-    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelId, qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor)),
-    runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelId),
+    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelFor("generation:qa"), qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor)),
+    runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelFor("generation:chronology")),
   ]);
   if (qaSettled.status === "rejected") {
     console.error("QA scorecard failed; continuing without it", qaSettled.reason);
@@ -500,7 +900,8 @@ export async function runPipelineForModel(
       { section: "246", text: section246 },
     ],
     transcript,
-    analysis.useful_quotes
+    analysis.useful_quotes,
+    factQuotes
   );
   return {
     content: JSON.stringify(doc),
@@ -537,7 +938,7 @@ export async function beginTrackedGeneration(
     error instanceof Error ? error.message : String(error);
   let promptVersion: string;
   try {
-    promptVersion = await currentPromptVersion();
+    promptVersion = await generationPromptVersion(ctx, generationId);
   } catch (error) {
     await ctx.runMutation(internal.generations.failGeneration, {
       generationId,
@@ -568,6 +969,8 @@ export const generateReport = internalAction({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const actionStartedAt = Date.now();
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx, actionStartedAt);
     if (!(await beginTrackedGeneration(ctx, args.generationId))) return;
     const reservedInput = await ctx.runQuery(
       internal.generations.getGenerationInput,
@@ -586,19 +989,22 @@ export const generateReport = internalAction({
     const title = input.title || "Untitled Report";
     const lengthTarget: LengthTarget = input.lengthTarget;
     const contextDocs = toContextDocs(input.contextDocs);
+    // Model catalog: register every model frozen at reservation before any
+    // routing decision, so a catalog-added model resolves like a seed one.
+    const freeze = await registerGenerationModels(ctx, genId);
     const candidateModels = input.retryModelIds?.length
       ? input.retryModelIds
-          .map((id) => CANDIDATE_MODELS.find((model) => model.id === id))
-          .filter((model): model is (typeof CANDIDATE_MODELS)[number] => model !== undefined)
+          .map((id) => modelById(id))
+          .filter((model): model is ModelEntry => model !== undefined)
       : candidateModelsForMode(
           input.candidateMode,
           input.singleModelId,
           input.compareModelIds
         );
     const seededCandidates = input.seededCandidates ?? 0;
-    const retrievalBriefClient = instrumentedAnthropic(ctx, {
+    const retrievalBriefModel = freeze?.roles.retrieval_brief ?? RETRIEVAL_BRIEF_MODEL;
+    const retrievalBriefClient = clientForModel(ctx, retrievalBriefModel, {
       callSite: "generation:retrieval_brief",
-      capability: "generation",
       projectId,
       ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       attribution: { generationId: genId },
@@ -608,6 +1014,9 @@ export const generateReport = internalAction({
         generationId: genId,
         line,
       });
+    // The Brief while it runs beside the analysis: a failure elsewhere
+    // still waits for it before the action ends (its stage never throws).
+    let pendingBrief: Promise<void> | undefined;
 
     try {
       const scienceCode = normalizeCraScienceCode(input.scienceCode);
@@ -619,17 +1028,35 @@ export const generateReport = internalAction({
       // Over-budget transcript sets are reduced to stored digests and frozen
       // as their own source rows before anything reads the transcript text;
       // the re-read below returns the digest parts every later step cites.
-      if (input.inputMode === "digest") {
+      // 2026-09-24 (transcript method, decision 27): a generation frozen to
+      // read fact packs extracts and freezes them first; any gap falls back
+      // to today's path below.
+      const factsReady = input.transcriptFacts
+        ? await ensureFactInputs(
+            ctx,
+            {
+              generationId: genId,
+              elapsedMs: Date.now() - actionStartedAt,
+              modelId: freeze?.roles.condense ?? MODEL,
+              ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            },
+            log
+          )
+        : false;
+      if (!factsReady && input.inputMode === "digest") {
         await ensureCondensedInputs(
           ctx,
           { generationId: genId, elapsedMs: Date.now() - actionStartedAt },
           log,
-          anthropicCondenser(ctx, {
+          condenserFor(ctx, {
             generationId: genId,
             projectId,
             ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            modelId: freeze?.roles.condense ?? MODEL,
           })
         );
+      }
+      if (factsReady || input.inputMode === "digest") {
         const condensed = await ctx.runQuery(
           internal.generations.getGenerationInput,
           { generationId: args.generationId }
@@ -638,6 +1065,45 @@ export const generateReport = internalAction({
         input = condensed;
       }
       const transcript = input.transcript;
+
+      // Owner decision 43: the analysis and the Brief run on the frozen
+      // planning model, whatever the mode. A generation frozen before step
+      // routing keeps its model: in compare the writing role's model frozen
+      // at reservation, independent of pair order; in single mode the
+      // selected model, as in iterative generation.
+      const legacyAnalysisModel = input.candidateMode === "compare"
+        ? (freeze?.roles.writing ?? MODEL)
+        : candidateModels[0]?.id ?? MODEL;
+      const shared = generationStepClients(ctx, {
+        freeze,
+        writerModel: candidateModels[0]?.id ?? MODEL,
+        legacyModel: () => legacyAnalysisModel,
+        meta: (callSite) => ({
+          callSite,
+          projectId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          attribution: { generationId: genId },
+        }),
+      });
+
+      // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
+      // shared across every candidate below (same shape as shared analysis).
+      // It reads only the frozen sources, never the analysis, so it starts
+      // now, beside the Brain retrieval, the writer settings and the
+      // analysis (a1 finding 4, 2026-09-25), and is joined before any
+      // candidate drafts. Brief is read-only guidance, never required: the
+      // stage runner never throws; a failure is logged and the generation
+      // continues with no Brief rather than failing outright (Block-If: "a
+      // Brief with fewer entries beats a failed generation" extends to the
+      // stage itself). DW-109/DW-120: every attempt is recorded on
+      // generations.briefOutcome and narrated with one authored progress
+      // line.
+      const briefStage = runGenerationBriefStage(ctx, shared.client("generation:brief"), {
+        projectId,
+        generationId: genId,
+        model: shared.route("generation:brief").model,
+      });
+      pendingBrief = briefStage;
 
       // Bound and delimit what the analyzer sees, once per generation, and
       // record the outcome on the frozen rows before any candidate fans out.
@@ -663,7 +1129,15 @@ export const generateReport = internalAction({
         transcript,
         industry: input.industry ?? null,
         scienceCode: scienceCode ?? null,
+        // Plan step 8: reading fact packs, the retrieval brief comes from
+        // their claims with no call.
+        ...(input.transcriptReading === "facts"
+          ? { factPacks: input.transcriptParts.map((part) => part.content) }
+          : {}),
+        // Every query leaves for the embedding service with names dropped.
+        placeholders: input.placeholders,
         retrievalBriefClient,
+        retrievalBriefModel,
         log,
       });
 
@@ -700,10 +1174,11 @@ export const generateReport = internalAction({
         generationId: genId,
         projectId,
         requestedBy: input.requestedBy,
+        // The analysis role's model frozen at reservation.
+        model: freeze?.roles.analysis ?? MODEL,
         clientFor: (callSite) =>
-          instrumentedAnthropic(ctx, {
+          clientForModel(ctx, freeze?.roles.analysis ?? MODEL, {
             callSite,
-            capability: "generation",
             projectId,
             ...(input.requestedBy ? { userId: input.requestedBy } : {}),
             attribution: { generationId: genId },
@@ -758,21 +1233,12 @@ export const generateReport = internalAction({
         await log(`Build Order not applied: ${orderedContext.buildOrderFallbackReason}.`);
       }
 
-      // Compare analysis uses the default model, independent of pair order.
-      // Single mode preserves its selected model, as in iterative generation.
-      const analysisModel = input.candidateMode === "compare"
-        ? MODEL
-        : candidateModels[0]?.id ?? MODEL;
+      const analyzerRoute = shared.route("generation:analyzer");
       await log("Analyzing the transcript once for all candidate drafts.");
       const analysis = await runAnalyzerAgent(
-        clientForModel(ctx, analysisModel, {
-          callSite: "generation:analyzer",
-          projectId,
-          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-          attribution: { generationId: genId },
-        }),
+        shared.client("generation:analyzer"),
         analyzerContext.userMessage,
-        analysisModel,
+        analyzerRoute.model,
         brainBlocks.analyzer
       );
       const serializedAnalysis = JSON.stringify(analysis);
@@ -787,20 +1253,10 @@ export const generateReport = internalAction({
         }),
       });
 
-      // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
-      // shared across every candidate below (same shape as shared analysis).
-      // Brief is read-only guidance, never required — the stage runner never
-      // throws: a failure is logged and the generation continues with no
-      // Brief rather than failing outright (Block-If: "a Brief with fewer
-      // entries beats a failed generation" extends to the stage itself).
-      // DW-109/DW-120: every attempt is recorded on generations.briefOutcome
-      // and narrated with one authored progress line.
-      await runGenerationBriefStage(ctx, clientForModel(ctx, analysisModel, {
-        callSite: "generation:brief",
-        projectId,
-        ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-        attribution: { generationId: genId },
-      }), { projectId, generationId: genId, model: analysisModel });
+      // The Brief started beside the analysis above; every candidate reads
+      // it, so it is joined before the first one is created.
+      await briefStage;
+      pendingBrief = undefined;
 
       const candidateLabel =
         candidateModels.length === 1 ? "candidate draft" : "candidate drafts";
@@ -847,6 +1303,11 @@ export const generateReport = internalAction({
         generationId: genId,
         error: describeGenerationFailure(error),
       });
+    } finally {
+      // The Brief never throws; it finishes (and stays reusable by its
+      // inputs) inside this action's deadline rather than being cut off,
+      // even when failGeneration itself throws (review r2 P3).
+      await pendingBrief;
     }
   },
 });
@@ -877,6 +1338,8 @@ export const generateCandidate = internalAction({
     orderedContext: v.optional(orderedProfileContextValidator),
   },
   handler: async (ctx, args) => {
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx);
     const run = await ctx.runMutation(internal.generations.claimCandidateRun, {
       candidateRunId: args.candidateRunId,
     });
@@ -891,24 +1354,28 @@ export const generateCandidate = internalAction({
       });
       return;
     }
-    // Routed by the candidate model's gateway: Anthropic models use the
-    // direct SDK, OpenAI/Google models go through OpenRouter. Usage from both
-    // lands in the same aiUsage table.
-    const clientFor = (
-      callSite: string,
-      learningDigestIds?: Id<"learningDigests">[]
-    ) =>
-      clientForModel(ctx, run.model, {
-        callSite,
-        projectId: run.projectId,
-        ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-        attribution: {
-          generationId: run.generationId,
-          candidateRunId: args.candidateRunId,
-          ...(learningDigestIds?.length ? { learningDigestIds } : {}),
-        },
-      });
     try {
+      // Routed by each step's model (owner decision 43: the candidate model
+      // writes, the frozen planning and checking models help) and its
+      // gateway: Anthropic models use the direct SDK, OpenAI/Google models go
+      // through OpenRouter. Usage from both lands in the same aiUsage table.
+      const freeze = await registerGenerationModels(ctx, args.generationId);
+      const steps = generationStepClients(ctx, {
+        freeze,
+        writerModel: run.model,
+        meta: (callSite, learningDigestIds) => ({
+          callSite,
+          projectId: run.projectId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          attribution: {
+            generationId: run.generationId,
+            candidateRunId: args.candidateRunId,
+            ...(learningDigestIds?.length ? { learningDigestIds } : {}),
+          },
+        }),
+      });
+      const clientFor = steps.client;
+
       const sharedAnalysis = args.analysis === undefined
         ? undefined
         : parseTranscriptAnalysis(args.analysis);
@@ -925,7 +1392,7 @@ export const generateCandidate = internalAction({
         const analysis = sharedAnalysis ?? await runAnalyzerAgent(
           clientFor("generation:analyzer"),
           analyzerUserMessage,
-          run.model,
+          steps.route("generation:analyzer").model,
           args.brainExemplars.analyzer
         );
         const orderedContext =
@@ -973,7 +1440,9 @@ export const generateCandidate = internalAction({
           args.writerFlavor,
           normalizeStyleOverrides(args.styleOverrides),
           sharedAnalysis,
-          briefBlock
+          briefBlock,
+          input.factQuotes,
+          (callSite) => steps.route(callSite).model
         );
       const provenanceId = await recordCandidateProvenance(ctx, {
         projectId: run.projectId,
@@ -990,10 +1459,9 @@ export const generateCandidate = internalAction({
         provenanceId,
       });
     } catch (error) {
-      const normalized = normalizeProviderError(error);
       await ctx.runMutation(internal.generations.completeCandidateRun, {
         candidateRunId: args.candidateRunId,
-        error: `${normalized.code}: ${normalized.message}`,
+        error: describeProviderFailure(error),
       });
     }
   },

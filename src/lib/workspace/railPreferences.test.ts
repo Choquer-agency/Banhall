@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  LEGACY_RAIL_PREFERENCES_KEY,
+  RAIL_PREFERENCES_KEY,
+  loadRailPreferences,
   RAIL_DEFAULT_WIDTH,
   RAIL_MAX_WIDTH,
   RAIL_MIN_WIDTH,
@@ -7,6 +10,7 @@ import {
   defaultRailPreferences,
   parseRailPreferences,
   railWidthForKey,
+  persistRailPreferences,
   serializeRailPreferences,
 } from "./railPreferences";
 
@@ -34,6 +38,7 @@ describe("parseRailPreferences (fail-closed)", () => {
     expect(parseRailPreferences("[1,2]")).toEqual({
       width: RAIL_DEFAULT_WIDTH,
       hidden: false,
+      adminOpen: false,
     });
   });
 
@@ -41,23 +46,28 @@ describe("parseRailPreferences (fail-closed)", () => {
     expect(parseRailPreferences('{"width": 9999, "hidden": true}')).toEqual({
       width: RAIL_MAX_WIDTH,
       hidden: true,
+      adminOpen: false,
     });
     expect(parseRailPreferences('{"width": 1, "hidden": "yes"}')).toEqual({
       width: RAIL_MIN_WIDTH,
       hidden: false,
+      adminOpen: false,
     });
     expect(parseRailPreferences('{"width": "wide"}')).toEqual(defaultRailPreferences());
   });
 
   it("round-trips through serialize", () => {
-    const serialized = serializeRailPreferences({ width: 272, hidden: true });
-    expect(parseRailPreferences(serialized)).toEqual({ width: 272, hidden: true });
+    const serialized = serializeRailPreferences({ width: 272, hidden: true, adminOpen: true });
+    expect(parseRailPreferences(serialized)).toEqual({ width: 272, hidden: true, adminOpen: true });
   });
 
   it("serializes out-of-range widths already clamped", () => {
-    expect(JSON.parse(serializeRailPreferences({ width: 10_000, hidden: false }))).toEqual({
+    expect(
+      JSON.parse(serializeRailPreferences({ width: 10_000, hidden: false, adminOpen: false }))
+    ).toEqual({
       width: RAIL_MAX_WIDTH,
       hidden: false,
+      adminOpen: false,
     });
   });
 });
@@ -71,11 +81,10 @@ describe("railWidthForKey (keyboard separator)", () => {
       RAIL_DEFAULT_WIDTH - 8
     );
     expect(railWidthForKey("ArrowRight", RAIL_DEFAULT_WIDTH, true)).toBe(
-      RAIL_MAX_WIDTH
+      RAIL_DEFAULT_WIDTH + 32
     );
-    expect(railWidthForKey("ArrowLeft", RAIL_DEFAULT_WIDTH, true)).toBe(
-      RAIL_DEFAULT_WIDTH - 32
-    );
+    expect(railWidthForKey("ArrowRight", RAIL_MAX_WIDTH - 8, true)).toBe(RAIL_MAX_WIDTH);
+    expect(railWidthForKey("ArrowLeft", RAIL_DEFAULT_WIDTH, true)).toBe(RAIL_MIN_WIDTH);
     expect(railWidthForKey("ArrowLeft", RAIL_MIN_WIDTH, true)).toBe(RAIL_MIN_WIDTH);
     expect(railWidthForKey("ArrowRight", RAIL_MAX_WIDTH, false)).toBe(RAIL_MAX_WIDTH);
   });
@@ -85,5 +94,42 @@ describe("railWidthForKey (keyboard separator)", () => {
     expect(railWidthForKey("End", 300, false)).toBe(RAIL_MAX_WIDTH);
     expect(railWidthForKey("Enter", 300, false)).toBeNull();
     expect(railWidthForKey("Escape", 300, false)).toBeNull();
+  });
+});
+
+describe("loadRailPreferences (v2 key)", () => {
+  const store = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+  };
+  afterEach(() => {
+    store.clear();
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  });
+
+  it("uses the 200px board default and keeps only the collapsed choice from the legacy key", () => {
+    (globalThis as { localStorage?: unknown }).localStorage = storage;
+    expect(RAIL_DEFAULT_WIDTH).toBe(200);
+    store.set(LEGACY_RAIL_PREFERENCES_KEY, JSON.stringify({ width: 275, hidden: true }));
+    expect(loadRailPreferences()).toEqual({ width: 200, hidden: true, adminOpen: false });
+    store.set(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: false }));
+    expect(loadRailPreferences()).toEqual({ width: 240, hidden: false, adminOpen: false });
+  });
+
+  it("reads the Admin group choice, defaulting older payloads to closed (B1, B2)", () => {
+    (globalThis as { localStorage?: unknown }).localStorage = storage;
+    store.set(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: false }));
+    expect(loadRailPreferences().adminOpen).toBe(false);
+    store.set(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: false, adminOpen: true }));
+    expect(loadRailPreferences().adminOpen).toBe(true);
+  });
+
+  it("merges each persisted update over what is stored", () => {
+    (globalThis as { localStorage?: unknown }).localStorage = storage;
+    persistRailPreferences({ width: 240, hidden: false });
+    persistRailPreferences({ adminOpen: true });
+    persistRailPreferences({ hidden: true });
+    expect(loadRailPreferences()).toEqual({ width: 240, hidden: true, adminOpen: true });
   });
 });

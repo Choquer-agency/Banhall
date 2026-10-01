@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import ProjectsBoard from "./ProjectsBoard.svelte";
+import { board, boardPx } from "$lib/test/boardScale";
 import type { ProjectsTableRow } from "./ProjectsTable.svelte";
 import { WORKFLOW_STAGE_LABELS } from "../../../../shared/workflowLabels";
 import { WORKFLOW_STAGE_PIPELINE_ORDER } from "../../../../shared/workflowStages";
@@ -96,7 +97,7 @@ describe("ProjectsBoard", () => {
 
     for (const section of columnSections()) {
       // Zero-count lanes render full width — never collapsed rails.
-      expect(section.offsetWidth).toBe(320);
+      expect(section.offsetWidth).toBe(Math.round(board(320)));
       // 2026-08-06 second amendment: the bounded-scan truth lives in the
       // HEADER; the body carries no empty-state box, message, or dashed well.
       expect(section.textContent).not.toContain("No loaded projects in this stage.");
@@ -144,7 +145,7 @@ describe("ProjectsBoard", () => {
       expect(footer.getAttribute("href")).toBe("/project/new");
       expect(footer.textContent).toContain("Add new");
       expect(footer.getAttribute("aria-label")).toContain("New projects begin in Intake");
-      expect(footer.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      expect(footer.getBoundingClientRect().height).toBeGreaterThanOrEqual(board(44));
     }
 
     document.body.innerHTML = "";
@@ -299,11 +300,11 @@ describe("ProjectsBoard", () => {
     expect(regionStyle.overflowY).toBe("hidden");
 
     const track = region.firstElementChild as HTMLElement;
-    expect(getComputedStyle(track).columnGap).toBe("8px");
+    expect(getComputedStyle(track).columnGap).toBe(boardPx(8));
 
     const sections = columnSections();
     expect(sections.length).toBeGreaterThanOrEqual(2);
-    for (const section of sections) expect(section.offsetWidth).toBe(320);
+    for (const section of sections) expect(section.offsetWidth).toBe(Math.round(board(320)));
     const heights = new Set(sections.map((section) => section.offsetHeight));
     expect(heights.size).toBe(1);
 
@@ -408,7 +409,7 @@ describe("ProjectsBoard", () => {
     await mountBoard({ rows: [row({ id: "p1" })] });
     // Default (flat stage-first board): the card is the only client signal.
     expect(document.querySelector("article")?.textContent).toContain("Northline Labs");
-    expect(columnSections()[0].offsetWidth).toBe(320);
+    expect(columnSections()[0].offsetWidth).toBe(Math.round(board(320)));
 
     document.body.innerHTML = "";
     // Client-scoped boards (per-client lanes) suppress the redundant client

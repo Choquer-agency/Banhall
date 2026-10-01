@@ -1,8 +1,10 @@
 /**
  * Recent projects for the dark workspace rail ("Recent" group).
  *
- * Frontend-only recency: the shell records project opens it can observe
- * (clicks on `/project/<id>` links inside the workspace) into localStorage.
+ * Frontend-only recency: project opens are recorded into localStorage by
+ * clicks on `/project/<id>` links inside the workspace, New project opening
+ * the project it created, and the project page itself on every open (typed
+ * URL, back and forward, redirects).
  * This is deliberately best-effort — a server-side `viewed` recency query can
  * replace the storage source later without changing the rail contract.
  *
@@ -114,4 +116,37 @@ export function persistRecentProjects(list: RecentProject[]): void {
   } catch {
     // Recents stay usable in memory when browser storage is blocked.
   }
+}
+
+/**
+ * Records one project open straight into browser storage, for opens that do
+ * not come from a workspace link click (New project opening the project it
+ * created, the project page on open). Fields the caller does not know keep
+ * the stored entry's values.
+ */
+export function recordProjectOpen(
+  entry: { id: string; title?: string; stage?: string; client?: string },
+  openedAt: number = Date.now()
+): RecentProject[] {
+  const list = loadRecentProjects();
+  const existing = list.find((item) => item.id === entry.id);
+  const next = recordRecentProject(list, {
+    id: entry.id,
+    title: entry.title?.trim() || existing?.title || "Untitled project",
+    stage: entry.stage ?? existing?.stage,
+    client: entry.client?.trim() || existing?.client,
+    openedAt,
+  });
+  persistRecentProjects(next);
+  return next;
+}
+
+/**
+ * The title this browser last recorded for a project, for loading states
+ * that draw the top bar before the project itself arrives; "" when unknown.
+ */
+export function recentProjectTitle(id: string | undefined): string {
+  if (!id || typeof window === "undefined") return "";
+  const title = loadRecentProjects().find((project) => project.id === id)?.title ?? "";
+  return title === "Untitled project" ? "" : title;
 }

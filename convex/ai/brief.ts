@@ -1,10 +1,10 @@
 "use node";
 
 import { z } from "zod";
-import type Anthropic from "@anthropic-ai/sdk";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { ActionCtx } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
   BRIEF_BASELINE_PAGE_BYTES,
@@ -12,19 +12,38 @@ import {
   briefDiffKey,
 } from "../generations";
 import type { GenerationClient } from "./openrouterCore";
-import { normalizeProviderError } from "./providers";
+import {
+  BRIEF_REQUEST,
+  BRIEF_SCHEMA,
+  BRIEF_SYSTEM_PROMPT,
+  CLAIM_EXCLUSION_REASONS,
+  CONFIDENCE_LEVELS,
+  buildBriefUserMessage,
+} from "../lib/briefRequest";
+import { normalizeProviderError, preparationClientForStep, startActionDeadline } from "./providers";
+import { resolveGenerationStep } from "../lib/generationSteps";
+import { MAX_QUOTE_PLACES } from "../lib/briefDerivationPolicy";
 import { generateStructured } from "./structured";
 import { briefInputsHash } from "../lib/briefInputsHash";
 import {
   BRIEF_OUTCOME_DETAIL_CHARS,
   type BriefOutcome,
 } from "../lib/briefRender";
-import { citeQuote, type FrozenSource } from "../lib/citations";
+import {
+  citeQuote,
+  quoteOccurrences,
+  type Citation,
+  type FrozenSource,
+} from "../lib/citations";
+import { mayMoveQuote, type CitationSpeaker } from "../lib/citationSpeakers";
+import { citeFactQuote, readsFactPacks } from "../lib/seedFacts";
 import {
   flaggedGlossaryTerms,
   matchGlossaryTermsAcrossSources,
 } from "../lib/glossaryMatcher";
 import { MODEL } from "./model";
+import { createReadingFactsCollector, type ReadingFactsTarget } from "../lib/readingFacts";
+import type { PlaceholderMap } from "../lib/deidentify";
 
 /**
  * Generation Brief derivation stage (story 1, CAP-1/2/4).
@@ -67,18 +86,6 @@ import { MODEL } from "./model";
  * second `generation:brief` call.
  */
 
-const CLAIM_EXCLUSION_REASONS = [
-  "business_risk",
-  "routine_engineering",
-  "outside_claim_period",
-  "not_technological",
-] as const;
-const CONFIDENCE_LEVELS = [
-  "established",
-  "partial",
-  "unresolved",
-  "unreliable",
-] as const;
 
 export interface BriefAgentOutput {
   storyline: string;
@@ -103,6 +110,16 @@ export interface BriefAgentOutput {
     quote?: string;
   }>;
 }
+
+export {
+  BRIEF_INPUT_BUDGET,
+  BRIEF_OMITTED_SOURCES_NOTICE,
+  BRIEF_REQUEST,
+  BRIEF_SCHEMA,
+  BRIEF_SYSTEM_PROMPT,
+  briefOmittedSourcesNotice,
+  buildBriefUserMessage,
+} from "../lib/briefRequest";
 
 const briefOutputSchema: z.ZodType<BriefAgentOutput> = z.object({
   storyline: z.string().default(""),
@@ -138,111 +155,17 @@ const briefOutputSchema: z.ZodType<BriefAgentOutput> = z.object({
     .default([]),
 });
 
-export const BRIEF_SYSTEM_PROMPT = `You derive a Generation Brief for a Canadian SR&ED (Scientific Research & Experimental Development) project description, before any section is drafted.
-
-The Brief has four parts:
-1. Storyline — the most defensible narrative account of the project against the CRA's Five Questions (technological uncertainty, hypotheses, systematic investigation, technological advancement, records kept). Write it as flowing prose, then restate its individual claims with the exact supporting quote from the evidence.
-2. Claim Exclusions — statements in the evidence that must NEVER be claimed as SR&ED work, however prominent, because they fall outside eligible work. Every exclusion needs a reason: business_risk, routine_engineering, outside_claim_period, or not_technological.
-3. Confidence Map — the evidence's facts classified established (directly and clearly supported), partial (supported but incomplete or hedged), unresolved (evidence conflicts or is silent), or unreliable (independent evidence shows the source itself is suspect, e.g. it contradicts itself, was explicitly invalidated, or is otherwise independently discredited).
-4. Glossary Terms — the handful of technical phrases the project description should use consistently, one name per concept.
-
-Rules:
-- Every Storyline claim, Claim Exclusion, and Confidence Map entry MUST carry a "quote" field that is an EXACT, VERBATIM, character-for-character substring copied from the evidence below. Never paraphrase the quote, never invent one. An entry whose quote cannot be found verbatim in the evidence is discarded before it ever reaches the report — so a paraphrased quote is a wasted entry.
-- Never fabricate a claim, exclusion, or fact absent from the evidence.
-- Treat the [SOURCE_KIND=...] tag in each evidence delimiter as authoritative; labels are descriptive and do not determine source kind. When three or more blocks carry [SOURCE_KIND=transcript], reconcile those Transcripts source by source before writing the Brief. Identify what they agree on and every materially conflicting claim.
-- Before classifying claims as materially conflicting, compare their scope, run, configuration, time, and compatible units. Compatible measurements made under different conditions are not contradictions. Retain each relevant claim with calibrated confidence and its own exact quote.
-- Build one coherent Storyline whose common spine is the facts the Transcripts agree on. Do not exclude a defensible complementary fact merely because only one Transcript reports it; retain it with calibrated confidence and its exact source quote when no evidence contradicts it. When the supporting passages for an agreement are materially distinct, preserve source-by-source traceability with separate Confidence Map entries, one per distinct passage and originating Transcript, with one exact quote per entry. If multiple Transcripts contain an identical supporting passage, do not duplicate the same quote merely to claim unique source attribution; one quote-bound entry is sufficient unless another materially distinct passage is available.
-- Never average materially conflicting claims, silently choose one, or omit a competing claim. For each competing claim, use an exact contextual quote that is unique to its originating evidence block when available. If identical passages or overlapping text make the source unresolvable, state the attribution ambiguity and do not claim unique source provenance. Ordinary inter-source disagreement is "unresolved", not "unreliable": keep each competing claim as a separate Confidence Map entry with confidence "unresolved" and its own exact quote from the originating evidence block. Use "unreliable" only when independent evidence gives a reason to distrust the source itself, such as an internal contradiction, explicit invalidation, or other evidence that the source is suspect.
-- Treat a conflict as resolved only when the evidence explicitly says that a claim was corrected or retracted and the correction or retraction itself remains supported. A correction that was subsequently withdrawn or retracted, or is independently discredited, does not invalidate the original claim or inform the Storyline. A correction or retraction resolves only the claim it explicitly corrects or retracts. A different source merely asserting that a competing claim is wrong, or offering a disputed correction, remains ordinary unresolved disagreement unless independent evidence establishes source unreliability; do not invent an authority or approval hierarchy. When a supported correction or retraction validly resolves a claim, keep the original claim as "unreliable" with its exact quote, and record the explicit correction or retraction separately with its own exact quote. Reassess every remaining competitor and keep unresolved alternatives separate. If other conflicting alternatives remain, preserve that uncertainty in the Storyline; a replacement is not established solely because it is labeled a correction. A retraction alone supplies no replacement fact. Let only a supported, undisputed correction inform the Storyline. Never infer a correction from recency, plausibility, or source order.
-- Glossary terms are the canonical term string plus, optionally, inflected forms already used in the evidence verbatim (plurals, past tense) — those are matched back into the evidence separately by rule, so no quote is needed for them.
-- Some concepts appear in the evidence only under a different phrasing than your canonical term (a genuine synonym, not just a plural or tense change) — for those, and ONLY those, also give a "quote" field: an exact, verbatim substring where that different phrasing appears. Leave "quote" empty for any term whose exact wording (or an obvious plural/past-tense form) is already present.
-- Write in plain, specific, technical language. No filler, no marketing language.`;
-
-export const BRIEF_REQUEST = {
-  roleOrder: ["system", "user"],
-  toolName: "submit_generation_brief",
-  toolDescription:
-    "Submit the derived Generation Brief: Storyline, Claim Exclusions, Confidence Map, Glossary Terms.",
-  maxTokens: 8192,
-} as const;
-
-const strArray = { type: "array", items: { type: "string" } } as const;
-
-export const BRIEF_SCHEMA: Anthropic.Tool.InputSchema = {
-  type: "object",
-  properties: {
-    storyline: {
-      type: "string",
-      description: "The full Storyline narrative, in flowing prose.",
-    },
-    storylineClaims: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          text: { type: "string" },
-          quote: { type: "string", description: "Exact verbatim quote from the evidence." },
-        },
-        required: ["text", "quote"],
-      },
-    },
-    claimExclusions: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          text: { type: "string" },
-          quote: { type: "string" },
-          reason: { type: "string", enum: [...CLAIM_EXCLUSION_REASONS] },
-        },
-        required: ["text", "quote", "reason"],
-      },
-    },
-    confidenceMap: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          text: { type: "string" },
-          quote: { type: "string" },
-          confidence: { type: "string", enum: [...CONFIDENCE_LEVELS] },
-        },
-        required: ["text", "quote", "confidence"],
-      },
-    },
-    glossaryTerms: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          term: { type: "string" },
-          inflections: strArray,
-          quote: {
-            type: "string",
-            description:
-              "Only when this term's exact wording (or an obvious plural/past-tense form) is NOT already present: an exact, verbatim quote showing a different phrasing of the same concept. Omit otherwise.",
-          },
-        },
-        required: ["term"],
-      },
-    },
-  },
-  required: [
-    "storyline",
-    "storylineClaims",
-    "claimExclusions",
-    "confidenceMap",
-    "glossaryTerms",
-  ],
-};
-
-/** Pure model call — takes an already-assembled, pre-delimited user message. */
+/** Pure model call — takes an already-assembled, pre-delimited user message.
+ * `onPartialToolInput` (Step-by-step startup only, decision 57) streams the
+ * first attempt; the request then gains `stream: true` and nothing else. */
 export async function runBriefAgent(
   client: GenerationClient,
   userMessage: string,
-  model?: string
+  model?: string,
+  onPartialToolInput?: (json: string) => void
 ): Promise<BriefAgentOutput> {
   return await generateStructured<BriefAgentOutput>(client, {
+    ...(onPartialToolInput ? { onPartialToolInput } : {}),
     system: BRIEF_SYSTEM_PROMPT,
     user: userMessage,
     toolName: BRIEF_REQUEST.toolName,
@@ -252,26 +175,6 @@ export async function runBriefAgent(
     model,
     validate: briefOutputSchema,
   });
-}
-
-const BRIEF_TASK_GUIDANCE =
-  "Derive the Generation Brief from the evidence below. Every quote you give must be an exact, verbatim substring of one of these blocks.";
-
-/** AD-11 delimited data blocks: one per frozen evidence source. Never
- * includes a writer-supplied Storyline — that source is context for the
- * writer, not evidence to derive Claim Exclusions/Confidence Map/Glossary
- * from, and is never fed to this call. */
-export function buildBriefUserMessage(
-  sources: Array<Pick<Doc<"generationSources">, "label" | "content" | "kind">>
-): string {
-  const evidence = sources.filter((s) => s.kind !== "writer_storyline");
-  const blocks = evidence
-    .map(
-      (s) =>
-        `--- BEGIN [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---\n${s.content}\n--- END [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---`
-    )
-    .join("\n\n");
-  return `${BRIEF_TASK_GUIDANCE}\n\n${blocks}`;
 }
 
 /** The only database access the publish path needs — an action's, or a test
@@ -390,11 +293,9 @@ export async function publishDerivedBrief(
   >
 ): Promise<Id<"generationBriefs">> {
   for (let attempt = 1; attempt <= BRIEF_PUBLISH_ATTEMPTS; attempt += 1) {
-    const baseline = await readCompleteBriefDiffBaseline(
-      ctx,
-      args.projectId,
-      args.entries
-    );
+    const baseline = args.seedStartup
+      ? { briefId: null, retained: [], removed: [] }
+      : await readCompleteBriefDiffBaseline(ctx, args.projectId, args.entries);
     const briefId: Id<"generationBriefs"> | null = await ctx.runMutation(
       internal.generations.persistDerivedBrief,
       {
@@ -411,19 +312,62 @@ export async function publishDerivedBrief(
   );
 }
 
-type CandidateEntry = {
-  group: "storyline" | "claimExclusion" | "confidenceMap" | "glossaryTerm";
+type BriefEntryGroup = "storyline" | "claimExclusion" | "confidenceMap" | "glossaryTerm";
+
+/**
+ * One located, speaker-checked Brief entry, citing a row of the evidence it
+ * was derived from: a generation's `generationSources` row, or a Brief
+ * preparation's `briefPreparationSources` row (decision 65).
+ */
+export type BriefCandidate<I extends string = Id<"generationSources">> = {
+  group: BriefEntryGroup;
   text: string;
   reason?: (typeof CLAIM_EXCLUSION_REASONS)[number];
   confidence?: (typeof CONFIDENCE_LEVELS)[number];
-  sourceId: Id<"generationSources">;
+  sourceId: I;
   sourceContentHash: string;
   startOffset: number;
   endOffset: number;
   exactExcerpt: string;
 };
 
+/** A frozen evidence row one Brief derivation reads. */
+export type BriefSourceRow<I extends string = Id<"generationSources">> = Pick<
+  Doc<"generationSources">,
+  "kind" | "label" | "content" | "contentHash" | "transcriptId" | "factSpans"
+> & { _id: I };
+
+/** One span whose speaker verdict (owner decision 25) is asked for. */
+export type BriefSpeakerSpan<I extends string> = {
+  sourceId: I;
+  startOffset: number;
+  endOffset: number;
+  movedFrom?: { startOffset: number; endOffset: number };
+};
+
+/**
+ * The source adapter (2026-09-26, decision 65): the evidence one Brief
+ * derivation reads and how its speaker rule is read. A generation's adapter
+ * reads its frozen `generationSources`; a preparation's reads its frozen
+ * `briefPreparationSources`. Everything else (the request, quote matching,
+ * relocation and the speaker rule) is this module's one implementation.
+ */
+export type BriefSourceAdapter<I extends string = Id<"generationSources">> = {
+  sources: ReadonlyArray<BriefSourceRow<I>>;
+  /** Verdicts for spans on transcript rows, in order; at most CITATION_SPEAKER_BATCH per call. */
+  speakers: (spans: BriefSpeakerSpan<I>[]) => Promise<CitationSpeaker[]>;
+};
+
+/** A derivation's result before publication. */
+export type DerivedBriefCandidates<I extends string = Id<"generationSources">> = {
+  storylineText: string;
+  origin: "writer" | "derived";
+  entries: BriefCandidate<I>[];
+  upstreamDroppedEntryCount: number;
+};
+
 type BriefStageArgs = {
+  seedStartup?: boolean;
   projectId: Id<"projects">;
   generationId: Id<"generations">;
   model?: string;
@@ -434,126 +378,264 @@ export type BriefStageAttempt =
   | { kind: "derived" | "reused"; briefId: Id<"generationBriefs"> }
   | { kind: "no_evidence" };
 
-/**
- * The stage: compute inputsHash, reuse the stored Brief when inputs are
- * unchanged, otherwise run one structured call and persist the result.
- * Returns which of those happened with the Brief id, or `no_evidence` if the
- * generation has no frozen sources to derive from (never expected in
- * practice — `reserveGeneration` requires at least one readable source).
- * Throws on any failure; `runGenerationBriefStage` is its only caller.
- */
-export async function deriveOrReuseBrief(
+/** Spans per `getCitationSpeakers` call; it accepts at most 250 (MAX_CITATION_SPEAKER_SPANS). */
+export const CITATION_SPEAKER_BATCH = 250;
+
+/** A generation's adapter: its frozen rows and `generations.getCitationSpeakers`. */
+export function generationBriefAdapter(
   ctx: BriefPublishCtx,
-  client: GenerationClient,
-  args: BriefStageArgs
-): Promise<BriefStageAttempt> {
-  const sources = await ctx.runQuery(
-    internal.generations.getGenerationSourcesForBrief,
-    { generationId: args.generationId }
+  generationId: Id<"generations">,
+  sources: ReadonlyArray<BriefSourceRow>
+): BriefSourceAdapter {
+  return {
+    sources,
+    speakers: async (spans) =>
+      await ctx.runQuery(internal.generations.getCitationSpeakers, { generationId, spans }),
+  };
+}
+
+/**
+ * Owner decision 25 verdicts for candidate places on transcript rows, one
+ * query per batch. Places on any other row are not asked about and read as
+ * `unchecked` (no entry in the map). In an `anchored` group every place
+ * after the first is a new place for the first one's words: it counts only
+ * on the same row and near that place (review 2026-09-25, P2-3). Glossary
+ * terms are not anchored: a term the client used anywhere is theirs.
+ */
+async function citationSpeakersFor<I extends string>(
+  adapter: BriefSourceAdapter<I>,
+  groups: ReadonlyArray<{ places: readonly Citation<I>[]; anchored: boolean }>
+): Promise<Map<Citation<I>, CitationSpeaker>> {
+  const transcriptRows = new Set<string>(
+    adapter.sources.filter((source) => source.kind === "transcript").map((source) => source._id)
   );
-  if (sources.length === 0) return { kind: "no_evidence" };
-
-  const inputsHash = await briefInputsHash(sources);
-  const reusable = await ctx.runQuery(internal.generations.findReusableBrief, {
-    projectId: args.projectId,
-    inputsHash,
-  });
-  if (reusable) {
-    await ctx.runMutation(internal.generations.stampGenerationBriefId, {
-      generationId: args.generationId,
-      briefId: reusable._id,
-    });
-    return { kind: "reused", briefId: reusable._id };
-  }
-
-  const writerSource = sources.find((s) => s.kind === "writer_storyline");
-  const evidenceSources: FrozenSource[] = sources.filter(
-    (s) => s.kind !== "writer_storyline"
-  );
-
-  const model = args.model ?? MODEL;
-  const output = await runBriefAgent(
-    client,
-    buildBriefUserMessage(sources),
-    model
-  );
-
-  const candidateEntries: CandidateEntry[] = [];
-  // Block-If: "a derived entry's citation fails the byte-match — the entry
-  // is dropped and the drop counted on the Brief; the generation continues."
-  // Counted here (the quote never even resolved to a citation) and again by
-  // `persistDerivedBrief`'s own re-validation (defense in depth).
-  let upstreamDroppedEntryCount = 0;
-
-  // Writer-supplied Storyline: never validated, parsed, or turned into
-  // cited entries — stored verbatim on the Brief row itself.
-  if (!writerSource) {
-    for (const claim of output.storylineClaims) {
-      const citation = citeQuote(evidenceSources, claim.quote);
-      if (!citation) {
-        upstreamDroppedEntryCount += 1;
-        continue;
+  const verdicts = new Map<Citation<I>, CitationSpeaker>();
+  const asked: Array<{ place: Citation<I>; movedFrom?: Citation<I> }> = [];
+  for (const { places, anchored } of groups) {
+    const [first] = places;
+    for (const place of places) {
+      if (anchored && place !== first && place.sourceId !== first.sourceId) {
+        verdicts.set(place, "excluded");
+      } else if (transcriptRows.has(place.sourceId)) {
+        asked.push({ place, ...(anchored && place !== first ? { movedFrom: first } : {}) });
       }
-      candidateEntries.push({
-        group: "storyline",
-        text: claim.text,
-        sourceId: citation.sourceId,
-        sourceContentHash: citation.sourceContentHash,
-        startOffset: citation.startOffset,
-        endOffset: citation.endOffset,
-        exactExcerpt: citation.exactExcerpt,
-      });
     }
   }
-  for (const exclusion of output.claimExclusions) {
-    const citation = citeQuote(evidenceSources, exclusion.quote);
-    if (!citation) {
-      upstreamDroppedEntryCount += 1;
-      continue;
-    }
-    candidateEntries.push({
-      group: "claimExclusion",
-      text: exclusion.text,
-      reason: exclusion.reason,
-      sourceId: citation.sourceId,
-      sourceContentHash: citation.sourceContentHash,
-      startOffset: citation.startOffset,
-      endOffset: citation.endOffset,
-      exactExcerpt: citation.exactExcerpt,
-    });
+  for (let at = 0; at < asked.length; at += CITATION_SPEAKER_BATCH) {
+    const batch = asked.slice(at, at + CITATION_SPEAKER_BATCH);
+    const answers = await adapter.speakers(
+      batch.map(({ place, movedFrom }) => ({
+        sourceId: place.sourceId,
+        startOffset: place.startOffset,
+        endOffset: place.endOffset,
+        ...(movedFrom
+          ? { movedFrom: { startOffset: movedFrom.startOffset, endOffset: movedFrom.endOffset } }
+          : {}),
+      }))
+    );
+    batch.forEach(({ place }, index) => verdicts.set(place, answers[index]));
   }
-  for (const fact of output.confidenceMap) {
-    const citation = citeQuote(evidenceSources, fact.quote);
-    if (!citation) {
-      upstreamDroppedEntryCount += 1;
-      continue;
+  return verdicts;
+}
+
+/**
+ * The evidence views every step of one derivation shares: which rows a
+ * quote may cite, and the fact-mode citation rule.
+ */
+function briefEvidence<I extends string>(adapter: BriefSourceAdapter<I>) {
+  const sources = [...adapter.sources];
+  const writerSource = sources.find((s) => s.kind === "writer_storyline");
+  // 2026-09-24 (transcript method, plan step 8): a Brief derived from fact
+  // packs cites what the packs show on the frozen transcript row, inside a
+  // verified client span (owner decision 25), and a document by its own
+  // text; a pack or digest row is never cited. Otherwise, as before, a
+  // quote cites the first frozen source that holds it.
+  const factMode = readsFactPacks(sources);
+  const evidenceSources: FrozenSource<I>[] = sources.filter(
+    (s) =>
+      s.kind !== "writer_storyline" &&
+      s.kind !== "transcript_facts" &&
+      !(factMode && s.kind === "transcript_digest")
+  );
+  const documentSources: FrozenSource<I>[] = sources.filter(
+    (s) => s.kind !== "writer_storyline" && s.kind !== "transcript" && s.kind !== "transcript_facts" && s.kind !== "transcript_digest"
+  );
+  const citeInFactMode = (quote: string): Citation<I> | null => {
+    const fact = citeFactQuote(
+      sources.map((s) => ({
+        sourceId: s._id,
+        kind: s.kind,
+        content: s.content,
+        contentHash: s.contentHash,
+        transcriptId: s.transcriptId,
+        factSpans: s.factSpans,
+      })),
+      quote
+    );
+    if (fact) {
+      return {
+        sourceId: fact.sourceId as I,
+        sourceContentHash: fact.sourceContentHash,
+        exactExcerpt: fact.exactExcerpt,
+        startOffset: fact.startOffset,
+        endOffset: fact.endOffset,
+      };
     }
-    candidateEntries.push({
-      group: "confidenceMap",
-      text: fact.text,
-      confidence: fact.confidence,
-      sourceId: citation.sourceId,
-      sourceContentHash: citation.sourceContentHash,
-      startOffset: citation.startOffset,
-      endOffset: citation.endOffset,
-      exactExcerpt: citation.exactExcerpt,
-    });
+    return citeQuote(documentSources, quote);
+  };
+  return { sources, writerSource, factMode, evidenceSources, citeInFactMode };
+}
+
+/**
+ * Where a streamed entry's quote sits, owner decision 25 applied, the way
+ * publication locates it; null when it does not locate. Feeds the display
+ * only (decision 57).
+ */
+export function briefQuoteLocator<I extends string>(adapter: BriefSourceAdapter<I>) {
+  const { factMode, evidenceSources, citeInFactMode } = briefEvidence(adapter);
+  return async (quote: string, glossary: boolean): Promise<Citation<I> | null> => {
+    if (factMode) return citeInFactMode(quote);
+    let candidates = quoteOccurrences(
+      evidenceSources,
+      quote,
+      mayMoveQuote(quote) ? MAX_QUOTE_PLACES : 1
+    );
+    if (!candidates.length && glossary) candidates = termOccurrence(evidenceSources, quote);
+    if (!candidates.length) return null;
+    const verdicts = await citationSpeakersFor(adapter, [
+      { places: candidates, anchored: !glossary },
+    ]);
+    return candidates.find((place) => verdicts.get(place) !== "excluded") ?? null;
+  };
+}
+
+/**
+ * Shared operation "run the model": one structured Brief call over the
+ * adapter's evidence. The request is `buildBriefUserMessage(sources)` under
+ * the Brief prompt and tool; masking and usage belong to `client`, which
+ * the caller builds with its placeholders and attribution. With
+ * `onToolInput` the first attempt streams (decision 57) and nothing else
+ * about the request changes.
+ */
+export async function runBriefRequest<I extends string>(
+  adapter: BriefSourceAdapter<I>,
+  client: GenerationClient,
+  model: string,
+  onToolInput?: (json: string) => void
+): Promise<BriefAgentOutput> {
+  return await runBriefAgent(client, buildBriefUserMessage([...adapter.sources]), model, onToolInput);
+}
+
+/**
+ * Shared operation "locate and validate entries": every quote the model
+ * gave, cited on the adapter's rows under owner decision 25, with the
+ * writer-supplied Storyline rule and the glossary matcher applied. Entries
+ * that do not locate are dropped and counted.
+ */
+export async function briefCandidatesFromOutput<I extends string>(
+  adapter: BriefSourceAdapter<I>,
+  output: BriefAgentOutput
+): Promise<DerivedBriefCandidates<I>> {
+  const { writerSource, factMode, evidenceSources, citeInFactMode } = briefEvidence(adapter);
+
+  // Owner decision 25 (2026-09-25): a quote that is only the interviewer's
+  // or another speaker's words never backs an entry. Each quote is cited at
+  // its first place, as before, unless the stored speaker turns say that
+  // place is not evidence; then the next place with the same words wins,
+  // and a quote with none is dropped and counted. Transcripts without
+  // stored turns, documents and digests keep the first place. Facts mode
+  // already cites verified client spans; its glossary matches are checked.
+  const places = new Map<string, Citation<I>[]>();
+  if (!factMode) {
+    const quotes = [
+      ...(writerSource ? [] : output.storylineClaims.map((claim) => claim.quote)),
+      ...output.claimExclusions.map((exclusion) => exclusion.quote),
+      ...output.confidenceMap.map((fact) => fact.quote),
+      ...output.glossaryTerms.flatMap((term) => (term.quote ? [term.quote] : [])),
+    ];
+    for (const quote of quotes) {
+      if (!places.has(quote)) {
+        // A short quote never moves off an excluded place (review
+        // 2026-09-25, P2-3): only its first place is tried.
+        const limit = mayMoveQuote(quote) ? MAX_QUOTE_PLACES : 1;
+        places.set(quote, quoteOccurrences(evidenceSources, quote, limit));
+      }
+    }
   }
   const glossaryMatches = matchGlossaryTermsAcrossSources(
     output.glossaryTerms,
     evidenceSources
   );
-  for (const match of glossaryMatches) {
-    candidateEntries.push({
-      group: "glossaryTerm",
-      text: match.canonicalTerm,
+  const glossaryPlaces = glossaryMatches.map((match) => {
+    const first: Citation<I> = {
       sourceId: match.sourceId,
       sourceContentHash: match.sourceContentHash,
       startOffset: match.startOffset,
       endOffset: match.endOffset,
       exactExcerpt: match.text,
+    };
+    return [
+      first,
+      ...quoteOccurrences(evidenceSources, match.text, MAX_QUOTE_PLACES).filter(
+        (place) =>
+          place.sourceId !== first.sourceId || place.startOffset !== first.startOffset
+      ),
+    ];
+  });
+  const speakerAt = await citationSpeakersFor(adapter, [
+    ...[...places.values()].map((candidates) => ({ places: candidates, anchored: true })),
+    ...glossaryPlaces.map((candidates) => ({ places: candidates, anchored: false })),
+  ]);
+  const firstEvidence = (candidates: readonly Citation<I>[]): Citation<I> | null =>
+    candidates.find((place) => speakerAt.get(place) !== "excluded") ?? null;
+  const cite = (quote: string): Citation<I> | null => {
+    if (factMode) return citeInFactMode(quote);
+    const candidates = places.get(quote);
+    return candidates ? firstEvidence(candidates) : citeQuote(evidenceSources, quote);
+  };
+
+  const candidateEntries: BriefCandidate<I>[] = [];
+  // Block-If: "a derived entry's citation fails the byte-match — the entry
+  // is dropped and the drop counted on the Brief; the generation continues."
+  // Counted here (the quote never even resolved to a citation) and again by
+  // `persistDerivedBrief`'s own re-validation (defense in depth).
+  let upstreamDroppedEntryCount = 0;
+  const push = (
+    group: BriefEntryGroup,
+    text: string,
+    citation: Citation<I> | null,
+    extra: Pick<BriefCandidate<I>, "reason" | "confidence"> = {}
+  ) => {
+    if (!citation) {
+      upstreamDroppedEntryCount += 1;
+      return;
+    }
+    candidateEntries.push({
+      group,
+      text,
+      ...extra,
+      sourceId: citation.sourceId,
+      sourceContentHash: citation.sourceContentHash,
+      startOffset: citation.startOffset,
+      endOffset: citation.endOffset,
+      exactExcerpt: citation.exactExcerpt,
     });
+  };
+
+  // Writer-supplied Storyline: never validated, parsed, or turned into
+  // cited entries, stored verbatim on the Brief row itself.
+  if (!writerSource) {
+    for (const claim of output.storylineClaims) push("storyline", claim.text, cite(claim.quote));
   }
+  for (const exclusion of output.claimExclusions) {
+    push("claimExclusion", exclusion.text, cite(exclusion.quote), { reason: exclusion.reason });
+  }
+  for (const fact of output.confidenceMap) {
+    push("confidenceMap", fact.text, cite(fact.quote), { confidence: fact.confidence });
+  }
+  glossaryMatches.forEach((match, index) => {
+    push("glossaryTerm", match.canonicalTerm, firstEvidence(glossaryPlaces[index]));
+  });
   // Model classification, flagged candidates only (Boundaries: "model
   // classification only classifies candidates the matcher flags"). A term
   // the rule-based matcher already found above never reaches this branch —
@@ -575,35 +657,357 @@ export async function deriveOrReuseBrief(
     );
     if (!classified?.quote) continue;
     classifiedCanonicalTerms.add(canonicalTerm);
-    const citation = citeQuote(evidenceSources, classified.quote);
-    if (!citation) {
-      upstreamDroppedEntryCount += 1;
-      continue;
-    }
-    candidateEntries.push({
-      group: "glossaryTerm",
-      text: classified.term,
-      sourceId: citation.sourceId,
-      sourceContentHash: citation.sourceContentHash,
-      startOffset: citation.startOffset,
-      endOffset: citation.endOffset,
-      exactExcerpt: citation.exactExcerpt,
-    });
+    push("glossaryTerm", classified.term, cite(classified.quote));
   }
 
-  const storylineText = writerSource ? writerSource.content : output.storyline;
-  const origin = writerSource ? ("writer" as const) : ("derived" as const);
+  return {
+    storylineText: writerSource ? writerSource.content : output.storyline,
+    origin: writerSource ? "writer" : "derived",
+    entries: candidateEntries,
+    upstreamDroppedEntryCount,
+  };
+}
+
+/**
+ * Shared operations "run the model" and "locate and validate entries" in
+ * one: the model call, the optional display stream of located entries
+ * (decision 57; `readingFacts` says where they are written), then every
+ * entry located and speaker-checked. Publication is the caller's.
+ */
+export async function deriveBriefCandidates<I extends string>(
+  adapter: BriefSourceAdapter<I>,
+  client: GenerationClient,
+  args: {
+    model: string;
+    readingFacts?: { target: ReadingFactsTarget; placeholders: PlaceholderMap };
+  }
+): Promise<DerivedBriefCandidates<I>> {
+  const readingFacts = args.readingFacts
+    ? createReadingFactsCollector({
+        ...args.readingFacts.target,
+        sources: adapter.sources,
+        writerStoryline: adapter.sources.some((s) => s.kind === "writer_storyline"),
+        placeholders: args.readingFacts.placeholders,
+        locate: briefQuoteLocator(adapter),
+      })
+    : null;
+  let output: BriefAgentOutput;
+  try {
+    output = await runBriefRequest(adapter, client, args.model, readingFacts?.onToolInput);
+  } finally {
+    await readingFacts?.finish();
+  }
+  return await briefCandidatesFromOutput(adapter, output);
+}
+
+/**
+ * The stage: compute inputsHash, reuse the stored Brief when inputs are
+ * unchanged, otherwise run one structured call and persist the result.
+ * Returns which of those happened with the Brief id, or `no_evidence` if the
+ * generation has no frozen sources to derive from (never expected in
+ * practice: `reserveGeneration` requires at least one readable source).
+ * Throws on any failure; `runGenerationBriefStage` is its only caller.
+ */
+export async function deriveOrReuseBrief(
+  ctx: BriefPublishCtx,
+  client: GenerationClient,
+  args: BriefStageArgs,
+  /**
+   * What the Step-by-step start already read, hashed and pinned
+   * (deriveOrAdoptSeedBrief), so the sources are not fetched and hashed
+   * twice.
+   */
+  preloaded?: {
+    sources: FunctionReturnType<typeof internal.generations.getGenerationSourcesForBrief>;
+    inputsHash: string;
+    pinned: Id<"generationBriefs"> | null;
+  }
+): Promise<BriefStageAttempt> {
+  const sources =
+    preloaded?.sources ??
+    (await ctx.runQuery(internal.generations.getGenerationSourcesForBrief, {
+      generationId: args.generationId,
+    }));
+  if (sources.length === 0) return { kind: "no_evidence" };
+
+  const inputsHash = preloaded?.inputsHash ?? (await briefInputsHash(sources));
+  const reusableId = args.seedStartup
+    ? (preloaded?.pinned ??
+      (preloaded
+        ? null
+        : await ctx.runMutation(internal.generations.pinSeedBrief, { generationId: args.generationId, inputsHash })))
+    : (await ctx.runQuery(internal.generations.findReusableBrief, {
+        generationId: args.generationId,
+        inputsHash,
+      }))?._id;
+  if (reusableId) {
+    // Outside Step-by-step the stamp checks the reused Brief under owner
+    // decision 25 and may return a new version of it (review 2026-09-25).
+    const briefId = args.seedStartup
+      ? reusableId
+      : ((await ctx.runMutation(internal.generations.stampGenerationBriefId, {
+          generationId: args.generationId, briefId: reusableId,
+        })) ?? reusableId);
+    if (args.seedStartup) {
+      // Round 2 (F2): the reused Brief's entries fill "Reading the
+      // interview" at once. Display only; never fails the stage.
+      try {
+        await ctx.runMutation(internal.seeds.copyBriefToReadingFacts, {
+          generationId: args.generationId,
+          briefId,
+        });
+      } catch (error) {
+        logBriefStageError("Reading facts not copied from the reused Brief", args.generationId, error);
+      }
+    }
+    return { kind: "reused", briefId };
+  }
+
+  const adapter = generationBriefAdapter(ctx, args.generationId, sources);
+  // Round 2 (F2, decision 57): during Step-by-step startup the Brief
+  // streams, and each entry is located as it arrives the way publishing
+  // locates it (decision 25 applied) and written as a display-only reading
+  // fact. Single and Compare send their request unchanged.
+  const derived = await deriveBriefCandidates(adapter, client, {
+    model: args.model ?? MODEL,
+    ...(args.seedStartup
+      ? {
+          readingFacts: {
+            target: {
+              ctx,
+              generationId: args.generationId,
+              append: internal.seeds.appendReadingFacts,
+            },
+            placeholders: await ctx.runQuery(internal.generations.getGenerationPlaceholders, {
+              generationId: args.generationId,
+            }),
+          },
+        }
+      : {}),
+  });
 
   const briefId = await publishDerivedBrief(ctx, {
+    ...(args.seedStartup ? { seedStartup: true } : {}),
     projectId: args.projectId,
     generationId: args.generationId,
     inputsHash,
-    origin,
-    storylineText,
-    entries: candidateEntries,
-    upstreamDroppedEntryCount,
+    ...derived,
   });
   return { kind: "derived", briefId };
+}
+
+/** What the Step-by-step start did with its Brief. */
+export type SeedBriefAttempt =
+  | BriefStageAttempt
+  | { kind: "adopted"; briefId: Id<"generationBriefs"> }
+  | { kind: "attached" };
+
+/**
+ * The Step-by-step start's Brief (decision 65). A reusable Brief pinned at
+ * startup wins, as before. Otherwise a ready Brief preparation with the
+ * run's exact key is adopted (a new generation-bound Brief, no model call),
+ * or the run attaches to the running attempt with that key and returns
+ * `attached`: the preparation's completion schedules the run's continuation.
+ * Anything else derives the run's own Brief (`deriveOrReuseBrief`).
+ */
+export async function deriveOrAdoptSeedBrief(
+  ctx: BriefPublishCtx,
+  client: GenerationClient,
+  args: Omit<BriefStageArgs, "seedStartup">
+): Promise<SeedBriefAttempt> {
+  const sources = await ctx.runQuery(internal.generations.getGenerationSourcesForBrief, {
+    generationId: args.generationId,
+  });
+  if (sources.length === 0) return { kind: "no_evidence" };
+  const inputsHash = await briefInputsHash(sources);
+  const pinned = await ctx.runMutation(internal.generations.pinSeedBrief, {
+    generationId: args.generationId,
+    inputsHash,
+  });
+  if (pinned === null) {
+    // Fail open: a preparation that cannot be adopted never costs the run
+    // its Brief; the adoption transaction wrote nothing, and the run
+    // derives its own.
+    try {
+      const adoption = await ctx.runMutation(internal.generations.adoptPreparedBrief, {
+        generationId: args.generationId,
+        inputsHash,
+      });
+      if (adoption.kind === "adopted") return { kind: "adopted", briefId: adoption.briefId };
+      if (adoption.kind === "attached") return { kind: "attached" };
+    } catch (error) {
+      logBriefStageError("Brief preparation not adopted", args.generationId, briefFailureCode(error));
+    }
+  }
+  return await deriveOrReuseBrief(ctx, client, { ...args, seedStartup: true }, { sources, inputsHash, pinned });
+}
+
+/**
+ * A preparation failure's normalized code. A provider that is not set up
+ * for this deployment reads `provider_config`, which, like `billing`,
+ * `authentication` and `model_access`, starts the project's cooldown.
+ */
+export function preparationFailureCode(error: unknown): string {
+  if (error instanceof ConvexError) {
+    const data: unknown = error.data;
+    if (typeof data === "object" && data !== null && (data as { code?: unknown }).code === "PROVIDER_NOT_CONFIGURED") {
+      return "provider_config";
+    }
+  }
+  return briefFailureCode(error);
+}
+
+/**
+ * One Brief preparation attempt (decision 65): the shared derivation over
+ * the preparation's frozen rows, on the planning model frozen for it, its
+ * placeholder map applied, its usage attributed to it, and its located
+ * entries streamed to its own display rows. Every write is fenced by the
+ * attempt id; a failure records a normalized code and nothing else.
+ */
+export const runBriefPreparation = internalAction({
+  args: { preparationId: v.id("briefPreparations"), attemptId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    startActionDeadline(ctx);
+    const run = await ctx.runQuery(internal.briefPreparations.getPreparationRun, args);
+    if (!run) {
+      // Obsolete before this action started, or the project is being
+      // deleted: no call, and the running slot frees now.
+      await ctx.runMutation(internal.briefPreparations.settleUnrunAttempt, args);
+      return null;
+    }
+    if (run.disabled) {
+      // Switched off after the claim: nothing is sent.
+      await ctx.runMutation(internal.briefPreparations.cancelPreparationAttempt, { ...args, reason: "disabled" });
+      return null;
+    }
+    // Stops the call once the attempt is out of date (2026-09-27, second).
+    const controller = new AbortController();
+    const watch = watchPreparationAttempt(ctx, args, controller);
+    // Whether any usage row was logged for this attempt, a stopped stream's
+    // partial one included: only an attempt with none has an unknown cost.
+    let usageLogged = false;
+    try {
+      const route = resolveGenerationStep({ freeze: run.modelFreeze, step: "brief", writerModel: MODEL });
+      if (route.model !== run.planningModel) throw new Error("The frozen planning model does not resolve");
+      const client = preparationClientForStep(
+        ctx,
+        route,
+        {
+          callSite: "preparation:brief",
+          ...(run.projectId ? { projectId: run.projectId } : {}),
+          userId: run.triggeredBy,
+          preparation: { briefPreparationId: args.preparationId, attemptId: args.attemptId },
+          onUsage: () => {
+            usageLogged = true;
+          },
+        },
+        { freeze: run.modelFreeze, placeholders: run.placeholders },
+        { signal: controller.signal }
+      );
+      const adapter: BriefSourceAdapter<Id<"briefPreparationSources">> = {
+        sources: run.sources,
+        speakers: async (spans) =>
+          await ctx.runQuery(internal.briefPreparations.getPreparationCitationSpeakers, { preparationId: args.preparationId, spans }),
+      };
+      const derived = await deriveBriefCandidates(adapter, client, {
+        model: route.model,
+        readingFacts: {
+          target: {
+            write: async (facts) =>
+              await ctx.runMutation(internal.briefPreparations.appendPreparationFacts, { ...args, facts }),
+          },
+          placeholders: run.placeholders,
+        },
+      });
+      await ctx.runMutation(internal.briefPreparations.completePreparation, {
+        ...args,
+        storylineText: derived.storylineText,
+        entries: derived.entries,
+        upstreamDroppedEntryCount: derived.upstreamDroppedEntryCount,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        // Stopped because it went out of date: not a model failure. The
+        // attempt ends now so the next preparation can dispatch. A stop
+        // during the repair keeps the first call's landed usage; the cost is
+        // unknown only when no usage was logged for the attempt at all.
+        await ctx.runMutation(internal.briefPreparations.endAbortedAttempt, {
+          ...args,
+          usageReported: usageLogged,
+        });
+        return null;
+      }
+      const code = preparationFailureCode(error);
+      logBriefStageError("Brief preparation failed", args.preparationId, code);
+      await ctx.runMutation(internal.briefPreparations.failPreparation, { ...args, code });
+    } finally {
+      watch.stop();
+    }
+    return null;
+  },
+});
+
+/**
+ * How often a running preparation's action asks whether its attempt is
+ * still current (2026-09-27, second): never more often, so an out-of-date
+ * call stops within about this long.
+ */
+export const ATTEMPT_CHECK_MS = 2_000;
+
+/**
+ * While a preparation's call runs, asks every ATTEMPT_CHECK_MS (never more
+ * often: the next look is set only after the last one answered) whether
+ * the attempt is still current, and aborts the call when it is not. A look
+ * that fails never aborts.
+ */
+function watchPreparationAttempt(
+  ctx: Pick<ActionCtx, "runQuery">,
+  args: { preparationId: Id<"briefPreparations">; attemptId: string },
+  controller: AbortController
+): { stop: () => void } {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const look = async () => {
+    timer = undefined;
+    if (stopped) return;
+    try {
+      const current = await ctx.runQuery(internal.briefPreparations.isAttemptCurrent, args);
+      if (!current && !stopped) {
+        controller.abort();
+        return;
+      }
+    } catch {
+      // Unknown is not out of date: the call runs on and is asked again.
+    }
+    if (!stopped) timer = setTimeout(() => void look(), ATTEMPT_CHECK_MS);
+  };
+  timer = setTimeout(() => void look(), ATTEMPT_CHECK_MS);
+  return {
+    stop: () => {
+      stopped = true;
+      if (timer !== undefined) clearTimeout(timer);
+    },
+  };
+}
+
+/** A glossary term's first place, ignoring case (the term as the client wrote it). */
+function termOccurrence<I extends string>(sources: FrozenSource<I>[], term: string): Citation<I>[] {
+  const needle = term.toLowerCase();
+  for (const source of sources) {
+    const at = source.content.toLowerCase().indexOf(needle);
+    if (at === -1) continue;
+    return [
+      {
+        sourceId: source._id,
+        sourceContentHash: source.contentHash,
+        exactExcerpt: source.content.slice(at, at + term.length),
+        startOffset: at,
+        endOffset: at + term.length,
+      },
+    ];
+  }
+  return [];
 }
 
 type BriefFailureOutcome = Extract<BriefOutcome, { kind: "failed" }>;

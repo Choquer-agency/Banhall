@@ -1,8 +1,14 @@
+/// <reference types="vite/client" />
+import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { estimateCostUsd } from "../convex/aiUsage";
+import { internal } from "../convex/_generated/api";
+import schema from "../convex/schema";
+import { estimateCostUsd, resolveUsageCost } from "../convex/aiUsage";
 import { voyageTokenCount } from "../convex/ai/providers";
 import { MODEL } from "../convex/ai/model";
 import { sha256 } from "../convex/lib/contracts";
+import { seedToolSchema } from "../convex/lib/seedContract";
+import { PD_SUBSECTIONS } from "../shared/pdSubsections";
 import {
   PROMPT_PROGRAM_CONTRACT_ID,
   canonicalSerialize,
@@ -22,6 +28,88 @@ describe("AI usage pricing", () => {
         1_000_000
       )
     ).toBeCloseTo(22.05, 10);
+  });
+
+  test("prices 1-hour cache writes at twice base input", () => {
+    expect(
+      estimateCostUsd("claude-sonnet-5", 0, 0, 1_000_000, 0, 1_000_000)
+    ).toBeCloseTo(4, 10);
+  });
+
+  test("a valid provider cost is native; anything else is estimated", () => {
+    const tokens = { model: "claude-sonnet-5", inputTokens: 1_000, outputTokens: 100 };
+    expect(resolveUsageCost({ ...tokens, costUsd: 0.5 })).toEqual({
+      costUsd: 0.5,
+      costSource: "native",
+    });
+    expect(resolveUsageCost({ ...tokens, costUsd: 0 })).toEqual({
+      costUsd: 0,
+      costSource: "native",
+    });
+    for (const costUsd of [undefined, -1, Number.NaN]) {
+      expect(resolveUsageCost({ ...tokens, ...(costUsd === undefined ? {} : { costUsd }) })).toEqual({
+        costUsd: (1_000 * 2 + 100 * 10) / 1_000_000,
+        costSource: "estimated",
+      });
+    }
+  });
+
+  test("logUsage stores the cost source and the 1-hour write count", async () => {
+    const t = convexTest(schema, import.meta.glob("../convex/**/*.ts"));
+    await t.mutation(internal.aiUsage.logUsage, {
+      callSite: "chat_v2",
+      model: "claude-sonnet-5",
+      inputTokens: 1_000,
+      outputTokens: 100,
+      cacheCreationInputTokens: 2_000,
+      cacheCreation1hInputTokens: 1_500,
+      cacheReadInputTokens: 10_000,
+      createdAt: 1,
+    });
+    await t.mutation(internal.aiUsage.logUsage, {
+      callSite: "generation:section:242",
+      model: "openai/gpt-5.6-sol",
+      inputTokens: 1_000,
+      outputTokens: 100,
+      cacheReadInputTokens: 0,
+      costUsd: 0.0042,
+      createdAt: 2,
+    });
+    const rows = await t.run((ctx) => ctx.db.query("aiUsage").collect());
+    const chat = rows.find((row) => row.callSite === "chat_v2");
+    const gateway = rows.find((row) => row.callSite === "generation:section:242");
+    expect(chat).toMatchObject({
+      costSource: "estimated",
+      cacheCreationInputTokens: 2_000,
+      cacheCreation1hInputTokens: 1_500,
+      cacheReadInputTokens: 10_000,
+    });
+    // $2 input: 1k uncached, 500 written at 1.25x, 1.5k at 2x, 10k read at
+    // 0.1x; $10 output: 100.
+    expect(chat?.costUsd).toBeCloseTo(
+      (1_000 * 2 + 500 * 2.5 + 1_500 * 4 + 10_000 * 0.2 + 100 * 10) / 1_000_000,
+      12
+    );
+    expect(gateway).toMatchObject({ costUsd: 0.0042, costSource: "native" });
+  });
+
+  test("prices Anthropic-through-OpenRouter cache writes when usage.cost is missing", async () => {
+    const t = convexTest(schema, import.meta.glob("../convex/**/*.ts"));
+    for (const [callSite, oneHour] of [["five-minute", 0], ["one-hour", 100_000]] as const) {
+      await t.mutation(internal.aiUsage.logUsage, {
+        callSite,
+        model: "anthropic/claude-sonnet-5",
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 100_000,
+        ...(oneHour ? { cacheCreation1hInputTokens: oneHour } : {}),
+        createdAt: 1,
+      });
+    }
+    const rows = await t.run((ctx) => ctx.db.query("aiUsage").collect());
+    expect(rows.find((row) => row.callSite === "five-minute")).toMatchObject({ costSource: "estimated" });
+    expect(rows.find((row) => row.callSite === "five-minute")?.costUsd).toBeCloseTo(0.25, 10);
+    expect(rows.find((row) => row.callSite === "one-hour")?.costUsd).toBeCloseTo(0.4, 10);
   });
 
   test("prices Voyage corpus/query embeddings and reranking by processed tokens", () => {
@@ -44,13 +132,19 @@ describe("AI usage pricing", () => {
 });
 
 describe("generation prompt program", () => {
-  test("analyzer routing discloses fixed compare and selected single, iterative and legacy models", async () => {
+  test("analyzer routing discloses the planning step, and the frozen writing role for compare and selected single, iterative and legacy models before step routing", async () => {
+    // Owner decision 43: the analysis runs on the frozen planning model; a
+    // generation frozen before step routing keeps the mode-dependent choice.
     expect(generationPromptProgram.calls.analyzer.model).toEqual({
-      kind: "mode-dependent",
-      compare: { kind: "fixed", modelId: MODEL },
-      single: { kind: "candidate", fallbackModelId: MODEL },
-      iterative: { kind: "candidate", fallbackModelId: MODEL },
-      legacyCandidate: { kind: "candidate", fallbackModelId: MODEL },
+      kind: "generation-step",
+      step: "analyzer",
+      beforeStepRouting: {
+        kind: "mode-dependent",
+        compare: { kind: "frozen-role", role: "writing", legacyModelId: MODEL },
+        single: { kind: "candidate", fallbackModelId: MODEL },
+        iterative: { kind: "candidate", fallbackModelId: MODEL },
+        legacyCandidate: { kind: "candidate", fallbackModelId: MODEL },
+      },
     });
     const previousProgram = {
       ...generationPromptProgram,
@@ -220,10 +314,10 @@ describe("generation prompt program", () => {
       ["tool choice", ["configuration", "structuredOutput", "request", "toolChoice", "type"], changedString],
       ["token cap", ["calls", "chronology", "request", "maxTokens"], increment],
       ["thinking setting", ["calls", "section244", "request", "thinking", "type"], changedString],
-      ["analyzer compare routing", ["calls", "analyzer", "model", "compare", "modelId"], changedString],
-      ["analyzer single routing", ["calls", "analyzer", "model", "single", "fallbackModelId"], changedString],
-      ["analyzer iterative routing", ["calls", "analyzer", "model", "iterative", "fallbackModelId"], changedString],
-      ["analyzer legacy routing", ["calls", "analyzer", "model", "legacyCandidate", "fallbackModelId"], changedString],
+      ["analyzer compare routing", ["calls", "analyzer", "model", "beforeStepRouting", "compare", "role"], changedString],
+      ["analyzer single routing", ["calls", "analyzer", "model", "beforeStepRouting", "single", "fallbackModelId"], changedString],
+      ["analyzer iterative routing", ["calls", "analyzer", "model", "beforeStepRouting", "iterative", "fallbackModelId"], changedString],
+      ["analyzer legacy routing", ["calls", "analyzer", "model", "beforeStepRouting", "legacyCandidate", "fallbackModelId"], changedString],
       ["model routing", ["configuration", "models", "modeRouting", "single", "fallbackModelId"], changedString],
       ["length setting", ["configuration", "length", "charsPerLine"], increment],
       ["Brain threshold", ["configuration", "brain", "search", "rawSearchFloor"], increment],
@@ -260,15 +354,25 @@ describe("generation prompt program", () => {
       "section242",
       "section244",
       "section246",
+      "seedFeedback",
+      "seeds",
       "selfCheck",
       // Story 3 (CAP-8): the settings-document style classifier.
       "settingsAnalysis",
+      // 2026-09-24 (transcript method): fact extraction inside a generation
+      // that reads fact packs and finds a transcript without ready facts.
+      "transcriptFacts",
     ]);
     expect(Object.keys(generationPromptProgram.topology.modes).sort()).toEqual([
       "compare",
       "iterative",
       "single",
     ]);
+    // Cost phase 1: one provider schema for every role and both modes.
+    expect(generationPromptProgram.calls.seeds.schema).toEqual(seedToolSchema());
+    expect(generationPromptProgram.calls.seedFeedback.schema).toEqual(seedToolSchema());
+    expect(generationPromptProgram.templates.seeds.roles.map(({ roleId }) => roleId).sort())
+      .toEqual(PD_SUBSECTIONS.map(({ roleId }) => roleId).sort());
     const serialized = JSON.stringify(generationPromptProgram);
     expect(serialized).toContain("post-terminal-qa-and-chronology");
     expect(serialized).toContain("one-shot-ghost-candidate-pipeline");

@@ -38,7 +38,7 @@ describe("ProjectBoardCard", () => {
     expect(card!.getBoundingClientRect().height).toBeGreaterThanOrEqual(160);
     const inset = document.querySelector<HTMLElement>("[data-card-content] > div");
     expect(inset?.className).toContain("bg-surface");
-    expect(inset?.className).toContain("rounded-[10px]");
+    expect(inset?.className).toContain("rounded-[0.625rem]");
     expect(inset?.className).toContain("flex-1");
     expect(document.querySelector("[data-card-content]")?.className).toContain("flex-1");
     // No stage chip on the card — the tint + column chip carry stage.

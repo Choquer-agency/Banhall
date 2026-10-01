@@ -1,0 +1,34 @@
+import { SEED_LINK_RULES, SEED_PROMPT_PROGRAM } from "./ai/promptDefinitions";
+
+/**
+ * The advancement link sentence every Seed request sent before the
+ * 2026-09-28 (fourth) amendment. Pinned request bodies were captured with it.
+ */
+export const PINNED_ADVANCEMENT_LINK_RULES =
+  " For specific advancements, when the frozen predecessor decisions include experimentation selections, every Seed must name one frozen active uncertainty in uncertaintySeedId and at least one frozen experiment in experimentSeedIds. Copy these ids exactly from the frozen decisions: uncertaintySeedId is the seedId of a selection whose roleId is active_uncertainties, and each experimentSeedIds entry is the seedId of a selection whose roleId is experimentation. When there are no frozen experiment selections, omit both link fields.";
+
+/**
+ * A request body as JSON text with the current link rules (the advancement
+ * rules of the 2026-09-28 fourth amendment, the experiment rules of the
+ * 2026-09-29 first and the result rules of the 2026-09-30 fourth) put back
+ * to the pinned sentence: the only bytes those amendments changed in a
+ * request that has no FROZEN EXPERIMENT LINKS, FROZEN ADVANCEMENT LINKS or
+ * FROZEN RESULT LINKS block.
+ */
+export function withPinnedAdvancementLinkRules(body: string): string {
+  return body
+    .split(JSON.stringify(SEED_LINK_RULES).slice(1, -1))
+    .join(JSON.stringify(PINNED_ADVANCEMENT_LINK_RULES).slice(1, -1));
+}
+
+/**
+ * 2026-09-29 (first, run 7 re-check): every Seed request also sends the
+ * linked Seed tools after the shared one (three since 2026-09-30, fourth);
+ * the pinned bodies hold the shared one only. A request body as JSON with
+ * the linked tools taken out.
+ */
+export function withSharedSeedToolOnly<T extends Record<string, unknown>>(json: T): T {
+  const tools = json.tools as Array<{ name: string }> | undefined;
+  if (!tools || tools[0]?.name !== SEED_PROMPT_PROGRAM.request.toolName) return json;
+  return { ...json, tools: tools.filter((tool) => tool.name === SEED_PROMPT_PROGRAM.request.toolName) };
+}

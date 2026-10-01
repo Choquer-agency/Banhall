@@ -85,6 +85,15 @@
     messageStatus={message?.status}
   />
 
+  <!-- Board 2.1: the answer introduces its suggested edits, which follow it. -->
+  {#if turn.text}
+    <!-- Announced once on failure; a live region here would re-announce the
+         answer on every streaming token. -->
+    <div id={answerElementId} role={failed ? "alert" : undefined}>
+      <MessageContent markdown text={turn.text} class={failed ? "text-red-500" : undefined} />
+    </div>
+  {/if}
+
   {#each turn.proposalNodes as node (node.key)}
     <ChatProposalArtifact
       proposal={node.proposal}
@@ -96,14 +105,6 @@
       reviewing={reviewingId === node.proposal._id}
     />
   {/each}
-
-  {#if turn.text}
-    <!-- Announced once on failure; a live region here would re-announce the
-         answer on every streaming token. -->
-    <div id={answerElementId} role={failed ? "alert" : undefined}>
-      <MessageContent markdown text={turn.text} class={failed ? "text-red-500" : undefined} />
-    </div>
-  {/if}
 
   {#if canCopy || regeneration}
     <MessageActions>

@@ -1,0 +1,8 @@
+Interviewer (Dana): Thanks for the time, Marcus. What did you set out to build?
+
+Subject (Marcus Lindqvist, CTO): A predictive load balancing controller.
+
+Dana: What made that hard?
+
+Marcus: We genuinely did not know if a useful forecast was possible.
+It changed with cloud cover.

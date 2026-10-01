@@ -15,10 +15,19 @@ import { domainError } from "./lib/contracts";
 import { authComponent, createAuth } from "./auth";
 import { normalizeEmail } from "./lib/email";
 
+/**
+ * The caller's own user row, plus `imageUrl` (round 2: a signed URL for the
+ * profile photo in `imageStorageId`, null when there is none).
+ */
 export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {
-    return await getCurrentUserOrNull(ctx);
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return null;
+    const imageUrl = user.imageStorageId
+      ? await ctx.storage.getUrl(user.imageStorageId)
+      : null;
+    return { ...user, imageUrl };
   },
 });
 

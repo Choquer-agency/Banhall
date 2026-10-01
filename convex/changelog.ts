@@ -6,13 +6,13 @@
  */
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { requireCurrentUser, requireRole } from "./lib/auth";
+import { requireInternalActor, requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 
 export const listEntries = query({
   args: {},
   handler: async (ctx) => {
-    await requireCurrentUser(ctx);
+    await requireInternalActor(ctx);
     return await ctx.db
       .query("changelogEntries")
       .withIndex("by_publishedAt")
@@ -21,20 +21,29 @@ export const listEntries = query({
   },
 });
 
-/** Count of entries newer than the user's read watermark (for the nav badge). */
+/** The badge never counts more than the page lists. */
+const UNSEEN_CAP = 100;
+
+/**
+ * Count of entries newer than the user's read watermark (for the nav badge).
+ * Without a watermark yet, only entries published after the account was
+ * created count: a brand-new account starts with nothing unread rather than
+ * the whole history (fidelity check #8 counted 48).
+ */
 export const unseenCount = query({
   args: {},
+  returns: v.number(),
   handler: async (ctx) => {
-    const user = await requireCurrentUser(ctx);
+    const user = await requireInternalActor(ctx);
     const read = await ctx.db
       .query("changelogReads")
       .withIndex("by_userId", (q) => q.eq("userId", user._id))
       .unique();
-    const since = read?.lastSeenAt ?? 0;
+    const since = read?.lastSeenAt ?? user.createdAt ?? user._creationTime;
     const entries = await ctx.db
       .query("changelogEntries")
       .withIndex("by_publishedAt", (q) => q.gt("publishedAt", since))
-      .collect();
+      .take(UNSEEN_CAP);
     return entries.length;
   },
 });
@@ -42,7 +51,7 @@ export const unseenCount = query({
 export const markSeen = mutation({
   args: {},
   handler: async (ctx) => {
-    const user = await requireCurrentUser(ctx);
+    const user = await requireInternalActor(ctx);
     // Watermark must cover the newest entry, not just "now": pipeline entries
     // are stamped 23:59 UTC of their work day, which can be in the future —
     // a now-only watermark left today's entry unread and the badge stuck.

@@ -25,8 +25,9 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { getFunctionName, type FunctionArgs, type FunctionReference } from "convex/server";
 import { api, internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import schema from "../schema";
+import { allGenerationProgress } from "../lib/generationProgress";
 import type { GenerationMessageParams } from "./openrouterCore";
 import { SECTION_242_REQUEST } from "./section242Agent";
 import { SECTION_244_REQUEST } from "./section244Agent";
@@ -326,7 +327,7 @@ async function expectRecordedBriefOutcome(
   generationId: Id<"generations">,
   outcome: BriefOutcome
 ) {
-  const generation = await t.run((ctx) => ctx.db.get(generationId));
+  const generation = await generationWithProgress(t, generationId);
   expect(generation?.briefOutcome).toEqual(outcome);
   const line = describeBriefOutcome(outcome);
   const progressLog: string[] = generation?.progressLog ?? [];
@@ -352,7 +353,7 @@ describe("Generation Brief reaches the drafting pipeline (story 1 wiring)", () =
     await expectRecordedBriefOutcome(t, generationId, { kind: "derived" });
     await runCandidates(t);
 
-    const generation = await t.run((ctx) => ctx.db.get(generationId));
+    const generation = await generationWithProgress(t, generationId);
     expect(generation).toMatchObject({ status: "completed" });
     expect(generation?.briefId).toBeDefined();
     // Later stages never re-record or re-narrate the outcome.
@@ -369,6 +370,7 @@ describe("Generation Brief reaches the drafting pipeline (story 1 wiring)", () =
       const drafts = network.create.mock.calls.filter(
         ([params]) =>
           userText(params).startsWith(section.userPrefix) &&
+          userText(params).includes(section.taskMarker) &&
           !userText(params).includes(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix)
       );
       expect(drafts).toHaveLength(1);
@@ -388,12 +390,13 @@ describe("Generation Brief reaches the drafting pipeline (story 1 wiring)", () =
     await t.action(internal.ai.pipeline.generateReport, { generationId });
     await runCandidates(t);
 
-    const generation = await t.run((ctx) => ctx.db.get(generationId));
+    const generation = await generationWithProgress(t, generationId);
     expect(generation).toMatchObject({ status: "completed" });
     expect(generation?.briefId).toBeUndefined();
 
     const drafts = network.create.mock.calls.filter(([params]) =>
-      userText(params).startsWith(SECTION_242_REQUEST.userPrefix)
+      userText(params).startsWith(SECTION_242_REQUEST.userPrefix) &&
+      userText(params).includes(SECTION_242_REQUEST.taskMarker)
     );
     expect(drafts).toHaveLength(1);
     expect(userText(drafts[0][0])).not.toContain("--- BEGIN [GENERATION BRIEF] ---");
@@ -664,3 +667,17 @@ describe("runGenerationBriefStage never throws (DW-109)", () => {
     );
   });
 });
+
+/** The generation row, with its progress lines read the way the queries read
+ * them (child rows since 2026-09-25, legacy array first). */
+async function generationWithProgress(
+  t: ReturnType<typeof convexTest>,
+  generationId: Id<"generations">
+): Promise<(Doc<"generations"> & { progressLog: string[] }) | null> {
+  return await t.run(async (ctx) => {
+    const generation = await ctx.db.get(generationId);
+    return generation
+      ? { ...generation, progressLog: await allGenerationProgress(ctx, generationId) }
+      : null;
+  });
+}

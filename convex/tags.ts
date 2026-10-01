@@ -39,7 +39,7 @@ function normalizedName(name: string): string {
 
 async function assertAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
   const user = await getCurrentUserOrNull(ctx);
-  if (!user) domainError("NOT_AUTHENTICATED", "Authentication required");
+  if (!user || user.isAnonymous === true) domainError("NOT_AUTHENTICATED", "Authentication required");
   if (user.role !== "admin") {
     domainError("NOT_AUTHORIZED", "Tag management requires an admin");
   }
@@ -51,7 +51,7 @@ export const listTags = query({
   args: {},
   handler: async (ctx) => {
     const user = await getCurrentUserOrNull(ctx);
-    if (!user) return [];
+    if (!user || user.isAnonymous === true || !user.role) return [];
     return await ctx.db.query("tags").take(500);
   },
 });

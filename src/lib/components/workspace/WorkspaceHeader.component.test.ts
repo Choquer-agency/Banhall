@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page as browserPage } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import WorkspaceHeader from "./WorkspaceHeader.svelte";
 import { searchShortcutHint } from "$lib/workspace/searchContinuity";
+import { board } from "$lib/test/boardScale";
 
 /**
  * The in-plane workspace toolbar. The decorative left title tick was removed
@@ -31,12 +32,18 @@ describe("WorkspaceHeader", () => {
     const heading = document.querySelector("header h1");
     expect(heading?.textContent).toBe("Projects");
     const pageHeader = document.querySelector<HTMLElement>("[data-workspace-page-header]");
-    expect(pageHeader?.className).toContain("h-[49px]");
+    expect(pageHeader?.className).toContain("h-[3.0625rem]");
     // The heading opens its group: no decorative sibling precedes it.
     expect(heading?.previousElementSibling).toBeNull();
     // No aria-hidden lagoon tick anywhere in the bar.
     expect(document.querySelector('header [aria-hidden="true"].bg-primary')).toBeNull();
     expect(heading?.parentElement?.textContent).toContain("30+");
+  });
+
+  it("sets the page title at weight 500, the round 2 maximum", async () => {
+    await render(WorkspaceHeader, baseProps());
+    const heading = document.querySelector<HTMLElement>("header h1")!;
+    expect(getComputedStyle(heading).fontWeight).toBe("500");
   });
 
   it("omits the count node entirely when no truthful count exists", async () => {
@@ -56,31 +63,27 @@ describe("WorkspaceHeader", () => {
     expect(["⌘K", "Ctrl K"]).toContain(hint?.textContent);
   });
 
-  it("leaves the expanded-state collapse control to the sidebar", async () => {
-    await render(
-      WorkspaceHeader,
-      baseProps({ railHidden: false, onToggleRail: () => {} })
-    );
+  it("puts the collapse control at the bar's left edge, before the title (owner, 2026-09-28)", async () => {
+    const onToggleRail = vi.fn();
+    await render(WorkspaceHeader, baseProps({ railHidden: false, onToggleRail }));
 
-    expect(document.querySelector("[data-rail-toggle]")).toBeNull();
+    const toggle = document.querySelector<HTMLButtonElement>("header [data-rail-toggle]")!;
+    expect(toggle.dataset.railDirection).toBe("collapse");
+    expect(toggle.getAttribute("aria-label")).toBe("Collapse navigation rail");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.getAttribute("aria-controls")).toBe("workspace-rail");
+    const title = document.querySelector("header h1")!;
+    expect(toggle.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    toggle.click();
+    expect(onToggleRail).toHaveBeenCalledOnce();
   });
 
-  it("reports the expand affordance while the rail is collapsed and omits the control when unwired", async () => {
+  it("shows the expand control in the same place while the rail is collapsed", async () => {
     await render(WorkspaceHeader, baseProps({ railHidden: true, onToggleRail: () => {} }));
-    expect(
-      document.querySelector("[data-rail-toggle]")?.getAttribute("aria-label")
-    ).toBe("Expand navigation rail");
-    expect(document.querySelector("[data-rail-toggle]")?.getAttribute("aria-expanded")).toBe(
-      "false"
-    );
-    expect(document.querySelector("[data-rail-toggle]")?.getAttribute("data-rail-direction")).toBe(
-      "expand"
-    );
-    expect(document.querySelector("[data-rail-toggle]")?.querySelectorAll("svg")).toHaveLength(2);
-
-    document.body.innerHTML = "";
-    await render(WorkspaceHeader, baseProps());
-    expect(document.querySelector("[data-rail-toggle]")).toBeNull();
+    const toggle = document.querySelector<HTMLButtonElement>("header [data-rail-toggle]")!;
+    expect(toggle.dataset.railDirection).toBe("expand");
+    expect(toggle.getAttribute("aria-label")).toBe("Expand navigation rail");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("reveals the mobile search row through the animated disclosure with a correct aria wire", async () => {
@@ -169,7 +172,7 @@ describe("WorkspaceHeader", () => {
       expect(bounds.height).toBeGreaterThanOrEqual(44);
       expect(bounds.width).toBeGreaterThanOrEqual(44);
     } else {
-      expect(bounds.height).toBe(32);
+      expect(bounds.height).toBe(board(32));
       expect(getComputedStyle(newProject).minWidth).toBe("0px");
       expect(getComputedStyle(newProject).minHeight).toBe("0px");
     }

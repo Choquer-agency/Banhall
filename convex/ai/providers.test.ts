@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ActionCtx } from "../_generated/server";
 import {
   createAnthropicClient,
   normalizeProviderError,
@@ -7,6 +8,9 @@ import {
   SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE,
   RESERVED_NON_REQUEST_MS,
   CONVEX_ACTION_LIMIT_MS,
+  seedClientForModel,
+  SEED_PROVIDER_MAX_RETRIES,
+  SEED_PROVIDER_TIMEOUT_MS,
 } from "./providers";
 import { ORDERED_SECTION_ACTION_SLOTS } from "./providers";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
@@ -87,26 +91,116 @@ describe("createAnthropicClient", () => {
     expect(client.maxRetries).toBe(ANTHROPIC_MAX_RETRIES);
     expect(client.timeout).toBe(ANTHROPIC_TIMEOUT_MS);
   });
+
+  it("supports the seed-only timeout and zero-retry policy without changing defaults", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    const seed = createAnthropicClient("generation", {
+      maxRetries: SEED_PROVIDER_MAX_RETRIES,
+      timeout: SEED_PROVIDER_TIMEOUT_MS,
+    });
+    const ordinary = createAnthropicClient("generation");
+    expect(seed.maxRetries).toBe(0);
+    expect(seed.timeout).toBe(90_000);
+    expect(ordinary.maxRetries).toBe(ANTHROPIC_MAX_RETRIES);
+    expect(ordinary.timeout).toBe(ANTHROPIC_TIMEOUT_MS);
+  });
+});
+
+function providerTestContext(): ActionCtx {
+  return {
+    scheduler: { runAfter: vi.fn(async () => {}) },
+    runMutation: vi.fn(async () => {}),
+  } as unknown as ActionCtx;
+}
+
+const seedRequest = {
+  model: "claude-opus-4-8",
+  max_tokens: 1200,
+  system: "Seed policy.",
+  messages: [{ role: "user" as const, content: "Frozen seed context." }],
+};
+
+describe("seed provider HTTP policy", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("crosses the direct Anthropic request boundary once on a retryable response", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ type: "error", error: { message: "busy" } }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = seedClientForModel(providerTestContext(), "claude-opus-4-8", {
+      callSite: "generation:seeds:company_context",
+    });
+
+    await expect(client.messages.create(seedRequest)).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("crosses the OpenRouter request boundary with 90 seconds and no transport retry", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
+    const timeoutSignal = new AbortController().signal;
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(timeoutSignal);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: { message: "busy" } }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = seedClientForModel(
+      providerTestContext(),
+      "openai/gpt-5.6-luna",
+      { callSite: "generation:seedFeedback:company_context" }
+    );
+
+    await expect(
+      client.messages.create({ ...seedRequest, model: "openai/gpt-5.6-luna" })
+    ).rejects.toThrow(/status 500/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(timeout).toHaveBeenCalledWith(SEED_PROVIDER_TIMEOUT_MS);
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody).toMatchObject({
+      model: "openai/gpt-5.6-luna",
+      max_tokens: 1200,
+    });
+  });
 });
 
 // Story 2 (AD-24): single/compare sections run as separate scheduled actions;
 // each one's worst case must stay inside the same five-slot bound, and the
 // per-slot budget arithmetic above is unchanged by the split.
 describe("ordered section action budget (AD-24/AD-27)", () => {
-  it("worst case is one draft + the compression squeezes + one Self-check + one repair", () => {
+  it("worst case is one draft + the compression squeezes and targeted pass + one Self-check with its structured retry + one repair + the same compression on the repair + the final coverage check with its follow-up", () => {
     expect(ORDERED_SECTION_ACTION_SLOTS).toEqual({
       section: 1,
-      compression: COMPRESSION_REQUEST.squeezes.length,
-      selfCheck: 1,
+      compression: COMPRESSION_REQUEST.squeezes.length + 1,
+      selfCheck: 2,
       repair: 1,
+      repairCompression: COMPRESSION_REQUEST.squeezes.length + 1,
+      finalCoverage: 2,
     });
     const worstCase =
       ORDERED_SECTION_ACTION_SLOTS.section +
       ORDERED_SECTION_ACTION_SLOTS.compression +
       ORDERED_SECTION_ACTION_SLOTS.selfCheck +
-      ORDERED_SECTION_ACTION_SLOTS.repair;
-    expect(worstCase).toBe(1 + COMPRESSION_REQUEST.squeezes.length + 1 + 1);
-    expect(worstCase).toBe(SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE);
+      ORDERED_SECTION_ACTION_SLOTS.repair +
+      ORDERED_SECTION_ACTION_SLOTS.repairCompression +
+      ORDERED_SECTION_ACTION_SLOTS.finalCoverage;
+    // 1 + 3 + 2 + 1 + 3 + 2 (review P3-1, 2026-09-28 third; the targeted
+    // pass, 2026-09-28 fifth): the action deadline, not the slot count,
+    // bounds the wall time.
+    expect(worstCase).toBe(1 + 2 * (COMPRESSION_REQUEST.squeezes.length + 1) + 2 + 1 + 2);
+    expect(worstCase).toBe(12);
   });
 
   it("keeps the per-action slot arithmetic: one slot, every attempt plus the reserve, fits the action", () => {

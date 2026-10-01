@@ -41,4 +41,19 @@ describe("independent passage revisions", () => {
       { find: "\uE000", replaceWith: "Label" },
     ])).toEqual({ ok: true, count: 3, doc: doc(["Overview.", "1", "Label"]) });
   });
+
+  it("names Section headings when a passage's only match is heading text", () => {
+    const withHeading = { type: "doc", content: [
+      { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Line 244 — Work Performed" }] },
+      { type: "paragraph", content: [{ type: "text", text: "Trials held one condition." }] },
+    ] };
+    const refused = applyPassageEdits(withHeading, [{ find: "Work Performed", replaceWith: "Experiments" }]);
+    expect(refused).toMatchObject({ ok: false, reason: expect.stringContaining("Section headings can't be edited.") });
+    // Text in both a heading and the body applies to the one body passage.
+    const both = { type: "doc", content: [
+      ...withHeading.content,
+      { type: "paragraph", content: [{ type: "text", text: "The work performed in phase 2 cycled coupons." }] },
+    ] };
+    expect(applyPassageEdits(both, [{ find: "work performed", replaceWith: "tests run" }])).toMatchObject({ ok: true, count: 1 });
+  });
 });

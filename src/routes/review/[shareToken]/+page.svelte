@@ -109,7 +109,7 @@
          but no internal navigation (access is via the share token). -->
     <header class="sticky top-0 z-50 w-full">
       <div class="w-full bg-navy">
-        <div class="mx-auto flex h-13 w-full max-w-[1100px] items-center justify-between gap-3 px-6">
+        <div class="mx-auto flex h-13 w-full max-w-[68.75rem] items-center justify-between gap-3 px-6">
           <div class="flex min-w-0 items-center gap-2.5">
             <img src="/logo.png" alt="Banhall" width="84" height="84" class="-my-5 flex-shrink-0 brightness-0 invert" />
             <div class="min-w-0">
@@ -133,9 +133,9 @@
 
     <!-- Main content with margin comments — same layout as writer page -->
     <div bind:this={scrollEl} class="flex-1 overflow-y-auto">
-      <div class="relative mx-auto max-w-[1100px] px-6 py-8">
+      <div class="relative mx-auto max-w-[68.75rem] px-6 py-8">
         <!-- Editor column -->
-        <div class="max-w-[680px]">
+        <div class="max-w-[42.5rem]">
           <ReadOnlyEditor
             bind:this={editorComponent}
             content={report.content}
@@ -149,7 +149,7 @@
         </div>
 
         <!-- Margin comments — positioned to the right -->
-        <div class="absolute top-8 right-6" style="left: calc(680px + 2rem + 1.5rem); width: 256px">
+        <div class="absolute top-8 right-6" style="left: calc(42.5rem + 2rem + 1.5rem); width: 16rem">
           <MarginComments
             projectId={project._id}
             reportId={report._id}

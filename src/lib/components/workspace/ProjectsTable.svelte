@@ -44,6 +44,8 @@
       kindLabel: string;
       dueDate?: string;
     };
+    /** The project is mid-deletion (server-projected); hides Duplicate. */
+    deleting?: boolean;
   };
 
   export type ProjectsTableColumns = Record<ProjectColumnId, boolean>;
@@ -255,7 +257,7 @@
                           {:else}
                             <span class="inline-flex items-center gap-1.5">
                               <Badge status={row.legacyStatus} dot />
-                              <span class="text-[11px] text-ink-faint">Legacy status</span>
+                              <span class="text-[0.6875rem] text-ink-faint">Legacy status</span>
                             </span>
                           {/if}
                         </div>

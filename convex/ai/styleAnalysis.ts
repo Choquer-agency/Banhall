@@ -10,18 +10,20 @@
  * silently overridden.
  */
 import { action } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { v } from "convex/values";
+import { domainError, sha256 } from "../lib/contracts";
 import { z } from "zod";
-import { MODEL } from "./model";
-import { instrumentedAnthropic } from "./instrument";
+import { clientForRole } from "./providers";
 import { generateStructured } from "./structured";
+import { startActionDeadline } from "./actionDeadline";
 import {
   STYLE_OVERRIDE_KEYS,
   STYLE_OVERRIDE_META,
   type StyleOverrideKey,
 } from "../../shared/styleOverrides";
 import { HOUSE_RULE_TEXTS, LOCKED_RULES } from "../../shared/houseRules";
-import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
+import { INSTRUCTIONS_TOO_LONG_MESSAGE, MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
 
 // Same cap as the saved profile so no part of a saved document goes unread.
 const MAX_INPUT_CHARS = MAX_INSTRUCTIONS_CHARS;
@@ -59,9 +61,9 @@ export const styleAnalysisSchema: z.ZodType<StyleAnalysis> = z.object({
  */
 export const STYLE_ANALYSIS_SYSTEM_PROMPT = `You classify a technical writer's personal style instructions for an SR&ED report-writing tool.
 
-The tool has six WAIVABLE house-style categories and a LOCKED CRA-compliance tier. For each category, decide whether the writer's document states its own rules in that area — rules that would replace or conflict with the default house rule (addressed=true), or merely compatible additions/nothing on that topic (addressed=false). When addressed=true, quote the shortest decisive phrase from the document as evidence (verbatim substring); otherwise evidence is null.
+The tool has six WAIVABLE house-style categories and a LOCKED CRA-compliance tier. For each category, decide whether the writer's document states its own rules in that area: rules that would replace or conflict with the default house rule (addressed=true), or merely compatible additions/nothing on that topic (addressed=false). When addressed=true, quote the shortest decisive phrase from the document as evidence (verbatim substring); otherwise evidence is null.
 
-Separately, list any parts of the document that conflict with the LOCKED tier — instructions the tool can never follow (e.g. a different section structure, skipping the hypothesis, allowing fabricated details, exceeding form length limits). For each, quote the conflicting excerpt verbatim and name the locked rule it collides with. Do not list waivable-category matter here.
+Separately, list any parts of the document that conflict with the LOCKED tier: instructions the tool can never follow (e.g. a different section structure, skipping the hypothesis, allowing fabricated details, exceeding form length limits). For each, quote the conflicting excerpt verbatim and name the locked rule it collides with. Do not list waivable-category matter here.
 
 Be conservative: only mark addressed=true when the document genuinely legislates that area; only report a locked conflict when the instruction cannot be honored at all.`;
 
@@ -72,7 +74,7 @@ export function buildStyleAnalysisPrompt(instructions: string): {
 } {
   const categoryCatalog = STYLE_OVERRIDE_KEYS.map(
     (key) =>
-      `### ${key} — ${STYLE_OVERRIDE_META[key].label}\nDefault house rule the writer may replace:\n${HOUSE_RULE_TEXTS[key]}`
+      `### ${key}: ${STYLE_OVERRIDE_META[key].label}\nDefault house rule the writer may replace:\n${HOUSE_RULE_TEXTS[key]}`
   ).join("\n\n");
   const lockedCatalog = LOCKED_RULES.map(
     (rule) => `- ${rule.title}: ${rule.summary}`
@@ -127,14 +129,39 @@ export const ANALYSIS_TOOL_SCHEMA = {
   required: ["categories", "lockedConflicts"],
 };
 
+/**
+ * Round 2 (I2): with `persist`, the result is stored as the profile's
+ * "What they cover" coverage, but only while the analysed text is still the
+ * saved text (writerProfiles.recordMyCoverage compares hashes). The page
+ * persists after a save that changed the text and on "Check again".
+ */
 export const analyzeMyInstructions = action({
-  args: { text: v.string() },
-  handler: async (ctx, args): Promise<StyleAnalysis> => {
+  args: {
+    text: v.string(),
+    persist: v.optional(v.boolean()),
+    // Audit wave 2: the page's automatic check after a save, as opposed to
+    // "Check again". Stored coverage of the same saved text is reused.
+    auto: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<StyleAnalysis & { reused?: true }> => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts).
+    startActionDeadline(ctx);
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Authentication required");
     const text = args.text.trim();
+    // Audit wave 2: the Settings limit holds here too, and the caller needs
+    // an active internal role and one of 20 checks an hour.
+    if (text.length > MAX_INSTRUCTIONS_CHARS) domainError("INVALID_INPUT", INSTRUCTIONS_TOO_LONG_MESSAGE);
+    const textHash = await sha256(text);
+    const stored = await ctx.runMutation(internal.writerProfiles.admitStyleAnalysis, {
+      callsModel: text.length > 0,
+      auto: args.persist === true && args.auto === true,
+      textHash,
+    });
+    if (stored) return { categories: stored, lockedConflicts: [], reused: true };
+    let result: StyleAnalysis;
     if (!text) {
-      return {
+      result = {
         categories: Object.fromEntries(
           STYLE_OVERRIDE_KEYS.map((key) => [
             key,
@@ -143,22 +170,30 @@ export const analyzeMyInstructions = action({
         ) as StyleAnalysis["categories"],
         lockedConflicts: [],
       };
+    } else {
+      // Model catalog: settings analysis runs on the analysis role's model.
+      const { client, model } = await clientForRole(ctx, "analysis", {
+        callSite: "settings:style_analysis",
+        userId: identity.tokenIdentifier,
+      });
+      const { system, user } = buildStyleAnalysisPrompt(text);
+      result = await generateStructured<StyleAnalysis>(client, {
+        system,
+        user,
+        toolName: STYLE_ANALYSIS_REQUEST.toolName,
+        description: STYLE_ANALYSIS_REQUEST.description,
+        schema: ANALYSIS_TOOL_SCHEMA,
+        maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
+        model,
+        validate: styleAnalysisSchema,
+      });
     }
-    const anthropic = instrumentedAnthropic(ctx, {
-      callSite: "settings:style_analysis",
-      capability: "generation",
-      userId: identity.tokenIdentifier,
-    });
-    const { system, user } = buildStyleAnalysisPrompt(text);
-    return await generateStructured<StyleAnalysis>(anthropic, {
-      system,
-      user,
-      toolName: STYLE_ANALYSIS_REQUEST.toolName,
-      description: STYLE_ANALYSIS_REQUEST.description,
-      schema: ANALYSIS_TOOL_SCHEMA,
-      maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
-      model: MODEL,
-      validate: styleAnalysisSchema,
-    });
+    if (args.persist === true) {
+      await ctx.runMutation(internal.writerProfiles.recordMyCoverage, {
+        textHash,
+        categories: result.categories,
+      });
+    }
+    return result;
   },
 });

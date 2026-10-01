@@ -15,9 +15,14 @@ import {
 } from "@convex-dev/workflow";
 import { requireInternalProjectAccess, getInternalProjectAccessOrNull } from "./lib/auth";
 import { domainError } from "./lib/contracts";
+import { limitUserAction } from "./lib/aiRateLimits";
+import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireOpenRouterConfigured } from "./lib/providerConfig";
 import { scrubBannedWordsUnlessWaived } from "./lib/reportEdits";
 import { getEffectiveWriterStyle } from "./writerProfiles";
+import { transcriptPlaceholdersEnabled } from "./appSettings";
+import { listProjectTranscripts } from "./lib/transcripts";
+import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { researchWorkflowManager } from "./ai/research/manager";
 import {
   MAX_CONTEXT_TEXT,
@@ -115,7 +120,22 @@ export const startResearch = mutation({
     if (recent.some((session) => ACTIVE_STATUSES.has(session.status))) {
       domainError("INVALID_INPUT", "Research is already running for this report");
     }
+    // Audit wave 2: 20 research sessions an hour per user.
+    await limitUserAction(ctx, "researchPerUser", user._id);
 
+    // Decision 26 (audit wave 2): the same placeholder map as generation
+    // calls, with every transcript speaker, first and last name parts and
+    // the firm's names, frozen on the session so the reviewer's prompt is
+    // masked with it and its answer restored.
+    const placeholders = (await transcriptPlaceholdersEnabled(ctx))
+      ? [
+          ...(await projectPlaceholderMap(ctx, project, await listProjectTranscripts(ctx, project._id), [
+            selectedText,
+            surroundingContext,
+            instruction,
+          ])),
+        ]
+      : [];
     const knownNames = [
       project.clientName,
       project.writer,
@@ -131,6 +151,7 @@ export const startResearch = mutation({
       scienceCode: project.scienceCode,
       fiscalYear: fiscalYearLabel(project),
       knownNames,
+      placeholders,
     });
     const now = Date.now();
     const sessionId = await ctx.db.insert("researchSessions", {
@@ -143,6 +164,7 @@ export const startResearch = mutation({
       surroundingContext,
       instruction,
       externalBrief,
+      ...(placeholders.length > 0 ? { placeholders } : {}),
       reportRevisionNumber: report.revisionNumber ?? 0,
       status: "queued",
       createdAt: now,
@@ -333,6 +355,7 @@ export const collectProjectEvidence = internalMutation({
   handler: async (ctx, args): Promise<null> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.status === "canceled") return null;
+    if (await isProjectDeleting(ctx, session.projectId)) return null;
     const query = `${session.instruction}\n${session.selectedText}`;
     const evidenceQuery = projectEvidenceSearchQuery(query);
     const documents = evidenceQuery
@@ -383,6 +406,7 @@ export const markResearchStarted = internalMutation({
   handler: async (ctx, args): Promise<boolean> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.status === "canceled") return false;
+    if (await isProjectDeleting(ctx, session.projectId)) return false;
     if (session.status === "queued") {
       await ctx.db.patch(session._id, { status: "researching", updatedAt: Date.now() });
     }
@@ -396,6 +420,7 @@ export const markResearchReviewing = internalMutation({
   handler: async (ctx, args): Promise<boolean> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.status === "canceled") return false;
+    if (await isProjectDeleting(ctx, session.projectId)) return false;
     await ctx.db.patch(session._id, { status: "reviewing", updatedAt: Date.now() });
     return true;
   },
@@ -461,6 +486,9 @@ export const reserveRun = internalMutation({
   handler: async (ctx, args): Promise<{ runId: Id<"researchRuns">; shouldRun: boolean }> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session) throw new Error("Research session not found");
+    if (await isProjectDeleting(ctx, session.projectId)) {
+      domainError("INVALID_STATE", "Research project is being deleted");
+    }
     const existing = await ctx.db
       .query("researchRuns")
       .withIndex("by_sessionId_and_provider", (q) =>
@@ -503,6 +531,7 @@ export const completeResearcherRun = internalMutation({
   handler: async (ctx, args): Promise<null> => {
     const run = await ctx.db.get(args.runId);
     if (!run || run.provider !== args.provider) throw new Error("Research run mismatch");
+    if (await isProjectDeleting(ctx, run.projectId)) return null;
     const now = Date.now();
     await ctx.db.patch(run._id, {
       status: "completed",
@@ -583,6 +612,7 @@ export const failRun = internalMutation({
   handler: async (ctx, args): Promise<null> => {
     const run = await ctx.db.get(args.runId);
     if (!run || run.status === "completed") return null;
+    if (await isProjectDeleting(ctx, run.projectId)) return null;
     await ctx.db.patch(run._id, {
       status: "failed",
       errorMessage: args.errorMessage.slice(0, 2_000),
@@ -608,6 +638,7 @@ export const saveBrainEvidence = internalMutation({
   handler: async (ctx, args): Promise<null> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.status === "canceled") return null;
+    if (await isProjectDeleting(ctx, session.projectId)) return null;
     const now = Date.now();
     for (const source of args.sources.slice(0, 3)) {
       await ctx.db.insert("researchSources", {
@@ -642,6 +673,7 @@ export const completeReviewerRun = internalMutation({
   handler: async (ctx, args): Promise<null> => {
     const run = await ctx.db.get(args.runId);
     if (!run || run.provider !== "reviewer") throw new Error("Reviewer run mismatch");
+    if (await isProjectDeleting(ctx, run.projectId)) return null;
     await ctx.db.patch(run._id, {
       status: "completed",
       responseText: args.responseText.slice(0, 100_000),
@@ -677,6 +709,7 @@ export const saveReviewResult = internalMutation({
   handler: async (ctx, args): Promise<null> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.status === "canceled") return null;
+    if (await isProjectDeleting(ctx, session.projectId)) return null;
     const now = Date.now();
     // Snapshot provenance for an applied edit. Brain patterns guide voice
     // only — never evidence — so they don't count; chatV2.applyProposal copies
@@ -778,6 +811,7 @@ export const failSession = internalMutation({
     ) {
       return null;
     }
+    if (await isProjectDeleting(ctx, session.projectId)) return null;
     await ctx.db.patch(session._id, {
       status: "failed",
       errorMessage: args.errorMessage.slice(0, 2_000),
@@ -805,6 +839,7 @@ export const completeResearchWorkflow = internalMutation({
     ) {
       return null;
     }
+    if (await isProjectDeleting(ctx, session.projectId)) return null;
     if (args.result.kind === "canceled") {
       await ctx.db.patch(session._id, {
         status: "canceled",

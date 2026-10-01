@@ -13,6 +13,7 @@
   // dashed-border cue (text label lives on the column chip).
   import { resolve } from "$app/paths";
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
+  import DuplicateProjectButton from "$lib/components/workspace/DuplicateProjectButton.svelte";
   import { generationActivityLabel } from "$lib/dashboard/generationActivity";
   import {
     STAGE_CARD_THEMES,
@@ -78,7 +79,7 @@
 
 <article
   data-project-board-card
-  class={`group relative flex min-h-40 max-w-full cursor-pointer flex-col overflow-hidden rounded-xl border shadow-sm transition-colors motion-reduce:transition-none ${theme.footerBg} ${paused ? "border-dashed border-violet-300" : "border-transparent"} ${theme.hoverBorder} ${theme.focusWithinBorder}`}
+  class={`group group/project relative flex min-h-40 max-w-full cursor-pointer flex-col overflow-hidden rounded-xl border shadow-sm transition-colors motion-reduce:transition-none ${theme.footerBg} ${paused ? "border-dashed border-violet-300" : "border-transparent"} ${theme.hoverBorder} ${theme.focusWithinBorder}`}
 >
   <header data-card-header class="flex min-w-0 items-start gap-2 rounded-t-xl px-2.5 py-2">
     {#if row.projectNumber}
@@ -98,6 +99,9 @@
       onclick={() => onOpen?.()}
       class={`block min-w-0 flex-1 truncate rounded-md text-[0.8125rem] font-medium leading-5 ${theme.headerText} after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy`}
     >{row.title}</a>
+    <!-- Hover or focus reveals Duplicate; it keeps its place in the header
+         either way, so the title never reflows. -->
+    <DuplicateProjectButton projectId={row.id} projectTitle={row.title} deleting={row.deleting} class="-my-1" />
   </header>
 
   {#if row.sredTitle}
@@ -107,7 +111,7 @@
   {/if}
 
   <div data-card-content class="flex flex-1 p-0">
-    <div class="m-0.5 flex-1 space-y-1 overflow-hidden rounded-[10px] bg-surface p-2.5 text-xs leading-[1.15rem] text-ink-secondary shadow-[0_0_1px_0_rgba(0,0,0,0.05)]">
+    <div class="m-0.5 flex-1 space-y-1 overflow-hidden rounded-[0.625rem] bg-surface p-2.5 text-xs leading-[1.15rem] text-ink-secondary shadow-[0_0_1px_0_rgba(0,0,0,0.05)]">
       {#if showClient}
         <div data-card-field="client" class="flex min-w-0 items-start gap-2">
           <svg class="mt-0.5 h-3 w-3 shrink-0 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" /></svg>

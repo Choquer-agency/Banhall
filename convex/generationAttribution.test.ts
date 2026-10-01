@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
-import { convexTest } from "convex-test";
+import { convexTest, type TestConvex } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal, api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -18,9 +19,11 @@ import {
   hashPromptProgram,
 } from "./ai/promptProgram";
 import schema from "./schema";
+import { allGenerationProgress } from "./lib/generationProgress";
 import { sha256 } from "./lib/contracts";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { NO_STYLE_OVERRIDES } from "../shared/styleOverrides";
+import { agentOutputsOf } from "./lib/generationOutputs";
 
 const modules = import.meta.glob("./**/*.ts");
 const AUTH_ID = "generation-attribution-writer";
@@ -197,6 +200,7 @@ async function insertProjectFixture(t: ReturnType<typeof convexTest>) {
       clientName: "Test client",
       status: "draft",
       createdBy: userId,
+      ownerId: userId,
       shareToken: "generation-attribution-token",
       createdAt: now,
       updatedAt: now,
@@ -337,6 +341,7 @@ async function insertCompletedPostQaFixture(
 describe("generation provenance", () => {
   it("stamps the same current program hash for distinct runtime inputs before any provider handoff", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const runtimeRows = await t.run(async (ctx) => {
       const now = Date.now();
       const userId = await ctx.db.insert("users", {
@@ -368,6 +373,7 @@ describe("generation provenance", () => {
           scienceCode: `invalid-science-code-${index + 1}`,
           status: "draft",
           createdBy: userId,
+          ownerId: userId,
           shareToken: `stable-program-${index + 1}`,
           createdAt: now + index,
           updatedAt: now + index,
@@ -466,6 +472,7 @@ describe("generation provenance", () => {
 
   it("initializes a new reservation with an empty digest union and stamps its version during begin", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const generationId = await t
       .withIdentity({ subject: AUTH_ID })
@@ -510,6 +517,7 @@ describe("generation provenance", () => {
 
   it("keeps legacy reservations compatible and does not backfill provenance", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const legacyId = await t.run(async (ctx) => {
       const generationId = await ctx.db.insert("generations", {
@@ -547,6 +555,7 @@ describe("generation provenance", () => {
 
   it("unions only handed-off digest ids, deduplicates races, and permits post-terminal QA", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const [styleId, qaId, postQaId, blankFetchedId] = await Promise.all([
       insertDigest(t, {
@@ -637,6 +646,7 @@ describe("generation provenance", () => {
 
   it("creates retry generations with independent provenance", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const oldDigestId = await insertDigest(t, {
       kind: "draft_style",
@@ -733,6 +743,7 @@ describe("generation provenance", () => {
 describe("generation payload provenance", () => {
   it("omits blank digest ids at actual pipeline creates and pairs nonblank ids with only their payloads", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const [blankStyleId, blankQaId, styleId, qaId] = await Promise.all([
       insertDigest(t, {
         kind: "draft_style",
@@ -834,6 +845,7 @@ describe("generation payload provenance", () => {
     vi.useFakeTimers();
     try {
       const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
       const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
       await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
       const input = await t.query(internal.generations.getPostQaInput, { generationId: fixture.generationId });
@@ -854,8 +866,8 @@ describe("generation payload provenance", () => {
       await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
       expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("failed");
       expect(await t.run(ctx => ctx.db.query("qaFindings").collect())).not.toEqual(expect.arrayContaining([expect.objectContaining({ check: "cra_methodology" })]));
-      const beforeRetry = await t.run(ctx => ctx.db.get(fixture.generationId));
-      expect(JSON.parse(beforeRetry?.agentOutputs ?? "{}").qa).toBeUndefined();
+      const beforeRetry = await t.run(ctx => agentOutputsOf(ctx, fixture.generationId));
+      expect(JSON.parse(beforeRetry ?? "{}").qa).toBeUndefined();
       vi.stubGlobal("fetch", successfulOpenRouterFetch([], { why_how_why_intact: true }));
       await t.withIdentity({ subject: AUTH_ID }).mutation(api.generations.requestReportQa, { generationId: fixture.generationId });
       const retry = await t.run(ctx => ctx.db.get(fixture.generationId));
@@ -884,6 +896,7 @@ describe("generation payload provenance", () => {
     vi.useFakeTimers();
     try {
       const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
       const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
       await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
       const report = await t.run(ctx => ctx.db.query("reports").unique());
@@ -906,6 +919,7 @@ describe("generation payload provenance", () => {
 
   it("iterative QA captures all current sections instead of frozen approved runs", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
     const content = JSON.stringify(buildTiptapDocument("Current report", "Current uncertainty", "Current investigation", "Current advancement"));
     const reportId = await t.run(async ctx => {
@@ -934,6 +948,7 @@ describe("generation payload provenance", () => {
 
   it("post-QA provider methodology failures persist and block current readiness and publishing", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
     await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
     vi.stubGlobal("fetch", successfulOpenRouterFetch([], { why_how_why_intact: false }));
@@ -951,6 +966,7 @@ describe("generation payload provenance", () => {
   it("fetches but omits a selected blank post-QA digest through the real provider path", async () => {
     const currentVersion = await currentPromptVersion();
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertCompletedPostQaFixture(t, {
       promptVersion: currentVersion,
       calibrationContent: " \n\t ",
@@ -990,6 +1006,7 @@ describe("generation payload provenance", () => {
     });
     expect(priorDeploymentVersion).not.toBe(currentVersion);
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const liveCalibration =
       "LIVE CALIBRATION SELECTED AFTER THIS GENERATION COMPLETED";
     const fixture = await insertCompletedPostQaFixture(t, {
@@ -1036,6 +1053,7 @@ describe("generation payload provenance", () => {
 
   it("keeps live calibration selection for legacy completed post-QA without backfilling provenance", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const liveCalibration = "LIVE CALIBRATION FOR A LEGACY COMPLETED REPORT";
     const fixture = await insertCompletedPostQaFixture(t, {
       promptVersion: PROMPT_VERSION,
@@ -1072,6 +1090,7 @@ describe("generation payload provenance", () => {
 describe("generation-owned usage persistence", () => {
   it("persists generation and candidate attribution and reads it through by_generationId", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const ids = await t.run(async (ctx) => {
       const generationId = await ctx.db.insert("generations", {
@@ -1216,6 +1235,7 @@ describe("iterative style digest provenance", () => {
 
   it("freezes the nonblank style digest id beside its guidance and restores it for section input", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { generationId } = await insertIterativeGeneration(t);
     const styleId = await insertDigest(t, {
       kind: "draft_style",
@@ -1245,6 +1265,7 @@ describe("iterative style digest provenance", () => {
 
   it("restores no style digest id from a legacy or blank-style artifact", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { generationId } = await insertIterativeGeneration(t);
 
     await t.mutation(internal.generations.saveIterativeArtifacts, {
@@ -1290,6 +1311,7 @@ describe("generation entry handoffs through the real actions", () => {
 
   it("pairs scheduled candidate digest ids with their payloads and attributes usage to the candidate run", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const styleText = "CANDIDATE STYLE DIGEST TEXT";
     const qaText = "CANDIDATE QA CALIBRATION TEXT";
@@ -1473,6 +1495,7 @@ describe("generation entry handoffs through the real actions", () => {
 
   it("declares the frozen style digest at the iterative section handoff and attributes its usage", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const frozenStyle = "FROZEN ITERATIVE STYLE TEXT";
     const styleId = await insertDigest(t, {
@@ -1559,6 +1582,20 @@ describe("generation entry handoffs through the real actions", () => {
 });
 
 describe("getGeneration attributable cost", () => {
+  // Cost, the prompt version and learned-guidance ids are usage
+  // administration: admins only (security wave 1, a2 P2-7).
+  async function adminAuthId(t: TestConvex<typeof schema>): Promise<string> {
+    const authId = "generation-attribution-admin";
+    await t.run(async (ctx) => {
+      const existing = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) => q.eq("authId", authId))
+        .unique();
+      if (!existing) await ctx.db.insert("users", { authId, role: "admin" });
+    });
+    return authId;
+  }
+
   async function seedUsage(
     t: ReturnType<typeof convexTest>,
     rows: Array<{
@@ -1587,6 +1624,7 @@ describe("getGeneration attributable cost", () => {
 
   it("sums every recorded usage row, including failed and retried calls, and ignores other generations' rows", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const digestId = await insertDigest(t, {
       kind: "draft_style",
@@ -1635,14 +1673,14 @@ describe("getGeneration attributable cost", () => {
     ]);
 
     const view = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId });
     expect(view?.cost).toBe(0.875);
     expect(view?.promptVersion).toBe(PROMPT_VERSION);
     expect(view?.learningDigestIds).toEqual([digestId]);
 
     const otherView = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, {
         generationId: otherGenerationId,
       });
@@ -1652,6 +1690,7 @@ describe("getGeneration attributable cost", () => {
 
   it("still sums recorded rows for a tracked generation that failed", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const digestId = await insertDigest(t, {
       kind: "qa_calibration",
@@ -1678,7 +1717,7 @@ describe("getGeneration attributable cost", () => {
     ]);
 
     const view = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId: failedId });
     expect(view?.status).toBe("failed");
     expect(view?.cost).toBe(0.75);
@@ -1688,6 +1727,7 @@ describe("getGeneration attributable cost", () => {
 
   it("reports zero, not null, for a tracked generation with no usage rows", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const generationId = await t.run((ctx) =>
       ctx.db.insert("generations", {
@@ -1702,7 +1742,7 @@ describe("getGeneration attributable cost", () => {
     );
 
     const view = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId });
     expect(view?.cost).toBe(0);
     expect(view?.cost).not.toBeNull();
@@ -1712,6 +1752,7 @@ describe("getGeneration attributable cost", () => {
 
   it("returns null provenance for a legacy generation even when usage rows exist", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const legacyId = await t.run((ctx) =>
       ctx.db.insert("generations", {
@@ -1727,7 +1768,7 @@ describe("getGeneration attributable cost", () => {
     ]);
 
     const view = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId: legacyId });
     expect(view).not.toBeNull();
     expect(view?.promptVersion).toBeNull();
@@ -1737,9 +1778,10 @@ describe("getGeneration attributable cost", () => {
 
   it("treats a new-format reservation as untracked until beginGeneration stamps the hash", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const generationId = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .mutation(api.generations.requestGeneration, {
         projectId: fixture.projectId,
         candidateMode: "single",
@@ -1750,7 +1792,7 @@ describe("getGeneration attributable cost", () => {
     expect(reserved?.promptVersion).toBeUndefined();
 
     const view = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId });
     expect(view?.promptVersion).toBeNull();
     expect(view?.learningDigestIds).toBeNull();
@@ -1766,7 +1808,7 @@ describe("getGeneration attributable cost", () => {
       }),
     ).resolves.toBe(true);
     const stamped = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId });
     expect(stamped?.promptVersion).toBe(PROMPT_VERSION);
     expect(stamped?.learningDigestIds).toEqual([]);
@@ -1775,6 +1817,7 @@ describe("getGeneration attributable cost", () => {
 
   it("reports the partial sum and partially grown digest union while a generation is in flight", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const [firstDigestId, secondDigestId] = await Promise.all([
       insertDigest(t, { kind: "qa_calibration", content: "CAL", ordinal: 910 }),
@@ -1799,7 +1842,7 @@ describe("getGeneration attributable cost", () => {
     ]);
 
     const midFlight = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId });
     expect(midFlight?.status).toBe("running");
     expect(midFlight?.cost).toBe(0.2);
@@ -1813,7 +1856,7 @@ describe("getGeneration attributable cost", () => {
       { generationId, callSite: "generation:section:242", costUsd: 0.3, createdAt: 2 },
     ]);
     const later = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId });
     expect(later?.cost).toBeCloseTo(0.5, 10);
     expect(later?.learningDigestIds).toEqual([firstDigestId, secondDigestId]);
@@ -1821,6 +1864,7 @@ describe("getGeneration attributable cost", () => {
 
   it("serves an admin who did not create the project and still returns null for unauthorized callers", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const generationId = await t.run(async (ctx) => {
       await ctx.db.insert("users", {
@@ -1881,7 +1925,7 @@ describe("getGeneration attributable cost", () => {
     await t.run((ctx) => ctx.db.delete(generationId));
     expect(
       await t
-        .withIdentity({ subject: AUTH_ID })
+        .withIdentity({ subject: await adminAuthId(t) })
         .query(api.generations.getGeneration, { generationId }),
     ).toBeNull();
   });
@@ -1910,6 +1954,7 @@ async function insertTwoTranscriptFixture(
       clientName: "Test client",
       status: "generating",
       createdBy: userId,
+      ownerId: userId,
       shareToken: "two-transcript-token",
       createdAt: now,
       updatedAt: now,
@@ -1948,6 +1993,7 @@ async function insertTwoTranscriptFixture(
 describe("provenance sets on generated report artifacts (AC1)", () => {
   it("stamps the frozen set on the report and its generated snapshot", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { now, projectId, generationId, transcriptIds } =
       await insertTwoTranscriptFixture(t, {
         candidateMode: "single",
@@ -1999,6 +2045,7 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
 
   it("stamps the frozen set on a ghost draft that lands after its generation completed", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { now, projectId, generationId, transcriptIds } =
       await insertTwoTranscriptFixture(t, {
         candidateMode: "iterative",
@@ -2046,6 +2093,7 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
 
   it("stamps the frozen set on the iterative report and its ghost comparison snapshot", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { now, projectId, generationId, transcriptIds } =
       await insertTwoTranscriptFixture(t, {
         candidateMode: "iterative",
@@ -2189,6 +2237,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
         clientName: "Test client",
         status: "draft",
         createdBy: userId,
+        ownerId: userId,
         shareToken: `budget-record-${candidateMode}`,
         createdAt: now,
         updatedAt: now,
@@ -2317,14 +2366,16 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
     "the %s entry action applies the admin-tuned budget and tells the writer what it cut",
     async (_label, action, candidateMode) => {
       const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
       const { generationId } = await reservedGenerationWithSources(
         t,
         candidateMode,
       );
-      // 100 tokens total; a 1-token (4-char) document cap cuts the notes.
+      // 100 tokens total; a 2-token (8-char) document cap cuts the notes,
+      // at a word boundary ("Frozen w" backs off to "Frozen ", 2026-09-29).
       await writeBudgetSettings(t, {
         "ai.analyzerContextBudgetTokens": "100",
-        "ai.analyzerDocumentBudgetTokens": "1",
+        "ai.analyzerDocumentBudgetTokens": "2",
       });
       const requests: OpenRouterRequest[] = [];
       vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
@@ -2349,7 +2400,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
       expect(documentRow.contextBudget).toEqual({
         budgetTokens: 100,
         included: true,
-        includedLength: 4,
+        includedLength: 7,
         truncated: true,
         maxDocuments: 12,
       });
@@ -2357,18 +2408,18 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
       expect(documentRow.content).toBe(CANDIDATE_DOCUMENT_BODY);
       expect(documentRow.truncated).toBe(false);
 
-      const generation = await t.run((ctx) => ctx.db.get(generationId));
-      expect(generation?.progressLog).toContain(
+      const progress = await t.run((ctx) => allGenerationProgress(ctx, generationId));
+      expect(progress).toContain(
         "Using 1 frozen contextual document(s), weighted by SR&ED priority.",
       );
-      expect(generation?.progressLog).toContain(
+      expect(progress).toContain(
         "Context budget (100 tokens) shortened notes.md.",
       );
 
       {
         const userText = analyzerUserTextOf(requests);
         expect(userText).toContain(
-          `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 4)}\n[TRUNCATED: 38 of 42 characters omitted to fit the context budget.]\n--- END`,
+          `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 7)}\n[TRUNCATED: 35 of 42 characters omitted to fit the context budget.]\n--- END`,
         );
         expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
       }
@@ -2377,6 +2428,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
 
   it("a candidate sends the budget it was scheduled with, not a later retune", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { generationId } = await reservedGenerationWithSources(t, "single");
     const candidateRunId = await t.run(async (ctx) => {
       const generation = (await ctx.db.get(generationId))!;
@@ -2411,6 +2463,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
     // The transition window: a candidate queued before `contextBudget` was in
     // the scheduler payload must still honour the settings, not the defaults.
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { generationId } = await reservedGenerationWithSources(t, "single");
     const candidateRunId = await t.run(async (ctx) => {
       const generation = (await ctx.db.get(generationId))!;
@@ -2424,7 +2477,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
         queuedAt: Date.now(),
       });
     });
-    await writeBudgetSettings(t, { "ai.analyzerDocumentBudgetTokens": "1" });
+    await writeBudgetSettings(t, { "ai.analyzerDocumentBudgetTokens": "2" });
     const requests: OpenRouterRequest[] = [];
     vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
     await t.action(internal.ai.pipeline.generateCandidate, {
@@ -2434,7 +2487,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
     });
     const userText = analyzerUserTextOf(requests);
     expect(userText).toContain(
-      `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 4)}\n[TRUNCATED: 38 of 42 characters omitted to fit the context budget.]\n--- END`,
+      `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 7)}\n[TRUNCATED: 35 of 42 characters omitted to fit the context budget.]\n--- END`,
     );
     expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
   });
@@ -2450,6 +2503,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
     "the %s entry action analyzes and records the digest rows in digest mode, not the full text",
     async (_label, action, candidateMode) => {
       const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
       const { generationId } = await reservedGenerationWithSources(
         t,
         candidateMode,
@@ -2503,6 +2557,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
     "the %s entry action patches contextBudget onto every frozen source",
     async (_label, action, candidateMode) => {
       const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
       const { generationId } = await reservedGenerationWithSources(
         t,
         candidateMode,

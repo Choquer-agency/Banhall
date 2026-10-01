@@ -1,3 +1,4 @@
+import { requireProjectSetUp } from "./lib/intakeDrafts";
 import {
   query,
   mutation,
@@ -6,13 +7,24 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
   getInternalProjectAccessOrNull,
   requireInternalProjectAccess,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
+import { limitUserAction } from "./lib/aiRateLimits";
+import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
-import { projectTranscriptPromptText } from "./lib/transcripts";
+import {
+  buildTranscriptPromptText,
+  listProjectTranscripts,
+  transcriptLabel,
+} from "./lib/transcripts";
+import { liveFactPacksApply } from "./lib/transcriptFactRows";
+import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
+import { transcriptFactsMode, transcriptPlaceholdersEnabled } from "./appSettings";
+import { excludedIdsArgs, validatedExcludedSources } from "./lib/generations/reservation";
 /**
  * BNH-39: PD review mode. A review-mode project uploads an existing written PD
  * (stored in projectDocuments, source "review_pd"); these functions run the AI
@@ -26,10 +38,19 @@ export const startPdReview = mutation({
   args: {
     projectId: v.id("projects"),
     documentId: v.id("projectDocuments"),
+    // Decision 56: context files and transcripts unticked in the start dialog
+    // are not read by this review. The written PD itself is always reviewed.
+    ...excludedIdsArgs,
   },
   handler: async (ctx, args) => {
-    const { user } = await requireInternalProjectAccess(ctx, args.projectId);
+    const { user } = await requireReportEditAccess(ctx, args.projectId);
+    // Decision 65, stage 2: not while the project is still being set up.
+    await requireProjectSetUp(ctx, args.projectId);
     requireAnthropicConfigured("review");
+    const excludedSources = await validatedExcludedSources(ctx, args.projectId, args);
+    if (excludedSources?.documentIds.includes(args.documentId)) {
+      domainError("INVALID_INPUT", "The written PD is always reviewed");
+    }
     const doc = await ctx.db.get(args.documentId);
     if (
       !doc ||
@@ -50,6 +71,8 @@ export const startPdReview = mutation({
     if (latest && latest.status === "running") {
       domainError("INVALID_INPUT", "A review is already running for this project");
     }
+    // Audit wave 2: 20 reviews an hour per user.
+    await limitUserAction(ctx, "pdReviewPerUser", user._id);
 
     const now = Date.now();
     const reviewId = await ctx.db.insert("pdReviews", {
@@ -61,6 +84,7 @@ export const startPdReview = mutation({
       contentHash: await sha256(doc.content),
       createdBy: user._id,
       createdAt: now,
+      ...(excludedSources ? { excludedSources } : {}),
     });
     await ctx.db.insert("pdReviewEvents", {
       projectId: args.projectId,
@@ -86,7 +110,7 @@ export const retryPdReview = mutation({
   handler: async (ctx, args) => {
     const failed = await ctx.db.get(args.reviewId);
     if (!failed) domainError("NOT_FOUND", "Review not found");
-    const { user } = await requireInternalProjectAccess(ctx, failed.projectId);
+    const { user } = await requireReportEditAccess(ctx, failed.projectId);
     requireAnthropicConfigured("review");
     // `completed` is retryable too: older rows were stored before the result
     // was validated, so a review can be marked complete yet hold a payload the
@@ -106,6 +130,7 @@ export const retryPdReview = mutation({
     if (!doc || doc.archived || !doc.content.trim()) {
       domainError("INVALID_INPUT", "The reviewed PD document is no longer available");
     }
+    await limitUserAction(ctx, "pdReviewPerUser", user._id);
 
     const now = Date.now();
     const reviewId = await ctx.db.insert("pdReviews", {
@@ -117,6 +142,7 @@ export const retryPdReview = mutation({
       contentHash: await sha256(doc.content),
       createdBy: user._id,
       createdAt: now,
+      ...(failed.excludedSources ? { excludedSources: failed.excludedSources } : {}),
     });
     await ctx.db.insert("pdReviewEvents", {
       projectId: failed.projectId,
@@ -258,6 +284,36 @@ export const getReviewInput = internalQuery({
     if (!review) return null;
     const doc = await ctx.db.get(review.documentId);
     const project = await ctx.db.get(review.projectId);
+    const allRows = await listProjectTranscripts(ctx, review.projectId);
+    const excludedTranscripts = new Set(review.excludedSources?.transcriptIds ?? []);
+    const excludedDocuments = new Set(review.excludedSources?.documentIds ?? []);
+    const rows = allRows.filter((row) => !excludedTranscripts.has(row._id));
+    // Owner decision 26: the review call reads placeholders, not names. The
+    // action checks the map against every text it sends. Every transcript,
+    // left-out ones included, so their speakers stay hidden in kept files.
+    const placeholders =
+      project && (await transcriptPlaceholdersEnabled(ctx))
+        ? [...(await projectPlaceholderMap(ctx, project, allRows))]
+        : [];
+    // The context documents the review reads (the same rule as
+    // documents.getContextDocsForGeneration), minus the left-out ones.
+    const documents = await ctx.db
+      .query("projectDocuments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", review.projectId))
+      .take(200);
+    const contextDocs = documents
+      .filter(
+        (d) =>
+          !d.archived &&
+          d.category &&
+          d.content.trim().length > 0 &&
+          !excludedDocuments.has(d._id)
+      )
+      .map((d) => ({
+        category: d.category!,
+        fileName: d.fileName,
+        content: d.content.slice(0, 15000),
+      }));
     return {
       pdContent: doc?.content ?? "",
       // Usage attribution: the user who started (or retried) this review.
@@ -265,7 +321,17 @@ export const getReviewInput = internalQuery({
       fileName: review.sourceFileName,
       title: project?.title ?? "Untitled",
       clientName: project?.clientName ?? "",
-      transcript: await projectTranscriptPromptText(ctx, review.projectId),
+      transcript: buildTranscriptPromptText(
+        rows.map((row) => ({ label: transcriptLabel(row), content: row.content }))
+      ),
+      // 2026-09-24 (transcript method, plan step 8): under transcripts.factsMode
+      // the action tries the verified fact packs of these transcripts, one
+      // query each, in place of the text the budget would cut.
+      factPacks: liveFactPacksApply(rows, await transcriptFactsMode(ctx))
+        ? rows.map((row, index) => ({ transcriptId: row._id, position: index + 1, label: transcriptLabel(row) }))
+        : [],
+      placeholders,
+      contextDocs,
     };
   },
 });
@@ -279,6 +345,7 @@ export const completePdReview = internalMutation({
   handler: async (ctx, args) => {
     const review = await ctx.db.get(args.reviewId);
     if (!review) return;
+    if (await isProjectDeleting(ctx, review.projectId)) return;
     const now = Date.now();
     await ctx.db.patch(args.reviewId, {
       status: "completed",
@@ -318,6 +385,7 @@ export const failStalePdReviews = internalMutation({
       .take(100);
     let failed = 0;
     for (const review of stale) {
+      if (await isProjectDeleting(ctx, review.projectId)) continue;
       const now = Date.now();
       await ctx.db.patch(review._id, {
         status: "failed",
@@ -346,6 +414,7 @@ export const failPdReview = internalMutation({
   handler: async (ctx, args) => {
     const review = await ctx.db.get(args.reviewId);
     if (!review) return;
+    if (await isProjectDeleting(ctx, review.projectId)) return;
     const now = Date.now();
     await ctx.db.patch(args.reviewId, {
       status: "failed",

@@ -29,6 +29,7 @@ async function setup() {
       clientName: "Client",
       status: "draft",
       createdBy: writerId,
+      ownerId: writerId,
       shareToken: "attempts-project-token",
       createdAt: now,
       updatedAt: now,

@@ -6,6 +6,32 @@ import {
   type ComplianceTier,
   type SectionNumber,
 } from "./orderedChain";
+import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
+
+const planRoleIdValidator = v.union(
+  ...PD_SUBSECTIONS.map((subsection) => v.literal(subsection.roleId))
+);
+
+export const compliancePlanRefValidator = v.object({
+  summaryVersionId: v.id("summaryVersions"),
+  itemId: v.optional(v.id("summaryItems")),
+  skippedRoleId: v.optional(planRoleIdValidator),
+  // 2026-09-30 (first): the row for an uncertainty the writer dropped, left
+  // out of this Line, and the row for Line 246's check that every advancement
+  // answers an uncertainty Line 242 states. Absent on every other row.
+  // (second, Rule C, widened): the row for Line 244's check that its work
+  // answers Line 242 or a signed-off item.
+  droppedSeedId: v.optional(v.id("seeds")),
+  // 2026-09-30 (third, widened): the row for Lines 244 and 246's check that
+  // every result is stated against its target as the numbers show.
+  ruleId: v.optional(v.union(
+    v.literal("advancements_answer_242"),
+    v.literal("work_answers_242"),
+    v.literal("results_against_targets")
+  )),
+  mergedItemIds: v.array(v.id("summaryItems")),
+});
+export type CompliancePlanRef = Infer<typeof compliancePlanRefValidator>;
 
 /**
  * Story 2 (CAP-7, AD-25): Compliance Notes are rows, one per decision, in the
@@ -33,6 +59,7 @@ export const complianceNoteDraftValidator = v.object({
   tier: complianceTierValidator,
   reason: v.string(),
   repaired: v.boolean(),
+  planRef: v.optional(compliancePlanRefValidator),
 });
 export type ComplianceNoteDraft = Infer<typeof complianceNoteDraftValidator>;
 
@@ -61,6 +88,7 @@ export function noteDraft(fields: {
   tier: ComplianceTier;
   reason: string;
   repaired?: boolean;
+  planRef?: CompliancePlanRef;
 }): ComplianceNoteDraft {
   return {
     section: fields.section,
@@ -73,6 +101,7 @@ export function noteDraft(fields: {
     tier: fields.tier,
     reason: bounded(fields.reason),
     repaired: fields.repaired ?? false,
+    ...(fields.planRef ? { planRef: fields.planRef } : {}),
   };
 }
 
@@ -105,4 +134,26 @@ export type SelfCheckSummary = {
   remainingFailures: number;
   /** Whether the structured model Self-check call returned verdicts. */
   modelCheck: "ok" | "failed";
+  /**
+   * Why a failed model Self-check failed: the rejected clause with its
+   * position and byte counts, or the failure kind. Never model text.
+   */
+  modelCheckDetail?: string;
+  /**
+   * Why the coverage-only Self-check of the final text failed as a whole
+   * (2026-09-28, run 4): the same diagnostic as modelCheckDetail. Never
+   * model text.
+   */
+  finalCoverageCheckDetail?: string;
+  /**
+   * Why the Summary Self-check's Storyline question was withheld: the fields
+   * that needed clipping, with byte counts. Never model text.
+   */
+  storylineQuestionWithheld?: string;
+  /** Final durable Summary-plan evidence, separate from prose repair state. */
+  planCoverage?: {
+    status: "complete" | "incomplete" | "unavailable";
+    applied: number;
+    total: number;
+  };
 };

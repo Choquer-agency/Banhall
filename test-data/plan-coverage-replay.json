@@ -1,0 +1,127 @@
+{
+ "about": "Fictional demo data. The saved Summary-plan Self-check input for Line 244 of a Claude Opus 5.5 run (5 paragraphs, 10 labels, 4 plan items) and 33 Self-check reasons Claude Sonnet 5 wrote in a real run on the same demo project. Used to replay the Self-check offline with the real reason lengths.",
+ "case": {
+  "case": "opus-244",
+  "model": "claude-opus-5-5",
+  "section": "244",
+  "text": "The low-temperature bonding work began in the current year, so no prior-year status applies. The company undertook a systematic investigation to determine whether structural adhesive bonds on aluminium cured at 60°C could retain lap shear strength through thermal cycling between -30°C and +40°C. Suppliers and published literature offered no cycling data, so the plan began by curing and cycling three commercial low-temperature adhesive systems to establish a baseline. The company then designed a full factorial matrix of two adhesive chemistries, three surface treatments on the aluminium skins and two cure schedules [GAP: names of the chemistries, surface treatments and cure schedules in the matrix]. Each combination used 12 lap shear coupons, with six tested fresh and six after 200 thermal cycles [GAP: lap shear test standard, thermal cycle profile and dwell times]. Comparing strength retention and failure location across combinations addressed the open question from Line 242 of which variable governs retention.\n\nIt was hypothesized that if the surface treatment and cure schedule were controlled alongside adhesive chemistry, then bonds cured at 60°C would retain lap shear strength after 200 cycles between -30°C and +40°C at or above the truck body specification [GAP: specification threshold], failing within the adhesive rather than at the interface. The hypothesis would be disproved if every combination lost strength comparable to the roughly 40% loss seen in commercial systems, or continued to fail at the interface or primer. The test criterion was cycled strength as a percentage of fresh strength for the same combination. After primer-layer failure appeared, the company narrowed the hypothesis. A 2-hour hold at 40°C before ramping to 60°C, combined with a silane primer, would let the primer finish reacting before the adhesive gelled, removing primer-layer failure while meeting the specification after cycling.\n\nThe first experiment asked whether off-the-shelf low-temperature adhesives could survive thermal cycling. The company cured three commercial low-temperature systems at low cure temperature and cycled them between -30°C and +40°C [GAP: product names and per-system results]. All three cured, yet lap shear strength after cycling dropped by about 40%, showing that successful low-temperature cure did not predict durability under cycling. No supplier or literature data could explain the loss, so the company stopped screening products and moved to the factorial matrix to isolate individual variables. This established that commercial low-temperature adhesives alone could not meet the requirement and that cycling behaviour had to be characterized directly.\n\nThe second experiment set out to identify which variable controlled strength retention after cycling. The company expected adhesive chemistry to dominate and tested all twelve combinations of chemistry, surface treatment and cure schedule. Instead, surface treatment had the larger effect: the plain abraded surface lost the most strength, while a silane primer kept about 85% [GAP: results for the second cure schedule and any interaction effects]. Fresh strength with the silane primer was acceptable, but cycled coupons still failed at the primer layer rather than in the adhesive [GAP: failure mode analysis method]. The company therefore shifted its focus from the adhesive to the timing of primer reaction relative to adhesive gelation. This showed that interface chemistry, not the adhesive itself, was the main factor in strength retention after cycling.\n\nThe third experiment addressed whether primer-layer failure could be removed at low cure temperature. The primed coupons in the matrix had used cure schedules that went directly to 60°C. From the failure location, the team reasoned that the adhesive gelled before the silane primer had finished reacting. This interpretation rested on failure location, not on a direct measurement of reaction state. The company revised the schedule to a stepped cure: a 2-hour hold at 40°C, then a ramp to 60°C [GAP: how the 40°C and 2-hour values were chosen and whether alternatives were tried]. Extending the low-temperature stage risked reducing overall bond performance, yet primed flat coupons kept 91% of lap shear strength after 200 cycles and met the truck body specification. The company concluded that the sequence of primer reaction and adhesive gelation controls the cycling durability of these bonds. It remains open whether the sequence holds at the thicker bond line found in curved panel corners.",
+  "storylineText": "Meridian Materials makes bonded composite panels for refrigerated truck bodies. The project aimed to cure the structural adhesive at 60 degrees instead of the normal 120 degrees, so that panels with foam cores and wiring already inside could be bonded without the foam deforming or the wiring insulation softening. The technological uncertainty was whether any adhesive chemistry could keep its lap shear strength through thermal cycling between -30 and +40 degrees when cured at 60 degrees. Three commercial low-temperature systems cured but lost about forty percent of lap shear strength after cycling. Suppliers had no data for cycling at those extremes, and the published literature covered only steady temperatures. The team ran a test matrix of two adhesive chemistries, three surface treatments on the aluminium skins and two cure schedules. Each combination used twelve lap shear coupons, half tested fresh and half after 200 thermal cycles. The first round showed that surface treatment mattered more than adhesive chemistry. The plain abraded surface lost the most strength, while a silane primer kept about eighty-five percent. The cycled primed coupons still failed at the primer layer rather than in the adhesive. From this the team reasoned that the primer needed to finish reacting before the adhesive gelled, and tested a stepped cure: a two-hour hold at 40 degrees before going to 60 degrees. The stepped cure kept ninety-one percent of strength after cycling, which met the truck body specification. The advancement is knowledge of how primer reaction and cure staging control the failure mode of low-temperature-cured bonds under thermal cycling. That knowledge was established on flat coupons only. It is still unknown whether the stepped cure behaves the same at the thicker bond lines found in curved panel corners, where the bond line is three times thicker. The evidence does not describe what records were kept beyond the coupon test counts and results.",
+  "confidenceMap": [
+   {
+    "text": "Three commercial low-temperature systems were tested first and did cure.",
+    "confidence": "established"
+   },
+   {
+    "text": "Strength loss of commercial systems after cycling was approximately forty percent (hedged figure).",
+    "confidence": "partial"
+   },
+   {
+    "text": "No supplier data or literature existed for cycling at -30 to +40.",
+    "confidence": "established"
+   },
+   {
+    "text": "Test matrix design and coupon counts.",
+    "confidence": "established"
+   },
+   {
+    "text": "Silane primer retained roughly 85 percent strength (hedged figure).",
+    "confidence": "partial"
+   },
+   {
+    "text": "Primed coupons failed at the primer layer after cycling.",
+    "confidence": "established"
+   },
+   {
+    "text": "The mechanism (primer finishing reaction before adhesive gels) is stated as the explanation, without direct measurement described.",
+    "confidence": "partial"
+   },
+   {
+    "text": "Stepped cure retained 91 percent strength and met specification on flat coupons.",
+    "confidence": "established"
+   },
+   {
+    "text": "Stepped cure performance at bond lines three times thicker in curved corners is unknown.",
+    "confidence": "unresolved"
+   }
+  ],
+  "glossaryTerms": [
+   "structural adhesive",
+   "cure temperature",
+   "thermal cycling",
+   "surface treatment",
+   "lap shear coupon",
+   "silane primer",
+   "stepped cure",
+   "bond line"
+  ],
+  "items": [
+   {
+    "itemId": "ws7anm484nqfcm8eqc75j5sg258f3p94",
+    "roleId": "prior_year_status",
+    "support": "source_supported",
+    "bullets": [
+     "The transcript describes the low-temperature adhesive work as starting this year, so it gives no status from a prior year."
+    ]
+   },
+   {
+    "itemId": "ws70v0ffc2v2azzfqd1fvbcpp98f32gv",
+    "roleId": "workplan",
+    "support": "source_supported",
+    "bullets": [
+     "Three commercial low-temperature adhesive systems were cured and tested first, before the team designed its own test matrix."
+    ]
+   },
+   {
+    "itemId": "ws7ck6vrndzy1ncdnmyyphhay98f3x0v",
+    "roleId": "hypothesis",
+    "support": "source_supported",
+    "bullets": [
+     "If surface treatment and cure schedule are controlled, then 60 degree cures will keep lap shear strength through minus 30 to plus 40 cycling."
+    ]
+   },
+   {
+    "itemId": "ws71sn8veb8hr5cqq11s66shgn8f3tvc",
+    "roleId": "experimentation",
+    "support": "source_supported",
+    "bullets": [
+     "Three commercial low-temperature systems cured but lost about forty percent of lap shear strength after cycling from minus 30 to plus 40."
+    ]
+   }
+  ]
+ },
+ "recordedReasons": [
+  "The section's account of the goal, the uncertainty about commercial systems, the primer failure mode, the stepped cure hypothesis, and the curved-corner unknown all match the Storyline's sequence and content.",
+  "P3 states this as an uncertainty ('was insufficient', 'not established'), consistent with the Storyline's framing of unresolved knowledge rather than a proven negative result.",
+  "P5 says 'each dropped by roughly 40%', which hedges the figure as approximate, matching the partial confidence rating.",
+  "P5 phrases the curved-corner behavior as 'remained uncertain', which is an appropriate hedge for an unresolved fact.",
+  "The section never states the approximate 85% retention figure for the silane primer at all; it only describes the primer failing after cycling without giving the retention percentage, so the partial fact from C3 is omitted rather than hedged.",
+  "The section describes testing the stepped cure hypothesis in P5 but never states the resulting 91% retention or that it met specification, so the established C4 fact is missing from this Uncertainty section (though this may be appropriate if results belong in a different section).",
+  "Term appears verbatim in P3 and P5.",
+  "Term appears verbatim in P3, P4, and P5.",
+  "Term appears verbatim in P5.",
+  "Term appears verbatim in P5.",
+  "The stated technological problem, test matrix structure, and linkage to the three uncertainties match the Storyline's account of the project.",
+  "The hypothesis matches the Storyline's second hypothesis and the sixty percent baseline figure.",
+  "The paragraph states the drop as 'approximately 40%' which does carry a qualifier, so this actually reads as hedged. On review this is applied, not a failure.",
+  "This matches the Storyline's statement that suppliers had no data and literature covered only steady temperatures.",
+  "The paragraph hedges with 'about 85%', matching the partial confidence rating.",
+  "Matches the Storyline's description of the first round result and the unresolved primer-layer failure mode.",
+  "The paragraph states the 91% retention flatly, consistent with the established rating.",
+  "The paragraph hedges with 'at least for flat coupon geometry' but never states that curved corner performance is unknown or planned as future work, so the unresolved uncertainty from C5 is not surfaced in this section.",
+  "The term appears verbatim multiple times across paragraphs.",
+  "The term appears verbatim multiple times across paragraphs.",
+  "The term appears verbatim in P2 and P5.",
+  "The term appears verbatim in P2 and P4.",
+  "P2 states the hypothesis in an explicit if/then structure naming the silane primer, stepped cure, and thermal cycling range.",
+  "P3, P4, and P5 are each explicitly framed around the first, second, and third uncertainty in sequence.",
+  "The 60% figure is consistent with the storyline's implied baseline (100% minus 40% drop equals about 60% retention), so this is a restatement rather than a contradiction, and it is hedged with 'roughly'.",
+  "Section states the 91% figure and specification match, which C4 marks as established, so no hedging is required.",
+  "Section uses 'approximately 85%' matching the partial confidence level, appropriately hedged.",
+  "Paragraph matches the storyline's description of the first round of results without contradiction.",
+  "Paragraph restates this mechanism and result consistently with the storyline.",
+  "Section uses 'remains unknown' and 'This is uncertain', properly hedging the unresolved fact.",
+  "Paragraph matches storyline detail exactly, including the three times thicker bond line and future work framing.",
+  "The section refers to 'adhesive' and 'adhesive chemistry' throughout but never uses the exact term 'structural adhesive' as used in the storyline and glossary.",
+  "Paragraph restates this goal and the temperature reduction consistently with the storyline."
+ ]
+}

@@ -7,6 +7,7 @@ import {
   type InventoryNote,
   type InventorySections,
 } from "./deviationInventory";
+import { STORYLINE_QUESTION_WITHHELD_REASON } from "./storylineQuestionNote";
 
 /**
  * Story 5 (CAP-12): "every paragraph appears exactly once" is a property of a
@@ -103,6 +104,31 @@ describe("assembleDeviationInventory rule Deviations", () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0]?.instruction).toBe("Cap paragraph 3 at 12 lines.");
     expect(renderInventory(result)).not.toContain("Banned words scanned.");
+  });
+
+  it("leaves out a withheld Storyline question note, old or new wording", () => {
+    const result = assembleDeviationInventory({
+      sections: sections(),
+      notes: [
+        note({
+          paragraphIndex: 0,
+          instruction: "Storyline",
+          tier: "none",
+          reason: STORYLINE_QUESTION_WITHHELD_REASON,
+        }),
+        note({
+          paragraphIndex: 0,
+          instruction: "Storyline",
+          tier: "none",
+          reason: "Storyline question withheld (question is 140 escaped bytes, limit 96): shortened text must not replace the Storyline, so the Brief does not offer it (not repaired)",
+        }),
+        note({ instruction: "Cap paragraph 3 at 12 lines." }),
+      ],
+      rulesStatus: "available",
+    });
+    expect(result.items.map((item) => item.instruction)).toEqual(["Cap paragraph 3 at 12 lines."]);
+    expect(renderInventory(result)).not.toContain("escaped bytes");
+    expect(renderInventory(result)).not.toContain("Storyline question");
   });
 
   it("lands a whole-section note on paragraph 1, labelled section-scoped", () => {

@@ -18,10 +18,8 @@
   type="button"
   {onclick}
   {title}
-  class={`flex h-7 w-7 items-center justify-center rounded text-xs transition-colors ${
-    active
-      ? "bg-navy text-white"
-      : "text-gray-600 hover:bg-primary-wash hover:text-gray-900"
+  class={`flex h-[1.625rem] w-[1.625rem] shrink-0 items-center justify-center rounded-[0.3125rem] text-xs text-ink transition-colors ${
+    active ? "bg-chrome text-fir" : "hover:bg-primary-wash"
   }`}
 >
   {@render children()}

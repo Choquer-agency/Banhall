@@ -13,9 +13,9 @@ import {
 import {
   DEFAULT_HOUSE_RULE_MODES,
   NO_STYLE_OVERRIDES,
-  STYLE_OVERRIDE_META,
   type StyleOverrideKey,
 } from "../../../../shared/styleOverrides";
+import { writingAreaLabel } from "$lib/settings/writingAreas";
 
 /**
  * Story 3 (CAP-8, AC 5) at the page: /settings/writing?fromGeneration=<id>
@@ -56,7 +56,10 @@ function writerSettings() {
   };
 }
 
-const textarea = () => document.querySelector<HTMLTextAreaElement>("#style-instructions");
+/** The draft as the "Your instructions" card shows it (whitespace collapsed). */
+const draft = () =>
+  document.querySelector("[data-instructions-excerpt]")?.textContent?.trim().replace(/^"|"$/g, "");
+const collapsed = (text: string) => text.replace(/\s+/g, " ").trim();
 const statusTexts = () =>
   [...document.querySelectorAll<HTMLElement>('[role="status"]')].map((el) => el.textContent?.trim() ?? "");
 const saveButton = () =>
@@ -64,15 +67,21 @@ const saveButton = () =>
     (button) => button.textContent?.trim() === "Save preferences"
   );
 
-/** The bits-ui checkbox labelled with a category's label, by aria-labelledby. */
-function checkboxFor(key: StyleOverrideKey): HTMLElement | undefined {
-  return [...document.querySelectorAll<HTMLElement>('[role="checkbox"]')].find((box) => {
-    const labelId = box.getAttribute("aria-labelledby");
-    const label = labelId ? document.getElementById(labelId) : null;
-    return label?.textContent?.trim() === STYLE_OVERRIDE_META[key].label;
-  });
+/** The switch for a writer_choice area, by its accessible name. */
+function switchFor(key: StyleOverrideKey): HTMLElement | undefined {
+  return [...document.querySelectorAll<HTMLElement>('[role="switch"]')].find(
+    (box) => box.getAttribute("aria-label") === writingAreaLabel(key)
+  );
 }
-const isChecked = (key: StyleOverrideKey) => checkboxFor(key)?.getAttribute("aria-checked");
+const isChecked = (key: StyleOverrideKey) => switchFor(key)?.getAttribute("aria-checked");
+const isLocked = (key: StyleOverrideKey) =>
+  document.querySelector(`[data-win-card="${key}"] [data-locked]`) !== null;
+
+async function editDraft(value: string) {
+  (document.querySelector("[data-edit-instructions]") as HTMLButtonElement).click();
+  await expect.poll(() => document.querySelector("#style-instructions")).not.toBeNull();
+  typeInto(document.querySelector<HTMLTextAreaElement>("#style-instructions")!, value);
+}
 
 function typeInto(el: HTMLTextAreaElement, value: string) {
   el.value = value;
@@ -98,16 +107,17 @@ describe("/settings/writing ?fromGeneration prefill (AC 5)", () => {
     __setQueryData("writerProfiles:getGenerationWriterSettings", writerSettings());
     await render(SettingsWritingPage, {});
 
-    await expect.poll(() => textarea()?.value).toBe(OFFER_TEXT);
+    await expect.poll(draft).toBe(collapsed(OFFER_TEXT));
     await expect.poll(() => statusTexts()).toContain(LOADED_NOTICE);
-    // The offer's writer_choice waivers are ticked; the enforced one is not,
-    // and a category the document did not address stays as it was.
+    // The offer's writer_choice waivers are switched on; the enforced one is
+    // locked, and a category the document did not address stays as it was.
     expect(isChecked("bannedWords")).toBe("true");
     expect(isChecked("reportSkeleton")).toBe("true");
-    expect(isChecked("paragraphDensity")).toBe("false");
+    expect(isChecked("sentenceConstruction")).toBe("false");
+    expect(isLocked("paragraphDensity")).toBe(true);
     // 2026-09-15 (second) amendment: opening clauses are off org-wide by
-    // default, and the page renders an "off" category as a locked, ticked box.
-    expect(isChecked("openingClauses")).toBe("true");
+    // default, and the page renders an "off" category as locked.
+    expect(isLocked("openingClauses")).toBe(true);
     // The draft is dirty, so Save is enabled — and nothing was saved.
     expect(saveButton()?.disabled).toBe(false);
     expect(__mutationCalls("writerProfiles:saveMyProfile")).toEqual([]);
@@ -124,10 +134,10 @@ describe("/settings/writing ?fromGeneration prefill (AC 5)", () => {
     __setQueryData("writerProfiles:getGenerationWriterSettings", writerSettings());
     __setQueryData("houseStyle:getModesForMe", { ...MODES });
     await tick();
-    typeInto(textarea()!, `${OFFER_TEXT}\nOne more line.`);
+    await editDraft(`${OFFER_TEXT}\nOne more line.`);
     await tick();
 
-    await expect.poll(() => textarea()?.value).toBe(`${OFFER_TEXT}\nOne more line.`);
+    await expect.poll(draft).toBe(collapsed(`${OFFER_TEXT}\nOne more line.`));
     expect(statusTexts()).toContain(LOADED_NOTICE);
     expect(isChecked("bannedWords")).toBe("true");
     expect(__mutationCalls("writerProfiles:saveMyProfile")).toEqual([]);
@@ -136,14 +146,14 @@ describe("/settings/writing ?fromGeneration prefill (AC 5)", () => {
   it("keeps unsaved edits already in the draft when the offer arrives, and says so", async () => {
     // The offer is still loading when the writer starts editing.
     await render(SettingsWritingPage, {});
-    await expect.poll(() => textarea()?.value).toBe(SAVED_TEXT);
-    typeInto(textarea()!, "My own unsaved edit.");
+    await expect.poll(draft).toBe(SAVED_TEXT);
+    await editDraft("My own unsaved edit.");
     await tick();
 
     __setQueryData("writerProfiles:getGenerationWriterSettings", writerSettings());
 
     await expect.poll(() => statusTexts()).toContain(KEPT_EDITS_NOTICE);
-    expect(textarea()?.value).toBe("My own unsaved edit.");
+    expect(draft()).toBe("My own unsaved edit.");
     expect(statusTexts()).not.toContain(LOADED_NOTICE);
     expect(isChecked("bannedWords")).toBe("false");
     expect(__mutationCalls("writerProfiles:saveMyProfile")).toEqual([]);

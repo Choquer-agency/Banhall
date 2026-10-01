@@ -1,0 +1,17 @@
+Transcript
+
+September 3, 2025, 2:00PM
+
+Dana Whitfield   0:03
+Thanks for joining. Can you describe what you set out to build?
+
+Priya Shah   0:09
+Sure. We needed a controller that could forecast cluster load, um, ahead of a voltage event.
+
+We did not know if a useful forecast was even possible at that timescale.
+
+Dana Whitfield   1:02
+What did you try first?
+
+Priya Shah   1:05
+A gradient boosted model on feeder data. It failed on cloudy days.

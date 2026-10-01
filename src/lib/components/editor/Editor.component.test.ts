@@ -436,3 +436,184 @@ it("previews actual heading, list and blockquote hard breaks without joining wor
   await component.flushPendingSave();
   expect(saved).toEqual([content]);
 });
+
+describe("Editor autosave and external content", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  function tiptapOf(container: HTMLElement): TiptapEditor {
+    const element = container.querySelector(".tiptap-editor");
+    if (!element || !("editor" in element) || !(element.editor instanceof TiptapEditor)) {
+      throw new Error("Mounted Tiptap editor instance is unavailable");
+    }
+    return element.editor;
+  }
+
+  it("drops a pending autosave when server content replaces the document", async () => {
+    const { container, rerender, saved, component } = await mountEditor();
+    // A keystroke schedules the debounced save of the local document.
+    tiptapOf(container).commands.insertContent("Unsaved words. ");
+    // Before it fires, the server's newer content arrives (e.g. a redraft).
+    const serverDoc = JSON.stringify({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Redrafted on the server." }] }],
+    });
+    await rerender({ content: serverDoc });
+    await expect.poll(() => container.textContent).toContain("Redrafted on the server.");
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    await component.flushPendingSave();
+    // Nothing from before the replacement is written over the server content.
+    expect(saved.some((json) => json.includes("Unsaved words."))).toBe(false);
+
+    // Editing after the replacement saves on top of the server content.
+    tiptapOf(container).commands.insertContent("New words. ");
+    await component.flushPendingSave();
+    expect(saved.at(-1)).toContain("Redrafted on the server.");
+    expect(saved.at(-1)).toContain("New words.");
+  });
+
+  it("holds an editable editor read-only at run time without saving", async () => {
+    const { container, rerender, saved } = await mountEditor();
+    const prose = () => container.querySelector<HTMLElement>(".ProseMirror")!;
+    expect(prose().getAttribute("contenteditable")).toBe("true");
+    await rerender({ readOnly: true });
+    await expect.poll(() => prose().getAttribute("contenteditable")).toBe("false");
+    expect(tiptapOf(container).isEditable).toBe(false);
+    await rerender({ readOnly: false });
+    await expect.poll(() => prose().getAttribute("contenteditable")).toBe("true");
+    // Toggling editability is not an edit: no autosave is scheduled.
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(saved).toEqual([]);
+  });
+
+  it("keeps a queued edit when the echo of an older in-flight save arrives", async () => {
+    const saved: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const result = await render(Editor, {
+      content: seedContent(),
+      onUpdate: (json: string) => {
+        saved.push(json);
+        // The first save stays in flight until released.
+        if (saved.length === 1) return new Promise<void>((resolve) => (releaseFirst = resolve));
+      },
+    });
+    await expect.poll(() => result.container.querySelector(".tiptap-editor")).not.toBeNull();
+    const editor = tiptapOf(result.container);
+    editor.commands.insertContent("First edit. ");
+    // Not awaited: save A is held in flight until released below.
+    void result.component.flushPendingSave().catch(() => {});
+    await expect.poll(() => saved.length).toBe(1);
+    const saveA = saved[0];
+    // A newer edit is queued behind the in-flight save.
+    editor.commands.insertContent("Second edit. ");
+    const flushB = result.component.flushPendingSave();
+    // The subscription echoes save A while B is still queued.
+    await result.rerender({ content: saveA });
+    releaseFirst?.();
+    await flushB;
+    await expect.poll(() => saved.length).toBe(2);
+    expect(saved[1]).toContain("Second edit.");
+    expect(result.container.textContent).toContain("Second edit.");
+  });
+
+  it("shows a restored earlier version even when this editor saved that version before", async () => {
+    const { container, rerender, saved, component } = await mountEditor();
+    const editor = tiptapOf(container);
+    editor.commands.insertContent("Version A. ");
+    await component.flushPendingSave();
+    const versionA = saved.at(-1)!;
+    editor.commands.insertContent("Version B. ");
+    await component.flushPendingSave();
+    await rerender({ content: saved.at(-1)! });
+    // History restores version A on the server; the editor must show it.
+    await rerender({ content: versionA });
+    await expect.poll(() => container.textContent).not.toContain("Version B.");
+    expect(container.textContent).toContain("Version A.");
+  });
+
+  it("shows a restore to a document whose save finished after an external replacement", async () => {
+    const saved: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const result = await render(Editor, {
+      content: seedContent(),
+      onUpdate: (json: string) => {
+        saved.push(json);
+        if (saved.length === 1) return new Promise<void>((resolve) => (releaseFirst = resolve));
+      },
+    });
+    await expect.poll(() => result.container.querySelector(".tiptap-editor")).not.toBeNull();
+    tiptapOf(result.container).commands.insertContent("Save A words. ");
+    void result.component.flushPendingSave().catch(() => {});
+    await expect.poll(() => saved.length).toBe(1);
+    const saveA = saved[0];
+    // External content replaces the document while save A is in flight.
+    const external = JSON.stringify({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "External content." }] }],
+    });
+    await result.rerender({ content: external });
+    await expect.poll(() => result.container.textContent).toContain("External content.");
+    releaseFirst?.();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // A later restore to document A must be shown, not taken for an echo.
+    await result.rerender({ content: saveA });
+    await expect.poll(() => result.container.textContent).toContain("Save A words.");
+    expect(result.container.textContent).not.toContain("External content.");
+  });
+
+  it("recognises the echo of a long-running save behind many queued edits", async () => {
+    const saved: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const result = await render(Editor, {
+      content: seedContent(),
+      onUpdate: (json: string) => {
+        saved.push(json);
+        if (saved.length === 1) return new Promise<void>((resolve) => (releaseFirst = resolve));
+      },
+    });
+    await expect.poll(() => result.container.querySelector(".tiptap-editor")).not.toBeNull();
+    const editor = tiptapOf(result.container);
+    editor.commands.insertContent("Edit 0. ");
+    void result.component.flushPendingSave().catch(() => {});
+    await expect.poll(() => saved.length).toBe(1);
+    const saveA = saved[0];
+    // Ten more edits queue behind the in-flight save.
+    let lastFlush: Promise<void> = Promise.resolve();
+    for (let index = 1; index <= 10; index += 1) {
+      editor.commands.insertContent(`Edit ${index}. `);
+      lastFlush = result.component.flushPendingSave();
+    }
+    await result.rerender({ content: saveA });
+    releaseFirst?.();
+    await lastFlush;
+    await expect.poll(() => saved.at(-1) ?? "").toContain("Edit 10.");
+    expect(result.container.textContent).toContain("Edit 10.");
+  });
+});
+
+it("writes the CRA limit counts with commas and marks a Not drafted Section in place", async () => {
+  document.body.innerHTML = "";
+  const content = JSON.stringify({
+    type: "doc",
+    content: [
+      { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Line 242 - Technological uncertainties" }] },
+      { type: "paragraph", content: [{ type: "text", text: "Measured drift across the load bands." }] },
+      { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Line 244 - Work performed" }] },
+      { type: "paragraph", content: [{ type: "text", text: "[NOT GENERATED]" }] },
+    ],
+  });
+  const { container } = await mountEditor(content);
+  // ui-design-final.md section 8: "96 / 100 lines, 668 / 700 words".
+  await expect.poll(() => container.querySelectorAll(".cra-section-end__count").length).toBeGreaterThan(0);
+  for (const count of container.querySelectorAll(".cra-section-end__count")) {
+    expect(count.textContent).toMatch(/^\d+ \/ \d+ lines( \(\+\d+ with gaps\))?, \d+ \/ \d+ words$/);
+  }
+  expect(container.textContent).not.toContain("·");
+  // A stopped Step-by-step draft's placeholder is marked, its text unchanged.
+  const marked = container.querySelectorAll<HTMLElement>('p[data-not-drafted="true"]');
+  expect(marked).toHaveLength(1);
+  expect(marked[0].textContent).toBe("[NOT GENERATED]");
+  expect(getComputedStyle(marked[0], "::before").content).toBe('"Not drafted"');
+
+});

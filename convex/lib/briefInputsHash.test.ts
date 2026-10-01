@@ -116,3 +116,31 @@ test("briefInputsHash: deterministic ordering", async () => {
   // (because we sort them deterministically)
   expect(hash1).toBe(hash2);
 });
+
+test("briefInputsHash: a generation reading fact packs never shares a Brief with one reading transcripts (review 2026-09-25)", async () => {
+  const base = {
+    projectId: "proj1" as any,
+    generationId: "gen1" as any,
+    truncated: false,
+    originalLength: 10,
+    capturedAt: 1,
+  };
+  const transcript = { ...base, kind: "transcript" as const, transcriptId: "tr1" as any, contentHash: "t-hash", label: "T", content: "t" };
+  const document = { ...base, kind: "project_document" as const, contentHash: "d-hash", label: "D", content: "d" };
+  const pack = { ...base, kind: "transcript_facts" as const, transcriptId: "tr1" as any, contentHash: "p-hash", label: "T", content: "p" };
+  const digest = { ...base, kind: "transcript_digest" as const, transcriptId: "tr1" as any, contentHash: "g-hash", label: "T", content: "g" };
+
+  const text = await briefInputsHash([transcript, document]);
+  // Unchanged without packs, digests included.
+  expect(text).toBe(await sha256("d-hash|t-hash"));
+  expect(await briefInputsHash([transcript, document, digest])).toBe(text);
+  const facts = await briefInputsHash([transcript, document, pack]);
+  expect(facts).not.toBe(text);
+  // Deterministic, and independent of the pack's own bytes.
+  expect(await briefInputsHash([transcript, document, { ...pack, contentHash: "other" }])).toBe(facts);
+  // A second transcript without its pack is today's reading again.
+  const second = { ...transcript, transcriptId: "tr2" as any, contentHash: "t2-hash" };
+  expect(await briefInputsHash([transcript, second, document, pack])).toBe(
+    await briefInputsHash([transcript, second, document])
+  );
+});

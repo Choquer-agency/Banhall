@@ -5,6 +5,7 @@
  * clients, only via CLI/dashboard.
  */
 import { internalQuery } from "./_generated/server";
+import { readGenerationProgress } from "./lib/generationProgress";
 import { v } from "convex/values";
 import { listProjectTranscripts } from "./lib/transcripts";
 
@@ -63,7 +64,7 @@ export const generationPostmortem = internalQuery({
         count: documents.length,
         totalContentChars: documents.reduce((n, d) => n + d.content.length, 0),
       },
-      generations: generations.map((g) => ({
+      generations: await Promise.all(generations.map(async (g) => ({
         _id: g._id,
         status: g.status,
         candidateMode: g.candidateMode ?? "compare",
@@ -73,8 +74,8 @@ export const generationPostmortem = internalQuery({
         currentStep: g.currentStep ?? null,
         candidatesDone: g.candidatesDone ?? null,
         candidatesFailed: g.candidatesFailed ?? null,
-        progressLog: g.progressLog ?? [],
-      })),
+        progressLog: await readGenerationProgress(ctx, g),
+      }))),
     };
   },
 });
@@ -98,7 +99,7 @@ export const recentFailures = internalQuery({
         requestedAt: new Date(g.requestedAt ?? g._creationTime).toISOString(),
         error: g.error ?? null,
         currentStep: g.currentStep ?? null,
-        progressTail: (g.progressLog ?? []).slice(-4),
+        progressTail: await readGenerationProgress(ctx, g, 4),
       });
     }
     return out;

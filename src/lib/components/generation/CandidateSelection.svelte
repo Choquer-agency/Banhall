@@ -40,6 +40,7 @@
   import { userErrorMessage } from "$lib/errors";
   import { reportSectionMetrics } from "$lib/reportSections";
   import GenerationRecoveryPanel from "./GenerationRecoveryPanel.svelte";
+  import { stickyActionBar } from "$lib/shell/stickyActionBars.svelte";
 
   /**
    * Candidate picker (port of src/components/generation/CandidateSelection.tsx).
@@ -280,7 +281,7 @@
             {c.label ?? `Option ${i + 1}`}
             {#if myScore != null}
               <span
-                class={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
+                class={`rounded-full px-1.5 py-0.5 text-[0.625rem] font-semibold tabular-nums ${
                   i === pos ? "bg-white/20 text-white" : "bg-primary/10 text-primary-dark"
                 }`}
                 title={`Your score: ${myScore}/10`}
@@ -334,7 +335,7 @@
 
     <!-- Sticky action bar (@container so the score control adapts to the bar's
          actual width, which shrinks when the QA rail opens) -->
-    <div class="@container sticky bottom-0 border-t border-gray-200 bg-white/90 px-8 py-3 backdrop-blur">
+    <div {@attach stickyActionBar} class="@container sticky bottom-0 border-t border-gray-200 bg-white/90 px-8 py-3 backdrop-blur">
       {#if actionError}
         <p class="mx-auto mb-2 max-w-[var(--container-shell)] text-sm text-red-700" role="alert">
           {actionError}
@@ -440,6 +441,7 @@
       onClose={() => (qaOpen = false)}
       title={`QA for ${current.label ?? `Option ${pos + 1}`}`}
       rawQa={current.qa}
+      reportContent={current.content}
       candidateId={current._id}
       modelName={current.label}
       onLocateGap={locateGap}
@@ -450,7 +452,7 @@
             Comment on {current.label ?? `Option ${pos + 1}`} <span class="font-normal text-gray-500">(optional)</span>
           </label>
           {#if commentStatus === "saved" && !scoreSaving}
-            <span class="inline-flex flex-none items-center gap-1 text-[10px] font-medium text-green-700">
+            <span class="inline-flex flex-none items-center gap-1 text-[0.625rem] font-medium text-green-700">
               <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
               </svg>
@@ -485,7 +487,7 @@
           </button>
         </form>
         {#if commentStatus === "blocked"}
-          <p class="mt-1.5 text-[11px] text-amber-700">Pick a score in the bottom bar to save your comment.</p>
+          <p class="mt-1.5 text-[0.6875rem] text-amber-700">Pick a score in the bottom bar to save your comment.</p>
         {/if}
       {/snippet}
     </QARailPanel>

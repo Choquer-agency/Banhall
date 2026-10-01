@@ -8,6 +8,7 @@ import {
   openRouterUsage,
   type ChatCompletionsResponse,
 } from "../openrouterCore";
+import { NAME_EDGE_BEFORE, pseudonymize, surfacePattern, type PlaceholderMap } from "../../lib/deidentify";
 
 export const RESEARCH_MODELS = {
   gpt: "openai/gpt-5.6-sol",
@@ -36,10 +37,6 @@ export function cap(value: string, max: number): string {
   return normalized.length <= max ? normalized : `${normalized.slice(0, max - 1)}…`;
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * Remove direct identifiers before a prompt leaves Banhall. Technical language
  * is retained because it is the point of the research request.
@@ -47,10 +44,17 @@ function escapeRegExp(value: string): string {
 export function redactExternalText(value: string, knownNames: string[]): string {
   let redacted = value;
   const names = Array.from(
-    new Set(knownNames.map((name) => name.trim()).filter((name) => name.length >= 3))
+    // One space between words (final privacy round).
+    new Set(knownNames.map((name) => name.trim().replace(/\s+/g, " ")).filter((name) => name.length >= 3))
   ).sort((a, b) => b.length - a.length);
   for (const name of names) {
-    redacted = redacted.replace(new RegExp(escapeRegExp(name), "gi"), "[redacted]");
+    // Whole words only (review 2026-09-26, P2-7): a short name such as
+    // "ACE" never corrupts "surface".
+    redacted = redacted.replace(
+      // 2026-09-29 (second, privacy): an escape before a name is an edge.
+      new RegExp(`${NAME_EDGE_BEFORE}${surfacePattern(name)}(?![\\p{L}\\p{N}])`, "giu"),
+      "[redacted]"
+    );
   }
   redacted = redacted
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted email]")
@@ -68,10 +72,18 @@ export type ExternalBriefInput = {
   scienceCode?: string;
   fiscalYear?: string;
   knownNames: string[];
+  /**
+   * The project's name placeholder map (decision 26, audit wave 2): record
+   * names, every transcript speaker with first and last name parts, and
+   * the firm's own names become tokens first; `knownNames` then catches
+   * what the map's exact case missed.
+   */
+  placeholders?: PlaceholderMap;
 };
 
 export function buildExternalBrief(input: ExternalBriefInput): string {
-  const redact = (value: string) => redactExternalText(value, input.knownNames);
+  const redact = (value: string) =>
+    redactExternalText(pseudonymize(value, input.placeholders ?? []), input.knownNames);
   const metadata = [
     input.projectTitle ? `Project topic: ${redact(input.projectTitle)}` : null,
     input.industry ? `Industry: ${redact(input.industry)}` : null,

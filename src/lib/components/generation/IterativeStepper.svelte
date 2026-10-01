@@ -233,7 +233,7 @@
                 </svg>
               </span>
               <span class="flex-1 text-sm font-medium text-white">{step.title}</span>
-              <span class="rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+              <span class="rounded-full bg-primary px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-white">
                 Approved
               </span>
               <svg
@@ -277,15 +277,15 @@
               {step.title}
             </span>
             {#if s === "review"}
-              <span class="rounded-full bg-primary-wash px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-dark">
+              <span class="rounded-full bg-primary-wash px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-primary-dark">
                 Your review
               </span>
             {:else if s === "running"}
-              <span class="rounded-full bg-primary-wash px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-dark">
+              <span class="rounded-full bg-primary-wash px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-primary-dark">
                 Drafting…
               </span>
             {:else if run?.attempt && run.attempt > 1 && s !== "pending"}
-              <span class="text-[10px] text-gray-400">attempt {run.attempt}</span>
+              <span class="text-[0.625rem] text-gray-400">attempt {run.attempt}</span>
             {/if}
           </div>
 

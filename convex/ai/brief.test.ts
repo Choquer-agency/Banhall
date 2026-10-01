@@ -46,6 +46,7 @@ import {
   MAX_BRIEF_SOURCE_ROWS,
 } from "../generations";
 import schema from "../schema";
+import { allGenerationProgress } from "../lib/generationProgress";
 import {
   BRIEF_PUBLISH_ATTEMPTS,
   publishDerivedBrief,
@@ -1087,8 +1088,8 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
     const secondSource = await briefSourceOf(t, secondGenerationId);
 
     const observed = await Promise.all([
-      t.query(internal.generations.findReusableBrief, { projectId, inputsHash }),
-      t.query(internal.generations.findReusableBrief, { projectId, inputsHash }),
+      t.query(internal.generations.findReusableBrief, { generationId: firstGenerationId, inputsHash }),
+      t.query(internal.generations.findReusableBrief, { generationId: secondGenerationId, inputsHash }),
     ]);
     expect(observed).toEqual([null, null]);
 
@@ -1168,8 +1169,8 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
     const secondSource = await briefSourceOf(t, secondGenerationId);
 
     const reuseMisses = await Promise.all([
-      t.query(internal.generations.findReusableBrief, { projectId, inputsHash }),
-      t.query(internal.generations.findReusableBrief, { projectId, inputsHash }),
+      t.query(internal.generations.findReusableBrief, { generationId: firstGenerationId, inputsHash }),
+      t.query(internal.generations.findReusableBrief, { generationId: secondGenerationId, inputsHash }),
     ]);
     expect(reuseMisses).toEqual([null, null]);
 
@@ -1382,7 +1383,7 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
 
     // Both derivations missed reuse before any Brief existed for the key.
     expect(
-      await t.query(internal.generations.findReusableBrief, { projectId, inputsHash })
+      await t.query(internal.generations.findReusableBrief, { generationId: secondGenerationId, inputsHash })
     ).toBeNull();
     const v1 = await publishDerivedBrief(briefPublishCtx(t).ctx, {
       projectId,
@@ -1467,7 +1468,7 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
     const { ctx, calls } = briefPublishCtx(t, async (call) => {
       if (call.name !== PERSIST_MUTATION) return;
       const latest = await t.query(internal.generations.findReusableBrief, {
-        projectId,
+        generationId,
         inputsHash,
       });
       editIds.push(
@@ -1804,7 +1805,10 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     network.create.mockClear();
     await t.action(internal.ai.pipeline.generateReport, { generationId });
     await drainGeneration(t);
-    const generation = await t.run((ctx) => ctx.db.get(generationId));
+    const generation = await t.run(async (ctx) => {
+      const row = await ctx.db.get(generationId);
+      return row ? { ...row, progressLog: await allGenerationProgress(ctx, generationId) } : null;
+    });
     expect(generation?.status).toBe("completed");
     expect(generation?.briefId).toBeUndefined();
     expect(briefCalls()).toHaveLength(0);
@@ -2235,11 +2239,9 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     expect(ROWS * HEAVY_TEXT_BYTES).toBeGreaterThan(BRIEF_CONSUMER_READ_BYTES * 0.75);
   });
 
-  it("reuses an already-over-bound Brief onto a new generation, and both readers omit it", async () => {
-    // The reachable production path: `ai/brief.ts:289-305` reuses a Brief by
-    // parent row (findReusableBrief + stampGenerationBriefId) and never reads
-    // its children, so nothing between an oversized stored Brief and a fresh
-    // generation ever passes through deriveOrReuseBrief's fail-open catch.
+  it("reuses an already-over-bound legacy Brief onto a new generation, and both readers omit it", async () => {
+    // Historical legacy behavior: reuse is decided by the parent row and an
+    // unreadable combined child set remains optional/fail-open for consumers.
     const t = convexTest(schema, modules);
     const { userId, projectId } = await makeProject(t);
     const firstGenerationId = await makeGeneration(t, projectId, userId, TRANSCRIPT_TEXT, "reuse-hash");
@@ -2263,15 +2265,19 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     });
     expect(await entriesOf(t, briefId)).toHaveLength(MAX_BRIEF_ENTRY_ROWS + 1);
 
-    // A second generation with byte-identical frozen inputs: same inputsHash,
-    // so the reuse branch stamps the oversized Brief with no child read.
+    // A second generation with byte-identical frozen inputs reuses the same
+    // legacy-authored parent without changing its stored rows.
     await t.run((ctx) =>
       ctx.db.patch(projectId, { status: "review", activeGenerationId: undefined })
     );
     const nextGenerationId = await makeGeneration(t, projectId, userId, TRANSCRIPT_TEXT, "reuse-hash");
+    network.create.mockClear();
     await t.action(internal.ai.pipeline.generateReport, { generationId: nextGenerationId });
-    expect((await t.run((ctx) => ctx.db.get(nextGenerationId)))?.briefId).toBe(briefId);
+    const nextBriefId = (await t.run((ctx) => ctx.db.get(nextGenerationId)))?.briefId;
+    expect(nextBriefId).toBe(briefId);
+    expect(briefCalls()).toHaveLength(0);
 
+    // Its historical combined read remains over-bound and is omitted whole.
     const omitted = await readBothConsumers(t, nextGenerationId);
     expect(omitted).toEqual({ rendered: "", brief: null });
   });

@@ -1,6 +1,13 @@
+import {
+  matchesClaimExclusion,
+  normalizeExclusionMatch,
+} from "./claimExclusionMatcher";
 import { LINE_LIMITS, WORD_CAPS, sectionMetrics } from "./lineLimits";
+import { STORYLINE_QUESTION_WITHHELD_REASON } from "./storylineQuestionNote";
 import { sectionParagraphs } from "./tiptapReport";
 import { matchGlossaryTerms } from "./glossaryMatcher";
+import { isNearCopy } from "./droppedUncertainties";
+import { contentWords } from "./seedQuoteSupport";
 import {
   noteDraft,
   type ComplianceNoteDraft,
@@ -13,6 +20,16 @@ import {
   type OrderedProfileContext,
   type SectionNumber,
 } from "./orderedChain";
+import {
+  GOVERNED_IN_IDEA_CLAUSE,
+  governedTermFollowed,
+  governedTermNotFollowed,
+  governedTermReason,
+  governingFeedbackPhrase,
+  type FeedbackGovernedTerm,
+  type GovernedTermState,
+} from "./writerPrecedence";
+import { findSourceTalk, SOURCE_TALK } from "../../shared/humanProse";
 
 /**
  * Story 2 (CAP-9, AD-25): the deterministic half of a section's Self-check.
@@ -37,6 +54,22 @@ export type ModelVerdict = {
   outcome: "applied" | "not_applied";
   reason: string;
   repairGuidance?: string;
+  /**
+   * Summary only, in memory only: the unclipped guidance or reason the one
+   * repair call uses when clipping shortened the stored text. Never stored.
+   */
+  repairText?: string;
+  /**
+   * Summary only (2026-09-28): the Self-check gave no verdict for this label,
+   * even after its one follow-up. Recorded as not_applied, never repaired.
+   */
+  notChecked?: true;
+  /**
+   * Summary only, in memory only (PR #22 lead decision): the Glossary Term a
+   * "feedback:F<n>" label checks, which the writer's Feedback governs in the
+   * Line. Its row is written in fixed words; the verdict decides the outcome.
+   */
+  feedbackTerm?: string;
 };
 
 /** One finding from the assembled-draft consistency pass. */
@@ -96,7 +129,7 @@ function exclusionReasonLabel(reason: string | undefined): string {
 
 /** Lowercase words joined by single spaces, padded for boundary matching. */
 function normalizeForMatch(text: string): string {
-  return ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+  return normalizeExclusionMatch(text);
 }
 
 function isBlankNeedle(text: string): boolean {
@@ -107,6 +140,25 @@ function paragraphContaining(paragraphs: string[], needle: string): number {
   const normalized = normalizeForMatch(needle);
   return paragraphs.findIndex((paragraph) =>
     normalizeForMatch(paragraph).includes(normalized)
+  );
+}
+
+/**
+ * 2026-09-30 (second): the first paragraph holding a close form of a Claim
+ * Exclusion's words: one of its sentences holds at least NEAR_COPY_SHARE of
+ * the exclusion's content words, case, punctuation, stop words and light
+ * plurals aside (the near-copy guard of convex/lib/droppedUncertainties.ts).
+ * Release suite run 11 (exclusion-conflict, Line 244 paragraph 3) wrote
+ * "this work also covered migration of the customer billing portal to a new
+ * cloud host, which was routine IT work following a vendor migration guide",
+ * which the exact match misses. Only the suspended row's wording reads it.
+ */
+export function paragraphWithCloseForm(paragraphs: readonly string[], needle: string): number {
+  if (contentWords(needle).length === 0) return -1;
+  return paragraphs.findIndex((paragraph) =>
+    paragraph
+      .split(/(?<=[.!?])\s+/)
+      .some((sentence) => isNearCopy([needle], [sentence]))
   );
 }
 
@@ -164,6 +216,30 @@ export function runDeterministicSelfCheck(input: {
   profile: OrderedProfileContext;
   /** The first section in production order carries the Build Order row. */
   isFirstInOrder: boolean;
+  /** Signed plan items whose matching Brief exclusions were human-confirmed. */
+  confirmedPlanConflicts?: readonly (readonly string[])[];
+  /**
+   * 2026-09-29 (second): Glossary Terms a signed-off edit took out of this
+   * Line (writerPrecedence.ts). They are neither required nor used to
+   * replace wording; each gets a conflict row saying why.
+   */
+  glossarySetAside?: readonly { term: string; reason: string }[];
+  /**
+   * PR #22 lead decision: Glossary Terms the writer's Feedback governs in
+   * this Line. They are not checked here and are never Glossary candidates:
+   * their own Self-check label checks them, and their row comes from its
+   * verdict (assembleSectionNotes).
+   */
+  feedbackTerms?: readonly string[];
+  /**
+   * 2026-09-30 (third): signed-off plan runs only. Report text that names
+   * where a fact came from (an interviewee, the test memo, the Brief) is
+   * found here and sent to the repair. `subjectText` is the plan's wording
+   * and the Glossary Terms: their words are the project's own subject and
+   * are never reported. Absent: no such check and no row, so Single draft
+   * and Compare keep their rows and requests.
+   */
+  sourceTalk?: { subjectText: readonly string[] };
 }): DeterministicSelfCheck {
   const { section, text, brief, profile, isFirstInOrder } = input;
   const key = sectionKeyOf(section);
@@ -348,6 +424,42 @@ export function runDeterministicSelfCheck(input: {
     }
     const label = exclusionReasonLabel(exclusion.reason);
     const instruction = `Claim Exclusion: ${exclusion.text}`;
+    // CAP-13 rule 4 (2026-09-29, second): in the Line whose signed-off plan
+    // holds an idea the writer kept despite this exclusion, the exclusion is
+    // meant to be suspended for that idea's content only. This check matches
+    // words and cannot tell the kept idea from other content with the same
+    // words, so it suspends the exclusion for the whole Line (review P3-1)
+    // and says so; it never asks for a removal there. The consistency pass
+    // is told to report any other content that claims the excluded work, and
+    // the idea's own plan row says whether it was drafted. Every other Line,
+    // and every other exclusion, is checked as before.
+    const confirmedPlanConflict = (input.confirmedPlanConflicts ?? []).some(
+      (wording) =>
+        matchesClaimExclusion(wording, exclusion.text, exclusion.exactExcerpt)
+    );
+    if (confirmedPlanConflict) {
+      // 2026-09-30 (second): with its words not in the Line as written, a
+      // close form of them is named where one appears (release suite run 11).
+      let close = -1;
+      if (found < 0) {
+        for (const needle of needles) {
+          close = paragraphWithCloseForm(paragraphs, needle);
+          if (close >= 0) break;
+        }
+      }
+      add(`exclusion:${index}`, {
+        instruction,
+        ...(found >= 0 ? { paragraphIndex: found } : close >= 0 ? { paragraphIndex: close } : {}),
+        outcome: "not_applied",
+        tier: "conflict",
+        reason: found >= 0
+          ? `suspended in this Line for the idea the writer kept despite this Claim Exclusion: its words appear in paragraph ${found + 1} (${label}) and are not repaired away; this word check cannot tell that idea from other content with the same words`
+          : close >= 0
+            ? `suspended in this Line for the idea the writer kept despite this Claim Exclusion (${label}): its exact words are not in this Line, but a close form of its words is in paragraph ${close + 1} and is not repaired away; the idea's own row says whether it was drafted`
+            : `suspended in this Line for the idea the writer kept despite this Claim Exclusion (${label}); its words are not in this Line as written, and the idea's own row says whether it was drafted`,
+      });
+      return;
+    }
     if (found < 0) {
       add(`exclusion:${index}`, {
         instruction,
@@ -375,7 +487,24 @@ export function runDeterministicSelfCheck(input: {
   // with no occurrence is a candidate the model classifies (synonym or
   // absent concept).
   const glossaryCandidates: string[] = [];
+  const setAside = input.glossarySetAside ?? [];
+  const governed = new Set((input.feedbackTerms ?? []).map((term) => term.trim().toLowerCase()));
   for (const term of uniqueTerms(brief?.glossaryTerms ?? [])) {
+    // CAP-13 rule 5: the writer's Feedback governs a term it names in this
+    // Line; its own Self-check label checks it (PR #22 lead decision).
+    if (governed.has(term.toLowerCase())) continue;
+    // CAP-13 rule 5 (2026-09-29, second): the writer's wording outranks a
+    // Glossary Term. A term a signed-off edit sets aside is not checked.
+    const aside = setAside.find((entry) => entry.term.trim().toLowerCase() === term.toLowerCase());
+    if (aside) {
+      add(`glossary:${term.toLowerCase()}`, {
+        instruction: `Glossary Term: ${term}`,
+        outcome: "not_applied",
+        tier: "conflict",
+        reason: `Not enforced in this Line: ${aside.reason}. The writer's wording outranks the Brief.`,
+      });
+      continue;
+    }
     const index = paragraphs.findIndex((paragraph) =>
       glossaryTermPresent(term, paragraph)
     );
@@ -392,31 +521,121 @@ export function runDeterministicSelfCheck(input: {
     });
   }
 
+  // 2026-09-30 (third): no talk about sources in report text. One row per
+  // Line; a hit goes to the repair with a fixed fix that names its words.
+  if (input.sourceTalk) {
+    const subjectText = input.sourceTalk.subjectText;
+    const found = paragraphs.flatMap((paragraph, index) =>
+      findSourceTalk(paragraph, { subjectText }).map((hit) => ({ index, phrase: hit.phrase })));
+    if (found.length === 0) {
+      add(SOURCE_TALK_KEY, {
+        instruction: SOURCE_TALK.instruction,
+        outcome: "applied",
+        tier: "none",
+        reason: SOURCE_TALK.applied,
+      });
+    } else {
+      add(
+        SOURCE_TALK_KEY,
+        {
+          instruction: SOURCE_TALK.instruction,
+          paragraphIndex: found[0]!.index,
+          outcome: "not_applied",
+          tier: "none",
+          reason: `names a source in ${sourceTalkPlaces(found)}`,
+        },
+        true,
+        sourceTalkRepairIssue(found)
+      );
+    }
+  }
+
   return { entries, glossaryCandidates, modelRules, paragraphs };
 }
 
-/** Every issue a repair must fix: deterministic guidance plus model verdicts. */
+/** The deterministic entry key of the source-talk check (2026-09-30, third). */
+export const SOURCE_TALK_KEY = "sourceTalk";
+
+/** At most this many source-talk phrases are named in a row or a fix. */
+const SOURCE_TALK_NAMED = 4;
+
+function joinedList(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/** 'paragraph 1 ("interviewees") and paragraph 3 ("recorded elsewhere", "Storyline")'. */
+function sourceTalkPlaces(found: ReadonlyArray<{ index: number; phrase: string }>): string {
+  const named = found.slice(0, SOURCE_TALK_NAMED);
+  const paragraphs = [...new Set(named.map((hit) => hit.index))].map((index) =>
+    `paragraph ${index + 1} (${named.filter((hit) => hit.index === index).map((hit) => `"${hit.phrase}"`).join(", ")})`);
+  const more = found.length - named.length;
+  return joinedList(more > 0 ? [...paragraphs, `${more} more`] : paragraphs);
+}
+
+/**
+ * The repair fix for source talk: the paragraphs, the phrases as written
+ * and the rule, in fixed words (SOURCE_TALK in shared/humanProse.ts).
+ */
+export function sourceTalkRepairIssue(found: ReadonlyArray<{ index: number; phrase: string }>): string {
+  const paragraphs = [...new Set(found.map((hit) => hit.index + 1))];
+  const where = paragraphs.length === 1
+    ? `Paragraph ${paragraphs[0]}`
+    : `Paragraphs ${joinedList(paragraphs.map(String))}`;
+  const phrases = [...new Set(found.map((hit) => `"${hit.phrase}"`))].slice(0, SOURCE_TALK_NAMED);
+  return `${where}: ${SOURCE_TALK.fix} (${phrases.join(", ")}). ${SOURCE_TALK.rule}`;
+}
+
+/**
+ * Every issue a repair must fix: deterministic guidance plus model verdicts.
+ * A Glossary Term the writer's Feedback governs is repaired toward that
+ * Feedback, quoted, with the check's guidance after it (PR #22 lead
+ * decision).
+ */
 export function repairIssues(
   before: DeterministicSelfCheck,
-  verdicts: ModelVerdict[]
+  verdicts: ModelVerdict[],
+  governed: readonly FeedbackGovernedTerm[] = [],
+  options: {
+    /**
+     * 2026-09-30 (third): signed-off plan runs only. A fixed start for a
+     * verdict's fix (how to hedge a Confidence Map or Storyline issue, how
+     * to use a Glossary Term), put before the check's own guidance. Absent,
+     * or "", leaves the issue as before.
+     */
+    verdictPrefix?: (verdict: ModelVerdict) => string;
+  } = {}
 ): string[] {
   const issues = before.entries
     .filter((entry) => entry.repairable && entry.row.outcome === "not_applied")
     .map((entry) => entry.guidance ?? entry.row.reason);
   for (const verdict of verdicts) {
-    if (verdict.outcome !== "not_applied") continue;
-    const fix = verdict.repairGuidance?.trim() || verdict.reason;
+    if (verdict.outcome !== "not_applied" || verdict.notChecked) continue;
+    const fix = verdict.repairText ?? (verdict.repairGuidance?.trim() || verdict.reason);
     const where =
       verdict.paragraphIndex === undefined
         ? "Whole section"
         : `Paragraph ${verdict.paragraphIndex + 1}`;
-    issues.push(`${where}: ${fix}`);
+    const term = verdict.feedbackTerm === undefined
+      ? undefined
+      : governed.find((entry) => entry.term === verdict.feedbackTerm);
+    if (term) {
+      // 2026-09-30 (second): a term an unedited signed-off idea uses is
+      // renamed there too; renaming is wording, not meaning.
+      issues.push(
+        `${where}: for the term "${term.term}", follow the writer's Feedback ${governingFeedbackPhrase(term.feedback)}${
+          term.inSignedOffIdea ? GOVERNED_IN_IDEA_CLAUSE : ""
+        }.${fix.trim() ? ` ${fix.trim()}` : ""}`
+      );
+      continue;
+    }
+    issues.push(`${where}: ${options.verdictPrefix?.(verdict) ?? ""}${fix}`);
   }
   return issues;
 }
 
 /** The Glossary Term a glossary verdict names (the candidate it mentions). */
-function glossaryTermOf(verdict: ModelVerdict, candidates: string[]): string {
+export function glossaryTermOf(verdict: ModelVerdict, candidates: string[]): string {
   const normalized = normalizeForMatch(verdict.instruction);
   return (
     candidates.find((term) => normalized.includes(normalizeForMatch(term))) ??
@@ -436,11 +655,45 @@ export function assembleSectionNotes(input: {
   before: DeterministicSelfCheck;
   after: DeterministicSelfCheck | null;
   verdicts: ModelVerdict[];
-  modelCheck: { ok: true } | { ok: false; reason: string };
+  modelCheck: { ok: true } | { ok: false; reason: string; detail?: string };
   /** `recorded`: a storylineQuestion entry is inserted on the Brief. */
   storylineQuestion: { question: string; recorded: boolean } | null;
-  repair: { attempted: boolean; succeeded: boolean; failureReason?: string };
+  /**
+   * Summary only: why the model's Storyline question was withheld (field
+   * names and byte counts, never model text). Absent everywhere else.
+   */
+  storylineQuestionWithheld?: string;
+  /**
+   * `notUsedReason`: the repair came back but was not used (2026-09-28,
+   * second: it went further over a Locked limit than the checked draft).
+   */
+  repair: {
+    attempted: boolean;
+    succeeded: boolean;
+    failureReason?: string;
+    notUsedReason?: string;
+    /** The accepted repair was then shortened by compression (review P2-1). */
+    shortened?: boolean;
+  };
   finalText: string;
+  /**
+   * The compression passes sent on the text that was kept (the checked
+   * draft, or the repair when it was used), and the failure that stopped
+   * them, if any (review P2-2, P3-6).
+   */
+  compression?: { passes: number; failure?: string };
+  /**
+   * PR #22 lead decision: the Glossary Terms the writer's Feedback governs
+   * in this Line. Each gets one row in fixed words that quote the Feedback,
+   * decided by its label's verdict, or not checked when there is none.
+   */
+  governed?: readonly FeedbackGovernedTerm[];
+  /**
+   * Greptile round 4, P2: the governed terms' label verdicts from the check
+   * of the final text, present only when a used repair changed the checked
+   * text. They decide the rows then, never the repair's own success.
+   */
+  governedFinal?: { ok: true; verdicts: readonly ModelVerdict[] } | { ok: false };
 }): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
   const { section, before, verdicts, repair } = input;
   const failedBefore = new Set(
@@ -450,11 +703,14 @@ export function assembleSectionNotes(input: {
   );
   const finalEntries = (input.after ?? before).entries;
   const repairFailure = repair.failureReason ? `: ${repair.failureReason}` : "";
+  const repairNotDone = repair.notUsedReason
+    ? `repair not used (${repair.notUsedReason})`
+    : `repair call failed${repairFailure}`;
 
   const rows: ComplianceNoteDraft[] = finalEntries.map((entry) => {
     if (!repair.attempted || !failedBefore.has(entry.key)) return entry.row;
     if (!repair.succeeded) {
-      return { ...entry.row, reason: `${entry.row.reason}; repair call failed${repairFailure}` };
+      return { ...entry.row, reason: `${entry.row.reason}; ${repairNotDone}` };
     }
     return {
       ...entry.row,
@@ -465,11 +721,40 @@ export function assembleSectionNotes(input: {
           : `${entry.row.reason}; repair failed`,
     };
   });
+  // 2026-09-28 (second): a Section still over a Locked limit is kept whole,
+  // never cut to fit; its row says so and what the writer must do.
+  const lockedIndex = finalEntries.findIndex(
+    (entry) => entry.key === "locked" && entry.row.outcome === "not_applied"
+  );
+  if (lockedIndex >= 0) {
+    const metrics = sectionMetrics(input.finalText, sectionKeyOf(section));
+    const passes = input.compression?.passes ?? 0;
+    const failure = input.compression?.failure
+      ? ` (a shortening pass failed: ${input.compression.failure})`
+      : "";
+    rows[lockedIndex] = {
+      ...rows[lockedIndex],
+      reason: `${rows[lockedIndex].reason}; still over after ${passes} shortening ${
+        passes === 1 ? "pass" : "passes"
+      }${failure}. The text was not cut to fit: shorten Line ${section} to ${metrics.wordCap} words and ${metrics.limit} lines before filing`,
+    };
+  }
   let remainingFailures = finalEntries.filter(
     (entry) => entry.repairable && entry.row.outcome === "not_applied"
   ).length;
 
+  const governed = input.governed ?? [];
+  // The first verdict for each governed term's label; its row is written
+  // below, from the final text's verdict when there is one.
+  const firstGoverned = new Map<string, ModelVerdict>();
   for (const verdict of verdicts) {
+    const term = verdict.feedbackTerm === undefined
+      ? undefined
+      : governed.find((entry) => entry.term === verdict.feedbackTerm);
+    if (term) {
+      if (!firstGoverned.has(term.term)) firstGoverned.set(term.term, verdict);
+      continue;
+    }
     const tier: ComplianceTier =
       verdict.check === "confidence" && verdict.outcome === "not_applied"
         ? "missing_fact"
@@ -483,6 +768,11 @@ export function assembleSectionNotes(input: {
     };
     if (verdict.outcome === "applied") {
       rows.push(noteDraft({ ...base, outcome: "applied", reason: verdict.reason || "applied" }));
+      continue;
+    }
+    if (verdict.notChecked) {
+      // No verdict means no failure to repair: recorded as it is.
+      rows.push(noteDraft({ ...base, tier: "none", outcome: "not_applied", reason: verdict.reason }));
       continue;
     }
     let outcome: "applied" | "not_applied" = "not_applied";
@@ -499,13 +789,72 @@ export function assembleSectionNotes(input: {
           reason = `${reason}; repair failed`;
           remainingFailures += 1;
         }
+      } else if (repair.shortened) {
+        // Review P2-1: compression changed the repair after the fix.
+        repaired = false;
+        reason = `${reason}; repaired, then shortened to fit the Line limit, so not re-verified`;
       } else {
         reason = `${reason}; repaired (deterministic re-check only; not re-verified by the model)`;
       }
     } else if (repair.attempted) {
-      reason = `${reason}; repair call failed${repairFailure}`;
+      reason = `${reason}; ${repairNotDone}`;
     }
     rows.push(noteDraft({ ...base, outcome, reason, repaired }));
+  }
+
+  // One row per governed term, in fixed words that quote the Feedback,
+  // never the model's text (PR #22 lead decision). The final text decides
+  // (Greptile round 4, P2): when a used repair changed the checked text, the
+  // check of the final text judged its label again, and that verdict, or its
+  // absence, decides the row; otherwise the first verdict describes the
+  // final text. The repair's own success never marks the term followed.
+  for (const term of governed) {
+    const first = firstGoverned.get(term.term);
+    const firstFailed = first !== undefined && first.outcome === "not_applied" && !first.notChecked;
+    const firstFollowed = first !== undefined && first.outcome === "applied";
+    let state: GovernedTermState;
+    let detail: string | undefined;
+    const final = input.governedFinal;
+    if (final) {
+      const verdict = final.ok
+        ? final.verdicts.find((candidate) => candidate.feedbackTerm === term.term)
+        : undefined;
+      if (!final.ok) state = "final_check_failed";
+      else if (!verdict || verdict.notChecked) state = "final_not_checked";
+      else if (verdict.outcome === "applied") state = firstFailed ? "repaired" : "followed_final";
+      else state = firstFailed ? "still_not_followed" : firstFollowed ? "broken_by_repair" : "final_not_followed";
+    } else if (!first) {
+      state = input.modelCheck.ok ? "not_checked" : "check_failed";
+    } else if (first.notChecked) {
+      state = "not_checked";
+    } else if (first.outcome === "applied") {
+      state = "followed";
+    } else {
+      state = "not_followed";
+      // The checked text is the final text: the repair was not used, failed
+      // or left the text as it was.
+      detail = !repair.attempted
+        ? undefined
+        : !repair.succeeded
+          ? repairNotDone
+          : "the repair left the text unchanged";
+    }
+    const verdict = input.governedFinal?.ok
+      ? input.governedFinal.verdicts.find((candidate) => candidate.feedbackTerm === term.term)
+      : input.governedFinal ? undefined : first;
+    if (governedTermNotFollowed(state) && repair.attempted) remainingFailures += 1;
+    rows.push(noteDraft({
+      section,
+      ...(verdict && !verdict.notChecked && verdict.paragraphIndex !== undefined
+        ? { paragraphIndex: verdict.paragraphIndex }
+        : {}),
+      source: "model",
+      instruction: `Glossary Term: ${term.term}`,
+      outcome: governedTermFollowed(state) ? "applied" : "not_applied",
+      tier: "conflict",
+      reason: governedTermReason(term.feedback, state, detail, term.inSignedOffIdea === true),
+      repaired: state === "repaired",
+    }));
   }
 
   if (input.storylineQuestion) {
@@ -523,6 +872,20 @@ export function assembleSectionNotes(input: {
       })
     );
   }
+  if (input.storylineQuestionWithheld) {
+    rows.push(
+      noteDraft({
+        section,
+        paragraphIndex: 0,
+        source: "model",
+        instruction: "Storyline",
+        outcome: "not_applied",
+        tier: "none",
+        // Plain words only: the byte detail stays in the summary and the log.
+        reason: STORYLINE_QUESTION_WITHHELD_REASON,
+      })
+    );
+  }
   if (!input.modelCheck.ok) {
     rows.push(
       noteDraft({
@@ -531,7 +894,9 @@ export function assembleSectionNotes(input: {
         instruction: "Model Self-check",
         outcome: "not_applied",
         tier: "none",
-        reason: `Self-check call failed (${input.modelCheck.reason}); deterministic checks only`,
+        reason: `Self-check call failed (${input.modelCheck.reason}${
+          input.modelCheck.detail ? `: ${input.modelCheck.detail}` : ""
+        }); deterministic checks only`,
       })
     );
   }
@@ -552,6 +917,12 @@ export function assembleSectionNotes(input: {
       failedChecks,
       remainingFailures,
       modelCheck: input.modelCheck.ok ? "ok" : "failed",
+      ...(!input.modelCheck.ok && input.modelCheck.detail
+        ? { modelCheckDetail: input.modelCheck.detail }
+        : {}),
+      ...(input.storylineQuestionWithheld
+        ? { storylineQuestionWithheld: input.storylineQuestionWithheld }
+        : {}),
     },
   };
 }
@@ -579,11 +950,21 @@ export function consistencyNoteDrafts(
   );
 }
 
-/** The pass-level row recorded on the last section in production order. */
+/** The pass-level row recorded on the last section in production order.
+ * `reportChanged`: the report kept changing while the pass ran, so its
+ * findings described text that was gone and none were stored. */
 export function consistencySummaryNote(
   section: SectionNumber,
-  outcome: { ok: true; findings: number } | { ok: false; reason: string }
+  outcome:
+    | { ok: true; findings: number; unreadable?: number }
+    | { ok: false; reason: string }
+    | { ok: false; reportChanged: true }
 ): ComplianceNoteDraft {
+  // 2026-09-29 (second): findings left out as unreadable are counted, so a
+  // pass that could read only part of its answer says so.
+  const unreadable = outcome.ok && (outcome.unreadable ?? 0) > 0
+    ? `; ${outcome.unreadable} more ${outcome.unreadable === 1 ? "finding" : "findings"} could not be read and ${outcome.unreadable === 1 ? "was" : "were"} left out`
+    : "";
   return noteDraft({
     section,
     source: "deterministic",
@@ -591,7 +972,9 @@ export function consistencySummaryNote(
     outcome: outcome.ok ? "applied" : "not_applied",
     tier: "none",
     reason: outcome.ok
-      ? `consistency pass ran over the assembled draft: ${outcome.findings} finding(s)`
-      : `consistency pass call failed (${outcome.reason})`,
+      ? `consistency pass ran over the assembled draft: ${outcome.findings} finding(s)${unreadable}`
+      : "reportChanged" in outcome
+        ? "consistency pass skipped: the report changed while it ran, so no findings were stored"
+        : `consistency pass call failed (${outcome.reason})`,
   });
 }

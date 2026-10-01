@@ -16,10 +16,10 @@ export const QA_REQUEST = {
     checksHeading: "",
     analysisHeading: "\n\n## Original Transcript Analysis\n",
     section242Heading:
-      "\n\n## Section 242 — Scientific/Technological Uncertainty\n",
-    section244Heading: "\n\n## Section 244 — Work Performed\n",
+      "\n\n## Section 242: Scientific/Technological Uncertainty\n",
+    section244Heading: "\n\n## Section 244: Work Performed\n",
     section246Heading:
-      "\n\n## Section 246 — Scientific/Technological Advancement\n",
+      "\n\n## Section 246: Scientific/Technological Advancement\n",
     runtimeSentinels: [
       "{{runtime.deterministicChecks}}",
       "{{runtime.transcriptAnalysis}}",

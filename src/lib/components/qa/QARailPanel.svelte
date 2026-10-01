@@ -24,6 +24,8 @@
     onRunQa = undefined,
     postQaStatus = null,
     footer = undefined,
+    variant = "card",
+    lastRunAt = null,
   }: {
     open: boolean;
     onClose: () => void;
@@ -43,8 +45,36 @@
     postQaStatus?: "running" | "done" | "failed" | null;
     /** Pinned below the scorecard scroll area (e.g. the option comment box). */
     footer?: Snippet;
+    /**
+     * "side": the report page's QA panel (board 2.2), flat in the side slot
+     * with the scorecard's own header. "card": the rounded rail card.
+     */
+    variant?: "card" | "side";
+    /** When the scorecard was last produced ("last run 2 min ago"). */
+    lastRunAt?: number | null;
   } = $props();
 </script>
+
+{#if variant === "side"}
+<div
+  class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden bg-surface ${open ? "" : "is-closed"} ${hidden ? "hidden" : ""}`}
+  role="dialog"
+  aria-label={title}
+  inert={!open}
+  data-qa-panel="side"
+>
+  <div class="min-h-0 flex-1 overflow-y-auto">
+    <div class="p-6">
+      <QAScorePanel variant="side" {title} {onClose} {lastRunAt} {agentOutputs} {reportContent} {reportId} {candidateId} {rawQa} {onLocateGap} {onRunQa} {postQaStatus} />
+    </div>
+    {#if footer}
+      <div class="border-t border-primary/15 bg-primary/5 px-6 py-4">
+        {@render footer()}
+      </div>
+    {/if}
+  </div>
+</div>
+{:else}
 
 <div
   class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden rounded-2xl border border-chrome bg-white ${open ? "" : "is-closed"} ${hidden ? "hidden" : ""}`}
@@ -64,8 +94,8 @@
     {/if}
     <button
       onclick={onClose}
-      title="Close QA review"
-      aria-label="Close QA review"
+      title={`Close ${title}`}
+      aria-label={`Close ${title}`}
       class="ml-auto flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-navy"
     >
       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -84,3 +114,4 @@
     {/if}
   </div>
 </div>
+{/if}

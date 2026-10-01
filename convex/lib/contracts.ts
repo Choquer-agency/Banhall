@@ -30,6 +30,17 @@ export const domainErrorCodes = [
   "REVIEW_DECISION_REQUIRED",
   // Story 1 (CAP-1/2/4): Brief edit error when version stale
   "BRIEF_STALE",
+  // Decision 65, stage 2: a run or review asked for while the project is
+  // still being set up from its intake draft.
+  "PROJECT_SETTING_UP",
+  // Decision 65, stage 2: a private intake draft that expired, was
+  // discarded or ended; the day's draft cap; a draft's text or file caps.
+  "INTAKE_DRAFT_GONE",
+  "INTAKE_DRAFT_LIMIT",
+  "INTAKE_TEXT_LIMIT",
+  // Audit wave 2: a per-user or per-project limit on a paid AI action;
+  // carries `retryAfter` in seconds.
+  "RATE_LIMITED",
 ] as const;
 
 export type DomainErrorCode = (typeof domainErrorCodes)[number];
@@ -37,7 +48,7 @@ export type DomainErrorCode = (typeof domainErrorCodes)[number];
 export function domainError(
   code: DomainErrorCode,
   message: string,
-  details?: Record<string, string>
+  details?: Record<string, string | number>
 ): never {
   throw new ConvexError({ ...details, code, message });
 }

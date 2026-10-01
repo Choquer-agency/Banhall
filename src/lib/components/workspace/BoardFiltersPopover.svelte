@@ -172,10 +172,10 @@
     aria-label={activeCount ? `Filters — ${activeCount} active` : "Filters"}
     class="inline-flex h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-ink-secondary transition-colors select-none hover:bg-chrome/70 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:h-7"
   >
-    <svg class="h-[15px] w-[15px] shrink-0" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" d="M1.833 3.167h12.334M5.833 12.833h4.334M3.833 8h8.334" /></svg>
+    <svg class="h-[0.9375rem] w-[0.9375rem] shrink-0" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" d="M1.833 3.167h12.334M5.833 12.833h4.334M3.833 8h8.334" /></svg>
     Filters
     {#if activeCount}
-      <span data-board-filters-count class="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary-selected px-1 text-[10px] font-medium leading-none text-white">{activeCount}</span>
+      <span data-board-filters-count class="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary-selected px-1 text-[0.625rem] font-medium leading-none text-white">{activeCount}</span>
     {/if}
   </Popover.Trigger>
   <Popover.Portal>
@@ -195,10 +195,10 @@
                   bind:value={query}
                   aria-label={activeField ? "Search values" : "Search filters"}
                   placeholder="Search..."
-                  class="input-chromeless block h-7 w-full border-0 bg-transparent px-2 py-0 text-[13px] text-ink outline-none placeholder:text-[13px] placeholder:text-ink-faint"
+                  class="input-chromeless block h-7 w-full border-0 bg-transparent px-2 py-0 text-[0.8125rem] text-ink outline-none placeholder:text-[0.8125rem] placeholder:text-ink-faint"
                 />
               </div>
-              <p class="px-3 pb-0.5 pt-1 text-[11px] font-medium text-ink-faint">
+              <p class="px-3 pb-0.5 pt-1 text-[0.6875rem] font-medium text-ink-faint">
                 {activeField ? `Filter by ${activeFieldLabel}` : "Filter by"}
               </p>
               <div class="max-h-64 overflow-y-auto px-1.5 pb-1.5" role="listbox" aria-label={activeField ? `${activeField} values` : "Filter fields"}>
@@ -214,7 +214,7 @@
                       role="option"
                       aria-selected={active}
                       data-filter-field={field.id}
-                      class={`w-full cursor-pointer rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors motion-reduce:transition-none pointer-coarse:min-h-11 ${active ? "bg-chrome text-ink" : "text-ink-secondary hover:bg-chrome/60 hover:text-ink"}`}
+                      class={`w-full cursor-pointer rounded-md px-2.5 py-1.5 text-left text-[0.8125rem] transition-colors motion-reduce:transition-none pointer-coarse:min-h-11 ${active ? "bg-chrome text-ink" : "text-ink-secondary hover:bg-chrome/60 hover:text-ink"}`}
                       onclick={() => pickField(field.id)}
                     >
                       <span class="font-medium">{field.label}</span>
@@ -237,7 +237,7 @@
                       role="option"
                       aria-selected={active}
                       data-filter-value={item.value}
-                      class={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors motion-reduce:transition-none pointer-coarse:min-h-11 ${active ? "bg-chrome text-ink" : "text-ink-secondary hover:bg-chrome/60 hover:text-ink"}`}
+                      class={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[0.8125rem] transition-colors motion-reduce:transition-none pointer-coarse:min-h-11 ${active ? "bg-chrome text-ink" : "text-ink-secondary hover:bg-chrome/60 hover:text-ink"}`}
                       onclick={() => pickValue(item.value, plainLabel(item.label))}
                     >
                       {#if badgeStage}
@@ -246,7 +246,7 @@
                         <span class="truncate">{plainLabel(item.label)}</span>
                       {/if}
                       {#if activeField === "stage" && countOf(item.label)}
-                        <span class="shrink-0 text-[11px] text-ink-faint">{countOf(item.label)}</span>
+                        <span class="shrink-0 text-[0.6875rem] text-ink-faint">{countOf(item.label)}</span>
                       {/if}
                     </button>
                   {:else}

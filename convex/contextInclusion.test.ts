@@ -3,6 +3,7 @@
 // `generationSources` row by `recordContextBudget` and read through the one
 // query, `generations.getContextInclusion`.
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -22,6 +23,7 @@ beforeEach(() => {
 // would throw in production throws here too.
 async function setup(options: { transcript?: boolean } = {}) {
   const t = convexTest({ schema, modules, transactionLimits: true });
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const userId = await ctx.db.insert("users", { authId, role: "writer" });

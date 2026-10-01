@@ -50,9 +50,11 @@ describe("deleted report QA cleanup", () => {
   test.each(["cleanup-creator", "cleanup-admin"])("%s deletion cleans history across continuation batches", async subject => {
     const f = await setup(257);
     await f.t.withIdentity({ subject }).mutation(api.projects.deleteProject, { projectId: f.projectId });
+    // Story 0 (AD-19): the report and project rows go with the paginated purge
+    // the mutation schedules, so they are gone once the scheduler drains.
+    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
     expect(await f.t.run(ctx => ctx.db.get(f.projectId))).toBeNull();
     expect(await f.t.run(ctx => ctx.db.get(f.reportId))).toBeNull();
-    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
     expect(await f.findings()).toEqual([]);
     expect(await f.t.run(ctx => ctx.db.get(f.retainedFindingId))).not.toBeNull();
   });

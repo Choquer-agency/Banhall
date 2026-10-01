@@ -323,7 +323,7 @@
                   · {s.label ?? REASON_LABELS[s.reason] ?? s.reason}
                 </p>
                 {#if s.researchSessionId}
-                  <p class="mt-1 text-[11px] font-medium text-primary">
+                  <p class="mt-1 text-[0.6875rem] font-medium text-primary">
                     Research-backed · {s.researchSourceCount} source{s.researchSourceCount === 1 ? "" : "s"}
                   </p>
                 {/if}
@@ -397,7 +397,7 @@
       {/if}
       <div class="flex-1 overflow-y-auto bg-canvas px-8 py-6">
         {#if selected}
-          <div class="mx-auto max-w-[680px]">
+          <div class="mx-auto max-w-[42.5rem]">
             <ReadOnlyEditor content={selected.content} />
           </div>
         {:else}
@@ -406,7 +406,7 @@
           </p>
         {/if}
       </div>
-      <p class="border-t border-gray-100 px-5 py-2 text-[11px] text-gray-400">
+      <p class="border-t border-gray-100 px-5 py-2 text-[0.6875rem] text-gray-400">
         Restoring is non-destructive — the current version is snapshotted
         first, so you can always come back to it.
       </p>

@@ -1,7 +1,12 @@
 "use node";
 
-import Anthropic from "@anthropic-ai/sdk";
-import { instrumentedAnthropic, scheduleUsage } from "../instrument";
+import { scheduleUsage } from "../instrument";
+import { clientForRole } from "../providers";
+import type {
+  GenerationClient,
+  GenerationContentBlock,
+  GenerationMessageParams,
+} from "../openrouterCore";
 import { defaultChunker } from "@convex-dev/rag";
 import { internalAction } from "../../_generated/server";
 import { internal } from "../../_generated/api";
@@ -18,8 +23,33 @@ const USE_CONTEXTUAL = process.env.BRAIN_CONTEXTUAL === "1";
  * is sent as a cached prefix, so the repeated cost is ~nil. Measured to cut
  * retrieval failures ~35–49% (more with a reranker).
  */
+/** The request, shared with the brain_context evaluation. */
+export const CONTEXTUALIZE_MAX_TOKENS = 100;
+export const CONTEXTUALIZE_SYSTEM_PROMPT =
+  "You situate a chunk within its source document for retrieval. Reply with 1-2 sentences of context only, no preamble.";
+
+export function contextualizeMessages(fullDoc: string, chunk: string): GenerationMessageParams["messages"] {
+  return [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `<document>\n${fullDoc}\n</document>`,
+          cache_control: { type: "ephemeral" },
+        },
+        {
+          type: "text",
+          text: `<chunk>\n${chunk}\n</chunk>\nGive a short context situating this chunk within the document (company, which SR&ED section, what it covers). Context only.`,
+        },
+      ],
+    },
+  ];
+}
+
 async function contextualizeChunks(
-  client: Anthropic,
+  client: GenerationClient,
+  model: string,
   fullDoc: string,
   chunks: string[]
 ): Promise<string[]> {
@@ -27,29 +57,13 @@ async function contextualizeChunks(
   for (const chunk of chunks) {
     try {
       const res = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 100,
-        system:
-          "You situate a chunk within its source document for retrieval. Reply with 1–2 sentences of context only — no preamble.",
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `<document>\n${fullDoc}\n</document>`,
-                cache_control: { type: "ephemeral" },
-              },
-              {
-                type: "text",
-                text: `<chunk>\n${chunk}\n</chunk>\nGive a short context situating this chunk within the document (company, which SR&ED section, what it covers). Context only.`,
-              },
-            ],
-          },
-        ],
+        model,
+        max_tokens: CONTEXTUALIZE_MAX_TOKENS,
+        system: CONTEXTUALIZE_SYSTEM_PROMPT,
+        messages: contextualizeMessages(fullDoc, chunk),
       });
       const ctx = res.content
-        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .filter((b): b is Extract<GenerationContentBlock, { type: "text" }> => b.type === "text")
         .map((b) => b.text)
         .join(" ")
         .trim();
@@ -115,13 +129,15 @@ export const embedSource = internalAction({
 
     const addResult = USE_CONTEXTUAL
       ? await (async () => {
-          const client = instrumentedAnthropic(ctx, {
+          // Model catalog: the brain_context role's model.
+          const { client, model } = await clientForRole(ctx, "brain_context", {
             callSite: "brain:contextualize",
             brainSourceId: args.sourceId,
           });
           const rawChunks = defaultChunker(src.content);
           const chunks = await contextualizeChunks(
             client,
+            model,
             src.content,
             rawChunks
           );

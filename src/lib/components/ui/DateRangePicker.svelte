@@ -150,7 +150,7 @@
                 <RangeCalendar.GridHead>
                   <RangeCalendar.GridRow class="flex justify-between">
                     {#each weekdays as day (day)}
-                      <RangeCalendar.HeadCell class="w-8 text-center text-[11px] font-medium text-gray-400">
+                      <RangeCalendar.HeadCell class="w-8 text-center text-[0.6875rem] font-medium text-gray-400">
                         {day.slice(0, 2)}
                       </RangeCalendar.HeadCell>
                     {/each}

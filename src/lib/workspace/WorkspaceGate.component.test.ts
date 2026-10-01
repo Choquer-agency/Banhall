@@ -85,7 +85,8 @@ describe("WorkspaceGate — canonical route shape (preview snippet + currentHref
     expect(document.querySelector('[data-dashboard-experience]')).toBeNull();
 
     __setAuthState({ isLoading: false, isAuthenticated: false });
-    await expectSoftNavigation("/login");
+    // The login URL carries the page so signing in returns here.
+    await expectSoftNavigation("/login?next=%2Fprojects");
     expect(document.querySelector('[data-workspace-gate-pending="redirect"]')).not.toBeNull();
     expect(document.querySelector('[data-dashboard-experience]')).toBeNull();
     expect(document.body.textContent).not.toContain("Sign in to continue");

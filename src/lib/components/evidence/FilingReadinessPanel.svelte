@@ -316,7 +316,7 @@
                       <p class="mt-0.5 text-xs text-gray-500">{row.relationship} · {row.evidenceKind.replaceAll("_", " ")}</p>
                     </div>
                     <span
-                      class={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      class={`rounded-full px-2 py-0.5 text-[0.6875rem] font-semibold ${
                         row.status === "verified"
                           ? "bg-green-50 text-green-700"
                           : row.status === "rejected"

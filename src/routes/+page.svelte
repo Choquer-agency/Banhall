@@ -2,19 +2,21 @@
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import { IconHome } from "$lib/components/icons";
 
   const auth = useAuth();
 
-  // Route authenticated users to their workspace and everyone else to sign in.
+  // Route authenticated users straight to Home's canonical URL (never via the
+  // /dashboard compatibility entry) and everyone else to sign in.
   $effect(() => {
     if (auth.isLoading) return;
-    void goto(resolve(auth.isAuthenticated ? "/dashboard" : "/login"), {
+    void goto(resolve(auth.isAuthenticated ? "/my-work" : "/login"), {
       replaceState: true,
     });
   });
 </script>
 
-<div class="flex flex-1 items-center justify-center">
-  <Spinner />
-</div>
+<!-- Signed-in visitors land on Home: draw its shell while the session
+     settles. A signed-out visitor gets the plain canvas on the way to /login. -->
+<WorkspaceLoadingShell layout="home" title="Home" icon={IconHome} />

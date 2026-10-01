@@ -43,7 +43,7 @@ import {
   type SuccessMetricRow,
 } from "./lib/successMetrics";
 import { userDisplayLabel } from "./lib/teamRoster";
-import { modelById } from "../shared/generationModels";
+import { catalogEntry } from "./lib/modelRoles";
 
 /** A pasted strip longer than this is a paste accident, not a PD. */
 const MAX_DRAFT_TEXT_LENGTH = 120_000;
@@ -256,7 +256,8 @@ async function suggestedBanhallModel(
   const generation = await ctx.db.get(generationId);
   const modelId = generation?.singleModelId;
   if (!modelId) return null;
-  return modelById(modelId)?.label ?? modelId;
+  const frozen = generation.modelFreeze?.entries.find((entry) => entry.id === modelId);
+  return frozen?.label ?? (await catalogEntry(ctx, modelId))?.label ?? modelId;
 }
 
 /**

@@ -54,7 +54,7 @@
             <div
               {...props}
               transition:modalPop
-              class="card ghost-compare pointer-events-auto flex h-[min(640px,calc(100dvh-4rem))] w-full max-w-4xl flex-col overflow-hidden p-0 shadow-xl"
+              class="card ghost-compare pointer-events-auto flex h-[min(40rem,calc(100dvh-4rem))] w-full max-w-4xl flex-col overflow-hidden p-0 shadow-xl"
             >
               <div class="flex items-center justify-between gap-3 border-b border-gray-100 px-5 py-3">
                 <Dialog.Title class="text-sm font-semibold text-gray-900">
@@ -73,7 +73,7 @@
               </div>
               <div class="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-2">
                 <div class="flex min-h-0 flex-col border-b border-gray-100 md:border-b-0 md:border-r">
-                  <p class="border-b border-gray-100 bg-primary-wash px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-primary-dark">
+                  <p class="border-b border-gray-100 bg-primary-wash px-4 py-1.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-primary-dark">
                     Your report
                   </p>
                   <div class="min-h-0 flex-1 overflow-y-auto p-4">
@@ -81,7 +81,7 @@
                   </div>
                 </div>
                 <div class="flex min-h-0 flex-col">
-                  <p class="border-b border-gray-100 bg-chrome px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <p class="border-b border-gray-100 bg-chrome px-4 py-1.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-gray-500">
                     AI generated ({ghostLabel})
                   </p>
                   <div class="min-h-0 flex-1 overflow-y-auto p-4">

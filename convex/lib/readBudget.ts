@@ -5,7 +5,7 @@ const MIB = 1 << 20;
 export const DOCUMENT_HEADROOM = MIB + 4096;
 const DOCUMENT_OVERHEAD = 256;
 
-export type ListStop = "rows" | "bytes";
+export type ListStop = "rows" | "bytes" | "ranges";
 export type ListResult<T> = {
   rows: T[];
   complete: boolean;
@@ -25,13 +25,25 @@ export type ListResult<T> = {
  *   unread; `return()` closes even a partial stream.
  * - `reservedBytes` charges up front for reads the caller makes outside the
  *   budget (authorization rows already read, small settings reads to come).
+ * - Optional `maxRanges` bounds shared point reads and index streams, including
+ *   empty streams, before opening another range.
  * - `complete` is truthful: the row cap reports incomplete only when a
  *   further row actually arrived, never because the cap happened to fill.
  */
-export function createReadBudget(options: { maxBytes: number; reservedBytes?: number }) {
+export function createReadBudget(options: { maxBytes: number; reservedBytes?: number; maxRanges?: number }) {
   const { maxBytes } = options;
   let used = options.reservedBytes ?? 0;
   let exhausted = false;
+  let rangesRead = 0;
+
+  function reserveRange(): boolean {
+    if (options.maxRanges !== undefined && rangesRead >= options.maxRanges) {
+      exhausted = true;
+      return false;
+    }
+    rangesRead += 1;
+    return true;
+  }
 
   function reserve(): boolean {
     if (used + DOCUMENT_HEADROOM <= maxBytes) return true;
@@ -44,7 +56,7 @@ export function createReadBudget(options: { maxBytes: number; reservedBytes?: nu
   }
 
   async function one<T extends Value>(read: () => Promise<T>) {
-    if (!reserve()) return { kind: "not-loaded" } as const;
+    if (!reserve() || !reserveRange()) return { kind: "not-loaded" } as const;
     const value = await read();
     account(value);
     return { kind: "loaded", value } as const;
@@ -54,6 +66,7 @@ export function createReadBudget(options: { maxBytes: number; reservedBytes?: nu
     const rows: T[] = [];
     // Do not start another index range once the budget is exhausted.
     if (!reserve()) return { rows, complete: false, stoppedBy: "bytes" };
+    if (!reserveRange()) return { rows, complete: false, stoppedBy: "ranges" };
     const iterator = source[Symbol.asyncIterator]();
     try {
       while (reserve()) {
@@ -70,7 +83,8 @@ export function createReadBudget(options: { maxBytes: number; reservedBytes?: nu
   }
 
   function snapshot() {
-    return { limit: maxBytes, estimatedBytesRead: used, reservedDocumentBytes: DOCUMENT_HEADROOM, exhausted };
+    return { limit: maxBytes, estimatedBytesRead: used, reservedDocumentBytes: DOCUMENT_HEADROOM, exhausted,
+      ...(options.maxRanges !== undefined ? { rangeLimit: options.maxRanges, rangesRead } : {}) };
   }
 
   return { reserve, account, one, list, snapshot };

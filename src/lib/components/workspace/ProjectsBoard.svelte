@@ -171,7 +171,7 @@
            320px. -->
       <section
         data-board-column={column.id}
-        class={`flex h-full w-[100cqw] shrink-0 snap-start flex-col overflow-hidden rounded-xl border-none bg-canvas shadow-none md:w-[320px] ${paused ? "opacity-90" : ""}`}
+        class={`flex h-full w-[100cqw] shrink-0 snap-start flex-col overflow-hidden rounded-xl border-none bg-canvas shadow-none md:w-[20rem] ${paused ? "opacity-90" : ""}`}
         aria-labelledby={`${idPrefix}-${column.id}`}
       >
         <BoardColumnHeader

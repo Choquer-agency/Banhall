@@ -7,8 +7,10 @@
 <script lang="ts">
   import { Popover } from "bits-ui";
   import ModelLogo from "./ModelLogo.svelte";
+  import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import ModelSelectPanel from "./ModelSelectPanel.svelte";
-  import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
+  import { IconChevronDown } from "$lib/components/icons";
+  import { defaultModelIdFor, pickerModels } from "$lib/modelPicker";
   import { useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
 
@@ -18,39 +20,48 @@
   }: {
     /** Model id, or "" for the default model. */
     value?: string;
-    /** lg = 44px slot card (selection screens) · md = 36px inline control. */
-    size?: "lg" | "md";
+    /** lg = 44px slot card (selection screens), md = 36px inline control,
+     *  field = New project's full-width 36px select with the AI mark (E1). */
+    size?: "lg" | "md" | "field";
   } = $props();
 
   let open = $state(false);
-  // "" resolves to the admin-set default model (falls back to registry first).
+  // "" resolves to the writing role's current model (model catalog).
   const capabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
-  const effectiveId = $derived(
-    value || capabilitiesQ.data?.defaultModel || CANDIDATE_MODELS[0].id
-  );
+  const effectiveId = $derived(value || defaultModelIdFor(capabilitiesQ.data));
   const selected = $derived(
-    CANDIDATE_MODELS.find((m) => m.id === effectiveId) ?? CANDIDATE_MODELS[0]
+    pickerModels(capabilitiesQ.data).find((m) => m.id === effectiveId) ??
+      pickerModels(capabilitiesQ.data)[0]
   );
   const label = $derived(selected.label);
 </script>
 
 <div
-  class={`group/card relative overflow-hidden rounded-lg border border-gray-200 bg-white text-sm transition-colors hover:border-gray-300 hover:bg-gray-50/60 ${
-    size === "md" ? "h-9 w-40" : "h-11 w-44"
-  }`}
+  data-model-picker={size}
+  class={size === "field"
+    ? "relative h-9 w-full overflow-hidden rounded-lg border border-line bg-surface text-sm transition-colors hover:bg-primary-wash pointer-coarse:h-11"
+    : `group/card relative overflow-hidden rounded-lg border border-gray-200 bg-white text-sm transition-colors hover:border-gray-300 hover:bg-gray-50/60 ${
+        size === "md" ? "h-9 w-40" : "h-11 w-44"
+      }`}
 >
   <Popover.Root bind:open>
     <Popover.Trigger
       aria-label={`Change model: ${label}`}
       class="flex h-full w-full min-w-0 cursor-pointer items-center gap-2 px-2.5 text-left"
     >
-      <ModelLogo provider={selected.provider} size={size === "md" ? "sm" : "md"} />
-      <span
-        class={`min-w-0 flex-1 truncate font-semibold tracking-tight ${size === "md" ? "text-xs" : "text-sm"}`}
-        title={label}
-      >
-        {label}
-      </span>
+      {#if size === "field"}
+        <AuroraMark size={18} />
+        <span class="min-w-0 flex-1 truncate text-sm leading-5 text-ink" title={label}>{label}</span>
+        <IconChevronDown size={14} strokeWidth={1.8} class="shrink-0 text-ink-faint" />
+      {:else}
+        <ModelLogo provider={selected.provider} size={size === "md" ? "sm" : "md"} />
+        <span
+          class={`min-w-0 flex-1 truncate font-semibold tracking-tight ${size === "md" ? "text-xs" : "text-sm"}`}
+          title={label}
+        >
+          {label}
+        </span>
+      {/if}
     </Popover.Trigger>
     <Popover.Portal>
       <Popover.Content

@@ -1,7 +1,28 @@
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
+import { refreshCatalogRef } from "./lib/modelCatalogRefs";
+import { intakeDraftRefs } from "./lib/intakeDraftRefs";
+import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
 
 const crons = cronJobs();
+
+// Decision 65: a failed, obsolete or cancelled Brief preparation's content
+// is deleted 24 hours after it ended, in bounded batches.
+// Decision 65, stage 2: private intake drafts expire 24 hours after their
+// last edit (7 days at most); their content is purged within the hour.
+crons.interval(
+  "expire and purge intake drafts",
+  { minutes: 15 },
+  intakeDraftRefs.sweepIntakeDrafts,
+  {}
+);
+
+crons.interval(
+  "purge stale Brief preparations",
+  { hours: 1 },
+  internal.briefPreparations.purgeStalePreparations,
+  {}
+);
 
 crons.interval(
   "recover stale report generations",
@@ -26,11 +47,13 @@ crons.interval(
   internal.generations.failStalePostQa,
   { olderThanMinutes: 15 }
 );
+// A crashed chat reply holds its thread until this sweep (review r1 P3-3):
+// every 2 minutes, for turns past the 540 s stream window plus 5 minutes.
 crons.interval(
   "recover stale chat turns",
-  { minutes: 10 },
+  { minutes: 2 },
   internal.chatV2.failStaleChatTurns,
-  { olderThanMinutes: 15 }
+  { olderThanMinutes: CHAT_TURN_STALE_MINUTES }
 );
 
 // Learning loop: nightly safety nets for the feedback digests. The main
@@ -55,6 +78,43 @@ crons.interval(
   "resume stalled My work backfills",
   { minutes: 5 },
   internal.myWorkBackfill.sweepStalled
+);
+
+// Model catalog (owner decision 21): refresh from OpenRouter, flag expiring
+// or removed models, roll back failing switches and queue at most two
+// evaluations. After the learning digests, still outside working hours.
+crons.cron(
+  "refresh model catalog",
+  "45 8 * * *",
+  refreshCatalogRef
+);
+
+// Files no row holds once they are a day old (an upload whose save never
+// ran): they hold interview text that project erasure can never find.
+// Reports only until an admin sets storage.sweepUnreferenced to "delete".
+crons.cron(
+  "release unreferenced files",
+  "30 9 * * *",
+  internal.transcripts.sweepUnreferencedStorage,
+  {}
+);
+
+// Error reports: bug reports older than 30 days are deleted, a bounded batch
+// at a time (review r1 P2-2). Feature requests are kept.
+crons.cron(
+  "prune old error reports",
+  "50 9 * * *",
+  internal.errorReports.pruneOldErrorReports,
+  {}
+);
+
+// Round 2 in-app notifications older than 30 days are deleted, 200 per
+// transaction; the mutation reschedules itself while more remain.
+crons.cron(
+  "prune notifications",
+  "10 10 * * *",
+  internal.notifications.pruneOld,
+  {}
 );
 
 export default crons;

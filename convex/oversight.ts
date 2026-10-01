@@ -3,6 +3,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { syncOversightForItem } from "./lib/workItemOversight";
+import { isProjectDeleting } from "./lib/projectDeletion";
 
 const RECONCILE_BATCH_SIZE = 50;
 const MAX_REBUILD_ATTEMPTS = 5;
@@ -14,6 +15,7 @@ async function addSyncingRow(
   rebuildId: Id<"oversightRebuilds">,
   startedAt: number
 ) {
+  if (await isProjectDeleting(ctx, projectId)) return;
   const existing = await ctx.db
     .query("oversightSyncing")
     .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -32,6 +34,7 @@ export async function scheduleOwnershipOversightRebuild(
     toOwnerId: Id<"users">;
   }
 ) {
+  if (await isProjectDeleting(ctx, args.projectId)) return null;
   const now = Date.now();
   const rebuildId = await ctx.db.insert("oversightRebuilds", {
     projectId: args.projectId,
@@ -71,6 +74,7 @@ export const reconcileProject = internalMutation({
   handler: async (ctx, args) => {
     const rebuild = await ctx.db.get(args.rebuildId);
     if (!rebuild || rebuild.status === "completed" || rebuild.status === "superseded") return null;
+    if (await isProjectDeleting(ctx, rebuild.projectId)) return null;
     const project = await ctx.db.get(rebuild.projectId);
     if (!project || project.ownerId !== rebuild.toOwnerId) {
       await ctx.db.patch(rebuild._id, {
@@ -145,6 +149,7 @@ export const repairFailed = internalMutation({
   handler: async (ctx, args) => {
     const rebuild = await ctx.db.get(args.rebuildId);
     if (!rebuild || rebuild.status !== "failed") return null;
+    if (await isProjectDeleting(ctx, rebuild.projectId)) return null;
     const now = Date.now();
     const viewers = rebuild.affectedViewerIds ?? [rebuild.fromOwnerId, rebuild.toOwnerId].filter(Boolean) as Id<"users">[];
     for (const viewerId of viewers) await addSyncingRow(ctx, rebuild.projectId, viewerId, rebuild._id, now);
@@ -164,6 +169,7 @@ export const sweepStalled = internalMutation({
         .withIndex("by_status_and_updatedAt", (q) => q.eq("status", status).lt("updatedAt", cutoff))
         .take(50);
       for (const row of rows) {
+        if (await isProjectDeleting(ctx, row.projectId)) continue;
         await ctx.scheduler.runAfter(0, internal.oversight.reconcileProject, { rebuildId: row._id });
       }
     }

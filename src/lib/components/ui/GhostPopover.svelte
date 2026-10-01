@@ -81,7 +81,7 @@
               class="z-[100] min-w-44 overflow-hidden rounded-xl border border-line bg-surface shadow-md outline-none"
             >
               {#if label}
-                <p class="px-3 pb-0.5 pt-2 text-[11px] font-medium text-ink-faint">{label}</p>
+                <p class="px-3 pb-0.5 pt-2 text-[0.6875rem] font-medium text-ink-faint">{label}</p>
               {/if}
               <div class={`max-h-72 overflow-y-auto px-1.5 pb-1.5 ${label ? "" : "pt-1.5"}`} role="listbox" aria-label={ariaLabel}>
                 {#each items as item (item.value)}
@@ -90,7 +90,7 @@
                     type="button"
                     role="option"
                     aria-selected={active}
-                    class={`w-full cursor-pointer truncate rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors motion-reduce:transition-none pointer-coarse:min-h-11 ${active ? "bg-chrome text-ink" : "text-ink-secondary hover:bg-chrome/60 hover:text-ink"}`}
+                    class={`w-full cursor-pointer truncate rounded-md px-2.5 py-1.5 text-left text-[0.8125rem] transition-colors motion-reduce:transition-none pointer-coarse:min-h-11 ${active ? "bg-chrome text-ink" : "text-ink-secondary hover:bg-chrome/60 hover:text-ink"}`}
                     onclick={() => pick(item.value)}
                   >
                     {item.label}

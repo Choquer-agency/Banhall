@@ -9,7 +9,36 @@ import { __resetAuthState } from "$lib/test/convex-auth-stub";
 import { __activeQueryCount, __activeQueryArgs, __mutationCalls, __resetConvexStub, __setQueryData, __setPaginatedRows, __setMutationResult } from "$lib/test/convex-svelte-stub.svelte";
 
 const composer = () => page.getByRole("textbox", { name: "Message the report assistant" });
-const variants = [{ name: "current", component: CurrentProjectPage }, { name: "preview", component: PreviewProjectPage }];
+/**
+ * The frozen current page opens chat and QA from floating pills and history
+ * from a header button. The preview page carries the final shell
+ * (ui-design-final.md sections 2 and 11): Assistant and QA are toolbar
+ * toggles, and History sits in the top-bar More menu.
+ */
+const variants = [
+  {
+    name: "current",
+    component: CurrentProjectPage,
+    openChat: () => page.getByRole("button", { name: "Open AI assistant", exact: true }).first().click(),
+    closeChat: () => page.getByRole("button", { name: "Close assistant", exact: true }).click(),
+    openQa: () => page.getByRole("button", { name: "Open QA panel", exact: true }).click(),
+    closeQaName: "Close QA review",
+    openHistory: () => page.getByRole("button", { name: "History", exact: true }).click(),
+  },
+  {
+    name: "preview",
+    component: PreviewProjectPage,
+    openChat: () => page.getByRole("button", { name: "Assistant", exact: true }).click(),
+    closeChat: () => page.getByRole("button", { name: "Assistant", exact: true }).click(),
+    // Board 2.2: the toolbar toggle reads "QA" and the panel "QA score".
+    openQa: () => page.getByRole("button", { name: "QA", exact: true }).click(),
+    closeQaName: "Close QA score",
+    openHistory: async () => {
+      await page.getByRole("button", { name: "More actions", exact: true }).click();
+      await page.getByRole("menuitem", { name: "History", exact: true }).click();
+    },
+  },
+];
 function seed() {
   __setQueryData("projects:getProject", { _id: "project-1", title: "Thermal investigation", clientName: "Acme", writer: "Writer", interviewer: "", interviewees: [], tagIds: [], mode: "generate", status: "review", workflowStage: "drafting", createdBy: "user-1", ownerId: "user-1", createdAt: 1, updatedAt: 1 });
   __setQueryData("users:getCurrentUser", { _id: "user-1", role: "writer", firstName: "Writer", email: "writer@example.test" });
@@ -24,7 +53,7 @@ beforeEach(() => {
   __setPageParams({ id: "project-1" }); seed();
 });
 
-for (const { name, component } of variants) {
+for (const { name, component, openChat, closeChat, openQa, closeQaName, openHistory } of variants) {
   it(`${name}: remembered closed assistant starts no chat and preserves draft and pending send on reopen`, async () => {
     await page.viewport(1440, 1000);
     localStorage.setItem("banhall_chat_open", "0");
@@ -32,7 +61,7 @@ for (const { name, component } of variants) {
     await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
     expect(__activeQueryCount("chatV2:listThreads")).toBe(0);
     expect(__activeQueryCount("research:listSessions")).toBe(0);
-    await page.getByRole("button", { name: "Open AI assistant", exact: true }).first().click();
+    await openChat();
     await expect.element(composer()).toBeVisible();
     const textarea = composer().element();
     let acknowledge!: (value: { threadId: string; messageId: string }) => void;
@@ -42,8 +71,8 @@ for (const { name, component } of variants) {
     await expect.poll(() => document.querySelector("[data-local-request]")?.getAttribute("data-send-state")).toBe("sending");
     const localResponse = document.querySelector("[data-local-request]");
     await composer().fill("Keep this next draft");
-    await page.getByRole("button", { name: "Close assistant", exact: true }).click();
-    await page.getByRole("button", { name: "Open AI assistant", exact: true }).first().click();
+    await closeChat();
+    await openChat();
     await expect.element(composer()).toHaveValue("Keep this next draft");
     expect(composer().element()).toBe(textarea);
     expect(document.querySelector("[data-local-request]")).toBe(localResponse);
@@ -61,10 +90,10 @@ for (const { name, component } of variants) {
     await expect.element(composer()).toBeVisible();
     const textarea = composer().element();
     await expect.element(page.getByText("Active response begins", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Open QA panel", exact: true }).click();
-    await expect.element(page.getByRole("button", { name: "Close QA review", exact: true })).toBeVisible();
+    await openQa();
+    await expect.element(page.getByRole("button", { name: closeQaName, exact: true })).toBeVisible();
     __setPaginatedRows("chatV2:listMessages", [answer("Active response advances while hidden")]);
-    await page.getByRole("button", { name: "Open AI assistant", exact: true }).first().click();
+    await openChat();
     await expect.element(page.getByText("Active response advances while hidden", { exact: true })).toBeVisible();
     expect(composer().element()).toBe(textarea);
     expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
@@ -79,7 +108,7 @@ for (const { name, component } of variants) {
     expect(__activeQueryCount("snapshots:listSnapshots")).toBe(0);
     expect(__activeQueryCount("generations:getCandidates")).toBe(0);
     expect(__activeQueryCount("generations:getIterativeState")).toBe(0);
-    await page.getByRole("button", { name: "History", exact: true }).click();
+    await openHistory();
     await expect.element(page.getByRole("button", { name: "Close version history", exact: true })).toBeVisible();
     expect(__activeQueryArgs("snapshots:listSnapshots")).toEqual([{ reportId: "report-1" }]);
     await page.getByRole("button", { name: "Close version history", exact: true }).click();
@@ -98,17 +127,20 @@ for (const { name, component } of variants) {
   });
 }
 
-it("preview mobile starts report-only, activates Agent once, and retains its draft across panes", async () => {
+it("preview mobile starts report-only, activates the Assistant once, and retains its draft across panes", async () => {
   await page.viewport(390, 850);
   await render(PreviewProjectPage);
   await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
   expect(__activeQueryCount("chatV2:listThreads")).toBe(0);
-  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  // Narrow screens show one pane: the Assistant toggle opens it, the Report
+  // tab returns to the report.
+  await page.getByRole("button", { name: "Assistant", exact: true }).click();
   await expect.element(composer()).toBeVisible();
   const textarea = composer().element();
   await composer().fill("Mobile draft survives");
   await page.getByRole("button", { name: "Report", exact: true }).click();
-  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await expect.element(page.getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await page.getByRole("button", { name: "Assistant", exact: true }).click();
   await expect.element(composer()).toHaveValue("Mobile draft survives");
   expect(composer().element()).toBe(textarea);
 });
@@ -122,17 +154,37 @@ it("preview activates the default-open assistant when a mobile report becomes de
   await expect.element(composer()).toBeVisible();
 });
 
-for (const action of ["Ask AI about this", "Research this selection"]) {
+for (const action of ["Ask assistant", "Research this selection"]) {
   it(`preview mobile exposes the assistant for ${action}`, async () => {
     await page.viewport(390, 850);
     await render(PreviewProjectPage);
     const paragraph = page.getByText("Evidence from thermal trials.", { exact: true });
     await expect.element(paragraph).toBeVisible();
-    await paragraph.click();
-    await userEvent.keyboard("{Home}{Shift>}{End}{/Shift}");
+    // The selection toolbar only opens for a mouse-made selection; a click
+    // followed by a keyboard selection raced its 50 ms mouseup window.
+    await userEvent.tripleClick(paragraph);
     await page.getByRole("button", { name: action, exact: true }).click();
     await expect.element(composer()).toBeVisible();
     await expect.element(page.getByRole("button", { name: action.startsWith("Ask") ? "Remove pasted text" : "Remove research selection", exact: true })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Agent", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect.element(page.getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-pressed", "true");
   });
 }
+
+it("preview: a failed QA re-run does not claim the older score was just produced", async () => {
+  await page.viewport(1440, 1000);
+  const scorecard = {
+    overall_score: 78,
+    section_scores: { "242": { score: 86, issues: [], strengths: [] }, "244": { score: 62, issues: [], strengths: [] }, "246": { score: 84, issues: [], strengths: [] } },
+    cra_compliance: {}, hallucination_risks: [], ai_language_flags: [], superlative_flags: [], gaps_requiring_client_followup: [], suggested_improvements: [],
+  };
+  __setQueryData("generations:getLatestGeneration", {
+    _id: "generation-1", projectId: "project-1", status: "completed", startedAt: 1, completedAt: 1,
+    agentOutputs: JSON.stringify({ qa: scorecard }), postQaStatus: "failed", postQaCompletedAt: Date.now(),
+  });
+  await render(PreviewProjectPage);
+  await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^QA/ }).first().click();
+  await expect.element(page.getByText("78/100", { exact: true })).toBeVisible();
+  expect(document.querySelector("[data-qa-score-meta]")?.textContent).toBe("AI QA score");
+  await expect.element(page.getByText("The last run failed. This score is from an earlier run.", { exact: true })).toBeVisible();
+});

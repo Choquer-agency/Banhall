@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
   import ModelLogo from "./ModelLogo.svelte";
-  import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
+  import { pickerModels } from "$lib/modelPicker";
   import { useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
 
@@ -25,22 +25,18 @@
 
   // Grey out models whose gateway key isn't configured (e.g. OpenAI/Google
   // without OPENROUTER_API_KEY). While loading, assume everything available.
+  // The model catalog's selectable set; seed list only while loading.
   const capabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
-  const available = $derived(
-    new Set(
-      capabilitiesQ.data?.availableCandidateModels ??
-        CANDIDATE_MODELS.map((m) => m.id as string)
-    )
-  );
-
   const rows = $derived(
-    CANDIDATE_MODELS.filter((m) => m.id !== excludeId).map((m) => ({
-      id: m.id as string,
-      label: m.label,
-      provider: m.provider,
-      description: m.description,
-      disabled: !available.has(m.id),
-    }))
+    pickerModels(capabilitiesQ.data)
+      .filter((m) => m.id !== excludeId)
+      .map((m) => ({
+        id: m.id,
+        label: m.label,
+        provider: m.provider,
+        description: m.description,
+        disabled: !m.available,
+      }))
   );
   const filtered = $derived(
     search.trim()
@@ -89,7 +85,7 @@
       >
         <ModelLogo size="sm" provider={row.provider} />
         <span class="min-w-0 truncate text-xs font-medium">{row.label}</span>
-        <span class="ml-1 shrink-0 text-[10px] uppercase tracking-wide text-gray-300">{row.provider}</span>
+        <span class="ml-1 shrink-0 text-[0.625rem] uppercase tracking-wide text-gray-300">{row.provider}</span>
         <svg
           class={`ml-auto h-4 w-4 shrink-0 text-primary ${value === row.id ? "opacity-100" : "opacity-0"}`}
           fill="currentColor" viewBox="0 0 24 24"

@@ -7,6 +7,7 @@
   import { overlayFade, modalPop } from "$lib/motion";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { APP_ERROR_EVENT, type AppErrorDetail } from "./PageErrorBoundary.svelte";
+  import { isHandledRefusalLog } from "$lib/errors";
 
   type DetectedError = {
     message: string;
@@ -48,6 +49,21 @@
    * plus whatever note the user types, to the errorReports table.
    */
   const reportError = useMutation(api.errorReports.reportError);
+  // A random id for this browser session: the server gives each session a
+  // small per-minute budget of reports (signed-out reviewers included).
+  function errorSessionId(): string | undefined {
+    try {
+      const key = "banhall.errorSessionId";
+      let id = sessionStorage.getItem(key);
+      if (!id) {
+        id = crypto.randomUUID();
+        sessionStorage.setItem(key, id);
+      }
+      return id;
+    } catch {
+      return undefined;
+    }
+  }
   // Jul 17: show existing requests inside the feature flow so duplicates
   // surface before submission. Only fetched while the feature tab is open.
   let showExisting = $state(false);
@@ -115,14 +131,17 @@
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onRejection);
 
-    // Patch console.error → breadcrumb + banner (skip framework dev warnings).
+    // Patch console.error → breadcrumb + banner (skip framework dev warnings,
+    // and the Convex client's log of a refusal the page already handles, such
+    // as F6's GENERATION_ACTIVE; a caller that does not catch it still raises
+    // the toast through unhandledrejection).
     const origConsoleError = console.error;
     console.error = (...args: unknown[]) => {
       origConsoleError(...args);
       const first = typeof args[0] === "string" ? args[0] : "";
       const message = args.map(stringifyArg).join(" ").slice(0, 300);
       pushBreadcrumb({ type: "console", label: message });
-      if (!first.startsWith("Warning:") && message.trim()) {
+      if (!first.startsWith("Warning:") && !isHandledRefusalLog(first) && message.trim()) {
         detected = detected ?? { message };
         notifyError();
       }
@@ -202,7 +221,8 @@
     const d = detected;
     const isManual = modalMode === "manual";
     try {
-      await reportError({
+      const saved = await reportError({
+        sessionId: errorSessionId(),
         kind: isManual ? "manual" : "auto",
         reportType: isManual ? flagType : "bug",
         message: isManual
@@ -224,6 +244,10 @@
         userAgent:
           typeof navigator !== "undefined" ? navigator.userAgent : undefined,
       });
+      if (saved === null) {
+        sonner.error("Too many reports in the last minute. Try again in a minute.");
+        return;
+      }
       sonner.dismiss(ERROR_TOAST_ID);
       sonner.success("Sent. Thanks — we've got the details.");
       detected = null;
@@ -239,6 +263,10 @@
   // rendered inside the modal, so recomputing on open is enough).
   const crumbCount = $derived(modalMode ? getBreadcrumbs().length : 0);
 
+  // Sign-in and invite pages (J1 to J9) have no floating "Flag issue": on a
+  // phone it covered the footer, and signed-out visitors have nothing to flag.
+  const onAuthPage = $derived(/^\/(login|signup)(\/|$)/.test(page.url.pathname));
+
   // Workspace rail integration (2026-08-10): the rail's "Flag issue" row
   // raises this custom event; the floating button hides inside the
   // workspace shell (layout.css :has rule) so the action lives in one
@@ -252,7 +280,8 @@
 
 <!-- AUTO path renders through the global sonner toaster (see notifyError). -->
 
-<!-- ── MANUAL: floating flag button, bottom-right ────────────────────── -->
+<!-- ── MANUAL: floating flag button, bottom-left ─────────────────────── -->
+{#if !onAuthPage}
 <button
   data-flag-issue-floating
   onclick={() => (modalMode = "manual")}
@@ -274,6 +303,7 @@
   </svg>
   Flag issue
 </button>
+{/if}
 
 <!-- ── Shared report modal ───────────────────────────────────────────── -->
 {#if modalMode}

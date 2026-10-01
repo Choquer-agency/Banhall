@@ -1,12 +1,13 @@
 import { query } from "./_generated/server";
-import { CANDIDATE_MODELS } from "./ai/model";
 import {
   anthropicConfiguration,
+  anthropicTransportIsDirect,
   brainConfiguration,
   openRouterConfiguration,
 } from "./lib/providerConfig";
 import { defaultModelId } from "./appSettings";
 import { getCurrentUserOrNull } from "./lib/auth";
+import { catalogEntry, listSelectableModels, roleModelId } from "./lib/modelRoles";
 
 export const getCapabilities = query({
   args: {},
@@ -14,28 +15,67 @@ export const getCapabilities = query({
     const user = await getCurrentUserOrNull(ctx);
     if (!user) return null;
     const anthropic = anthropicConfiguration();
+    const anthropicChat = anthropicConfiguration("chat");
+    const directAnthropic = anthropicTransportIsDirect();
     const brain = brainConfiguration();
     const openrouter = openRouterConfiguration();
+    // The model catalog's selectable set (enabled rows, seed fallback), so
+    // every picker shows exactly what a writer may run today.
+    const selectable = await listSelectableModels(ctx);
+    // Anthropic-gateway models stay selectable on the direct transport, as
+    // before the switch; through OpenRouter (decision 30) they need its key.
+    const available = (gateway: string) =>
+      gateway === "anthropic"
+        ? directAnthropic || anthropic.state === "configured"
+        : openrouter.state === "configured";
+    const defaultModel = await defaultModelId(ctx);
+    const defaultEntry =
+      selectable.find((model) => model.id === defaultModel) ??
+      (await catalogEntry(ctx, defaultModel));
+    // The models the start and confirm dialogs name (decision 52): the
+    // planning role writes the ideas (decision 43) and the pd_review role
+    // runs a PD review. A generation freezes its models at reservation, so an
+    // admin switch between opening a dialog and confirming it can differ.
+    const planningModel = await roleModelId(ctx, "planning");
+    const pdReviewModel = await roleModelId(ctx, "pd_review");
+    const labelFor = async (modelId: string) =>
+      selectable.find((model) => model.id === modelId)?.label ??
+      (await catalogEntry(ctx, modelId))?.label ??
+      modelId;
     return {
       generation: anthropic.state,
       review: anthropic.state,
-      chat: anthropic.state,
+      chat: anthropicChat.state,
       financial: anthropic.state,
       brain: brain.state,
       openrouter: openrouter.state,
       anthropicMessage: anthropic.message,
       brainMessage: brain.message,
       openrouterMessage: openrouter.message,
-      candidateModels: CANDIDATE_MODELS.map((model) => model.id),
+      candidateModels: selectable.map((model) => model.id),
       // Models actually runnable with the currently configured keys — pickers
       // grey out the rest.
-      availableCandidateModels: CANDIDATE_MODELS.filter(
-        (model) =>
-          model.gateway === "anthropic" || openrouter.state === "configured"
-      ).map((model) => model.id),
-      // Admin-set default generation model (appSettings), registry default
-      // when unset. Pickers label their "Default" option with this.
-      defaultModel: await defaultModelId(ctx),
+      availableCandidateModels: selectable
+        .filter((model) => available(model.gateway))
+        .map((model) => model.id),
+      // Display data for the pickers. No prices or benchmark scores: those
+      // stay on the admin-only catalog page.
+      models: selectable.map((model) => ({
+        id: model.id,
+        label: model.label,
+        provider: model.provider,
+        gateway: model.gateway,
+        description: model.description ?? "",
+        available: available(model.gateway),
+      })),
+      // The writing role's model (model catalog). Pickers label their
+      // "Default" option with it.
+      defaultModel,
+      defaultModelLabel: defaultEntry?.label ?? defaultModel,
+      planningModel,
+      planningModelLabel: await labelFor(planningModel),
+      pdReviewModel,
+      pdReviewModelLabel: await labelFor(pdReviewModel),
     };
   },
 });

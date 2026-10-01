@@ -478,12 +478,12 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
 {#snippet categoryPill(category: string | null, source: string)}
   {@const meta = categoryMeta(category)}
   {#if meta}
-    <span class={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${meta.pill}`}>
+    <span class={`flex-shrink-0 rounded-full px-2 py-0.5 text-[0.625rem] font-medium ${meta.pill}`}>
       {meta.label}
     </span>
   {:else if source === "chat_upload"}
     <span
-      class="flex-shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500"
+      class="flex-shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[0.625rem] font-medium text-gray-500"
     >
       Chat
     </span>
@@ -520,7 +520,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
           <!-- Surfaced on the collapsed header: a failure hidden behind a shut
                panel is the thing this receipt exists to prevent. -->
           <span class="ml-2 text-xs font-medium text-red-600">
-            · {failureCount} failed
+            {failureCount} failed
           </span>
         {/if}
       </div>
@@ -549,7 +549,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
             <div class="flex items-center gap-2">
               <p class="truncate text-sm font-medium text-gray-800">{transcript.label}</p>
               <span
-                class="flex-shrink-0 rounded-full bg-navy/10 px-2 py-0.5 text-[10px] font-medium text-navy"
+                class="flex-shrink-0 rounded-full bg-navy/10 px-2 py-0.5 text-[0.625rem] font-medium text-navy"
               >
                 Source
               </span>
@@ -629,7 +629,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                   {@render categoryPill(doc.category, doc.source)}
                   {#if doc.archived}
                     <span
-                      class="flex-shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-500"
+                      class="flex-shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-[0.625rem] font-medium text-gray-500"
                     >
                       Archived
                     </span>
@@ -645,7 +645,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                   {/if}
                 {/if}
                 <p class="text-xs text-gray-400">
-                  {formatDate(doc.createdAt)}{doc.archived ? " · excluded from AI" : ""}
+                  {formatDate(doc.createdAt)}{doc.archived ? ", excluded from AI" : ""}
                 </p>
               </div>
               {#if !doc.archived && docCanReplace.get(doc._id)}

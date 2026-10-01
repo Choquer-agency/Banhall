@@ -1,9 +1,11 @@
 <script lang="ts">
-  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   import { resolve } from "$app/paths";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
+  import { IconShield } from "$lib/components/icons";
+  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import { Tabs } from "bits-ui";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery } from "convex-svelte";
   import { useStableQuery } from "$lib/stableQuery.svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -52,7 +54,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto(resolve("/login"), { replaceState: true });
+      goToLogin();
     }
   });
 
@@ -71,15 +73,11 @@
 </script>
 
 {#snippet spinner()}
-  <div class="flex min-h-[55vh] items-center justify-center">
-    <Spinner />
-  </div>
+  <WorkspacePanelSkeleton layout="list" label="Loading the Brain" />
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="The Brain" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}
   <AdminWorkspacePage
     title="The Brain"

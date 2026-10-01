@@ -65,9 +65,9 @@
 </script>
 
 <div bind:this={sentinel} aria-hidden="true" class="h-px w-full"></div>
-<!-- top-[54px] = AppNav h-13 (52px) + 2px baseline rule; travels with the nav.
+<!-- top-[3.375rem] = AppNav h-13 (52px) + 2px baseline rule; travels with the nav.
      The surface caps at the global rail width — canvas shows beyond it. -->
-<div bind:this={barEl} class="sticky top-[54px] z-40 -mt-px w-full">
+<div bind:this={barEl} class="sticky top-[3.375rem] z-40 -mt-px w-full">
   <div
     class={`relative mx-auto flex h-11 w-full items-center justify-between gap-2 rounded-b-xl border-x border-b page-gutter transition-colors duration-300 sm:gap-3 ${
       scrolled ? "border-line-soft bg-white" : "border-transparent bg-transparent"

@@ -15,6 +15,26 @@
 import type { Id } from "../_generated/dataModel";
 import { buildTranscriptPromptText } from "../lib/transcripts";
 import { CONTEXT_INPUTS_GUIDANCE } from "./prompts";
+import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
+import { STRUCTURED_OUTPUT_PROGRAM } from "./structured";
+import type { GenerationTextBlock } from "./openrouterCore";
+import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
+import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
+import {
+  allowedAdvancementLinks,
+  isAnswerRole,
+  pickedUncertaintyFor,
+  type AllowedAdvancementLink,
+} from "../../shared/advancementLinks";
+import { readsFactPacks } from "../lib/seedFacts";
+import {
+  MAX_SEED_PROMPT_UTF8_BYTES,
+  SeedContextLimitError,
+  assertSeedPromptWithinLimit,
+  snapshotPromptProjection,
+  type SeedContextItem,
+  type SeedContextSnapshot,
+} from "../lib/seedRevisions";
 
 export type ContextDocCategory =
   | "previous_pd"
@@ -125,7 +145,7 @@ export function effectiveCategory(doc: ContextDoc): ContextDocCategory {
 export const CONTEXT_SCAFFOLDS = {
   withTranscriptPrefix: "Here is the interview transcript to analyze:\n\n",
   withoutTranscript:
-    "There is NO interview transcript for this project. Analyze the attached contextual materials below as the sole source. Anything the documents do not support must be flagged as a gap — never invent interview content.",
+    "There is NO interview transcript for this project. Analyze the attached contextual materials below as the sole source. Anything the documents do not support must be flagged as a gap; never invent interview content.",
   contextHeading: "\n\n# ATTACHED CONTEXTUAL MATERIALS\n",
   documentDelimiters: {
     beginPrefix: "--- BEGIN [",
@@ -300,7 +320,112 @@ export function cutToBudget(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const code = text.charCodeAt(limit - 1);
   const splitsPair = code >= 0xd800 && code <= 0xdbff;
-  return text.slice(0, splitsPair ? limit - 1 : limit);
+  const end = splitsPair ? limit - 1 : limit;
+  return endAtWordBoundary(text.slice(0, end), text.slice(end));
+}
+
+/**
+ * Letters, digits and marks, and the joiners inside a name's word (final
+ * privacy round P2): ASCII and Unicode hyphens (and the soft hyphen),
+ * straight and curly apostrophes, the katakana middle dot and the middle
+ * dot, so a cut backs off before the whole of "Whitfield-Smith",
+ * "Jean-Philippe" or "O'Neil", never to "Whitfield-".
+ */
+const WORD_CHARS = "[\\p{L}\\p{N}\\p{M}\\-\\u2010\\u2011\\u00AD'\\u2018\\u2019\\u30FB\\u00B7]";
+const LAST_WORD_RUN = new RegExp(`${WORD_CHARS}+$`, "u");
+const FIRST_WORD_RUN = new RegExp(`^${WORD_CHARS}+`, "u");
+/** The longest run of letters and digits a word of a name can be. */
+const MAX_NAME_WORD = 64;
+
+/**
+ * 2026-09-29 (second, privacy): a budget cut never ends inside a word. Names
+ * are masked at the provider boundary only where they stand whole, so a cut
+ * through "Quillmere" sent the fragment "Quillm" unmasked. When the kept
+ * text ends in a letter or digit and the text after the cut goes on with
+ * one, the cut backs off to just after the last white space or punctuation
+ * (a hyphen, an apostrophe or a middle dot joins a word, never ends one).
+ * A word the cut falls in that runs longer than 64 letters and digits, both
+ * sides together, is no word of a name (a hash, an encoded blob, a long run
+ * of unbroken script) and is cut where the budget ends, as before. It only
+ * ever shortens, so the cut stays within budget.
+ */
+export function endAtWordBoundary(kept: string, rest: string): string {
+  const before = LAST_WORD_RUN.exec(kept);
+  const after = FIRST_WORD_RUN.exec(rest);
+  if (!before || !after) return kept;
+  // The word the cut falls in, both sides of it.
+  if (before[0].length + after[0].length > MAX_NAME_WORD) return kept;
+  return kept.slice(0, before.index);
+}
+
+/**
+ * Digest mode means digests (cost phase 1). A generation over the transcript
+ * budget freezes a `transcript_digest` row per transcript next to the full
+ * `transcript` row; a consumer that read every row sent both, and one that
+ * filled a byte budget in row order spent it on the full text and cut the
+ * digests. This returns one row per source: each transcript that has a
+ * digest is replaced, in its own position, by that digest, and every other
+ * row is kept in order. Pure, so the Brief and the Seeds share one decision.
+ */
+export function preferDigestSources<
+  Row extends { kind: string; transcriptId?: string | null },
+>(rows: readonly Row[]): Row[] {
+  const digestByTranscript = new Map<string, Row>();
+  for (const row of rows) {
+    if (row.kind === "transcript_digest" && row.transcriptId) {
+      digestByTranscript.set(row.transcriptId, row);
+    }
+  }
+  const transcriptIds = new Set<string>();
+  for (const row of rows) {
+    if (row.kind === "transcript" && row.transcriptId) transcriptIds.add(row.transcriptId);
+  }
+  const out: Row[] = [];
+  for (const row of rows) {
+    const id = row.transcriptId ?? undefined;
+    if (row.kind === "transcript" && id && digestByTranscript.has(id)) {
+      out.push(digestByTranscript.get(id)!);
+      continue;
+    }
+    // A digest of a frozen transcript is placed where that transcript sits.
+    if (row.kind === "transcript_digest" && id && transcriptIds.has(id)) continue;
+    out.push(row);
+  }
+  return out;
+}
+
+/**
+ * The transcript method (2026-09-24, owner decision 27): when every frozen
+ * transcript has a fact pack, each transcript is read through its pack, in
+ * its own position, and digests are left out. Otherwise the packs a partial
+ * extraction froze are dropped and preferDigestSources decides, as before.
+ * Pure, so the Brief, the Seeds and every other reader of frozen rows share
+ * one decision. Callers keep every frozen row for citation validation: a
+ * claim read from a pack still cites the transcript row.
+ */
+export function preferFactSources<
+  Row extends { kind: string; transcriptId?: string | null },
+>(rows: readonly Row[]): Row[] {
+  if (!readsFactPacks(rows)) {
+    return preferDigestSources(rows.filter((row) => row.kind !== "transcript_facts"));
+  }
+  const packByTranscript = new Map<string, Row>();
+  for (const row of rows) {
+    if (row.kind === "transcript_facts" && row.transcriptId) {
+      packByTranscript.set(row.transcriptId, row);
+    }
+  }
+  const out: Row[] = [];
+  for (const row of rows) {
+    const pack = row.kind === "transcript" && row.transcriptId ? packByTranscript.get(row.transcriptId) : undefined;
+    if (pack) {
+      out.push(pack);
+      continue;
+    }
+    if (row.kind === "transcript_facts" || row.kind === "transcript_digest") continue;
+    out.push(row);
+  }
+  return out;
 }
 
 /**
@@ -308,7 +433,7 @@ export function cutToBudget(text: string, limit: number): string {
  * bytes, and every candidate must rebuild the identical message regardless of
  * the runtime's ICU data.
  */
-function formatCount(n: number): string {
+export function formatCount(n: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
@@ -556,4 +681,604 @@ export function describeContextCuts(report: {
   if (truncated.length) clauses.push(`shortened ${names(truncated)}`);
   if (dropped.length) clauses.push(`left out ${names(dropped)}`);
   return `Context budget (${formatCount(report.budget.totalTokens)} tokens) ${clauses.join(" and ")}.`;
+}
+
+export type SeedPromptMode = "batch" | "feedback";
+
+export type SeedPromptSource = {
+  sourceId: string;
+  label: string;
+  kind: string;
+  content: string;
+  contentHash: string;
+  /** Links a transcript and its digest or fact pack; see preferFactSources. */
+  transcriptId?: string;
+};
+
+export type SeedPromptProjection = {
+  /** Canonical JSON produced by snapshotPromptProjection. */
+  decisions: string;
+  /** Canonical JSON produced by snapshotPromptProjection. */
+  feedback: string;
+  /** Canonical JSON produced by snapshotPromptProjection, when applicable. */
+  target?: string;
+  /**
+   * 2026-09-28 (fourth): for specific advancements with frozen experiment
+   * selections, the only ids each link may use, as canonical JSON. Since
+   * 2026-09-29 (first), grouped: each picked uncertainty with the picked
+   * experiments that tested it.
+   */
+  advancementLinks?: string;
+  /**
+   * 2026-09-29 (first): for experimentation with frozen uncertainty
+   * selections, the uncertainty ids an experiment may name, as canonical JSON.
+   */
+  experimentLinks?: string;
+  /**
+   * 2026-09-30 (fourth): for Advancement to science and goal improvements
+   * with frozen uncertainty selections, the uncertainty ids a result may
+   * answer, as canonical JSON.
+   */
+  resultLinks?: string;
+};
+
+export type SeedTrustedContextInput = {
+  mode: SeedPromptMode;
+  objective: string;
+  brief: unknown;
+  sources: readonly SeedPromptSource[];
+  projection: SeedPromptProjection;
+  writerSettings: unknown;
+  lengthTarget: string;
+  maxPromptBytes?: number;
+  /**
+   * The role tail's reservation when the sources overflow. Given, the
+   * source allowance depends on generation-stable inputs only and an
+   * oversized role tail is refused (see buildSeedTrustedContext).
+   */
+  roleTailReserveBytes?: number;
+  /**
+   * How Seeds cite (2026-09-24): `facts` when every transcript is read
+   * through its fact pack (cite a fact id, or a document by excerpt),
+   * `offsets` otherwise (today). Generation-wide, so the cached prefix is
+   * still shared by every role.
+   */
+  citationMode?: "offsets" | "facts";
+};
+
+export function splitSeedWriterSettings(value: unknown): {
+  styleOverrides: unknown;
+  remaining: unknown;
+} {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { styleOverrides: {}, remaining: value };
+  }
+  const entries = Object.entries(value);
+  const styleOverrides = entries.find(([key]) => key === "styleOverrides")?.[1];
+  const remaining = Object.fromEntries(
+    entries.filter(([key]) => key !== "styleOverrides")
+  );
+  return { styleOverrides: styleOverrides ?? {}, remaining };
+}
+
+function seedSnapshotOf(
+  items: readonly SeedContextItem[]
+): SeedContextSnapshot {
+  return { v: 1, items: [...items] };
+}
+
+/**
+ * 2026-09-28 (fourth), grouped since 2026-09-29 (first): the links
+ * Subsection 11's Seeds may use, the same set the Seed contract accepts. Each
+ * entry is a frozen uncertainty selection with the frozen experiment
+ * selections that tested it (an experiment that records no uncertainty goes
+ * with every one). Null for any other role, and when no uncertainty has an
+ * experiment, where the Seeds carry no links.
+ */
+export function seedAdvancementLinkIds(
+  snapshot: SeedContextSnapshot,
+  roleId: PdSubsectionRoleId,
+  uncertaintyRoots: Readonly<Record<string, string>> = {}
+): { links: AllowedAdvancementLink[]; uncertaintiesWithoutTestedExperiments?: string[] } | null {
+  if (roleId !== "specific_advancements") return null;
+  const selections = snapshot.items.filter((item) => item.kind === "selection");
+  const uncertainties = selections.flatMap((item) => (item.roleId === "active_uncertainties" ? [item.seedId] : []));
+  const links = allowedAdvancementLinks(
+    uncertainties,
+    selections.flatMap((item) =>
+      item.roleId === "experimentation"
+        ? [{ seedId: item.seedId, uncertaintySeedId: item.uncertaintySeedId ?? null }]
+        : []
+    ),
+    (seedId) => uncertaintyRoots[seedId] ?? seedId
+  );
+  if (links.length === 0) return null;
+  // 2026-09-29 (first, run 7): the picked uncertainties no picked experiment
+  // tested are named, so the model knows they cannot have an advancement.
+  const offered = new Set(links.map((link) => link.uncertaintySeedId));
+  const without = uncertainties.filter((seedId) => !offered.has(seedId));
+  return { links, ...(without.length ? { uncertaintiesWithoutTestedExperiments: without } : {}) };
+}
+
+/**
+ * 2026-09-29 (first, review P2-2): in the decisions sent to the model, an
+ * experiment whose uncertainty was revised through Feedback names the
+ * picked revision (or original) instead, so every id it reads is one the
+ * decisions list. The frozen snapshot and its hashes are unchanged.
+ */
+function withPickedTestedUncertainties(
+  items: readonly SeedContextItem[],
+  uncertaintyRoots: Readonly<Record<string, string>>
+): SeedContextItem[] {
+  if (Object.keys(uncertaintyRoots).length === 0) return [...items];
+  const rootOf = (seedId: string) => uncertaintyRoots[seedId] ?? seedId;
+  const picked = items.flatMap((item) =>
+    item.kind === "selection" && item.roleId === "active_uncertainties" ? [item.seedId] : []
+  );
+  return items.map((item) => {
+    if (item.kind !== "selection" || item.roleId !== "experimentation" || !item.uncertaintySeedId) return item;
+    const standIn = pickedUncertaintyFor(item.uncertaintySeedId, picked, rootOf);
+    return standIn && standIn !== item.uncertaintySeedId ? { ...item, uncertaintySeedId: standIn } : item;
+  });
+}
+
+/**
+ * 2026-09-29 (first): the uncertainty ids an experiment Seed may name, the
+ * frozen active_uncertainties selections. Null for any other role, or with
+ * no frozen uncertainty, where experiment Seeds carry no link.
+ */
+export function seedExperimentLinkIds(
+  snapshot: SeedContextSnapshot,
+  roleId: PdSubsectionRoleId
+): { uncertaintySeedIds: string[] } | null {
+  if (roleId !== "experimentation") return null;
+  const uncertaintySeedIds = snapshot.items.flatMap((item) =>
+    item.kind === "selection" && item.roleId === "active_uncertainties" ? [item.seedId] : []
+  );
+  return uncertaintySeedIds.length > 0 ? { uncertaintySeedIds } : null;
+}
+
+/**
+ * 2026-09-30 (fourth): the uncertainty ids an Advancement to science or goal
+ * improvements Seed may answer, the frozen active_uncertainties selections;
+ * (fifth) also those a Hypothesis Seed may test and a Work plan Seed may plan
+ * work for. Null for any other role, or with no frozen uncertainty, where
+ * these Seeds carry no link.
+ */
+export function seedResultLinkIds(
+  snapshot: SeedContextSnapshot,
+  roleId: PdSubsectionRoleId
+): { uncertaintySeedIds: string[] } | null {
+  if (!isAnswerRole(roleId)) return null;
+  const uncertaintySeedIds = snapshot.items.flatMap((item) =>
+    item.kind === "selection" && item.roleId === "active_uncertainties" ? [item.seedId] : []
+  );
+  return uncertaintySeedIds.length > 0 ? { uncertaintySeedIds } : null;
+}
+
+export function seedPromptProjection(
+  snapshot: SeedContextSnapshot,
+  roleId?: PdSubsectionRoleId,
+  uncertaintyRoots: Readonly<Record<string, string>> = {}
+) {
+  const links = roleId ? seedAdvancementLinkIds(snapshot, roleId, uncertaintyRoots) : null;
+  const tested = roleId ? seedExperimentLinkIds(snapshot, roleId) : null;
+  const answers = roleId ? seedResultLinkIds(snapshot, roleId) : null;
+  const decisions = withPickedTestedUncertainties(snapshot.items, uncertaintyRoots).filter(
+    (item) =>
+      item.kind === "selection" ||
+      item.kind === "skip" ||
+      item.kind === "feedback"
+  );
+  const feedback = snapshot.items.filter((item) => item.kind === "ownFeedback");
+  const target = snapshot.items.filter((item) => item.kind === "target");
+  return {
+    decisions: snapshotPromptProjection(seedSnapshotOf(decisions)),
+    feedback: snapshotPromptProjection(seedSnapshotOf(feedback)),
+    ...(target.length > 0
+      ? { target: snapshotPromptProjection(seedSnapshotOf(target)) }
+      : {}),
+    ...(links ? { advancementLinks: stableSeedPromptJson(links) } : {}),
+    ...(tested ? { experimentLinks: stableSeedPromptJson(tested) } : {}),
+    ...(answers ? { resultLinks: stableSeedPromptJson(answers) } : {}),
+  };
+}
+
+export type SeedPromptSourceReport = {
+  sourceId: string;
+  originalBytes: number;
+  includedBytes: number;
+  included: boolean;
+  truncated: boolean;
+};
+
+const utf8 = new TextEncoder();
+
+export function utf8Bytes(value: string): number {
+  return utf8.encode(value).byteLength;
+}
+
+/** Cut at a Unicode scalar boundary to an exact UTF-8 byte budget. */
+export function cutUtf8ToBudget(value: string, maxBytes: number): string {
+  if (maxBytes <= 0) return "";
+  if (utf8Bytes(value) <= maxBytes) return value;
+  let used = 0;
+  let result = "";
+  for (const scalar of value) {
+    const size = utf8Bytes(scalar);
+    if (used + size > maxBytes) break;
+    result += scalar;
+    used += size;
+  }
+  // Never inside a word, so no name is cut into a fragment (privacy).
+  return endAtWordBoundary(result, value.slice(result.length));
+}
+
+export function stableSeedPromptJson(value: unknown): string {
+  const seen = new Set<object>();
+  const normalize = (item: unknown): unknown => {
+    if (item === null || typeof item !== "object") return item;
+    if (seen.has(item)) throw new Error("Seed prompt context must not contain cycles");
+    seen.add(item);
+    const normalized = Array.isArray(item)
+      ? item.map(normalize)
+      : Object.fromEntries(
+          Object.entries(item)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, nested]) => [key, normalize(nested)])
+        );
+    seen.delete(item);
+    return normalized;
+  };
+  return JSON.stringify(normalize(value));
+}
+
+export function seedBlock(label: string, rawContent: string): string {
+  const delimiters = SEED_PROMPT_PROGRAM.user.delimiters;
+  const content = neutralizeMarkers(rawContent);
+  return `${delimiters.beginPrefix}${label}${delimiters.suffix}${delimiters.contentPrefix}${content}${delimiters.contentSuffix}${delimiters.endPrefix}${label}${delimiters.suffix}`;
+}
+
+function seedValue(value: unknown): string {
+  return value === undefined
+    ? SEED_PROMPT_PROGRAM.user.empty
+    : stableSeedPromptJson(value);
+}
+
+/** The seed system message contains policy and frozen style switches only. */
+export function buildSeedSystemPrompt(styleOverrides: unknown): string {
+  const normalized = { ...NO_STYLE_OVERRIDES };
+  if (typeof styleOverrides === "object" && styleOverrides !== null) {
+    for (const [key, value] of Object.entries(styleOverrides)) {
+      if (value !== true) continue;
+      switch (key) {
+        case "bannedWords":
+        case "paragraphDensity":
+        case "sentenceConstruction":
+        case "repetitionCaps":
+        case "openingClauses":
+        case "reportSkeleton":
+          normalized[key] = true;
+          break;
+      }
+    }
+  }
+  return `${SEED_PROMPT_PROGRAM.systemPolicy}${SEED_PROMPT_PROGRAM.styleOverrides.prefix}${stableSeedPromptJson(normalized)}`;
+}
+
+function sourceLabel(source: SeedPromptSource): string {
+  const metadata = SEED_PROMPT_PROGRAM.user.sourceMetadata;
+  return `${SEED_PROMPT_PROGRAM.user.blocks.sourcePrefix}${metadata.kind}${sanitizeFileName(source.kind)}${metadata.separator}${metadata.id}${source.sourceId}${metadata.separator}${metadata.hash}${sanitizeFileName(source.contentHash)}${metadata.separator}${metadata.label}${sanitizeFileName(source.label)}`;
+}
+
+/**
+ * Assemble the seed user message from frozen inputs only. Every fixed input is
+ * complete; only source text may be shortened to fit the shared byte limit.
+ */
+export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
+  userMessage: string;
+  /**
+   * `userMessage` split for prompt caching: `shared` (heading, guidance,
+   * Brief, sources) is the same for every role of one generation and mode;
+   * `role` (mode, objective, decisions and the rest) follows it. Their
+   * concatenation is exactly `userMessage`.
+   */
+  parts: { shared: string; role: string };
+  promptBytes: number;
+  sources: SeedPromptSourceReport[];
+} {
+  const prompt = SEED_PROMPT_PROGRAM.user;
+  const separator = prompt.delimiters.separator;
+  // Cost phase 1: everything the roles of one generation share comes first,
+  // so it forms one cacheable prefix; the role's own objective and state
+  // follow the sources. SEED_PROMPT_PROGRAM.user.order discloses this order.
+  const beforeSources = [
+    prompt.heading,
+    input.citationMode === "facts" ? prompt.factGuidance : prompt.guidance,
+    seedBlock(prompt.blocks.brief, seedValue(input.brief)),
+  ];
+  // The role-specific part of the tail (it differs between roles and modes).
+  const roleTail = [
+    prompt.modeLabels[input.mode],
+    seedBlock(prompt.blocks.objective, input.objective),
+    seedBlock(prompt.blocks.decisions, input.projection.decisions),
+    ...(input.projection.experimentLinks !== undefined
+      ? [seedBlock(prompt.blocks.experimentLinks, input.projection.experimentLinks)]
+      : []),
+    ...(input.projection.advancementLinks !== undefined
+      ? [seedBlock(prompt.blocks.advancementLinks, input.projection.advancementLinks)]
+      : []),
+    ...(input.projection.resultLinks !== undefined
+      ? [seedBlock(prompt.blocks.resultLinks, input.projection.resultLinks)]
+      : []),
+    seedBlock(prompt.blocks.feedback, input.projection.feedback),
+    seedBlock(
+      prompt.blocks.target,
+      input.projection.target ?? prompt.empty
+    ),
+  ];
+  // Generation-wide, so the same for every role.
+  const generationTail = [
+    seedBlock(prompt.blocks.settings, seedValue(input.writerSettings)),
+    seedBlock(prompt.blocks.lengthTarget, input.lengthTarget),
+  ];
+  const afterSources = [...roleTail, ...generationTail];
+  const maxBytes = input.maxPromptBytes ?? MAX_SEED_PROMPT_UTF8_BYTES;
+  const separatorBytes = utf8Bytes(separator);
+  const fixedBytes =
+    utf8Bytes(beforeSources.join(separator)) +
+    utf8Bytes(afterSources.join(separator)) +
+    separatorBytes * 2;
+  if (fixedBytes > maxBytes) {
+    throw new SeedContextLimitError(
+      "prompt_utf8_bytes",
+      `Seed prompt fixed context is ${fixedBytes} UTF-8 bytes; limit is ${maxBytes}`
+    );
+  }
+
+  const roleTailBytes = utf8Bytes(roleTail.join(separator));
+  /** The omission notice naming every source: the most it can ever need. */
+  const maximalOmissionNoticeBytes = () =>
+    utf8Bytes(
+      seedBlock(
+        prompt.blocks.sources,
+        `${prompt.truncation.omittedPrefix}${input.sources
+          .map((source) => source.sourceId)
+          .join(", ")}${prompt.truncation.omittedSuffix}`
+      )
+    );
+  const sourceBlocksFull = input.sources.map((source) =>
+    seedBlock(sourceLabel(source), neutralizeMarkers(source.content))
+  );
+  const fullSourceBytes = utf8Bytes(sourceBlocksFull.join(separator));
+  // Without a reservation (direct callers and tests), the sources take
+  // whatever the actual tail leaves, as before cost phase 1.
+  let remaining = maxBytes - fixedBytes;
+  if (input.roleTailReserveBytes !== undefined) {
+    // Cost phase 1: the source allowance sits inside the cached block, so it
+    // is derived from generation-stable inputs only (limit, heading,
+    // guidance, Brief, sources, writer settings, length target), never from
+    // the role's own text. `stableBytes` is what sources and the role tail
+    // share. Sources that fit take their exact size and the rest goes to the
+    // role; sources that overflow keep the full omission disclosure, then
+    // leave the role its reservation, clamped to half of what remains so a
+    // very large Brief still leaves the sources room. A role tail larger
+    // than what is left is refused below; it never moves the cached source
+    // cutoff.
+    const stableBytes = maxBytes - fixedBytes + roleTailBytes;
+    const sourcesNeed =
+      input.sources.length > 0
+        ? fullSourceBytes
+        : utf8Bytes(seedBlock(prompt.blocks.sources, prompt.empty));
+    // Overflowing sources must always be able to disclose what they omit,
+    // so the maximal disclosure (every source id, generation-stable) is
+    // reserved first; the reservation and the half-space clamp apply only to
+    // what is left after it.
+    const disclosureBytes =
+      input.sources.length > 0 ? maximalOmissionNoticeBytes() + separatorBytes : 0;
+    const afterDisclosure = Math.max(0, stableBytes - disclosureBytes);
+    const overflowAllowance = Math.min(
+      stableBytes,
+      disclosureBytes +
+        Math.max(
+          afterDisclosure - input.roleTailReserveBytes,
+          Math.floor(afterDisclosure / 2)
+        )
+    );
+    const sourceAllowance = Math.max(0, Math.min(sourcesNeed, overflowAllowance));
+    const roleAllowance = stableBytes - sourceAllowance;
+    if (roleTailBytes > roleAllowance) {
+      throw new SeedContextLimitError(
+        "prompt_utf8_bytes",
+        `Seed role context (mode, objective, decisions, feedback and target) is ${roleTailBytes} UTF-8 bytes; its allowance is ${roleAllowance}`
+      );
+    }
+    remaining = sourceAllowance;
+  }
+  const sourceBlocks: string[] = [];
+  const reports: SeedPromptSourceReport[] = [];
+  let omissionReserveBytes = 0;
+  if (input.sources.length > 0 && fullSourceBytes > remaining) {
+    omissionReserveBytes = maximalOmissionNoticeBytes() + separatorBytes;
+    if (omissionReserveBytes > remaining) {
+      throw new SeedContextLimitError(
+        "prompt_utf8_bytes",
+        "Seed prompt has no room to disclose omitted frozen sources"
+      );
+    }
+    remaining -= omissionReserveBytes;
+  }
+  for (const source of input.sources) {
+    const label = sourceLabel(source);
+    const safe = neutralizeMarkers(source.content);
+    const originalBytes = utf8Bytes(safe);
+    const emptyBlock = seedBlock(label, "");
+    const joinBytes = sourceBlocks.length > 0 ? separatorBytes : 0;
+    const overhead = utf8Bytes(emptyBlock) + joinBytes;
+    if (remaining < overhead) {
+      reports.push({
+        sourceId: source.sourceId,
+        originalBytes,
+        includedBytes: 0,
+        included: false,
+        truncated: originalBytes > 0,
+      });
+      continue;
+    }
+    const fullBlock = seedBlock(label, safe);
+    const fullBlockBytes = utf8Bytes(fullBlock) + joinBytes;
+    if (fullBlockBytes <= remaining) {
+      sourceBlocks.push(fullBlock);
+      remaining -= fullBlockBytes;
+      reports.push({
+        sourceId: source.sourceId,
+        originalBytes,
+        includedBytes: originalBytes,
+        included: true,
+        truncated: false,
+      });
+      continue;
+    }
+
+    const notice = `${prompt.truncation.prefix}${originalBytes}${prompt.truncation.middle}`;
+    const contentBudget = Math.max(
+      0,
+      remaining - overhead - utf8Bytes(notice) - utf8Bytes("\n")
+    );
+    const kept = cutUtf8ToBudget(safe, contentBudget);
+    const includedBytes = utf8Bytes(kept);
+    if (includedBytes === 0) {
+      reports.push({
+        sourceId: source.sourceId,
+        originalBytes,
+        includedBytes: 0,
+        included: false,
+        truncated: originalBytes > 0,
+      });
+      continue;
+    }
+    const omitted = originalBytes - includedBytes;
+    const block = seedBlock(
+      label,
+      `${kept}\n${prompt.truncation.prefix}${omitted}${prompt.truncation.middle}`
+    );
+    sourceBlocks.push(block);
+    remaining -= utf8Bytes(block) + joinBytes;
+    reports.push({
+      sourceId: source.sourceId,
+      originalBytes,
+      includedBytes,
+      included: true,
+      truncated: true,
+    });
+  }
+
+  const omitted = reports.filter((report) => !report.included);
+  if (omitted.length > 0) {
+    const omissionNotice = seedBlock(
+      prompt.blocks.sources,
+      `${prompt.truncation.omittedPrefix}${omitted
+        .map((report) => report.sourceId)
+        .join(", ")}${prompt.truncation.omittedSuffix}`
+    );
+    const omissionBytes =
+      utf8Bytes(omissionNotice) +
+      (sourceBlocks.length > 0 ? separatorBytes : 0);
+    if (omissionReserveBytes === 0 || omissionBytes > omissionReserveBytes) {
+      throw new SeedContextLimitError(
+        "prompt_utf8_bytes",
+        "Seed prompt could not disclose omitted frozen sources"
+      );
+    }
+    sourceBlocks.push(omissionNotice);
+  }
+  if (sourceBlocks.length === 0) {
+    const empty = seedBlock(prompt.blocks.sources, prompt.empty);
+    if (utf8Bytes(empty) > remaining) {
+      throw new SeedContextLimitError(
+        "prompt_utf8_bytes",
+        "Seed prompt has no room for its source boundary block"
+      );
+    }
+    sourceBlocks.push(empty);
+  }
+
+  const shared = [...beforeSources, sourceBlocks.join(separator)].join(separator);
+  const role = `${separator}${afterSources.join(separator)}`;
+  const userMessage = `${shared}${role}`;
+  const promptBytes = utf8Bytes(userMessage);
+  if (promptBytes > maxBytes) {
+    throw new SeedContextLimitError(
+      "prompt_utf8_bytes",
+      `Seed prompt is ${promptBytes} UTF-8 bytes after assembly; limit is ${maxBytes}`
+    );
+  }
+  if (input.maxPromptBytes === undefined) {
+    assertSeedPromptWithinLimit(userMessage);
+  }
+  return { userMessage, parts: { shared, role }, promptBytes, sources: reports };
+}
+
+/** Assemble the complete two-message request under one shared byte limit. */
+export function buildSeedPrompt(
+  input: Omit<SeedTrustedContextInput, "maxPromptBytes" | "roleTailReserveBytes">
+): {
+  system: string;
+  user: string;
+  /**
+   * `user` as two text blocks with a 1-hour cache breakpoint after the
+   * shared part: roles are drafted step by step at the writer's pace, often
+   * more than 5 minutes apart, and every later role of the same generation
+   * reads the frozen sources back at 0.1x.
+   */
+  userBlocks: GenerationTextBlock[];
+  promptBytes: number;
+  sources: SeedPromptSourceReport[];
+} {
+  const settings = splitSeedWriterSettings(input.writerSettings);
+  const system = buildSeedSystemPrompt(settings.styleOverrides);
+  // Digest mode means digests (cost phase 1): a transcript with a frozen
+  // digest reaches the prompt only as that digest, in the transcript's
+  // place, so the byte limit is never spent on both. Callers keep every
+  // frozen source for provenance validation. 2026-09-24 (transcript method):
+  // with a fact pack for every transcript, the packs take their place and
+  // Seeds cite fact ids.
+  const sources = preferFactSources(input.sources);
+  const citationMode = readsFactPacks(input.sources) ? ("facts" as const) : ("offsets" as const);
+  const systemBytes = utf8Bytes(system);
+  const repairReserveBytes =
+    utf8Bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix) +
+    utf8Bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix) +
+    SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes +
+    SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes;
+  if (systemBytes + repairReserveBytes >= MAX_SEED_PROMPT_UTF8_BYTES) {
+    throw new SeedContextLimitError(
+      "prompt_utf8_bytes",
+      "Seed system prompt exhausts the shared prompt byte limit"
+    );
+  }
+  const built = buildSeedTrustedContext({
+    ...input,
+    sources,
+    citationMode,
+    roleTailReserveBytes: SEED_PROMPT_PROGRAM.request.roleTailReserveUtf8Bytes,
+    writerSettings: settings.remaining,
+    maxPromptBytes:
+      MAX_SEED_PROMPT_UTF8_BYTES - systemBytes - repairReserveBytes,
+  });
+  assertSeedPromptWithinLimit(`${system}${built.userMessage}`);
+  return {
+    system,
+    user: built.userMessage,
+    userBlocks: [
+      {
+        type: "text",
+        text: built.parts.shared,
+        cache_control: { ...SEED_PROMPT_PROGRAM.request.cacheControl },
+      },
+      { type: "text", text: built.parts.role },
+    ],
+    promptBytes: systemBytes + built.promptBytes,
+    sources: built.sources,
+  };
 }

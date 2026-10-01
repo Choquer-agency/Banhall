@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -24,6 +25,7 @@ beforeEach(() => {
 
 async function setupReviewResearch() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   t.registerComponent("researchWorkflow", workflowSchema, workflowModules);
   t.registerComponent("researchWorkflow/workpool", workpoolSchema, workpoolModules);
   const ids = await t.run(async (ctx) => {

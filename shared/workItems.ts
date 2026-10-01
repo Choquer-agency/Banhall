@@ -1,3 +1,6 @@
+import type { WorkflowStage } from "./workflowStages";
+import { findWorkflowTransition } from "./workflowTransitions";
+
 export const WORK_ITEM_KINDS = [
   "internal_review",
   "revision",
@@ -72,3 +75,57 @@ export const MAX_WORK_ITEM_INSTRUCTIONS_PREVIEW_CHARS = 240;
 export const MAX_WORK_ITEM_INSTRUCTIONS_CHARS = 4_000;
 export const MAX_WORK_ITEM_RESOLUTION_CHARS = 2_000;
 export const MAX_WORK_ITEM_CREATE_REQUEST_ID_CHARS = 200;
+
+/**
+ * The work-item kind a Details-panel handoff gets from its chosen stage
+ * (docs/product-domain.md, 2026-09-24 amendment). Shared so the Hand off
+ * view and `workItems.handOff` can never disagree.
+ */
+export function workItemKindForHandoffStage(stage: WorkflowStage): WorkItemKind {
+  switch (stage) {
+    case "internal_review":
+      return "internal_review";
+    case "edits":
+    case "revisions":
+      return "revision";
+    case "intake":
+    case "interview_complete":
+      return "interview_followup";
+    case "ready_for_delivery":
+    case "delivered":
+      return "delivery_prep";
+    default:
+      return "other";
+  }
+}
+
+/**
+ * Why `workItems.handOff` refuses a handoff from `from` into `to`, or null
+ * when the stage itself is acceptable (authority, notes and the version fence
+ * are checked separately). Shared by the mutation and the Hand off view's
+ * stage list, so the view never offers a stage the server always refuses.
+ *
+ * - "reopen_first": keeping Delivered or Abandoned in place; reopen first.
+ * - "abandons": a handoff opens work, and Abandoned needs no open work.
+ * - "review_decision": an internal-review completion edge, which records the
+ *   reviewer decision through Change stage.
+ * - "requirement": an edge whose requirement fails closed today (delivery
+ *   outcome, promoted branch).
+ */
+export type HandoffStageRefusal = "reopen_first" | "abandons" | "review_decision" | "requirement";
+
+export function handoffStageRefusal(
+  from: WorkflowStage,
+  to: WorkflowStage
+): HandoffStageRefusal | null {
+  if (from === to) {
+    return from === "delivered" || from === "abandoned" ? "reopen_first" : null;
+  }
+  if (to === "abandoned") return "abandons";
+  const requirements = findWorkflowTransition(from, to)?.requirements ?? [];
+  if (requirements.includes("review_decision")) return "review_decision";
+  if (requirements.includes("delivery_outcome") || requirements.includes("promoted_branch")) {
+    return "requirement";
+  }
+  return null;
+}

@@ -2,6 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { domainError } from "./contracts";
 import { workItemDueSortAt } from "../../shared/workItems";
+import { isProjectDeleting } from "./projectDeletion";
 
 const MAX_OVERSIGHT_ROWS_PER_ITEM = 4;
 
@@ -28,6 +29,7 @@ export async function syncOversightForItem(
   item: Doc<"workItems">,
   project: Doc<"projects">
 ) {
+  if (await isProjectDeleting(ctx, item.projectId)) return;
   const rows = await ctx.db
     .query("workItemOversight")
     .withIndex("by_workItemId", (q) => q.eq("workItemId", item._id))

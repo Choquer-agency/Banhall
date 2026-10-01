@@ -15,6 +15,7 @@ import {
   upsertDashboardCompany,
 } from "./lib/dashboardProjection";
 import { generateShareToken } from "./projects";
+import { isProjectDeleting } from "./lib/projectDeletion";
 
 // ─── Historical projects ported from OneDrive ingestion ─────────────────────
 // 2026-08-18 amendment (client meeting): an approved historical PD in the
@@ -50,7 +51,7 @@ export const getItemForPort = internalQuery({
   }),
   handler: async (ctx, args) => {
     const user = await getCurrentUserOrNull(ctx);
-    if (user?.role !== "admin") domainError("NOT_AUTHORIZED", "Admin only");
+    if (user?.role !== "admin" || user.isAnonymous === true) domainError("NOT_AUTHORIZED", "Admin only");
     const item = await ctx.db.get(args.itemId);
     if (!item) domainError("NOT_FOUND", "Ingestion item not found");
     if (item.portedProjectId) {
@@ -101,7 +102,7 @@ export const finalizePort = internalMutation({
   }),
   handler: async (ctx, args) => {
     const user = await getCurrentUserOrNull(ctx);
-    if (!user || user.role !== "admin") {
+    if (!user || user.role !== "admin" || user.isAnonymous === true) {
       domainError("NOT_AUTHORIZED", "Admin only");
     }
     // Same authority as project creation: the porting admin becomes Creator
@@ -152,7 +153,11 @@ export const finalizePort = internalMutation({
     let projectId: Id<"projects">;
     let created = false;
     if (matches.length === 1) {
-      projectId = matches[0]._id;
+      const matchedProject = matches[0];
+      if (await isProjectDeleting(ctx, matchedProject._id)) {
+        domainError("NOT_FOUND", "Project not found");
+      }
+      projectId = matchedProject._id;
     } else {
       created = true;
       const fiscalYearEnd = fiscalYearEndFromLabel(

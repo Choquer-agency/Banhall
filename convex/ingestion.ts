@@ -28,14 +28,14 @@ const LIVE_STATUSES = new Set(["discovered", "fetched", "pending_review", "appro
 
 async function assertAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
   const user = await getCurrentUserOrNull(ctx);
-  if (!user) throw new Error("Not authenticated");
+  if (!user || user.isAnonymous === true) throw new Error("Not authenticated");
   if (user.role !== "admin") throw new Error("Admin only");
   return user._id;
 }
 
 async function adminOrNull(ctx: QueryCtx): Promise<string | null> {
   const user = await getCurrentUserOrNull(ctx);
-  return user?.role === "admin" ? user._id : null;
+  return user?.role === "admin" && user.isAnonymous !== true ? user._id : null;
 }
 
 /** Recompute pairStatus for one client+FY group (small rows — text lives in

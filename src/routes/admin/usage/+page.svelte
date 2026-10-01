@@ -1,12 +1,14 @@
 <script lang="ts">
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import { IconShield } from "$lib/components/icons";
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import { resolve } from "$app/paths";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import DailySpendChart from "$lib/components/admin/DailySpendChart.svelte";
   import SpendBars from "$lib/components/admin/SpendBars.svelte";
   import DateRangePicker from "$lib/components/ui/DateRangePicker.svelte";
   import { cad, USD_TO_CAD } from "$lib/currency";
   import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery } from "convex-svelte";
   import { useStableQuery } from "$lib/stableQuery.svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -69,7 +71,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto(resolve("/login"), { replaceState: true });
+      goToLogin();
     } else if (accessQ.data === false) {
       goto(resolve("/dashboard"), { replaceState: true });
     }
@@ -104,12 +106,10 @@
 </script>
 
 {#if auth.isLoading || !auth.isAuthenticated || accessQ.data !== true || data === undefined || data === null}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="AI usage and cost" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}
   <AdminWorkspacePage
-    title="AI usage & cost"
+    title="AI usage and cost"
     description={`Token consumption and estimated spend in CAD at a ${USD_TO_CAD.toFixed(2)} USD conversion rate.`}
   >
 

@@ -212,7 +212,8 @@ describe("markProposalApplied apply parity (CAP-2)", () => {
       contentHash: await sha256(REPORT_DOC),
     });
 
-    // Content, hash and revision moved together; provenance is invalidated.
+    // Content, hash and revision moved together; a report with no claim
+    // record still has none after the edit.
     expect(after.report?.content).toBe(STEPPED_DOC);
     expect(after.report?.contentHash).toBe(await sha256(STEPPED_DOC));
     expect(after.report?.revisionNumber).toBe(1);

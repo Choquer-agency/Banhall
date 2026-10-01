@@ -52,7 +52,7 @@
       size="sm"
       disabled={saving}
       {canCreate}
-      class="max-w-[220px]"
+      class="max-w-[13.75rem]"
       onValueChange={save}
     />
   {/if}

@@ -10,8 +10,11 @@ import {
   type ResearchRunProvider,
 } from "./core";
 
-// Deep-research providers stream internally and can run for minutes.
-const RESEARCH_TIMEOUT_MS = 8 * 60 * 1_000;
+// Deep-research providers stream internally and can run for minutes. Two
+// attempts of 270 s fit the action's request window (540 s, actionDeadline.ts);
+// the deadline cuts a retry short or drops it when the first attempt ran long.
+export const RESEARCH_TIMEOUT_MS = 270_000;
+export const RESEARCH_MAX_RETRIES = 1;
 
 /**
  * Thin adapter over the shared OpenRouter transport (convex/ai/openrouter.ts):
@@ -47,6 +50,7 @@ export async function callOpenRouterResearch(
       "X-Session-ID": input.sessionId,
     },
     timeoutMs: RESEARCH_TIMEOUT_MS,
+    maxRetries: RESEARCH_MAX_RETRIES,
   });
   return parseOpenRouterResearchResponse(body);
 }

@@ -1,6 +1,7 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { sha256 } from "./contracts";
+import { deleteProvenanceIfUnheld } from "./editProvenance";
 import { generationTranscriptIds } from "./transcripts";
 
 const HOUR = 3_600_000;
@@ -256,8 +257,12 @@ export async function pruneSnapshots(
     .order("desc")
     .take(1_000);
 
+  const byId = new Map(snaps.map((snapshot) => [snapshot._id, snapshot]));
   for (const snapshotId of snapshotIdsToDelete(snaps, Date.now())) {
     await ctx.db.delete(snapshotId);
+    // A claim record only this snapshot held goes with it.
+    const provenanceId = byId.get(snapshotId)?.provenanceId;
+    if (provenanceId) await deleteProvenanceIfUnheld(ctx, provenanceId);
   }
 }
 

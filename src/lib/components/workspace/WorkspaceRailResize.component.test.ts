@@ -3,24 +3,27 @@ import { page as browserPage } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import WorkspaceDashboard from "./WorkspaceDashboard.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
-import { __resetNavigation } from "$lib/test/app-navigation-stub";
+import { __resetNavigation, goto } from "$lib/test/app-navigation-stub";
 import {
   __resetConvexStub,
   __setPaginatedRows,
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import {
+  RAIL_COLLAPSED_WIDTH,
   RAIL_DEFAULT_WIDTH,
   RAIL_MAX_WIDTH,
   RAIL_MIN_WIDTH,
   RAIL_PREFERENCES_KEY,
 } from "$lib/workspace/railPreferences";
+import { board } from "$lib/test/boardScale";
 
 /**
- * Desktop rail ergonomics (2026-08-14 Attio refinement: the grid track
- * closes to width 0 while the intact panel translates off canvas): pointer + keyboard
+ * Desktop rail ergonomics (2026-09-24 final UI: collapsing leaves an
+ * icons-only column, board 1.2): pointer + keyboard
  * resize on the WAI-ARIA window-splitter separator, persistent
- * collapse/expand from the rail-owned toggle, width/hidden persistence
+ * collapse/expand from the top bar's toggle (owner direction 2026-09-28:
+ * the control sits beside the page title in both states), width/hidden persistence
  * (the `hidden` key now means "collapsed"), and expanded-width restore.
  * Mounted through the REAL WorkspaceDashboard host at a desktop viewport.
  */
@@ -94,7 +97,7 @@ describe("Workspace rail resize + hide/show", () => {
       new KeyboardEvent("keydown", { key: "ArrowLeft", shiftKey: true, bubbles: true })
     );
     await expect.poll(() => handle()?.getAttribute("aria-valuenow")).toBe(
-      String(RAIL_DEFAULT_WIDTH + 8 - 32)
+      String(Math.max(RAIL_MIN_WIDTH, RAIL_DEFAULT_WIDTH + 8 - 32))
     );
     separator.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
     await expect.poll(() => handle()?.getAttribute("aria-valuenow")).toBe(String(RAIL_MAX_WIDTH));
@@ -102,10 +105,10 @@ describe("Workspace rail resize + hide/show", () => {
     await expect.poll(() => handle()?.getAttribute("aria-valuenow")).toBe(String(RAIL_MIN_WIDTH));
 
     // Every keyboard commit persists the clamped preference.
-    expect(storedPrefs()).toEqual({ width: RAIL_MIN_WIDTH, hidden: false });
+    expect(storedPrefs()).toEqual({ width: RAIL_MIN_WIDTH, hidden: false, adminOpen: false });
     // The grid variable follows the committed width.
     expect(shellRoot()?.style.getPropertyValue("--workspace-rail-width").trim()).toBe(
-      `${RAIL_MIN_WIDTH}px`
+      `${RAIL_MIN_WIDTH / 16}rem`
     );
   });
 
@@ -115,29 +118,30 @@ describe("Workspace rail resize + hide/show", () => {
     const separator = handle()!;
     const root = shellRoot()!;
 
+    // 24 board pixels of pointer travel (22.5px at a 1440 window's 15px root).
     separator.dispatchEvent(pointer("pointerdown", 255));
-    separator.dispatchEvent(pointer("pointermove", 279));
+    separator.dispatchEvent(pointer("pointermove", 255 + board(24)));
     // During the drag the shell suspends the grid transition (1:1 tracking)…
     await expect.poll(() => root.hasAttribute("data-rail-resizing")).toBe(true);
     expect(getComputedStyle(root).transitionProperty).toBe("none");
     // …and the live width lands on the CSS custom property directly.
     expect(root.style.getPropertyValue("--workspace-rail-width").trim()).toBe(
-      `${RAIL_MAX_WIDTH}px`
+      `${(RAIL_DEFAULT_WIDTH + 24) / 16}rem`
     );
 
     // Overshoot far past max: the live width clamps.
     separator.dispatchEvent(pointer("pointermove", 900));
     expect(root.style.getPropertyValue("--workspace-rail-width").trim()).toBe(
-      `${RAIL_MAX_WIDTH}px`
+      `${RAIL_MAX_WIDTH / 16}rem`
     );
 
     separator.dispatchEvent(pointer("pointerup", 900));
     await expect.poll(() => root.hasAttribute("data-rail-resizing")).toBe(false);
-    expect(storedPrefs()).toEqual({ width: RAIL_MAX_WIDTH, hidden: false });
+    expect(storedPrefs()).toEqual({ width: RAIL_MAX_WIDTH, hidden: false, adminOpen: false });
     await expect.poll(() => handle()?.getAttribute("aria-valuenow")).toBe(String(RAIL_MAX_WIDTH));
   });
 
-  it("collapses fully off canvas and expands back, restoring the expanded width", async () => {
+  it("collapses to the icons-only rail and expands back, restoring the expanded width", async () => {
     // Seed a custom persisted width to prove restore-after-expand.
     localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 272, hidden: false }));
     await mountShell();
@@ -147,7 +151,7 @@ describe("Workspace rail resize + hide/show", () => {
     // Persisted width applied on mount.
     await expect
       .poll(() => root.style.getPropertyValue("--workspace-rail-width").trim())
-      .toBe("272px");
+      .toBe("17rem");
 
     const toggle = railToggle()!;
     expect(toggle.getAttribute("aria-label")).toBe("Collapse navigation rail");
@@ -156,10 +160,12 @@ describe("Workspace rail resize + hide/show", () => {
 
     toggle.click();
     await expect.poll(() => root.hasAttribute("data-rail-hidden")).toBe(true);
-    // Collapsed rail is inert and preference persists under the compatible
-    // `hidden` key; the content header provides the expand affordance.
-    expect(railAside()?.hasAttribute("inert")).toBe(true);
-    expect(storedPrefs()).toEqual({ width: 272, hidden: true });
+    // The collapsed rail stays usable (icons only) and the preference
+    // persists under the compatible `hidden` key; the same top bar control
+    // now offers expand.
+    expect(railAside()?.hasAttribute("inert")).toBe(false);
+    expect(railAside()?.querySelector("[data-rail-collapsed]")).not.toBeNull();
+    expect(storedPrefs()).toEqual({ width: 272, hidden: true, adminOpen: false });
     await expect
       .poll(() => railToggle()?.getAttribute("aria-label"))
       .toBe("Expand navigation rail");
@@ -168,24 +174,102 @@ describe("Workspace rail resize + hide/show", () => {
     const transition = getComputedStyle(root);
     expect(transition.transitionProperty).toContain("grid-template-columns");
     expect(Number.parseFloat(transition.transitionDuration)).toBeGreaterThanOrEqual(0.3);
-    // The grid column settles at 0 while the fixed-width rail panel exits
-    // intact to the left (Attio choreography: no squeezed navigation rows).
+    // The rail settles at the icons-only width.
     await expect
-      .poll(() => shellRoot()!.getBoundingClientRect().x - railAside()!.getBoundingClientRect().right, {
-        timeout: 2000,
-      })
-      .toBeGreaterThanOrEqual(-1);
-    expect(railAside()!.getBoundingClientRect().width).toBe(272);
+      .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
+      .toBe(board(RAIL_COLLAPSED_WIDTH));
     // No resize separator while collapsed.
     expect(handle()).toBeNull();
 
     railToggle()!.click();
     await expect.poll(() => root.hasAttribute("data-rail-hidden")).toBe(false);
     // Expanding restores the PREVIOUS expanded width, not the default.
-    expect(storedPrefs()).toEqual({ width: 272, hidden: false });
+    expect(storedPrefs()).toEqual({ width: 272, hidden: false, adminOpen: false });
     await expect
       .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
-      .toBeGreaterThanOrEqual(271);
+      .toBeGreaterThanOrEqual(board(272) - 1);
+  });
+
+  it("keeps the icons-only rail on screen at tablet widths, whatever the preference (board 3.5)", async () => {
+    localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 272, hidden: false }));
+    __setPageUrl("/projects?layout=list");
+    seedQueries();
+    await browserPage.viewport(1024, 768);
+    await render(WorkspaceDashboard, { view: "all_projects" });
+    await expect.poll(() => railAside()?.querySelector("[data-rail-collapsed]")).not.toBeNull();
+    await expect
+      .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
+      .toBe(board(RAIL_COLLAPSED_WIDTH));
+    expect(handle()).toBeNull();
+    // The rail replaces the drawer hamburger from 1024px up.
+    const hamburger = document.querySelector<HTMLElement>('button[aria-label="Open workspace navigation"]');
+    expect(hamburger === null || getComputedStyle(hamburger).display === "none").toBe(true);
+    // The stored expanded preference is untouched.
+    expect(storedPrefs()).toEqual({ width: 272, hidden: false, adminOpen: false });
+  });
+
+  it("expands the tablet rail from its toggle over the page, and closes it again (H1, H3)", async () => {
+    localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 272, hidden: false }));
+    __setPageUrl("/projects?layout=list");
+    seedQueries();
+    await browserPage.viewport(1024, 768);
+    await render(WorkspaceDashboard, { view: "all_projects" });
+    const column = () => document.querySelector<HTMLElement>(".workspace-rail-column")!;
+    const content = () => column().nextElementSibling as HTMLElement;
+
+    // H1, H3 with the owner's 2026-09-28 move: the expand toggle sits in the
+    // page's top bar, not the icons-only rail.
+    await expect.poll(() => railToggle()?.getAttribute("aria-label")).toBe("Expand navigation rail");
+    const toggle = railToggle()!;
+    expect(toggle.dataset.railDirection).toBe("expand");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(railAside()!.contains(toggle)).toBe(false);
+    expect(toggle.closest("[data-workspace-page-header]")).not.toBeNull();
+    const contentLeft = content().getBoundingClientRect().left;
+
+    toggle.click();
+    await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(true);
+    expect(railAside()!.querySelector("[data-rail-collapsed]")).toBeNull();
+    await expect
+      .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
+      .toBe(272);
+    // The rail lies over the page: the column and the content stay put.
+    expect(column().getBoundingClientRect().width).toBe(RAIL_COLLAPSED_WIDTH);
+    expect(content().getBoundingClientRect().left).toBe(contentLeft);
+    expect(getComputedStyle(column()).zIndex).toBe("40");
+    // No resize separator on tablet, and the stored preference is untouched.
+    expect(handle()).toBeNull();
+    expect(storedPrefs()).toEqual({ width: 272, hidden: false, adminOpen: false });
+
+    // The same top bar control (keyboard reachable under the overlay) closes it.
+    expect(railToggle()?.getAttribute("aria-label")).toBe("Collapse navigation rail");
+    railToggle()!.click();
+    await expect.poll(() => railAside()?.querySelector("[data-rail-collapsed]")).not.toBeNull();
+    expect(railAside()!.hasAttribute("data-rail-overlay")).toBe(false);
+
+    // A press on the page beside it closes it; a press inside it does not.
+    railToggle()!.click();
+    await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(true);
+    railAside()!.querySelector("[data-rail-scroll]")!.dispatchEvent(pointer("pointerdown", 40));
+    expect(railAside()!.hasAttribute("data-rail-overlay")).toBe(true);
+    content().dispatchEvent(pointer("pointerdown", 600));
+    await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(false);
+
+    // Escape from inside it closes it and returns focus to the expand toggle.
+    railToggle()!.click();
+    await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(true);
+    const inside = railAside()!.querySelector<HTMLElement>('[data-rail-item="home"]')!;
+    inside.focus();
+    inside.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(false);
+    await expect.poll(() => document.activeElement?.getAttribute("aria-label")).toBe("Expand navigation rail");
+
+    // Navigating anywhere closes it.
+    railToggle()!.click();
+    await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(true);
+    await goto("/team");
+    expect(railAside()?.hasAttribute("data-rail-overlay")).toBe(false);
+    expect(storedPrefs()).toEqual({ width: 272, hidden: false, adminOpen: false });
   });
 
   it("restores persisted collapsed state on mount (preference survives reload)", async () => {
@@ -194,17 +278,14 @@ describe("Workspace rail resize + hide/show", () => {
 
     const root = shellRoot()!;
     await expect.poll(() => root.hasAttribute("data-rail-hidden")).toBe(true);
-    // Hidden navigation is inert from the first frame.
-    expect(railAside()?.hasAttribute("inert")).toBe(true);
+    // The collapsed rail renders icons only from the first frame.
+    expect(railAside()?.querySelector("[data-rail-collapsed]")).not.toBeNull();
     await expect
       .poll(() => railToggle()?.getAttribute("aria-label"))
       .toBe("Expand navigation rail");
     await expect
-      .poll(() => shellRoot()!.getBoundingClientRect().x - railAside()!.getBoundingClientRect().right, {
-        timeout: 2000,
-      })
-      .toBeGreaterThanOrEqual(-1);
-    expect(railAside()!.getBoundingClientRect().width).toBe(280);
+      .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
+      .toBe(board(RAIL_COLLAPSED_WIDTH));
     // No resize separator while collapsed.
     expect(handle()).toBeNull();
   });

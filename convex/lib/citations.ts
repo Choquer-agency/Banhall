@@ -9,14 +9,20 @@ import type { Id } from "../_generated/dataModel";
  * Pure and offline-testable: no `ctx`, no network.
  */
 
-export type FrozenSource = {
-  _id: Id<"generationSources">;
+/**
+ * `I` is the id of the row a citation points at: a generation's frozen
+ * `generationSources` row by default, or a Brief preparation's frozen
+ * `briefPreparationSources` row (2026-09-26, decision 65). The matching and
+ * validation rules are the same for both.
+ */
+export type FrozenSource<I extends string = Id<"generationSources">> = {
+  _id: I;
   content: string;
   contentHash: string;
 };
 
-export type Citation = {
-  sourceId: Id<"generationSources">;
+export type Citation<I extends string = Id<"generationSources">> = {
+  sourceId: I;
   sourceContentHash: string;
   exactExcerpt: string;
   startOffset: number;
@@ -27,7 +33,7 @@ export type Citation = {
  * Locate a verbatim quote across a set of frozen sources. First match in
  * source order wins (mirrors `lib/transcripts.ts:findQuoteInParts`).
  */
-export function findQuoteInSources<T extends FrozenSource>(
+export function findQuoteInSources<T extends FrozenSource<string>>(
   sources: T[],
   quote: string
 ): { source: T; startOffset: number } | null {
@@ -45,10 +51,10 @@ export function findQuoteInSources<T extends FrozenSource>(
  * model, which cannot know byte offsets — and are relative to the source
  * row's own `content`, which is what validation below byte-checks.
  */
-export function citeQuote<T extends FrozenSource>(
+export function citeQuote<T extends FrozenSource<string>>(
   sources: T[],
   quote: string
-): Citation | null {
+): Citation<T["_id"]> | null {
   const found = findQuoteInSources(sources, quote);
   if (!found) return null;
   return {
@@ -61,11 +67,43 @@ export function citeQuote<T extends FrozenSource>(
 }
 
 /**
+ * Every place a verbatim quote occurs, in citeQuote's order (sources in the
+ * given order, then position), at most `limit`. The first is exactly what
+ * citeQuote returns. A caller that must skip some places (an interviewer's
+ * turn, owner decision 25) takes the first acceptable one.
+ */
+export function quoteOccurrences<T extends FrozenSource<string>>(
+  sources: T[],
+  quote: string,
+  limit: number
+): Citation<T["_id"]>[] {
+  const found: Citation<T["_id"]>[] = [];
+  if (!quote) return found;
+  for (const source of sources) {
+    for (
+      let at = source.content.indexOf(quote);
+      at !== -1 && found.length < limit;
+      at = source.content.indexOf(quote, at + 1)
+    ) {
+      found.push({
+        sourceId: source._id,
+        sourceContentHash: source.contentHash,
+        exactExcerpt: quote,
+        startOffset: at,
+        endOffset: at + quote.length,
+      });
+    }
+    if (found.length >= limit) break;
+  }
+  return found;
+}
+
+/**
  * Byte-match validation identical in behaviour to `reports.createProvenance`:
  * the source's contentHash matches, the offsets are in range, and the exact
  * slice equals the claimed excerpt.
  */
-export function validateCitation<T extends FrozenSource>(
+export function validateCitation<T extends FrozenSource<string>>(
   source: T | null | undefined,
   citation: {
     sourceContentHash: string;

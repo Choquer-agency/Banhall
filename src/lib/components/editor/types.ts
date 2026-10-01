@@ -51,7 +51,8 @@ export interface WriterEditorHandle extends EditorHandle {
   findReplaceMatches: (
     pairs: { find: string; replaceWith: string }[]
   ) => FindReplaceMatch[];
-  replaceRange: (from: number, to: number, newText: string) => void;
+  /** False when nothing changed (a refused edit): callers must not count it. */
+  replaceRange: (from: number, to: number, newText: string) => boolean;
   highlightRange: (from: number, to: number, text: string) => void;
   /** Live "Show changes": render a proposal as strikethrough + inline green
    * insertions in the document; scrolls to the first match. [] clears. */

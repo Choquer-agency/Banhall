@@ -229,7 +229,7 @@
       <div class="min-w-0 space-y-3">
         <div class="flex items-center gap-2">
           <span class="text-xs font-semibold text-navy">Research</span>
-          <span class="text-[11px] text-ink-muted">{formatTimestamp(selectedSummary.createdAt)}</span>
+          <span class="text-[0.6875rem] text-ink-muted">{formatTimestamp(selectedSummary.createdAt)}</span>
           {#if isActive(selectedSummary.status)}
             <Spinner size="sm" class="ml-auto border-primary/25 border-t-primary" />
           {/if}
@@ -240,7 +240,7 @@
             type="button"
             aria-expanded={showHistory}
             onclick={() => (showHistory = !showHistory)}
-            class="text-[11px] font-medium text-ink-muted transition-colors hover:text-navy"
+            class="text-[0.6875rem] font-medium text-ink-muted transition-colors hover:text-navy"
           >
             {showHistory ? "Hide earlier research" : `${sessions.length - 1} earlier research request${sessions.length === 2 ? "" : "s"}`}
           </button>
@@ -259,8 +259,8 @@
                       : "bg-gray-50 text-ink-muted hover:bg-primary-wash hover:text-navy"
                   }`}
                 >
-                  <span class="block truncate text-[11px] font-medium">{truncate(session.selectedText, 48)}</span>
-                  <span class="mt-0.5 block text-[10px] opacity-70">{formatTimestamp(session.createdAt)}</span>
+                  <span class="block truncate text-[0.6875rem] font-medium">{truncate(session.selectedText, 48)}</span>
+                  <span class="mt-0.5 block text-[0.625rem] opacity-70">{formatTimestamp(session.createdAt)}</span>
                 </button>
               {/each}
             </div>
@@ -272,7 +272,7 @@
             {isActive(selectedSummary.status) ? "Researching the passage" : "How this result was built"}
           </span>
           {#if isActive(selectedSummary.status)}
-            <span class="ml-auto text-[11px] text-ink-muted">Working…</span>
+            <span class="ml-auto text-[0.6875rem] text-ink-muted">Working…</span>
           {/if}
         </div>
         <ChainOfThought>
@@ -304,7 +304,7 @@
             <button
               type="button"
               onclick={() => cancelResearch({ sessionId: details.session._id })}
-              class="text-[11px] font-medium text-ink-muted transition-colors hover:text-red-600"
+              class="text-[0.6875rem] font-medium text-ink-muted transition-colors hover:text-red-600"
             >
               Cancel research
             </button>
@@ -335,7 +335,7 @@
                   type="button"
                   aria-expanded={claimsOpen}
                   onclick={() => (claimsOpenFor = claimsOpen ? null : selectedSessionId)}
-                  class="text-[11px] font-medium text-ink-muted transition-colors hover:text-navy"
+                  class="text-[0.6875rem] font-medium text-ink-muted transition-colors hover:text-navy"
                 >
                   {claimsOpen
                     ? "Hide claim support"
@@ -347,7 +347,7 @@
                       {@const badge = SUPPORT_BADGES[claim.support] ?? SUPPORT_BADGES.unsupported}
                       <li class="rounded-lg bg-gray-50 px-3 py-2">
                         <div class="flex items-start gap-2">
-                          <span class={`mt-0.5 inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.class}`}>
+                          <span class={`mt-0.5 inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[0.625rem] font-semibold ${badge.class}`}>
                             {badge.label}
                           </span>
                           <p class="min-w-0 text-xs leading-relaxed text-ink-secondary">{claim.text}</p>
@@ -363,14 +363,14 @@
                                   href={source.canonicalUrl}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  class="max-w-44 truncate rounded-md bg-white px-1.5 py-0.5 text-[10px] text-ink-muted ring-1 ring-line-soft transition-colors hover:text-navy"
+                                  class="max-w-44 truncate rounded-md bg-white px-1.5 py-0.5 text-[0.625rem] text-ink-muted ring-1 ring-line-soft transition-colors hover:text-navy"
                                 >
                                   {source.domain ?? source.title}
                                 </a>
                               {:else if source}
                                 <span
                                   title="Private project document"
-                                  class="max-w-44 truncate rounded-md bg-white px-1.5 py-0.5 text-[10px] text-ink-muted ring-1 ring-line-soft"
+                                  class="max-w-44 truncate rounded-md bg-white px-1.5 py-0.5 text-[0.625rem] text-ink-muted ring-1 ring-line-soft"
                                 >
                                   {source.title}
                                 </span>

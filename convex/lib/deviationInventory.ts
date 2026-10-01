@@ -1,4 +1,5 @@
 import { sectionParagraphs } from "./tiptapReport";
+import { isWithheldStorylineQuestionNote } from "./storylineQuestionNote";
 // The one marker neutralizer, shared with the evidence builders. It lives under
 // `convex/ai/` but is a pure string primitive; `convex/lib/tiptapReport.ts`
 // reaches into `../ai/qaChecks` for the same reason. A second copy here is the
@@ -432,6 +433,9 @@ export function assembleDeviationInventory(input: {
   // section-scoped, because the paragraph it described is gone.
   for (const note of notes) {
     if (note.outcome !== "not_applied") continue;
+    // A withheld Storyline question is a note about the Brief, not prose
+    // that deviates from a rule.
+    if (isWithheldStorylineQuestionNote(note)) continue;
     const available = counts.get(note.section) ?? 0;
     const scoped =
       note.paragraphIndex === undefined ||

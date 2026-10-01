@@ -84,10 +84,29 @@ beforeEach(() => {
 });
 
 describe("BriefRail", () => {
+  it("labels the generation Brief and defers newer edits while the generation is active", async () => {
+    const { container } = await render(BriefRail, props({
+      brief: brief({
+        editedSinceGeneration: true,
+        version: 4,
+        runBriefVersion: 3,
+        appliesToNextGeneration: true,
+        regenerationDisabled: true,
+      }),
+      onRegenerate: vi.fn(),
+    }));
+
+    expect(container.textContent).toContain("This generation uses Brief v3.");
+    expect(container.textContent).toContain("Displayed Brief: v4.");
+    expect(container.textContent).toContain("Your newer Brief edits apply to the next generation.");
+    await expect.element(page.getByRole("button", { name: "Regenerate with this Brief", exact: true })).toBeDisabled();
+    expect(container.textContent).toContain("Available after the active generation finishes.");
+  });
+
   it("lists every document with exactly one status and the counted header", async () => {
     const { container } = await render(BriefRail, props());
 
-    expect(container.textContent).toContain("12 of 40 documents in context · cap 12");
+    expect(container.textContent).toContain("12 of 40 documents in context, cap 12");
     const statuses = [...container.querySelectorAll("[data-inclusion]")];
     // The Transcript plus the 40 recorded documents, one status word each;
     // the unrecorded row carries none.
@@ -114,7 +133,7 @@ describe("BriefRail", () => {
       BriefRail,
       props({ inclusion: { ...inclusion40(), documentsTruncated: true } })
     );
-    expect(container.textContent).toContain("12 of 40+ documents in context · cap 12");
+    expect(container.textContent).toContain("12 of 40+ documents in context, cap 12");
     const note = container.querySelector("[data-inclusion-truncated]");
     expect(note?.getAttribute("data-inclusion-truncated")).toBe("documents");
     expect(note?.textContent?.trim()).toBe(
@@ -124,7 +143,7 @@ describe("BriefRail", () => {
     // A complete listing carries neither the qualifier nor the note.
     document.body.innerHTML = "";
     const complete = await render(BriefRail, props());
-    expect(complete.container.textContent).toContain("12 of 40 documents in context · cap 12");
+    expect(complete.container.textContent).toContain("12 of 40 documents in context, cap 12");
     expect(complete.container.textContent).not.toContain("40+");
     expect(complete.container.querySelector("[data-inclusion-truncated]")).toBeNull();
   });
@@ -155,7 +174,7 @@ describe("BriefRail", () => {
     await page.screenshot({
       path: "../../../../.vitest-attachments/DW-133-review-2/brief-rail-sources-truncated.png",
     });
-    expect(container.textContent).toContain("3+ of 3+ documents in context · cap 12");
+    expect(container.textContent).toContain("3+ of 3+ documents in context, cap 12");
     const note = container.querySelector("[data-inclusion-truncated]");
     expect(note?.getAttribute("data-inclusion-truncated")).toBe("sources");
     expect(note?.textContent?.trim()).toBe(
@@ -172,7 +191,7 @@ describe("BriefRail", () => {
       BriefRail,
       props({ inclusion: { ...inclusion40(), documentsTruncated: true } })
     );
-    expect(documentsOnly.container.textContent).toContain("12 of 40+ documents in context · cap 12");
+    expect(documentsOnly.container.textContent).toContain("12 of 40+ documents in context, cap 12");
     expect(
       documentsOnly.container.querySelector("[data-inclusion-truncated]")?.getAttribute("data-inclusion-truncated")
     ).toBe("documents");
@@ -264,6 +283,43 @@ describe("BriefRail", () => {
     );
   });
 
+  it("does not offer a clipped alternative as the Storyline, and still offers Keep", async () => {
+    const question = entry({
+      group: "storylineQuestion",
+      text: "Section 244 shows the loop failed under load.",
+      question: {
+        questionText: "Does the section's evidence override the Storyline?",
+        alternativeText: "The team discovered the loop's response under load was unknown, so the…",
+      },
+    });
+    const rail = props({ brief: brief({ entries: [question] }) });
+    const { container } = await render(BriefRail, rail);
+    expect(page.getByRole("button", { name: "Use the section's evidence" }).elements()).toHaveLength(0);
+    expect(container.querySelector("[data-question-alternative-clipped]")?.textContent).toContain(
+      "The suggested new Storyline was cut short, so it can't replace yours."
+    );
+    await page.getByRole("button", { name: "Keep the Storyline" }).click();
+    expect(rail.onResolveQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: question._id }),
+      "keep_storyline"
+    );
+  });
+
+  it("offers a longer alternative that happens to end in an ellipsis", async () => {
+    const question = entry({
+      group: "storylineQuestion",
+      text: "Section 244 shows the loop failed under load.",
+      question: {
+        questionText: "Does the section's evidence override the Storyline?",
+        alternativeText:
+          "The team discovered the loop's response under load was unknown, and measured it across three load bands…",
+      },
+    });
+    const { container } = await render(BriefRail, props({ brief: brief({ entries: [question] }) }));
+    expect(page.getByRole("button", { name: "Use the section's evidence" }).elements()).toHaveLength(1);
+    expect(container.querySelector("[data-question-alternative-clipped]")).toBeNull();
+  });
+
   it("shows the no-profile line and the save offer, and dismisses the offer", async () => {
     const rail = props({
       writerSettings: {
@@ -284,7 +340,7 @@ describe("BriefRail", () => {
 
   it("shows the Inputs band before any Brief exists, with no Brief groups", async () => {
     const { container } = await render(BriefRail, props({ brief: null }));
-    expect(container.textContent).toContain("12 of 40 documents in context · cap 12");
+    expect(container.textContent).toContain("12 of 40 documents in context, cap 12");
     expect(container.querySelectorAll("[data-inclusion]").length).toBe(41);
     expect(container.textContent).toContain("unrecorded.txt");
     expect(page.getByRole("button", { name: /Storyline/ }).elements()).toHaveLength(0);

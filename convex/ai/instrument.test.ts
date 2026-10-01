@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { Id, TableNames } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
 
 const providerMocks = vi.hoisted(() => ({
   createAnthropicClient: vi.fn(),
@@ -12,10 +13,11 @@ vi.mock("./providers", () => ({
   createAnthropicClient: providerMocks.createAnthropicClient,
 }));
 
-import { instrumentedAnthropic } from "./instrument";
+import { anthropicCacheWrite1hTokens, instrumentedAnthropic, streamedBody } from "./instrument";
 import {
   GENERATION_CALL_SLOTS,
   GENERATION_SLOT_ALLOWANCES,
+  ORDERED_SLOT_ALLOWANCES,
   assertGenerationCallSite,
   mergeSlotCounts,
   summarizeSlotUsage,
@@ -75,6 +77,28 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("streamed request body (fidelity broken behaviour 9)", () => {
+  const wire = {
+    model: "claude-opus-5-5",
+    max_tokens: 100,
+    tools: [{ name: "submit_generation_brief", input_schema: { type: "object" } }],
+    tool_choice: { type: "tool", name: "submit_generation_brief" },
+  };
+  it("asks the direct API to stream each tool's input as it is written", () => {
+    expect(streamedBody(wire, false)).toEqual({
+      ...wire,
+      stream: true,
+      tools: [{ name: "submit_generation_brief", input_schema: { type: "object" }, eager_input_streaming: true }],
+    });
+    // Key order is kept, so the rest of the body is byte for byte the same.
+    expect(Object.keys(streamedBody(wire, false))).toEqual([...Object.keys(wire), "stream"]);
+  });
+  it("only adds stream: true on OpenRouter", () => {
+    expect(streamedBody(wire, true)).toEqual({ ...wire, stream: true });
+    expect(streamedBody({ model: "m", max_tokens: 1 }, false)).toEqual({ model: "m", max_tokens: 1, stream: true });
+  });
 });
 
 describe("instrumentedAnthropic generation attribution", () => {
@@ -366,6 +390,28 @@ describe("generation prefix caching at the SDK boundary", () => {
     });
   });
 
+  it("records the 1-hour share of cache writes from usage.cache_creation", async () => {
+    const providerCreate = vi.fn(async (..._args: unknown[]) => textResponse({
+      input_tokens: 4,
+      output_tokens: 2,
+      cache_creation_input_tokens: 30,
+      cache_read_input_tokens: 0,
+      cache_creation: { ephemeral_5m_input_tokens: 10, ephemeral_1h_input_tokens: 20 },
+    }));
+    providerMocks.createAnthropicClient.mockReturnValue({ messages: { create: providerCreate } });
+    const { ctx, runAfter } = fakeCtx();
+    const client = instrumentedAnthropic(ctx, { callSite: "pd_review" });
+    await client.messages.create(request);
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      cacheCreationInputTokens: 30,
+      cacheCreation1hInputTokens: 20,
+      cacheReadInputTokens: 0,
+    });
+    expect(anthropicCacheWrite1hTokens({ cache_creation: {} })).toBeNull();
+    expect(anthropicCacheWrite1hTokens(undefined)).toBeNull();
+    expect(anthropicCacheWrite1hTokens({ cache_creation: { ephemeral_1h_input_tokens: -1 } })).toBeNull();
+  });
+
   it("leaves non-generation traffic unchanged", async () => {
     const { client, providerCreate } = setup(false);
     const params = { ...request, system: "Chat policy" };
@@ -438,7 +484,11 @@ function emittedGenerationLabels(): string[] {
   for (const source of Object.values(engineSources)) {
     for (const match of source.matchAll(pattern)) {
       const label = match[1];
-      if (/:(\$\{[^}]*\}|<n>)$/.test(label)) {
+      if (label.endsWith(":<roleId>")) {
+        for (const { roleId } of PD_SUBSECTIONS) {
+          labels.add(label.replace(/:<roleId>$/, `:${roleId}`));
+        }
+      } else if (/:(\$\{[^}]*\}|<n>)$/.test(label)) {
         for (const line of ["242", "244", "246"]) {
           labels.add(label.replace(/:(\$\{[^}]*\}|<n>)$/, `:${line}`));
         }
@@ -508,7 +558,7 @@ describe("AD-27 generation call slots", () => {
   it("reports per-slot counts and every slot over its allowance", () => {
     const summary = summarizeSlotUsage({
       "generation:section:242": 1,
-      "selfCheck:242": 2,
+      "selfCheck:242": 3,
       "generation:repair:242": 1,
       "compression:244": 2,
       "generation:compression:246": 3,
@@ -519,7 +569,7 @@ describe("AD-27 generation call slots", () => {
     });
     expect(summary.counts).toEqual({
       "section:242": 1,
-      "selfCheck:242": 2,
+      "selfCheck:242": 3,
       "repair:242": 1,
       "compression:244": 2,
       "compression:246": 3,
@@ -529,6 +579,21 @@ describe("AD-27 generation call slots", () => {
     });
     expect(summary.overrun).toEqual(["brief", "compression:246", "selfCheck:242"]);
     expect(summarizeSlotUsage({ "section:244": 1, "selfCheck:244": 1, consistency: 1 }).overrun).toEqual([]);
+    // A Self-check and its one repair or Summary follow-up (2026-09-28).
+    expect(summarizeSlotUsage({ "selfCheck:244": 2 }).overrun).toEqual([]);
+    // 2026-09-28 (second): only the ordered chain compresses a repair too,
+    // and (fifth) each of its compressions may add one targeted pass.
+    expect(GENERATION_SLOT_ALLOWANCES.compression).toBe(2);
+    expect(ORDERED_SLOT_ALLOWANCES.compression).toBe(6);
+    expect(summarizeSlotUsage({ "compression:246": 6 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual([]);
+    expect(summarizeSlotUsage({ "compression:246": 7 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual(["compression:246"]);
+    // 2026-09-28 (third): the ordered chain's Self-check slot also covers the
+    // coverage-only check of a repaired Section's final text and its follow-up.
+    expect(GENERATION_SLOT_ALLOWANCES.selfCheck).toBe(2);
+    expect(ORDERED_SLOT_ALLOWANCES.selfCheck).toBe(4);
+    expect(summarizeSlotUsage({ "selfCheck:244": 3 }).overrun).toEqual(["selfCheck:244"]);
+    expect(summarizeSlotUsage({ "selfCheck:244": 4 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual([]);
+    expect(summarizeSlotUsage({ "selfCheck:244": 5 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual(["selfCheck:244"]);
   });
 
   it("declares the settings-document classifier slot with an allowance of one, recorded not enforced (story 3)", () => {

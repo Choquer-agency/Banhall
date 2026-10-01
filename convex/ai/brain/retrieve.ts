@@ -104,12 +104,12 @@ export const BRAIN_SEARCH_PROGRAM = {
 
 export const BRAIN_EXEMPLAR_SCAFFOLDS = {
   blockPrefix:
-    "\n\n# SIMILAR PAST REPORTS FROM THE BRAIN (reference patterns only)\nThese are gold-standard passages from past approved SR&ED reports in this industry.\nUse them ONLY as a guide to structure, voice, and CRA phrasing. NEVER copy their\nfacts, company details, or technical claims into this report — every claim here\nmust come from THIS project's transcript and materials.\n\n",
+    "\n\n# SIMILAR PAST REPORTS FROM THE BRAIN (reference patterns only)\nThese are gold-standard passages from past approved SR&ED reports in this industry.\nUse them ONLY as a guide to structure, voice, and CRA phrasing. NEVER copy their\nfacts, company details, or technical claims into this report. Every claim here\nmust come from THIS project's transcript and materials.\n\n",
   itemPrefix: "--- REFERENCE PATTERN ",
   itemLabelOpen: " (",
   itemLabelClose: ")",
   itemSuffix: " ---\n",
-  labelSeparator: " — ",
+  labelSeparator: ": ",
   scienceLabelPrefix: "CRA ",
   writerLabelPrefix: "writer: ",
   truncationSuffix: "\n[… exemplar truncated]",

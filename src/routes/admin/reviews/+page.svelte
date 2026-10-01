@@ -1,9 +1,12 @@
 <script lang="ts">
-  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   import { resolve } from "$app/paths";
+  import { IconShield } from "$lib/components/icons";
+  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
@@ -80,7 +83,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto(resolve("/login"), { replaceState: true });
+      goToLogin();
     }
   });
 
@@ -202,19 +205,15 @@
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="QA reviews" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}
   <AdminWorkspacePage
-    title="Consultant QA reviews"
+    title="QA reviews"
     description="Human quality scores alongside AI QA scores, for administrator review only."
   >
 
       {#if data === undefined}
-        <div class="flex min-h-[55vh] items-center justify-center">
-          <Spinner />
-        </div>
+        <WorkspacePanelSkeleton layout="list" label="Loading QA reviews" />
       {:else if data === null}
         <p class="mt-8 text-sm text-gray-400">Sign in to view consultant reviews.</p>
       {:else if data.rows.length === 0 && data.itemRows.length === 0 && calibration !== undefined && style !== undefined && calibration.digests.length === 0 && style.digests.length === 0 && !calibration.latestAttempt && !style.latestAttempt}

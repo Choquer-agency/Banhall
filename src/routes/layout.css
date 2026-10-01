@@ -19,15 +19,25 @@
   /* Attio-informed workspace chrome. These are intentionally separate from
      the public-app shell tokens: the product rail is a pale, flat navigation
      surface while fir remains the identity and action colour. */
-  --color-workspace-rail: #FBFBFB;
+  /* Boards 1.1 and 1.2 (ui-design-final.md section 2): the rail and the frame
+     around the work panel share the gray-50 wash; the panel is white. */
+  --color-workspace-rail: #F3F7F6;
   --color-workspace-subrail: #F7F8FA;
   --color-workspace-subrail-hover: #EEF0F3;   /* second rail (page sub-nav): near-rail gray, subtly off the white content (Linear/Notion settings pattern) */
-  --color-workspace-rail-line: #EEEFF1;
-  --color-workspace-rail-hover: #F5F5F5;
+  --color-workspace-rail-line: #E9F0EF;
+  --color-workspace-rail-hover: #EDF3F2;
   --color-workspace-rail-selected: #E9F1EF;
   --color-workspace-control: #FFFFFF;
   --shadow-workspace-control: 0 0 0 1px inset rgb(0 0 0 / 0), 0 0 2px rgb(28 40 64 / 0.18), 0 1px 3px rgb(0 0 0 / 0.04);
   --shadow-workspace-drawer: 10px 0 32px rgb(28 40 64 / 0.12);
+  /* Floating cards (menus, pickers, popovers) on the final screens. */
+  --shadow-popover: 0 16px 40px #16211F1F;
+  /* Toasts and inline confirmations (board 5.1y B3); the draft-ready toast
+     (board 4.4) uses the softer one under its Aurora glow. */
+  --shadow-toast: 0 8px 24px #16211F1A;
+  --shadow-toast-soft: 0 8px 24px #16211F14;
+  /* The selection toolbar and its menu (board 2.1). */
+  --shadow-toolbar: 0 2px 8px #16211F1A;
 
   /* Brand */
   --color-fir: #0A3A38;           /* fixed fir — identity/avatar surfaces; never theme-flipped */
@@ -47,6 +57,171 @@
   /* Report gap highlight (BNH editor) */
   --color-gap-bg: #FEF3C7;
   --color-gap-text: #A8500F;
+
+  /* Stale marker dot (amber, the orange score band's bar colour). */
+  --color-stale-dot: #F59E0B;
+
+  /* ─── Round 2 (HANDOFF "Global rules added this round", 2026-09-26) ───
+     Light-only tokens: the dark workspace scope does not retint them. */
+
+  /* Shell: the lighter rail and the frame around the work panel, and the
+     tile behind the page icon in the top bar. Separate from
+     --color-workspace-rail so the current rail keeps its colour until the
+     round 2 shell adopts these. */
+  --color-workspace-shell: #FAFCFB;
+  --color-workspace-page-icon: #E3F4F1;
+
+  /* Round 2 shell (WS1). Menus and flyouts (D1, A5), the View as dialog
+     (D2), the amber View as frame on the work panel (D3, the stale-dot
+     amber), and the purple avatar tone the boards use beside fir and teal. */
+  --shadow-menu: 0 12px 32px #052A281F, 0 2px 6px #052A2814;
+  --shadow-dialog: 0 24px 64px #052A2840;
+  --color-view-as-frame: var(--color-stale-dot);
+  --color-avatar-purple: #7E22CE;
+  /* Shell (task B, D2): the Admin card's ticks in the View as dialog are a
+     brighter blue than the Admin chip ink. */
+  --color-view-as-check-admin: #1447E6;
+
+  /* The one dark toast (D3, D5, C1, F4): fir-black card, white 13px text, a
+     muted second line and a light lagoon action. Errors keep the red card. */
+  --color-toast: #132D2A;
+  --color-toast-ink: #FFFFFF;
+  --color-toast-muted: #B8C9C6;
+  --shadow-toast-dark: 0 12px 32px #052A2833;
+
+  /* Role chips (RoleChip): soft fill + ink per role. */
+  --color-role-owner: #C9EDE7;
+  --color-role-owner-ink: #065F5B;
+  --color-role-admin: #DBEAFE;
+  --color-role-admin-ink: #1D4ED8;
+  --color-role-manager: #CFFAFE;
+  --color-role-manager-ink: #0E7490;
+  --color-role-consultant: #DDE6E4;
+  --color-role-consultant-ink: #33423F;
+  --color-role-developer: #EDE3FF;
+  --color-role-developer-ink: #6D28D9;
+
+  /* Status families. The bare token is the solid (icons, dots); -soft is the
+     chip and badge fill with -ink text; -surface and -line are the callout
+     box fill and border (boards E5, E6); -ink-muted is the darker ink (E5's
+     paragraph and icon, E6's icon); -action fills a button inside the box
+     (the board colours: E5 red #DC2626, E6 amber #D97706). */
+  --color-danger: #DC2626;
+  --color-danger-soft: #FEE2E2;
+  --color-danger-ink: #991B1B;
+  --color-danger-ink-muted: #B91C1C;
+  --color-danger-surface: #FEF2F2;
+  --color-danger-line: #FCA5A5;
+  --color-danger-action: #DC2626;
+  --color-danger-action-hover: #B91C1C;
+  --color-danger-body: #B91C1CCC;      /* E5 paragraph: #B91C1C at 80% */
+
+  --color-warning: #D97706;
+  --color-warning-soft: #FEF3C7;
+  --color-warning-ink: #92400E;
+  --color-warning-ink-muted: #B45309;
+  --color-warning-surface: #FFFBEB;
+  --color-warning-line: #FDE68A;
+  --color-warning-action: #D97706;
+  --color-warning-action-hover: #B45309;
+  --color-warning-body: #92400EBF;     /* E6 paragraph: #92400E at 75% */
+
+  --color-success: #16A34A;
+  --color-success-soft: #DCFCE7;
+  --color-success-ink: #166534;
+  --color-success-ink-muted: #15803D;
+  --color-success-surface: #F0FDF4;
+  --color-success-line: #BBF7D0;
+  --color-success-action: #16A34A;
+  --color-success-action-hover: #15803D;
+  --color-success-body: #166534BF;     /* no board; mirrors E6 */
+
+  /* "Recommended" label (board E1, How should we write it?). */
+  --color-recommended: #BBF7D0;
+  --color-recommended-ink: #14532D;
+
+  /* Filled destructive button (Button variant "destructive-soft"). */
+  --color-destructive-soft: #FEE2E2;
+  --color-destructive-soft-ink: #B91C1C;
+  --color-destructive-soft-hover: #FECACA;
+  --color-destructive-soft-ink-hover: #991B1B;
+
+  /* Settings (I1 to I5). The switched-off Save fill, the name field's focus
+     halo (lagoon at 12%), the tick circle in "What they cover", the four
+     stops of the coverage ring (the AI gradient, I2), and the shadows of the
+     segment switches, the Preview card, the photo remove badge and the key
+     chips. */
+  --color-settings-save-off: #E3EBE9;
+  --color-settings-field-ring: #0DACA51F;
+  --color-settings-covered: #CFF1EE;
+  --color-settings-ring-teal: #2FD2C4;
+  --color-settings-ring-blue: #58BBF3;
+  --color-settings-ring-violet: #8438FF;
+  --color-settings-ring-pink: #E879F9;
+  --shadow-settings-segment: 0 1px 2px #052A2814;
+  --shadow-settings-card: 0 8px 24px #052A280A;
+  --shadow-settings-badge: 0 1px 3px #052A281F;
+  --shadow-key-chip: 0 1px 0 var(--color-line);
+
+  /* Team, sign-in and invites (C1-C5, J1-J9). The dialog scrim behind the
+     Team dialogs (C3, C5); the selected role card in Invite people (C3); the
+     J5/J9 invite banner's inviter avatar and its muted "Join by" line; the
+     faded inviter avatar on the expired invite (J6). */
+  --color-dialog-scrim: #01050559;
+  --color-role-option-selected: #F7FCFB;
+  --color-invite-banner-avatar: #2E7772;
+  --color-invite-banner-muted: #33605B;
+  --color-avatar-faded: #B9CFCB;
+
+  /* Reading the interview and the seed steps (F2 to F6, H3, H4). The AI
+     gradient stops (the outline's writing ring, F3, F5); the seed tag fills
+     and inks that have no status token (Technical is also the reading fact
+     chip, F2); the selected seed card; the skeleton card chips and lines
+     (F3); the reading pill's glow (F2) and the writing pill's; the reading
+     failed box's hairline and its paragraph, #991B1B at 80% (F6); the
+     reading panel's Paper canvas, which the workspace light scope does not
+     retint to white (F2, H3, H4). */
+  --color-reading-panel: #F9FCFB;
+  /* The sign-off dialog's near-black fir scrim (ui-design-final.md 3.7). */
+  --color-signoff-scrim: #010505BF;
+  --color-aurora-teal: #2FD2C4;
+  --color-aurora-blue: #58BBF3;
+  --color-aurora-violet: #8438FF;
+  --color-aurora-pink: #E879F9;
+  --color-seed-tag-technical: #D5F3F1;
+  --color-seed-tag-high-level: #EFF6FF;
+  --color-seed-tag-high-level-ink: #1447E6;
+  --color-seed-tag-detailed: #FAF5FF;
+  --color-seed-tag-detailed-ink: #7E22CE;
+  --color-seed-selected: #F7FCFB;
+  --color-skeleton-chip: #EEF3F2;
+  --color-skeleton-line: #E8EEED;
+  --shadow-reading-pill: 0 6px 24px #8438FF1F;
+  --shadow-writing-pill: 0 8px 24px #16211F14, 0 0 14px #8438FF29;
+  --color-reading-failed-line: #FECACA;
+  --color-reading-failed-body: #991B1BCC;
+
+  /* New project and the start dialogs (E1 to E6, F1, G1 to G3, H1, H2).
+     The selected write-mode card; the "Being reviewed" chip (G3); the
+     start dialog scrim (F1, G1 to G3, #010505 at 75%) and the preview
+     sheet's (E3, at 25%); the title line when the name is taken (E6); the
+     written PD thumbnail's lines (E4); the preview sheet, its page and the
+     thumbnail shadows (E3, E4). The page's canvas wells (the right column,
+     the drop zones and the section chips) keep the board's #F9FCFB inside
+     the light workspace scope, which turns --color-canvas white. */
+  --color-new-project-canvas: #F9FCFB;
+  /* Settings (I4, I5): the shortcuts detection strip keeps the board's
+     #F9FCFB inside the light workspace scope, which turns canvas white. */
+  --color-settings-well: #F9FCFB;
+  --color-write-mode-selected: #F7FCFB;
+  --color-being-reviewed: #E1F2EF;
+  --color-start-scrim: #010505BF;
+  --color-preview-scrim: #01050540;
+  --color-same-name-line: #F59E0B;
+  --color-pd-thumb-line: #DDE6E4;
+  --shadow-preview-sheet: -24px 0 64px #052A2833;
+  --shadow-preview-page: 0 2px 12px #052A281A;
+  --shadow-pd-thumb: 0 1px 2px #052A280F;
 
   /* Neutral ramp — teal-cast grays. The gray scale is REMAPPED app-wide:
      900/800 ink · 700/600 secondary · 500 muted · 400 faint/placeholder ·
@@ -87,6 +262,42 @@
   --font-sans: "Geist Variable", "Geist", system-ui, sans-serif;
   --font-serif: Georgia, "Times New Roman", serif;
   --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+}
+
+/* ─── Root scale (2026-09-28, laptop density 2026-09-29) ─────────────────────
+   Sizes are rem (scripts/px-to-rem.mjs), so the root font size scales the
+   whole UI. Phones and tablets keep the browser default (16px). On a laptop
+   (a mouse or trackpad and a window 1280px or wider, where the full rail
+   appears) the root is 15px up to 1440px wide, so the boards render a
+   little denser, then rises 1px per 160px to 16px at 1600. From there it
+   grows 1px per 240px to 125% at 2560px and stops: 17.33px at 1920, 20px at
+   2560 and wider. rootFontSize() in $lib/rootScale mirrors these numbers.
+   Percent based, so a larger browser default and browser zoom still apply
+   on top. Media query breakpoints are not affected (they read the browser
+   default, not this). JS that sizes things in board pixels reads the ratio
+   from rootScale(). */
+html {
+  font-size: 100%;
+}
+@media (min-width: 1280px) and (pointer: fine) {
+  html {
+    font-size: clamp(93.75%, calc(93.75% + (100vw - 1440px) / 160), 100%); /* px-to-rem: keep */
+  }
+}
+@media (min-width: 1600px) {
+  html {
+    font-size: clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%); /* px-to-rem: keep */
+  }
+}
+
+/* Board icons and the logo mark keep their board size as the svg width and
+   height attributes and in --icon-size; this sizes them in rem so they scale
+   with the root. Base layer, so a size class on the icon still wins. */
+@layer base {
+  svg[data-board-icon] {
+    width: calc(var(--icon-size) * 0.0625rem);
+    height: calc(var(--icon-size) * 0.0625rem);
+  }
 }
 
 .workspace-rail-control {
@@ -746,8 +957,8 @@ textarea.input-chromeless:focus-visible {
 .tiptap-editor mark,
 .tiptap-highlight {
   background-color: #fef08a;
-  border-radius: 2px;
-  padding: 1px 2px;
+  border-radius: 0.125rem;
+  padding: 1px 0.125rem;
 }
 
 /* GAP markers rendered with highlight color */
@@ -757,8 +968,8 @@ textarea.input-chromeless:focus-visible {
   font-family: var(--font-sans);
   font-size: 0.93em;
   font-weight: 500;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
 }
 
 /* Selection */
@@ -779,6 +990,121 @@ textarea.input-chromeless:focus-visible {
 
 .tiptap-editor .ProseMirror-gapcursor::after {
   border-top: 1px solid #0A3A38;
+}
+
+/* ─── Report reading presentation (ui-design-final.md section 8, board 2.1) ──
+   The preview report page renders the editor in the reading style: serif
+   15/25 body in the 660px column, Section headings as a 12px sans label over
+   the serif CRA question (reportSectionHeadings.ts), and a limit meter at the
+   right of the label only when a Section is near or over a CRA limit. The
+   stored document is unchanged. */
+.report-reading .tiptap-editor {
+  font-family: var(--font-serif);
+  font-size: 0.9375rem;
+  line-height: 1.5625rem;
+  color: var(--color-ink);
+}
+/* Blocks carry 2px of hover padding, so 10px here reads as the board's 14px
+   between lines of prose. */
+.report-reading .tiptap-editor > * + * {
+  margin-top: 0.625rem;
+}
+.report-reading .tiptap-editor p {
+  margin-bottom: 0;
+}
+/* Blocks carry their hover wash in the gutter so text never shifts. */
+.report-reading .tiptap-editor > p:not(.not-drafted-placeholder) {
+  margin-inline: -0.5rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  transition: background-color 150ms ease-out;
+}
+.report-reading .tiptap-editor[contenteditable="true"] > p:not(.not-drafted-placeholder):hover {
+  background-color: var(--color-gray-50);
+}
+.report-reading .tiptap-editor > .report-section-heading {
+  margin-top: 1.875rem;
+}
+.report-reading .tiptap-editor > .report-section-heading + * {
+  margin-top: 0.75rem;
+}
+/* The stored rule between Sections is replaced by the heading rhythm. */
+.report-reading .tiptap-editor > hr:has(+ .report-section-heading) {
+  display: none;
+}
+.report-reading .tiptap-editor .report-section-heading__label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--color-ink-muted);
+  user-select: none;
+}
+.report-reading .tiptap-editor .report-section-heading__question {
+  margin: 0.375rem 0 0;
+  padding: 0;
+  border: 0;
+  font-family: var(--font-serif);
+  font-size: 1.125rem;
+  font-weight: 400;
+  line-height: 1.625rem;
+  color: var(--color-ink);
+  text-wrap: balance;
+}
+.report-limit-meter {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+.report-limit-meter[hidden] {
+  display: none;
+}
+.report-limit-meter__bar {
+  display: flex;
+  width: 3rem;
+  height: 0.1875rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  background-color: var(--color-line-soft);
+}
+.report-limit-meter__fill {
+  height: 100%;
+  border-radius: 9999px;
+}
+/* Band colours from the contract's score bands: orange near, red over. */
+.report-limit-meter[data-limit-state="warning"] { color: #C2410C; }
+.report-limit-meter[data-limit-state="warning"] .report-limit-meter__fill { background-color: #F59E0B; }
+.report-limit-meter[data-limit-state="over"] { color: #B91C1C; }
+.report-limit-meter[data-limit-state="over"] .report-limit-meter__fill { background-color: #DC2626; }
+.report-reading .tiptap-editor mark[data-color="#FEF3C7"] {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: 1.4375rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.1875rem;
+  color: var(--color-gap-text);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.report-reading .tiptap-editor ::selection {
+  background-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+.report-editor-hint {
+  margin-top: 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  /* ink-faint is for placeholders; an always-visible hint needs AA contrast. */
+  color: var(--color-ink-muted);
 }
 
 /* Comment highlights in editor — writer (default: amber/yellow) */
@@ -819,7 +1145,7 @@ textarea.input-chromeless:focus-visible {
 .cra-limit-overflow {
   background-color: var(--color-red-100);
   color: var(--color-red-800);
-  border-radius: 2px;
+  border-radius: 0.125rem;
 }
 
 /* BNH-25: AI-referenced passage — scroll-and-highlight from the chat assistant.
@@ -827,7 +1153,7 @@ textarea.input-chromeless:focus-visible {
    pulse on appearance. */
 .ai-ref-highlight {
   background-color: #D8FF55;
-  border-radius: 3px;
+  border-radius: 0.1875rem;
   padding-bottom: 1px;
   animation: ai-ref-pulse 1.1s ease-out 1;
 }
@@ -838,12 +1164,12 @@ textarea.input-chromeless:focus-visible {
   color: #B91C1C;
   text-decoration: line-through;
   text-decoration-color: #FCA5A5;
-  border-radius: 3px;
+  border-radius: 0.1875rem;
 }
 .proposal-added {
   background-color: #F0FDF4;
   color: #15803D;
-  border-radius: 3px;
+  border-radius: 0.1875rem;
 }
 /* Multi-paragraph proposal text: real <p> rhythm, styled like
    .proposal-removed but green — no border, no extra padding. */
@@ -856,6 +1182,31 @@ textarea.input-chromeless:focus-visible {
 }
 .proposal-added-paragraphs p.proposal-added:last-child {
   margin-bottom: 0;
+}
+
+/* A Section a stopped Step-by-step draft left empty (ui-design-final.md
+   section 6, owner decision 20): the literal "[NOT GENERATED]" body shows as
+   a quiet dashed "Not drafted" marker until the writer types there or
+   "Draft the rest" fills it. */
+.ProseMirror p.not-drafted-placeholder {
+  border: 1px dashed var(--color-line);
+  border-radius: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  color: var(--color-ink-muted);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+.ProseMirror p.not-drafted-placeholder::before {
+  content: "Not drafted";
+  display: inline-block;
+  margin-right: 0.5rem;
+  padding: 0 0.5rem;
+  border-radius: 9999px;
+  background-color: var(--color-gray-50);
+  color: var(--color-ink-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
 }
 
 @keyframes ai-ref-pulse {
@@ -885,13 +1236,13 @@ textarea.input-chromeless:focus-visible {
 .chat-markdown h3 { font-size: 1em; }
 .chat-markdown code {
   background-color: #F1F0EC;
-  border-radius: 3px;
+  border-radius: 0.1875rem;
   padding: 0.05rem 0.25rem;
   font-size: 0.85em;
 }
 .chat-markdown pre {
   background-color: #F1F0EC;
-  border-radius: 6px;
+  border-radius: 0.375rem;
   padding: 0.625rem;
   overflow-x: auto;
   margin: 0 0 0.5rem;
@@ -989,22 +1340,30 @@ textarea.input-chromeless:focus-visible {
 
 
 /* ─── Toasts (svelte-sonner, mounted in +layout.svelte) ─────────────────────
-   One global notifier, top-right. State-colored: light state-tinted fill,
-   border + text in the state color, action button solid state color. */
+   One global notifier, bottom centre (round 2, D3 and D5). Default, success,
+   info and loading toasts are the dark card; errors keep the red card and
+   warnings the amber one (light state-tinted fill, border and text in the
+   state colour, solid action button). */
 
-[data-sonner-toaster] {
-  --error-bg: #fef2f2;
-  --error-border: #dc2626;
-  --error-text: #b91c1c;
-  --success-bg: #f0fdf4;
-  --success-border: #16a34a;
-  --success-text: #15803d;
-  --warning-bg: #fffbeb;
-  --warning-border: #d97706;
-  --warning-text: #b45309;
-  --info-bg: var(--color-primary-wash);
-  --info-border: var(--color-primary);
-  --info-text: var(--color-primary-dark);
+/* Outranks svelte-sonner's runtime-injected theme selector
+   (`[data-sonner-toaster][data-sonner-theme]`) so these variables win. */
+[data-sonner-toaster],
+html [data-sonner-toaster][data-sonner-theme] {
+  --normal-bg: var(--color-toast);
+  --normal-border: var(--color-toast);
+  --normal-text: var(--color-toast-ink);
+  --success-bg: var(--color-toast);
+  --success-border: var(--color-toast);
+  --success-text: var(--color-toast-ink);
+  --info-bg: var(--color-toast);
+  --info-border: var(--color-toast);
+  --info-text: var(--color-toast-ink);
+  --error-bg: var(--color-danger-surface);
+  --error-border: var(--color-danger);
+  --error-text: var(--color-danger-ink-muted);
+  --warning-bg: var(--color-warning-surface);
+  --warning-border: var(--color-warning);
+  --warning-text: var(--color-warning-ink-muted);
   font-family: var(--font-sans);
 }
 
@@ -1014,32 +1373,108 @@ textarea.input-chromeless:focus-visible {
 
 [data-sonner-toast] [data-button] {
   border-radius: 0.375rem;
-  font-weight: 600;
+  font-weight: 500;
 }
 
-/* Action buttons take the full state color with readable text on top. */
-[data-rich-colors="true"][data-sonner-toast][data-type="error"] [data-button] {
-  background: #dc2626;
-  color: #fff;
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]) {
+  padding: 0.625rem 0.75rem 0.625rem 0.875rem;
+  border-radius: 0.625rem;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.1875rem;
+  box-shadow: var(--shadow-toast-dark);
 }
-[data-rich-colors="true"][data-sonner-toast][data-type="success"] [data-button] {
-  background: #16a34a;
+
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]) [data-description] {
+  color: var(--color-toast-muted);
+}
+
+/* Shell (task B, D3 and D5): the icon is white like the text, 15px, with
+   the card's 12px gap as its only spacing. */
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]) [data-icon] {
+  color: var(--color-toast-ink);
+  width: 0.9375rem;
+  height: 0.9375rem;
+  margin: 0;
+}
+
+/* A one-line toast reads as plain 13/19 text (D3, D5, C1), not a bold title. */
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]):not(:has([data-description])) [data-title] {
+  font-weight: 400;
+  line-height: 1.1875rem;
+}
+
+/* Without an action the card is 14px on both sides (D5, C1). */
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]):not(:has([data-button])) {
+  padding-right: 0.875rem;
+}
+
+/* The dark card hugs its text and stays centred on the window (D3, D5). */
+@media (min-width: 601px) {
+  [data-sonner-toaster][data-x-position="center"] [data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]) {
+    width: max-content;
+    max-width: min(35rem, calc(100vw - 2rem));
+    left: 50%;
+    translate: -50% 0;
+  }
+}
+
+/* The dark card's action reads as a light lagoon text button ("Undo"). */
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]) [data-button] {
+  height: auto;
+  padding: 0 0.125rem;
+  background: transparent;
+  color: var(--color-primary-light);
+  font-size: 0.8125rem;
+}
+
+/* Action buttons on the state cards take the solid state colour. */
+[data-rich-colors="true"][data-sonner-toast][data-type="error"] [data-button] {
+  background: var(--color-danger-action);
   color: #fff;
 }
 [data-rich-colors="true"][data-sonner-toast][data-type="warning"] [data-button] {
-  background: #d97706;
-  color: #fff;
-}
-[data-rich-colors="true"][data-sonner-toast][data-type="info"] [data-button] {
-  background: var(--color-primary-dark);
+  background: var(--color-warning-action);
   color: #fff;
 }
 
-/* Close (dismiss) button inherits the toast's state colors. */
-[data-sonner-toast] [data-close-button] {
-  background: inherit;
+/* The dark card has no border of its own, so it is the board's 39px tall. */
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]) {
+  border-width: 0;
+}
+
+/* Close (dismiss) sits inside the card on the right in the toast's own ink,
+   not as a circle over the top-left corner (C1, D3, D5). Outranks
+   svelte-sonner's `[data-sonner-toast][data-styled] [data-close-button]`. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button] {
+  position: static;
+  order: 99;
+  flex-shrink: 0;
+  /* 18px so the one-line card keeps the board's 39px height. */
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0 0 0 auto;
+  transform: none;
+  border: 0;
+  border-radius: 0.3125rem;
+  background: transparent;
   color: inherit;
-  border-color: currentColor;
+  opacity: 0.75;
+}
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]):has([data-close-button]) {
+  padding-right: 0.625rem;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"]:hover [data-close-button]:hover,
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button]:focus-visible {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  opacity: 1;
+}
+
+/* View as (D3): an amber frame on the work panel while a developer views
+   Banhall as another role. The shell sets `data-view-as`; every work panel
+   (WorkspaceChrome, Home, the project page) carries `data-work-panel`. */
+[data-view-as] [data-work-panel] {
+  border: 2px solid var(--color-view-as-frame);
 }
 
 /* Fluid workbench type (2026-08-11): the report and assistant panes are
@@ -1057,8 +1492,8 @@ textarea.input-chromeless:focus-visible {
 }
 .chat-scale .text-sm { font-size: 1em; }
 .chat-scale .text-xs { font-size: 0.9em; }
-.chat-scale [class*="text-[11px]"] { font-size: 0.85em; }
-.chat-scale [class*="text-[10px]"] { font-size: 0.8em; }
+.chat-scale [class*="text-[0.6875rem]"] { font-size: 0.85em; }
+.chat-scale [class*="text-[0.625rem]"] { font-size: 0.8em; }
 .chat-scale [class*="text-[0.8125rem]"] { font-size: 0.95em; }
 
 /* svelte-streamdown ships fixed Tailwind sizes (text-sm on body-ish elements,
@@ -1071,3 +1506,53 @@ textarea.input-chromeless:focus-visible {
 .chat-markdown .text-base { font-size: 1.05em; }
 .chat-markdown .text-sm { font-size: 1em; }
 .chat-markdown .text-xs { font-size: 0.85em; }
+
+
+/* ─── Aurora AI surfaces and writing motion (ui-design-final.md §1, §6, §7) ── */
+:root {
+  --aurora-conic: conic-gradient(from 210deg at 50% 50%, #2FD2C4, #58BBF3, #8438FF, #E879F9, #86E3DA, #2FD2C4);
+  --aurora-linear: linear-gradient(90deg, #2FD2C4, #58BBF3, #8438FF, #E879F9);
+  --aurora-glint: radial-gradient(circle at 28% 22%, rgba(255, 255, 255, 0.55) 0%, transparent 38%);
+  --aurora-shadow: 0 2px 10px 1px #8438FF33;
+  --aurora-track: #E1E9E7;
+  --skeleton-line: #E8EEED;
+}
+@keyframes aurora-glint-travel {
+  from { transform: translateX(-100%); opacity: 0; }
+  30% { opacity: 1; }
+  to { transform: translateX(0); opacity: 0; }
+}
+@keyframes skeleton-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+@keyframes fade-rise-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-drain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+@keyframes aurora-spin {
+  to { transform: rotate(360deg); }
+}
+.aurora-glint { animation: aurora-glint-travel 1.4s ease-out infinite; }
+.skeleton-shimmer { animation: skeleton-shimmer 1.6s linear infinite; }
+.fade-rise { animation: fade-rise-in 300ms ease-out both; }
+.toast-drain { transform-origin: left center; animation: toast-drain 5s linear forwards; }
+.toast-drain.is-paused { animation-play-state: paused; }
+.aurora-spin { animation: aurora-spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .aurora-glint,
+  .skeleton-shimmer,
+  .fade-rise,
+  .aurora-spin {
+    animation: none;
+  }
+  /* The drain still times the auto-close; it just is not drawn as motion. */
+  .toast-drain {
+    animation-name: toast-drain;
+    opacity: 0;
+  }
+}

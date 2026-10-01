@@ -51,6 +51,32 @@ describe("generateStructured", () => {
     expect(client.messages.create).toHaveBeenCalledTimes(2);
   });
 
+  it("preserves legacy encoded-root recovery", async () => {
+    const client = clientWith([JSON.stringify({ required: "present" })]);
+    await expect(generateStructured(client, {
+      system: "system",
+      user: "user",
+      toolName: "submit",
+      description: "submit",
+      validate: z.object({ required: z.string() }),
+    })).resolves.toEqual({ required: "present" });
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("can reject an encoded root without a recovery attempt", async () => {
+    const client = clientWith([JSON.stringify({ required: "present" })]);
+    await expect(generateStructured(client, {
+      system: "system",
+      user: "user",
+      toolName: "submit",
+      description: "submit",
+      validate: z.object({ required: z.string() }),
+      attempts: 1,
+      encodedJsonRecovery: false,
+    })).rejects.toThrow("unexpected shape");
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+
   it("spends the repair attempt on a retryable OpenRouter decode failure", async () => {
     const create = vi
       .fn()
@@ -124,5 +150,172 @@ describe("generateStructured", () => {
       })
     ).rejects.toThrow(/truncated/);
     expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  describe("soft repair (2026-09-27, third amendment)", () => {
+    const opts = {
+      system: "system",
+      user: "user",
+      toolName: "submit",
+      description: "submit",
+      validate: z.object({ quote: z.string() }),
+      softRepair: {
+        ask: (value: { quote: string }, answer: unknown) =>
+          value.quote === "weak" ? `\n\nQuote the line that backs it. Earlier: ${JSON.stringify(answer)}` : null,
+      },
+    };
+
+    it("spends the one repair on a valid answer, with its own text and the earlier answer, and returns the repaired one", async () => {
+      const client = clientWith([{ quote: "weak" }, { quote: "strong" }]);
+      await expect(generateStructured(client, opts)).resolves.toEqual({ quote: "strong" });
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+      const second = vi.mocked(client.messages.create).mock.calls[1][0];
+      // Its own text, not the invalid-output scaffold.
+      expect(second.messages[0].content).toBe('user\n\nQuote the line that backs it. Earlier: {"quote":"weak"}');
+    });
+
+    it("may decide asynchronously", async () => {
+      const client = clientWith([{ quote: "weak" }, { quote: "strong" }]);
+      const ask = vi.fn(async (value: { quote: string }) => (value.quote === "weak" ? "\n\nAgain." : null));
+      await expect(generateStructured(client, { ...opts, softRepair: { ask } })).resolves.toEqual({ quote: "strong" });
+      expect(ask).toHaveBeenCalledTimes(1);
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the first answer when the repaired one is not better", async () => {
+      const client = clientWith([{ quote: "weak" }, { quote: "worse" }]);
+      const keepRepaired = vi.fn(async (_first: { quote: string }, repaired: { quote: string }) => repaired.quote === "strong");
+      await expect(generateStructured(client, { ...opts, softRepair: { ...opts.softRepair, keepRepaired } })).resolves.toEqual({
+        quote: "weak",
+      });
+      expect(keepRepaired).toHaveBeenCalledWith({ quote: "weak" }, { quote: "worse" });
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("treats an error while asking as no repair", async () => {
+      const client = clientWith([{ quote: "weak" }, { quote: "strong" }]);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const ask = vi.fn(async () => {
+        throw new Error("read failed");
+      });
+      await expect(generateStructured(client, { ...opts, softRepair: { ask } })).resolves.toEqual({ quote: "weak" });
+      expect(client.messages.create).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("read failed");
+      warn.mockRestore();
+    });
+
+    it("keeps the first answer when judging the repaired one fails", async () => {
+      const client = clientWith([{ quote: "weak" }, { quote: "strong" }]);
+      const keepRepaired = vi.fn(async () => {
+        throw new Error("read failed");
+      });
+      await expect(generateStructured(client, { ...opts, softRepair: { ...opts.softRepair, keepRepaired } })).resolves.toEqual({
+        quote: "weak",
+      });
+    });
+
+    it("sends a hard repair its own scaffold after a soft repair's answer fails validation", async () => {
+      const client = clientWith([{ quote: "weak" }, { other: "missing" }, { quote: "strong" }]);
+      await expect(generateStructured(client, { ...opts, attempts: 3 })).resolves.toEqual({ quote: "strong" });
+      const third = vi.mocked(client.messages.create).mock.calls[2][0];
+      expect(third.messages[0].content).toContain("Your previous tool output was invalid");
+      expect(third.messages[0].content).not.toContain("Quote the line that backs it.");
+    });
+
+    it("returns the repaired answer as it is, without asking again", async () => {
+      const client = clientWith([{ quote: "weak" }, { quote: "weak" }, { quote: "strong" }]);
+      await expect(generateStructured(client, { ...opts, attempts: 3 })).resolves.toEqual({ quote: "weak" });
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the first answer when the repair returns an invalid shape", async () => {
+      const client = clientWith([{ quote: "weak" }, { other: "missing" }]);
+      await expect(generateStructured(client, opts)).resolves.toEqual({ quote: "weak" });
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the first answer when the repair request fails", async () => {
+      const create = vi
+        .fn()
+        .mockResolvedValueOnce({ content: [{ type: "tool_use", id: "tool-0", name: "submit", input: { quote: "weak" } }] })
+        .mockRejectedValueOnce(Object.assign(new Error("OpenRouter request failed with status 529: overloaded"), { status: 529 }));
+      const client: GenerationClient = { messages: { create } };
+      await expect(generateStructured(client, opts)).resolves.toEqual({ quote: "weak" });
+      expect(create).toHaveBeenCalledTimes(2);
+    });
+
+    it("never asks on the last attempt, so a hard repair is not spent twice", async () => {
+      const client = clientWith([{ other: "missing" }, { quote: "weak" }]);
+      await expect(generateStructured(client, opts)).resolves.toEqual({ quote: "weak" });
+      expect(client.messages.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("accepts a good first answer in one request", async () => {
+      const client = clientWith([{ quote: "strong" }]);
+      await expect(generateStructured(client, opts)).resolves.toEqual({ quote: "strong" });
+      expect(client.messages.create).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("several tools offered (PR #22 review G13)", () => {
+    const toolList = [
+      { name: "submit_shared", description: "shared", input_schema: { type: "object" as const } },
+      { name: "submit_linked", description: "linked", input_schema: { type: "object" as const } },
+    ];
+    const opts = {
+      system: "system",
+      user: "user",
+      toolName: "submit_linked",
+      description: "linked",
+      tools: toolList,
+      validate: z.object({ value: z.string() }),
+    };
+    const call = (name: string, input: unknown, id = name) => ({ type: "tool_use" as const, id, name, input });
+
+    it("never accepts another tool's answer, even a valid one: it spends the repair, which names the right tool", async () => {
+      const create = vi
+        .fn()
+        .mockResolvedValueOnce({ content: [call("submit_shared", { value: "from the wrong tool" })] })
+        .mockResolvedValueOnce({ content: [call("submit_linked", { value: "right" })] });
+      const onWrongTool = vi.fn();
+      const invalidAnswerRepair = vi.fn(() => "\n\nEarlier answer shown.");
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      await expect(
+        generateStructured({ messages: { create } }, { ...opts, onWrongTool, invalidAnswerRepair })
+      ).resolves.toEqual({ value: "right" });
+      error.mockRestore();
+      expect(onWrongTool).toHaveBeenCalledWith("submit_shared", { value: "from the wrong tool" });
+      expect(invalidAnswerRepair).toHaveBeenCalledWith({ value: "from the wrong tool" });
+      const second = create.mock.calls[1][0];
+      expect(second.messages[0].content).toBe(
+        "user\n\nYour previous tool output was invalid: it called submit_shared, but this request must be answered with submit_linked. Return the complete tool object and include every required field.\n\nEarlier answer shown."
+      );
+      // The same tools and forced choice in the repair.
+      expect(second.tools).toEqual(toolList);
+      expect(second.tool_choice).toEqual({ type: "tool", name: "submit_linked" });
+    });
+
+    it("fails with a validation error when no attempt is left, and never repeats a name no tool has", async () => {
+      const create = vi.fn().mockResolvedValue({ content: [call("made_up_tool", { value: "x" })] });
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const failure = await generateStructured({ messages: { create } }, opts).catch((caught: unknown) => caught);
+      error.mockRestore();
+      expect(failure).toMatchObject({
+        name: "StructuredValidationError",
+        issues: [{ path: "(root)", code: "wrong_tool" }],
+      });
+      expect(create).toHaveBeenCalledTimes(2);
+      const repair = create.mock.calls[1][0].messages[0].content as string;
+      expect(repair).toContain("it called a tool this request does not offer, but this request must be answered with submit_linked");
+      expect(repair).not.toContain("made_up_tool");
+    });
+
+    it("takes the intended tool's call when the answer holds several", async () => {
+      const create = vi.fn().mockResolvedValue({
+        content: [call("submit_shared", { value: "shared" }), call("submit_linked", { value: "linked" })],
+      });
+      await expect(generateStructured({ messages: { create } }, opts)).resolves.toEqual({ value: "linked" });
+      expect(create).toHaveBeenCalledTimes(1);
+    });
   });
 });

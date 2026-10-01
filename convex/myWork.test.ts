@@ -163,3 +163,83 @@ describe("PSOS-14 My Work projections", () => {
     expect(state.run?.verifiedAt).toEqual(expect.any(Number));
   });
 });
+
+describe("Home reads (ui-design-final.md section 9)", () => {
+  it("adds the project's own edit time to assigned rows", async () => {
+    const f = await setup();
+    await createWork(f);
+    await f.t.run((ctx) => ctx.db.patch(f.projectId, { updatedAt: 1_700_000_000_000 }));
+    const lane = await f.reviewer.query(api.myWork.listAssignedToMe, { paginationOpts: { cursor: null, numItems: 25 } });
+    expect(lane.page[0].projectUpdatedAt).toBe(1_700_000_000_000);
+  });
+
+  it("returns live rows for device-recorded ids in order and drops unusable ids", async () => {
+    const f = await setup();
+    const ids = await f.t.run(async (ctx) => {
+      const base = { ownerId: f.ownerId, status: "draft" as const, createdBy: f.ownerId, createdAt: f.now, updatedAt: f.now };
+      const second = await ctx.db.insert("projects", { ...base, title: "Second", clientName: "Beta", shareToken: "mw-second" });
+      const deleting = await ctx.db.insert("projects", { ...base, title: "Deleting", clientName: "Gamma", shareToken: "mw-deleting", deletionStartedAt: f.now });
+      const gone = await ctx.db.insert("projects", { ...base, title: "Gone", clientName: "Delta", shareToken: "mw-gone" });
+      await ctx.db.delete(gone);
+      return { second, deleting, gone };
+    });
+    const rows = await f.reviewer.query(api.myWork.listRecentProjects, {
+      projectIds: [ids.second, "not-an-id", ids.deleting, ids.gone, f.projectId, ids.second],
+    });
+    expect(rows.map((row) => row.projectTitle)).toEqual(["Second", "Pipeline project"]);
+    expect(rows[0]).toMatchObject({ clientName: "Beta", workflowStage: "intake", stageIsFallback: true });
+    expect(rows[1]).toMatchObject({ workflowStage: "drafting", stageIsFallback: false });
+  });
+
+  it("reads at most ten recorded ids", async () => {
+    const f = await setup();
+    const rows = await f.reviewer.query(api.myWork.listRecentProjects, {
+      projectIds: [...Array.from({ length: 10 }, () => "not-an-id"), f.projectId],
+    });
+    expect(rows).toEqual([]);
+  });
+
+  it("requires a signed-in internal viewer", async () => {
+    const f = await setup();
+    await expect(f.t.query(api.myWork.listRecentProjects, { projectIds: [f.projectId] })).rejects.toThrow();
+    await expect(f.t.query(api.myWork.getContinueWorking, { projectId: f.projectId })).rejects.toThrow();
+  });
+
+  it("counts pending edit proposals on the latest report only", async () => {
+    const f = await setup();
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.projectId, { fiscalYearEnd: Date.UTC(2026, 5, 30, 12), projectNumber: "01A" });
+      const report = { projectId: f.projectId, content: "<p>x</p>", version: 1, generatedAt: f.now, updatedAt: f.now };
+      const older = await ctx.db.insert("reports", report);
+      const latest = await ctx.db.insert("reports", { ...report, version: 2 });
+      const proposal = { agentThreadId: "thread", projectId: f.projectId, createdAt: f.now };
+      await ctx.db.insert("chatProposals", { ...proposal, reportId: latest, kind: "edit", targetText: "a", newText: "b", state: "pending" });
+      await ctx.db.insert("chatProposals", { ...proposal, reportId: latest, kind: "replacements", replacements: [{ find: "a", replaceWith: "b" }], state: "pending" });
+      await ctx.db.insert("chatProposals", { ...proposal, reportId: latest, kind: "edit", targetText: "a", newText: "b", state: "applied" });
+      await ctx.db.insert("chatProposals", { ...proposal, reportId: latest, kind: "references", references: ["a"], state: "pending" });
+      await ctx.db.insert("chatProposals", { ...proposal, reportId: older, kind: "edit", targetText: "a", newText: "b", state: "pending" });
+    });
+    const summary = await f.reviewer.query(api.myWork.getContinueWorking, { projectId: f.projectId });
+    expect(summary).toMatchObject({
+      projectTitle: "Pipeline project",
+      clientName: "Client",
+      projectNumber: "01A",
+      workflowStage: "drafting",
+      pendingProposals: 2,
+      pendingProposalsTruncated: false,
+    });
+    expect(summary?.fiscalYearEnd).toBe(Date.UTC(2026, 5, 30, 12));
+  });
+
+  it("reports no proposals without a report and null for unusable ids", async () => {
+    const f = await setup();
+    expect(await f.reviewer.query(api.myWork.getContinueWorking, { projectId: f.projectId })).toMatchObject({
+      pendingProposals: 0,
+      fiscalYearEnd: null,
+      projectNumber: null,
+    });
+    expect(await f.reviewer.query(api.myWork.getContinueWorking, { projectId: "not-an-id" })).toBeNull();
+    await f.t.run((ctx) => ctx.db.patch(f.projectId, { deletionStartedAt: f.now }));
+    expect(await f.reviewer.query(api.myWork.getContinueWorking, { projectId: f.projectId })).toBeNull();
+  });
+});

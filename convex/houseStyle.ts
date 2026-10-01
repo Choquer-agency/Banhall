@@ -11,7 +11,7 @@
  */
 import { query, mutation, type QueryCtx, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { requireCurrentUser, requireRole } from "./lib/auth";
+import { requireInternalActor, requireRole } from "./lib/auth";
 import {
   normalizeHouseRuleModes,
   type HouseRuleModes,
@@ -75,7 +75,7 @@ export const getModesForMe = query({
   args: {},
   returns: modesValidator,
   handler: async (ctx) => {
-    await requireCurrentUser(ctx);
+    await requireInternalActor(ctx);
     return await getHouseRuleModes(ctx);
   },
 });

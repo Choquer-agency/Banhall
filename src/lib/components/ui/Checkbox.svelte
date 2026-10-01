@@ -28,18 +28,19 @@
     bind:checked
     bind:ref
     aria-labelledby={labelText || label ? `${id}-label` : undefined}
-    class="peer inline-flex size-[18px] flex-none items-center justify-center rounded-[5px] border transition-colors duration-150 ease-out active:scale-[0.97] data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary data-[state=unchecked]:border-gray-300 data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-gray-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[disabled]:opacity-50"
+    class="peer inline-flex size-[1.125rem] flex-none items-center justify-center rounded-[0.3125rem] border transition-colors duration-150 ease-out active:scale-[0.97] data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary data-[state=unchecked]:border-gray-300 data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-gray-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[disabled]:opacity-50"
     {...restProps}
   >
     {#snippet children({ checked: isChecked, indeterminate })}
-      <span class="inline-flex items-center justify-center text-white">
+      <!-- The glyph scales with the box: 10px in the boards' 16px box. -->
+      <span class="inline-flex size-full items-center justify-center text-white">
         {#if indeterminate}
-          <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
+          <svg class="size-[62.5%]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5" aria-hidden="true">
             <path stroke-linecap="round" d="M5 12h14" />
           </svg>
         {:else if isChecked}
-          <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+          <svg class="size-[62.5%]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 12l5 5L20 7" />
           </svg>
         {/if}
       </span>

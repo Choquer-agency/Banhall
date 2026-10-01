@@ -80,6 +80,9 @@ function workRow(
     // updated" sort of loaded rows (plan §1.4). Read-only display data; lane
     // queries, indexes, and ordering are unchanged.
     updatedAt: item.updatedAt,
+    // Home's "Last edited" column shows the project's own edit time, not the
+    // work item's.
+    projectUpdatedAt: project.updatedAt,
     projectId: project._id,
     projectTitle: project.title,
     clientName: project.clientName,
@@ -240,5 +243,92 @@ export const listOwnedByMe = query({
       });
     }
     return { ...result, page };
+  },
+});
+
+/** Home "Recently opened" reads at most this many device-recorded project ids. */
+const HOME_RECENT_PROJECT_LIMIT = 10;
+/** Upper bound on the proposals Home reads to count the ones waiting to apply. */
+const HOME_PENDING_PROPOSAL_SCAN = 200;
+
+/**
+ * Home "Recently opened" (ui-design-final.md section 9). The browser records
+ * which projects this viewer opened; this query returns the live row for each
+ * id, in the order given, so the stage, client and edit time are never stale.
+ * Ids that are malformed, missing or being deleted drop out silently. Read
+ * visibility matches the other My Work reads (project.readInternal).
+ */
+export const listRecentProjects = query({
+  args: { projectIds: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    await viewer(ctx);
+    const rows = [];
+    const seen = new Set<string>();
+    for (const rawId of args.projectIds.slice(0, HOME_RECENT_PROJECT_LIMIT)) {
+      const projectId = ctx.db.normalizeId("projects", rawId);
+      if (!projectId || seen.has(projectId)) continue;
+      seen.add(projectId);
+      const project = await ctx.db.get(projectId);
+      if (!project || project.deletionStartedAt !== undefined) continue;
+      rows.push({
+        projectId: project._id,
+        projectTitle: project.title,
+        clientName: project.clientName,
+        workflowStage: project.workflowStage ?? "intake",
+        stageIsFallback: project.workflowStage === undefined,
+        updatedAt: project.updatedAt,
+      });
+    }
+    return rows;
+  },
+});
+
+/**
+ * Home "Continue working" card: the facts one project needs to resume it
+ * (client, fiscal year end, project number, stage, edit time) plus how many
+ * assistant proposals on its latest report are still waiting to be applied.
+ * Returns null when the project is missing, being deleted or not readable.
+ */
+export const getContinueWorking = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    await viewer(ctx);
+    const projectId = ctx.db.normalizeId("projects", args.projectId);
+    if (!projectId) return null;
+    const project = await ctx.db.get(projectId);
+    if (!project || project.deletionStartedAt !== undefined) return null;
+    const report = await ctx.db
+      .query("reports")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .order("desc")
+      .first();
+    let pendingProposals = 0;
+    let pendingProposalsTruncated = false;
+    if (report) {
+      const proposals = await ctx.db
+        .query("chatProposals")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .order("desc")
+        .take(HOME_PENDING_PROPOSAL_SCAN);
+      pendingProposalsTruncated = proposals.length === HOME_PENDING_PROPOSAL_SCAN;
+      pendingProposals = proposals.filter(
+        (proposal) =>
+          proposal.state === "pending" &&
+          proposal.kind !== "references" &&
+          proposal.reportId === report._id
+      ).length;
+    }
+    return {
+      projectId: project._id,
+      projectTitle: project.title,
+      clientName: project.clientName,
+      fiscalYearEnd: project.fiscalYearEnd ?? null,
+      projectNumber: project.projectNumber ?? null,
+      workflowStage: project.workflowStage ?? "intake",
+      stageIsFallback: project.workflowStage === undefined,
+      updatedAt: project.updatedAt,
+      pendingProposals,
+      pendingProposalsTruncated,
+    };
   },
 });

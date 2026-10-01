@@ -9,6 +9,7 @@ import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetAuthState } from "$lib/test/convex-auth-state-stub.svelte";
 import { __mutationCalls, __resetConvexStub, __setMutationResult, __setMutationError, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import { addSupportingFiles, chooseMode, fillBasics, startFromPage } from "./newProjectTestSupport";
 
 async function docxFile(name: string, words: string[]) {
   const zip = new JSZip();
@@ -39,44 +40,25 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-async function click(text: string) {
-  const find = () => [...document.querySelectorAll("button")].find(b => b.textContent?.trim() === text);
-  await expect.poll(() => find()?.disabled).toBe(false);
-  find()?.click();
-}
 async function submitReview(context = false) {
   await page.viewport(1280, 900);
   await render(Toaster, { richColors: true, position: "top-right" });
   await render(NewProjectPage, {});
-  await expect.poll(() => document.querySelector('#title')).not.toBeNull();
-  for (const [id, value] of [["title", "Solar tracker"], ["clientName", "Acme Labs"]]) {
-    const input = document.querySelector<HTMLInputElement>(`#${id}`);
-    if (!input) throw new Error("Missing field");
-    input.value = value;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  }
-  if (!context) {
-    const radio = document.querySelector<HTMLButtonElement>('[role="radio"][aria-checked="false"]');
-    if (!radio) throw new Error("Missing review mode");
-    radio.click();
-    await expect.poll(() => document.body.textContent).toContain("Written PD to review");
-  } else {
-    const category = document.querySelector<HTMLButtonElement>('[role="region"][aria-label$=" files"] button');
-    if (!category) throw new Error("Missing context category");
-    category.click();
-    await expect.poll(() => document.querySelector('[role="region"][aria-label$=" files"] input[type="file"]')).not.toBeNull();
-  }
-  const input = document.querySelector<HTMLInputElement>(context
-    ? '[role="region"][aria-label$=" files"] input[type="file"]'
-    : 'input[type="file"]:not([accept=".docx"])');
-  if (!input) throw new Error("Missing PD input");
+  await fillBasics();
   const file = await docxFile("Review.docx", ["Experimental", "solar", "tracking"]);
-  const transfer = new DataTransfer(); transfer.items.add(file);
-  input.files = transfer.files;
-  input.dispatchEvent(new Event("change", { bubbles: true }));
-  await expect.poll(() => document.body.textContent).toContain(context ? "Review.docx" : "3 words extracted");
-  await click("Next");
-  await click(context ? "Generate Report" : "Review PD");
+  if (!context) {
+    await chooseMode("Review a written PD");
+    const input = document.querySelector<HTMLInputElement>("[data-written-pd-input]");
+    if (!input) throw new Error("Missing PD input");
+    const transfer = new DataTransfer(); transfer.items.add(file);
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => document.querySelector("[data-review-pd-card]")).not.toBeNull();
+  } else {
+    addSupportingFiles([file]);
+    await expect.poll(() => document.querySelector('[data-supporting-card][data-status="ready"]')).not.toBeNull();
+  }
+  await startFromPage();
   return file;
 }
 beforeEach(() => {
@@ -160,7 +142,7 @@ it("keeps the saved-text warning truthful when review start rejects", async () =
   expect(__mutationCalls("pdReviews:startPdReview")).toEqual([{ projectId: "project-new", documentId: "document-saved-before-rejection" }]);
   expect(error.mock.calls).toEqual([
     ["review start failed"],
-    ["The project was created but the PD review did not start — open it and use Start PD review to retry."],
+    ["The project was created but the PD review did not start. Open it and use Start PD review to retry."],
   ]);
   await expect.poll(() => document.body.textContent).toContain("The project was created but the PD review did not start");
   expect(__mutationCalls("uploadAttempts:recordUploadAttempts")).toEqual([]);

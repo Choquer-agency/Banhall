@@ -34,6 +34,7 @@ SR&ED report generation for a consulting firm. SvelteKit 2 + Svelte 5 runes, Tai
 - Max font weight 500 in new or redesigned UI; hierarchy via size and ink color, not bold.
 - Use bits-ui/shadcn-svelte primitives over native `<select>`/`<input>` controls.
 - Active tab = primary fill + white text; inactive hover = primary wash.
+- Writing or rewriting any copy (UI text, design copy, docs, prompts, PR text, commit messages): invoke the `dashfix` skill (plain hyphen only; no em or en dashes) and the `copywriting` skill's plain-language rules. The AI's own writing (Seeds, PD prose, rewrites) gets the same rules from `shared/humanProse.ts`; change them there, not per prompt.
 
 ## Known pitfalls
 
@@ -67,7 +68,8 @@ The native BMAD orchestrator owns deferred-work ledger content and status. Do no
 
 ## Reviewer model preference
 
-- Use `gpt-6-astra` with reasoning effort `medium` for every code, document, plan and audit review, including review subagents and review-lead judgments. Select the model and effort explicitly.
-- Use `gpt-5.6-sol` with reasoning effort `high` only when an actual Astra availability or access failure prevents the review. Record the failure and the model and effort actually used. A review finding or failed test does not justify switching models.
-- If both reviewers are unavailable, preserve the work and report the review as pending. Never mark an unperformed review as passed.
+- Reviewer models are interchangeable. Every code, document, plan and audit review, review subagent, review-lead judgment and release suite judgment names its model and effort explicitly, and records the model and effort actually used.
+- The default is Claude Opus 5.5 at high effort, with one or two review subagents per round. Claude Fable 5.1 and gpt-6-astra (medium effort) are accepted alternatives; where two independent judges are used, putting them on different models is encouraged.
+- The default changes as better models come out: when the owner sets a new default, update this section. A review finding or a failed test does not justify switching models partway through a review.
+- If no reviewer is available, preserve the work and report the review as pending. Never mark an unperformed review as passed.
 - This preference applies to reviewers. Keep implementation and test-execution roles separately configured, and preserve each review workflow's scope, evidence requirements and result contract.

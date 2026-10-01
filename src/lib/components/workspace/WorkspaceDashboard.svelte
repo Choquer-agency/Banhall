@@ -42,13 +42,13 @@
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
-  import MyWorkView from "$lib/components/mywork/MyWorkView.svelte";
-  import ShaderBackground from "$lib/components/ui/ShaderBackground.svelte";
+  import HomeView from "$lib/components/mywork/HomeView.svelte";
   import ProjectsTableView from "$lib/components/workspace/ProjectsTableView.svelte";
   import WorkspaceHeader from "$lib/components/workspace/WorkspaceHeader.svelte";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import { resolveDashboardView, type DashboardView } from "$lib/dashboard/viewMode";
+  import { preloadOnProjectLinkIntent, preloadProjectPage } from "$lib/components/project/projectPageModules";
   import {
     loadRecentProjects,
     persistRecentProjects,
@@ -70,6 +70,17 @@
   let { view = null }: { view?: DashboardView | null } = $props();
 
   const auth = useAuth();
+  // Home and Projects are where projects open from: their code loads once
+  // the browser is idle, or sooner when a project link is hovered, touched
+  // or focused, so opening a project never waits on it.
+  $effect(() => {
+    const cancelIdle = preloadProjectPage();
+    const stopIntent = preloadOnProjectLinkIntent();
+    return () => {
+      cancelIdle();
+      stopIntent();
+    };
+  });
   const configQ = useQuery(api.myWork.getViewConfig, () => (auth.isAuthenticated ? {} : "skip"));
   // /my-work and /projects are separate routes, so navigating remounts this
   // component and the view-config subscription restarts at `undefined` for a
@@ -262,19 +273,6 @@
         onToggleRail={() => (railHidden = !railHidden)}
         showNewProject
       />
-    {:else}
-      <!-- Home's greeting already supplies the page heading. Keep only the
-           controls that are necessary when the desktop rail is hidden or the
-           mobile drawer is the sole navigation surface — never a duplicate
-           full-width title bar. -->
-      <div data-home-shell-controls class="absolute left-3 top-1 z-20 sm:left-4">
-        <WorkspaceShellControls
-          tone="light"
-          onOpenNavigation={() => (navigationOpen = true)}
-          {railHidden}
-          onToggleRail={() => (railHidden = !railHidden)}
-        />
-      </div>
     {/if}
 
     {#if configQ.error}
@@ -283,36 +281,34 @@
       </p>
     {/if}
 
-    <main class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      {#if displayedView === null}
-        <!-- Home-shaped skeleton while the rollout decision loads: a
-             refresh of /my-work keeps the chrome-less composition instead
-             of flashing a toolbar or a bare spinner. -->
-        <div class="min-h-0 flex-1 overflow-hidden" role="status" aria-label="Loading workspace">
-          <div class="mx-auto w-full max-w-[44.75rem] px-4 pt-12 sm:px-6">
-            <div class="mx-auto h-9 w-72 max-w-full animate-pulse rounded-lg bg-chrome motion-reduce:animate-none"></div>
-            <div class="mx-auto mt-3 h-5 w-48 max-w-full animate-pulse rounded-md bg-chrome/70 motion-reduce:animate-none"></div>
-            <div class="mt-8 h-32 animate-pulse rounded-xl border border-line-soft bg-chrome/40 motion-reduce:animate-none"></div>
-          </div>
-        </div>
-      {:else if displayedView === "my_work"}
-        <div class="relative min-h-0 flex-1 overflow-y-auto">
-          <div
-            data-home-start-wash
-            class="pointer-events-none absolute inset-x-0 top-0 z-0 h-80 overflow-hidden opacity-40 [mask-image:linear-gradient(to_bottom,black_35%,transparent)] sm:h-[24rem]"
-            aria-hidden="true"
-          >
-            <div class="h-[52rem] w-full -translate-y-[40%]">
-              <ShaderBackground class="h-full w-full" />
+    {#if displayedView === "my_work"}
+      <!-- Home (ui-design-final.md section 9): its own top bar with the
+           greeting and New project, then the tables and Continue working. -->
+      <HomeView
+        recentProjects={recents}
+        {railHidden}
+        onToggleRail={() => (railHidden = !railHidden)}
+        onOpenNavigation={() => (navigationOpen = true)}
+      />
+    {:else}
+      <main class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {#if displayedView === null}
+          <!-- Neutral skeleton while the rollout decision loads: the top bar
+               height and one panel, so neither Home nor Projects flashes. -->
+          <div class="flex min-h-0 flex-1 flex-col bg-workspace-shell" role="status" aria-label="Loading workspace">
+            <div class="flex h-14 shrink-0 items-center gap-2.5 px-4">
+              <div class="h-[1.625rem] w-[1.625rem] animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>
+              <div class="h-4 w-24 animate-pulse rounded bg-chrome motion-reduce:animate-none"></div>
+            </div>
+            <div class="mx-3 mb-3 flex-1 rounded-xl border border-workspace-rail-line bg-surface p-6">
+              <div class="h-[1.625rem] w-32 animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>
+              <div class="mt-6 h-32 animate-pulse rounded-lg bg-chrome/40 motion-reduce:animate-none"></div>
             </div>
           </div>
-          <div data-home-boundary class="relative mx-auto w-full max-w-[var(--container-home)]">
-            <MyWorkView recentProjects={recents} />
-          </div>
-        </div>
-      {:else}
-        <ProjectsTableView externalSearch={search} />
-      {/if}
-    </main>
+        {:else}
+          <ProjectsTableView externalSearch={search} />
+        {/if}
+      </main>
+    {/if}
   </div>
 </WorkspaceShell>

@@ -253,3 +253,22 @@ export function wordBudget(section: SectionKey, target: LengthTarget): number {
     WORD_CAPS[section]
   );
 }
+
+/**
+ * 2026-09-28 (second, full suite): the share of the Locked word cap an ordered-chain draft
+ * aims for. The release suite's drafts overshot a 337-word ask by 15 to 40
+ * percent, so the ask leaves real headroom under the cap.
+ */
+export const DRAFT_WORD_CAP_SHARE = 0.85;
+
+/**
+ * The words an ordered-chain draft (and its repair) is asked for: the length
+ * budget, never above `DRAFT_WORD_CAP_SHARE` of the Locked word cap (297 for
+ * Lines 242 and 246, 595 for Line 244).
+ */
+export function draftWordTarget(section: SectionKey, target: LengthTarget): number {
+  return Math.min(
+    wordBudget(section, target),
+    Math.floor(WORD_CAPS[section] * DRAFT_WORD_CAP_SHARE)
+  );
+}

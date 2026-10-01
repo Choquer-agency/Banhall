@@ -1,0 +1,93 @@
+Marguerite Folau: Thanks for joining. This is the second year we're preparing a claim on the fouling-resistant analyzer, so I want to spend some time on where things stood at the end of last year, and then go through fiscal 2026, July 1 2025 to June 30 2026. Devika, can you start with a quick recap of the company?
+
+Devika Ramanathan: Sure. Corvane Hydrologic Inc. is based in Port Aldous, British Columbia. We're 35 people. We design and build water-quality instruments for municipal treatment plants, mostly in-line optical analyzers that sit in the process stream and report things like organic load and turbidity to the plant control system. Our main product line measures UV absorbance at 254 nanometres, which operators use as a proxy for dissolved organic carbon. I lead the sensor engineering group, which is four people, and Owen leads firmware.
+
+Owen Strachan: I've been here about seven years. My team is three people. We write the signal processing and the calibration logic that runs on the instrument.
+
+Marguerite Folau: And the practical problem?
+
+Devika Ramanathan: Fouling. When you put an optical window into wastewater or even partly treated water, a biofilm grows on it. The biofilm absorbs and scatters light, so the reading drifts upward and the operator thinks there's more organic load than there is. Plants end up pulling the sensor every week or two to clean it, which is the thing they bought an in-line analyzer to avoid. Our customers want at least 30 days between cleanings with drift under 5 percent.
+
+Marguerite Folau: Let's go back to last year. Where did things stand at the end of fiscal 2025?
+
+Devika Ramanathan: In fiscal 2025 we built a prototype we called Orion-1. Orion-1 used a standard fused silica window and a mechanical wiper, a rubber blade that swept the window every 15 minutes. The idea was that the wiper would keep the biofilm from ever establishing. By June 30 2025, Orion-1 held calibration for only 14 days in secondary effluent before the biofouling drift passed 5 percent.
+
+Owen Strachan: The wiper was the big lesson from Orion-1. It worked for the first week, then the blade started smearing a thin film instead of removing it, and once the blade picked up grit it scratched the silica, which made fouling worse because the scratches gave the biofilm somewhere to anchor. We tried three blade materials on Orion-1 and none of them got past 16 days.
+
+Devika Ramanathan: So we closed out last year with the wiper approach considered a failure and two uncertainties left open. One, whether any surface treatment on the window could resist biofilm attachment for 30 days or more while staying optically clear at 254 nanometres and surviving the chlorine and grit in the stream. Two, whether we could compensate for the drift that does happen by using a reference channel, since Orion-1 had a single wavelength and no way to tell fouling from real changes in the water.
+
+Marguerite Folau: So what changed going into fiscal 2026?
+
+Devika Ramanathan: We started a new prototype, Orion-2. It drops the wiper completely. It has a coated optical window and a dual-wavelength design: the measurement channel at 254 nanometres, and a reference channel at 365 nanometres where dissolved organics absorb very little. The idea is that if the reference channel loses signal, that's fouling or turbidity, not organics, and we can correct for it.
+
+Marguerite Folau: Why wasn't that an obvious thing to just do?
+
+Devika Ramanathan: A couple of reasons. Coatings first. Most anti-fouling coatings used on marine sensors are copper-based or tributyl-type biocides, which you can't use in drinking or wastewater applications here, or they're polymer coatings that absorb strongly in the UV. Most fluoropolymers and hydrogels that resist fouling are fine in visible light but lose 30 to 60 percent of their transmission at 254. We couldn't find a published coating that was UV-clear, food-grade safe, and durable in chlorinated water. So we didn't know if the combination existed.
+
+Owen Strachan: And on the reference channel, the textbook assumption is that fouling attenuates light evenly across wavelengths, so a ratio fixes it. But a biofilm isn't a grey filter. It contains its own organics that absorb in the UV. So we didn't know whether the fouling signal at 365 would track the fouling signal at 254 closely enough to correct it, or whether the relationship would change as the film aged.
+
+Marguerite Folau: Were there other options you looked at before settling on a coating and a reference channel?
+
+Owen Strachan: A few. We looked at ultrasonic cleaning, where a transducer on the window vibrates the film off. The published results were mixed, and the power draw was too high for our loop-powered units, about 4 watts continuous against the 1.5 watts we have to work with. We also looked at a flushing system with a small pump pushing clean water or a mild acid across the window every few hours. That works in labs, but it means plumbing and chemicals at every sensor, and operators told us flat out they wouldn't maintain that. So we settled on making the window itself resist fouling, and correcting whatever fouling still gets through.
+
+Devika Ramanathan: We also talked about UV-C LEDs shining on the window to stop growth. We may come back to that, but at the start of the year the LEDs at the right wavelength were still expensive and their lifetime in a sealed housing was short, so we parked it.
+
+Marguerite Folau: What were the technological objectives for this year?
+
+Devika Ramanathan: Two objectives, matching the two open uncertainties. One, find a window coating that keeps at least 85 percent transmission at 254 nanometres when new, and loses less than 5 percent of that over 30 days in secondary effluent. Two, work out whether and how the 365 reference channel can correct fouling drift at 254 to within 2 percent over the same period.
+
+Marguerite Folau: And the hypothesis?
+
+Owen Strachan: If fouling attenuation at 254 nanometres is a stable multiple of fouling attenuation at 365 nanometres over the life of the biofilm, then correcting the 254 signal by that fitted multiple of the 365 loss will hold total drift under 2 percent for at least 30 days, even without cleaning. And the matching hypothesis on the coating side, Devika's, was that a thin silica sol-gel layer with a fluorinated top surface would cut biofilm attachment enough to keep raw drift under 5 percent for 30 days.
+
+Marguerite Folau: What was the work plan?
+
+Devika Ramanathan: Three stages. Coupon screening of candidate coatings from August to October 2025. Bench testing of the dual-wavelength correction in a recirculating fouling tank from October 2025 to January 2026. Then field trials of full Orion-2 units at the Port Aldous Harbourside plant from February to June 2026. We had a technician on the fouling tank almost full time.
+
+Marguerite Folau: Let's go through the experiments.
+
+Devika Ramanathan: Experiment one was coating screening. We coated fused silica coupons with four candidates: a plain fluorosilane monolayer, a silica sol-gel with a fluorinated top, a zwitterionic polymer brush, and a thin titania film that's supposed to be self-cleaning under UV. We ran 12 coupons of each, plus 12 uncoated controls, in a side stream of secondary effluent for 42 days, and measured transmission at 254 every 3 days.
+
+Marguerite Folau: Results?
+
+Devika Ramanathan: Uncoated coupons lost 5 percent transmission by day 11 and 22 percent by day 42. The fluorosilane monolayer started at 92 percent transmission but wore off; it lost 5 percent by day 17. The zwitterionic brush was the best at resisting biofilm but started at only 71 percent transmission at 254, so it failed the clarity target from day one. The titania film was bad, it actually grew film faster, we think because the UV intensity in the stream is too low to activate it and the rough surface helped attachment. The sol-gel with fluorinated top started at 89 percent and took 31 days to lose 5 percent. So only one candidate met both targets, just barely.
+
+Marguerite Folau: What did you do with that?
+
+Devika Ramanathan: We found that on the sol-gel coupons, the fouling started at the edges where the coating was thinnest. So we changed the dip withdrawal speed from 2 millimetres per second to 1 millimetre per second, which gave a more even layer, about 180 nanometres. We ran a second round of 12 coupons in November 2025 and the time to 5 percent loss went to 38 days. Initial transmission dropped slightly to 87 percent, still above target.
+
+Marguerite Folau: Now the reference channel.
+
+Owen Strachan: Experiment two was in the fouling tank. We ran 6 Orion-2 optical heads in recirculated secondary effluent, spiked with nutrients to speed biofilm growth about threefold, and we used uncoated windows on purpose so we'd get plenty of fouling to study. We logged both channels every 5 minutes for 21 days and pulled a window every 3 days to measure the film directly.
+
+Marguerite Folau: What did you find?
+
+Owen Strachan: The simple ratio didn't hold. In the first 4 to 5 days, when the film is thin and mostly bacterial cells, attenuation at 254 was about 1.6 times the attenuation at 365. After day 8 or so, as the film thickened and trapped particles, the multiple dropped to about 1.15. So a fixed ratio either overcorrected early or undercorrected late. With a fixed multiple of 1.4, drift after correction was still 4.8 percent at day 21. That disproved the simple version of the hypothesis.
+
+Marguerite Folau: How did you adapt?
+
+Owen Strachan: Experiment three. We noticed that the multiple tracked how much total loss there was at 365. So instead of a fixed multiple we fit a curve: the correction factor as a function of accumulated 365 loss. We fit it on 4 of the heads and tested it on the other 2. Corrected drift on the held-out heads was 1.7 percent at day 21. Then we ran a fresh 21-day tank test in January 2026 with 6 new heads, and got 1.9 percent worst case. That was the first time we'd seen drift under 2 percent in that tank.
+
+Marguerite Folau: And the field trial?
+
+Devika Ramanathan: Experiment four. Four complete Orion-2 units at the Harbourside plant, two on secondary effluent and two on final effluent after chlorination, from February 9 to June 12 2026. Coated windows and the fitted correction running together. We did grab samples twice a week and ran them on a lab spectrophotometer as the reference.
+
+Owen Strachan: On secondary effluent, raw drift, meaning without correction, crossed 5 percent at day 36 and day 40 on the two units. With the correction, drift against the grab samples stayed under 2 percent until day 52 and day 55. On the chlorinated final effluent, drift was lower, but the coating on one unit began to thin after about 70 days. We saw its transmission drop by 9 percent between day 70 and day 90 that wasn't biofilm. We think the chlorine is slowly attacking the fluorinated layer.
+
+Marguerite Folau: So what are the advancements for this year?
+
+Devika Ramanathan: On the coating side, we learned that a sol-gel silica with a fluorinated top layer, at about 180 nanometres and with an even edge, can keep UV transmission above 85 percent and delay 5 percent fouling loss to 36 to 40 days in real secondary effluent. We also learned that coatings that resist fouling best, the zwitterionic ones, are not UV-clear enough, and that titania self-cleaning doesn't work at in-stream UV levels.
+
+Owen Strachan: On the compensation side, we learned that biofilm attenuation is not spectrally flat and that the 254 to 365 multiple changes as the film matures, from about 1.6 to about 1.15. And we learned that a correction keyed to accumulated reference loss holds drift under 2 percent for more than 50 days in the field.
+
+Marguerite Folau: What's still open?
+
+Devika Ramanathan: Coating durability in chlorinated water beyond 70 days, that's clearly unresolved. And winter. All our field data this year is from February to June, water temperatures of 9 to 17 C. We don't know how the biofilm and the correction curve behave at 4 to 6 C in January. Those carry into fiscal 2027.
+
+Owen Strachan: Also whether the correction curve is site-specific. We fit it on Harbourside water. We've arranged a second plant for next year with much higher industrial load.
+
+Marguerite Folau: And the business impact?
+
+Devika Ramanathan: Going from about two weeks between cleanings to around seven weeks is the difference between an instrument people tolerate and one they want. Our two largest customers have said service interval is their main complaint. We expect to fold the coating and correction into our next product revision if the winter data holds up. The firmware also now reports a fouling index from the reference channel, which operators can use to schedule cleaning instead of guessing.
+
+Marguerite Folau: Thanks, both of you. That gives me what I need to draft.

@@ -30,7 +30,7 @@
     normalizeTurnParts,
     type TurnTiming,
   } from "$lib/chat/turnParts";
-  import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
+  import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
@@ -63,6 +63,7 @@
     categoryMeta,
   } from "$lib/contextCategories";
   import { createRequestId } from "$lib/requestId";
+  import { userErrorMessage } from "$lib/errors";
 
   // Agent-based chat rail (BNH-10 P2) — streaming replacement for ChatPanel.
   // Messages come from the @convex-dev/agent component (token-streamed into
@@ -81,6 +82,10 @@
     onClearResearch?: () => void;
     isFull?: boolean;
     onToggleFull?: () => void;
+    /** Keep header room for a host's overlaid close button (default true). */
+    closeInset?: boolean;
+    /** Height of the pinned composer area, for hosts that float notices above it. */
+    composerHeight?: number;
     onReferenceText?: (texts: string[], scrollTo?: string) => void;
     onReviewReplacements?: (
       pairs: { find: string; replaceWith: string }[],
@@ -105,6 +110,8 @@
     onClearResearch,
     isFull,
     onToggleFull,
+    closeInset = true,
+    composerHeight = $bindable(0),
     onReferenceText,
     onReviewReplacements,
     onPreviewProposal,
@@ -667,8 +674,9 @@
         dismissHint();
         chatContainer?.scrollToBottom("instant");
       } catch (e) {
-        researchError =
-          e instanceof Error ? e.message : "Research could not be started.";
+        // The server's own words (the hourly research limit, say), never
+        // the client's raw "[CONVEX M(...)]" line.
+        researchError = userErrorMessage(e, "Research could not be started.");
       } finally {
         researchStarting = false;
       }
@@ -1230,14 +1238,14 @@
         {#each CONTEXT_CATEGORIES as c (c.id)}
           <button
             onclick={() => uploadFiles(files, c.id)}
-            class={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-opacity hover:opacity-80 ${c.pill}`}
+            class={`rounded-full px-2.5 py-1 text-[0.6875rem] font-medium transition-opacity hover:opacity-80 ${c.pill}`}
           >
             {c.label}
           </button>
         {/each}
         <button
           onclick={() => (pendingFiles = null)}
-          class="rounded-full px-2.5 py-1 text-[11px] font-medium text-gray-400 hover:text-gray-600"
+          class="rounded-full px-2.5 py-1 text-[0.6875rem] font-medium text-gray-400 hover:text-gray-600"
         >
           Cancel
         </button>
@@ -1249,17 +1257,17 @@
     <div class="mb-2 flex flex-wrap gap-1.5">
       {#each attachments as a, i (`${a.documentId}-${i}`)}
         {@const meta = categoryMeta(a.category)}
-        <span class="inline-flex items-center gap-1 rounded-md bg-chrome px-2 py-1 text-[11px] text-gray-600">
+        <span class="inline-flex items-center gap-1 rounded-md bg-chrome px-2 py-1 text-[0.6875rem] text-gray-600">
           <svg class="h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
           </svg>
           {trimName(a.fileName)}
           {#if meta}
-            <span class={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${meta.pill}`}>
+            <span class={`rounded-full px-1.5 py-0.5 text-[0.5625rem] font-medium ${meta.pill}`}>
               {meta.label}
             </span>
           {/if}
-          <span class="ml-1 text-[10px] text-ink-muted">Project context</span>
+          <span class="ml-1 text-[0.625rem] text-ink-muted">Project context</span>
         </span>
       {/each}
     </div>
@@ -1281,12 +1289,14 @@
     </div>
   {/if}
 
-  <PromptInput bind:value={input} isLoading={sending || researchStarting} onSubmit={(v) => sendText(v)} class="flex-col items-stretch gap-0 rounded-[20px] p-1.5">
-    <!-- Obvious v3-prompt: p-1.5 box, p-2 text region, action row below. -->
-    <div class="p-2">
+  <PromptInput bind:value={input} isLoading={sending || researchStarting} onSubmit={(v) => sendText(v)} class="flex-col items-stretch gap-3 rounded-xl px-3.5 py-3">
+    <!-- Board 2.1 composer: the text on top, then + at the left and a round
+         send button at the right. -->
+    <div>
     <PromptInputTextarea
       bind:ref={textareaEl}
-      class="min-h-7"
+      wrapperClass="py-0"
+      class="min-h-[1.125rem] px-0 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint md:text-[0.8125rem]"
       aria-label="Message the report assistant"
       textIndent={composerContextActive ? pillWidth : undefined}
       placeholder={pendingResearch
@@ -1295,9 +1305,7 @@
           ? "How should I revise this suggestion?"
           : pendingHighlight
             ? "Add instructions…"
-            : isEmpty
-              ? "What should we work on?"
-              : "What should we work on?"}
+            : "Ask about this report…"}
     >
       {#snippet pill()}
         {#if refiningProposal}
@@ -1357,36 +1365,78 @@
       {/snippet}
     </PromptInputTextarea>
     </div>
-    {#if !pendingResearch}
-      <label class="flex items-center gap-2 px-2 py-1 text-caption text-ink-muted">
-        <Checkbox.Root bind:checked={allowBrain} aria-label="Use Brain examples for this message"
-          title="Allow a new search of approved past reports. Previous conversation remains available."
-          disabled={sending || isStreaming}
-          class="flex size-4 shrink-0 items-center justify-center rounded border border-line data-[state=checked]:bg-primary-selected data-[state=checked]:text-white">
-          {#snippet children({ checked })}{#if checked}<span aria-hidden="true">✓</span>{/if}{/snippet}
-        </Checkbox.Root>
-        Use Brain examples for this message
-      </label>
-    {/if}
-    <!-- Obvious anatomy: actions on a row BELOW the text — attach left, send right. -->
-    <div class="flex items-center justify-between">
-    <PromptInputActions>
-      <ActionButton
-        variant="icon"
-        class="size-7 rounded-full"
-        onclick={() => fileInputEl?.click()}
-        disabled={uploading}
-        tooltip="Add a document to project context"
-        aria-label="Add a document to project context"
-      >
-        {#if uploading}
-          <Spinner size="sm" class="border-gray-300 border-t-gray-500" />
-        {:else}
-          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 7V12M12 12V17M12 12H7M12 12H17" />
-          </svg>
-        {/if}
-      </ActionButton>
+    <!-- Board 2.1 anatomy: + at the left (add a document, Brain examples),
+         send at the right. -->
+    <div class="flex items-center justify-between gap-2">
+    <PromptInputActions class="min-w-0 items-center gap-1.5">
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger
+          aria-label="Add to message"
+          title="Add to message"
+          disabled={uploading}
+          class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-full border border-line text-ink transition-colors hover:bg-primary-wash data-[state=open]:bg-primary-wash disabled:opacity-50 motion-reduce:transition-none pointer-coarse:size-11"
+        >
+          {#if uploading}
+            <Spinner size="sm" class="border-gray-300 border-t-gray-500" />
+          {:else}
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <path d="M6 2v8M2 6h8" />
+            </svg>
+          {/if}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            side="top"
+            align="start"
+            sideOffset={8}
+            class="z-[100] w-72 rounded-xl border border-line bg-white p-1 shadow-lg"
+          >
+            <DropdownMenu.Item
+              onSelect={() => fileInputEl?.click()}
+              title="Add a document to project context"
+              class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash"
+            >
+              <svg class="size-4 shrink-0 text-ink-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z M14 3v5h5 M12 12v6 M9 15h6" />
+              </svg>
+              Add a document
+            </DropdownMenu.Item>
+            {#if !pendingResearch}
+              <DropdownMenu.CheckboxItem
+                bind:checked={allowBrain}
+                disabled={sending || isStreaming}
+                closeOnSelect={false}
+                title="Allow a new search of approved past reports. Previous conversation remains available."
+                class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50"
+              >
+                {#snippet children({ checked })}
+                  <span class={`flex size-4 shrink-0 items-center justify-center rounded border ${checked ? "border-primary-selected bg-primary-selected text-white" : "border-line"}`} aria-hidden="true">
+                    {#if checked}
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7" /></svg>
+                    {/if}
+                  </span>
+                  Use Brain examples for this message
+                {/snippet}
+              </DropdownMenu.CheckboxItem>
+            {/if}
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+      {#if allowBrain && !pendingResearch}
+        <!-- The per-message Brain choice stays visible while it is on. -->
+        <span data-brain-chip class="inline-flex h-[1.375rem] min-w-0 items-center gap-1 rounded-full bg-primary-wash pr-1 pl-2 text-[0.6875rem] text-primary-selected">
+          <span class="truncate">Brain examples</span>
+          <button
+            type="button"
+            onclick={() => (allowBrain = false)}
+            disabled={sending || isStreaming}
+            aria-label="Stop using Brain examples for this message"
+            class="flex size-4 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100"
+          >
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          </button>
+        </span>
+      {/if}
       <input
         bind:this={fileInputEl}
         type="file"
@@ -1431,11 +1481,11 @@
         <button
           onclick={stopGeneration}
           disabled={stopping || !selectedThreadId}
-          class="flex h-8 shrink-0 items-center justify-center rounded-full bg-navy px-4 text-white transition-[box-shadow,transform] hover:bg-navy-light active:translate-y-px disabled:opacity-50"
+          class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-full bg-primary-selected text-white transition-[background-color,transform] hover:bg-primary-dark active:translate-y-px disabled:opacity-50 motion-reduce:transition-none pointer-coarse:size-11"
           title="Stop generating"
           aria-label="Stop generating"
         >
-          <svg class="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <svg class="h-2.5 w-2.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <rect x="5" y="5" width="14" height="14" rx="2" />
           </svg>
         </button>
@@ -1443,12 +1493,12 @@
         <button
           onclick={() => sendText(input)}
           disabled={sending || researchStarting || publicationPending || composerChatBlocked || (!input.trim() && !pendingHighlight && !pendingResearch)}
-          class="group flex h-8 shrink-0 items-center justify-center rounded-full bg-navy px-4 text-white transition-[box-shadow,transform] hover:bg-navy-light active:translate-y-px disabled:opacity-10"
+          class="group flex size-[1.625rem] shrink-0 items-center justify-center rounded-full bg-primary-selected text-white transition-[background-color,opacity,transform] hover:bg-primary-dark active:translate-y-px disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11"
           title={pendingResearch ? "Start research" : "Send"}
           aria-label="Send message"
         >
-          <svg class="h-4 w-4 transition-transform group-hover:-translate-y-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 10L12 4L18 10M12 5V20" />
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M6 10V2M2.5 5.5L6 2l3.5 3.5" />
           </svg>
         </button>
       {/if}
@@ -1459,27 +1509,27 @@
   {#if showHint}
     <p
       transition:fade={{ duration: motionDuration(300) }}
-      class="pt-1.5 text-center text-[11px] text-gray-400"
+      class="pt-1.5 text-center text-[0.6875rem] text-gray-400"
     >
-      Enter to send&nbsp;&nbsp;·&nbsp;&nbsp;Shift+Enter for new line
+      Enter to send, Shift+Enter for a new line
     </p>
   {/if}
 {/snippet}
 
 <div class="flex h-full flex-col bg-white">
-  <!-- Header (pr-12 clears the workspace's overlay close button) -->
-  <div class="flex shrink-0 items-center gap-1 border-b border-chrome py-1.5 pl-2.5 pr-12">
-    <!-- Obvious thread bar: one ghost rounded-full pill IS the thread
-         selector — "Assistant · thread ⌄" opens the conversation menu. -->
+  <!-- Header (pr-12 clears a host's overlay close button when it has one) -->
+  <!-- Board 2.1 header: Aurora mark, "Assistant" and the expand control.
+       The title opens the conversation menu (history, new conversation). -->
+  <div class={`box-content flex h-7 shrink-0 items-center gap-2.5 pt-5 pb-2 ${isFull ? "px-6 lg:px-0" : `pl-6 ${closeInset ? "pr-12" : "pr-6"}`}`}>
+    <AuroraMark size={20} />
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
         aria-label="Conversation menu"
-        class="group flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm transition-colors hover:bg-chrome/60 data-[state=open]:bg-chrome/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
+        title="Conversations"
+        class="group -ml-1.5 flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-[0.8125rem] leading-[1.125rem] font-medium text-ink transition-colors hover:bg-chrome/60 data-[state=open]:bg-chrome/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
       >
-        <span class="font-medium text-ink">Assistant</span>
-        <span aria-hidden="true" class="text-ink-muted">•</span>
-        <span class="text-ink-muted">{threadsQ.data?.length ?? 0}</span>
-        <svg class="size-3.5 shrink-0 text-ink-faint transition-transform group-data-[state=open]:rotate-180 motion-reduce:transition-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        Assistant
+        <svg class="size-3 shrink-0 text-ink-faint opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[state=open]:rotate-180 group-data-[state=open]:opacity-100 motion-reduce:transition-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </DropdownMenu.Trigger>
@@ -1526,13 +1576,20 @@
     {#if onToggleFull}
       <button
         onclick={onToggleFull}
-        title={isFull ? "Exit focus mode" : "Enter focus mode"}
-        aria-label={isFull ? "Exit focus mode" : "Enter focus mode"}
-        class="ml-auto flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink motion-reduce:transition-none"
+        title={isFull ? "Collapse assistant" : "Expand assistant"}
+        aria-label={isFull ? "Collapse assistant" : "Expand assistant"}
+        aria-pressed={isFull}
+        class="ml-auto flex size-[1.625rem] shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-chrome/60 hover:text-ink motion-reduce:transition-none pointer-coarse:size-11"
       >
-        <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M10 4H4V10M20 14V20H14M4.75 4.75L10 10M14 14L19.25 19.25" />
-        </svg>
+        {#if isFull}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
+          </svg>
+        {:else}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+          </svg>
+        {/if}
       </button>
     {/if}
   </div>
@@ -1542,20 +1599,18 @@
     <!-- Empty state: brand mark, capability blurb, starter suggestions; the
          composer stays pinned to the bottom (Obvious anatomy) in EVERY state. -->
     <div class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-6">
-      <span class="mb-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy text-white">
-        <ChatIcon class="h-4 w-4" />
-      </span>
-      <h2 class="text-center text-[15px] font-medium text-ink">
+      <AuroraMark size={36} class="mb-3" />
+      <h2 class="text-center text-[0.9375rem] font-medium text-ink">
         How can I help with this report?
       </h2>
-      <p class="mt-1 max-w-[300px] text-center text-xs leading-relaxed text-ink-muted">
-        I can tighten language, find passages, check compliance, and propose
-        edits — grounded in this report and its source documents.
+      <p class="mt-1 max-w-[18.75rem] text-center text-xs leading-relaxed text-ink-muted">
+        I can tighten language, find passages, check compliance and propose
+        edits, grounded in this report and its source documents.
       </p>
-      <div class="mt-5 flex w-full max-w-[320px] flex-col gap-1.5">
+      <div class="mt-5 flex w-full max-w-[20rem] flex-col gap-1.5">
         {#each STARTERS as starter (starter)}
           <Suggestion
-            class="w-full justify-start rounded-lg px-3 py-1.5 text-left text-[13px]"
+            class="w-full justify-start rounded-lg px-3 py-1.5 text-left text-[0.8125rem]"
             disabled={sending || researchStarting || publicationPending || composerChatBlocked || isStreaming}
             onclick={() => sendText(starter)}
           >
@@ -1568,7 +1623,7 @@
     <ChatContainer
       bind:this={chatContainer}
       class="min-h-0 flex-1"
-      viewportClass="px-5 py-4"
+      viewportClass={isFull ? "px-6 py-4 lg:px-0" : "px-6 py-4"}
       contentClass="chat-scale space-y-3"
     >
       {#if canLoadOlder}
@@ -1661,5 +1716,5 @@
 
   {/if}
   <!-- Preserve the composer and keyboard focus across the first local row. -->
-  <div class="shrink-0 px-2 pb-2.5 pt-2">{@render composer()}</div>
+  <div bind:offsetHeight={composerHeight} class={`shrink-0 pt-2 pb-6 ${isFull ? "px-6 lg:px-0" : "px-6"}`}>{@render composer()}</div>
 </div>

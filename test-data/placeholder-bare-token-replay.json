@@ -1,0 +1,443 @@
+{
+  "note": "Fictional data only. Offline replay of the production analyzer and Brief with claude-sonnet-5 through withPlaceholders (research/gemini-ab, 2026-09-25). Each response is the raw tool input the model returned, before restoration. Each input holds the frozen transcript as stored and the placeholder map the replay froze for it; masking the transcript with that map reproduces the saved request bytes.",
+  "inputs": {
+    "helios": {
+      "project": {
+        "title": "Project Helios F2025",
+        "clientName": "Verdant Grid Technologies",
+        "interviewer": "Jordan Ellis",
+        "writer": "Jordan Ellis",
+        "interviewees": []
+      },
+      "transcript": "Interviewer (Dana): Thanks for the time, Marcus. Can you describe what Verdant Grid set out to build this year?\n\nSubject (Marcus Lindqvist, CTO): Sure. We build controllers for residential solar microgrids — neighbourhoods where a lot of homes have rooftop solar and a battery, all tied together. This year's project was a predictive load-balancing controller. The goal was to keep voltage stable across the cluster while shifting load and battery charge/discharge around, so no single feeder gets overloaded when everyone's exporting at noon or pulling hard at dinner.\n\nDana: What made that hard? Couldn't you just use standard grid controls?\n\nMarcus: The standard stuff assumes a central operator and predictable one-way power flow. Our situation is the opposite — power flows both directions, generation is intermittent, and there's no central meter we can trust in real time. The big unknown was whether we could forecast cluster-level net load accurately enough to act ahead of a voltage event, given how fast cloud cover changes generation. We genuinely didn't know if a useful forecast was even possible at the timescale we needed.\n\nDana: So what did you try?\n\nMarcus: First we tried a rule-based controller — thresholds on voltage that triggered battery dispatch. It oscillated badly; batteries fought each other across homes and we got voltage flicker. So that approach told us coordination had to be predictive, not reactive. Then we built a forecasting model off historical generation and weather, and drove dispatch from the forecast. That was better in steady conditions but fell apart during fast partial-cloud transitions — the forecast lagged reality. The third iteration was a distributed approach where each home's controller negotiates with its neighbours instead of relying on a central forecast. That held voltage much better, but it introduced a new problem: the negotiation could fail to converge when comms latency spiked.\n\nDana: Where did it land?\n\nMarcus: We've got the distributed negotiation working in simulation and on a small bench setup. Voltage stays within band in most scenarios. The open question we're still chasing is convergence guarantees under degraded communications — we don't yet know the conditions where it's provably stable. And honestly there's a lot of homeowner-app polish we did too, the dashboard and notifications, which took a chunk of time. But the core controller is the real work.\n\nDana: Anything on results?\n\nMarcus: In sim, the distributed controller cut voltage excursions by about two-thirds versus the rule-based baseline. That's the headline. The convergence-under-latency thing is next year's problem.",
+      "map": [
+        {
+          "token": "[CLIENT_1]",
+          "value": "Verdant Grid Technologies"
+        },
+        {
+          "token": "[CLIENT_1_BRAND]",
+          "value": "Verdant Grid"
+        },
+        {
+          "token": "[CLIENT_1_CAPS]",
+          "value": "VERDANT GRID TECHNOLOGIES"
+        },
+        {
+          "token": "[PERSON_1]",
+          "value": "Jordan Ellis"
+        },
+        {
+          "token": "[PERSON_1_FIRST]",
+          "value": "Jordan"
+        },
+        {
+          "token": "[PERSON_1_LAST]",
+          "value": "Ellis"
+        },
+        {
+          "token": "[PERSON_2]",
+          "value": "Dana"
+        },
+        {
+          "token": "[PERSON_3]",
+          "value": "Marcus"
+        },
+        {
+          "token": "[PERSON_4]",
+          "value": "Marcus Lindqvist"
+        },
+        {
+          "token": "[PERSON_4_LAST]",
+          "value": "Lindqvist"
+        }
+      ]
+    },
+    "cedarline": {
+      "project": {
+        "title": "Adaptive cold storage controls",
+        "clientName": "Cedarline Systems",
+        "interviewer": "Jordan Ellis",
+        "writer": "Jordan Ellis",
+        "interviewees": []
+      },
+      "transcript": "Interviewer (Jordan Ellis): Thanks for making the time, Priya. For the record, can you describe what Cedarline Systems set out to build this fiscal year?\n\nSubject (Priya Shah, Controls Lead): Sure. We make control units for mid-size cold storage warehouses, the kind that hold produce and pharmaceuticals between two and eight degrees. This year we tried to build a controller that keeps every zone inside a half-degree band while the load changes through the day. Doors open, pallets of warm product come in, compressors cycle, and the building never behaves the same way twice.\n\nInterviewer (Jordan Ellis): What did the market already offer, and why was that not enough?\n\nSubject (Priya Shah, Controls Lead): The standard approach is a PID loop per zone with fixed tuning. It works when the load is steady. Our customers told us that during receiving hours the product temperature drifted by two to three degrees, which is enough to fail a pharmaceutical audit. We looked at the published tuning methods and the vendor application notes. None of them told us how to handle zones that interact. When zone three pulls hard, zone four loses capacity because they share a compressor rack.\n\nInterviewer (Jordan Ellis): So what was the technical question you could not answer at the start?\n\nSubject (Priya Shah, Controls Lead): We did not know whether we could separate the effect of each operating variable on the temperature response. Door openings, product mass, compressor staging and defrost cycles all change at once. Standard tuning assumes one input and one output. We did not know if a model of the coupling could be identified from normal operating data, or if we would need to disturb the system on purpose to learn it.\n\nInterviewer (Jordan Ellis): How did you go about it?\n\nSubject (Priya Shah, Controls Lead): First we established a baseline with the existing controller at our test site in Abbotsford, a twelve-zone warehouse. We logged every sensor at one-second resolution for three weeks. Then we held the configuration constant and changed one operating condition at a time. We opened a single dock door on a fixed schedule, then added warm pallets in known amounts, then forced the compressor staging. After each change we recorded the response of every zone.\n\nInterviewer (Jordan Ellis): What did you learn from those runs?\n\nSubject (Priya Shah, Controls Lead): Two things surprised us. The coupling between zones sharing a rack was much stronger than we assumed, about sixty percent of the disturbance in zone four came from zone three. And the defrost cycle masked everything for about twenty minutes, so any model we fit across a defrost was wrong. We had to split the data into defrost and non-defrost windows before anything worked.\n\nInterviewer (Jordan Ellis): Did the first model you built hold up?\n\nSubject (Priya Shah, Controls Lead): No. Our first attempt was a linear model with fixed coupling terms. It predicted steady conditions well but it failed during receiving, when the product mass changed quickly. The error went back up to about one and a half degrees. So we moved to a model where the coupling terms change with the compressor stage. That second version kept the error under half a degree in eleven of the twelve zones. Zone nine still drifted because it sits next to the loading bay and gets outside air that we were not measuring.\n\nInterviewer (Jordan Ellis): What did you do about zone nine?\n\nSubject (Priya Shah, Controls Lead): We added an outside air temperature sensor near the bay and fed it into the model as a disturbance input. That brought zone nine inside the band as well, but only when the sensor was shaded. In direct sun the reading was useless. We are still working on that part.\n\nInterviewer (Jordan Ellis): Who did the work, and roughly how much time went into it?\n\nSubject (Priya Shah, Controls Lead): Myself, two controls engineers, Marco and Lena, and a data analyst for the model fitting. I would say about sixty percent of the controls team time from April through November went into this. We also spent money on the extra sensors and on the test site operator's time for the scheduled door openings.\n\nInterviewer (Jordan Ellis): At the end of the year, what do you know now that you did not know before?\n\nSubject (Priya Shah, Controls Lead): We now know that the coupling between zones on a shared rack can be identified from deliberate single-variable disturbances, and that the coupling terms have to vary with compressor stage to stay accurate during receiving. We also know that defrost windows have to be modelled separately. None of that was in the literature we started from. What we still do not know is how to handle a disturbance input when the sensor itself is unreliable, which is why the outside air problem carries into next year.\n\nInterviewer (Jordan Ellis): That is very helpful, Priya. Anything else we should capture?\n\nSubject (Priya Shah, Controls Lead): Only that we threw away two approaches along the way. We tried a purely data-driven neural model early on and it could not explain why it made a decision, which the pharmaceutical customers need for their audits. We also tried separate controllers per zone with feed-forward from the neighbours, and it oscillated whenever two neighbours reacted to each other. Both failures shaped the version that finally worked.",
+      "map": [
+        {
+          "token": "[CLIENT_1]",
+          "value": "Cedarline Systems"
+        },
+        {
+          "token": "[CLIENT_1_CAPS]",
+          "value": "CEDARLINE SYSTEMS"
+        },
+        {
+          "token": "[PERSON_1]",
+          "value": "Jordan Ellis"
+        },
+        {
+          "token": "[PERSON_1_FIRST]",
+          "value": "Jordan"
+        },
+        {
+          "token": "[PERSON_1_LAST]",
+          "value": "Ellis"
+        },
+        {
+          "token": "[PERSON_2]",
+          "value": "Priya Shah"
+        },
+        {
+          "token": "[PERSON_2_FIRST]",
+          "value": "Priya"
+        },
+        {
+          "token": "[PERSON_2_LAST]",
+          "value": "Shah"
+        }
+      ]
+    }
+  },
+  "responses": [
+    {
+      "callId": "helios__sonnet5__analyzer__r1",
+      "input": "helios",
+      "toolName": "submit_transcript_analysis",
+      "toolInput": {
+        "company_context": "CLIENT_1_BRAND builds controllers for residential solar microgrids — neighbourhoods where many homes have rooftop solar and batteries, all electrically tied together on shared feeders.",
+        "project_goal": "Develop a predictive load-balancing controller that keeps voltage stable across a cluster of interconnected residential solar/battery systems by coordinating load shifting and battery charge/discharge, preventing feeder overload during peak export (midday) and peak draw (evening) periods.",
+        "business_problem": "Need to prevent feeder overload and voltage instability in residential solar microgrid neighbourhoods as more homes add rooftop solar and batteries, to support reliable deployment of the company's microgrid controller product.",
+        "scientific_technical_problem": "Existing centralized grid control approaches assume a central operator, a trustworthy real-time central meter, and predictable one-directional power flow. It was unknown whether cluster-level net load in a bidirectional, intermittent-generation environment (with no trustworthy central real-time metering) could be forecast accurately enough, at the required timescale, to act ahead of voltage events caused by fast-changing cloud cover, and it was unknown whether a distributed/decentralized coordination approach could achieve stable voltage control without relying on such forecasts or central control.",
+        "passive_uncertainties": [
+          "Standard grid control methods assume a central operator and one-way, predictable power flow, and do not address bidirectional intermittent generation at the residential cluster scale.",
+          "There was no established method for obtaining a trustworthy real-time central meter reading across a cluster of homes to drive centralized control.",
+          "It was not known whether forecasting techniques could predict cluster-level net load accurately enough, at a fast enough timescale, to act ahead of voltage events given rapidly changing cloud cover / generation intermittency.",
+          "No known distributed control/negotiation method existed that could maintain convergence guarantees for voltage stabilization under degraded or high-latency communications between home controllers."
+        ],
+        "active_uncertainties": [
+          "Whether a rule-based (threshold-triggered) battery dispatch controller could coordinate multiple homes without batteries fighting each other and causing voltage flicker/oscillation.",
+          "Whether a forecasting model built from historical generation and weather data could drive dispatch accurately enough to hold voltage during fast partial-cloud transitions, given forecast lag versus real-time conditions.",
+          "Whether a distributed, peer-to-peer negotiation approach between home controllers (without a central forecast) could hold voltage within band across varied scenarios.",
+          "Whether the distributed negotiation approach could reliably converge when communication latency between home controllers spiked."
+        ],
+        "technological_objective": "To advance knowledge in distributed, forecast-independent voltage/load coordination methods for bidirectional, intermittent-generation residential microgrid clusters, for the purpose of creating a predictive load-balancing controller that stabilizes cluster voltage without relying on centralized metering or forecasting.",
+        "work_performed": {
+          "prior_year_status": null,
+          "workplan_steps": [
+            "Design and test a rule-based (threshold) controller for battery dispatch based on voltage triggers.",
+            "Build a forecasting model using historical generation and weather data to drive predictive dispatch.",
+            "Develop a distributed negotiation approach where each home's controller coordinates directly with neighbouring controllers instead of relying on central forecasting.",
+            "Validate the distributed approach in simulation and on a small bench setup, measuring voltage excursions against baseline."
+          ],
+          "hypothesis": "If load-balancing control could be shifted from reactive threshold-based dispatch, to forecast-driven dispatch, to distributed peer-to-peer negotiation between home controllers, then voltage stability across the cluster could be maintained despite bidirectional, intermittent power flow, without relying on a trustworthy central real-time meter.",
+          "experiments_iterations": [
+            {
+              "problem_addressed": "Preventing feeder overload/voltage instability using a simple reactive control approach.",
+              "approach": "Implemented a rule-based controller using voltage thresholds to trigger battery dispatch.",
+              "results": "Control oscillated badly; batteries across different homes fought each other, producing voltage flicker.",
+              "conclusions": "Reactive, threshold-based coordination is insufficient; coordination needed to be predictive rather than reactive."
+            },
+            {
+              "problem_addressed": "Achieving predictive dispatch to pre-empt voltage events.",
+              "approach": "Built a forecasting model from historical generation and weather data and drove battery/load dispatch from the forecast output.",
+              "results": "Performed better than the rule-based approach under steady conditions, but broke down during fast partial-cloud transitions because the forecast lagged behind real generation changes.",
+              "conclusions": "Centralized forecast-driven dispatch is inadequate for fast-changing generation conditions; forecast lag undermines control during rapid transitions."
+            },
+            {
+              "problem_addressed": "Maintaining voltage stability without relying on a lagging centralized forecast.",
+              "approach": "Developed a distributed negotiation approach in which each home's controller negotiates directly with neighbouring controllers rather than relying on a central forecast.",
+              "results": "Held voltage much better than prior approaches across most scenarios (tested in simulation and on a small bench setup), cutting voltage excursions by roughly two-thirds versus the rule-based baseline; however, introduced a new issue where negotiation could fail to converge when communication latency spiked.",
+              "conclusions": "Distributed negotiation is a viable coordination strategy and outperforms centralized approaches, but convergence under degraded communications remains unresolved."
+            }
+          ]
+        },
+        "advancements_achieved": [
+          "Determined that reactive, threshold-based battery dispatch causes destructive oscillation/flicker across a cluster of homes and is unsuitable for multi-home voltage coordination.",
+          "Determined that centralized forecast-driven dispatch, using historical generation and weather data, is insufficient during fast partial-cloud transitions due to forecast lag relative to real-time generation changes.",
+          "Developed and validated (in simulation and on a bench setup) a distributed, forecast-independent negotiation approach between home controllers that maintains voltage within band in most tested scenarios, substantially outperforming reactive control (approx. two-thirds reduction in voltage excursions)."
+        ],
+        "remaining_uncertainties": [
+          "The conditions under which the distributed negotiation approach can be proven to converge (or provably remain stable) under degraded/high-latency communications are not yet known.",
+          "Whether the distributed approach's bench/simulation performance will generalize to full-scale, real-world deployment conditions beyond the small bench setup and simulated scenarios."
+        ],
+        "project_status": "Ongoing/continuing. The distributed negotiation controller works in simulation and on a small bench setup with voltage held within band in most scenarios, but convergence under degraded communications is unresolved and explicitly identified as next year's work.",
+        "unreliable_narrator_flags": [
+          "Mention of 'homeowner-app polish... the dashboard and notifications, which took a chunk of time' is UI/feature work with no described technical uncertainty and should be excluded from the SR&ED technical narrative, as the interviewee themselves distinguishes it from 'the core controller' which is 'the real work.'",
+          "The framing 'Couldn't you just use standard grid controls?' and the response about business/product positioning should be reframed as technical limitation of existing methods rather than a business narrative."
+        ],
+        "gaps": [
+          "No detail on the specific forecasting algorithm/model type (e.g., statistical vs. ML) used in the second iteration, limiting technical specificity for that experiment.",
+          "No detail on the negotiation protocol/algorithm used in the distributed approach (e.g., consensus algorithm, message-passing scheme) - would strengthen the technical narrative.",
+          "No quantitative detail on communication latency thresholds tested or bench setup scale (number of simulated/physical homes, hardware specs).",
+          "No information on measurement/validation methodology (e.g., how voltage excursions were measured/defined, simulation tool used).",
+          "Prior-year status is unclear - transcript does not state whether this project is new or a continuation of a previous year's SR&ED work; no previous-year report was provided.",
+          "No discussion of team composition, roles, or qualifications of personnel performing the technical work."
+        ],
+        "useful_quotes": [
+          "The big unknown was whether we could forecast cluster-level net load accurately enough to act ahead of a voltage event, given how fast cloud cover changes generation. We genuinely didn't know if a useful forecast was even possible at the timescale we needed.",
+          "First we tried a rule-based controller — thresholds on voltage that triggered battery dispatch. It oscillated badly; batteries fought each other across homes and we got voltage flicker.",
+          "That was better in steady conditions but fell apart during fast partial-cloud transitions — the forecast lagged reality.",
+          "The third iteration was a distributed approach where each home's controller negotiates with its neighbours instead of relying on a central forecast. That held voltage much better, but it introduced a new problem; the negotiation could fail to converge when comms latency spiked.",
+          "The open question we're still chasing is convergence guarantees under degraded communications — we don't yet know the conditions where it's provably stable.",
+          "In sim, the distributed controller cut voltage excursions by about two-thirds versus the rule-based baseline."
+        ]
+      }
+    },
+    {
+      "callId": "helios__sonnet5__brief__r2",
+      "input": "helios",
+      "toolName": "submit_generation_brief",
+      "toolInput": {
+        "storyline": "CLIENT_1_BRAND builds controllers for residential solar microgrids, clusters of homes with rooftop solar and batteries tied together. This year's project targeted a predictive load-balancing controller meant to keep voltage stable across the cluster while shifting load and battery charge and discharge, so no single feeder overloads during simultaneous export or demand peaks. Standard grid control approaches assume a central operator and predictable one-way power flow, which did not fit this setting: power flows both directions, generation is intermittent, and there is no real-time trustworthy central meter. The central technological uncertainty was whether cluster-level net load could be forecast accurately enough to act ahead of a voltage event, given how fast cloud cover changes generation output; the team did not know if a useful forecast was achievable at the required timescale.\n\nThe team investigated this uncertainty through successive iterations. A rule-based controller using voltage thresholds to trigger battery dispatch was tried first; it oscillated, with batteries fighting each other across homes and producing voltage flicker. This result indicated coordination needed to be predictive rather than reactive. A forecasting model built from historical generation and weather data was then used to drive dispatch; it performed better in steady conditions but degraded during fast partial-cloud transitions because the forecast lagged reality. A third, distributed approach let each home's controller negotiate with neighbours instead of relying on a central forecast; this held voltage much better but introduced a new problem, negotiation failing to converge when communications latency spiked. The distributed negotiation approach was tested in simulation and on a small bench setup, with voltage staying within band in most scenarios, and in simulation it cut voltage excursions by about two-thirds versus the rule-based baseline. The unresolved technological question, convergence guarantees for the negotiation scheme under degraded communications, remains open and is described as next year's work.",
+        "storylineClaims": [
+          {
+            "text": "Project goal was a predictive load-balancing controller to keep voltage stable across a cluster of homes with rooftop solar and batteries.",
+            "quote": "This year's project was a predictive load-balancing controller. The goal was to keep voltage stable across the cluster while shifting load and battery charge/discharge around, so no single feeder gets overloaded when everyone's exporting at noon or pulling hard at dinner."
+          },
+          {
+            "text": "Standard grid controls assume a central operator and one-way power flow, which did not match the bidirectional, intermittent, unmetered situation.",
+            "quote": "The standard stuff assumes a central operator and predictable one-way power flow. Our situation is the opposite — power flows both directions, generation is intermittent, and there's no central meter we can trust in real time."
+          },
+          {
+            "text": "The core technological uncertainty was whether cluster-level net load could be forecast accurately enough to act ahead of a voltage event given fast cloud-driven generation changes.",
+            "quote": "The big unknown was whether we could forecast cluster-level net load accurately enough to act ahead of a voltage event, given how fast cloud cover changes generation. We genuinely didn't know if a useful forecast was even possible at the timescale we needed."
+          },
+          {
+            "text": "A rule-based, threshold-triggered controller was tried first and oscillated, causing voltage flicker.",
+            "quote": "First we tried a rule-based controller — thresholds on voltage that triggered battery dispatch. It oscillated badly; batteries fought each other across homes and we got voltage flicker."
+          },
+          {
+            "text": "That result showed coordination needed to be predictive rather than reactive.",
+            "quote": "So that approach told us coordination had to be predictive, not reactive."
+          },
+          {
+            "text": "A forecasting model driven by historical generation and weather data performed better in steady conditions but failed during fast partial-cloud transitions.",
+            "quote": "Then we built a forecasting model off historical generation and weather, and drove dispatch from the forecast. That was better in steady conditions but fell apart during fast partial-cloud transitions — the forecast lagged reality."
+          },
+          {
+            "text": "A distributed negotiation approach among home controllers held voltage much better but introduced a convergence failure risk under high latency.",
+            "quote": "The third iteration was a distributed approach where each home's controller negotiates with its neighbours instead of relying on a central forecast. That held voltage much better, but it introduced a new problem: the negotiation could fail to converge when comms latency spiked."
+          },
+          {
+            "text": "The distributed negotiation controller was validated in simulation and on a small bench setup, staying within voltage band in most scenarios.",
+            "quote": "We've got the distributed negotiation working in simulation and on a small bench setup. Voltage stays within band in most scenarios."
+          },
+          {
+            "text": "Convergence guarantees under degraded communications remain an open, unresolved question, deferred to next year.",
+            "quote": "The open question we're still chasing is convergence guarantees under degraded communications — we don't yet know the conditions where it's provably stable."
+          },
+          {
+            "text": "Simulation results showed the distributed controller reduced voltage excursions by about two-thirds compared to the rule-based baseline.",
+            "quote": "In sim, the distributed controller cut voltage excursions by about two-thirds versus the rule-based baseline."
+          }
+        ],
+        "claimExclusions": [
+          {
+            "text": "Homeowner-app dashboard and notification polish work should not be claimed as SR&ED since it is described as non-core, general application development.",
+            "quote": "there's a lot of homeowner-app polish we did too, the dashboard and notifications, which took a chunk of time. But the core controller is the real work.",
+            "reason": "not_technological"
+          }
+        ],
+        "confidenceMap": [
+          {
+            "text": "Predictive load-balancing controller goal to stabilize cluster voltage.",
+            "quote": "This year's project was a predictive load-balancing controller.",
+            "confidence": "established"
+          },
+          {
+            "text": "Bidirectional power flow, intermittent generation, and untrusted real-time metering distinguish this problem from standard grid control.",
+            "quote": "Our situation is the opposite — power flows both directions, generation is intermittent, and there's no central meter we can trust in real time.",
+            "confidence": "established"
+          },
+          {
+            "text": "Uncertainty over whether forecasting was achievable at the needed timescale.",
+            "quote": "We genuinely didn't know if a useful forecast was even possible at the timescale we needed.",
+            "confidence": "established"
+          },
+          {
+            "text": "Rule-based controller caused oscillation and voltage flicker.",
+            "quote": "It oscillated badly; batteries fought each other across homes and we got voltage flicker.",
+            "confidence": "established"
+          },
+          {
+            "text": "Forecast-driven dispatch degraded during fast partial-cloud transitions.",
+            "quote": "That was better in steady conditions but fell apart during fast partial-cloud transitions — the forecast lagged reality.",
+            "confidence": "established"
+          },
+          {
+            "text": "Distributed negotiation approach held voltage better but risked non-convergence under latency spikes.",
+            "quote": "That held voltage much better, but it introduced a new problem: the negotiation could fail to converge when comms latency spiked.",
+            "confidence": "established"
+          },
+          {
+            "text": "Distributed controller validated only in simulation and small bench setup, not full deployment.",
+            "quote": "We've got the distributed negotiation working in simulation and on a small bench setup.",
+            "confidence": "partial"
+          },
+          {
+            "text": "Voltage stays within band in most scenarios, implying some scenarios remain problematic.",
+            "quote": "Voltage stays within band in most scenarios.",
+            "confidence": "partial"
+          },
+          {
+            "text": "Convergence guarantees under degraded communications remain unresolved, with conditions for provable stability unknown.",
+            "quote": "we don't yet know the conditions where it's provably stable",
+            "confidence": "unresolved"
+          },
+          {
+            "text": "Reported two-thirds reduction in voltage excursions is a simulation result only, not bench or field validated.",
+            "quote": "In sim, the distributed controller cut voltage excursions by about two-thirds versus the rule-based baseline.",
+            "confidence": "partial"
+          }
+        ],
+        "glossaryTerms": [
+          {
+            "term": "predictive load-balancing controller",
+            "inflections": []
+          },
+          {
+            "term": "cluster-level net load forecast",
+            "quote": "whether we could forecast cluster-level net load accurately enough"
+          },
+          {
+            "term": "rule-based controller",
+            "inflections": []
+          },
+          {
+            "term": "distributed negotiation approach",
+            "quote": "The third iteration was a distributed approach where each home's controller negotiates with its neighbours instead of relying on a central forecast."
+          },
+          {
+            "term": "convergence under degraded communications",
+            "quote": "convergence guarantees under degraded communications"
+          },
+          {
+            "term": "voltage excursions",
+            "inflections": []
+          }
+        ]
+      }
+    },
+    {
+      "callId": "cedarline__sonnet5__analyzer__r2",
+      "input": "cedarline",
+      "toolName": "submit_transcript_analysis",
+      "toolInput": {
+        "company_context": "CLIENT_1 manufactures control units for mid-size cold storage warehouses that store produce and pharmaceuticals between two and eight degrees Celsius. The controls team (led by PERSON_2) has domain expertise in refrigeration control systems and multi-zone warehouse temperature management.",
+        "project_goal": "To build a multi-zone refrigeration controller capable of keeping every zone within a half-degree temperature band despite varying loads throughout the day (door openings, incoming warm product, compressor cycling, and defrost cycles).",
+        "business_problem": "Customers, particularly pharmaceutical clients, experienced temperature drift of two to three degrees during receiving hours using standard controllers, which was enough to fail pharmaceutical audits, threatening customer satisfaction and compliance requirements.",
+        "scientific_technical_problem": "Existing PID tuning methods and vendor application notes assume single-input/single-output control and steady loads, and do not address how to model or control the interaction (coupling) between zones that share a compressor rack under dynamic, multi-variable disturbance conditions (door openings, product mass changes, compressor staging, defrost cycles occurring simultaneously).",
+        "passive_uncertainties": [
+          "Standard PID tuning methods and published vendor application notes only address single-zone, steady-load conditions and do not account for zone-to-zone thermal coupling.",
+          "No known published method existed for isolating the individual effect of simultaneously varying operating conditions (door openings, product mass, compressor staging, defrost cycles) on multi-zone temperature response.",
+          "It was not known whether zone coupling could be identified from normal operating data alone or would require deliberate system disturbance to characterize."
+        ],
+        "active_uncertainties": [
+          "Whether a linear model with fixed coupling terms could adequately predict temperature response across varying operating conditions (it could not, failing during receiving with product mass changes).",
+          "Whether coupling terms needed to vary dynamically with compressor stage to maintain accuracy, and if so, how to structure such a model.",
+          "Whether defrost cycle data needed to be separated from non-defrost data to produce valid models.",
+          "Whether a purely data-driven neural model could achieve required accuracy while remaining explainable enough for pharmaceutical audit requirements.",
+          "Whether independent per-zone controllers with feed-forward from neighboring zones could achieve stability without oscillation.",
+          "How to incorporate an unreliable outside air temperature sensor (affected by direct sun exposure) as a disturbance input without degrading model accuracy for zone nine."
+        ],
+        "technological_objective": "To advance knowledge in multi-zone refrigeration control modeling; specifically, dynamic thermal coupling identification and disturbance-input modeling; for the purposes of creating a controller that maintains half-degree temperature stability across interacting, shared-compressor-rack zones under variable real-world load conditions.",
+        "work_performed": {
+          "prior_year_status": null,
+          "workplan_steps": [
+            "Establish a baseline using the existing controller at a twelve-zone test warehouse in Abbotsford, logging all sensors at one-second resolution for three weeks.",
+            "Hold configuration constant and vary one operating condition at a time: single dock door openings on a fixed schedule, addition of warm pallets in known amounts, and forced compressor staging.",
+            "Record and analyze the response of every zone after each isolated variable change.",
+            "Split collected data into defrost and non-defrost windows before model fitting.",
+            "Build and test a first linear model with fixed coupling terms.",
+            "Develop a second model where coupling terms vary with compressor stage.",
+            "Identify and address remaining outlier zone (zone nine) by adding an outside air temperature sensor as a disturbance input.",
+            "Test alternative modeling approaches (neural network, per-zone feed-forward controllers) and evaluate against explainability and stability requirements."
+          ],
+          "hypothesis": "If single-variable disturbances are deliberately introduced and recorded one at a time under controlled conditions, then a model of the thermal coupling between zones sharing a compressor rack can be identified from the resulting data, enabling improved multi-zone temperature control accuracy.",
+          "experiments_iterations": [
+            {
+              "problem_addressed": "Establishing baseline understanding of existing controller performance and system behavior.",
+              "approach": "Logged all sensors at one-second resolution for three weeks at a twelve-zone test warehouse using the existing PID controller.",
+              "results": "Baseline temperature drift and coupling behavior documented under normal operation.",
+              "conclusions": "Baseline established as reference point for evaluating new models."
+            },
+            {
+              "problem_addressed": "Isolating the effect of individual operating variables on multi-zone temperature response.",
+              "approach": "Held configuration constant and changed one variable at a time: single dock door openings on a fixed schedule, known warm pallet additions, and forced compressor staging; response of every zone recorded after each change.",
+              "results": "Coupling between zones sharing a rack was stronger than assumed (about 60% of disturbance in zone four came from zone three); defrost cycles masked model behavior for about twenty minutes.",
+              "conclusions": "Data needed to be split into defrost and non-defrost windows before any model would be valid; single-variable disturbance testing was a viable method to identify coupling."
+            },
+            {
+              "problem_addressed": "Modeling zone coupling to predict temperature response accurately.",
+              "approach": "Built a linear model with fixed coupling terms based on the isolated-variable data.",
+              "results": "Model predicted steady-state conditions well but failed during receiving when product mass changed quickly, with error rising to about 1.5 degrees.",
+              "conclusions": "Fixed linear coupling terms were insufficient to capture dynamic, load-dependent coupling behavior."
+            },
+            {
+              "problem_addressed": "Improving model accuracy during dynamic load changes (receiving hours).",
+              "approach": "Developed a second model where coupling terms varied with compressor stage.",
+              "results": "Kept error under half a degree in eleven of twelve zones; zone nine still drifted due to unmeasured outside air influence near the loading bay.",
+              "conclusions": "Stage-dependent coupling terms significantly improved accuracy but revealed the need to account for external disturbance inputs not previously measured."
+            },
+            {
+              "problem_addressed": "Correcting temperature drift in zone nine caused by unmeasured outside air influence.",
+              "approach": "Added an outside air temperature sensor near the loading bay and fed its reading into the model as a disturbance input.",
+              "results": "Zone nine came within band when the sensor was shaded, but readings became unreliable in direct sunlight.",
+              "conclusions": "Outside air sensing improved zone nine performance but introduced a new unresolved uncertainty regarding sensor reliability under direct sun exposure."
+            },
+            {
+              "problem_addressed": "Evaluating whether a purely data-driven approach could meet both accuracy and explainability requirements.",
+              "approach": "Tested a data-driven neural model to predict multi-zone temperature response.",
+              "results": "Model could not explain why it made specific control decisions.",
+              "conclusions": "Neural model approach was rejected due to lack of explainability required for pharmaceutical audit compliance."
+            },
+            {
+              "problem_addressed": "Evaluating whether independent per-zone control with feed-forward could handle coupling without a centralized coupling model.",
+              "approach": "Implemented separate controllers per zone with feed-forward signals from neighbouring zones.",
+              "results": "System oscillated whenever two neighbouring zones reacted to each other.",
+              "conclusions": "Feed-forward-only architecture was unstable and rejected in favor of the centralized, stage-dependent coupling model."
+            }
+          ]
+        },
+        "advancements_achieved": [
+          "Determined that thermal coupling between zones sharing a compressor rack can be identified through deliberate single-variable disturbance testing rather than requiring purely observational data from normal operation.",
+          "Established that coupling terms must vary dynamically with compressor stage to maintain sub-half-degree accuracy during rapidly changing load conditions such as receiving.",
+          "Established that defrost cycle periods must be modeled separately from non-defrost periods, as defrost masks the true system response for approximately twenty minutes.",
+          "Quantified the strength of inter-zone coupling on a shared rack (approximately 60% of disturbance in one zone attributable to a neighboring zone).",
+          "Determined that purely data-driven neural models, while potentially accurate, are unsuitable for this application due to lack of explainability required for regulatory/audit purposes.",
+          "Determined that decentralized per-zone feed-forward control architectures are prone to oscillation instability when neighboring zones interact."
+        ],
+        "remaining_uncertainties": [
+          "How to incorporate an outside air temperature disturbance input into the model when the sensor itself becomes unreliable under certain conditions (direct sunlight).",
+          "Whether additional zones with similar unmeasured external disturbances exist and would require similar sensor and modeling interventions."
+        ],
+        "project_status": "Ongoing; substantial progress achieved this fiscal year (stage-dependent coupling model successfully controlling eleven of twelve zones within target band), but the outside air sensor reliability issue for zone nine remains unresolved and is carrying into next year's work.",
+        "unreliable_narrator_flags": [
+          "Description of the product as keeping warehouses within a temperature band is a feature/performance description; needs reframing around the underlying modeling and control algorithm uncertainty rather than the physical outcome.",
+          "Mention of customer complaints and audit failures is business motivation and should be kept separate from the technical uncertainty narrative.",
+          "Time/resource allocation statement (60% of controls team time, sensor costs) is financial/administrative information, useful for support but not itself technical content."
+        ],
+        "gaps": [
+          "No detail provided on the specific mathematical form or algorithm used for the stage-dependent coupling model (e.g., what changes structurally between stages).",
+          "No detail on how model fitting/parameter estimation was performed (e.g., regression method, optimization approach) — data analyst's specific methodology is not described.",
+          "No quantitative detail on the neural network architecture or why exactly it failed to be explainable (e.g., was interpretability tooling attempted?).",
+          "No specifics on what 'forced compressor staging' entailed technically or how staging levels were defined.",
+          "Unclear whether any literature review or standard-practice search was formally documented beyond vendor application notes.",
+          "No explicit confirmation of prior-year status; transcript suggests this is a new project this fiscal year but this should be confirmed with the client."
+        ],
+        "useful_quotes": [
+          "None of them told us how to handle zones that interact. When zone three pulls hard, zone four loses capacity because they share a compressor rack.",
+          "We did not know whether we could separate the effect of each operating variable on the temperature response.",
+          "The coupling between zones sharing a rack was much stronger than we assumed, about sixty percent of the disturbance in zone four came from zone three.",
+          "The defrost cycle masked everything for about twenty minutes, so any model we fit across a defrost was wrong.",
+          "Our first attempt was a linear model with fixed coupling terms. It predicted steady conditions well but it failed during receiving, when the product mass changed quickly.",
+          "We are still working on that part.",
+          "We now know that the coupling between zones on a shared rack can be identified from deliberate single-variable disturbances, and that the coupling terms have to vary with compressor stage to stay accurate during receiving.",
+          "None of that was in the literature we started from.",
+          "We tried a purely data-driven neural model early on and it could not explain why it made a decision, which the pharmaceutical customers need for their audits.",
+          "We also tried separate controllers per zone with feed-forward from the neighbours, and it oscillated whenever two neighbours reacted to each other."
+        ]
+      }
+    }
+  ]
+}

@@ -1,13 +1,15 @@
 <script lang="ts">
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import { IconMegaphone } from "$lib/components/icons";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { userErrorMessage } from "$lib/errors";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { Streamdown } from "svelte-streamdown";
@@ -27,7 +29,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goToLogin();
     }
   });
 
@@ -142,7 +144,7 @@
         {/if}
 
         {#if entriesQ.data === undefined}
-          <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
+          <WorkspacePanelSkeleton layout="list" label="Loading updates" />
         {:else if entriesQ.data.length === 0}
           <p class="mt-10 text-sm text-ink-faint">Nothing published yet — check back after the next sprint.</p>
         {:else}
@@ -169,7 +171,8 @@
                     {/if}
                   </span>
                 </div>
-                <div class="chat-markdown mt-3 text-sm leading-relaxed text-ink-secondary">
+                <!-- Long prose keeps a reading measure while the card runs the panel's full width. -->
+                <div class="chat-markdown mt-3 max-w-3xl text-sm leading-relaxed text-ink-secondary">
                   <Streamdown content={entry.body} />
                 </div>
               </article>
@@ -181,11 +184,9 @@
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="What's new" icon={IconMegaphone} />
 {:else}
-  <WorkspaceGate currentWhileLoading={false}>
+  <WorkspaceGate currentWhileLoading={false} pendingTitle="What's new" pendingIcon={IconMegaphone}>
     {#snippet current()}
       <div class="flex flex-1 flex-col bg-canvas">
         <AppNav breadcrumbs={[{ label: "What's new" }]} />
@@ -194,7 +195,7 @@
       </div>
     {/snippet}
     {#snippet preview()}
-      <WorkspaceChrome title="What's new" description="Features and fixes shipped to Banhall">
+      <WorkspaceChrome title="What's new" description="Features and fixes shipped to Banhall" icon={IconMegaphone}>
         {#snippet children()}
           {@render changelogContent(false)}
         {/snippet}

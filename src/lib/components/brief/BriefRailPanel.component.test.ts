@@ -81,8 +81,8 @@ describe("BriefRailPanel", () => {
     __setQueryData("generations:getContextInclusion", recordedInclusion);
     const { container } = await render(BriefRailPanel, { generationId, projectId });
     expect(container.querySelector("aside")?.getAttribute("aria-label")).toBe("Brief");
-    expect(container.textContent).toContain("1 of 2 documents in context · cap 12");
-    expect(container.textContent).toContain("not included · archived");
+    expect(container.textContent).toContain("1 of 2 documents in context, cap 12");
+    expect(container.textContent).toContain("not included (archived)");
     // The inline placement has no close button.
     expect(page.getByRole("button", { name: "Close Brief" }).elements()).toHaveLength(0);
   });

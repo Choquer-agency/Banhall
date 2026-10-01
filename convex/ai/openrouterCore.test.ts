@@ -3,11 +3,15 @@ import {
   toChatCompletions,
   fromChatCompletions,
   requireTextResponse,
+  firstResponseText,
   openRouterUsage,
+  requestCacheWriteTtl,
   shouldRetryStatus,
   retryDelayMs,
   isAbortLikeError,
   MalformedOutputError,
+  OutputLimitError,
+  isCutOffStopReason,
   RETRY_MAX_DELAY_MS,
 } from "./openrouterCore";
 import {
@@ -15,11 +19,63 @@ import {
   PROVIDER_LOGOS,
   gatewayForModel,
   comparePairFromSlots,
+  isKnownModel,
   maxTokensWithReasoningHeadroom,
+  modelById,
+  registerModelEntries,
+  requestModelId,
+  resetRegisteredModelEntries,
   sectionAnswerTokenBudget,
+  seedModelById,
+  acceptsForcedToolChoice,
+  toolOnlyReplyLine,
+  toolRequestForModel,
 } from "../../shared/generationModels";
+import { pricingFor } from "../../shared/modelPricing";
 
 describe("toChatCompletions", () => {
+  it("leaves a fallback that rejects a forced tool call off a forced request (models review P3-4)", () => {
+    const params = {
+      model: "anthropic/claude-sonnet-5",
+      max_tokens: 100,
+      messages: [{ role: "user" as const, content: "Judge it." }],
+      tools: [{ name: "submit", description: "Submit.", input_schema: { type: "object" as const } }],
+    };
+    const fallbackModels = ["anthropic/claude-opus-5.5", "anthropic/claude-opus-4.8"];
+    const forced = toChatCompletions({ ...params, tool_choice: { type: "tool", name: "submit" } }, { fallbackModels });
+    expect(forced.tool_choice).toEqual({ type: "function", function: { name: "submit" } });
+    expect(forced.models).toEqual(["anthropic/claude-sonnet-5", "anthropic/claude-opus-4.8"]);
+    // Unforced, every fallback stays.
+    const unforced = toChatCompletions(params, { fallbackModels });
+    expect(unforced.models).toEqual(["anthropic/claude-sonnet-5", ...fallbackModels]);
+  });
+
+  it("keeps cache breakpoints for Anthropic models and joins blocks for the rest", () => {
+    const content = [
+      { type: "text" as const, text: "Shared sources. ", cache_control: { type: "ephemeral" as const, ttl: "1h" as const } },
+      { type: "text" as const, text: "Role tail." },
+    ];
+    const anthropicBody = toChatCompletions({
+      model: "anthropic/claude-sonnet-5",
+      max_tokens: 100,
+      system: "Policy",
+      messages: [{ role: "user", content }],
+    });
+    expect(anthropicBody.messages[1]).toEqual({ role: "user", content });
+    expect(anthropicBody.messages[1].content).not.toBe(content);
+    for (const model of ["openai/gpt-5.6-sol", "google/gemini-3.5-flash"]) {
+      const body = toChatCompletions({
+        model,
+        max_tokens: 100,
+        messages: [{ role: "user", content }],
+      });
+      // Same bytes as the joined text, so the automatic prefix caches of
+      // these providers see one stable string.
+      expect(body.messages).toEqual([{ role: "user", content: "Shared sources. Role tail." }]);
+      expect(JSON.stringify(body)).not.toContain("cache_control");
+    }
+  });
+
   it("prepends system as a system message and passes tokens through", () => {
     const body = toChatCompletions({
       model: "claude-sonnet-5",
@@ -187,10 +243,42 @@ describe("fromChatCompletions", () => {
 
     expect(() =>
       requireTextResponse(
-        { content: [], stop_reason: "max_tokens" },
+        { content: [], stop_reason: "refusal" },
         "Section 244 agent"
       )
-    ).toThrow(/stop reason: max_tokens/);
+    ).toThrow(/stop reason: refusal/);
+  });
+
+  it("refuses a text answer cut off at the output limit, on either gateway's stop reason", () => {
+    for (const stop_reason of ["max_tokens", "length"]) {
+      let caught: unknown;
+      try {
+        requireTextResponse(
+          { content: [{ type: "text", text: "The team tested the seal at" }], stop_reason },
+          "Section 244 agent"
+        );
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(OutputLimitError);
+      expect(caught).toBeInstanceOf(MalformedOutputError);
+      expect(String(caught)).toContain(
+        "Section 244 agent response was truncated at the max_tokens limit before completing"
+      );
+    }
+  });
+
+  it("marks OpenRouter length truncation as a cut-off answer", () => {
+    expect(() =>
+      fromChatCompletions({
+        choices: [{ message: { content: "partial" }, finish_reason: "length" }],
+      })
+    ).toThrow(OutputLimitError);
+    expect(isCutOffStopReason("max_tokens")).toBe(true);
+    expect(isCutOffStopReason("length")).toBe(true);
+    for (const reason of ["end_turn", "tool_use", "stop", "tool_calls", null, undefined]) {
+      expect(isCutOffStopReason(reason)).toBe(false);
+    }
   });
 
   it("throws on empty responses with the provider message when present", () => {
@@ -317,6 +405,67 @@ describe("openRouterUsage", () => {
     });
   });
 
+  it("subtracts cache writes too and reports them separately", () => {
+    expect(
+      openRouterUsage({
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 10,
+          cost: 0.01,
+          prompt_tokens_details: { cached_tokens: 600, cache_write_tokens: 300 },
+        },
+      })
+    ).toEqual({
+      inputTokens: 100,
+      outputTokens: 10,
+      cacheReadInputTokens: 600,
+      cacheCreationInputTokens: 300,
+      costUsd: 0.01,
+    });
+    // A write count past the uncached remainder is clamped, never negative.
+    expect(
+      openRouterUsage({
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 1,
+          prompt_tokens_details: { cached_tokens: 90, cache_write_tokens: 50 },
+        },
+      })
+    ).toEqual({
+      inputTokens: 0,
+      outputTokens: 1,
+      cacheReadInputTokens: 90,
+      cacheCreationInputTokens: 10,
+    });
+  });
+
+  it("attributes cache writes to the TTL the request asked for", () => {
+    const body = {
+      usage: {
+        prompt_tokens: 1_000,
+        completion_tokens: 10,
+        prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 800 },
+      },
+    };
+    const oneHour = { messages: [{ role: "user", content: [
+      { type: "text", text: "Shared", cache_control: { type: "ephemeral", ttl: "1h" } },
+      { type: "text", text: "Tail" },
+    ] }] };
+    const fiveMinute = { messages: [{ role: "user", content: [
+      { type: "text", text: "Shared", cache_control: { type: "ephemeral" } },
+    ] }] };
+    expect(requestCacheWriteTtl(oneHour)).toBe("1h");
+    expect(requestCacheWriteTtl(fiveMinute)).toBe("5m");
+    expect(requestCacheWriteTtl({ messages: [{ role: "user", content: "plain" }] })).toBeNull();
+    expect(openRouterUsage(body, { cacheWriteTtl: requestCacheWriteTtl(oneHour) })).toMatchObject({
+      cacheCreationInputTokens: 800,
+      cacheCreation1hInputTokens: 800,
+    });
+    const fiveMinuteUsage = openRouterUsage(body, { cacheWriteTtl: requestCacheWriteTtl(fiveMinute) });
+    expect(fiveMinuteUsage).toMatchObject({ cacheCreationInputTokens: 800 });
+    expect(fiveMinuteUsage).not.toHaveProperty("cacheCreation1hInputTokens");
+  });
+
   it("omits costUsd when absent and rejects missing or wholly malformed usage", () => {
     expect(openRouterUsage({ usage: { prompt_tokens: 10, completion_tokens: 5 } })).toEqual({
       inputTokens: 10,
@@ -383,5 +532,116 @@ describe("model registry invariants", () => {
       expect(pair).toHaveLength(2);
       expect(gatewayForModel(pair![1])).toBe("anthropic");
     }
+  });
+});
+
+describe("models added 2026-09-25", () => {
+  const direct = [
+    { id: "claude-opus-5-5", label: "Opus 5.5" },
+  ];
+  const gateway = [
+    { id: "openai/gpt-6-sol", label: "GPT-6 Sol" },
+    { id: "openai/gpt-6-luna", label: "GPT-6 Luna" },
+  ];
+
+  it("resolve from the seed without a catalog read", () => {
+    for (const { id, label } of [...direct, ...gateway]) {
+      expect(isKnownModel(id), id).toBe(true);
+      expect(modelById(id)?.label, id).toBe(label);
+      expect(seedModelById(id)?.id, id).toBe(id);
+      expect(requestModelId(id), id).toBe(id);
+      expect(pricingFor(id), id).not.toBeNull();
+    }
+  });
+
+  it("route Opus 5.5 direct to Anthropic, budgeted like Sonnet 5", () => {
+    for (const { id } of direct) {
+      expect(gatewayForModel(id), id).toBe("anthropic");
+      expect(sectionAnswerTokenBudget(id), id).toBe(sectionAnswerTokenBudget("claude-sonnet-5"));
+      // Direct Anthropic entries declare no reasoning headroom, like Sonnet 5.
+      expect(modelById(id)?.reasoning, id).toBeUndefined();
+      expect(modelById(id)?.maxCompletionTokens, id).toBeUndefined();
+      expect(maxTokensWithReasoningHeadroom(id, 8192), id).toBe(8192);
+      expect(modelById(id)?.forcedToolChoice, id).toBe(false);
+      expect(acceptsForcedToolChoice(id), id).toBe(false);
+    }
+  });
+
+  it("route GPT-6 Sol and Luna through OpenRouter with reasoning headroom", () => {
+    for (const { id } of gateway) {
+      expect(gatewayForModel(id), id).toBe("openrouter");
+      expect(sectionAnswerTokenBudget(id), id).toBe(4096);
+      expect(modelById(id)).toMatchObject({ provider: "OpenAI", reasoning: true, maxCompletionTokens: 128000 });
+      expect(maxTokensWithReasoningHeadroom(id, 4096), id).toBe(16384);
+      expect(maxTokensWithReasoningHeadroom(id, 40000), id).toBe(128000);
+      // OpenAI reasoning models accept a forced named function (assumed;
+      // verified only through the stubbed boundary).
+      expect(acceptsForcedToolChoice(id), id).toBe(true);
+    }
+  });
+
+  it("rejects forced tool calls only for Opus 5.5, Fable 5.1 and Mythos 5.1, by either gateway id", () => {
+    expect(CANDIDATE_MODELS.filter((model) => !acceptsForcedToolChoice(model.id)).map((model) => model.id)).toEqual([
+      "claude-opus-5-5",
+    ]);
+    // Fable 5.1 is no longer a seed but keeps the rule for any row that lists it.
+    expect(acceptsForcedToolChoice("claude-fable-5-1")).toBe(false);
+    expect(modelById("claude-fable-5-1")).toBeUndefined();
+    for (const id of [
+      "anthropic/claude-opus-5.5",
+      "anthropic/claude-fable-5.1",
+      "anthropic/claude-mythos-5.1",
+      "claude-mythos-5-1",
+    ]) {
+      expect(acceptsForcedToolChoice(id), id).toBe(false);
+    }
+    for (const id of ["claude-sonnet-5", "anthropic/claude-sonnet-5", "claude-opus-4-8", "some-legacy-model"]) {
+      expect(acceptsForcedToolChoice(id), id).toBe(true);
+    }
+    // A catalog model registered from its frozen entry carries the flag.
+    try {
+      registerModelEntries([
+        { id: "vendor/new-model", label: "New", provider: "Vendor", gateway: "openrouter", reasoning: true, forcedToolChoice: false },
+      ]);
+      expect(acceptsForcedToolChoice("vendor/new-model")).toBe(false);
+    } finally {
+      resetRegisteredModelEntries();
+    }
+  });
+
+  it("decides the tool setting in one place and leaves accepting models untouched", () => {
+    const forced = { type: "tool", name: "record" };
+    const same = toolRequestForModel("claude-sonnet-5", forced, "System.");
+    expect(same.toolChoice).toBe(forced);
+    expect(same.system).toBe("System.");
+    expect(toolRequestForModel("claude-opus-5-5", undefined, "System.")).toEqual({ toolChoice: undefined, system: "System." });
+    expect(toolRequestForModel("claude-opus-5-5", forced, "System.")).toEqual({
+      toolChoice: { type: "auto", disable_parallel_tool_use: true },
+      system: `System.\n\n${toolOnlyReplyLine("record")}`,
+    });
+    expect(toolOnlyReplyLine("record")).toBe(
+      "Reply only by calling the record tool, exactly once. A tool call is the only valid reply."
+    );
+    const blocks = toolRequestForModel("claude-fable-5-1", { type: "any" }, [{ type: "text", text: "Cached." }]);
+    expect(blocks.system).toEqual([{ type: "text", text: "Cached." }, { type: "text", text: toolOnlyReplyLine(undefined) }]);
+    expect(toolRequestForModel("anthropic/claude-opus-5.5", forced, undefined).system).toBe(toolOnlyReplyLine("record"));
+  });
+});
+
+describe("firstResponseText", () => {
+  it("skips a leading thinking block and returns the first text block", () => {
+    expect(
+      firstResponseText({
+        content: [
+          { type: "thinking", thinking: "planning the cut" },
+          { type: "text", text: "Compressed section." },
+        ],
+      } as never)
+    ).toBe("Compressed section.");
+  });
+
+  it("returns an empty string when the reply has no text block", () => {
+    expect(firstResponseText({ content: [{ type: "thinking", thinking: "only thoughts" }] } as never)).toBe("");
+    expect(firstResponseText({ content: [] })).toBe("");
   });
 });

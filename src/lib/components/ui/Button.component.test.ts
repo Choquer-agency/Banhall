@@ -75,8 +75,10 @@ describe("Button", () => {
     });
 
     const classes = document.body.querySelector("a")?.className ?? "";
-    for (const token of ["bg-chrome", "text-ink", "border-line", "hover:bg-primary-wash", "min-h-11"])
+    for (const token of ["bg-chrome", "text-ink", "border-transparent", "hover:bg-primary-wash", "min-h-11"])
       expect(classes).toContain(token);
+    // Secondary buttons are borderless (ui-design-final.md section 1).
+    expect(classes).not.toContain("border-line");
   });
 
   it("maps the default action to accessible brand pairs in light and dark themes", async () => {
@@ -92,6 +94,17 @@ describe("Button", () => {
     expect(getComputedStyle(darkButton).backgroundColor).toBe("rgb(43, 193, 186)");
     expect(getComputedStyle(darkButton).color).toBe("rgb(10, 58, 56)");
     document.body.removeAttribute("data-workspace-theme");
+  });
+
+  it("paints the destructive-soft variant as a soft red fill with red ink that deepens on hover", async () => {
+    await render(Button, { variant: "destructive-soft", children: label });
+    const button = document.body.querySelector("button")!;
+    const classes = button.className;
+    for (const token of ["bg-destructive-soft", "text-destructive-soft-ink", "hover:bg-destructive-soft-hover", "hover:text-destructive-soft-ink-hover", "focus-visible:ring-danger"])
+      expect(classes).toContain(token);
+    // Round 2 HANDOFF: soft red #FEE2E2 fill, #B91C1C text.
+    expect(getComputedStyle(button).backgroundColor).toBe("rgb(254, 226, 226)");
+    expect(getComputedStyle(button).color).toBe("rgb(185, 28, 28)");
   });
 
   it("keeps the anchor and button class strings identical for the same props (no branch drift)", async () => {

@@ -22,7 +22,7 @@ export {
   isImageFile,
   normalizeExtractedText,
 } from "../../shared/documentStatus";
-import { isImageFile } from "../../shared/documentStatus";
+import { isImageFile, normalizeExtractedText } from "../../shared/documentStatus";
 
 export type ParsedFileType =
   | "txt"
@@ -39,11 +39,60 @@ export interface ParsedDocument {
   fileName: string;
   fileType: ParsedFileType;
   content: string;
+  /** PDFs only: the document's page count. */
+  pageCount?: number;
+  /** PDFs only: where each page read starts in `content` (character offset). */
+  pageOffsets?: number[];
+}
+
+/** Reading progress for New project's supporting-document cards (E1): PDFs
+ * report pages read over total; spreadsheets pass their worker phases
+ * through; everything else is indeterminate. Only "pages" is measurable. */
+export type ParseProgress =
+  | { kind: "pages"; done: number; total: number }
+  | { kind: "indeterminate" }
+  | SpreadsheetProgress;
+
+export interface ParseOptions {
+  signal?: AbortSignal;
+  onProgress?: (progress: ParseProgress) => void;
 }
 
 import { capContent, MAX_CONTENT_CHARS } from "./documentContent";
-import { parseSpreadsheet, type SpreadsheetParseOptions } from "./spreadsheetClient";
+import { parseSpreadsheet } from "./spreadsheetClient";
+import type { SpreadsheetProgress } from "./spreadsheetProtocol";
 export { capContent } from "./documentContent";
+
+function parseAborted(): DOMException {
+  return new DOMException("Document extraction canceled", "AbortError");
+}
+
+/**
+ * Where each page's text starts in the final (normalized, capped) content.
+ * Normalization only trims line ends and collapses blank-line runs, so each
+ * page's own normalized text is found in order; a page with no text starts
+ * where the previous one ended.
+ */
+export function locatePageOffsets(content: string, pages: readonly string[]): number[] {
+  const offsets: number[] = [];
+  let cursor = 0;
+  for (const page of pages) {
+    const text = normalizeExtractedText(page);
+    if (!text) {
+      offsets.push(Math.min(cursor, content.length));
+      continue;
+    }
+    const probe = text.slice(0, 40);
+    const index = content.indexOf(probe, cursor);
+    if (index < 0) {
+      offsets.push(Math.min(cursor, content.length));
+      continue;
+    }
+    offsets.push(index);
+    cursor = index + text.length;
+  }
+  return offsets;
+}
 
 /** Whole-file budget for PDF text extraction — engineering-drawing PDFs
  * (huge vector pages) can stall pdf.js indefinitely; partial text beats a
@@ -147,9 +196,12 @@ async function emlToText(raw: string): Promise<string> {
  * Supports .txt / .md (read directly), .docx (mammoth), and .pdf (pdf.js).
  * Anything else is read as text on a best-effort basis.
  */
-export async function parseFileToText(file: File, options: SpreadsheetParseOptions = {}): Promise<ParsedDocument> {
+export async function parseFileToText(file: File, options: ParseOptions = {}): Promise<ParsedDocument> {
   const name = file.name;
   const lower = name.toLowerCase();
+  const { signal, onProgress } = options;
+  if (signal?.aborted) throw parseAborted();
+  if (!lower.endsWith(".pdf")) onProgress?.({ kind: "indeterminate" });
 
   if (lower.endsWith(".txt")) {
     return { fileName: name, fileType: "txt", content: capContent(await file.text()) };
@@ -174,12 +226,20 @@ export async function parseFileToText(file: File, options: SpreadsheetParseOptio
     const loadingTask = pdfjs.getDocument({
       data: arrayBuffer,
       useSystemFonts: true,
+      // The Content Security Policy has no 'unsafe-eval'; text extraction
+      // never needs it, so pdf.js should not try.
+      isEvalSupported: false,
     });
     let text = "";
     let truncatedAtPage = 0;
+    let pageCount = 0;
+    const pages: string[] = [];
     try {
       const pdf = await withDeadline(loadingTask.promise, deadline);
+      pageCount = pdf.numPages;
+      onProgress?.({ kind: "pages", done: 0, total: pageCount });
       for (let i = 1; i <= pdf.numPages; i++) {
+        if (signal?.aborted) throw parseAborted();
         try {
           const page = await withDeadline(pdf.getPage(i), deadline);
           const content = await withDeadline(page.getTextContent(), deadline);
@@ -187,6 +247,8 @@ export async function parseFileToText(file: File, options: SpreadsheetParseOptio
             .map((item) => ("str" in item ? item.str : ""))
             .join(" ");
           text += strings + "\n\n";
+          pages.push(strings);
+          onProgress?.({ kind: "pages", done: i, total: pageCount });
         } catch (e) {
           if (!(e instanceof ParseTimeout)) throw e;
           truncatedAtPage = i;
@@ -206,14 +268,21 @@ export async function parseFileToText(file: File, options: SpreadsheetParseOptio
     if (truncatedAtPage > 0) {
       text += pdfPageStopMarker(truncatedAtPage);
     }
-    return { fileName: name, fileType: "pdf", content: capContent(text.trim()) };
+    const content = capContent(text.trim());
+    return {
+      fileName: name,
+      fileType: "pdf",
+      content,
+      pageCount,
+      pageOffsets: locatePageOffsets(content, pages),
+    };
   }
 
   if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
     return {
       fileName: name,
       fileType: "xlsx",
-      content: await parseSpreadsheet(file, options),
+      content: await parseSpreadsheet(file, { signal, onProgress }),
     };
   }
 

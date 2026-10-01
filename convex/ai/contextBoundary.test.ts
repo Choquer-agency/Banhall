@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   ANALYZER_CATEGORY_LABELS,
   CONTEXT_SCAFFOLDS,
+  buildSeedTrustedContext,
   buildTrustedContext,
 } from "./trustedContext";
+import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import {
   EVIDENCE_LABELS,
   buildChatEvidence,
@@ -173,14 +175,19 @@ const chat = (context: Partial<ChatTurnContext>): Built => {
   const request = buildChatTurnRequest({
     context: { ...emptyChatContext, ...context },
   });
-  // Every assertion below runs against this one string. If the builder ever
-  // prepends a message or switches to a content-parts array, the cast would
-  // silently point them at the wrong bytes, so the shape is checked first.
-  expect(request.messages).toHaveLength(1);
-  expect(request.messages[0].role).toBe("user");
-  expect(typeof request.messages[0].content).toBe("string");
+  // Every assertion below runs against the joined evidence. Since cost
+  // phase 1 the evidence is split into a cached head (guidance, analysis,
+  // documents) and a per-turn tail (report, decisions, open questions); each
+  // part must still be a plain user-role string, or the cast would point at
+  // the wrong bytes.
+  expect(request.messages.length).toBeGreaterThanOrEqual(1);
+  expect(request.headCount).toBeGreaterThanOrEqual(1);
+  for (const message of request.messages) {
+    expect(message.role).toBe("user");
+    expect(typeof message.content).toBe("string");
+  }
   return {
-    message: request.messages[0].content as string,
+    message: request.messages.map((message) => message.content as string).join("\n\n"),
     system: request.system,
   };
 };
@@ -204,6 +211,70 @@ const chatEvidence = (reportText: string, analysisText: string): Built => {
 };
 
 const slots: Slot[] = [
+  {
+    name: "seed generation: frozen source excerpt",
+    pipeline: "generation",
+    guidance: SEED_PROMPT_PROGRAM.user.guidance,
+    blockLabel:
+      "FROZEN SOURCE EXCERPT kind=transcript sourceId=source-boundary contentHash=sha256:boundary label=Boundary transcript",
+    hasSystem: false,
+    build: (payload) => {
+      const built = buildSeedTrustedContext({
+        mode: "batch",
+        objective: "Describe the technical uncertainty.",
+        brief: { storyline: "Frozen storyline." },
+        sources: [
+          {
+            sourceId: "source-boundary",
+            label: "Boundary transcript",
+            kind: "transcript",
+            content: payload,
+            contentHash: "sha256:boundary",
+          },
+        ],
+        projection: {
+          decisions: '{"items":[],"v":1}',
+          feedback: '{"items":[],"v":1}',
+        },
+        writerSettings: {},
+        lengthTarget: "standard",
+      });
+      return { message: built.userMessage, system: systemOf(built) };
+    },
+  },
+  {
+    name: "seed feedback: frozen writer instruction",
+    pipeline: "generation",
+    guidance: SEED_PROMPT_PROGRAM.user.guidance,
+    blockLabel: SEED_PROMPT_PROGRAM.user.blocks.feedback,
+    hasSystem: false,
+    build: (payload) => {
+      const built = buildSeedTrustedContext({
+        mode: "feedback",
+        objective: "Describe the technical uncertainty.",
+        brief: { storyline: "Frozen storyline." },
+        sources: [],
+        projection: {
+          decisions: '{"items":[],"v":1}',
+          feedback: JSON.stringify({
+            v: 1,
+            items: [
+              {
+                kind: "ownFeedback",
+                roleId: "active_uncertainties",
+                feedbackRequestId: "feedback-boundary",
+                seedId: "seed-boundary",
+                text: payload,
+              },
+            ],
+          }),
+        },
+        writerSettings: {},
+        lengthTarget: "standard",
+      });
+      return { message: built.userMessage, system: systemOf(built) };
+    },
+  },
   {
     name: "generation: writer_notes document from an internal uploader",
     pipeline: "generation",

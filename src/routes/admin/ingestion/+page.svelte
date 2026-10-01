@@ -1,8 +1,11 @@
 <script lang="ts">
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
+  import { IconShield } from "$lib/components/icons";
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import Button from "$lib/components/ui/Button.svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { resolve } from "$app/paths";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { Dialog, DropdownMenu, Tabs } from "bits-ui";
@@ -66,7 +69,7 @@
   const runsQ = useQuery(api.ingestion.listSyncRuns, () => auth.isAuthenticated ? {} : "skip");
 
   $effect(() => {
-    if (!auth.isLoading && !auth.isAuthenticated) goto(resolve("/login"), { replaceState: true });
+    if (!auth.isLoading && !auth.isAuthenticated) goToLogin();
   });
 
   const stats = $derived(statsQ.data);
@@ -304,7 +307,7 @@
 </script>
 
 {#snippet spinner()}
-  <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
+  <WorkspacePanelSkeleton layout="list" label="Loading imports" />
 {/snippet}
 
 {#snippet sheetRow(item: Item, selectable: boolean)}
@@ -340,7 +343,7 @@
       </span>
       <span class="flex min-w-0 items-center gap-1.5 border-r border-line-soft px-3 text-sm text-ink-secondary">
         {#if item.clientName?.includes("\uFFFD")}
-          <WarningCircleIcon size={15} class="shrink-0 text-amber-700" aria-hidden="true" />
+          <WarningCircleIcon size="0.9375rem" class="shrink-0 text-amber-700" aria-hidden="true" />
         {/if}
         <span class="truncate">{clientLabel(item)}</span>
       </span>
@@ -367,7 +370,7 @@
         class="flex items-center justify-center border-l border-line-soft text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary-selected disabled:opacity-50 motion-reduce:transition-none"
         disabled={busyId === item._id}
       >
-        <DotsThreeIcon size={20} weight="bold" aria-hidden="true" />
+        <DotsThreeIcon size="1.25rem" weight="bold" aria-hidden="true" />
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="z-[100] w-52 overflow-hidden rounded-lg border border-line bg-white p-1 shadow-lg">
@@ -375,7 +378,7 @@
             onSelect={() => openReview(item)}
             class="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm text-ink-secondary outline-none transition-colors data-highlighted:bg-primary-wash data-highlighted:text-ink motion-reduce:transition-none"
           >
-            <ArrowRightIcon size={17} aria-hidden="true" class="shrink-0 text-ink-muted" />Review full file
+            <ArrowRightIcon size="1.0625rem" aria-hidden="true" class="shrink-0 text-ink-muted" />Review full file
           </DropdownMenu.Item>
           {#if item.status === "approved" && item.docKind === "pd"}
             {#if item.portedProjectId}
@@ -384,14 +387,14 @@
                 onSelect={() => goto(resolve("/project/[id]", { id: portedId }))}
                 class="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm text-ink-secondary outline-none transition-colors data-highlighted:bg-primary-wash data-highlighted:text-ink motion-reduce:transition-none"
               >
-                <ArrowRightIcon size={17} aria-hidden="true" class="shrink-0 text-ink-muted" />Open ported project
+                <ArrowRightIcon size="1.0625rem" aria-hidden="true" class="shrink-0 text-ink-muted" />Open ported project
               </DropdownMenu.Item>
             {:else}
               <DropdownMenu.Item
                 onSelect={() => portItem(item)}
                 class="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm text-ink-secondary outline-none transition-colors data-highlighted:bg-primary-wash data-highlighted:text-ink motion-reduce:transition-none"
               >
-                <FolderPlusIcon size={17} aria-hidden="true" class="shrink-0 text-ink-muted" />Port to project
+                <FolderPlusIcon size="1.0625rem" aria-hidden="true" class="shrink-0 text-ink-muted" />Port to project
               </DropdownMenu.Item>
             {/if}
           {/if}
@@ -400,7 +403,7 @@
               onSelect={() => restoreItem(item)}
               class="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm text-ink-secondary outline-none transition-colors data-highlighted:bg-primary-wash data-highlighted:text-primary-selected motion-reduce:transition-none"
             >
-              <ArrowCounterClockwiseIcon size={17} aria-hidden="true" class="shrink-0" />Restore to queue
+              <ArrowCounterClockwiseIcon size="1.0625rem" aria-hidden="true" class="shrink-0" />Restore to queue
             </DropdownMenu.Item>
           {:else if item.status !== "approved" && item.status !== "discovered" && item.status !== "fetched"}
             <DropdownMenu.Separator class="mx-2 my-1 h-px bg-line-soft" />
@@ -408,7 +411,7 @@
               onSelect={() => requestDelete(item)}
               class="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm text-red-700 outline-none transition-colors data-highlighted:bg-red-50 data-highlighted:text-red-700 motion-reduce:transition-none"
             >
-              <TrashIcon size={17} aria-hidden="true" class="shrink-0" />Move to Deleted
+              <TrashIcon size="1.0625rem" aria-hidden="true" class="shrink-0" />Move to Deleted
             </DropdownMenu.Item>
           {/if}
         </DropdownMenu.Content>
@@ -449,9 +452,9 @@
   </div>
 {/snippet}
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas"><Spinner /></div>
+  <WorkspaceLoadingShell layout="page" title="OneDrive import" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}
-  <AdminWorkspacePage title="OneDrive ingestion" description="Review historical PDs and transcripts before anything enters the Brain." flush>
+  <AdminWorkspacePage title="OneDrive import" description="Review historical PDs and transcripts before anything enters the Brain." flush>
     {#if stats === null}
       <p class="mt-8 text-sm text-ink-muted">Admin access only.</p>
     {:else}
@@ -473,13 +476,13 @@
         <div class="flex min-h-12 shrink-0 items-center justify-between gap-3 border-t border-line-soft px-3 lg:border-l lg:border-t-0">
           <p class="flex min-w-0 items-center gap-2 text-xs font-medium text-ink-secondary" title={stats?.graph.message}>
             {#if stats?.graph.state === "configured"}
-              <CheckCircleIcon size={16} class="shrink-0 text-emerald-700" aria-hidden="true" /><span class="truncate">Graph connected</span>
+              <CheckCircleIcon size="1rem" class="shrink-0 text-emerald-700" aria-hidden="true" /><span class="truncate">Graph connected</span>
             {:else}
-              <WarningCircleIcon size={16} class="shrink-0 text-amber-700" aria-hidden="true" /><span class="truncate">Graph not configured</span>
+              <WarningCircleIcon size="1rem" class="shrink-0 text-amber-700" aria-hidden="true" /><span class="truncate">Graph not configured</span>
             {/if}
           </p>
           <Button type="button" size="sm" class="min-h-9 shrink-0 gap-2" disabled={syncBusy || syncRunning || stats?.graph.state !== "configured"} onclick={runSync}>
-            <CloudArrowDownIcon size={16} aria-hidden="true" />{syncRunning ? "Syncing…" : "Sync now"}
+            <CloudArrowDownIcon size="1rem" aria-hidden="true" />{syncRunning ? "Syncing…" : "Sync now"}
           </Button>
         </div>
       </div>
@@ -494,7 +497,7 @@
             class="flex size-8 shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-white hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary motion-reduce:transition-none"
             onclick={clearSelection}
           >
-            <XIcon size={16} aria-hidden="true" />
+            <XIcon size="1rem" aria-hidden="true" />
           </button>
           <p class="px-1 text-sm font-semibold tabular-nums text-ink">{selectedIds.length} selected</p>
           <span class="mx-2 h-4 w-px bg-primary/25" aria-hidden="true"></span>
@@ -503,21 +506,21 @@
             class="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-ink-secondary transition-colors hover:bg-white hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary motion-reduce:transition-none"
             onclick={() => selectedItems[0] && openReview(selectedItems[0])}
           >
-            <ArrowRightIcon size={15} aria-hidden="true" />Review
+            <ArrowRightIcon size="0.9375rem" aria-hidden="true" />Review
           </button>
           <button
             type="button"
             class="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-ink-secondary transition-colors hover:bg-white hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary motion-reduce:transition-none"
             onclick={() => requestBulkAction("reject")}
           >
-            <ProhibitIcon size={15} aria-hidden="true" />Reject
+            <ProhibitIcon size="0.9375rem" aria-hidden="true" />Reject
           </button>
           <button
             type="button"
             class="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-red-600 motion-reduce:transition-none"
             onclick={() => requestBulkAction("delete")}
           >
-            <TrashIcon size={15} aria-hidden="true" />Delete
+            <TrashIcon size="0.9375rem" aria-hidden="true" />Delete
           </button>
         </div>
       {:else}
@@ -614,7 +617,7 @@
       >
         {#if reviewTarget}
           <header class="flex min-h-14 shrink-0 items-center gap-3 border-b border-line px-4">
-            <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-chrome text-ink-muted"><FileTextIcon size={17} aria-hidden="true" /></span>
+            <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-chrome text-ink-muted"><FileTextIcon size="1.0625rem" aria-hidden="true" /></span>
             <div class="min-w-0 flex-1">
               <Dialog.Title class="truncate text-base font-semibold text-ink">{reviewTarget.name}</Dialog.Title>
               <Dialog.Description class="truncate text-xs text-ink-muted">{reviewTarget.path.includes("\uFFFD") ? "Path contains unreadable characters" : reviewTarget.path}</Dialog.Description>
@@ -624,7 +627,7 @@
               disabled={busyId !== null}
               class="flex size-11 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none"
             >
-              <XIcon size={19} aria-hidden="true" />
+              <XIcon size="1.1875rem" aria-hidden="true" />
             </Dialog.Close>
           </header>
 
@@ -642,19 +645,19 @@
               <div class="p-5">
                 {#if reviewTarget.extractNote}
                   <p class="mb-3 flex items-start gap-2 text-xs font-medium text-amber-800">
-                    <WarningCircleIcon class="mt-0.5 shrink-0" size={15} aria-hidden="true" />{reviewTarget.extractNote}
+                    <WarningCircleIcon class="mt-0.5 shrink-0" size="0.9375rem" aria-hidden="true" />{reviewTarget.extractNote}
                   </p>
                 {/if}
                 {#if reviewTarget.error}
                   <p class="mb-3 flex items-start gap-2 text-xs font-medium text-red-700" role="alert">
-                    <WarningCircleIcon class="mt-0.5 shrink-0" size={15} aria-hidden="true" />{reviewTarget.error}
+                    <WarningCircleIcon class="mt-0.5 shrink-0" size="0.9375rem" aria-hidden="true" />{reviewTarget.error}
                   </p>
                 {/if}
                 {#if reviewTarget.text}
                   <pre class="whitespace-pre-wrap font-sans text-sm leading-6 text-ink-secondary">{reviewTarget.text}</pre>
                 {:else}
                   <div class="flex min-h-64 flex-col items-center justify-center text-center">
-                    <WarningCircleIcon size={24} class="text-amber-700" aria-hidden="true" />
+                    <WarningCircleIcon size="1.5rem" class="text-amber-700" aria-hidden="true" />
                     <p class="mt-3 text-sm font-medium text-ink">No extracted text is available.</p>
                     <p class="mt-1 max-w-sm text-xs text-ink-muted">Review the source file or resolve the extraction issue before approving it.</p>
                   </div>
@@ -714,7 +717,7 @@
                 </div>
               {:else if reviewTarget.status === "deleted"}
                 <Button type="button" class="mt-5 min-h-11 w-full justify-center gap-2" disabled={busyId === reviewTarget._id} onclick={restoreCurrentReview}>
-                  <ArrowCounterClockwiseIcon size={17} aria-hidden="true" />Restore to review queue
+                  <ArrowCounterClockwiseIcon size="1.0625rem" aria-hidden="true" />Restore to review queue
                 </Button>
               {:else}
                 <div class="mt-5 border-y border-line-soft py-4">
@@ -725,11 +728,11 @@
                   {#if reviewTarget.portedProjectId}
                     {@const dialogPortedId = reviewTarget.portedProjectId}
                     <Button type="button" variant="secondary" class="mt-4 min-h-11 w-full justify-center gap-2" onclick={() => goto(resolve("/project/[id]", { id: dialogPortedId }))}>
-                      <ArrowRightIcon size={17} aria-hidden="true" />Open ported project
+                      <ArrowRightIcon size="1.0625rem" aria-hidden="true" />Open ported project
                     </Button>
                   {:else}
                     <Button type="button" class="mt-4 min-h-11 w-full justify-center gap-2" disabled={busyId === reviewTarget._id} onclick={() => reviewTarget && portItem(reviewTarget)}>
-                      <FolderPlusIcon size={17} aria-hidden="true" />{busyId === reviewTarget._id ? "Porting…" : "Port to project"}
+                      <FolderPlusIcon size="1.0625rem" aria-hidden="true" />{busyId === reviewTarget._id ? "Porting…" : "Port to project"}
                     </Button>
                     <p class="mt-2 text-xs leading-relaxed text-ink-muted">Creates or reuses the {clientLabel(reviewTarget)} fiscal {reviewTarget.fiscalYear ?? "—"} project and attaches this PD to it.</p>
                   {/if}

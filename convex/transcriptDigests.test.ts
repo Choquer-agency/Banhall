@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -28,6 +29,7 @@ type Seed = { label?: string; content: string };
 
 async function setup(seeds: Seed[], documents: string[] = []) {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const userId = await ctx.db.insert("users", { authId, role: "writer" });
@@ -36,6 +38,7 @@ async function setup(seeds: Seed[], documents: string[] = []) {
       clientName: "Client",
       status: "draft",
       createdBy: userId,
+      ownerId: userId,
       shareToken: "digest-token",
       createdAt: now,
       updatedAt: now,

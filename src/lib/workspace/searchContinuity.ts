@@ -1,3 +1,5 @@
+import { detectPlatform, shortcutHint } from "$lib/shell/shortcuts";
+
 // Search continuity + truthful shortcut copy for the workspace header.
 //
 // 1) Shortcut hint. Both search shortcuts accept Meta OR Control, but the
@@ -12,10 +14,13 @@
 //    remount. Deliberately NOT URL state: the approved URL surface for the
 //    projects view is `layout`/`group`/`hideEmpty`/`client` only.
 
-export function searchShortcutHint(
-  platform: string = typeof navigator !== "undefined" ? navigator.platform : ""
-): string {
-  return /mac|iphone|ipad|ipod/i.test(platform) ? "⌘K" : "Ctrl K";
+// The registry in `$lib/shell/shortcuts` owns platform detection and key
+// labels (round 2, I4 and I5); this wrapper keeps the old call sites.
+export function searchShortcutHint(platform?: string): string {
+  return shortcutHint(
+    "search",
+    platform === undefined ? detectPlatform() : detectPlatform({ platform })
+  );
 }
 
 /** Stale stashes are discarded — continuity is for an immediate remount,

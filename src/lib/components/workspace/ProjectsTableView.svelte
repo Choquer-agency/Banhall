@@ -536,7 +536,7 @@
   <div data-projects-toolbar class="flex min-h-12 shrink-0 items-center gap-2 border-b border-workspace-rail-line bg-canvas px-2 py-2 sm:px-3">
     {#if externalSearch === undefined}
       <div class="relative min-w-0 sm:max-w-[19rem]" role="search">
-        <MagnifyingGlassIcon class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" size={15} weight="regular" aria-hidden="true" />
+        <MagnifyingGlassIcon class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" size="0.9375rem" weight="regular" aria-hidden="true" />
         <input
           bind:this={searchElement}
           bind:value={searchInput}
@@ -584,7 +584,7 @@
             align="end"
           >
             {#snippet icon()}
-              <StackSimpleIcon size={15} weight="regular" aria-hidden="true" />
+              <StackSimpleIcon size="0.9375rem" weight="regular" aria-hidden="true" />
             {/snippet}
             {#snippet chip()}
               {#if effectiveGroup === "client"}
@@ -680,7 +680,7 @@
         </button>
       </span>
     {/snippet}
-    <div data-active-filters class="flex min-h-[49px] shrink-0 flex-wrap items-center gap-2 border-b border-workspace-rail-line px-2 py-2">
+    <div data-active-filters class="flex min-h-[3.0625rem] shrink-0 flex-wrap items-center gap-2 border-b border-workspace-rail-line px-2 py-2">
       {#if selectedStage || pendingFilters.stage}
         {@render filterChip("Stage", "stage", selectedStage ? stageChipLabel(stage) : "Select…", !selectedStage, stageValueClass, () => {
           stage = "all";
@@ -689,7 +689,7 @@
       {/if}
       {#if (selectedStage || pendingFilters.stage) && (filterOwner || pendingFilters.owner)}
         <!-- Obvious joins multiple conditions with a quiet AND. -->
-        <span data-filter-join class="text-[11px] font-medium text-ink-faint">AND</span>
+        <span data-filter-join class="text-[0.6875rem] font-medium text-ink-faint">AND</span>
       {/if}
       {#if filterOwner || pendingFilters.owner}
         {@render filterChip("Owner", "owner", filterOwner ? (filterOwnerLabel ?? "Selected owner") : "Select…", !filterOwner, "", () => {
@@ -700,7 +700,7 @@
       {/if}
       {#if filterCurrentAssignee || pendingFilters.current_assignee}
         {#if selectedStage || pendingFilters.stage || filterOwner || pendingFilters.owner}
-          <span data-filter-join class="text-[11px] font-medium text-ink-faint">AND</span>
+          <span data-filter-join class="text-[0.6875rem] font-medium text-ink-faint">AND</span>
         {/if}
         {@render filterChip("Current assignee", "current_assignee", filterCurrentAssignee ? (filterCurrentAssigneeLabel ?? "Selected assignee") : "Select…", !filterCurrentAssignee, "", () => {
           filterCurrentAssignee = null;
@@ -710,7 +710,7 @@
       {/if}
       {#if filterProjectType || pendingFilters.project_type}
         {#if selectedStage || pendingFilters.stage || filterOwner || pendingFilters.owner || filterCurrentAssignee || pendingFilters.current_assignee}
-          <span data-filter-join class="text-[11px] font-medium text-ink-faint">AND</span>
+          <span data-filter-join class="text-[0.6875rem] font-medium text-ink-faint">AND</span>
         {/if}
         {@render filterChip("Project type", "project_type", filterProjectType ? PROJECT_TYPE_LABELS[filterProjectType] : "Select…", !filterProjectType, "", () => {
           filterProjectType = null;
@@ -786,7 +786,7 @@
     {#if preferences.layout === "board"}
       <div class="flex gap-2 overflow-hidden py-4" role="status" aria-label="Loading projects board">
         {#each SKELETON_ITEMS as item (item)}
-          <div class="w-[360px] shrink-0">
+          <div class="w-[22.5rem] shrink-0">
             <div class="h-64 animate-pulse rounded-xl bg-gray-50 motion-reduce:animate-none"></div>
           </div>
         {/each}

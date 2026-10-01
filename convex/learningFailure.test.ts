@@ -7,8 +7,15 @@ import type { ActionCtx } from "./_generated/server";
 import schema from "./schema";
 
 const providerMocks = vi.hoisted(() => ({ createAnthropicClient: vi.fn() }));
+// Learning digests resolve their client through the analysis role (model
+// catalog); the mock hands back the injected client so the failure still
+// comes from the client boundary.
 vi.mock("./ai/providers", () => ({
   createAnthropicClient: providerMocks.createAnthropicClient,
+  clientForRole: async () => ({
+    client: providerMocks.createAnthropicClient(),
+    model: "claude-sonnet-5",
+  }),
 }));
 import {
   generateQaCalibrationDigest,

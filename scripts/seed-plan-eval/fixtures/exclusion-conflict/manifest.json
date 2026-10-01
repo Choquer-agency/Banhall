@@ -1,0 +1,46 @@
+{
+  "id": "exclusion-conflict",
+  "title": "Quillmere drift-tolerant burner anomaly model",
+  "clientName": "Quillmere Analytics Ltd.",
+  "industry": "software",
+  "interviewees": [
+    "Anders Kowalczyk",
+    "Rosalind Tiwari"
+  ],
+  "fictional": true,
+  "semanticCase": "exclusion_conflict",
+  "purpose": "The client says plainly that the billing portal move, the dashboard colour and layout redesign and the training sessions are not claimed, so the Brief derives Claim Exclusions. On Experimentation the writer edits a selected Seed to include the billing portal exclusion, is warned at Approve and confirms. The selection must be drafted, not repaired away, and the Compliance Note must record the conflict. Project status carries a writer-asserted note (a second field trial at the Ashgrove elevator) that is in no source and must be drafted as the writer's own assertion.",
+  "sources": [
+    {
+      "kind": "transcript",
+      "file": "interview.txt",
+      "label": "Interview with Anders Kowalczyk and Rosalind Tiwari"
+    },
+    {
+      "kind": "document",
+      "file": "notes.md",
+      "fileName": "model-development-log.md",
+      "category": "scoping_notes"
+    }
+  ],
+  "mustNotAppearInSources": [
+    "Ashgrove"
+  ],
+  "mustAppearInSources": [
+    "billing portal",
+    "not claiming"
+  ],
+  "params": {
+    "exclusionHint": "billing",
+    "exclusionRole": "experimentation",
+    "writerAssertedRole": "project_status",
+    "writerAssertedSentence": "The writer confirms a second field trial at the Ashgrove elevator is booked for spring 2027.",
+    "writerAssertedTerm": "Ashgrove"
+  },
+  "judgmentQuestions": [
+    "The writer's confirmed selection that matches the Claim Exclusion is drafted in Section 244 and not silently removed.",
+    "The Compliance Note shows the conflict (tier conflict) so a reviewer can see it before filing.",
+    "The Ashgrove field trial appears in Section 246 as the writer's own assertion, without invented numbers, dates or results.",
+    "Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?"
+  ]
+}

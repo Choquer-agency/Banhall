@@ -2,16 +2,26 @@
 
 import { sha256 } from "../lib/contracts";
 import {
-  CANDIDATE_MODELS,
+  ALWAYS_THINKING_MAX_OUTPUT_TOKENS,
   MODEL,
   REASONING_TOKEN_MULTIPLIER,
+  entryAlwaysThinks,
   SECTION_ANSWER_TOKEN_BUDGETS,
   UNKNOWN_MODEL_GATEWAY,
-  maxTokensWithReasoningHeadroom,
-  sectionAnswerTokenBudget,
 } from "../../shared/generationModels";
+import { MODEL_ROLES, ROLE_POLICIES } from "../../shared/modelCatalog";
+import {
+  GENERATION_STEP_POLICY,
+  GENERATION_STEP_POLICY_VERSION,
+} from "../lib/generationSteps";
+import type { ActionCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import type { ModelFreeze } from "../lib/modelCatalogValidators";
+import { generationModelFreeze } from "../lib/modelRoles";
+import { generationModelsRef } from "../lib/modelCatalogRefs";
 import {
   CHARS_PER_LINE,
+  DRAFT_WORD_CAP_SHARE,
   LENGTH_TARGETS,
   LINE_LIMITS,
   WORD_CAPS,
@@ -31,6 +41,7 @@ import {
   CONTEXT_INPUTS_GUIDANCE,
   GENERATION_WRITING_PROMPT_PROGRAM,
   SELF_CHECK_SYSTEM_PROMPT,
+  SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
 } from "./prompts";
 import {
   ANALYSIS_SCHEMA,
@@ -38,7 +49,13 @@ import {
   ANALYZER_CATEGORY_ORDER,
   ANALYZER_REQUEST,
 } from "./analyzerAgent";
-import { BRIEF_SYSTEM_PROMPT, BRIEF_REQUEST, BRIEF_SCHEMA } from "./brief";
+import {
+  BRIEF_INPUT_BUDGET,
+  BRIEF_SYSTEM_PROMPT,
+  BRIEF_REQUEST,
+  BRIEF_SCHEMA,
+  BRIEF_OMITTED_SOURCES_NOTICE,
+} from "./brief";
 import {
   ANALYSIS_TOOL_SCHEMA,
   STYLE_ANALYSIS_REQUEST,
@@ -79,8 +96,22 @@ import {
   ORDERED_SECTION_TITLES,
   SELF_CHECK_REQUEST,
   SELF_CHECK_SCHEMA,
+  SEED_PROMPT_PROGRAM,
+  SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
+  SUMMARY_PLAN_SELF_CHECK_REQUEST,
+  SUMMARY_PLAN_SELF_CHECK_SCHEMA,
   STYLE_GUIDANCE_SCAFFOLDS,
 } from "./promptDefinitions";
+import {
+  FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
+  FROZEN_SUMMARY_PLAN_SCAFFOLD,
+  MAX_SUMMARY_ORDINARY_VERDICTS,
+  MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
+  MAX_SUMMARY_PLAN_VERDICTS,
+  MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+  SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
+  SUMMARY_PLAN_SERIALIZER_VERSION,
+} from "../lib/seedRevisions";
 import { CANDIDATE_MODE_ROUTING } from "./model";
 import {
   RETRIEVAL_BRIEF_MODEL,
@@ -88,6 +119,7 @@ import {
   RETRIEVAL_BRIEF_SCHEMA,
   RETRIEVAL_BRIEF_SYSTEM_PROMPT,
   RETRIEVAL_BRIEF_TRANSCRIPT_CAP,
+  RETRIEVAL_BRIEF_FACT_PART_CHARS,
 } from "./brain/query";
 import {
   BRAIN_EMBEDDING_DIMENSION,
@@ -115,6 +147,24 @@ import {
   GENERATION_BRAIN_RETRIEVALS,
 } from "./brainRetrieval";
 import { OPENROUTER_CONVERSION } from "./openrouterCore";
+import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
+import { linkedSeedSchemas, seedToolSchema } from "../lib/seedContract";
+import { seedToolSchemaForFacts } from "../lib/seedFacts";
+import {
+  FACTS_CITATIONS_INSTRUCTION,
+  FACTS_CONCURRENCY,
+  FACTS_REQUEST,
+  FACTS_SCHEMA,
+  FACTS_STRUCTURED_INSTRUCTION,
+  FACTS_SYSTEM_PROMPT,
+  FACTS_TIMEOUT_MS,
+} from "./transcriptFactsAgent";
+import {
+  FACT_PACK_MAX_CHARS,
+  FACT_WINDOW_OVERLAP_TURNS,
+  FACT_WINDOW_TOKENS,
+  FACTS_VERSION,
+} from "../lib/transcriptFacts";
 
 export const PROMPT_PROGRAM_CONTRACT_ID =
   "banhall.generation-prompt-program/v1";
@@ -197,18 +247,102 @@ export function canonicalSerialize(value: unknown): string {
   return serialize(value, "$root");
 }
 
-const projectedModels = CANDIDATE_MODELS.map((model) => ({
-  id: model.id,
-  gateway: model.gateway,
-  reasoning: "reasoning" in model ? model.reasoning : null,
-  maxCompletionTokens:
-    "maxCompletionTokens" in model ? model.maxCompletionTokens : null,
-  sectionAnswerTokenBudget: sectionAnswerTokenBudget(model.id),
-  reasoningHeadroom: [1024, 4096, 8192].map((answerTokens) => ({
-    answerTokens,
-    requestMaxTokens: maxTokensWithReasoningHeadroom(model.id, answerTokens),
-  })),
-})).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+/**
+ * The request-shaping part of a generation's frozen models: routing, output
+ * budgets and the gateway id. Labels, providers and price ceilings do not
+ * change a prompt and stay out, so a catalog price or score update never
+ * moves a version. Only the generation's own models are projected; the rest
+ * of the catalog can change freely (owner decision 21).
+ */
+export function projectFrozenModels(freeze: ModelFreeze) {
+  const entries = [...freeze.entries]
+    .map((entry) => {
+      const answerBudget = SECTION_ANSWER_TOKEN_BUDGETS[entry.gateway];
+      // 2026-09-25 (cutoff review P2-1): the direct gateway gives a model
+      // whose thinking is always on the same multiplied budget, within its
+      // output cap (instrument.ts adaptAnthropicRequest).
+      const headroom = (answerTokens: number) =>
+        entry.reasoning
+          ? Math.min(
+              answerTokens * REASONING_TOKEN_MULTIPLIER,
+              entry.maxCompletionTokens ?? Number.MAX_SAFE_INTEGER
+            )
+          : entryAlwaysThinks(entry)
+            ? Math.max(
+                answerTokens,
+                Math.min(
+                  answerTokens * REASONING_TOKEN_MULTIPLIER,
+                  entry.maxCompletionTokens ?? ALWAYS_THINKING_MAX_OUTPUT_TOKENS
+                )
+              )
+            : answerTokens;
+      return {
+        id: entry.id,
+        gateway: entry.gateway,
+        requestId: entry.requestId ?? entry.id,
+        reasoning: entry.reasoning,
+        maxCompletionTokens: entry.maxCompletionTokens ?? null,
+        // Only when false, so every version hashed before the field existed
+        // stays the same; a model that rejects forced tool calls is sent a
+        // different request (toolRequestForModel).
+        ...(entry.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
+        sectionAnswerTokenBudget: answerBudget,
+        reasoningHeadroom: [1024, 4096, 8192].map((answerTokens) => ({
+          answerTokens,
+          requestMaxTokens: headroom(answerTokens),
+        })),
+      };
+    })
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // Owner decision 43: only a freeze with step routing carries its version,
+  // so every version hashed before it existed stays the same.
+  return {
+    entries,
+    roles: freeze.roles,
+    ...(freeze.stepPolicyVersion !== undefined ? { stepPolicyVersion: freeze.stepPolicyVersion } : {}),
+  };
+}
+
+const seedRolePromptProgram = PD_SUBSECTIONS.map((role) => ({
+  roleId: role.roleId,
+  section: role.section,
+  order: role.order,
+  kind: role.kind,
+  title: role.title,
+  objective: role.objective,
+}));
+
+// Cost phase 1: one provider-facing Seed schema for every role and both
+// modes, so the cached tools prefix is shared; validateBatch enforces each
+// mode's count and specific advancements' links.
+const seedProviderSchema = seedToolSchema();
+// 2026-09-24 (transcript method, plan step 7): a generation that froze a
+// fact pack for every transcript sends this schema instead, for every role
+// and mode, with SEED_PROMPT_PROGRAM.user.factGuidance.
+const seedFactProviderSchema = seedToolSchemaForFacts();
+// 2026-09-29 (first, run 7 re-check): the linked tools every Seed request
+// also sends, in both citation modes (three since 2026-09-30, fourth).
+const seedLinkedProviderSchemas = linkedSeedSchemas(seedProviderSchema);
+const seedFactLinkedProviderSchemas = linkedSeedSchemas(seedFactProviderSchema);
+const SEED_SCHEMA_POLICY = {
+  // 2026-09-29 (first, run 7 re-check): the same tools in every Seed
+  // request (shared, experiment, advancement, and since 2026-09-30 fourth
+  // result), so the tools cache is shared; tool_choice forces the linked
+  // one when a link block is sent.
+  provider: "four-fixed-tools-for-every-role-and-mode-tool_choice-picks-one",
+  application: "validateBatch-enforces-mode-count-and-role-links",
+  factMode: {
+    selectedBy: "every-frozen-transcript-has-a-fact-pack",
+    sources: "fact-pack-replaces-its-transcript-and-digest",
+    citations: "fact-id-or-document-excerpt-resolved-to-verified-offsets",
+  },
+  // 2026-09-27 (third): convex/lib/seedQuoteSupport.ts.
+  quoteCheck: {
+    related: "shares-at-least-2-meaningful-words-and-a-third-of-the-smaller-side",
+    reuse: "fresh-batch-only-owner-quotes-or-shares-most-others-must-quote-word-for-word",
+    onIssue: "one-soft-repair-within-the-two-attempts-then-keep-and-mark-needsQuoteCheck",
+  },
+} as const;
 
 const derivedWordBudgets = Object.keys(LINE_LIMITS).flatMap((section) =>
   Object.keys(LENGTH_TARGETS).map((target) => ({
@@ -226,6 +360,12 @@ const derivedWordBudgets = Object.keys(LINE_LIMITS).flatMap((section) =>
 });
 
 /**
+ * 2026-09-30 (third): where a signed-off plan run's section request reads the
+ * report-text rules (ORDERED_PROMPT_SCAFFOLDS.reportFacts).
+ */
+const REPORT_FACTS_PLACEMENT = "results-and-sources-rules-after-the-brief-in-signed-off-plan-runs";
+
+/**
  * The deployment-level provider-facing program. It deliberately contains no
  * project, user, transcript, report, Brain result, digest, or other per-call
  * content. Named sentinels describe those runtime slots without filling them.
@@ -234,41 +374,80 @@ export const generationPromptProgram = {
   contractId: PROMPT_PROGRAM_CONTRACT_ID,
   topology: {
     modes: {
+      // 2026-09-25 (a1 finding 4): the Brief reads only the frozen sources,
+      // so it runs beside the Brain retrieval and the shared analysis, and
+      // both are joined before any candidate starts.
       single: [
-        "retrieval-brief-with-fallback-query",
-        "four-sequential-brain-searches-with-optional-rerank",
+        {
+          concurrentBeforeCandidates: [
+            "brief",
+            [
+              "retrieval-brief-with-fallback-query",
+              "four-sequential-brain-searches-with-optional-rerank",
+              "shared-analyzer",
+            ],
+          ],
+        },
         "candidate-pipeline",
         "promote-completed-candidate",
       ],
       compare: [
-        "retrieval-brief-with-fallback-query",
-        "four-sequential-brain-searches-with-optional-rerank",
+        {
+          concurrentBeforeCandidates: [
+            "brief",
+            [
+              "retrieval-brief-with-fallback-query",
+              "four-sequential-brain-searches-with-optional-rerank",
+              "shared-analyzer",
+            ],
+          ],
+        },
         "parallel-candidate-pipelines",
         "human-candidate-selection",
       ],
-      iterative: [
-        "retrieval-brief-with-fallback-query",
-        "four-sequential-brain-searches-with-optional-rerank",
-        "frozen-analyzer-brain-style-artifacts",
-        // Story 1 (CAP-1/2/4): Brief stage after analyzer, before sections —
-        // same position as candidatePipeline's "brief" for single/compare.
-        "brief",
-        "section-242-human-review",
-        "approved-prior-section-context",
-        "section-244-human-review",
-        "approved-prior-section-context",
-        "section-246-human-review",
-        "redraft-with-writer-guidance",
-        "one-shot-ghost-candidate-pipeline",
-        "assemble-approved-sections",
-        "post-terminal-qa-and-chronology",
-      ],
+      iterative: {
+        selectedBy: "stored-gatedWorkflow",
+        sections: [
+          "retrieval-brief-with-fallback-query",
+          "four-sequential-brain-searches-with-optional-rerank",
+          "frozen-analyzer-brain-style-artifacts",
+          "brief",
+          "section-242-human-review",
+          "approved-prior-section-context",
+          "section-244-human-review",
+          "approved-prior-section-context",
+          "section-246-human-review",
+          "redraft-with-writer-guidance",
+          "one-shot-ghost-candidate-pipeline",
+          "assemble-approved-sections",
+          "post-terminal-qa-and-chronology",
+        ],
+        // Owner decision 32 (2026-09-25): the Brief runs beside the frozen
+        // writer style and opens the seed stage; the retrieval brief, the
+        // Brain searches and the analyzer run in the background (their
+        // provider requests unchanged) and must finish before sign-off.
+        seeds: [
+          "frozen-writer-style-artifact",
+          "brief",
+          "seed-stage-human-gate",
+          {
+            backgroundUntilSignOff: [
+              "retrieval-brief-with-fallback-query",
+              "four-sequential-brain-searches-with-optional-rerank",
+              "frozen-analyzer-brain-style-artifacts",
+            ],
+          },
+          "ordered-section-chain-after-sign-off",
+          "post-terminal-qa-and-chronology",
+        ],
+      },
     },
     candidatePipeline: [
-      "analyzer",
-      // Story 1 (CAP-1/2/4): Brief stage after analyzer, before sections.
-      // Derives or reuses Storyline, Claim Exclusions, Confidence Map, Glossary Terms.
-      "brief",
+      // The analysis and the Brief (story 1: Storyline, Claim Exclusions,
+      // Confidence Map, Glossary Terms) are shared and arrive with the
+      // candidate; only a candidate queued before shared analysis existed
+      // runs its own analyzer.
+      "analyzer-for-legacy-queued-candidates-only",
       // Story 2 (CAP-5/9/10, AD-24): ordered, ungated section chain in
       // single/compare — one scheduled action per section in the Writer
       // Profile's Build Order (default 242 → 244 → 246), each with the prior
@@ -283,6 +462,12 @@ export const generationPromptProgram = {
             "conditionalCompression",
             "selfCheck",
             "atMostOneRepair",
+            // 2026-09-28 (second): the repair is compressed like the
+            // draft, and kept only if it is no further over a Locked limit.
+            "conditionalCompressionOfTheRepair",
+            // 2026-09-28 (third): in Summary mode, plan verdicts on the
+            // final text when the repair changed the checked text.
+            "conditionalFinalCoverageSelfCheck",
           ],
           gate: "none",
         },
@@ -316,7 +501,7 @@ export const generationPromptProgram = {
       systemTemplate: RETRIEVAL_BRIEF_SYSTEM_PROMPT,
       request: RETRIEVAL_BRIEF_REQUEST,
       schema: RETRIEVAL_BRIEF_SCHEMA,
-      model: { kind: "fixed", modelId: RETRIEVAL_BRIEF_MODEL },
+      model: { kind: "frozen-role", role: "retrieval_brief", legacyModelId: RETRIEVAL_BRIEF_MODEL },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
     },
@@ -325,7 +510,7 @@ export const generationPromptProgram = {
       systemTemplate: CONDENSE_SYSTEM_PROMPT,
       request: CONDENSE_REQUEST,
       schema: CONDENSE_SCHEMA,
-      model: { kind: "fixed", modelId: MODEL },
+      model: { kind: "frozen-role", role: "condense", legacyModelId: MODEL },
       thinking: { kind: "omitted" },
       // One attempt, not the repair pass: the whole generation waits on this
       // call before any drafting starts.
@@ -342,14 +527,20 @@ export const generationPromptProgram = {
       contextBudget: DEFAULT_CONTEXT_BUDGET,
       request: ANALYZER_REQUEST,
       schema: ANALYSIS_SCHEMA,
-      // Compare entry analysis is independent of candidate pair order.
-      // Older queued candidates without shared analysis still select their model.
+      // Owner decision 43: the frozen planning model in every mode. A
+      // generation frozen before step routing keeps the choice below:
+      // compare entry analysis independent of candidate pair order, and
+      // older queued candidates without shared analysis select their model.
       model: {
-        kind: "mode-dependent",
-        compare: { kind: "fixed", modelId: MODEL },
-        single: { kind: "candidate", fallbackModelId: MODEL },
-        iterative: { kind: "candidate", fallbackModelId: MODEL },
-        legacyCandidate: { kind: "candidate", fallbackModelId: MODEL },
+        kind: "generation-step",
+        step: "analyzer",
+        beforeStepRouting: {
+          kind: "mode-dependent",
+          compare: { kind: "frozen-role", role: "writing", legacyModelId: MODEL },
+          single: { kind: "candidate", fallbackModelId: MODEL },
+          iterative: { kind: "candidate", fallbackModelId: MODEL },
+          legacyCandidate: { kind: "candidate", fallbackModelId: MODEL },
+        },
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
@@ -359,12 +550,53 @@ export const generationPromptProgram = {
       kind: "structured",
       systemTemplate: BRIEF_SYSTEM_PROMPT,
       request: BRIEF_REQUEST,
+      // Cost phase 1: digests replace their transcripts, and every source
+      // is spent in frozen order against this budget.
+      // 2026-09-24 (transcript method): a fact pack for every transcript
+      // replaces transcripts and digests; quotes then cite the transcript
+      // row inside a verified client span.
+      inputSelection: "fact-pack-else-digest-replaces-its-transcript",
+      factModeCitations: "quote-located-in-a-verified-fact-span-on-the-transcript-row",
+      contextBudget: BRIEF_INPUT_BUDGET,
+      omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
       schema: BRIEF_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "brief", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
       // Slot label for aiUsage tracking (AD-27)
       callSite: "generation:brief",
+    },
+    seeds: {
+      kind: "structured",
+      systemTemplate: SEED_PROMPT_PROGRAM.systemPolicy,
+      styleOverridesScaffold: SEED_PROMPT_PROGRAM.styleOverrides,
+      userScaffold: SEED_PROMPT_PROGRAM.user,
+      request: SEED_PROMPT_PROGRAM.request,
+      schema: seedProviderSchema,
+      factSchema: seedFactProviderSchema,
+      linkedSchemas: seedLinkedProviderSchemas,
+      factLinkedSchemas: seedFactLinkedProviderSchemas,
+      schemaPolicy: SEED_SCHEMA_POLICY,
+      model: { kind: "generation-step", step: "seeds", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
+      thinking: { kind: "omitted" },
+      structuredPolicy: "two-attempt-repair",
+      callSite: "generation:seeds:<roleId>",
+    },
+    seedFeedback: {
+      kind: "structured",
+      systemTemplate: SEED_PROMPT_PROGRAM.systemPolicy,
+      styleOverridesScaffold: SEED_PROMPT_PROGRAM.styleOverrides,
+      userScaffold: SEED_PROMPT_PROGRAM.user,
+      request: SEED_PROMPT_PROGRAM.request,
+      schema: seedProviderSchema,
+      factSchema: seedFactProviderSchema,
+      linkedSchemas: seedLinkedProviderSchemas,
+      factLinkedSchemas: seedFactLinkedProviderSchemas,
+      schemaPolicy: SEED_SCHEMA_POLICY,
+      model: { kind: "generation-step", step: "seedFeedback", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
+      thinking: { kind: "omitted" },
+      structuredPolicy: "two-attempt-repair",
+      callSite: "generation:seedFeedback:<roleId>",
     },
     // Story 3 (CAP-8, AD-26/27): the PSOS-50 style classifier run on a
     // settings document supplied as Writer's Notes or an attachment, reused
@@ -372,12 +604,30 @@ export const generationPromptProgram = {
     // document costs one call the first time a classifier version sees it
     // and none after. One attempt, not the repair pass: generateReport waits
     // on it inside its 600 s action.
+    // 2026-09-24 (transcript method, plan steps 6 and 7): fact extraction on
+    // the frozen condense model, inside a generation that reads fact packs
+    // and finds a transcript without ready facts. At most once per
+    // transcript text and FACTS_VERSION; stored facts are reused after that.
+    transcriptFacts: {
+      kind: "adapter-per-gateway",
+      systemTemplate: FACTS_SYSTEM_PROMPT,
+      adapters: {
+        anthropic: { kind: "citations", instruction: FACTS_CITATIONS_INSTRUCTION },
+        openrouter: { kind: "structured", instruction: FACTS_STRUCTURED_INSTRUCTION, schema: FACTS_SCHEMA },
+      },
+      request: FACTS_REQUEST,
+      model: { kind: "frozen-role", role: "condense", legacyModelId: MODEL },
+      thinking: { kind: "omitted" },
+      placeholders: "names-replaced-before-every-call-and-restored-after",
+      verification: "every-quote-located-verbatim-client-turns-only",
+      callSite: "generation:facts",
+    },
     settingsAnalysis: {
       kind: "structured",
       systemTemplate: STYLE_ANALYSIS_SYSTEM_PROMPT,
       request: STYLE_ANALYSIS_REQUEST,
       schema: ANALYSIS_TOOL_SCHEMA,
-      model: { kind: "fixed", modelId: MODEL },
+      model: { kind: "frozen-role", role: "analysis", legacyModelId: MODEL },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
       callSite: "generation:settings",
@@ -385,27 +635,45 @@ export const generationPromptProgram = {
     },
     section242: {
       kind: "text",
-      systemTemplateSet: "writing.sectionSystemTemplates.section242",
+      systemTemplateSet: "writing.sectionSharedSystemTemplates",
+      instructionTemplateSet: "writing.sectionInstructionTemplates.section242",
       request: SECTION_242_REQUEST,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "section", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
+      // 2026-09-30 (third): a signed-off plan run's request (and its repair)
+      // reads ORDERED_PROMPT_SCAFFOLDS.reportFacts right after the Brief.
+      reportFacts: REPORT_FACTS_PLACEMENT,
     },
     section244: {
       kind: "text",
-      systemTemplateSet: "writing.sectionSystemTemplates.section244",
+      systemTemplateSet: "writing.sectionSharedSystemTemplates",
+      instructionTemplateSet: "writing.sectionInstructionTemplates.section244",
       request: SECTION_244_REQUEST,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "section", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
+      // 2026-09-30 (second, Rule C): a signed-off plan run's Line 244 request
+      // (and its repair) reads ORDERED_PROMPT_SCAFFOLDS.workAnswers242 after
+      // the WRITER'S DECISIONS, with the signed-off Line 246 items.
+      signedOffPlan: "work-answers-line-242-or-a-signed-off-item-after-writer-decisions",
+      reportFacts: REPORT_FACTS_PLACEMENT,
     },
     section246: {
       kind: "text",
-      systemTemplateSet: "writing.sectionSystemTemplates.section246",
+      systemTemplateSet: "writing.sectionSharedSystemTemplates",
+      instructionTemplateSet: "writing.sectionInstructionTemplates.section246",
       request: SECTION_246_REQUEST,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "section", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
+      // 2026-09-30 (first, Rule B): a signed-off plan run's Line 246 request
+      // (and its repair) reads ORDERED_PROMPT_SCAFFOLDS.advancementsAnswer242
+      // after the WRITER'S DECISIONS.
+      signedOffPlan: "advancements-answer-line-242-after-writer-decisions",
+      reportFacts: REPORT_FACTS_PLACEMENT,
     },
     compression: {
       kind: "text",
       systemTemplate: COMPRESSION_REQUEST.system,
       request: COMPRESSION_REQUEST,
-      model: { kind: "candidate" },
+      model: { kind: "generation-step", step: "compression", beforeStepRouting: { kind: "candidate" } },
+      // 2026-09-28 (fifth, release suite run 6): the ordered chain only.
+      finalCut: "ordered-chain-one-targeted-pass-when-at-most-10-percent-over",
     },
     // Story 2 (CAP-9, AD-25/27): one structured Self-check per section.
     selfCheck: {
@@ -413,23 +681,88 @@ export const generationPromptProgram = {
       systemTemplate: SELF_CHECK_SYSTEM_PROMPT,
       request: SELF_CHECK_REQUEST,
       schema: SELF_CHECK_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "selfCheck", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:selfCheck:<n>",
       perSection: 1,
+      summaryPlan: {
+        systemTemplate: SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
+        requestScaffold: SUMMARY_PLAN_SELF_CHECK_REQUEST,
+        schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+        structuredPolicy: "single-attempt-then-missing-labels-follow-up",
+        encodedJsonRecovery: "disabled",
+        finalCoverage: "plan-verdicts-and-feedback-term-labels-on-the-changed-final-text",
+        // 2026-09-28, run 4: an invalid verdict is dropped and its label or
+        // plan check asked for in the follow-up; only an answer with more
+        // invalid verdicts than valid ones is rejected whole.
+        invalidVerdicts: "dropped-and-asked-for-unless-most-are-invalid",
+        // 2026-09-28 (fifth, run 6): a verdict list that is missing or not a
+        // list is read as empty and its checks asked for in the follow-up;
+        // an answer with neither list is still rejected whole.
+        unreadableLists: "read-as-empty-and-asked-for-unless-neither-is-a-list",
+        // 2026-09-28 (second, edited terms): the Line's edited terms are
+        // allowed word for word; an objection to one as invented is set aside.
+        editedTerms: "allowed-word-for-word-invention-objections-set-aside",
+        // 2026-09-29 (second): an idea the writer kept despite a Claim
+        // Exclusion is judged for coverage like any item and never repaired
+        // away; the Line's active Feedback is sent as data that outranks the
+        // Brief. PR #22 lead decision: a Glossary Term that Feedback names is
+        // not a Glossary candidate; its own label checks that the section
+        // follows the Feedback, whichever way it points, and is repaired
+        // like any ordinary label.
+        // 2026-09-30 (second): the Feedback governs a term it names even
+        // where an unedited signed-off idea uses it; the writer's own edit
+        // still wins.
+        writerPrecedence: "kept-ideas-judged-for-coverage-feedback-governs-named-glossary-terms-by-label-even-in-unedited-signed-off-ideas",
+        // 2026-09-30 (first): each uncertainty the writer dropped (at most
+        // three) is a LEAVE OUT plan check in every Line, and Line 246 of a
+        // signed-off plan has one plan check, with Line 242's text as data,
+        // that every advancement answers a Line 242 uncertainty. Both are
+        // honoured by absence, repaired like other plan issues and judged
+        // again on the final text; their verdict fields join the tool schema
+        // only when the request has such a check.
+        droppedUncertainties: "left-out-in-every-line-one-plan-check-each-by-dropped-seed-id-at-most-three",
+        advancementsAnswer242: "line-246-plan-check-with-line-242-text-as-data-honoured-by-absence",
+        // 2026-09-30 (second, Rule C): Line 244's one plan check, with Line
+        // 242 and the signed-off Line 246 items as data. The LEAVE OUT, Rule
+        // B and Rule C rules compare with every COVER item before judging not
+        // applied, and a LEAVE OUT verdict that flags a signed-off item by
+        // its figures is recorded applied and never repaired.
+        workAnswers242: "line-244-plan-check-with-line-242-text-and-line-246-items-as-data-honoured-by-absence",
+        coverItemsFirst: "leave-out-and-rule-checks-compare-every-cover-item-before-not-applied",
+        leaveOutFigureBackstop: "not-applied-leave-out-with-no-dropped-figure-or-near-copy-in-the-line-citing-only-plan-figures-recorded-applied-no-repair",
+        extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
+        // 2026-09-30 (third): Lines 244 and 246 of a signed-off plan have one
+        // plan check that each result is stated against its target as the
+        // numbers show, honoured by absence, repaired and judged again on
+        // the final text. The Summary system prompt also says how to judge
+        // hedges, sources and Glossary candidates.
+        resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
+        hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",
+      },
     },
     // Story 2 (CAP-9): the repair is the section agent itself, re-run once
     // with the repair guidance appended; re-checked deterministically only.
     repair: {
       kind: "text",
       reuses: "section-agent",
-      systemTemplateSet: "writing.sectionSystemTemplates.<section>",
+      systemTemplateSet: "writing.sectionSharedSystemTemplates",
+      instructionTemplateSet: "writing.sectionInstructionTemplates.<section>",
       scaffold: ORDERED_PROMPT_SCAFFOLDS.repairGuidance,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "repair", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       callSite: "generation:repair:<n>",
       maxPerSection: 1,
       recheck: "deterministic-only",
+      // 2026-09-30 (second, review P2-1 and re-check): a repair that carried
+      // Line 244's work fix is set aside when it mentions a signed-off figure
+      // fewer times than the checked draft (Locked Rules first).
+      evidenceGuard: "work-fixes-keep-every-signed-off-figure-mention",
+      // 2026-09-30 (third): in a signed-off plan run, report text that names
+      // a source is found deterministically and repaired (never a Must keep
+      // line), and Confidence Map, Storyline and Glossary fixes get a fixed
+      // start.
+      signedOffPlan: "source-talk-found-deterministically-hedge-and-glossary-fixes-get-a-fixed-start",
     },
     // Story 2 (CAP-10, AD-24): one pass over the assembled draft per candidate.
     consistency: {
@@ -437,18 +770,26 @@ export const generationPromptProgram = {
       systemTemplate: CONSISTENCY_SYSTEM_PROMPT,
       request: CONSISTENCY_REQUEST,
       schema: CONSISTENCY_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "consistency", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:consistency",
       perCandidate: 1,
+      // 2026-09-29 (second, release suite run 6): each finding is read on
+      // its own, a findings list sent as a JSON string is read as that list,
+      // and an unreadable finding is left out and counted; a pass that fails
+      // as a whole stores why (validation path and code, never model text).
+      readPolicy: "each-finding-read-on-its-own-string-lists-read-unreadable-counted",
+      // 2026-09-30 (second): a signed-off plan run's pass reads
+      // CONSISTENCY_REQUEST.signedOffPlan after the data blocks.
+      signedOffPlan: "rules-a-b-c-left-out-on-purpose-ranges-and-times-do-not-contradict",
     },
     qa: {
       kind: "structured",
       systemTemplateSet: "writing.qaSystemTemplates",
       request: QA_REQUEST,
       schema: QA_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "qa", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
     },
@@ -457,7 +798,7 @@ export const generationPromptProgram = {
       systemTemplate: CHRONOLOGY_SYSTEM_PROMPT,
       request: CHRONOLOGY_REQUEST,
       schema: CHRONOLOGY_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "chronology", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
     },
@@ -474,12 +815,41 @@ export const generationPromptProgram = {
       sectionTitles: ORDERED_SECTION_TITLES,
       scaffolds: ORDERED_PROMPT_SCAFFOLDS,
     },
+    seeds: {
+      scaffolds: SEED_PROMPT_PROGRAM,
+      roles: seedRolePromptProgram,
+      summaryPlan: {
+        drafting: FROZEN_SUMMARY_PLAN_SCAFFOLD,
+        checks: FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
+        serializerVersion: SUMMARY_PLAN_SERIALIZER_VERSION,
+        ordinaryLabelProjectionVersion:
+          SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
+        capacity: {
+          maxOrdinaryVerdicts: MAX_SUMMARY_ORDINARY_VERDICTS,
+          maxPlanVerdicts: MAX_SUMMARY_PLAN_VERDICTS,
+          maxCheckInputUtf8Bytes: MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
+          maxResponseUtf8Bytes: MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+        },
+      },
+    },
   },
   configuration: {
     models: {
+      // Model catalog: the models themselves are frozen per generation and
+      // hashed from there (generationPromptVersion), not listed here.
       defaultModelId: MODEL,
       unknownModelGateway: UNKNOWN_MODEL_GATEWAY,
-      registry: projectedModels,
+      frozenPerGeneration: "generations.modelFreeze",
+      // Owner decision 43: each step's model source, answer budget, timeout
+      // and thinking setting, frozen per generation by version.
+      generationSteps: {
+        version: GENERATION_STEP_POLICY_VERSION,
+        policy: GENERATION_STEP_POLICY,
+        beforeVersion: "every-step-keeps-its-model-and-request-from-before-step-routing",
+      },
+      roleDefaults: Object.fromEntries(
+        MODEL_ROLES.map((role) => [role, ROLE_POLICIES[role].defaultModelId])
+      ),
       modeRouting: CANDIDATE_MODE_ROUTING,
       randomComparisonPoolGateway:
         CANDIDATE_MODE_ROUTING.compare.randomPoolGateway,
@@ -504,6 +874,12 @@ export const generationPromptProgram = {
         cap: "section-word-cap",
       },
       derivedWordBudgets,
+      // 2026-09-28 (second, full suite): ordered-chain drafts and repairs ask for the
+      // budget, never above this share of the word cap.
+      orderedDraftTarget: {
+        capShare: DRAFT_WORD_CAP_SHARE,
+        rounding: "floor",
+      },
     },
     transcripts: {
       budgetChars: TRANSCRIPT_BUDGET_CHARS,
@@ -513,12 +889,29 @@ export const generationPromptProgram = {
       condenseTimeoutMs: CONDENSE_TIMEOUT_MS,
       condenseConcurrency: CONDENSE_CONCURRENCY,
     },
+    // 2026-09-24 (transcript method): how facts are windowed, versioned and
+    // frozen. Whether a generation reads them is the transcripts.factsMode
+    // setting, frozen per generation (generations.transcriptFacts).
+    transcriptFacts: {
+      factsVersion: FACTS_VERSION,
+      windowTokens: FACT_WINDOW_TOKENS,
+      windowOverlapTurns: FACT_WINDOW_OVERLAP_TURNS,
+      timeoutMs: FACTS_TIMEOUT_MS,
+      concurrency: FACTS_CONCURRENCY,
+      packMaxChars: FACT_PACK_MAX_CHARS,
+      fallback: "digest-or-full-text-when-any-pack-is-missing",
+    },
     brain: {
       namespace: BRAIN_NAMESPACE,
       filterNames: [...BRAIN_FILTER_NAMES].sort(),
       retrievalBrief: {
-        modelId: RETRIEVAL_BRIEF_MODEL,
+        modelRole: "retrieval_brief",
+        legacyModelId: RETRIEVAL_BRIEF_MODEL,
         transcriptCap: RETRIEVAL_BRIEF_TRANSCRIPT_CAP,
+        // 2026-09-24 (transcript method, plan step 8): a generation reading
+        // fact packs builds the brief from their claims with no call.
+        factMode: "built-from-frozen-fact-claims-without-a-call-names-dropped",
+        factPartChars: RETRIEVAL_BRIEF_FACT_PART_CHARS,
       },
       generationRetrievals: GENERATION_BRAIN_RETRIEVALS,
       generationQuery: BRAIN_GENERATION_QUERY_PROGRAM,
@@ -560,17 +953,47 @@ export async function hashPromptProgram(
   return `sha256:${digest}`;
 }
 
-let currentPromptVersionPromise: Promise<string> | undefined;
+const versionByModels = new Map<string, Promise<string>>();
 
-/** Memoize the deployment-level computation, including concurrent callers. */
+/**
+ * One generation's prompt version: the deployment's prompt program plus that
+ * generation's frozen models, and nothing else from the catalog. Memoized by
+ * the projected models, including concurrent callers.
+ */
+export function promptVersionForModels(freeze: ModelFreeze): Promise<string> {
+  const models = projectFrozenModels(freeze);
+  const key = canonicalSerialize(models);
+  let pending = versionByModels.get(key);
+  if (!pending) {
+    if (versionByModels.size >= 100) versionByModels.clear();
+    pending = hashPromptProgram({ program: generationPromptProgram, models }).catch(
+      (error: unknown) => {
+        // Never memoize a rejection: the next caller recomputes instead of
+        // inheriting a poisoned promise for the life of the isolate.
+        versionByModels.delete(key);
+        throw error;
+      }
+    );
+    versionByModels.set(key, pending);
+  }
+  return pending;
+}
+
+/** The prompt version of `generationId`, from its frozen models. */
+export async function generationPromptVersion(
+  ctx: Pick<ActionCtx, "runQuery">,
+  generationId: Id<"generations">
+): Promise<string> {
+  const freeze = await ctx.runQuery(generationModelsRef, { generationId });
+  if (!freeze) throw new Error("Generation not found for its prompt version");
+  return await promptVersionForModels(freeze);
+}
+
+/**
+ * The version a generation frozen on the seed defaults gets (single mode on
+ * the default model, every role on its default). Tests and tooling compare
+ * against it; runtime code always uses generationPromptVersion.
+ */
 export function currentPromptVersion(): Promise<string> {
-  currentPromptVersionPromise ??= hashPromptProgram(generationPromptProgram).catch(
-    (error: unknown) => {
-      // Never memoize a rejection: the next caller recomputes instead of
-      // inheriting a poisoned promise for the life of the isolate.
-      currentPromptVersionPromise = undefined;
-      throw error;
-    }
-  );
-  return currentPromptVersionPromise;
+  return promptVersionForModels(generationModelFreeze({ singleModelId: MODEL }));
 }

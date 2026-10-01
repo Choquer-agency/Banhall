@@ -1,10 +1,13 @@
 <script lang="ts">
-  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
+  import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
+  import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   import { resolve } from "$app/paths";
+  import { IconShield } from "$lib/components/icons";
+  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { userErrorMessage } from "$lib/errors";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { LockSimpleIcon } from "phosphor-svelte";
@@ -84,7 +87,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto(resolve("/login"), { replaceState: true });
+      goToLogin();
     }
   });
 
@@ -96,16 +99,14 @@
 </script>
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
+  <WorkspaceLoadingShell layout="page" title="House rules" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}
   <AdminWorkspacePage
     title="House rules"
-    description="The organization's PD writing rulebook — what every report must follow, and which house-style rules writers may override."
+    description="The organization's PD writing rulebook: what every report must follow, and which house-style rules writers may override."
   >
     {#if currentUserQ.data === undefined}
-      <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
+      <WorkspacePanelSkeleton layout="list" label="Loading house rules" />
     {:else if !isAdmin}
       <p class="text-sm text-gray-500">
         House rules are available to administrators only.
@@ -116,7 +117,7 @@
         <p class="mt-1 max-w-3xl text-sm text-gray-500">
           Every generated PD is written against two tiers of rules. The
           locked tier (CRA form length limits and no-fabrication rules) applies
-          to everyone — no writer, admin, or preference document can change
+          to everyone; no writer, admin, or preference document can change
           it. The waivable tier below is the organization's own writing
           standard, including the default report skeleton (content coverage
           and order per line, not paragraph counts): each category can
@@ -127,7 +128,7 @@
 
       <!-- CRA tier: read-only, visually locked -->
       <section class="card mt-6 p-6">
-        <h2 class="text-title">CRA-required — same for everyone</h2>
+        <h2 class="text-title">CRA-required: same for everyone</h2>
         <p class="mt-1 text-sm text-gray-500">
           These rules keep reports compliant with the T661 form and CRA review
           practice. They can never be waived or overridden.
@@ -136,7 +137,7 @@
           {#each LOCKED_RULES as rule (rule.title)}
             <li class="flex items-start gap-3 py-3">
               <LockSimpleIcon
-                size={16}
+                size="1rem"
                 weight="bold"
                 aria-hidden="true"
                 class="mt-0.5 flex-none text-gray-400"
@@ -156,11 +157,11 @@
         <div>
           <h2 class="text-title">House style rules</h2>
           <p class="mt-1 max-w-3xl text-sm text-gray-500">
-            Each category has one org-wide mode. <span class="font-medium text-gray-700">Writer's choice</span>
-            — enforced unless a consultant lets their own
-            instructions override it; <span class="font-medium text-gray-700">Always enforced</span>
-            — consultant overrides are ignored; <span class="font-medium text-gray-700">Off for everyone</span>
-            — the rule is disabled org-wide.
+            Each category has one org-wide mode. <span class="font-medium text-gray-700">Writer's choice</span>:
+            enforced unless a consultant lets their own
+            instructions override it; <span class="font-medium text-gray-700">Always enforced</span>:
+            consultant overrides are ignored; <span class="font-medium text-gray-700">Off for everyone</span>:
+            the rule is disabled org-wide.
           </p>
           <p class="mt-1 max-w-3xl text-sm text-gray-500">
             Until an admin saves a mode here, every category is Writer's
@@ -176,7 +177,7 @@
         </div>
 
         {#if configQ.data === undefined}
-          <div class="flex min-h-[20vh] items-center justify-center"><Spinner /></div>
+          <WorkspacePanelSkeleton layout="list" label="Loading house rules" />
         {:else}
           <div class="mt-4 flex flex-col gap-4">
             {#each STYLE_OVERRIDE_KEYS as key (key)}
@@ -277,7 +278,7 @@
                 Deleted outright
               </h3>
               <p class="mt-1 text-xs text-gray-400">
-                No meaning-preserving substitute — the word is removed and the
+                No meaning-preserving substitute: the word is removed and the
                 sentence re-capitalized.
               </p>
               <ul class="mt-2 flex flex-wrap gap-1.5">

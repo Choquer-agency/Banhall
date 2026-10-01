@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { page } from "$app/state";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -71,7 +71,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goToLogin();
     }
   });
 
@@ -398,7 +398,7 @@
                       {:else}
                         <span>{entry.hours.toFixed(1)}</span>
                       {/if}
-                      <span class={`ml-1 text-[10px] ${entry.hoursBasis === "estimated" ? "text-amber-700" : "text-gray-400"}`}>
+                      <span class={`ml-1 text-[0.625rem] ${entry.hoursBasis === "estimated" ? "text-amber-700" : "text-gray-400"}`}>
                         {entry.hoursBasis ?? "legacy"}
                       </span>
                     </td>

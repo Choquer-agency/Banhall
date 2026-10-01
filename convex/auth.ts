@@ -11,6 +11,16 @@ import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import authConfig from "./auth.config";
 import { normalizeEmail } from "./lib/email";
+import { notify } from "./lib/notify";
+import { ROLE_LABELS } from "../shared/roles";
+import { notificationCopy } from "../shared/notifications";
+import { customAuthCookiePrefix } from "../shared/authCookies";
+import {
+  AUTH_CLIENT_IP_HEADER,
+  AUTH_RATE_LIMIT,
+  authProxySecretProblem,
+  trustedAuthRequest,
+} from "../shared/authRateLimit";
 
 const authFunctions: AuthFunctions = internal.auth;
 
@@ -25,6 +35,14 @@ const trustedOrigins = [
 ]
   .map((origin) => origin.trim())
   .filter(Boolean);
+
+// Optional per-deployment cookie names (shared/authCookies.ts). Local apps on
+// different localhost ports share one cookie jar, so each local deployment
+// sets its own BETTER_AUTH_COOKIE_PREFIX, and the SvelteKit app that talks to
+// it sets the same value. Unset (production), no `advanced` option is passed
+// and Better Auth keeps its default `better-auth.*` names. Read from
+// process.env like SITE_URL and BETTER_AUTH_TRUSTED_ORIGINS.
+const cookiePrefix = customAuthCookiePrefix(process.env.BETTER_AUTH_COOKIE_PREFIX);
 
 export const authComponent = createClient<DataModel>(components.betterAuth, {
   authFunctions,
@@ -64,37 +82,52 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
             "Signups are invite-only. Ask an admin for an invite.",
           );
         }
+        // Decision 51: the invite may carry no names until the invitee
+        // confirms them (invites.confirmInviteNames, called by the signup
+        // page right before sign-up). The account keeps requiring both.
+        const firstName = invite.firstName?.trim();
+        const lastName = invite.lastName?.trim();
+        if (!firstName || !lastName) {
+          throw new ConvexError("First and last name are required.");
+        }
         let userId;
         if (existing) {
           await ctx.db.patch(existing._id, {
             authId: authUser._id,
-            ...(invite
-              ? {
-                  firstName: invite.firstName,
-                  lastName: invite.lastName,
-                  role: existing.role ?? invite.role,
-                }
-              : {}),
+            firstName,
+            lastName,
+            role: existing.role ?? invite.role,
           });
           userId = existing._id;
         } else {
           userId = await ctx.db.insert("users", {
             authId: authUser._id,
             email: email ?? undefined,
-            firstName: invite!.firstName,
-            lastName: invite!.lastName,
+            firstName,
+            lastName,
             name: authUser.name ?? undefined,
-            role: invite!.role,
+            role: invite.role,
             createdAt: now,
           });
         }
-        if (invite) {
-          await ctx.db.patch(invite._id, {
-            status: "accepted",
-            acceptedAt: now,
-            acceptedUserId: userId,
-          });
-        }
+        await ctx.db.patch(invite._id, {
+          status: "accepted",
+          acceptedAt: now,
+          acceptedUserId: userId,
+        });
+        // Round 2 (I3): tell the inviter.
+        const copy = notificationCopy.inviteAccepted({
+          name: `${firstName} ${lastName}`,
+          role: ROLE_LABELS[invite.role],
+        });
+        await notify(ctx, {
+          userId: invite.invitedBy,
+          kind: "invite_accepted",
+          title: copy.title,
+          body: copy.body,
+          href: "/team",
+          dedupeKey: `invite_accepted:${invite._id}`,
+        });
       },
       onDelete: async (ctx, authUser) => {
         const appUser = await ctx.db
@@ -110,10 +143,19 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
 // Internal mutations the component calls back into for the triggers above.
 export const { onCreate, onUpdate, onDelete } = authComponent.triggersApi();
 
-export const createAuth = (ctx: GenericCtx<DataModel>) =>
-  betterAuth({
+export const createAuth = (ctx: GenericCtx<DataModel>) => {
+  const auth = betterAuth({
     baseURL: process.env.SITE_URL,
     trustedOrigins,
+    advanced: {
+      ...(cookiePrefix ? { cookiePrefix } : {}),
+      // Security wave 1 (a2 P1-2, a4 #7): the browser's address comes from
+      // the SvelteKit proxy's header, kept only when the proxy vouched for it
+      // (see the handler below and shared/authRateLimit.ts).
+      ipAddress: { ipAddressHeaders: [AUTH_CLIENT_IP_HEADER] },
+    },
+    // Counted in the component's rateLimit table; per address per path.
+    rateLimit: AUTH_RATE_LIMIT,
     database: authComponent.adapter(ctx),
     emailAndPassword: {
       enabled: true,
@@ -167,3 +209,21 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
     },
     plugins: [convex({ authConfig })],
   });
+  // Every auth request passes through here (registerRoutes calls
+  // `createAuth(ctx).handler`): drop a client address the proxy did not vouch
+  // for. AUTH_PROXY_SECRET is read like SITE_URL. A production deployment
+  // without a usable secret logs an error on every request and drops every
+  // address, so the limit stays per path rather than per invented address;
+  // local development (a localhost SITE_URL, or none) is unchanged.
+  const handler = auth.handler;
+  return Object.assign(auth, {
+    handler: (request: Request) => {
+      const secret = process.env.AUTH_PROXY_SECRET;
+      const problem = authProxySecretProblem(secret, process.env.SITE_URL);
+      if (problem) console.error(problem);
+      return handler(
+        trustedAuthRequest(request, secret, { requireSecret: problem !== null })
+      );
+    },
+  });
+};

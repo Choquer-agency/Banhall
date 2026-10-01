@@ -1,0 +1,53 @@
+{
+  "id": "carried-old-selections",
+  "title": "Brackenridge graded foam filters",
+  "clientName": "Brackenridge Kilnworks Ltd.",
+  "industry": "manufacturing",
+  "interviewees": [
+    "Rolf Aberline",
+    "Ines Castellanos"
+  ],
+  "fictional": true,
+  "semanticCase": "carried_old_selections",
+  "purpose": "The writer approves through Experimentation, then switches the goal framing (from filter breakage to fine-inclusion capture, both supported by the sources). Every approved successor goes Stale. The writer regenerates Technological uncertainties but keeps the older selections and must Confirm and approve them as carried; the other Stale steps are confirmed the same way. Company / Context carries a writer edit with a term that is in no source, which must reach the drafted Section 242, and that edited item is writer-asserted.",
+  "notes": [
+    "2026-09-30 (second): run 11 (commit 9de29da9) passed. Line 242 states no capture uncertainty (the writer never ticked it), while Lines 244 and 246 test and claim capture. Under the 2026-09-30 second amendment (Rule C) Line 244 keeps the capture trials: they are the evidence for signed-off Line 246 item 13 (both goals met together). The Rule B and Rule C checks now compare with every COVER item before judging not applied.",
+    "Automatic check added for every fixture (information): Line 244's Rule C row, its repair, and any Line 244 COVER row not applied after such a repair. No earlier check was removed or weakened.",
+    "2026-09-30: in run 11 (commit 9de29da9) the scripted goal switch took the next Seed on the Goal / Problem page, which was a process card (\"The core manufacturing process is replication ...\"), so Line 242 took its goal from the Brief. A fixture-script weakness, not a product defect.",
+    "The scripted writer now switches to the Goal / Problem Seed closest to the framing this fixture switches to, params.switchHint (\"capture of fine inclusions\"), when a Seed holds at least half of its words. Otherwise it takes another Seed that states a goal: one that says \"goal\" first, then one that says aim, target, objective or sought, and among those the one that shares the fewest words with the earlier pick. When no other Seed on the page states a goal, it takes the next Seed on the page, as before, and the run log says which way it chose. No check was removed or weakened."
+  ],
+  "sources": [
+    {
+      "kind": "transcript",
+      "file": "interview.txt",
+      "label": "Interview with Rolf Aberline and Ines Castellanos"
+    },
+    {
+      "kind": "document",
+      "file": "notes.md",
+      "fileName": "graded-filter-trial-log.md",
+      "category": "scoping_notes"
+    }
+  ],
+  "mustNotAppearInSources": [
+    "cascade-fired",
+    "lattice"
+  ],
+  "mustAppearInSources": [
+    "thermal shock",
+    "inclusion"
+  ],
+  "params": {
+    "editedTerm": "cascade-fired lattice",
+    "editSentence": "The team calls the graded structure the cascade-fired lattice.",
+    "switchRole": "goal_problem",
+    "regenerateRole": "active_uncertainties",
+    "switchHint": "capture of fine inclusions"
+  },
+  "judgmentQuestions": [
+    "Section 242 states the goal the writer switched to, not the first framing, and the carried uncertainties still read as consistent with it.",
+    "The carried uncertainty selections are drafted faithfully, even though their Seeds were produced before the goal change.",
+    "The edited term \"cascade-fired lattice\" is used naturally in Section 242, and the writer-asserted wording is presented without invented evidence.",
+    "Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?"
+  ]
+}

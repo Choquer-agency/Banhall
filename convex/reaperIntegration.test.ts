@@ -8,6 +8,7 @@
  *    failed with no raw error text.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -28,6 +29,7 @@ afterEach(() => {
 describe("failStalePdReviews unblocks retryPdReview", () => {
   it("retry is refused while a review is stranded running, then allowed after the reap", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { failedReviewId } = await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", { authId, role: "writer" });
       const now = Date.now();
@@ -37,6 +39,7 @@ describe("failStalePdReviews unblocks retryPdReview", () => {
         status: "draft",
         mode: "review",
         createdBy: userId,
+        ownerId: userId,
         shareToken: "retry-unblock-token",
         createdAt: now,
         updatedAt: now,
@@ -93,6 +96,7 @@ describe("failStalePdReviews unblocks retryPdReview", () => {
 describe("whole-fail feeds a clean recovery projection", () => {
   it("getGenerationRecovery shows reaped runs as failed with no raw error text", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const ids = await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", { authId, role: "writer" });
       const now = Date.now();
@@ -102,6 +106,7 @@ describe("whole-fail feeds a clean recovery projection", () => {
         clientName: "Client",
         status: "generating",
         createdBy: userId,
+        ownerId: userId,
         shareToken: "recovery-after-reap-token",
         createdAt: now,
         updatedAt: now,

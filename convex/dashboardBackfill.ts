@@ -109,6 +109,8 @@ export const processBatch = internalMutation({
     });
     let patched = args.patched;
     for (const project of result.page) {
+      // deleteProject has already removed this row from the dashboard count.
+      if (project.deletionStartedAt !== undefined) continue;
       const projection = projectDashboardProjectionPatch(project);
       const generationActivity = await resolveProjectGenerationActivity(ctx, project);
       const latestView = await ctx.db

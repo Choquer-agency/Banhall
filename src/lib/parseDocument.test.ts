@@ -67,6 +67,20 @@ describe("parseFileToText", () => {
     expect(parsed.content).not.toContain("Empty");
   });
 
+  it("reports indeterminate progress for Word, Excel and text files", async () => {
+    const progress: unknown[] = [];
+    await parseFileToText(new File(["notes"], "notes.txt"), { onProgress: (p) => progress.push(p) });
+    expect(progress).toEqual([{ kind: "indeterminate" }]);
+  });
+
+  it("refuses to start once the caller has aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      parseFileToText(new File(["notes"], "notes.txt"), { signal: controller.signal })
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("passes csv through as text", async () => {
     const file = new File(["col1,col2\na,b\n"], "data.csv");
     const parsed = await parseFileToText(file);
@@ -228,9 +242,44 @@ describe("PDF parse deadline", () => {
       fileName: "report.pdf",
       fileType: "pdf",
       content: "Page one\n\nPage two\n\nPage three",
+      pageCount: 3,
+      pageOffsets: [0, 10, 20],
     });
     expect(destroyCalls).toBe(1);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("reports pages read over total and returns each page's offset (E1 eager reading)", async () => {
+    installPdf("immediate", [{ text: "Line 242 Technological uncertainty" }, { text: "" }, { text: "Line 244 work" }]);
+    const progress: unknown[] = [];
+    const parsed = await parseFileToText(pdfFile(), { onProgress: (p) => progress.push(p) });
+    expect(progress).toEqual([
+      { kind: "pages", done: 0, total: 3 },
+      { kind: "pages", done: 1, total: 3 },
+      { kind: "pages", done: 2, total: 3 },
+      { kind: "pages", done: 3, total: 3 },
+    ]);
+    expect(parsed.pageCount).toBe(3);
+    const offsets = parsed.pageOffsets!;
+    expect(offsets).toHaveLength(3);
+    expect(parsed.content.slice(offsets[0])).toMatch(/^Line 242/);
+    expect(parsed.content.slice(offsets[2])).toMatch(/^Line 244/);
+    // The empty page starts where the page before it ended.
+    expect(offsets[1]).toBeGreaterThan(offsets[0]);
+    expect(offsets[1]).toBeLessThanOrEqual(offsets[2]);
+  });
+
+  it("stops between pages when the caller aborts", async () => {
+    const controller = new AbortController();
+    installPdf("immediate", [{ text: "Page one" }, { text: "Page two" }]);
+    const parse = parseFileToText(pdfFile(), {
+      signal: controller.signal,
+      onProgress: (p) => {
+        if (p.kind === "pages" && p.done === 1) controller.abort();
+      },
+    });
+    await expect(parse).rejects.toMatchObject({ name: "AbortError" });
+    expect(destroyCalls).toBe(1);
   });
 
   it("keeps one cumulative 60s budget across the load and every page", async () => {
@@ -308,6 +357,8 @@ describe("PDF parse deadline", () => {
         fileName: "report.pdf",
         fileType: "pdf",
         content: `Page one\n${pdfPageStopMarker(2)}`,
+        pageCount: 2,
+        pageOffsets: [0],
       });
       expect(pdf.getPageCalls).toEqual([[1], [2]]);
       expect(expireCalls).toBe(1);

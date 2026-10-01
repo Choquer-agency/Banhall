@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { resolve } from "$app/paths";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { useQuery } from "convex-svelte";
@@ -34,7 +34,7 @@
   const y = (value: number) => 128 - value * 116;
 
   $effect(() => {
-    if (!auth.isLoading && !auth.isAuthenticated) void goto(resolve("/login"), { replaceState: true });
+    if (!auth.isLoading && !auth.isAuthenticated) void goToLogin();
   });
 </script>
 

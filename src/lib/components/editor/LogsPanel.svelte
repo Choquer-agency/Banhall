@@ -52,8 +52,7 @@
     </svg>
     Logs
     {#if log !== undefined}
-      <span class="text-gray-300">·</span>
-      <span class="text-gray-300">{count} entr{count === 1 ? "y" : "ies"}</span>
+      <span class="text-gray-300">({count} entr{count === 1 ? "y" : "ies"})</span>
     {/if}
   </button>
 

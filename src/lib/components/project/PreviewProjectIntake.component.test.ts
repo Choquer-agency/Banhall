@@ -142,6 +142,18 @@ describe("PreviewProjectPage intake workbench", () => {
     expect(document.querySelector('[aria-label="AI assistant"]')).toBeNull();
   });
 
+  it("reserves no side panel or divider under the default open-Assistant preference", async () => {
+    // Default preferences: the Assistant is saved as open, but intake offers none.
+    await mountIntake(1024);
+    const aside = document.querySelector<HTMLElement>('aside[aria-label="Side panel"]')!;
+    expect(aside.hasAttribute("data-side-panel")).toBe(false);
+    expect(aside.getBoundingClientRect().width).toBe(0);
+    expect(document.querySelector("[data-side-panel-divider]")).toBeNull();
+    const main = document.querySelector<HTMLElement>("[data-project-main]")!;
+    const body = document.querySelector<HTMLElement>("[data-project-body]")!;
+    expect(main.getBoundingClientRect().width).toBe(body.getBoundingClientRect().width);
+  });
+
   it("lists every transcript, opens the first by default and subscribes one body at a time", async () => {
     await mountIntake(1440, 900, [
       transcriptRow("t-1", "Kickoff interview.docx", 11),
@@ -283,25 +295,48 @@ describe("PreviewProjectPage intake workbench", () => {
     expect(getComputedStyle(pane("work")!).display).toBe("none");
   });
 
-  it("keeps exactly one h1 named by the project title, with the edit control as an adjacent sibling", async () => {
+  it("keeps exactly one h1 named by the project title, with the title editor outside every heading", async () => {
     await mountIntake(1440);
 
     const headings = Array.from(document.querySelectorAll("h1"));
     expect(headings).toHaveLength(1);
     expect(headings[0].textContent).toContain("Acme FY24 thermal narrative");
-    // The heading name is the title itself — no edit-control contamination.
+    // The heading name is the title itself, with no edit-control contamination.
     expect(headings[0].textContent).not.toContain("Edit");
-    // The editable in-body title is a level-2 heading whose edit button sits
-    // BESIDE the heading, never inside it.
-    const editButton = document.querySelector<HTMLElement>(
-      '[aria-label="Edit internal project title"]'
-    );
-    expect(editButton).not.toBeNull();
-    expect(editButton!.closest("h1, h2")).toBeNull();
-    const bodyTitle = Array.from(document.querySelectorAll("h2")).find((h) =>
-      h.textContent?.includes("Acme FY24 thermal narrative")
-    );
-    expect(bodyTitle).toBeDefined();
+    // The internal title edits from the Details panel's More disclosure
+    // (ui-design-final.md section 11), never inside a heading.
+    __setQueryData("projectWorkflow:getProjectWorkflowHeader", {
+      workflowStage: "intake",
+      stageIsFallback: false,
+      workflowUpdatedAt: null,
+      workflowVersion: 1,
+      owner: null,
+      ownerNeedsReview: false,
+      createdByLabel: "Wren Writer",
+      viewerAuthorities: ["owner"],
+    });
+    __setQueryData("projects:getProjectDetailsPanel", {
+      stage: "intake",
+      workflowVersion: 1,
+      industry: null,
+      fiscalYearEnd: null,
+      scienceCode: null,
+      projectNumber: null,
+      owner: null,
+      createdAt: 1753747200000,
+      editedAt: 1753747200000,
+      currentHandoff: null,
+      permissions: { canEditDetails: true, canChangeStage: true, canHandOff: true },
+    });
+    await browserPage.getByRole("button", { name: "Details", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-details-more-toggle]")).not.toBeNull();
+    document.querySelector<HTMLButtonElement>("[data-details-more-toggle]")!.click();
+    await expect
+      .poll(() => document.querySelector<HTMLElement>('[aria-label="Edit internal project title"]'))
+      .not.toBeNull();
+    const editButton = document.querySelector<HTMLElement>('[aria-label="Edit internal project title"]')!;
+    expect(editButton.closest("h1, h2, h3")).toBeNull();
+    expect(editButton.parentElement?.textContent).toContain("Acme FY24 thermal narrative");
   });
 
   it("exposes the Files panel as a real disclosure: aria-expanded state and a resolvable aria-controls region", async () => {

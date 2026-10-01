@@ -99,6 +99,9 @@ describe("PSOS-11 dashboard projections", () => {
         projectId,
         transcriptId,
         status: "running",
+        // Only a gated (iterative) generation waits in awaiting_input; the
+        // transition table refuses that move for a compare row.
+        candidateMode: "iterative",
         requestedBy: userId,
         startedAt: now,
       });

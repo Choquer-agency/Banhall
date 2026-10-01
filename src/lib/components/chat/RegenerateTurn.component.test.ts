@@ -157,7 +157,9 @@ it.each(["queued", "researching", "reviewing", "streaming"])("disables historica
 it("preserves an active proposal refinement and its draft", async () => {
   __setQueryData("chatV2:listProposals", [{ _id: "proposal-1", _creationTime: 1000, agentThreadId: "thread-1", projectId, reportId, kind: "edit", targetText: "Existing wording", newText: "Candidate wording", state: "pending", createdAt: 1000 }]);
   await render(AgentChatPanel, { reportId, projectId });
-  await page.getByRole("button", { name: "Refine with AI", exact: true }).click();
+  // Refine lives in the suggested-edit card's More menu (board 2.1).
+  await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Refine with AI", exact: true }).click();
   const composer = page.getByRole("textbox");
   await composer.fill("My refinement draft");
   await regenerate().click();
@@ -312,7 +314,7 @@ it("preserves Copy, proposal contents, Brain sources and feedback after regenera
   expect(writeClipboard).toHaveBeenCalledExactlyOnceWith("Original answer remains.");
   await expect.element(page.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
   await expect.element(page.getByText("Candidate wording", { exact: true })).toBeVisible();
-  await expect.element(page.getByRole("button", { name: "Refine with AI", exact: true })).toBeEnabled();
+  await expect.element(page.getByRole("button", { name: "More actions for this suggestion", exact: true })).toBeEnabled();
   await expect.element(page.getByRole("button", { name: "Mark response helpful", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByText("Worked", { exact: true }).click();
   await page.getByText("Searched The Brain for “controls”", { exact: true }).click();

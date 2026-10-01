@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { rootScale } from "$lib/rootScale";
   import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -105,14 +106,14 @@
     </p>
     <div class="mt-1.5 flex items-center gap-1.5">
       <div
-        class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white"
+        class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-[0.5625rem] font-bold text-white"
         style={`background-color: ${color}`}
       >
         {name[0]?.toUpperCase()}
       </div>
-      <span class="text-[11px] font-medium text-gray-700">{name}</span>
+      <span class="text-[0.6875rem] font-medium text-gray-700">{name}</span>
       {#if comment.commenterType === "client"}
-        <span class="rounded bg-purple-50 px-1 py-0.5 text-[9px] font-medium text-purple-600">
+        <span class="rounded bg-purple-50 px-1 py-0.5 text-[0.5625rem] font-medium text-purple-600">
           Client
         </span>
       {/if}
@@ -120,7 +121,7 @@
     <p class="mt-1 text-sm leading-relaxed text-gray-800">{comment.body}</p>
     {#if comment.suggestedEdit}
       <div class="mt-1.5 rounded border border-primary/20 bg-primary/5 px-2 py-1.5">
-        <p class="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-dark">
+        <p class="mb-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-primary-dark">
           Suggested edit
         </p>
         <p class="text-xs text-gray-700">{comment.suggestedEdit}</p>
@@ -153,10 +154,10 @@
     class="fixed z-[80] w-72"
     style={`top: ${Math.min(
       (pendingHighlight.y ?? 120) + 8,
-      (typeof window !== "undefined" ? window.innerHeight : 800) - 240
+      (typeof window !== "undefined" ? window.innerHeight : 800) - 240 * rootScale()
     )}px; left: ${Math.min(
       pendingHighlight.x ?? 120,
-      (typeof window !== "undefined" ? window.innerWidth : 1200) - 304
+      (typeof window !== "undefined" ? window.innerWidth : 1200) - 304 * rootScale()
     )}px`}
   >
     <div class="rounded-lg border border-navy/20 bg-white p-3 shadow-lg">
@@ -184,10 +185,10 @@
     tabindex="-1"
     style={`top: ${Math.min(
       rect.top,
-      (typeof window !== "undefined" ? window.innerHeight : 800) - 200
+      (typeof window !== "undefined" ? window.innerHeight : 800) - 200 * rootScale()
     )}px; left: ${Math.min(
       rect.right + 12,
-      (typeof window !== "undefined" ? window.innerWidth : 1200) - 272
+      (typeof window !== "undefined" ? window.innerWidth : 1200) - 272 * rootScale()
     )}px`}
     onmouseenter={() => {
       if (hideTimer) clearTimeout(hideTimer);

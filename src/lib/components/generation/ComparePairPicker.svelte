@@ -8,9 +8,12 @@
 <script lang="ts">
   import { Popover } from "bits-ui";
   import ModelLogo from "./ModelLogo.svelte";
+  import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import ModelSelectDialog from "./ModelSelectDialog.svelte";
   import ModelSelectPanel from "./ModelSelectPanel.svelte";
-  import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
+  import { pickerModels } from "$lib/modelPicker";
+  import { useQuery } from "convex-svelte";
+  import { api } from "../../../../convex/_generated/api";
 
   let {
     slotA = $bindable(""),
@@ -20,12 +23,15 @@
     /** Model id, or "" for Random. */
     slotA?: string;
     slotB?: string;
-    /** lg = 44px slot cards (selection screens) · md = 36px inline control. */
-    size?: "lg" | "md";
+    /** lg = 44px slot cards (selection screens), md = 36px inline control,
+     *  field = New project's stacked full-width 36px slots with the AI mark. */
+    size?: "lg" | "md" | "field";
   } = $props();
 
-  const slotClass = $derived(size === "md" ? "h-9 w-40" : "h-11 w-44");
-  const slotText = $derived(size === "md" ? "text-xs" : "text-sm");
+  const slotClass = $derived(
+    size === "field" ? "h-9 w-full pointer-coarse:h-11" : size === "md" ? "h-9 w-40" : "h-11 w-44"
+  );
+  const slotText = $derived(size === "lg" ? "text-sm" : "text-xs");
   const logoSize = $derived(size === "md" ? ("sm" as const) : ("md" as const));
 
   // Centered dialog for empty slots; anchored popovers for filled ones.
@@ -39,10 +45,11 @@
     else slotB = id;
   }
 
+  const capabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
   const labelFor = (id: string) =>
-    CANDIDATE_MODELS.find((m) => m.id === id)?.label ?? "";
+    pickerModels(capabilitiesQ.data).find((m) => m.id === id)?.label ?? "";
   const providerFor = (id: string) =>
-    CANDIDATE_MODELS.find((m) => m.id === id)?.provider ?? "Anthropic";
+    pickerModels(capabilitiesQ.data).find((m) => m.id === id)?.provider ?? "Anthropic";
 </script>
 
 {#snippet slotCard(id: string, which: "a" | "b")}
@@ -57,10 +64,15 @@
           aria-label={`Change model: ${labelFor(id)}`}
           class="flex h-full w-full min-w-0 cursor-pointer items-center gap-2 px-2.5 pr-9 text-left"
         >
-          <ModelLogo provider={providerFor(id)} size={logoSize} />
-          <span class={`min-w-0 flex-1 truncate ${slotText} font-semibold tracking-tight`} title={labelFor(id)}>
-            {labelFor(id)}
-          </span>
+          {#if size === "field"}
+            <AuroraMark size={18} />
+            <span class="min-w-0 flex-1 truncate text-sm leading-5 text-ink" title={labelFor(id)}>{labelFor(id)}</span>
+          {:else}
+            <ModelLogo provider={providerFor(id)} size={logoSize} />
+            <span class={`min-w-0 flex-1 truncate ${slotText} font-semibold tracking-tight`} title={labelFor(id)}>
+              {labelFor(id)}
+            </span>
+          {/if}
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content
@@ -113,9 +125,14 @@
   {/if}
 {/snippet}
 
-<div class="flex items-center gap-2" role="group" aria-label="Models to compare">
+<div
+  class={size === "field" ? "flex flex-col gap-1.5" : "flex items-center gap-2"}
+  role="group"
+  aria-label="Models to compare"
+  data-model-picker={size === "field" ? "field" : undefined}
+>
   {@render slotCard(slotA, "a")}
-  <span class="text-label select-none text-gray-400">vs</span>
+  {#if size !== "field"}<span class="text-label select-none text-gray-400">vs</span>{/if}
   {@render slotCard(slotB, "b")}
 </div>
 

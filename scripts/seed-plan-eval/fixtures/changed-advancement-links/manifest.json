@@ -1,0 +1,57 @@
+{
+  "id": "changed-advancement-links",
+  "title": "Marrowgate cold-water biofilter control",
+  "clientName": "Marrowgate Aquatics Inc.",
+  "industry": "life-sciences",
+  "interviewees": [
+    "Tomas Reinholt",
+    "Farah Okonkwo-Lind"
+  ],
+  "fictional": true,
+  "semanticCase": "changed_advancement_links",
+  "purpose": "The writer selects three uncertainties, picks experiments by the uncertainty each tested (one for each uncertainty first), approves Specific technological advancements, then unticks the uncertainty most advancements link to. Approving the experiments that tested it must be refused, and the writer unticks them; approving the old advancements must be refused as unlinked; the writer regenerates, drops the unlinked items and selects advancements linked to a remaining uncertainty and to experiments that tested it. When two signed-off advancements share one uncertainty they must be drafted as one advancement with facets, and the Compliance Note must name the merge. Where the Advancement to science or goal improvements pick answers the dropped uncertainty, approving it must be refused, and the writer unticks it and picks or regenerates an idea for a kept uncertainty. No drafted advancement may claim the dropped uncertainty.",
+  "notes": [
+    "2026-09-29: run 6 (commit c8ce1fe2) failed because the scripted writer picked the first three experiments on the page, which were all cold-water start-up trials, and then dropped the start-up uncertainty. The Seed model linked start-up advancements to the sensor uncertainty and Line 246 claimed the dropped uncertainty resolved.",
+    "The scripted writer now picks experiments the way a writer would for this purpose: by the uncertainty each one tested (the card shows it since the 2026-09-29 first amendment), one for each picked uncertainty first. Until at least two uncertainties are covered it takes no second experiment for one uncertainty and regenerates Experimentation / Iterations, up to twice; then it fills the remaining picks.",
+    "It still drops the uncertainty most selected advancements link to, whatever that leaves. It reads each step's notice, expects the refusal for experiments that tested the dropped uncertainty, unticks them, and, when no kept uncertainty has an experiment left (the run 6 corner), picks experiments for the kept uncertainties as the step advises before it returns to the advancements.",
+    "Automatic checks added: both steps named the problem before approval, the experiments refusal, every signed-off advancement follows the uncertainty its experiments tested, every signed-off experiment tested an uncertainty the plan still holds, and a hint showing the Line 246 paragraph closest to the dropped uncertainty's words. No earlier check was removed or weakened.",
+    "2026-09-30: run 10 (commit 67be8f06) failed: the Seed-stage rule held, but drafting was never told what the writer dropped, so the Brief put the dropped seed-fraction uncertainty's Trial 2 at 6 C back in Line 244 and its result in Line 246, and Line 246 claimed dosing and sensor advancements for uncertainties Line 242 never states. The 2026-09-30 first amendment leaves a dropped uncertainty out of every Line and ties Line 246 advancements to Line 242.",
+    "Automatic checks added: every Line records the dropped uncertainty as left out (its Compliance Note rows applied), and Line 246 records every advancement as answering a Line 242 uncertainty. The hint now scans every paragraph of every Line for the dropped uncertainty's words and for the distinctive figures in its experiments' wording (figures no signed-off item uses), and names each paragraph with a hit. No earlier check was removed or weakened.",
+    "2026-09-30 (second): run 11 (commit 9de29da9) passed. The judges noted that Line 244 narrated a Brief-only sensor experiment for an uncertainty Line 242 never states, and that the Line 244 LEAVE OUT row read not applied for signed-off experiment item 9 (19 and 6 days). The 2026-09-30 second amendment adds Rule C (Line 244 work answers Line 242, or is work a signed-off item holds or needs as its evidence), makes the LEAVE OUT and Rule B checks compare with every COVER item first, and records a LEAVE OUT verdict that flags a signed-off item by its figures as applied.",
+    "Automatic check added for every fixture (information): Line 244's Rule C row, its repair, and any Line 244 COVER row not applied after such a repair. The LEAVE OUT check's evidence names a row the figure check recorded applied. No earlier check was removed or weakened.",
+    "2026-09-30: run 11 (commit 9de29da9) passed, but both judges found a product gap: the writer dropped the acclimation and seed-fraction uncertainty, and the claim refused in Specific technological advancements (acclimation cut start-up roughly in half, 31 days at 8 C) survived in the Advancement to science and goal improvements picks (items 10 and 13), which carried no uncertainty link, and was drafted into Line 246. Under the 2026-09-30 fourth amendment those Seeds record the uncertainties they answer, and approving a pick that answers a dropped uncertainty is refused.",
+    "Once the specific advancements are fixed, the scripted writer resolves Advancement to science, then goal improvements: where a pick answers the dropped uncertainty it expects the refusal; it unticks every pick the step names or approval asks to acknowledge, and picks an idea that answers only kept uncertainties, regenerating the step up to twice when the page has none. Goal improvements takes a goal restatement after one regeneration. Stale result steps go through the same resolver.",
+    "Automatic checks added: each step whose pick answered the dropped uncertainty said so before approval, approving it was refused (both shown as information when no pick answered it), and every signed-off Advancement to science and goal improvements item answers only uncertainties the plan holds, Advancement to science at least one. No earlier check was removed or weakened.",
+    "Review of the 2026-09-30 fourth amendment (P2-1 and its re-check): a link can be wrong, so approval also shows an Advancement to science or goal improvements pick whose words state a figure of a dropped uncertainty's results (from the Seeds that recorded it and that the writer ticked, less every figure a kept pick states) and asks the writer to acknowledge it. The scripted writer does not acknowledge it: it replaces the pick. Automatic checks added: no signed-off Advancement to science or goal improvements item states such a figure (read from the frozen Summary), and, as information, how many picks approval asked to acknowledge. No earlier check was removed or weakened.",
+    "2026-09-30: run 12 (commit c17f2494) passed, but both judges found a major systematic defect: the writer dropped the dosing uncertainty, and signed-off Hypothesis item 8 was the dosing hypothesis, carried and confirmed after the drop because the Hypothesis step carried no uncertainty link. Line 244 then had to choose between a COVER item and the LEAVE OUT. Under the 2026-09-30 fifth amendment Hypothesis and Work plan Seeds record the uncertainties they test or plan work for, and approving a pick that records a dropped uncertainty is refused.",
+    "Right after the drop, in step order and before the experiments, the scripted writer resolves Work plan, then Hypothesis: it reads the step's notice, expects the refusal where a pick records the dropped uncertainty, unticks it and picks one for a kept uncertainty, regenerating the step up to twice. Automatic checks added: approving a Hypothesis or Work plan pick that tested the dropped uncertainty was refused (information when no pick did), and every signed-off Hypothesis and Work plan item records only uncertainties the plan still holds. No earlier check was removed or weakened."
+  ],
+  "sources": [
+    {
+      "kind": "transcript",
+      "file": "interview.txt",
+      "label": "Interview with Tomas Reinholt and Farah Okonkwo-Lind"
+    },
+    {
+      "kind": "document",
+      "file": "notes.md",
+      "fileName": "biofilter-trial-summary.md",
+      "category": "scoping_notes"
+    }
+  ],
+  "mustNotAppearInSources": [],
+  "mustAppearInSources": [
+    "ammonia",
+    "start-up"
+  ],
+  "params": {
+    "uncertainties": 3,
+    "experiments": 3
+  },
+  "judgmentQuestions": [
+    "Section 246 does not claim an advancement for the uncertainty the writer dropped.",
+    "The advancements that share one uncertainty are drafted as one advancement with facets, not as two separate claims.",
+    "Each drafted advancement matches an uncertainty in Section 242 and an experiment in Section 244.",
+    "Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?"
+  ]
+}

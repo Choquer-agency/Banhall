@@ -257,9 +257,13 @@ export type CondenseWindowArgs = {
   totalParts: number;
 };
 
-/** Condenses one window. The unit `ensureCondensedInputs` injects and stubs. */
+/**
+ * Condenses one window. The unit `ensureCondensedInputs` injects and stubs.
+ * `signal` aborts the request when the call runs past its time limit.
+ */
 export type CondenseWindow = (
-  args: CondenseWindowArgs
+  args: CondenseWindowArgs,
+  signal?: AbortSignal
 ) => Promise<TranscriptDigest>;
 
 export function condenseUserMessage(args: CondenseWindowArgs): string {

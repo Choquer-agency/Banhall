@@ -1,0 +1,89 @@
+Siobhan Adeyemi: Thanks for joining me. We're covering fiscal 2026, July 1 2025 to June 30 2026, and the biofilter control work. Tomas, can you start with some background on Marrowgate?
+
+Tomas Reinholt: Sure. Marrowgate Aquatics Inc. is in Kelvale, Nova Scotia. We're 30 people. We design recirculating aquaculture systems, RAS, for land-based trout farms. That means the tanks, the water treatment train, the biofilters, the oxygen systems and the controls. Most of our clients raise rainbow trout or Arctic char, and they run cold water, often 6 to 12 degrees C, because the fish do better and because heating water in Atlantic Canada is expensive. I lead the biological systems group. I've been here nine years.
+
+Farah Okonkwo-Lind: I'm the controls engineer. I've been here four years. I handle the PLC logic, the sensors and the dosing systems.
+
+Siobhan Adeyemi: What's the practical problem?
+
+Tomas Reinholt: The biofilter. In a RAS, fish excrete ammonia, and it's toxic. The biofilter is a tank full of plastic media that bacteria grow on, and those bacteria convert ammonia to nitrite and then nitrate. That's nitrification. The problem is those bacteria are slow in cold water. So we had three separate issues, and I want to keep them apart because they needed different work.
+
+Siobhan Adeyemi: Please do.
+
+Tomas Reinholt: The first uncertainty, U1, is start-up. When a new farm fills its system, the biofilter has no bacteria. At 20 degrees C you can get a biofilter to full nitrification in 3 to 4 weeks. Below 10 degrees C, it was taking us 9 to 10 weeks. That's months of delay before a client can stock fish. So the question was how to shorten nitrification start-up at water temperatures below 10 C.
+
+Tomas Reinholt: The second, U2, is ammonia spikes after feeding. Farms feed in two or three big meals a day. Each meal releases a pulse of ammonia a few hours later. A cold biofilter can't ramp up fast enough, so total ammonia nitrogen, TAN, spikes. We were seeing TAN go above 2 mg/L after morning feeds, and our clients want it under 1 mg/L at all times. The question was how to keep TAN from spiking after feeding surges.
+
+Farah Okonkwo-Lind: And the third, U3, is sensors. To control anything you need to measure dissolved oxygen and ammonia continuously. In biofilm-heavy water, which is what you get in a RAS, the sensors foul. The optical DO sensors and the ammonium ion-selective electrodes both drift. We didn't know if they could stay accurate enough to use for control.
+
+Siobhan Adeyemi: What was known or standard before this?
+
+Tomas Reinholt: For start-up, the standard is to dose ammonium chloride and wait, or to seed with media from an existing biofilter. Seeding helps at warm temperatures, but the published work and our own experience says that seed media from a warm system goes into shock when you drop it into 8 degree water. The bacteria survive, but they barely grow. For feeding spikes, the standard answer is to oversize the biofilter, maybe 30 to 50 percent, which costs money and footprint, or to spread feeding out, which farms hate because it means more labour. And for alkalinity, which nitrification consumes, the standard is to dose sodium bicarbonate on a pH setpoint. That's reactive, it only doses after pH drops.
+
+Farah Okonkwo-Lind: For sensors, the vendors say clean them weekly. In our systems, that wasn't enough. We had ammonium electrodes drifting about 0.4 mg/L per week, which is useless when you're trying to hold under 1 mg/L.
+
+Siobhan Adeyemi: So what were the technological objectives?
+
+Tomas Reinholt: For U1, get cold-water start-up under 5 weeks at 8 degrees C. For U2, hold TAN under 1 mg/L through feeding surges at 1.5 percent body weight per day without oversizing the biofilter. For U3, keep DO sensors within 5 percent and ammonium sensors within 0.15 mg/L of lab values for at least 4 weeks between services.
+
+Siobhan Adeyemi: What was your work plan?
+
+Tomas Reinholt: We have a pilot RAS at our facility, four independent loops, each with a 6 cubic metre fish tank and a 1.2 cubic metre moving bed biofilter. We planned U1 trials in the fall and winter of 2025, when our intake water is naturally cold. U2 and U3 trials ran in parallel from November 2025 to May 2026 on loops that were already mature.
+
+Siobhan Adeyemi: Who was involved, and how much time?
+
+Tomas Reinholt: I was on it about half time. Farah was about 40 percent, mostly on U2 and U3. We had two technicians who ran the pilot loops, did the daily water chemistry, and pulled the lab samples, and between them it was about one and a half full-time people across the year. Our lab runs TAN, nitrite, nitrate and alkalinity by standard wet chemistry, so every sensor reading had a lab value to compare against.
+
+Siobhan Adeyemi: Why did you treat the three problems separately instead of as one control problem?
+
+Tomas Reinholt: Because they fail in different ways and on different timescales. Start-up is a question about how fast a new bacterial community grows in cold water, over weeks. Feeding spikes are about how a mature biofilter responds over a few hours. And the sensor question is about whether we can measure any of it reliably at all. If we'd lumped them together, we couldn't have told which change fixed what. So each experiment was set up to answer one of them.
+
+Siobhan Adeyemi: And your hypotheses?
+
+Tomas Reinholt: For U1, if we acclimate seed media stepwise, dropping temperature by 1 degree every 4 days from 14 degrees down to 8, instead of moving it straight into cold water, then the seeded biofilter will reach full nitrification in under 5 weeks at 8 degrees. For U2, if we dose alkalinity ahead of each feeding in proportion to feed mass, rather than on pH after the fact, then the biofilter will keep nitrifying at full rate through the ammonia pulse and TAN will stay under 1 mg/L.
+
+Siobhan Adeyemi: Let's go through the experiments. Start with U1.
+
+Tomas Reinholt: Experiment one, for U1, September to November 2025. Three loops at 8 degrees C. Loop A was the control: no seed, ammonium chloride dosing only. Loop B had 10 percent of its media replaced with mature media taken straight from a 16 degree production system. Loop C had 10 percent seed media too, but we acclimated it first in a side tank, dropping 1 degree every 4 days from 14 down to 8. We called full nitrification the point where the loop could process 1 mg/L of TAN to under 0.2 in 24 hours with nitrite under 0.3 mg/L. Loop A took 66 days. Loop B took 47 days. Loop C took 31 days.
+
+Siobhan Adeyemi: So acclimation made a big difference.
+
+Tomas Reinholt: It did. And the interesting part was nitrite. Loop B stalled at the nitrite stage for almost three weeks. Nitrite oxidizing bacteria seem to be hit harder by cold shock than ammonia oxidizers. With acclimation, the nitrite stall was about 6 days.
+
+Tomas Reinholt: Experiment two, also U1, January to February 2026. We wanted to know if 10 percent was the right seed fraction and if it held at colder water. We ran loops at 6 degrees C with acclimated seed at 5 percent and 15 percent. The 5 percent loop took 44 days. The 15 percent loop took 29 days. So at 6 degrees you need more seed to get under 5 weeks, and the returns flatten above about 10 to 15 percent.
+
+Siobhan Adeyemi: Now U2.
+
+Farah Okonkwo-Lind: Experiment three, for U2, late November 2025 to January 2026. Baseline first: two mature loops at 9 degrees, feeding at 1.5 percent body weight in two meals. Alkalinity was dosed on a pH setpoint of 7.2. TAN peaked at 2.3 mg/L about 3 hours after the morning feed. Alkalinity dropped from 150 to about 95 mg/L as calcium carbonate during the peak, and pH dipped to 6.9 before the dosing caught up. The nitrifiers slow down at low alkalinity and low pH, so the biofilter lost capacity right when it needed it.
+
+Farah Okonkwo-Lind: Then we switched one loop to feed-forward dosing. The PLC reads the feed mass from the auto-feeder, and 45 minutes before each meal it doses sodium bicarbonate at 0.25 kg per kg of feed, with the pH loop only as a trim. Peak TAN dropped to 1.2 mg/L. Alkalinity stayed above 130 mg/L. Better, but still above target.
+
+Siobhan Adeyemi: How did you adapt?
+
+Tomas Reinholt: Experiment four, also on U2, March to mid-April 2026. We looked at the biofilter media fill ratio, meaning how much of the biofilter volume is filled with plastic media. We'd always used 40 percent. More media means more surface for bacteria, but too much and the media doesn't move freely and mixing suffers. With feed-forward dosing on all loops, we ran fill ratios of 40, 55 and 65 percent on three loops side by side for six weeks. Peak TAN after the morning feed was 1.2 mg/L at 40 percent, 0.8 at 55 percent and 1.1 at 65 percent. At 65 percent the media clumped in the corners and we saw dead zones with low oxygen.
+
+Farah Okonkwo-Lind: What surprised us was that at 55 percent the spike wasn't just lower, it was flatter. The biofilter seemed to have spare capacity sitting there that only got used during surges. So the fill ratio worked as a buffer, separate from the dosing effect.
+
+Siobhan Adeyemi: And U3?
+
+Farah Okonkwo-Lind: Experiment five, for U3, December 2025 to May 2026. We installed optical DO sensors and ammonium ion-selective electrodes in two ways. Setup one, direct in the tank, cleaned weekly by hand, as the vendor says. Setup two, in a bypass sampling loop with a 50 micron screen, plus an automatic compressed-air blast every 6 hours. We compared both to lab samples three times a week. In setup one, DO read 8 percent low after 10 days, and the ammonium electrode drifted 0.4 mg/L per week. In setup two, DO stayed within 3 percent for 28 days, and ammonium drift dropped to about 0.1 mg/L per week. We also added a weekly automatic two-point check with standard solutions for the ammonium electrode, which took the error down to within 0.12 mg/L over 4 weeks.
+
+Siobhan Adeyemi: So what are the advancements?
+
+Tomas Reinholt: For U1, we learned that stepwise temperature acclimation of seed media cuts cold-water start-up roughly in half compared with unacclimated seed, and that the nitrite oxidizers are the bottleneck. At 8 degrees, 10 percent acclimated seed gets you to about 31 days, and at 6 degrees you need about 15 percent.
+
+Farah Okonkwo-Lind: For U2, there are two separate things. One is the feed-forward alkalinity dosing rule tied to feeding events, 0.25 kg of bicarbonate per kg of feed, 45 minutes ahead, which cut peak TAN from 2.3 to 1.2 mg/L by keeping alkalinity and pH up during the pulse. The other is the finding that a 55 percent media fill ratio buffers the spike, bringing it down to 0.8 mg/L, while 65 percent makes it worse because of dead zones. Those are two different mechanisms and both matter.
+
+Farah Okonkwo-Lind: For U3, we learned that a screened bypass loop with air-blast cleaning and weekly automatic checks keeps DO and ammonium sensors accurate enough for control for 4 weeks in biofilm-heavy water, where direct in-tank sensors don't last two weeks.
+
+Siobhan Adeyemi: What's the status?
+
+Tomas Reinholt: The start-up method has been used on one client farm in March 2026. They reached full nitrification in 34 days at 7 to 8 degrees, close to our pilot result. The feeding surge control is running on all four pilot loops. What's still open is whether the feed-forward rule needs to change with fish size, because smaller fish excrete more ammonia per kg of feed. And for U3, the ammonium electrode membranes still need replacing every 3 months, and we don't know yet if that can be extended.
+
+Farah Okonkwo-Lind: Next fiscal year we want to test the dosing rule across different fish sizes and try a TAN feedback trim once we trust the ammonium readings.
+
+Siobhan Adeyemi: And the business impact?
+
+Tomas Reinholt: Shorter start-up means clients can stock fish a month or more earlier, which is real revenue for them. Not oversizing the biofilter saves roughly 20 to 30 percent of biofilter volume on new designs. We've already changed our standard design to a 55 percent fill ratio and added feed-forward dosing to our control package.
+
+Siobhan Adeyemi: Great, thank you both.

@@ -13,6 +13,7 @@ import {
   requireFinancialWriteAccess,
 } from "./lib/roleCapabilities";
 import { domainError } from "./lib/contracts";
+import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 
 const fileTypeValidator = v.union(
@@ -174,6 +175,7 @@ export const markUploadRunning = internalMutation({
     uploadId: v.id("financialUploads"),
   },
   handler: async (ctx, args) => {
+    if (await isProjectDeleting(ctx, args.projectId)) return false;
     const upload = await ctx.db.get(args.uploadId);
     if (!upload || upload.projectId !== args.projectId) {
       domainError("NOT_AUTHORIZED", "Financial upload project mismatch");
@@ -211,6 +213,7 @@ export const replaceTimesheetEntries = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
+    if (await isProjectDeleting(ctx, args.projectId)) return;
     const upload = await ctx.db.get(args.uploadId);
     if (!upload || upload.projectId !== args.projectId) {
       domainError("NOT_AUTHORIZED", "Financial upload project mismatch");
@@ -280,6 +283,7 @@ export const markUploadFailed = internalMutation({
     error: v.string(),
   },
   handler: async (ctx, args) => {
+    if (await isProjectDeleting(ctx, args.projectId)) return;
     const upload = await ctx.db.get(args.uploadId);
     if (!upload || upload.projectId !== args.projectId) return;
     await ctx.db.patch(args.uploadId, {

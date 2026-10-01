@@ -16,8 +16,8 @@ async function setup() {
     const outsider = await ctx.db.insert("users", { authId: "storage-outsider", email: "outsider@test.com", role: "writer" });
     const project = { title: "Storage", clientName: "Client", status: "draft", createdAt: 1, updatedAt: 1 } satisfies Pick<Doc<"projects">, "title" | "clientName" | "status" | "createdAt" | "updatedAt">;
     return {
-      projectId: await ctx.db.insert("projects", { ...project, createdBy: owner, shareToken: "storage-owner" }),
-      foreignProjectId: await ctx.db.insert("projects", { ...project, createdBy: outsider, shareToken: "storage-outsider" }),
+      projectId: await ctx.db.insert("projects", { ...project, createdBy: owner, ownerId: owner, shareToken: "storage-owner" }),
+      foreignProjectId: await ctx.db.insert("projects", { ...project, createdBy: outsider, ownerId: outsider, shareToken: "storage-outsider" }),
     };
   });
   const writer = t.withIdentity({ subject: "storage-owner" });
@@ -29,7 +29,15 @@ async function setup() {
   }));
   const upload = (fileName: string, storageId: Id<"_storage">) =>
     writer.mutation(api.documents.uploadDocument, { projectId, fileName, storageId, fileType: "txt", content: fileName });
-  return { t, writer, projectId, foreignProjectId, store, blob, upload };
+  // A second row holding a file another row already holds. uploadDocument
+  // refuses that (security wave 1, a2 P2-8), so these rows stand for copies
+  // made by other paths (duplicates, review projects) and older data.
+  const attach = (fileName: string, storageId: Id<"_storage">, onProject: Id<"projects"> = projectId) =>
+    t.run((ctx) => ctx.db.insert("projectDocuments", {
+      projectId: onProject, fileName, fileType: "txt", content: fileName, storageId,
+      source: "chat_upload", uploadedBy: "copy", processingStatus: "ready", createdAt: 1,
+    }));
+  return { t, writer, projectId, foreignProjectId, store, blob, upload, attach };
 }
 
 describe("reference-safe storage cleanup", () => {
@@ -54,13 +62,11 @@ describe("reference-safe storage cleanup", () => {
   });
 
   test("shared document deletion retains archived foreign reference until final deletion", async () => {
-    const { t, writer, foreignProjectId, store, blob, upload } = await setup();
+    const { t, writer, foreignProjectId, store, blob, upload, attach } = await setup();
     const storageId = await store("shared bytes");
     const first = await upload("first.txt", storageId);
     const outsider = t.withIdentity({ subject: "storage-outsider" });
-    const last = await outsider.mutation(api.documents.uploadDocument, {
-      projectId: foreignProjectId, fileName: "last.txt", fileType: "txt", content: "last", storageId,
-    });
+    const last = await attach("last.txt", storageId, foreignProjectId);
     await outsider.mutation(api.documents.setDocumentArchived, { documentId: last, archived: true });
     await writer.mutation(api.documents.deleteDocument, { documentId: first });
     expect(await t.run((ctx) => ctx.db.get(first))).toBeNull();
@@ -75,7 +81,7 @@ describe("reference-safe storage cleanup", () => {
     test.each(["archivedDocument", "revokedBrain", "ingestionOriginal", "ingestionText"])(
       cleanup + " preserves %s and its bytes",
       async (reference) => {
-        const { t, writer, foreignProjectId, store, blob, upload } = await setup();
+        const { t, writer, foreignProjectId, store, blob, upload, attach } = await setup();
         const storageId = await store("protected bytes");
         const original = await upload("match.txt", await store("original bytes"));
         const referenceId = await t.run(async (ctx) => {
@@ -104,7 +110,7 @@ describe("reference-safe storage cleanup", () => {
         if (cleanup === "duplicate") {
           expect(await upload("match.txt", storageId)).toBe(original);
         } else {
-          const discarded = await upload("discard.txt", storageId);
+          const discarded = await attach("discard.txt", storageId);
           if (cleanup === "delete") {
             await writer.mutation(api.documents.deleteDocument, { documentId: discarded });
           } else {
@@ -121,13 +127,13 @@ describe("reference-safe storage cleanup", () => {
   }
 
   test("maintenance keeps shared survivor bytes and reclaims a distinct orphan across projects", async () => {
-    const { t, foreignProjectId, store, blob, upload } = await setup();
+    const { t, foreignProjectId, store, blob, upload, attach } = await setup();
     const shared = await store("shared bytes");
     const orphan = await store("orphan bytes");
     const kept = await upload("match.txt", shared);
-    const second = await upload("second.txt", shared);
+    const second = await attach("second.txt", shared);
     const third = await upload("third.txt", orphan);
-    const fourth = await upload("fourth.txt", orphan);
+    const fourth = await attach("fourth.txt", orphan);
     await t.run(async (ctx) => {
       await ctx.db.patch(second, { fileName: "match.txt", projectId: foreignProjectId });
       await ctx.db.patch(third, { fileName: "match.txt" });
@@ -173,5 +179,15 @@ describe("reference-safe storage cleanup", () => {
       storageId: orphan, attemptKey: "invalid",
     })).rejects.toThrow();
     expect(await blob(orphan)).toMatchObject({ bytes: "orphan", url: expect.any(String) });
+  });
+
+  test("uploadDocument refuses a file another row already holds", async () => {
+    const { t, foreignProjectId, store, blob, upload, attach } = await setup();
+    const storageId = await store("foreign bytes");
+    await attach("foreign.txt", storageId, foreignProjectId);
+    await expect(upload("mine.txt", storageId)).rejects.toThrow(/already in use/);
+    expect(await t.run((ctx) => ctx.db.query("projectDocuments").withIndex("by_storageId", (q) => q.eq("storageId", storageId)).take(5)))
+      .toHaveLength(1);
+    expect(await blob(storageId)).toMatchObject({ bytes: "foreign bytes" });
   });
 });

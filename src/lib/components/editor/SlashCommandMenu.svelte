@@ -158,7 +158,7 @@
 
 {#if isOpen && filtered.length > 0}
   <div
-    class="fixed z-50 max-h-[min(400px,calc(100vh-var(--menu-top)-16px))] w-64 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+    class="fixed z-50 max-h-[min(25rem,calc(100vh-var(--menu-top)-1rem))] w-64 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
     style={`top: ${position.top}px; left: ${position.left}px; --menu-top: ${position.top}px;`}
   >
     {#if filter}

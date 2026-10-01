@@ -5,6 +5,7 @@ import agent from "@convex-dev/agent/convex.config";
 import workpool from "@convex-dev/workpool/convex.config";
 import workflow from "@convex-dev/workflow/convex.config.js";
 import betterAuth from "@convex-dev/better-auth/convex.config";
+import rateLimiter from "@convex-dev/rate-limiter/convex.config";
 
 // ─── The Brain (BNH-10) ──────────────────────────────────────────────────────
 // First Convex component installed in this project. `@convex-dev/rag` owns the
@@ -20,6 +21,15 @@ const app = defineApp({
     VOYAGE_API_KEY: v.optional(v.string()),
     // OpenRouter gateway for supported generation and research models.
     OPENROUTER_API_KEY: v.optional(v.string()),
+    // Owner decision 30 (2026-09-25): where Anthropic-gateway calls go.
+    // Unset or "direct" = api.anthropic.com with ANTHROPIC_API_KEY (the
+    // rollback); "openrouter" = OpenRouter's Messages endpoint pinned to
+    // Anthropic. Validated in convex/lib/providerConfig.ts.
+    ANTHROPIC_TRANSPORT: v.optional(v.string()),
+    // Optional dedicated OpenRouter key for Anthropic traffic, so its
+    // guardrail can allow the Anthropic provider only. Falls back to
+    // OPENROUTER_API_KEY.
+    OPENROUTER_ANTHROPIC_API_KEY: v.optional(v.string()),
     // Microsoft Graph app-only credentials for the OneDrive corpus sync
     // (BNH-17). Azure app registration with Files.Read.All application
     // permission + admin consent; MS_DRIVE_ID is the client's drive.
@@ -48,5 +58,9 @@ app.use(workflow, { name: "researchWorkflow" });
 // table stays authoritative for role/profile and is synced via triggers in
 // convex/auth.ts.
 app.use(betterAuth);
+// Per-user and per-project token buckets on paid AI actions (audit wave 2).
+// See convex/lib/aiRateLimits.ts and the 2026-09-27 amendment in
+// docs/product-domain.md.
+app.use(rateLimiter);
 
 export default app;
