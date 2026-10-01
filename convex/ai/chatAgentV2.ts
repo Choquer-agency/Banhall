@@ -8,8 +8,8 @@ import {
   stepCountIs,
   saveMessage,
   type ContextOptions,
-  type ToolCtx,
 } from "@convex-dev/agent";
+import type { ModelMessage } from "ai";
 // The report chat assistant calls Anthropic directly with ANTHROPIC_API_KEY,
 // whatever ANTHROPIC_TRANSPORT says (owner decision 30, 2026-09-25: chat
 // moves to OpenRouter in a later change). Its helper calls (clientForRole)
@@ -21,6 +21,8 @@ import type { UsageHandler } from "@convex-dev/agent";
 import { MODEL } from "./model";
 import { buildChatSystemPromptV2 } from "./prompts";
 import {
+  BULK_EDIT_NEW_WORDS_PER_CALL,
+  BULK_EDIT_SIZE_RULE,
   bulkEditInputSchema,
   completionReportChecklist,
   completionReportItems,
@@ -87,11 +89,10 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
     }),
     execute: async (ctx, input, options): Promise<string> => {
       if (!ctx.threadId) throw new Error("No thread in tool context");
-      const runtimeCtx = ctx as ToolCtx & { promptMessageId?: string };
       const result = await ctx.runMutation(internal.chatV2.saveProposal, {
         agentThreadId: ctx.threadId,
         toolCallId: options.toolCallId,
-        promptMessageId: runtimeCtx.promptMessageId ?? ctx.messageId,
+        promptMessageId: proposalPromptMessageId(ctx),
         kind: "edit",
         targetText: input.targetText,
         newText: scrubBannedWordsUnlessWaived(input.newText, bannedWordsWaived),
@@ -123,11 +124,10 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
     }),
     execute: async (ctx, input, options): Promise<string> => {
       if (!ctx.threadId) throw new Error("No thread in tool context");
-      const runtimeCtx = ctx as ToolCtx & { promptMessageId?: string };
       const result = await ctx.runMutation(internal.chatV2.saveProposal, {
         agentThreadId: ctx.threadId,
         toolCallId: options.toolCallId,
-        promptMessageId: runtimeCtx.promptMessageId ?? ctx.messageId,
+        promptMessageId: proposalPromptMessageId(ctx),
         kind: "replacements",
         replacements: input.replacements.map((r) => ({
           find: r.find,
@@ -151,7 +151,7 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
 // rows cannot drift. The tool still creates ONE proposal a human applies. The
 // body is `runProposeBulkEdits` below, so the gate can drive it.
 const makeProposeBulkEdits = (bannedWordsWaived: boolean) => createTool({
-  description: "Propose a coordinated revision of different report passages in one reviewable card, plus a Completion Report accounting for EVERY item on the writer's list. Each target must be unique and passages must not overlap. Reuse the item ids the Deviation Inventory or the Reference PD comparison produced, anchor each finding to the section and 1-based paragraph it belongs to, and mark it resolved, blocked or conflicting. The writer applies the proposal. If every item is blocked or conflicting, call it with an empty edits list and every finding: the report is recorded for the writer and there is nothing to apply. Never invent a dummy edit.",
+  description: `Propose a coordinated revision of different report passages in one reviewable card, plus a Completion Report for the items it covers. Each target must be unique and passages must not overlap. Reuse the item ids the Deviation Inventory or the Reference PD comparison produced, anchor each finding to the section and 1-based paragraph it belongs to, and mark it resolved, blocked or conflicting. The writer applies the proposal. ${BULK_EDIT_SIZE_RULE} If every item is blocked or conflicting, call it with an empty edits list and every finding: the report is recorded for the writer and there is nothing to apply. Never invent a dummy edit.`,
   inputSchema: bulkEditInputSchema,
   execute: async (ctx, input, options): Promise<string> =>
     await runProposeBulkEdits(ctx, input, {
@@ -175,9 +175,29 @@ const makeProposeBulkEdits = (bannedWordsWaived: boolean) => createTool({
  */
 export interface ChatToolCtx {
   threadId?: string | undefined;
+  /**
+   * The prompt this turn answers. `@convex-dev/agent` sets it on the tool ctx
+   * at run time (`client/start.js`), although its `ToolCtx` type declares only
+   * `messageId`, which it never sets.
+   */
+  promptMessageId?: string | undefined;
   messageId?: string | undefined;
   runQuery: ActionCtx["runQuery"];
   runMutation: ActionCtx["runMutation"];
+}
+
+/**
+ * The prompt a proposal belongs to, for every proposal tool.
+ * `chatV2.listProposals` finds a card only through this id, so a tool that
+ * drops it makes its cards invisible. Alerts triage 2026-10-01 (first):
+ * proposeBulkEdits read only `messageId`, which the agent never sets, so every
+ * bulk card was saved without its prompt and never shown. One helper for all
+ * four tools, so they cannot drift again.
+ */
+export function proposalPromptMessageId(
+  ctx: { promptMessageId?: string | undefined; messageId?: string | undefined }
+): string | undefined {
+  return ctx.promptMessageId ?? ctx.messageId;
 }
 
 export interface InventoryContext {
@@ -348,7 +368,7 @@ export async function runProposeBulkEdits(
   const result = await ctx.runMutation(internal.chatV2.saveProposal, {
     agentThreadId: ctx.threadId,
     toolCallId: options.toolCallId,
-    ...(ctx.messageId ? { promptMessageId: ctx.messageId } : {}),
+    promptMessageId: proposalPromptMessageId(ctx),
     kind: "replacements",
     requireUniqueTargets: true,
     replacements: input.edits.map((edit) => ({
@@ -414,11 +434,10 @@ const highlightPassages = createTool({
   }),
   execute: async (ctx, input, options): Promise<string> => {
     if (!ctx.threadId) throw new Error("No thread in tool context");
-    const runtimeCtx = ctx as ToolCtx & { promptMessageId?: string };
     const result = await ctx.runMutation(internal.chatV2.saveProposal, {
       agentThreadId: ctx.threadId,
       toolCallId: options.toolCallId,
-      promptMessageId: runtimeCtx.promptMessageId ?? ctx.messageId,
+      promptMessageId: proposalPromptMessageId(ctx),
       kind: "references",
       references: input.references,
     });
@@ -505,6 +524,86 @@ export const CHAT_PROVIDER_OPTIONS = {
  * rather than trimming to the smallest plausible number.
  */
 export const CHAT_MAX_OUTPUT_TOKENS = 16384;
+
+/** Reply, tool call, short lead-in; searchBrain adds a hop. 5 is headroom. */
+export const CHAT_MAX_STEPS = 5;
+
+/**
+ * 2026-10-01 (first), alerts triage. A step cut off at the output limit while
+ * it was writing a tool call leaves an invalid call (its JSON never closed),
+ * and the AI SDK answers it with the parse error, which echoes the whole cut
+ * input and tells the model nothing it can act on. This fixed text replaces
+ * that error, so the model splits the revision and goes on within the turn's
+ * step and time limits.
+ */
+export const CHAT_CUT_OFF_INSTRUCTION = `Your last tool call was cut off at the output limit before it finished, so nothing was proposed. Split the revision into smaller proposeBulkEdits calls made one at a time: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text each, about four paragraphs, one per Line or per few paragraphs. Make the first call now.`;
+
+/** What the writer reads when a cut-off tool call ends the turn. */
+export const CHAT_CUT_OFF_REPLY =
+  "That revision was too long to write in one reply. Ask for it a few paragraphs at a time.";
+
+/** The parts of an AI SDK step result the cut-off rules read. */
+type CutOffStep = { finishReason: string; content: ReadonlyArray<unknown> };
+
+function isInvalidToolCall(
+  part: unknown
+): part is { type: "tool-call"; toolCallId: string; invalid: true } {
+  return (
+    typeof part === "object" &&
+    part !== null &&
+    "type" in part &&
+    part.type === "tool-call" &&
+    "invalid" in part &&
+    part.invalid === true &&
+    "toolCallId" in part &&
+    typeof part.toolCallId === "string"
+  );
+}
+
+/**
+ * The tool calls a step was writing when the output limit cut it off: the
+ * invalid calls of a step that finished with "length". Anthropic closes the
+ * cut tool_use block before its max_tokens stop, so the SDK records the call
+ * with input it cannot parse.
+ */
+export function cutOffToolCallIds(step: CutOffStep): string[] {
+  if (step.finishReason !== "length") return [];
+  return step.content.flatMap((part) => (isInvalidToolCall(part) ? [part.toolCallId] : []));
+}
+
+/**
+ * The step's request with every cut-off call's error result replaced by
+ * CHAT_CUT_OFF_INSTRUCTION. Applied to every later step, not only the next
+ * one, so the history each request sends stays the same from step to step.
+ * Returns the messages unchanged (the same array) when nothing was cut off.
+ */
+export function withCutOffInstruction(
+  messages: ModelMessage[],
+  steps: ReadonlyArray<CutOffStep>
+): ModelMessage[] {
+  const cut = new Set(steps.flatMap(cutOffToolCallIds));
+  if (cut.size === 0) return messages;
+  return messages.map((message) => {
+    if (message.role !== "tool") return message;
+    return {
+      ...message,
+      content: message.content.map((part) =>
+        part.type === "tool-result" && cut.has(part.toolCallId)
+          ? { ...part, output: { type: "error-text" as const, value: CHAT_CUT_OFF_INSTRUCTION } }
+          : part
+      ),
+    };
+  });
+}
+
+/**
+ * The model gets the split instruction once. A second cut-off tool call in the
+ * same turn stops the turn there, rather than spend another full step of
+ * output on the same mistake; the writer then reads CHAT_CUT_OFF_REPLY.
+ */
+export function stopAfterSecondCutOff({ steps }: { steps: ReadonlyArray<CutOffStep> }): boolean {
+  return steps.filter((step) => cutOffToolCallIds(step).length > 0).length >= 2;
+}
 
 /**
  * Model-history bound for report chat (audit finding 22): the newest 30
@@ -613,8 +712,7 @@ export const reportChatAgent = new Agent(components.agent, {
   // BNH-16: durably log billed usage for every model step without turning a
   // successful streamed response into a chat failure.
   usageHandler: chatUsageHandler({ transport: "direct" }),
-  // Reply → tool call → short lead-in; searchBrain adds a hop. 5 is headroom.
-  stopWhen: stepCountIs(5),
+  stopWhen: stepCountIs(CHAT_MAX_STEPS),
 });
 
 /**
@@ -706,6 +804,20 @@ export function chatStreamTimeoutMs(startedAt: number, now: number): number {
   return Math.max(1, startedAt + ACTION_REQUEST_WINDOW_MS - now);
 }
 
+/** The assistant message a failed turn leaves in the thread. */
+export function chatFailureReply(error: unknown): string {
+  switch (error instanceof Error ? error.message : "") {
+    case "CHAT_PROFILE_UNAVAILABLE":
+      return "I couldn't load your saved writing settings, so I haven't proposed changes. Please retry. You don't need to rewrite your instructions.";
+    case "CHAT_TIMED_OUT":
+      return "That response took too long, so I stopped it before it finished. Try again.";
+    case "CHAT_CUT_OFF_TOOL_CALL":
+      return CHAT_CUT_OFF_REPLY;
+    default:
+      return "I couldn’t finish that response. Try again.";
+  }
+}
+
 export const streamChatReply = internalAction({
   args: {
     agentThreadId: v.string(),
@@ -731,6 +843,11 @@ export const streamChatReply = internalAction({
     if (!start.shouldRun) return;
 
     const toolCallIds = new Set<string>();
+    // 2026-10-01 (first): whether the turn's last step was cut off at the
+    // output limit while it was writing a tool call. `sawToolInput` covers a
+    // call whose block never closed, so the step recorded no call at all.
+    let sawToolInput = false;
+    let lastStepCutToolCall = false;
     // Where the turn's latest model request went, for the failure log.
     let served: Readonly<ChatServedState> | undefined;
 
@@ -829,10 +946,26 @@ export const streamChatReply = internalAction({
           // comment. Without it, multi-step tool turns lose the thinking
           // signature and the model's reasoning is dropped between steps.
           experimental_transform: preserveReasoningSignature<typeof CHAT_TOOLS>(),
+          // 2026-10-01 (first): a call cut off at the output limit gets the
+          // fixed split instruction instead of its parse error, and a second
+          // cut-off ends the turn. A turn that is never cut off sends exactly
+          // the requests it sent before (the same messages array).
+          stopWhen: [stepCountIs(CHAT_MAX_STEPS), stopAfterSecondCutOff],
+          prepareStep: ({ steps, messages }) => {
+            const next = withCutOffInstruction(messages, steps);
+            return next === messages ? undefined : { messages: next };
+          },
+          onChunk: ({ chunk }) => {
+            if (chunk.type === "tool-input-start") sawToolInput = true;
+          },
           onStepFinish: (step) => {
             for (const toolCall of step.toolCalls) {
               if (toolCall) toolCallIds.add(toolCall.toolCallId);
             }
+            lastStepCutToolCall =
+              step.finishReason === "length" &&
+              (sawToolInput || step.toolCalls.length > 0);
+            sawToolInput = false;
           },
         },
         {
@@ -850,6 +983,11 @@ export const streamChatReply = internalAction({
       // A timer that fires after a tool step leaves the last step's finish
       // reason in place, so the reply would read as complete (review r2 P3).
       if (abortSignal.aborted) throw new Error("CHAT_TIMED_OUT");
+      // A turn whose last step was cut off while writing a tool call could
+      // not go on (the second cut-off, or the step limit): say what to do.
+      if (finishReason === "length" && lastStepCutToolCall) {
+        throw new Error("CHAT_CUT_OFF_TOOL_CALL");
+      }
       if (finishReason === "content-filter" || finishReason === "length") {
         throw new Error("CHAT_INCOMPLETE_RESPONSE");
       }
@@ -883,14 +1021,7 @@ export const streamChatReply = internalAction({
         agentName: "report-editor",
         // Shares the prompt's order so the failed turn's trace attaches to it.
         promptMessageId: args.promptMessageId,
-        message: {
-          role: "assistant",
-          content: error instanceof Error && error.message === "CHAT_PROFILE_UNAVAILABLE"
-            ? "I couldn't load your saved writing settings, so I haven't proposed changes. Please retry. You don't need to rewrite your instructions."
-            : error instanceof Error && error.message === "CHAT_TIMED_OUT"
-              ? "That response took too long, so I stopped it before it finished. Try again."
-              : "I couldn’t finish that response. Try again.",
-        },
+        message: { role: "assistant", content: chatFailureReply(error) },
       });
     }
   },

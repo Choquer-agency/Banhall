@@ -41,6 +41,21 @@ export const MAX_COMPLETION_REPORT_FINDINGS = 80;
  */
 export const COMPLETION_REPORT_TARGET_ITEMS = 30;
 
+/**
+ * 2026-10-01 (first), alerts triage: one chat step shares the 16,384-token
+ * output limit (`CHAT_MAX_OUTPUT_TOKENS`) between thinking, the tool call's
+ * JSON and the reply. An 11-paragraph revision written as one call was cut off
+ * at that limit twice. About 600 words of new text is about 800 tokens, and
+ * its verbatim targets about as many, so a call this size leaves most of the
+ * limit for thinking and the reply. Guidance the tool description and the chat
+ * prompt both quote, not a schema limit: refusing a call that would have fit
+ * is worse than proposing it.
+ */
+export const BULK_EDIT_NEW_WORDS_PER_CALL = 600;
+
+/** The size rule, stated once for the tool description and the chat prompt. */
+export const BULK_EDIT_SIZE_RULE = `Keep each call small enough to finish: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text across its edits, about four rewritten paragraphs. For a larger revision, make several proposeBulkEdits calls one at a time, one per Line or per few paragraphs, and wait for each result before the next call. Each call lands as its own card. Its findings cover the items its own edits resolve; put blocked and conflicting items in the last call, so the calls together account for every item exactly once.`;
+
 const MAX_TEXT_CHARS = 1000;
 
 function bounded(text: string): string {

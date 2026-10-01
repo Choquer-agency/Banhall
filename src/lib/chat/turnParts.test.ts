@@ -544,6 +544,50 @@ describe("correlateProposals", () => {
     expect(owned[0]._id).toBe("new");
   });
 
+  // 2026-10-01 (first): a large revision is split into several bulk cards in
+  // one turn. Each targets different passages, so every card stays.
+  it("keeps every pending card of a split revision from the same prompt", () => {
+    const bulk = (id: string, toolCallId: string, finds: string[]) =>
+      proposal({
+        _id: id,
+        toolCallId,
+        promptMessageId: "u1",
+        kind: "replacements",
+        targetText: undefined,
+        newText: undefined,
+        replacements: finds.map((find) => ({ find, replaceWith: `${find} revised` })),
+        requireUniqueTargets: true,
+        state: "pending",
+      });
+    const split = assistant(
+      [
+        toolPart({ type: "tool-proposeBulkEdits", toolCallId: "bulk-1" }),
+        toolPart({ type: "tool-proposeBulkEdits", toolCallId: "bulk-2" }),
+      ],
+      { id: "a1", order: 2 }
+    );
+    const { byMessageId } = correlateProposals(
+      [split],
+      [
+        bulk("first", "bulk-1", ["Paragraph one.", "Paragraph two."]),
+        bulk("second", "bulk-2", ["Paragraph three."]),
+      ]
+    );
+    expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["first", "second"]);
+  });
+
+  it("still lets a later pending card for the same passage supersede the earlier one", () => {
+    const { byMessageId } = correlateProposals(
+      [reply],
+      [
+        proposal({ _id: "old", messageId: "a1", promptMessageId: "u1", targetText: "Paragraph one." }),
+        proposal({ _id: "other", messageId: "a1", promptMessageId: "u1", targetText: "Paragraph two." }),
+        proposal({ _id: "new", messageId: "a1", promptMessageId: "u1", targetText: "Paragraph one." }),
+      ]
+    );
+    expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["other", "new"]);
+  });
+
   it("keeps non-pending history from the same prompt", () => {
     const { byMessageId } = correlateProposals(
       [reply],

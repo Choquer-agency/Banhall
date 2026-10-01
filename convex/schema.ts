@@ -1841,13 +1841,17 @@ export default defineSchema({
     .index("by_agentThreadId", ["agentThreadId"])
     // Exact per-turn proposal reads for chatV2.listProposals, which joins
     // proposals to the chatTurns window through promptMessageId. Rows without
-    // that anchor (legacy) are unreachable from the windowed read by design.
+    // that anchor are read here too (promptMessageId missing) and shown only
+    // when a window turn's run time holds them (2026-10-01, first).
     .index("by_agentThreadId_and_promptMessageId", [
       "agentThreadId",
       "promptMessageId",
     ])
     .index("by_agentThreadId_and_toolCallId", ["agentThreadId", "toolCallId"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    // 2026-10-01 (first): chatV2.backfillProposalPromptMessageIds pages
+    // through the rows saved without a prompt (promptMessageId missing).
+    .index("by_promptMessageId", ["promptMessageId"]),
 
   // Story 5 (CAP-13, AD-28): the Completion Report. One child row per item of a
   // Coordinated Revision, written ONLY by internal.chatV2.saveProposal in the

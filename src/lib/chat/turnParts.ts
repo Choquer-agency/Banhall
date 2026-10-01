@@ -15,7 +15,7 @@
  */
 import type { UIMessage } from "@convex-dev/agent";
 import type { Doc } from "../../../convex/_generated/dataModel";
-import { isRecordOnlyProposal } from "../../../shared/chatProposals";
+import { isRecordOnlyProposal, proposalReferences } from "../../../shared/chatProposals";
 
 export type ToolPartState =
   | "input-streaming"
@@ -523,23 +523,25 @@ export function correlateProposals(
   }
   const messageById = new Map(messages.map((message) => [message.id, message]));
 
-  // A refinement turn supersedes the previous pending card from the same
-  // prompt — only the latest actionable wording belongs in the transcript.
-  const latestPendingIndexByPrompt = new Map<string, number>();
+  // A later pending card from the same prompt that targets the same passage
+  // supersedes the earlier one: only the latest actionable wording for a
+  // passage belongs in the transcript. Cards for different passages all stay,
+  // since a large revision is split into several cards (2026-10-01, first).
+  const superseded = new Set<number>();
   proposals.forEach((proposal, index) => {
-    if (proposal.state === "pending" && proposal.promptMessageId) {
-      latestPendingIndexByPrompt.set(proposal.promptMessageId, index);
-    }
+    if (proposal.state !== "pending" || !proposal.promptMessageId) return;
+    const targets = new Set(proposalReferences(proposal));
+    const later = proposals.slice(index + 1).some(
+      (other) =>
+        other.state === "pending" &&
+        other.promptMessageId === proposal.promptMessageId &&
+        proposalReferences(other).some((target) => targets.has(target))
+    );
+    if (later) superseded.add(index);
   });
 
   for (const [index, proposal] of proposals.entries()) {
-    if (
-      proposal.state === "pending" &&
-      proposal.promptMessageId &&
-      latestPendingIndexByPrompt.get(proposal.promptMessageId) !== index
-    ) {
-      continue;
-    }
+    if (superseded.has(index)) continue;
 
     let owner = proposal.toolCallId ? toolOwners.get(proposal.toolCallId) : undefined;
     if (!owner && proposal.promptMessageId) {
