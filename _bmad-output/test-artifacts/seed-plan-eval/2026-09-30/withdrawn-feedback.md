@@ -22,7 +22,7 @@ Read the plan and the drafted Sections below, then answer each question and give
    - Answer: Yes. Plain prose, no headings, within caps (350, 685, 350).
 
 - Verdict (pass or fail): pass
-- Judged by: Claude Opus 5.5 (lead), on two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each briefed for high effort (the Agent tool sets no effort of its own), delegated by the product owner
+- Judged by: Claude Opus 5.5 at extra-high effort (lead), on two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each run as a subagent at the harness default effort, which the Agent tool can neither set nor report (the briefs asked for high effort; the effort actually used is not recorded, so it is not claimed), delegated by the product owner
 - Date: 2026-09-30
 - Notes: Both judges pass, high confidence. All run 6 defects fixed: the active Feedback outranks the Glossary Term in every Line ("floating head" 8 uses to 0), "97.8 percent ... just under 97" is gone, and the Self-check completed on every Line. Minors: Line 246 paragraph 1 "came close to the radius target" (signed-off Seed) sits beside Line 244 "meeting the hypothesis" (the consistency pass flags it); Line 244 adds an invented hedge on the force map; three unselected later Seeds said "floating head" (never signed off).
 

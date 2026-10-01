@@ -22,7 +22,7 @@ Read the plan and the drafted Sections below, then answer each question and give
    - Answer: Yes. Plain prose, no headings, within caps (330, 678, 304); run 12's "from Line 242" prompt leak is gone.
 
 - Verdict (pass or fail): pass
-- Judged by: Claude Opus 5.5 (lead), on two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each briefed for high effort (the Agent tool sets no effort of its own), delegated by the product owner
+- Judged by: Claude Opus 5.5 at extra-high effort (lead), on two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each run as a subagent at the harness default effort, which the Agent tool can neither set nor report (the briefs asked for high effort; the effort actually used is not recorded, so it is not claimed), delegated by the product owner
 - Date: 2026-09-30
 - Notes: Both judges pass (medium-high confidence). The failed automatic row: signed-off item 13 says the eleven faults "proved enough to validate the method"; Line 246 paragraph 5 says they "appear sufficient ... though validation remains partial", after a Confidence Map repair (the sources never close the question). Judge A: minor, the CRA-safer departure, correctly flagged. Judge B: major, systematic mechanism (the COVER guard covers leave-out and Rule B repairs, not Confidence Map repairs, and a shortened repair is not re-verified). Minors: Line 244 paragraph 5 contradicts itself after the same repair; unnumbered "experiment one/three" references; checker noise in the Rule C and targets rows. Every figure checked matches the sources.
 

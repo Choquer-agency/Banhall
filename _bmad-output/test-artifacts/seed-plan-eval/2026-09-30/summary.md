@@ -23,7 +23,7 @@ Raw data for every fixture is in `results.json`.
 
 ## Judgment, 2026-09-30
 
-Judged on the product owner's instruction by two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each briefed for high effort (the Agent tool sets no effort of its own), under the AGENTS.md reviewer rule (models interchangeable, recorded), and by the lead (Claude Opus 5.5), who found the main defect independently and checked the judges' evidence against the pack and `results.json`. The judges agreed on every verdict: 4 pass, 1 fail. The release gate (checklist step 3: every fixture must pass) is **not met**.
+Judged on the product owner's instruction by two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each run as a subagent at the harness default effort, which the Agent tool can neither set nor report (the briefs asked for high effort; the effort actually used is not recorded, so it is not claimed), under the AGENTS.md reviewer rule (models interchangeable, recorded), and by the lead (Claude Opus 5.5 at extra-high effort), who found the main defect independently and checked the judges' evidence against the pack and `results.json`. The judges agreed on every verdict: 4 pass, 1 fail. The release gate (checklist step 3: every fixture must pass) is **not met**.
 
 All three run 6 defects are fixed where they were found: Feedback now governs a Glossary Term in every Line (withdrawn-feedback), a confirmed exclusion pick is drafted and checked (exclusion-conflict), and the Seed-stage link rule refuses experiments and advancements for a dropped uncertainty (changed-advancement-links).
 

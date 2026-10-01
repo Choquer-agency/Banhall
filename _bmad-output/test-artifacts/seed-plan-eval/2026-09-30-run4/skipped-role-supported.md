@@ -22,7 +22,7 @@ Read the plan and the drafted Sections below, then answer each question and give
    - Answer: Yes. Plain prose, no headings, within caps (324, 676, 340).
 
 - Verdict (pass or fail): pass
-- Judged by: Claude Opus 5.5 (lead), on two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each briefed for high effort (the Agent tool sets no effort of its own), delegated by the product owner
+- Judged by: Claude Opus 5.5 at extra-high effort (lead), on two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each run as a subagent at the harness default effort, which the Agent tool can neither set nor report (the briefs asked for high effort; the effort actually used is not recorded, so it is not claimed), delegated by the product owner
 - Date: 2026-09-30
 - Notes: Both judges pass (high confidence). Minors: Line 246 paragraph 2 says chlorinated durability was resolved while paragraph 4 and the source call it unresolved past 70 days; 89 percent paired with 36 to 40 days across two rounds; checker noise in targets and consistency rows. Every figure checked matches the sources.
 

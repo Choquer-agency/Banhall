@@ -29,7 +29,7 @@ Read the plan and the drafted Sections below, then answer each question and give
    - Answer: Yes. Plain prose, no headings, within caps (343, 692, 349); no source talk.
 
 - Verdict (pass or fail): pass
-- Judged by: Claude Opus 5.5 (lead), on two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each briefed for high effort (the Agent tool sets no effort of its own), delegated by the product owner
+- Judged by: Claude Opus 5.5 at extra-high effort (lead), on two independent AI judges (Claude Opus 5.5 with SR&ED and CRA research; Claude Fable 5.1 with enterprise AI release-gate research), each run as a subagent at the harness default effort, which the Agent tool can neither set nor report (the briefs asked for high effort; the effort actually used is not recorded, so it is not claimed), delegated by the product owner
 - Date: 2026-09-30
 - Notes: Both judges pass (medium-high and high confidence). Fixed since run 11: the goal switch picks a real goal Seed, and the source-provenance phrases are gone. Major (Judge A): Line 246 paragraph 6 says the customer trial showed capture "improved without choking flow", which was not measured there, and the "one foundry, one alloy" hedge is missing (the repair was set aside at 408/350 words, Locked Rules first). Minors: unsourced additions in Line 246 paragraph 5; "partially proven" though every target was met; one forced Glossary swap. Every figure checked matches the sources.
 
