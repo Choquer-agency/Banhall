@@ -2516,11 +2516,15 @@ describe("results against targets, no talk about sources and Glossary repairs (2
     ].join("\n\n");
     expect(deterministic(technical, { subjectText: [] }).entries.find((entry) => entry.key === SOURCE_TALK_KEY)?.row)
       .toMatchObject({ outcome: "applied", reason: SOURCE_TALK.applied });
-    // An interview scheduling product: the plan's own words are its subject.
-    const product = "The engine ranked each interviewee by availability.";
-    expect(deterministic(product, { subjectText: ["The engine schedules each interviewee."] })
+    // An interview scheduling product: a plain mention whose noun phrase the
+    // plan's own words hold is its subject (Greptile round, lead decision).
+    const product = "The engine ranked each interview by length.";
+    expect(deterministic(product, { subjectText: ["Each interview is booked into a free slot."] })
       .entries.find((entry) => entry.key === SOURCE_TALK_KEY)?.row.outcome).toBe("applied");
     expect(deterministic(product, { subjectText: [] })
+      .entries.find((entry) => entry.key === SOURCE_TALK_KEY)?.row.outcome).toBe("not_applied");
+    // An interviewee is a reporting form: it always counts.
+    expect(deterministic("The engine ranked each interviewee by availability.", { subjectText: ["The engine schedules each interviewee."] })
       .entries.find((entry) => entry.key === SOURCE_TALK_KEY)?.row.outcome).toBe("not_applied");
   });
 

@@ -167,7 +167,9 @@ describe("report text rules (2026-09-30, third)", () => {
   it("treats the project's own subject, named in the plan or a Glossary Term, as subject, not source talk", () => {
     const text = "The engine ranked each interviewee by availability after the interview.";
     expect(phrases(text)).toEqual(["interviewee", "the interview"]);
-    expect(phrases(text, ["Scheduling each interviewee", "the interview slot"])).toEqual([]);
+    // Greptile round (lead decision): an interviewee always counts; the plain
+    // mention gives way to the same noun phrase in the subject.
+    expect(phrases(text, ["Scheduling each interviewee", "the interview slot"])).toEqual(["interviewee"]);
   });
 
   it("returns each hit once, in text order, with a short context", () => {
@@ -222,15 +224,14 @@ describe("source talk and the project's own subject (review P2-4)", () => {
   const phrases = (text: string, planWording: string[][] = [], glossaryTerms: string[] = []) =>
     findSourceTalk(text, { subjectText: sourceTalkSubject({ planWording, glossaryTerms }) }).map((hit) => hit.phrase);
 
-  it("never reports a head noun the project's subject uses, in any of its forms", () => {
+  it("never reports a plain mention whose noun phrase the project's subject holds", () => {
+    // Greptile round (lead decision): the same noun phrase, the noun with the
+    // same modifier, or none.
     const cases: Array<[string, string[][], string[]]> = [
-      ["Each interview ran 30 minutes, and the interview slot moved.", [["The engine ranks interview slots."]], ["Each interview", "the interview"]],
-      ["The word error rate in the transcript fell to 4 percent.", [["Speech-to-text transcription of call audio."]], ["in the transcript"]],
+      ["Each interview ran 30 minutes, and the interview slot moved.", [["Each interview is booked into a free slot."]], ["Each interview", "the interview"]],
+      ["The word error rate in the transcript fell to 4 percent.", [["Each call becomes a transcript."]], ["in the transcript"]],
       ["The totals from the credit memo matched the ledger.", [["Credit memos are matched to invoices."]], ["from the credit memo"]],
-      // Re-check: a source hit is the subject only with the same modifier,
-      // here none ("two sources").
       ["Each source puts 5 W on the target, and both sources differ by 2 nm.", [["Two sources illuminate the sample."]], ["Each source puts", "both sources differ"]],
-      ["The event log indicated a 40 ms stall.", [["The agent parses event logs."]], ["The event log indicated"]],
     ];
     for (const [text, plan, found] of cases) {
       expect(phrases(text)).toEqual(found);
@@ -238,6 +239,23 @@ describe("source talk and the project's own subject (review P2-4)", () => {
     }
     // A Glossary Term is subject too.
     expect(phrases("The totals from the credit memo matched.", [], ["credit memo"])).toEqual([]);
+    // A different noun phrase is no subject: "interview slots" holds no bare
+    // interview, a speech-to-text "transcription" is not "the transcript".
+    expect(phrases("Each interview ran 30 minutes.", [["The engine ranks interview slots."]])).toEqual(["Each interview"]);
+    expect(phrases("The word error rate in the transcript fell.", [["Speech-to-text transcription of call audio."]])).toEqual(["in the transcript"]);
+  });
+
+  it("always reports a reporting phrase, whatever the subject (Greptile round, lead decision)", () => {
+    // A document-management project: its documents are its subject, but
+    // "The documents say" still names a source.
+    const documents = [["The system indexes the documents each team uploads."], ["Each document is tagged by its owner."]];
+    expect(phrases("The documents say the ramp was slowed.", documents)).toEqual(["The documents say"]);
+    expect(phrases("The event log indicated a 40 ms stall.", [["The agent parses event logs."]])).toEqual(["The event log indicated"]);
+    expect(phrases("The log shows a 40 ms stall.", [["The agent parses the log."]])).toEqual(["The log shows"]);
+    expect(phrases("The credit memo states 2.4 percent.", [["Credit memos are matched to invoices."]])).toEqual(["The credit memo states"]);
+    expect(phrases("According to the interview, the flow held.", [["Each interview is booked into a free slot."]])).toEqual(["According to the interview"]);
+    expect(phrases("The engine ranked each interviewee.", [["The engine schedules each interviewee."]])).toEqual(["interviewee"]);
+    expect(phrases("The ramp time was recorded elsewhere as 3 hours.", [["Ramp times are recorded per load."]])).toEqual(["recorded elsewhere"]);
   });
 
   it("re-check: a subject word matches only as the same noun, and a source only with the same modifier", () => {
@@ -250,9 +268,9 @@ describe("source talk and the project's own subject (review P2-4)", () => {
       ["The two interviewees differ on the driver.", [["Interviewing staff took a week."]], ["interviewees"]],
     ];
     for (const [text, plan, found] of verbs) expect(phrases(text, plan)).toEqual(found);
-    // "minutes" as time is no subject; meeting minutes are.
+    // "according to the minutes" is a reporting phrase: it always counts.
     expect(phrases("According to the minutes, the ramp was slowed.", [["Each cycle took 4 minutes."]])).toEqual(["According to the minutes"]);
-    expect(phrases("According to the minutes, the ramp was slowed.", [["The engine summarizes meeting minutes."]])).toEqual([]);
+    expect(phrases("According to the minutes, the ramp was slowed.", [["The engine summarizes meeting minutes."]])).toEqual(["According to the minutes"]);
     // A "source of error" or a light source is not the project's bare sources.
     const errorSource = [["The main source of error was glare on machined faces."]];
     expect(phrases("According to the sources, the ramp was slowed.", errorSource)).toEqual(["According to the sources"]);
@@ -262,7 +280,8 @@ describe("source talk and the project's own subject (review P2-4)", () => {
     const lightSources = [["Two light sources illuminate the sample."]];
     expect(phrases("Each source puts 5 W on the target, and both sources differ by 2 nm.", lightSources))
       .toEqual(["Each source puts", "both sources differ"]);
-    expect(phrases("According to the light sources, glare fell.", lightSources)).toEqual([]);
+    // A reporting phrase counts even with the same modifier.
+    expect(phrases("According to the light sources, glare fell.", lightSources)).toEqual(["According to the light sources"]);
     // The same modifier silences its own phrase only.
     const measurement = [["A second measurement source feeds the flow model."]];
     expect(phrases("7 to 8 percent below the baseline depending on the measurement source", measurement)).toEqual([]);

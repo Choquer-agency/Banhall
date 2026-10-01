@@ -26,11 +26,12 @@ import { instrumentedAnthropic } from "./ai/instrument";
 import type { GenerationClient } from "./ai/openrouterCore";
 import {
   draftCheckedSection,
-  leaveOutFigureBackstop,
+  leaveOutFigureNote,
+  LEAVE_OUT_FIGURE_NOTE_PREFIX,
+  REPAIR_STILL_BREAKS_WORK_RULE_REASON,
   leaveOutInstruction,
   lostPlanFigure,
   repairDroppedCoverItemReason,
-  repairLostPlanFigureReason,
   WORK_ANSWERS_242_INSTRUCTION,
 } from "./ai/orderedGeneration";
 import {
@@ -442,19 +443,18 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     // No check of the repaired text is needed: nothing replaced the draft.
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
     expect(result.draftText).toBe(mixed);
-    expect(lostPlanFigure(mixed, gutted, PLAN_WORDING)).toEqual({ figure: "8 C", before: 1, after: 0 });
+    expect(lostPlanFigure(mixed, gutted, PLAN_WORDING)).toEqual({ figure: "8 C" });
     expect(rowOf(result, (ref) => ref.itemId === ITEM.stall)).toMatchObject({ outcome: "applied", repaired: false });
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: `P2 adds sensor work, not in 242.; repair not used (the repaired text mentions the signed-off figure "8 C" 0 times where the checked draft mentioned it once, and a fix that leaves out work must keep the evidence a signed-off item needs, so the checked draft was kept)`,
+      reason: `P2 adds sensor work, not in 242.; repair not used (the repaired text no longer holds the signed-off figure "8 C", which the checked draft held, and a fix that leaves out work must keep the evidence a signed-off item needs, so the checked draft was kept)`,
     });
   });
 
-  it("re-check: uses a Rule C repair that removes Brief-only work and merges two paragraphs, since every signed-off figure keeps its count", async () => {
-    // The sensor paragraph goes, and P2 and P3 become one paragraph: the
-    // per-paragraph count of "8 C", "19 days" and "2.3 mg/L" would change,
-    // but their mentions in the text do not.
+  it("re-check: uses a Rule C repair that removes Brief-only work and merges two paragraphs, since every signed-off figure is still there", async () => {
+    // The sensor paragraph goes, and P2 and P3 become one paragraph: "8 C",
+    // "19 days" and "2.3 mg/L" are all still in the text.
     const merged = [P1, `${P2} ${P3}`].join("\n\n");
     expect(lostPlanFigure(DRAFT, merged, PLAN_WORDING)).toBeUndefined();
     const sent = installFetch({
@@ -471,7 +471,7 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({ outcome: "applied", repaired: true });
   });
 
-  it("sets aside a Rule C repair that cuts the capture trials behind goal item 13, and lets the sensor experiment go (release suite run 11)", async () => {
+  it("Greptile round: uses a Rule C repair that cuts the capture trials behind a figure-free goal item, whose figures stay elsewhere (known limitation)", async () => {
     // carried-old-selections, run 11: Line 244 as drafted, and the signed-off
     // items (skipped steps aside) as frozen. Goal item 13 says both goals were
     // met together; the capture trials (P6, P7) are its evidence and hold
@@ -510,7 +510,10 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     const sent = installFetch({
       draft: text,
       repair: withoutCapture,
-      checks: [[skipHonoured, ...coverAnswers, { ...sensorStray, paragraph: 5, reason: "P5 and P6 test capture, not in 242.", repairGuidance: "Leave out Trials 4 and 5." }]],
+      checks: [
+        [skipHonoured, ...coverAnswers, { ...sensorStray, paragraph: 5, reason: "P5 and P6 test capture, not in 242.", repairGuidance: "Leave out Trials 4 and 5." }],
+        [skipHonoured, ...coverAnswers, workAnswers],
+      ],
     });
     const result = await draft("244", claimFor({
       section: "244",
@@ -519,16 +522,54 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
       workAnswers242: { line242Drafted: true, line246Items: [{ roleId: "goal_improvements", wording: capturePlan.items[5]! }] },
       planWording: capturePlan.items,
     }));
-    const lost = lostPlanFigure(text, withoutCapture, capturePlan.items)!;
-    expect(lost).toMatchObject({ after: lost.before - (lost.figure === "20 ppi" ? 2 : 1) });
-    expect(["20 ppi", "30 ppi"]).toContain(lost.figure);
-    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
-    expect(result.draftText).toBe(text);
+    // Goal item 13 holds no figure, and "20 ppi" and "30 ppi" stay in the
+    // hypothesis and Trial 1 paragraphs: the figure guard has nothing to
+    // read. Such evidence relies on the Rule C instruction and the check of
+    // the final text, which here found the rule applied.
+    expect(lostPlanFigure(text, withoutCapture, capturePlan.items)).toBeUndefined();
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(result.draftText).toBe(withoutCapture);
+    expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({ outcome: "applied", repaired: true });
+  });
+
+  it("Greptile round: uses a Rule C repair that cuts a Brief-only experiment repeating a signed-off figure that stays elsewhere", async () => {
+    // The sensor paragraph also ran at 8 C, a signed-off figure P2 keeps.
+    const sensorAt8 = "A third experiment ran the sensors at 8 C beside the loops: the direct sensors drifted 8 percent by day 10.";
+    const text = [P1, P2, P3, sensorAt8].join("\n\n");
+    expect(lostPlanFigure(text, REPAIRED, PLAN_WORDING)).toBeUndefined();
+    const sent = installFetch({
+      draft: text,
+      repair: REPAIRED,
+      checks: [[skipHonoured, ...allCovered, sensorStray], [skipHonoured, ...allCovered, workAnswers]],
+    });
+    const result = await draft("244", claimDrafted());
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(result.draftText).toBe(REPAIRED);
+    expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({ outcome: "applied", repaired: true });
+  });
+
+  it("Greptile round: sets a used Rule C repair aside when the check of its final text still finds the rule not applied", async () => {
+    // The repair rewords the sensor experiment instead of leaving it out.
+    const reworded = [P1, P2, P3, "A third experiment compared in-tank sensors with a bypass loop, and the direct sensors drifted."].join("\n\n");
+    const sent = installFetch({
+      draft: DRAFT,
+      repair: reworded,
+      checks: [
+        [skipHonoured, ...allCovered, sensorStray],
+        [skipHonoured, ...allCovered, { ...sensorStray, reason: "P4 still narrates a sensor trial." }],
+      ],
+    });
+    const result = await draft("244", claimDrafted());
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(result.draftText).toBe(DRAFT);
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: `P5 and P6 test capture, not in 242.; repair not used (${repairLostPlanFigureReason(lost)})`,
+      reason: `P4 narrates a sensor trial, not in 242.; repair not used (${REPAIR_STILL_BREAKS_WORK_RULE_REASON})`,
     });
+    expect(REPAIR_STILL_BREAKS_WORK_RULE_REASON).toBe(
+      "the check of the repaired text still found work for an uncertainty Line 242 does not state, and the checked draft keeps all the evidence, so the checked draft was kept"
+    );
   });
 
   it("lets a Rule C repair remove run 11's Brief-only sensor experiment: it holds no signed-off figure (changed-advancement-links)", async () => {
@@ -674,8 +715,9 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
       "The technological objective was to advance real-time 2D vision-based burr height estimation and adaptive force control of a compliant spindle for deburring cast A357 aerospace brackets. This objective was met. Two-angle imaging cut vision error to 0.07 mm RMS at 95 ms per edge, meeting both targets, and the non-linear force map let force scale correctly with burr height. Combined, these results reached 97.8 percent of edges in the edge radius window, meeting the 97 percent target, and 2.6 percent rejects, within the 3 percent limit.",
       ...rest,
     ].join("\n\n");
-    // P1 drops its repeat of "0.6 mm": a Rule C guard would have counted a loss.
-    expect(lostPlanFigure(text, corrected, items.map((item) => item.bullets))).toEqual({ figure: "0.6 mm", before: 2, after: 1 });
+    // P1 drops its repeat of "0.6 mm", which P3 still states: no figure is
+    // gone, and a targets repair is not figure-guarded anyway.
+    expect(lostPlanFigure(text, corrected, items.map((item) => item.bullets))).toBeUndefined();
     const coverAnswers = [covered("item-wf-science", 1), covered("item-wf-single", 2), covered("item-wf-status", 4), covered("item-wf-goals", 5)];
     const misstated = {
       ruleId: "results_against_targets",
@@ -763,15 +805,28 @@ const onTheStall = {
   reason: "P2 states stall durations (19 vs 6 days), close to dropped.",
   repairGuidance: "Remove the stall figures from P2.",
 };
-const backstopReason = (paragraph: number, reason: string, cited: string) =>
-  `The flagged content is a signed-off item: the Self-check flagged paragraph ${paragraph} ("${reason}"), but every figure it cited (${cited}) is in the signed-off plan's wording, and no paragraph of this Line holds one of the dropped uncertainty's own figures (${DROPPED_FIGURES}) or restates it. Not sent to the repair.`;
+// Greptile round (lead decision): the figure check notes the row and never
+// changes the verdict.
+const figureNote = (cited: string) =>
+  `${LEAVE_OUT_FIGURE_NOTE_PREFIX}every figure it cites (${cited}) is in the signed-off item "${STALL}", and no paragraph of this Line holds one of the dropped uncertainty's own figures (${DROPPED_FIGURES}) or restates it: check whether the flagged content is that item]`;
 const claimLeaveOut = () => claimFor({ section: "244", plan: plan244({ rule: false, dropped: [DROPPED] }) });
 
-describe("a LEAVE OUT verdict that flags a signed-off item by its figures is recorded applied (real SDK, fetch stubbed)", () => {
-  it("records run 11's verdict on the signed-off stall experiment applied and sends it to no repair", async () => {
-    const sent = installFetch({ draft: REPAIRED, checks: [[skipHonoured, ...allCovered, onTheStall]] });
+describe("a LEAVE OUT verdict that cites only signed-off figures keeps its verdict, with a note (real SDK, fetch stubbed)", () => {
+  it("keeps run 11's verdict on the signed-off stall experiment not applied, notes the item and sends it to the repair; the COVER rollback keeps the item", async () => {
+    // The repair cuts the stall paragraph, which the check of its final text
+    // finds no longer covers the signed-off stall item.
+    const withoutStall = [P1, P3].join("\n\n");
+    const sent = installFetch({
+      draft: REPAIRED,
+      repair: withoutStall,
+      checks: [
+        [skipHonoured, ...allCovered, onTheStall],
+        [skipHonoured, covered(ITEM.workplan, 1), { itemId: ITEM.stall, mergedItemIds: [ITEM.stall], paragraph: 0, outcome: "not_applied", reason: "The stall result is gone." }, covered(ITEM.dose, 2), leftOut],
+      ],
+    });
     const result = await draft("244", claimLeaveOut());
-    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(sent[2]!.user).toContain("- Paragraph 2: leave out the uncertainty the writer dropped (");
     // The strengthened rule is on the wire: compare with every COVER item first.
     expect(sent[1]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.leaveOut.instruction);
     expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.leaveOut.instruction).toContain(
@@ -783,15 +838,44 @@ describe("a LEAVE OUT verdict that flags a signed-off item by its figures is rec
     expect(result.draftText).toBe(REPAIRED);
     expect(rowOf(result, (ref) => ref.droppedSeedId === DROPPED_ID)).toEqual({
       section: "244",
+      paragraphIndex: 1,
       source: "model",
       instruction: leaveOutInstruction(DROPPED.wording),
-      outcome: "applied",
+      outcome: "not_applied",
       tier: "none",
-      reason: backstopReason(2, onTheStall.reason, "19 days, 6 days"),
+      reason: `${onTheStall.reason} ${figureNote("19 days, 6 days")}; repair not used (${repairDroppedCoverItemReason({ wording: [STALL] })})`,
       repaired: false,
       planRef: { summaryVersionId: SUMMARY_VERSION, droppedSeedId: DROPPED_ID, mergedItemIds: [] },
     });
-    expect(planCoverage(result)).toEqual({ status: "complete", applied: 5, total: 5 });
+    expect(planCoverage(result)).toEqual({ status: "incomplete", applied: 4, total: 5 });
+  });
+
+  it("Greptile P1: repairs a dropped claim restated in other words, though its reason cites only signed-off figures", async () => {
+    // P4 restates the dropped uncertainty without its figures and below the
+    // near-copy share; the verdict cites the stall figures.
+    const restatedP4 = "The team also asked whether acclimating the seed really helps or merely postpones the shock.";
+    const text = [P1, P2, P3, restatedP4].join("\n\n");
+    const verdictP4 = { ...onTheStall, paragraph: 4, reason: "P4 restates it beside 19 vs 6 days." };
+    const check = plan244({ rule: false, dropped: [DROPPED] }).checks.find((candidate) => candidate.droppedSeedId)!;
+    expect(leaveOutFigureNote({
+      check,
+      verdict: { droppedSeedId: DROPPED_ID, mergedItemIds: [], paragraphIndex: 3, outcome: "not_applied", reason: verdictP4.reason, actionableRepair: true },
+      text,
+      planWording: PLAN_WORDING,
+    })).toBe(figureNote("19 days, 6 days"));
+    const sent = installFetch({
+      draft: text,
+      repair: REPAIRED,
+      checks: [[skipHonoured, ...allCovered, verdictP4], [skipHonoured, ...allCovered, leftOut]],
+    });
+    const result = await draft("244", claimLeaveOut());
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(result.draftText).toBe(REPAIRED);
+    expect(rowOf(result, (ref) => ref.droppedSeedId === DROPPED_ID)).toMatchObject({
+      outcome: "applied",
+      repaired: true,
+      reason: "Nothing of the dropped uncertainty.",
+    });
   });
 
   it("keeps a real leak not applied and repairs it: the flagged paragraph holds a dropped figure, whatever its reason cites", async () => {
@@ -831,7 +915,7 @@ describe("a LEAVE OUT verdict that flags a signed-off item by its figures is rec
     }
   });
 
-  it("applies to the check of the final text after a repair made for another issue", async () => {
+  it("notes the check of the final text after a repair made for another issue, and keeps its verdict", async () => {
     const withoutDose = [P1, P2].join("\n\n");
     const sent = installFetch({
       draft: withoutDose,
@@ -845,9 +929,9 @@ describe("a LEAVE OUT verdict that flags a signed-off item by its figures is rec
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
     expect(result.draftText).toBe(REPAIRED);
     expect(rowOf(result, (ref) => ref.droppedSeedId === DROPPED_ID)).toMatchObject({
-      outcome: "applied",
+      outcome: "not_applied",
       repaired: false,
-      reason: backstopReason(2, onTheStall.reason, "19 days, 6 days"),
+      reason: `${onTheStall.reason} ${figureNote("19 days, 6 days")}`,
     });
     expect(rowOf(result, (ref) => ref.itemId === ITEM.dose)).toMatchObject({ outcome: "applied", repaired: true });
   });
@@ -857,27 +941,27 @@ describe("a LEAVE OUT verdict that flags a signed-off item by its figures is rec
     const verdict = { droppedSeedId: DROPPED_ID, mergedItemIds: [], paragraphIndex: 1, outcome: "not_applied" as const, reason: onTheStall.reason, actionableRepair: true };
     // (a) The flagged P2 holds none, but P4 holds 44 days and 6 C.
     const leakElsewhere = [P1, P2, P3, P4_LEAK].join("\n\n");
-    expect(leaveOutFigureBackstop({ check, verdict, text: leakElsewhere, planWording: PLAN_WORDING })).toBeNull();
+    expect(leaveOutFigureNote({ check, verdict, text: leakElsewhere, planWording: PLAN_WORDING })).toBeNull();
     // (c) A "44-day" run is the dropped figure too.
-    expect(leaveOutFigureBackstop({ check, verdict, text: `${REPAIRED}\n\nA later 44-day run confirmed it.`, planWording: PLAN_WORDING })).toBeNull();
+    expect(leaveOutFigureNote({ check, verdict, text: `${REPAIRED}\n\nA later 44-day run confirmed it.`, planWording: PLAN_WORDING })).toBeNull();
     // (d) A sentence of the Line restates the dropped uncertainty, with no figure.
     const restated = REPAIRED.replace(P1, `${P1} It was uncertain whether stepwise acclimation would actually work or only delay cold shock.`);
-    expect(leaveOutFigureBackstop({ check, verdict, text: restated, planWording: PLAN_WORDING })).toBeNull();
-    // (b) The reason cites no figure, the guidance cites signed-off ones: applied.
-    expect(leaveOutFigureBackstop({
+    expect(leaveOutFigureNote({ check, verdict, text: restated, planWording: PLAN_WORDING })).toBeNull();
+    // (b) The reason cites no figure, the guidance cites signed-off ones: noted.
+    expect(leaveOutFigureNote({
       check,
       verdict: { ...verdict, reason: "P2 flags the stall result.", repairGuidance: "Drop the 19 vs 6 days result." },
       text: REPAIRED,
       planWording: PLAN_WORDING,
-    })?.outcome).toBe("applied");
+    })).toBe(figureNote("19 days, 6 days"));
     // (b) The guidance, or the unclipped text, cites a dropped figure: kept.
-    expect(leaveOutFigureBackstop({
+    expect(leaveOutFigureNote({
       check,
       verdict: { ...verdict, repairGuidance: "Drop 19 vs 6 days and the 29 days result." },
       text: REPAIRED,
       planWording: PLAN_WORDING,
     })).toBeNull();
-    expect(leaveOutFigureBackstop({
+    expect(leaveOutFigureNote({
       check,
       verdict: { ...verdict, repairText: "P2 states 19 vs 6 days, and the Trial 2 run took 29 days." },
       text: REPAIRED,
@@ -899,17 +983,17 @@ describe("a LEAVE OUT verdict that flags a signed-off item by its figures is rec
   it("reads nothing when the dropped uncertainty has no figure of its own, or the check is not a LEAVE OUT", () => {
     const check = plan244({ rule: false, dropped: [DROPPED] }).checks.find((candidate) => candidate.droppedSeedId)!;
     const verdict = { droppedSeedId: DROPPED_ID, mergedItemIds: [], paragraphIndex: 1, outcome: "not_applied" as const, reason: onTheStall.reason, actionableRepair: true };
-    expect(leaveOutFigureBackstop({ check, verdict, text: REPAIRED, planWording: PLAN_WORDING })?.outcome).toBe("applied");
+    expect(leaveOutFigureNote({ check, verdict, text: REPAIRED, planWording: PLAN_WORDING })).toBe(figureNote("19 days, 6 days"));
     // Every figure of the dropped uncertainty is also in the plan: no evidence either way.
     const figureless = { ...check, wording: ["It was uncertain whether acclimation works."], relationshipReferences: [{ seedId: "e", wording: [STALL] }] };
-    expect(leaveOutFigureBackstop({ check: figureless, verdict, text: REPAIRED, planWording: PLAN_WORDING })).toBeNull();
+    expect(leaveOutFigureNote({ check: figureless, verdict, text: REPAIRED, planWording: PLAN_WORDING })).toBeNull();
     // A verdict with no valid paragraph, an applied one and a Skip are left alone.
-    expect(leaveOutFigureBackstop({ check, verdict: { ...verdict, paragraphIndex: undefined }, text: REPAIRED, planWording: PLAN_WORDING })).toBeNull();
-    expect(leaveOutFigureBackstop({ check, verdict: { ...verdict, paragraphIndex: 7 }, text: REPAIRED, planWording: PLAN_WORDING })).toBeNull();
-    expect(leaveOutFigureBackstop({ check, verdict: { ...verdict, outcome: "applied" }, text: REPAIRED, planWording: PLAN_WORDING })).toBeNull();
-    expect(leaveOutFigureBackstop({ check: { ...check, instruction: "skip" }, verdict, text: REPAIRED, planWording: PLAN_WORDING })).toBeNull();
+    expect(leaveOutFigureNote({ check, verdict: { ...verdict, paragraphIndex: undefined }, text: REPAIRED, planWording: PLAN_WORDING })).toBeNull();
+    expect(leaveOutFigureNote({ check, verdict: { ...verdict, paragraphIndex: 7 }, text: REPAIRED, planWording: PLAN_WORDING })).toBeNull();
+    expect(leaveOutFigureNote({ check, verdict: { ...verdict, outcome: "applied" }, text: REPAIRED, planWording: PLAN_WORDING })).toBeNull();
+    expect(leaveOutFigureNote({ check: { ...check, instruction: "skip" }, verdict, text: REPAIRED, planWording: PLAN_WORDING })).toBeNull();
     // A "6°C" in the flagged paragraph is the dropped uncertainty's own figure.
     const degreeSign = REPAIRED.replace(P2, "At 6°C the stall lasted 19 days unacclimated and 6 days acclimated.");
-    expect(leaveOutFigureBackstop({ check, verdict, text: degreeSign, planWording: PLAN_WORDING })).toBeNull();
+    expect(leaveOutFigureNote({ check, verdict, text: degreeSign, planWording: PLAN_WORDING })).toBeNull();
   });
 });

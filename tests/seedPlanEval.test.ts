@@ -1026,6 +1026,21 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
       .toMatch(/^242: applied; 244: applied by the figure check \("The flagged content is a signed-off item: .*"\); 246: applied; frozen at sign-off: u1$/);
   });
 
+  it("fails a LEAVE OUT row the product noted as citing only signed-off figures, and shows the note whole (Greptile round)", () => {
+    const { c, log } = run10();
+    const note = '[figure check: every figure it cites (19 days, 6 days) is in the signed-off item "The nitrite stall lasted 19 days in unacclimated seed but only 6 days in acclimated seed.", and no paragraph of this Line holds one of the dropped uncertainty\'s own figures (44 days) or restates it: check whether the flagged content is that item]';
+    c.complianceNotes = [
+      leaveOutRow("242"),
+      { ...leaveOutRow("244", "not_applied"), reason: `P3 states stall durations (19 vs 6 days). ${note}` },
+      leaveOutRow("246"),
+      answersRow(),
+    ];
+    const checks = runChecks(byCase("changed_advancement_links"), c, log);
+    expect(status(checks, "dropped-uncertainty-left-out")).toBe("fail");
+    expect(checks.find((item) => item.id === "dropped-uncertainty-left-out")?.evidence)
+      .toBe(`242: applied; 244: not_applied ("P3 states stall durations (19 vs 6 days).") ${note}; 246: applied; frozen at sign-off: u1`);
+  });
+
   it("reads the dropped uncertainty's own figures from the frozen row, as the product does (review P3-2)", () => {
     const { c, log } = run10();
     // The frozen row records an advancement with a figure of its own; the
@@ -1489,9 +1504,10 @@ describe("results against targets and no talk about sources (2026-09-30, third)"
     for (const fixture of fixtures) {
       const row = runChecks(fixture, c, emptyRunLog(fixture.id, 0)).find((item) => item.id === "source-talk");
       expect(row?.status).toBe("info");
-      // "interviewee" is the project's own subject (the signed-off wording).
+      // Greptile round (lead decision): an interviewee always counts, even
+      // where the signed-off wording uses the word.
       expect(row?.evidence).toBe(
-        '242: none (row applied); 244: P2 "the test memo indicates", P3 "The two sources disagree" (row not_applied, repaired); 246: none (no row)'
+        '242: P2 "interviewee" (row applied); 244: P2 "the test memo indicates", P3 "The two sources disagree" (row not_applied, repaired); 246: none (no row)'
       );
     }
     expect(runChecks(fixtures[0]!, { ...c, report: null }, emptyRunLog(fixtures[0]!.id, 0))

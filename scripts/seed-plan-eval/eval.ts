@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
-import { droppedUncertaintyFigures, figuresOf } from "../../shared/planFigures";
+import { droppedUncertaintyFigures, figuresOf, LEAVE_OUT_FIGURE_NOTE_PREFIX } from "../../shared/planFigures";
 import { releaseEvalProjectTitle } from "../../shared/releaseEval";
 import { findSourceTalk, sourceTalkSubject } from "../../shared/humanProse";
 import {
@@ -2202,6 +2202,8 @@ export function workAnswers242Evidence(c: Collected): string {
 
 /** 2026-09-30 (second): how a LEAVE OUT row the figure backstop recorded applied begins. */
 export const LEAVE_OUT_FIGURE_BACKSTOP_PREFIX = "The flagged content is a signed-off item:";
+// Since the Greptile round the product never records such a row; results
+// read back from earlier runs may hold one, and the gate below reads them.
 
 const ANSWERS_242_RULE_ID = "advancements_answer_242";
 const TARGETS_RULE_ID = "results_against_targets";
@@ -2718,7 +2720,12 @@ function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[
                               .join("; ")} (${quote(row.reason, 160)})`
                           : `applied by the figure check (${quote(row.reason, 160)})`
                       : "applied"
-                    : `${row.outcome} (${quote(row.reason, 100)})`
+                    : row.reason.includes(LEAVE_OUT_FIGURE_NOTE_PREFIX)
+                      // Greptile round: the product's figure note never
+                      // changes a verdict; it is shown whole as a lead for
+                      // the judge, and the row still fails.
+                      ? `${row.outcome} (${quote(row.reason.slice(0, row.reason.indexOf(LEAVE_OUT_FIGURE_NOTE_PREFIX)).trim(), 100)}) ${row.reason.slice(row.reason.indexOf(LEAVE_OUT_FIGURE_NOTE_PREFIX))}`
+                      : `${row.outcome} (${quote(row.reason, 100)})`
                   : "no row"}`)
                 .join("; ")}${c.summary?.droppedUncertaintySeedIds ? `; frozen at sign-off: ${c.summary.droppedUncertaintySeedIds.join(", ") || "none"}` : ""}`,
         ),

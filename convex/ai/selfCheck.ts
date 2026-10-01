@@ -945,6 +945,12 @@ export type ModelSelfCheckResult = {
     actionableRepair?: boolean;
     /** In memory only: see ModelVerdict.repairText. Never stored. */
     repairText?: string;
+    /**
+     * 2026-09-30 (second, Greptile round): a LEAVE OUT verdict's figure note
+     * (orderedGeneration.ts leaveOutFigureNote), added to its row's reason;
+     * the verdict itself is unchanged.
+     */
+    figureNote?: string;
   }>;
 };
 

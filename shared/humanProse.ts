@@ -107,85 +107,96 @@ export interface SourceTalkHit {
   context: string;
 }
 
-// Verbs that report what a source says. "show", "give" and "found" are left
-// out: "the sources gave 5 W each" is about heat or light sources.
+// Verbs that report what a source says. "give" and "found" are left out:
+// "the sources gave 5 W each" is about heat or light sources. Greptile round
+// (lead decision): "show" reports too, after a document, record, note, log,
+// transcript or memo (never after "sources", which may be light sources).
 const SAYS =
   "(?:say|says|said|state|states|stated|note|notes|noted|indicate|indicates|indicated|suggest|suggests|suggested|report|reports|reported|record|records|recorded|mention|mentions|mentioned|describe|describes|described|confirm|confirms|confirmed)";
+const SAYS_OR_SHOWS = `(?:${SAYS.slice(3, -1)}|show|shows|showed)`;
 
 /**
  * Clear phrases that talk about the sources rather than the work. Each is
  * narrow on purpose: "light source", "heat source", "sources of error",
  * "open-source", "source code", a lowercase "confidence map" (a vision
  * term) and "the brief exposure" never match.
+ *
+ * Greptile round (lead decision): REPORTING phrases (a source noun with a
+ * reporting verb, "according to the ...", "recorded elsewhere" and the
+ * interviewee forms) always count, whatever the project's subject; only the
+ * MENTION phrases below give way to the subject, and only where it holds the
+ * same noun phrase.
  */
-const SOURCE_TALK_PATTERNS: readonly RegExp[] = [
+const SOURCE_TALK_REPORTING: readonly RegExp[] = [
   /\binterviewees?\b/giu,
-  /\b(?:the|an|this|that|each|both|two|these|those|our|their|one|separate|later|earlier) interviews?\b/giu,
-  /\binterview (?:transcripts?|notes|records?|recordings?)\b/giu,
-  /\b(?:in|from|per|according to|based on) (?:the |an |a |one |each |both |this |that )?transcripts?\b/giu,
-  new RegExp(`\\bthe transcripts? ${SAYS}\\b`, "giu"),
-  new RegExp(`\\b(?:the (?:[\\p{L}-]+ )?)?memos? ${SAYS}\\b`, "giu"),
-  /\b(?:in|from|per|based on) the (?:[\p{L}-]+ ){0,2}memos?\b/giu,
+  new RegExp(`\\bthe transcripts? ${SAYS_OR_SHOWS}\\b`, "giu"),
+  new RegExp(`\\b(?:the (?:[\\p{L}-]+ )?)?memos? ${SAYS_OR_SHOWS}\\b`, "giu"),
   /\b(?:recorded|reported|stated|given|noted|documented|described) elsewhere\b/giu,
-  /\bdepending on (?:the |which )?measurement sources?\b/giu,
   /\baccording to (?:the |an |a |one |each |both |our |their |this |that )?(?:[\p{L}-]+ ){0,2}(?:interviews?|interviewees?|memos?|notes|records?|transcripts?|documents?|documentation|logs?|minutes|sources)\b/giu,
-  new RegExp(`\\bthe (?:[\\p{L}-]+ )?(?:documents?|records|notes|logs?) (?:say|says|said|state|states|stated|indicate|indicates|indicated|suggest|suggests|suggested|note|notes|noted|mention|mentions|mentioned)\\b`, "giu"),
-  /\b(?:the two|the|both|two|all|these|those|other) sources (?:agree|agreed|disagree|disagreed|differ|differed|conflict|conflicted|say|said|state|stated|report|reported|indicate|indicated|suggest|suggested|note|noted|mention|mentioned)\b/giu,
-  /\b(?:one|another|a single|the other|each) source (?:says|said|states|stated|puts|put|reports|reported|indicates|indicated|suggests|suggested)\b/giu,
+  new RegExp(`\\bthe (?:[\\p{L}-]+ )?(?:documents?|records|notes|logs?) (?:say|says|said|state|states|stated|indicate|indicates|indicated|suggest|suggests|suggested|note|notes|noted|mention|mentions|mentioned|record|records|recorded|report|reports|reported|describe|describes|described|show|shows|showed)\\b`, "giu"),
+  /\b(?:the two|the|both|two|all|these|those|other) sources (?:say|said|state|stated|report|reported|indicate|indicated|suggest|suggested|note|noted|mention|mentioned|describe|described)\b/giu,
+  /\b(?:one|another|a single|the other|each) source (?:says|said|states|stated|reports|reported|indicates|indicated|suggests|suggested|notes|noted|describes|described)\b/giu,
   // Case matters for the Brief's own names: a lowercase "brief" or
   // "confidence map" is ordinary or technical English.
   /\b[Tt]he (?:Generation )?Brief\b/gu,
-  /\bStorylines?\b/gu,
   /\bConfidence Maps?\b/gu,
+];
+
+/** Plain mentions of a source: the project's own subject may use the same noun phrase. */
+const SOURCE_TALK_MENTIONS: readonly RegExp[] = [
+  /\b(?:the|an|this|that|each|both|two|these|those|our|their|one|separate|later|earlier) interviews?\b/giu,
+  /\binterview (?:transcripts?|notes|records?|recordings?)\b/giu,
+  /\b(?:in|from|per|based on) (?:the |an |a |one |each |both |this |that )?transcripts?\b/giu,
+  /\b(?:in|from|per|based on) the (?:[\p{L}-]+ ){0,2}memos?\b/giu,
+  /\bdepending on (?:the |which )?measurement sources?\b/giu,
+  /\b(?:the two|the|both|two|all|these|those|other) sources (?:agree|agreed|disagree|disagreed|differ|differed|conflict|conflicted)\b/giu,
+  /\b(?:one|another|a single|the other|each) source (?:puts|put)\b/giu,
+  /\bStorylines?\b/gu,
 ];
 
 /**
  * 2026-09-30 (third, review P2-4): the head nouns of source talk, each with
- * the noun forms that make it the project's own subject. A hit whose head
- * noun the subject uses as a noun is not reported: an interview scheduling
- * product, a speech-to-text engine ("in the transcript"), credit memos,
- * event logs. "recorded elsewhere", "the Brief" and "Confidence Map" have no
- * such head and are always source talk. Re-check: noun forms only, so a
- * verb or an adjective ("documented", "logged", "transcribed",
- * "interviewing") never makes a head the subject; "minutes" is the subject
- * only as meeting minutes (MEETING_MINUTES); and "source" is matched with
- * its modifier (sourceModifiers).
+ * its singular and plural, so a mention gives way to the project's own
+ * subject (an interview scheduling product, a speech-to-text engine, credit
+ * memos). Re-check: noun forms only, never a verb or an adjective
+ * ("documented", "logged"). Greptile round (lead decision): the subject must
+ * hold the same noun phrase, the noun with the same modifier, and only a
+ * plain mention gives way; a reporting phrase never does.
  */
 const SOURCE_HEAD_NOUNS: ReadonlyArray<readonly string[]> = [
-  ["interview", "interviews", "interviewee", "interviewees", "interviewer", "interviewers"],
-  ["transcript", "transcripts", "transcription", "transcriptions"],
+  ["interview", "interviews"],
+  ["transcript", "transcripts"],
   ["memo", "memos"],
-  ["document", "documents", "documentation"],
-  ["record", "records"],
   ["note", "notes"],
-  ["log", "logs"],
-  ["minutes"],
+  ["record", "records"],
+  ["recording", "recordings"],
   ["source", "sources"],
   ["storyline", "storylines"],
 ];
 
-/** Re-check: "minutes" is the project's subject only in a meeting sense. */
-const MEETING_MINUTES = /\bmeeting minutes\b|\bminutes of (?:the |a |each |every )?meetings?\b/iu;
-
-/** Words before "source" that name no kind of source. */
+/** Words before a noun that name no kind of it: the bare noun follows them. */
 const NO_MODIFIER = new Set([
   "the", "a", "an", "one", "each", "both", "two", "three", "all", "these", "those", "this", "that",
-  "our", "their", "its", "other", "another", "single", "which", "any", "to", "on", "of", "per", "and", "or",
+  "our", "their", "its", "his", "her", "other", "another", "single", "which", "any", "every", "some",
+  "to", "on", "of", "per", "and", "or", "in", "from", "by", "for", "with", "at", "into", "after",
+  "before", "separate", "later", "earlier", "based", "depending", "is", "are", "was", "were", "be",
 ]);
 
 /**
- * The modifier of each "source" or "sources" in some words: the word before
- * it ("light", "measurement"), or "" when none names a kind of source ("the
- * sources", "two sources"). A "source of ..." ("source of error") is a cause,
- * not a kind of source, and is left out.
+ * The noun phrases of the head nouns in some words: each head noun (as its
+ * singular) with the word before it as its modifier, or "" when that word
+ * names no kind ("the transcript", "two sources"). A head noun followed by
+ * "of" ("source of error", "record of each test") is a different phrase and
+ * is left out.
  */
-function sourceModifiers(words: readonly string[], options: { skipSourceOf: boolean }): string[] {
+function headNounPhrases(words: readonly string[]): string[] {
   const out: string[] = [];
   words.forEach((word, index) => {
-    if (word !== "source" && word !== "sources") return;
-    if (options.skipSourceOf && words[index + 1] === "of") return;
+    const forms = SOURCE_HEAD_NOUNS.find((candidate) => candidate.includes(word));
+    if (!forms) return;
+    if (words[index + 1] === "of") return;
     const before = words[index - 1];
-    out.push(before && !NO_MODIFIER.has(before) ? before : "");
+    out.push(`${before && !NO_MODIFIER.has(before) ? before : ""} ${forms[0]}`);
   });
   return out;
 }
@@ -212,51 +223,47 @@ function wordsOf(text: string): string[] {
  * The phrases in `text` that name where a fact came from (2026-09-30,
  * third). `subjectText` is the project's own subject: every signed-off
  * item's wording across all Lines, the Glossary Terms and the writer's
- * edited terms. A hit whose head noun (interview, transcript, memo,
- * document, record, notes, log, meeting minutes, storyline) the subject
- * uses as a noun is not reported, and a "source" hit only where the subject
- * uses "source" with the same modifier. Hits are in text order, one per
- * position.
+ * edited terms. A reporting phrase ("The documents say", "according to
+ * the minutes", "recorded elsewhere", an interviewee) is always reported. A
+ * plain mention ("each interview", "in the transcript", "from the credit
+ * memo", "depending on the measurement source") is not reported where the
+ * subject holds the same noun phrase, the noun with the same modifier
+ * (Greptile round, lead decision). Hits are in text order, one per position.
  */
 export function findSourceTalk(
   text: string,
   options: { subjectText?: readonly string[] } = {}
 ): SourceTalkHit[] {
-  const subjectTexts = options.subjectText ?? [];
-  const subject = new Set(subjectTexts.flatMap(wordsOf));
-  const meetingMinutes = subjectTexts.some((text) => MEETING_MINUTES.test(text));
-  const subjectHeads = SOURCE_HEAD_NOUNS.filter((forms) =>
-    forms[0] === "source"
-      ? false
-      : forms[0] === "minutes"
-        ? meetingMinutes
-        : forms.some((form) => subject.has(form)));
-  // Re-check: a source hit is the subject only where the subject uses the
-  // same modifier ("measurement source" silences "depending on the
-  // measurement source"; "light source" or "source of error" silences no
-  // bare "the sources").
-  const subjectSources = new Set(
-    subjectTexts.flatMap((text) => sourceModifiers(wordsOf(text), { skipSourceOf: true }))
+  // Greptile round (lead decision): the noun phrases the project's own
+  // subject holds, each the noun with its modifier.
+  const subjectPhrases = new Set(
+    (options.subjectText ?? []).flatMap((subject) => headNounPhrases(wordsOf(subject)))
   );
   const hits: SourceTalkHit[] = [];
-  for (const pattern of SOURCE_TALK_PATTERNS) {
-    pattern.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(text)) !== null) {
-      const phrase = match[0];
-      const words = wordsOf(phrase);
-      if (subjectHeads.some((forms) => forms.some((form) => words.includes(form)))) continue;
-      const hitSources = sourceModifiers(words, { skipSourceOf: false });
-      if (hitSources.length > 0 && hitSources.every((modifier) => subjectSources.has(modifier))) continue;
-      const start = Math.max(0, match.index - 30);
-      const end = Math.min(text.length, match.index + phrase.length + 30);
-      hits.push({
-        phrase,
-        index: match.index,
-        context: "..." + text.slice(start, end).replace(/\r?\n/g, " ") + "...",
-      });
+  const scan = (patterns: readonly RegExp[], mention: boolean) => {
+    for (const pattern of patterns) {
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(text)) !== null) {
+        const phrase = match[0];
+        if (mention) {
+          // The mention's own head noun phrase, the last one it holds.
+          const phrases = headNounPhrases(wordsOf(phrase));
+          const own = phrases[phrases.length - 1];
+          if (own !== undefined && subjectPhrases.has(own)) continue;
+        }
+        const start = Math.max(0, match.index - 30);
+        const end = Math.min(text.length, match.index + phrase.length + 30);
+        hits.push({
+          phrase,
+          index: match.index,
+          context: "..." + text.slice(start, end).replace(/\r?\n/g, " ") + "...",
+        });
+      }
     }
-  }
+  };
+  scan(SOURCE_TALK_REPORTING, false);
+  scan(SOURCE_TALK_MENTIONS, true);
   // In text order, the longest first where two start together; a hit inside
   // one already kept is the same words and is dropped.
   hits.sort((left, right) => left.index - right.index || right.phrase.length - left.phrase.length);

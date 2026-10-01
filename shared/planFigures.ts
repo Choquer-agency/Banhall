@@ -188,3 +188,10 @@ export function droppedUncertaintyFigures(args: {
     args.planWording.map((wording) => wording.join(" "))
   );
 }
+
+/**
+ * 2026-09-30 (second, Greptile round): how the product's figure note on a
+ * LEAVE OUT row begins (convex/ai/orderedGeneration.ts leaveOutFigureNote),
+ * so the release suite can show it whole.
+ */
+export const LEAVE_OUT_FIGURE_NOTE_PREFIX = "[figure check: ";

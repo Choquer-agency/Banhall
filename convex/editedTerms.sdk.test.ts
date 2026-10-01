@@ -72,9 +72,13 @@ const GOAL_P2 =
   "The goal was a single filter with a pore-size gradient through its 50mm thickness: a coarser entry face and a finer exit layer that resists cracking while raising fine inclusion capture.";
 const UNCERTAINTY_P3 =
   "It was unknown whether two pore-size templates could be graded without delaminating during firing, since differing slurry pick-up by zone causes shrinkage mismatch between them.";
-/** Supporting detail a compression may cut: no numbers, negations or terms. */
+/**
+ * Supporting detail a compression may cut: no numbers, negations or terms,
+ * and no talk about sources ("the kiln notes describe" names one since the
+ * Greptile round).
+ */
 const SUPPORT =
-  "The kiln notes describe how each template behaved in the dip line and how the engineers compared every fired part with the standard filter.";
+  "The kiln team watched how each template behaved in the dip line and how the engineers compared every fired part with the standard filter.";
 
 const DRAFT = [CONTEXT_P1, GOAL_P2, UNCERTAINTY_P3].join("\n\n");
 /** The run 4 repair: the team term paraphrased away. */

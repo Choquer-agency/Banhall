@@ -1997,10 +1997,11 @@ describe("seed Summary sign-off and recovery", () => {
       generationId: s.generationId,
       expectedSeedStageVersion: await stageVersion(s),
     });
-    // Supporting sentences only: no digits and no negations.
+    // Supporting sentences only: no digits, no negations and no talk about
+    // sources ("the field notes describe" names one since the Greptile round).
     const support = (count: number) =>
       Array.from({ length: count }, () =>
-        "The field notes describe how the prototype behaved across the exposure period and how the team read each result against the control."
+        "The prototype behaved steadily across the exposure period, and the team read each result against the control with care."
       ).join(" ");
     const compressions: string[] = [];
     network.create.mockReset().mockImplementation(async (params: GenerationMessageParams) => {
