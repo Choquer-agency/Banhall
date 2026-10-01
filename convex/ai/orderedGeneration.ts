@@ -662,22 +662,6 @@ export function repairLostPlanFigureReason(lost: { figure: string }): string {
   return `the repaired text no longer holds the signed-off figure "${lost.figure}", which the checked draft held, and a fix that leaves out work must keep the evidence a signed-off item needs, so the checked draft was kept`;
 }
 
-/**
- * Greptile round (lead decision): why a used Rule C repair was set aside when
- * the check of its final text still found Line 244 describing work for an
- * uncertainty Line 242 does not state.
- */
-export const REPAIR_STILL_BREAKS_WORK_RULE_REASON =
-  "the check of the repaired text still found work for an uncertainty Line 242 does not state, and the checked draft keeps all the evidence, so the checked draft was kept";
-
-/**
- * Greptile round 2 (lead decision): added to the Rule C row when the repair
- * also carried other fixes, so it was kept for them although the check of its
- * final text still found Rule C not applied.
- */
-export const REPAIR_KEPT_DESPITE_WORK_RULE_REASON =
-  "the repair was kept for its other fixes, but the check of its final text still found work for an uncertainty Line 242 does not state: leave that work out before filing";
-
 /** Every LEAVE OUT verdict with its figure note, where one applies; no verdict changes. */
 function withLeaveOutFigureNotes(
   verdicts: PlanVerdicts,
@@ -1566,39 +1550,11 @@ export async function draftCheckedSection(input: {
     }
   }
 
-  // Greptile round (lead decision): a used repair that carried a Rule C fix
-  // must satisfy Rule C. When the check of its final text still judges it
-  // not applied, the checked draft, which keeps all the evidence, comes
-  // back, unless it is further over a Locked limit (Locked Rules first).
-  // Greptile rounds 2 and 3 (lead decisions): only when every fix the
-  // repair carried was a Rule C fix. A repair that also carried any other
-  // fix (a Rule A leave-out fix, a target, a hedge, a Glossary Term) is kept
-  // for it, so that fix never vanishes, and the Rule C row records the final
-  // text's verdict with REPAIR_KEPT_DESPITE_WORK_RULE_REASON.
-  let workRuleKeptBroken = false;
-  if (repair.succeeded && finalCoverage?.ok && evidenceIssues.size > 0) {
-    const coverage = finalCoverage;
-    const workRule = claim.planChecks.find((planCheck) => planCheck.instruction === "work_answer_242");
-    const later = workRule ? planVerdictFor(coverage.verdicts, workRule) : undefined;
-    const stillBroken = later !== undefined && later.actionableRepair !== false && later.outcome !== "applied";
-    const onlyRuleCFixes = issues.every((issue) => evidenceIssues.has(issue));
-    if (stillBroken && !onlyRuleCFixes) workRuleKeptBroken = true;
-    if (
-      stillBroken &&
-      onlyRuleCFixes &&
-      !overLimitMore(text, finalText)
-    ) {
-      console.warn(`generation:repair:${section}: the repaired text still breaks Line 244's work rule; the checked draft is kept`);
-      finalText = text;
-      repair.succeeded = false;
-      repair.shortened = undefined;
-      repair.notUsedReason = REPAIR_STILL_BREAKS_WORK_RULE_REASON;
-      keptFit = firstFit;
-      after = null;
-      finalCoverage = undefined;
-      governedFinal = undefined;
-    }
-  }
+  // Greptile rounds 1 to 4 (lead decision): a used repair whose final text
+  // still breaks Rule C is kept. Each set-aside variant discarded or
+  // mislabelled valid fixes, so every row reports its own final-text
+  // verdict, and a Rule C row that still fails reads not applied with the
+  // checker's reason. The figure guard and the COVER rollback stay.
 
   // The question is stored only when it cites a Confidence Map entry of
   // this Brief; the note must not claim a question the Brief never got.
@@ -1647,14 +1603,6 @@ export async function draftCheckedSection(input: {
         ...(droppedForLimit.has(conflict.itemId) ? { droppedForLimit: true } : {}),
       }])),
     });
-    // Greptile round 2: a repair kept for its other fixes says why the Rule
-    // C row is still not applied on its final text.
-    if (workRuleKeptBroken) {
-      planRows = planRows.map((row) =>
-        row.planRef?.ruleId === "work_answers_242" && row.outcome !== "applied"
-          ? { ...row, reason: `${row.reason}; ${REPAIR_KEPT_DESPITE_WORK_RULE_REASON}` }
-          : row);
-    }
     // 2026-09-30 (first): dropped uncertainties beyond the cap are named as
     // not checked, and count as plan rows that are not applied.
     planRows.push(...droppedNotCheckedNoteDrafts({

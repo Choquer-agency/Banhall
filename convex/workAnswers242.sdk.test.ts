@@ -28,8 +28,6 @@ import {
   draftCheckedSection,
   leaveOutFigureNote,
   LEAVE_OUT_FIGURE_NOTE_PREFIX,
-  REPAIR_KEPT_DESPITE_WORK_RULE_REASON,
-  REPAIR_STILL_BREAKS_WORK_RULE_REASON,
   leaveOutInstruction,
   lostPlanFigure,
   repairDroppedCoverItemReason,
@@ -283,6 +281,11 @@ function rowOf(result: Awaited<ReturnType<typeof draft>>, match: (ref: NonNullab
   if (!row) throw new Error("No such plan row");
   return row;
 }
+/** Greptile round 4: a used repair is kept, and no row claims why. */
+function expectNoKeptForOtherFixes(result: Awaited<ReturnType<typeof draft>>) {
+  for (const note of result.notes) expect(note.reason ?? "").not.toContain("kept for its other fixes");
+  expect(result.notes.some((note) => (note.reason ?? "").includes("repair not used"))).toBe(false);
+}
 function planCoverage(result: Awaited<ReturnType<typeof draft>>) {
   return (JSON.parse(result.selfCheck) as { planCoverage?: unknown }).planCoverage;
 }
@@ -472,7 +475,7 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({ outcome: "applied", repaired: true });
   });
 
-  it("Greptile round 2: keeps a repair that also fixed a target, and records Rule C not applied on its final text", async () => {
+  it("Greptile round 4: keeps a repair that also fixed a target, and records Rule C not applied on its final text", async () => {
     const plan = buildFrozenSummaryPlan({
       section: "s244",
       items: ITEMS,
@@ -520,14 +523,12 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
       outcome: "not_applied",
       repaired: false,
       paragraphIndex: 3,
-      reason: `P4 still narrates a sensor trial.; ${REPAIR_KEPT_DESPITE_WORK_RULE_REASON}`,
+      reason: "P4 still narrates a sensor trial.",
     });
-    expect(REPAIR_KEPT_DESPITE_WORK_RULE_REASON).toBe(
-      "the repair was kept for its other fixes, but the check of its final text still found work for an uncertainty Line 242 does not state: leave that work out before filing"
-    );
+    expectNoKeptForOtherFixes(result);
   });
 
-  it("Greptile round 3: keeps a repair that also carried a leave-out fix, so that fix stands, and records Rule C not applied on its final text", async () => {
+  it("Greptile round 4: keeps a repair that also carried a leave-out fix, so that fix stands, and records Rule C not applied on its final text", async () => {
     // Line 244 holds the dropped uncertainty's Trial 2 (P4) and a Brief-only
     // sensor experiment (P5). The repair leaves Trial 2 out but only rewords
     // the sensor experiment.
@@ -562,8 +563,48 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: `P4 still narrates a sensor trial.; ${REPAIR_KEPT_DESPITE_WORK_RULE_REASON}`,
+      reason: "P4 still narrates a sensor trial.",
     });
+    expectNoKeptForOtherFixes(result);
+  });
+
+  it("Greptile round 4: keeps a repair whose Rule C fix and leave-out fix both still fail, and both rows read not applied", async () => {
+    const plan = plan244({ line242Text: LINE_242, dropped: [DROPPED] });
+    const text = [P1, P2, P3, P4_LEAK, P4_SENSOR].join("\n\n");
+    // The repair rewords both instead of leaving them out.
+    const repaired = [P1, P2, P3, "Trial 2 at 6 C ran longer with less seed.", "A third experiment compared in-tank sensors with a bypass loop."].join("\n\n");
+    expect(lostPlanFigure(text, repaired, PLAN_WORDING)).toBeUndefined();
+    const leakInP4 = { ...onTheStall, paragraph: 4, reason: "P4 narrates Trial 2 at 6 C (44 days)." };
+    const sent = installFetch({
+      draft: text,
+      repair: repaired,
+      checks: [
+        [skipHonoured, ...allCovered, leakInP4, { ...sensorStray, paragraph: 5, reason: "P5 narrates a sensor trial, not in 242." }],
+        [skipHonoured, ...allCovered, { ...leakInP4, reason: "P4 still narrates Trial 2 at 6 C." }, { ...sensorStray, paragraph: 5, reason: "P5 still narrates a sensor trial." }],
+      ],
+    });
+    const result = await draft("244", claimFor({
+      section: "244",
+      plan,
+      priorSections: [{ section: "242", text: LINE_242 }],
+      workAnswers242: { line242Drafted: true, line246Items: ITEMS_246 },
+    }));
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    // The used repair is kept; each row reports the final text's verdict.
+    expect(result.draftText).toBe(repaired);
+    expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      paragraphIndex: 4,
+      reason: "P5 still narrates a sensor trial.",
+    });
+    expect(rowOf(result, (ref) => ref.droppedSeedId === DROPPED_ID)).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      paragraphIndex: 3,
+      reason: "P4 still narrates Trial 2 at 6 C.",
+    });
+    expectNoKeptForOtherFixes(result);
   });
 
   it("Greptile round: uses a Rule C repair that cuts the capture trials behind a figure-free goal item, whose figures stay elsewhere (known limitation)", async () => {
@@ -643,7 +684,7 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({ outcome: "applied", repaired: true });
   });
 
-  it("Greptile round: sets a used Rule C repair aside when the check of its final text still finds the rule not applied", async () => {
+  it("Greptile round 4: keeps a used Rule C repair whose final text still breaks the rule, and its row reads not applied with the checker's reason", async () => {
     // The repair rewords the sensor experiment instead of leaving it out.
     const reworded = [P1, P2, P3, "A third experiment compared in-tank sensors with a bypass loop, and the direct sensors drifted."].join("\n\n");
     const sent = installFetch({
@@ -656,15 +697,14 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     });
     const result = await draft("244", claimDrafted());
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
-    expect(result.draftText).toBe(DRAFT);
+    expect(result.draftText).toBe(reworded);
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: `P4 narrates a sensor trial, not in 242.; repair not used (${REPAIR_STILL_BREAKS_WORK_RULE_REASON})`,
+      paragraphIndex: 3,
+      reason: "P4 still narrates a sensor trial.",
     });
-    expect(REPAIR_STILL_BREAKS_WORK_RULE_REASON).toBe(
-      "the check of the repaired text still found work for an uncertainty Line 242 does not state, and the checked draft keeps all the evidence, so the checked draft was kept"
-    );
+    expectNoKeptForOtherFixes(result);
   });
 
   it("lets a Rule C repair remove run 11's Brief-only sensor experiment: it holds no signed-off figure (changed-advancement-links)", async () => {
