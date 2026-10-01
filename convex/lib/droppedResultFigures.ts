@@ -12,9 +12,11 @@
  * shared/planFigures.ts): the figures of the Seeds that recorded it and that
  * the writer ticked at some point (ticked now, or with a `deselect` event),
  * never of Seeds nobody ticked and never of the uncertainty's own wording
- * (its test conditions), less every figure a picked Seed states that records
- * no dropped uncertainty and is not itself refused, the goal, objective and
- * hypothesis included. The two result steps never vouch for each other.
+ * (its test conditions), less every figure a picked Seed of an earlier step
+ * states (final check: a later step's change never marks this one for
+ * review) that records no dropped uncertainty and is not itself refused, the
+ * goal, objective and hypothesis included. The two result steps never vouch
+ * for each other.
  *
  * A dropped uncertainty is read as Rule A reads it (2026-09-30 first):
  * ticked, then unticked (a `deselect` event), not picked, not in a picked
@@ -27,7 +29,7 @@
  */
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
+import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { droppedUncertaintyFigures, figuresOf } from "../../shared/planFigures";
 import {
   advancementLinkProblem,
@@ -176,8 +178,17 @@ export async function loadDroppedResultFigures(
   );
   const refused = (seed: Doc<"seeds"> | undefined) =>
     recordsDropped(seed) || (seed?.roleId === "specific_advancements" && advancementLinkProblem(seed, picked) !== null);
+  // Final check (P2): only steps before this one vouch (1 to 9 for step 10;
+  // 1 to 12 but step 10 for step 13), so any change to a step that vouched
+  // marks this step for review and its approval is asked again.
+  const orderOf = (id: PdSubsectionRoleId) => PD_SUBSECTIONS.find((role) => role.roleId === id)?.order ?? 0;
   const kept = active
-    .filter((selection) => !isResultRole(selection.roleId) && !refused(seeds.get(selection.seedId)))
+    .filter(
+      (selection) =>
+        orderOf(selection.roleId) < orderOf(roleId) &&
+        !isResultRole(selection.roleId) &&
+        !refused(seeds.get(selection.seedId))
+    )
     .map((selection) => selection.bullets);
 
   // Outcomes: Seeds that recorded a dropped uncertainty and were ticked at

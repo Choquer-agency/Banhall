@@ -1841,6 +1841,86 @@ describe("public seed approval", () => {
     });
     // The acknowledgement changes no revision: the step is not stale.
     expect(after.row?.approvedSelectionRevision).toBe(after.row?.selectionRevision);
+
+    // Final check (P3-2): once an earlier step states 31 days, a re-approval
+    // asks nothing and the old acknowledgement is cleared.
+    await linkSeed(fixture, {
+      roleId: "experimentation",
+      bullet: "The acclimated control loop also took 31 days.",
+      selected: true,
+      uncertaintySeedId: nitrite,
+    });
+    const again = await subsection(fixture);
+    expect(again.approvalChallenge?.droppedResults).toEqual([]);
+    await approveExact(fixture);
+    const cleared = await fixture.t.run((ctx) =>
+      ctx.db.query("seedSelections").withIndex("by_seedId", (q) => q.eq("seedId", fixture.seedId)).unique(),
+    );
+    expect(cleared).not.toHaveProperty("droppedResultAcknowledgement");
+  });
+
+  // Final check (P2): a later step cannot vouch, since a change there never
+  // marks the earlier step for review.
+  test("lets only earlier steps vouch: a kept step 11 advancement never clears step 10, and steps before 13 clear step 13 (2026-09-30, fourth, final check)", async () => {
+    const fixture = await approvalFixture({
+      roleId: "overall_advancement",
+      bullet: "Stepwise acclimation cut cold-water start-up from 47 days.",
+    });
+    const acclimation = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: ACCLIMATION, selected: false });
+    const nitrite = await linkSeed(fixture, { roleId: "active_uncertainties", bullet: NITRITE, selected: true });
+    const dropped = await linkSeed(fixture, {
+      roleId: "specific_advancements",
+      bullet: "Acclimated seed reached full nitrification in 31 days at 8 C, against 47 days unacclimated.",
+      selected: false,
+      uncertaintySeedId: acclimation,
+    });
+    const trial = await linkSeed(fixture, {
+      roleId: "experimentation",
+      bullet: "The nitrite stall lasted 19 days in unacclimated seed but only 6 days in acclimated seed.",
+      selected: true,
+      uncertaintySeedId: nitrite,
+    });
+    // A kept, linked step 11 advancement that also states 47 days.
+    const later = await linkSeed(fixture, {
+      roleId: "specific_advancements",
+      bullet: "Unacclimated seed stalled on nitrite before reaching nitrification at 47 days.",
+      selected: true,
+      uncertaintySeedId: nitrite,
+    });
+    await fixture.t.run(async (ctx) => {
+      await ctx.db.patch(later, { experimentSeedIds: [trial] });
+      await ctx.db.patch(fixture.seedId, { answeredUncertaintySeedIds: [nitrite] });
+      for (const [roleId, seedId] of [["active_uncertainties", acclimation], ["specific_advancements", dropped]] as const) {
+        const seed = await ctx.db.get(seedId);
+        await ctx.db.insert("seedDecisionEvents", {
+          projectId: fixture.projectId, generationId: fixture.generationId, roleId, kind: "deselect", at: 10,
+          actorUserId: fixture.userId, seedId, batchId: seed!.batchId,
+        });
+      }
+    });
+    await skipLaterSteps(fixture, ["project_status"]);
+    const asked = async (roleId: "overall_advancement" | "goal_improvements") =>
+      ((await subsection(fixture, roleId)).approvalChallenge?.droppedResults ?? []).map((result) => [result.seedId, result.figures]);
+
+    // Step 11 comes after step 10, so its advancement does not vouch for 47 days.
+    expect(await asked("overall_advancement")).toEqual([[fixture.seedId, ["47 days"]]]);
+    // Unticking it later changes nothing for step 10: the acknowledgement was asked for anyway.
+    await untick(fixture, later);
+    expect(await asked("overall_advancement")).toEqual([[fixture.seedId, ["47 days"]]]);
+
+    // Step 13: steps 1 to 12 vouch, step 10 never does.
+    const goal = await resultSeed(fixture, {
+      roleId: "goal_improvements",
+      bullet: "The start-up gap from 47 days closed.",
+      selected: true,
+      answered: [nitrite],
+    });
+    expect(await asked("goal_improvements")).toEqual([[goal, ["47 days"]]]);
+    await fixture.t.run(async (ctx) => {
+      const row = await ctx.db.query("seedSelections").withIndex("by_seedId", (q) => q.eq("seedId", later)).unique();
+      await ctx.db.patch(row!._id, { selected: true });
+    });
+    expect(await asked("goal_improvements")).toEqual([]);
   });
 
   test("raises nothing for a figure a kept pick of another step states, or for a result that states none (2026-09-30, fourth, review re-check)", async () => {

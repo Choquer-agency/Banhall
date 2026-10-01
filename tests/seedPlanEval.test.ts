@@ -11,6 +11,9 @@ import {
   contentWordOverlap,
   deploymentRefusal,
   describeStep,
+  assertNoAcknowledgementNeeded,
+  DroppedResultAcknowledgementNeeded,
+  EvalCallError,
   droppedFiguresCheck,
   droppedUncertaintyHits,
   figuresOf,
@@ -230,6 +233,25 @@ describe("scripted sessions", () => {
     // No other Seed states a goal: the next Seed on the page, marked as the fallback.
     expect(goalSwitchChoice([earlier, page[1]!, page[4]!], [earlier])).toEqual({ item: page[1], via: "next" });
     expect(goalSwitchChoice([earlier], [earlier])).toBeNull();
+  });
+
+  it("names an approval that needs an acknowledgement instead of retrying it as a changed challenge (2026-09-30, fourth, final check P3-3)", () => {
+    expect(() => assertNoAcknowledgementNeeded("overall_advancement", { droppedResultSeedIds: [] })).not.toThrow();
+    expect(() => assertNoAcknowledgementNeeded("overall_advancement", {})).not.toThrow();
+    let thrown: unknown;
+    try {
+      assertNoAcknowledgementNeeded("overall_advancement", { droppedResultSeedIds: ["o1"] });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(DroppedResultAcknowledgementNeeded);
+    expect(thrown).toMatchObject({
+      name: "DroppedResultAcknowledgementNeeded",
+      seedIds: ["o1"],
+      message: "overall_advancement: approval asks to acknowledge 1 pick(s) whose words state a result of the dropped uncertainty; the scripted writer replaces them instead",
+    });
+    // Not a refused call, so the approve loop does not retry it.
+    expect(thrown).not.toBeInstanceOf(EvalCallError);
   });
 
   it("picks an Advancement to science or goal improvements idea that answers only kept uncertainties (2026-09-30, fourth)", () => {
@@ -471,6 +493,7 @@ const cover = (itemId: string, section: string, mergedItemIds: string[] = [itemI
   ...extra,
 });
 const status = (checks: ReturnType<typeof runChecks>, id: string) => checks.find((item) => item.id === id)?.status;
+const isResult = (roleId: string) => roleId === "overall_advancement" || roleId === "goal_improvements";
 
 describe("automatic checks", () => {
   it("records a run that stopped early as a failed check", () => {
@@ -814,6 +837,36 @@ describe("automatic checks", () => {
     ];
     expect(droppedFiguresCheck(older, log)).toMatchObject({ status: "fail", evidence: '"It took 47 days." states 47 days' });
     expect(droppedFiguresCheck(older, { ...log, removedUncertaintySeedId: null })).toMatchObject({ status: "info", evidence: "no uncertainty was dropped" });
+
+    // Final check (P3-1, P2): with the ticked flags exported, the product's
+    // rule: every Seed that recorded it and was ticked at some point (not the
+    // frozen reference), and only earlier steps vouch.
+    const seed = (seedId: string, roleId: string, bullets: string[], everTicked: boolean) => ({
+      seedId, batchId: "b", roleId, bullets, support: "source_supported", revisionOfSeedId: null, feedbackRequestId: null,
+      uncertaintySeedId: roleId === "active_uncertainties" ? null : "u1", experimentSeedIds: [], answeredUncertaintySeedIds: [], everTicked,
+    });
+    const ticked = {
+      ...c,
+      summary: {
+        ...c.summary!,
+        items: [
+          ...c.summary!.items.filter((item) => !isResult(item.roleId)),
+          summaryItem("io1", "overall_advancement", "o1", { bullets: ["Start-up fell from 47 days, and 29 days at 6 C."] }),
+          // A later step states 47 days: it does not vouch for step 10.
+          summaryItem("ia7", "specific_advancements", "a7", { uncertaintySeedId: "u2", bullets: ["Unacclimated seed took 47 days."] }),
+        ],
+      },
+      seeds: [
+        seed("u1", "active_uncertainties", [acclimation], true),
+        seed("a1", "specific_advancements", ["Acclimated seed took 31 days against 47 days."], true),
+        // Never ticked: Trial 2's 29 days at 6 C are not the writer's decision.
+        seed("e2", "experimentation", ["Trial 2 took 29 days at 6 C."], false),
+      ],
+    };
+    expect(droppedFiguresCheck(ticked, log)).toMatchObject({
+      status: "fail",
+      evidence: '"Start-up fell from 47 days, and 29 days at 6 C." states 47 days',
+    });
   });
 });
 

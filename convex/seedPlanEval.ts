@@ -214,6 +214,31 @@ export const collect = internalQuery({
     const batches: Doc<"seedBatches">[] = [];
     const seeds: Doc<"seeds">[] = [];
     const feedback: Doc<"seedFeedbackRequests">[] = [];
+    // 2026-09-30 (fourth, final check P3-1): the Seeds the writer ticked at
+    // some point (ticked now, or with a `deselect` event), as the product's
+    // acknowledgement reads them.
+    const everTicked = new Set<string>();
+    for (const role of PD_SUBSECTIONS) {
+      const selections = await ctx.db
+        .query("seedSelections")
+        .withIndex("by_generationId_and_roleId", (q) =>
+          q.eq("generationId", generation._id).eq("roleId", role.roleId),
+        )
+        .take(LIMITS.seedsPerRole + 1);
+      for (const row of bounded(`selections:${role.roleId}`, selections, LIMITS.seedsPerRole)) {
+        if (row.selected) everTicked.add(row.seedId);
+      }
+      const deselects = await ctx.db
+        .query("seedDecisionEvents")
+        .withIndex("by_generationId_and_roleId_and_kind_and_at", (q) =>
+          q.eq("generationId", generation._id).eq("roleId", role.roleId).eq("kind", "deselect"),
+        )
+        .order("desc")
+        .take(LIMITS.seedsPerRole + 1);
+      for (const event of bounded(`deselects:${role.roleId}`, deselects, LIMITS.seedsPerRole)) {
+        if (event.seedId) everTicked.add(event.seedId);
+      }
+    }
     for (const role of PD_SUBSECTIONS) {
       const roleBatches = await ctx.db
         .query("seedBatches")
@@ -392,6 +417,7 @@ export const collect = internalQuery({
         uncertaintySeedId: seed.uncertaintySeedId ?? null,
         experimentSeedIds: seed.experimentSeedIds ?? [],
         answeredUncertaintySeedIds: seed.answeredUncertaintySeedIds ?? [],
+        everTicked: everTicked.has(seed._id),
       })),
       feedback: feedback.map((request) => ({
         feedbackRequestId: request._id,

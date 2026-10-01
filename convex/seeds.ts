@@ -834,17 +834,22 @@ async function recordSeedApproval(
   // 2026-09-30 (fourth, review re-check): each kept pick whose words state a
   // dropped uncertainty's result records the acknowledgement on its
   // selection, as evidence. The selection's wording and revision are unchanged.
-  for (const result of challenge.droppedResults) {
-    const selection = selectedRows.find((s) => s.seedId === result.seedId);
-    if (!selection) continue;
-    await ctx.db.patch(selection._id, {
-      droppedResultAcknowledgement: {
-        acknowledgedAt: Date.now(),
-        acknowledgedBy: userId,
-        figures: result.figures,
-        uncertaintySeedIds: result.uncertaintySeedIds,
-      },
-    });
+  // Final check (P3-2): a pick this approval does not list loses an earlier
+  // acknowledgement, so the record always matches the last approval.
+  for (const selection of selectedRows) {
+    const result = challenge.droppedResults.find((candidate) => candidate.seedId === selection.seedId);
+    if (result) {
+      await ctx.db.patch(selection._id, {
+        droppedResultAcknowledgement: {
+          acknowledgedAt: Date.now(),
+          acknowledgedBy: userId,
+          figures: result.figures,
+          uncertaintySeedIds: result.uncertaintySeedIds,
+        },
+      });
+    } else if (selection.droppedResultAcknowledgement) {
+      await ctx.db.patch(selection._id, { droppedResultAcknowledgement: undefined });
+    }
   }
   const approveEventId = await appendSeedRoleEvent(
     ctx,

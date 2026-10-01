@@ -632,6 +632,26 @@ export class EvalCallError extends Error {
 }
 
 /** Parse `npx convex run` stderr into the ConvexError data it carries. */
+/**
+ * 2026-09-30 (fourth, final check P3-3): an approval the scripted writer was
+ * about to send while the step asks to acknowledge picks whose words state a
+ * dropped result. The scripted writer never acknowledges one; it is said
+ * plainly instead of failing as a changed challenge, retried.
+ */
+export class DroppedResultAcknowledgementNeeded extends Error {
+  readonly seedIds: string[];
+  constructor(role: string, seedIds: string[]) {
+    super(`${role}: approval asks to acknowledge ${seedIds.length} pick(s) whose words state a result of the dropped uncertainty; the scripted writer replaces them instead`);
+    this.name = "DroppedResultAcknowledgementNeeded";
+    this.seedIds = seedIds;
+  }
+}
+
+/** Throws DroppedResultAcknowledgementNeeded when the challenge asks for one. */
+export function assertNoAcknowledgementNeeded(role: string, challenge: { droppedResultSeedIds?: string[] }): void {
+  if (challenge.droppedResultSeedIds?.length) throw new DroppedResultAcknowledgementNeeded(role, challenge.droppedResultSeedIds);
+}
+
 export function parseConvexError(raw: string): EvalCallError {
   // eslint-disable-next-line no-control-regex
   const output = raw.replace(/\u001b\[[0-9;]*m/g, "");
@@ -1142,10 +1162,10 @@ export async function runFixture(
 
   /** Approve with the server's current challenge; a background completion
    * that moved the version or the challenge in between is retried. */
-  const approve = async (role: PdSubsectionRoleId, key?: string): Promise<void> => {
+  const approve = async (role: PdSubsectionRoleId, key?: string, options: { expectRefusal?: boolean } = {}): Promise<void> => {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await approveOnce(role, key);
+        return await approveOnce(role, key, options);
       } catch (error) {
         const retryable =
           error instanceof EvalCallError &&
@@ -1155,7 +1175,7 @@ export async function runFixture(
     }
   };
 
-  const approveOnce = async (role: PdSubsectionRoleId, key?: string): Promise<void> => {
+  const approveOnce = async (role: PdSubsectionRoleId, key?: string, options: { expectRefusal?: boolean } = {}): Promise<void> => {
     const { seedStageVersion } = await outline();
     const review = (await driver.query("seeds:getApprovalReview", {
       generationId,
@@ -1163,6 +1183,10 @@ export async function runFixture(
       expectedSeedStageVersion: seedStageVersion,
     })) as { approvalChallenge: Challenge; seedStageVersion: number };
     const challenge = review.approvalChallenge;
+    // An approval sent to see the server refuse it (a pick that answers the
+    // dropped uncertainty is refused before the challenge is compared) goes
+    // out as it is.
+    if (!options.expectRefusal) assertNoAcknowledgementNeeded(role, challenge);
     await act("seeds:approve", {
       generationId,
       roleId: role,
@@ -1322,7 +1346,7 @@ export async function runFixture(
     if (answering.length) {
       const key = `droppedResults:${role}`;
       try {
-        await approve(role, key);
+        await approve(role, key, { expectRefusal: true });
         log.refusals.push({ roleId: role, key, code: null, reason: "NOT_REFUSED" });
         say(`${role}: approval was NOT refused`);
         return;
@@ -1810,6 +1834,8 @@ export type Collected = {
     experimentSeedIds: string[];
     /** 2026-09-30 (fourth): absent in results read back before it existed. */
     answeredUncertaintySeedIds?: string[];
+    /** 2026-09-30 (fourth, final check): ticked at some point; absent in older results. */
+    everTicked?: boolean;
   }>;
   feedback: Array<{
     feedbackRequestId: string;
@@ -2807,43 +2833,51 @@ function resultLinkChecks(c: Collected, log: RunLog, planUncertainties: Readonly
  * 2026-09-30 (fourth, review P2-1): a link can be wrong, so the words are
  * read too. Fails when a signed-off Advancement to science or goal
  * improvements item states a figure of a dropped uncertainty's results, read
- * by the product's rule (droppedUncertaintyFigures in shared/planFigures.ts):
- * the figures of its frozen related Seeds (for results read back before
- * they were exported, the run's Seeds that recorded it), not of its own
- * wording, that no signed-off item of another step states. The two result
- * steps never vouch for each other.
+ * by the product's rule (droppedUncertaintyFigures in shared/planFigures.ts,
+ * as loadDroppedResultFigures reads it): the figures of the run's Seeds that
+ * recorded it and that the writer ticked at some point (final check P3-1;
+ * for results read back before that was exported, its frozen related Seeds),
+ * not of its own wording, that no signed-off item of an earlier step states.
+ * The two result steps never vouch for each other.
  */
 export function droppedFiguresCheck(c: Collected, log: RunLog): Check {
   const label = "No signed-off Advancement to science or goal improvements item states a figure only the dropped uncertainty's work gave";
   const items = c.summary?.items ?? [];
   const frozen = c.summary?.droppedUncertainties;
   const removed = log.removedUncertaintySeedId;
-  const dropped = frozen?.length
-    ? frozen.map((entry) => ({ seedId: entry.seedId, references: [...entry.experiments, ...entry.advancements] }))
-    : removed
-      ? [{
-          seedId: removed,
-          references: c.seeds
-            .filter((seed) => seed.uncertaintySeedId === removed || (seed.answeredUncertaintySeedIds ?? []).includes(removed))
-            .map((seed) => ({ wording: seed.bullets })),
-        }]
-      : [];
-  if (dropped.length === 0) return info("results-state-no-dropped-figures", label, "no uncertainty was dropped");
-  const planWording = items.filter((item) => !isResultRole(item.roleId)).map((item) => item.bullets);
-  const hits = dropped.flatMap((entry) => {
-    const own = new Set(droppedUncertaintyFigures({ wording: [], references: entry.references, planWording }));
-    return items
-      .filter((item) => isResultRole(item.roleId))
-      .flatMap((item) => {
-        const figures = figuresOf(item.bullets.join(" ")).filter((figure) => own.has(figure));
-        return figures.length ? [`${quote(item.bullets.join(" "), 60)} states ${figures.join(", ")}`] : [];
-      });
-  });
+  const droppedIds = frozen?.length ? frozen.map((entry) => entry.seedId) : removed ? [removed] : [];
+  if (droppedIds.length === 0) return info("results-state-no-dropped-figures", label, "no uncertainty was dropped");
+  const tickedKnown = c.seeds.length > 0 && c.seeds.every((seed) => seed.everTicked !== undefined);
+  const dropped = droppedIds.map((seedId) => ({
+    seedId,
+    references: tickedKnown || !frozen?.length
+      ? c.seeds
+          .filter((seed) => seed.uncertaintySeedId === seedId || (seed.answeredUncertaintySeedIds ?? []).includes(seedId))
+          .filter((seed) => !tickedKnown || seed.everTicked === true)
+          .map((seed) => ({ wording: seed.bullets }))
+      : (() => {
+          const entry = frozen.find((candidate) => candidate.seedId === seedId)!;
+          return [...entry.experiments, ...entry.advancements];
+        })(),
+  }));
+  const orderOf = (roleId: string) => roleDef(roleId)?.order ?? 0;
+  const hits = items
+    .filter((item) => isResultRole(item.roleId))
+    .flatMap((item) => {
+      // Only earlier steps vouch, as in the product (final check P2).
+      const planWording = items
+        .filter((other) => !isResultRole(other.roleId) && orderOf(other.roleId) < orderOf(item.roleId))
+        .map((other) => other.bullets);
+      const own = new Set(dropped.flatMap((entry) => droppedUncertaintyFigures({ wording: [], references: entry.references, planWording })));
+      const figures = figuresOf(item.bullets.join(" ")).filter((figure) => own.has(figure));
+      return figures.length ? [`${quote(item.bullets.join(" "), 60)} states ${figures.join(", ")}`] : [];
+    });
+  const source = tickedKnown ? "the run's Seeds the writer ticked" : frozen?.length ? "the frozen Summary" : "the run's Seeds";
   return check(
     "results-state-no-dropped-figures",
     label,
     hits.length === 0,
-    hits.length ? hits.join("; ") : `${dropped.length} dropped uncertainty(ies) read${frozen?.length ? " from the frozen Summary" : " from the run's Seeds"}; no item states one of their results' figures`,
+    hits.length ? hits.join("; ") : `${dropped.length} dropped uncertainty(ies) read from ${source}; no item states one of their results' figures`,
   );
 }
 
