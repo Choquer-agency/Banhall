@@ -110,6 +110,36 @@ describe("seedPlanEval reads", () => {
       truncated: false,
       addressedCategories: null,
     });
+    // A settings document applied from Writer's Notes is read back whole.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(generationId, {
+        writerSettings: {
+          profileState: "applied",
+          source: "writer_notes",
+          fileName: "pd-writing-customized-settings.md",
+          matchesProfile: false,
+          savedProfileSuperseded: true,
+          waiverAnalysis: "analyzed",
+          truncated: false,
+          addressedCategories: ["bannedWords", "openingClauses"],
+        },
+      });
+    });
+    expect((await t.query(collect, { generationId })).generation.writerSettings).toEqual({
+      profileState: "applied",
+      source: "writer_notes",
+      fileName: "pd-writing-customized-settings.md",
+      matchesProfile: false,
+      savedProfileSuperseded: true,
+      waiverAnalysis: "analyzed",
+      truncated: false,
+      addressedCategories: ["bannedWords", "openingClauses"],
+    });
+    // A generation that recorded no writer settings reads back null.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(generationId, { writerSettings: undefined });
+    });
+    expect((await t.query(collect, { generationId })).generation.writerSettings).toBeNull();
     expect(collected.subsections).toHaveLength(13);
     expect(collected.summary).toBeNull();
     expect(collected.report).toBeNull();

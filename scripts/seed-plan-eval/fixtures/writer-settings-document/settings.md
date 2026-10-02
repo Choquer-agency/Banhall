@@ -7,7 +7,7 @@ Velloway Panel Finishing Ltd., low-temperature powder coating of MDF panels, fis
 Use these exact terms for the project's named variables. Never use the alternatives listed after each one, even where the client uses them.
 
 - film build: the cured coating thickness, in microns. Never write DFT, dry film thickness, film thickness or coating thickness.
-- panel surface temperature: the measured temperature at the MDF surface, in degrees C. Never write substrate temperature, board temperature or part temperature.
+- panel surface temperature: the measured temperature at the MDF surface, in degrees C. Never write substrate temperature, substrate temp, board temperature or part temperature.
 - cure window: the range of panel surface temperature that gives full cure with no outgassing defects. Never write bake window or oven window.
 - edge coverage: the film build on the routed edges. Never write edge wrap or edge build.
 - outgassing defects: the pinholes and blisters left when gas leaves the MDF during cure. Never write pinholes, pinholing, blisters or blistering on their own. Call them outgassing defects.
@@ -33,9 +33,9 @@ Never use these words or phrases, in any form:
 
 These are below the CRA limits on purpose, to leave room for client edits.
 
-- Line 242: no more than 300 words.
-- Line 244: no more than 600 words.
-- Line 246: no more than 300 words.
+- Line 242: no more than 260 words.
+- Line 244: no more than 520 words.
+- Line 246: no more than 260 words.
 
 ## 5. Claim exclusion list
 

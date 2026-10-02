@@ -55,6 +55,8 @@ import {
   settingsBrokenText,
   settingsComplianceRows,
   settingsRuleResults,
+  settingsTermPattern,
+  OPENERS_ENFORCED_NOTE,
   type Collected,
   type EvalDriver,
   type Fixture,
@@ -1622,7 +1624,7 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
       "It was not known at the outset whether a film build of 60 microns on the edges could be reached while the panel surface temperature stayed below the outgassing onset. The width of the cure window was also unknown.",
     ].join("\n\n"),
     s244: "The team tested an edge sealer and a fast-catalysed powder. Edge coverage reached 64 microns on shaker edges.",
-    s246: "The company learned that outgassing defects start near 120 C on this board. The US customers were not part of the work.",
+    s246: "The company learned that outgassing defects start near 120 C on this board. Outgassing defects (pinholes and blisters) fell to 0.6 per square metre. The US customers were not part of the work.",
   });
 
   /** A draft that breaks at least one rule of every kind. */
@@ -1661,14 +1663,14 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
     expect(untitled).toContain("params.settingsTitle must be the settings document's first line");
 
     // Word caps: below the CRA cap, and stated so the product's extraction reads them.
-    expect(validateFixture(withParams({ wordCaps: { "242": 280, "244": 600, "246": 300 } }))).toContain(
+    expect(validateFixture(withParams({ wordCaps: { "242": 280, "244": 520, "246": 260 } }))).toContain(
       "the settings document must state the Line 242 cap of 280 words so the product's rule extraction reads it",
     );
-    expect(validateFixture(withParams({ wordCaps: { "242": 350, "244": 600, "246": 300 } }))).toContain(
+    expect(validateFixture(withParams({ wordCaps: { "242": 350, "244": 520, "246": 260 } }))).toContain(
       "params.wordCaps.242 must be a whole number below the CRA cap of 350 words",
     );
-    expect(validateFixture(withSettings(settings.replace("- Line 244: no more than 600 words.", "- Line 244: keep it short.")))).toContain(
-      "the settings document must state the Line 244 cap of 600 words so the product's rule extraction reads it",
+    expect(validateFixture(withSettings(settings.replace("- Line 244: no more than 520 words.", "- Line 244: keep it short.")))).toContain(
+      "the settings document must state the Line 244 cap of 520 words so the product's rule extraction reads it",
     );
 
     // Required terms: stated, with a synonym the interview or notes use, never overlapping a term.
@@ -1676,7 +1678,7 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
     expect(validateFixture(withParams({ requiredTerms: [...terms.slice(0, 4), { term: "gel time", synonyms: ["gelation time"] }] }))).toEqual(
       expect.arrayContaining([
         'the settings document must state the required term "gel time"',
-        'the settings document must name a synonym of "gel time"',
+        'the settings document must name the synonym "gelation time" of "gel time"',
         'the interview or notes must use a synonym of "gel time", so the rule is tempting to break',
       ]),
     );
@@ -1684,6 +1686,13 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
       'the synonym "film" must not overlap the required term "film build"',
     );
     expect(validateFixture(withParams({ requiredTerms: terms.slice(0, 3) }))).toContain("params.requiredTerms must hold 4 to 6 terms");
+    // Review P3-3: every scored synonym is one the settings document names.
+    expect(validateFixture(withParams({ requiredTerms: [terms[0]!, { ...terms[1]!, synonyms: [...terms[1]!.synonyms, "panel temp"] }, ...terms.slice(2)] }))).toContain(
+      'the settings document must name the synonym "panel temp" of "panel surface temperature"',
+    );
+    expect(validateFixture(withSettings(settings.replace("substrate temperature, substrate temp, board", "substrate temperature, board")))).toContain(
+      'the settings document must name the synonym "substrate temp" of "panel surface temperature"',
+    );
 
     // Banned phrases, openings, exclusions and the style rule.
     expect(validateFixture(withParams({ bannedPhrases: [...params().bannedPhrases, { phrase: "synergistic" }] }))).toEqual(
@@ -1766,7 +1775,7 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
     expect(checks.find((item) => item.id === "settings-openings")?.evidence).toBe(
       '242: opening "The aim of this work was to" (objective) kept, opens P2; opening "It was not known at the outset whether" (uncertainty) kept, opens P3',
     );
-    expect(checks.find((item) => item.id === "settings-word-caps")?.evidence).toMatch(/^242: word cap Line 242 kept, \d+ of 300 words\. 244: word cap Line 244 kept, \d+ of 600 words\. 246: word cap Line 246 kept, \d+ of 300 words$/);
+    expect(checks.find((item) => item.id === "settings-word-caps")?.evidence).toMatch(/^242: word cap Line 242 kept, \d+ of 260 words\. 244: word cap Line 244 kept, \d+ of 520 words\. 246: word cap Line 246 kept, \d+ of 260 words$/);
   });
 
   it("counts every broken rule per Line and overall, with where it broke", () => {
@@ -1779,10 +1788,10 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
     expect(byId.get('term "edge coverage"')?.lines["244"]?.broken).toBe(true);
     expect(byId.get('term "outgassing defects"')?.lines["246"]?.evidence).toContain('"blistering" in P1');
     expect(byId.get('banned "optimize"')?.lines["242"]?.broken).toBe(true);
-    expect(byId.get('banned "trial and error"')?.lines["246"]?.evidence).toContain('"trial-and-error" in P1');
-    expect(byId.get('banned "industry-leading"')?.lines["246"]?.evidence).toContain('"industry leading" in P1');
+    expect(byId.get('banned "trial and error"')?.lines["246"]?.evidence).toContain('"trial and error" in P1 ("Our team saw blistering; it was trial-and-error');
+    expect(byId.get('banned "industry-leading"')?.lines["246"]?.evidence).toContain('"industry-leading" in P1 (');
     expect(byId.get('opening "The aim of this work was to" (objective)')?.lines).toEqual({ "242": { broken: true, evidence: "no sentence opens with these words" } });
-    expect(byId.get("word cap Line 244")?.lines["244"]).toEqual({ broken: true, evidence: "607 of 600 words" });
+    expect(byId.get("word cap Line 244")?.lines["244"]).toEqual({ broken: true, evidence: "607 of 520 words" });
     expect(byId.get("word cap Line 242")?.broken).toBe(false);
     expect(byId.get('exclusion "the powder booth extraction upgrade"')?.lines["246"]?.broken).toBe(true);
     expect(byId.get('exclusion "colour matching of the customer\'s catalogue shades"')?.lines["242"]?.evidence).toContain('"colour matching" in P3');
@@ -1794,7 +1803,10 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
       ["246", 5, 16],
       ["overall", 18, 20],
     ]);
-    expect(settingsBrokenText(results, { ids: false })).toBe("Line 242: 12 of 18; Line 244: 3 of 16; Line 246: 5 of 16; overall: 18 of 20");
+    // Review P3-2: the heuristic's share is named.
+    expect(settingsBrokenText(results, { ids: false })).toBe(
+      "Line 242: 12 of 18 (1 from the heuristic); Line 244: 3 of 16; Line 246: 5 of 16 (1 from the heuristic); overall: 18 of 20 (2 from the heuristic)",
+    );
     expect(settingsBrokenText(results)).toContain('Line 244: 3 of 16 (term "edge coverage", banned "successfully", word cap Line 244)');
 
     const checks = runChecks(fixture(), collectedWith(broken()), emptyRunLog(fixture().id, 0));
@@ -1802,7 +1814,7 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
       expect({ id, status: status(checks, id) }).toEqual({ id, status: "fail" });
     }
     expect(checks.find((item) => item.id === "settings-exclusions")?.label).toMatch(/^Heuristic: /);
-    expect(checks.find((item) => item.id === "settings-rules-broken")?.evidence).toMatch(/^settings rules broken: Line 242: 12 of 18 \(/);
+    expect(checks.find((item) => item.id === "settings-rules-broken")?.evidence).toMatch(/^settings rules broken: Line 242: 12 of 18 \(1 from the heuristic; term "film build", /);
     expect(checks.find((item) => item.id === "settings-style")?.evidence).toContain('242: style: no first person broken, "we" in P1');
   });
 
@@ -1836,21 +1848,26 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
     expect(phraseHits("substrate temperature", ["substrate temp"])).toEqual([]);
   });
 
-  it("says whether the product applied the settings document, from the generation's writer settings", () => {
+  it("says whether the product applied the settings document, from the generation's writer settings, with the House Rule outcomes", () => {
+    const note = (section: string, instruction: string, outcome: string, tier: string, reason: string) => ({
+      section,
+      paragraphIndex: null,
+      source: "deterministic",
+      instruction,
+      outcome,
+      tier,
+      reason,
+      repaired: false,
+      planRef: null,
+    });
     const applied = (writerSettings: Collected["generation"]["writerSettings"]) => {
       const c = collectedWith(clean());
       c.generation = { ...c.generation, writerSettings };
-      c.complianceNotes = ["242", "244", "246"].map((section) => ({
-        section,
-        paragraphIndex: null,
-        source: "deterministic",
-        instruction: "Writer Profile",
-        outcome: "applied",
-        tier: "none",
-        reason: "Writer Profile applied",
-        repaired: false,
-        planRef: null,
-      }));
+      c.complianceNotes = ["242", "244", "246"].flatMap((section) => [
+        note(section, "Writer Profile", "applied", "none", "Writer Profile applied"),
+        note(section, "House Rule category: opening clauses", "not_applied", "org_enforced", "House Rule waived for everyone (org mode off)"),
+        note(section, "House Rule category: repetition caps", "applied", "none", "House Rule applied (no Writer Profile waiver)"),
+      ]);
       return runChecks(fixture(), c, emptyRunLog(fixture().id, 0)).find((item) => item.id === "settings-document-applied")!;
     };
     const fromNotes = {
@@ -1866,16 +1883,113 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
     expect(applied(fromNotes)).toMatchObject({
       status: "pass",
       evidence:
-        'source writer_notes (pd-writing-customized-settings.md), profile applied, waiver analysis analyzed, House Rule categories it addresses: bannedWords, openingClauses; Writer Profile rows: 242 applied ("Writer Profile applied"), 244 applied ("Writer Profile applied"), 246 applied ("Writer Profile applied")',
+        'source writer_notes (pd-writing-customized-settings.md), profile applied, waiver analysis analyzed, House Rule categories it addresses: bannedWords, openingClauses; Writer Profile rows: 242 applied ("Writer Profile applied"), 244 applied ("Writer Profile applied"), 246 applied ("Writer Profile applied"); ' +
+        'House Rule outcomes: opening clauses not_applied, org_enforced ("House Rule waived for everyone (org mode off)") in 242, 244, 246; repetition caps applied, none ("House Rule applied (no Writer Profile waiver)") in 242, 244, 246',
+    });
+    // Review P3-7: the saved Writer Profile counts when it equals the document.
+    expect(applied({ ...fromNotes, source: "profile", fileName: null, matchesProfile: true })).toMatchObject({
+      status: "pass",
+      evidence: expect.stringContaining("source profile, profile applied"),
     });
     expect(applied({ ...fromNotes, source: "profile", fileName: null }).status).toBe("fail");
     expect(applied({ ...fromNotes, source: "attachment" }).status).toBe("fail");
+    expect(applied({ ...fromNotes, fileName: "other-settings.md" }).status).toBe("fail");
     expect(applied({ ...fromNotes, profileState: "missing" }).status).toBe("fail");
     expect(applied(null)).toMatchObject({ status: "fail", evidence: expect.stringMatching(/^no writer settings recorded; /) });
-    // Results read back before the field existed fall back to the Writer Profile rows.
-    expect(applied(undefined)).toMatchObject({ status: "pass", evidence: expect.stringMatching(/^writer settings not read back/) });
+    // Review P3-7: results read back before the field existed are information, from the Writer Profile rows.
+    expect(applied(undefined)).toMatchObject({ status: "info", evidence: expect.stringMatching(/^writer settings not read back .*246 applied/) });
     const noRows = collectedWith(clean());
-    expect(runChecks(fixture(), noRows, emptyRunLog(fixture().id, 0)).find((item) => item.id === "settings-document-applied")?.status).toBe("fail");
+    expect(runChecks(fixture(), noRows, emptyRunLog(fixture().id, 0)).find((item) => item.id === "settings-document-applied")).toMatchObject({
+      status: "info",
+      evidence: expect.stringContaining("Writer Profile rows: 242 no row, 244 no row, 246 no row; House Rule outcomes: opening clauses no row; repetition caps no row"),
+    });
+  });
+
+  it("matches terms, synonyms and banned phrases with a plural or a hyphen, both ways (review P2-1)", () => {
+    const matches = (phrase: string, text: string) => settingsTermPattern(phrase).test(text);
+    expect(matches("DFT", "the DFTs were low")).toBe(true);
+    expect(matches("substrate temperature", "substrate temperatures rose")).toBe(true);
+    expect(matches("edge wrap", "poor edge-wrap on the cove")).toBe(true);
+    expect(matches("dry film thickness", "a dry-film thickness of 60 microns")).toBe(true);
+    expect(matches("outgassing defects", "the outgassing defect rate fell")).toBe(true);
+    expect(matches("pinholes", "one pinhole")).toBe(true);
+    expect(matches("bake window", "two bake windows")).toBe(true);
+    expect(matches("industry-leading", "an industry leading finish")).toBe(true);
+    expect(matches("film thickness", "film thicknesses")).toBe(true);
+    // Not a match: another word, a longer word, or a word inside a longer one.
+    expect(matches("substrate temp", "substrate temperature")).toBe(false);
+    expect(matches("edge wrap", "edge wrapped")).toBe(false);
+    expect(matches("DFT", "a DFTX gauge")).toBe(false);
+    expect(matches("breakthrough", "no break-through to the board")).toBe(false);
+    expect(matches("gas", "ga")).toBe(false);
+
+    const sections = clean();
+    sections.s244 = "Edge coverage reached 64 microns. The DFTs on the faces were 78 microns, and edge-wrap held on shaker edges.";
+    const results = settingsRuleResults(params(), sections);
+    const line244 = (id: string) => results.find((result) => result.id === id)?.lines["244"];
+    expect(line244('term "film build"')).toMatchObject({ broken: true, evidence: expect.stringContaining('"DFT" in P1') });
+    expect(line244('term "edge coverage"')).toMatchObject({ broken: true, evidence: expect.stringContaining('"edge wrap" in P1') });
+    // A term used in another form is still used: no false "never used".
+    const defectRate = clean();
+    defectRate.s242 = defectRate.s242.replace("no outgassing defects", "a low outgassing defect rate");
+    defectRate.s246 = "The company learned where the onset sits on this board.";
+    expect(settingsRuleResults(params(), defectRate).find((result) => result.id === 'term "outgassing defects"')).toMatchObject({ broken: false, note: null });
+  });
+
+  it("allows a synonym beside its term where the settings document does, and only there (review P2-2)", () => {
+    const outgassing = (s246: string) =>
+      settingsRuleResults(params(), { ...clean(), s246 }).find((result) => result.id === 'term "outgassing defects"')!.lines["246"]!;
+    expect(outgassing("Outgassing defects (pinholes and blisters) fell to 0.6 per square metre.")).toEqual({ broken: false, evidence: "term used" });
+    expect(outgassing("The pilot met its target. Pinholes fell to 0.6 per square metre.").broken).toBe(true);
+    expect(outgassing("Outgassing defects fell. Blistering stopped at 113 C.").evidence).toContain('"blistering" in P1');
+    // "film build" carries no such allowance.
+    const film = settingsRuleResults(params(), { ...clean(), s244: "The film build (DFT) was 64 microns on the edges." })
+      .find((result) => result.id === 'term "film build"')!.lines["244"]!;
+    expect(film.broken).toBe(true);
+    expect(params().requiredTerms.filter((entry) => entry.allowedWithTerm).map((entry) => entry.term)).toEqual(["outgassing defects"]);
+  });
+
+  it("finds an opening after a curly quote, a [GAP: ...] marker or a single line break (review P3-1)", () => {
+    const opening = "The aim of this work was to";
+    expect(openingAt("The team asked \u201cwhy.\u201d The aim of this work was to cure it.", opening)).toEqual({ paragraph: 1, opensParagraph: false });
+    expect(openingAt("The board is 25 mm.\u2019 The aim of this work was to cure it.", opening)).toEqual({ paragraph: 1, opensParagraph: false });
+    expect(openingAt("[GAP: company size] The aim of this work was to cure it.", opening)).toEqual({ paragraph: 1, opensParagraph: false });
+    expect(openingAt("Context first\nThe aim of this work was to cure it.", opening)).toEqual({ paragraph: 1, opensParagraph: false });
+    expect(openingAt("Its aim, as the team put it, The aim of this work was to cure it.", opening)).toBeNull();
+  });
+
+  it("does not count a required opening where the org enforces the House Rule openers (review P3-6)", () => {
+    const c = collectedWith(clean());
+    c.report!.sections.s242 = c.report!.sections.s242.replace("The aim of this work was to", "The technological objective was to");
+    const opener = (outcome: string, reason: string) =>
+      ["242", "244", "246"].map((section) => ({
+        section,
+        paragraphIndex: null,
+        source: "deterministic",
+        instruction: "House Rule category: opening clauses",
+        outcome,
+        tier: "org_enforced",
+        reason,
+        repaired: false,
+        planRef: null,
+      }));
+    // Org mode off: the writer's openings apply and the missing one breaks.
+    c.complianceNotes = opener("not_applied", "House Rule waived for everyone (org mode off)");
+    let checks = runChecks(fixture(), c, emptyRunLog(fixture().id, 0));
+    expect(status(checks, "settings-openings")).toBe("fail");
+    expect(checks.find((item) => item.id === "settings-rules-broken")?.evidence).toContain("Line 242: 1 of 18");
+    // Org-enforced openers: both openings are not applicable and not counted.
+    c.complianceNotes = opener("applied", "House Rule applied: org-enforced (writer waivers are ignored)");
+    checks = runChecks(fixture(), c, emptyRunLog(fixture().id, 0));
+    expect(status(checks, "settings-openings")).toBe("pass");
+    expect(checks.find((item) => item.id === "settings-openings")?.evidence).toBe(
+      `opening "The aim of this work was to" (objective) ${OPENERS_ENFORCED_NOTE}. opening "It was not known at the outset whether" (uncertainty) ${OPENERS_ENFORCED_NOTE}`,
+    );
+    expect(checks.find((item) => item.id === "settings-rules-broken")?.evidence).toBe(
+      "settings rules broken: Line 242: 0 of 16; Line 244: 0 of 16; Line 246: 0 of 16; overall: 0 of 18",
+    );
+    const table = renderFixturePack({ fixture: fixture(), log: emptyRunLog(fixture().id, 0), collected: c, checks }, context);
+    expect(table).toContain(`| opening "The aim of this work was to" (objective) (${OPENERS_ENFORCED_NOTE}) | not applicable | not applicable | not applicable |`);
   });
 
   it("lists the Compliance Note rows that mention the settings document or the Writer Profile, per Line", () => {
@@ -1896,14 +2010,14 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
       row("242", "House Rule category: banned words", "applied", "none", "House Rule applied (no Writer Profile waiver)"),
       row("242", "House Rule category: paragraph density", "applied", "none", "House Rule applied (no Writer Profile waiver)"),
       row("242", "House Rule category: opening clauses", "not_applied", "org_enforced", "House Rule waived for everyone (org mode off)"),
-      row("242", "Line 242: no more than 300 words.", "applied", "none", "287/300 words"),
+      row("242", "Line 242: no more than 260 words.", "applied", "none", "247/260 words"),
       row("242", "Locked Rule: Line 242 holds at most 350 words and 50 form lines", "applied", "locked", "within cap at 287/350 words, 30/50 lines"),
       { ...row("242", "# PD Writing Customized Settings\n\nVelloway Panel Finishing Ltd.", "not_applied", "none", "P1 says DFT."), source: "model" },
       row("244", "Writer Profile waiver: opening clauses", "not_applied", "org_enforced", "org-enforced: this House Rule applies regardless of the Writer Profile"),
     ];
     const evidence = settingsComplianceRows(c, params());
     expect(evidence).toBe(
-      '242: "Writer Profile" applied: "Writer Profile applied", "Line 242: no more than 300 words." applied: "287/300 words", "# PD Writing Customized Settings Velloway Panel Finishing Ltd." not_applied: "P1 says DFT.", 2 House Rule categories applied with no Writer Profile waiver; ' +
+      '242: "Writer Profile" applied: "Writer Profile applied", "Line 242: no more than 260 words." applied: "247/260 words", "# PD Writing Customized Settings Velloway Panel Finishing Ltd." not_applied: "P1 says DFT.", 2 House Rule categories applied with no Writer Profile waiver; ' +
         '244: "Writer Profile waiver: opening clauses" not_applied (org_enforced): "org-enforced: this House Rule applies regardless of the Writer Profile"; 246: no row',
     );
     expect(evidence).not.toContain("Locked Rule");
@@ -1929,12 +2043,14 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
     const text = renderFixturePack({ fixture: fixture(), log, collected: c, checks }, context);
     expect(text).toContain('Semantic case: **Writer settings document** (owner decision 2026-10-02, alert 7: "a writer\'s settings document in Writer\'s Notes is followed")');
     expect(text).toContain("## Settings document rules, per Line");
-    expect(text).toContain("Settings rules broken: Line 242: 12 of 18; Line 244: 3 of 16; Line 246: 5 of 16; overall: 18 of 20.");
-    expect(text).toContain('| word cap Line 244 | not applicable | broken: 607 of 600 words | not applicable |');
+    expect(text).toContain(
+      "Settings rules broken: Line 242: 12 of 18 (1 from the heuristic); Line 244: 3 of 16; Line 246: 5 of 16 (1 from the heuristic); overall: 18 of 20 (2 from the heuristic).",
+    );
+    expect(text).toContain('| word cap Line 244 | not applicable | broken: 607 of 520 words | not applicable |');
     for (const question of fixture().judgmentQuestions) expect(text).toContain(question);
     for (const note of fixture().notes ?? []) expect(text).toContain(`- ${note}`);
     expect(DASHES.test(text)).toBe(false);
-    expect(renderSettingsRules(params(), broken())).toHaveLength(6 + 20 + 1);
+    expect(renderSettingsRules(settingsRuleResults(params(), broken()))).toHaveLength(6 + 20 + 1);
     // Earlier fixtures keep CAP-13 as their basis and get no settings table.
     const other = byCase("skipped_role_supported");
     const otherText = renderFixturePack({ fixture: other, log: emptyRunLog(other.id, 0), collected: c, checks: [] }, context);
@@ -1942,7 +2058,9 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
     expect(otherText).not.toContain("## Settings document rules");
 
     const summary = renderSummary([{ fixture: fixture(), log, collected: c, checks }, { fixture: other, log, collected: null, checks: [] }], context);
-    expect(summary).toContain("Settings rules broken (writer-settings-document): Line 242: 12 of 18; Line 244: 3 of 16; Line 246: 5 of 16; overall: 18 of 20.");
+    expect(summary).toContain(
+      "Settings rules broken (writer-settings-document): Line 242: 12 of 18 (1 from the heuristic); Line 244: 3 of 16; Line 246: 5 of 16 (1 from the heuristic); overall: 18 of 20 (2 from the heuristic).",
+    );
     expect(renderSummary([{ fixture: fixture(), log, collected: null, checks: [] }], context)).toContain("Settings rules broken (writer-settings-document): no report.");
     expect(DASHES.test(summary)).toBe(false);
   });

@@ -128,8 +128,12 @@ export type SettingsParams = {
   settingsFile: string;
   /** Its first line, without the heading mark. */
   settingsTitle: string;
-  /** Required terms for named variables, each with the synonyms it bans. */
-  requiredTerms: Array<{ term: string; synonyms: string[] }>;
+  /**
+   * Required terms for named variables, each with the synonyms it bans.
+   * `allowedWithTerm`: a synonym in a sentence that also uses the term is
+   * not a break (the document allows it beside the term).
+   */
+  requiredTerms: Array<{ term: string; synonyms: string[]; allowedWithTerm?: boolean }>;
   /** Banned words and phrases; `forms` are other spellings and inflections. */
   bannedPhrases: Array<{ phrase: string; forms?: string[] }>;
   /** Exact words a statement must open with, in its Line. */
@@ -320,9 +324,9 @@ export function validateFixture(fixture: Fixture): string[] {
 /** Lowercase with every run of whitespace as one space. */
 const plain = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
 
-/** Whole word or phrase, any case, any run of whitespace inside (the banned-word matcher). */
+/** The phrase in the text by the settings matcher (settingsTermPattern, review P2-1). */
 function found(text: string, phrase: string): boolean {
-  return phrase.trim().length > 0 && bannedTermPattern(phrase.trim()).test(text);
+  return phrase.trim().length > 0 && settingsTermPattern(phrase).test(text);
 }
 
 /**
@@ -363,7 +367,10 @@ function settingsParamsProblems(fixture: Fixture, params: SettingsParams): strin
     need(found(settings, term ?? ""), `the settings document must state the required term "${term}"`);
     need(Array.isArray(synonyms) && synonyms.length > 0, `"${term}" needs at least one synonym`);
     const list = Array.isArray(synonyms) ? synonyms : [];
-    need(list.some((synonym) => found(settings, synonym)), `the settings document must name a synonym of "${term}"`);
+    // Review P3-3: every scored synonym is one the document names.
+    for (const synonym of list) {
+      need(found(settings, synonym), `the settings document must name the synonym "${synonym}" of "${term}"`);
+    }
     need(
       list.some((synonym) => found(others, synonym)),
       `the interview or notes must use a synonym of "${term}", so the rule is tempting to break`,
@@ -375,6 +382,13 @@ function settingsParamsProblems(fixture: Fixture, params: SettingsParams): strin
         }
       }
     }
+  }
+
+  for (const entry of terms) {
+    need(
+      entry.allowedWithTerm === undefined || typeof entry.allowedWithTerm === "boolean",
+      `params.requiredTerms "${entry.term}": allowedWithTerm must be true or false`,
+    );
   }
 
   const banned = Array.isArray(params.bannedPhrases) ? params.bannedPhrases : [];
@@ -391,7 +405,10 @@ function settingsParamsProblems(fixture: Fixture, params: SettingsParams): strin
   need(openings.length > 0, "params.requiredOpenings needs at least one opening");
   for (const entry of openings) {
     need(SETTINGS_LINES.includes(entry.section), `the opening for "${entry.statement}" must name Line 242, 244 or 246`);
-    need(found(settings, entry.opening ?? ""), `the settings document must state the opening "${entry.opening}"`);
+    need(
+      (entry.opening ?? "").trim() && bannedTermPattern(entry.opening.trim()).test(settings),
+      `the settings document must state the opening "${entry.opening}"`,
+    );
   }
 
   const extracted = extractSettingsRules(settings).selfCheckRules;
@@ -3146,6 +3163,23 @@ function planLinkChecks(c: Collected, log: RunLog, planUncertainties: ReadonlySe
 export const SETTINGS_LINES: readonly SettingsLine[] = ["242", "244", "246"];
 const lineKey = (line: SettingsLine) => `s${line}` as const;
 
+/**
+ * Review P2-1: the one matcher for the settings rules' terms, synonyms,
+ * banned phrases and exclusion markers. Whole words in any case; a space,
+ * a run of whitespace or a hyphen between words; the last word singular or
+ * with s or es. So "DFTs", "substrate temperatures", "edge-wrap" and
+ * "dry-film thickness" count, and "outgassing defect rate" uses
+ * "outgassing defects". A word ending in ss, us or is keeps its s.
+ */
+export function settingsTermPattern(phrase: string): RegExp {
+  const words = phrase.trim().split(/[\s-]+/).filter(Boolean);
+  if (words.length === 0) return /(?!)/g;
+  const escape = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const last = words[words.length - 1]!;
+  const stem = last.length > 3 && /[^sui]s$/i.test(last) ? last.slice(0, -1) : last;
+  return new RegExp(`\\b${[...words.slice(0, -1).map(escape), `${escape(stem)}(?:s|es)?`].join("[\\s-]+")}\\b`, "gi");
+}
+
 /** Every surface form a banned entry matches: the phrase and its listed forms. */
 export function bannedForms(entry: { phrase: string; forms?: string[] }): string[] {
   return [entry.phrase, ...(entry.forms ?? [])].map((form) => (form ?? "").trim()).filter(Boolean);
@@ -3156,13 +3190,33 @@ export type SettingsHit = { phrase: string; paragraph: number; excerpt: string }
 
 const paragraphsOf = (text: string) => text.split(/\n\s*\n/).map((paragraph) => paragraph.trim()).filter(Boolean);
 
+/** A sentence end: . ! or ?, any closing quotes or brackets (curly ones too), then whitespace. */
+const SENTENCE_END = /[.!?]["'’”)\]]*\s+/g;
+
+/** The sentence of a paragraph that holds the span starting at `at`. */
+function sentenceAround(paragraph: string, at: number, length: number): string {
+  let start = 0;
+  for (const match of paragraph.slice(0, at).matchAll(SENTENCE_END)) start = (match.index ?? 0) + match[0].length;
+  const after = paragraph.slice(at + length);
+  const end = [...after.matchAll(SENTENCE_END)][0];
+  return paragraph.slice(start, end ? at + length + (end.index ?? 0) + 1 : paragraph.length);
+}
+
+type HitPattern = {
+  label?: string;
+  pattern: RegExp;
+  /** Review P2-2: false skips a match, given the sentence it sits in. */
+  counts?: (sentence: string) => boolean;
+};
+
 /** Every match of the patterns, per paragraph; a pattern with no label reports the words it matched. */
-function hitsOf(text: string, patterns: ReadonlyArray<{ label?: string; pattern: RegExp }>): SettingsHit[] {
+function hitsOf(text: string, patterns: readonly HitPattern[]): SettingsHit[] {
   const hits: SettingsHit[] = [];
   paragraphsOf(text).forEach((paragraph, index) => {
-    for (const { label, pattern } of patterns) {
+    for (const { label, pattern, counts } of patterns) {
       for (const match of paragraph.matchAll(pattern)) {
         const at = match.index ?? 0;
+        if (counts && !counts(sentenceAround(paragraph, at, match[0].length))) continue;
         hits.push({
           phrase: label ?? match[0].toLowerCase(),
           paragraph: index + 1,
@@ -3174,9 +3228,23 @@ function hitsOf(text: string, patterns: ReadonlyArray<{ label?: string; pattern:
   return hits;
 }
 
-/** Whole-word, any-case hits of each phrase (the banned-word matcher). */
-export function phraseHits(text: string, phrases: readonly string[]): SettingsHit[] {
-  return hitsOf(text, phrases.filter((phrase) => phrase.trim()).map((phrase) => ({ label: phrase, pattern: bannedTermPattern(phrase.trim()) })));
+/**
+ * Hits of each phrase (the settings matcher). With `unlessWith`, a match in
+ * a sentence that also holds that term does not count (review P2-2: the
+ * settings document allows "pinholes" beside "outgassing defects").
+ */
+export function phraseHits(text: string, phrases: readonly string[], options: { unlessWith?: string } = {}): SettingsHit[] {
+  const unlessWith = options.unlessWith?.trim();
+  return hitsOf(
+    text,
+    phrases
+      .filter((phrase) => phrase.trim())
+      .map((phrase) => ({
+        label: phrase,
+        pattern: settingsTermPattern(phrase),
+        ...(unlessWith ? { counts: (sentence: string) => !found(sentence, unlessWith) } : {}),
+      })),
+  );
 }
 
 /**
@@ -3198,11 +3266,18 @@ function describeHits(hits: readonly SettingsHit[]): string {
 
 /**
  * Where the opening words start a sentence of the text: the paragraph (from
- * 1) and whether they open it. Null when no sentence starts with them.
+ * 1) and whether they open it. Null when no sentence starts with them. A
+ * sentence starts a paragraph, follows a line break, follows . ! or ? (and
+ * any closing quotes or brackets, curly ones too) and whitespace, or
+ * follows a closing bracket and whitespace, as after a [GAP: ...] marker
+ * (review P3-1). The words themselves are matched exactly, any case.
  */
 export function openingAt(text: string, opening: string): { paragraph: number; opensParagraph: boolean } | null {
   if (!opening.trim()) return null;
-  const pattern = new RegExp(`(?:^|[.!?]["')\\]]*\\s+)${bannedTermPattern(opening.trim()).source}`, "i");
+  const pattern = new RegExp(
+    `(?:^|\\n\\s*|[.!?]["'\\u2019\\u201d)\\]]*\\s+|\\]\\s+)${bannedTermPattern(opening.trim()).source}`,
+    "i",
+  );
   const paragraphs = paragraphsOf(text);
   for (let index = 0; index < paragraphs.length; index += 1) {
     const match = pattern.exec(paragraphs[index]!);
@@ -3222,31 +3297,43 @@ export type SettingsRuleResult = {
   broken: boolean;
   /** A report-wide break no single Line shows ("never used in any Line"). */
   note: string | null;
+  /** Why the rule is not counted in this run (review P3-6), or null. */
+  notApplicable: string | null;
 };
+
+export type SettingsRuleOptions = {
+  /** Lines whose House Rule openers the org enforces, so a settings opening there cannot apply. */
+  orgEnforcedOpenerLines?: readonly SettingsLine[];
+};
+
+/** Review P3-6: why an opening is not counted when the org enforces the House Rule openers. */
+export const OPENERS_ENFORCED_NOTE = "not applicable: the org enforces the House Rule opening clauses";
 
 /**
  * Every explicit rule of the settings document, judged on the drafted
- * Lines. Deterministic: whole-word matching, sentence starts and the
+ * Lines. Deterministic: the settings matcher, sentence starts and the
  * product's own word count. A required term breaks in a Line that uses one
- * of its synonyms, and report-wide also when no Line uses it; an opening
- * and a word cap apply to their own Line only; the exclusions are a
- * heuristic (any marker counts as a mention).
+ * of its synonyms (with `allowedWithTerm`, not in a sentence that also uses
+ * the term), and report-wide also when no Line uses it; an opening and a
+ * word cap apply to their own Line only; the exclusions are a heuristic
+ * (any marker counts as a mention).
  */
 export function settingsRuleResults(
   params: SettingsParams,
   sections: { s242: string; s244: string; s246: string },
+  options: SettingsRuleOptions = {},
 ): SettingsRuleResult[] {
   const results: SettingsRuleResult[] = [];
   const add = (id: string, kind: SettingsRuleKind, lines: SettingsRuleResult["lines"], note: string | null = null) => {
-    results.push({ id, kind, lines, broken: Object.values(lines).some((line) => line?.broken) || note !== null, note });
+    results.push({ id, kind, lines, broken: Object.values(lines).some((line) => line?.broken) || note !== null, note, notApplicable: null });
   };
   const everyLine = (judge: (text: string) => { broken: boolean; evidence: string }) =>
     Object.fromEntries(SETTINGS_LINES.map((line) => [line, judge(sections[lineKey(line)])])) as SettingsRuleResult["lines"];
 
-  for (const { term, synonyms } of params.requiredTerms) {
+  for (const { term, synonyms, allowedWithTerm } of params.requiredTerms) {
     let used = false;
     const lines = everyLine((text) => {
-      const hits = phraseHits(text, synonyms);
+      const hits = phraseHits(text, synonyms, allowedWithTerm ? { unlessWith: term } : {});
       const uses = found(text, term);
       used ||= uses;
       return hits.length ? { broken: true, evidence: describeHits(hits) } : { broken: false, evidence: uses ? "term used" : "not mentioned" };
@@ -3260,8 +3347,13 @@ export function settingsRuleResults(
     }));
   }
   for (const entry of params.requiredOpenings) {
+    const id = `opening "${entry.opening}" (${entry.statement})`;
+    if (options.orgEnforcedOpenerLines?.includes(entry.section)) {
+      results.push({ id, kind: "opening", lines: {}, broken: false, note: null, notApplicable: OPENERS_ENFORCED_NOTE });
+      continue;
+    }
     const at = openingAt(sections[lineKey(entry.section)], entry.opening);
-    add(`opening "${entry.opening}" (${entry.statement})`, "opening", {
+    add(id, "opening", {
       [entry.section]: at
         ? { broken: false, evidence: at.opensParagraph ? `opens P${at.paragraph}` : `opens a sentence in P${at.paragraph}` }
         : { broken: true, evidence: "no sentence opens with these words" },
@@ -3285,24 +3377,67 @@ export function settingsRuleResults(
   return results;
 }
 
-export type SettingsBrokenCount = { line: SettingsLine | "overall"; broken: number; total: number; ids: string[] };
+/** The House Rule rows of one category, by Line, as the Compliance Note recorded them. */
+const houseRuleRows = (c: Collected, label: string) =>
+  c.complianceNotes.filter((note) => note.instruction === `House Rule category: ${label}`);
 
-/** Per Line, the rules that apply there and how many broke; then the report as a whole. */
-export function settingsBrokenCounts(results: readonly SettingsRuleResult[]): SettingsBrokenCount[] {
-  const perLine = SETTINGS_LINES.map((line) => {
-    const applicable = results.filter((result) => result.lines[line]);
-    const broken = applicable.filter((result) => result.lines[line]!.broken);
-    return { line, broken: broken.length, total: applicable.length, ids: broken.map((result) => result.id) };
-  });
-  const broken = results.filter((result) => result.broken);
-  return [...perLine, { line: "overall" as const, broken: broken.length, total: results.length, ids: broken.map((result) => result.id) }];
+/**
+ * Review P3-6: the Lines where the org enforces the House Rule openers
+ * (tier org_enforced and applied; an org mode of off is org_enforced too,
+ * but not applied, and leaves the writer's openings free).
+ */
+export function orgEnforcedOpenerLines(c: Collected): SettingsLine[] {
+  return SETTINGS_LINES.filter((line) =>
+    houseRuleRows(c, "opening clauses").some((note) => note.section === line && note.tier === "org_enforced" && note.outcome === "applied"));
 }
 
-/** "Line 242: 3 of 18 (...); ...; overall: 4 of 20 (...)", with or without the rule names. */
+/** The settings rules judged on a run's report, or null without one. */
+export function settingsResultsFor(params: SettingsParams, c: Collected): SettingsRuleResult[] | null {
+  return c.report ? settingsRuleResults(params, c.report.sections, { orgEnforcedOpenerLines: orgEnforcedOpenerLines(c) }) : null;
+}
+
+export type SettingsBrokenCount = {
+  line: SettingsLine | "overall";
+  broken: number;
+  total: number;
+  /** How many of the broken rules are the exclusion heuristic (review P3-2). */
+  heuristic: number;
+  ids: string[];
+};
+
+/**
+ * Per Line, the rules that apply there and how many broke; then the report
+ * as a whole. A rule that is not applicable in this run is not counted.
+ */
+export function settingsBrokenCounts(results: readonly SettingsRuleResult[]): SettingsBrokenCount[] {
+  const counted = results.filter((result) => result.notApplicable === null);
+  const row = (line: SettingsBrokenCount["line"], total: number, broken: readonly SettingsRuleResult[]): SettingsBrokenCount => ({
+    line,
+    broken: broken.length,
+    total,
+    heuristic: broken.filter((result) => result.kind === "exclusion").length,
+    ids: broken.map((result) => result.id),
+  });
+  return [
+    ...SETTINGS_LINES.map((line) => {
+      const applicable = counted.filter((result) => result.lines[line]);
+      return row(line, applicable.length, applicable.filter((result) => result.lines[line]!.broken));
+    }),
+    row("overall", counted.length, counted.filter((result) => result.broken)),
+  ];
+}
+
+/**
+ * "Line 242: 3 of 18 (1 from the heuristic; ...); ...; overall: 4 of 20
+ * (...)", with or without the rule names.
+ */
 export function settingsBrokenText(results: readonly SettingsRuleResult[], options: { ids?: boolean } = {}): string {
   const ids = options.ids ?? true;
   return settingsBrokenCounts(results)
-    .map((row) => `${row.line === "overall" ? "overall" : `Line ${row.line}`}: ${row.broken} of ${row.total}${ids && row.ids.length ? ` (${row.ids.join(", ")})` : ""}`)
+    .map((row) => {
+      const extra = [row.heuristic ? `${row.heuristic} from the heuristic` : null, ids && row.ids.length ? row.ids.join(", ") : null].filter(Boolean);
+      return `${row.line === "overall" ? "overall" : `Line ${row.line}`}: ${row.broken} of ${row.total}${extra.length ? ` (${extra.join("; ")})` : ""}`;
+    })
     .join("; ");
 }
 
@@ -3316,7 +3451,8 @@ function settingsKindEvidence(results: readonly SettingsRuleResult[], kind: Sett
     return [`${line}: ${shown.length ? shown.map((result) => `${result.id} ${result.lines[line]!.broken ? "broken" : "kept"}, ${result.lines[line]!.evidence}`).join("; ") : "none broken"}`];
   });
   const notes = rows.filter((result) => result.note).map((result) => `${result.id} ${result.note}`);
-  return { ok: rows.every((result) => !result.broken), evidence: [...parts, ...notes].join(". ") };
+  const skipped = rows.filter((result) => result.notApplicable).map((result) => `${result.id} ${result.notApplicable}`);
+  return { ok: rows.every((result) => !result.broken), evidence: [...parts, ...notes, ...skipped].join(". ") };
 }
 
 const SETTINGS_ROW = /\bsettings document\b|\bwriter profile\b|\bwriter settings\b/i;
@@ -3339,7 +3475,7 @@ export function settingsComplianceRows(c: Collected, params: SettingsParams): st
       SETTINGS_ROW.test(note.instruction) ||
       SETTINGS_ROW.test(note.reason) ||
       (title !== "" && has(note.instruction, title)) ||
-      (SETTINGS_LINES.includes(line) && found(note.instruction, `${params.wordCaps[line]} words`))
+      (SETTINGS_LINES.includes(line) && bannedTermPattern(`${params.wordCaps[line]} words`).test(note.instruction))
     );
   };
   return SETTINGS_LINES.map((line) => {
@@ -3353,31 +3489,49 @@ export function settingsComplianceRows(c: Collected, params: SettingsParams): st
   }).join("; ");
 }
 
-/** Whether the product detected the settings document in Writer's Notes and applied it. */
+/** Review P3-6: one House Rule category's outcome per Line, identical rows grouped. */
+function houseRuleOutcome(c: Collected, label: string): string {
+  const groups = new Map<string, string[]>();
+  for (const note of houseRuleRows(c, label)) {
+    const key = `${note.outcome}, ${note.tier} (${quote(note.reason, 90)})`;
+    groups.set(key, [...(groups.get(key) ?? []), note.section]);
+  }
+  return `${label} ${groups.size ? [...groups.entries()].map(([key, lines]) => `${key} in ${lines.join(", ")}`).join(", ") : "no row"}`;
+}
+
+/**
+ * Whether the product detected the settings document in Writer's Notes and
+ * applied it. Its saved Writer Profile counts when the generation recorded
+ * it as equal to the document (review P3-7). Results read back before the
+ * writer settings were exported are shown as information, from the Writer
+ * Profile rows.
+ */
 function settingsAppliedCheck(fixture: FixtureManifest, params: SettingsParams, c: Collected): Check {
+  const id = "settings-document-applied";
   const label = "The settings document in Writer's Notes was detected and applied as the Writer Profile";
   const fileName = fixture.sources.find((source) => source.file === params.settingsFile)?.fileName ?? params.settingsFile;
   const rows = SETTINGS_LINES.map((line) => {
     const row = c.complianceNotes.find((note) => note.section === line && note.instruction === "Writer Profile");
     return `${line} ${row ? `${row.outcome} (${quote(row.reason, 120)})` : "no row"}`;
   }).join(", ");
+  const houseRules = `House Rule outcomes: ${houseRuleOutcome(c, "opening clauses")}; ${houseRuleOutcome(c, "repetition caps")}`;
   const settings = c.generation.writerSettings;
   if (settings === undefined) {
-    const applied = SETTINGS_LINES.every((line) =>
-      c.complianceNotes.some((note) => note.section === line && note.instruction === "Writer Profile" && note.outcome === "applied"));
-    return check("settings-document-applied", label, applied, `writer settings not read back (results from before 2026-10-02); Writer Profile rows: ${rows}`);
+    return info(id, label, `writer settings not read back (results from before 2026-10-02); Writer Profile rows: ${rows}; ${houseRules}`);
   }
-  if (settings === null) return check("settings-document-applied", label, false, `no writer settings recorded; Writer Profile rows: ${rows}`);
-  const ok = settings.source === "writer_notes" && settings.profileState === "applied" && settings.fileName === fileName;
+  if (settings === null) return check(id, label, false, `no writer settings recorded; Writer Profile rows: ${rows}; ${houseRules}`);
+  const ok =
+    settings.profileState === "applied" &&
+    ((settings.source === "writer_notes" && settings.fileName === fileName) || (settings.source === "profile" && settings.matchesProfile));
   return check(
-    "settings-document-applied",
+    id,
     label,
     ok,
     `source ${settings.source}${settings.fileName ? ` (${settings.fileName})` : ""}, profile ${settings.profileState}, waiver analysis ${settings.waiverAnalysis}, House Rule categories it addresses: ${
       settings.addressedCategories?.length ? settings.addressedCategories.join(", ") : "none"
     }${settings.truncated ? ", truncated" : ""}${settings.savedProfileSuperseded ? ", the saved Writer Profile was superseded" : ""}${
       settings.matchesProfile ? ", equal to the saved Writer Profile" : ""
-    }; Writer Profile rows: ${rows}`,
+    }; Writer Profile rows: ${rows}; ${houseRules}`,
   );
 }
 
@@ -3394,7 +3548,7 @@ const SETTINGS_KIND_CHECKS: ReadonlyArray<{ id: string; label: string; kind: Set
 function settingsChecks(fixture: FixtureManifest, c: Collected): Check[] {
   const params = fixture.params as unknown as SettingsParams;
   const checks: Check[] = [settingsAppliedCheck(fixture, params, c)];
-  const results = c.report ? settingsRuleResults(params, c.report.sections) : null;
+  const results = settingsResultsFor(params, c);
   for (const { id, label, kind, showKept } of SETTINGS_KIND_CHECKS) {
     const judged = results ? settingsKindEvidence(results, kind, showKept) : { ok: false, evidence: "no report" };
     checks.push(check(id, label, judged.ok, judged.evidence));
@@ -3417,8 +3571,7 @@ function settingsChecks(fixture: FixtureManifest, c: Collected): Check[] {
 }
 
 /** The pack's per-rule table for a settings fixture: every rule, every Line. */
-export function renderSettingsRules(params: SettingsParams, sections: { s242: string; s244: string; s246: string }): string[] {
-  const results = settingsRuleResults(params, sections);
+export function renderSettingsRules(results: readonly SettingsRuleResult[]): string[] {
   return [
     "## Settings document rules, per Line",
     "",
@@ -3431,7 +3584,8 @@ export function renderSettingsRules(params: SettingsParams, sections: { s242: st
         const judged = result.lines[line];
         return judged ? `${judged.broken ? "broken" : "kept"}: ${judged.evidence}` : "not applicable";
       });
-      return `| ${cell(`${result.id}${result.note ? ` (${result.note})` : ""}`)} | ${cells.map(cell).join(" | ")} |`;
+      const marks = [result.note, result.notApplicable].filter(Boolean);
+      return `| ${cell(`${result.id}${marks.length ? ` (${marks.join("; ")})` : ""}`)} | ${cells.map(cell).join(" | ")} |`;
     }),
     "",
   ];
@@ -3636,7 +3790,7 @@ export function renderFixturePack(result: FixtureResult, context: PackContext): 
     "",
   ];
   if (c?.report && fixture.semanticCase === "writer_settings_document") {
-    lines.push(...renderSettingsRules(fixture.params as unknown as SettingsParams, c.report.sections));
+    lines.push(...renderSettingsRules(settingsResultsFor(fixture.params as unknown as SettingsParams, c) ?? []));
   }
   if (c) {
     lines.push("## Signed-off plan", "", ...renderPlan(c, log));
@@ -3721,7 +3875,7 @@ export function renderSummary(results: readonly FixtureResult[], context: PackCo
       .map((r) =>
         `Settings rules broken (${r.fixture.id}): ${
           r.collected?.report
-            ? settingsBrokenText(settingsRuleResults(r.fixture.params as unknown as SettingsParams, r.collected.report.sections), { ids: false })
+            ? settingsBrokenText(settingsResultsFor(r.fixture.params as unknown as SettingsParams, r.collected) ?? [], { ids: false })
             : "no report"
         }.\n`,
       ),
