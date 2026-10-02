@@ -11,6 +11,10 @@ import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsecti
 import { droppedUncertaintyFigures, figuresOf, LEAVE_OUT_FIGURE_NOTE_PREFIX } from "../../shared/planFigures";
 import { releaseEvalProjectTitle } from "../../shared/releaseEval";
 import { findSourceTalk, sourceTalkSubject } from "../../shared/humanProse";
+import { bannedTermPattern } from "../../shared/bannedWords";
+import { sectionMetrics, WORD_CAPS } from "../../convex/lib/lineLimits";
+import { matchesSettingsTitle } from "../../convex/lib/settingsDocument";
+import { extractSettingsRules } from "../../convex/lib/settingsExtraction";
 import {
   PLAN_ROLE_IDS,
   RESULT_ROLE_IDS,
@@ -34,6 +38,10 @@ import {
  * in the drafted Section, merged advancements named in the Compliance Note,
  * writer-asserted items drafted as Writer's Notes, a Feedback instruction on
  * Subsection 1 respected in Subsection 9) ride on these five fixtures.
+ *
+ * 2026-10-02 (owner decision on alert 7): a sixth case measures how well a
+ * draft follows a writer's settings document in Writer's Notes. CAP-13 does
+ * not name it, so it carries its own basis.
  */
 export const SEMANTIC_CASES = {
   carried_old_selections: {
@@ -60,6 +68,12 @@ export const SEMANTIC_CASES = {
     spec: "changed advancement links",
     title: "Changed advancement links",
     also: ["two advancements sharing an uncertainty are merged and the Compliance Note names the merge"],
+  },
+  writer_settings_document: {
+    spec: "a writer's settings document in Writer's Notes is followed",
+    title: "Writer settings document",
+    also: ["the Compliance Note rows show what the product believed it applied from the settings document"],
+    basis: "owner decision 2026-10-02, alert 7",
   },
 } as const;
 export type SemanticCase = keyof typeof SEMANTIC_CASES;
@@ -99,6 +113,33 @@ export type CaseParams = {
     writerAssertedTerm: string;
   };
   changed_advancement_links: { uncertainties: number; experiments: number };
+  /**
+   * 2026-10-02 (alert 7): the explicit rules of the writer's settings
+   * document, as data, so the checks never parse the document. Validation
+   * proves each rule is stated in the document and tempting to break.
+   */
+  writer_settings_document: SettingsParams;
+};
+
+export type SettingsLine = "242" | "244" | "246";
+
+export type SettingsParams = {
+  /** The document source holding the settings document (category writer_notes). */
+  settingsFile: string;
+  /** Its first line, without the heading mark. */
+  settingsTitle: string;
+  /** Required terms for named variables, each with the synonyms it bans. */
+  requiredTerms: Array<{ term: string; synonyms: string[] }>;
+  /** Banned words and phrases; `forms` are other spellings and inflections. */
+  bannedPhrases: Array<{ phrase: string; forms?: string[] }>;
+  /** Exact words a statement must open with, in its Line. */
+  requiredOpenings: Array<{ statement: string; section: SettingsLine; opening: string }>;
+  /** A word cap per Line, below the CRA cap. */
+  wordCaps: Record<SettingsLine, number>;
+  /** Work the document excludes; any marker in a Line counts as a mention. */
+  exclusions: Array<{ name: string; markers: string[] }>;
+  /** The one style rule; `rule` is its sentence in the document. */
+  styleRule: { kind: "noFirstPerson"; rule: string };
 };
 
 export type FixtureManifest = {
@@ -269,7 +310,119 @@ export function validateFixture(fixture: Fixture): string[] {
       // One experiment for each of two uncertainties, so one is left after the drop.
       need(Number(p.experiments) >= 2, "params.experiments must be at least 2");
       break;
+    case "writer_settings_document":
+      problems.push(...settingsParamsProblems(fixture, p as unknown as SettingsParams));
+      break;
   }
+  return problems;
+}
+
+/** Lowercase with every run of whitespace as one space. */
+const plain = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
+
+/** Whole word or phrase, any case, any run of whitespace inside (the banned-word matcher). */
+function found(text: string, phrase: string): boolean {
+  return phrase.trim().length > 0 && bannedTermPattern(phrase.trim()).test(text);
+}
+
+/**
+ * 2026-10-02 (alert 7): a settings fixture is valid only when the product
+ * would apply its document (Writer's Notes, a settings title, the caps its
+ * own extraction reads) and every rule is both stated in the document and
+ * tempting to break (the interview or notes use a synonym, the banned word,
+ * the first person, and mention the excluded work).
+ */
+function settingsParamsProblems(fixture: Fixture, params: SettingsParams): string[] {
+  const problems: string[] = [];
+  const need = (ok: unknown, message: string) => {
+    if (!ok) problems.push(message);
+  };
+  const source = (fixture.sources ?? []).find((candidate) => candidate.file === params.settingsFile);
+  need(
+    source?.kind === "document" && source.category === "writer_notes",
+    "params.settingsFile must name a document source in category writer_notes",
+  );
+  const settings = fixture.texts[params.settingsFile ?? ""] ?? "";
+  const others = (fixture.sources ?? [])
+    .filter((candidate) => candidate.file !== params.settingsFile)
+    .map((candidate) => fixture.texts[candidate.file] ?? "")
+    .join("\n");
+  need(
+    source && matchesSettingsTitle(source.fileName ?? source.file, settings),
+    "the settings document's file name or first line must be a settings title the product detects",
+  );
+  const firstLine = (settings.split(/\r?\n/).find((line) => line.trim()) ?? "").replace(/^#+\s*/, "").trim();
+  need(
+    (params.settingsTitle ?? "").trim() && firstLine.toLowerCase() === params.settingsTitle.trim().toLowerCase(),
+    "params.settingsTitle must be the settings document's first line",
+  );
+
+  const terms = Array.isArray(params.requiredTerms) ? params.requiredTerms : [];
+  need(terms.length >= 4 && terms.length <= 6, "params.requiredTerms must hold 4 to 6 terms");
+  for (const { term, synonyms } of terms) {
+    need(found(settings, term ?? ""), `the settings document must state the required term "${term}"`);
+    need(Array.isArray(synonyms) && synonyms.length > 0, `"${term}" needs at least one synonym`);
+    const list = Array.isArray(synonyms) ? synonyms : [];
+    need(list.some((synonym) => found(settings, synonym)), `the settings document must name a synonym of "${term}"`);
+    need(
+      list.some((synonym) => found(others, synonym)),
+      `the interview or notes must use a synonym of "${term}", so the rule is tempting to break`,
+    );
+    for (const synonym of list) {
+      for (const other of terms) {
+        if (has(synonym, other.term) || has(other.term, synonym)) {
+          problems.push(`the synonym "${synonym}" must not overlap the required term "${other.term}"`);
+        }
+      }
+    }
+  }
+
+  const banned = Array.isArray(params.bannedPhrases) ? params.bannedPhrases : [];
+  need(banned.length >= 5 && banned.length <= 8, "params.bannedPhrases must hold 5 to 8 phrases");
+  for (const entry of banned) {
+    need(found(settings, entry.phrase ?? ""), `the settings document must ban "${entry.phrase}"`);
+    need(
+      bannedForms(entry).some((form) => found(others, form)),
+      `the interview or notes must use "${entry.phrase}", so the rule is tempting to break`,
+    );
+  }
+
+  const openings = Array.isArray(params.requiredOpenings) ? params.requiredOpenings : [];
+  need(openings.length > 0, "params.requiredOpenings needs at least one opening");
+  for (const entry of openings) {
+    need(SETTINGS_LINES.includes(entry.section), `the opening for "${entry.statement}" must name Line 242, 244 or 246`);
+    need(found(settings, entry.opening ?? ""), `the settings document must state the opening "${entry.opening}"`);
+  }
+
+  const extracted = extractSettingsRules(settings).selfCheckRules;
+  for (const line of SETTINGS_LINES) {
+    const cap = params.wordCaps?.[line];
+    need(
+      Number.isInteger(cap) && cap > 0 && cap < WORD_CAPS[lineKey(line)],
+      `params.wordCaps.${line} must be a whole number below the CRA cap of ${WORD_CAPS[lineKey(line)]} words`,
+    );
+    need(
+      extracted.some((rule) => rule.section === line && rule.maxWords === cap),
+      `the settings document must state the Line ${line} cap of ${cap} words so the product's rule extraction reads it`,
+    );
+  }
+
+  const exclusions = Array.isArray(params.exclusions) ? params.exclusions : [];
+  need(exclusions.length >= 1 && exclusions.length <= 3, "params.exclusions must hold 1 to 3 items");
+  for (const entry of exclusions) {
+    need(found(settings, entry.name ?? ""), `the settings document must exclude "${entry.name}"`);
+    need(
+      (entry.markers ?? []).some((marker) => found(others, marker)),
+      `the interview or notes must mention "${entry.name}", so the rule is tempting to break`,
+    );
+  }
+
+  need(params.styleRule?.kind === "noFirstPerson", 'params.styleRule.kind must be "noFirstPerson"');
+  need(
+    (params.styleRule?.rule ?? "").trim() && plain(settings).includes(plain(params.styleRule.rule)),
+    "the settings document must state params.styleRule.rule",
+  );
+  need(firstPersonHits(others).length > 0, "the interview or notes must use the first person, so the style rule is tempting to break");
   return problems;
 }
 
@@ -457,6 +610,11 @@ export function buildPlan(fixture: FixtureManifest): Step[] {
         { op: "signOff" },
       ];
     }
+    case "writer_settings_document":
+      // 2026-10-02 (alert 7): the plainest path, so the fixture measures the
+      // settings document, not the writer's choices: the ordinary decision
+      // on every step (Previous-year status skipped), then sign-off.
+      return [...defaults("company_context", "goal_improvements"), { op: "signOff" }];
   }
 }
 
@@ -1808,6 +1966,21 @@ export type Collected = {
     seedRequestsReserved: number;
     singleModelId: string | null;
     summaryVersionId: string | null;
+    /**
+     * 2026-10-02 (alert 7): the writer settings the generation ran under
+     * (`generations.writerSettings`); null when none were recorded, absent in
+     * results read back before it existed.
+     */
+    writerSettings?: null | {
+      profileState: string;
+      source: string;
+      fileName: string | null;
+      matchesProfile: boolean;
+      savedProfileSuperseded: boolean;
+      waiverAnalysis: string;
+      truncated: boolean;
+      addressedCategories: string[] | null;
+    };
   };
   subsections: Array<{
     roleId: string;
@@ -2778,6 +2951,10 @@ function caseChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Check[
       );
       break;
     }
+    case "writer_settings_document": {
+      checks.push(...settingsChecks(fixture, c));
+      break;
+    }
   }
   return checks;
 }
@@ -2964,6 +3141,302 @@ function planLinkChecks(c: Collected, log: RunLog, planUncertainties: ReadonlySe
   return checks;
 }
 
+// ─── The writer's settings document (2026-10-02, alert 7) ──────────────────
+
+export const SETTINGS_LINES: readonly SettingsLine[] = ["242", "244", "246"];
+const lineKey = (line: SettingsLine) => `s${line}` as const;
+
+/** Every surface form a banned entry matches: the phrase and its listed forms. */
+export function bannedForms(entry: { phrase: string; forms?: string[] }): string[] {
+  return [entry.phrase, ...(entry.forms ?? [])].map((form) => (form ?? "").trim()).filter(Boolean);
+}
+
+/** One place a phrase appears: the phrase, its paragraph (from 1) and a short excerpt. */
+export type SettingsHit = { phrase: string; paragraph: number; excerpt: string };
+
+const paragraphsOf = (text: string) => text.split(/\n\s*\n/).map((paragraph) => paragraph.trim()).filter(Boolean);
+
+/** Every match of the patterns, per paragraph; a pattern with no label reports the words it matched. */
+function hitsOf(text: string, patterns: ReadonlyArray<{ label?: string; pattern: RegExp }>): SettingsHit[] {
+  const hits: SettingsHit[] = [];
+  paragraphsOf(text).forEach((paragraph, index) => {
+    for (const { label, pattern } of patterns) {
+      for (const match of paragraph.matchAll(pattern)) {
+        const at = match.index ?? 0;
+        hits.push({
+          phrase: label ?? match[0].toLowerCase(),
+          paragraph: index + 1,
+          excerpt: quote(paragraph.slice(Math.max(0, at - 50), at + match[0].length + 50), 130),
+        });
+      }
+    }
+  });
+  return hits;
+}
+
+/** Whole-word, any-case hits of each phrase (the banned-word matcher). */
+export function phraseHits(text: string, phrases: readonly string[]): SettingsHit[] {
+  return hitsOf(text, phrases.filter((phrase) => phrase.trim()).map((phrase) => ({ label: phrase, pattern: bannedTermPattern(phrase.trim()) })));
+}
+
+/**
+ * First person: "we", "our", "ours" and "ourselves" in any case, "us" in
+ * lower case only, so "US" is not one.
+ */
+export function firstPersonHits(text: string): SettingsHit[] {
+  return hitsOf(text, [{ pattern: /\b(?:we|ours?|ourselves)\b/gi }, { pattern: /\bus\b/g }]);
+}
+
+/** Hits grouped by phrase: where each appears, with its first excerpt. */
+function describeHits(hits: readonly SettingsHit[]): string {
+  const groups = new Map<string, SettingsHit[]>();
+  for (const hit of hits) groups.set(hit.phrase, [...(groups.get(hit.phrase) ?? []), hit]);
+  return [...groups.entries()]
+    .map(([phrase, group]) => `"${phrase}" in ${[...new Set(group.map((hit) => `P${hit.paragraph}`))].join(" and ")} (${group[0]!.excerpt})`)
+    .join(", ");
+}
+
+/**
+ * Where the opening words start a sentence of the text: the paragraph (from
+ * 1) and whether they open it. Null when no sentence starts with them.
+ */
+export function openingAt(text: string, opening: string): { paragraph: number; opensParagraph: boolean } | null {
+  if (!opening.trim()) return null;
+  const pattern = new RegExp(`(?:^|[.!?]["')\\]]*\\s+)${bannedTermPattern(opening.trim()).source}`, "i");
+  const paragraphs = paragraphsOf(text);
+  for (let index = 0; index < paragraphs.length; index += 1) {
+    const match = pattern.exec(paragraphs[index]!);
+    if (match) return { paragraph: index + 1, opensParagraph: match.index === 0 };
+  }
+  return null;
+}
+
+export type SettingsRuleKind = "term" | "banned" | "opening" | "cap" | "exclusion" | "style";
+
+export type SettingsRuleResult = {
+  id: string;
+  kind: SettingsRuleKind;
+  /** Each Line the rule applies to: kept or broken, with the evidence. */
+  lines: Partial<Record<SettingsLine, { broken: boolean; evidence: string }>>;
+  /** Report-wide: broken in a Line, or (a required term) never used. */
+  broken: boolean;
+  /** A report-wide break no single Line shows ("never used in any Line"). */
+  note: string | null;
+};
+
+/**
+ * Every explicit rule of the settings document, judged on the drafted
+ * Lines. Deterministic: whole-word matching, sentence starts and the
+ * product's own word count. A required term breaks in a Line that uses one
+ * of its synonyms, and report-wide also when no Line uses it; an opening
+ * and a word cap apply to their own Line only; the exclusions are a
+ * heuristic (any marker counts as a mention).
+ */
+export function settingsRuleResults(
+  params: SettingsParams,
+  sections: { s242: string; s244: string; s246: string },
+): SettingsRuleResult[] {
+  const results: SettingsRuleResult[] = [];
+  const add = (id: string, kind: SettingsRuleKind, lines: SettingsRuleResult["lines"], note: string | null = null) => {
+    results.push({ id, kind, lines, broken: Object.values(lines).some((line) => line?.broken) || note !== null, note });
+  };
+  const everyLine = (judge: (text: string) => { broken: boolean; evidence: string }) =>
+    Object.fromEntries(SETTINGS_LINES.map((line) => [line, judge(sections[lineKey(line)])])) as SettingsRuleResult["lines"];
+
+  for (const { term, synonyms } of params.requiredTerms) {
+    let used = false;
+    const lines = everyLine((text) => {
+      const hits = phraseHits(text, synonyms);
+      const uses = found(text, term);
+      used ||= uses;
+      return hits.length ? { broken: true, evidence: describeHits(hits) } : { broken: false, evidence: uses ? "term used" : "not mentioned" };
+    });
+    add(`term "${term}"`, "term", lines, used ? null : "never used in any Line");
+  }
+  for (const entry of params.bannedPhrases) {
+    add(`banned "${entry.phrase}"`, "banned", everyLine((text) => {
+      const hits = phraseHits(text, bannedForms(entry));
+      return { broken: hits.length > 0, evidence: hits.length ? describeHits(hits) : "absent" };
+    }));
+  }
+  for (const entry of params.requiredOpenings) {
+    const at = openingAt(sections[lineKey(entry.section)], entry.opening);
+    add(`opening "${entry.opening}" (${entry.statement})`, "opening", {
+      [entry.section]: at
+        ? { broken: false, evidence: at.opensParagraph ? `opens P${at.paragraph}` : `opens a sentence in P${at.paragraph}` }
+        : { broken: true, evidence: "no sentence opens with these words" },
+    });
+  }
+  for (const line of SETTINGS_LINES) {
+    const cap = params.wordCaps[line];
+    const words = sectionMetrics(sections[lineKey(line)], lineKey(line)).words;
+    add(`word cap Line ${line}`, "cap", { [line]: { broken: words > cap, evidence: `${words} of ${cap} words` } });
+  }
+  for (const entry of params.exclusions) {
+    add(`exclusion "${entry.name}"`, "exclusion", everyLine((text) => {
+      const hits = phraseHits(text, entry.markers);
+      return { broken: hits.length > 0, evidence: hits.length ? describeHits(hits) : "not mentioned" };
+    }));
+  }
+  add("style: no first person", "style", everyLine((text) => {
+    const hits = firstPersonHits(text);
+    return { broken: hits.length > 0, evidence: hits.length ? describeHits(hits) : "none" };
+  }));
+  return results;
+}
+
+export type SettingsBrokenCount = { line: SettingsLine | "overall"; broken: number; total: number; ids: string[] };
+
+/** Per Line, the rules that apply there and how many broke; then the report as a whole. */
+export function settingsBrokenCounts(results: readonly SettingsRuleResult[]): SettingsBrokenCount[] {
+  const perLine = SETTINGS_LINES.map((line) => {
+    const applicable = results.filter((result) => result.lines[line]);
+    const broken = applicable.filter((result) => result.lines[line]!.broken);
+    return { line, broken: broken.length, total: applicable.length, ids: broken.map((result) => result.id) };
+  });
+  const broken = results.filter((result) => result.broken);
+  return [...perLine, { line: "overall" as const, broken: broken.length, total: results.length, ids: broken.map((result) => result.id) }];
+}
+
+/** "Line 242: 3 of 18 (...); ...; overall: 4 of 20 (...)", with or without the rule names. */
+export function settingsBrokenText(results: readonly SettingsRuleResult[], options: { ids?: boolean } = {}): string {
+  const ids = options.ids ?? true;
+  return settingsBrokenCounts(results)
+    .map((row) => `${row.line === "overall" ? "overall" : `Line ${row.line}`}: ${row.broken} of ${row.total}${ids && row.ids.length ? ` (${row.ids.join(", ")})` : ""}`)
+    .join("; ");
+}
+
+/** One kind of rule across the Lines: whether every rule held, and what broke where. */
+function settingsKindEvidence(results: readonly SettingsRuleResult[], kind: SettingsRuleKind, showKept: boolean): { ok: boolean; evidence: string } {
+  const rows = results.filter((result) => result.kind === kind);
+  const parts = SETTINGS_LINES.flatMap((line) => {
+    const applicable = rows.filter((result) => result.lines[line]);
+    if (!applicable.length) return [];
+    const shown = showKept ? applicable : applicable.filter((result) => result.lines[line]!.broken);
+    return [`${line}: ${shown.length ? shown.map((result) => `${result.id} ${result.lines[line]!.broken ? "broken" : "kept"}, ${result.lines[line]!.evidence}`).join("; ") : "none broken"}`];
+  });
+  const notes = rows.filter((result) => result.note).map((result) => `${result.id} ${result.note}`);
+  return { ok: rows.every((result) => !result.broken), evidence: [...parts, ...notes].join(". ") };
+}
+
+const SETTINGS_ROW = /\bsettings document\b|\bwriter profile\b|\bwriter settings\b/i;
+/** A House Rule category row that says nothing beyond "no waiver"; counted, not listed. */
+const NO_WAIVER_REASON = "House Rule applied (no Writer Profile waiver)";
+
+/**
+ * Per Line, the Compliance Note rows that mention the settings document or
+ * the Writer Profile, so the judges see what the product believed it
+ * applied: the Writer Profile row, its waivers, the row that checks the
+ * document's text (its instruction holds the settings title) and the cap
+ * rows the product extracted from it. Plain "no waiver" category rows are
+ * counted, not listed.
+ */
+export function settingsComplianceRows(c: Collected, params: SettingsParams): string {
+  const title = (params.settingsTitle ?? "").trim();
+  const mentions = (note: Collected["complianceNotes"][number]) => {
+    const line = note.section as SettingsLine;
+    return (
+      SETTINGS_ROW.test(note.instruction) ||
+      SETTINGS_ROW.test(note.reason) ||
+      (title !== "" && has(note.instruction, title)) ||
+      (SETTINGS_LINES.includes(line) && found(note.instruction, `${params.wordCaps[line]} words`))
+    );
+  };
+  return SETTINGS_LINES.map((line) => {
+    const rows = c.complianceNotes.filter((note) => note.section === line && mentions(note));
+    const quiet = rows.filter((note) => note.reason === NO_WAIVER_REASON);
+    const parts = rows
+      .filter((note) => note.reason !== NO_WAIVER_REASON)
+      .map((note) => `${quote(note.instruction, 70)} ${rowState(note)}${note.tier !== "none" ? ` (${note.tier})` : ""}: ${quote(note.reason, 110)}`);
+    if (quiet.length) parts.push(`${quiet.length} House Rule ${quiet.length === 1 ? "category" : "categories"} applied with no Writer Profile waiver`);
+    return `${line}: ${parts.length ? parts.join(", ") : "no row"}`;
+  }).join("; ");
+}
+
+/** Whether the product detected the settings document in Writer's Notes and applied it. */
+function settingsAppliedCheck(fixture: FixtureManifest, params: SettingsParams, c: Collected): Check {
+  const label = "The settings document in Writer's Notes was detected and applied as the Writer Profile";
+  const fileName = fixture.sources.find((source) => source.file === params.settingsFile)?.fileName ?? params.settingsFile;
+  const rows = SETTINGS_LINES.map((line) => {
+    const row = c.complianceNotes.find((note) => note.section === line && note.instruction === "Writer Profile");
+    return `${line} ${row ? `${row.outcome} (${quote(row.reason, 120)})` : "no row"}`;
+  }).join(", ");
+  const settings = c.generation.writerSettings;
+  if (settings === undefined) {
+    const applied = SETTINGS_LINES.every((line) =>
+      c.complianceNotes.some((note) => note.section === line && note.instruction === "Writer Profile" && note.outcome === "applied"));
+    return check("settings-document-applied", label, applied, `writer settings not read back (results from before 2026-10-02); Writer Profile rows: ${rows}`);
+  }
+  if (settings === null) return check("settings-document-applied", label, false, `no writer settings recorded; Writer Profile rows: ${rows}`);
+  const ok = settings.source === "writer_notes" && settings.profileState === "applied" && settings.fileName === fileName;
+  return check(
+    "settings-document-applied",
+    label,
+    ok,
+    `source ${settings.source}${settings.fileName ? ` (${settings.fileName})` : ""}, profile ${settings.profileState}, waiver analysis ${settings.waiverAnalysis}, House Rule categories it addresses: ${
+      settings.addressedCategories?.length ? settings.addressedCategories.join(", ") : "none"
+    }${settings.truncated ? ", truncated" : ""}${settings.savedProfileSuperseded ? ", the saved Writer Profile was superseded" : ""}${
+      settings.matchesProfile ? ", equal to the saved Writer Profile" : ""
+    }; Writer Profile rows: ${rows}`,
+  );
+}
+
+const SETTINGS_KIND_CHECKS: ReadonlyArray<{ id: string; label: string; kind: SettingsRuleKind; showKept: boolean }> = [
+  { id: "settings-terms", label: "Each required term from the settings document is used, and none of its synonyms appears in any Line", kind: "term", showKept: false },
+  { id: "settings-banned", label: "No banned word or phrase from the settings document appears in any Line", kind: "banned", showKept: false },
+  { id: "settings-openings", label: "Each required opening from the settings document starts a sentence in its Line", kind: "opening", showKept: true },
+  { id: "settings-word-caps", label: "Each Line is within the settings document's word cap (below the CRA cap)", kind: "cap", showKept: true },
+  { id: "settings-exclusions", label: "Heuristic: no Line mentions work the settings document excludes from the claim", kind: "exclusion", showKept: false },
+  { id: "settings-style", label: "No Line uses the first person, as the settings document's style rule asks", kind: "style", showKept: false },
+];
+
+/** 2026-10-02 (alert 7): how well the draft follows the writer's settings document. */
+function settingsChecks(fixture: FixtureManifest, c: Collected): Check[] {
+  const params = fixture.params as unknown as SettingsParams;
+  const checks: Check[] = [settingsAppliedCheck(fixture, params, c)];
+  const results = c.report ? settingsRuleResults(params, c.report.sections) : null;
+  for (const { id, label, kind, showKept } of SETTINGS_KIND_CHECKS) {
+    const judged = results ? settingsKindEvidence(results, kind, showKept) : { ok: false, evidence: "no report" };
+    checks.push(check(id, label, judged.ok, judged.evidence));
+  }
+  checks.push(
+    info(
+      "settings-rules-broken",
+      "Settings rules broken, per Line and overall (informational; the pack lists every rule per Line)",
+      results ? `settings rules broken: ${settingsBrokenText(results)}` : "no report",
+    ),
+  );
+  checks.push(
+    info(
+      "settings-compliance-rows",
+      "Compliance Note rows that mention the settings document or the Writer Profile, per Line (what the product believed it applied; informational)",
+      settingsComplianceRows(c, params),
+    ),
+  );
+  return checks;
+}
+
+/** The pack's per-rule table for a settings fixture: every rule, every Line. */
+export function renderSettingsRules(params: SettingsParams, sections: { s242: string; s244: string; s246: string }): string[] {
+  const results = settingsRuleResults(params, sections);
+  return [
+    "## Settings document rules, per Line",
+    "",
+    `Every explicit rule of the writer's settings document, checked on the drafted Lines. Settings rules broken: ${settingsBrokenText(results, { ids: false })}. The exclusion rows are a heuristic: a marker in a Line counts as a mention.`,
+    "",
+    "| Rule | Line 242 | Line 244 | Line 246 |",
+    "| --- | --- | --- | --- |",
+    ...results.map((result) => {
+      const cells = SETTINGS_LINES.map((line) => {
+        const judged = result.lines[line];
+        return judged ? `${judged.broken ? "broken" : "kept"}: ${judged.evidence}` : "not applicable";
+      });
+      return `| ${cell(`${result.id}${result.note ? ` (${result.note})` : ""}`)} | ${cells.map(cell).join(" | ")} |`;
+    }),
+    "",
+  ];
+}
+
 /** Identical reasons collapse to one entry with a count. */
 function groupedReasons(notes: ReadonlyArray<{ section: string; reason: string }>): string {
   const groups = new Map<string, { sections: Set<string>; count: number }>();
@@ -3128,10 +3601,12 @@ function renderPlan(c: Collected, log: RunLog): string[] {
 export function renderFixturePack(result: FixtureResult, context: PackContext): string {
   const { fixture, log, collected: c, checks } = result;
   const caseInfo = SEMANTIC_CASES[fixture.semanticCase];
+  // 2026-10-02: a case CAP-13 does not name carries its own basis.
+  const basis = "basis" in caseInfo ? caseInfo.basis : "CAP-13";
   const lines: string[] = [
     `# ${releaseEvalProjectTitle(fixture.title)}`,
     "",
-    `Semantic case: **${caseInfo.title}** (CAP-13: "${caseInfo.spec}")${caseInfo.also.length ? `. Also checks: ${caseInfo.also.join("; ")}.` : "."}`,
+    `Semantic case: **${caseInfo.title}** (${basis}: "${caseInfo.spec}")${caseInfo.also.length ? `. Also checks: ${caseInfo.also.join("; ")}.` : "."}`,
     "",
     `Run ${context.date} on \`${context.deployment}\` at commit \`${context.commit}\`, acting as ${context.reviewer}. Project \`${log.projectId ?? "none"}\`, generation \`${log.generationId ?? "none"}\`.`,
     "",
@@ -3160,6 +3635,9 @@ export function renderFixturePack(result: FixtureResult, context: PackContext): 
     ...checks.map((item) => `| ${cell(item.label)} | ${item.status} | ${cell(item.evidence)} |`),
     "",
   ];
+  if (c?.report && fixture.semanticCase === "writer_settings_document") {
+    lines.push(...renderSettingsRules(fixture.params as unknown as SettingsParams, c.report.sections));
+  }
   if (c) {
     lines.push("## Signed-off plan", "", ...renderPlan(c, log));
     lines.push("## Drafted Sections", "");
@@ -3237,6 +3715,16 @@ export function renderSummary(results: readonly FixtureResult[], context: PackCo
       return `| [${r.fixture.id}](${r.fixture.id}.md) | ${SEMANTIC_CASES[r.fixture.semanticCase].title} | ${passed} pass, ${failed} fail | ${requests} |  |  |`;
     }),
     "",
+    // 2026-10-02 (alert 7): the settings score, tracked run to run.
+    ...results
+      .filter((r) => r.fixture.semanticCase === "writer_settings_document")
+      .map((r) =>
+        `Settings rules broken (${r.fixture.id}): ${
+          r.collected?.report
+            ? settingsBrokenText(settingsRuleResults(r.fixture.params as unknown as SettingsParams, r.collected.report.sections), { ids: false })
+            : "no report"
+        }.\n`,
+      ),
     "## CAP-14 numbers (placeholders are reported against, never changed here)",
     "",
     `- Dispatch to validated result: median ${seconds(d.medianMs)} (placeholder 12 s: ${within(d.medianMs, LATENCY_PLACEHOLDERS.medianMs)}), p95 ${seconds(d.p95Ms)} (placeholder 30 s: ${within(d.p95Ms, LATENCY_PLACEHOLDERS.p95Ms)}), over ${d.count} Batches.`,

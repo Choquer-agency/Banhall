@@ -32,7 +32,7 @@ VERIFY_COMPONENT=1 bash scripts/loop-verify.sh
 
 ### 3. Judge the Step by step release suite
 
-The suite runs five fictional projects through Step by step, one for each case the release must get right: carried old selections, a skipped role the Brief supports, a Feedback correction that was withdrawn, a selection that matches a Claim Exclusion, and changed advancement links. It makes real model calls, so it costs money; the script prints the cost from `aiUsage`.
+The suite runs six fictional projects through Step by step, one for each case the release must get right: carried old selections, a skipped role the Brief supports, a Feedback correction that was withdrawn, a selection that matches a Claim Exclusion, changed advancement links, and a writer's settings document in Writer's Notes. The sixth (added 2026-10-02, alert 7) counts the settings rules the draft broke, per Line and overall, and `summary.md` shows the count so it can be tracked from run to run. It makes real model calls, so it costs money; the script prints the cost from `aiUsage`.
 
 Start a local deployment of the release commit with the model keys set. Then, in a shell without `CONVEX_DEPLOY_KEY` (the script refuses to run with one):
 

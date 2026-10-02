@@ -1,0 +1,81 @@
+{
+  "id": "writer-settings-document",
+  "title": "Velloway low-temperature powder on MDF",
+  "clientName": "Velloway Panel Finishing Ltd.",
+  "industry": "manufacturing",
+  "interviewees": [
+    "Mireille Strand",
+    "Tobias Achterberg"
+  ],
+  "fictional": true,
+  "semanticCase": "writer_settings_document",
+  "purpose": "Before the first draft the writer uploads a \"PD Writing Customized Settings\" document in Writer's Notes, by the internal account the suite acts as, so it has internal trust and the product applies it as the Writer Profile for the generation. It sets checkable rules: five required terms for named variables (each with synonyms it bans), seven banned words and phrases, required openings for the objective and uncertainty statements in Line 242, a word cap per Line below the CRA cap, two pieces of work that must not be claimed or described, and no first person. The interview and the trial summary use the synonyms, the banned words and the first person, and the president asks to claim the excluded work. The writer takes the plainest Step by step path: the first Seed on each step (two uncertainties and two experiments, linked advancements), Previous-year status skipped (a first-year project), approve, sign off. The automatic checks count, per Line and overall, the settings rules the draft broke, so the score can be tracked and improved.",
+  "notes": [
+    "2026-10-02: added after alert 7 on the /alerts board (1 September). A writer uploaded a detailed PD Writing Customized Settings document before the first draft, chat listed 16 places where the draft deviated, and the second draft still deviated after a bulk revision. The owner chose a sixth fixture that measures how well a draft follows a writer's settings document, scored automatically.",
+    "The settings document is uploaded as Writer's Notes (category writer_notes) by the reviewer account the suite acts as. That account has an internal role, so documentTrust gives it internal trust, and its first line matches the settings title the product detects. Its word caps are written so the product's own rule extraction reads them; the fixture check proves both.",
+    "The scripted writer makes no decision of its own: the first Seed on each step, approve, sign off. Previous-year status is skipped because the project started in July 2025. So the fixture measures the settings document, not the writer's choices.",
+    "Automatic checks added for this fixture: the settings document was applied as the Writer Profile; each required term is used and its synonyms are absent; no banned word or phrase; the required openings; each Line within its settings word cap; no excluded work mentioned (a heuristic); no first person; settings rules broken, N of M, per Line and overall; and the Compliance Note rows that mention the settings document or the Writer Profile. The pack also lists every settings rule per Line. No earlier check was removed or weakened."
+  ],
+  "sources": [
+    {
+      "kind": "transcript",
+      "file": "interview.txt",
+      "label": "Interview with Mireille Strand and Tobias Achterberg"
+    },
+    {
+      "kind": "document",
+      "file": "notes.md",
+      "fileName": "powder-on-mdf-trial-summary.md",
+      "category": "scoping_notes"
+    },
+    {
+      "kind": "document",
+      "file": "settings.md",
+      "fileName": "pd-writing-customized-settings.md",
+      "category": "writer_notes"
+    }
+  ],
+  "mustNotAppearInSources": [],
+  "mustAppearInSources": [
+    "outgassing",
+    "routed",
+    "PD Writing Customized Settings"
+  ],
+  "params": {
+    "settingsFile": "settings.md",
+    "settingsTitle": "PD Writing Customized Settings",
+    "requiredTerms": [
+      { "term": "film build", "synonyms": ["DFT", "dry film thickness", "film thickness", "coating thickness"] },
+      { "term": "panel surface temperature", "synonyms": ["substrate temperature", "substrate temp", "board temperature", "part temperature"] },
+      { "term": "cure window", "synonyms": ["bake window", "oven window"] },
+      { "term": "edge coverage", "synonyms": ["edge wrap", "edge build"] },
+      { "term": "outgassing defects", "synonyms": ["pinholes", "pinhole", "pinholing", "blisters", "blister", "blistering"] }
+    ],
+    "bannedPhrases": [
+      { "phrase": "successfully" },
+      { "phrase": "in order to" },
+      { "phrase": "optimize", "forms": ["optimise", "optimizes", "optimises", "optimized", "optimised", "optimizing", "optimising", "optimization", "optimisation"] },
+      { "phrase": "proprietary" },
+      { "phrase": "trial and error", "forms": ["trial-and-error"] },
+      { "phrase": "breakthrough", "forms": ["breakthroughs"] },
+      { "phrase": "industry-leading", "forms": ["industry leading"] }
+    ],
+    "requiredOpenings": [
+      { "statement": "objective", "section": "242", "opening": "The aim of this work was to" },
+      { "statement": "uncertainty", "section": "242", "opening": "It was not known at the outset whether" }
+    ],
+    "wordCaps": { "242": 300, "244": 600, "246": 300 },
+    "exclusions": [
+      { "name": "the powder booth extraction upgrade", "markers": ["extraction upgrade", "booth extraction", "extraction fans", "cartridge filters"] },
+      { "name": "colour matching of the customer's catalogue shades", "markers": ["colour matching", "color matching", "catalogue shades", "catalog shades"] }
+    ],
+    "styleRule": { "kind": "noFirstPerson", "rule": "Never use we, our, ours, us or ourselves." }
+  },
+  "judgmentQuestions": [
+    "Does each Line follow the settings document (pd-writing-customized-settings.md): its required terms, banned words and phrases, the two required openings in Line 242, its word cap, its claim exclusion list and the no first person rule? Name each break you find.",
+    "Where the automatic checks count a settings rule as broken, is it a real break or a sensible exception (for example a defined term explained once in the client's words, or a Locked Rule or org-enforced House Rule that outranks the settings document)?",
+    "Is any work the settings document excludes (the powder booth extraction upgrade, colour matching of the customer's catalogue shades) claimed or described in any Line?",
+    "Do the Compliance Note rows say plainly that the settings document was applied, and do their verdicts match what the Lines actually do?",
+    "Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?"
+  ]
+}

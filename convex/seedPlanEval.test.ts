@@ -99,6 +99,17 @@ describe("seedPlanEval reads", () => {
     ]);
     const collected = await t.query(collect, { generationId });
     expect(collected.project).toEqual({ projectId, title: "Release eval - Fictional kiln" });
+    // 2026-10-02 (alert 7): the writer settings the generation ran under.
+    expect(collected.generation.writerSettings).toEqual({
+      profileState: "missing",
+      source: "none",
+      fileName: null,
+      matchesProfile: false,
+      savedProfileSuperseded: false,
+      waiverAnalysis: "none",
+      truncated: false,
+      addressedCategories: null,
+    });
     expect(collected.subsections).toHaveLength(13);
     expect(collected.summary).toBeNull();
     expect(collected.report).toBeNull();
