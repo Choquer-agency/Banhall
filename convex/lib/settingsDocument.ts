@@ -172,10 +172,16 @@ export function matchesSettingsTitle(fileName: string, content: string): boolean
   return isSettingsTitle(fileNameCandidate(fileName)) || isSettingsTitle(firstLineCandidate(content));
 }
 
-/** The settings document a generation applies, or null. */
-export function detectSettingsDocument<SourceId, DocumentId>(
-  sources: ReadonlyArray<SettingsSourceRow<SourceId, DocumentId>>
-): DetectedSettingsDocument<SourceId, DocumentId> | null {
+/**
+ * The frozen source a settings document comes from, or null: an internal
+ * uploader's project document whose file name or first line is a settings
+ * title, Writer's Notes first, then frozen row order. One rule for the
+ * Writer Profile (detectSettingsDocument) and, since 2026-10-04 (first,
+ * round 2), the Brief's wording rule (convex/lib/briefRequest.ts).
+ */
+export function chooseSettingsSource<Source extends Pick<SettingsSourceRow, "kind" | "label" | "content" | "uploaderRole">>(
+  sources: readonly Source[]
+): { source: Source; category: string; fileName: string; trimmed: string } | null {
   const qualifying = sources.flatMap((source) => {
     if (source.kind !== "project_document") return [];
     // Trust floor: only an internal uploader's document can become
@@ -192,7 +198,14 @@ export function detectSettingsDocument<SourceId, DocumentId>(
     ...qualifying.filter((item) => item.category === "writer_notes"),
     ...qualifying.filter((item) => item.category !== "writer_notes"),
   ];
-  const chosen = ordered[0];
+  return ordered[0] ?? null;
+}
+
+/** The settings document a generation applies, or null. */
+export function detectSettingsDocument<SourceId, DocumentId>(
+  sources: ReadonlyArray<SettingsSourceRow<SourceId, DocumentId>>
+): DetectedSettingsDocument<SourceId, DocumentId> | null {
+  const chosen = chooseSettingsSource(sources);
   if (!chosen) return null;
   return {
     generationSourceId: chosen.source._id,

@@ -55,6 +55,7 @@ import {
   BRIEF_REQUEST,
   BRIEF_SCHEMA,
   BRIEF_OMITTED_SOURCES_NOTICE,
+  BRIEF_WRITER_WORDING,
 } from "./brief";
 import {
   ANALYSIS_TOOL_SCHEMA,
@@ -559,6 +560,9 @@ export const generationPromptProgram = {
       factModeCitations: "quote-located-in-a-verified-fact-span-on-the-transcript-row",
       contextBudget: BRIEF_INPUT_BUDGET,
       omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
+      // 2026-10-04 (first, round 2): after the task line, only when the
+      // evidence holds a settings document an internal uploader supplied.
+      writerWording: BRIEF_WRITER_WORDING,
       schema: BRIEF_SCHEMA,
       model: { kind: "generation-step", step: "brief", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },

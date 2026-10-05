@@ -97,6 +97,8 @@ type Script = {
   failCompressions?: boolean;
   /** Line 246's repair answer; absent, the Line as drafted. */
   repair246?: string;
+  /** Line 246's second Self-check request (the check of the final text) fails. */
+  failFinalCheck246?: boolean;
   /** Self-check verdicts for Line 246's checks; other Lines get none. */
   verdicts246?: unknown[];
 };
@@ -170,6 +172,7 @@ const DRAFTS: Record<Line, string> = { "242": DRAFT_242, "244": DRAFT_244, "246"
 function installFetch(script: Script): Sent[] {
   const sent: Sent[] = [];
   const compressions = [...(script.compressions ?? [])];
+  let checks246 = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn<typeof fetch>(async (input, init) => {
@@ -190,6 +193,15 @@ function installFetch(script: Script): Sent[] {
         usage: { input_tokens: 40, output_tokens: 8 },
       };
       const tool = toolOf(json);
+      if (tool === "submit_self_check" && user.includes("advancement trial")) {
+        checks246 += 1;
+        if (script.failFinalCheck246 && checks246 === 2) {
+          return Response.json(
+            { type: "error", error: { type: "invalid_request_error", message: "Synthetic refusal" } },
+            { status: 400 }
+          );
+        }
+      }
       if (tool) {
         const answer =
           tool === "submit_self_check"
@@ -479,5 +491,23 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
     expect(run.text("246")).toBe(repaired);
     expect(run.note("246", paragraphRule)).toMatchObject({ outcome: "applied" });
     expect(run.note("246", lineRule)).toMatchObject({ outcome: "applied", reason: `${words}/280 words` });
+  });
+
+  it("Single draft: says a row was not checked on the final text when the check after shortening fails (round 2)", async () => {
+    // The repair is shortened to FIT_246, then the check of it fails.
+    const run = await runSingle({
+      compressions: [DRAFT_246, DRAFT_246, FIT_246],
+      verdicts246: [{ ...profileVerdict, outcome: "not_applied", reason: "Opener not used.", repairGuidance: "Use the opener." }],
+      failFinalCheck246: true,
+    });
+    expect(run.text("246")).toBe(FIT_246);
+    expect(run.requests("submit_self_check", "246")).toHaveLength(2);
+    expect(run.modelNotes("246")).toEqual([
+      expect.objectContaining({
+        outcome: "not_applied",
+        repaired: false,
+        reason: expect.stringMatching(/^Not checked on the final text \(the check after shortening did not complete: [a-z_]+\)$/),
+      }),
+    ]);
   });
 });

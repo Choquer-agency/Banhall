@@ -237,6 +237,12 @@ function categoryReason(
     : "House Rule applied (no Writer Profile waiver)";
 }
 
+/**
+ * Round 2 (2026-10-05): how a Self-check row starts when its label could not
+ * be judged on the text that ships after shortening.
+ */
+export const NOT_CHECKED_ON_FINAL_TEXT = "Not checked on the final text";
+
 /** Story 3 (AD-26): the reason on a waiver row an org-enforced mode ignored. */
 export const ORG_ENFORCED_WAIVER_REASON =
   "org-enforced: this House Rule applies regardless of the Writer Profile";
@@ -962,6 +968,14 @@ export function assembleSectionNotes(input: {
    * that code measures is not met.
    */
   writerInstructions?: string;
+  /**
+   * Round 2 (2026-10-05, owner decision): present only when shortening
+   * changed a used repair. The Self-check's label verdicts on the final
+   * text, which write those rows in place of the first check's, or why the
+   * check of the final text did not complete (its rows then read "not
+   * checked on the final text"). The governed terms keep `governedFinal`.
+   */
+  finalVerdicts?: { ok: true; verdicts: readonly ModelVerdict[] } | { ok: false; reason: string };
 }): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
   const { section, before, verdicts, repair } = input;
   const failedBefore = new Set(
@@ -1043,41 +1057,57 @@ export function assembleSectionNotes(input: {
   // The first verdict for each governed term's label; its row is written
   // below, from the final text's verdict when there is one.
   const firstGoverned = new Map<string, ModelVerdict>();
-  for (const verdict of verdicts) {
-    const term = verdict.feedbackTerm === undefined
+  const governedTermOf = (verdict: ModelVerdict) =>
+    verdict.feedbackTerm === undefined
       ? undefined
       : governed.find((entry) => entry.term === verdict.feedbackTerm);
+  const baseOf = (verdict: ModelVerdict) => ({
+    section,
+    paragraphIndex: verdict.paragraphIndex,
+    source: "model" as const,
+    instruction: verdict.instruction,
+    tier: (verdict.check === "confidence" && verdict.outcome === "not_applied"
+      ? "missing_fact"
+      : "none") as ComplianceTier,
+  });
+  // 2026-10-04 (first): an instruction row never vouches for a cap code
+  // measured as not met (writerRowGuard); every other row is as before.
+  const pushModelRow = (verdict: ModelVerdict, draft: ComplianceNoteDraft) => {
+    rows.push(
+      verdict.check === "instruction" && failedCaps.length > 0
+        ? writerRowGuard({
+            verdict,
+            row: draft,
+            failedCaps,
+            writerInstructions: input.writerInstructions,
+          }) ?? draft
+        : draft
+    );
+  };
+  // Round 2 (2026-10-05): when shortening changed a used repair, the check
+  // of the final text decides these rows.
+  const final = input.finalVerdicts;
+  for (const verdict of verdicts) {
+    const term = governedTermOf(verdict);
     if (term) {
       if (!firstGoverned.has(term.term)) firstGoverned.set(term.term, verdict);
       continue;
     }
-    const tier: ComplianceTier =
-      verdict.check === "confidence" && verdict.outcome === "not_applied"
-        ? "missing_fact"
-        : "none";
-    const base = {
-      section,
-      paragraphIndex: verdict.paragraphIndex,
-      source: "model" as const,
-      instruction: verdict.instruction,
-      tier,
-    };
-    // 2026-10-04 (first): an instruction row never vouches for a cap code
-    // measured as not met (writerRowGuard); every other row is as before.
-    const pushModelRow = (draft: ComplianceNoteDraft) => {
-      rows.push(
-        verdict.check === "instruction" && failedCaps.length > 0
-          ? writerRowGuard({
-              verdict,
-              row: draft,
-              failedCaps,
-              writerInstructions: input.writerInstructions,
-            }) ?? draft
-          : draft
-      );
-    };
+    const base = baseOf(verdict);
+    if (final && !final.ok) {
+      // The final text was not checked: no verdict on the text before
+      // shortening is recorded as if it described the text that ships.
+      rows.push(noteDraft({
+        ...base,
+        tier: "none",
+        outcome: "not_applied",
+        reason: `${NOT_CHECKED_ON_FINAL_TEXT} (the check after shortening did not complete: ${final.reason})`,
+      }));
+      continue;
+    }
+    if (final) continue;
     if (verdict.outcome === "applied") {
-      pushModelRow(noteDraft({ ...base, outcome: "applied", reason: verdict.reason || "applied" }));
+      pushModelRow(verdict, noteDraft({ ...base, outcome: "applied", reason: verdict.reason || "applied" }));
       continue;
     }
     if (verdict.notChecked) {
@@ -1109,7 +1139,43 @@ export function assembleSectionNotes(input: {
     } else if (repair.attempted) {
       reason = `${reason}; ${repairNotDone}`;
     }
-    pushModelRow(noteDraft({ ...base, outcome, reason, repaired }));
+    pushModelRow(verdict, noteDraft({ ...base, outcome, reason, repaired }));
+  }
+  if (final?.ok) {
+    for (const verdict of final.verdicts) {
+      if (governedTermOf(verdict)) continue;
+      const base = baseOf(verdict);
+      if (verdict.notChecked) {
+        rows.push(noteDraft({ ...base, tier: "none", outcome: "not_applied", reason: `${NOT_CHECKED_ON_FINAL_TEXT} (the Self-check gave no verdict for it)` }));
+        continue;
+      }
+      // Was it a failure the repair was made for?
+      const wasFailing = verdicts.some(
+        (first) =>
+          !governedTermOf(first) &&
+          first.check === verdict.check &&
+          first.instruction === verdict.instruction &&
+          first.outcome === "not_applied" &&
+          !first.notChecked
+      );
+      if (verdict.outcome === "applied") {
+        pushModelRow(verdict, noteDraft({
+          ...base,
+          outcome: "applied",
+          reason: wasFailing
+            ? `${verdict.reason || "applied"}; repaired, and checked again on the final text`
+            : verdict.reason || "applied",
+          repaired: wasFailing,
+        }));
+        continue;
+      }
+      remainingFailures += 1;
+      pushModelRow(verdict, noteDraft({
+        ...base,
+        outcome: "not_applied",
+        reason: `${verdict.reason || "not applied"}; checked again on the final text after shortening`,
+      }));
+    }
   }
 
   // One row per governed term, in fixed words that quote the Feedback,

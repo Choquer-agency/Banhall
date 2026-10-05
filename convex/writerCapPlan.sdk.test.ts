@@ -15,6 +15,7 @@ import type { ActionCtx } from "./_generated/server";
 import { instrumentedAnthropic } from "./ai/instrument";
 import type { GenerationClient } from "./ai/openrouterCore";
 import { draftCheckedSection, planLengthBudgetBlock } from "./ai/orderedGeneration";
+import { NOT_CHECKED_ON_FINAL_TEXT } from "./lib/selfCheckRules";
 import {
   COMPRESSION_REQUEST,
   ORDERED_PROMPT_SCAFFOLDS,
@@ -292,5 +293,59 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
     const reason = run.note(CAP_RULE)?.reason ?? "";
     expect(reason).toMatch(/^exceeds: 164\/120 words; repair not used \(the repaired text no longer covers the signed-off item .*, and a repair must keep what a COVER item holds, so the checked draft was kept\); still over after 2 shortening passes\. The text was not cut to fit: shorten Line 242 to 120 words to meet the writer's settings$/);
     expect(reason).not.toContain("to keep every signed-off item");
+  });
+
+  // ─── Round 2 (2026-10-05): every row describes the text that ships ──────
+  /** The repair, shortened under the writer's cap with the signed-off item kept. */
+  const SHORT_WITH_ITEM = [
+    `The company finishes routed board panels for cabinet makers. ${fillers(1)}`,
+    `${COVER} ${fillers(2)}`,
+  ].join("\n\n");
+  const OPENER_MISSED = {
+    verdicts: [{ paragraph: 0, check: "instruction", instruction: "writer:profile", outcome: "not_applied", reason: "Opener not used verbatim.", repairGuidance: "Open P1 with the opener." }],
+    planVerdicts: FIRST_CHECK.planVerdicts,
+  };
+
+  it("checks the final text again when shortening changed the repair, in place of the coverage-only check (round 2)", async () => {
+    expect(sectionMetrics(SHORT_WITH_ITEM, "s242").words).toBeLessThanOrEqual(120);
+    const run = await draft({
+      compressions: [DRAFT, DRAFT, SHORT_WITH_ITEM],
+      repair: DRAFT,
+      checks: [
+        OPENER_MISSED,
+        {
+          verdicts: [{ paragraph: 1, check: "instruction", instruction: "writer:profile", outcome: "applied", reason: "Opener used verbatim." }],
+          planVerdicts: FIRST_CHECK.planVerdicts,
+        },
+      ],
+    });
+    expect(run.result.draftText).toBe(SHORT_WITH_ITEM);
+    // One check of the final text, with the labels and the plan: no request
+    // is added, and it is not the coverage-only check.
+    const stages = run.sent.map((request) => request.stage);
+    expect(stages.filter((stage) => stage === "selfCheck")).toHaveLength(2);
+    expect(stages).not.toContain("finalCoverage");
+    const finalCheck = run.sent.filter((request) => request.stage === "selfCheck")[1]!.user;
+    expect(finalCheck).toContain("--- BEGIN [WRITER INSTRUCTIONS] ---");
+    expect(finalCheck).toContain(SHORT_WITH_ITEM.split("\n\n")[0]!);
+    expect(finalCheck).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+    // The row says what the final text does, never "not re-verified".
+    expect(run.result.notes.find((row) => row.source === "model" && row.instruction === SETTINGS)).toMatchObject({
+      outcome: "applied",
+      repaired: true,
+      reason: "Opener used verbatim.; repaired, and checked again on the final text",
+    });
+    expect(run.result.notes.map((row) => row.reason).join(" ")).not.toContain("not re-verified");
+    expect(run.note(CAP_RULE)).toMatchObject({ outcome: "applied" });
+  });
+
+  it("says a row was not checked on the final text when that check fails (round 2)", async () => {
+    // Only the first check is scripted: the check of the final text fails.
+    const run = await draft({ compressions: [DRAFT, DRAFT, SHORT_WITH_ITEM], repair: DRAFT, checks: [OPENER_MISSED] });
+    expect(run.result.draftText).toBe(SHORT_WITH_ITEM);
+    const row = run.result.notes.find((candidate) => candidate.source === "model" && candidate.instruction === SETTINGS);
+    expect(row).toMatchObject({ outcome: "not_applied", repaired: false });
+    expect(row?.reason).toMatch(new RegExp(`^${NOT_CHECKED_ON_FINAL_TEXT} \\(the check after shortening did not complete: [a-z_]+\\)$`));
+    expect(row?.reason).not.toContain("Opener not used verbatim");
   });
 });

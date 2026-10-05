@@ -51,6 +51,7 @@ import {
   selfCheckFailureDiagnostic,
   sourceFactsBody,
   type ModelSelfCheckResult,
+  type SelfCheckModelInput,
 } from "./selfCheck";
 import {
   generationSlotOf,
@@ -1277,26 +1278,29 @@ export async function draftCheckedSection(input: {
   let storylineQuestionWithheld: string | undefined;
   let planVerdicts: ModelSelfCheckResult["planVerdicts"] = [];
   let modelCheck: { ok: true } | { ok: false; reason: string; detail?: string } = { ok: true };
+  // The first Self-check's input; round 2 (2026-10-05) checks the final
+  // text with the same input when shortening changed a used repair.
+  const selfCheckInput: SelfCheckModelInput = {
+    section,
+    text,
+    storylineText: brief?.storylineText ?? "",
+    confidenceMap: brief?.confidenceMap ?? [],
+    glossaryCandidates: before.glossaryCandidates,
+    writerInstructions: payload.writerFlavor,
+    rules: before.modelRules,
+    // 2026-10-04 (first): the writer's caps code measures, quoted, which
+    // the writer-instruction verdicts are told not to judge.
+    ...(writerCapRules.length > 0 ? { measuredCaps: writerCapRules } : {}),
+    model: clientFor.modelFor(`generation:selfCheck:${section}`),
+    planChecks: claim.planChecks,
+    planChecksBlock: claim.planChecksBlock,
+    editedTerms: claim.editedTerms,
+    ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
+    ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
+    ...(sourceFacts !== undefined ? { sourceFacts } : {}),
+  };
   try {
-    const result = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), {
-      section,
-      text,
-      storylineText: brief?.storylineText ?? "",
-      confidenceMap: brief?.confidenceMap ?? [],
-      glossaryCandidates: before.glossaryCandidates,
-      writerInstructions: payload.writerFlavor,
-      rules: before.modelRules,
-      // 2026-10-04 (first): the writer's caps code measures, quoted, which
-      // the writer-instruction verdicts are told not to judge.
-      ...(writerCapRules.length > 0 ? { measuredCaps: writerCapRules } : {}),
-      model: clientFor.modelFor(`generation:selfCheck:${section}`),
-      planChecks: claim.planChecks,
-      planChecksBlock: claim.planChecksBlock,
-      editedTerms: claim.editedTerms,
-      ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
-      ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
-      ...(sourceFacts !== undefined ? { sourceFacts } : {}),
-    });
+    const result = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), selfCheckInput);
     verdicts = result.verdicts;
     storylineQuestion = result.storylineQuestion;
     storylineQuestionWithheld = result.storylineQuestionWithheld;
@@ -1579,6 +1583,21 @@ export async function draftCheckedSection(input: {
   // Terms the writer's Feedback governs on the final text, so their rows
   // describe it; no request is added.
   let governedFinal: { ok: true; verdicts: ModelVerdict[] } | { ok: false } | undefined;
+  // Round 2 (2026-10-05, owner decision): when shortening changed a used
+  // repair, the rows the Self-check's labels write are judged again on the
+  // final text, so every row describes the text that ships. The check uses
+  // the first check's input on the final text (its Glossary candidates and
+  // rules from the final text's own deterministic check). In Summary mode
+  // it takes the place of the coverage-only check, so no request is added;
+  // in Single draft and Compare it is one more Self-check request, within
+  // the slots the coverage-only check has in Summary mode. A check that
+  // fails, or runs out of time, leaves those rows "not checked on the final
+  // text", never a verdict on the text before shortening.
+  let finalOrdinary: { ok: true; verdicts: ModelVerdict[] } | { ok: false; reason: string } | undefined;
+  const finalCheckInput: SelfCheckModelInput | null =
+    repair.succeeded && repair.shortened === true && modelCheck.ok && after !== null && !sameUtf8Bytes(text, finalText)
+      ? { ...selfCheckInput, text: finalText, glossaryCandidates: after.glossaryCandidates, rules: after.modelRules }
+      : null;
   if (
     payload.summaryVersionId &&
     claim.planChecks.length > 0 &&
@@ -1586,20 +1605,22 @@ export async function draftCheckedSection(input: {
     !sameUtf8Bytes(text, finalText)
   ) {
     try {
-      const final = await runFinalCoverageSelfCheck(
-        clientFor(`generation:selfCheck:${section}`),
-        {
-          section,
-          text: finalText,
-          model: clientFor.modelFor(`generation:selfCheck:${section}`),
-          planChecks: claim.planChecks,
-          planChecksBlock: claim.planChecksBlock,
-          editedTerms: claim.editedTerms,
-          ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
-          ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
-          ...(sourceFacts !== undefined ? { sourceFacts } : {}),
-        }
-      );
+      const final = finalCheckInput
+        ? await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), finalCheckInput)
+        : await runFinalCoverageSelfCheck(
+            clientFor(`generation:selfCheck:${section}`),
+            {
+              section,
+              text: finalText,
+              model: clientFor.modelFor(`generation:selfCheck:${section}`),
+              planChecks: claim.planChecks,
+              planChecksBlock: claim.planChecksBlock,
+              editedTerms: claim.editedTerms,
+              ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
+              ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
+              ...(sourceFacts !== undefined ? { sourceFacts } : {}),
+            }
+          );
       finalCoverage = {
         ok: true,
         verdicts: withLeaveOutFigureNotes(
@@ -1611,6 +1632,7 @@ export async function draftCheckedSection(input: {
         ),
       };
       if (feedbackTerms.length > 0) governedFinal = { ok: true, verdicts: final.verdicts };
+      if (finalCheckInput) finalOrdinary = { ok: true, verdicts: final.verdicts };
     } catch (error) {
       // Stored beside modelCheckDetail with the same diagnostic: the clause,
       // positions, byte counts and app-supplied ids, never model text.
@@ -1621,6 +1643,18 @@ export async function draftCheckedSection(input: {
       );
       finalCoverage = { ok: false, reason, detail };
       if (feedbackTerms.length > 0) governedFinal = { ok: false };
+      if (finalCheckInput) finalOrdinary = { ok: false, reason };
+    }
+  } else if (finalCheckInput) {
+    try {
+      const final = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), finalCheckInput);
+      finalOrdinary = { ok: true, verdicts: final.verdicts };
+    } catch (error) {
+      const reason = normalizeProviderError(error).code;
+      console.warn(
+        `generation:selfCheck:${section}: Self-check of the final text failed (${reason}): ${selfCheckFailureDiagnostic(error)}`
+      );
+      finalOrdinary = { ok: false, reason };
     }
   }
 
@@ -1664,6 +1698,7 @@ export async function draftCheckedSection(input: {
       after = null;
       finalCoverage = undefined;
       governedFinal = undefined;
+      finalOrdinary = undefined;
     }
   }
 
@@ -1705,6 +1740,7 @@ export async function draftCheckedSection(input: {
       after = null;
       finalCoverage = undefined;
       governedFinal = undefined;
+      finalOrdinary = undefined;
     }
   }
 
@@ -1743,6 +1779,7 @@ export async function draftCheckedSection(input: {
     ...(feedbackTerms.length > 0 ? { governed: feedbackTerms } : {}),
     ...(governedFinal ? { governedFinal } : {}),
     ...(payload.writerFlavor ? { writerInstructions: payload.writerFlavor } : {}),
+    ...(finalOrdinary ? { finalVerdicts: finalOrdinary } : {}),
   });
   const rows = [...baseRows];
   let planRows: ComplianceNoteDraft[] = [];

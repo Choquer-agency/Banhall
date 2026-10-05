@@ -17,6 +17,7 @@ import {
   truncationNotice,
 } from "../ai/trustedContext";
 import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../shared/humanProse";
+import { chooseSettingsSource } from "./settingsDocument";
 
 export const CLAIM_EXCLUSION_REASONS = [
   "business_risk",
@@ -156,6 +157,32 @@ export const BRIEF_SCHEMA: Anthropic.Tool.InputSchema = {
 const BRIEF_TASK_GUIDANCE =
   "Derive the Generation Brief from the evidence below. Every quote you give must be an exact, verbatim substring of one of these blocks.";
 
+/**
+ * 2026-10-04 (first, round 2, owner approved 2026-10-05): the writer's
+ * wording rule for the Brief. Release suite run of 2026-10-04 (second run):
+ * the Storyline still said "substrate temperature", "pinholes", "edge DFT",
+ * "bake window" and "edge wrap" though the settings document in Writer's
+ * Notes bans them. Sent after the task line only when the evidence holds a
+ * settings document an internal uploader supplied (chooseSettingsSource,
+ * the Writer Profile's own rule and trust floor) and its block is in the
+ * message. The request is built from the frozen sources alone, so the
+ * Brief preparation key, which hashes this message, and the reuse hash
+ * (briefInputsHash, marked with `version`) follow it.
+ */
+export const BRIEF_WRITER_WORDING = {
+  version: 1,
+  prefix: "\n\nThe block [SOURCE_KIND=project_document] [",
+  suffix:
+    "] is the writer's settings document. In the Storyline, the text of each claim, Claim Exclusion and Confidence Map entry, and the Glossary Terms, use the exact terms it gives for things and never a word or phrase it bans or says not to use, even where other evidence uses it. Quotes stay exact, verbatim substrings of the evidence.",
+} as const;
+
+/** The frozen source the Brief's wording rule names, or null. */
+export function briefSettingsSource<Source extends Pick<Doc<"generationSources">, "label" | "content" | "kind"> & { uploaderRole?: string }>(
+  sources: readonly Source[]
+): Source | null {
+  return chooseSettingsSource(sources)?.source ?? null;
+}
+
 /** AD-11 delimited data blocks: one per frozen evidence source. Never
  * includes a writer-supplied Storyline: that source is context for the
  * writer, not evidence to derive Claim Exclusions/Confidence Map/Glossary
@@ -164,10 +191,14 @@ export function buildBriefUserMessage(
   sources: Array<
     Pick<Doc<"generationSources">, "label" | "content" | "kind"> & {
       transcriptId?: Id<"transcripts">;
+      /** 2026-10-04 (first, round 2): the trust floor of the wording rule. */
+      uploaderRole?: string;
     }
   >,
   budget: { totalTokens: number; perSourceTokens: number } = BRIEF_INPUT_BUDGET
 ): string {
+  const settings = briefSettingsSource(sources);
+  let settingsSent = false;
   // Digest mode means digests: a transcript with a frozen digest is read
   // through the digest only, never both. 2026-09-24 (transcript method):
   // with a fact pack for every transcript, the packs take their places.
@@ -193,6 +224,7 @@ export function buildBriefUserMessage(
       continue;
     }
     remaining -= kept.length;
+    if (s === settings) settingsSent = true;
     blocks.push(
       block(
         kept.length < s.content.length
@@ -202,6 +234,9 @@ export function buildBriefUserMessage(
     );
   }
   if (omitted > 0) blocks.push(briefOmittedSourcesNotice(omitted));
-  return `${BRIEF_TASK_GUIDANCE}\n\n${blocks.join("\n\n")}`;
+  const wording = settings && settingsSent
+    ? `${BRIEF_WRITER_WORDING.prefix}${settings.label.toUpperCase()}${BRIEF_WRITER_WORDING.suffix}`
+    : "";
+  return `${BRIEF_TASK_GUIDANCE}${wording}\n\n${blocks.join("\n\n")}`;
 }
 

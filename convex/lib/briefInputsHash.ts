@@ -2,6 +2,7 @@ import { sha256 } from "./contracts";
 import type { Doc } from "../_generated/dataModel";
 import { readsFactPacks } from "./seedFacts";
 import { FACTS_VERSION } from "./transcriptFacts";
+import { BRIEF_WRITER_WORDING, briefSettingsSource } from "./briefRequest";
 
 /**
  * Compute the input hash for a Brief, using the contentHash of every frozen
@@ -45,7 +46,12 @@ export async function briefInputsHash(
   // Concatenate all content hashes
   const concatenated =
     sorted.map((s) => s.contentHash).join("|") +
-    (readsFactPacks(sources) ? `|facts:${FACTS_VERSION}` : "");
+    (readsFactPacks(sources) ? `|facts:${FACTS_VERSION}` : "") +
+    // 2026-10-04 (first, round 2): a Brief that read the writer's wording
+    // rule is never reused for one that did not, nor the other way round,
+    // even for the same content (a client's copy of the document has no
+    // rule). Without such a document the hash is exactly what it was.
+    (briefSettingsSource(relevantSources) ? `|writerWording:${BRIEF_WRITER_WORDING.version}` : "");
 
   // Return the hash of the concatenated hashes
   return await sha256(concatenated);

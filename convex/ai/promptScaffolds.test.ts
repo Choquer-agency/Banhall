@@ -7,6 +7,7 @@ import {
   BRIEF_REQUEST,
   BRIEF_SCHEMA,
   BRIEF_SYSTEM_PROMPT,
+  BRIEF_WRITER_WORDING,
 } from "./brief";
 import {
   ANALYSIS_TOOL_SCHEMA,
@@ -258,6 +259,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       factModeCitations: "quote-located-in-a-verified-fact-span-on-the-transcript-row",
       contextBudget: BRIEF_INPUT_BUDGET,
       omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
+      // 2026-10-04 (first, round 2): the writer's wording rule, sent only
+      // with a settings document an internal uploader supplied.
+      writerWording: BRIEF_WRITER_WORDING,
       schema: BRIEF_SCHEMA,
       // Owner decision 43: the frozen planning model; the selected model before step routing.
       model: {

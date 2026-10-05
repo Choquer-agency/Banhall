@@ -117,6 +117,7 @@ export {
   BRIEF_REQUEST,
   BRIEF_SCHEMA,
   BRIEF_SYSTEM_PROMPT,
+  BRIEF_WRITER_WORDING,
   briefOmittedSourcesNotice,
   buildBriefUserMessage,
 } from "../lib/briefRequest";
