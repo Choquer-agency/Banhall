@@ -124,6 +124,7 @@ import {
   type SummaryPlanRuleId,
 } from "../lib/seedRevisions";
 import { sectionParagraphs } from "../lib/tiptapReport";
+import { neutralizeMarkers } from "./trustedContext";
 import { droppedUncertaintyFigures, figuresOf, LEAVE_OUT_FIGURE_NOTE_PREFIX } from "../../shared/planFigures";
 import { isNearCopy } from "../lib/droppedUncertainties";
 import { forwardOrderedPayload } from "../lib/orderedPayloadStore";
@@ -194,8 +195,11 @@ export function repairGuidanceBlock(
     editedTerms.length > 0
       ? `${scaffold.exactTermsPrefix}${quotedTerms(editedTerms)}${scaffold.exactTermsSuffix}`
       : "";
+  // Round 2 re-check (P2): an issue can carry model-written words (a facts
+  // finding's quotes and correction, a check's guidance), so none can open
+  // or close a block. Bytes are unchanged unless an issue holds a marker.
   return `${scaffold.prefix}${issues
-    .map((issue) => `${scaffold.issuePrefix}${issue}`)
+    .map((issue) => `${scaffold.issuePrefix}${neutralizeMarkers(issue)}`)
     .join(scaffold.issueSeparator)}${terms}${writerDecisions ? scaffold.writerDecisions : ""}${
     governedInIdea ? scaffold.governedRename : ""
   }${scaffold.draftPrefix}${draft}`;
