@@ -27,13 +27,29 @@ export const MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES = 64;
 export const MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES = 64;
 export const MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES = 96;
 /**
- * 2026-10-04 (second, review round 1, P2-2): the facts check's repairGuidance
- * lists every correction in the Line, so its verdict reserves four ordinary
- * guidances. Sign-off and runtime admission count it in the worst-case
- * response, and a request with the facts check allows it in its tool schema.
+ * 2026-10-04 (second, round 2, owner approved 2026-10-05): a not applied
+ * facts verdict carries its evidence, up to this many findings, each with
+ * the paragraph, the draft's words at issue, the source words that differ
+ * and the correction. Code verifies both quotes before a finding is shown or
+ * repaired. Sign-off and runtime admission reserve every finding at these
+ * limits in the worst-case response (they replace review round 1's longer
+ * repairGuidance, which listed the corrections without evidence).
  */
-export const MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES =
-  4 * MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES;
+export const MAX_FACTS_FINDINGS = 3;
+export const MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES = 128;
+export const MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES = 240;
+export const MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES = 128;
+/**
+ * 2026-10-04 (second, round 2): the frozen source documents (transcripts and
+ * project documents) the facts check reads in full when together they fit
+ * this many UTF-8 bytes, about 12,000 tokens; beyond it, none, and the check
+ * reads the signed-off items' quotes and the analysis. The 2026-10-04
+ * fixture's sources are 20,524 bytes (an interview of about 2,400 words, a
+ * trial summary and a settings document), and an interview of about 30 to 40
+ * minutes fits; a one-hour transcript (50,000 to 80,000 bytes) does not, so
+ * the per-call input stays bounded.
+ */
+export const SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES = 48_000;
 export const MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES = 96;
 export const MAX_SUMMARY_SELF_CHECK_PARAGRAPH = 9_999_999_999;
 
@@ -601,7 +617,12 @@ export function projectSummarySelfCheckWorstCaseResponse(
     reason,
     repairGuidance,
   }));
-  const factsGuidance = repeated(MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES, "g");
+  const factsFindings = Array.from({ length: MAX_FACTS_FINDINGS }, () => ({
+    correction: repeated(MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES, "c"),
+    draftQuote: repeated(MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES, "d"),
+    paragraph: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
+    sourceQuote: repeated(MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES, "s"),
+  }));
   const planVerdicts = args.planChecks.map((check) => ({
     ...(check.droppedSeedId ? { droppedSeedId: check.droppedSeedId } : {}),
     ...(check.itemId ? { itemId: check.itemId } : {}),
@@ -609,7 +630,8 @@ export function projectSummarySelfCheckWorstCaseResponse(
     outcome: "not_applied",
     paragraph: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
     reason,
-    repairGuidance: check.ruleId === FACTS_MATCH_SOURCES_RULE_ID ? factsGuidance : repairGuidance,
+    repairGuidance,
+    ...(check.ruleId === FACTS_MATCH_SOURCES_RULE_ID ? { findings: factsFindings } : {}),
     ...(check.ruleId ? { ruleId: check.ruleId } : {}),
     ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
   }));

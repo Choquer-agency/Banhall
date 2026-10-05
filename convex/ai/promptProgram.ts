@@ -98,6 +98,7 @@ import {
   SELF_CHECK_SCHEMA,
   SEED_PROMPT_PROGRAM,
   SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
+  SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
   STYLE_GUIDANCE_SCAFFOLDS,
@@ -105,12 +106,17 @@ import {
 import {
   FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
   FROZEN_SUMMARY_PLAN_SCAFFOLD,
+  MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES,
+  MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+  MAX_FACTS_FINDINGS,
+  MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_ORDINARY_VERDICTS,
   MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
   MAX_SUMMARY_PLAN_VERDICTS,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
   SUMMARY_PLAN_SERIALIZER_VERSION,
+  SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES,
 } from "../lib/seedRevisions";
 import { CANDIDATE_MODE_ROUTING } from "./model";
 import {
@@ -747,6 +753,21 @@ export const generationPromptProgram = {
         // the first request, its follow-up and the check of the final text;
         // honoured by absence, repaired and judged again on the final text.
         factsMatchSources: "every-line-plan-check-with-source-facts-block-honoured-by-absence-judged-again-on-final-text",
+        // Round 2 (owner approved 2026-10-05): a not applied facts verdict
+        // carries findings (paragraph, draft quote, source quote, correction);
+        // only findings whose quotes verify are shown and repaired, the rest
+        // are not checked. The source documents are read in full within
+        // SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES, and the product's own wording
+        // proves no detail alone.
+        factsFindings: "verified-quotes-only-shown-and-repaired-unverified-not-checked-source-documents-within-budget",
+        factsFindingsSchema: SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
+        factsCapacity: {
+          maxFindings: MAX_FACTS_FINDINGS,
+          draftQuoteBytes: MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+          sourceQuoteBytes: MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
+          correctionBytes: MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES,
+          sourceDocumentsBytes: SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES,
+        },
       },
     },
     // Story 2 (CAP-9): the repair is the section agent itself, re-run once

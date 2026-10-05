@@ -202,6 +202,10 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
     expect(FACT_RULES.hedge).toBe(
       'A hedge in the sources ("typically", "and/or", "may", "suspected") stays a hedge, and an example ("such as") stays an example: stating a hedge as firm, or an example as the whole case, adds a detail the sources do not give.'
     );
+    // Round 2 (owner approved 2026-10-05): run 4 wrote "only some panels met it" where most did.
+    expect(FACT_RULES.proportion).toBe(
+      'A proportion keeps its strength: "most" stays "most", "some" or "a few" never stands for "most", and a share given as a number keeps that number or a word that matches it (80 percent is "most", never "some"). Understating or overstating a proportion is a wrong figure.'
+    );
     expect(FACT_RULES.allowed).toBe(
       "Rounding, the same figure in another unit or form, plain arithmetic on the sources' own numbers and plain-language wording are fine."
     );

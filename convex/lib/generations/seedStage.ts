@@ -40,6 +40,7 @@ import {
   ANSWERS_242_WORST_CASE_REFERENCE,
   line242PlanItems,
   line246PlanItems,
+  SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES,
   type FrozenDroppedUncertainty,
   type FrozenSummaryPlanInstruction,
   type SummaryPlanRuleId,
@@ -1086,6 +1087,13 @@ export async function loadFrozenSectionPlan(
    * reads which figures the plan uses. Never sent to a model.
    */
   planWording: string[][];
+  /**
+   * 2026-10-04 (second, round 2): every signed-off item (skipped steps
+   * aside), whatever its Line: its wording, whether the writer wrote it
+   * (writer_asserted: edited, or from the writer's notes) and its own quotes,
+   * for the facts check's SOURCE FACTS block.
+   */
+  planItemSources: Array<{ wording: string[]; writer: boolean; quotes: string[] }>;
 }> {
   if (!generation.summaryVersionId) {
     return {
@@ -1100,6 +1108,7 @@ export async function loadFrozenSectionPlan(
       answers242: null,
       workAnswers242: null,
       planWording: [],
+      planItemSources: [],
     };
   }
   const summary = await ctx.db.get(generation.summaryVersionId);
@@ -1233,6 +1242,13 @@ export async function loadFrozenSectionPlan(
     planWording: items
       .filter((item) => !summary.skippedRoleIds.includes(item.roleId))
       .map((item) => [...item.bullets]),
+    planItemSources: items
+      .filter((item) => !summary.skippedRoleIds.includes(item.roleId))
+      .map((item) => ({
+        wording: [...item.bullets],
+        writer: item.support === "writer_asserted",
+        quotes: (sourceRefsByItemId.get(item._id) ?? []).map((reference) => reference.exactExcerpt),
+      })),
     planBlock: `\n\n${plan.block}`,
     planChecksBlock: plan.checksBlock,
     planChecks: plan.checks.map((check) => ({
@@ -1254,6 +1270,35 @@ export async function loadFrozenSectionPlan(
         : {}),
     })),
   };
+}
+
+/**
+ * 2026-10-04 (second, round 2, owner approved 2026-10-05): the frozen source
+ * documents (transcripts and project documents, in the order frozen) the
+ * facts check reads in full, when together they fit
+ * SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES; otherwise none, with the bytes read
+ * before the budget ran out. Reading stops there, so a claim reads at most
+ * the budget and one row more.
+ */
+export async function loadFactsSourceDocuments(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">
+): Promise<
+  | { included: true; documents: Array<{ label: string; content: string }> }
+  | { included: false; bytes: number; budget: number }
+> {
+  const budget = SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES;
+  const documents: Array<{ label: string; content: string }> = [];
+  let bytes = 0;
+  for await (const row of ctx.db
+    .query("generationSources")
+    .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))) {
+    if (row.kind !== "transcript" && row.kind !== "project_document") continue;
+    bytes += new TextEncoder().encode(row.content).byteLength;
+    if (bytes > budget) return { included: false, bytes, budget };
+    documents.push({ label: row.label, content: row.content });
+  }
+  return { included: true, documents };
 }
 
 /**

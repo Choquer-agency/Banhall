@@ -15,7 +15,10 @@ import {
   MAX_SUMMARY_ORDINARY_VERDICTS,
   MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
   MAX_SUMMARY_PLAN_VERDICTS,
-  MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES,
+  MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES,
+  MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+  MAX_FACTS_FINDINGS,
+  MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   SeedContextLimitError,
   assertSummaryPlanCheckInputWithinLimit,
@@ -1698,22 +1701,25 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
     expect(line242.checks.at(-1)).toEqual(facts("s242"));
   });
 
-  it("counts the facts verdict in the worst-case response with its longer guidance (review round 1, P2-2)", () => {
-    expect(MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES).toBe(384);
+  it("counts the facts verdict in the worst-case response with three findings at their limits (round 2)", () => {
+    expect([MAX_FACTS_FINDINGS, MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES, MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES, MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES])
+      .toEqual([3, 128, 240, 128]);
     const ordinary = projectSummaryOrdinaryChecks({ storylineText: "Storyline", confidenceMap: [], glossaryTerms: [], rules: [] });
     for (const section of ["s242", "s244", "s246"] as const) {
       const plan = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [] });
       const envelope = (checks: FrozenSummaryPlanCheck[]) =>
         projectSummarySelfCheckWorstCaseResponse({ ordinaryChecks: ordinary, planChecks: checks, includeStorylineQuestion: false });
+      const finding = { correction: "c".repeat(128), draftQuote: "d".repeat(128), paragraph: 9_999_999_999, sourceQuote: "s".repeat(240) };
       const verdict = JSON.stringify({
+        findings: [finding, finding, finding],
         mergedItemIds: [],
         outcome: "not_applied",
         paragraph: 9_999_999_999,
         reason: "r".repeat(64),
-        // Review round 1, P2-2: four ordinary guidances, for every correction.
-        repairGuidance: "g".repeat(MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES),
+        repairGuidance: "g".repeat(96),
         ruleId: FACTS_MATCH_SOURCES_RULE_ID,
       });
+      expect(bytes(verdict) + 1).toBe(2_014);
       expect(bytes(envelope([...plan.checks, facts(section)])) - bytes(envelope(plan.checks))).toBe(bytes(verdict) + 1);
       expect(envelope([...plan.checks, facts(section)])).toContain(verdict);
     }
