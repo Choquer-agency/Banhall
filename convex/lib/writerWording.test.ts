@@ -411,8 +411,25 @@ describe("the settle reads a verdict as applied only when it names nothing code 
       unread: unreadWritingRules(text),
     })[0]!;
 
-  it("the fixture's settings leave no word ban or opening unread (its first-person ban names pronouns, a kind the settle never settles)", () => {
-    expect(context.unread).toEqual({ wordBans: false, openings: false });
+  it("the fixture's settings leave no word ban or opening unread; its first-person ban is returned by its pronouns", () => {
+    expect(context.unread).toEqual({ wordBans: false, openings: false, pronouns: ["we", "our", "ours", "us", "ourselves"] });
+  });
+
+  // Coordinator decision: the pronoun-only ban counts as accounted for only
+  // while the Line holds no first-person pronoun.
+  it("settles run 6's \"P2-4 use banned...\" with no pronoun in the Line, and keeps it with \"we\"", () => {
+    const remark = "P2-4 use banned words from the settings document.";
+    expect(settle(remark)).toMatchObject({ outcome: "applied" });
+    const withWe = KEPT_242.replace("It was not known at the outset whether", "It was not known at the outset whether we could tell whether");
+    const [kept] = settleWriterSettingsVerdicts([verdict(remark)], check("242", withWe), SETTINGS_TEXT, context);
+    expect(kept).toMatchObject({ outcome: "not_applied", reason: remark });
+    // "US" as a country name is no pronoun only by case: it is read as one,
+    // so the verdict stays the model's (the safe side).
+    const [us] = settleWriterSettingsVerdicts([verdict(remark)], check("242", `${KEPT_242} The US customers took part.`), SETTINGS_TEXT, context);
+    expect(us).toMatchObject({ outcome: "not_applied" });
+    // An opener remark is not about bans: it still settles with "we" there.
+    const [opener] = settleWriterSettingsVerdicts([verdict("P1 opener differs")], check("242", withWe), SETTINGS_TEXT, context);
+    expect(opener).toMatchObject({ outcome: "applied" });
   });
 
   it.each([
@@ -438,7 +455,7 @@ describe("the settle reads a verdict as applied only when it names nothing code 
 
   it("keeps a vague banned-word remark when the settings hold a word ban the extractor left unread", () => {
     const prose = `${SETTINGS_TEXT}\n\nAlso, never use the word novel in any Line.`;
-    expect(unreadWritingRules(prose)).toEqual({ wordBans: true, openings: false });
+    expect(unreadWritingRules(prose)).toMatchObject({ wordBans: true, openings: false });
     expect(settle("P2-4 use banned words from the settings document.", prose)).toMatchObject({ outcome: "not_applied" });
     // An opener remark is still settled: no opening was left unread.
     expect(settle("P1 opener differs", prose)).toMatchObject({ outcome: "applied" });

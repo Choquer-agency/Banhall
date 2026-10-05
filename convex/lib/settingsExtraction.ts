@@ -497,10 +497,12 @@ const OPENING_LIKE = /\b(?:open|begin|start)\w*\b[^.]*?\bwith\b[^.]*?["\u201c]/i
 /**
  * Round 5 follow-up (re-check P1-1 b): whether the settings hold a word ban
  * or an opening instruction the extractor did not read. A ban of
- * first-person pronouns only is no word ban here: a remark about it names
- * the pronoun, which the settle step reads as a kind code does not measure.
+ * first-person pronouns only is no word ban here; its pronouns are returned
+ * so the settle step counts it as accounted for only while the text holds
+ * none of them (we, our, ours, us, ourselves, and I, me, my, mine when the
+ * ban lists them).
  */
-export function unreadWritingRules(text: string): { wordBans: boolean; openings: boolean } {
+export function unreadWritingRules(text: string): { wordBans: boolean; openings: boolean; pronouns?: string[] } {
   const { rules, leads } = extractWriterWordingRulesWithLeads(text);
   const sources = new Set([
     ...rules.terms.map((rule) => rule.source),
@@ -510,6 +512,7 @@ export function unreadWritingRules(text: string): { wordBans: boolean; openings:
   ]);
   let wordBans = false;
   let openings = false;
+  const pronouns = new Set<string>();
   for (const raw of text.split(/\r?\n/)) {
     const body = raw.replace(/^\s*(?:[-*\u2022]|\d+[.)])\s+/, "").trim();
     if (!body || sources.has(body)) continue;
@@ -518,12 +521,15 @@ export function unreadWritingRules(text: string): { wordBans: boolean; openings:
       if (ban) {
         const items = ban[1]!.replace(OWN_SUFFIX, "").split(/\s*,\s*(?:or\s+|and\s+)?|\s+or\s+|\s+and\s+/i).map((item) => item.trim()).filter(Boolean);
         if (!items.every((item) => FIRST_PERSON_ONLY.test(item))) wordBans = true;
+        else for (const item of items) pronouns.add(item.toLowerCase());
       } else if (BAN_LIKE_WORDS.test(sentence)) {
         wordBans = true;
       }
       if (OPENING_LIKE.test(sentence)) openings = true;
     }
   }
-  return { wordBans, openings };
+  // A first-person ban counts as accounted for only while the text holds
+  // none of its pronouns (settleWriterSettingsVerdicts checks).
+  return { wordBans, openings, ...(pronouns.size > 0 ? { pronouns: [...pronouns] } : {}) };
 }
 

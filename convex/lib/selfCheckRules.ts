@@ -1088,7 +1088,7 @@ export function settleWriterSettingsVerdicts(
    * Re-check P1-1: the measured rules, and what of the settings the
    * extractor left to the model (a word ban or an opening it did not read).
    */
-  context: { rules?: WriterWordingRules; unread?: { wordBans: boolean; openings: boolean } } = {}
+  context: { rules?: WriterWordingRules; unread?: { wordBans: boolean; openings: boolean; pronouns?: readonly string[] } } = {}
 ): ModelVerdict[] {
   const rules = context.rules;
   const measuredPhrases = rules
@@ -1098,6 +1098,15 @@ export function settleWriterSettingsVerdicts(
         ...rules.openings.map((rule) => rule.opening),
       ]
     : [];
+  // Coordinator decision: a first-person-only ban counts as accounted for
+  // only while the Line holds none of its pronouns (we, our, ours, us,
+  // ourselves always; I, me, my, mine when the ban lists them).
+  const banned = context.unread?.pronouns ?? [];
+  const pronouns = banned.length > 0
+    ? [...new Set(["we", "our", "ours", "us", "ourselves", ...banned.filter((pronoun) => /^(?:i|me|my|mine)$/i.test(pronoun))])]
+    : [];
+  const lineText = check.paragraphs.join("\n\n");
+  const firstPersonUsed = pronouns.some((pronoun) => new RegExp(`(?<![\\p{L}\\p{N}'])${pronoun}(?![\\p{L}\\p{N}'])`, "iu").test(lineText));
   const isMeasuredPhrase = (phrase: string) =>
     measuredPhrases.some((own) => holdsPhrase(phrase, own) && wordCountOf(phrase) <= wordCountOf(own) + 1);
   const measured = check.entries.filter(
@@ -1123,7 +1132,7 @@ export function settleWriterSettingsVerdicts(
     // (a) every word or phrase it names is a measured rule's own.
     if (!namedPhrases(said).every(isMeasuredPhrase)) return whole;
     // (b) no rule of the kinds it names was left to the model.
-    if ((kinds.includes("banned") || kinds.includes("term")) && context.unread?.wordBans) return whole;
+    if ((kinds.includes("banned") || kinds.includes("term")) && (context.unread?.wordBans || firstPersonUsed)) return whole;
     if (kinds.includes("opening") && context.unread?.openings) return whole;
     const { repairGuidance: _guidance, repairText: _text, unclippedReason: _unclipped, ...rest } = verdict;
     return {
