@@ -48,11 +48,15 @@ import {
   wordBudget,
   GAP_MARKER_RE,
   LINE_LIMITS,
-  WORD_CAPS,
   CHARS_PER_LINE,
   type LengthTarget,
   type SectionKey,
 } from "../lib/lineLimits";
+import {
+  effectiveLineLimits,
+  writerCapText,
+  type WriterLineCap,
+} from "../lib/writerLineCap";
 import { sha256 } from "../lib/contracts";
 import {
   describeTranscriptInput,
@@ -112,9 +116,18 @@ export {
 export function lengthBudgetBlock(
   section: SectionKey,
   target: LengthTarget,
-  words: number = wordBudget(section, target)
+  words: number = wordBudget(section, target),
+  /**
+   * 2026-10-04 (first): the writer's cap below the Locked cap, stated as the
+   * writer's settings. Null or absent sends the block as before.
+   */
+  writerCap: WriterLineCap | null = null
 ): string {
   const lines = LINE_LIMITS[section];
+  if (writerCap) {
+    const scaffold = LENGTH_BUDGET_SCAFFOLD.writerCap;
+    return `${scaffold.prefix}${lines}${scaffold.linesToChars}${CHARS_PER_LINE}${scaffold.charsToWriterCap}${writerCapText(writerCap)}${scaffold.writerCapToWords}${words}${scaffold.suffix}`;
+  }
   return `${LENGTH_BUDGET_SCAFFOLD.prefix}${lines}${LENGTH_BUDGET_SCAFFOLD.linesToChars}${CHARS_PER_LINE}${LENGTH_BUDGET_SCAFFOLD.charsToWords}${words}${LENGTH_BUDGET_SCAFFOLD.suffix}`;
 }
 
@@ -125,22 +138,27 @@ export function lengthBudgetBlock(
  * its line limit (review P3-2) is also held to the words that fit its lines
  * at its current words per line, with the same headroom, so a section over
  * on lines alone is asked for fewer words than it has.
+ *
+ * 2026-10-04 (first): with a writer's cap below the Locked cap, the same
+ * rule aims under the writer's word cap and line cap instead.
  */
 export function compressionTargetWords(
   section: SectionKey,
   target: LengthTarget,
   squeeze = 1,
-  current?: { words: number; lines: number }
+  current?: { words: number; lines: number },
+  writerCap: WriterLineCap | null = null
 ): number {
+  const limits = effectiveLineLimits(section, writerCap);
   let words = Math.min(
     wordBudget(section, target),
-    Math.floor(WORD_CAPS[section] * COMPRESSION_REQUEST.capHeadroom)
+    Math.floor(limits.wordCap * COMPRESSION_REQUEST.capHeadroom)
   );
-  if (current && current.lines > LINE_LIMITS[section]) {
+  if (current && current.lines > limits.lineLimit) {
     words = Math.min(
       words,
       Math.floor(
-        ((current.words * LINE_LIMITS[section]) / current.lines) * COMPRESSION_REQUEST.capHeadroom
+        ((current.words * limits.lineLimit) / current.lines) * COMPRESSION_REQUEST.capHeadroom
       )
     );
   }
@@ -180,14 +198,25 @@ export async function compressSection(
   target: LengthTarget,
   squeeze = 1,
   mustKeep: readonly string[] = [],
-  exactTerms: readonly string[] = []
+  exactTerms: readonly string[] = [],
+  /** 2026-10-04 (first): aim under the writer's cap; null sends the request as before. */
+  writerCap: WriterLineCap | null = null
 ): Promise<string> {
   const m = sectionMetrics(text, section);
-  const words = compressionTargetWords(section, target, squeeze, m);
+  const words = compressionTargetWords(section, target, squeeze, m, writerCap);
   // 2026-09-28 (second, full suite): the request says how much to cut, not only where to
   // land. A Section over on lines alone is asked for fewer words than it has.
   const cut = Math.max(m.words - words, 1);
   const cutPercent = Math.max(Math.round((cut / Math.max(m.words, 1)) * 100), 1);
+  if (writerCap) {
+    const scaffold = COMPRESSION_REQUEST.writerCap.userScaffold;
+    return await requestCompression(
+      anthropic,
+      modelId,
+      text,
+      `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToWriterCap}${writerCapText(writerCap)}${scaffold.writerCapToTarget}${words}${scaffold.targetToCut}${cut}${scaffold.cutToPercent}${cutPercent}${scaffold.percentToText}${text}`
+    );
+  }
   const scaffold = COMPRESSION_REQUEST.userScaffold;
   return await requestCompression(
     anthropic,
@@ -201,17 +230,23 @@ export async function compressSection(
  * 2026-09-28 (fifth): the targeted pass's word target, `finalCut.capHeadroom`
  * of the Locked word cap (332 for Lines 242 and 246, 665 for Line 244), or of
  * the words that fit the Line's lines when it is over on lines.
+ *
+ * 2026-10-04 (first): with a writer's cap below the Locked cap, the same
+ * share of the writer's word cap, or of the words that fit the writer's
+ * line cap.
  */
 export function finalCutTargetWords(
   section: SectionKey,
-  current: { words: number; lines: number }
+  current: { words: number; lines: number },
+  writerCap: WriterLineCap | null = null
 ): number {
   const headroom = COMPRESSION_REQUEST.finalCut.capHeadroom;
-  let words = Math.floor(WORD_CAPS[section] * headroom);
-  if (current.lines > LINE_LIMITS[section]) {
+  const limits = effectiveLineLimits(section, writerCap);
+  let words = Math.floor(limits.wordCap * headroom);
+  if (current.lines > limits.lineLimit) {
     words = Math.min(
       words,
-      Math.floor(((current.words * LINE_LIMITS[section]) / current.lines) * headroom)
+      Math.floor(((current.words * limits.lineLimit) / current.lines) * headroom)
     );
   }
   return words;
@@ -239,11 +274,22 @@ async function finalCutSection(
   section: SectionKey,
   text: string,
   mustKeep: readonly string[],
-  exactTerms: readonly string[]
+  exactTerms: readonly string[],
+  /** 2026-10-04 (first): aim under the writer's cap; null aims under the Locked cap. */
+  writerCap: WriterLineCap | null = null
 ): Promise<string> {
   const m = sectionMetrics(text, section);
-  const words = finalCutTargetWords(section, m);
+  const words = finalCutTargetWords(section, m, writerCap);
   const cut = Math.max(m.words - words, 1);
+  if (writerCap) {
+    const scaffold = COMPRESSION_REQUEST.writerCap.finalCutScaffold;
+    return await requestCompression(
+      anthropic,
+      modelId,
+      text,
+      `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToWriterCap}${writerCapText(writerCap)}${scaffold.writerCapToCut}${cut}${scaffold.cutToTarget}${words}${scaffold.targetToText}${text}`
+    );
+  }
   const scaffold = COMPRESSION_REQUEST.finalCut.userScaffold;
   return await requestCompression(
     anthropic,
@@ -323,6 +369,48 @@ export function buildStyleGuidance(
 export function limitOverage(text: string, key: SectionKey): number {
   const metrics = sectionMetrics(text, key);
   return Math.max(metrics.words / metrics.wordCap, metrics.lines / metrics.limit);
+}
+
+/**
+ * 2026-10-04 (first): the metrics of `text` against the limits it must meet,
+ * the writer's cap where it is below the Locked cap: `overLimit` is over
+ * either, `wordCap` and `limit` are the writer's where set.
+ */
+function capMetrics(text: string, key: SectionKey, writerCap: WriterLineCap) {
+  const metrics = sectionMetrics(text, key);
+  const limits = effectiveLineLimits(key, writerCap);
+  return {
+    words: metrics.words,
+    lines: metrics.lines,
+    wordCap: limits.wordCap,
+    limit: limits.lineLimit,
+    overLimit: metrics.overLimit || metrics.words > limits.wordCap || metrics.lines > limits.lineLimit,
+  };
+}
+
+/**
+ * 2026-10-04 (first): whether a pass brought `out` closer to the limits
+ * than `best`. The Locked limits come first: a pass further over a Locked
+ * limit is never kept, and one closer to it always is; between texts
+ * equally placed against the Locked limits (both within them, most often),
+ * the one closer to the writer's cap is. With no writer's cap this is
+ * exactly the Locked rule.
+ */
+function closerToLimits(
+  out: string,
+  best: string,
+  key: SectionKey,
+  writerCap: WriterLineCap | null
+): boolean {
+  if (!writerCap) return limitOverage(out, key) < limitOverage(best, key);
+  const lockedOut = Math.max(1, limitOverage(out, key));
+  const lockedBest = Math.max(1, limitOverage(best, key));
+  if (lockedOut !== lockedBest) return lockedOut < lockedBest;
+  const writer = (text: string) => {
+    const metrics = capMetrics(text, key, writerCap);
+    return Math.max(metrics.words / metrics.wordCap, metrics.lines / metrics.limit);
+  };
+  return writer(out) < writer(best);
 }
 
 const NUMBER_RE = /\d+(?:[.,]\d+)*/g;
@@ -432,6 +520,16 @@ export type LimitFit = {
  * number of words cut (finalCutSection), measured and guarded like the
  * others; it is also not kept when it ends a paragraph mid-sentence. So a
  * call makes at most `squeezes.length + 1` requests.
+ *
+ * 2026-10-04 (first): with `writerCap` (the writer's whole-Line cap below
+ * the Locked cap, convex/lib/writerLineCap.ts), the passes also run while
+ * the text is over the writer's cap, and aim under it with the same
+ * headroom and the same content guards. The Locked limits come first: a
+ * pass further over a Locked limit is never kept (closerToLimits), and when
+ * the text is within reach of the Locked limits but not of the writer's
+ * cap, the targeted pass aims at the Locked limits as before. Nothing is
+ * cut to fit the writer's cap either. Without `writerCap` every request
+ * and every decision is as before.
  */
 export async function compressWithinLimit(
   anthropicFor: (callSite: string) => GenerationClient,
@@ -442,8 +540,9 @@ export async function compressWithinLimit(
   styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES,
   mustKeep: readonly string[] = [],
   exactTerms: readonly string[] = [],
-  options: { finalCut?: boolean } = {}
+  options: { finalCut?: boolean; writerCap?: WriterLineCap | null } = {}
 ): Promise<LimitFit> {
+  const writerCap = options.writerCap ?? null;
   let best = text;
   let passes = 0;
   const callSite = `generation:compression:${key.slice(1)}`;
@@ -453,7 +552,7 @@ export async function compressWithinLimit(
     // PSOS-49: a bannedWords waiver exempts this writer from the scrub;
     // re-scrubbing here would sneak the house vocabulary back in.
     const out = scrubBannedWordsUnlessWaived(compressed, styleOverrides.bannedWords);
-    if (!out.trim() || limitOverage(out, key) >= limitOverage(best, key)) return;
+    if (!out.trim() || !closerToLimits(out, best, key, writerCap)) return;
     const loss =
       compressionLoss(best, out, key, targetWords, mustKeep, exactTerms) ??
       (finalCut ? endedMidSentence(best, out) : null);
@@ -463,9 +562,12 @@ export async function compressWithinLimit(
     }
     best = out;
   };
+  // Over a Locked limit, or over the writer's cap where one is set.
+  const over = (value: string) =>
+    writerCap ? capMetrics(value, key, writerCap).overLimit : sectionMetrics(value, key).overLimit;
   for (const squeeze of COMPRESSION_REQUEST.squeezes) {
     const metrics = sectionMetrics(best, key);
-    if (!metrics.overLimit) break;
+    if (!over(best)) break;
     let compressed: string;
     try {
       passes += 1;
@@ -477,23 +579,33 @@ export async function compressWithinLimit(
         lengthTarget,
         squeeze,
         mustKeep,
-        exactTerms
+        exactTerms,
+        writerCap
       );
     } catch (error) {
       return { text: best, passes, overLimit: metrics.overLimit, error };
     }
-    keep(compressed, compressionTargetWords(key, lengthTarget, squeeze, metrics), false);
+    keep(compressed, compressionTargetWords(key, lengthTarget, squeeze, metrics, writerCap), false);
   }
   const metrics = sectionMetrics(best, key);
-  if (options.finalCut && withinFinalCutReach(metrics)) {
+  // The targeted pass aims at the writer's cap when the text is within its
+  // reach, else at the Locked limits when within theirs (undefined: none).
+  const aim: WriterLineCap | null | undefined = !options.finalCut
+    ? undefined
+    : writerCap && withinFinalCutReach(capMetrics(best, key, writerCap))
+      ? writerCap
+      : withinFinalCutReach(metrics)
+        ? null
+        : undefined;
+  if (aim !== undefined) {
     let compressed: string;
     try {
       passes += 1;
-      compressed = await finalCutSection(anthropicFor(callSite), modelId, key, best, mustKeep, exactTerms);
+      compressed = await finalCutSection(anthropicFor(callSite), modelId, key, best, mustKeep, exactTerms, aim);
     } catch (error) {
-      return { text: best, passes, overLimit: true, error };
+      return { text: best, passes, overLimit: metrics.overLimit, error };
     }
-    keep(compressed, finalCutTargetWords(key, metrics), true);
+    keep(compressed, finalCutTargetWords(key, metrics, aim), true);
   }
   return { text: best, passes, overLimit: sectionMetrics(best, key).overLimit };
 }

@@ -24,7 +24,7 @@ import {
 } from "./seedStartup.fixture";
 import { DRAFTING_INPUTS_LEASE_MS } from "./lib/generations/draftingInputs";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
-import { SEED_QUOTE_RULES } from "./ai/promptDefinitions";
+import { SEED_PROMPT_PROGRAM, SEED_QUOTE_RULES } from "./ai/promptDefinitions";
 import { withPinnedAdvancementLinkRules, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { ActionTimeBudgetError } from "./ai/actionDeadline";
 import { decisionFixture } from "./seedDecision.fixture";
@@ -313,9 +313,18 @@ async function requestHashes(
     // The Seed quote rules (2026-09-27, third amendment) are the only bytes
     // the seed request gained since the pins; they are taken out here.
     // The link sentence changed on 2026-09-28 (fourth); the pins hold the old one.
+    // 2026-10-04 (first): this fixture's saved Writer Profile applies, so its
+    // Seed request also carries the writer wording rule after the guidance,
+    // checked here and then taken out exactly.
+    let json = JSON.stringify(withSharedSeedToolOnly(body));
+    if (name === "submit_seed_batch") {
+      const wording = JSON.stringify(SEED_PROMPT_PROGRAM.user.writerWording).slice(1, -1);
+      expect(json.split(wording)).toHaveLength(2);
+      json = json.replace(wording, "");
+    }
     firstByTool.set(
       name,
-      maskIds(withPinnedAdvancementLinkRules(JSON.stringify(withSharedSeedToolOnly(body))).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
+      maskIds(withPinnedAdvancementLinkRules(json).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
     );
   }
   const result: Record<string, string> = {};

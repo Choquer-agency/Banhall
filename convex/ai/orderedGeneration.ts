@@ -72,6 +72,12 @@ import {
   type SectionKey,
 } from "../lib/lineLimits";
 import {
+  lineDraftWordTarget,
+  writerCapText,
+  writerLineCap,
+  type WriterLineCap,
+} from "../lib/writerLineCap";
+import {
   orderedPayloadValidator,
   sectionKeyOf,
   sectionNumberValidator,
@@ -327,7 +333,20 @@ export function repairDroppedTermReason(term: string): string {
  * so the drafter reads it after "Cover every COVER item"; since the full
  * release suite it asks for the draft target, well under the cap.
  */
-export function planLengthBudgetBlock(section: SectionKey, target: LengthTarget): string {
+export function planLengthBudgetBlock(
+  section: SectionKey,
+  target: LengthTarget,
+  /**
+   * 2026-10-04 (first): the writer's whole-Line cap below the Locked cap.
+   * The block then states the Locked cap, the writer's cap as the writer's
+   * settings, and the target under it. Null or absent: as before.
+   */
+  writerCap: WriterLineCap | null = null
+): string {
+  if (writerCap) {
+    const scaffold = ORDERED_PROMPT_SCAFFOLDS.planLengthBudgetWriterCap;
+    return `${scaffold.prefix}${WORD_CAPS[section]}${scaffold.wordCapToLines}${LINE_LIMITS[section]}${scaffold.linesToWriterCap}${writerCapText(writerCap)}${scaffold.writerCapToBudget}${lineDraftWordTarget(section, target, writerCap)}${scaffold.suffix}`;
+  }
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.planLengthBudget;
   return `${scaffold.prefix}${WORD_CAPS[section]}${scaffold.wordCapToLines}${LINE_LIMITS[section]}${scaffold.linesToBudget}${draftWordTarget(section, target)}${scaffold.suffix}`;
 }
@@ -1090,6 +1109,10 @@ export async function draftCheckedSection(input: {
   // it than the other text, which must never be traded back for it.
   const overLimitMore = (checked: string, other: string) =>
     sectionMetrics(checked, key).overLimit && limitOverage(checked, key) > limitOverage(other, key);
+  // 2026-10-04 (first): the writer's whole-Line cap below the Locked cap
+  // (null without one). The draft, its repair and every shortening pass aim
+  // under it; the Self-check measures the same rules (writerLineCap.ts).
+  const writerCap = writerLineCap(section, payload.orderedContext.selfCheckRules);
   const draftWith = async (callSite: string, extraGuidance = "") =>
     scrubBannedWordsUnlessWaived(
       await agent(
@@ -1097,14 +1120,15 @@ export async function draftCheckedSection(input: {
         analysis,
         claim.model,
         payload.brainExemplars[key],
-        // 2026-09-28 (second, full suite): drafts and repairs aim well under the cap.
-        lengthBudgetBlock(key, lengthTarget, draftWordTarget(key, lengthTarget)),
+        // 2026-09-28 (second, full suite): drafts and repairs aim well under
+        // the cap; since 2026-10-04 (first), under the writer's cap too.
+        lengthBudgetBlock(key, lengthTarget, lineDraftWordTarget(key, lengthTarget, writerCap), writerCap),
         styleGuidance + extraGuidance,
         styleOverrides,
         // A signed-off plan run restates the Locked length last, after the
         // plan and the Brief (review P3-5).
         claim.planBlock
-          ? claim.briefBlock + reportFacts + decisions + answers242 + editedTermsBlock(claim.editedTerms) + planLengthBudgetBlock(key, lengthTarget)
+          ? claim.briefBlock + reportFacts + decisions + answers242 + editedTermsBlock(claim.editedTerms) + planLengthBudgetBlock(key, lengthTarget, writerCap)
           : claim.briefBlock,
         claim.planBlock
       ),
@@ -1139,7 +1163,7 @@ export async function draftCheckedSection(input: {
     styleOverrides,
     coverItems,
     claim.editedTerms,
-    { finalCut: true }
+    { finalCut: true, writerCap }
   );
   if (firstFit.error !== undefined) {
     if (firstFit.text === text) throw firstFit.error;
@@ -1195,6 +1219,10 @@ export async function draftCheckedSection(input: {
       glossaryCandidates: before.glossaryCandidates,
       writerInstructions: payload.writerFlavor,
       rules: before.modelRules,
+      // 2026-10-04 (first): told not to judge caps code measures.
+      ...(before.entries.some((entry) => entry.measuredCap?.kind === "writer")
+        ? { measuredCaps: true }
+        : {}),
       model: clientFor.modelFor(`generation:selfCheck:${section}`),
       planChecks: claim.planChecks,
       planChecksBlock: claim.planChecksBlock,
@@ -1352,7 +1380,7 @@ export async function draftCheckedSection(input: {
           styleOverrides,
           [...coverItems, ...fixes],
           claim.editedTerms,
-          { finalCut: true }
+          { finalCut: true, writerCap }
         );
         // CAP-13: a repair never removes a writer's edited term the checked
         // draft held (release suite run 4).
@@ -1582,6 +1610,7 @@ export async function draftCheckedSection(input: {
     },
     ...(feedbackTerms.length > 0 ? { governed: feedbackTerms } : {}),
     ...(governedFinal ? { governedFinal } : {}),
+    ...(payload.writerFlavor ? { writerInstructions: payload.writerFlavor } : {}),
   });
   const rows = [...baseRows];
   let planRows: ComplianceNoteDraft[] = [];

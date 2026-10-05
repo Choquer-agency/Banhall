@@ -3318,3 +3318,109 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
     expect(stored.map((seed) => seed.provenance[0].needsQuoteCheck ?? false)).toEqual([false, false, true]);
   });
 });
+
+// ─── 2026-10-04 (first): Seeds follow the writer's settings document ────────
+
+describe("Seeds follow the writer's settings document (2026-10-04, first)", () => {
+  // A shortened stand-in for the release suite fixture's settings document
+  // (fictional Velloway Panel Finishing, writer-settings-document).
+  const SETTINGS_TEXT = [
+    "# PD Writing Customized Settings",
+    "- cure window: the range of panel surface temperature that gives full cure. Never write bake window or oven window.",
+    "- outgassing defects: never write pinholes or blisters on their own.",
+    "Never use these words: successfully, optimize, breakthrough.",
+  ].join("\n");
+  const WRITER_GUIDANCE =
+    "\n\n## Writer's personal style preferences (lowest priority)\nThe requesting writer recorded these personal preferences.\n\n" + SETTINGS_TEXT;
+
+  async function attemptWith(
+    t: ReturnType<typeof convexTest<typeof schema.tables>>,
+    writer: { applied: boolean; clientDocument?: boolean }
+  ) {
+    const fixture = await seedAttempt(t);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(fixture.generationId, {
+        writerSettings: writer.applied
+          ? {
+              profileState: "applied",
+              source: "writer_notes",
+              fileName: "pd-writing-customized-settings.md",
+              matchesProfile: false,
+              savedProfileSuperseded: false,
+              waiverAnalysis: "analyzed",
+              truncated: false,
+            }
+          : {
+              profileState: "missing",
+              source: "none",
+              matchesProfile: false,
+              savedProfileSuperseded: false,
+              waiverAnalysis: "none",
+              truncated: false,
+            },
+      });
+      const style = await ctx.db
+        .query("generationArtifacts")
+        .withIndex("by_generationId_and_kind", (q) =>
+          q.eq("generationId", fixture.generationId).eq("kind", "brain_blocks"))
+        .unique();
+      if (!style) throw new Error("No frozen style");
+      await ctx.db.patch(style._id, {
+        content: JSON.stringify({
+          styleGuidance: writer.applied ? WRITER_GUIDANCE : "",
+          styleOverrides: { bannedWords: false },
+        }),
+      });
+      if (writer.clientDocument) {
+        // A client upload carries no uploaderRole, so it never becomes the
+        // Writer Profile (2026-09-11 trust floor): it is a source like any other.
+        await ctx.db.insert("generationSources", {
+          generationId: fixture.generationId,
+          projectId: fixture.projectId,
+          kind: "project_document",
+          label: "PD Writing Customized Settings.md",
+          content: SETTINGS_TEXT,
+          contentHash: "sha256:client-settings",
+          truncated: false,
+          originalLength: SETTINGS_TEXT.length,
+          capturedAt: Date.now(),
+        });
+      }
+    });
+    const requests: Array<Record<string, unknown>> = [];
+    stubSeedFetch(
+      vi.fn<typeof fetch>(async (input, init) => {
+        requests.push((await new Request(input, init).json()) as Record<string, unknown>);
+        return providerResponse({ seeds: validSeeds }, requests.length);
+      })
+    );
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+    expect(requests).toHaveLength(1);
+    const body = requests[0]!;
+    const blocks = (body.messages as Array<{ content: Array<{ text: string }> }>)[0]!.content;
+    return { user: requestText(blocks), cached: blocks[0]!.text, role: blocks[1]!.text };
+  }
+
+  it("asks Seeds to use the writer's terms and avoid the words it bans, in the cached part of the request", async () => {
+    const t = convexTest(schema, modules);
+    const sent = await attemptWith(t, { applied: true });
+    const wording = SEED_PROMPT_PROGRAM.user.writerWording;
+    expect(sent.user.split(wording)).toHaveLength(2);
+    expect(sent.cached).toContain(`${SEED_PROMPT_PROGRAM.user.guidance}${wording}`);
+    // The terms and banned words reach the request, in the settings block.
+    const settings = sent.role.slice(sent.role.indexOf("--- BEGIN [FROZEN WRITER PROFILE AND SETTINGS] ---"));
+    for (const words of ["cure window", "Never write bake window or oven window", "successfully, optimize, breakthrough"]) {
+      expect(settings).toContain(words);
+    }
+    expect(wording).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("adds nothing without a Writer Profile, and a client's settings document stays a source", async () => {
+    const t = convexTest(schema, modules);
+    const sent = await attemptWith(t, { applied: false, clientDocument: true });
+    expect(sent.user).not.toContain(SEED_PROMPT_PROGRAM.user.writerWording);
+    // The document is read only as a source excerpt, never as the settings.
+    expect(sent.cached).toContain("label=PD Writing Customized Settings.md");
+    expect(sent.role).not.toContain("Never write bake window");
+  });
+});

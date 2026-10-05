@@ -879,6 +879,10 @@ export const generationPromptProgram = {
       orderedDraftTarget: {
         capShare: DRAFT_WORD_CAP_SHARE,
         rounding: "floor",
+        // 2026-10-04 (first): a writer's whole-Line cap below the Locked cap
+        // (convex/lib/writerLineCap.ts) takes the same share, and the
+        // shortening passes aim under it, Locked limits first.
+        writerCap: "same-share-of-the-tightest-whole-line-writer-cap-clipped-to-the-locked-cap",
       },
     },
     transcripts: {

@@ -30,6 +30,7 @@ import {
   type GovernedTermState,
 } from "./writerPrecedence";
 import { findSourceTalk, SOURCE_TALK } from "../../shared/humanProse";
+import { capWithinLocked, ruleBearsOnLine } from "./writerLineCap";
 
 /**
  * Story 2 (CAP-9, AD-25): the deterministic half of a section's Self-check.
@@ -96,7 +97,38 @@ export type CheckEntry = {
   /** A repair of the prose can fix this failure. */
   repairable: boolean;
   guidance?: string;
+  /**
+   * 2026-10-04 (first): a cap code measured (the Locked cap, or a word or
+   * line cap of the writer's rules), so the rows the model writes can never
+   * vouch for it. In memory only.
+   */
+  measuredCap?: MeasuredCap;
+  /**
+   * 2026-10-04 (first): why a measured rule of the Writer Profile was not
+   * met, in a few words, for the Writer Profile row. In memory only.
+   */
+  profileRuleFailure?: string;
 };
+
+/** 2026-10-04 (first): one cap code measured on a Line. */
+export type MeasuredCap = {
+  kind: "locked" | "writer";
+  /** "Line 244", or "paragraph 2 of Line 244" for a paragraph's cap. */
+  scope: string;
+  /** A whole-Line cap: the shortening passes aim under the tightest one. */
+  wholeLine: boolean;
+  /** Each measure over its cap, such as "602/520 words"; empty when within. */
+  over: string[];
+  /** The cap itself, such as "520 words" or "350 words and 50 form lines". */
+  limits: string;
+  /** The writer's rule, word for word (writer caps only). */
+  instruction?: string;
+};
+
+/** "Line 244 is over the writer's cap at 602/520 words". */
+export function measuredCapPhrase(cap: MeasuredCap): string {
+  return `${cap.scope} is over ${cap.kind === "locked" ? "the Locked cap" : "the writer's cap"} at ${cap.over.join(" and ")}`;
+}
 
 export type DeterministicSelfCheck = {
   entries: CheckEntry[];
@@ -340,21 +372,35 @@ export function runDeterministicSelfCheck(input: {
     metrics.overLimit,
     `Shorten Line ${section} to at most ${lockedCap} (now ${metrics.words} words, ${metrics.lines} lines).`
   );
+  entries[entries.length - 1]!.measuredCap = {
+    kind: "locked",
+    scope: `Line ${section}`,
+    wholeLine: true,
+    over: [
+      ...(metrics.words > metrics.wordCap ? [`${metrics.words}/${metrics.wordCap} words`] : []),
+      ...(metrics.lines > metrics.limit ? [`${metrics.lines}/${metrics.limit} lines`] : []),
+    ],
+    limits: lockedCap,
+  };
 
   // Profile Self-check rules: capped rules are measured here, clipped to the
   // Locked caps; uncapped rules go to the model, quoted verbatim.
   const modelRules: DeterministicSelfCheck["modelRules"] = [];
   profile.selfCheckRules.forEach((rule, index) => {
-    if (rule.section !== undefined && rule.section !== section) return;
+    // 2026-10-04 (first): the same rule selection and Locked clipping as the
+    // writer's cap drafting and shortening aim under (writerLineCap.ts).
+    if (!ruleBearsOnLine(rule, section)) return;
     const paragraphScoped = rule.paragraphIndex !== undefined;
     if (paragraphScoped && (rule.paragraphIndex ?? 0) >= paragraphs.length) {
+      const missing = `paragraph ${(rule.paragraphIndex ?? 0) + 1} is not present in Line ${section}`;
       add(`rule:${index}`, {
         instruction: rule.instruction,
         paragraphIndex: rule.paragraphIndex,
         outcome: "not_applied",
         tier: "none",
-        reason: `paragraph ${(rule.paragraphIndex ?? 0) + 1} is not present in Line ${section}`,
+        reason: missing,
       });
+      entries[entries.length - 1]!.profileRuleFailure = missing;
       return;
     }
     if (rule.maxWords === undefined && rule.maxLines === undefined) {
@@ -368,6 +414,7 @@ export function runDeterministicSelfCheck(input: {
     const measured = sectionMetrics(scope, key);
     const parts: string[] = [];
     const limits: string[] = [];
+    const overParts: string[] = [];
     let over = false;
     let clipped = false;
     const measure = (
@@ -377,9 +424,12 @@ export function runDeterministicSelfCheck(input: {
       unit: string
     ) => {
       if (asked === undefined) return;
-      const effective = Math.min(asked, lockedLimit);
+      const effective = capWithinLocked(asked, lockedLimit);
       limits.push(`${effective} ${unit}`);
-      if (actual > effective) over = true;
+      if (actual > effective) {
+        over = true;
+        overParts.push(`${actual}/${effective} ${unit}`);
+      }
       if (asked > lockedLimit) {
         clipped = true;
         parts.push(
@@ -408,7 +458,37 @@ export function runDeterministicSelfCheck(input: {
       over,
       `Shorten ${scopeLabel} to at most ${limits.join(" and ")} (writer rule: "${rule.instruction}").`
     );
+    const cap: MeasuredCap = {
+      kind: "writer",
+      scope: scopeLabel,
+      wholeLine: !paragraphScoped,
+      over: overParts,
+      limits: limits.join(" and "),
+      instruction: rule.instruction,
+    };
+    entries[entries.length - 1]!.measuredCap = cap;
+    if (over) entries[entries.length - 1]!.profileRuleFailure = measuredCapPhrase(cap);
   });
+
+  // 2026-10-04 (first): the Writer Profile row says the profile was used to
+  // draft the Line; when a rule of it that code measures was not met, its
+  // reason says so, so it never reads as "every rule followed".
+  const profileFailures = entries.flatMap((entry) =>
+    entry.profileRuleFailure && entry.row.outcome === "not_applied" ? [entry.profileRuleFailure] : []
+  );
+  if (profile.profileState === "applied" && profileFailures.length > 0) {
+    const profileEntry = entries.find((entry) => entry.key === "profile");
+    if (profileEntry) {
+      profileEntry.row = noteDraft({
+        section,
+        source: "deterministic",
+        instruction: profileEntry.row.instruction,
+        outcome: profileEntry.row.outcome,
+        tier: profileEntry.row.tier,
+        reason: `${profileEntry.row.reason}. It was used to draft this Line, but not every rule it sets was met: ${joinedList(profileFailures)} (see ${profileFailures.length === 1 ? "that row" : "those rows"}).`,
+      });
+    }
+  }
 
   // Claim Exclusions: normalized substring of the entry text or its cited
   // excerpt; an empty exclusion is skipped, never matched against everything.
@@ -553,6 +633,79 @@ export function runDeterministicSelfCheck(input: {
   return { entries, glossaryCandidates, modelRules, paragraphs };
 }
 
+/**
+ * 2026-10-04 (first): what a Self-check reason says about length: a cap, a
+ * limit, a word or line count. Broad on purpose: where a measured cap was
+ * not met, a model reason that matches is left out, the safe direction.
+ */
+const LENGTH_TALK =
+  /\b(?:caps?|capped|limits?|length|word counts?|line counts?)\b|\b\d[\d,]*\s*(?:\/\s*\d[\d,]*\s*)?(?:words?|lines?)\b/i;
+
+/** 2026-10-04 (first): whether a reason talks about a cap, a limit or a count. */
+export function talksAboutLength(text: string): boolean {
+  return LENGTH_TALK.test(text);
+}
+
+/**
+ * 2026-10-04 (first, release suite alert 7): the guard on a model row for a
+ * writer instruction on a Line where code measured a cap as not met. The
+ * Self-check judged a whole settings document as one instruction and wrote
+ * "word cap ok" beside a measured cap row that was not met. Null leaves the
+ * row as it is.
+ *
+ * - The row for the Writer Profile itself (its whole text, as the Summary
+ *   Self-check labels it), or for an instruction that holds a writer's cap
+ *   rule word for word, carries that cap, so it is never applied. Its
+ *   reason names the measured cap in fixed words; the model's own reason
+ *   follows only when it says nothing about length.
+ * - Any other instruction row whose reason talks about length keeps its
+ *   outcome, and fixed words that name the measured cap replace the model's
+ *   reason.
+ */
+export function writerRowGuard(input: {
+  verdict: Pick<ModelVerdict, "instruction" | "outcome" | "reason">;
+  row: ComplianceNoteDraft;
+  failedCaps: readonly MeasuredCap[];
+  writerInstructions?: string;
+}): ComplianceNoteDraft | null {
+  const { verdict, row, failedCaps } = input;
+  if (failedCaps.length === 0) return null;
+  const instruction = normalizeForMatch(verdict.instruction);
+  const profileText = normalizeForMatch(input.writerInstructions ?? "");
+  const isProfile = profileText.trim() !== "" && instruction === profileText;
+  const carried = failedCaps.filter((cap) => {
+    if (cap.kind !== "writer") return false;
+    if (isProfile) return true;
+    const rule = normalizeForMatch(cap.instruction ?? "");
+    return rule.trim() !== "" && instruction.includes(rule);
+  });
+  const talks = talksAboutLength(verdict.reason);
+  if (carried.length === 0 && !talks) return null;
+  const rebuilt = (outcome: "applied" | "not_applied", reason: string) =>
+    noteDraft({
+      section: row.section,
+      ...(row.paragraphIndex !== undefined ? { paragraphIndex: row.paragraphIndex } : {}),
+      source: row.source,
+      instruction: row.instruction,
+      outcome,
+      tier: row.tier,
+      reason,
+      repaired: row.repaired,
+    });
+  if (carried.length > 0) {
+    const measured = `${joinedList(carried.map(measuredCapPhrase))} (measured by code; see the cap row)`;
+    const applied = verdict.outcome === "applied";
+    const rest = talks
+      ? applied ? " The Self-check found the other rules followed." : ""
+      : applied ? ` Otherwise followed: ${row.reason}` : ` Also: ${row.reason}`;
+    return rebuilt("not_applied", `${applied ? "Not followed in full" : "Not followed"}: ${measured}.${rest}`);
+  }
+  return rebuilt(
+    row.outcome,
+    `${row.outcome === "applied" ? "Followed" : "Not followed"}, as the Self-check found. Length is measured by code: ${joinedList(failedCaps.map(measuredCapPhrase))} (see the cap row).`
+  );
+}
+
 /** The deterministic entry key of the source-talk check (2026-09-30, third). */
 export const SOURCE_TALK_KEY = "sourceTalk";
 
@@ -694,6 +847,13 @@ export function assembleSectionNotes(input: {
    * text. They decide the rows then, never the repair's own success.
    */
   governedFinal?: { ok: true; verdicts: readonly ModelVerdict[] } | { ok: false };
+  /**
+   * 2026-10-04 (first): the Writer Profile text the Self-check read (the
+   * saved profile, or the settings document applied as the profile). A
+   * model row for it can never read as followed while a cap of the profile
+   * that code measures is not met.
+   */
+  writerInstructions?: string;
 }): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
   const { section, before, verdicts, repair } = input;
   const failedBefore = new Set(
@@ -739,9 +899,30 @@ export function assembleSectionNotes(input: {
       }${failure}. The text was not cut to fit: shorten Line ${section} to ${metrics.wordCap} words and ${metrics.limit} lines before filing`,
     };
   }
+  // 2026-10-04 (first): a writer's whole-Line cap still not met after the
+  // shortening passes aimed at it is kept whole too, never cut to fit.
+  finalEntries.forEach((entry, index) => {
+    const cap = entry.measuredCap;
+    if (cap?.kind !== "writer" || !cap.wholeLine || entry.row.outcome !== "not_applied") return;
+    const passes = input.compression?.passes ?? 0;
+    const failure = input.compression?.failure
+      ? ` (a shortening pass failed: ${input.compression.failure})`
+      : "";
+    rows[index] = {
+      ...rows[index],
+      reason: `${rows[index].reason}; still over after ${passes} shortening ${
+        passes === 1 ? "pass" : "passes"
+      }${failure}. The text was not cut to fit: shorten Line ${section} to ${cap.limits} to meet the writer's settings`,
+    };
+  });
   let remainingFailures = finalEntries.filter(
     (entry) => entry.repairable && entry.row.outcome === "not_applied"
   ).length;
+  // 2026-10-04 (first): the caps code measured and found not met on the
+  // final text. No model row may vouch for one of them (writerRowGuard).
+  const failedCaps = finalEntries.flatMap((entry) =>
+    entry.measuredCap && entry.row.outcome === "not_applied" ? [entry.measuredCap] : []
+  );
 
   const governed = input.governed ?? [];
   // The first verdict for each governed term's label; its row is written
@@ -766,8 +947,22 @@ export function assembleSectionNotes(input: {
       instruction: verdict.instruction,
       tier,
     };
+    // 2026-10-04 (first): an instruction row never vouches for a cap code
+    // measured as not met (writerRowGuard); every other row is as before.
+    const pushModelRow = (draft: ComplianceNoteDraft) => {
+      rows.push(
+        verdict.check === "instruction" && failedCaps.length > 0
+          ? writerRowGuard({
+              verdict,
+              row: draft,
+              failedCaps,
+              writerInstructions: input.writerInstructions,
+            }) ?? draft
+          : draft
+      );
+    };
     if (verdict.outcome === "applied") {
-      rows.push(noteDraft({ ...base, outcome: "applied", reason: verdict.reason || "applied" }));
+      pushModelRow(noteDraft({ ...base, outcome: "applied", reason: verdict.reason || "applied" }));
       continue;
     }
     if (verdict.notChecked) {
@@ -799,7 +994,7 @@ export function assembleSectionNotes(input: {
     } else if (repair.attempted) {
       reason = `${reason}; ${repairNotDone}`;
     }
-    rows.push(noteDraft({ ...base, outcome, reason, repaired }));
+    pushModelRow(noteDraft({ ...base, outcome, reason, repaired }));
   }
 
   // One row per governed term, in fixed words that quote the Feedback,

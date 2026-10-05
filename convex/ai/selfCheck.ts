@@ -567,6 +567,13 @@ export type SelfCheckModelInput = {
   glossaryCandidates: string[];
   writerInstructions?: string;
   rules: Array<{ instruction: string; paragraphIndex?: number }>;
+  /**
+   * 2026-10-04 (first): code measures a word or line cap of the writer's
+   * rules on this Line. With writer instructions in the request, the model
+   * is then told never to judge or mention caps. Absent: no such sentence,
+   * so those requests keep their bytes.
+   */
+  measuredCaps?: boolean;
   model: string;
   planChecks?: SelfCheckPlanCheck[];
   planChecksBlock?: string;
@@ -748,7 +755,11 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
   const answers242 = (input.planChecks ?? []).some((check) => check.ruleId === ADVANCEMENTS_ANSWER_242_RULE_ID);
   const workAnswers242 = (input.planChecks ?? []).some((check) => check.ruleId === WORK_ANSWERS_242_RULE_ID);
   const targets = (input.planChecks ?? []).some((check) => check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID);
+  // 2026-10-04 (first): caps code measures are never the model's to judge.
+  const measuredCaps = input.measuredCaps === true && instructionLines.length > 0;
   return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}${
+    measuredCaps ? SELF_CHECK_REQUEST.measuredCapsInstruction : ""
+  }${
     terms.length > 0 ? exact.instruction : ""
   }${feedback.length > 0 ? (renaming ? writer.renamingInstruction : writer.instruction) : ""}${
     governed.length > 0

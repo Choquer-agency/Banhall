@@ -746,6 +746,30 @@ export type SeedTrustedContextInput = {
   citationMode?: "offsets" | "facts";
 };
 
+/**
+ * 2026-10-04 (first): whether the Seed request asks Seeds to use the
+ * writer's terms and avoid the writer's banned words. Only when a Writer
+ * Profile applied to the generation (`profile.profileState` of the frozen
+ * writer settings), whose text the settings block's styleGuidance holds. A
+ * Writer Profile is a saved profile or a settings document with internal
+ * trust; a client's document never becomes one (2026-09-11 trust floor), so
+ * it stays data among the sources. Takes the settings as the block holds
+ * them, after splitSeedWriterSettings.
+ */
+export function seedWriterWordingApplies(writerSettings: unknown): boolean {
+  if (typeof writerSettings !== "object" || writerSettings === null || Array.isArray(writerSettings)) {
+    return false;
+  }
+  const { profile, styleGuidance } = writerSettings as Record<string, unknown>;
+  return (
+    typeof profile === "object" &&
+    profile !== null &&
+    (profile as Record<string, unknown>).profileState === "applied" &&
+    typeof styleGuidance === "string" &&
+    styleGuidance.trim() !== ""
+  );
+}
+
 export function splitSeedWriterSettings(value: unknown): {
   styleOverrides: unknown;
   remaining: unknown;
@@ -994,7 +1018,11 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
   // follow the sources. SEED_PROMPT_PROGRAM.user.order discloses this order.
   const beforeSources = [
     prompt.heading,
-    input.citationMode === "facts" ? prompt.factGuidance : prompt.guidance,
+    // 2026-10-04 (first): with a Writer Profile, Seeds use its terms and
+    // avoid its banned words. Generation-wide, so still one cached prefix.
+    `${input.citationMode === "facts" ? prompt.factGuidance : prompt.guidance}${
+      seedWriterWordingApplies(input.writerSettings) ? prompt.writerWording : ""
+    }`,
     seedBlock(prompt.blocks.brief, seedValue(input.brief)),
   ];
   // The role-specific part of the tail (it differs between roles and modes).
