@@ -1904,7 +1904,7 @@ describe("deterministic Self-check rules", () => {
       profile: PROFILE,
       isFirstInOrder: false,
     });
-    const modelRow = (shortened: boolean) =>
+    const modelRow = () =>
       assembleSectionNotes({
         section: "246",
         before,
@@ -1912,20 +1912,18 @@ describe("deterministic Self-check rules", () => {
         verdicts: [{ check: "storyline", instruction: "Storyline", outcome: "not_applied", reason: "Drifts.", paragraphIndex: 0 }],
         modelCheck: { ok: true },
         storylineQuestion: null,
-        repair: { attempted: true, succeeded: true, shortened },
+        repair: { attempted: true, succeeded: true },
         finalText: "The coating held its transmission.",
       }).rows.find((row) => row.instruction === "Storyline");
     // 2026-10-05 (Round 2, follow-up): every used repair is checked again on
     // the final text, so a row with no such check never claims the repair:
     // shortened or not, it reads not checked on the final text.
-    for (const shortened of [false, true]) {
-      expect(modelRow(shortened)).toMatchObject({
-        outcome: "not_applied",
-        repaired: false,
-        reason: "Not checked on the final text (no check of the final text ran)",
-      });
-    }
-    // "Not checked" rows (2026-09-28) are never repaired, so never shortened.
+    expect(modelRow()).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: "Not checked on the final text (no check of the final text ran)",
+    });
+    // "Not checked" rows (2026-09-28) are never repaired.
     const notCheckedRow = assembleSectionNotes({
       section: "246",
       before,
@@ -1933,7 +1931,7 @@ describe("deterministic Self-check rules", () => {
       verdicts: [{ check: "storyline", instruction: "Storyline", outcome: "not_applied", reason: "Not checked.", notChecked: true }],
       modelCheck: { ok: true },
       storylineQuestion: null,
-      repair: { attempted: true, succeeded: true, shortened: true },
+      repair: { attempted: true, succeeded: true },
       finalText: "The coating held its transmission.",
     }).rows.find((row) => row.instruction === "Storyline");
     expect(notCheckedRow).toMatchObject({ reason: "Not checked.", repaired: false });

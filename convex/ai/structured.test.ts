@@ -384,6 +384,28 @@ describe("decodeEncodedToolFields and encodedFieldRecovery (Round 3)", () => {
     warn.mockRestore();
   });
 
+  it("with encodedFieldRecovery, an answer that fails once read reports what fails then, not the encoding (review P3)", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = clientWith([{ categories: '{"b": {"on": true}}', items: [] }]);
+    const failure = generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit",
+      schema, validate, attempts: 1, encodedFieldRecovery: true,
+    });
+    await expect(failure).rejects.toThrow("submit: model returned an unexpected shape: categories.a: Invalid input");
+    await expect(failure).rejects.not.toThrow("received string");
+    const logged = quiet.mock.calls.map((call) => call.join(" "));
+    expect(logged.some((line) => line.startsWith("submit: tool output failed validation after reading categories sent as JSON text") && line.includes('"categories","a"'))).toBe(true);
+    quiet.mockRestore();
+    // With nothing read, the issues are the answer's as sent, as before.
+    const plain = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(generateStructured(clientWith([{ categories: "a is on", items: [] }]), {
+      system: "system", user: "user", toolName: "submit", description: "submit",
+      schema, validate, attempts: 1, encodedFieldRecovery: true,
+    })).rejects.toThrow("unexpected shape: categories: Invalid input: expected object, received string");
+    expect(plain.mock.calls.map((call) => String(call[0]))).toContain("submit: tool output failed validation");
+    plain.mockRestore();
+  });
+
   it("with encodedFieldRecovery, a field that is not JSON or that fails validation once read still fails", async () => {
     const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
     for (const input of [

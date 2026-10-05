@@ -1458,7 +1458,6 @@ export async function draftCheckedSection(input: {
     succeeded: boolean;
     failureReason?: string;
     notUsedReason?: string;
-    shortened?: boolean;
   } = {
     attempted: issues.length > 0,
     succeeded: false,
@@ -1588,9 +1587,6 @@ export async function draftCheckedSection(input: {
           if (keptOverLimit) for (const conflict of droppedKept) droppedForLimit.add(conflict.itemId);
           finalText = fit.text;
           repair.succeeded = true;
-          // Review P2-1: a repair the compression changed was not checked
-          // again by the model, so its fixes are not claimed as repaired.
-          repair.shortened = !sameUtf8Bytes(fit.text, repaired);
           keptFit = fit;
           after = check(finalText);
         }
@@ -1703,7 +1699,6 @@ export async function draftCheckedSection(input: {
       console.warn(`generation:repair:${section}: the repair no longer covers an idea the writer kept despite a Claim Exclusion; the checked draft is kept`);
       finalText = text;
       repair.succeeded = false;
-      repair.shortened = undefined;
       repair.notUsedReason = repairDroppedKeptIdeaReason(dropped[0]!);
       keptFit = firstFit;
       after = null;
@@ -1745,7 +1740,6 @@ export async function draftCheckedSection(input: {
       console.warn(`generation:repair:${section}: a repair no longer covers a signed-off item; the checked draft is kept`);
       finalText = text;
       repair.succeeded = false;
-      repair.shortened = undefined;
       repair.notUsedReason = repairDroppedCoverItemReason(lost[0]!);
       keptFit = firstFit;
       after = null;

@@ -472,6 +472,10 @@ async function structuredAttempts<T>(
       continue;
     }
     await settle({ ok: false, code: "invalid_output" });
+    // Review P3 (Round 3): when fields were read from JSON text and the
+    // answer still fails, report what fails once read (a missing category,
+    // say), not the encoding the decode already undid.
+    const failed = decoded && !decoded.success ? decoded : parsed;
 
     try {
       invalidAnswerText = opts.invalidAnswerRepair?.(block.input) ?? null;
@@ -479,18 +483,18 @@ async function structuredAttempts<T>(
       invalidAnswerText = null;
       console.warn(`${opts.toolName}: repair text skipped (${error instanceof Error ? error.name : "error"})`);
     }
-    validationSummary = parsed.error.issues
+    validationSummary = failed.error.issues
       .slice(0, 3)
       .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
       .join("; ");
     console.error(
-      `${opts.toolName}: tool output failed validation`,
-      JSON.stringify(parsed.error.issues.slice(0, 10))
+      `${opts.toolName}: tool output failed validation${failed === parsed ? "" : ` after reading ${fields!.paths.join(", ")} sent as JSON text`}`,
+      JSON.stringify(failed.error.issues.slice(0, 10))
     );
     if (!lastAttempt) continue;
     throw new StructuredValidationError(
       `${opts.toolName}: model returned an unexpected shape: ${validationSummary}`,
-      parsed.error.issues.slice(0, 10).map((issue) => ({
+      failed.error.issues.slice(0, 10).map((issue) => ({
         path: issue.path.map(String).join(".") || "(root)",
         code: issue.code,
         ...(issue.code === "custom" ? { message: issue.message } : {}),

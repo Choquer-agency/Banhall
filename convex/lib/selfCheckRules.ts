@@ -991,8 +991,6 @@ export function assembleSectionNotes(input: {
     succeeded: boolean;
     failureReason?: string;
     notUsedReason?: string;
-    /** The accepted repair was then shortened by compression (review P2-1). */
-    shortened?: boolean;
   };
   finalText: string;
   /**

@@ -516,7 +516,7 @@ describe("rows from the check of the final text (round 2 review)", () => {
       verdicts: [glossaryMiss],
       modelCheck: { ok: true },
       storylineQuestion: null,
-      repair: { attempted: true, succeeded: true, shortened: true },
+      repair: { attempted: true, succeeded: true },
       finalText,
       ...(finalVerdicts ? { finalVerdicts } : {}),
     });
@@ -560,7 +560,7 @@ describe("the check of the final text matches labels, not their exact words (rou
       verdicts: first,
       modelCheck: { ok: true },
       storylineQuestion: null,
-      repair: { attempted: true, succeeded: true, shortened: true },
+      repair: { attempted: true, succeeded: true },
       finalText,
       finalVerdicts: { ok: true, verdicts: final },
     });
