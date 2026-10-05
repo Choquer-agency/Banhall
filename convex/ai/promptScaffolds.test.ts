@@ -482,7 +482,6 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     }
     expect(generationPromptProgram.calls.seeds.schemaPolicy.quoteCheck).toMatchObject({
       onIssue: "one-soft-repair-within-the-two-attempts-then-keep-and-mark-needsQuoteCheck",
-      support: "a-marked-quote-makes-the-seed-writer_asserted-until-use-it-anyway",
     });
     const current = await hashPromptProgram(generationPromptProgram);
     const changedVersion = await hashPromptProgram({
@@ -577,7 +576,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       factsMatchSources: "every-line-plan-check-with-source-facts-block-honoured-by-absence-judged-again-on-final-text",
       factsFindings: "verified-quotes-only-shown-and-repaired-unverified-not-checked-source-documents-within-budget",
       factsFindingsSchema: SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
-      factsItems: "writer-wording-only-when-edited-unbacked-wording-marked-never-stands-for-the-sources",
+      factsItems: "writer-wording-only-the-sentences-the-writer-changed-unbacked-wording-marked-never-stands-for-the-sources",
       factsCapacity: {
         maxFindings: 2,
         draftQuoteBytes: 128,

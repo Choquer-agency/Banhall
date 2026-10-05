@@ -146,6 +146,23 @@ describe("public seed decisions", () => {
       ),
     ).toEqual([[], [], [], [], []]);
   });
+  it("2026-10-04 (second, round 3 review, P2-2): saving the Seed's own wording is no edit, and after an edit it restores the original", async () => {
+    const s = await decisionFixture(),
+      seed = await addDecisionSeed(s);
+    const baseline = await dump(s);
+    // Saving the unchanged wording writes nothing: the idea stays the product's.
+    await s.writer.mutation(edit, { ...args(s), seedId: seed.seedId, bullets: ["Original frozen wording."] });
+    expect(await dump(s)).toEqual(baseline);
+    expect(await s.t.run((ctx) => ctx.db.get(seed.seedId))).toMatchObject({ support: "source_supported" });
+    // After a real edit, saving the original wording again restores it.
+    await s.writer.mutation(edit, { ...args(s), seedId: seed.seedId, bullets: ["The writer supplies a different technical claim."] });
+    await s.writer.mutation(edit, { ...args(s, 1), seedId: seed.seedId, bullets: ["Original frozen wording."] });
+    const d = await dump(s);
+    expect(d.selections[0].editedBullets).toBeUndefined();
+    expect(d.events.map((e) => e.kind)).toEqual(["edit", "restoreWording"]);
+    expect(await s.t.run((ctx) => ctx.db.get(seed.seedId))).toMatchObject({ support: "source_supported" });
+  });
+
   it("validates bullets and computes large-token edit telemetry without quadratic work", async () => {
     const s = await decisionFixture(),
       seed = await addDecisionSeed(s);

@@ -1539,14 +1539,19 @@ export async function draftCheckedSection(input: {
         // Greptile round 1 on PR #26: only this Line's own signed-off items
         // (its COVER items), so a Line that put another Line's figure on the
         // wrong subject can drop it; the figure stays in the Line whose item
-        // holds it. Rule C keeps its guard over every Line's items.
+        // holds it. Rule C keeps its guard over every Line's items. Round 3
+        // review (P3-1): a figure only wording its own quotes do not back
+        // gives is not protected, so a facts fix may drop it.
+        const unbackedWording = new Set((claim.planItemSources ?? []).flatMap((item) => item.unbacked ?? []));
         const lostFigure =
           (evidenceIssues.size > 0 ? lostPlanFigure(text, fit.text, planWording) : undefined) ??
           (factsIssues.size > 0
             ? lostPlanFigure(
                 text,
                 fit.text,
-                claim.planChecks.filter((planCheck) => planCheck.instruction === "cover").map((planCheck) => planCheck.wording)
+                claim.planChecks
+                  .filter((planCheck) => planCheck.instruction === "cover")
+                  .map((planCheck) => planCheck.wording.filter((sentence) => !unbackedWording.has(sentence)))
               )
             : undefined);
         const figureOverLimit = lostFigure !== undefined && overLimitMore(text, fit.text);

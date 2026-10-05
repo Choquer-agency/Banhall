@@ -1101,11 +1101,11 @@ export async function loadFrozenSectionPlan(
   /**
    * 2026-10-04 (second, round 2): every signed-off item (skipped steps
    * aside), whatever its Line: its wording, whether the writer wrote it and
-   * its own quotes, for the facts check's SOURCE FACTS block. Round 3: the
-   * writer wrote it only when the writer edited it (a writer_asserted item
-   * the writer did not edit is the product's wording, its quotes failed or
-   * marked), and the wording its evidence quotes do not back, when a quote
-   * was marked.
+   * its own quotes, for the facts check's SOURCE FACTS block. Round 3 and its
+   * review (P2-2): only the sentences the writer changed are the writer's
+   * wording; the rest stay the product's, with the sentences its quotes do
+   * not back named when a quote is marked (`unbackedBullets`). An item
+   * with both is two entries.
    */
   planItemSources: Array<{ wording: string[]; writer: boolean; quotes: string[]; unbacked?: string[] }>;
 }> {
@@ -1143,7 +1143,7 @@ export async function loadFrozenSectionPlan(
   const referencesBySeedId = new Map(
     items.map((item) => [item.seedId, item.bullets] as const)
   );
-  const { sourceRefsByItemId, quotesLeftOut, unbackedByItemId } = await loadSummarySourceRefs(ctx, generation, items);
+  const { sourceRefsByItemId, quotesLeftOut, quoteMarksByItemId } = await loadSummarySourceRefs(ctx, generation, items);
   const pdSection = section === "242" ? "s242" : section === "244" ? "s244" : "s246";
   // 2026-09-30 (first, Rule B): Line 242's signed-off plan items, whole, then
   // its drafted text, clipped alone (Greptile P1); before it is drafted, the
@@ -1256,14 +1256,13 @@ export async function loadFrozenSectionPlan(
     planWording: items
       .filter((item) => !summary.skippedRoleIds.includes(item.roleId))
       .map((item) => [...item.bullets]),
-    planItemSources: items
-      .filter((item) => !summary.skippedRoleIds.includes(item.roleId))
-      .map((item) => ({
-        wording: [...item.bullets],
-        writer: item.edited === true,
-        quotes: (sourceRefsByItemId.get(item._id) ?? []).map((reference) => reference.exactExcerpt),
-        ...(unbackedByItemId.has(item._id) ? { unbacked: unbackedByItemId.get(item._id)! } : {}),
-      })),
+    planItemSources: await planItemSourcesOf(
+      ctx,
+      generation,
+      items.filter((item) => !summary.skippedRoleIds.includes(item.roleId)),
+      sourceRefsByItemId,
+      quoteMarksByItemId
+    ),
     planBlock: `\n\n${plan.block}`,
     planChecksBlock: plan.checksBlock,
     planChecks: plan.checks.map((check) => ({
@@ -1285,6 +1284,40 @@ export async function loadFrozenSectionPlan(
         : {}),
     })),
   };
+}
+
+/**
+ * 2026-10-04 (second, round 3 review, P2-2): each signed-off item as the facts
+ * check reads it. A sentence the writer changed (not one of the Seed's own
+ * sentences) is the writer's wording; every other sentence is the product's,
+ * with its quotes and the sentences they do not back. Saving a sentence
+ * unchanged never makes it the writer's. An item frozen before 2026-09-24
+ * without the edited flag is compared with its Seed the same way.
+ */
+async function planItemSourcesOf(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  items: ReadonlyArray<Doc<"summaryItems">>,
+  sourceRefsByItemId: ReadonlyMap<Id<"summaryItems">, ReadonlyArray<{ exactExcerpt: string }>>,
+  quoteMarksByItemId: ReadonlyMap<Id<"summaryItems">, ReadonlyArray<{ exactExcerpt: string; needsQuoteCheck?: boolean }>>
+): Promise<Array<{ wording: string[]; writer: boolean; quotes: string[]; unbacked?: string[] }>> {
+  const out: Array<{ wording: string[]; writer: boolean; quotes: string[]; unbacked?: string[] }> = [];
+  for (const item of items) {
+    let original: readonly string[] = item.bullets;
+    if (item.edited !== false) {
+      const seed = await ctx.db.get(item.seedId);
+      if (seed && seed.projectId === generation.projectId) original = seed.bullets;
+    }
+    const product = item.bullets.filter((bullet) => original.includes(bullet));
+    const writer = item.bullets.filter((bullet) => !original.includes(bullet));
+    const quotes = (sourceRefsByItemId.get(item._id) ?? []).map((reference) => reference.exactExcerpt);
+    if (product.length > 0) {
+      const unbacked = unbackedBullets(product, quoteMarksByItemId.get(item._id) ?? [], original);
+      out.push({ wording: product, writer: false, quotes, ...(unbacked.length > 0 ? { unbacked } : {}) });
+    }
+    if (writer.length > 0) out.push({ wording: writer, writer: true, quotes: product.length > 0 ? [] : quotes });
+  }
+  return out;
 }
 
 /**
@@ -1402,9 +1435,6 @@ export async function loadSummarySourceRefs(
   items: ReadonlyArray<{
     _id: Id<"summaryItems">;
     seedId: Id<"seeds">;
-    /** The signed-off wording, to find what its evidence quotes do not back. */
-    bullets?: readonly string[];
-    edited?: boolean;
   }>
 ) {
   const result = new Map<
@@ -1414,9 +1444,9 @@ export async function loadSummarySourceRefs(
   // 2026-09-27 (third): a quote marked for a check may not back its item,
   // so it is never drafting evidence; the item's wording still is.
   const quotesLeftOut = new Map<Id<"summaryItems">, number>();
-  // 2026-10-04 (second, round 3): the wording of an item the writer did not
-  // edit that none of its evidence quotes backs, when a quote was marked.
-  const unbackedByItemId = new Map<Id<"summaryItems">, string[]>();
+  // 2026-10-04 (second, round 3): every quote of each item with its mark,
+  // so the facts check can name the wording its quotes do not back.
+  const quoteMarksByItemId = new Map<Id<"summaryItems">, Array<{ exactExcerpt: string; needsQuoteCheck?: boolean }>>();
   for (const item of items) {
     const rows = await ctx.db.query("seedProvenance")
       .withIndex("by_seedId", (q) => q.eq("seedId", item.seedId))
@@ -1426,10 +1456,10 @@ export async function loadSummarySourceRefs(
     }
     const marked = rows.filter((row) => row.needsQuoteCheck === true).length;
     if (marked > 0) quotesLeftOut.set(item._id, marked);
-    if (item.bullets && item.edited !== true) {
-      const unbacked = unbackedBullets(item.bullets, rows);
-      if (unbacked.length > 0) unbackedByItemId.set(item._id, unbacked);
-    }
+    quoteMarksByItemId.set(item._id, rows.map((row) => ({
+      exactExcerpt: row.exactExcerpt,
+      ...(row.needsQuoteCheck === true ? { needsQuoteCheck: true } : {}),
+    })));
     result.set(item._id, rows.filter((row) => row.needsQuoteCheck !== true).map((row) => {
       if (row.projectId !== generation.projectId) {
         domainError("INVALID_STATE", "Seed provenance belongs to another project");
@@ -1443,5 +1473,5 @@ export async function loadSummarySourceRefs(
       };
     }));
   }
-  return { sourceRefsByItemId: result, quotesLeftOut, unbackedByItemId };
+  return { sourceRefsByItemId: result, quotesLeftOut, quoteMarksByItemId };
 }

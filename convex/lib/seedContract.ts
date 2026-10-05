@@ -911,11 +911,10 @@ export function seedAnswerCounts(result: BatchValidationResult, returned: number
  * (seedQuoteSupport.ts). Runs after the speaker check, so a quote that check
  * drops is never judged. A citation that fails is kept and marked
  * `needsQuoteCheck`, never dropped, so no Seed or Batch is lost. Reuse is
- * looked for in a fresh Batch only. Since 2026-10-04 (second, round 3, owner
- * approved 2026-10-05) a Seed with a marked quote is not source_supported:
- * like a Seed whose every citation fails, it is writer_asserted until the
- * writer keeps its quotes ("Use it anyway"). Its wording is never changed.
- * Pure.
+ * looked for in a fresh Batch only. Support is unchanged (round 3 review,
+ * P2-3): the plan and every drafting and check request read a Seed with a
+ * marked quote as before, while the idea card and the facts check name the
+ * wording its quotes do not back (`unbackedBullets`). Pure.
  */
 export function withQuoteChecks(
   seeds: readonly ValidatedSeedCandidate[],
@@ -932,8 +931,6 @@ export function withQuoteChecks(
       provenance: seed.provenance.map((citation, index) =>
         flagged.has(index) ? { ...citation, needsQuoteCheck: true as const } : citation
       ),
-      support: "writer_asserted" as const,
-      originalSupport: "writer_asserted" as const,
     };
   });
   return { seeds: marked, issues };

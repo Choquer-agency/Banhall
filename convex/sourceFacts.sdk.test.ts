@@ -58,6 +58,7 @@ import { renderBriefBlock } from "./lib/briefRender";
 import { sectionMetrics } from "./lib/lineLimits";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 import { FACT_RULES } from "../shared/humanProse";
+import { unbackedBullets } from "./lib/seedQuoteSupport";
 
 const modules = import.meta.glob("./**/*.ts");
 const SONNET = "claude-sonnet-5";
@@ -817,6 +818,42 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
     });
   });
 
+  it("round 3 review, P3-1: a facts repair may drop a figure that only wording its own quotes do not back gives", async () => {
+    const draft246 = [
+      "The pilot showed the shaker profile met edge coverage on every panel.",
+      "An edge-only sealer cut the deep cove shortfall to 7 percent, and deep cove edge coverage stays open for fiscal 2027.",
+    ].join("\n\n");
+    const stripped = draft246.replace(" to 7 percent", "");
+    const statusCovered = { itemId: ITEM_STATUS, mergedItemIds: [ITEM_STATUS], paragraph: 2, outcome: "applied", reason: "P2 states the open edge." };
+    const unbackedFigure = {
+      ...factsWrong,
+      paragraph: 2,
+      reason: "P2 gives 7%, not in the sources",
+      findings: [{ draftQuote: "cut the deep cove shortfall to 7 percent", sourceQuote: "| Deep cove | 180 | 1.1 | 13 percent |", correction: "13 percent" }],
+    };
+    // The same item as above, but its quotes do not back it.
+    const items = [
+      { wording: [TRIAL_1], writer: false, quotes: [] },
+      { wording: [STATUS_246_FIGURE], writer: false, quotes: [], unbacked: [STATUS_246_FIGURE] },
+    ];
+    const sent = installFetch({
+      draft: draft246,
+      repair: stripped,
+      checks: [
+        { verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, unbackedFigure, targetsMet] },
+        { verdicts: [], planVerdicts: [statusCovered, factsMatch, targetsMet] },
+      ],
+    });
+    const result = await draft(
+      claimFor(plan246(STATUS_246_FIGURE), { planItemSources: items, planWording: items.map((item) => item.wording), factsSourceDocuments: DOCUMENTS }),
+      SUMMARY_VERSION,
+      { section: "246", writerFlavor: WRITER_FLAVOR }
+    );
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(result.draftText).toBe(stripped);
+    expect(factsRow(result)).toMatchObject({ outcome: "applied", repaired: true });
+  });
+
   it("up to two verified findings reach the one repair and the row, and a third is not read (round 2 review, P3-1)", async () => {
     const withCause = DRAFT_244.replace("on 4 percent of its panels.", "on 4 percent of its panels, caused by the shielding of the concave cove.");
     const repaired = REPAIRED_244.replace("4 percent of all 600 pilot panels.", "4 percent of all 600 pilot panels; the shielding of the concave cove is suspected.");
@@ -1294,11 +1331,17 @@ describe("round 3 (owner approved 2026-10-05): run 6's Seeds reach the facts che
       "The team learned that outgassing defects track peak panel surface temperature rather than dwell time on this board.",
       "Trial 1's datasheet process confirmed that heat built for flat steel panels causes severe outgassing defects on routed MDF edges.",
     ];
-    const run6 = [
+    // Review P2-1: the unbacked wording comes from unbackedBullets itself,
+    // with a good quote that shares words with the steel sentence and the
+    // marked steel quote (left out of each item's quotes, as drafting does).
+    const datasheet = { exactExcerpt: "That the datasheet number is for flat panels." };
+    const steel = { exactExcerpt: "Normal powder for steel cures at 160 to 200 C.", needsQuoteCheck: true };
+    const run6: Array<{ wording: string[]; writer: boolean; quotes: string[]; unbacked?: string[] }> = [
       ...PLAN_ITEM_SOURCES,
-      { wording: limitation, writer: false, quotes: ["That the datasheet number is for flat panels."], unbacked: [limitation[0]] },
-      { wording: advancement, writer: false, quotes: [], unbacked: advancement },
+      { wording: limitation, writer: false, quotes: [datasheet.exactExcerpt], unbacked: unbackedBullets(limitation, [datasheet, steel]) },
+      { wording: advancement, writer: false, quotes: [], unbacked: unbackedBullets(advancement, [steel]) },
     ];
+    expect(run6.slice(-2).map((item) => item.unbacked)).toEqual([[limitation[0]], [advancement[1]]]);
     const sent = installFetch({
       draft: FAITHFUL_244,
       checks: [{ verdicts: ordinary, planVerdicts: [...covered, { ...factsMatch, reason: "All figures and details match sources." }, targetsMet] }],
@@ -1309,7 +1352,7 @@ describe("round 3 (owner approved 2026-10-05): run 6's Seeds reach the facts che
       `- [the product's wording] ${limitation.join(" ")} Quotes: "That the datasheet number is for flat panels." Its own quotes do not back: ${JSON.stringify(limitation[0])}`
     );
     expect(check).toContain(
-      `- [the product's wording] ${advancement.join(" ")} Quotes: none. Its own quotes do not back: ${advancement.map((bullet) => JSON.stringify(bullet)).join(" | ")}`
+      `- [the product's wording] ${advancement.join(" ")} Quotes: none. Its own quotes do not back: ${JSON.stringify(advancement[1])}`
     );
     expect(check).toContain("A signed-off item the product wrote is not settled fact");
     // The model's "All figures and details match sources." never reaches the row.

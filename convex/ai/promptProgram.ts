@@ -348,10 +348,6 @@ const SEED_SCHEMA_POLICY = {
     related: "shares-at-least-2-meaningful-words-and-a-third-of-the-smaller-side",
     reuse: "fresh-batch-only-owner-quotes-or-shares-most-others-must-quote-word-for-word",
     onIssue: "one-soft-repair-within-the-two-attempts-then-keep-and-mark-needsQuoteCheck",
-    // 2026-10-04 (second, round 3, owner approved 2026-10-05): no request
-    // byte changes; a Seed with a marked quote is stored writer_asserted
-    // until the writer keeps its quotes.
-    support: "a-marked-quote-makes-the-seed-writer_asserted-until-use-it-anyway",
   },
 } as const;
 
@@ -780,12 +776,12 @@ export const generationPromptProgram = {
         // proves no detail alone.
         factsFindings: "verified-quotes-only-shown-and-repaired-unverified-not-checked-source-documents-within-budget",
         factsFindingsSchema: SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
-        // Round 3 (owner approved 2026-10-05): an item is the writer's
-        // wording only when the writer edited it; a product-written item is
-        // not settled fact, and its wording that its own evidence quotes do
-        // not back (when a quote was marked) is marked and never stands for
-        // the sources.
-        factsItems: "writer-wording-only-when-edited-unbacked-wording-marked-never-stands-for-the-sources",
+        // Round 3 (owner approved 2026-10-05) and its review: only the
+        // sentences the writer changed are the writer's wording; a
+        // product-written item is not settled fact, and the wording its own
+        // quotes do not back (when a quote is marked) is marked and never
+        // stands for the sources.
+        factsItems: "writer-wording-only-the-sentences-the-writer-changed-unbacked-wording-marked-never-stands-for-the-sources",
         factsCapacity: {
           maxFindings: MAX_FACTS_FINDINGS,
           draftQuoteBytes: MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
