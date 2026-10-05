@@ -55,7 +55,6 @@ import {
 } from "./lib/seedRevisions";
 import { renderBriefBlock } from "./lib/briefRender";
 import { sectionMetrics } from "./lib/lineLimits";
-import { talksAboutLength } from "./lib/selfCheckRules";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 import { FACT_RULES } from "../shared/humanProse";
 
@@ -972,21 +971,34 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
 
 // ─── With the writer's measured caps (2026-10-04, first, after the merge) ──
 
-describe("the first Self-check with both the writer's measured caps and the facts check (real SDK, fetch stubbed)", () => {
+describe("the Self-check with both the writer's measured caps and the facts check (real SDK, fetch stubbed)", () => {
   const CAP_RULE = "- Line 244: no more than 60 words.";
   const WRITER_WITH_CAP = `Write in the third person throughout.\n\n${CAP_RULE}`;
-  /** A facts finding whose words sound like length: a guard on it would rewrite it. */
-  const FACTS_CAP_REASON = "P2 says deep cove stayed under the cap of 5%; sources give 13%";
-  const FACTS_CAP_GUIDANCE = "P2: deep cove fell short on 13% of its 180 panels, 4% of all 600.";
-  const STILL_WRONG_REASON = "P2 still says deep cove stayed under the cap of 5%";
   const REPAIRED = DRAFT_244.replace("flat steel panels", "thin flat panels");
+  /** The repair shortened under the writer's 60 words, both signed-off items kept, the scope error still in P2. */
+  const SHORTENED = [
+    "Trial 1 ran the supplier's datasheet process on the routed MDF panels, preheating to 110 C and curing at 135 C air; the values did not transfer.",
+    "Trial 5, a production pilot of 600 doors at line speed, met the shaker target; the deep cove profile fell short of that target on 4 percent of its panels.",
+  ].join("\n\n");
   const MEASURED_CAPS =
     `\n\nCode measures these caps of the writer's and reports them on their own: "${CAP_RULE}". In the verdicts for the WRITER INSTRUCTIONS block, do not judge these caps, and do not mention this section's word or line count. Judge every other rule, including any other length rule.`;
+  // What drafting read, with the writer's instructions as the WRITER
+  // INSTRUCTIONS block gives them.
+  const CAP_SOURCE_FACTS_BLOCK = `--- BEGIN [SOURCE FACTS] ---\n${sourceFactsFor({
+    analysis: PARSED_ANALYSIS,
+    storylineText: STORYLINE,
+    confidenceMap: CONFIDENCE,
+    planItems: PLAN_ITEM_SOURCES,
+    writerInstructions: [WRITER_WITH_CAP],
+    documents: DOCUMENTS,
+  }).body}\n--- END [SOURCE FACTS] ---`;
+  const profileFollowed = { paragraph: 0, check: "instruction", instruction: "writer:profile", outcome: "applied", reason: "Third person throughout; word cap ok." };
 
-  /** Like installFetch, but a shortening pass for the writer's cap is told apart and echoes its text. */
-  function installCapFetch(script: { repair: string; checks: unknown[] }): Sent[] {
+  /** Like installFetch, but a shortening pass for the writer's cap is told apart and answers from `compressions`, else echoes. */
+  function installCapFetch(script: { repair: string; compressions?: string[]; checks: unknown[] }): Sent[] {
     const sent: Sent[] = [];
     const checks = [...script.checks];
+    const compressions = [...(script.compressions ?? [])];
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>(async (input, init) => {
@@ -1021,7 +1033,8 @@ describe("the first Self-check with both the writer's measured caps and the fact
         }
         if (tool) throw new Error(`Unexpected tool ${tool}`);
         const text = stage === "compression"
-          ? user.split(COMPRESSION_REQUEST.writerCap.userScaffold.percentToText)[1] ??
+          ? compressions.shift() ??
+            user.split(COMPRESSION_REQUEST.writerCap.userScaffold.percentToText)[1] ??
             user.split(COMPRESSION_REQUEST.writerCap.finalCutScaffold.targetToText)[1] ?? ""
           : stage === "repair" ? script.repair : DRAFT_244;
         return Response.json({ ...base, content: [{ type: "text", text }], stop_reason: "end_turn" });
@@ -1030,37 +1043,17 @@ describe("the first Self-check with both the writer's measured caps and the fact
     return sent;
   }
 
-  it("holds the caps sentence and the facts check once each; the facts finding still reaches the repair and its row is never rewritten", async () => {
-    const sent = installCapFetch({
-      repair: REPAIRED,
-      checks: [
-        {
-          verdicts: [
-            ...ordinary,
-            { paragraph: 0, check: "instruction", instruction: "writer:profile", outcome: "applied", reason: "Third person throughout; word cap ok." },
-          ],
-          planVerdicts: [
-            ...covered,
-            { ...factsWrong, paragraph: 2, reason: FACTS_CAP_REASON, repairGuidance: FACTS_CAP_GUIDANCE },
-            targetsMet,
-          ],
-        },
-        {
-          verdicts: [],
-          planVerdicts: [...covered, { ...factsWrong, paragraph: 2, reason: STILL_WRONG_REASON, repairGuidance: FACTS_CAP_GUIDANCE }, targetsMet],
-        },
-      ],
-    });
+  async function draftWithCap() {
     const t = convexTest(schema, modules);
     rateLimiterTest.register(t);
-    const result = await t.action(async (ctx: ActionCtx) => {
+    return await t.action(async (ctx: ActionCtx) => {
       const clientFor = Object.assign(
         (callSite: string) => instrumentedAnthropic(ctx, { callSite }) as unknown as GenerationClient,
         { modelFor: () => SONNET }
       );
       const base = payload(SUMMARY_VERSION, WRITER_WITH_CAP);
       return await draftCheckedSection({
-        claim: claimFor(plan244()),
+        claim: claimFor(plan244(), withSources),
         payload: {
           ...base,
           orderedContext: {
@@ -1073,40 +1066,99 @@ describe("the first Self-check with both the writer's measured caps and the fact
         clientFor,
       });
     });
+  }
+
+  it("holds the caps sentence and the facts check once each; a verified facts finding still reaches the repair and its row is never rewritten", async () => {
+    const sent = installCapFetch({
+      repair: REPAIRED,
+      checks: [
+        { verdicts: [...ordinary, profileFollowed], planVerdicts: [...covered, factsWrong, targetsMet] },
+        { verdicts: [], planVerdicts: [...covered, { ...factsWrong, paragraph: 2, reason: "P2 still gives 4% as deep cove's rate", findings: [SCOPE] }, targetsMet] },
+      ],
+    });
+    const result = await draftWithCap();
     expect(sectionMetrics(DRAFT_244, "s244").words).toBeGreaterThan(60);
+    // The repair's shortening came back as long as it went in, so the final
+    // text is the repair and the coverage-only check reads it.
     expect(sent.map((request) => request.stage)).toEqual([
       "section", "compression", "compression", "selfCheck", "repair", "compression", "compression", "finalCoverage",
     ]);
 
     // The first Self-check: the caps sentence once, scoped to the WRITER
-    // INSTRUCTIONS verdicts, after the data blocks; the SOURCE FACTS block
-    // and the facts instruction once each.
+    // INSTRUCTIONS verdicts, right after the data blocks; the SOURCE FACTS
+    // block (with the writer's wording) and the facts instruction once each.
     const check = sent.find((request) => request.stage === "selfCheck")!.user;
     expect(check.split(MEASURED_CAPS)).toHaveLength(2);
     expect(check.split("In the verdicts for the WRITER INSTRUCTIONS block")).toHaveLength(2);
     expect(check.split("--- BEGIN [WRITER INSTRUCTIONS] ---")).toHaveLength(2);
+    expect(check.split(CAP_SOURCE_FACTS_BLOCK)).toHaveLength(2);
     expect(check.split("--- BEGIN [SOURCE FACTS] ---")).toHaveLength(2);
-    expect(check).toContain(`Writer instructions:\n- ${WRITER_WITH_CAP}\n--- END [SOURCE FACTS] ---`);
-    expect(check.split(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)).toHaveLength(2);
-    expect(check).toContain(`--- END [SOURCE FACTS] ---${MEASURED_CAPS}`);
-    expect(check.indexOf(MEASURED_CAPS)).toBeLessThan(check.indexOf(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction));
+    expect(CAP_SOURCE_FACTS_BLOCK).toContain(`Writer instructions (the writer's wording):\n- ${WRITER_WITH_CAP}\n--- END [SOURCE FACTS] ---`);
+    expect(check.split(factsMatchSourcesInstruction(true))).toHaveLength(2);
+    expect(check).toContain(`${CAP_SOURCE_FACTS_BLOCK}${MEASURED_CAPS}`);
+    expect(check.indexOf(MEASURED_CAPS)).toBeLessThan(check.indexOf(factsMatchSourcesInstruction(true)));
 
-    // The facts finding still goes to the repair, with its guidance whole.
+    // Both verified findings go to the one repair, beside the writer's cap.
     const repair = sent.find((request) => request.stage === "repair")!.user;
-    expect(repair).toContain(`- Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${FACTS_CAP_GUIDANCE}`);
+    expect(repair).toContain(`- Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${FIX}`);
     expect(repair).toContain(`- Shorten Line 244 to at most 60 words (writer rule: "${CAP_RULE}").`);
 
-    // The facts row keeps the final check's own words, though they mention
-    // a cap (the guard would read them as length talk); the writer's
-    // settings row beside it is guarded.
-    expect(talksAboutLength(STILL_WRONG_REASON)).toBe(true);
-    const facts = result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID);
-    expect(facts).toMatchObject({ instruction: FACTS_INSTRUCTION, outcome: "not_applied", reason: STILL_WRONG_REASON, repaired: false });
-    expect(facts?.reason).not.toContain("measured by code");
+    // The facts row gives the code's evidence for the finding left on the
+    // final text, word for word; the writer's settings row beside it is guarded.
+    expect(factsRow(result)).toMatchObject({
+      instruction: FACTS_INSTRUCTION,
+      outcome: "not_applied",
+      paragraphIndex: 1,
+      reason: factsFindingsReason([verifiedOf(SCOPE, 1)], 0),
+      repaired: false,
+    });
     expect(result.notes.find((row) => row.instruction === CAP_RULE)).toMatchObject({ outcome: "not_applied" });
     expect(result.notes.find((row) => row.source === "model" && row.instruction === WRITER_WITH_CAP)).toMatchObject({
       outcome: "not_applied",
       reason: expect.stringMatching(/^Not followed in full: Line 244 is over the writer's cap at \d+\/60 words \(measured by code; see the cap row\)\. Otherwise followed: Third person throughout\.$/),
     });
+  });
+
+  it("after shortening, the full Self-check of the final text carries the SOURCE FACTS block, and its findings are verified on that text", async () => {
+    expect(sectionMetrics(SHORTENED, "s244").words).toBeLessThanOrEqual(60);
+    expect(SHORTENED).toContain(SCOPE.draftQuote);
+    expect(SHORTENED).not.toContain(STEEL.draftQuote);
+    const sent = installCapFetch({
+      repair: REPAIRED,
+      // The draft's two passes echo; the repair's first pass meets the cap.
+      compressions: [DRAFT_244, DRAFT_244, SHORTENED],
+      checks: [
+        { verdicts: [...ordinary, profileFollowed], planVerdicts: [...covered, factsWrong, targetsMet] },
+        // On the final text the check still names both: the steel quote is
+        // gone from that text, so only the scope finding verifies.
+        { verdicts: [...ordinary, profileFollowed], planVerdicts: [...covered, { ...factsWrong, paragraph: 2, findings: [STEEL, SCOPE] }, targetsMet] },
+      ],
+    });
+    const result = await draftWithCap();
+    expect(result.draftText).toBe(SHORTENED);
+    // The check of the final text is the full Self-check, in place of the
+    // coverage-only one.
+    expect(sent.map((request) => request.stage)).toEqual([
+      "section", "compression", "compression", "selfCheck", "repair", "compression", "selfCheck",
+    ]);
+    const final = sent.filter((request) => request.stage === "selfCheck")[1]!.user;
+    expect(final).toContain(SHORTENED.split("\n\n")[1]!);
+    expect(final.split(CAP_SOURCE_FACTS_BLOCK)).toHaveLength(2);
+    expect(final.split(factsMatchSourcesInstruction(true))).toHaveLength(2);
+    expect(final.split(MEASURED_CAPS)).toHaveLength(2);
+    expect(final).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+
+    // The row describes the final text: the scope finding, verified there,
+    // and the steel finding, whose quote the final text no longer holds,
+    // counted as not shown, exactly as for a first check.
+    expect(factsRow(result)).toMatchObject({
+      instruction: FACTS_INSTRUCTION,
+      outcome: "not_applied",
+      paragraphIndex: 1,
+      reason: factsFindingsReason([verifiedOf(SCOPE, 1)], 1),
+      repaired: false,
+    });
+    expect((factsRow(result) as { reason: string }).reason).not.toContain("steel");
+    expect(result.notes.find((row) => row.instruction === CAP_RULE)).toMatchObject({ outcome: "applied" });
   });
 });
