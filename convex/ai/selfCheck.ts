@@ -1641,6 +1641,11 @@ export function quoteFoundIn(quote: string, text: string | readonly string[]): b
   return entries.some((entry) => partsInOrder(parts, normalizeForQuote(entry)));
 }
 
+/** Whether two quotes are the same text after normalizing, ellipses and edge marks aside. */
+function sameQuoteText(a: string, b: string): boolean {
+  return quoteParts(a).join(" ") === quoteParts(b).join(" ");
+}
+
 /** A finding whose quotes verified, with the paragraph that holds its draft quote. */
 export type VerifiedFactsFinding = {
   paragraphIndex: number;
@@ -1659,8 +1664,13 @@ function rowQuote(quote: string): string {
  * 2026-10-04 (second, round 2): verify a not applied facts verdict's findings.
  * The draft quote must be in a paragraph of the checked text (the one the
  * verdict names, else the first that holds it); the source quote must be in
- * one of the `sources` entries and not in that paragraph, which would make
- * it the same words. Round 2 review, P2-4: while the source documents are
+ * one of the `sources` entries, and the two quotes must not be the same
+ * text after normalizing (the draft quoted back as its source, so nothing
+ * differs). Greptile on PR #26 at 17d3d1a8 and 7e3964cc: a source quote the
+ * paragraph also states, or one quote holding the other, still verifies,
+ * since a draft can add a group to the source's words or drop a qualifier
+ * from them. Whether two different texts state the same fact is the
+ * prompt's job. Round 2 review, P2-4: while the source documents are
  * not complete, a verified finding whose draft quote a signed-off item's
  * wording holds (`items`) is held: shown, never repaired, since the
  * documents that could support the item were not read.
@@ -1682,7 +1692,7 @@ export function verifyFactsFindings(args: {
     const paragraphIndex = holds(named) ? named : args.paragraphs.findIndex((_, index) => holds(index));
     if (paragraphIndex < 0) continue;
     if (!quoteFoundIn(finding.sourceQuote, args.sources)) continue;
-    if (quoteFoundIn(finding.sourceQuote, args.paragraphs[paragraphIndex]!)) continue;
+    if (sameQuoteText(finding.sourceQuote, finding.draftQuote)) continue;
     const shown = {
       paragraphIndex,
       draftQuote: finding.draftQuote.trim(),

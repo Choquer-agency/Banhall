@@ -2966,7 +2966,49 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
     expect(verifyFactsFindings({ findings: [merged], paragraphs, sources: sourcesOf(partial) }).verified).toHaveLength(1);
   });
 
-  it("never verifies a source quote that the paragraph itself holds, or a draft quote no paragraph holds, and holds a finding on a signed-off item's words while documents are missing (round 2 review, P2-4)", () => {
+  it("Greptile on PR #26 at 17d3d1a8: verifies a finding on a wrong group rate when the paragraph also states the right overall rate", () => {
+    const paragraphs = [
+      "In the 600-door pilot, 4 percent of panels had edge DFT below 60 microns. The deep cove profile fell short on 4 percent of its panels.",
+    ];
+    const sources = ["4 percent of panels had edge DFT below 60 microns, and every one of them was a deep cove profile."];
+    const finding = {
+      draftQuote: "The deep cove profile fell short on 4 percent of its panels",
+      sourceQuote: "4 percent of panels had edge DFT below 60 microns",
+      correction: "13 percent of the 180 deep cove panels",
+    };
+    expect(verifyFactsFindings({ findings: [finding], paragraphs, sources })).toEqual({
+      verified: [{ paragraphIndex: 0, ...finding }],
+      held: [],
+      unverified: 0,
+    });
+  });
+
+  const holdingSources = ["4 percent of panels fell below 60 microns. 4 percent of panels fell short across all 600 doors."];
+  it("Greptile on PR #26 at 7e3964cc: verifies a finding whose draft quote adds a group to its source quote", () => {
+    const sources = holdingSources;
+    const addedGroup = { draftQuote: "In the deep cove group, 4 percent of panels fell below 60 microns", sourceQuote: "4 percent of panels fell below 60 microns", correction: "13 percent of the deep cove panels" };
+    expect(verifyFactsFindings({ findings: [addedGroup], paragraphs: ["In the deep cove group, 4 percent of panels fell below 60 microns."], sources }))
+      .toEqual({ verified: [{ paragraphIndex: 0, ...addedGroup }], held: [], unverified: 0 });
+  });
+
+  it("Greptile on PR #26 at 7e3964cc: verifies a finding whose draft quote drops a qualifier its source quote holds", () => {
+    const sources = holdingSources;
+    const droppedQualifier = { draftQuote: "4 percent of panels fell short", sourceQuote: "4 percent of panels fell short across all 600 doors", correction: "4 percent of all 600 doors" };
+    expect(verifyFactsFindings({ findings: [droppedQualifier], paragraphs: ["On the deep cove profile, 4 percent of panels fell short."], sources }))
+      .toEqual({ verified: [{ paragraphIndex: 0, ...droppedQualifier }], held: [], unverified: 0 });
+  });
+
+  it("never verifies a source quote that is the draft quote itself, after normalizing", () => {
+    const paragraphs = ["The sealer cut preheat to 85 C on the routed edges."];
+    const sources = ["The sealer cut preheat to 85 C on the routed edges, as planned."];
+    expect(verifyFactsFindings({
+      findings: [{ draftQuote: "cut preheat to 85 C on the routed edges", sourceQuote: "\u201cCut  preheat to 85 C on the routed edges.\u201d", correction: "" }],
+      paragraphs,
+      sources,
+    })).toEqual({ verified: [], held: [], unverified: 1 });
+  });
+
+  it("never verifies a source quote that is the draft quote, or a draft quote no paragraph holds, and holds a finding on a signed-off item's words while documents are missing (round 2 review, P2-4)", () => {
     const paragraphs = ["The sealer cut preheat to 85 C on the routed edges.", "Defects fell to 1.8 per square metre."];
     const sources = ["Preheat came down to 85 C on the routed edges. Defects fell to 1.8 per square metre."];
     expect(verifyFactsFindings({
