@@ -918,8 +918,21 @@ function literalSummaryResponseOracle(args: {
             outcome: "not_applied",
             paragraph,
             reason,
-            ...(check.ruleId === "facts_match_sources" ? {} : { repairGuidance }),
+            ...(check.ruleId === "facts_match_sources" || check.ruleId === "results_against_targets" ? {} : { repairGuidance }),
             ruleId: check.ruleId,
+            // 2026-10-04 (second, round 4): the targets verdict reserves three
+            // entries, each with its quotes, target quote and correction at
+            // their limits, and no repairGuidance.
+            ...(check.ruleId === "results_against_targets"
+              ? {
+                  targetFindings: Array.from({ length: 3 }, () => ({
+                    correction: "c".repeat(80),
+                    draftQuote: "d".repeat(64),
+                    sourceQuote: "s".repeat(160),
+                    targetQuote: "t".repeat(80),
+                  })),
+                }
+              : {}),
           })
         : JSON.stringify({
             mergedItemIds: [],
@@ -3274,15 +3287,17 @@ describe("seed Summary sign-off and recovery", () => {
     // before it. Re-pinned 2026-10-04 (second): the facts verdict comes
     // before the targets verdict; re-pinned again for its longer guidance
     // (review round 1, P2-2), again for its three findings (round 2), and
-    // again for its halved reservation (round 2 review, P3-1).
+    // again for its halved reservation (round 2 review, P3-1). Re-pinned
+    // again in round 4: the targets verdict reserves its three entries in
+    // place of its repairGuidance (shorter fields since its review, P3-5).
     // It still equals the independent oracle above, which
     // frozenS244OracleChecks and literalSummaryResponseOracle extend the
     // same way.
     expect(replayHashes).toEqual({
-      restored: "a9219e78f278dfedc606830e7b68aeb8406fc719436574df9ee82dfc99b94e83",
-      omit_storyline: "152e943e68655f7d8e4aae42bf80840f84f086b20c3a8e168288ae60f1d43431",
-      omit_repeated_merge: "d54331549ba4c3cc88d284c0e33570276fc474f8d0ffbf8097e3e15061da9677",
-      short_reason: "36ddab49c1a9d0f2d4a8ebfdcc471b6766b2f1adea921a5b320c76d962087c7a",
+      restored: "2aa395504b149cff852a7c159a682c4527cde06a4f49e6f5b855ff21614a262f",
+      omit_storyline: "1ddafb939c8deed9c9441bccc2f5c55c4c553c689a50c0c82b35f6ac41757814",
+      omit_repeated_merge: "e69b02b3b64e2f7cc366a89b485d5ee3ee8c65f0f33c4fb98befb264e961bdbe",
+      short_reason: "9b856eb95963cc6e950765cd85d0a40bb96f5857dcb1967a89f2b6635407882b",
     });
   });
 

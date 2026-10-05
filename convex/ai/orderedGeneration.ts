@@ -497,9 +497,12 @@ function planVerdictFor(
  * read right after the Brief in a signed-off plan run's drafting request and
  * its repair. Single draft and Compare requests never carry it.
  */
-export function reportFactsBlock(): string {
+export function reportFactsBlock(
+  /** 2026-10-04 (second, round 4): the Line has the targets check. */
+  targets = false
+): string {
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.reportFacts;
-  return `${scaffold.prefix}${scaffold.rules}${scaffold.brief}`;
+  return `${scaffold.prefix}${scaffold.rules}${targets ? scaffold.targetsMet : ""}${scaffold.brief}`;
 }
 
 /**
@@ -546,6 +549,16 @@ export const FACTS_INSTRUCTION =
 export function factsRepairedReason(finalReason: string, firstReason: string): string {
   const found = firstReason.trim();
   return found ? `${finalReason.trim()} Fixed by the repair: ${found}` : finalReason.trim();
+}
+
+/**
+ * 2026-10-04 (second, round 4 review, P2-4): a targets row a used repair
+ * fixed says what was wrong first, since the final text's evidence can be
+ * long and a Compliance Note reason is cut at its limit.
+ */
+export function targetsRepairedReason(finalReason: string, firstReason: string): string {
+  const found = firstReason.trim();
+  return found ? `Fixed by the repair: ${found} ${finalReason.trim()}` : finalReason.trim();
 }
 
 /**
@@ -963,11 +976,14 @@ export function planComplianceNoteDrafts(args: {
         outcome: final?.outcome ?? "not_applied",
         tier: "none",
         // 2026-10-04 (second): a facts row a repair fixed still says what was
-        // wrong, so a reviewer can check the correction.
+        // wrong, so a reviewer can check the correction; since round 4 a
+        // targets row too.
         reason: final
           ? repaired && expected.instruction === "match_sources"
             ? factsRepairedReason(rowReason(final), verdict.reason)
-            : rowReason(final)
+            : repaired && expected.instruction === "match_targets"
+              ? targetsRepairedReason(rowReason(final), verdict.reason)
+              : rowReason(final)
           : FINAL_COVERAGE_NOT_CHECKED_REASON,
         repaired,
         planRef,
@@ -1196,7 +1212,9 @@ export async function draftCheckedSection(input: {
   // 2026-09-30 (third): a signed-off plan run's report-text rules, right
   // after the Brief. Single draft and Compare requests are unchanged.
   const planRun = Boolean(claim.planBlock);
-  const reportFacts = planRun ? reportFactsBlock() : "";
+  const reportFacts = planRun
+    ? reportFactsBlock(claim.planChecks.some((planCheck) => planCheck.instruction === "match_targets"))
+    : "";
   // Review P3-6: the checked text is over a Locked limit and further over
   // it than the other text, which must never be traded back for it.
   const overLimitMore = (checked: string, other: string) =>
@@ -1462,10 +1480,15 @@ export async function draftCheckedSection(input: {
         }
         // 2026-09-30 (third): a result misstated against its target goes
         // to the repair with a fixed start and the check's guidance. It asks
-        // to state something, so it stays a Must keep line.
+        // to state something, so it stays a Must keep line. Round 4 review
+        // (P3-6): a fix built from verified entries quotes the draft's wrong
+        // words, so, like a facts fix, it is never a Must keep line (the
+        // number guard would keep the wrong figure) and its repair must keep
+        // every figure of this Line's own signed-off items.
         if (expected?.instruction === "match_targets") {
           const issue = leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason);
           targetsIssues.add(issue);
+          if (verdict.repairFromEntries) factsIssues.add(issue);
           return [issue];
         }
         return [verdict.repairText ?? verdict.repairGuidance ?? verdict.reason];

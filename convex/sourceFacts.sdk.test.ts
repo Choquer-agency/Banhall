@@ -35,6 +35,7 @@ import {
   COMPRESSION_REQUEST,
   ORDERED_PROMPT_SCAFFOLDS,
   SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
+  SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA,
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
 } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
@@ -44,6 +45,12 @@ import {
   factsMatchSourcesInstruction,
   factsNotCheckedReason,
   factsRepairText,
+  targetsRepairText,
+  targetFindingsReason,
+  targetsNotShownReason,
+  targetsNotCheckedReason,
+  FACTS_HELD_PREFIX,
+  targetsShownReason,
   PLAN_FACTS_NOT_CHECKED_REASON,
   sourceFactsFor,
   type SourceDocuments,
@@ -57,7 +64,7 @@ import {
 import { renderBriefBlock } from "./lib/briefRender";
 import { sectionMetrics } from "./lib/lineLimits";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
-import { FACT_RULES } from "../shared/humanProse";
+import { FACT_RULES, TARGET_MET_RULE } from "../shared/humanProse";
 import { unbackedBullets } from "./lib/seedQuoteSupport";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -330,7 +337,17 @@ const covered = [
   { itemId: ITEM_TRIAL_1, mergedItemIds: [ITEM_TRIAL_1], paragraph: 1, outcome: "applied", reason: "P1 states Trial 1." },
   { itemId: ITEM_PILOT, mergedItemIds: [ITEM_PILOT], paragraph: 2, outcome: "applied", reason: "P2 states the pilot." },
 ];
-const targetsMet = { ruleId: RESULTS_AGAINST_TARGETS_RULE_ID, mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Every comparison matches." };
+// Round 4: an applied targets verdict shows each target the section states
+// as met from the sources (here the shaker profile's, in DRAFT_244 and
+// REPAIRED_244; a draft without such a sentence needs none).
+const targetsMet = {
+  ruleId: RESULTS_AGAINST_TARGETS_RULE_ID,
+  mergedItemIds: [],
+  paragraph: 0,
+  outcome: "applied",
+  reason: "Every comparison matches.",
+  targetFindings: [{ draftQuote: "The shaker profile met the 60 micron edge coverage target on all panels", sourceQuote: "The shaker edges were all over 60", correction: "" }],
+};
 const factsMatch = { ruleId: FACTS_MATCH_SOURCES_RULE_ID, mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Figures and details match the sources." };
 
 // The two errors of the 2026-10-04 run, each with its evidence.
@@ -394,7 +411,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     // Drafting reads the rule, in FACT_RULES' words, right after the Brief.
     const drafting = sent[0]!.user;
     for (const sentence of Object.values(FACT_RULES)) expect(drafting.split(sentence)).toHaveLength(2);
-    expect(drafting).toContain(`${BRIEF_BLOCK}${reportFactsBlock()}`);
+    expect(drafting).toContain(`${BRIEF_BLOCK}${reportFactsBlock(true)}`);
 
     // The Self-check reads the client's own words first, then the product's
     // wording, each item marked and with its quotes, right after the plan checks.
@@ -416,7 +433,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     // The repair: one fix for the whole section, with each verified finding.
     const repair = sent[2]!.user;
     expect(repair).toContain(`- Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${FIX}`);
-    expect(repair.split(reportFactsBlock())).toHaveLength(2);
+    expect(repair.split(reportFactsBlock(true))).toHaveLength(2);
 
     // The check of the final text reads the same sources and rule.
     expect(sent[3]!.user.split(SOURCE_FACTS_BLOCK)).toHaveLength(2);
@@ -993,26 +1010,36 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
     const repaired = [twoErrors.split("\n\n")[0]!, fixedSentence].join("\n\n");
     const onP2 = { paragraph: 2, draftQuote: "fell short of 60 microns on 4 percent of its panels", sourceQuote: SCOPE.sourceQuote, correction: SCOPE.correction };
     const factsOnP2 = { ...factsWrong, paragraph: 2, reason: "P2 gives the all-panel 4% as deep cove's", findings: [onP2] };
-    const targetsOnP2 = { ruleId: RESULTS_AGAINST_TARGETS_RULE_ID, mergedItemIds: [], paragraph: 2, outcome: "not_applied", reason: "P2 calls 0.9 over the limit of 1", repairGuidance: "Say 0.9 met the limit of 1." };
+    // Round 4: the targets verdict carries its evidence too.
+    const targetOnP2 = {
+      draftQuote: "outgassing defects averaged 0.9 per square metre, over the 1 per square metre limit",
+      sourceQuote: "| All | 600 | 0.9 | 4 percent |",
+      correction: "0.9 per square metre is within the 1 per square metre limit",
+    };
+    const targetsOnP2 = { ruleId: RESULTS_AGAINST_TARGETS_RULE_ID, mergedItemIds: [], paragraph: 2, outcome: "not_applied", reason: "P2 calls 0.9 over the limit of 1", targetFindings: [targetOnP2] };
+    const metShown = {
+      ...targetsMet,
+      targetFindings: [{ draftQuote: "outgassing defects averaged 0.9 per square metre, within the 1 per square metre limit", sourceQuote: "| All | 600 | 0.9 | 4 percent |", correction: "" }],
+    };
     const sent = installFetch({
       draft: twoErrors,
       repair: repaired,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsOnP2, targetsOnP2] },
-        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, metShown] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
     const repair = sent[2]!.user;
     expect(repair).toContain(`- Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${factsRepairText([verifiedOf(onP2, 1)])}`);
-    expect(repair).toContain(`- Paragraph 2: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.targetsIssue}Say 0.9 met the limit of 1.`);
+    expect(repair).toContain(`- Paragraph 2: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.targetsIssue}${targetsRepairText([verifiedOf(targetOnP2 as typeof STEEL, 1)])}`);
     expect(result.draftText).toBe(repaired);
     expect(factsRow(result)).toMatchObject({ outcome: "applied", repaired: true });
     expect(result.notes.find((row) => row.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID)).toMatchObject({
       outcome: "applied",
       repaired: true,
-      reason: "Every comparison matches.",
+      reason: expect.stringContaining('The targets check quoted these source words for each target stated as met: P2 "outgassing defects averaged 0.9 per square metre, within the 1 per square metre…", the sources "| All | 600 | 0.9 | 4 percent |".'),
     });
   });
 });
@@ -1405,5 +1432,214 @@ describe("Greptile on PR #26 at 1da92721: unbacked wording never returns as evid
     expect(factsRow(result)).toMatchObject({ outcome: "not_applied", repaired: false });
     expect(factsRow(result)?.planRef).toBeDefined();
     expect(JSON.stringify(factsRow(result))).toContain("Not checked: the facts check flagged something it could not show from the sources");
+  });
+});
+
+describe("round 4: a target is met only as the sources state it, and the targets verdict carries its evidence (real SDK, fetch stubbed)", () => {
+  // The release suite fixture's lines (run 6 and run 5).
+  const interview = [
+    "Tobias Achterberg: DFT of 70 to 90 microns on the faces and at least 60 microns on the routed edges.",
+    "Tobias Achterberg: With the sealer we got the edges up. Edge DFT went up to 58 microns average, minimum 47.",
+    "Tobias Achterberg: In the same trial we put the sealer and the new powder together on 140 panels. Edge DFT averaged 64 microns, minimum 52. Faces were 78 microns. Pinholes were 0.6 per square metre. That was the first time we met the pinhole target and the cure target on the same panels.",
+  ].join("\n");
+  const documents = { documents: [{ label: "INTERVIEW TRANSCRIPT: Interview", content: interview }], leftOut: [], budget: 48_000 };
+  const sources = { planItemSources: PLAN_ITEM_SOURCES, factsSourceDocuments: documents };
+  const p1 = "Trial 1 ran the supplier's datasheet process on the routed MDF panels. The datasheet cure numbers were for thin flat panels and did not transfer.";
+  // Run 6, Line 244 P5: other targets than the sources name, and an average
+  // given for every panel.
+  const run6 = "Splitting the oven profile into ramp and hold zones cut overshoot from about 5 C to 2 C, and the combined sealer-and-powder process met both the outgassing defect and film build targets together on 140 test panels for the first time.";
+  const fixed = "Splitting the oven profile into ramp and hold zones cut overshoot from about 5 C to 2 C, and the combined sealer-and-powder process met the pinhole and cure targets together on 140 test panels for the first time, while the edges averaged 64 microns with a minimum of 52 against at least 60.";
+  const metShown = {
+    ruleId: RESULTS_AGAINST_TARGETS_RULE_ID,
+    mergedItemIds: [],
+    paragraph: 0,
+    outcome: "applied",
+    reason: "Targets and results stated per the numbers shown",
+    targetFindings: [{ draftQuote: "met the pinhole and cure targets together on 140 test panels", sourceQuote: "That was the first time we met the pinhole target and the cure target on the same panels", correction: "" }],
+  };
+  const swapped = {
+    draftQuote: "met both the outgassing defect and film build targets together on 140 test panels",
+    sourceQuote: "That was the first time we met the pinhole target and the cure target on the same panels",
+    correction: "the pinhole and cure targets were met together for the first time",
+  };
+  const average = {
+    draftQuote: "film build targets together on 140 test panels for the first time",
+    sourceQuote: "Edge DFT averaged 64 microns, minimum 52",
+    targetQuote: "at least 60 microns on the routed edges",
+    correction: "the edges averaged 64 microns with a minimum of 52, so not every panel met the 60-micron edge target",
+  };
+  const draft2 = (second: string) => [p1, second].join("\n\n");
+
+  it("shows run 6's two errors with the result and the target as the sources give them, and repairs them", async () => {
+    const sent = installFetch({
+      draft: draft2(run6),
+      repair: draft2(fixed),
+      checks: [
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, { ...metShown, outcome: "not_applied", paragraph: 2, reason: "P2 names other targets", targetFindings: [swapped, average] }] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, metShown] },
+      ],
+    });
+    const result = await draft(claimFor(plan244(), sources), SUMMARY_VERSION);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    // Drafting and the check carry the rule; the check carries the entries' schema.
+    expect(sent[0]!.user).toContain(TARGET_MET_RULE);
+    expect(sent[1]!.user).toContain(TARGET_MET_RULE);
+    const tool = (sent[1]!.json.tools as Array<{ input_schema: { properties: { planVerdicts: { items: { properties: Record<string, unknown> } } } } }>)[0]!;
+    expect(tool.input_schema.properties.planVerdicts.items.properties.targetFindings).toEqual(SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA);
+    const verified = [
+      { paragraphIndex: 1, ...swapped },
+      { paragraphIndex: 1, ...average },
+    ];
+    expect(sent[2]!.user).toContain(`- Paragraph 2: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.targetsIssue}${targetsRepairText(verified)}`);
+    expect(targetsRepairText(verified)).toContain('against the target "at least 60 microns on the routed edges"');
+    expect(result.draftText).toBe(draft2(fixed));
+    const row = result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID);
+    expect(row).toMatchObject({ outcome: "applied", repaired: true });
+    // Review P2-4: what was wrong comes first, so a long row never cuts it.
+    expect(row?.reason.startsWith(`Fixed by the repair: ${targetFindingsReason(verified, 0)}`)).toBe(true);
+  });
+
+  it("never vouches for run 6's P5: an applied verdict that shows no source for a target stated as met is not checked", async () => {
+    const vouching = { ...metShown, targetFindings: undefined };
+    // And an entry whose source words cannot be found is no evidence either.
+    const invented = { ...metShown, targetFindings: [{ ...swapped, sourceQuote: "we met the film build target on every panel", correction: "" }] };
+    for (const verdict of [vouching, invented]) {
+      const sent = installFetch({ draft: draft2(run6), checks: [{ verdicts: ordinary, planVerdicts: [...covered, factsMatch, verdict] }] });
+      const result = await draft(claimFor(plan244(), sources), SUMMARY_VERSION);
+      expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
+      expect(result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID)).toMatchObject({
+        outcome: "not_applied",
+        repaired: false,
+        reason: targetsNotShownReason({ paragraphIndex: 1, sentence: run6 }),
+      });
+    }
+  });
+
+  it("shows a correctly stated met target from the sources, and the row quotes them", async () => {
+    const correct = [p1, "The combined sealer-and-powder process met the pinhole and cure targets together on 140 test panels for the first time."].join("\n\n");
+    installFetch({ draft: correct, checks: [{ verdicts: ordinary, planVerdicts: [...covered, factsMatch, metShown] }] });
+    const result = await draft(claimFor(plan244(), sources), SUMMARY_VERSION);
+    expect(result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID)).toMatchObject({
+      outcome: "applied",
+      repaired: false,
+      reason: targetsShownReason([{ paragraphIndex: 1, draftQuote: metShown.targetFindings[0]!.draftQuote, sourceQuote: metShown.targetFindings[0]!.sourceQuote, correction: "" }]),
+    });
+  });
+});
+
+
+describe("round 4 review: the targets check vouches only for what it quoted (real SDK, fetch stubbed)", () => {
+  const interview = [
+    "Tobias Achterberg: DFT of 70 to 90 microns on the faces and at least 60 microns on the routed edges.",
+    "Tobias Achterberg: Edge DFT averaged 64 microns, minimum 52. That was the first time we met the pinhole target and the cure target on the same panels.",
+    "Tobias Achterberg: Edge wrap was the open issue. 4 percent of panels had edge DFT below 60 microns, and every one of them was a deep cove profile. The shaker edges were all over 60.",
+  ].join("\n");
+  const documents = { documents: [{ label: "INTERVIEW TRANSCRIPT: Interview", content: interview }], leftOut: [], budget: 48_000 };
+  const sources = { planItemSources: PLAN_ITEM_SOURCES, factsSourceDocuments: documents };
+  const p1 = "Trial 1 ran the supplier's datasheet process on the routed MDF panels. The datasheet cure numbers were for thin flat panels and did not transfer.";
+  const applied = (targetFindings: unknown[]) => ({
+    ruleId: RESULTS_AGAINST_TARGETS_RULE_ID, mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Targets met.", targetFindings,
+  });
+  const targetsRow = async (text: string, verdict: unknown, claimSources: Record<string, unknown> = sources) => {
+    const sent = installFetch({ draft: text, checks: [{ verdicts: ordinary, planVerdicts: [...covered, factsMatch, verdict] }] });
+    const result = await draft(claimFor(plan244(), claimSources), SUMMARY_VERSION);
+    return { sent, row: result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID) };
+  };
+  const run6 = "The combined process met both the outgassing defect and film build targets together on 140 test panels for the first time.";
+  const pinhole = "That was the first time we met the pinhole target and the cure target on the same panels";
+
+  it("P2-2: an entry whose draft quote leaves out the word for met is no evidence for that sentence", async () => {
+    const { row } = await targetsRow([p1, run6].join("\n\n"), applied([{ draftQuote: "film build targets together on 140 test panels", sourceQuote: pinhole, correction: "" }]));
+    expect(row).toMatchObject({ outcome: "not_applied", paragraphIndex: 1, reason: targetsNotShownReason({ paragraphIndex: 1, sentence: run6 }) });
+    expect(row?.reason).toContain("could not show from the sources the target claim in P2");
+  });
+
+  it("P2-3: a faithful sentence that copies the source's words is shown, not dropped as the same text", async () => {
+    const faithful = "That was the first time the line met the pinhole target and the cure target on the same panels.";
+    const quote = "met the pinhole target and the cure target on the same panels";
+    const { row } = await targetsRow([p1, faithful].join("\n\n"), applied([{ draftQuote: quote, sourceQuote: quote, correction: "" }]));
+    expect(row).toMatchObject({ outcome: "applied" });
+    expect(row?.reason.startsWith("The targets check quoted these source words for each target stated as met: ")).toBe(true);
+  });
+
+  it("P3-7: one entry covers the same clause in two paragraphs, and an entry with a correction is no evidence", async () => {
+    const twice = [p1, "The shaker profile met the 60-micron edge target on all panels.", "Again, the shaker profile met the 60-micron edge target on all panels."].join("\n\n");
+    const entry = { draftQuote: "the shaker profile met the 60-micron edge target", sourceQuote: "The shaker edges were all over 60", correction: "" };
+    expect((await targetsRow(twice, applied([entry]))).row).toMatchObject({ outcome: "applied" });
+    expect((await targetsRow(twice, applied([{ ...entry, correction: "every shaker edge was over 60 microns" }]))).row)
+      .toMatchObject({ outcome: "not_applied", paragraphIndex: 1 });
+  });
+
+  it("P3-6: a targets fix built from its entries, like a facts fix, must keep every figure of this Line's own signed-off items", async () => {
+    const draft246 = [
+      "An edge-only sealer cut the deep cove shortfall to 7 percent, meeting the edge target.",
+      "Deep cove edge coverage stays open for fiscal 2027.",
+    ].join("\n\n");
+    const stripped = draft246.replace(" to 7 percent", "");
+    const statusCovered = { itemId: ITEM_STATUS, mergedItemIds: [ITEM_STATUS], paragraph: 1, outcome: "applied", reason: "P1 states the open edge." };
+    const error = {
+      ...applied([{ draftQuote: "cut the deep cove shortfall to 7 percent, meeting the edge target", sourceQuote: "4 percent of panels had edge DFT below 60 microns", correction: "the deep cove edge target was not met" }]),
+      outcome: "not_applied",
+      paragraph: 1,
+      reason: "P1 calls a missed target met",
+    };
+    const sent = installFetch({ draft: draft246, repair: stripped, checks: [{ verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, factsMatch, error] }] });
+    const result = await draft(
+      claimFor(plan246(STATUS_246_FIGURE), { planItemSources: PLAN_ITEM_SOURCES, factsSourceDocuments: documents }),
+      SUMMARY_VERSION,
+      { section: "246", writerFlavor: WRITER_FLAVOR }
+    );
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
+    expect(result.draftText).toBe(draft246);
+    expect(result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID)?.reason)
+      .toContain('repair not used (the repaired text no longer holds the signed-off figure "7 percent"');
+  });
+
+  it("P3-8: more than three sentences that say a target was met read not checked, naming the fourth", async () => {
+    const sentences = [
+      "The shaker profile met the 60-micron edge target on all panels.",
+      "The line met the pinhole target on the same panels.",
+      "The fast powder met the cure target on the same panels.",
+      "The process met the face film build target on the same panels.",
+    ];
+    const entries = [
+      { draftQuote: "The shaker profile met the 60-micron edge target", sourceQuote: "The shaker edges were all over 60", correction: "" },
+      { draftQuote: "The line met the pinhole target on the same panels", sourceQuote: pinhole, correction: "" },
+      { draftQuote: "The fast powder met the cure target on the same panels", sourceQuote: pinhole, correction: "" },
+      { draftQuote: "The process met the face film build target", sourceQuote: "DFT of 70 to 90 microns on the faces", correction: "" },
+    ];
+    const { row } = await targetsRow([p1, sentences.join(" ")].join("\n\n"), applied(entries));
+    expect(row).toMatchObject({ outcome: "not_applied", reason: targetsNotShownReason({ paragraphIndex: 1, sentence: sentences[3]! }) });
+  });
+
+  it("P3-8: an error none of whose entries verify is not checked and never repaired from the model's guidance alone", async () => {
+    const verdict = { ...applied([{ draftQuote: run6.slice(0, 60), sourceQuote: "we met the film build target on every panel", correction: "cure, not film build" }]), outcome: "not_applied", paragraph: 2, reason: "P2 names other targets", repairGuidance: "Say pinhole and cure." };
+    const { sent, row } = await targetsRow([p1, run6].join("\n\n"), verdict);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
+    expect(row).toMatchObject({ outcome: "not_applied", repaired: false, reason: targetsNotCheckedReason("P2 names other targets") });
+  });
+
+  it("P3-8: with a document left out, an error on a signed-off item's own words is shown and not repaired (held)", async () => {
+    const leftOut = { documents: [{ label: "INTERVIEW TRANSCRIPT: Interview", content: interview }], leftOut: [{ label: "SCOPING NOTES: trials.md", bytes: 61_234 }], budget: 48_000 };
+    const item = "The combined process met both the outgassing defect and film build targets together on 140 test panels.";
+    const entry = { draftQuote: "met both the outgassing defect and film build targets", sourceQuote: pinhole, correction: "the pinhole and cure targets" };
+    const { sent, row } = await targetsRow([p1, run6].join("\n\n"), { ...applied([entry]), outcome: "not_applied", paragraph: 2, reason: "P2 names other targets" }, {
+      planItemSources: [...PLAN_ITEM_SOURCES, { wording: [item], writer: false, quotes: [] }],
+      factsSourceDocuments: leftOut,
+    });
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
+    expect(row).toMatchObject({ outcome: "not_applied", repaired: false });
+    expect(row?.reason.startsWith(FACTS_HELD_PREFIX)).toBe(true);
+  });
+
+  it("P3-8: a Line 246 sentence that says a target was met is shown from the sources, or not checked", async () => {
+    const line246 = "The shaker profile met this target on every pilot panel, while the deep cove profile fell short on 13 percent of panels.";
+    const statusCovered = { itemId: ITEM_STATUS, mergedItemIds: [ITEM_STATUS], paragraph: 1, outcome: "applied", reason: "P1 states the open edge." };
+    const evidence = applied([{ draftQuote: "The shaker profile met this target on every pilot panel", sourceQuote: "The shaker edges were all over 60", correction: "" }]);
+    for (const [verdict, outcome] of [[evidence, "applied"], [applied([]), "not_applied"]] as const) {
+      installFetch({ draft: line246, checks: [{ verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, factsMatch, verdict] }] });
+      const result = await draft(claimFor(plan246(), { planItemSources: PLAN_ITEM_SOURCES, factsSourceDocuments: documents }), SUMMARY_VERSION, { section: "246", writerFlavor: WRITER_FLAVOR });
+      expect(result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID)).toMatchObject({ section: "246", outcome });
+    }
   });
 });

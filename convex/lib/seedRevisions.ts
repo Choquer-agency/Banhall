@@ -53,6 +53,25 @@ export const MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES = 120;
  * 80,000 bytes) does not, so the per-call input stays bounded.
  */
 export const SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES = 48_000;
+/**
+ * 2026-10-04 (second, round 4): the targets verdict carries its evidence
+ * like the facts verdict: up to this many entries, each with the draft's
+ * words, the source words (the result, or the words that say it was met),
+ * the target as the sources give it when the source words do not, and the
+ * correction (empty for an applied verdict's evidence). Sign-off and runtime
+ * admission reserve every entry at these limits, and no repairGuidance for
+ * the targets verdict, whose repair text comes from its entries.
+ */
+export const MAX_TARGET_FINDINGS = 3;
+/**
+ * Round 4 review (P3-5): shorter fields than a facts finding's, so the
+ * reservation is smaller: the draft's words at issue (they hold the word for
+ * met), the target and the correction. The source quote keeps the facts
+ * limit (MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES).
+ */
+export const MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES = 64;
+export const MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES = 80;
+export const MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES = 80;
 
 /** One frozen source document the facts check reads in full. */
 export type FactsSourceDocument = {
@@ -665,6 +684,14 @@ export function projectSummarySelfCheckWorstCaseResponse(
     draftQuote: repeated(MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES, "d"),
     sourceQuote: repeated(MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES, "s"),
   }));
+  // 2026-10-04 (second, round 4): the targets verdict's entries, each at its
+  // limits, with the target quote.
+  const targetFindings = Array.from({ length: MAX_TARGET_FINDINGS }, () => ({
+    correction: repeated(MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES, "c"),
+    draftQuote: repeated(MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES, "d"),
+    sourceQuote: repeated(MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES, "s"),
+    targetQuote: repeated(MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES, "t"),
+  }));
   const planVerdicts = args.planChecks.map((check) => ({
     ...(check.droppedSeedId ? { droppedSeedId: check.droppedSeedId } : {}),
     ...(check.itemId ? { itemId: check.itemId } : {}),
@@ -672,7 +699,11 @@ export function projectSummarySelfCheckWorstCaseResponse(
     outcome: "not_applied",
     paragraph: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
     reason,
-    ...(check.ruleId === FACTS_MATCH_SOURCES_RULE_ID ? { findings: factsFindings } : { repairGuidance }),
+    ...(check.ruleId === FACTS_MATCH_SOURCES_RULE_ID
+      ? { findings: factsFindings }
+      : check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID
+        ? { targetFindings }
+        : { repairGuidance }),
     ...(check.ruleId ? { ruleId: check.ruleId } : {}),
     ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
   }));

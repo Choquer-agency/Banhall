@@ -100,6 +100,7 @@ import {
   SEED_PROMPT_PROGRAM,
   SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
   SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
+  SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA,
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
   STYLE_GUIDANCE_SCAFFOLDS,
@@ -110,6 +111,10 @@ import {
   MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES,
   MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
   MAX_FACTS_FINDINGS,
+  MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES,
+  MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+  MAX_TARGET_FINDINGS,
+  MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES,
   MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_ORDINARY_VERDICTS,
   MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
@@ -791,6 +796,17 @@ export const generationPromptProgram = {
         // quotes do not back (when a quote is marked) is marked and never
         // stands for the sources.
         factsItems: "writer-wording-only-the-sentences-the-writer-changed-unbacked-wording-marked-never-stands-for-the-sources",
+        // Round 4: the targets verdict carries its evidence the same way; an
+        // applied verdict on a Line that says a target was met vouches only
+        // where each such sentence is shown from the sources.
+        targetFindings: "verified-quotes-only-errors-shown-and-repaired-met-targets-shown-or-not-checked",
+        targetFindingsSchema: SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA,
+        targetCapacity: {
+          maxFindings: MAX_TARGET_FINDINGS,
+          draftQuoteBytes: MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+          targetQuoteBytes: MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES,
+          correctionBytes: MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES,
+        },
         factsCapacity: {
           maxFindings: MAX_FACTS_FINDINGS,
           draftQuoteBytes: MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
