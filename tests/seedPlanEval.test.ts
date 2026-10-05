@@ -49,6 +49,7 @@ import {
   bannedForms,
   firstPersonHits,
   openingAt,
+  sentencesOpeningWith,
   phraseHits,
   renderSettingsRules,
   settingsBrokenCounts,
@@ -1793,6 +1794,41 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
     expect(String(uploads[1]!.content).startsWith("# PD Writing Customized Settings")).toBe(true);
   });
 
+  // Greptile on PR #27 at 60d9b921: the document bans "optimize" in any form,
+  // and only listed forms (plus s or es) count, so the fixture lists them all.
+  it("counts every form of a word the settings document bans in any form, such as optimizer", () => {
+    const sections = clean();
+    for (const form of ["optimizer", "optimizers", "optimiser", "optimizable", "optimizations"]) {
+      const results = settingsRuleResults(params(), { ...sections, s244: `${sections.s244} A ${form} set the line speed.` });
+      const optimize = results.find((result) => result.id === 'banned "optimize"')!;
+      expect({ form, broken: optimize.lines["244"]?.broken }).toEqual({ form, broken: true });
+    }
+    // The documented choice stands: only listed forms count.
+    const successful = settingsRuleResults(params(), { ...sections, s244: `${sections.s244} The trial was successful.` });
+    expect(successful.find((result) => result.id === 'banned "successfully"')?.broken).toBe(false);
+  });
+
+  // Greptile on PR #27 at 60d9b921: any sentence that opens with the words
+  // keeps the rule, though nothing marks it as the objective statement. The
+  // check stays as strict and says it is a heuristic, with the count.
+  it("marks a kept opening as a heuristic and counts the sentences that open with its words", () => {
+    const sections = clean();
+    const unrelated = `The aim of this work was to keep the line running. ${sections.s242}`;
+    const results = settingsRuleResults(params(), { ...sections, s242: unrelated });
+    const objective = results.find((result) => result.id === 'opening "The aim of this work was to" (objective)')!;
+    expect(objective.broken).toBe(false);
+    expect(objective.lines["242"]?.evidence).toBe(
+      "opens P1 (heuristic: 2 sentences open with these words; the judge checks it is the objective statement)",
+    );
+    const checks = runChecks(fixture(), collectedWith({ ...sections, s242: unrelated }), emptyRunLog(fixture().id, 0));
+    const openings = checks.find((item) => item.id === "settings-openings")!;
+    expect(openings.label).toMatch(/^Heuristic: /);
+    expect(openings.evidence).toContain("heuristic: 2 sentences open with these words");
+    // Still a certain break when no sentence opens with the words.
+    const none = settingsRuleResults(params(), { ...sections, s242: sections.s242.split("The aim of this work was to").join("The work set out to") });
+    expect(none.find((result) => result.id === objective.id)?.lines["242"]).toEqual({ broken: true, evidence: "no sentence opens with these words" });
+  });
+
   it("keeps every rule on a draft that follows the settings document", () => {
     const results = settingsRuleResults(params(), clean());
     expect(results.filter((result) => result.broken).map((result) => result.id)).toEqual([]);
@@ -1806,7 +1842,7 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
       evidence: "settings rules broken: Line 242: 0 of 18; Line 244: 0 of 16; Line 246: 0 of 16; overall: 0 of 20",
     });
     expect(checks.find((item) => item.id === "settings-openings")?.evidence).toBe(
-      '242: opening "The aim of this work was to" (objective) kept, opens P2; opening "It was not known at the outset whether" (uncertainty) kept, opens P3',
+      '242: opening "The aim of this work was to" (objective) kept, opens P2 (heuristic: 1 sentence opens with these words; the judge checks it is the objective statement); opening "It was not known at the outset whether" (uncertainty) kept, opens P3 (heuristic: 1 sentence opens with these words; the judge checks it is the uncertainty statement)',
     );
     expect(checks.find((item) => item.id === "settings-word-caps")?.evidence).toMatch(/^242: word cap Line 242 kept, \d+ of 260 words\. 244: word cap Line 244 kept, \d+ of 520 words\. 246: word cap Line 246 kept, \d+ of 260 words$/);
   });
@@ -1989,6 +2025,9 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
     expect(openingAt("[GAP: company size] The aim of this work was to cure it.", opening)).toEqual({ paragraph: 1, opensParagraph: false });
     expect(openingAt("Context first\nThe aim of this work was to cure it.", opening)).toEqual({ paragraph: 1, opensParagraph: false });
     expect(openingAt("Its aim, as the team put it, The aim of this work was to cure it.", opening)).toBeNull();
+    // Greptile on PR #27: how many sentences open with the words.
+    expect(sentencesOpeningWith("The aim of this work was to cure it. It worked.\n\nThe aim of this work was to log it.", opening)).toBe(2);
+    expect(sentencesOpeningWith("Its aim, as the team put it, The aim of this work was to cure it.", opening)).toBe(0);
   });
 
   it("does not count a required opening where the org enforces the House Rule openers (review P3-6)", () => {

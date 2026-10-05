@@ -3336,16 +3336,33 @@ function describeHits(hits: readonly SettingsHit[]): string {
  */
 export function openingAt(text: string, opening: string): { paragraph: number; opensParagraph: boolean } | null {
   if (!opening.trim()) return null;
-  const pattern = new RegExp(
-    `(?:^|\\n\\s*|[.!?]["'\\u2019\\u201d)\\]]*\\s+|\\]\\s+)${bannedTermPattern(opening.trim()).source}`,
-    "i",
-  );
+  const pattern = sentenceOpeningPattern(opening, "i");
   const paragraphs = paragraphsOf(text);
   for (let index = 0; index < paragraphs.length; index += 1) {
     const match = pattern.exec(paragraphs[index]!);
     if (match) return { paragraph: index + 1, opensParagraph: match.index === 0 };
   }
   return null;
+}
+
+/** The words at the start of a sentence, as openingAt reads it. */
+function sentenceOpeningPattern(opening: string, flags: string): RegExp {
+  return new RegExp(
+    `(?:^|\\n\\s*|[.!?]["'\\u2019\\u201d)\\]]*\\s+|\\]\\s+)${bannedTermPattern(opening.trim()).source}`,
+    flags,
+  );
+}
+
+/**
+ * Greptile on PR #27: how many sentences of the text open with the words.
+ * Nothing in the drafted text marks which sentence is the objective or the
+ * uncertainty statement, so a kept opening is a heuristic, and this count
+ * goes beside it for the judges.
+ */
+export function sentencesOpeningWith(text: string, opening: string): number {
+  if (!opening.trim()) return 0;
+  const pattern = sentenceOpeningPattern(opening, "gi");
+  return paragraphsOf(text).reduce((total, paragraph) => total + [...paragraph.matchAll(pattern)].length, 0);
 }
 
 export type SettingsRuleKind = "term" | "banned" | "opening" | "cap" | "exclusion" | "style";
@@ -3414,10 +3431,17 @@ export function settingsRuleResults(
       results.push({ id, kind: "opening", lines: {}, broken: false, note: null, notApplicable: OPENERS_ENFORCED_NOTE });
       continue;
     }
-    const at = openingAt(sections[lineKey(entry.section)], entry.opening);
+    const text = sections[lineKey(entry.section)];
+    const at = openingAt(text, entry.opening);
+    // Greptile on PR #27: kept means a sentence opens with the words; the
+    // judges check that it is the named statement. Broken stays certain.
+    const count = sentencesOpeningWith(text, entry.opening);
     add(id, "opening", {
       [entry.section]: at
-        ? { broken: false, evidence: at.opensParagraph ? `opens P${at.paragraph}` : `opens a sentence in P${at.paragraph}` }
+        ? {
+            broken: false,
+            evidence: `${at.opensParagraph ? `opens P${at.paragraph}` : `opens a sentence in P${at.paragraph}`} (heuristic: ${count} ${count === 1 ? "sentence opens" : "sentences open"} with these words; the judge checks it is the ${entry.statement} statement)`,
+          }
         : { broken: true, evidence: "no sentence opens with these words" },
     });
   }
@@ -3600,7 +3624,7 @@ function settingsAppliedCheck(fixture: FixtureManifest, params: SettingsParams, 
 const SETTINGS_KIND_CHECKS: ReadonlyArray<{ id: string; label: string; kind: SettingsRuleKind; showKept: boolean }> = [
   { id: "settings-terms", label: "Each required term from the settings document is used, and none of its synonyms appears in any Line", kind: "term", showKept: false },
   { id: "settings-banned", label: "No banned word or phrase from the settings document appears in any Line", kind: "banned", showKept: false },
-  { id: "settings-openings", label: "Each required opening from the settings document starts a sentence in its Line", kind: "opening", showKept: true },
+  { id: "settings-openings", label: "Heuristic: each required opening from the settings document starts a sentence in its Line (none doing so is a certain break; which sentence is the named statement is for the judge)", kind: "opening", showKept: true },
   { id: "settings-word-caps", label: "Each Line is within the settings document's word cap (below the CRA cap)", kind: "cap", showKept: true },
   { id: "settings-exclusions", label: "Heuristic: no Line mentions work the settings document excludes from the claim", kind: "exclusion", showKept: false },
   { id: "settings-style", label: "No Line uses the first person, as the settings document's style rule asks", kind: "style", showKept: false },
@@ -3669,7 +3693,7 @@ export function renderSettingsRules(results: readonly SettingsRuleResult[]): str
   return [
     "## Settings document rules, per Line",
     "",
-    `Every explicit rule of the writer's settings document, checked on the drafted Lines. Settings rules broken: ${settingsBrokenText(results, { ids: false })}. The exclusion rows are a heuristic: a marker in a Line counts as a mention.`,
+    `Every explicit rule of the writer's settings document, checked on the drafted Lines. Settings rules broken: ${settingsBrokenText(results, { ids: false })}. The exclusion rows are a heuristic: a marker in a Line counts as a mention. A kept opening row is a heuristic too: a sentence that opens with the words counts, and its count is shown.`,
     "",
     "| Rule | Line 242 | Line 244 | Line 246 |",
     "| --- | --- | --- | --- |",

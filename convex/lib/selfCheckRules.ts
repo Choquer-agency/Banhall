@@ -728,17 +728,26 @@ function confidenceEntryOf(instruction: string): string | null {
 }
 
 /**
- * Two normalized wordings name the same label when equal, or when one opens
- * the other and the shorter runs to six words or more (a quote the model
- * cut short), as quotesWriterProfile reads a cut-short profile.
+ * Two normalized wordings name the same label when equal, or when the
+ * shorter is a quote of the longer that the model cut short: it runs to six
+ * words or more, the longer starts with it, and it shows the cut, with an
+ * ellipsis at its end or by stopping inside a word. Greptile on PR #27: a
+ * shorter text that ends at a word boundary with no ellipsis can be a rule
+ * of its own ("Write in the third person throughout" beside "Write in the
+ * third person throughout, naming the company"), so it is never taken for
+ * the longer one; at worst the two read as two rows, never as a repair.
  */
 function sameWording(a: string, b: string): boolean {
+  // Lowercase words only: the cut is read from the text as the model wrote it.
   const left = normalizeForMatch(a).trim();
   const right = normalizeForMatch(b).trim();
   if (left === "" || right === "") return false;
   if (left === right) return true;
-  const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
-  return shorter.split(" ").length >= 6 && longer.startsWith(shorter);
+  const [shorter, longer, written] = left.length <= right.length ? [left, right, a.trim()] : [right, left, b.trim()];
+  if (shorter.split(" ").length < 6 || !longer.startsWith(shorter)) return false;
+  const ellipsis = /(?:\.\.\.|\u2026)$/.test(written);
+  const insideWord = /[\p{L}\p{N}]$/u.test(written) && /^[\p{L}\p{N}]/u.test(longer.slice(shorter.length));
+  return ellipsis || insideWord;
 }
 
 /**
@@ -748,7 +757,8 @@ function sameWording(a: string, b: string): boolean {
  * label itself, differently from call to call, so the Storyline matches by
  * its check alone, a Glossary verdict by the term it names, a Confidence
  * Map verdict by its [C#] entry (or its wording), and an instruction by its
- * wording, one opening the other, or both quoting the Writer Profile.
+ * wording, one a cut-short quote of the other (sameWording), or both quoting
+ * the Writer Profile.
  */
 export function sameSelfCheckLabel(
   a: Pick<ModelVerdict, "check" | "instruction">,

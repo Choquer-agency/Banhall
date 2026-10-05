@@ -572,7 +572,8 @@ describe("the check of the final text matches labels, not their exact words (rou
     ["storyline", v("storyline", "Storyline alignment", "not_applied"), v("storyline", "Follows the Storyline", "applied", "Fits.")],
     ["glossary", v("glossary", "Glossary Term: cure window", "not_applied"), v("glossary", "cure window (Glossary candidate)", "applied", "Fits.")],
     ["confidence", v("confidence", "C1: the onset range", "not_applied"), v("confidence", "[C1] Onset is hedged", "applied", "Fits.")],
-    ["instruction", v("instruction", "Write in the third person throughout the whole section.", "not_applied"), v("instruction", "Write in the third person throughout", "applied", "Fits.")],
+    // Greptile on PR #27: a cut-short quote shows its cut (an ellipsis here).
+    ["instruction", v("instruction", "Write in the third person throughout the whole section.", "not_applied"), v("instruction", "Write in the third person throughout...", "applied", "Fits.")],
   ])("a reworded %s label is the same label: one repaired row, no false 'not checked' row", (_kind, first, final) => {
     const { rows, summary } = run([first], [final]);
     const model = rows.filter((row) => row.source === "model");
@@ -592,6 +593,38 @@ describe("the check of the final text matches labels, not their exact words (rou
       expect.objectContaining({ outcome: "not_applied", reason: "Not checked on the final text (the Self-check gave no verdict for it)" }),
     ]);
     expect(summary).toMatchObject({ status: "repair_failed", remainingFailures: 1 });
+  });
+
+  // Greptile on PR #27 at 60d9b921: in Single draft and Compare a rule that
+  // is the opening of a longer, different rule was taken for it, so a pass
+  // of the longer rule marked the shorter one's failure repaired.
+  it("a rule that opens a longer, different rule stays its own label: no false repair, and its failure keeps its row", () => {
+    const { rows, summary } = run(
+      [v("instruction", "Write in the third person throughout", "not_applied", "P2 says we.")],
+      [v("instruction", "Write in the third person throughout, naming the company.", "applied", "The company is named.")]
+    );
+    expect(rows.filter((row) => row.source === "model")).toEqual([
+      expect.objectContaining({ instruction: "Write in the third person throughout, naming the company.", outcome: "applied", repaired: false, reason: "The company is named." }),
+      expect.objectContaining({ instruction: "Write in the third person throughout", outcome: "not_applied", reason: "Not checked on the final text (the Self-check gave no verdict for it)" }),
+    ]);
+    expect(summary).toMatchObject({ status: "repair_failed", remainingFailures: 1 });
+  });
+
+  it("an instruction matches only a quote the model visibly cut short, never another rule with the same opening", () => {
+    const same = (a: string, b: string) =>
+      sameSelfCheckLabel(v("instruction", a, "applied"), v("instruction", b, "applied"), { glossaryCandidates: [] });
+    const rule = "Write in the third person throughout, naming the company.";
+    // Two rules sharing a six-word opening but differing after it.
+    expect(same("Write in the third person throughout, naming the company.", "Write in the third person throughout, avoiding we and our.")).toBe(false);
+    // A shorter rule of its own: a word boundary with no ellipsis, or a whole sentence.
+    expect(same("Write in the third person throughout", rule)).toBe(false);
+    expect(same("Write in the third person throughout.", "Write in the third person throughout. Name the company.")).toBe(false);
+    // A cut-short quote: an ellipsis (three dots or one character), or a cut inside a word.
+    expect(same("Write in the third person throughout, naming...", rule)).toBe(true);
+    expect(same("Write in the third person throughout, naming\u2026", rule)).toBe(true);
+    expect(same("Write in the third person throughout, nam", rule)).toBe(true);
+    // Too short to tell, even with an ellipsis.
+    expect(same("Write in the third...", rule)).toBe(false);
   });
 
   it("two different short rules are never taken for one", () => {
