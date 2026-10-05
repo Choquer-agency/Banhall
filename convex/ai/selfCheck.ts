@@ -2011,6 +2011,11 @@ export async function runModelSelfCheck(
           ? { repairGuidance: verdict.repairGuidance.trim() }
           : {}),
         ...(repairText ? { repairText } : {}),
+        // Round 5 follow-up: the reason as sent, when clipping shortened it,
+        // for the one row that stores it whole (the writer's settings row).
+        ...(verdict.unclipped && verdict.unclipped.reason.trim() !== verdict.reason.trim()
+          ? { unclippedReason: verdict.unclipped.reason.trim() }
+          : {}),
       };
     });
   // 2026-09-28 (second, edited terms): the request says the writer's edited

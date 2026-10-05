@@ -14,6 +14,8 @@ import {
   assembleSectionNotes,
   repairIssues,
   runDeterministicSelfCheck,
+  settleGlossaryForWriterTerms,
+  settleWriterSettingsVerdicts,
   type ModelVerdict,
 } from "./selfCheckRules";
 import { bannedRuleHits, openingAt, termRuleHits, wordingLoss, type WriterWordingRules } from "./writerWording";
@@ -281,5 +283,101 @@ describe("review fixes to the matcher and the settings row guard (Round 5)", () 
     });
     // A row for another rule keeps its own verdict.
     expect(rows[1]).toMatchObject({ outcome: "applied", reason: "Third person used." });
+  });
+});
+
+// Round 5 follow-up (release suite run 6 of 2026-10-05): the model's rows for
+// the whole settings document read not applied with clipped, wrong reasons
+// beside 18 true measured rows.
+describe("the settings row never contradicts what code measured (Round 5 follow-up)", () => {
+  const KEPT_242 = LINE_242.replace("This work aimed to develop", "The aim of this work was to develop");
+  const profileVerdict = (reason: string, unclippedReason?: string): ModelVerdict => ({
+    check: "instruction",
+    instruction: "# PD Writing Customized Settings ...",
+    outcome: "not_applied",
+    reason,
+    repairGuidance: "Fix it.",
+    ...(unclippedReason ? { unclippedReason } : {}),
+  });
+
+  it.each([
+    ["P1 opener differs", undefined],
+    ["P2-4 use banned...", "P2-4 use banned words from the settings document."],
+  ])("reads run 6's %j as applied when every measured rule held, keeping the remark whole", (reason, unclipped) => {
+    const [settled] = settleWriterSettingsVerdicts([profileVerdict(reason, unclipped)], check("242", KEPT_242), SETTINGS_TEXT);
+    expect(settled).toEqual({
+      check: "instruction",
+      instruction: "# PD Writing Customized Settings ...",
+      outcome: "applied",
+      reason: `Every rule code measures on this Line was kept (see those rows); the Self-check's own remark, which they settle: ${unclipped ?? reason}`,
+    });
+    // It asks for no repair.
+    expect(repairIssues(check("242", KEPT_242), [settled!])).toEqual([]);
+  });
+
+  it.each([
+    ["a remark about what code does not measure", "P5 opens uncertainty mid-paragraph"],
+    ["a remark about the first person", "P2 says we."],
+    ["a remark that names no rule", "Not followed."],
+  ])("keeps %s not applied", (_label, reason) => {
+    const [settled] = settleWriterSettingsVerdicts([profileVerdict(reason)], check("242", KEPT_242), SETTINGS_TEXT);
+    expect(settled).toMatchObject({ outcome: "not_applied", reason });
+  });
+
+  it("keeps it not applied when a measured rule broke, and stores the remark unclipped", () => {
+    const [settled] = settleWriterSettingsVerdicts(
+      [profileVerdict("P2 opener differs", "P2 opener differs from the exact words the settings document requires.")],
+      check("242", LINE_242),
+      SETTINGS_TEXT
+    );
+    expect(settled).toMatchObject({ outcome: "not_applied", reason: "P2 opener differs from the exact words the settings document requires." });
+  });
+
+  it("keeps an opener remark the model's own where no opening is measured on the Line", () => {
+    const [settled] = settleWriterSettingsVerdicts([profileVerdict("P1 opener differs")], check("244", LINE_244.replace("pinhole formation", "outgassing")), SETTINGS_TEXT);
+    expect(settled).toMatchObject({ outcome: "not_applied" });
+  });
+});
+
+// Round 5 follow-up (lead decision, owner informed; release suite run 6 of
+// 2026-10-05): a Glossary Term repair rewrote the writer's "edge coverage"
+// into "film build ... on routed edges" in Line 246 P1.
+describe("the writer's glossary outranks a Brief Glossary Term (Round 5 follow-up)", () => {
+  const glossary = (term: string, reason: string, repairGuidance: string): ModelVerdict => ({
+    check: "glossary",
+    instruction: `Glossary Term: ${term}`,
+    paragraphIndex: 0,
+    outcome: "not_applied",
+    reason,
+    repairGuidance,
+  });
+
+  it("sets aside a Glossary fix that would replace the writer's term, with no repair, and its row says the writer's settings govern", () => {
+    const verdict = glossary("film build", "P1 says edge coverage where the Glossary Term is film build.", "Write film build on routed edges in P1.");
+    const [settled] = settleGlossaryForWriterTerms([verdict], RULES, ["film build"]);
+    expect(settled).toEqual({
+      check: "glossary",
+      instruction: "Glossary Term: film build",
+      paragraphIndex: 0,
+      outcome: "applied",
+      reason: "The writer's settings govern this wording: \"edge coverage\" is the writer's term (see its row), so the Brief's Glossary Term is not used in its place; the Self-check's remark, set aside: P1 says edge coverage where the Glossary Term is film build.",
+    });
+    expect(repairIssues(check("246", "The edge coverage held at 64 microns."), [settled!])).toEqual([]);
+  });
+
+  it("sets aside a Glossary Term that is a word the writer's settings ban", () => {
+    const [settled] = settleGlossaryForWriterTerms(
+      [glossary("bake window", "P2 does not use the Glossary Term bake window.", "Use bake window in P2.")],
+      RULES,
+      ["bake window"]
+    );
+    expect(settled).toMatchObject({ outcome: "applied" });
+    expect(settled!.reason).toMatch(/^The writer's settings govern this wording: "cure window" is the writer's term, and they never allow "bake window" \(see its row\)/);
+  });
+
+  it("leaves a Glossary fix that touches no writer term as the model gave it", () => {
+    const verdict = glossary("pad pressure map", "P3 says pressure table.", "Replace pressure table.");
+    expect(settleGlossaryForWriterTerms([verdict], RULES, ["pad pressure map"])).toEqual([verdict]);
+    expect(settleGlossaryForWriterTerms([verdict], undefined, ["pad pressure map"])).toEqual([verdict]);
   });
 });

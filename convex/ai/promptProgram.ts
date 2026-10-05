@@ -819,7 +819,9 @@ export const generationPromptProgram = {
       // 2026-10-04 (first), Round 5: the writer's terms, banned words and
       // required openings, read from the instruction text and measured in
       // code, reach the repair as exact issues; shortening never breaks one.
-      writerWording: "terms-banned-words-and-openings-measured-in-code-exact-repair-issues-shortening-guarded",
+      // Round 5 follow-up: the model's settings and Glossary verdicts are
+      // settled against the measured rules and the writer's terms first.
+      writerWording: "terms-banned-words-and-openings-measured-in-code-exact-repair-issues-shortening-guarded-settings-and-glossary-verdicts-settled",
       // 2026-09-30 (third): in a signed-off plan run, report text that names
       // a source is found deterministically and repaired (never a Must keep
       // line), and Confidence Map, Storyline and Glossary fixes get a fixed

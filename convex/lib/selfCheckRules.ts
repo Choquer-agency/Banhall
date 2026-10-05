@@ -79,6 +79,12 @@ export type ModelVerdict = {
    * Line. Its row is written in fixed words; the verdict decides the outcome.
    */
   feedbackTerm?: string;
+  /**
+   * Summary only, in memory only (2026-10-04 first, Round 5 follow-up): the
+   * reason as the model sent it, when clipping shortened `reason`. Only the
+   * row for the writer's settings stores it (writerRowReverseGuard).
+   */
+  unclippedReason?: string;
 };
 
 /** One finding from the assembled-draft consistency pass. */
@@ -1015,6 +1021,108 @@ export function writerRowGuard(input: {
     row.outcome,
     `${lead} Length is measured by code: ${joinedList(failedCaps.map(measuredCapPhrase))} (see the cap row).`
   );
+}
+
+/** The kinds of the writer's rules code can measure, as a remark names them. */
+const MEASURED_KINDS = {
+  opening: /\b(?:open(?:er|ers|ing|ings|s)?|begin(?:s|ning)?|starts?)\b/i,
+  term: /\b(?:synonyms?|terms?|terminology|glossary|vocabulary)\b/i,
+  banned: /\b(?:banned|bans?)\b/i,
+  cap: /\b(?:caps?|word\s+counts?|length|too\s+long|\d+\s*\/\s*\d+\s+words)\b/i,
+} as const;
+/** What code does not measure, so a remark about it stays the model's. */
+const UNMEASURED_KIND =
+  /\b(?:confidence|hedg\w*|storyline|style|tone|voice|tense|person|we|our|ours|us|ourselves|exclu\w*|claim\w*|statements?|objectives?|uncertaint\w*|mid-paragraph|order|sequence|structure|headings?|plain|jargon|figures?|numbers?|results?|targets?|sources?|facts?|passive|active|repetition|density|sentences?\s+length|paragraphs?\s+length)\b/i;
+/** The longest remark of the model's the settings row stores. */
+const MAX_SETTINGS_REMARK_CHARS = 600;
+
+/**
+ * 2026-10-04 (first), Round 5 follow-up (release suite run 6 of
+ * 2026-10-05): the model's verdicts on the writer's settings, settled
+ * against what code measured on the same text. Run 6's rows for the whole
+ * settings document read not applied with clipped, wrong reasons ("P1
+ * opener differs" though P1 opens with the exact words; "P2-4 use
+ * banned..." though code found no banned word) beside true measured rows.
+ *
+ * A not applied verdict on the Writer Profile (its instruction quotes the
+ * profile) whose reason talks only about what code measures (openings,
+ * terms, banned words, caps) is read as applied when every rule code
+ * measures on this Line was kept: its row says so, with the model's remark
+ * kept as a note, and it asks for no repair. A remark about anything code
+ * does not measure (a hedge, the Storyline, style, the first person, which
+ * sentence is the named statement) keeps the verdict as the model gave it.
+ * The Writer Profile verdict keeps its reason whole (the unclipped reason,
+ * up to 600 characters), so a consultant can read it.
+ */
+export function settleWriterSettingsVerdicts(
+  verdicts: readonly ModelVerdict[],
+  check: DeterministicSelfCheck,
+  writerInstructions: string | undefined
+): ModelVerdict[] {
+  const measured = check.entries.filter(
+    (entry) => entry.measuredWording || (entry.measuredCap?.kind === "writer")
+  );
+  const allHeld = measured.length > 0 && measured.every((entry) => entry.row.outcome === "applied");
+  // The kinds measured on this Line: a remark about another kind stays the model's.
+  const present: Record<keyof typeof MEASURED_KINDS, boolean> = {
+    opening: measured.some((entry) => entry.key.startsWith("wording:opening:")),
+    term: measured.some((entry) => entry.key.startsWith("wording:term:")),
+    banned: measured.some((entry) => entry.key.startsWith("wording:banned:")),
+    cap: measured.some((entry) => entry.measuredCap?.kind === "writer"),
+  };
+  return verdicts.map((verdict) => {
+    if (verdict.check !== "instruction" || !quotesWriterProfile(verdict.instruction, writerInstructions)) return verdict;
+    const full = (verdict.unclippedReason ?? verdict.reason).slice(0, MAX_SETTINGS_REMARK_CHARS);
+    const whole: ModelVerdict = full === verdict.reason ? verdict : { ...verdict, reason: full };
+    if (verdict.outcome !== "not_applied" || verdict.notChecked || !allHeld) return whole;
+    const said = [full, verdict.repairGuidance ?? ""].join(" ");
+    const kinds = (Object.keys(MEASURED_KINDS) as Array<keyof typeof MEASURED_KINDS>).filter((kind) => MEASURED_KINDS[kind].test(said));
+    if (kinds.length === 0 || kinds.some((kind) => !present[kind]) || UNMEASURED_KIND.test(said)) return whole;
+    const { repairGuidance: _guidance, repairText: _text, unclippedReason: _unclipped, ...rest } = verdict;
+    return {
+      ...rest,
+      outcome: "applied",
+      reason: `Every rule code measures on this Line was kept (see those rows); the Self-check's own remark, which they settle: ${full}`,
+    };
+  });
+}
+
+/**
+ * 2026-10-04 (first), Round 5 follow-up (lead decision, owner informed;
+ * release suite run 6 of 2026-10-05): the writer's glossary outranks the
+ * Brief's Glossary Terms. Run 6 repaired Line 246 P1 for the Glossary Term
+ * "film build" by rewriting the writer's own term "edge coverage", and the
+ * consistency pass then flagged the split. A Glossary verdict not applied
+ * whose fix would replace or contradict a term the writer's settings
+ * require (its words name that term), or whose Brief Glossary Term is a word
+ * the writer's settings ban, is read as governed by the writer's settings:
+ * applied, with no repair, and its row says so.
+ */
+export function settleGlossaryForWriterTerms(
+  verdicts: readonly ModelVerdict[],
+  rules: WriterWordingRules | undefined,
+  glossaryCandidates: readonly string[]
+): ModelVerdict[] {
+  if (!rules || rules.terms.length === 0) return [...verdicts];
+  return verdicts.map((verdict) => {
+    if (verdict.check !== "glossary" || verdict.outcome !== "not_applied" || verdict.notChecked) return verdict;
+    const briefTerm = glossaryTermOf(verdict, [...glossaryCandidates]);
+    const said = [verdict.reason, verdict.repairGuidance ?? "", verdict.repairText ?? ""].join(" ");
+    const banning = rules.terms.find((rule) => rule.banned.some((banned) => holdsPhrase(briefTerm, banned)));
+    const replaced = rules.terms.find(
+      (rule) => !holdsPhrase(briefTerm, rule.term) && holdsPhrase(said, rule.term)
+    );
+    const governing = banning ?? replaced;
+    if (!governing) return verdict;
+    const { repairGuidance: _guidance, repairText: _text, unclippedReason: _unclipped, ...rest } = verdict;
+    return {
+      ...rest,
+      outcome: "applied",
+      reason: `The writer's settings govern this wording: "${governing.term}" is the writer's term${
+        banning ? `, and they never allow "${briefTerm}"` : ""
+      } (see its row), so the Brief's Glossary Term is not used in its place; the Self-check's remark, set aside: ${verdict.unclippedReason ?? verdict.reason}`,
+    };
+  });
 }
 
 /**

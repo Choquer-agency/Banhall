@@ -95,6 +95,8 @@ import {
   REPAIR_LEFT_CHECKED_TEXT,
   repairIssues,
   runDeterministicSelfCheck,
+  settleGlossaryForWriterTerms,
+  settleWriterSettingsVerdicts,
   SOURCE_TALK_KEY,
   type DeterministicSelfCheck,
   type ModelVerdict,
@@ -1357,7 +1359,12 @@ export async function draftCheckedSection(input: {
   };
   try {
     const result = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), selfCheckInput);
-    verdicts = result.verdicts;
+    // Round 5 follow-up: the settings row never contradicts what code measured.
+    verdicts = writerWording || writerCap || payload.orderedContext.selfCheckRules.length > 0
+      ? settleWriterSettingsVerdicts(result.verdicts, before, payload.writerFlavor)
+      : result.verdicts;
+    // Round 5 follow-up: the writer's glossary outranks a Brief Glossary Term.
+    if (writerWording) verdicts = settleGlossaryForWriterTerms(verdicts, writerWording, before.glossaryCandidates);
     storylineQuestion = result.storylineQuestion;
     storylineQuestionWithheld = result.storylineQuestionWithheld;
     planVerdicts = withLeaveOutFigureNotes(
@@ -1704,7 +1711,14 @@ export async function draftCheckedSection(input: {
           ),
         };
       }
-      finalOrdinary = { ok: true, verdicts: final.verdicts };
+      const settled = after && (writerWording || writerCap || payload.orderedContext.selfCheckRules.length > 0)
+        ? settleGlossaryForWriterTerms(
+            settleWriterSettingsVerdicts(final.verdicts, after, payload.writerFlavor),
+            writerWording,
+            after.glossaryCandidates
+          )
+        : final.verdicts;
+      finalOrdinary = { ok: true, verdicts: settled };
       // Review P3-2: the governed terms' rows follow the same check.
       if (feedbackTerms.length > 0) governedFinal = { ok: true, verdicts: final.verdicts };
     } catch (error) {

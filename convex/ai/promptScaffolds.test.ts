@@ -599,7 +599,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     // 2026-10-04 (second): the facts fix and its scaffolds are in the program.
     // 2026-10-04 (first), Round 5: the writer's measured wording rules.
     expect(generationPromptProgram.calls.repair.writerWording)
-      .toBe("terms-banned-words-and-openings-measured-in-code-exact-repair-issues-shortening-guarded");
+      .toBe("terms-banned-words-and-openings-measured-in-code-exact-repair-issues-shortening-guarded-settings-and-glossary-verdicts-settled");
     expect(generationPromptProgram.calls.repair.factsFix)
       .toBe("whole-section-never-must-keep-cover-rollback");
     expect(generationPromptProgram.calls.selfCheck.summaryPlan.requestScaffold.factsMatchSources)

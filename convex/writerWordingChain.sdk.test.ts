@@ -77,7 +77,7 @@ function payload(): OrderedPayload {
   } as OrderedPayload;
 }
 
-function claim(section: "242" | "244") {
+function claim(section: "242" | "244" | "246", glossaryTerms: string[] = []) {
   return {
     projectId: "project-velloway",
     model: SONNET,
@@ -87,7 +87,9 @@ function claim(section: "242" | "244") {
     isFirstInOrder: section === "242",
     priorSections: [],
     briefBlock: "",
-    brief: null,
+    brief: glossaryTerms.length > 0
+      ? { storylineText: "", claimExclusions: [], confidenceMap: [], glossaryTerms }
+      : null,
     planBlock: "",
     planChecksBlock: "",
     planChecks: [],
@@ -117,7 +119,11 @@ function systemOf(json: Record<string, unknown>): string {
       : "";
 }
 
-async function draft(section: "242" | "244", script: { draft: string; repair: string; checks: unknown[] }) {
+async function draft(
+  section: "242" | "244" | "246",
+  script: { draft: string; repair: string; checks: unknown[] },
+  glossaryTerms: string[] = []
+) {
   const sent: Sent[] = [];
   const checks = [...script.checks];
   vi.stubGlobal(
@@ -149,7 +155,7 @@ async function draft(section: "242" | "244", script: { draft: string; repair: st
       (callSite: string) => instrumentedAnthropic(ctx, { callSite }) as unknown as GenerationClient,
       { modelFor: () => SONNET }
     );
-    return await draftCheckedSection({ claim: claim(section), payload: payload(), section, clientFor });
+    return await draftCheckedSection({ claim: claim(section, glossaryTerms), payload: payload(), section, clientFor });
   });
   const note = (instruction: string) => result.notes.find((row) => row.instruction === instruction);
   return { sent, result, note };
@@ -250,5 +256,36 @@ describe("the writer's wording rules are measured, repaired and measured again (
       outcome: "applied",
       repaired: true,
     });
+  });
+
+  // Round 5 follow-up (release suite run 6 of 2026-10-05): the settings row
+  // read not applied with wrong reasons beside true measured rows, and a
+  // Glossary Term repair rewrote the writer's own term.
+  it("reads a settings verdict that only talks about kept measured rules as applied, and sets aside a Glossary fix against the writer's term: no repair", async () => {
+    const kept = [
+      "Velloway Panel Finishing coats routed MDF cabinet doors with a low-temperature powder.",
+      "The aim of this work was to develop a powder finish for routed MDF doors.",
+      "It was not known at the outset whether full cure could be reached below the outgassing onset.",
+    ].join("\n\n");
+    const { sent, result, note } = await draft("242", {
+      draft: kept,
+      repair: kept,
+      checks: [{
+        verdicts: [
+          { ...settingsVerdict, outcome: "not_applied", reason: "P1 opener differs", repairGuidance: "Open P1 with the opener." },
+          { paragraph: 2, check: "glossary", instruction: "Glossary Term: film build", outcome: "not_applied", reason: "P2 uses edge coverage, not film build.", repairGuidance: "Replace edge coverage with film build." },
+        ],
+      }],
+    }, ["film build"]);
+    // Nothing is left to repair.
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
+    expect(result.draftText).toBe(kept);
+    const settingsRow = result.notes.find((row) => row.source === "model" && row.instruction === "# PD Writing Customized Settings ...");
+    expect(settingsRow).toMatchObject({
+      outcome: "applied",
+      reason: "Every rule code measures on this Line was kept (see those rows); the Self-check's own remark, which they settle: P1 opener differs",
+    });
+    expect(note("Glossary Term: film build")).toMatchObject({ source: "model", outcome: "applied" });
+    expect(note("Glossary Term: film build")?.reason).toMatch(/^The writer's settings govern this wording: "edge coverage" is the writer's term/);
   });
 });
