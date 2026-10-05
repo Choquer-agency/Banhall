@@ -1445,9 +1445,19 @@ export async function draftCheckedSection(input: {
         // further over a Locked limit (Locked Rules first).
         // 2026-10-04 (second, review round 1, P2-3): so must a facts fix,
         // whose verdict may be wrong about a figure a signed-off item gives.
-        const lostFigure = evidenceIssues.size > 0 || factsIssues.size > 0
-          ? lostPlanFigure(text, fit.text, planWording)
-          : undefined;
+        // Greptile round 1 on PR #26: only this Line's own signed-off items
+        // (its COVER items), so a Line that put another Line's figure on the
+        // wrong subject can drop it; the figure stays in the Line whose item
+        // holds it. Rule C keeps its guard over every Line's items.
+        const lostFigure =
+          (evidenceIssues.size > 0 ? lostPlanFigure(text, fit.text, planWording) : undefined) ??
+          (factsIssues.size > 0
+            ? lostPlanFigure(
+                text,
+                fit.text,
+                claim.planChecks.filter((planCheck) => planCheck.instruction === "cover").map((planCheck) => planCheck.wording)
+              )
+            : undefined);
         const figureOverLimit = lostFigure !== undefined && overLimitMore(text, fit.text);
         const failure =
           fit.error === undefined

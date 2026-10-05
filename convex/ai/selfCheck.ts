@@ -21,7 +21,6 @@ import {
 } from "./promptDefinitions";
 import { sectionParagraphs } from "../lib/tiptapReport";
 import { containsTerm } from "../lib/editedTerms";
-import { figuresOf } from "../../shared/planFigures";
 import {
   governingFeedbackPhrase,
   quoteForPrompt,
@@ -995,45 +994,6 @@ function summaryFactsGuidanceDescription(): string {
   return `${SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.guidanceDescription} Return at most ${MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES} JSON-escaped UTF-8 bytes, or ${maximum} for ruleId facts_match_sources, measured after JSON string escaping and excluding the surrounding quotes. Escapes such as \\n count as two bytes, and non-ASCII text counts by its UTF-8 encoding. maxLength=${maximum} is a conservative character bound; the escaped-byte limits are authoritative.`;
 }
 
-/**
- * Whether a not applied verdict objects to a writer's edited term as made up
- * or unsourced, and to nothing else it quotes (2026-09-28, second). Kept when
- * it also quotes something that is not an edited term: the objection may be
- * about that too.
- */
-function objectsOnlyToEditedTerms(
-  verdict: { reason: string; repairGuidance?: string; repairText?: string },
-  editedTerms: readonly string[]
-): boolean {
-  const said = [verdict.reason, verdict.repairGuidance ?? "", verdict.repairText ?? ""].join(" ");
-  const quoted = [...said.matchAll(QUOTED_PHRASE)].map((match) => match[1]!);
-  return INVENTED_TERM_OBJECTION.test(said) &&
-    editedTerms.some((term) => containsTerm(said, term)) &&
-    !quoted.some((phrase) => !editedTerms.some((term) => containsTerm(phrase, term)));
-}
-
-/**
- * 2026-10-04 (second, re-check P2): the facts verdict's stricter set-aside.
- * Its guidance often names every correction unquoted, so a word such as
- * "unsupported" beside a mention of an edited term proves nothing ("P2 gives
- * the all-panel 4% as deep cove's, unsupported" with "deep cove" edited).
- * It is set aside only when it objects to something as made up or unsourced,
- * quotes at least one phrase, every phrase it quotes is an edited term, and
- * every figure it cites sits inside an edited term.
- */
-function factsObjectsOnlyToEditedTerms(
-  verdict: { reason: string; repairGuidance?: string; repairText?: string },
-  editedTerms: readonly string[]
-): boolean {
-  const said = [verdict.reason, verdict.repairGuidance ?? "", verdict.repairText ?? ""].join(" ");
-  const quoted = [...said.matchAll(QUOTED_PHRASE)].map((match) => match[1]!);
-  const termFigures = new Set(editedTerms.flatMap(figuresOf));
-  return INVENTED_TERM_OBJECTION.test(said) &&
-    quoted.length > 0 &&
-    quoted.every((phrase) => editedTerms.some((term) => containsTerm(phrase, term))) &&
-    figuresOf(said).every((figure) => termFigures.has(figure));
-}
-
 export type ModelSelfCheckResult = {
   verdicts: ModelVerdict[];
   storylineQuestion: {
@@ -1681,7 +1641,17 @@ export async function runModelSelfCheck(
     const setAside: number[] = [];
     verdicts.forEach((verdict, index) => {
       if (verdict.outcome !== "not_applied" || verdict.notChecked) return;
-      if (!objectsOnlyToEditedTerms(verdict, editedTerms)) return;
+      const said = [verdict.reason, verdict.repairGuidance ?? "", verdict.repairText ?? ""].join(" ");
+      // Kept when it also quotes something that is not an edited term: the
+      // objection may be about that too.
+      const quoted = [...said.matchAll(QUOTED_PHRASE)].map((match) => match[1]);
+      if (
+        !INVENTED_TERM_OBJECTION.test(said) ||
+        !editedTerms.some((term) => containsTerm(said, term)) ||
+        quoted.some((phrase) => !editedTerms.some((term) => containsTerm(phrase, term)))
+      ) {
+        return;
+      }
       verdicts[index] = {
         ...(verdict.paragraphIndex === undefined ? {} : { paragraphIndex: verdict.paragraphIndex }),
         check: verdict.check,
@@ -1777,32 +1747,6 @@ export async function runModelSelfCheck(
         ...(repairText ? { repairText } : {}),
       };
     });
-  // 2026-10-04 (second, review round 1, P3-1): the facts check is told the
-  // writer's edited terms are sources, and a facts verdict that still objects
-  // to one alone is set aside: recorded as applied with a fixed reason and
-  // never sent to the repair, where the repair's guard for edited terms would
-  // set the whole repair aside. Re-check P2: by the stricter rule of
-  // factsObjectsOnlyToEditedTerms, so a real error that only mentions an
-  // edited term is still repaired.
-  if (editedTerms.length > 0) {
-    planVerdicts.forEach((verdict, index) => {
-      if (
-        verdict.ruleId !== FACTS_MATCH_SOURCES_RULE_ID ||
-        verdict.outcome !== "not_applied" ||
-        verdict.actionableRepair !== true ||
-        !factsObjectsOnlyToEditedTerms(verdict, editedTerms)
-      ) {
-        return;
-      }
-      planVerdicts[index] = {
-        ruleId: verdict.ruleId,
-        mergedItemIds: [...verdict.mergedItemIds],
-        outcome: "applied",
-        reason: EDITED_TERM_ALLOWED_REASON,
-      };
-      console.warn(`${SELF_CHECK_REQUEST.toolName}: set aside a facts objection to the writer's edited terms`);
-    });
-  }
   return {
     verdicts,
     planVerdicts,

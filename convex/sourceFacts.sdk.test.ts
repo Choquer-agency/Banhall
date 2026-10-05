@@ -37,7 +37,6 @@ import {
 } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import {
-  EDITED_TERM_ALLOWED_REASON,
   FACTS_BREAK_UNLOCATED_REASON,
   PLAN_FACTS_NOT_CHECKED_REASON,
   sourceFactsBody,
@@ -525,14 +524,16 @@ describe("requests without the facts check are unchanged (real SDK, fetch stubbe
 
 const ITEM_STATUS = "item-velloway-status" as Id<"summaryItems">;
 /** A writer's edit to a Line 244 item that adds a figure the analysis lacks. */
-const EDITED_244 = "An edge-only sealer trial on the deep cove panels cut the shortfall to 7 percent.";
+const EDITED_244 = "An edge-only sealer trial on the deep cove panels cut the shortfall to 9 percent.";
+/** A Line 246 item of its own with a figure the analysis lacks. */
+const STATUS_246_FIGURE = "An edge-only sealer cut the deep cove shortfall to 7 percent; deep cove edge coverage stays open for fiscal 2027.";
 const WRITER_FLAVOR = "Write in the third person. The claim year is fiscal 2026.";
 const writerProfile = { paragraph: 0, check: "instruction", instruction: "writer:profile", outcome: "applied", reason: "Third person throughout." };
 
-function plan246() {
+function plan246(bullet = STATUS_246) {
   return buildFrozenSummaryPlan({
     section: "s246",
-    items: [{ itemId: ITEM_STATUS, roleId: "project_status", kind: "standard", bullets: [STATUS_246], support: "source_supported" }],
+    items: [{ itemId: ITEM_STATUS, roleId: "project_status", kind: "standard", bullets: [bullet], support: "source_supported" }],
     skippedRoleIds: [],
     resultsAgainstTargets: true,
     factsMatchSources: true,
@@ -540,14 +541,14 @@ function plan246() {
 }
 
 describe("review round 1: the sources, the guidance, the figure guard and edited terms (real SDK, fetch stubbed)", () => {
-  it("P2-1, P2-3 and P3-4: Line 246 reads every Line's signed-off items and the writer's instructions, and a facts repair that drops a signed-off figure is set aside", async () => {
+  it("P2-1, P2-3 and P3-4: Line 246 reads every Line's signed-off items and the writer's instructions, and a facts repair that drops a figure of its own signed-off item is set aside", async () => {
     const draft246 = [
       "The pilot showed the shaker profile met edge coverage on every panel.",
       "An edge-only sealer cut the deep cove shortfall to 7 percent, and deep cove edge coverage stays open for fiscal 2027.",
     ].join("\n\n");
     const stripped = draft246.replace(" to 7 percent", "");
     const statusCovered = { itemId: ITEM_STATUS, mergedItemIds: [ITEM_STATUS], paragraph: 2, outcome: "applied", reason: "P2 states the open edge." };
-    // A wrong verdict: 7 percent is in a signed-off Line 244 item.
+    // A wrong verdict: 7 percent is in this Line's own signed-off item.
     const factsWrongFigure = { ...factsWrong, paragraph: 2, reason: "P2 gives 7%, not in the sources", repairGuidance: "Take out the 7 percent figure." };
     const sent = installFetch({
       draft: draft246,
@@ -555,16 +556,16 @@ describe("review round 1: the sources, the guidance, the figure guard and edited
       checks: [{ verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, factsWrongFigure, targetsMet] }],
     });
     const result = await draft(
-      claimFor(plan246(), { planWording: [[TRIAL_1], [PILOT], [EDITED_244], [STATUS_246]] }),
+      claimFor(plan246(STATUS_246_FIGURE), { planWording: [[TRIAL_1], [PILOT], [EDITED_244], [STATUS_246_FIGURE]] }),
       SUMMARY_VERSION,
       { section: "246", writerFlavor: WRITER_FLAVOR }
     );
     const check = sent[1]!.user;
-    expect(check).toContain(`Signed-off plan items, every Line:\n- ${TRIAL_1}\n- ${PILOT}\n- ${EDITED_244}\n- ${STATUS_246}`);
+    expect(check).toContain(`Signed-off plan items, every Line:\n- ${TRIAL_1}\n- ${PILOT}\n- ${EDITED_244}\n- ${STATUS_246_FIGURE}`);
     expect(check).toContain(`Writer instructions:\n- ${WRITER_FLAVOR}\n--- END [SOURCE FACTS] ---`);
-    expect(check).toContain("A figure or detail a signed-off item of any Line gives, as it gives it, is supported.");
-    // The repair dropped "7 percent", which a signed-off item gives: it is
-    // set aside before any check of its text, and the row says why.
+    expect(check).toContain("A figure or detail a signed-off item of any Line gives is supported as that item gives it, for the same thing.");
+    // The repair dropped "7 percent", which this Line's own signed-off item
+    // gives: it is set aside before any check of its text, and the row says why.
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
     expect(result.draftText).toBe(draft246);
     expect(result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID)).toMatchObject({
@@ -610,25 +611,88 @@ describe("review round 1: the sources, the guidance, the figure guard and edited
     expect(result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID)).toMatchObject({ outcome: "applied", repaired: true });
   });
 
-  it("P3-1: a facts objection to a writer's edited term alone (quoted, and citing no other figure) is set aside and never sent to the repair", async () => {
+  it("Greptile round 1, P1 (PR #26): a facts objection to a claim made with a writer's edited term is repaired, and the term is kept", async () => {
+    // "deep cove" is the writer's edited term; the draft uses it for the
+    // datasheet panels, a claim no source makes.
+    const misused = DRAFT_244.replace("developed for flat steel panels", "developed for deep cove panels");
+    const objection = {
+      ...factsWrong,
+      reason: 'P1 calls the datasheet panels "deep cove", unsupported',
+      repairGuidance: 'P1: the datasheet numbers are for thin flat panels, not "deep cove" panels.',
+    };
     const sent = installFetch({
-      draft: REPAIRED_244,
-      checks: [{
-        verdicts: ordinary,
-        planVerdicts: [
-          ...covered,
-          { ...factsWrong, reason: 'P1 "thin flat panels" is not in the sources', repairGuidance: 'Take out "thin flat panels".' },
-          targetsMet,
-        ],
-      }],
+      draft: misused,
+      repair: REPAIRED_244,
+      checks: [
+        { verdicts: ordinary, planVerdicts: [...covered, objection, targetsMet] },
+        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+      ],
     });
-    const result = await draft(claimFor(plan244(), { editedTerms: ["thin flat panels"] }), SUMMARY_VERSION);
-    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
+    const result = await draft(claimFor(plan244(), { editedTerms: ["deep cove"] }), SUMMARY_VERSION);
+    // The rule tells the check the term is the writer's own wording.
+    expect(sent[1]!.user).toContain(
+      "The writer's exact terms are the writer's own wording: never object to such a term itself, only to a figure or detail the section states with it."
+    );
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(sent[2]!.user).toContain(`${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${objection.repairGuidance}`);
+    // The repair keeps the term: the drafting rules ask for it word for word.
+    expect(sent[2]!.user).toContain('Keep the writer\'s exact terms word for word, even where an issue above calls one unsupported or invented: "deep cove".');
     expect(result.draftText).toBe(REPAIRED_244);
+    expect(result.draftText).toContain("deep cove");
     expect(result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID)).toMatchObject({
       outcome: "applied",
-      reason: EDITED_TERM_ALLOWED_REASON,
+      repaired: true,
+      reason: `Figures and details match the sources. Fixed by the repair: ${objection.reason}`,
+    });
+  });
+
+  it("Greptile round 1, P1 (PR #26): a repair that drops an edited term anyway is set aside, and the row says so", async () => {
+    const objection = { ...factsWrong, reason: 'P1 "thin flat panels" is not in the sources', repairGuidance: 'Take out "thin flat panels".' };
+    const sent = installFetch({
+      draft: REPAIRED_244,
+      repair: REPAIRED_244.replace("thin flat panels", "the panels suppliers show"),
+      checks: [{ verdicts: ordinary, planVerdicts: [...covered, objection, targetsMet] }],
+    });
+    const result = await draft(claimFor(plan244(), { editedTerms: ["thin flat panels"] }), SUMMARY_VERSION);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
+    expect(result.draftText).toBe(REPAIRED_244);
+    expect(result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID)).toMatchObject({
+      outcome: "not_applied",
       repaired: false,
+      reason: `${objection.reason}; repair not used (the repaired text dropped the writer's edited term "thin flat panels", so the checked draft was kept)`,
+    });
+  });
+
+  it("Greptile round 1, P1 (PR #26): a facts repair drops another Line's figure the draft put on the wrong subject", async () => {
+    // Line 242's item gives 160 to 200 C for standard powder on steel; the
+    // Line 244 draft calls it the company's own MDF cure temperature.
+    const LINE_242 = "Standard powder cure temperatures of 160 to 200 C for steel exceed what MDF can tolerate.";
+    const moved = [
+      "Trial 1 cured the routed MDF panels at 160 to 200 C, the company's own cure temperature, after a 110 C preheat.",
+      DRAFT_244.split("\n\n")[1]!.replace("on 4 percent of its panels", "on some of its panels"),
+    ].join("\n\n");
+    const fixed = moved.replace("at 160 to 200 C, the company's own cure temperature,", "at 135 C air");
+    const objection = {
+      ...factsWrong,
+      reason: "P1 gives standard powder's 160 to 200 C as the MDF cure",
+      repairGuidance: "P1: Trial 1 cured at 135 C air; 160 to 200 C is standard powder on steel.",
+    };
+    const sent = installFetch({
+      draft: moved,
+      repair: fixed,
+      checks: [
+        { verdicts: ordinary, planVerdicts: [...covered, objection, targetsMet] },
+        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+      ],
+    });
+    const result = await draft(claimFor(plan244(), { planWording: [[LINE_242], [TRIAL_1], [PILOT]] }), SUMMARY_VERSION);
+    // The figure stays in Line 242, whose item holds it; Line 244 may drop it.
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(result.draftText).toBe(fixed);
+    expect(result.draftText).not.toContain("160 to 200 C");
+    expect(result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID)).toMatchObject({
+      outcome: "applied",
+      repaired: true,
     });
   });
 
