@@ -49,7 +49,7 @@ import {
   runFinalCoverageSelfCheck,
   runModelSelfCheck,
   selfCheckFailureDiagnostic,
-  sourceFactsBody,
+  sourceFactsFor,
   type ModelSelfCheckResult,
   type SelfCheckModelInput,
 } from "./selfCheck";
@@ -116,6 +116,8 @@ import {
 } from "../lib/writerPrecedence";
 import { generationPromptVersion } from "./promptProgram";
 import {
+  FACTS_MATCH_SOURCES_RULE_ID,
+  type FactsSourceDocuments,
   MAX_DROPPED_UNCERTAINTY_CHECKS,
   sameSummaryPlanRef,
   type FrozenSummaryPlanInstruction,
@@ -491,6 +493,20 @@ export function reportFactsIssuePrefix(verdict: ModelVerdict, glossaryCandidates
 /** 2026-09-30 (third): the Compliance Note instruction for the targets check. */
 export const TARGETS_INSTRUCTION =
   "State each result against its target as the numbers show";
+
+/**
+ * 2026-10-04 (second, round 2): how a facts row says the source documents
+ * were over the check's budget, so it read the quotes and the analysis.
+ */
+export function factsDocumentsLeftOutNote(documents: FactsSourceDocuments): string {
+  if (documents.leftOut.length === 0) {
+    return "(No source document was frozen for this check, so it read the signed-off items' quotes and the analysis.)";
+  }
+  // Round 2 review, P2-4: each document left out is named.
+  return `(Over this check's ${documents.budget}-byte budget it did not read ${documents.leftOut
+    .map((document) => `${document.label} (${document.bytes} bytes)`)
+    .join(", ")}, so it let the signed-off items, their quotes and the analysis stand for them.)`;
+}
 
 /** 2026-10-04 (second): the Compliance Note instruction for the facts check. */
 export const FACTS_INSTRUCTION =
@@ -1264,12 +1280,19 @@ export async function draftCheckedSection(input: {
   // every Line's signed-off items and the writer's instructions), for the
   // facts check of a signed-off plan. Only a Line whose plan holds that check
   // sends them, to the first Self-check and the check of the final text alike.
+  // Round 2 (owner approved 2026-10-05): the source documents first, when
+  // they fit their budget, and each signed-off item marked as the writer's or
+  // the product's wording, with its own quotes. Claims loaded before carry
+  // neither: the plan's wording stands in, with no documents.
   const sourceFacts = claim.planChecks.some((planCheck) => planCheck.instruction === "match_sources")
-    ? sourceFactsBody({
+    ? sourceFactsFor({
         analysis,
         storylineText: brief?.storylineText ?? "",
+        // Round 2 review, P2-3: the writer's Storyline is the writer's wording.
+        ...(brief?.storylineByWriter ? { storylineByWriter: true } : {}),
         confidenceMap: brief?.confidenceMap ?? [],
-        planWording,
+        planItems: claim.planItemSources ?? planWording.map((wording) => ({ wording })),
+        ...(claim.factsSourceDocuments ? { documents: claim.factsSourceDocuments } : {}),
         writerInstructions: [
           ...(payload.writerFlavor?.trim() ? [payload.writerFlavor] : []),
           ...before.modelRules.map((rule) => rule.instruction),
@@ -1822,6 +1845,15 @@ export async function draftCheckedSection(input: {
       summaryVersionId: payload.summaryVersionId,
       dropped: claim.droppedNotChecked ?? [],
     }));
+    // 2026-10-04 (second, round 2): when not every source document was
+    // read, the facts check's row says which and what stood for them.
+    const documents = claim.factsSourceDocuments;
+    if (sourceFacts && documents && !sourceFacts.documentsComplete) {
+      planRows = planRows.map((row) =>
+        row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID
+          ? { ...row, reason: `${row.reason} ${factsDocumentsLeftOutNote(documents)}` }
+          : row);
+    }
     rows.push(...planRows);
     if (finalCoverage && !finalCoverage.ok) {
       rows.push(finalCoverageFailureNoteDraft(section, finalCoverage.reason, finalCoverage.detail));

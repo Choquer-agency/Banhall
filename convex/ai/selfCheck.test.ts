@@ -23,6 +23,7 @@ import {
   ORDERED_PROMPT_SCAFFOLDS,
   SELF_CHECK_REQUEST,
   SELF_CHECK_SCHEMA,
+  SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
 } from "./promptDefinitions";
@@ -46,7 +47,13 @@ import {
 } from "./orderedGeneration";
 import {
   buildSelfCheckUserMessage,
-  FACTS_BREAK_UNLOCATED_REASON,
+  FACTS_HELD_PREFIX,
+  factsFindingsReason,
+  factsMatchSourcesInstruction,
+  factsNotCheckedReason,
+  MAX_QUOTE_GAP_CHARS,
+  MIN_QUOTE_PART_CHARS,
+  normalizeForQuote,
   NOT_CHECKED_REASON,
   PLAN_FACTS_NOT_CHECKED_REASON,
   PLAN_ITEM_NOT_CHECKED_REASON,
@@ -55,8 +62,10 @@ import {
   PLAN_TARGETS_NOT_CHECKED_REASON,
   runModelSelfCheck,
   TARGETS_BREAK_UNLOCATED_REASON,
+  quoteFoundIn,
   selfCheckFailureDiagnostic,
-  sourceFactsBody,
+  sourceFactsFor,
+  verifyFactsFindings,
   summaryPlanSelfCheckSchemaFor,
   type SelfCheckPlanCheck,
 } from "./selfCheck";
@@ -2693,32 +2702,66 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
     sourceReferences: [],
   };
   // Fictional Velloway sources (the release suite fixture's facts).
-  const SOURCES = sourceFactsBody({
-    analysis: { work_performed: { results: "4 percent of all 600 panels fell below 60 microns, every one a deep cove panel; 13 percent of the 180 deep cove panels did." } },
+  const ANALYSIS = { work_performed: { results: "4 percent of all 600 panels fell below 60 microns, every one a deep cove panel; 13 percent of the 180 deep cove panels did." } };
+  const SOURCES = sourceFactsFor({
+    analysis: ANALYSIS,
     storylineText: "The deep cove profile did not fully meet edge coverage.",
     confidenceMap: [{ text: "A shielding effect of the cove is suspected.", confidence: "partial" }, { text: "No confidence level given." }],
   });
+  const product = SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.productHeading;
+  const budget = 48_000;
 
-  it("renders what drafting read: the analysis as compact JSON, then the Storyline and the Confidence Map", () => {
-    expect(SOURCES).toBe([
-      'Transcript analysis:\n{"work_performed":{"results":"4 percent of all 600 panels fell below 60 microns, every one a deep cove panel; 13 percent of the 180 deep cove panels did."}}',
+  it("renders the source documents, then the product's own wording, each item marked and with its quotes (round 2 and its review)", () => {
+    expect(SOURCES.body).toBe([
+      product,
+      `Transcript analysis:\n${JSON.stringify(ANALYSIS)}`,
       "Storyline:\nThe deep cove profile did not fully meet edge coverage.",
       "Confidence Map:\n- (partial) A shielding effect of the cove is suspected.\n- (unresolved) No confidence level given.",
     ].join("\n\n"));
-    expect(sourceFactsBody({ analysis: { a: 1 } })).toBe('Transcript analysis:\n{"a":1}');
-    // Review round 1, P2-1: every Line's signed-off items and the writer's instructions follow.
-    expect(sourceFactsBody({
+    expect(SOURCES.documentsComplete).toBe(false);
+    const withDocuments = sourceFactsFor({
       analysis: { a: 1 },
-      planWording: [["A sealer trial cut the shortfall to 7 percent.", "Second bullet."], [" "]],
+      storylineText: "The writer's own Storyline.",
+      storylineByWriter: true,
+      documents: { documents: [{ label: "INTERVIEW TRANSCRIPT: Interview", content: "We nudged the air up 2 C, to 127 C.\n" }, { label: "SCOPING NOTES: summary.md", content: "Deep cove: 13 percent." }], leftOut: [], budget },
+      planItems: [
+        { wording: ["A sealer trial cut the shortfall to 7 percent.", "Second bullet."], writer: true },
+        { wording: ["Datasheets cover flat panels."], quotes: ["the datasheet number is for flat panels", " "] },
+        { wording: [" "] },
+      ],
       writerInstructions: ["Third person.", " ", "No banned words."],
-    })).toBe([
+    });
+    expect(withDocuments.documentsComplete).toBe(true);
+    expect(withDocuments.body).toBe([
+      "Source documents:\n[INTERVIEW TRANSCRIPT: Interview]\nWe nudged the air up 2 C, to 127 C.\n\n[SCOPING NOTES: summary.md]\nDeep cove: 13 percent.",
+      product,
       'Transcript analysis:\n{"a":1}',
-      "Signed-off plan items, every Line:\n- A sealer trial cut the shortfall to 7 percent. Second bullet.",
-      "Writer instructions:\n- Third person.\n- No banned words.",
+      "Storyline (the writer's wording):\nThe writer's own Storyline.",
+      'Signed-off plan items, every Line:\n- [the writer\'s wording] A sealer trial cut the shortfall to 7 percent. Second bullet. Quotes: none.\n- [the product\'s wording] Datasheets cover flat panels. Quotes: "the datasheet number is for flat panels"',
+      "Writer instructions (the writer's wording):\n- Third person.\n- No banned words.",
     ].join("\n\n"));
+    // Round 2 review, P2-3: source wording and the writer's wording are evidence; the product's wording is apart.
+    expect(withDocuments.evidence).toEqual([
+      "We nudged the air up 2 C, to 127 C.\n",
+      "Deep cove: 13 percent.",
+      "the datasheet number is for flat panels",
+      "A sealer trial cut the shortfall to 7 percent. Second bullet.",
+      "The writer's own Storyline.",
+      "Third person.",
+      "No banned words.",
+    ]);
+    expect(withDocuments.product).toEqual(["Datasheets cover flat panels."]);
+    // Some left out: named, with their size; not complete.
+    const partial = sourceFactsFor({ analysis: {}, documents: { documents: [{ label: "A", content: "Text." }], leftOut: [{ label: "INTERVIEW TRANSCRIPT: Long", bytes: 61_234 }, { label: "B", bytes: 9 }], budget } });
+    expect(partial.documentsComplete).toBe(false);
+    expect(partial.body).toContain("Source documents left out, over this check's 48000-byte budget: INTERVIEW TRANSCRIPT: Long (61234 bytes); B (9 bytes).");
+    // Round 2 review, P3-3: none at all is not complete, and says so.
+    const none = sourceFactsFor({ analysis: {}, documents: { documents: [], leftOut: [], budget } });
+    expect(none.documentsComplete).toBe(false);
+    expect(none.body.startsWith("Source documents: none.")).toBe(true);
   });
 
-  it("allows the facts verdict its longer guidance only in a request with the facts check (review round 1, P2-2)", () => {
+  it("gives the facts verdict its findings field only in a request with the facts check (round 2)", () => {
     const base = replayInput();
     const ordinary = projectSummaryOrdinaryChecks({
       storylineText: base.storylineText,
@@ -2726,16 +2769,15 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
       glossaryTerms: base.glossaryCandidates,
       rules: base.rules,
     });
-    const guidanceOf = (planChecks: SelfCheckPlanCheck[]) =>
-      summaryPlanSelfCheckSchemaFor(ordinary, planChecks).properties.planVerdicts.items.properties.repairGuidance;
-    const without = guidanceOf(base.planChecks);
-    expect(without).toEqual(SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.planVerdicts.items.properties.repairGuidance);
-    const withFacts = guidanceOf([...base.planChecks, facts]);
-    expect(withFacts.maxLength).toBe(4 * MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES);
-    expect(withFacts.description).toContain("For ruleId facts_match_sources, list every correction instead, one after another.");
-    expect(withFacts.description).toContain("Return at most 96 JSON-escaped UTF-8 bytes, or 384 for ruleId facts_match_sources");
-    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)
-      .toContain("For this check, repairGuidance lists every correction in the section, each figure or detail as the sources give it, one after another; it may run past 90 characters, up to about 380.");
+    const propertiesOf = (planChecks: SelfCheckPlanCheck[]) =>
+      summaryPlanSelfCheckSchemaFor(ordinary, planChecks).properties.planVerdicts.items.properties as Record<string, unknown>;
+    expect(propertiesOf(base.planChecks)).not.toHaveProperty("findings");
+    const withFacts = propertiesOf([...base.planChecks, facts]);
+    expect(withFacts.findings).toBe(SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA);
+    expect(withFacts.repairGuidance).toEqual(SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.planVerdicts.items.properties.repairGuidance);
+    // Round 2 review, P3-1: two findings, no paragraph of their own.
+    expect(SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA.maxItems).toBe(2);
+    expect(SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA.items.required).toEqual(["draftQuote", "sourceQuote", "correction"]);
   });
 
   it("sends the SOURCE FACTS block right after the plan checks, and the facts rule last, only with the facts check", () => {
@@ -2747,16 +2789,25 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
       planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks),
       sourceFacts: SOURCES,
     });
-    const block = `--- BEGIN [SOURCE FACTS] ---\n${SOURCES}\n--- END [SOURCE FACTS] ---`;
+    const block = `--- BEGIN [SOURCE FACTS] ---\n${SOURCES.body}\n--- END [SOURCE FACTS] ---`;
     expect(user.split(block)).toHaveLength(2);
     expect(user).toContain(`--- END [CONTENT PLAN CHECKS] ---\n\n${block}`);
-    expect(user.split(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)).toHaveLength(2);
-    expect(user).toContain(`${SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction}\n\nReturn exactly`);
+    expect(user.split(factsMatchSourcesInstruction(false))).toHaveLength(2);
+    expect(user).toContain(`${factsMatchSourcesInstruction(false)}\n\nReturn exactly`);
     expect(user).toContain("- ruleId facts_match_sources");
-    // Without the check, sources given or not, the request is unchanged.
+    const complete = buildSelfCheckUserMessage({
+      ...base,
+      planChecks,
+      planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks),
+      sourceFacts: { ...SOURCES, documentsComplete: true },
+    });
+    expect(complete).toContain(factsMatchSourcesInstruction(true));
+    expect(factsMatchSourcesInstruction(true)).toContain("The SOURCE FACTS block holds every source document");
+    expect(factsMatchSourcesInstruction(true)).toContain("The product's own wording can point to a fact but cannot by itself support a specific detail");
+    expect(factsMatchSourcesInstruction(false)).toContain("the transcript analysis and every signed-off item stand for the sources here");
+    expect(factsMatchSourcesInstruction(false)).toContain("Flag only what a source document or a quote you have contradicts.");
     expect(buildSelfCheckUserMessage({ ...base, sourceFacts: SOURCES })).toBe(buildSelfCheckUserMessage(base));
     expect(buildSelfCheckUserMessage(base)).not.toContain("[SOURCE FACTS]");
-    // A facts check with no sources still says so, rather than leave the block out.
     expect(buildSelfCheckUserMessage({ ...base, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks) }))
       .toContain("--- BEGIN [SOURCE FACTS] ---\n(none)\n--- END [SOURCE FACTS] ---");
   });
@@ -2764,41 +2815,77 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
   it("states the rule in the same words in the drafting rule, the Self-check rule and the repair fix", () => {
     for (const text of [
       RULES_REPORT_FACTS,
-      SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction,
+      factsMatchSourcesInstruction(true),
       ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue,
     ]) {
       expect(text).toContain(FACT_RULES.scope);
       expect(text).toContain(FACT_RULES.detail);
       expect(text).toContain(FACT_RULES.cause);
-      // Review round 1, P2-4 (b): a hedge stated as firm.
       expect(text).toContain(FACT_RULES.hedge);
+      expect(text).toContain(FACT_RULES.proportion);
     }
-    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)
-      .toContain("states as firm what the sources give only as a hedge, or states as the whole case what the sources give only as an example");
-    // What is never an error: in the drafting rule and the Self-check rule.
+    const rule = factsMatchSourcesInstruction(true);
+    expect(rule).toContain("or states a proportion stronger or weaker than the sources give it");
+    expect(rule).toContain('the same fact in other words is not a finding (warming "by 5 C" and warming "5 C, to 65 C" agree)');
+    // Round 2 review, P2-2: the quote rules the code checks.
+    expect(rule).toContain('Quote a whole clause of at least 8 characters on each side, never a short figure or word alone ("127 C", "most"); use "..." only to skip words inside one sentence of one source, never to join two places.');
+    expect(rule).toContain("A finding whose quotes cannot be found in the section and in what you were given is never shown and never repaired.");
     expect(RULES_REPORT_FACTS).toContain(FACT_RULES.allowed);
-    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction).toContain(FACT_RULES.allowed);
-    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)
-      .toContain("Judge it applied, with paragraph 0, when every figure and detail matches the sources.");
-    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)
-      .toContain("Never fail a figure or detail only because the sources word it another way.");
-    // The fix is for the whole section, whatever paragraph the verdict names.
-    expect(leaveOutRepairIssue(facts, { paragraphIndex: 4 }, "Say 13% of 180."))
-      .toBe(`Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}Say 13% of 180.`);
+    expect(rule).toContain(FACT_RULES.allowed);
+    expect(rule).toContain("Judge it applied, with paragraph 0 and no findings, when every figure and detail matches the sources.");
+    expect(rule).toContain("Never fail a figure or detail only because the sources word it another way.");
+    expect(leaveOutRepairIssue(facts, { paragraphIndex: 4 }, "Paragraph 5: the section says ..."))
+      .toBe(`Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}Paragraph 5: the section says ...`);
   });
 
-  it("reads a verdict with no paragraph as not located, and a missing one as not checked", async () => {
+  it("finds a quote after normalizing, with each part at least 8 characters, in one entry, and each ellipsis gap at most 200 characters (round 2 review, P2-2)", () => {
+    expect(MIN_QUOTE_PART_CHARS).toBe(8);
+    expect(MAX_QUOTE_GAP_CHARS).toBe(200);
+    expect(quoteFoundIn("The  Datasheet number", "That the datasheet number is for flat panels.")).toBe(true);
+    expect(quoteFoundIn("“nudged the air up 2 C”", "we nudged the air up 2 C, to 127 C")).toBe(true);
+    expect(quoteFoundIn("edge-only nozzle", "an edge‐only nozzle")).toBe(true);
+    expect(quoteFoundIn("the datasheet number ... flat panels", "That the datasheet number is for flat panels.")).toBe(true);
+    expect(quoteFoundIn("flat panels ... the datasheet number", "That the datasheet number is for flat panels.")).toBe(false);
+    expect(quoteFoundIn("steel panels", "That the datasheet number is for flat panels.")).toBe(false);
+    // Too short to count, as the rule tells the model.
+    expect(quoteFoundIn("127 C", "to 127 C")).toBe(false);
+    expect(quoteFoundIn("most", "most panels met it")).toBe(false);
+    // An ellipsis never joins two entries, and never skips more than 200 characters.
+    expect(quoteFoundIn("the datasheet number ... steel substrates", ["the datasheet number is for flat panels", "steel substrates cure hot"])).toBe(false);
+    const far = `the datasheet number ${"x".repeat(201)} flat panels`;
+    expect(quoteFoundIn("the datasheet number ... flat panels", far)).toBe(false);
+    const near = `the datasheet number ${"x".repeat(150)} flat panels`;
+    expect(quoteFoundIn("the datasheet number ... flat panels", near)).toBe(true);
+    // A later start that does chain is still found.
+    expect(quoteFoundIn("the datasheet number ... flat panels", `the datasheet number ${"x".repeat(300)} and the datasheet number is for flat panels`)).toBe(true);
+    expect(normalizeForQuote("A\u2019s  \u201cB\u201d \u2013 C")).toBe("a's \"b\" - c");
+  });
+
+  it("shows and repairs only findings whose quotes verify, and records an unverified verdict as not checked in its own words (round 2)", async () => {
     const base = replayInput();
     const planChecks = [...base.planChecks, facts];
-    const input = { ...base, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks), sourceFacts: SOURCES };
+    // The replay's own paragraphs first, so its recorded verdicts stay valid.
+    const text = [
+      base.text,
+      "Trial 1 showed the datasheet values, developed for flat steel-style panels, did not transfer.",
+      "Raising air temperature by 2 C pushed defects back up to 9 per square metre.",
+    ].join("\n\n");
+    const n = base.text.split(/\n\s*\n/).filter((paragraph) => paragraph.trim()).length;
+    const sources = sourceFactsFor({
+      analysis: { results: "Defects rose to 9 per square metre." },
+      documents: { documents: [{ label: "Interview", content: "That the datasheet number is for flat panels. Then we nudged the air up 2 C, to 127 C." }], leftOut: [], budget },
+    });
+    const input = { ...base, text, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks), sourceFacts: sources };
     const first = replayResponse();
-    const answers: unknown[] = [{
-      ...first,
-      planVerdicts: [
-        ...first.planVerdicts,
-        { ruleId: "facts_match_sources", mergedItemIds: [], paragraph: 0, outcome: "not_applied", reason: "Gives 4% as the deep cove rate." },
-      ],
-    }, replayResponse(), { verdicts: [], planVerdicts: [] }];
+    const facts1 = (verdict: Record<string, unknown>) => ({ ...first, planVerdicts: [...first.planVerdicts, verdict] });
+    const steel = { draftQuote: "developed for flat steel-style panels", sourceQuote: "the datasheet number is for flat panels", correction: "for flat panels" };
+    const invented = { draftQuote: "pushed defects back up", sourceQuote: "the air went up 2 C and stayed at 125 C", correction: "x" };
+    const answers: unknown[] = [
+      // The verdict names the wrong paragraph: the finding is located from its draft quote.
+      facts1({ ruleId: "facts_match_sources", mergedItemIds: [], paragraph: n + 2, outcome: "not_applied", reason: "P1 adds steel", findings: [steel, invented] }),
+      facts1({ ruleId: "facts_match_sources", mergedItemIds: [], paragraph: n + 2, outcome: "not_applied", reason: "P3 attributes defect rise to 2 C increase, sources say to 127 C." }),
+      facts1({ ruleId: "facts_match_sources", mergedItemIds: [], paragraph: 0, outcome: "not_applied", reason: "A figure does not match." }),
+    ];
     const client = {
       messages: {
         create: vi.fn(async (params: GenerationMessageParams) => ({
@@ -2807,17 +2894,92 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
         })),
       },
     };
-    const unlocated = await runModelSelfCheck(client as GenerationClient, input);
-    expect(unlocated.planVerdicts.at(-1)).toEqual({
+    const verified = await runModelSelfCheck(client as GenerationClient, input);
+    expect(verified.planVerdicts.at(-1)).toEqual({
       ruleId: "facts_match_sources",
       mergedItemIds: [],
+      paragraphIndex: n,
       outcome: "not_applied",
-      reason: FACTS_BREAK_UNLOCATED_REASON,
-      actionableRepair: false,
+      reason: `P${n + 1} says "developed for flat steel-style panels", but the sources say "the datasheet number is for flat panels". 1 more finding was not shown: its quotes could not be shown from the sources.`,
+      actionableRepair: true,
+      repairText: `Paragraph ${n + 1}: the section says "developed for flat steel-style panels", but the sources say "the datasheet number is for flat panels". Write it as the sources give it: for flat panels`,
     });
+    for (const reason of ["P3 attributes defect rise to 2 C increase, sources say to 127 C.", "A figure does not match."]) {
+      const result = await runModelSelfCheck(client as GenerationClient, input);
+      expect(result.planVerdicts.at(-1)).toEqual({
+        ruleId: "facts_match_sources",
+        mergedItemIds: [],
+        outcome: "not_applied",
+        reason: factsNotCheckedReason(reason),
+        actionableRepair: false,
+      });
+    }
+    // Round 2 review, P3-7: the model's words are cut like other stored text.
+    expect(factsNotCheckedReason("w".repeat(400)).length).toBeLessThan(260);
+  });
+
+  it("verifies a source quote only in source wording while every document is in, and also in the product's wording while not (round 2 review, P2-3)", () => {
+    const paragraphs = ["The datasheets were developed for flat panels."];
+    const merged = { draftQuote: "developed for flat panels", sourceQuote: "flat steel/thin flat panel substrates", correction: "steel" };
+    const complete = sourceFactsFor({
+      analysis: { conclusions: "Datasheet parameters were developed for flat steel/thin flat panel substrates." },
+      documents: { documents: [{ label: "Interview", content: "That the datasheet number is for flat panels." }], leftOut: [], budget },
+    });
+    const sourcesOf = (facts: typeof complete) => [...facts.evidence, ...(facts.documentsComplete ? [] : facts.product)];
+    // The analysis's merged words cannot correct a right sentence while the documents are all here.
+    expect(verifyFactsFindings({ findings: [merged], paragraphs, sources: sourcesOf(complete) }).verified).toEqual([]);
+    const partial = sourceFactsFor({
+      analysis: { conclusions: "Datasheet parameters were developed for flat steel/thin flat panel substrates." },
+      documents: { documents: [], leftOut: [{ label: "Interview", bytes: 60_000 }], budget },
+    });
+    expect(verifyFactsFindings({ findings: [merged], paragraphs, sources: sourcesOf(partial) }).verified).toHaveLength(1);
+  });
+
+  it("never verifies a source quote that the paragraph itself holds, or a draft quote no paragraph holds, and holds a finding on a signed-off item's words while documents are missing (round 2 review, P2-4)", () => {
+    const paragraphs = ["The sealer cut preheat to 85 C on the routed edges.", "Defects fell to 1.8 per square metre."];
+    const sources = ["Preheat came down to 85 C on the routed edges. Defects fell to 1.8 per square metre."];
+    expect(verifyFactsFindings({
+      findings: [
+        { draftQuote: "Defects fell to 1.8 per square metre", sourceQuote: "Defects fell to 1.8 per square metre", correction: "" },
+        { draftQuote: "cut preheat to 95 C", sourceQuote: "came down to 85 C on the routed edges", correction: "" },
+        { draftQuote: "cut preheat to 85 C", sourceQuote: "Preheat came down to 85 C", correction: "85 C" },
+      ],
+      paragraphs,
+      sources,
+    })).toEqual({
+      verified: [{ paragraphIndex: 0, draftQuote: "cut preheat to 85 C", sourceQuote: "Preheat came down to 85 C", correction: "85 C" }],
+      held: [],
+      unverified: 2,
+    });
+    // While documents are missing, a finding against a signed-off item's own words is held, not repaired.
+    const held = verifyFactsFindings({
+      findings: [{ draftQuote: "cut preheat to 85 C", sourceQuote: "Preheat came down to 85 C", correction: "85 C" }],
+      paragraphs,
+      sources,
+      items: ["The sealer cut preheat to 85 C on the routed edges."],
+    });
+    expect(held).toEqual({ verified: [], held: [{ paragraphIndex: 0, draftQuote: "cut preheat to 85 C", sourceQuote: "Preheat came down to 85 C", correction: "85 C" }], unverified: 0 });
+    expect(factsFindingsReason([], 0, held.held)).toBe(
+      `${FACTS_HELD_PREFIX}P1 says "cut preheat to 85 C", but the sources say "Preheat came down to 85 C".`
+    );
+  });
+
+  it("reads a missing facts verdict as not checked, with the sources in the follow-up", async () => {
+    const base = replayInput();
+    const planChecks = [...base.planChecks, facts];
+    const input = { ...base, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks), sourceFacts: SOURCES };
+    const answers: unknown[] = [replayResponse(), { verdicts: [], planVerdicts: [] }];
+    const client = {
+      messages: {
+        create: vi.fn(async (params: GenerationMessageParams) => ({
+          content: [{ type: "tool_use" as const, id: "facts", name: params.tool_choice?.name ?? "submit_self_check", input: answers.shift() }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        })),
+      },
+    };
     const missing = await runModelSelfCheck(client as GenerationClient, input);
-    expect(client.messages.create).toHaveBeenCalledTimes(3);
-    expect(userText(client.messages.create.mock.calls[2]![0])).toContain("[SOURCE FACTS]");
+    expect(client.messages.create).toHaveBeenCalledTimes(2);
+    expect(userText(client.messages.create.mock.calls[1]![0])).toContain("[SOURCE FACTS]");
     expect(missing.planVerdicts.at(-1)).toMatchObject({ outcome: "not_applied", reason: PLAN_FACTS_NOT_CHECKED_REASON, actionableRepair: false });
   });
 
@@ -2841,13 +3003,11 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
       reason: "Figures match the sources. Fixed by the repair: P2 gives the all-panel 4% as deep cove's",
       planRef,
     })]);
-    // Not fixed by the repair: the final text's reason, not marked repaired.
     expect(planComplianceNoteDrafts({
       ...args,
       repairSucceeded: true,
       finalCoverage: { ok: true, verdicts: [{ ruleId: "facts_match_sources", mergedItemIds: [], paragraphIndex: 1, outcome: "not_applied", reason: "P2 still gives 4%." }] },
     })).toEqual([expect.objectContaining({ outcome: "not_applied", repaired: false, reason: "P2 still gives 4%.", paragraphIndex: 1 })]);
-    // No repair used: the first check's reason and why.
     expect(planComplianceNoteDrafts({ ...args, repairSucceeded: false, repairNotUsedReason: "the repaired text dropped the writer's edited term \"film build\", so the checked draft was kept" }))
       .toEqual([expect.objectContaining({
         outcome: "not_applied",
