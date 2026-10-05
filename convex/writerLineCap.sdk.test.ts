@@ -456,6 +456,22 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
     expect(run.note("246", "Locked Rule: Line 246 holds at most 350 words and 50 form lines")).toMatchObject({ outcome: "applied" });
   });
 
+  // Round 4 review P2-1 (lead decision, owner informed): past the targeted
+  // pass's old reach, a figure outranks the writer's cap.
+  it("holds a targeted pass past its old reach that drops a figure, and the cap row says why the Line stays over (Round 4)", async () => {
+    // 240 of 200 words is 20 percent over: the squeezes echo, and each
+    // targeted pass (on the draft, then on the repair, which comes back as
+    // drafted) meets the cap but drops trial numbers the text holds.
+    const run = await runSingle({
+      compressions: [DRAFT_246, DRAFT_246, FIT_246, DRAFT_246, DRAFT_246, FIT_246],
+      verdicts246: [profileVerdict],
+    });
+    expect(run.text("246")).toBe(DRAFT_246);
+    expect(run.note("246", CAP_RULE)?.reason).toMatch(
+      /still over after 3 shortening passes\. One pass was not kept because it dropped a figure or a negation the text holds, which outrank the writer's cap\. The text was not cut to fit: shorten Line 246 to 200 words to meet the writer's settings$/
+    );
+  });
+
   it("keeps a draft within the Locked cap when a shortening pass for the writer's cap fails (review P2-3)", async () => {
     const run = await runSingle({ failCompressions: true, verdicts246: [profileVerdict] });
     // The Section is kept as drafted, never failed, and the row says why.

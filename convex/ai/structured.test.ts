@@ -398,7 +398,7 @@ describe("decodeEncodedToolFields and encodedFieldRecovery (Round 3)", () => {
     expect(read.unread).toEqual([{
       path: "categories",
       description:
-        'a string of 34 characters, first non-space "{", last non-space "g", no code fence; as JSON: failed at character 1; in a code fence: no code fence; the object within the text: failed at character 1',
+        "a string of 34 characters, first non-space a brace, last non-space a letter, no code fence; as JSON: failed at character 1; in a code fence: no code fence; the object within the text: failed at character 1; as the rest of the answer: failed at character 1",
     }]);
     // generateStructured logs it with the opt-in, and the log holds no text of it.
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -411,6 +411,44 @@ describe("decodeEncodedToolFields and encodedFieldRecovery (Round 3)", () => {
     expect(logged).toContain(`submit: could not read categories sent as text: ${read.unread[0]!.description}`);
     expect(logged.join("\n")).not.toContain("secret");
     expect(logged.join("\n")).not.toContain("'a'");
+  });
+
+  // Release suite run 4 of 2026-10-05: "a string of 1464 characters, first
+  // non-space "{", last non-space "]", ... as JSON: failed at character 386":
+  // the model put the rest of its answer inside the field.
+  it("reads the rest of the answer sent inside a field, its siblings declared in the schema (run 4)", () => {
+    const sent = { categories: '{"a": {"on": true}}, "items": [{}], "note": null' };
+    expect(decodeEncodedToolFields(sent, schema)).toEqual({
+      value: { categories: { a: { on: true } }, items: [{}], note: null },
+      paths: ["categories", "items (inside categories)", "note (inside categories)"],
+      unread: [],
+    });
+    // A sibling the model also sent beside it, with the same value, agrees.
+    expect(decodeEncodedToolFields({ ...sent, items: [{}] }, schema).unread).toEqual([]);
+  });
+
+  it("keeps the rest of the answer unread when a smuggled key is not in the schema, or disagrees with a value sent beside it (run 4)", () => {
+    const unknown = decodeEncodedToolFields({ categories: '{"a": {"on": true}}, "secretKey": [1]' }, schema);
+    expect(unknown).toMatchObject({ value: { categories: '{"a": {"on": true}}, "secretKey": [1]' }, paths: [] });
+    expect(unknown.unread[0]!.description).toMatch(/; as the rest of the answer: read, but 1 key is not in the tool schema$/);
+    expect(unknown.unread[0]!.description).not.toContain("secretKey");
+    const conflict = decodeEncodedToolFields({ categories: '{"a": {"on": true}}, "items": [{}]', items: [] }, schema);
+    expect(conflict).toMatchObject({ paths: [] });
+    expect(conflict.unread[0]!.description).toMatch(/; as the rest of the answer: read, but items disagrees with the value sent beside it$/);
+    // Text that is JSON of its own is never read this way.
+    const json = decodeEncodedToolFields({ categories: "[1]", items: [] }, schema);
+    expect(json.unread[0]!.description).toMatch(/; as the rest of the answer: not tried, the text is JSON of its own$/);
+  });
+
+  it("with encodedFieldRecovery, the run 4 shape validates as one answer", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const client = clientWith([{ categories: '{"a": {"on": true}}, "items": [{}]' }]);
+    await expect(generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit",
+      schema, validate, attempts: 1, encodedFieldRecovery: true,
+    })).resolves.toEqual({ categories: { a: { on: true } }, items: [{}] });
+    expect(warn).toHaveBeenCalledWith("submit: read categories, items (inside categories) sent as JSON text");
+    warn.mockRestore();
   });
 
   it("is off by default: another caller's answer with a field sent as JSON text still fails as before", async () => {

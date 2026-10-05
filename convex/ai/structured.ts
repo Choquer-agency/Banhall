@@ -124,6 +124,18 @@ function withoutTrailingCommas(text: string): string {
   return out;
 }
 
+/** What kind of character opens or closes a text, safe to log (never the character). */
+function characterClass(char: string): string {
+  if (char === "") return "none";
+  if (char === "{" || char === "}") return "a brace";
+  if (char === "[" || char === "]") return "a bracket";
+  if (char === "`") return "a backtick";
+  if (char === '"' || char === "'") return "a quote";
+  if (/\p{L}/u.test(char)) return "a letter";
+  if (/\p{N}/u.test(char)) return "a digit";
+  return "another character";
+}
+
 /** A JSON text's value, or why not (no text of it). */
 function tryParse(text: string): { ok: true; value: unknown } | { ok: false; why: string } {
   try {
@@ -199,12 +211,57 @@ function readEncodedText(
     const value = attempt(label, candidate, notPresent);
     if (value !== undefined) return { ok: true, value };
   }
-  const firstChar = trimmed.charAt(0);
-  const lastChar = trimmed.charAt(trimmed.length - 1);
+  // Review P3-2: a class of character, never one of the model's own.
+  const firstChar = characterClass(trimmed.charAt(0));
+  const lastChar = characterClass(trimmed.charAt(trimmed.length - 1));
   return {
     ok: false,
-    description: `a string of ${text.length} characters, first non-space ${firstChar ? JSON.stringify(firstChar) : "none"}, last non-space ${lastChar ? JSON.stringify(lastChar) : "none"}, ${trimmed.includes("```") ? "holds" : "no"} code fence; ${outcome.join("; ")}`,
+    description: `a string of ${text.length} characters, first non-space ${firstChar}, last non-space ${lastChar}, ${trimmed.includes("```") ? "holds" : "no"} code fence; ${outcome.join("; ")}`,
   };
+}
+
+/**
+ * 2026-10-04 (first), Round 4 (release suite run 4 of 2026-10-05): the
+ * model put the rest of its tool answer inside one top-level field, as
+ * `{ ...the field's object... }, "lockedConflicts": [ ... ]`. When the
+ * field's text is not itself valid JSON, it is read as `{"<field>": <text>}`;
+ * that is used only when it parses to an object whose keys are all declared
+ * in the tool schema, whose value for the field has the wanted shape, and
+ * none of whose other keys disagrees with a value the model already sent at
+ * the top level. Nothing else is guessed. The reason it was not used names
+ * no text of the model's (an unknown key is counted, never named).
+ */
+function readAsRestOfAnswer(
+  key: string,
+  text: string,
+  properties: Record<string, unknown>,
+  sent: Record<string, unknown>
+): { ok: true; fields: Record<string, unknown> } | { ok: false; why: string } {
+  const trimmed = text.trim();
+  if (tryParse(trimmed).ok) return { ok: false, why: "not tried, the text is JSON of its own" };
+  const prefix = `{${JSON.stringify(key)}: `;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(`${prefix}${trimmed}}`) as unknown;
+  } catch (error) {
+    const at = error instanceof Error ? /position (\d+)/.exec(error.message)?.[1] : undefined;
+    return { ok: false, why: at === undefined ? "failed" : `failed at character ${Math.max(0, Number(at) - prefix.length)}` };
+  }
+  if (!isPlainObject(parsed)) return { ok: false, why: "not an object" };
+  const unknown = Object.keys(parsed).filter((name) => !(name in properties));
+  if (unknown.length > 0) {
+    return { ok: false, why: `read, but ${unknown.length} ${unknown.length === 1 ? "key is" : "keys are"} not in the tool schema` };
+  }
+  const own = isPlainObject(properties[key]) ? (properties[key] as SchemaNode).type : undefined;
+  const ownTypes = (Array.isArray(own) ? own : [own]).filter((type): type is string => typeof type === "string");
+  const value = parsed[key];
+  const shaped = (ownTypes.includes("object") && isPlainObject(value)) || (ownTypes.includes("array") && Array.isArray(value));
+  if (!shaped) return { ok: false, why: `read, but ${key} is not ${ownTypes.includes("object") ? "an object" : "an array"}` };
+  const conflicts = Object.keys(parsed).filter(
+    (name) => name !== key && name in sent && JSON.stringify(sent[name]) !== JSON.stringify(parsed[name])
+  );
+  if (conflicts.length > 0) return { ok: false, why: `read, but ${conflicts.join(", ")} disagrees with the value sent beside it` };
+  return { ok: true, fields: parsed };
 }
 
 /**
@@ -244,10 +301,29 @@ export function decodeEncodedToolFields(
     }
   }
   if (isPlainObject(current) && isPlainObject(node.properties)) {
+    const properties = node.properties;
     let copy: Record<string, unknown> | null = null;
-    for (const [key, child] of Object.entries(node.properties)) {
+    for (const [key, child] of Object.entries(properties)) {
       if (!(key in current)) continue;
-      const read = decodeEncodedToolFields(current[key], child, path ? `${path}.${key}` : key);
+      const childPath = path ? `${path}.${key}` : key;
+      const read = decodeEncodedToolFields(current[key], child, childPath);
+      const own = read.unread.find((field) => field.path === childPath);
+      if (own && path === "" && typeof current[key] === "string") {
+        // Round 4 (run 4): the rest of the tool answer inside this field.
+        const rest = readAsRestOfAnswer(key, current[key] as string, properties, current);
+        if (rest.ok) {
+          copy ??= { ...current };
+          for (const [name, value] of Object.entries(rest.fields)) {
+            const nested = decodeEncodedToolFields(value, properties[name], name);
+            copy[name] = nested.value;
+            unread.push(...nested.unread);
+          }
+          paths.push(key, ...Object.keys(rest.fields).filter((name) => name !== key).map((name) => `${name} (inside ${key})`));
+          unread.push(...read.unread.filter((field) => field !== own));
+          continue;
+        }
+        own.description = `${own.description}; as the rest of the answer: ${rest.why}`;
+      }
       unread.push(...read.unread);
       if (read.paths.length === 0) continue;
       copy ??= { ...current };

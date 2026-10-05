@@ -179,8 +179,10 @@ export const SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE = 5;
 /** Worst-case sequential provider calls inside one ordered section action. */
 export const ORDERED_SECTION_ACTION_SLOTS = {
   section: 1,
-  // The squeezes and, when the text is still at most 10 percent over, one
-  // targeted pass (2026-09-28, fifth).
+  // The squeezes and one targeted pass: when the text is still at most 10
+  // percent over a Locked limit (2026-09-28, fifth), or within the Locked
+  // limits but over the writer's cap at any overage (2026-10-04 first,
+  // Round 4).
   compression: COMPRESSION_REQUEST.squeezes.length + 1,
   // Its answer and at most one more request: the structured retry, or in
   // Summary mode (single attempts) the one follow-up for missing labels.

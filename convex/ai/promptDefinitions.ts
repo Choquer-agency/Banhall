@@ -409,8 +409,10 @@ export const COMPRESSION_REQUEST = {
   targetFloor: 0.6,
   /**
    * 2026-09-28 (fifth, release suite run 6): the ordered chain's one
-   * targeted pass after the squeezes, sent only when the best text is still
-   * over a Locked limit by at most `maxOverage` of it. It asks for a stated
+   * targeted pass after the squeezes, sent when the best text is still over
+   * a Locked limit by at most `maxOverage` of it (and, since 2026-10-04
+   * first, Round 4, when it is within the Locked limits but over the
+   * writer's cap, at any overage). It asks for a stated
    * number of words cut, down to `capHeadroom` of the cap (the overage plus
    * about 5 percent), with the same system prompt and the same content
    * guards. A pass that ends a paragraph mid-sentence is not kept.

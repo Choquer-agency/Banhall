@@ -738,6 +738,11 @@ describe("the classifier reads a field sent as JSON text (Round 3)", () => {
     ["prose around the object", `Classification: ${JSON.stringify(styleAnalysis.categories)}. Done.`],
     ["a JSON string of the JSON", JSON.stringify(JSON.stringify(styleAnalysis.categories))],
     ["trailing commas", JSON.stringify(styleAnalysis.categories).replace(/}}$/, "},}")],
+    // Release suite run 4 of 2026-10-05: the rest of the answer inside categories.
+    [
+      "the run 4 shape (lockedConflicts inside categories)",
+      `${JSON.stringify(styleAnalysis.categories, null, 2)},\n"lockedConflicts": [{"excerpt": "no more than 260 words", "rule": "CRA line limits"}]`,
+    ],
   ])("categories in %s decodes in one call, and the waivers apply (Round 4)", async (_label, categories) => {
     classifier.answer = { categories };
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

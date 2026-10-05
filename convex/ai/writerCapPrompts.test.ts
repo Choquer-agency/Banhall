@@ -52,6 +52,12 @@ function client(answers: string[] = [], echo = "") {
   return { create, anthropicFor: () => anthropic };
 }
 
+/** `count` words of letters only (no digit reads as a figure), as one paragraph. */
+function plain(count: number): string {
+  const letters = "abcdefghijklmnopqrstuvwxyz";
+  return `${Array.from({ length: count }, (_, index) => `w${letters[index % 26]}${letters[Math.floor(index / 26) % 26]}`).join(" ")}.`;
+}
+
 /** `count` words in `paragraphs` paragraphs of short words. */
 function text(count: number, paragraphs = 3): string {
   const words = Array.from({ length: count }, (_, index) => `w${index}`);
@@ -171,10 +177,10 @@ describe("the shortening passes under a writer's cap", () => {
   it("send the targeted pass at the writer's cap at an overage past its 10 percent reach, and keep a pass that meets it (Round 4)", async () => {
     // A signed-off item and 275 words of other wording: 288 of 260 words.
     const item = "The cure window held between 118 C and 124 C on routed panels.";
-    const over = `${item}\n\n${text(275)}`;
+    const over = `${item}\n\n${plain(275)}`;
     expect(sectionMetrics(over, "s246")).toMatchObject({ words: 288, overLimit: false });
     // The pass cuts only other wording, and keeps the item.
-    const under = `${item}\n\n${text(227)}`;
+    const under = `${item}\n\n${plain(227)}`;
     const run = client([over, over, under]);
     const fit = await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", over, "standard", undefined, [], [], {
       finalCut: true,
@@ -204,6 +210,43 @@ describe("the shortening passes under a writer's cap", () => {
     expect(run.create).toHaveBeenCalledTimes(3);
     // The pass met the cap but took the item: held, the text kept whole.
     expect(fit).toEqual({ text: over, passes: 3, overLimit: false, heldForPlan: 1 });
+  });
+
+  // Round 4 review P2-1 (lead decision, owner informed): past the old reach,
+  // figures and hedges outrank the writer's cap, as signed-off items do.
+  it("hold a targeted pass past the old reach that drops a figure or a negation the text holds (Round 4, review P2-1)", async () => {
+    const facts = "On the deep cove profile 13 percent of 180 panels fell short. The cause is not yet confirmed.";
+    const factsWords = sectionMetrics(facts, "s246").words;
+    const over = `${facts}\n\n${plain(340 - factsWords)}`;
+    expect(sectionMetrics(over, "s246")).toMatchObject({ words: 340, overLimit: false });
+    for (const cut of [
+      `On the deep cove profile some panels fell short. The cause is not yet confirmed.\n\n${plain(225)}`,
+      `On the deep cove profile 13 percent of 180 panels fell short. The cause is confirmed.\n\n${plain(225)}`,
+    ]) {
+      expect(sectionMetrics(cut, "s246").words).toBeLessThanOrEqual(260);
+      const run = client([over, over, cut]);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fit = await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", over, "standard", undefined, [], [], {
+        finalCut: true,
+        writerCap: CAP_260,
+      });
+      const warned = warn.mock.calls.map((call) => String(call[0]));
+      warn.mockRestore();
+      expect(run.create).toHaveBeenCalledTimes(3);
+      // Met the cap, but took a figure or the hedge: held, the text kept whole.
+      expect(fit).toEqual({ text: over, passes: 3, overLimit: false, heldForFigures: 1 });
+      expect(warned.some((line) => /pass 3 not kept: it dropped the (number|negation)/.test(line))).toBe(true);
+    }
+    // Within the old reach the pass is judged as before (Must keep lines only).
+    const near = `${facts}\n\n${plain(280 - factsWords)}`;
+    expect(sectionMetrics(near, "s246").words).toBe(280);
+    const nearCut = `On the deep cove profile some panels fell short.\n\n${plain(225)}`;
+    const nearRun = client([near, near, nearCut]);
+    const nearFit = await compressWithinLimit(nearRun.anthropicFor, "claude-sonnet-5", "s246", near, "standard", undefined, [], [], {
+      finalCut: true,
+      writerCap: CAP_260,
+    });
+    expect(nearFit.text).toBe(nearCut);
   });
 
   it("leave the Locked targeted pass as it was: a text over a Locked limit past its reach gets none (Round 4)", async () => {

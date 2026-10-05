@@ -1109,8 +1109,9 @@ type SectionCompletion = {
 
 /**
  * Draft, Self-check and (at most once) repair one section. Worst case:
- * draft 1 + compression 3 (two squeezes and, when the text is still at most
- * 10 percent over, one targeted pass, 2026-09-28 fifth) + Self-check 2 (its
+ * draft 1 + compression 3 (two squeezes and one targeted pass, when the text
+ * is still at most 10 percent over a Locked limit, 2026-09-28 fifth, or over
+ * only the writer's cap at any overage, Round 4) + Self-check 2 (its
  * answer plus one structured retry, or in Summary mode its one follow-up for
  * missing labels, 2026-09-28) + repair 1 + compression of the repair 3 + the
  * Self-check of the final text 2 (its answer and one more request: when a
@@ -1786,6 +1787,7 @@ export async function draftCheckedSection(input: {
         ? { failure: normalizeProviderError(keptFit.error).code }
         : {}),
       ...(keptFit.heldBack ? { heldBack: keptFit.heldBack } : {}),
+      ...(keptFit.heldForFigures ? { heldForFigures: keptFit.heldForFigures } : {}),
     },
     ...(keptFit.heldForPlan ? { heldForPlan: "pass" as const } : heldByRepair ? { heldForPlan: "repair" as const } : {}),
     ...(feedbackTerms.length > 0 ? { governed: feedbackTerms } : {}),

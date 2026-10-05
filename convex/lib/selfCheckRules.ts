@@ -865,7 +865,7 @@ export function writerRowGuard(input: {
  * nothing did): a pass that failed, and the passes not kept for a
  * signed-off item that would not have met the cap either.
  */
-function writerShorteningNote(failure: string | undefined, heldBack: number): string {
+function writerShorteningNote(failure: string | undefined, heldBack: number, heldForFigures = 0): string {
   const clauses = [
     ...(failure ? [`a shortening pass failed (${failure})`] : []),
     ...(heldBack > 0
@@ -873,6 +873,14 @@ function writerShorteningNote(failure: string | undefined, heldBack: number): st
           `${heldBack === 1 ? "one pass was" : `${heldBack} passes were`} not kept because ${
             heldBack === 1 ? "it" : "they"
           } dropped a signed-off item, though ${heldBack === 1 ? "it" : "they"} would not have met the cap either`,
+        ]
+      : []),
+    // Round 4 (review P2-1): figures and hedges outrank the writer's cap.
+    ...(heldForFigures > 0
+      ? [
+          `${heldForFigures === 1 ? "one pass was" : `${heldForFigures} passes were`} not kept because ${
+            heldForFigures === 1 ? "it" : "they"
+          } dropped a figure or a negation the text holds, which outrank the writer's cap`,
         ]
       : []),
   ];
@@ -1013,7 +1021,7 @@ export function assembleSectionNotes(input: {
    * not kept because they dropped a signed-off item, which would have left
    * the Line over the writer's cap anyway.
    */
-  compression?: { passes: number; failure?: string; heldBack?: number };
+  compression?: { passes: number; failure?: string; heldBack?: number; heldForFigures?: number };
   /**
    * 2026-10-04 (first, owner decision: signed-off items outrank the
    * writer's cap): the Line was kept over the writer's cap to keep a
@@ -1124,7 +1132,7 @@ export function assembleSectionNotes(input: {
           }; cut by hand if needed`
         : `${rows[index].reason}; still over after ${passes} shortening ${
             passes === 1 ? "pass" : "passes"
-          }.${writerShorteningNote(input.compression?.failure, input.compression?.heldBack ?? 0)} The text was not cut to fit: shorten Line ${section} to ${cap.limits} to meet the writer's settings`,
+          }.${writerShorteningNote(input.compression?.failure, input.compression?.heldBack ?? 0, input.compression?.heldForFigures ?? 0)} The text was not cut to fit: shorten Line ${section} to ${cap.limits} to meet the writer's settings`,
     };
   });
   let remainingFailures = finalEntries.filter(
