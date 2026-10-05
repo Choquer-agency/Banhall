@@ -372,14 +372,19 @@ describe("extractWriterWordingRules (Round 5): clear statements only", () => {
       "utf8"
     );
     const rules = extractWriterWordingRules(text);
-    expect(rules.terms).toEqual([
+    // Each rule keeps its line as written (review P3-4).
+    expect(rules.terms[0]!.source).toBe(
+      "film build: the cured coating thickness, in microns. Never write DFT, dry film thickness, film thickness or coating thickness."
+    );
+    const plain = <T extends { source: string }>(list: T[]) => list.map(({ source: _source, ...rest }) => rest);
+    expect(plain(rules.terms)).toEqual([
       { term: "film build", banned: ["DFT", "dry film thickness", "film thickness", "coating thickness"], allowedWithTerm: false },
       { term: "panel surface temperature", banned: ["substrate temperature", "substrate temp", "board temperature", "part temperature"], allowedWithTerm: false },
       { term: "cure window", banned: ["bake window", "oven window"], allowedWithTerm: false },
       { term: "edge coverage", banned: ["edge wrap", "edge build"], allowedWithTerm: false },
       { term: "outgassing defects", banned: ["pinholes", "pinholing", "blisters", "blistering"], allowedWithTerm: true },
     ]);
-    expect(rules.banned).toEqual([
+    expect(plain(rules.banned)).toEqual([
       { phrase: "successfully", forms: [] },
       { phrase: "in order to", forms: [] },
       { phrase: "optimize", forms: ["optimise", "optimized", "optimization"] },
@@ -388,7 +393,7 @@ describe("extractWriterWordingRules (Round 5): clear statements only", () => {
       { phrase: "breakthrough", forms: [] },
       { phrase: "industry-leading", forms: [] },
     ]);
-    expect(rules.openings).toEqual([
+    expect(plain(rules.openings)).toEqual([
       { opening: "The aim of this work was to", section: "242", statement: "objective" },
       { opening: "It was not known at the outset whether", section: "242", statement: "uncertainty" },
     ]);
@@ -421,14 +426,73 @@ describe("extractWriterWordingRules (Round 5): clear statements only", () => {
       "- leverage",
       "- cutting-edge (also cutting edge)",
       "- a phrase far too long to be one banned item here",
+      // A parenthesis that is not a list of forms may qualify the ban.
       "- synergy (see the style guide, page 4)",
       "Everything else is fine.",
       "- paradigm",
     ].join("\n");
-    expect(extractWriterWordingRules(text).banned).toEqual([
+    expect(extractWriterWordingRules(text).banned.map(({ phrase, forms }) => ({ phrase, forms }))).toEqual([
       { phrase: "leverage", forms: [] },
       { phrase: "cutting-edge", forms: ["cutting edge"] },
-      { phrase: "synergy", forms: [] },
     ]);
+  });
+
+  // Review of 13051055..a8e254bd, P1-1, P2-1, P2-2 and P3-3: each of these
+  // read a false rule; each now reads nothing.
+  const glossary = (...items: string[]) => ["## Glossary", "", ...items].join("\n");
+  it.each([
+    ["a ban of a phrase with \"and\" in it, split", glossary("- trial: one run of the line. Never write trial and error."), { terms: [{ term: "trial", banned: ["trial and error"] }] }],
+    ["\"research and development\", split", glossary("- experimental development: the SR&ED work. Never write research and development."), { terms: [{ term: "experimental development", banned: ["research and development"] }] }],
+  ])("keeps %s as one item (P1-1 a)", (_label, text, expected) => {
+    const rules = extractWriterWordingRules(text);
+    expect(rules.terms.map(({ term, banned }) => ({ term, banned }))).toEqual(expected.terms);
+  });
+
+  it.each([
+    ["a style label outside a glossary: Voice", "- Voice: active and plain. Never use we, our or us."],
+    ["a style label outside a glossary: Acronyms", "- Acronyms: spell out on first use. Never write MDF on its own."],
+    ["a style label inside a glossary", glossary("- Acronyms: spell out on first use. Never write MDF on its own.")],
+    ["Spelling inside a glossary", glossary("- Spelling: Canadian. Never write color or center.")],
+    ["Tense, Tone, Person, Numbers, Units, Company name, Why and Reason", glossary(
+      "- Tense: past. Never write will or shall.",
+      "- Tone: plain. Never write amazing.",
+      "- Person: third. Never write we or us.",
+      "- Numbers: digits for 10 and up. Never write ten.",
+      "- Units: SI. Never write inches.",
+      "- Company name: Velloway. Never write the client.",
+      "- Why: clarity. Never write jargon.",
+      "- Reason: tone. Never write slang.",
+    )],
+    ["a term line outside a glossary (P2-2): pilot", "- pilot: the 600-panel run. Never write production or commercial."],
+    ["a term line outside a glossary (P2-2): prototype", "- prototype: the first build. Never write final or finished."],
+    ["an exception in other words (P2-1): alone", glossary("- outgassing defects: gas marks. Never write pinholes or blisters alone.")],
+    ["an exception in other words (P2-1): except", glossary("- film build: the thickness. Never write DFT, except in tables.")],
+    ["an exception in other words (P2-1): unless", glossary("- film build: the thickness. Never write DFT, unless quoting the client.")],
+    ["a sub-item of a term (P3-3)", glossary("- Variables", "  - film build: the thickness. Never write DFT.")],
+  ])("reads no term from %s", (_label, text) => {
+    expect(extractWriterWordingRules(text).terms).toEqual([]);
+  });
+
+  it.each([
+    ["an older report's opening", 'In older reports Line 242 would open with the exact words "The aim of this work was to", which the client disliked.'],
+    ["an opening the writer rejects", 'Line 242 should say what was done, rather than open with these exact words: "The aim of this work was to".'],
+    ["the house default", 'In Line 242 the house default is to open with the exact words "The purpose of this project was to".'],
+    ["a permission, not an instruction", 'If the client asks, Line 246 can begin with the exact words "The work established that".'],
+  ])("reads no opening from %s (P1-1 d)", (_label, text) => {
+    expect(extractWriterWordingRules(text).openings).toEqual([]);
+  });
+
+  it("reads only the top-level items of a banned list, and ends it at a blank line after its items (P3-3)", () => {
+    const text = [
+      "Never use these words:",
+      "",
+      "- leverage",
+      "  - leveraged, leveraging",
+      "- synergy",
+      "",
+      "- these are words the client likes",
+      "- impactful",
+    ].join("\n");
+    expect(extractWriterWordingRules(text).banned.map((rule) => rule.phrase)).toEqual(["leverage", "synergy"]);
   });
 });

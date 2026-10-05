@@ -662,10 +662,10 @@ export async function compressWithinLimit(
     coverItems?: readonly string[];
     /**
      * 2026-10-04 (first), Round 5: the writer's measured wording rules. A
-     * pass (for a Locked limit or the writer's cap) is not kept when it
-     * removes a required opening its text held, writes a banned word or
-     * synonym its text did not, or removes the last use of a required term
-     * (wordingLoss).
+     * pass for the writer's cap alone is not kept when it removes a
+     * required opening its text held, writes a banned word or synonym its
+     * text did not, or removes the last use of a required term
+     * (wordingLoss); a pass for a Locked limit is judged as before.
      */
     wording?: { rules: WriterWordingRules; section: SectionNumber };
   } = {}
@@ -696,14 +696,19 @@ export async function compressWithinLimit(
       console.warn(`${callSite}: pass ${passes} not kept: it ${loss}`);
       return;
     }
-    const wordingBroken = options.wording ? wordingLoss(best, out, options.wording.rules, options.wording.section) : null;
+    // Signed-off items outrank the writer's cap: a pass that only the
+    // writer's cap asked for never takes words of one.
+    const forWriterOnly = writerCap !== null && !sectionMetrics(best, key).overLimit;
+    // Round 5 (rule 11; review P1-2): nor breaks a wording rule its text
+    // kept. A pass for a Locked limit is judged as before (Locked outranks
+    // both), and a break it brings is measured on the final text.
+    const wordingBroken = forWriterOnly && options.wording
+      ? wordingLoss(best, out, options.wording.rules, options.wording.section)
+      : null;
     if (wordingBroken) {
       console.warn(`${callSite}: pass ${passes} not kept: it ${wordingBroken}`);
       return;
     }
-    // Signed-off items outrank the writer's cap: a pass that only the
-    // writer's cap asked for never takes words of one.
-    const forWriterOnly = writerCap !== null && !sectionMetrics(best, key).overLimit;
     const planLoss = forWriterOnly && coverItems.length > 0 ? coverItemLoss(planBaseline, out, coverItems) : null;
     if (planLoss) {
       if (writerCap && meetsWriterCap(out, key, writerCap)) heldForPlan += 1;

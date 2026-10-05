@@ -26,6 +26,7 @@ import { draftCheckedSection } from "./ai/orderedGeneration";
 import { COMPRESSION_REQUEST, ORDERED_PROMPT_SCAFFOLDS } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { extractSettingsRules } from "./lib/settingsExtraction";
+import { sectionMetrics } from "./lib/lineLimits";
 import type { OrderedPayload } from "./lib/orderedChain";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -189,6 +190,33 @@ describe("the writer's wording rules are measured, repaired and measured again (
       reason: '"outgassing defects" used; no banned synonym; repaired',
     });
     expect(note("Writer's banned word: optimize")).toMatchObject({ outcome: "applied" });
+  });
+
+  // Rule 12 (lead decision, owner informed): a repair made for a measured
+  // rule is kept even when it takes the Line over the writer's cap the
+  // checked draft met, and the cap row says so. A shortening pass that
+  // would bring the banned synonym back is not kept (Rule 11).
+  it("keeps a repair that fixed a measured rule though it took Line 244 over the writer's cap, and the cap row says why", async () => {
+    const filler = (count: number) =>
+      Array.from({ length: count }, (_, index) => `Trial ${index + 1} logged film build, panel surface temperature and line speed for every routed door in the run.`).join(" ");
+    const drafted = [
+      "Velloway Panel Finishing ran oven trials on routed MDF doors.",
+      `In Trial 2, pinhole formation was tied to panel surface temperature itself. ${filler(25)}`,
+    ].join("\n\n");
+    const repaired = drafted.replace("pinhole formation", "the formation of outgassing defects") + ` ${filler(4)}`;
+    const cap = "- Line 244: no more than 520 words.";
+    expect(sectionMetrics(drafted, "s244").words).toBeLessThanOrEqual(520);
+    expect(sectionMetrics(repaired, "s244").words).toBeGreaterThan(520);
+    const { result, note } = await draft("244", {
+      draft: drafted,
+      repair: repaired,
+      checks: [{ verdicts: [settingsVerdict] }, { verdicts: [settingsVerdict] }],
+    });
+    expect(result.draftText).toBe(repaired);
+    expect(note("Writer's term: outgassing defects")).toMatchObject({ outcome: "applied", repaired: true });
+    expect(note(cap)?.reason).toMatch(
+      /^exceeds: \d+\/520 words; the repair, kept for what it fixed, took Line 244 over the writer's cap that the checked draft met \(\d+\/520 words\); still over after \d+ shortening passes?\./
+    );
   });
 
   it("run 5, Line 242: a required opening that starts no sentence is repaired, and the model's settings row cannot say it was followed", async () => {

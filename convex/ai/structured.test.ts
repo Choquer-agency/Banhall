@@ -398,7 +398,7 @@ describe("decodeEncodedToolFields and encodedFieldRecovery (Round 3)", () => {
     expect(read.unread).toEqual([{
       path: "categories",
       description:
-        "a string of 34 characters, first non-space a brace, last non-space a letter, no code fence; as JSON: failed at character 1; in a code fence: no code fence; the object within the text: failed at character 1; as the rest of the answer: failed at character 1",
+        "a string of 34 characters, first non-space a brace, last non-space a letter, no code fence; as JSON: failed at character 1; in a code fence: no code fence; the object within the text: failed at character 1; as the rest of the answer: failed at character 1; with its own closing brace, failed at character 1",
     }]);
     // generateStructured logs it with the opt-in, and the log holds no text of it.
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -425,6 +425,28 @@ describe("decodeEncodedToolFields and encodedFieldRecovery (Round 3)", () => {
     });
     // A sibling the model also sent beside it, with the same value, agrees.
     expect(decodeEncodedToolFields({ ...sent, items: [{}] }, schema).unread).toEqual([]);
+  });
+
+  // Release suite run 7 of 2026-10-05: "a string of 1639 characters, first
+  // non-space a brace, last non-space a brace, ... as the rest of the answer:
+  // failed at character 1639": the text also held the outer object's own
+  // closing brace.
+  it("reads the rest of the answer when the text already ends the outer object with its own brace (run 7)", () => {
+    const sent = { categories: '{"a": {"on": true}}, "items": [{}], "note": null}' };
+    expect(decodeEncodedToolFields(sent, schema)).toEqual({
+      value: { categories: { a: { on: true } }, items: [{}], note: null },
+      paths: ["categories", "items (inside categories)", "note (inside categories)"],
+      unread: [],
+    });
+    // Two braces too many stay unread, and the log says how each try failed.
+    const extra = decodeEncodedToolFields({ categories: '{"a": {"on": true}}, "items": [{}]}}' }, schema);
+    expect(extra).toMatchObject({ value: { categories: '{"a": {"on": true}}, "items": [{}]}}' }, paths: [] });
+    expect(extra.unread[0]!.description).toMatch(
+      /; as the rest of the answer: failed at character \d+; with its own closing brace, failed at character \d+$/
+    );
+    // The same conditions hold: an undeclared key or a disagreeing value stays unread.
+    expect(decodeEncodedToolFields({ categories: '{"a": {"on": true}}, "secretKey": 1}' }, schema).paths).toEqual([]);
+    expect(decodeEncodedToolFields({ categories: '{"a": {"on": true}}, "items": [{}]}', items: [] }, schema).paths).toEqual([]);
   });
 
   it("keeps the rest of the answer unread when a smuggled key is not in the schema, or disagrees with a value sent beside it (run 4)", () => {

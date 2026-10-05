@@ -472,6 +472,21 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
     );
   });
 
+  // Round 5, Rule 12 (lead decision, owner informed; review P3-6): a repair
+  // made only for what the Brief sets or the model judged that takes a Line
+  // over the writer's cap it met is not used, as Rule 1b treats a repair
+  // made only to shorten.
+  it("does not use a Storyline-only repair that takes the Line back over the writer's cap it met (Round 5)", async () => {
+    const storyline = { paragraph: 1, check: "storyline", instruction: "Storyline", outcome: "not_applied", reason: "P1 drifts from the Storyline.", repairGuidance: "Tie P1 to the probe trials." };
+    const run = await runSingle({ compressions: [FIT_246], repair246: DRAFT_246, verdicts246: [storyline] });
+    expect(run.requests("repair:246")).toHaveLength(1);
+    expect(run.text("246")).toBe(FIT_246);
+    expect(run.note("246", CAP_RULE)).toMatchObject({ outcome: "applied" });
+    expect(run.modelNotes("246")[0]?.reason).toMatch(
+      /^P1 drifts from the Storyline\.; repair not used \(the repaired text came out at 240 words, \d+ lines, over the writer's cap of 200 words that the checked draft met, and it fixed no figure, signed-off item or measured rule, so the checked draft was kept\)$/
+    );
+  });
+
   it("keeps a draft within the Locked cap when a shortening pass for the writer's cap fails (review P2-3)", async () => {
     const run = await runSingle({ failCompressions: true, verdicts246: [profileVerdict] });
     // The Section is kept as drafted, never failed, and the row says why.

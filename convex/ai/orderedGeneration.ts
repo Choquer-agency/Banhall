@@ -373,6 +373,15 @@ export function repairOverWriterCapReason(words: number, lines: number, writerCa
   return `the repaired text came out at ${words} words, ${lines} lines, further over the writer's cap of ${writerCapText(writerCap)} than the checked draft, so the checked draft was kept`;
 }
 
+/**
+ * 2026-10-04 (first), Round 5 (Rule 12, review P3-6): why a repair that took
+ * a Line over the writer's cap the checked draft met, made for no figure,
+ * signed-off item or measured rule, was not used.
+ */
+export function repairPushedOverWriterCapReason(words: number, lines: number, writerCap: WriterLineCap): string {
+  return `the repaired text came out at ${words} words, ${lines} lines, over the writer's cap of ${writerCapText(writerCap)} that the checked draft met, and it fixed no figure, signed-off item or measured rule, so the checked draft was kept`;
+}
+
 /** Why a repair that broke a Locked limit was not used (Compliance Note wording). */
 export function repairOverLimitReason(section: SectionNumber, words: number, lines: number): string {
   const key = sectionKeyOf(section);
@@ -1464,6 +1473,11 @@ export async function draftCheckedSection(input: {
       entry.repairable &&
       entry.row.outcome === "not_applied"
   );
+  // Round 5 (Rule 12): the repair fixes a figure, a signed-off item or a
+  // rule code measured (any plan issue, or any deterministic issue).
+  const fixesMeasuredOrPlan =
+    planIssues.length > 0 ||
+    before.entries.some((entry) => entry.repairable && entry.row.outcome === "not_applied");
   const sourceTalkIssue = before.entries.find(
     (entry) => entry.key === SOURCE_TALK_KEY && entry.repairable && entry.row.outcome === "not_applied"
   )?.guidance;
@@ -1602,6 +1616,22 @@ export async function draftCheckedSection(input: {
           // checked draft (ties go to the repair).
           const metrics = sectionMetrics(fit.text, key);
           repair.notUsedReason = `${repairOverWriterCapReason(metrics.words, metrics.lines, writerCap)}${
+            failure ? `; ${failure}` : ""
+          }`;
+        } else if (
+          writerCap &&
+          !fixesMeasuredOrPlan &&
+          meetsWriterCap(text, key, writerCap) &&
+          !meetsWriterCap(fit.text, key, writerCap)
+        ) {
+          // Round 5 (Rule 12, lead decision, owner informed; review P3-6):
+          // a repair made only for what the Brief sets or the model judged
+          // (a Confidence Map hedge, the Storyline, a Glossary Term, a
+          // writer's rule no code measures) that takes a Line over the
+          // writer's cap it met is not used, as Rule 1b treats a repair made
+          // only to shorten.
+          const metrics = sectionMetrics(fit.text, key);
+          repair.notUsedReason = `${repairPushedOverWriterCapReason(metrics.words, metrics.lines, writerCap)}${
             failure ? `; ${failure}` : ""
           }`;
         } else if (droppedTerm !== undefined) {

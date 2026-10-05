@@ -22,12 +22,16 @@ export type RequiredTermRule = {
   banned: string[];
   /** "on their own": a banned word in a sentence that also holds the term is allowed. */
   allowedWithTerm: boolean;
+  /** The writer's line as written. */
+  source: string;
 };
 
 export type BannedWordRule = {
   phrase: string;
   /** Forms the writer listed beside it ("also optimise, optimized"). */
   forms: string[];
+  /** The writer's line as written. */
+  source: string;
 };
 
 export type RequiredOpeningRule = {
@@ -36,6 +40,8 @@ export type RequiredOpeningRule = {
   section: SectionNumber;
   /** The statement the writer names, when stated. */
   statement?: "objective" | "uncertainty";
+  /** The writer's line as written. */
+  source: string;
 };
 
 export type WriterWordingRules = {
@@ -68,8 +74,11 @@ export function holdsPhrase(text: string, phrase: string): boolean {
   return phrase.trim() !== "" && wordingPattern(phrase).test(text);
 }
 
-/** A sentence end: . ! or ?, any closing quotes or brackets, then whitespace. */
-const SENTENCE_END = /[.!?]["'’”)\]]*\s+/g;
+/**
+ * A sentence end: . ! or ?, any closing quotes or brackets, then whitespace.
+ * Review P3-1: the dot of "e.g.", "i.e.", "etc.", "vs." and "cf." is no end.
+ */
+const SENTENCE_END = /(?<!\b(?:e\.g|i\.e|etc|vs|cf|approx|incl|fig|no))[.!?]["'\u2019\u201d)\]]*\s+/gi;
 
 /** The sentence of a paragraph that holds the span at `at`. */
 function sentenceAround(paragraph: string, at: number, length: number): string {
@@ -85,14 +94,20 @@ export type WordingHit = { paragraphIndex: number; words: string; banned: string
 function hitsOf(
   text: string,
   phrases: readonly string[],
-  counts: (sentence: string) => boolean = () => true
+  counts: (sentence: string) => boolean = () => true,
+  /** Review P1-1 (b): a match inside one of these terms is the term, never a ban. */
+  protectedTerms: readonly string[] = []
 ): WordingHit[] {
   const hits: WordingHit[] = [];
   sectionParagraphs(text).forEach((paragraph, paragraphIndex) => {
+    const protectedSpans = protectedTerms.flatMap((term) =>
+      [...paragraph.matchAll(wordingPattern(term))].map((match): [number, number] => [match.index ?? 0, (match.index ?? 0) + match[0].length])
+    );
     for (const banned of phrases) {
       if (!banned.trim()) continue;
       for (const match of paragraph.matchAll(wordingPattern(banned))) {
         const at = match.index ?? 0;
+        if (protectedSpans.some(([from, to]) => at < to && from < at + match[0].length)) continue;
         if (!counts(sentenceAround(paragraph, at, match[0].length))) continue;
         if (hits.some((hit) => hit.paragraphIndex === paragraphIndex && hit.words.toLowerCase() === match[0].toLowerCase())) continue;
         hits.push({ paragraphIndex, words: match[0], banned });
@@ -102,19 +117,31 @@ function hitsOf(
   return hits.sort((a, b) => a.paragraphIndex - b.paragraphIndex);
 }
 
-/** Every banned synonym of a required term the text uses, the "on their own" exception applied. */
-export function termRuleHits(text: string, rule: RequiredTermRule): WordingHit[] {
-  return hitsOf(text, rule.banned, rule.allowedWithTerm ? (sentence) => !holdsPhrase(sentence, rule.term) : undefined);
+/**
+ * Every banned synonym of a required term the text uses, the "on their own"
+ * exception applied, never inside a use of the term itself (or of another
+ * required term).
+ */
+export function termRuleHits(text: string, rule: RequiredTermRule, otherTerms: readonly string[] = []): WordingHit[] {
+  return hitsOf(
+    text,
+    rule.banned,
+    rule.allowedWithTerm ? (sentence) => !holdsPhrase(sentence, rule.term) : undefined,
+    [rule.term, ...otherTerms]
+  );
 }
 
-/** Every use of a banned word or one of its listed forms. */
-export function bannedRuleHits(text: string, rule: BannedWordRule): WordingHit[] {
-  return hitsOf(text, [rule.phrase, ...rule.forms]);
+/** Every use of a banned word or one of its listed forms, never inside a required term. */
+export function bannedRuleHits(text: string, rule: BannedWordRule, terms: readonly string[] = []): WordingHit[] {
+  return hitsOf(text, [rule.phrase, ...rule.forms], undefined, terms);
 }
+
+/** Review P3-2: curly apostrophes and quotes read as straight ones (same length). */
+const straightQuotes = (text: string) => text.replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"');
 
 /** Where a sentence of the text opens with the words: its paragraph (from 0), or null. */
 export function openingAt(text: string, opening: string): { paragraphIndex: number; opensParagraph: boolean } | null {
-  const words = opening.trim().split(/\s+/).filter(Boolean);
+  const words = straightQuotes(opening).trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return null;
   const pattern = new RegExp(
     `(?:^|\\n\\s*|[.!?]["'\\u2019\\u201d)\\]]*\\s+|\\]\\s+)${words.map(escapeWord).join("\\s+")}(?![\\p{L}\\p{N}])`,
@@ -122,7 +149,7 @@ export function openingAt(text: string, opening: string): { paragraphIndex: numb
   );
   const paragraphs = sectionParagraphs(text);
   for (let index = 0; index < paragraphs.length; index += 1) {
-    const match = pattern.exec(paragraphs[index]!);
+    const match = pattern.exec(straightQuotes(paragraphs[index]!));
     if (match) return { paragraphIndex: index, opensParagraph: match.index === 0 };
   }
   return null;
@@ -154,17 +181,22 @@ export function wordingLoss(
       return `removed the opening "${rule.opening}" the writer's settings require`;
     }
   }
+  // Review P3-7: by rule, not by form: "pinhole" made "pinholes" adds none.
   const introduced = (before: WordingHit[], after: WordingHit[]) =>
-    after.find((hit) => !before.some((other) => other.words.toLowerCase() === hit.words.toLowerCase()));
+    after.length > before.length
+      ? after.find((hit) => !before.some((other) => other.words.toLowerCase() === hit.words.toLowerCase())) ?? after[after.length - 1]
+      : undefined;
+  const terms = rules.terms.map((rule) => rule.term);
   for (const rule of rules.terms) {
-    const added = introduced(termRuleHits(input, rule), termRuleHits(output, rule));
+    const others = terms.filter((term) => term !== rule.term);
+    const added = introduced(termRuleHits(input, rule, others), termRuleHits(output, rule, others));
     if (added) return `wrote "${added.words}", which the writer's settings ban in favour of "${rule.term}"`;
     if (holdsPhrase(input, rule.term) && !holdsPhrase(output, rule.term)) {
       return `removed the last use of "${rule.term}", the writer's term`;
     }
   }
   for (const rule of rules.banned) {
-    const added = introduced(bannedRuleHits(input, rule), bannedRuleHits(output, rule));
+    const added = introduced(bannedRuleHits(input, rule, terms), bannedRuleHits(output, rule, terms));
     if (added) return `wrote "${added.words}", which the writer's settings ban`;
   }
   return null;

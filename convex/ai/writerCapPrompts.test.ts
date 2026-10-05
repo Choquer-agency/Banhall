@@ -251,11 +251,11 @@ describe("the shortening passes under a writer's cap", () => {
 
   // 2026-10-04 (first), Round 5 (rule 4): a pass for either cap never
   // breaks a wording rule code measures.
-  it("never keep a pass that drops a required opening or writes a banned word, for the writer's cap or a Locked limit (Round 5)", async () => {
+  it("never keep a pass for the writer's cap that drops a required opening or writes a banned word, and judge a Locked pass as before (Round 5)", async () => {
     const rules = {
-      terms: [{ term: "outgassing defects", banned: ["pinholes"], allowedWithTerm: false }],
-      banned: [{ phrase: "optimize", forms: ["optimized"] }],
-      openings: [{ opening: "The aim of this work was to", section: "246" as const, statement: "objective" as const }],
+      terms: [{ term: "outgassing defects", banned: ["pinholes"], allowedWithTerm: false, source: "outgassing defects: never write pinholes." }],
+      banned: [{ phrase: "optimize", forms: ["optimized"], source: "optimize (also optimized)" }],
+      openings: [{ opening: "The aim of this work was to", section: "246" as const, statement: "objective" as const, source: "open it with these exact words" }],
     };
     const opening = "The aim of this work was to cure powder on routed doors.";
     const over = `${opening}\n\n${plain(290)}`;
@@ -274,16 +274,18 @@ describe("the shortening passes under a writer's cap", () => {
     expect(fit.text).toBe(good);
     expect(warned).toContain('generation:compression:246: pass 1 not kept: it removed the opening "The aim of this work was to" the writer\'s settings require');
     expect(warned).toContain('generation:compression:246: pass 2 not kept: it wrote "optimized", which the writer\'s settings ban');
-    // The same pass for a Locked limit is held too: 400 of 350 words.
+    // Review P1-2: a pass for a Locked limit (400 of 350 words) that
+    // rewrites the opening is kept, since the Locked Rule outranks the
+    // writer's settings; the break is measured on the final text.
     const locked = `${opening}\n\n${plain(390)}`;
-    const lockedRun = client([noOpening, noOpening, noOpening]);
-    const quiet = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const lockedRun = client([noOpening]);
     const lockedFit = await compressWithinLimit(lockedRun.anthropicFor, "claude-sonnet-5", "s246", locked, "standard", undefined, [], [], {
       finalCut: true,
       wording: { rules, section: "246" },
     });
-    quiet.mockRestore();
-    expect(lockedFit.text).toBe(locked);
+    expect(lockedFit.text).toBe(noOpening);
+    expect(sectionMetrics(lockedFit.text, "s246")).toMatchObject({ overLimit: false });
+    expect(sectionMetrics(lockedFit.text, "s246").words).toBeLessThanOrEqual(350);
   });
 
   it("leave the Locked targeted pass as it was: a text over a Locked limit past its reach gets none (Round 4)", async () => {

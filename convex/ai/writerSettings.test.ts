@@ -743,6 +743,11 @@ describe("the classifier reads a field sent as JSON text (Round 3)", () => {
       "the run 4 shape (lockedConflicts inside categories)",
       `${JSON.stringify(styleAnalysis.categories, null, 2)},\n"lockedConflicts": [{"excerpt": "no more than 260 words", "rule": "CRA line limits"}]`,
     ],
+    // Run 7: the same, with the outer object's own closing brace at the end.
+    [
+      "the run 7 shape (the outer closing brace too)",
+      `${JSON.stringify(styleAnalysis.categories, null, 2)},\n"lockedConflicts": []\n}`,
+    ],
   ])("categories in %s decodes in one call, and the waivers apply (Round 4)", async (_label, categories) => {
     classifier.answer = { categories };
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

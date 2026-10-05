@@ -224,7 +224,9 @@ function readEncodedText(
  * 2026-10-04 (first), Round 4 (release suite run 4 of 2026-10-05): the
  * model put the rest of its tool answer inside one top-level field, as
  * `{ ...the field's object... }, "lockedConflicts": [ ... ]`. When the
- * field's text is not itself valid JSON, it is read as `{"<field>": <text>}`;
+ * field's text is not itself valid JSON, it is read as `{"<field>": <text>}`,
+ * or (run 7) as `{"<field>": <text>` when the text already ends with the
+ * outer object's own closing brace;
  * that is used only when it parses to an object whose keys are all declared
  * in the tool schema, whose value for the field has the wanted shape, and
  * none of whose other keys disagrees with a value the model already sent at
@@ -240,12 +242,23 @@ function readAsRestOfAnswer(
   const trimmed = text.trim();
   if (tryParse(trimmed).ok) return { ok: false, why: "not tried, the text is JSON of its own" };
   const prefix = `{${JSON.stringify(key)}: `;
+  const failedAt = (error: unknown) => {
+    const at = error instanceof Error ? /position (\d+)/.exec(error.message)?.[1] : undefined;
+    return at === undefined ? "failed" : `failed at character ${Math.max(0, Number(at) - prefix.length)}`;
+  };
+  // The text as the rest of the answer, the outer closing brace added; or
+  // (release suite run 7 of 2026-10-05) the text already ending the outer
+  // object with its own closing brace. Nothing else is tried.
   let parsed: unknown;
   try {
     parsed = JSON.parse(`${prefix}${trimmed}}`) as unknown;
   } catch (error) {
-    const at = error instanceof Error ? /position (\d+)/.exec(error.message)?.[1] : undefined;
-    return { ok: false, why: at === undefined ? "failed" : `failed at character ${Math.max(0, Number(at) - prefix.length)}` };
+    const added = failedAt(error);
+    try {
+      parsed = JSON.parse(`${prefix}${trimmed}`) as unknown;
+    } catch (closedError) {
+      return { ok: false, why: `${added}; with its own closing brace, ${failedAt(closedError)}` };
+    }
   }
   if (!isPlainObject(parsed)) return { ok: false, why: "not an object" };
   const unknown = Object.keys(parsed).filter((name) => !(name in properties));

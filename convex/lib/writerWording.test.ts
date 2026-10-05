@@ -227,3 +227,59 @@ describe("a repair that takes a Line over the writer's cap it met (Round 5, rule
     expect(rows.find((note) => note.instruction === "Writer's term: outgassing defects")).toMatchObject({ outcome: "applied", repaired: true });
   });
 });
+
+// Review of 13051055..a8e254bd: the matcher and the guard.
+describe("review fixes to the matcher and the settings row guard (Round 5)", () => {
+  const rule = (term: string, banned: string[], allowedWithTerm = false) => ({ term, banned, allowedWithTerm, source: `${term}: never write ${banned.join(" or ")}.` });
+
+  it("never counts a banned item inside a use of the term itself (P1-1 b)", () => {
+    const surface = rule("panel surface temperature", ["surface temperature"]);
+    expect(termRuleHits("The panel surface temperature reached 120 C.", surface)).toEqual([]);
+    expect(termRuleHits("The surface temperature reached 120 C.", surface).map((hit) => hit.words)).toEqual(["surface temperature"]);
+    // Nor a banned word inside another required term.
+    const temperature = { phrase: "temperature", forms: [], source: "- temperature" };
+    expect(bannedRuleHits("The panel surface temperature rose.", temperature, ["panel surface temperature"])).toEqual([]);
+  });
+
+  it("reads e.g. and i.e. as no sentence end (P3-1)", () => {
+    const pinholes = RULES.terms.find((entry) => entry.term === "outgassing defects")!;
+    expect(termRuleHits("Outgassing defects (e.g. pinholes and blisters) rose.", pinholes)).toEqual([]);
+    expect(termRuleHits("Outgassing defects rose, i.e. pinholes appeared.", pinholes)).toEqual([]);
+  });
+
+  it("matches an opening with a curly or straight apostrophe either way (P3-2)", () => {
+    expect(openingAt("The team’s aim was to cure it.", "The team's aim was to")).toEqual({ paragraphIndex: 0, opensParagraph: true });
+    expect(openingAt("The team's aim was to cure it.", "The team’s aim was to")).toEqual({ paragraphIndex: 0, opensParagraph: true });
+  });
+
+  it("compares a pass by rule, not by form: \"pinhole\" made \"pinholes\" adds none (P3-7)", () => {
+    expect(wordingLoss("A pinhole formed.", "Pinholes formed.", RULES, "244")).toBeNull();
+    expect(wordingLoss("A pinhole formed.", "A pinhole and a blister formed.", RULES, "244")).toBe(
+      'wrote "blister", which the writer\'s settings ban in favour of "outgassing defects"'
+    );
+  });
+
+  it("an instruction row that quotes one measured rule carries its break, as a cap row does (P3-4)", () => {
+    const before = check("244", LINE_244);
+    const pinholesRule = RULES.terms.find((entry) => entry.term === "outgassing defects")!;
+    const verdict: ModelVerdict = { check: "instruction", instruction: pinholesRule.source, outcome: "applied", reason: "Followed." };
+    const other: ModelVerdict = { check: "instruction", instruction: "Write in the third person throughout.", outcome: "applied", reason: "Third person used." };
+    const rows = assembleSectionNotes({
+      section: "244",
+      before,
+      after: null,
+      verdicts: [verdict, other],
+      modelCheck: { ok: true },
+      storylineQuestion: null,
+      repair: { attempted: false, succeeded: false },
+      finalText: LINE_244,
+      writerInstructions: SETTINGS_TEXT,
+    }).rows.filter((note) => note.source === "model");
+    expect(rows[0]).toMatchObject({
+      outcome: "not_applied",
+      reason: 'Not followed in full: P3 says "pinhole" (the writer\'s term is "outgassing defects") (measured by code; see that row). Otherwise followed: Followed.',
+    });
+    // A row for another rule keeps its own verdict.
+    expect(rows[1]).toMatchObject({ outcome: "applied", reason: "Third person used." });
+  });
+});

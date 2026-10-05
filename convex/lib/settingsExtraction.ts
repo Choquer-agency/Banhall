@@ -256,71 +256,88 @@ export function extractSettingsRules(text: string): ExtractedSettingsRules {
  * effective instruction text as the caps (a saved profile or a settings
  * document). Only clear statements are read, and a line that is not one of
  * these shapes gives nothing: missing a rule is the accepted cost, a false
- * rule is never read.
+ * rule is never read. Each rule keeps its line as written (`source`).
  *
- * Grammar (one line at a time; a list marker "- ", "* " or "1. " is
- * stripped first):
- * 1. A required term: `<term>: <anything>. Never write A, B or C[ on their
- *    own].` The term is one to five words of letters, spaces and hyphens
- *    (no digits, no quotes), not a label such as "Example" or "Note". The
- *    ban is a whole sentence of the line that starts "Never write", "Never
- *    use", "Never say", "Do not write", "Do not use" or "Don't write" and
- *    is nothing but a list of one to four word items (each of letters,
- *    digits, spaces or hyphens, quotes around an item allowed), separated
- *    by commas, "or" and "and"; " on their own" (or " on its own") at its
- *    end allows the banned words in a sentence that also holds the term. A
- *    ban inside quotation marks is an example, never a rule.
+ * Grammar (one line at a time; a list item is a top-level "- ", "* " or
+ * "1. " line, never an indented one):
+ * 1. A required term, only inside a terms list: a heading, or a lead line,
+ *    that names a glossary or the terms to use ("glossary", "terminology",
+ *    "vocabulary", "required terms", "use these exact terms") opens it, and
+ *    it ends at the next heading, at a blank line or other line after its
+ *    first item. Each list item reads `<term>: <anything>. Never write A, B
+ *    or C[ on their own].` The term is one to five words of letters,
+ *    spaces and hyphens, not a label such as "Example", "Note", "Voice" or
+ *    "Spelling", and its definition does not open with a quotation mark.
+ *    The ban is a whole sentence of the item that opens "Never write",
+ *    "Never use", "Never say", "Do not write", "Do not use" or "Don't
+ *    write" and is nothing but a list of one to four word items (quotes
+ *    around an item allowed) separated by commas and "or" ("A and B" stays
+ *    one item); an item that carries an exception ("except", "unless",
+ *    "alone", "by", "without", "even", "when", "if", "only", "outside",
+ *    "but") makes the whole ban unread. " on their own" (or " on its own")
+ *    at its end allows the banned words in a sentence that also holds the
+ *    term. A banned item inside the term itself is never counted there.
  * 2. Banned words: a lead line that says "Never use these words (or
  *    phrases, terms)", "Do not use the following words" and the like and
  *    ends with a colon, or a heading "Banned words" (or "Banned phrases",
- *    "Banned words and phrases"), followed by list items (blank lines
- *    allowed between). Each item is one to four words of letters, spaces
- *    and hyphens, optionally followed by a parenthesis "(also A, B and the
- *    like)" whose one or two word items are its forms. The list ends at
- *    the first other line. An item of any other shape gives nothing.
- * 3. A required opening: a line that says to open (or begin, or start)
- *    with "these exact words" or "the exact words", then the words in
- *    quotation marks (two to fifteen words), and names exactly one Line
- *    (242, 244 or 246). "objective" or "uncertainty" on the line names the
- *    statement. A line that negates it ("never open", "do not start") or
- *    calls itself an example gives nothing.
+ *    "Banned words and phrases"), then its list items: blank lines are
+ *    allowed before the first, and a blank line, a heading or any other
+ *    line after one ends the list. Each item is one to four words of
+ *    letters, spaces and hyphens, optionally followed by "(also A, B and
+ *    the like)" whose one or two word items are its forms; an item with
+ *    any other parenthesis, or of any other shape, gives nothing.
+ * 3. A required opening: a line that tells the writer to open (begin,
+ *    start) with "these exact words" or "the exact words", at the start of
+ *    the line, after a colon, or after "must", "should" or "always", then
+ *    two to fifteen words in quotation marks, and names exactly one Line
+ *    (242, 244 or 246) before that. "objective" or "uncertainty" there
+ *    names the statement. A line that negates it, says it would, could,
+ *    can or may, if, rather than, instead of, by default, in older or
+ *    previous reports, or calls itself an example gives nothing.
  */
 
-const LIST_MARKER = /^\s*(?:[-*•]|\d+[.)])\s+/;
+const LIST_MARKER = /^(?:[-*\u2022]|\d+[.)])\s+/;
+const HEADING = /^#{1,6}\s/;
+const TERMS_CUE =
+  /\b(?:glossary|terminology|vocabulary|(?:required|preferred|exact|named|core)\s+(?:variable\s+)?terms|use\s+these\s+(?:exact\s+)?terms)\b/i;
 const TERM_HEAD = /^([A-Za-z][A-Za-z -]*?)\s*:\s+(.+)$/;
-const TERM_LABEL_WORDS = /\b(?:example|examples|note|notes|tip|tips|e\.g|i\.e|for instance|such as|warning|important)\b/i;
-const BAN_SENTENCE = /^(?:never\s+(?:write|use|say)|do\s+not\s+(?:write|use|say)|don['’]t\s+(?:write|use|say))\s+(.+?)[.!]?$/i;
+const TERM_LABEL_WORDS =
+  /\b(?:example|examples|note|notes|tip|tips|e\.g|i\.e|for instance|such as|warning|important|voice|spelling|tense|tone|person|numbers?|units?|company|name|why|reason|acronyms?|abbreviations?|style|format|formatting|headings?|citations?|dates?|currency|capitali[sz]ation|punctuation|grammar|rule|rules)\b/i;
+const BAN_SENTENCE = /^(?:never\s+(?:write|use|say)|do\s+not\s+(?:write|use|say)|don['\u2019]t\s+(?:write|use|say))\s+(.+?)[.!]?$/i;
 const OWN_SUFFIX = /\s+on\s+(?:their|its)\s+own$/i;
 const LIST_ITEM_WORDS = /^[A-Za-z0-9][A-Za-z0-9 -]*$/;
+const EXCEPTION_WORDS = /\b(?:except|unless|alone|by|without|even|when|if|only|outside|but)\b/i;
 const BAN_LEAD =
-  /^(?:#+\s*)?(?:\d+\.\s*)?(?:never|do\s+not|don['’]t)\s+use\s+(?:any\s+of\s+)?(?:these|the\s+following)\s+(?:words?|phrases?|terms?)(?:\s+(?:or|and)\s+(?:words?|phrases?|terms?))?(?:\s*,\s*in\s+any\s+form)?\s*:\s*$/i;
+  /^(?:#+\s*)?(?:\d+\.\s*)?(?:never|do\s+not|don['\u2019]t)\s+use\s+(?:any\s+of\s+)?(?:these|the\s+following)\s+(?:words?|phrases?|terms?)(?:\s+(?:or|and)\s+(?:words?|phrases?|terms?))?(?:\s*,\s*in\s+any\s+form)?\s*:\s*$/i;
 const BAN_HEADING = /^#+\s*(?:\d+\.\s*)?banned\s+(?:words|phrases|terms|words\s+and\s+phrases)\s*$/i;
-const FORMS_PARENTHESIS = /^\(\s*(?:also|including|e\.g\.)\s+(.+?)(?:,?\s+(?:and|or)\s+the\s+like|,?\s+etc\.?)?\s*\)$/i;
+const FORMS_PARENTHESIS = /^\(\s*(?:also|including)\s+(.+?)(?:,?\s+(?:and|or)\s+the\s+like|,?\s+etc\.?)?\s*\)$/i;
 const OPENING_CUE =
-  /\b(?:open|begin|start)\b[^"“]*?\bwith\s+(?:these|the)\s+exact\s+words\s*:?\s*["“]([^"”]+)["”]/i;
-const OPENING_NEGATED = /\b(?:never|not|don['’]t|avoid)\b[^"“]*?\b(?:open|begin|start)\b/i;
+  /(?:^|:\s*|\b(?:must|should|always)\s+)(?:open|begin|start)\b[^"\u201c]*?\bwith\s+(?:these|the)\s+exact\s+words\s*:?\s*["\u201c]([^"\u201d]+)["\u201d]/i;
+const OPENING_NEGATED = /\b(?:never|not|don['\u2019]t|avoid)\b[^"\u201c]*?\b(?:open|begin|start)\b/i;
+const OPENING_NOT_AN_INSTRUCTION =
+  /\b(?:would|could|can|may|might|if|rather\s+than|instead\s+of|default|older|previous|used\s+to|example|e\.g)\b/i;
 
 const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 
-/** "A, B or C" and "A, B and C": one to four word items, or null for any other shape. */
+/** "A, B or C": one to four word items with no exception, or null for any other shape. */
 function listItems(list: string): string[] | null {
   const items = list
-    .split(/\s*,\s*(?:or\s+|and\s+)?|\s+or\s+|\s+and\s+/i)
-    .map((item) => item.trim().replace(/^["'“‘](.*)["'”’]$/, "$1").trim())
+    .split(/\s*,\s*(?:or\s+)?|\s+or\s+/i)
+    .map((item) => item.trim().replace(/^["'\u201c\u2018](.*)["'\u201d\u2019]$/, "$1").trim())
     .filter(Boolean);
   if (items.length === 0) return null;
   for (const item of items) {
-    if (!LIST_ITEM_WORDS.test(item) || wordCount(item) > 4) return null;
+    if (!LIST_ITEM_WORDS.test(item) || wordCount(item) > 4 || EXCEPTION_WORDS.test(item)) return null;
   }
   return items;
 }
 
-function termRule(line: string): RequiredTermRule | null {
-  const head = TERM_HEAD.exec(line.replace(LIST_MARKER, "").trim());
+function termRule(body: string): RequiredTermRule | null {
+  const head = TERM_HEAD.exec(body);
   if (!head) return null;
   const term = head[1]!.trim();
   const rest = head[2]!;
-  if (wordCount(term) > 5 || TERM_LABEL_WORDS.test(term) || /^["'“‘]/.test(rest.trim())) return null;
+  if (wordCount(term) > 5 || TERM_LABEL_WORDS.test(term) || /^["'\u201c\u2018]/.test(rest.trim())) return null;
   for (const sentence of rest.split(/(?<=[.!?])\s+/)) {
     const ban = BAN_SENTENCE.exec(sentence.trim());
     if (!ban) continue;
@@ -331,75 +348,96 @@ function termRule(line: string): RequiredTermRule | null {
     if (!banned) return null;
     const normalized = term.toLowerCase();
     if (banned.some((item) => item.toLowerCase() === normalized)) return null;
-    return { term, banned, allowedWithTerm: own };
+    return { term, banned, allowedWithTerm: own, source: body };
   }
   return null;
 }
 
-function bannedItem(line: string): BannedWordRule | null {
-  const body = line.replace(LIST_MARKER, "").trim();
+function bannedItem(body: string): BannedWordRule | null {
   const match = /^([A-Za-z][A-Za-z -]*?)\s*(\(.*\))?\s*\.?$/.exec(body);
   if (!match) return null;
   const phrase = match[1]!.trim();
-  if (!LIST_ITEM_WORDS.test(phrase) || wordCount(phrase) > 4) return null;
+  if (!LIST_ITEM_WORDS.test(phrase) || wordCount(phrase) > 4 || EXCEPTION_WORDS.test(phrase)) return null;
   const parenthesis = match[2]?.trim();
-  let forms: string[] = [];
-  if (parenthesis) {
-    const listed = FORMS_PARENTHESIS.exec(parenthesis);
-    const items = listed ? listItems(listed[1]!) : null;
-    forms = items && items.every((item) => wordCount(item) <= 2) ? items : [];
-  }
-  return { phrase, forms };
+  if (!parenthesis) return { phrase, forms: [], source: body };
+  // A parenthesis that is not a list of forms may qualify the ban: unread.
+  const listed = FORMS_PARENTHESIS.exec(parenthesis);
+  const items = listed ? listItems(listed[1]!) : null;
+  return items && items.every((item) => wordCount(item) <= 2) ? { phrase, forms: items, source: body } : null;
 }
 
-function openingRule(line: string): RequiredOpeningRule | null {
-  if (TERM_LABEL_WORDS.test(line) || OPENING_NEGATED.test(line)) return null;
-  const cue = OPENING_CUE.exec(line);
+function openingRule(body: string): RequiredOpeningRule | null {
+  const cue = OPENING_CUE.exec(body);
   if (!cue) return null;
+  const outsideQuotes = body.replace(/["\u201c][^"\u201d]*["\u201d]/g, " ");
+  if (OPENING_NEGATED.test(outsideQuotes) || OPENING_NOT_AN_INSTRUCTION.test(outsideQuotes)) return null;
   const opening = cue[1]!.trim();
   const words = wordCount(opening);
   if (words < 2 || words > 15) return null;
-  const sections = [...new Set(sectionsIn(line.slice(0, cue.index)))];
+  const before = body.slice(0, cue.index);
+  const sections = [...new Set(sectionsIn(before))];
   if (sections.length !== 1) return null;
-  const before = line.slice(0, cue.index);
   const statement = /\bobjectives?\b/i.test(before)
     ? "objective" as const
     : /\buncertaint(?:y|ies)\b/i.test(before)
       ? "uncertainty" as const
       : undefined;
-  return { opening, section: sections[0]!, ...(statement ? { statement } : {}) };
+  return { opening, section: sections[0]!, ...(statement ? { statement } : {}), source: body };
 }
+
+type ListState = "none" | "terms" | "banned";
 
 /** Round 5: the writer's terms, banned words and required openings. */
 export function extractWriterWordingRules(text: string): WriterWordingRules {
   const terms: RequiredTermRule[] = [];
   const banned: BannedWordRule[] = [];
   const openings: RequiredOpeningRule[] = [];
-  const lines = text.split(/\r?\n/);
-  let inBanList = false;
+  let state: ListState = "none";
   let itemsSeen = false;
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (inBanList) {
-      if (line === "") continue;
-      if (LIST_MARKER.test(raw)) {
-        const item = bannedItem(line);
-        if (item && !banned.some((entry) => entry.phrase.toLowerCase() === item.phrase.toLowerCase())) banned.push(item);
+  const open = (next: ListState) => {
+    state = next;
+    itemsSeen = false;
+  };
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    const trimmed = line.trim();
+    const item = LIST_MARKER.test(line);
+    const indented = !item && /^\s+(?:[-*\u2022]|\d+[.)])\s+/.test(line);
+    if (state !== "none") {
+      if (item) {
         itemsSeen = true;
+        const body = line.replace(LIST_MARKER, "").trim();
+        if (state === "terms") {
+          const term = termRule(body);
+          if (term && !terms.some((entry) => entry.term.toLowerCase() === term.term.toLowerCase())) terms.push(term);
+        } else {
+          const entry = bannedItem(body);
+          if (entry && !banned.some((other) => other.phrase.toLowerCase() === entry.phrase.toLowerCase())) banned.push(entry);
+        }
         continue;
       }
-      // A heading may be followed by its lead sentence before the list.
-      if (!itemsSeen && BAN_LEAD.test(line)) continue;
-      inBanList = false;
+      // A sub-item is never read, and does not end the list.
+      if (indented) continue;
+      // Before the first item: blank lines, and a lead line (a terms list
+      // may have any lead text; a banned list only its lead line).
+      if (!itemsSeen && !HEADING.test(trimmed)) {
+        if (trimmed === "" || state === "terms" || BAN_LEAD.test(trimmed)) continue;
+      }
+      // A blank line, a heading or any other line ends the list; the line
+      // itself is read below.
+      open("none");
     }
-    if (BAN_LEAD.test(line) || BAN_HEADING.test(line)) {
-      inBanList = true;
-      itemsSeen = false;
+    if (trimmed === "") continue;
+    if (BAN_LEAD.test(trimmed) || BAN_HEADING.test(trimmed)) {
+      open("banned");
       continue;
     }
-    const term = termRule(line);
-    if (term && !terms.some((entry) => entry.term.toLowerCase() === term.term.toLowerCase())) terms.push(term);
-    const opening = openingRule(line);
+    if (TERMS_CUE.test(trimmed) && (HEADING.test(trimmed) || !item)) {
+      open("terms");
+      continue;
+    }
+    const body = (item ? line.replace(LIST_MARKER, "") : line).trim();
+    const opening = openingRule(body);
     if (opening && !openings.some((entry) => entry.section === opening.section && entry.opening === opening.opening)) {
       openings.push(opening);
     }

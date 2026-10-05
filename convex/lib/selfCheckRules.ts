@@ -122,6 +122,8 @@ export type CheckEntry = {
    * the settings can never contradict it. In memory only.
    */
   measuredWording?: true;
+  /** Round 5 (review P3-4): the writer's line the measured rule was read from. */
+  wordingSource?: string;
 };
 
 /** 2026-10-04 (first): one cap code measured on a Line. */
@@ -511,13 +513,15 @@ export function runDeterministicSelfCheck(input: {
   // exact issue, and the Writer Profile row's caveat below covers it.
   if (profile.profileState === "applied" && input.writerWording) {
     const wording = input.writerWording;
-    const measuredEntry = (failure?: string) => {
+    const measuredEntry = (source: string, failure?: string) => {
       const entry = entries[entries.length - 1]!;
       entry.measuredWording = true;
+      entry.wordingSource = source;
       if (failure) entry.profileRuleFailure = failure;
     };
+    const requiredTerms = wording.terms.map((rule) => rule.term);
     wording.terms.forEach((rule, index) => {
-      const hits = termRuleHits(text, rule);
+      const hits = termRuleHits(text, rule, requiredTerms.filter((term) => term !== rule.term));
       const used = holdsPhrase(text, rule.term);
       const instruction = `Writer's term: ${rule.term}`;
       if (hits.length === 0) {
@@ -527,7 +531,7 @@ export function runDeterministicSelfCheck(input: {
           tier: "none",
           reason: used ? `"${rule.term}" used; no banned synonym` : `no banned synonym of "${rule.term}"`,
         });
-        measuredEntry();
+        measuredEntry(rule.source);
         return;
       }
       const found = hitsPhrase(hits);
@@ -547,14 +551,14 @@ export function runDeterministicSelfCheck(input: {
           }.`)
           .join(" ")
       );
-      measuredEntry(`${found} (the writer's term is "${rule.term}")`);
+      measuredEntry(rule.source, `${found} (the writer's term is "${rule.term}")`);
     });
     wording.banned.forEach((rule, index) => {
-      const hits = bannedRuleHits(text, rule);
+      const hits = bannedRuleHits(text, rule, requiredTerms);
       const instruction = `Writer's banned word: ${rule.phrase}`;
       if (hits.length === 0) {
         add(`wording:banned:${index}`, { instruction, outcome: "applied", tier: "none", reason: `"${rule.phrase}" not used` });
-        measuredEntry();
+        measuredEntry(rule.source);
         return;
       }
       const found = hitsPhrase(hits);
@@ -572,7 +576,7 @@ export function runDeterministicSelfCheck(input: {
           .map((hit) => `Paragraph ${hit.paragraphIndex + 1}: replace "${hit.words}" with other wording; the writer's settings ban "${rule.phrase}".`)
           .join(" ")
       );
-      measuredEntry(`${found} (the writer's settings ban "${rule.phrase}")`);
+      measuredEntry(rule.source, `${found} (the writer's settings ban "${rule.phrase}")`);
     });
     const openers = profile.categoryOutcomes.find((outcome) => outcome.category === "openingClauses");
     wording.openings.forEach((rule, index) => {
@@ -598,7 +602,7 @@ export function runDeterministicSelfCheck(input: {
           tier: "none",
           reason: `P${at.paragraphIndex + 1} ${at.opensParagraph ? "opens" : "has a sentence that opens"} with "${rule.opening}" (whether that sentence is ${statement} is the Self-check's to judge)`,
         });
-        measuredEntry();
+        measuredEntry(rule.source);
         return;
       }
       add(
@@ -614,7 +618,7 @@ export function runDeterministicSelfCheck(input: {
           ? `Open the statement of the ${rule.statement === "objective" ? "objective" : "uncertainties"} with "${rule.opening}".`
           : `Open the statement the writer's settings name with "${rule.opening}".`
       );
-      measuredEntry(`no sentence of Line ${section} opens with "${rule.opening}"`);
+      measuredEntry(rule.source, `no sentence of Line ${section} opens with "${rule.opening}"`);
     });
   }
 
@@ -950,12 +954,21 @@ export function writerRowGuard(input: {
    * as broken, each as a phrase ("P3 says \"pinhole\" (the writer's term
    * is \"outgassing defects\")"). The Writer Profile's own row names them.
    */
-  failedWording?: readonly string[];
+  failedWording?: ReadonlyArray<{ phrase: string; source: string }>;
   writerInstructions?: string;
 }): ComplianceNoteDraft | null {
   const { verdict, row, failedCaps } = input;
   const isProfile = quotesWriterProfile(verdict.instruction, input.writerInstructions);
-  const wording = isProfile ? input.failedWording ?? [] : [];
+  // Review P3-4: the Writer Profile's own row carries every measured break;
+  // another instruction row carries a break of a rule it quotes, as a cap.
+  const quoted = normalizeForMatch(verdict.instruction).trim();
+  const wording = (input.failedWording ?? [])
+    .filter((failure) => {
+      if (isProfile) return true;
+      const source = normalizeForMatch(failure.source).trim();
+      return source !== "" && (quoted.includes(source) || (quoted.split(" ").length >= 6 && source.includes(quoted)));
+    })
+    .map((failure) => failure.phrase);
   if (failedCaps.length === 0 && wording.length === 0) return null;
   const instruction = normalizeForMatch(verdict.instruction);
   const carried = failedCaps.filter((cap) => {
@@ -1301,7 +1314,9 @@ export function assembleSectionNotes(input: {
   // Round 5: the writer's wording rules code measured as broken on the
   // final text, which the model's row for the settings never contradicts.
   const failedWording = finalEntries.flatMap((entry) =>
-    entry.measuredWording && entry.row.outcome === "not_applied" && entry.profileRuleFailure ? [entry.profileRuleFailure] : []
+    entry.measuredWording && entry.row.outcome === "not_applied" && entry.profileRuleFailure && entry.wordingSource
+      ? [{ phrase: entry.profileRuleFailure, source: entry.wordingSource }]
+      : []
   );
 
   const governed = input.governed ?? [];
