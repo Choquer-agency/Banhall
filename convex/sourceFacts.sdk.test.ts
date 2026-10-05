@@ -1337,10 +1337,11 @@ describe("round 3 (owner approved 2026-10-05): run 6's Seeds reach the facts che
     // with a good quote that shares words with the steel sentence and the
     // marked steel quote (left out of each item's quotes, as drafting does).
     const datasheet = { exactExcerpt: "That the datasheet number is for flat panels." };
+    const moisture = { exactExcerpt: "The moisture that gives you conductivity is the same moisture that outgasses, so we didn't know if there was any setting that did both." };
     const steel = { exactExcerpt: "Normal powder for steel cures at 160 to 200 C.", needsQuoteCheck: true };
     const run6: Array<{ wording: string[]; writer: boolean; quotes: string[]; unbacked?: string[] }> = [
       ...PLAN_ITEM_SOURCES,
-      { wording: limitation, writer: false, quotes: [datasheet.exactExcerpt], unbacked: unbackedBullets(limitation, [datasheet, steel]) },
+      { wording: limitation, writer: false, quotes: [datasheet.exactExcerpt, moisture.exactExcerpt], unbacked: unbackedBullets(limitation, [datasheet, moisture, steel]) },
       { wording: advancement, writer: false, quotes: [], unbacked: unbackedBullets(advancement, [steel]) },
     ];
     // Re-check P3-2: with its only quote marked, every sentence of the advancement is named.
@@ -1352,7 +1353,7 @@ describe("round 3 (owner approved 2026-10-05): run 6's Seeds reach the facts che
     const result = await draft(claimFor(plan244(), { planItemSources: run6, factsSourceDocuments: DOCUMENTS }), SUMMARY_VERSION);
     const check = sent[1]!.user;
     expect(check).toContain(
-      `- [the product's wording] ${limitation.join(" ")} Quotes: "That the datasheet number is for flat panels." Its own quotes do not back: ${JSON.stringify(limitation[0])}`
+      `- [the product's wording] ${limitation.join(" ")} Quotes: "That the datasheet number is for flat panels." | ${JSON.stringify(moisture.exactExcerpt)} Its own quotes do not back: ${JSON.stringify(limitation[0])}`
     );
     expect(check).toContain(
       `- [the product's wording] ${advancement.join(" ")} Quotes: none. Its own quotes do not back: ${advancement.map((bullet) => JSON.stringify(bullet)).join(" | ")}`
@@ -1360,5 +1361,47 @@ describe("round 3 (owner approved 2026-10-05): run 6's Seeds reach the facts che
     expect(check).toContain("A signed-off item the product wrote is not settled fact");
     // The model's "All figures and details match sources." never reaches the row.
     expect(factsRow(result)).toMatchObject({ outcome: "applied", reason: FACTS_NOTHING_SHOWN_REASON, repaired: false });
+  });
+});
+
+describe("Greptile on PR #26 at 1da92721: unbacked wording never returns as evidence (real SDK, fetch stubbed)", () => {
+  it("with a document left out, a finding whose source quote is the unbacked steel sentence is not shown or repaired", async () => {
+    const steelItem = "Trial 1 showed the datasheet cure numbers were built for flat steel panels.";
+    const plan = buildFrozenSummaryPlan({
+      section: "s244",
+      items: [
+        { itemId: ITEM_TRIAL_1, roleId: "experimentation", kind: "multiple", bullets: [steelItem], support: "source_supported", quotesDoNotBack: [steelItem] },
+        { itemId: ITEM_PILOT, roleId: "experimentation", kind: "multiple", bullets: [PILOT], support: "source_supported" },
+      ],
+      skippedRoleIds: [],
+      resultsAgainstTargets: true,
+      factsMatchSources: true,
+    });
+    // A correct draft, and a wrong finding that quotes the unbacked plan sentence as its source.
+    const fromPlan = {
+      ...factsWrong,
+      paragraph: 1,
+      reason: "P1 drops the steel panels the plan gives",
+      findings: [{ draftQuote: "The datasheet cure numbers were for thin flat panels", sourceQuote: "the datasheet cure numbers were built for flat steel panels", correction: "flat steel panels" }],
+    };
+    const sent = installFetch({
+      draft: FAITHFUL_244,
+      checks: [{ verdicts: ordinary, planVerdicts: [...covered, fromPlan, targetsMet] }],
+    });
+    const leftOut = { documents: [], leftOut: [{ label: "INTERVIEW TRANSCRIPT: Interview", bytes: 61_234 }], budget: 48_000 };
+    const result = await draft(claimFor(plan, {
+      planItemSources: [
+        { wording: [steelItem], writer: false, quotes: [], unbacked: [steelItem] },
+        { wording: [PILOT], writer: false, quotes: [] },
+      ],
+      factsSourceDocuments: leftOut,
+    }), SUMMARY_VERSION);
+    // The plan checks carry the warning, and the finding has no other source.
+    expect(sent[1]!.user).toContain(`"quotesDoNotBack":{"instruction":"Its own quotes do not back this. State it only as the sources give it.","wording":[${JSON.stringify(steelItem)}]}`);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
+    expect(result.draftText).toBe(FAITHFUL_244);
+    expect(factsRow(result)).toMatchObject({ outcome: "not_applied", repaired: false });
+    expect(factsRow(result)?.planRef).toBeDefined();
+    expect(JSON.stringify(factsRow(result))).toContain("Not checked: the facts check flagged something it could not show from the sources");
   });
 });

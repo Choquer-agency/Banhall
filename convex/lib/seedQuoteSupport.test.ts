@@ -302,11 +302,24 @@ describe("unbackedBullets (2026-10-04, second, round 3 and its review)", () => {
   });
 
   it("review P2-1: names the steel sentence even beside a good quote that shares other words with it", () => {
-    // Each good quote shares "datasheet", "flat" or "panel" with the steel sentence.
-    expect(unbackedBullets(limitation, [datasheet, steel])).toEqual([limitation[0]]);
-    expect(unbackedBullets(limitation, [thinFlat, steel])).toEqual([limitation[0]]);
-    expect(unbackedBullets(advancement, [datasheet, steel])).toEqual([advancement[1]]);
-    expect(unbackedBullets(advancement, [thinFlat, steel])).toEqual([advancement[1]]);
+    // Each good quote shares "datasheet", "flat" or "panel" with the steel
+    // sentence; the other sentence has its own quote, so only the steel one is named.
+    expect(unbackedBullets(limitation, [datasheet, moisture, steel])).toEqual([limitation[0]]);
+    expect(unbackedBullets(limitation, [thinFlat, moisture, steel])).toEqual([limitation[0]]);
+    expect(unbackedBullets(advancement, [datasheet, peak, steel])).toEqual([advancement[1]]);
+    expect(unbackedBullets(advancement, [thinFlat, peak, steel])).toEqual([advancement[1]]);
+  });
+
+  it("Greptile on PR #26 at 1da92721: checks every sentence, so one no quote backs is named beside the steel sentence", () => {
+    // The good quote backs neither sentence's own claim: the steel sentence
+    // is named for "steel", and the other because no quote backs it.
+    expect(unbackedBullets(limitation, [datasheet, steel])).toEqual(limitation);
+    expect(unbackedBullets(advancement, [datasheet, steel])).toEqual(advancement);
+    expect(unbackedBullets(limitation, [thinFlat, steel])).toEqual(limitation);
+    // The steel sentence, named through the marked quote, and a second
+    // sentence nothing backs: both named.
+    const third = "The line ran at 2.5 metres per minute throughout.";
+    expect(unbackedBullets([...limitation, third], [moisture, steel])).toEqual([limitation[0], third]);
   });
 
   it("names the sentences no quote backs when a marked quote shares no word with the Seed", () => {
@@ -328,7 +341,9 @@ describe("unbackedBullets (2026-10-04, second, round 3 and its review)", () => {
 
   it("review P2-2: names an unchanged steel sentence beside a changed one, and nothing once the writer rewrote it", () => {
     expect(unbackedBullets([limitation[0]], [datasheet, steel], limitation)).toEqual([limitation[0]]);
-    expect(unbackedBullets([limitation[1]], [datasheet, steel], limitation)).toEqual([]);
+    expect(unbackedBullets([limitation[1]], [datasheet, moisture, steel], limitation)).toEqual([]);
+    // An unchanged sentence no quote backs is still named (Greptile at 1da92721).
+    expect(unbackedBullets([limitation[1]], [datasheet, steel], limitation)).toEqual([limitation[1]]);
   });
 
   it("never names a sentence beside a quote the word check cannot judge", () => {

@@ -2015,7 +2015,13 @@ describe("Seed workspace", () => {
       exactExcerpt: "Normal powder for steel cures at 160 to 200 C.",
       needsQuoteCheck: true,
     };
-    const flagged = seed({ bullets: limitation, originalBullets: limitation, provenance: [backing, steel] });
+    // The second sentence has its own quote, so only the steel one is named.
+    const moisture = {
+      ...seed().provenance[0],
+      _id: "provenance-moisture" as Id<"seedProvenance">,
+      exactExcerpt: "The moisture that gives you conductivity is the same moisture that outgasses, so we didn't know if there was any setting that did both.",
+    };
+    const flagged = seed({ bullets: limitation, originalBullets: limitation, provenance: [backing, moisture, steel] });
     const note = `Its quotes do not back: “${limitation[0]}”`;
     __setQueryData("seeds:getSubsection", subsection({ items: [flagged] }));
     const view = await render(SeedWorkspace, workspaceProps());
