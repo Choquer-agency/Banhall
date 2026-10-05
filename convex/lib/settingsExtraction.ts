@@ -5,6 +5,12 @@ import {
   type SectionNumber,
   type SelfCheckRule,
 } from "./orderedChain";
+import type {
+  BannedWordRule,
+  RequiredOpeningRule,
+  RequiredTermRule,
+  WriterWordingRules,
+} from "./writerWording";
 
 /**
  * Story 3 (CAP-6/8, AD-26): deterministic, conservative extraction of a
@@ -240,4 +246,163 @@ export function extractSettingsRules(text: string): ExtractedSettingsRules {
     }
   }
   return { ...(buildOrder ? { buildOrder } : {}), selfCheckRules };
+}
+
+// ─── 2026-10-04 (first), Round 5: the writer's wording rules ───────────────
+
+/**
+ * 2026-10-04 (first), Round 5 (owner approved 2026-10-05, "Build code
+ * checks"): the writer's wording rules code measures, read from the same
+ * effective instruction text as the caps (a saved profile or a settings
+ * document). Only clear statements are read, and a line that is not one of
+ * these shapes gives nothing: missing a rule is the accepted cost, a false
+ * rule is never read.
+ *
+ * Grammar (one line at a time; a list marker "- ", "* " or "1. " is
+ * stripped first):
+ * 1. A required term: `<term>: <anything>. Never write A, B or C[ on their
+ *    own].` The term is one to five words of letters, spaces and hyphens
+ *    (no digits, no quotes), not a label such as "Example" or "Note". The
+ *    ban is a whole sentence of the line that starts "Never write", "Never
+ *    use", "Never say", "Do not write", "Do not use" or "Don't write" and
+ *    is nothing but a list of one to four word items (each of letters,
+ *    digits, spaces or hyphens, quotes around an item allowed), separated
+ *    by commas, "or" and "and"; " on their own" (or " on its own") at its
+ *    end allows the banned words in a sentence that also holds the term. A
+ *    ban inside quotation marks is an example, never a rule.
+ * 2. Banned words: a lead line that says "Never use these words (or
+ *    phrases, terms)", "Do not use the following words" and the like and
+ *    ends with a colon, or a heading "Banned words" (or "Banned phrases",
+ *    "Banned words and phrases"), followed by list items (blank lines
+ *    allowed between). Each item is one to four words of letters, spaces
+ *    and hyphens, optionally followed by a parenthesis "(also A, B and the
+ *    like)" whose one or two word items are its forms. The list ends at
+ *    the first other line. An item of any other shape gives nothing.
+ * 3. A required opening: a line that says to open (or begin, or start)
+ *    with "these exact words" or "the exact words", then the words in
+ *    quotation marks (two to fifteen words), and names exactly one Line
+ *    (242, 244 or 246). "objective" or "uncertainty" on the line names the
+ *    statement. A line that negates it ("never open", "do not start") or
+ *    calls itself an example gives nothing.
+ */
+
+const LIST_MARKER = /^\s*(?:[-*•]|\d+[.)])\s+/;
+const TERM_HEAD = /^([A-Za-z][A-Za-z -]*?)\s*:\s+(.+)$/;
+const TERM_LABEL_WORDS = /\b(?:example|examples|note|notes|tip|tips|e\.g|i\.e|for instance|such as|warning|important)\b/i;
+const BAN_SENTENCE = /^(?:never\s+(?:write|use|say)|do\s+not\s+(?:write|use|say)|don['’]t\s+(?:write|use|say))\s+(.+?)[.!]?$/i;
+const OWN_SUFFIX = /\s+on\s+(?:their|its)\s+own$/i;
+const LIST_ITEM_WORDS = /^[A-Za-z0-9][A-Za-z0-9 -]*$/;
+const BAN_LEAD =
+  /^(?:#+\s*)?(?:\d+\.\s*)?(?:never|do\s+not|don['’]t)\s+use\s+(?:any\s+of\s+)?(?:these|the\s+following)\s+(?:words?|phrases?|terms?)(?:\s+(?:or|and)\s+(?:words?|phrases?|terms?))?(?:\s*,\s*in\s+any\s+form)?\s*:\s*$/i;
+const BAN_HEADING = /^#+\s*(?:\d+\.\s*)?banned\s+(?:words|phrases|terms|words\s+and\s+phrases)\s*$/i;
+const FORMS_PARENTHESIS = /^\(\s*(?:also|including|e\.g\.)\s+(.+?)(?:,?\s+(?:and|or)\s+the\s+like|,?\s+etc\.?)?\s*\)$/i;
+const OPENING_CUE =
+  /\b(?:open|begin|start)\b[^"“]*?\bwith\s+(?:these|the)\s+exact\s+words\s*:?\s*["“]([^"”]+)["”]/i;
+const OPENING_NEGATED = /\b(?:never|not|don['’]t|avoid)\b[^"“]*?\b(?:open|begin|start)\b/i;
+
+const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
+
+/** "A, B or C" and "A, B and C": one to four word items, or null for any other shape. */
+function listItems(list: string): string[] | null {
+  const items = list
+    .split(/\s*,\s*(?:or\s+|and\s+)?|\s+or\s+|\s+and\s+/i)
+    .map((item) => item.trim().replace(/^["'“‘](.*)["'”’]$/, "$1").trim())
+    .filter(Boolean);
+  if (items.length === 0) return null;
+  for (const item of items) {
+    if (!LIST_ITEM_WORDS.test(item) || wordCount(item) > 4) return null;
+  }
+  return items;
+}
+
+function termRule(line: string): RequiredTermRule | null {
+  const head = TERM_HEAD.exec(line.replace(LIST_MARKER, "").trim());
+  if (!head) return null;
+  const term = head[1]!.trim();
+  const rest = head[2]!;
+  if (wordCount(term) > 5 || TERM_LABEL_WORDS.test(term) || /^["'“‘]/.test(rest.trim())) return null;
+  for (const sentence of rest.split(/(?<=[.!?])\s+/)) {
+    const ban = BAN_SENTENCE.exec(sentence.trim());
+    if (!ban) continue;
+    let list = ban[1]!.trim();
+    const own = OWN_SUFFIX.test(list);
+    if (own) list = list.replace(OWN_SUFFIX, "");
+    const banned = listItems(list);
+    if (!banned) return null;
+    const normalized = term.toLowerCase();
+    if (banned.some((item) => item.toLowerCase() === normalized)) return null;
+    return { term, banned, allowedWithTerm: own };
+  }
+  return null;
+}
+
+function bannedItem(line: string): BannedWordRule | null {
+  const body = line.replace(LIST_MARKER, "").trim();
+  const match = /^([A-Za-z][A-Za-z -]*?)\s*(\(.*\))?\s*\.?$/.exec(body);
+  if (!match) return null;
+  const phrase = match[1]!.trim();
+  if (!LIST_ITEM_WORDS.test(phrase) || wordCount(phrase) > 4) return null;
+  const parenthesis = match[2]?.trim();
+  let forms: string[] = [];
+  if (parenthesis) {
+    const listed = FORMS_PARENTHESIS.exec(parenthesis);
+    const items = listed ? listItems(listed[1]!) : null;
+    forms = items && items.every((item) => wordCount(item) <= 2) ? items : [];
+  }
+  return { phrase, forms };
+}
+
+function openingRule(line: string): RequiredOpeningRule | null {
+  if (TERM_LABEL_WORDS.test(line) || OPENING_NEGATED.test(line)) return null;
+  const cue = OPENING_CUE.exec(line);
+  if (!cue) return null;
+  const opening = cue[1]!.trim();
+  const words = wordCount(opening);
+  if (words < 2 || words > 15) return null;
+  const sections = [...new Set(sectionsIn(line.slice(0, cue.index)))];
+  if (sections.length !== 1) return null;
+  const before = line.slice(0, cue.index);
+  const statement = /\bobjectives?\b/i.test(before)
+    ? "objective" as const
+    : /\buncertaint(?:y|ies)\b/i.test(before)
+      ? "uncertainty" as const
+      : undefined;
+  return { opening, section: sections[0]!, ...(statement ? { statement } : {}) };
+}
+
+/** Round 5: the writer's terms, banned words and required openings. */
+export function extractWriterWordingRules(text: string): WriterWordingRules {
+  const terms: RequiredTermRule[] = [];
+  const banned: BannedWordRule[] = [];
+  const openings: RequiredOpeningRule[] = [];
+  const lines = text.split(/\r?\n/);
+  let inBanList = false;
+  let itemsSeen = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (inBanList) {
+      if (line === "") continue;
+      if (LIST_MARKER.test(raw)) {
+        const item = bannedItem(line);
+        if (item && !banned.some((entry) => entry.phrase.toLowerCase() === item.phrase.toLowerCase())) banned.push(item);
+        itemsSeen = true;
+        continue;
+      }
+      // A heading may be followed by its lead sentence before the list.
+      if (!itemsSeen && BAN_LEAD.test(line)) continue;
+      inBanList = false;
+    }
+    if (BAN_LEAD.test(line) || BAN_HEADING.test(line)) {
+      inBanList = true;
+      itemsSeen = false;
+      continue;
+    }
+    const term = termRule(line);
+    if (term && !terms.some((entry) => entry.term.toLowerCase() === term.term.toLowerCase())) terms.push(term);
+    const opening = openingRule(line);
+    if (opening && !openings.some((entry) => entry.section === opening.section && entry.opening === opening.opening)) {
+      openings.push(opening);
+    }
+  }
+  return { terms, banned, openings };
 }

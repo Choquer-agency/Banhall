@@ -572,6 +572,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       leaveOutFigureBackstop: "not-applied-leave-out-with-no-dropped-figure-or-near-copy-in-the-line-citing-only-plan-figures-recorded-applied-no-repair",
       extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
       resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
+      targetsUnlocated: "located-by-the-one-paragraph-its-words-name-else-its-words-kept",
       hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",
       factsMatchSources: "every-line-plan-check-with-source-facts-block-honoured-by-absence-judged-again-on-final-text",
       factsFindings: "verified-quotes-only-shown-and-repaired-unverified-not-checked-source-documents-within-budget",
@@ -596,6 +597,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     expect(generationPromptProgram.calls.repair.signedOffPlan)
       .toBe("source-talk-found-deterministically-hedge-and-glossary-fixes-get-a-fixed-start");
     // 2026-10-04 (second): the facts fix and its scaffolds are in the program.
+    // 2026-10-04 (first), Round 5: the writer's measured wording rules.
+    expect(generationPromptProgram.calls.repair.writerWording)
+      .toBe("terms-banned-words-and-openings-measured-in-code-exact-repair-issues-shortening-guarded");
     expect(generationPromptProgram.calls.repair.factsFix)
       .toBe("whole-section-never-must-keep-cover-rollback");
     expect(generationPromptProgram.calls.selfCheck.summaryPlan.requestScaffold.factsMatchSources)

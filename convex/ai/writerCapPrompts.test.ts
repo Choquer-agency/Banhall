@@ -249,6 +249,43 @@ describe("the shortening passes under a writer's cap", () => {
     expect(nearFit.text).toBe(nearCut);
   });
 
+  // 2026-10-04 (first), Round 5 (rule 4): a pass for either cap never
+  // breaks a wording rule code measures.
+  it("never keep a pass that drops a required opening or writes a banned word, for the writer's cap or a Locked limit (Round 5)", async () => {
+    const rules = {
+      terms: [{ term: "outgassing defects", banned: ["pinholes"], allowedWithTerm: false }],
+      banned: [{ phrase: "optimize", forms: ["optimized"] }],
+      openings: [{ opening: "The aim of this work was to", section: "246" as const, statement: "objective" as const }],
+    };
+    const opening = "The aim of this work was to cure powder on routed doors.";
+    const over = `${opening}\n\n${plain(290)}`;
+    const noOpening = `The work set out to cure powder on routed doors.\n\n${plain(225)}`;
+    const banned = `${opening} The team optimized it.\n\n${plain(220)}`;
+    const good = `${opening}\n\n${plain(225)}`;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const run = client([noOpening, banned, good]);
+    const fit = await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", over, "standard", undefined, [], [], {
+      finalCut: true,
+      writerCap: CAP_260,
+      wording: { rules, section: "246" },
+    });
+    const warned = warn.mock.calls.map((call) => String(call[0]));
+    warn.mockRestore();
+    expect(fit.text).toBe(good);
+    expect(warned).toContain('generation:compression:246: pass 1 not kept: it removed the opening "The aim of this work was to" the writer\'s settings require');
+    expect(warned).toContain('generation:compression:246: pass 2 not kept: it wrote "optimized", which the writer\'s settings ban');
+    // The same pass for a Locked limit is held too: 400 of 350 words.
+    const locked = `${opening}\n\n${plain(390)}`;
+    const lockedRun = client([noOpening, noOpening, noOpening]);
+    const quiet = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const lockedFit = await compressWithinLimit(lockedRun.anthropicFor, "claude-sonnet-5", "s246", locked, "standard", undefined, [], [], {
+      finalCut: true,
+      wording: { rules, section: "246" },
+    });
+    quiet.mockRestore();
+    expect(lockedFit.text).toBe(locked);
+  });
+
   it("leave the Locked targeted pass as it was: a text over a Locked limit past its reach gets none (Round 4)", async () => {
     const far = text(400);
     const run = client([], far);

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { extractSettingsRules } from "./settingsExtraction";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { extractSettingsRules, extractWriterWordingRules } from "./settingsExtraction";
 import { resolveBuildOrder } from "./orderedChain";
 
 describe("extractSettingsRules golden examples (Design Notes)", () => {
@@ -357,6 +359,76 @@ describe("Build Order run", () => {
       "246",
       "242",
       "244",
+    ]);
+  });
+});
+
+// ─── 2026-10-04 (first), Round 5: the writer's wording rules ───────────────
+
+describe("extractWriterWordingRules (Round 5): clear statements only", () => {
+  it("reads the release suite fixture's settings document: five terms, seven banned words and two openings", () => {
+    const text = readFileSync(
+      path.join(process.cwd(), "scripts/seed-plan-eval/fixtures/writer-settings-document/settings.md"),
+      "utf8"
+    );
+    const rules = extractWriterWordingRules(text);
+    expect(rules.terms).toEqual([
+      { term: "film build", banned: ["DFT", "dry film thickness", "film thickness", "coating thickness"], allowedWithTerm: false },
+      { term: "panel surface temperature", banned: ["substrate temperature", "substrate temp", "board temperature", "part temperature"], allowedWithTerm: false },
+      { term: "cure window", banned: ["bake window", "oven window"], allowedWithTerm: false },
+      { term: "edge coverage", banned: ["edge wrap", "edge build"], allowedWithTerm: false },
+      { term: "outgassing defects", banned: ["pinholes", "pinholing", "blisters", "blistering"], allowedWithTerm: true },
+    ]);
+    expect(rules.banned).toEqual([
+      { phrase: "successfully", forms: [] },
+      { phrase: "in order to", forms: [] },
+      { phrase: "optimize", forms: ["optimise", "optimized", "optimization"] },
+      { phrase: "proprietary", forms: [] },
+      { phrase: "trial and error", forms: [] },
+      { phrase: "breakthrough", forms: [] },
+      { phrase: "industry-leading", forms: [] },
+    ]);
+    expect(rules.openings).toEqual([
+      { opening: "The aim of this work was to", section: "242", statement: "objective" },
+      { opening: "It was not known at the outset whether", section: "242", statement: "uncertainty" },
+    ]);
+    // The style rule ("Never use we, our, ours, us or ourselves.") has no
+    // term before it and is no list: it stays with the model.
+    expect(rules.banned.some((rule) => rule.phrase === "we")).toBe(false);
+  });
+
+  it.each([
+    ["prose that mentions words", "We discussed DFT and film thickness with the client; the writer prefers film build."],
+    ["a list that is not a ban", "Use these words:\n\n- film build\n- edge coverage"],
+    ["a ban inside an example's quotes", '- Example: "Never write DFT or film thickness."'],
+    ["a term line whose ban is not a plain list", "- film build: the cured thickness. Never write DFT unless the client insists on it in a table."],
+    ["a label, not a term", "- Note: never write DFT, film thickness or coating thickness."],
+    ["a heading with prose under it", "## Banned words\n\nThe client dislikes jargon, so keep it plain."],
+    ["an opening in an example", '- For example, Line 242 could open with these exact words: "The aim of this work was to".'],
+    ["a negated opening", '- Line 242: do not open the objective with these exact words: "The aim of this work was to".'],
+    ["an opening that names no Line", '- Objective statement: open it with these exact words: "The aim of this work was to".'],
+    ["an opening that names two Lines", '- Lines 242 and 244: open each with these exact words: "The aim of this work was to".'],
+    ["a one-word opening", '- Line 242: open it with these exact words: "Aim".'],
+    ["a quoted phrase that is not an opening rule", 'The client says "The aim of this work was to" in every report.'],
+  ])("reads nothing from %s", (_label, text) => {
+    expect(extractWriterWordingRules(text)).toEqual({ terms: [], banned: [], openings: [] });
+  });
+
+  it("reads a banned list after a heading, keeps only list items of the plain shape, and ends at the first other line", () => {
+    const text = [
+      "## Banned words",
+      "",
+      "- leverage",
+      "- cutting-edge (also cutting edge)",
+      "- a phrase far too long to be one banned item here",
+      "- synergy (see the style guide, page 4)",
+      "Everything else is fine.",
+      "- paradigm",
+    ].join("\n");
+    expect(extractWriterWordingRules(text).banned).toEqual([
+      { phrase: "leverage", forms: [] },
+      { phrase: "cutting-edge", forms: ["cutting edge"] },
+      { phrase: "synergy", forms: [] },
     ]);
   });
 });

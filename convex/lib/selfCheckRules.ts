@@ -31,6 +31,14 @@ import {
 } from "./writerPrecedence";
 import { findSourceTalk, SOURCE_TALK } from "../../shared/humanProse";
 import { capWithinLocked, ruleBearsOnLine } from "./writerLineCap";
+import {
+  bannedRuleHits,
+  hitsPhrase,
+  holdsPhrase,
+  openingAt,
+  termRuleHits,
+  type WriterWordingRules,
+} from "./writerWording";
 
 /**
  * Story 2 (CAP-9, AD-25): the deterministic half of a section's Self-check.
@@ -108,6 +116,12 @@ export type CheckEntry = {
    * met, in a few words, for the Writer Profile row. In memory only.
    */
   profileRuleFailure?: string;
+  /**
+   * 2026-10-04 (first), Round 5: a wording rule of the writer's that code
+   * measured (a term, a banned word, an opening), so the model's row for
+   * the settings can never contradict it. In memory only.
+   */
+  measuredWording?: true;
 };
 
 /** 2026-10-04 (first): one cap code measured on a Line. */
@@ -285,6 +299,13 @@ export function runDeterministicSelfCheck(input: {
    * and Compare keep their rows and requests.
    */
   sourceTalk?: { subjectText: readonly string[] };
+  /**
+   * 2026-10-04 (first), Round 5: the writer's wording rules code measures
+   * (extractWriterWordingRules), when the Writer Profile applied. Absent or
+   * empty: no such rows, so a writer with no such rule keeps every row and
+   * request as before.
+   */
+  writerWording?: WriterWordingRules;
 }): DeterministicSelfCheck {
   const { section, text, brief, profile, isFirstInOrder } = input;
   const key = sectionKeyOf(section);
@@ -482,6 +503,120 @@ export function runDeterministicSelfCheck(input: {
     entries[entries.length - 1]!.measuredCap = cap;
     if (over) entries[entries.length - 1]!.profileRuleFailure = measuredCapPhrase(cap);
   });
+
+  // 2026-10-04 (first), Round 5 (owner approved 2026-10-05, "Build code
+  // checks"): the writer's terms, banned words and required openings are
+  // measured here, on this text, as the caps are. Each rule gets its own
+  // row naming the paragraph and the words, a break goes to the repair as an
+  // exact issue, and the Writer Profile row's caveat below covers it.
+  if (profile.profileState === "applied" && input.writerWording) {
+    const wording = input.writerWording;
+    const measuredEntry = (failure?: string) => {
+      const entry = entries[entries.length - 1]!;
+      entry.measuredWording = true;
+      if (failure) entry.profileRuleFailure = failure;
+    };
+    wording.terms.forEach((rule, index) => {
+      const hits = termRuleHits(text, rule);
+      const used = holdsPhrase(text, rule.term);
+      const instruction = `Writer's term: ${rule.term}`;
+      if (hits.length === 0) {
+        add(`wording:term:${index}`, {
+          instruction,
+          outcome: "applied",
+          tier: "none",
+          reason: used ? `"${rule.term}" used; no banned synonym` : `no banned synonym of "${rule.term}"`,
+        });
+        measuredEntry();
+        return;
+      }
+      const found = hitsPhrase(hits);
+      add(
+        `wording:term:${index}`,
+        {
+          instruction,
+          paragraphIndex: hits[0]!.paragraphIndex,
+          outcome: "not_applied",
+          tier: "none",
+          reason: `${found}; the writer's settings say "${rule.term}"${used ? "" : ", which this Line never uses"}`,
+        },
+        true,
+        hits
+          .map((hit) => `Paragraph ${hit.paragraphIndex + 1}: replace "${hit.words}" with wording that uses "${rule.term}"${
+            rule.allowedWithTerm ? ` (the writer's settings never allow "${hit.banned}" on its own)` : ` (the writer's settings never allow "${hit.banned}")`
+          }.`)
+          .join(" ")
+      );
+      measuredEntry(`${found} (the writer's term is "${rule.term}")`);
+    });
+    wording.banned.forEach((rule, index) => {
+      const hits = bannedRuleHits(text, rule);
+      const instruction = `Writer's banned word: ${rule.phrase}`;
+      if (hits.length === 0) {
+        add(`wording:banned:${index}`, { instruction, outcome: "applied", tier: "none", reason: `"${rule.phrase}" not used` });
+        measuredEntry();
+        return;
+      }
+      const found = hitsPhrase(hits);
+      add(
+        `wording:banned:${index}`,
+        {
+          instruction,
+          paragraphIndex: hits[0]!.paragraphIndex,
+          outcome: "not_applied",
+          tier: "none",
+          reason: `${found}; the writer's settings ban "${rule.phrase}"`,
+        },
+        true,
+        hits
+          .map((hit) => `Paragraph ${hit.paragraphIndex + 1}: replace "${hit.words}" with other wording; the writer's settings ban "${rule.phrase}".`)
+          .join(" ")
+      );
+      measuredEntry(`${found} (the writer's settings ban "${rule.phrase}")`);
+    });
+    const openers = profile.categoryOutcomes.find((outcome) => outcome.category === "openingClauses");
+    wording.openings.forEach((rule, index) => {
+      if (rule.section !== section) return;
+      const statement = rule.statement ? `the ${rule.statement} statement` : "the statement the writer's settings name";
+      const instruction = `Writer's opening for ${statement}: "${rule.opening}"`;
+      // The House Rule openers outrank the writer's opening unless waived.
+      if (openers && !openers.effective) {
+        add(`wording:opening:${index}`, {
+          instruction,
+          outcome: "not_applied",
+          tier: openers.tier,
+          reason: `Not measured: the House Rule openers apply in this Line (${categoryReason(openers, profile.waiverAnalysisFailed === true)})`,
+        });
+        return;
+      }
+      const at = openingAt(text, rule.opening);
+      if (at) {
+        add(`wording:opening:${index}`, {
+          instruction,
+          paragraphIndex: at.paragraphIndex,
+          outcome: "applied",
+          tier: "none",
+          reason: `P${at.paragraphIndex + 1} ${at.opensParagraph ? "opens" : "has a sentence that opens"} with "${rule.opening}" (whether that sentence is ${statement} is the Self-check's to judge)`,
+        });
+        measuredEntry();
+        return;
+      }
+      add(
+        `wording:opening:${index}`,
+        {
+          instruction,
+          outcome: "not_applied",
+          tier: "none",
+          reason: `No sentence of Line ${section} opens with "${rule.opening}", which the writer's settings require for ${statement}`,
+        },
+        true,
+        rule.statement
+          ? `Open the statement of the ${rule.statement === "objective" ? "objective" : "uncertainties"} with "${rule.opening}".`
+          : `Open the statement the writer's settings name with "${rule.opening}".`
+      );
+      measuredEntry(`no sentence of Line ${section} opens with "${rule.opening}"`);
+    });
+  }
 
   // 2026-10-04 (first): the Writer Profile row says the profile was used to
   // draft the Line; when a rule of it that code measures was not met, its
@@ -810,24 +945,32 @@ export function writerRowGuard(input: {
   verdict: Pick<ModelVerdict, "instruction" | "outcome" | "reason">;
   row: ComplianceNoteDraft;
   failedCaps: readonly MeasuredCap[];
+  /**
+   * 2026-10-04 (first), Round 5: the writer's wording rules code measured
+   * as broken, each as a phrase ("P3 says \"pinhole\" (the writer's term
+   * is \"outgassing defects\")"). The Writer Profile's own row names them.
+   */
+  failedWording?: readonly string[];
   writerInstructions?: string;
 }): ComplianceNoteDraft | null {
   const { verdict, row, failedCaps } = input;
-  if (failedCaps.length === 0) return null;
-  const instruction = normalizeForMatch(verdict.instruction);
   const isProfile = quotesWriterProfile(verdict.instruction, input.writerInstructions);
+  const wording = isProfile ? input.failedWording ?? [] : [];
+  if (failedCaps.length === 0 && wording.length === 0) return null;
+  const instruction = normalizeForMatch(verdict.instruction);
   const carried = failedCaps.filter((cap) => {
     if (cap.kind !== "writer") return false;
     if (isProfile) return true;
     const rule = normalizeForMatch(cap.instruction ?? "");
     return rule.trim() !== "" && instruction.includes(rule);
   });
-  const talks = talksAboutLength(verdict.reason);
-  if (carried.length === 0 && !talks) return null;
+  const talks = failedCaps.length > 0 && talksAboutLength(verdict.reason);
+  if (carried.length === 0 && wording.length === 0 && !talks) return null;
   // The model's words, without its clauses about length, then the notes
   // this app added after them (a repair's outcome), as written.
   const appNotes = row.reason.startsWith(verdict.reason) ? row.reason.slice(verdict.reason.length) : "";
-  const modelWords = withoutLengthClauses(verdict.reason);
+  // Its clauses about length give way only to a cap code measured as not met.
+  const modelWords = failedCaps.length > 0 ? withoutLengthClauses(verdict.reason) : verdict.reason.trim();
   const kept = modelWords
     ? `${modelWords}${appNotes}`
     : appNotes.replace(/^[;,.]\s*/, "");
@@ -844,8 +987,10 @@ export function writerRowGuard(input: {
     });
   // Review re-check P3-4: the model's words end on a full stop before more follows.
   const ended = (text: string) => (/[.!?)"']$/.test(text) ? text : `${text}.`);
-  if (carried.length > 0) {
-    const measured = `${joinedList(carried.map(measuredCapPhrase))} (measured by code; see the cap row)`;
+  if (carried.length > 0 || wording.length > 0) {
+    const measured = wording.length === 0
+      ? `${joinedList(carried.map(measuredCapPhrase))} (measured by code; see the cap row)`
+      : `${joinedList([...carried.map(measuredCapPhrase), ...wording])} (measured by code; see ${carried.length + wording.length === 1 ? "that row" : "those rows"})`;
     const applied = verdict.outcome === "applied";
     const rest = kept
       ? applied ? ` Otherwise followed: ${ended(kept)}` : ` Also: ${ended(kept)}`
@@ -1124,13 +1269,23 @@ export function assembleSectionNotes(input: {
     const held = input.heldForPlan === "pass"
       ? "a shortening pass that met the cap but dropped one was not kept"
       : "the repair that met the cap but dropped one was not used";
+    // Round 5 (rule 5): a used repair took a Line that met the writer's cap
+    // over it. It is kept for what it fixed (found wrong in the text, and
+    // ranked with or above the cap), its shortening passes aimed at the cap
+    // with their guards, and the row says so plainly.
+    const checked = input.after && repair.succeeded
+      ? before.entries.find((candidate) => candidate.key === entry.key)
+      : undefined;
+    const pushedOver = checked?.row.outcome === "applied"
+      ? `; the repair, kept for what it fixed, took Line ${section} over the writer's cap that the checked draft met (${checked.row.reason})`
+      : "";
     rows[index] = {
       ...rows[index],
       reason: input.heldForPlan
         ? `${rows[index].reason}; over the writer's cap at ${cap.over.join(" and ")} to keep every signed-off item (${held})${
             input.compression?.failure ? `; a shortening pass failed: ${input.compression.failure}` : ""
           }; cut by hand if needed`
-        : `${rows[index].reason}; still over after ${passes} shortening ${
+        : `${rows[index].reason}${pushedOver}; still over after ${passes} shortening ${
             passes === 1 ? "pass" : "passes"
           }.${writerShorteningNote(input.compression?.failure, input.compression?.heldBack ?? 0, input.compression?.heldForFigures ?? 0)} The text was not cut to fit: shorten Line ${section} to ${cap.limits} to meet the writer's settings`,
     };
@@ -1142,6 +1297,11 @@ export function assembleSectionNotes(input: {
   // final text. No model row may vouch for one of them (writerRowGuard).
   const failedCaps = finalEntries.flatMap((entry) =>
     entry.measuredCap && entry.row.outcome === "not_applied" ? [entry.measuredCap] : []
+  );
+  // Round 5: the writer's wording rules code measured as broken on the
+  // final text, which the model's row for the settings never contradicts.
+  const failedWording = finalEntries.flatMap((entry) =>
+    entry.measuredWording && entry.row.outcome === "not_applied" && entry.profileRuleFailure ? [entry.profileRuleFailure] : []
   );
 
   const governed = input.governed ?? [];
@@ -1165,11 +1325,12 @@ export function assembleSectionNotes(input: {
   // measured as not met (writerRowGuard); every other row is as before.
   const pushModelRow = (verdict: ModelVerdict, draft: ComplianceNoteDraft) => {
     rows.push(
-      verdict.check === "instruction" && failedCaps.length > 0
+      verdict.check === "instruction" && (failedCaps.length > 0 || failedWording.length > 0)
         ? writerRowGuard({
             verdict,
             row: draft,
             failedCaps,
+            failedWording,
             writerInstructions: input.writerInstructions,
           }) ?? draft
         : draft

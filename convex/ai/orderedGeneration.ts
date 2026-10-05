@@ -101,6 +101,8 @@ import {
 } from "../lib/selfCheckRules";
 import { noteDraft, type ComplianceNoteDraft } from "../lib/complianceNote";
 import { containsTerm } from "../lib/editedTerms";
+import { extractWriterWordingRules } from "../lib/settingsExtraction";
+import { hasWriterWordingRules } from "../lib/writerWording";
 import {
   confirmedConflictParagraph,
   confirmedConflictsOf,
@@ -1221,6 +1223,14 @@ export async function draftCheckedSection(input: {
   const coverItems = claim.planChecks
     .filter((planCheck) => planCheck.instruction === "cover")
     .map((planCheck) => planCheck.wording.join(" "));
+  // 2026-10-04 (first), Round 5: the writer's wording rules code measures,
+  // read from the instruction text the Writer Profile applied. Absent for a
+  // writer with no such rule, so every row and request stays as before.
+  const extractedWording = payload.orderedContext.profileState === "applied" && payload.writerFlavor?.trim()
+    ? extractWriterWordingRules(payload.writerFlavor)
+    : null;
+  const writerWording = hasWriterWordingRules(extractedWording) ? extractedWording : undefined;
+  const wordingGuard = writerWording ? { wording: { rules: writerWording, section } } : {};
   // A compression pass that comes back empty after the scrub, no closer to
   // the limits or missing required content never replaces the draft it was
   // given. A pass that fails keeps the best text so far; only a failure
@@ -1234,7 +1244,7 @@ export async function draftCheckedSection(input: {
     styleOverrides,
     coverItems,
     claim.editedTerms,
-    { finalCut: true, writerCap, coverItems }
+    { finalCut: true, writerCap, coverItems, ...wordingGuard }
   );
   if (firstFit.error !== undefined) {
     // 2026-10-04 (first, review P2-3): only a draft over a Locked limit
@@ -1263,6 +1273,7 @@ export async function draftCheckedSection(input: {
         .map((planCheck) => planCheck.wording),
       glossarySetAside,
       feedbackTerms: feedbackTerms.map((entry) => entry.term),
+      ...(writerWording ? { writerWording } : {}),
       // 2026-09-30 (third): no talk about sources, signed-off plan runs only.
       // The project's subject is every signed-off item's wording across all
       // Lines (review P2-4), the Glossary Terms and the edited terms.
@@ -1456,6 +1467,14 @@ export async function draftCheckedSection(input: {
   const sourceTalkIssue = before.entries.find(
     (entry) => entry.key === SOURCE_TALK_KEY && entry.repairable && entry.row.outcome === "not_applied"
   )?.guidance;
+  // Round 5: a measured wording fix asks to change words, so, like the
+  // source-talk fix, it is never a Must keep line of the repair's
+  // compression; the wording guard keeps what it fixed.
+  const wordingIssues = new Set(
+    before.entries.flatMap((entry) =>
+      entry.measuredWording && entry.repairable && entry.row.outcome === "not_applied" && entry.guidance ? [entry.guidance] : []
+    )
+  );
   const repair: {
     attempted: boolean;
     succeeded: boolean;
@@ -1499,6 +1518,7 @@ export async function draftCheckedSection(input: {
             !leaveOutIssues.has(issue) &&
             !factsIssues.has(issue) &&
             issue !== sourceTalkIssue &&
+            !wordingIssues.has(issue) &&
             !claim.editedTerms.some((term) => containsTerm(issue, term))
         );
         const fit = await compressWithinLimit(
@@ -1510,7 +1530,7 @@ export async function draftCheckedSection(input: {
           styleOverrides,
           [...coverItems, ...fixes],
           claim.editedTerms,
-          { finalCut: true, writerCap, coverItems }
+          { finalCut: true, writerCap, coverItems, ...wordingGuard }
         );
         // CAP-13: a repair never removes a writer's edited term the checked
         // draft held (release suite run 4).

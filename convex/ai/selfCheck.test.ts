@@ -2657,12 +2657,54 @@ describe("results against targets, no talk about sources and Glossary repairs (2
     expect(user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.instruction);
     expect(user).toContain("- ruleId results_against_targets");
     expect(request.system).toBe(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT);
-    // A not applied verdict must name the paragraph; this one did not.
+    // A not applied verdict must name the paragraph; this one did not, and
+    // its words name none either: the row keeps its finding (Round 5, rule 6).
     expect(result.planVerdicts.at(-1)).toEqual({
       ruleId: "results_against_targets",
       mergedItemIds: [],
       outcome: "not_applied",
-      reason: TARGETS_BREAK_UNLOCATED_REASON,
+      reason: `${TARGETS_BREAK_UNLOCATED_REASON} Its finding: Calls a met target close.`,
+      actionableRepair: false,
+    });
+  });
+
+  // 2026-10-04 (first), Round 5 (rule 6): release suite run 5 of 2026-10-05
+  // read only "named no valid paragraph" for "edge coverage still met
+  // target" (58 against at least 60).
+  it("locates a targets finding by the one paragraph its own words name, and repairs it there (Round 5)", async () => {
+    const base = replayInput();
+    const planChecks = [...base.planChecks, targets];
+    const input = { ...base, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks) };
+    const first = replayResponse();
+    const run = async (reason: string) => {
+      const answers = [{
+        ...first,
+        planVerdicts: [
+          ...first.planVerdicts,
+          { ruleId: "results_against_targets", mergedItemIds: [], paragraph: 0, outcome: "not_applied", reason, repairGuidance: "Say 58 microns missed the 60 micron target." },
+        ],
+      }];
+      const client = {
+        messages: {
+          create: vi.fn(async (params: GenerationMessageParams) => ({
+            content: [{ type: "tool_use" as const, id: "targets", name: params.tool_choice?.name ?? "submit_self_check", input: answers.shift() }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          })),
+        },
+      };
+      return (await runModelSelfCheck(client as GenerationClient, input)).planVerdicts.at(-1);
+    };
+    expect(await run("P2 says edge coverage still met target.")).toMatchObject({
+      ruleId: "results_against_targets",
+      paragraphIndex: 1,
+      outcome: "not_applied",
+      reason: "P2 says edge coverage still met target.",
+      actionableRepair: true,
+    });
+    // Two paragraphs named: not located, and the finding's words are kept.
+    expect(await run("P1 and P2 call a missed target met.")).toMatchObject({
+      outcome: "not_applied",
+      reason: `${TARGETS_BREAK_UNLOCATED_REASON} Its finding: P1 and P2 call a missed target met.`,
       actionableRepair: false,
     });
   });

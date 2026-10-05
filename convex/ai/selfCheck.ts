@@ -1783,6 +1783,18 @@ function planNotCheckedReason(check: SummaryPlanRefFields): string {
   return PLAN_SKIP_NOT_CHECKED_REASON;
 }
 
+/**
+ * Round 5 (rule 6): the one paragraph of the Line a finding's own words
+ * name ("P2", "paragraph 2"), or undefined when they name none, several, or
+ * one the Line does not have.
+ */
+function paragraphNamedIn(text: string, count: number): number | undefined {
+  const named = new Set([...text.matchAll(/\b(?:P|paragraph\s+)(\d{1,2})\b/gi)].map((match) => Number(match[1])));
+  if (named.size !== 1) return undefined;
+  const [number] = [...named];
+  return number !== undefined && number >= 1 && number <= count ? number - 1 : undefined;
+}
+
 function planBreakUnlocatedReason(check: SummaryPlanRefFields): string {
   if (check.droppedSeedId) return LEAVE_OUT_BREAK_UNLOCATED_REASON;
   if (check.ruleId === WORK_ANSWERS_242_RULE_ID) return WORK_RULE_BREAK_UNLOCATED_REASON;
@@ -2118,9 +2130,16 @@ export async function runModelSelfCheck(
           repairText: factsRepairText(verified),
         };
       }
-      const paragraphIndex = verdict
+      let paragraphIndex = verdict
         ? exactPlanParagraphIndex(verdict.paragraph, count)
         : undefined;
+      // 2026-10-04 (first), Round 5 (rule 6): a targets finding whose
+      // paragraph field is not valid but whose own words name exactly one
+      // paragraph of the Line ("P2 says ...") is located there.
+      const targetsFinding = verdict?.outcome === "not_applied" && expected.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID;
+      if (verdict && targetsFinding && paragraphIndex === undefined) {
+        paragraphIndex = paragraphNamedIn(verdict.unclipped?.reason ?? verdict.reason, count);
+      }
       // 2026-09-28 (third): an item is covered where its paragraph says; a
       // Skip is honoured by absence, so an applied Skip needs no paragraph
       // (0 or none), while a Skip that is not honoured must name the
@@ -2156,7 +2175,12 @@ export async function runModelSelfCheck(
         reason: !verdict
           ? planNotCheckedReason(expected)
           : evidenceDowngraded
-            ? skip ? planBreakUnlocatedReason(expected) : ITEM_EVIDENCE_UNLOCATED_REASON
+            ? skip
+              ? targetsFinding && verdict.reason.trim()
+                // Round 5 (rule 6): never only "named no valid paragraph".
+                ? `${planBreakUnlocatedReason(expected)} Its finding: ${verdict.reason.trim()}`
+                : planBreakUnlocatedReason(expected)
+              : ITEM_EVIDENCE_UNLOCATED_REASON
             : verdict.reason.trim() || "Plan verdict was not applied.",
         ...(!evidenceDowngraded && verdict?.repairGuidance?.trim()
           ? { repairGuidance: verdict.repairGuidance.trim() }

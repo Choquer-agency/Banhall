@@ -765,6 +765,10 @@ export const generationPromptProgram = {
         // the final text. The Summary system prompt also says how to judge
         // hedges, sources and Glossary candidates.
         resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
+        // 2026-10-04 (first), Round 5 (rule 6): a finding with no valid
+        // paragraph is located by the one paragraph its words name, else
+        // its words are kept on the row.
+        targetsUnlocated: "located-by-the-one-paragraph-its-words-name-else-its-words-kept",
         hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",
         // 2026-10-04 (second): every Line of a signed-off plan has one plan
         // check that each figure and detail is stated as the sources give
@@ -812,6 +816,10 @@ export const generationPromptProgram = {
       // Line 244's work fix is set aside when it mentions a signed-off figure
       // fewer times than the checked draft (Locked Rules first).
       evidenceGuard: "work-fixes-keep-every-signed-off-figure-mention",
+      // 2026-10-04 (first), Round 5: the writer's terms, banned words and
+      // required openings, read from the instruction text and measured in
+      // code, reach the repair as exact issues; shortening never breaks one.
+      writerWording: "terms-banned-words-and-openings-measured-in-code-exact-repair-issues-shortening-guarded",
       // 2026-09-30 (third): in a signed-off plan run, report text that names
       // a source is found deterministically and repaired (never a Must keep
       // line), and Confidence Map, Storyline and Glossary fixes get a fixed

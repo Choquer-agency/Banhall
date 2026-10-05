@@ -58,6 +58,8 @@ import {
   type WriterLineCap,
 } from "../lib/writerLineCap";
 import { sha256 } from "../lib/contracts";
+import { wordingLoss, type WriterWordingRules } from "../lib/writerWording";
+import type { SectionNumber } from "../lib/orderedChain";
 import {
   describeTranscriptInput,
   mapClaimToPart,
@@ -658,6 +660,14 @@ export async function compressWithinLimit(
      * for a Locked limit is judged as before.
      */
     coverItems?: readonly string[];
+    /**
+     * 2026-10-04 (first), Round 5: the writer's measured wording rules. A
+     * pass (for a Locked limit or the writer's cap) is not kept when it
+     * removes a required opening its text held, writes a banned word or
+     * synonym its text did not, or removes the last use of a required term
+     * (wordingLoss).
+     */
+    wording?: { rules: WriterWordingRules; section: SectionNumber };
   } = {}
 ): Promise<LimitFit> {
   const writerCap = options.writerCap ?? null;
@@ -684,6 +694,11 @@ export async function compressWithinLimit(
       (finalCut ? endedMidSentence(best, out) : null);
     if (loss) {
       console.warn(`${callSite}: pass ${passes} not kept: it ${loss}`);
+      return;
+    }
+    const wordingBroken = options.wording ? wordingLoss(best, out, options.wording.rules, options.wording.section) : null;
+    if (wordingBroken) {
+      console.warn(`${callSite}: pass ${passes} not kept: it ${wordingBroken}`);
       return;
     }
     // Signed-off items outrank the writer's cap: a pass that only the
