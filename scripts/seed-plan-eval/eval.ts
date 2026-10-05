@@ -3567,7 +3567,39 @@ function settingsChecks(fixture: FixtureManifest, c: Collected): Check[] {
       settingsComplianceRows(c, params),
     ),
   );
+  checks.push(settingsRowsHonestCheck(params, c));
   return checks;
+}
+
+/**
+ * 2026-10-04 (first): the Self-check row for the settings document's text
+ * (its instruction holds the settings title) never reads as applied while a
+ * cap row the product measured on the same Line (the Locked row, or the
+ * settings document's word cap row) is not met. The run of 2026-10-04 wrote
+ * "word cap ok" beside "exceeds: 602/520 words"; the judges had to find it.
+ */
+export function settingsRowsHonestCheck(params: SettingsParams, c: Collected): Check {
+  const id = "settings-rows-honest";
+  const label =
+    "No Self-check row says the settings document was followed while a measured cap of its Line was not met";
+  const title = (params.settingsTitle ?? "").trim();
+  const lines = SETTINGS_LINES.map((line) => {
+    const rows = c.complianceNotes.filter((note) => note.section === line);
+    const failedCaps = rows.filter(
+      (note) =>
+        note.source === "deterministic" &&
+        note.outcome !== "applied" &&
+        (note.tier === "locked" || bannedTermPattern(`${params.wordCaps[line]} words`).test(note.instruction)),
+    );
+    const settingsRows = rows.filter((note) => note.source === "model" && has(note.instruction, title));
+    const vouching = failedCaps.length > 0 ? settingsRows.filter((note) => note.outcome === "applied") : [];
+    const state = failedCaps.length > 0 ? "a measured cap not met" : "measured caps met";
+    const said = settingsRows.length === 0
+      ? "no settings document row"
+      : settingsRows.map((note) => `settings document row ${note.outcome}: ${quote(note.reason, 110)}`).join(", ");
+    return { line, broken: vouching.length > 0, evidence: `${line}: ${state}; ${said}` };
+  });
+  return check(id, label, lines.every((line) => !line.broken), lines.map((line) => line.evidence).join("; "));
 }
 
 /** The pack's per-rule table for a settings fixture: every rule, every Line. */

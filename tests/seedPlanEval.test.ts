@@ -54,6 +54,7 @@ import {
   settingsBrokenCounts,
   settingsBrokenText,
   settingsComplianceRows,
+  settingsRowsHonestCheck,
   settingsRuleResults,
   settingsTermPattern,
   OPENERS_ENFORCED_NOTE,
@@ -2026,6 +2027,51 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
       status: "info",
       evidence,
     });
+  });
+
+  it("fails when the settings document row reads as followed beside a cap row that was not met (2026-10-04)", () => {
+    const row = (section: string, source: string, instruction: string, outcome: string, tier: string, reason: string) => ({
+      section,
+      paragraphIndex: null,
+      source,
+      instruction,
+      outcome,
+      tier,
+      reason,
+      repaired: false,
+      planRef: null,
+    });
+    const settings = "# PD Writing Customized Settings Velloway Panel Finishing Ltd., low-temperature powder coating";
+    // Run 2026-10-04 at e0fd7892, Line 244.
+    const run = collectedWith(clean());
+    run.complianceNotes = [
+      row("244", "deterministic", "- Line 244: no more than 520 words.", "not_applied", "none", "exceeds: 602/520 words; repair failed"),
+      row("244", "model", settings, "applied", "none", "Glossary terms used, no banned words, third person, word cap ok."),
+      row("246", "deterministic", "- Line 246: no more than 260 words.", "applied", "none", "247/260 words"),
+      row("246", "model", settings, "applied", "none", "Terms, banned words, third person."),
+    ];
+    const failed = settingsRowsHonestCheck(params(), run);
+    expect(failed).toMatchObject({ id: "settings-rows-honest", status: "fail" });
+    expect(failed.evidence).toBe(
+      '242: measured caps met; no settings document row; 244: a measured cap not met; settings document row applied: "Glossary terms used, no banned words, third person, word cap ok."; ' +
+        '246: measured caps met; settings document row applied: "Terms, banned words, third person."'
+    );
+    // The row as the product now writes it.
+    run.complianceNotes[1] = row(
+      "244",
+      "model",
+      settings,
+      "not_applied",
+      "none",
+      "Not followed in full: Line 244 is over the writer's cap at 602/520 words (measured by code; see the cap row). The Self-check found the other rules followed."
+    );
+    expect(settingsRowsHonestCheck(params(), run).status).toBe("pass");
+    // A Locked cap row not met counts too.
+    run.complianceNotes.push(
+      row("246", "deterministic", "Locked Rule: Line 246 holds at most 350 words and 50 form lines", "not_applied", "locked", "cap breach at 360/350 words, 30/50 lines")
+    );
+    expect(settingsRowsHonestCheck(params(), run).status).toBe("fail");
+    expect(runChecks(fixture(), run, emptyRunLog(fixture().id, 0)).find((item) => item.id === "settings-rows-honest")?.status).toBe("fail");
   });
 
   it("fails every settings check plainly when no report was created", () => {
