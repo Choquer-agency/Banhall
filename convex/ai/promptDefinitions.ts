@@ -9,6 +9,8 @@ import {
   MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
   MAX_FACTS_FINDINGS,
   MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
+  MAX_TARGET_FINDINGS,
+  MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_ORDINARY_VERDICTS,
   MAX_SUMMARY_PLAN_VERDICTS,
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
@@ -25,6 +27,7 @@ import {
   RULES_REPORT_FACTS,
   RULES_SEED_WORDING,
   SOURCE_TALK,
+  TARGET_MET_RULE,
   TARGET_RULES,
 } from "../../shared/humanProse";
 import { GOVERNED_IN_IDEA_CLAUSE } from "../lib/writerPrecedence";
@@ -535,8 +538,9 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     glossaryIssueSuffix:
       " only in place of the words that name that same thing another way. Never add it beside words that already say it, never force it into a sentence where it does not fit, keep the sentence grammatical, and never use it to put the solution into the objective or to change the meaning. ",
     // Review P2-3: split by direction, in TARGET_RULES' words.
+    // Round 4: and a target is met only as the sources state it.
     targetsIssue:
-      `state each result against its target as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} Where the direction is unclear, change nothing. `,
+      `state each result against its target as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} ${TARGET_MET_RULE} Where the direction is unclear, change nothing. `,
     // The deterministic source-talk fix (shared/humanProse.ts), hashed here
     // with the rest of the repair's wording.
     sourceTalk: SOURCE_TALK,
@@ -555,6 +559,9 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
   reportFacts: {
     prefix: "\n\n# ",
     rules: RULES_REPORT_FACTS,
+    // 2026-10-04 (second, round 4): Lines 244 and 246 only, the Lines with
+    // the targets check, so Line 242's requests are unchanged.
+    targetsMet: `\nTargets met, as the sources state them:\n- ${TARGET_MET_RULE}`,
     brief:
       "\nFrom the Brief: a qualifier the Confidence Map or the Storyline gives about a result applies only to the test it names, never to a later or final result. Their notes on where a fact came from, and on which sources agree or differ, are for you, not for the report.",
   },
@@ -1002,8 +1009,13 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
   resultsAgainstTargets: {
     // Review P2-3: split by direction, in TARGET_RULES' words; a comparison
     // whose direction is unclear is judged applied.
+    // Round 4 (2026-10-04, second): the verdict carries its evidence, like
+    // the facts verdict, and a target stated as met needs the source words
+    // that show it.
     instruction:
-      `\n\nThe plan check with ruleId results_against_targets asks whether each result the section compares with a target (a hypothesis target, a goal, a limit or a threshold) is stated as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} A qualifier about one test applies only to that test. Judge it applied, with paragraph 0, when every such comparison matches the numbers, when the section compares no result with a target, or when you cannot tell which way a target runs. Judge it not applied when the section calls a met target by a word the rule for its direction forbids, calls a missed target met, or carries a qualifier about one test to another test or to the final result: name the first such paragraph and give the comparison as the numbers show.`,
+      `\n\nThe plan check with ruleId results_against_targets asks whether each result the section compares with a target (a hypothesis target, a goal, a limit or a threshold) is stated as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} ${TARGET_MET_RULE} A qualifier about one test applies only to that test. Judge it applied, with paragraph 0, when every such comparison matches the numbers, when the section compares no result with a target, or when you cannot tell which way a target runs. When you judge it applied and the section says a target was met, add an entry to targetFindings for each sentence that says so: draftQuote (the section's words that say it was met), sourceQuote (the source words that say it was met, or the result that shows it), targetQuote (the target as the sources give it, when sourceQuote does not give it) and an empty correction. Judge it not applied when the section calls a met target by a word the rule for its direction forbids, calls a missed target met, names other targets than the sources name, calls a target met where an average met it but a minimum or a share fell short, or carries a qualifier about one test to another test or to the final result: name the first such paragraph, give the comparison as the numbers show, and add an entry to targetFindings for each such error, with draftQuote, sourceQuote (the result as the sources give it), targetQuote (the target as the sources give it) and correction (the result against the target as the sources give it). Copy each quote exactly from the section or from a source document, a quote or the writer's wording: a whole clause of at least 8 characters, never a figure alone, and "..." only to skip words inside one sentence of one source. At most three entries. A target stated as met with no entry whose quotes can be found is not checked, and an error whose quotes cannot be found is never shown or repaired.`,
+    findingsDescription:
+      "results_against_targets only: for an applied verdict, one entry per sentence that says a target was met, with the source words that show it and an empty correction; for a not_applied verdict, one entry per error. At most three. Each quote is a whole clause of at least 8 characters, copied exactly. An entry whose quotes cannot be found is not shown.",
   },
   /**
    * 2026-10-04 (second): every Line of a signed-off plan. Its one check asks
@@ -1218,6 +1230,56 @@ export const SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA = {
         maxLength: MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES,
         description: summaryEscapedUtf8Description(
           "The figure or detail as the sources give it.",
+          MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES
+        ),
+      },
+    },
+    required: ["draftQuote", "sourceQuote", "correction"],
+    additionalProperties: false,
+  },
+} as const;
+
+/**
+ * 2026-10-04 (second, round 4): the targets verdict's entries, in a request
+ * with the targets check only (`targetFindings`), so every other request's
+ * schema is unchanged.
+ */
+export const SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA = {
+  type: "array",
+  maxItems: MAX_TARGET_FINDINGS,
+  description: SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.findingsDescription,
+  items: {
+    type: "object",
+    properties: {
+      draftQuote: {
+        type: "string",
+        maxLength: MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+        description: summaryEscapedUtf8Description(
+          "The section's words that state the result against its target, copied exactly: a whole clause of at least 8 characters.",
+          MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES
+        ),
+      },
+      sourceQuote: {
+        type: "string",
+        maxLength: MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
+        description: summaryEscapedUtf8Description(
+          "The source words that say the target was met, or the result as the sources give it, copied exactly: a whole clause of at least 8 characters, from one place.",
+          MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES
+        ),
+      },
+      targetQuote: {
+        type: "string",
+        maxLength: MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES,
+        description: summaryEscapedUtf8Description(
+          "The target as the sources give it, copied exactly, when sourceQuote does not give it.",
+          MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES
+        ),
+      },
+      correction: {
+        type: "string",
+        maxLength: MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES,
+        description: summaryEscapedUtf8Description(
+          "For an error, the result against the target as the sources give it; empty for an applied verdict's evidence.",
           MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES
         ),
       },

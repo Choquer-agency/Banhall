@@ -446,9 +446,12 @@ function planVerdictFor(
  * read right after the Brief in a signed-off plan run's drafting request and
  * its repair. Single draft and Compare requests never carry it.
  */
-export function reportFactsBlock(): string {
+export function reportFactsBlock(
+  /** 2026-10-04 (second, round 4): the Line has the targets check. */
+  targets = false
+): string {
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.reportFacts;
-  return `${scaffold.prefix}${scaffold.rules}${scaffold.brief}`;
+  return `${scaffold.prefix}${scaffold.rules}${targets ? scaffold.targetsMet : ""}${scaffold.brief}`;
 }
 
 /**
@@ -913,9 +916,10 @@ export function planComplianceNoteDrafts(args: {
         outcome: final?.outcome ?? "not_applied",
         tier: "none",
         // 2026-10-04 (second): a facts row a repair fixed still says what was
-        // wrong, so a reviewer can check the correction.
+        // wrong, so a reviewer can check the correction; since round 4 a
+        // targets row too.
         reason: final
-          ? repaired && expected.instruction === "match_sources"
+          ? repaired && (expected.instruction === "match_sources" || expected.instruction === "match_targets")
             ? factsRepairedReason(rowReason(final), verdict.reason)
             : rowReason(final)
           : FINAL_COVERAGE_NOT_CHECKED_REASON,
@@ -1138,7 +1142,9 @@ export async function draftCheckedSection(input: {
   // 2026-09-30 (third): a signed-off plan run's report-text rules, right
   // after the Brief. Single draft and Compare requests are unchanged.
   const planRun = Boolean(claim.planBlock);
-  const reportFacts = planRun ? reportFactsBlock() : "";
+  const reportFacts = planRun
+    ? reportFactsBlock(claim.planChecks.some((planCheck) => planCheck.instruction === "match_targets"))
+    : "";
   // Review P3-6: the checked text is over a Locked limit and further over
   // it than the other text, which must never be traded back for it.
   const overLimitMore = (checked: string, other: string) =>

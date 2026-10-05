@@ -884,8 +884,21 @@ function literalSummaryResponseOracle(args: {
             outcome: "not_applied",
             paragraph,
             reason,
-            ...(check.ruleId === "facts_match_sources" ? {} : { repairGuidance }),
+            ...(check.ruleId === "facts_match_sources" || check.ruleId === "results_against_targets" ? {} : { repairGuidance }),
             ruleId: check.ruleId,
+            // 2026-10-04 (second, round 4): the targets verdict reserves three
+            // entries, each with its quotes, target quote and correction at
+            // their limits, and no repairGuidance.
+            ...(check.ruleId === "results_against_targets"
+              ? {
+                  targetFindings: Array.from({ length: 3 }, () => ({
+                    correction: "c".repeat(120),
+                    draftQuote: "d".repeat(128),
+                    sourceQuote: "s".repeat(160),
+                    targetQuote: "t".repeat(120),
+                  })),
+                }
+              : {}),
           })
         : JSON.stringify({
             mergedItemIds: [],
@@ -3240,15 +3253,17 @@ describe("seed Summary sign-off and recovery", () => {
     // before it. Re-pinned 2026-10-04 (second): the facts verdict comes
     // before the targets verdict; re-pinned again for its longer guidance
     // (review round 1, P2-2), again for its three findings (round 2), and
-    // again for its halved reservation (round 2 review, P3-1).
+    // again for its halved reservation (round 2 review, P3-1). Re-pinned
+    // again in round 4: the targets verdict reserves its three entries in
+    // place of its repairGuidance.
     // It still equals the independent oracle above, which
     // frozenS244OracleChecks and literalSummaryResponseOracle extend the
     // same way.
     expect(replayHashes).toEqual({
-      restored: "a9219e78f278dfedc606830e7b68aeb8406fc719436574df9ee82dfc99b94e83",
-      omit_storyline: "152e943e68655f7d8e4aae42bf80840f84f086b20c3a8e168288ae60f1d43431",
-      omit_repeated_merge: "d54331549ba4c3cc88d284c0e33570276fc474f8d0ffbf8097e3e15061da9677",
-      short_reason: "36ddab49c1a9d0f2d4a8ebfdcc471b6766b2f1adea921a5b320c76d962087c7a",
+      restored: "6c25ae474fbbaa4ff079c6632318a75d02fbc5a9c4281e87530995c560d36c3a",
+      omit_storyline: "dfb9a98cd8f67e5daa3590a5edc7d242de6129bd8e82a335f8682beba9231a50",
+      omit_repeated_merge: "c342528d02a36fa785fd30a76140b36b641e16fe4335a94a44f76ed571b3a2e6",
+      short_reason: "b522876bc11eecab522f1c5069acdea62415cdcb02efed0019f450ce272f1e2f",
     });
   });
 

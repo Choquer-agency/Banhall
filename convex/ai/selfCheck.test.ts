@@ -25,6 +25,7 @@ import {
   SELF_CHECK_SCHEMA,
   SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
+  SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
 } from "./promptDefinitions";
 import { SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE } from "./providers";
@@ -35,13 +36,14 @@ import {
   runDeterministicSelfCheck,
   SOURCE_TALK_KEY,
 } from "../lib/selfCheckRules";
-import { FACT_RULES, RULES_REPORT_FACTS, SOURCE_TALK, TARGET_RULES } from "../../shared/humanProse";
+import { FACT_RULES, RULES_REPORT_FACTS, SOURCE_TALK, TARGET_MET_RULE, TARGET_RULES } from "../../shared/humanProse";
 import type { OrderedProfileContext } from "../lib/orderedChain";
 import {
   FACTS_INSTRUCTION,
   keptIdeaReason,
   leaveOutRepairIssue,
   planComplianceNoteDrafts,
+  reportFactsBlock,
   reportFactsIssuePrefix,
   TARGETS_INSTRUCTION,
 } from "./orderedGeneration";
@@ -67,6 +69,8 @@ import {
   selfCheckFailureDiagnostic,
   sourceFactsFor,
   verifyFactsFindings,
+  verifyTargetFindings,
+  targetMetSentences,
   summaryPlanSelfCheckSchemaFor,
   type SelfCheckPlanCheck,
 } from "./selfCheck";
@@ -2665,7 +2669,8 @@ describe("results against targets, no talk about sources and Glossary repairs (2
       instruction: TARGETS_INSTRUCTION,
       outcome: "applied",
       repaired: true,
-      reason: "Every comparison matches.",
+      // 2026-10-04 (second, round 4): a targets row a repair fixed still says what was wrong.
+      reason: "Every comparison matches. Fixed by the repair: P1 calls a met target close.",
       planRef: { summaryVersionId: "summary-version", ruleId: "results_against_targets", mergedItemIds: [] },
     })]);
   });
@@ -3122,5 +3127,47 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
         repaired: false,
         reason: "P2 gives the all-panel 4% as deep cove's; repair not used (the repaired text dropped the writer's edited term \"film build\", so the checked draft was kept)",
       })]);
+  });
+});
+
+describe("a target is met only as the sources state it (2026-10-04, second, round 4)", () => {
+  it("finds each sentence that says a target was met, and none that says it was missed or names no target", () => {
+    const paragraphs = [
+      "Overspray onto the faces caused an adhesion problem, rated 3B against a 5B target.",
+      "Splitting the oven profile cut overshoot to 2 C, and the combined process met both the outgassing defect and film build targets together on 140 test panels for the first time.",
+      "The deep cove profile did not meet the 60-micron target. It didn't reach the target either. Edge coverage still met target.",
+      "Edge coverage still reached 58 to 64 microns.",
+    ];
+    expect(targetMetSentences(paragraphs)).toEqual([
+      { paragraphIndex: 1, sentence: paragraphs[1] },
+      { paragraphIndex: 2, sentence: "Edge coverage still met target." },
+    ]);
+  });
+
+  it("verifies an entry's target quote in the sources too, and drops an entry that quotes the draft back", () => {
+    const paragraphs = ["The edges met the 60-micron target on every panel."];
+    const sources = ["Edge DFT averaged 64 microns, minimum 52.", "DFT of 70 to 90 microns on the faces and at least 60 microns on the routed edges."];
+    const average = { draftQuote: "The edges met the 60-micron target on every panel", sourceQuote: "Edge DFT averaged 64 microns, minimum 52", correction: "64 average, 52 minimum" };
+    expect(verifyTargetFindings({ findings: [{ ...average, targetQuote: "at least 60 microns on the routed edges" }], paragraphs, sources })).toEqual({
+      verified: [{ paragraphIndex: 0, ...average, targetQuote: "at least 60 microns on the routed edges" }],
+      held: [],
+      unverified: 0,
+    });
+    expect(verifyTargetFindings({ findings: [{ ...average, targetQuote: "at least 50 microns on the routed edges" }], paragraphs, sources }).unverified).toBe(1);
+    expect(verifyTargetFindings({ findings: [{ ...average, sourceQuote: average.draftQuote }], paragraphs, sources: [...sources, paragraphs[0]!] }).unverified).toBe(1);
+  });
+
+  it("adds the entries' field and the drafting rule only where the targets check is, so other requests keep their bytes", () => {
+    const facts = { ruleId: "facts_match_sources" };
+    const targets = { ruleId: "results_against_targets" };
+    const without = summaryPlanSelfCheckSchemaFor([], [facts]);
+    const withTargets = summaryPlanSelfCheckSchemaFor([], [facts, targets]);
+    expect(Object.keys(without.properties.planVerdicts.items.properties)).not.toContain("targetFindings");
+    expect((withTargets.properties.planVerdicts.items.properties as Record<string, unknown>).targetFindings).toEqual(SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA);
+    expect(reportFactsBlock()).not.toContain(TARGET_MET_RULE);
+    expect(reportFactsBlock(true)).toContain(TARGET_MET_RULE);
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.instruction).toContain(TARGET_MET_RULE);
+    expect(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.targetsIssue).toContain(TARGET_MET_RULE);
+    expect(TARGET_MET_RULE).toBe("Say a target was met only as the sources state it, and name the same targets the sources name. An average is not every item: where a minimum or a share falls short of the target, say so.");
   });
 });

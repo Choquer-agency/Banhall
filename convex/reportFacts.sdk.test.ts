@@ -32,7 +32,7 @@ import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai
 import { buildFrozenSummaryPlan, RESULTS_AGAINST_TARGETS_RULE_ID } from "./lib/seedRevisions";
 import { renderBriefBlock } from "./lib/briefRender";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
-import { RULES_REPORT_FACTS, SOURCE_TALK } from "../shared/humanProse";
+import { RULES_REPORT_FACTS, SOURCE_TALK, TARGET_MET_RULE } from "../shared/humanProse";
 
 const modules = import.meta.glob("./**/*.ts");
 const SONNET = "claude-sonnet-5";
@@ -273,8 +273,11 @@ describe("results, sources and Glossary repairs in a signed-off plan run (real S
     // Drafting: the rules of shared/humanProse.ts once, right after the Brief.
     const drafting = sent[0]!.user;
     expect(reportFactsBlock()).toBe(`\n\n# ${RULES_REPORT_FACTS}${ORDERED_PROMPT_SCAFFOLDS.reportFacts.brief}`);
-    expect(drafting.split(reportFactsBlock())).toHaveLength(2);
-    expect(drafting).toContain(`${BRIEF_BLOCK}${reportFactsBlock()}\n\n# LENGTH (Locked Rule, outranks the plan)`);
+    // 2026-10-04 (second, round 4): a Line with the targets check also gets
+    // the rule that a target is met only as the sources state it.
+    expect(reportFactsBlock(true)).toBe(`\n\n# ${RULES_REPORT_FACTS}\nTargets met, as the sources state them:\n- ${TARGET_MET_RULE}${ORDERED_PROMPT_SCAFFOLDS.reportFacts.brief}`);
+    expect(drafting.split(reportFactsBlock(true))).toHaveLength(2);
+    expect(drafting).toContain(`${BRIEF_BLOCK}${reportFactsBlock(true)}\n\n# LENGTH (Locked Rule, outranks the plan)`);
 
     // The Self-check: the Summary rules, the targets check, its rule and schema.
     const check = sent[1]!;
@@ -295,7 +298,8 @@ describe("results, sources and Glossary repairs in a signed-off plan run (real S
     expect(repair).toContain(`- Paragraph 2: ${scaffold.hedgeIssue}Hedge the scrap figure.`);
     expect(repair).toContain(`- Paragraph 3: ${scaffold.glossaryIssuePrefix}"pad pressure map"${scaffold.glossaryIssueSuffix}Replace pressure table.`);
     expect(repair).toContain(`- Paragraph 1: ${scaffold.targetsIssue}Say 96.4% met the 95% target and 1.6% met the 2% limit.`);
-    expect(repair.split(reportFactsBlock())).toHaveLength(2);
+    expect(repair.split(reportFactsBlock(true))).toHaveLength(2);
+    expect(scaffold.targetsIssue).toContain(TARGET_MET_RULE);
 
     // The final coverage check judges the targets again on the final text.
     expect(sent[3]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.instruction);
@@ -316,7 +320,8 @@ describe("results, sources and Glossary repairs in a signed-off plan run (real S
       instruction: TARGETS_INSTRUCTION,
       outcome: "applied",
       tier: "none",
-      reason: "Every comparison matches.",
+      // Round 4: a targets row a repair fixed still says what was wrong.
+      reason: "Every comparison matches. Fixed by the repair: P1 calls met targets close.",
       repaired: true,
       planRef: { summaryVersionId: SUMMARY_VERSION, ruleId: RESULTS_AGAINST_TARGETS_RULE_ID, mergedItemIds: [] },
     });

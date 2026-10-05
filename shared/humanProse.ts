@@ -71,6 +71,18 @@ export const TARGET_RULES = {
 } as const;
 
 /**
+ * 2026-10-04 (second, round 4): a target is met only as the sources state
+ * it. Release suite runs 3, 5 and 6 wrote "met both the outgassing defect
+ * and film build targets" where the source met the pinhole and cure targets
+ * and the edges averaged 64 microns with a minimum of 52 against at least
+ * 60, and "edge coverage still met target" at 58 against at least 60. Sent
+ * only where the targets check is (Lines 244 and 246 of a signed-off plan):
+ * in the drafting rule, the check and the repair fix.
+ */
+export const TARGET_MET_RULE =
+  "Say a target was met only as the sources state it, and name the same targets the sources name. An average is not every item: where a minimum or a share falls short of the target, say so.";
+
+/**
  * 2026-10-04 (second, release suite run of 2026-10-04): figures stay with
  * their group, and no detail beyond the sources. The one wording of the
  * rule, used as it is by the drafting rule, the Self-check's plan check and
