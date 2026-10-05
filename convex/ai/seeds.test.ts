@@ -3335,7 +3335,7 @@ describe("Seeds follow the writer's settings document (2026-10-04, first)", () =
 
   async function attemptWith(
     t: ReturnType<typeof convexTest<typeof schema.tables>>,
-    writer: { applied: boolean; clientDocument?: boolean }
+    writer: { applied: boolean; clientDocument?: boolean; styleGuidance?: string }
   ) {
     const fixture = await seedAttempt(t);
     await t.run(async (ctx) => {
@@ -3367,7 +3367,7 @@ describe("Seeds follow the writer's settings document (2026-10-04, first)", () =
       if (!style) throw new Error("No frozen style");
       await ctx.db.patch(style._id, {
         content: JSON.stringify({
-          styleGuidance: writer.applied ? WRITER_GUIDANCE : "",
+          styleGuidance: writer.styleGuidance ?? (writer.applied ? WRITER_GUIDANCE : ""),
           styleOverrides: { bannedWords: false },
         }),
       });
@@ -3413,6 +3413,17 @@ describe("Seeds follow the writer's settings document (2026-10-04, first)", () =
       expect(settings).toContain(words);
     }
     expect(wording).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("never calls a learned style alone the writer's own settings (review P3-4)", async () => {
+    const t = convexTest(schema, modules);
+    // A saved profile with no instructions applies, with a learned style.
+    const sent = await attemptWith(t, {
+      applied: true,
+      styleGuidance:
+        "\n\n## Style guidance learned from writer feedback on past drafts\nApply where it does not conflict with the required structure, CRA phrasing, or banned-word rules:\nPrefer short sentences.",
+    });
+    expect(sent.user).not.toContain(SEED_PROMPT_PROGRAM.user.writerWording);
   });
 
   it("adds nothing without a Writer Profile, and a client's settings document stays a source", async () => {

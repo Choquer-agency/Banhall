@@ -94,6 +94,7 @@ import {
   STYLE_GUIDANCE_SCAFFOLDS,
 } from "./promptDefinitions";
 import { containsTerm } from "../lib/editedTerms";
+import { contentWords } from "../lib/seedQuoteSupport";
 
 export type { BrainExemplarBlocks };
 
@@ -396,7 +397,7 @@ function capMetrics(text: string, key: SectionKey, writerCap: WriterLineCap) {
  * the one closer to the writer's cap is. With no writer's cap this is
  * exactly the Locked rule.
  */
-function closerToLimits(
+export function closerToLimits(
   out: string,
   best: string,
   key: SectionKey,
@@ -489,14 +490,40 @@ export function compressionLoss(
 }
 
 /**
+ * 2026-10-04 (first, owner decision: signed-off items outrank the writer's
+ * cap): why a pass run only for the writer's cap dropped or thinned a
+ * signed-off COVER item, or null. Every content word of an item that the
+ * given text holds must still be in the pass. Word for word on purpose: a
+ * pass that says an item in other words is not kept either, the safe side.
+ */
+export function coverItemLoss(
+  input: string,
+  output: string,
+  coverItems: readonly string[]
+): string | null {
+  const held = new Set(contentWords(input));
+  const kept = new Set(contentWords(output));
+  for (const item of coverItems) {
+    const lost = contentWords(item).filter((word) => held.has(word) && !kept.has(word));
+    if (lost.length > 0) {
+      return `dropped words of a signed-off item (${lost.slice(0, 3).map((word) => `"${word}"`).join(", ")})`;
+    }
+  }
+  return null;
+}
+
+/**
  * What the compression passes left: the text kept, how many passes were
  * sent, whether it is still over, and the error that stopped them, if any.
+ * `heldForPlan` (2026-10-04, first): passes run only for the writer's cap
+ * that were not kept because they dropped words of a signed-off item.
  */
 export type LimitFit = {
   text: string;
   passes: number;
   overLimit: boolean;
   error?: unknown;
+  heldForPlan?: number;
 };
 
 /**
@@ -529,7 +556,10 @@ export type LimitFit = {
  * the text is within reach of the Locked limits but not of the writer's
  * cap, the targeted pass aims at the Locked limits as before. Nothing is
  * cut to fit the writer's cap either. Without `writerCap` every request
- * and every decision is as before.
+ * and every decision is as before. Owner decision (2026-10-04): signed-off
+ * items outrank the writer's cap, so a pass run only for it (its text
+ * within the Locked limits) that drops words of a COVER item is not kept
+ * (coverItemLoss, counted in `heldForPlan`).
  */
 export async function compressWithinLimit(
   anthropicFor: (callSite: string) => GenerationClient,
@@ -540,11 +570,23 @@ export async function compressWithinLimit(
   styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES,
   mustKeep: readonly string[] = [],
   exactTerms: readonly string[] = [],
-  options: { finalCut?: boolean; writerCap?: WriterLineCap | null } = {}
+  options: {
+    finalCut?: boolean;
+    writerCap?: WriterLineCap | null;
+    /**
+     * 2026-10-04 (first, owner decision): the signed-off COVER items. A pass
+     * run only for the writer's cap (its text within the Locked limits)
+     * must keep every word of them the text holds (coverItemLoss); a pass
+     * for a Locked limit is judged as before.
+     */
+    coverItems?: readonly string[];
+  } = {}
 ): Promise<LimitFit> {
   const writerCap = options.writerCap ?? null;
+  const coverItems = options.coverItems ?? [];
   let best = text;
   let passes = 0;
+  let heldForPlan = 0;
   const callSite = `generation:compression:${key.slice(1)}`;
   // A pass's answer replaces `best` only when it is closer to the limits
   // and keeps the required content.
@@ -560,8 +602,19 @@ export async function compressWithinLimit(
       console.warn(`${callSite}: pass ${passes} not kept: it ${loss}`);
       return;
     }
+    // Signed-off items outrank the writer's cap: a pass that only the
+    // writer's cap asked for never takes words of one.
+    const forWriterOnly = writerCap !== null && !sectionMetrics(best, key).overLimit;
+    const planLoss = forWriterOnly && coverItems.length > 0 ? coverItemLoss(best, out, coverItems) : null;
+    if (planLoss) {
+      heldForPlan += 1;
+      console.warn(`${callSite}: pass ${passes} not kept: it ${planLoss}`);
+      return;
+    }
     best = out;
   };
+  const fit = (fields: Omit<LimitFit, "heldForPlan">): LimitFit =>
+    heldForPlan > 0 ? { ...fields, heldForPlan } : fields;
   // Over a Locked limit, or over the writer's cap where one is set.
   const over = (value: string) =>
     writerCap ? capMetrics(value, key, writerCap).overLimit : sectionMetrics(value, key).overLimit;
@@ -583,7 +636,7 @@ export async function compressWithinLimit(
         writerCap
       );
     } catch (error) {
-      return { text: best, passes, overLimit: metrics.overLimit, error };
+      return fit({ text: best, passes, overLimit: metrics.overLimit, error });
     }
     keep(compressed, compressionTargetWords(key, lengthTarget, squeeze, metrics, writerCap), false);
   }
@@ -603,11 +656,11 @@ export async function compressWithinLimit(
       passes += 1;
       compressed = await finalCutSection(anthropicFor(callSite), modelId, key, best, mustKeep, exactTerms, aim);
     } catch (error) {
-      return { text: best, passes, overLimit: metrics.overLimit, error };
+      return fit({ text: best, passes, overLimit: metrics.overLimit, error });
     }
     keep(compressed, finalCutTargetWords(key, metrics, aim), true);
   }
-  return { text: best, passes, overLimit: sectionMetrics(best, key).overLimit };
+  return fit({ text: best, passes, overLimit: sectionMetrics(best, key).overLimit });
 }
 
 /** Where a paragraph may end: sentence punctuation, a closing quote or bracket. */

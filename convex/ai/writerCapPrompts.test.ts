@@ -11,6 +11,7 @@ import {
   compressSection,
   compressWithinLimit,
   compressionTargetWords,
+  coverItemLoss,
   finalCutTargetWords,
   lengthBudgetBlock,
 } from "./pipeline";
@@ -21,6 +22,8 @@ import {
   LENGTH_BUDGET_SCAFFOLD,
   ORDERED_PROMPT_SCAFFOLDS,
   SELF_CHECK_REQUEST,
+  STYLE_GUIDANCE_SCAFFOLDS,
+  WRITER_PREFERENCES_HEADING,
 } from "./promptDefinitions";
 import type { GenerationClient, GenerationMessageParams } from "./openrouterCore";
 import { sectionMetrics } from "../lib/lineLimits";
@@ -74,10 +77,12 @@ describe("the length blocks under a writer's cap", () => {
       "\n\n# LENGTH BUDGET (CRA form constraint and the writer's settings, hard requirement)\nThe CRA form field for this section holds at most 50 lines of 78 characters, and EVERY blank line between paragraphs also costs one full line. The writer's settings ask for at most 260 words in this section. Write AT MOST 221 words total. Prefer fewer, denser paragraphs (each blank line spent on a paragraph break is a line of content lost). Do NOT pad. If the material exceeds the budget, keep the most technically load-bearing content and cut the rest."
     );
     // The signed-off plan's block: the Locked cap is the Locked Rule; the
-    // writer's cap is never called one.
+    // writer's cap is never called one. Owner decision (2026-10-04): every
+    // COVER item is drafted even over the writer's cap, never over the
+    // Locked cap.
     const plan = planLengthBudgetBlock("s244", "standard", { words: 520 });
     expect(plan).toBe(
-      "\n\n# LENGTH (the Locked Rule and the writer's settings outrank the plan)\nThis Line holds at most 700 words and 100 form lines (Locked Rule). The writer's settings ask for at most 520 words in this Line. Write AT MOST 442 words in all. Cover every COVER item in as few words as it needs: when the plan holds more than fits, give each item fewer words rather than go over."
+      "\n\n# LENGTH (the Locked Rule outranks the plan; the writer's settings ask for less)\nThis Line holds at most 700 words and 100 form lines (Locked Rule). The writer's settings ask for at most 520 words in this Line. Write AT MOST 442 words in all. Cover every COVER item in as few words as it needs, and cover every COVER item even if that goes over the writer's cap, never over the Locked cap: when the plan holds more than the Locked cap fits, give each item fewer words rather than go over."
     );
     expect(plan.indexOf("(Locked Rule)")).toBeLessThan(plan.indexOf("The writer's settings"));
     expect(plan.indexOf("The writer's settings")).toBeLessThan(plan.indexOf("Write AT MOST"));
@@ -93,7 +98,7 @@ describe("the length blocks under a writer's cap", () => {
       LENGTH_BUDGET_SCAFFOLD.writerCap,
       ORDERED_PROMPT_SCAFFOLDS.planLengthBudgetWriterCap,
       COMPRESSION_REQUEST.writerCap,
-      SELF_CHECK_REQUEST.measuredCapsInstruction,
+      SELF_CHECK_REQUEST.measuredCaps,
     ]) {
       expect(JSON.stringify(scaffold)).not.toMatch(/[\u2013\u2014]/);
     }
@@ -201,26 +206,102 @@ describe("the shortening passes under a writer's cap", () => {
   });
 });
 
-describe("the Self-check is told code measures caps", () => {
+describe("the Self-check is told which caps code measures", () => {
   const base = {
     section: "244" as const,
     text: "One paragraph.",
     storylineText: "",
     confidenceMap: [],
     glossaryCandidates: [],
-    writerInstructions: "# PD Writing Customized Settings\n\n- Line 244: no more than 520 words.",
+    writerInstructions: "# PD Writing Customized Settings\n\n- Line 244: no more than 520 words.\n\nKeep sentences under 25 words.",
     rules: [],
     model: "claude-sonnet-5",
   };
 
-  it("after the writer instructions, only when a writer's cap is measured on the Line", () => {
-    const told = buildSelfCheckUserMessage({ ...base, measuredCaps: true });
-    expect(told).toContain(`--- END [WRITER INSTRUCTIONS] ---${SELF_CHECK_REQUEST.measuredCapsInstruction}`);
-    expect(told.endsWith(SELF_CHECK_REQUEST.measuredCapsInstruction)).toBe(true);
-    expect(buildSelfCheckUserMessage(base)).toBe(told.slice(0, -SELF_CHECK_REQUEST.measuredCapsInstruction.length));
+  it("quotes the measured rules and scopes the sentence to the writer-instruction verdicts (review P2-1)", () => {
+    const told = buildSelfCheckUserMessage({
+      ...base,
+      measuredCaps: ["- Line 244: no more than 520 words.", "- Line 244: no more than 520 words."],
+    });
+    const sentence =
+      "\n\nCode measures these caps of the writer's and reports them on their own: \"- Line 244: no more than 520 words.\". In the verdicts for the WRITER INSTRUCTIONS block, do not judge these caps, and do not mention this section's word or line count. Judge every other rule, including any other length rule.";
+    expect(told).toContain(`--- END [WRITER INSTRUCTIONS] ---${sentence}`);
+    expect(told.endsWith(sentence)).toBe(true);
+    // No longer a blanket ban on caps and limits in every verdict.
+    expect(told).not.toContain("never mention word counts, line counts, caps or limits");
+    expect(buildSelfCheckUserMessage(base)).toBe(told.slice(0, -sentence.length));
+    expect(buildSelfCheckUserMessage({ ...base, measuredCaps: [] })).toBe(buildSelfCheckUserMessage(base));
     // No writer instructions in the request: nothing to tell.
     expect(
-      buildSelfCheckUserMessage({ ...base, writerInstructions: undefined, measuredCaps: true })
-    ).not.toContain(SELF_CHECK_REQUEST.measuredCapsInstruction);
+      buildSelfCheckUserMessage({ ...base, writerInstructions: undefined, measuredCaps: ["- Line 244: no more than 520 words."] })
+    ).not.toContain("Code measures these caps");
+  });
+});
+
+describe("signed-off items outrank the writer's cap (owner decision, 2026-10-04)", () => {
+  const COVER = "The edge sealer separated conductivity from heat on routed board panels.";
+  const FILLER = "The team logged each trial in the shop book and compared it with the run before.";
+  const withCover = (fillers: number) =>
+    [COVER, ...Array.from({ length: fillers }, () => FILLER)].join(" ");
+
+  it("finds the words of a signed-off item a pass dropped, and nothing when it keeps them", () => {
+    expect(coverItemLoss(withCover(4), withCover(1), [COVER])).toBeNull();
+    // The words are named as the matcher normalizes them.
+    expect(coverItemLoss(withCover(4), FILLER, [COVER])).toBe(
+      'dropped words of a signed-off item ("edg", "sealer", "separat")'
+    );
+    // Only the words the given text held count.
+    expect(coverItemLoss(FILLER, FILLER, [COVER])).toBeNull();
+  });
+
+  it("does not keep a pass run only for the writer's cap that drops words of a signed-off item", async () => {
+    const draft = withCover(12);
+    const words = sectionMetrics(draft, "s246").words;
+    expect(words).toBeGreaterThan(200);
+    expect(sectionMetrics(draft, "s246").overLimit).toBe(false);
+    const thinned = Array.from({ length: 8 }, () => FILLER).join(" ");
+    const run = client([thinned, thinned], draft);
+    const fit = await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", draft, "standard", undefined, [COVER], [], {
+      finalCut: true,
+      writerCap: { words: 200 },
+      coverItems: [COVER],
+    });
+    // Two squeezes, both held for the item, then the targeted pass (203
+    // words is within its reach of 200), which comes back unchanged.
+    expect(fit).toEqual({ text: draft, passes: 3, overLimit: false, heldForPlan: 2 });
+    // A pass that keeps the item's words is kept.
+    const shorter = withCover(8);
+    const keeps = client([shorter], draft);
+    const kept = await compressWithinLimit(keeps.anthropicFor, "claude-sonnet-5", "s246", draft, "standard", undefined, [COVER], [], {
+      finalCut: true,
+      writerCap: { words: 200 },
+      coverItems: [COVER],
+    });
+    expect(kept).toEqual({ text: shorter, passes: 1, overLimit: false });
+  });
+
+  it("judges a pass for a Locked limit as before", async () => {
+    const draft = withCover(24);
+    expect(sectionMetrics(draft, "s246").overLimit).toBe(true);
+    const thinned = Array.from({ length: 14 }, () => FILLER).join(" ");
+    const run = client([thinned], draft);
+    const fit = await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", draft, "standard", undefined, [COVER], [], {
+      finalCut: true,
+      writerCap: { words: 260 },
+      coverItems: [COVER],
+    });
+    expect(fit.text).toBe(thinned);
+    expect(fit.heldForPlan).toBeUndefined();
+  });
+
+  it("every writer-preference block opens with the heading the Seed request looks for (review P3-4)", () => {
+    for (const scaffold of [
+      STYLE_GUIDANCE_SCAFFOLDS.writerDefault,
+      STYLE_GUIDANCE_SCAFFOLDS.writerWithWaivers,
+      STYLE_GUIDANCE_SCAFFOLDS.writerSkeletonWaived,
+    ]) {
+      expect(scaffold.prefix).toContain(`\n\n${WRITER_PREFERENCES_HEADING}`);
+    }
+    expect(STYLE_GUIDANCE_SCAFFOLDS.learned.prefix).not.toContain(WRITER_PREFERENCES_HEADING);
   });
 });

@@ -568,12 +568,13 @@ export type SelfCheckModelInput = {
   writerInstructions?: string;
   rules: Array<{ instruction: string; paragraphIndex?: number }>;
   /**
-   * 2026-10-04 (first): code measures a word or line cap of the writer's
-   * rules on this Line. With writer instructions in the request, the model
-   * is then told never to judge or mention caps. Absent: no such sentence,
-   * so those requests keep their bytes.
+   * 2026-10-04 (first): the writer's cap rules code measures on this Line,
+   * word for word. With writer instructions in the request, the model is
+   * told, for those verdicts only, not to judge these caps or mention the
+   * section's word or line count. Absent or empty: no such sentence, so
+   * those requests keep their bytes.
    */
-  measuredCaps?: boolean;
+  measuredCaps?: readonly string[];
   model: string;
   planChecks?: SelfCheckPlanCheck[];
   planChecksBlock?: string;
@@ -755,10 +756,16 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
   const answers242 = (input.planChecks ?? []).some((check) => check.ruleId === ADVANCEMENTS_ANSWER_242_RULE_ID);
   const workAnswers242 = (input.planChecks ?? []).some((check) => check.ruleId === WORK_ANSWERS_242_RULE_ID);
   const targets = (input.planChecks ?? []).some((check) => check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID);
-  // 2026-10-04 (first): caps code measures are never the model's to judge.
-  const measuredCaps = input.measuredCaps === true && instructionLines.length > 0;
+  // 2026-10-04 (first): the writer's caps code measures are not the
+  // model's to judge in the writer-instruction verdicts.
+  const measuredCapRules = instructionLines.length > 0
+    ? [...new Set((input.measuredCaps ?? []).map((rule) => rule.trim()).filter(Boolean))]
+    : [];
+  const measured = SELF_CHECK_REQUEST.measuredCaps;
   return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}${
-    measuredCaps ? SELF_CHECK_REQUEST.measuredCapsInstruction : ""
+    measuredCapRules.length > 0
+      ? `${measured.prefix}${measuredCapRules.map(quoteForPrompt).join(measured.separator)}${measured.suffix}`
+      : ""
   }${
     terms.length > 0 ? exact.instruction : ""
   }${feedback.length > 0 ? (renaming ? writer.renamingInstruction : writer.instruction) : ""}${

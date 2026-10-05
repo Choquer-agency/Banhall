@@ -634,16 +634,61 @@ export function runDeterministicSelfCheck(input: {
 }
 
 /**
- * 2026-10-04 (first): what a Self-check reason says about length: a cap, a
- * limit, a word or line count. Broad on purpose: where a measured cap was
- * not met, a model reason that matches is left out, the safe direction.
+ * 2026-10-04 (first, review P2-2): what a Self-check reason says about the
+ * Line's length: a word or line cap, limit or count, a length cap or limit,
+ * being within, under or over the cap or limit, "N words" or "N lines", or
+ * a count such as "602/520". Narrow on purpose: everyday SR&ED wording such
+ * as "detection limit", "temperature limit" or "end caps" is not length.
  */
-const LENGTH_TALK =
-  /\b(?:caps?|capped|limits?|length|word counts?|line counts?)\b|\b\d[\d,]*\s*(?:\/\s*\d[\d,]*\s*)?(?:words?|lines?)\b/i;
+const LENGTH_TALK = new RegExp(
+  [
+    String.raw`\b(?:word|line)s?[\s-]+(?:caps?|limits?|counts?|budget)\b`,
+    String.raw`\blength[\s-]+(?:caps?|limits?)\b`,
+    String.raw`\b(?:within|under|over|above|below|exceeds?|meets?|met)\s+(?:the\s+|its\s+|a\s+|this\s+)?(?:\d[\d,]*[\s-]*)?(?:(?:words?|lines?)[\s-]+)?(?:caps?|limits?)\b`,
+    String.raw`\b\d[\d,]*[\s-]*(?:words?|lines?)\b`,
+    String.raw`\b\d+\s*\/\s*\d+\b`,
+  ].join("|"),
+  "i"
+);
 
-/** 2026-10-04 (first): whether a reason talks about a cap, a limit or a count. */
+/** 2026-10-04 (first): whether a reason talks about the Line's length. */
 export function talksAboutLength(text: string): boolean {
   return LENGTH_TALK.test(text);
+}
+
+/**
+ * 2026-10-04 (first, review P2-2): `text` without its clauses about length.
+ * Clauses end at a semicolon, or at a full stop or comma before a space or
+ * the end, so "1,200" and "2.5" stay whole. The clauses kept keep their own
+ * words and punctuation; "" when every clause was about length.
+ */
+export function withoutLengthClauses(text: string): string {
+  const parts = text.split(/(;\s*|[.,](?=\s|$)\s*)/);
+  let out = "";
+  for (let index = 0; index < parts.length; index += 2) {
+    const clause = parts[index] ?? "";
+    const end = parts[index + 1] ?? "";
+    if (!clause.trim() || talksAboutLength(clause)) continue;
+    out += `${clause}${end}`;
+  }
+  return out.trim().replace(/[;,]$/, ".").replace(/^(?:and|but|or)\s+/i, "");
+}
+
+/**
+ * 2026-10-04 (first, review P3-2): whether a model verdict's instruction is
+ * the Writer Profile itself. The Summary Self-check labels it with the
+ * whole text; in Single draft and Compare the model quotes it, often cut
+ * short, so its title line, or an opening of six words or more that the
+ * profile starts with, counts too.
+ */
+function quotesWriterProfile(instruction: string, profile: string | undefined): boolean {
+  const text = normalizeForMatch(profile ?? "");
+  if (text.trim() === "") return false;
+  const quoted = normalizeForMatch(instruction);
+  if (quoted === text) return true;
+  const title = normalizeForMatch(profile?.split(/\r?\n/).find((line) => line.trim() !== "") ?? "");
+  if (title.trim().split(" ").length >= 3 && quoted.includes(title)) return true;
+  return quoted.trim().split(" ").length >= 6 && text.startsWith(quoted.trimEnd());
 }
 
 /**
@@ -653,14 +698,15 @@ export function talksAboutLength(text: string): boolean {
  * "word cap ok" beside a measured cap row that was not met. Null leaves the
  * row as it is.
  *
- * - The row for the Writer Profile itself (its whole text, as the Summary
- *   Self-check labels it), or for an instruction that holds a writer's cap
- *   rule word for word, carries that cap, so it is never applied. Its
- *   reason names the measured cap in fixed words; the model's own reason
- *   follows only when it says nothing about length.
+ * - The row for the Writer Profile itself (quotesWriterProfile), or for an
+ *   instruction that holds a writer's cap rule word for word, carries that
+ *   cap, so it is never applied. Its reason names the measured cap in
+ *   fixed words, then the model's reason without its clauses about length
+ *   (withoutLengthClauses): "Otherwise followed: " for an applied verdict,
+ *   "Also: " for one not applied.
  * - Any other instruction row whose reason talks about length keeps its
- *   outcome, and fixed words that name the measured cap replace the model's
- *   reason.
+ *   outcome; its clauses about length give way to fixed words that name
+ *   the measured cap, and every other clause stays.
  */
 export function writerRowGuard(input: {
   verdict: Pick<ModelVerdict, "instruction" | "outcome" | "reason">;
@@ -671,8 +717,7 @@ export function writerRowGuard(input: {
   const { verdict, row, failedCaps } = input;
   if (failedCaps.length === 0) return null;
   const instruction = normalizeForMatch(verdict.instruction);
-  const profileText = normalizeForMatch(input.writerInstructions ?? "");
-  const isProfile = profileText.trim() !== "" && instruction === profileText;
+  const isProfile = quotesWriterProfile(verdict.instruction, input.writerInstructions);
   const carried = failedCaps.filter((cap) => {
     if (cap.kind !== "writer") return false;
     if (isProfile) return true;
@@ -681,6 +726,13 @@ export function writerRowGuard(input: {
   });
   const talks = talksAboutLength(verdict.reason);
   if (carried.length === 0 && !talks) return null;
+  // The model's words, without its clauses about length, then the notes
+  // this app added after them (a repair's outcome), as written.
+  const appNotes = row.reason.startsWith(verdict.reason) ? row.reason.slice(verdict.reason.length) : "";
+  const modelWords = withoutLengthClauses(verdict.reason);
+  const kept = modelWords
+    ? `${modelWords}${appNotes}`
+    : appNotes.replace(/^[;,.]\s*/, "");
   const rebuilt = (outcome: "applied" | "not_applied", reason: string) =>
     noteDraft({
       section: row.section,
@@ -695,14 +747,15 @@ export function writerRowGuard(input: {
   if (carried.length > 0) {
     const measured = `${joinedList(carried.map(measuredCapPhrase))} (measured by code; see the cap row)`;
     const applied = verdict.outcome === "applied";
-    const rest = talks
-      ? applied ? " The Self-check found the other rules followed." : ""
-      : applied ? ` Otherwise followed: ${row.reason}` : ` Also: ${row.reason}`;
+    const rest = kept
+      ? applied ? ` Otherwise followed: ${kept}` : ` Also: ${kept}`
+      : applied ? " The Self-check found the other rules followed." : "";
     return rebuilt("not_applied", `${applied ? "Not followed in full" : "Not followed"}: ${measured}.${rest}`);
   }
+  const lead = kept || `${row.outcome === "applied" ? "Followed" : "Not followed"}, as the Self-check found.`;
   return rebuilt(
     row.outcome,
-    `${row.outcome === "applied" ? "Followed" : "Not followed"}, as the Self-check found. Length is measured by code: ${joinedList(failedCaps.map(measuredCapPhrase))} (see the cap row).`
+    `${lead} Length is measured by code: ${joinedList(failedCaps.map(measuredCapPhrase))} (see the cap row).`
   );
 }
 
@@ -836,6 +889,14 @@ export function assembleSectionNotes(input: {
    */
   compression?: { passes: number; failure?: string };
   /**
+   * 2026-10-04 (first, owner decision: signed-off items outrank the
+   * writer's cap): the Line was kept over the writer's cap to keep a
+   * signed-off item, because a shortening pass that dropped words of one
+   * was not kept ("pass"), or a repair that dropped one was not used
+   * ("repair").
+   */
+  heldForPlan?: "pass" | "repair";
+  /**
    * PR #22 lead decision: the Glossary Terms the writer's Feedback governs
    * in this Line. Each gets one row in fixed words that quote the Feedback,
    * decided by its label's verdict, or not checked when there is none.
@@ -908,11 +969,21 @@ export function assembleSectionNotes(input: {
     const failure = input.compression?.failure
       ? ` (a shortening pass failed: ${input.compression.failure})`
       : "";
+    // Owner decision (2026-10-04): signed-off items outrank the writer's
+    // cap. When a shortening pass was not kept because it took words of
+    // one, the row says the Line stays over the cap to keep them.
+    const held = input.heldForPlan === "pass"
+      ? "a shortening pass that dropped words of one was not kept"
+      : "the repair that dropped one was not used";
     rows[index] = {
       ...rows[index],
-      reason: `${rows[index].reason}; still over after ${passes} shortening ${
-        passes === 1 ? "pass" : "passes"
-      }${failure}. The text was not cut to fit: shorten Line ${section} to ${cap.limits} to meet the writer's settings`,
+      reason: input.heldForPlan
+        ? `${rows[index].reason}; over the writer's cap at ${cap.over.join(" and ")} to keep every signed-off item (${held})${
+            input.compression?.failure ? `; a shortening pass failed: ${input.compression.failure}` : ""
+          }; cut by hand if needed`
+        : `${rows[index].reason}; still over after ${passes} shortening ${
+            passes === 1 ? "pass" : "passes"
+          }${failure}. The text was not cut to fit: shorten Line ${section} to ${cap.limits} to meet the writer's settings`,
     };
   });
   let remainingFailures = finalEntries.filter(

@@ -21,11 +21,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import schema from "./schema";
 import { freezeModelsForGeneration } from "./lib/modelRoles";
-import {
-  COMPRESSION_REQUEST,
-  ORDERED_PROMPT_SCAFFOLDS,
-  SELF_CHECK_REQUEST,
-} from "./ai/promptDefinitions";
+import { COMPRESSION_REQUEST, ORDERED_PROMPT_SCAFFOLDS } from "./ai/promptDefinitions";
 import { SECTION_242_REQUEST } from "./ai/section242Agent";
 import { SECTION_244_REQUEST } from "./ai/section244Agent";
 import { SECTION_246_REQUEST } from "./ai/section246Agent";
@@ -95,6 +91,10 @@ const PROFILE_VERDICT_REASON = "Terms, banned words, third person, and word cap 
 type Script = {
   /** Compression answers for Line 246, in order; an empty queue echoes. */
   compressions?: string[];
+  /** Every compression request fails with an HTTP 400. */
+  failCompressions?: boolean;
+  /** Line 246's repair answer; absent, the Line as drafted. */
+  repair246?: string;
   /** Self-check verdicts for Line 246's checks; other Lines get none. */
   verdicts246?: unknown[];
 };
@@ -201,12 +201,19 @@ function installFetch(script: Script): Sent[] {
         });
       }
       let text: string;
+      if (stage === "compression" && script.failCompressions) {
+        return Response.json(
+          { type: "error", error: { type: "invalid_request_error", message: "Synthetic refusal" } },
+          { status: 400 }
+        );
+      }
       if (stage === "compression") {
         text = compressions.shift() ?? user.split(COMPRESSION_REQUEST.userScaffold.percentToText)[1] ??
           user.split(COMPRESSION_REQUEST.finalCut.userScaffold.targetToText)[1] ?? "";
       } else if (stage.startsWith("repair:")) {
-        // A repair that changes nothing: the Line as drafted.
-        text = DRAFTS[stage.slice("repair:".length) as Line];
+        // A repair that changes nothing, unless scripted: the Line as drafted.
+        const line = stage.slice("repair:".length) as Line;
+        text = (line === "246" ? script.repair246 : undefined) ?? DRAFTS[line];
       } else {
         text = DRAFTS[stage.slice("section:".length) as Line];
       }
@@ -327,13 +334,17 @@ async function runSingle(script: Script) {
   return { sent, text, note, modelNotes, requests };
 }
 
+// Review P3-2: a real model quotes the document cut short, not whole.
 const profileVerdict = {
   paragraph: 0,
   check: "instruction",
-  instruction: SETTINGS,
+  instruction: "# PD Writing Customized Settings ...",
   outcome: "applied",
   reason: PROFILE_VERDICT_REASON,
 };
+/** The Self-check sentence for Line 246's cap (review P2-1). */
+const MEASURED_CAPS =
+  `\n\nCode measures these caps of the writer's and reports them on their own: "${CAP_RULE}". In the verdicts for the WRITER INSTRUCTIONS block, do not judge these caps, and do not mention this section's word or line count. Judge every other rule, including any other length rule.`;
 
 describe("a writer's cap governs drafting, repair, shortening and the Compliance Note (2026-10-04, first)", () => {
   it("the fixture: Line 246 is within its Locked cap but over the writer's, and the others have no cap", () => {
@@ -371,9 +382,9 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
     expect(run.requests("repair:246")).toEqual([]);
     // The Self-check of Line 246 is told code measures caps; the other
     // Lines, with no cap of the writer's, are asked as before.
-    expect(run.requests("submit_self_check", "246")[0]!.user).toContain(SELF_CHECK_REQUEST.measuredCapsInstruction);
+    expect(run.requests("submit_self_check", "246")[0]!.user).toContain(MEASURED_CAPS);
     for (const line of ["242", "244"] as const) {
-      expect(run.requests("submit_self_check", line)[0]!.user).not.toContain(SELF_CHECK_REQUEST.measuredCapsInstruction);
+      expect(run.requests("submit_self_check", line)[0]!.user).not.toContain("Code measures these caps");
     }
   });
 
@@ -414,10 +425,32 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
       expect.objectContaining({
         outcome: "not_applied",
         reason:
-          "Not followed in full: Line 246 is over the writer's cap at 240/200 words (measured by code; see the cap row). The Self-check found the other rules followed.",
+          "Not followed in full: Line 246 is over the writer's cap at 240/200 words (measured by code; see the cap row). Otherwise followed: Terms, banned words, third person.",
       }),
     ]);
     // The Locked cap held throughout.
     expect(run.note("246", "Locked Rule: Line 246 holds at most 350 words and 50 form lines")).toMatchObject({ outcome: "applied" });
+  });
+
+  it("keeps a draft within the Locked cap when a shortening pass for the writer's cap fails (review P2-3)", async () => {
+    const run = await runSingle({ failCompressions: true, verdicts246: [profileVerdict] });
+    // The Section is kept as drafted, never failed, and the row says why.
+    expect(run.text("246")).toBe(DRAFT_246);
+    expect(run.note("246", CAP_RULE)).toMatchObject({
+      outcome: "not_applied",
+      reason: expect.stringMatching(/^exceeds: 240\/200 words; repair failed; still over after 1 shortening pass \(a shortening pass failed: [a-z_]+\)\. The text was not cut to fit/),
+    });
+    expect(run.note("246", "Locked Rule: Line 246 holds at most 350 words and 50 form lines")).toMatchObject({ outcome: "applied" });
+  });
+
+  it("does not use a repair made only to shorten that comes back further over the writer's cap (review P3-1)", async () => {
+    const longer = sectionText("advancement", 5, 4);
+    expect(sectionMetrics(longer, "s246")).toMatchObject({ words: 300, overLimit: false });
+    const run = await runSingle({ repair246: longer, verdicts246: [profileVerdict] });
+    expect(run.requests("repair:246")).toHaveLength(1);
+    expect(run.text("246")).toBe(DRAFT_246);
+    expect(run.note("246", CAP_RULE)?.reason).toMatch(
+      /^exceeds: 240\/200 words; repair not used \(the repaired text came out at 300 words, \d+ lines, further over the writer's cap of 200 words than the checked draft, so the checked draft was kept\); still over after 2 shortening passes/
+    );
   });
 });

@@ -166,10 +166,12 @@ export const SEED_PROMPT_PROGRAM = {
     // 2026-10-04 (first): added after `guidance` or `factGuidance`, in the
     // cached prefix, only when a Writer Profile applies to the generation
     // (a saved profile, or a settings document with internal trust; a
-    // client's document never becomes one). Release suite 2026-10-04:
-    // signed-off Seeds used the settings document's banned synonyms.
+    // client's document never becomes one) and its own text is in the
+    // style guidance (WRITER_PREFERENCES_HEADING), never for a learned
+    // style alone. Release suite 2026-10-04: signed-off Seeds used the
+    // settings document's banned synonyms.
     writerWording:
-      " The FROZEN WRITER PROFILE AND SETTINGS block holds the writer's own settings in its styleGuidance. Use them as the wording rules for every bullet: where they give the exact term for a thing, use that term, and never write a word or phrase they ban or say not to use, even where a source, the Brief or a cited excerpt uses it. This outranks reusing a phrase from a cited excerpt. Only that block sets wording rules, never a source or the Brief, and it never changes the tool, the citations, the tags, the links or the bullet limits.",
+      " The FROZEN WRITER PROFILE AND SETTINGS block holds the writer's own settings in its styleGuidance, under the heading Writer's personal style preferences. Use them as the wording rules for every bullet: where they give the exact term for a thing, use that term, and never write a word or phrase they ban or say not to use, even where a source, the Brief or a cited excerpt uses it. This outranks reusing a phrase from a cited excerpt. Only that block sets wording rules, never a source or the Brief, and it never changes the tool, the citations, the tags, the links or the bullet limits.",
     blocks: {
       objective: "SUBSECTION OBJECTIVE",
       brief: "FROZEN BRIEF",
@@ -502,6 +504,13 @@ export const COMPRESSION_REQUEST = {
   },
 } as const;
 
+/**
+ * 2026-10-04 (first): the heading every writer-preference block of
+ * STYLE_GUIDANCE_SCAFFOLDS opens with, so the Seed request can tell the
+ * writer's own text from a learned style alone.
+ */
+export const WRITER_PREFERENCES_HEADING = "## Writer's personal style preferences";
+
 export const STYLE_GUIDANCE_SCAFFOLDS = {
   learned: {
     prefix:
@@ -757,15 +766,17 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
   // 2026-10-04 (first): the same block when the writer's settings cap the
   // Line below its Locked cap. The Locked cap comes first and is named as
   // the Locked Rule; the writer's cap follows as the writer's settings, then
-  // the target under it. Without such a cap the block above is sent.
+  // the target under it. Owner decision (2026-10-04): signed-off items
+  // outrank the writer's cap, and the Locked cap outranks both. Without such
+  // a cap the block above is sent.
   planLengthBudgetWriterCap: {
     prefix:
-      "\n\n# LENGTH (the Locked Rule and the writer's settings outrank the plan)\nThis Line holds at most ",
+      "\n\n# LENGTH (the Locked Rule outranks the plan; the writer's settings ask for less)\nThis Line holds at most ",
     wordCapToLines: " words and ",
     linesToWriterCap: " form lines (Locked Rule). The writer's settings ask for at most ",
     writerCapToBudget: " in this Line. Write AT MOST ",
     suffix:
-      " words in all. Cover every COVER item in as few words as it needs: when the plan holds more than fits, give each item fewer words rather than go over.",
+      " words in all. Cover every COVER item in as few words as it needs, and cover every COVER item even if that goes over the writer's cap, never over the Locked cap: when the plan holds more than the Locked cap fits, give each item fewer words rather than go over.",
   },
   runtimeSentinels: [
     "{{runtime.draftedPriorSections}}",
@@ -799,14 +810,22 @@ export const SELF_CHECK_REQUEST = {
     ],
   },
   /**
-   * 2026-10-04 (first): sent after the data blocks only when code measures
-   * a word or line cap the writer's settings set for this Line. Release
-   * suite 2026-10-04: the Self-check judged a whole settings document as one
+   * 2026-10-04 (first): sent after the data blocks only when the request
+   * has writer instructions and code measures a word or line cap of the
+   * writer's rules on this Line. It quotes those rules and is scoped to the
+   * verdicts for the WRITER INSTRUCTIONS block, so plan verdicts and any
+   * length rule code does not measure are judged as before. Release suite
+   * 2026-10-04: the Self-check judged a whole settings document as one
    * instruction and wrote "word cap ok" beside a measured cap row that was
    * not met. Requests without such a cap keep their bytes.
    */
-  measuredCapsInstruction:
-    "\n\nCode measures every word and line cap, the writer's included, and reports each one on its own. Never judge a word or line cap, and never mention word counts, line counts, caps or limits in a verdict: judge only the other rules.",
+  measuredCaps: {
+    prefix: "\n\nCode measures these caps of the writer's and reports them on their own: ",
+    separator: "; ",
+    suffix:
+      ". In the verdicts for the WRITER INSTRUCTIONS block, do not judge these caps, and do not mention this section's word or line count. Judge every other rule, including any other length rule.",
+    runtimeSentinels: ["{{runtime.measuredCapRules}}"],
+  },
   modelSelector: "candidate-model-or-default",
 } as const;
 
