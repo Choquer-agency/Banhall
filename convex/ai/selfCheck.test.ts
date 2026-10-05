@@ -3168,6 +3168,30 @@ describe("a target is met only as the sources state it (2026-10-04, second, roun
       .toEqual([{ paragraphIndex: 0, sentence: "Edge coverage still met target.", metWords: ["met"] }]);
   });
 
+  it("final re-check: reads a correctly stated miss as no met claim, and finds met claims after an expected or a hypothesized target and an exceeded target", () => {
+    const misses = [
+      // P2-B1: a figure right after the met word, or a miss in its phrase.
+      "Edge coverage reached 58 microns against the 60 micron target.",
+      "Trial 2 achieved 52 microns, short of the 60 micron target.",
+      "The cure window reached about 6 C, below the 8 C target.",
+      // P3-B3: "passed" as movement.
+      "Panels that passed through the oven at 135 C missed the target.",
+      // P3-B2: "exceeded" a limit says it was missed.
+      "Cure time exceeded the 30-minute limit.",
+    ];
+    const met = [
+      "As expected, the fast powder met the 120 C cure target.",
+      "The hypothesized cure target of 120 C was reached on 140 panels.",
+      "As planned, the pilot reached the goal of 2.5 metres per minute.",
+      "Edge coverage exceeded the 60 micron target on every shaker panel.",
+    ];
+    expect(targetMetSentences(misses)).toEqual([]);
+    expect(targetMetSentences(met).map((found) => found.sentence)).toEqual(met);
+    expect(targetMetSentences([met[3]!])[0]!.metWords).toEqual(["exceeded"]);
+    // Still plans: a plan word before "to", "that" or "whether".
+    expect(targetMetSentences(["It was expected that the line would reach the speed target.", "The team planned to meet the cure target."])).toEqual([]);
+  });
+
   it("verifies an entry's target quote in the sources too, and drops an entry that quotes the draft back", () => {
     const paragraphs = ["The edges met the 60-micron target on every panel."];
     const sources = ["Edge DFT averaged 64 microns, minimum 52.", "DFT of 70 to 90 microns on the faces and at least 60 microns on the routed edges."];
