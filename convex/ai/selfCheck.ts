@@ -790,6 +790,8 @@ export function factsMatchSourcesInstruction(documentsComplete: boolean): string
 function factsVerificationSources(input: SelfCheckModelInput): string[] {
   const facts = input.sourceFacts;
   const checks = input.planChecks ?? [];
+  // Round 2 re-check (P2): every entry marker-safe, as the block's own are,
+  // so no quote verifies against marker text.
   return [
     ...(facts?.evidence ?? []),
     ...checks.flatMap((check) => check.sourceReferences.map((reference) => reference.exactExcerpt)),
@@ -804,7 +806,7 @@ function factsVerificationSources(input: SelfCheckModelInput): string[] {
             ...check.relationshipReferences.flatMap((reference) => reference.wording),
           ]),
         ]),
-  ];
+  ].map((entry) => neutralizeMarkers(entry));
 }
 
 /** The SOURCE FACTS block's body alone. */
