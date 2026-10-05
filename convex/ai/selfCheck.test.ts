@@ -48,6 +48,7 @@ import {
 import {
   buildSelfCheckUserMessage,
   FACTS_HELD_PREFIX,
+  FACTS_NOTHING_SHOWN_REASON,
   factsFindingsReason,
   factsMatchSourcesInstruction,
   factsNotCheckedReason,
@@ -3055,6 +3056,71 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
     expect(client.messages.create).toHaveBeenCalledTimes(2);
     expect(userText(client.messages.create.mock.calls[1]![0])).toContain("[SOURCE FACTS]");
     expect(missing.planVerdicts.at(-1)).toMatchObject({ outcome: "not_applied", reason: PLAN_FACTS_NOT_CHECKED_REASON, actionableRepair: false });
+  });
+
+  it("round 3: records an applied facts verdict in fixed words, never the model's, so it never reads as a guarantee", async () => {
+    const base = replayInput();
+    const planChecks = [...base.planChecks, facts];
+    const input = { ...base, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks), sourceFacts: SOURCES };
+    const response = replayResponse();
+    for (const words of ["Figures and details match the sources.", "All figures and details match sources."]) {
+      const client = replayClient({
+        ...response,
+        planVerdicts: [...response.planVerdicts, { ruleId: "facts_match_sources", mergedItemIds: [], paragraph: 0, outcome: "applied", reason: words }],
+      });
+      const result = await runModelSelfCheck(client as unknown as GenerationClient, input);
+      expect(result.planVerdicts.at(-1)).toEqual({
+        ruleId: "facts_match_sources",
+        mergedItemIds: [],
+        outcome: "applied",
+        reason: FACTS_NOTHING_SHOWN_REASON,
+      });
+    }
+    expect(FACTS_NOTHING_SHOWN_REASON).toBe("The facts check found no figure or detail it could show differs from the sources.");
+  });
+
+  it("round 3: marks the wording an item's own quotes do not back, and that wording never stands for the sources", () => {
+    const limitation = [
+      "Standard datasheet powder processes are built for flat steel-like panels, not thick routed MDF.",
+      "No prior process showed whether MDF could reach conductivity without heat that triggers outgassing defects.",
+    ];
+    const facts = sourceFactsFor({
+      analysis: {},
+      planItems: [
+        { wording: limitation, writer: false, quotes: ["The moisture that gives you conductivity is the same moisture that outgasses."], unbacked: [limitation[0]] },
+        // The writer's own wording is never marked.
+        { wording: ["The writer's steel line."], writer: true, quotes: [], unbacked: ["The writer's steel line."] },
+      ],
+      documents: { documents: [], leftOut: [{ label: "INTERVIEW TRANSCRIPT: Long", bytes: 61_234 }], budget: 48_000 },
+    });
+    expect(facts.body).toContain(
+      `- [the product's wording] ${limitation.join(" ")} Quotes: "The moisture that gives you conductivity is the same moisture that outgasses." Its own quotes do not back: ${JSON.stringify(limitation[0])}`
+    );
+    expect(facts.body).toContain("- [the writer's wording] The writer's steel line. Quotes: none.");
+    expect(facts.body).not.toContain(`Its own quotes do not back: "The writer's steel line."`);
+    expect(facts.documentsComplete).toBe(false);
+    // While documents are left out the product's wording stands for the
+    // sources, but never the wording its own quotes do not back.
+    expect(facts.product).toContain(limitation[1]);
+    expect(facts.product.some((entry) => entry.includes("steel-like"))).toBe(false);
+    expect(facts.items).toEqual([limitation[1], "The writer's steel line."]);
+    // So a finding on that wording verifies only against a source, and is repaired, not held.
+    const found = verifyFactsFindings({
+      findings: [{ draftQuote: "built for flat steel-like panels", sourceQuote: "built for flat steel-like panels, not thick", correction: "" }],
+      paragraphs: ["Datasheet processes are built for flat steel-like panels, not thick routed MDF."],
+      sources: facts.product,
+      items: facts.items,
+    });
+    expect(found).toEqual({ verified: [], held: [], unverified: 1 });
+  });
+
+  it("round 3: tells the check a product-written item is not settled fact, in both variants", () => {
+    for (const complete of [true, false]) {
+      const rule = factsMatchSourcesInstruction(complete);
+      expect(rule).toContain("A signed-off item the product wrote is not settled fact: the writer signed off the idea, not each detail of its wording, so it can still state a detail the sources do not give.");
+      expect(rule).toContain("Where an item says its own quotes do not back some of its wording, a specific detail in that wording (a material, a cause, a group) is supported only where a source document or the writer's wording gives it.");
+    }
+    expect(factsMatchSourcesInstruction(false)).toContain("every signed-off item stand for the sources here, except wording an item's own quotes do not back");
   });
 
   it("writes the row by its own instruction and rule id, and a repaired row still says what was wrong", () => {

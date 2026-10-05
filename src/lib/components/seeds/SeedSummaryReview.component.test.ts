@@ -1762,6 +1762,37 @@ describe("Seed Summary Review", () => {
       expect(card.querySelector("[data-quote-text]")?.textContent).toBe("“We run four sites”");
     });
 
+    it("names the wording its quotes do not back on a run 6 idea with a marked quote, and none on a well-quoted one (2026-10-04, second, round 3)", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      // Release suite run 6, Specific advancements item 11: the steel quote
+      // the check marked is not evidence, so the second sentence has no quote.
+      const advancement = [
+        "The team learned that outgassing defects track peak panel surface temperature rather than dwell time on this board.",
+        "Trial 1's datasheet process confirmed that heat built for flat steel panels causes severe outgassing defects on routed MDF edges.",
+      ];
+      __setQueryData("seeds:getSummary", onePage([
+        withFields(item("seed-a", "specific_advancements", advancement[0]), {
+          bullets: advancement,
+          support: "writer_asserted",
+          provenance: [
+            { sourceId: "source-1", exactExcerpt: "And that on our board the pinholes track the peak board temperature, not the time.", line: 39 },
+            { sourceId: "source-1", exactExcerpt: "Normal powder for steel cures at 160 to 200 C.", line: 13, needsQuoteCheck: true },
+          ],
+        }),
+        withFields(item("seed-b", "company_context", "We run four sites across Ontario today."), {
+          provenance: [{ sourceId: "source-1", exactExcerpt: "We run four sites", line: 7 }],
+        }),
+      ]));
+      const view = await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      await expect.poll(() => view.container.querySelector('[data-summary-item="seed-a"] [data-summary-unbacked]')?.textContent).toBe(
+        `Its quotes do not back: "${advancement[1]}"`
+      );
+      const note = view.container.querySelector<HTMLElement>("[data-summary-unbacked]")!;
+      expect(Number(getComputedStyle(note).fontWeight)).toBeLessThanOrEqual(500);
+      expect(view.container.querySelector('[data-summary-item="seed-b"] [data-summary-unbacked]')).toBeNull();
+      expect(view.container.querySelectorAll("[data-summary-unbacked]")).toHaveLength(1);
+    });
+
     it("names open steps as a status with no link to a step (owner, 2026-09-28)", async () => {
       __setQueryData("seeds:getOutline", outline(false));
       __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Plain server wording.")]));

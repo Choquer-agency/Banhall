@@ -9,7 +9,7 @@
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import { isLongForSeed, MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
   import { describeSource, EMPTY_SOURCE_ATTRIBUTION } from "./attribution";
-  import { citationSpeakerLine, QUOTE_CHECK_NOTE, QUOTE_USE_ANYWAY, SPEAKER_CHECK_NOTE, type QuoteCitation } from "./citations";
+  import { citationSpeakerLine, QUOTE_CHECK_NOTE, QUOTE_USE_ANYWAY, SPEAKER_CHECK_NOTE, unbackedNote, type QuoteCitation } from "./citations";
   import { findExactQuoteSpans, segmentBullet } from "./exactQuote";
   import { MAX_CARD_TAGS, seedTagStyle } from "./seedTags";
   import SeedQuote from "./SeedQuote.svelte";
@@ -467,6 +467,11 @@
     return `States ${listed}, a result of ${which} ${who} picked: ${words}`;
   });
 
+  // 2026-10-04 (second, round 3): the wording none of the idea's evidence
+  // quotes backs, when one of its quotes is marked, so the writer sees it
+  // before sign-off. The wording itself is never changed.
+  const unbackedLine = $derived(unbackedNote(item));
+
   // Card tools (board 3.1): 28px tiles, 14px strokes in secondary ink.
   const tile =
     "inline-flex size-7 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11";
@@ -817,6 +822,9 @@
         {/if}
         {#if statedLine}
           <p class="text-[0.75rem] leading-4 text-gap-text!" data-seed-states-dropped-result>{statedLine}</p>
+        {/if}
+        {#if unbackedLine}
+          <p class="text-[0.75rem] leading-4 text-gap-text!" data-seed-unbacked>{unbackedLine}</p>
         {/if}
       {/if}
 

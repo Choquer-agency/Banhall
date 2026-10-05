@@ -334,3 +334,25 @@ export function quoteCheckIssues(
   }
   return issues.sort((left, right) => left.seedIndex - right.seedIndex || left.citationIndex - right.citationIndex);
 }
+
+/**
+ * 2026-10-04 (second, round 3, owner approved 2026-10-05): the bullets of a
+ * Seed that none of its evidence quotes backs. A quote marked for a check is
+ * not evidence (the draft leaves it out), so only unmarked quotes count; a
+ * bullet backs when an unmarked quote shares enough meaningful words with it
+ * (`excerptSupportsSeed`), or when the word check cannot judge that quote
+ * against it (another script or language), which is never marked. Empty for
+ * a Seed with no marked quote: a well-quoted Seed is unchanged. Pure, so the
+ * card and the facts check read the same wording.
+ */
+export function unbackedBullets(
+  bullets: readonly string[],
+  quotes: ReadonlyArray<{ exactExcerpt: string; needsQuoteCheck?: boolean }>
+): string[] {
+  if (!quotes.some((quote) => quote.needsQuoteCheck === true)) return [];
+  const evidence = quotes.filter((quote) => quote.needsQuoteCheck !== true);
+  return bullets.filter((bullet) =>
+    bullet.trim() !== "" &&
+    !evidence.some((quote) =>
+      !canJudgeQuote(bullet, quote.exactExcerpt) || excerptSupportsSeed(bullet, quote.exactExcerpt)));
+}

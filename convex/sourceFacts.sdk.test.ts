@@ -39,6 +39,7 @@ import {
 } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import {
+  FACTS_NOTHING_SHOWN_REASON,
   factsFindingsReason,
   factsMatchSourcesInstruction,
   factsNotCheckedReason,
@@ -430,7 +431,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       instruction: FACTS_INSTRUCTION,
       outcome: "applied",
       tier: "none",
-      reason: `Figures and details match the sources. Fixed by the repair: ${EVIDENCE}`,
+      reason: `${FACTS_NOTHING_SHOWN_REASON} Fixed by the repair: ${EVIDENCE}`,
       repaired: true,
       planRef: { summaryVersionId: SUMMARY_VERSION, ruleId: FACTS_MATCH_SOURCES_RULE_ID, mergedItemIds: [] },
     });
@@ -468,7 +469,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     expect(check).toContain("Never fail a figure or detail only because the sources word it another way.");
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
     expect(result.draftText).toBe(FAITHFUL_244);
-    expect(factsRow(result)).toMatchObject({ outcome: "applied", reason: "Figures and details match the sources.", repaired: false });
+    expect(factsRow(result)).toMatchObject({ outcome: "applied", reason: FACTS_NOTHING_SHOWN_REASON, repaired: false });
   });
 
   it("run 4: an unevidenced, a short-quoted or an unlocated facts finding is not checked in the model's own words and never repaired", async () => {
@@ -621,7 +622,8 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     const check = sent[1]!.user;
     expect(check).toContain(`- [the product's wording] ${LIMITS} Quotes: "That the datasheet number is for flat panels."`);
     expect(check).toContain("The product's own wording can point to a fact but cannot by itself support a specific detail (a material, place, party, product, or the group a figure belongs to).");
-    expect(check).toContain("a signed-off item the product wrote can still state a detail the sources do not give. Flag it like any other, and the item still counts as covered when the section states it without that detail.");
+    expect(check).toContain("A signed-off item the product wrote is not settled fact: the writer signed off the idea, not each detail of its wording, so it can still state a detail the sources do not give.");
+    expect(check).toContain("Flag such a detail like any other, and the item still counts as covered when the section states it without that detail.");
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
     expect(sent[2]!.user).toContain("No fabrication outranks the signed-off plan: where a finding below names a detail a signed-off item states, state the item without that detail.");
     expect(result.draftText).toBe(fixed242);
@@ -675,7 +677,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     expect(check).not.toContain(INTERVIEW);
     expect(factsRow(result)).toMatchObject({
       outcome: "applied",
-      reason: `Figures and details match the sources. ${factsDocumentsLeftOutNote(leftOut)}`,
+      reason: `${FACTS_NOTHING_SHOWN_REASON} ${factsDocumentsLeftOutNote(leftOut)}`,
     });
     expect(factsDocumentsLeftOutNote(leftOut)).toBe(
       "(Over this check's 48000-byte budget it did not read INTERVIEW TRANSCRIPT: Interview with Mireille Strand and Tobias Achterberg (61234 bytes), so it let the signed-off items, their quotes and the analysis stand for them.)"
@@ -847,7 +849,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
     expect(factsRow(result)).toMatchObject({
       outcome: "applied",
       repaired: true,
-      reason: `Figures and details match the sources. Fixed by the repair: ${factsFindingsReason(verified, 0)}`,
+      reason: `${FACTS_NOTHING_SHOWN_REASON} Fixed by the repair: ${factsFindingsReason(verified, 0)}`,
     });
   });
 
@@ -941,7 +943,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
     expect(factsRow(result)).toMatchObject({
       outcome: "applied",
       repaired: true,
-      reason: `Figures and details match the sources. Fixed by the repair: ${factsFindingsReason([verifiedOf(SCOPE, 1)], 0)}`,
+      reason: `${FACTS_NOTHING_SHOWN_REASON} Fixed by the repair: ${factsFindingsReason([verifiedOf(SCOPE, 1)], 0)}`,
     });
   });
 
@@ -1241,7 +1243,7 @@ describe("Greptile on PR #26 at 17d3d1a8: a wrong group rate beside the right ov
     expect(result.draftText).toBe(fixed);
     expect(factsRow(result)).toMatchObject({
       outcome: "applied",
-      reason: `Figures and details match the sources. Fixed by the repair: ${factsFindingsReason(verified, 0)}`,
+      reason: `${FACTS_NOTHING_SHOWN_REASON} Fixed by the repair: ${factsFindingsReason(verified, 0)}`,
       repaired: true,
     });
   });
@@ -1276,8 +1278,41 @@ describe("Greptile on PR #26 at 7e3964cc: the draft adds a group to the source's
     expect(result.draftText).toBe(fixed);
     expect(factsRow(result)).toMatchObject({
       outcome: "applied",
-      reason: `Figures and details match the sources. Fixed by the repair: ${factsFindingsReason(verified, 0)}`,
+      reason: `${FACTS_NOTHING_SHOWN_REASON} Fixed by the repair: ${factsFindingsReason(verified, 0)}`,
       repaired: true,
     });
+  });
+});
+
+describe("round 3 (owner approved 2026-10-05): run 6's Seeds reach the facts check as wording their quotes do not back (real SDK, fetch stubbed)", () => {
+  it("marks each Seed's unbacked sentence in the Self-check request, and the row of a check that found nothing is fixed text", async () => {
+    const limitation = [
+      "Standard datasheet powder processes are built for flat steel-like panels, not thick routed MDF.",
+      "No prior process showed whether MDF could reach conductivity without heat that triggers outgassing defects.",
+    ];
+    const advancement = [
+      "The team learned that outgassing defects track peak panel surface temperature rather than dwell time on this board.",
+      "Trial 1's datasheet process confirmed that heat built for flat steel panels causes severe outgassing defects on routed MDF edges.",
+    ];
+    const run6 = [
+      ...PLAN_ITEM_SOURCES,
+      { wording: limitation, writer: false, quotes: ["That the datasheet number is for flat panels."], unbacked: [limitation[0]] },
+      { wording: advancement, writer: false, quotes: [], unbacked: advancement },
+    ];
+    const sent = installFetch({
+      draft: FAITHFUL_244,
+      checks: [{ verdicts: ordinary, planVerdicts: [...covered, { ...factsMatch, reason: "All figures and details match sources." }, targetsMet] }],
+    });
+    const result = await draft(claimFor(plan244(), { planItemSources: run6, factsSourceDocuments: DOCUMENTS }), SUMMARY_VERSION);
+    const check = sent[1]!.user;
+    expect(check).toContain(
+      `- [the product's wording] ${limitation.join(" ")} Quotes: "That the datasheet number is for flat panels." Its own quotes do not back: ${JSON.stringify(limitation[0])}`
+    );
+    expect(check).toContain(
+      `- [the product's wording] ${advancement.join(" ")} Quotes: none. Its own quotes do not back: ${advancement.map((bullet) => JSON.stringify(bullet)).join(" | ")}`
+    );
+    expect(check).toContain("A signed-off item the product wrote is not settled fact");
+    // The model's "All figures and details match sources." never reaches the row.
+    expect(factsRow(result)).toMatchObject({ outcome: "applied", reason: FACTS_NOTHING_SHOWN_REASON, repaired: false });
   });
 });

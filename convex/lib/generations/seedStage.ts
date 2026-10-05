@@ -74,6 +74,7 @@ import { isProjectDeleting } from "../projectDeletion";
 import { internal } from "../../_generated/api";
 import { SEED_DECISION_COLLECTION_ROWS } from "../seedDecisionState";
 import { editedTermsOf, MAX_EDITED_TERMS_PER_LINE } from "../editedTerms";
+import { unbackedBullets } from "../seedQuoteSupport";
 import {
   feedbackForLine,
   glossaryTermPrecedence,
@@ -1099,11 +1100,14 @@ export async function loadFrozenSectionPlan(
   planWording: string[][];
   /**
    * 2026-10-04 (second, round 2): every signed-off item (skipped steps
-   * aside), whatever its Line: its wording, whether the writer wrote it
-   * (writer_asserted: edited, or from the writer's notes) and its own quotes,
-   * for the facts check's SOURCE FACTS block.
+   * aside), whatever its Line: its wording, whether the writer wrote it and
+   * its own quotes, for the facts check's SOURCE FACTS block. Round 3: the
+   * writer wrote it only when the writer edited it (a writer_asserted item
+   * the writer did not edit is the product's wording, its quotes failed or
+   * marked), and the wording its evidence quotes do not back, when a quote
+   * was marked.
    */
-  planItemSources: Array<{ wording: string[]; writer: boolean; quotes: string[] }>;
+  planItemSources: Array<{ wording: string[]; writer: boolean; quotes: string[]; unbacked?: string[] }>;
 }> {
   if (!generation.summaryVersionId) {
     return {
@@ -1139,7 +1143,7 @@ export async function loadFrozenSectionPlan(
   const referencesBySeedId = new Map(
     items.map((item) => [item.seedId, item.bullets] as const)
   );
-  const { sourceRefsByItemId, quotesLeftOut } = await loadSummarySourceRefs(ctx, generation, items);
+  const { sourceRefsByItemId, quotesLeftOut, unbackedByItemId } = await loadSummarySourceRefs(ctx, generation, items);
   const pdSection = section === "242" ? "s242" : section === "244" ? "s244" : "s246";
   // 2026-09-30 (first, Rule B): Line 242's signed-off plan items, whole, then
   // its drafted text, clipped alone (Greptile P1); before it is drafted, the
@@ -1256,8 +1260,9 @@ export async function loadFrozenSectionPlan(
       .filter((item) => !summary.skippedRoleIds.includes(item.roleId))
       .map((item) => ({
         wording: [...item.bullets],
-        writer: item.support === "writer_asserted",
+        writer: item.edited === true,
         quotes: (sourceRefsByItemId.get(item._id) ?? []).map((reference) => reference.exactExcerpt),
+        ...(unbackedByItemId.has(item._id) ? { unbacked: unbackedByItemId.get(item._id)! } : {}),
       })),
     planBlock: `\n\n${plan.block}`,
     planChecksBlock: plan.checksBlock,
@@ -1397,6 +1402,9 @@ export async function loadSummarySourceRefs(
   items: ReadonlyArray<{
     _id: Id<"summaryItems">;
     seedId: Id<"seeds">;
+    /** The signed-off wording, to find what its evidence quotes do not back. */
+    bullets?: readonly string[];
+    edited?: boolean;
   }>
 ) {
   const result = new Map<
@@ -1406,6 +1414,9 @@ export async function loadSummarySourceRefs(
   // 2026-09-27 (third): a quote marked for a check may not back its item,
   // so it is never drafting evidence; the item's wording still is.
   const quotesLeftOut = new Map<Id<"summaryItems">, number>();
+  // 2026-10-04 (second, round 3): the wording of an item the writer did not
+  // edit that none of its evidence quotes backs, when a quote was marked.
+  const unbackedByItemId = new Map<Id<"summaryItems">, string[]>();
   for (const item of items) {
     const rows = await ctx.db.query("seedProvenance")
       .withIndex("by_seedId", (q) => q.eq("seedId", item.seedId))
@@ -1415,6 +1426,10 @@ export async function loadSummarySourceRefs(
     }
     const marked = rows.filter((row) => row.needsQuoteCheck === true).length;
     if (marked > 0) quotesLeftOut.set(item._id, marked);
+    if (item.bullets && item.edited !== true) {
+      const unbacked = unbackedBullets(item.bullets, rows);
+      if (unbacked.length > 0) unbackedByItemId.set(item._id, unbacked);
+    }
     result.set(item._id, rows.filter((row) => row.needsQuoteCheck !== true).map((row) => {
       if (row.projectId !== generation.projectId) {
         domainError("INVALID_STATE", "Seed provenance belongs to another project");
@@ -1428,5 +1443,5 @@ export async function loadSummarySourceRefs(
       };
     }));
   }
-  return { sourceRefsByItemId: result, quotesLeftOut };
+  return { sourceRefsByItemId: result, quotesLeftOut, unbackedByItemId };
 }

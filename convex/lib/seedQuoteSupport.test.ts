@@ -6,6 +6,7 @@ import {
   quoteCheckIssues,
   quotesExcerpt,
   sharedContentWords,
+  unbackedBullets,
 } from "./seedQuoteSupport";
 
 // Fictional lines modelled on the Northwind live-test transcript (a made-up
@@ -260,5 +261,36 @@ describe("quotes the word check cannot judge are never marked (review P2-3)", ()
     expect(
       quoteCheckIssues([{ bullets: [english], provenance: [{ ...citation("cap"), exactExcerpt: "and so, we did it" }] }], { reuse: true })
     ).toEqual([]);
+  });
+});
+
+describe("unbackedBullets (2026-10-04, second, round 3)", () => {
+  const steel = { exactExcerpt: "Normal powder for steel cures at 160 to 200 C.", needsQuoteCheck: true };
+  const limitation = [
+    "Standard datasheet powder processes are built for flat steel-like panels, not thick routed MDF.",
+    "No prior process showed whether MDF could reach conductivity without heat that triggers outgassing defects.",
+  ];
+  const advancement = [
+    "The team learned that outgassing defects track peak panel surface temperature rather than dwell time on this board.",
+    "Trial 1's datasheet process confirmed that heat built for flat steel panels causes severe outgassing defects on routed MDF edges.",
+  ];
+  const moisture = { exactExcerpt: "The moisture that gives you conductivity is the same moisture that outgasses, so we didn't know if there was any setting that did both." };
+  const peak = { exactExcerpt: "And that on our board the pinholes track the peak board temperature, not the time." };
+
+  it("names the sentence of each run 6 Seed that only its marked steel quote stood behind", () => {
+    expect(unbackedBullets(limitation, [moisture, steel])).toEqual([limitation[0]]);
+    expect(unbackedBullets(advancement, [peak, steel])).toEqual([advancement[1]]);
+    // Every sentence when every quote is marked.
+    expect(unbackedBullets(advancement, [steel])).toEqual(advancement);
+  });
+
+  it("names nothing for a Seed with no marked quote, even a sentence no quote backs", () => {
+    expect(unbackedBullets(limitation, [moisture])).toEqual([]);
+    expect(unbackedBullets(limitation, [])).toEqual([]);
+  });
+
+  it("never names a sentence beside a quote the word check cannot judge", () => {
+    const french = { exactExcerpt: "Nous testons les capteurs sur les mâts et les tours." };
+    expect(unbackedBullets(["The sensors were tested on masts and towers."], [french, steel])).toEqual([]);
   });
 });
