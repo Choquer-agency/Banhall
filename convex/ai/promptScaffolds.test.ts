@@ -571,10 +571,10 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       factsFindings: "verified-quotes-only-shown-and-repaired-unverified-not-checked-source-documents-within-budget",
       factsFindingsSchema: SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
       factsCapacity: {
-        maxFindings: 3,
+        maxFindings: 2,
         draftQuoteBytes: 128,
-        sourceQuoteBytes: 240,
-        correctionBytes: 128,
+        sourceQuoteBytes: 160,
+        correctionBytes: 120,
         sourceDocumentsBytes: 48_000,
       },
     });

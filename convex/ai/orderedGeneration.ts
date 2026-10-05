@@ -108,6 +108,7 @@ import {
 import { generationPromptVersion } from "./promptProgram";
 import {
   FACTS_MATCH_SOURCES_RULE_ID,
+  type FactsSourceDocuments,
   MAX_DROPPED_UNCERTAINTY_CHECKS,
   sameSummaryPlanRef,
   type FrozenSummaryPlanInstruction,
@@ -467,8 +468,14 @@ export const TARGETS_INSTRUCTION =
  * 2026-10-04 (second, round 2): how a facts row says the source documents
  * were over the check's budget, so it read the quotes and the analysis.
  */
-export function factsDocumentsLeftOutNote(budget: number): string {
-  return `(The source documents were over this check's ${budget}-byte budget, so it read the signed-off items' quotes and the analysis instead.)`;
+export function factsDocumentsLeftOutNote(documents: FactsSourceDocuments): string {
+  if (documents.leftOut.length === 0) {
+    return "(No source document was frozen for this check, so it read the signed-off items' quotes and the analysis.)";
+  }
+  // Round 2 review, P2-4: each document left out is named.
+  return `(Over this check's ${documents.budget}-byte budget it did not read ${documents.leftOut
+    .map((document) => `${document.label} (${document.bytes} bytes)`)
+    .join(", ")}, so it let the signed-off items, their quotes and the analysis stand for them.)`;
 }
 
 /** 2026-10-04 (second): the Compliance Note instruction for the facts check. */
@@ -1233,6 +1240,8 @@ export async function draftCheckedSection(input: {
     ? sourceFactsFor({
         analysis,
         storylineText: brief?.storylineText ?? "",
+        // Round 2 review, P2-3: the writer's Storyline is the writer's wording.
+        ...(brief?.storylineByWriter ? { storylineByWriter: true } : {}),
         confidenceMap: brief?.confidenceMap ?? [],
         planItems: claim.planItemSources ?? planWording.map((wording) => ({ wording })),
         ...(claim.factsSourceDocuments ? { documents: claim.factsSourceDocuments } : {}),
@@ -1708,13 +1717,13 @@ export async function draftCheckedSection(input: {
       summaryVersionId: payload.summaryVersionId,
       dropped: claim.droppedNotChecked ?? [],
     }));
-    // 2026-10-04 (second, round 2): when the source documents were over the
-    // facts check's budget, its row says what it read instead.
+    // 2026-10-04 (second, round 2): when not every source document was
+    // read, the facts check's row says which and what stood for them.
     const documents = claim.factsSourceDocuments;
-    if (sourceFacts && documents && !documents.included) {
+    if (sourceFacts && documents && !sourceFacts.documentsComplete) {
       planRows = planRows.map((row) =>
         row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID
-          ? { ...row, reason: `${row.reason} ${factsDocumentsLeftOutNote(documents.budget)}` }
+          ? { ...row, reason: `${row.reason} ${factsDocumentsLeftOutNote(documents)}` }
           : row);
     }
     rows.push(...planRows);

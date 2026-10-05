@@ -300,11 +300,12 @@ const TRIAL_SUMMARY = [
   "| All | 600 | 0.9 | 4 percent |",
 ].join("\n");
 const DOCUMENTS: SourceDocuments = {
-  included: true,
   documents: [
-    { label: "Interview with Mireille Strand and Tobias Achterberg", content: INTERVIEW },
-    { label: "powder-on-mdf-trial-summary.md", content: TRIAL_SUMMARY },
+    { label: "INTERVIEW TRANSCRIPT: Interview with Mireille Strand and Tobias Achterberg", content: INTERVIEW },
+    { label: "SCOPING NOTES: powder-on-mdf-trial-summary.md", content: TRIAL_SUMMARY },
   ],
+  leftOut: [],
+  budget: 48_000,
 };
 /** Every Line's signed-off items, product-written, with their own quotes. */
 const PLAN_ITEM_SOURCES = [
@@ -394,8 +395,8 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     const check = sent[1]!.user;
     expect(check.split(SOURCE_FACTS_BLOCK)).toHaveLength(2);
     expect(check).toContain(`--- END [CONTENT PLAN CHECKS] ---\n\n${SOURCE_FACTS_BLOCK}`);
-    expect(SOURCE_FACTS.body.startsWith(`Source documents (the client's own words):\n--- Interview with Mireille Strand and Tobias Achterberg ---\n${INTERVIEW}`)).toBe(true);
-    expect(SOURCE_FACTS.body).toContain(`--- powder-on-mdf-trial-summary.md ---\n${TRIAL_SUMMARY}`);
+    expect(SOURCE_FACTS.body.startsWith(`Source documents:\n[INTERVIEW TRANSCRIPT: Interview with Mireille Strand and Tobias Achterberg]\n${INTERVIEW}`)).toBe(true);
+    expect(SOURCE_FACTS.body).toContain(`[SCOPING NOTES: powder-on-mdf-trial-summary.md]\n${TRIAL_SUMMARY}`);
     expect(SOURCE_FACTS.body).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.productHeading);
     expect(SOURCE_FACTS.body).toContain(`- [the product's wording] ${TRIAL_1} Quotes: "That the datasheet number is for flat panels."`);
     expect(check.split(factsMatchSourcesInstruction(true))).toHaveLength(2);
@@ -466,19 +467,16 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     expect(factsRow(result)).toMatchObject({ outcome: "applied", reason: "Figures and details match the sources.", repaired: false });
   });
 
-  it("run 4: an unevidenced or unlocated facts finding, and the 2 C one, are not checked in the model's own words and never repaired", async () => {
+  it("run 4: an unevidenced, a short-quoted or an unlocated facts finding is not checked in the model's own words and never repaired", async () => {
     // Run 4's Line 244 row: the same fact in other words, sent with no evidence.
     const twoC = `${DRAFT_244}\n\nTrial 2 lowered the cure air to 125 C. Raising air temperature by 2 C pushed defects back up to 9 per square metre.`;
     const run4Reason = "P3 attributes defect rise to 2 C increase, sources say to 127 C.";
     const run4 = { ruleId: FACTS_MATCH_SOURCES_RULE_ID, mergedItemIds: [], paragraph: 3, outcome: "not_applied", reason: run4Reason };
-    // The same, with quotes that do not verify: the draft never says "to 127 C".
-    const run4Quoted = {
-      ...run4,
-      findings: [{ paragraph: 3, draftQuote: "Raising air temperature by 2 C pushed defects back up to 127 C", sourceQuote: "we nudged the air up 2 C, to 127 C", correction: "to 127 C" }],
-    };
+    // Round 2 review, P2-2: quotes shorter than a clause never verify.
+    const run4Short = { ...run4, findings: [{ draftQuote: "by 2 C", sourceQuote: "127 C", correction: "to 127 C" }] };
     // Run 4's Line 246 row: no valid paragraph and no evidence.
     const unlocated = { ruleId: FACTS_MATCH_SOURCES_RULE_ID, mergedItemIds: [], paragraph: 0, outcome: "not_applied", reason: "A detail does not match the sources." };
-    for (const [verdict, words] of [[run4, run4Reason], [run4Quoted, run4Reason], [unlocated, unlocated.reason]] as const) {
+    for (const [verdict, words] of [[run4, run4Reason], [run4Short, run4Reason], [unlocated, unlocated.reason]] as const) {
       const sent = installFetch({
         draft: twoC,
         checks: [{ verdicts: ordinary, planVerdicts: [...covered, verdict, targetsMet] }],
@@ -487,10 +485,32 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
       expect(factsRow(result)).toMatchObject({ outcome: "not_applied", reason: factsNotCheckedReason(words), repaired: false });
     }
-    // The rule asks the check to confirm the source words differ first.
-    const sent = installFetch({ draft: twoC, checks: [{ verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] }] });
-    await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
+  });
+
+  it("the same fact in other words with quotes that verify is shown and repaired: telling it apart is the prompt's job, not the code's", async () => {
+    // Both quotes are real: the draft's words and the interview's. The code
+    // cannot tell "by 2 C" from "up 2 C, to 127 C" apart as the same fact, so
+    // only the rule, sent in every request, keeps the check from flagging it.
+    const twoC = `${DRAFT_244}\n\nTrial 2 lowered the cure air to 125 C. Raising air temperature by 2 C pushed defects back up to 9 per square metre.`;
+    const sameFact = {
+      ruleId: FACTS_MATCH_SOURCES_RULE_ID,
+      mergedItemIds: [],
+      paragraph: 3,
+      outcome: "not_applied",
+      reason: "P3 attributes the rise to 2 C; sources say to 127 C",
+      findings: [{ draftQuote: "Raising air temperature by 2 C pushed defects back up", sourceQuote: "Then we nudged the air up 2 C, to 127 C", correction: "to 127 C" }],
+    };
+    const sent = installFetch({
+      draft: twoC,
+      checks: [{ verdicts: ordinary, planVerdicts: [...covered, sameFact, targetsMet] }],
+    });
+    const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
     expect(sent[1]!.user).toContain('the same fact in other words is not a finding (warming "by 5 C" and warming "5 C, to 65 C" agree)');
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
+    expect(factsRow(result)).toMatchObject({
+      outcome: "not_applied",
+      reason: 'P3 says "Raising air temperature by 2 C pushed defects back up", but the sources say "Then we nudged the air up 2 C, to 127 C".',
+    });
   });
 
   it("records a missing facts verdict as not checked after a follow-up that carries the sources again", async () => {
@@ -631,21 +651,73 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     expect(factsRow(result)).toMatchObject({ outcome: "applied", repaired: true });
   });
 
-  it("round 2: over the budget, the check reads the quotes and the analysis, and its row says so", async () => {
-    const leftOut: SourceDocuments = { included: false, bytes: 61_234, budget: 48_000 };
+  it("round 2 review, P2-4: a document over the budget is left out and named, the analysis and items stand for it, and the row says so", async () => {
+    const leftOut: SourceDocuments = {
+      documents: [{ label: "SCOPING NOTES: powder-on-mdf-trial-summary.md", content: TRIAL_SUMMARY }],
+      leftOut: [{ label: "INTERVIEW TRANSCRIPT: Interview with Mireille Strand and Tobias Achterberg", bytes: 61_234 }],
+      budget: 48_000,
+    };
     const sent = installFetch({
       draft: FAITHFUL_244,
       checks: [{ verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] }],
     });
     const result = await draft(claimFor(plan244(), { planItemSources: PLAN_ITEM_SOURCES, factsSourceDocuments: leftOut }), SUMMARY_VERSION);
     const check = sent[1]!.user;
-    expect(check).toContain("--- BEGIN [SOURCE FACTS] ---\nSource documents: not included (61234 bytes, over the 48000-byte budget for this check).");
+    expect(check).toContain(`--- BEGIN [SOURCE FACTS] ---\nSource documents:\n[SCOPING NOTES: powder-on-mdf-trial-summary.md]\n${TRIAL_SUMMARY}\n\nSource documents left out, over this check's 48000-byte budget: INTERVIEW TRANSCRIPT: Interview with Mireille Strand and Tobias Achterberg (61234 bytes).`);
     expect(check).toContain(factsMatchSourcesInstruction(false));
     expect(check).not.toContain(INTERVIEW);
     expect(factsRow(result)).toMatchObject({
       outcome: "applied",
-      reason: `Figures and details match the sources. ${factsDocumentsLeftOutNote(48_000)}`,
+      reason: `Figures and details match the sources. ${factsDocumentsLeftOutNote(leftOut)}`,
     });
+    expect(factsDocumentsLeftOutNote(leftOut)).toBe(
+      "(Over this check's 48000-byte budget it did not read INTERVIEW TRANSCRIPT: Interview with Mireille Strand and Tobias Achterberg (61234 bytes), so it let the signed-off items, their quotes and the analysis stand for them.)"
+    );
+  });
+});
+
+describe("round 2 review, P2-3: with every document in, only source wording can back a finding (real SDK, fetch stubbed)", () => {
+  it("never verifies a finding that quotes the product's own wording against a right sentence", async () => {
+    // A product-written item carries the merged detail; the draft is right.
+    const merged = "Datasheets were developed for flat steel-style panels.";
+    const items = [...PLAN_ITEM_SOURCES, { wording: [merged], writer: false, quotes: [] }];
+    const right = DRAFT_244.replace("developed for flat steel panels", "developed for flat panels");
+    const wrongWay = {
+      ...factsWrong,
+      reason: "P1 drops steel-style",
+      findings: [{ draftQuote: "developed for flat panels, did not transfer", sourceQuote: "developed for flat steel-style panels", correction: "flat steel-style panels" }],
+    };
+    const sent = installFetch({ draft: right, checks: [{ verdicts: ordinary, planVerdicts: [...covered, wrongWay, targetsMet] }] });
+    const result = await draft(claimFor(plan244(), { planItemSources: items, factsSourceDocuments: DOCUMENTS }), SUMMARY_VERSION);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
+    expect(factsRow(result)).toMatchObject({ outcome: "not_applied", reason: factsNotCheckedReason("P1 drops steel-style"), repaired: false });
+  });
+});
+
+describe("round 2 review, P2-4: while a document is left out, a finding on a signed-off item's own words is held (real SDK, fetch stubbed)", () => {
+  it("shows the finding on the row and never repairs it", async () => {
+    const partial: SourceDocuments = {
+      documents: [{ label: "SCOPING NOTES: powder-on-mdf-trial-summary.md", content: TRIAL_SUMMARY }],
+      leftOut: [{ label: "INTERVIEW TRANSCRIPT: Interview with Mireille Strand and Tobias Achterberg", bytes: 61_234 }],
+      budget: 48_000,
+    };
+    const withItem = DRAFT_244.replace(
+      "Trial 1 ran the supplier's datasheet process on the routed MDF panels, preheating to 110 C and curing at 135 C air.",
+      TRIAL_1
+    );
+    const onItem = {
+      ...factsWrong,
+      reason: "P1 calls Trial 1 the datasheet settings",
+      findings: [{ draftQuote: "used the supplier's datasheet preheat and cure settings", sourceQuote: "| Deep cove | 180 | 1.1 | 13 percent |", correction: "x" }],
+    };
+    const sent = installFetch({ draft: withItem, checks: [{ verdicts: ordinary, planVerdicts: [...covered, onItem, targetsMet] }] });
+    const result = await draft(claimFor(plan244(), { planItemSources: PLAN_ITEM_SOURCES, factsSourceDocuments: partial }), SUMMARY_VERSION);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
+    const row = factsRow(result) as { outcome: string; reason: string; repaired: boolean } | undefined;
+    expect(row).toMatchObject({ outcome: "not_applied", repaired: false });
+    expect(row?.reason.startsWith(
+      'Not repaired, since a signed-off item gives these words and not every source document could be read: P1 says "used the supplier\'s datasheet preheat and cure settings"'
+    )).toBe(true);
   });
 });
 
@@ -736,7 +808,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
     });
   });
 
-  it("up to three verified findings all reach the one repair and the row", async () => {
+  it("up to two verified findings reach the one repair and the row, and a third is not read (round 2 review, P3-1)", async () => {
     const withCause = DRAFT_244.replace("on 4 percent of its panels.", "on 4 percent of its panels, caused by the shielding of the concave cove.");
     const repaired = REPAIRED_244.replace("4 percent of all 600 pilot panels.", "4 percent of all 600 pilot panels; the shielding of the concave cove is suspected.");
     const CAUSE = {
@@ -755,9 +827,10 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION, { writerFlavor: WRITER_FLAVOR });
-    const verified = [verifiedOf(STEEL, 0), verifiedOf(SCOPE, 1), verifiedOf(CAUSE, 1)];
+    const verified = [verifiedOf(STEEL, 0), verifiedOf(SCOPE, 1)];
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
     expect(sent[2]!.user).toContain(`- Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${factsRepairText(verified)}`);
+    expect(sent[2]!.user).not.toContain(`the section says "${CAUSE.draftQuote}"`);
     // The check of the final text has no WRITER INSTRUCTIONS block, but its
     // SOURCE FACTS still hold the writer's instructions.
     expect(sent[3]!.user).not.toContain("[WRITER INSTRUCTIONS]");

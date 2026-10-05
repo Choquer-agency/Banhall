@@ -16,6 +16,14 @@ import { requireSeedInitialization } from "./seedGuards";
 import { requireDraftingInputsReady, startDraftingInputsHandler } from "./draftingInputs";
 import { domainError } from "../contracts";
 import {
+  ANALYZER_CATEGORY_LABELS,
+  CONTEXT_SCAFFOLDS,
+  effectiveCategory,
+  neutralizeMarkers,
+  sanitizeFileName,
+  type ContextDocCategory,
+} from "../../ai/trustedContext";
+import {
   briefWithoutExcludedQuotes,
   reusableBriefForGeneration,
   readBriefEntryRowsBounded,
@@ -41,6 +49,8 @@ import {
   line242PlanItems,
   line246PlanItems,
   SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES,
+  type FactsSourceDocument,
+  type FactsSourceDocuments,
   type FrozenDroppedUncertainty,
   type FrozenSummaryPlanInstruction,
   type SummaryPlanRuleId,
@@ -1275,30 +1285,63 @@ export async function loadFrozenSectionPlan(
 /**
  * 2026-10-04 (second, round 2, owner approved 2026-10-05): the frozen source
  * documents (transcripts and project documents, in the order frozen) the
- * facts check reads in full, when together they fit
- * SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES; otherwise none, with the bytes read
- * before the budget ran out. Reading stops there, so a claim reads at most
- * the budget and one row more.
+ * facts check reads in full. Round 2 review: each document is marker-safe
+ * before it is counted (P2-1: its text through neutralizeMarkers, its file
+ * name through sanitizeFileName, and a writer_notes label an internal user
+ * did not upload demoted, as the analyzer's context does), and each one that
+ * still fits SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES, in order, is included while
+ * any that does not is left out and named with its size (P2-4). It reads
+ * every row of the generation's sources once (other kinds are read, not
+ * counted), as the generation input query does.
  */
 export async function loadFactsSourceDocuments(
   ctx: { db: QueryCtx["db"] },
   generation: Doc<"generations">
-): Promise<
-  | { included: true; documents: Array<{ label: string; content: string }> }
-  | { included: false; bytes: number; budget: number }
-> {
+): Promise<FactsSourceDocuments> {
   const budget = SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES;
-  const documents: Array<{ label: string; content: string }> = [];
-  let bytes = 0;
+  const documents: FactsSourceDocument[] = [];
+  const leftOut: FactsSourceDocuments["leftOut"] = [];
+  let used = 0;
   for await (const row of ctx.db
     .query("generationSources")
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))) {
     if (row.kind !== "transcript" && row.kind !== "project_document") continue;
-    bytes += new TextEncoder().encode(row.content).byteLength;
-    if (bytes > budget) return { included: false, bytes, budget };
-    documents.push({ label: row.label, content: row.content });
+    const document = factsSourceDocumentOf(row);
+    const bytes = new TextEncoder().encode(document.content).byteLength;
+    if (used + bytes > budget) {
+      leftOut.push({ label: document.label, bytes });
+      continue;
+    }
+    used += bytes;
+    documents.push(document);
   }
-  return { included: true, documents };
+  return { documents, leftOut, budget };
+}
+
+/** One frozen transcript or project document, marker-safe, as the facts check reads it. */
+export function factsSourceDocumentOf(
+  row: Pick<Doc<"generationSources">, "kind" | "label" | "content" | "uploaderRole">
+): FactsSourceDocument {
+  const content = neutralizeMarkers(row.content);
+  if (row.kind === "transcript") {
+    return { label: `${CONTEXT_SCAFFOLDS.transcriptLabel}: ${sanitizeFileName(row.label)}`, content };
+  }
+  // A project document's label is "<category>:<file name>" (generation input).
+  const separator = row.label.indexOf(":");
+  const named = separator >= 0 ? row.label.slice(0, separator) : "other";
+  const category: ContextDocCategory = named in ANALYZER_CATEGORY_LABELS ? named as ContextDocCategory : "other";
+  const fileName = separator >= 0 ? row.label.slice(separator + 1) : row.label;
+  const shown = effectiveCategory({
+    category,
+    fileName,
+    content: row.content,
+    ...(row.uploaderRole ? { uploaderRole: row.uploaderRole } : {}),
+  });
+  return {
+    label: `${ANALYZER_CATEGORY_LABELS[shown]}: ${sanitizeFileName(fileName)}`,
+    content,
+    ...(shown === "writer_notes" ? { writer: true } : {}),
+  };
 }
 
 /**

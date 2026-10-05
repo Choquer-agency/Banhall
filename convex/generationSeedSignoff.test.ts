@@ -867,15 +867,15 @@ function literalSummaryResponseOracle(args: {
         })
       : check.ruleId
         ? JSON.stringify({
-            // 2026-10-04 (second, round 2): the facts verdict reserves three
-            // findings, each with its two quotes and correction at their limits.
+            // 2026-10-04 (second, round 2 and its review): the facts verdict
+            // reserves two findings, each with its two quotes and correction
+            // at their limits, and no repairGuidance.
             ...(check.ruleId === "facts_match_sources"
               ? {
-                  findings: Array.from({ length: 3 }, () => ({
-                    correction: "c".repeat(128),
+                  findings: Array.from({ length: 2 }, () => ({
+                    correction: "c".repeat(120),
                     draftQuote: "d".repeat(128),
-                    paragraph,
-                    sourceQuote: "s".repeat(240),
+                    sourceQuote: "s".repeat(160),
                   })),
                 }
               : {}),
@@ -883,7 +883,7 @@ function literalSummaryResponseOracle(args: {
             outcome: "not_applied",
             paragraph,
             reason,
-            repairGuidance,
+            ...(check.ruleId === "facts_match_sources" ? {} : { repairGuidance }),
             ruleId: check.ruleId,
           })
         : JSON.stringify({
@@ -2889,14 +2889,16 @@ describe("seed Summary sign-off and recovery", () => {
     } as const;
     const accepted = await decisionFixture();
     await makeReady(accepted, selectedShape);
-    // 2026-10-04 (second, round 2): Line 242's facts verdict, with three
-    // findings at their limits, is 2,014 bytes with its comma. Six
-    // confidence labels (293 each), two Glossary labels (291) and 13 rule
-    // labels (9 of 287, 4 of 288) keep the response at exactly 16,384 bytes.
+    // 2026-10-04 (second, round 2 review): Line 242's facts verdict, with
+    // two findings at their limits, is 1,106 bytes with its comma. Nine
+    // confidence labels (293 each), ten Glossary labels (nine of 291, one of
+    // 292) and five rule labels (287) keep the response at exactly 16,384
+    // bytes, and swapping the ninth confidence label (293) for the writer
+    // label (294) still adds exactly one byte.
     await configureS242Ordinary(accepted, {
-      additionalConfidence: 5,
-      glossaryTerms: 2,
-      rules: 13,
+      additionalConfidence: 8,
+      glossaryTerms: 10,
+      rules: 5,
     });
     const acceptedPersistedShape = await persistedFrozenPlanShape(accepted);
     const acceptedBefore = await signoffWriteFootprint(accepted);
@@ -2937,11 +2939,11 @@ describe("seed Summary sign-off and recovery", () => {
       .toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1);
     const acceptedLabels = [
       "storyline",
-      ...Array.from({ length: 6 }, (_, index) => `confidence:C${index + 1}`),
-      ...Array.from({ length: 2 }, (_, index) => `glossary:G${index + 1}`),
-      ...Array.from({ length: 13 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 9 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 10 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 5 }, (_, index) => `rule:R${index + 1}`),
     ];
-    expect(acceptedLabels).toHaveLength(22);
+    expect(acceptedLabels).toHaveLength(25);
     const acceptedOracle = literalSummaryResponseOracle({
       ordinaryLabels: acceptedLabels,
       planChecks: checks,
@@ -2984,10 +2986,10 @@ describe("seed Summary sign-off and recovery", () => {
     // adds exactly one byte and keeps the plan and ordinary count fixed.
     const refusedLabels = [
       "storyline",
-      ...Array.from({ length: 5 }, (_, index) => `confidence:C${index + 1}`),
-      ...Array.from({ length: 2 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 8 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 10 }, (_, index) => `glossary:G${index + 1}`),
       "writer:profile",
-      ...Array.from({ length: 13 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 5 }, (_, index) => `rule:R${index + 1}`),
     ];
     expect(refusedLabels).toHaveLength(acceptedLabels.length);
     const refusedOracle = literalSummaryResponseOracle({
@@ -3010,10 +3012,10 @@ describe("seed Summary sign-off and recovery", () => {
     const refused = await decisionFixture();
     await makeReady(refused, selectedShape);
     await configureS242Ordinary(refused, {
-      additionalConfidence: 4,
-      glossaryTerms: 2,
+      additionalConfidence: 7,
+      glossaryTerms: 10,
       writerFlavor: "Profile",
-      rules: 13,
+      rules: 5,
     });
     const refusedPersistedShape = await persistedFrozenPlanShape(refused);
     expect(refusedPersistedShape).toEqual(acceptedPersistedShape);
@@ -3079,9 +3081,9 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(await projectedFixtureOutputEnvelope(accepted, "242", checks))
       .toBe(acceptedOracle);
-    // 2026-10-04 (second, round 2): 2,014 bytes more than 8,150 for Line
-    // 242's facts verdict and its three findings.
-    expect(utf8Bytes(acceptedOracle)).toBe(10_164);
+    // 2026-10-04 (second, round 2 review): 1,106 bytes more than 8,150 for
+    // Line 242's facts verdict and its two findings.
+    expect(utf8Bytes(acceptedOracle)).toBe(9_256);
     // The previous 4,096-byte limit refused this ordinary Brief.
     expect(utf8Bytes(acceptedOracle)).toBeGreaterThan(4_096);
     expect(utf8Bytes(acceptedOracle)).toBeLessThanOrEqual(
@@ -3146,7 +3148,7 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(await projectedFixtureOutputEnvelope(refused, "242", refusedChecks))
       .toBe(refusedOracle);
-    expect(utf8Bytes(refusedOracle)).toBe(18_898);
+    expect(utf8Bytes(refusedOracle)).toBe(17_990);
     expect(utf8Bytes(refusedOracle)).toBeGreaterThan(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
@@ -3236,15 +3238,16 @@ describe("seed Summary sign-off and recovery", () => {
     // verdict (Rule C). Re-pinned again (third): the targets verdict comes
     // before it. Re-pinned 2026-10-04 (second): the facts verdict comes
     // before the targets verdict; re-pinned again for its longer guidance
-    // (review round 1, P2-2), and again for its three findings (round 2).
+    // (review round 1, P2-2), again for its three findings (round 2), and
+    // again for its halved reservation (round 2 review, P3-1).
     // It still equals the independent oracle above, which
     // frozenS244OracleChecks and literalSummaryResponseOracle extend the
     // same way.
     expect(replayHashes).toEqual({
-      restored: "173597ea3c014b80f1b6471d2ab0dbf6b1ec52043303aa446698df5d79d93b98",
-      omit_storyline: "72a8f9eb7fe77ab1dc9d4c56803cbc01c26660c1ca7e1293b28db0995e6929c0",
-      omit_repeated_merge: "67d1e35ee3002766567e5f5350c8132d51d7c75fb0bc06ff35a723b93c818cc2",
-      short_reason: "0f9592f125c26630444a8c9da69df9d59426143e9617e1415d0ffe7ad94a6269",
+      restored: "a9219e78f278dfedc606830e7b68aeb8406fc719436574df9ee82dfc99b94e83",
+      omit_storyline: "152e943e68655f7d8e4aae42bf80840f84f086b20c3a8e168288ae60f1d43431",
+      omit_repeated_merge: "d54331549ba4c3cc88d284c0e33570276fc474f8d0ffbf8097e3e15061da9677",
+      short_reason: "36ddab49c1a9d0f2d4a8ebfdcc471b6766b2f1adea921a5b320c76d962087c7a",
     });
   });
 

@@ -1018,18 +1018,23 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
    */
   factsMatchSources: {
     blockLabel: "SOURCE FACTS",
-    // Round 2 (owner approved 2026-10-05): the client's own words first, when
-    // they fit SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES, then the product's own
+    // Round 2 (owner approved 2026-10-05): the source documents first, each
+    // that fits SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES, then the product's own
     // wording, which can point to a fact but proves no specific detail alone.
-    documentsHeading: "Source documents (the client's own words):",
-    documentPrefix: "\n--- ",
-    documentSuffix: " ---\n",
-    documentsLeftOutPrefix: "Source documents: not included (",
-    documentsLeftOutMiddle: " bytes, over the ",
-    documentsLeftOutSuffix: "-byte budget for this check).",
+    // Round 2 review: plain "source documents" (P3-4), each one that does
+    // not fit named with its size (P2-4), and none at all said so (P3-3).
+    documentsHeading: "Source documents:",
+    documentPrefix: "\n[",
+    documentSuffix: "]\n",
+    documentsLeftOutPrefix: "Source documents left out, over this check's ",
+    documentsLeftOutMiddle: "-byte budget: ",
+    documentsLeftOutSeparator: "; ",
+    documentsLeftOutSuffix: ".",
+    documentsNone: "Source documents: none.",
     productHeading: "The product's own wording (it can point to a fact but proves no specific detail on its own):",
     analysisHeading: "Transcript analysis:\n",
     storylineHeading: "Storyline:\n",
+    writerStorylineHeading: "Storyline (the writer's wording):\n",
     confidenceHeading: "Confidence Map:",
     confidencePrefix: "\n- (",
     confidenceMiddle: ") ",
@@ -1047,17 +1052,17 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     writerItemPrefix: "\n- ",
     partSeparator: "\n\n",
     findingsDescription:
-      "facts_match_sources only, when not_applied: one entry per finding, at most three. paragraph is the 1-based [P#] that holds draftQuote; draftQuote copies the section's words at issue exactly; sourceQuote copies the source words that differ exactly, from the SOURCE FACTS block or a quote; correction gives the figure or detail as the sources give it. A finding whose quotes cannot be found is not shown and not repaired.",
+      "facts_match_sources only, when not_applied: one entry per finding, at most two. draftQuote copies the section's words at issue exactly; sourceQuote copies the source words that differ exactly; each is a whole clause of at least 8 characters. correction gives the figure or detail as the sources give it. A finding whose quotes cannot be found is not shown and not repaired.",
     // The opening, then one of the two sentences on the source documents,
     // then the rest (composed by factsMatchSourcesInstruction).
     instructionIntro:
       "\n\nThe plan check with ruleId facts_match_sources asks whether each figure and each specific detail in the section is stated as the sources give it.",
     documentsIncluded:
-      " The SOURCE FACTS block holds the source documents, the client's own words, and then the product's own wording: the transcript analysis, the Storyline, the Confidence Map and every Line's signed-off items, each marked as the writer's or the product's wording and with its quotes. The product's own wording can point to a fact but cannot by itself support a specific detail (a material, place, party, product, or the group a figure belongs to). Such a detail is supported only by the source documents, a quote, or wording the writer typed: an item marked as the writer's wording, the writer's exact terms, the writer's instructions or the writer's Feedback.",
+      " The SOURCE FACTS block holds every source document, and then the product's own wording: the transcript analysis, the Storyline, the Confidence Map and every Line's signed-off items, each marked as the writer's or the product's wording and with its quotes. The product's own wording can point to a fact but cannot by itself support a specific detail (a material, place, party, product, or the group a figure belongs to). Such a detail is supported only by the source documents, a quote, or wording the writer typed: an item marked as the writer's wording, the writer's exact terms, the writer's instructions or the writer's Feedback.",
     documentsLeftOut:
-      " The source documents were too long to include, so the SOURCE FACTS block holds the product's own wording: the transcript analysis, the Storyline, the Confidence Map and every Line's signed-off items, each marked as the writer's or the product's wording and with its quotes. Here the transcript analysis stands for the sources: a detail it gives, a quote gives, or the writer typed (an item marked as the writer's wording, the writer's exact terms, the writer's instructions or the writer's Feedback) is supported.",
+      " Not every source document is in the SOURCE FACTS block: it holds the ones that fit this check's budget, names any it left out, and then the product's own wording: the transcript analysis, the Storyline, the Confidence Map and every Line's signed-off items, each marked as the writer's or the product's wording and with its quotes. Because you cannot read every source, the transcript analysis and every signed-off item stand for the sources here: a detail they give, a quote gives, or the writer typed (an item marked as the writer's wording, the writer's exact terms, the writer's instructions or the writer's Feedback) is supported. Flag only what a source document or a quote you have contradicts.",
     instructionRest:
-      ` A figure or detail is supported only as the source gives it, for the same thing. The writer's exact terms are the writer's own wording: never object to such a term itself, only to a figure or detail the section states with it. No fabrication is a Locked Rule and outranks the signed-off plan: a signed-off item the product wrote can still state a detail the sources do not give. Flag it like any other, and the item still counts as covered when the section states it without that detail. ${FACT_RULES.scope} ${FACT_RULES.detail} ${FACT_RULES.cause} ${FACT_RULES.hedge} ${FACT_RULES.proportion} Judge it not applied when the section gives a figure for another group, test, unit, condition or denominator than the sources give it, adds a specific detail (a material, place, person, organization, product, supplier, date or number) that the sources do not give or give for another thing, states as confirmed a cause the sources give as suspected, expected or open, states as firm what the sources give only as a hedge, states as the whole case what the sources give only as an example, or states a proportion stronger or weaker than the sources give it. Before you flag anything, confirm that the source words you quote say something different from the section: the same fact in other words is not a finding (warming "by 5 C" and warming "5 C, to 65 C" agree). For each finding, at most three, add an entry to findings with its paragraph, draftQuote (the section's words at issue, copied exactly), sourceQuote (the source words that differ, copied exactly) and correction (the figure or detail as the sources give it). Set paragraph to the first finding's paragraph and say in the reason what is wrong in plain words. A finding whose quotes cannot be found in the section and in what you were given is never shown and never repaired. Judge it applied, with paragraph 0 and no findings, when every figure and detail matches the sources. ${FACT_RULES.allowed} So are a summary of several facts, a general technical explanation and a Glossary Term for something the sources describe. Never fail a figure or detail only because the sources word it another way.`,
+      ` A figure or detail is supported only as the source gives it, for the same thing. The writer's exact terms are the writer's own wording: never object to such a term itself, only to a figure or detail the section states with it. No fabrication is a Locked Rule and outranks the signed-off plan: a signed-off item the product wrote can still state a detail the sources do not give. Flag it like any other, and the item still counts as covered when the section states it without that detail. ${FACT_RULES.scope} ${FACT_RULES.detail} ${FACT_RULES.cause} ${FACT_RULES.hedge} ${FACT_RULES.proportion} Judge it not applied when the section gives a figure for another group, test, unit, condition or denominator than the sources give it, adds a specific detail (a material, place, person, organization, product, supplier, date or number) that the sources do not give or give for another thing, states as confirmed a cause the sources give as suspected, expected or open, states as firm what the sources give only as a hedge, states as the whole case what the sources give only as an example, or states a proportion stronger or weaker than the sources give it. Before you flag anything, confirm that the source words you quote say something different from the section: the same fact in other words is not a finding (warming "by 5 C" and warming "5 C, to 65 C" agree). For each finding, at most two, add an entry to findings with draftQuote (the section's words at issue, copied exactly), sourceQuote (the source words that differ, copied exactly from a source document, a quote or the writer's wording) and correction (the figure or detail as the sources give it). Quote a whole clause of at least 8 characters on each side, never a short figure or word alone ("127 C", "most"); use "..." only to skip words inside one sentence of one source, never to join two places. Set paragraph to the first finding's paragraph and say in the reason what is wrong in plain words. A finding whose quotes cannot be found in the section and in what you were given is never shown and never repaired. Judge it applied, with paragraph 0 and no findings, when every figure and detail matches the sources. ${FACT_RULES.allowed} So are a summary of several facts, a general technical explanation and a Glossary Term for something the sources describe. Never fail a figure or detail only because the sources word it another way.`,
   },
   /**
    * The one follow-up for an answer that missed labels, sent in place of the
@@ -1189,12 +1194,11 @@ export const SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA = {
   items: {
     type: "object",
     properties: {
-      paragraph: { type: "integer", minimum: 1, maximum: MAX_SUMMARY_SELF_CHECK_PARAGRAPH },
       draftQuote: {
         type: "string",
         maxLength: MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
         description: summaryEscapedUtf8Description(
-          "The section's words at issue, copied exactly.",
+          "The section's words at issue, copied exactly: a whole clause of at least 8 characters.",
           MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES
         ),
       },
@@ -1202,7 +1206,7 @@ export const SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA = {
         type: "string",
         maxLength: MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
         description: summaryEscapedUtf8Description(
-          "The source words that differ, copied exactly.",
+          "The source words that differ, copied exactly: a whole clause of at least 8 characters, from one place.",
           MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES
         ),
       },
@@ -1215,7 +1219,7 @@ export const SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA = {
         ),
       },
     },
-    required: ["paragraph", "draftQuote", "sourceQuote", "correction"],
+    required: ["draftQuote", "sourceQuote", "correction"],
     additionalProperties: false,
   },
 } as const;

@@ -1701,25 +1701,26 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
     expect(line242.checks.at(-1)).toEqual(facts("s242"));
   });
 
-  it("counts the facts verdict in the worst-case response with three findings at their limits (round 2)", () => {
+  it("counts the facts verdict in the worst-case response with its findings at their limits (round 2 and its review)", () => {
     expect([MAX_FACTS_FINDINGS, MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES, MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES, MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES])
-      .toEqual([3, 128, 240, 128]);
+      .toEqual([2, 128, 160, 120]);
     const ordinary = projectSummaryOrdinaryChecks({ storylineText: "Storyline", confidenceMap: [], glossaryTerms: [], rules: [] });
     for (const section of ["s242", "s244", "s246"] as const) {
       const plan = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [] });
       const envelope = (checks: FrozenSummaryPlanCheck[]) =>
         projectSummarySelfCheckWorstCaseResponse({ ordinaryChecks: ordinary, planChecks: checks, includeStorylineQuestion: false });
-      const finding = { correction: "c".repeat(128), draftQuote: "d".repeat(128), paragraph: 9_999_999_999, sourceQuote: "s".repeat(240) };
+      // Round 2 review (P3-1): no paragraph per finding, a 160-byte source
+      // quote, two findings and no repairGuidance: about half the size.
+      const finding = { correction: "c".repeat(120), draftQuote: "d".repeat(128), sourceQuote: "s".repeat(160) };
       const verdict = JSON.stringify({
-        findings: [finding, finding, finding],
+        findings: [finding, finding],
         mergedItemIds: [],
         outcome: "not_applied",
         paragraph: 9_999_999_999,
         reason: "r".repeat(64),
-        repairGuidance: "g".repeat(96),
         ruleId: FACTS_MATCH_SOURCES_RULE_ID,
       });
-      expect(bytes(verdict) + 1).toBe(2_014);
+      expect(bytes(verdict) + 1).toBe(1_106);
       expect(bytes(envelope([...plan.checks, facts(section)])) - bytes(envelope(plan.checks))).toBe(bytes(verdict) + 1);
       expect(envelope([...plan.checks, facts(section)])).toContain(verdict);
     }
