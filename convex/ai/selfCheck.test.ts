@@ -34,16 +34,21 @@ import {
   runDeterministicSelfCheck,
   SOURCE_TALK_KEY,
 } from "../lib/selfCheckRules";
-import { RULES_REPORT_FACTS, SOURCE_TALK, TARGET_RULES } from "../../shared/humanProse";
+import { FACT_RULES, RULES_REPORT_FACTS, SOURCE_TALK, TARGET_RULES } from "../../shared/humanProse";
 import type { OrderedProfileContext } from "../lib/orderedChain";
 import {
+  FACTS_INSTRUCTION,
   keptIdeaReason,
+  leaveOutRepairIssue,
   planComplianceNoteDrafts,
   reportFactsIssuePrefix,
   TARGETS_INSTRUCTION,
 } from "./orderedGeneration";
 import {
+  buildSelfCheckUserMessage,
+  FACTS_BREAK_UNLOCATED_REASON,
   NOT_CHECKED_REASON,
+  PLAN_FACTS_NOT_CHECKED_REASON,
   PLAN_ITEM_NOT_CHECKED_REASON,
   PLAN_RULE_NOT_CHECKED_REASON,
   PLAN_SKIP_NOT_CHECKED_REASON,
@@ -51,6 +56,7 @@ import {
   runModelSelfCheck,
   TARGETS_BREAK_UNLOCATED_REASON,
   selfCheckFailureDiagnostic,
+  sourceFactsBody,
   summaryPlanSelfCheckSchemaFor,
   type SelfCheckPlanCheck,
 } from "./selfCheck";
@@ -2672,5 +2678,181 @@ describe("the targets rule in the same words everywhere (review P2-3)", () => {
     expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.instruction)
       .toContain("Judge it applied, with paragraph 0, when every such comparison matches the numbers, when the section compares no result with a target, or when you cannot tell which way a target runs.");
     expect(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.targetsIssue).toContain("Where the direction is unclear, change nothing.");
+  });
+});
+
+describe("figures and details as the sources give them (2026-10-04, second)", () => {
+  const facts: SelfCheckPlanCheck = {
+    ruleId: "facts_match_sources",
+    roleId: "experimentation",
+    mergedItemIds: [],
+    instruction: "match_sources",
+    confirmedExclusion: false,
+    wording: [],
+    relationshipReferences: [],
+    sourceReferences: [],
+  };
+  // Fictional Velloway sources (the release suite fixture's facts).
+  const SOURCES = sourceFactsBody({
+    analysis: { work_performed: { results: "4 percent of all 600 panels fell below 60 microns, every one a deep cove panel; 13 percent of the 180 deep cove panels did." } },
+    storylineText: "The deep cove profile did not fully meet edge coverage.",
+    confidenceMap: [{ text: "A shielding effect of the cove is suspected.", confidence: "partial" }, { text: "No confidence level given." }],
+  });
+
+  it("renders what drafting read: the analysis as compact JSON, then the Storyline and the Confidence Map", () => {
+    expect(SOURCES).toBe([
+      'Transcript analysis:\n{"work_performed":{"results":"4 percent of all 600 panels fell below 60 microns, every one a deep cove panel; 13 percent of the 180 deep cove panels did."}}',
+      "Storyline:\nThe deep cove profile did not fully meet edge coverage.",
+      "Confidence Map:\n- (partial) A shielding effect of the cove is suspected.\n- (unresolved) No confidence level given.",
+    ].join("\n\n"));
+    expect(sourceFactsBody({ analysis: { a: 1 } })).toBe('Transcript analysis:\n{"a":1}');
+    // Review round 1, P2-1: every Line's signed-off items and the writer's instructions follow.
+    expect(sourceFactsBody({
+      analysis: { a: 1 },
+      planWording: [["A sealer trial cut the shortfall to 7 percent.", "Second bullet."], [" "]],
+      writerInstructions: ["Third person.", " ", "No banned words."],
+    })).toBe([
+      'Transcript analysis:\n{"a":1}',
+      "Signed-off plan items, every Line:\n- A sealer trial cut the shortfall to 7 percent. Second bullet.",
+      "Writer instructions:\n- Third person.\n- No banned words.",
+    ].join("\n\n"));
+  });
+
+  it("allows the facts verdict its longer guidance only in a request with the facts check (review round 1, P2-2)", () => {
+    const base = replayInput();
+    const ordinary = projectSummaryOrdinaryChecks({
+      storylineText: base.storylineText,
+      confidenceMap: base.confidenceMap,
+      glossaryTerms: base.glossaryCandidates,
+      rules: base.rules,
+    });
+    const guidanceOf = (planChecks: SelfCheckPlanCheck[]) =>
+      summaryPlanSelfCheckSchemaFor(ordinary, planChecks).properties.planVerdicts.items.properties.repairGuidance;
+    const without = guidanceOf(base.planChecks);
+    expect(without).toEqual(SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.planVerdicts.items.properties.repairGuidance);
+    const withFacts = guidanceOf([...base.planChecks, facts]);
+    expect(withFacts.maxLength).toBe(4 * MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES);
+    expect(withFacts.description).toContain("For ruleId facts_match_sources, list every correction instead, one after another.");
+    expect(withFacts.description).toContain("Return at most 96 JSON-escaped UTF-8 bytes, or 384 for ruleId facts_match_sources");
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)
+      .toContain("For this check, repairGuidance lists every correction in the section, each figure or detail as the sources give it, one after another; it may run past 90 characters, up to about 380.");
+  });
+
+  it("sends the SOURCE FACTS block right after the plan checks, and the facts rule last, only with the facts check", () => {
+    const base = replayInput();
+    const planChecks = [...base.planChecks, facts];
+    const user = buildSelfCheckUserMessage({
+      ...base,
+      planChecks,
+      planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks),
+      sourceFacts: SOURCES,
+    });
+    const block = `--- BEGIN [SOURCE FACTS] ---\n${SOURCES}\n--- END [SOURCE FACTS] ---`;
+    expect(user.split(block)).toHaveLength(2);
+    expect(user).toContain(`--- END [CONTENT PLAN CHECKS] ---\n\n${block}`);
+    expect(user.split(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)).toHaveLength(2);
+    expect(user).toContain(`${SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction}\n\nReturn exactly`);
+    expect(user).toContain("- ruleId facts_match_sources");
+    // Without the check, sources given or not, the request is unchanged.
+    expect(buildSelfCheckUserMessage({ ...base, sourceFacts: SOURCES })).toBe(buildSelfCheckUserMessage(base));
+    expect(buildSelfCheckUserMessage(base)).not.toContain("[SOURCE FACTS]");
+    // A facts check with no sources still says so, rather than leave the block out.
+    expect(buildSelfCheckUserMessage({ ...base, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks) }))
+      .toContain("--- BEGIN [SOURCE FACTS] ---\n(none)\n--- END [SOURCE FACTS] ---");
+  });
+
+  it("states the rule in the same words in the drafting rule, the Self-check rule and the repair fix", () => {
+    for (const text of [
+      RULES_REPORT_FACTS,
+      SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction,
+      ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue,
+    ]) {
+      expect(text).toContain(FACT_RULES.scope);
+      expect(text).toContain(FACT_RULES.detail);
+      expect(text).toContain(FACT_RULES.cause);
+      // Review round 1, P2-4 (b): a hedge stated as firm.
+      expect(text).toContain(FACT_RULES.hedge);
+    }
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)
+      .toContain("states as firm what the sources give only as a hedge, or states as the whole case what the sources give only as an example");
+    // What is never an error: in the drafting rule and the Self-check rule.
+    expect(RULES_REPORT_FACTS).toContain(FACT_RULES.allowed);
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction).toContain(FACT_RULES.allowed);
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)
+      .toContain("Judge it applied, with paragraph 0, when every figure and detail matches the sources.");
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)
+      .toContain("Never fail a figure or detail only because the sources word it another way.");
+    // The fix is for the whole section, whatever paragraph the verdict names.
+    expect(leaveOutRepairIssue(facts, { paragraphIndex: 4 }, "Say 13% of 180."))
+      .toBe(`Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}Say 13% of 180.`);
+  });
+
+  it("reads a verdict with no paragraph as not located, and a missing one as not checked", async () => {
+    const base = replayInput();
+    const planChecks = [...base.planChecks, facts];
+    const input = { ...base, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks), sourceFacts: SOURCES };
+    const first = replayResponse();
+    const answers: unknown[] = [{
+      ...first,
+      planVerdicts: [
+        ...first.planVerdicts,
+        { ruleId: "facts_match_sources", mergedItemIds: [], paragraph: 0, outcome: "not_applied", reason: "Gives 4% as the deep cove rate." },
+      ],
+    }, replayResponse(), { verdicts: [], planVerdicts: [] }];
+    const client = {
+      messages: {
+        create: vi.fn(async (params: GenerationMessageParams) => ({
+          content: [{ type: "tool_use" as const, id: "facts", name: params.tool_choice?.name ?? "submit_self_check", input: answers.shift() }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        })),
+      },
+    };
+    const unlocated = await runModelSelfCheck(client as GenerationClient, input);
+    expect(unlocated.planVerdicts.at(-1)).toEqual({
+      ruleId: "facts_match_sources",
+      mergedItemIds: [],
+      outcome: "not_applied",
+      reason: FACTS_BREAK_UNLOCATED_REASON,
+      actionableRepair: false,
+    });
+    const missing = await runModelSelfCheck(client as GenerationClient, input);
+    expect(client.messages.create).toHaveBeenCalledTimes(3);
+    expect(userText(client.messages.create.mock.calls[2]![0])).toContain("[SOURCE FACTS]");
+    expect(missing.planVerdicts.at(-1)).toMatchObject({ outcome: "not_applied", reason: PLAN_FACTS_NOT_CHECKED_REASON, actionableRepair: false });
+  });
+
+  it("writes the row by its own instruction and rule id, and a repaired row still says what was wrong", () => {
+    const first = { ruleId: "facts_match_sources", mergedItemIds: [], paragraphIndex: 1, outcome: "not_applied" as const, reason: "P2 gives the all-panel 4% as deep cove's", repairGuidance: "Say 13% of 180.", actionableRepair: true };
+    const args = {
+      section: "244" as const,
+      summaryVersionId: "summary-version" as Id<"summaryVersions">,
+      checks: [facts as never],
+      verdicts: [first],
+    };
+    const planRef = { summaryVersionId: "summary-version", ruleId: "facts_match_sources", mergedItemIds: [] };
+    expect(planComplianceNoteDrafts({
+      ...args,
+      repairSucceeded: true,
+      finalCoverage: { ok: true, verdicts: [{ ruleId: "facts_match_sources", mergedItemIds: [], outcome: "applied", reason: "Figures match the sources." }] },
+    })).toEqual([expect.objectContaining({
+      instruction: FACTS_INSTRUCTION,
+      outcome: "applied",
+      repaired: true,
+      reason: "Figures match the sources. Fixed by the repair: P2 gives the all-panel 4% as deep cove's",
+      planRef,
+    })]);
+    // Not fixed by the repair: the final text's reason, not marked repaired.
+    expect(planComplianceNoteDrafts({
+      ...args,
+      repairSucceeded: true,
+      finalCoverage: { ok: true, verdicts: [{ ruleId: "facts_match_sources", mergedItemIds: [], paragraphIndex: 1, outcome: "not_applied", reason: "P2 still gives 4%." }] },
+    })).toEqual([expect.objectContaining({ outcome: "not_applied", repaired: false, reason: "P2 still gives 4%.", paragraphIndex: 1 })]);
+    // No repair used: the first check's reason and why.
+    expect(planComplianceNoteDrafts({ ...args, repairSucceeded: false, repairNotUsedReason: "the repaired text dropped the writer's edited term \"film build\", so the checked draft was kept" }))
+      .toEqual([expect.objectContaining({
+        outcome: "not_applied",
+        repaired: false,
+        reason: "P2 gives the all-panel 4% as deep cove's; repair not used (the repaired text dropped the writer's edited term \"film build\", so the checked draft was kept)",
+      })]);
   });
 });

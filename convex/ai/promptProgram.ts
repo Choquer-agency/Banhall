@@ -740,6 +740,13 @@ export const generationPromptProgram = {
         // hedges, sources and Glossary candidates.
         resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
         hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",
+        // 2026-10-04 (second): every Line of a signed-off plan has one plan
+        // check that each figure and detail is stated as the sources give
+        // it, with what drafting read (the transcript analysis, the
+        // Storyline and the Confidence Map) as a SOURCE FACTS data block in
+        // the first request, its follow-up and the check of the final text;
+        // honoured by absence, repaired and judged again on the final text.
+        factsMatchSources: "every-line-plan-check-with-source-facts-block-honoured-by-absence-judged-again-on-final-text",
       },
     },
     // Story 2 (CAP-9): the repair is the section agent itself, re-run once
@@ -763,6 +770,10 @@ export const generationPromptProgram = {
       // line), and Confidence Map, Storyline and Glossary fixes get a fixed
       // start.
       signedOffPlan: "source-talk-found-deterministically-hedge-and-glossary-fixes-get-a-fixed-start",
+      // 2026-10-04 (second): a facts fix is for the whole section, never a
+      // Must keep line of the repair's compression, and a repair that loses
+      // a COVER item for it is set aside.
+      factsFix: "whole-section-never-must-keep-cover-rollback",
     },
     // Story 2 (CAP-10, AD-24): one pass over the assembled draft per candidate.
     consistency: {

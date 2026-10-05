@@ -452,7 +452,7 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: `P2 adds sensor work, not in 242.; repair not used (the repaired text no longer holds the signed-off figure "8 C", which the checked draft held, and a fix that leaves out work must keep the evidence a signed-off item needs, so the checked draft was kept)`,
+      reason: `P2 adds sensor work, not in 242.; repair not used (the repaired text no longer holds the signed-off figure "8 C", which the checked draft held, and a repair must keep every figure a signed-off item gives, so the checked draft was kept)`,
     });
   });
 

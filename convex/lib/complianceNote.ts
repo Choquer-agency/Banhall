@@ -24,10 +24,13 @@ export const compliancePlanRefValidator = v.object({
   droppedSeedId: v.optional(v.id("seeds")),
   // 2026-09-30 (third, widened): the row for Lines 244 and 246's check that
   // every result is stated against its target as the numbers show.
+  // 2026-10-04 (second, widened): the row for every Line's check that each
+  // figure and detail is stated as the sources give it.
   ruleId: v.optional(v.union(
     v.literal("advancements_answer_242"),
     v.literal("work_answers_242"),
-    v.literal("results_against_targets")
+    v.literal("results_against_targets"),
+    v.literal("facts_match_sources")
   )),
   mergedItemIds: v.array(v.id("summaryItems")),
 });

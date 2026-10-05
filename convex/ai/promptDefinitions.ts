@@ -16,6 +16,7 @@ import {
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
 } from "../lib/seedRevisions";
 import {
+  FACT_RULES,
   RULES_HUMAN_PROSE,
   RULES_REPORT_FACTS,
   RULES_SEED_WORDING,
@@ -640,6 +641,11 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     // The deterministic source-talk fix (shared/humanProse.ts), hashed here
     // with the rest of the repair's wording.
     sourceTalk: SOURCE_TALK,
+    // 2026-10-04 (second): the fixed start of the repair issue for the facts
+    // check, in FACT_RULES' words, after "Whole section: " (its guidance may
+    // name more than one paragraph); the Self-check's guidance follows.
+    factsIssue:
+      `state each figure and detail as the sources give it. ${FACT_RULES.scope} ${FACT_RULES.detail} ${FACT_RULES.cause} ${FACT_RULES.hedge} Correct or take out only the figures and details named here, and keep everything a COVER item holds, its figures included. `,
   },
   // 2026-09-30 (third): a signed-off plan run's drafting request, and its
   // repair, which reuses it, read the report-text rules of
@@ -1131,6 +1137,41 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     // whose direction is unclear is judged applied.
     instruction:
       `\n\nThe plan check with ruleId results_against_targets asks whether each result the section compares with a target (a hypothesis target, a goal, a limit or a threshold) is stated as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} A qualifier about one test applies only to that test. Judge it applied, with paragraph 0, when every such comparison matches the numbers, when the section compares no result with a target, or when you cannot tell which way a target runs. Judge it not applied when the section calls a met target by a word the rule for its direction forbids, calls a missed target met, or carries a qualifier about one test to another test or to the final result: name the first such paragraph and give the comparison as the numbers show.`,
+  },
+  /**
+   * 2026-10-04 (second): every Line of a signed-off plan. Its one check asks
+   * whether each figure and specific detail is stated as the sources give it
+   * (release suite run of 2026-10-04: a rate over every pilot panel given as
+   * the rate of one profile, and a material the sources name for another
+   * subject added to a datasheet). Until then the Self-check never saw the
+   * sources the draft was written from. The SOURCE FACTS block (what drafting
+   * read: the transcript analysis, the Storyline and the Confidence Map) and
+   * the line after the data blocks are only present when the request has the
+   * check, in the first request, its follow-up and the final coverage check.
+   */
+  factsMatchSources: {
+    blockLabel: "SOURCE FACTS",
+    analysisHeading: "Transcript analysis:\n",
+    storylineHeading: "Storyline:\n",
+    confidenceHeading: "Confidence Map:",
+    confidencePrefix: "\n- (",
+    confidenceMiddle: ") ",
+    // Review round 1, P2-1: every Line's signed-off items and the writer's
+    // instructions, which drafting reads too, so a figure a writer gave in
+    // another Line's item is never called unsupported.
+    planHeading: "Signed-off plan items, every Line:",
+    planItemPrefix: "\n- ",
+    writerHeading: "Writer instructions:",
+    writerItemPrefix: "\n- ",
+    partSeparator: "\n\n",
+    // Review round 1, P2-2: this verdict's repairGuidance lists every
+    // correction, so it may run past the 90 characters the Summary system
+    // prompt asks for; the tool schema of a request with this check allows
+    // MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES for it.
+    guidanceDescription:
+      "For not_applied only: give one concrete fix a writer could follow. For ruleId facts_match_sources, list every correction instead, one after another.",
+    instruction:
+      `\n\nThe plan check with ruleId facts_match_sources asks whether each figure and each specific detail in the section is stated as the sources give it. Here the sources are the SOURCE FACTS block (what the draft was written from: the transcript analysis, the Storyline, the Confidence Map, every Line's signed-off items and the writer's instructions), each plan item's wording, quotes and reference context in CONTENT PLAN CHECKS, the writer's exact terms and the writer's Feedback. A figure or detail a signed-off item of any Line gives is supported as that item gives it, for the same thing. The writer's exact terms are the writer's own wording: never object to such a term itself, only to a figure or detail the section states with it. ${FACT_RULES.scope} ${FACT_RULES.detail} ${FACT_RULES.cause} ${FACT_RULES.hedge} Judge it not applied when the section gives a figure for another group, test, unit, condition or denominator than the sources give it, adds a specific detail (a material, place, person, organization, product, supplier, date or number) that no part of the sources gives or that the sources give for another thing, states as confirmed a cause the sources give as suspected, expected or open, states as firm what the sources give only as a hedge, or states as the whole case what the sources give only as an example: name the first such paragraph and say in the reason what is wrong in plain words. For this check, repairGuidance lists every correction in the section, each figure or detail as the sources give it, one after another; it may run past 90 characters, up to about 380. Judge it applied, with paragraph 0, when every figure and detail matches the sources. ${FACT_RULES.allowed} So are a summary of several facts, a general technical explanation and a Glossary Term for something the sources describe. Never fail a figure or detail only because the sources word it another way.`,
   },
   /**
    * The one follow-up for an answer that missed labels, sent in place of the

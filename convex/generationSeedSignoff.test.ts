@@ -871,7 +871,9 @@ function literalSummaryResponseOracle(args: {
             outcome: "not_applied",
             paragraph,
             reason,
-            repairGuidance,
+            // 2026-10-04 (second, review round 1, P2-2): the facts verdict
+            // reserves four ordinary guidances, one per correction it lists.
+            repairGuidance: check.ruleId === "facts_match_sources" ? "g".repeat(4 * 96) : repairGuidance,
             ruleId: check.ruleId,
           })
         : JSON.stringify({
@@ -1205,6 +1207,18 @@ async function frozenS242OracleChecks(
         });
       }
     }
+    // 2026-10-04 (second): every signed-off Line has the check that each
+    // figure and detail is stated as the sources give it, after its items.
+    checks.push({
+      ruleId: "facts_match_sources",
+      roleId: "active_uncertainties",
+      mergedItemIds: [],
+      instruction: "match_sources",
+      confirmedExclusion: false,
+      wording: [],
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
     return checks;
   });
 }
@@ -1270,6 +1284,19 @@ async function frozenS244OracleChecks(
         }
       }
     }
+    // 2026-10-04 (second): every signed-off Line has the check that each
+    // figure and detail is stated as the sources give it, before the targets
+    // check.
+    checks.push({
+      ruleId: "facts_match_sources",
+      roleId: "experimentation",
+      mergedItemIds: [],
+      instruction: "match_sources",
+      confirmedExclusion: false,
+      wording: [],
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
     // 2026-09-30 (third): every signed-off Line 244 has the check that each
     // result is stated against its target as the numbers show, before Rule C.
     checks.push({
@@ -1542,6 +1569,8 @@ async function frozenSectionPlan(
       ...(section === "s244" ? { workAnswers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
       // 2026-09-30 (third): as admitted, with the targets check in Lines 244 and 246.
       resultsAgainstTargets: true,
+      // 2026-10-04 (second): as admitted, with the facts check in every Line.
+      factsMatchSources: true,
     });
   });
 }
@@ -2850,10 +2879,14 @@ describe("seed Summary sign-off and recovery", () => {
     } as const;
     const accepted = await decisionFixture();
     await makeReady(accepted, selectedShape);
+    // 2026-10-04 (second): Line 242's facts verdict, with its 384-byte
+    // guidance (review round 1, P2-2), is 579 bytes with its comma: one
+    // Glossary label's verdict (291) and one two-digit rule label's (288).
+    // One of each fewer keeps the response at exactly 16,384 bytes.
     await configureS242Ordinary(accepted, {
       additionalConfidence: 4,
-      glossaryTerms: 3,
-      rules: 20,
+      glossaryTerms: 2,
+      rules: 19,
     });
     const acceptedPersistedShape = await persistedFrozenPlanShape(accepted);
     const acceptedBefore = await signoffWriteFootprint(accepted);
@@ -2863,9 +2896,10 @@ describe("seed Summary sign-off and recovery", () => {
     });
     const checks = await frozenS242OracleChecks(accepted);
     expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
-      checks.filter((check) => check.roleId === role.roleId).length
+      checks.filter((check) => check.itemId && check.roleId === role.roleId).length
     )).toEqual([1, 1, 2, 6, 6]);
-    expect(new Set(checks.flatMap((check) => [
+    expect(checks.at(-1)?.ruleId).toBe("facts_match_sources");
+    expect(new Set(checks.filter((check) => check.itemId).flatMap((check) => [
       utf8Bytes(JSON.stringify(check.itemId)),
       ...check.mergedItemIds.map((id) => utf8Bytes(JSON.stringify(id))),
     ]))).toEqual(new Set([34]));
@@ -2894,10 +2928,10 @@ describe("seed Summary sign-off and recovery", () => {
     const acceptedLabels = [
       "storyline",
       ...Array.from({ length: 5 }, (_, index) => `confidence:C${index + 1}`),
-      ...Array.from({ length: 3 }, (_, index) => `glossary:G${index + 1}`),
-      ...Array.from({ length: 20 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 2 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 19 }, (_, index) => `rule:R${index + 1}`),
     ];
-    expect(acceptedLabels).toHaveLength(29);
+    expect(acceptedLabels).toHaveLength(27);
     const acceptedOracle = literalSummaryResponseOracle({
       ordinaryLabels: acceptedLabels,
       planChecks: checks,
@@ -2941,9 +2975,9 @@ describe("seed Summary sign-off and recovery", () => {
     const refusedLabels = [
       "storyline",
       ...Array.from({ length: 4 }, (_, index) => `confidence:C${index + 1}`),
-      ...Array.from({ length: 3 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 2 }, (_, index) => `glossary:G${index + 1}`),
       "writer:profile",
-      ...Array.from({ length: 20 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 19 }, (_, index) => `rule:R${index + 1}`),
     ];
     expect(refusedLabels).toHaveLength(acceptedLabels.length);
     const refusedOracle = literalSummaryResponseOracle({
@@ -2967,9 +3001,9 @@ describe("seed Summary sign-off and recovery", () => {
     await makeReady(refused, selectedShape);
     await configureS242Ordinary(refused, {
       additionalConfidence: 3,
-      glossaryTerms: 3,
+      glossaryTerms: 2,
       writerFlavor: "Profile",
-      rules: 20,
+      rules: 19,
     });
     const refusedPersistedShape = await persistedFrozenPlanShape(refused);
     expect(refusedPersistedShape).toEqual(acceptedPersistedShape);
@@ -3026,7 +3060,7 @@ describe("seed Summary sign-off and recovery", () => {
     });
     const checks = await frozenS242OracleChecks(accepted);
     expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
-      checks.filter((check) => check.roleId === role.roleId).length
+      checks.filter((check) => check.itemId && check.roleId === role.roleId).length
     )).toEqual([1, 1, 1, 2, 2]);
     const acceptedOracle = literalSummaryResponseOracle({
       ordinaryLabels: realisticLabels,
@@ -3035,7 +3069,9 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(await projectedFixtureOutputEnvelope(accepted, "242", checks))
       .toBe(acceptedOracle);
-    expect(utf8Bytes(acceptedOracle)).toBe(8_150);
+    // 2026-10-04 (second): 579 bytes more than 8,150 for Line 242's facts
+    // verdict and its 384-byte guidance (review round 1, P2-2).
+    expect(utf8Bytes(acceptedOracle)).toBe(8_729);
     // The previous 4,096-byte limit refused this ordinary Brief.
     expect(utf8Bytes(acceptedOracle)).toBeGreaterThan(4_096);
     expect(utf8Bytes(acceptedOracle)).toBeLessThanOrEqual(
@@ -3082,6 +3118,17 @@ describe("seed Summary sign-off and recovery", () => {
           sourceReferences: [],
         }));
       });
+    // 2026-10-04 (second): Line 242's facts check, as production adds it.
+    refusedChecks.push({
+      ruleId: "facts_match_sources",
+      roleId: "active_uncertainties",
+      mergedItemIds: [],
+      instruction: "match_sources",
+      confirmedExclusion: false,
+      wording: [],
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
     const refusedOracle = literalSummaryResponseOracle({
       ordinaryLabels: realisticLabels,
       planChecks: refusedChecks,
@@ -3089,7 +3136,7 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(await projectedFixtureOutputEnvelope(refused, "242", refusedChecks))
       .toBe(refusedOracle);
-    expect(utf8Bytes(refusedOracle)).toBe(16_884);
+    expect(utf8Bytes(refusedOracle)).toBe(17_463);
     expect(utf8Bytes(refusedOracle)).toBeGreaterThan(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
@@ -3177,12 +3224,16 @@ describe("seed Summary sign-off and recovery", () => {
     expect(productionSerialized).toBe(fixedExpectedOracle);
     // Re-pinned 2026-09-30 (second): the envelope gains Line 244's work
     // verdict (Rule C). Re-pinned again (third): the targets verdict comes
-    // before it. It still equals the independent oracle above.
+    // before it. Re-pinned 2026-10-04 (second): the facts verdict comes
+    // before the targets verdict, with its 384-byte guidance (review round
+    // 1, P2-2). It still equals the independent oracle above, which
+    // frozenS244OracleChecks and literalSummaryResponseOracle extend the
+    // same way.
     expect(replayHashes).toEqual({
-      restored: "d2a20fc70ec7fc671bfee54966ac5fbb4cc17085b61da85a94289f9afc9631f9",
-      omit_storyline: "b318072fe428988db993b1407bb025b9109777b40e42a458c9c9c288f8eaf4f9",
-      omit_repeated_merge: "2f136ea54c5b154ac0cfc12735db9df2f20c4c24893bc7ce79929f0157fe92a4",
-      short_reason: "7da4ca3adbe6cb9e0a0d563bcc888c83e9f1e8204e94ed1d36607c8cddde530a",
+      restored: "454b81768cde0d9eb3a8ea2a14035b49fef9ca9affbb2576f91c8c7155de0f41",
+      omit_storyline: "a255cfc2712ba069ab4fd79658e1ed9e708c405b9e1094365c509abf09c68e2f",
+      omit_repeated_merge: "9ff22c8541e3414907398a0715c118b73deaf2b85bc72cd8842a75ea93a4d287",
+      short_reason: "39136504ceeeca8037604ad123168740e0d980d287696acd7246abd426ede1bd",
     });
   });
 
@@ -10135,8 +10186,10 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
       expect(line.planChecksBlock).toContain(`"droppedSeedId":"${ids.dropped}","instruction":"leave_out"`);
       expect(line.droppedNotChecked).toEqual([]);
     }
-    // Rule B: only Line 246, last, with Line 242 as drafted.
-    expect(frozen.s242.planChecks.some((check) => check.ruleId)).toBe(false);
+    // Rule B: only Line 246, last, with Line 242 as drafted. 2026-10-04
+    // (second): Line 242's only rule check is the facts check.
+    expect(frozen.s242.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
+      .toEqual(["facts_match_sources"]);
     expect(frozen.s244.planChecks.some((check) => check.ruleId === "advancements_answer_242")).toBe(false);
     // 2026-09-30 (third): the targets check in Lines 244 and 246 only, and
     // in Line 246 just before Rule B.
@@ -10545,14 +10598,17 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     }
     // Rule B holds for every signed-off plan's Line 246, and Rule C for
     // every signed-off plan's Line 244 (2026-09-30, second); the targets
-    // check for every Line 244 and 246 comes before them (third).
+    // check for every Line 244 and 246 comes before them (third); the facts
+    // check for every Line comes before the targets check (2026-10-04,
+    // second).
     expect(frozen.s246.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
-      .toEqual(["results_against_targets", "advancements_answer_242"]);
+      .toEqual(["facts_match_sources", "results_against_targets", "advancements_answer_242"]);
     expect(frozen.s244.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
-      .toEqual(["results_against_targets"]);
+      .toEqual(["facts_match_sources", "results_against_targets"]);
     expect(frozen.s244Claimed.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
-      .toEqual(["results_against_targets", "work_answers_242"]);
-    expect(frozen.s242.planChecks.some((check) => check.ruleId)).toBe(false);
+      .toEqual(["facts_match_sources", "results_against_targets", "work_answers_242"]);
+    expect(frozen.s242.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
+      .toEqual(["facts_match_sources"]);
     expect(frozen.s244Claimed.answers242).toBeNull();
     expect(frozen.s246.workAnswers242).toBeNull();
     expect(frozen.s242.workAnswers242).toBeNull();

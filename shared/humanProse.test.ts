@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   detectFirstPersonPreference,
+  FACT_RULES,
   findDashConnectors,
   findSourceTalk,
   isDashClean,
@@ -176,6 +177,44 @@ describe("report text rules (2026-09-30, third)", () => {
     const hits = findSourceTalk("Per the test memo, the memo states 2.4 percent.");
     expect(hits.map((hit) => [hit.phrase, hit.index])).toEqual([["Per the test memo", 0], ["the memo states", 19]]);
     expect(hits[0]!.context).toContain("Per the test memo");
+  });
+});
+
+describe("figures and details as the sources give them (2026-10-04, second)", () => {
+  it("carries the rule once, in plain words with no typographic dash, after the targets rule and apart from RULES_HUMAN_PROSE", () => {
+    for (const sentence of Object.values(FACT_RULES)) {
+      expect(findDashConnectors(sentence)).toEqual([]);
+      expect(RULES_REPORT_FACTS.split(sentence)).toHaveLength(2);
+      expect(RULES_HUMAN_PROSE).not.toContain(sentence);
+    }
+    const figures = RULES_REPORT_FACTS.indexOf("Figures and details as the sources give them:");
+    expect(figures).toBeGreaterThan(RULES_REPORT_FACTS.indexOf("Results against targets:"));
+    expect(figures).toBeLessThan(RULES_REPORT_FACTS.indexOf("No talk about sources:"));
+  });
+
+  it("names both errors of the 2026-10-04 run in general words, and allows rounding and plain arithmetic", () => {
+    // A figure for another group, and a detail the sources do not give or give for another thing.
+    expect(FACT_RULES.scope).toContain("A rate over all items is not the rate of one subset, even when every failure came from that subset.");
+    expect(FACT_RULES.detail).toContain("no material, place, person, organization, product, supplier, date or number of your own");
+    expect(FACT_RULES.detail).toContain("Never move a detail from the thing it belongs to onto another thing.");
+    expect(FACT_RULES.cause).toContain("A suspected or expected cause stays suspected");
+    // Review round 1, P2-4 (b): the run's analysis hedged ("and/or steel substrates") and the draft made it firm.
+    expect(FACT_RULES.hedge).toBe(
+      'A hedge in the sources ("typically", "and/or", "may", "suspected") stays a hedge, and an example ("such as") stays an example: stating a hedge as firm, or an example as the whole case, adds a detail the sources do not give.'
+    );
+    expect(FACT_RULES.allowed).toBe(
+      "Rounding, the same figure in another unit or form, plain arithmetic on the sources' own numbers and plain-language wording are fine."
+    );
+    expect(RULES_REPORT_FACTS).toContain(
+      '"3 percent of all castings were rejected, every one from the night shift" does not mean 3 percent of the night shift\'s castings were rejected.'
+    );
+  });
+
+  it("is neutral: no fixture's figures or terms are in the rule", () => {
+    const rule = [...Object.values(FACT_RULES), RULES_REPORT_FACTS].join(" ").toLowerCase();
+    for (const term of ["velloway", "deep cove", "shaker", "mdf", "powder", "steel", "datasheet", "4 percent", "13 percent", "600"]) {
+      expect(rule).not.toContain(term);
+    }
   });
 });
 

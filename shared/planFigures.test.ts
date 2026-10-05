@@ -98,3 +98,14 @@ describe("figures with a unit (2026-09-30 second, shared by the product and the 
     })).toEqual(["6 C", "5 percent", "15 percent", "29 days", "47 days"]);
   });
 });
+
+describe("film thickness in microns (2026-10-04 second, re-check P3-2)", () => {
+  it("reads microns, micrometres and the micro signs as one unit, only right after a number", () => {
+    expect(figuresOf("Edges reached only 35 microns against 82 microns on the faces.")).toEqual(["35 microns", "82 microns"]);
+    expect(figuresOf("a 60 micron target")).toEqual(["60 microns"]);
+    expect(figuresOf("70 to 90 micrometres on the faces, 5 micrometers of primer")).toEqual(["70 microns", "90 microns", "5 microns"]);
+    expect(figuresOf("64 µm average, 52 μm minimum, 47 um at worst")).toEqual(["64 microns", "52 microns", "47 microns"]);
+    // Never a word that only starts with "um", and never "um" on its own.
+    expect(figuresOf("10 umbrellas in the museum, um, the drum held")).toEqual([]);
+  });
+});

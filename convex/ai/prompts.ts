@@ -42,7 +42,11 @@ import {
   RULES_REPETITION_TRACKING,
   RULES_BANNED_SELF_CHECK,
 } from "../../shared/houseRules";
-import { HUMAN_PROSE_FOR_OWN_WORDING, RULES_HUMAN_PROSE } from "../../shared/humanProse";
+import {
+  HUMAN_PROSE_FOR_OWN_WORDING,
+  RULES_ANALYSIS_FIGURES,
+  RULES_HUMAN_PROSE,
+} from "../../shared/humanProse";
 import { BULK_EDIT_REFINE_RULE, BULK_EDIT_SIZE_RULE } from "../lib/completionReport";
 import {
   pdSubsectionRoleLabel,
@@ -97,6 +101,7 @@ Read the full interview transcript and extract the following information into a 
 - Distinguish between what the client said versus what would need to be reframed for CRA purposes.
 - Be specific. "We tried different approaches" is not useful; extract WHAT approaches, WHAT they tested, WHAT happened.
 - If the transcript is vague on a topic, flag it as a gap rather than filling in assumptions.
+${RULES_ANALYSIS_FIGURES}
 - For software projects: the technological uncertainty is NEVER "building the software"; it is about the limitations of known development methods, algorithms, architectures, or techniques to achieve specific technical requirements.
 
 ## Output Format

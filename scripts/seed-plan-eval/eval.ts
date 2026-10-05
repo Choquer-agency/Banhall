@@ -2352,6 +2352,17 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
       resultsAgainstTargetsEvidence(c),
     ),
   );
+  // 2026-10-04 (second): informational for every fixture. Each Line's facts
+  // row is the checking model's own verdict against the sources the draft
+  // was written from; the judges, who read the fixture's sources, remain the
+  // proof.
+  checks.push(
+    info(
+      "facts-match-sources",
+      "Figures and details stated as the sources give them, per Line (informational; self-reported by the checking model)",
+      factsMatchSourcesEvidence(c),
+    ),
+  );
   const requests = seedRequestCount(c);
   checks.push(
     info(
@@ -2417,6 +2428,7 @@ export const LEAVE_OUT_FIGURE_BACKSTOP_PREFIX = "The flagged content is a signed
 
 const ANSWERS_242_RULE_ID = "advancements_answer_242";
 const TARGETS_RULE_ID = "results_against_targets";
+const FACTS_RULE_ID = "facts_match_sources";
 /** The Compliance Note instruction of the deterministic source-talk row. */
 const SOURCE_TALK_ROW = "State facts without naming their source";
 
@@ -2453,6 +2465,14 @@ export function resultsAgainstTargetsEvidence(c: Collected): string {
   return (["244", "246"] as const).map((section) => {
     const row = c.complianceNotes.find((note) => note.section === section && note.planRef?.ruleId === TARGETS_RULE_ID);
     return `${section}: ${row ? `${rowState(row)} (${quote(row.reason, 100)})` : "no row"}`;
+  }).join("; ");
+}
+
+/** 2026-10-04 (second): each Line's facts row, with its reason. */
+export function factsMatchSourcesEvidence(c: Collected): string {
+  return (["242", "244", "246"] as const).map((section) => {
+    const row = c.complianceNotes.find((note) => note.section === section && note.planRef?.ruleId === FACTS_RULE_ID);
+    return `${section}: ${row ? `${rowState(row)} (${quote(row.reason, 160)})` : "no row"}`;
   }).join("; ");
 }
 
