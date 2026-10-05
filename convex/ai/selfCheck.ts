@@ -1641,8 +1641,11 @@ function rowQuote(quote: string): string {
  * 2026-10-04 (second, round 2): verify a not applied facts verdict's findings.
  * The draft quote must be in a paragraph of the checked text (the one the
  * verdict names, else the first that holds it); the source quote must be in
- * one of the `sources` entries and not in that paragraph, which would make
- * it the same words. Round 2 review, P2-4: while the source documents are
+ * one of the `sources` entries, and the two quotes must not be the same
+ * claim text, one holding the other (the draft quoted back as its source).
+ * Greptile on PR #26 at 17d3d1a8: a source quote the paragraph also states
+ * elsewhere still verifies, since the paragraph can state the right figure
+ * in one sentence and give it to the wrong group in the next. Round 2 review, P2-4: while the source documents are
  * not complete, a verified finding whose draft quote a signed-off item's
  * wording holds (`items`) is held: shown, never repaired, since the
  * documents that could support the item were not read.
@@ -1664,7 +1667,7 @@ export function verifyFactsFindings(args: {
     const paragraphIndex = holds(named) ? named : args.paragraphs.findIndex((_, index) => holds(index));
     if (paragraphIndex < 0) continue;
     if (!quoteFoundIn(finding.sourceQuote, args.sources)) continue;
-    if (quoteFoundIn(finding.sourceQuote, args.paragraphs[paragraphIndex]!)) continue;
+    if (quoteFoundIn(finding.sourceQuote, finding.draftQuote) || quoteFoundIn(finding.draftQuote, finding.sourceQuote)) continue;
     const shown = {
       paragraphIndex,
       draftQuote: finding.draftQuote.trim(),
