@@ -349,11 +349,14 @@ export function quoteCheckIssues(
  * Round 3 review, P2-1: a sentence is named when it holds a meaningful word
  * (two characters or more) that a marked quote has and no evidence quote
  * has, so a good quote sharing other words with that sentence cannot hide
- * it. Only when none of the Seed's own sentences holds such a word are the
- * sentences that no evidence quote backs named (`excerptSupportsSeed`, a
- * quote the check cannot judge counting as backing). `bullets` are the
- * sentences to name from (the ones the writer has not changed). Empty for a
- * Seed with no unrelated marked quote: a well-quoted Seed is unchanged.
+ * it; of those, one another quote backs is dropped unless every one is
+ * backed (re-check P3-1). Only when none of the Seed's own sentences holds
+ * such a word are the sentences that no evidence quote backs named
+ * (`excerptSupportsSeed`, a quote the check cannot judge counting as
+ * backing), and with no evidence quote at all every sentence is named
+ * (re-check P3-2). `bullets` are the sentences to name from (the ones the
+ * writer has not changed). Empty for a Seed with no unrelated marked quote:
+ * a well-quoted Seed is unchanged.
  */
 export function unbackedBullets(
   bullets: readonly string[],
@@ -367,9 +370,13 @@ export function unbackedBullets(
   const marked = quotes.filter(unrelated);
   if (marked.length === 0) return [];
   const evidence = quotes.filter((quote) => !unrelated(quote));
+  const sentences = bullets.filter((bullet) => bullet.trim() !== "");
+  // Re-check P3-2: with no quote left to back anything, every sentence is named.
+  if (evidence.length === 0) return sentences;
+  const backed = (bullet: string) =>
+    evidence.some((quote) => !canJudgeQuote(bullet, quote.exactExcerpt) || excerptSupportsSeed(bullet, quote.exactExcerpt));
   const markedWords = marked.flatMap((quote) => contentWords(quote.exactExcerpt));
   const evidenceWords = evidence.flatMap((quote) => contentWords(quote.exactExcerpt));
-  const sentences = bullets.filter((bullet) => bullet.trim() !== "");
   // Judged on the Seed's own sentences, so a sentence the writer rewrote
   // still claims the marked quote's words and is simply no longer named.
   const onlyMarked = seedBullets.filter((bullet) =>
@@ -377,8 +384,10 @@ export function unbackedBullets(
       word.length >= 2 &&
       markedWords.some((other) => sameWord(word, other)) &&
       !evidenceWords.some((other) => sameWord(word, other))));
-  if (onlyMarked.length > 0) return sentences.filter((bullet) => onlyMarked.includes(bullet));
-  return sentences.filter((bullet) =>
-    !evidence.some((quote) =>
-      !canJudgeQuote(bullet, quote.exactExcerpt) || excerptSupportsSeed(bullet, quote.exactExcerpt)));
+  // Re-check P3-1: of those, a sentence another quote backs is not named,
+  // unless every one of them is backed.
+  const unbackedOnly = onlyMarked.filter((bullet) => !backed(bullet));
+  const named = unbackedOnly.length > 0 ? unbackedOnly : onlyMarked;
+  if (named.length > 0) return sentences.filter((bullet) => named.includes(bullet));
+  return sentences.filter((bullet) => !backed(bullet));
 }
