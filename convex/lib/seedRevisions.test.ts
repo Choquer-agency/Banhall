@@ -7,6 +7,7 @@ import {
   MAX_DROPPED_UNCERTAINTY_RELATED_PER_KIND,
   EMPTY_CONTEXT_REVISION,
   EMPTY_SELECTION_REVISION,
+  FACTS_MATCH_SOURCES_RULE_ID,
   MAX_SEED_CONTEXT_ROW_UTF8_BYTES,
   MAX_SEED_CONTEXT_SNAPSHOT_UTF8_BYTES,
   MAX_SEED_PROMPT_UTF8_BYTES,
@@ -1606,7 +1607,8 @@ describe("results stated against their targets (2026-09-30, third)", () => {
   });
 
   it("adds one targets check to Lines 244 and 246 only, when asked, before Rule B, with no plan entry", () => {
-    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v4");
+    // 2026-10-04 (second): v5 took the facts check; the targets check is unchanged.
+    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v5");
     for (const section of ["s242", "s244", "s246"] as const) {
       const without = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [] });
       const withTargets = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [], resultsAgainstTargets: true });
@@ -1641,5 +1643,76 @@ describe("results stated against their targets (2026-09-30, third)", () => {
     });
     expect(bytes(envelope([...plan.checks, targets("s244")])) - bytes(envelope(plan.checks))).toBe(bytes(verdict) + 1);
     expect(envelope([...plan.checks, targets("s244")])).toContain(verdict);
+  });
+});
+
+describe("figures and details as the sources give them (2026-10-04, second)", () => {
+  const items = [
+    { itemId: "item-uncertainty", roleId: "active_uncertainties" as const, kind: "standard" as const, bullets: ["It was unknown whether the coating would reach 60 microns on the edges."], support: "source_supported" as const },
+    { itemId: "item-hypothesis", roleId: "hypothesis" as const, kind: "standard" as const, bullets: ["At least 95 percent yield."], support: "source_supported" as const },
+    { itemId: "item-advance", roleId: "overall_advancement" as const, kind: "standard" as const, bullets: ["Yield reached 96 percent."], support: "source_supported" as const },
+  ];
+  const facts = (section: "s242" | "s244" | "s246"): FrozenSummaryPlanCheck => ({
+    ruleId: FACTS_MATCH_SOURCES_RULE_ID,
+    roleId: section === "s242" ? "active_uncertainties" : section === "s244" ? "experimentation" : "overall_advancement",
+    mergedItemIds: [],
+    instruction: "match_sources",
+    confirmedExclusion: false,
+    wording: [],
+    relationshipReferences: [],
+    sourceReferences: [],
+  });
+
+  it("adds one facts check to every Line, when asked, with no plan entry, serialized exactly", () => {
+    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v5");
+    for (const section of ["s242", "s244", "s246"] as const) {
+      const without = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [] });
+      const withFacts = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [], factsMatchSources: true });
+      // The drafting block never changes: the drafting rule is RULES_REPORT_FACTS.
+      expect(withFacts.block).toBe(without.block);
+      expect(withFacts.checks).toEqual([...without.checks, facts(section)]);
+      expect(withFacts.checksBlock).toBe(serializeFrozenSummaryPlanChecks([...without.checks, facts(section)]));
+      expect(withFacts.checksBlock).toContain(
+        `{"confirmedExclusion":false,"instruction":"match_sources","mergedItemIds":[],"relationshipReferences":[],"roleId":"${facts(section).roleId}","ruleId":"facts_match_sources","sourceReferences":[],"wording":[]}`
+      );
+    }
+  });
+
+  it("comes before the targets check, so the targets check still comes just before Rule B and Rule C, which stay last", () => {
+    const line246 = buildFrozenSummaryPlan({
+      section: "s246", items, skippedRoleIds: [], factsMatchSources: true, resultsAgainstTargets: true, answers242: {},
+    });
+    expect(line246.checks.map((check) => check.ruleId).filter(Boolean)).toEqual([
+      FACTS_MATCH_SOURCES_RULE_ID, RESULTS_AGAINST_TARGETS_RULE_ID, ADVANCEMENTS_ANSWER_242_RULE_ID,
+    ]);
+    const line244 = buildFrozenSummaryPlan({
+      section: "s244", items, skippedRoleIds: [], factsMatchSources: true, resultsAgainstTargets: true, workAnswers242: {},
+    });
+    expect(line244.checks.map((check) => check.ruleId).filter(Boolean)).toEqual([
+      FACTS_MATCH_SOURCES_RULE_ID, RESULTS_AGAINST_TARGETS_RULE_ID, WORK_ANSWERS_242_RULE_ID,
+    ]);
+    const line242 = buildFrozenSummaryPlan({
+      section: "s242", items, skippedRoleIds: [], factsMatchSources: true, resultsAgainstTargets: true,
+    });
+    expect(line242.checks.at(-1)).toEqual(facts("s242"));
+  });
+
+  it("counts the facts verdict in the worst-case response like any rule verdict", () => {
+    const ordinary = projectSummaryOrdinaryChecks({ storylineText: "Storyline", confidenceMap: [], glossaryTerms: [], rules: [] });
+    for (const section of ["s242", "s244", "s246"] as const) {
+      const plan = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [] });
+      const envelope = (checks: FrozenSummaryPlanCheck[]) =>
+        projectSummarySelfCheckWorstCaseResponse({ ordinaryChecks: ordinary, planChecks: checks, includeStorylineQuestion: false });
+      const verdict = JSON.stringify({
+        mergedItemIds: [],
+        outcome: "not_applied",
+        paragraph: 9_999_999_999,
+        reason: "r".repeat(64),
+        repairGuidance: "g".repeat(96),
+        ruleId: FACTS_MATCH_SOURCES_RULE_ID,
+      });
+      expect(bytes(envelope([...plan.checks, facts(section)])) - bytes(envelope(plan.checks))).toBe(bytes(verdict) + 1);
+      expect(envelope([...plan.checks, facts(section)])).toContain(verdict);
+    }
   });
 });

@@ -72,10 +72,18 @@ export const WORK_ANSWERS_242_RULE_ID = "work_answers_242" as const;
  * result the Line compares with its target is stated as the numbers show.
  */
 export const RESULTS_AGAINST_TARGETS_RULE_ID = "results_against_targets" as const;
+/**
+ * 2026-10-04 (second): the id of the check, in every Line, that each figure
+ * and specific detail is stated as the sources give it (its group, test,
+ * unit, condition and denominator; no detail the sources and the plan do not
+ * give; no suspected cause stated as confirmed).
+ */
+export const FACTS_MATCH_SOURCES_RULE_ID = "facts_match_sources" as const;
 export type SummaryPlanRuleId =
   | typeof ADVANCEMENTS_ANSWER_242_RULE_ID
   | typeof WORK_ANSWERS_242_RULE_ID
-  | typeof RESULTS_AGAINST_TARGETS_RULE_ID;
+  | typeof RESULTS_AGAINST_TARGETS_RULE_ID
+  | typeof FACTS_MATCH_SOURCES_RULE_ID;
 /** 2026-09-30 (third): the Lines whose plan carries the targets check. */
 export const RESULTS_AGAINST_TARGETS_SECTIONS: readonly PdSection[] = ["s244", "s246"];
 
@@ -88,8 +96,10 @@ export const RESULTS_AGAINST_TARGETS_SECTIONS: readonly PdSection[] = ["s244", "
  * work_answers_242), with Line 242 and Line 246's signed-off items as data.
  * v4 (2026-09-30, third): the targets check (`instruction: "match_targets"`,
  * `ruleId: "results_against_targets"`) in Lines 244 and 246.
+ * v5 (2026-10-04, second): the facts check (`instruction: "match_sources"`,
+ * `ruleId: "facts_match_sources"`) in every Line.
  */
-export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v4";
+export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v5";
 export const SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION =
   "summary-ordinary-labels-v2";
 
@@ -181,7 +191,9 @@ export type FrozenDroppedUncertainty<SeedId extends string = string> = {
  * 246 claim advancements only for uncertainties Line 242 states (Rule B),
  * on Line 244, describe work only for them or for a signed-off item
  * (2026-09-30 second, Rule C), or, in Lines 244 and 246, state each result
- * against its target as the numbers show (2026-09-30, third).
+ * against its target as the numbers show (2026-09-30, third), or, in every
+ * Line, state each figure and detail as the sources give it (2026-10-04,
+ * second).
  */
 export type FrozenSummaryPlanInstruction =
   | "cover"
@@ -189,7 +201,8 @@ export type FrozenSummaryPlanInstruction =
   | "leave_out"
   | "answer_242"
   | "work_answer_242"
-  | "match_targets";
+  | "match_targets"
+  | "match_sources";
 
 export type FrozenSummaryPlanCheck<
   ItemId extends string = string,
@@ -758,6 +771,14 @@ export function buildFrozenSummaryPlan<
    * RULES_REPORT_FACTS. Absent: no such check.
    */
   resultsAgainstTargets?: boolean;
+  /**
+   * 2026-10-04 (second): every Line. One check that each figure and specific
+   * detail is stated as the sources give it. It carries no wording and adds
+   * no plan entry: the drafting rule is in RULES_REPORT_FACTS, and the
+   * Self-check reads the sources in its own SOURCE FACTS block. Absent: no
+   * such check.
+   */
+  factsMatchSources?: boolean;
 }): FrozenSummaryPlan<ItemId, SeedId> {
   const sectionRoles = PD_SUBSECTIONS.filter((role) => role.section === args.section);
   const roleIds = new Set(sectionRoles.map((role) => role.roleId));
@@ -890,6 +911,26 @@ export function buildFrozenSummaryPlan<
       confirmedExclusion: false,
       wording: [...uncertainty.wording],
       relationshipReferences,
+      sourceReferences: [],
+    });
+  }
+  // 2026-10-04 (second): figures and details as the sources give them, in
+  // every Line. Before the targets check, so the targets check still comes
+  // just before the chain rules, and Rule B stays the last check of Line 246
+  // and Rule C the last of Line 244.
+  if (args.factsMatchSources) {
+    checks.push({
+      ruleId: FACTS_MATCH_SOURCES_RULE_ID,
+      roleId: args.section === "s242"
+        ? "active_uncertainties"
+        : args.section === "s244"
+          ? "experimentation"
+          : "overall_advancement",
+      mergedItemIds: [],
+      instruction: "match_sources",
+      confirmedExclusion: false,
+      wording: [],
+      relationshipReferences: [],
       sourceReferences: [],
     });
   }

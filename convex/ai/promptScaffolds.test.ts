@@ -566,6 +566,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
       resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
       hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",
+      factsMatchSources: "every-line-plan-check-with-source-facts-block-honoured-by-absence-judged-again-on-final-text",
     });
     // 2026-09-30 (third): the Summary system prompt ends with the rules for
     // hedges, sources and Glossary candidates; the legacy one never has them.
@@ -577,6 +578,11 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     }
     expect(generationPromptProgram.calls.repair.signedOffPlan)
       .toBe("source-talk-found-deterministically-hedge-and-glossary-fixes-get-a-fixed-start");
+    // 2026-10-04 (second): the facts fix and its scaffolds are in the program.
+    expect(generationPromptProgram.calls.repair.factsFix)
+      .toBe("whole-section-never-must-keep-cover-rollback");
+    expect(generationPromptProgram.calls.selfCheck.summaryPlan.requestScaffold.factsMatchSources)
+      .toBe(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources);
     expect(generationPromptProgram.templates.ordered.scaffolds.reportFacts.rules).toBe(RULES_REPORT_FACTS);
     expect(generationPromptProgram.templates.ordered.scaffolds.repairGuidance.sourceTalk).toBe(SOURCE_TALK);
     expect(generationPromptProgram.templates.seeds.summaryPlan).toEqual({
@@ -643,7 +649,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
           ...generationPromptProgram.templates.seeds,
           summaryPlan: {
             ...generationPromptProgram.templates.seeds.summaryPlan,
-            serializerVersion: "summary-plan-jsonl-v5",
+            serializerVersion: "summary-plan-jsonl-v6",
           },
         },
       },

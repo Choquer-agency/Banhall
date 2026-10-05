@@ -608,6 +608,8 @@ export async function signOffSeedStageHandler(
         ...(section === "244" ? { workAnswers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
         // 2026-09-30 (third): Lines 244 and 246 carry the targets check.
         resultsAgainstTargets: true,
+        // 2026-10-04 (second): every Line carries the facts check.
+        factsMatchSources: true,
       });
       const ordinaryChecks = summaryOrdinaryAdmission({
         section,
@@ -1162,6 +1164,10 @@ export async function loadFrozenSectionPlan(
     // admission, runtime admission and drafting alike, carries the check
     // that each result is stated against its target as the numbers show.
     resultsAgainstTargets: true,
+    // 2026-10-04 (second): every signed-off Line, at sign-off admission,
+    // runtime admission and drafting alike, carries the check that each
+    // figure and detail is stated as the sources give it.
+    factsMatchSources: true,
   });
   // An edited item's terms: what the writer changed or added compared with
   // the model's original Seed (immutable). Items frozen before 2026-09-24

@@ -40,6 +40,7 @@ import type {
 import {
   ADVANCEMENTS_ANSWER_242_RULE_ID,
   clipJsonEscapedUtf8,
+  FACTS_MATCH_SOURCES_RULE_ID,
   jsonEscapedUtf8Bytes,
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
@@ -594,7 +595,38 @@ export type SelfCheckModelInput = {
    * repaired text is judged for them (Greptile round 4, P2).
    */
   feedbackTerms?: readonly FeedbackGovernedTerm[];
+  /**
+   * 2026-10-04 (second): what the draft was written from, for the facts
+   * check (sourceFactsBody). Sent as the SOURCE FACTS block only when the
+   * plan checks hold that check, so every other request is unchanged.
+   */
+  sourceFacts?: string;
 };
+
+/**
+ * 2026-10-04 (second): the body of the SOURCE FACTS block, what drafting read
+ * besides the plan: the transcript analysis (compact JSON) and the Brief's
+ * Storyline and Confidence Map. The first Self-check and the check of the
+ * final text read the same block, so they judge against the same sources.
+ */
+export function sourceFactsBody(args: {
+  analysis: unknown;
+  storylineText?: string;
+  confidenceMap?: ReadonlyArray<{ text: string; confidence?: string }>;
+}): string {
+  const scaffold = SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources;
+  const storyline = args.storylineText?.trim() ?? "";
+  const confidence = args.confidenceMap ?? [];
+  return [
+    `${scaffold.analysisHeading}${JSON.stringify(args.analysis)}`,
+    ...(storyline ? [`${scaffold.storylineHeading}${storyline}`] : []),
+    ...(confidence.length > 0
+      ? [`${scaffold.confidenceHeading}${confidence
+          .map((entry) => `${scaffold.confidencePrefix}${entry.confidence ?? "unresolved"}${scaffold.confidenceMiddle}${entry.text}`)
+          .join("")}`]
+      : []),
+  ].join(scaffold.partSeparator);
+}
 
 function summaryEditedTerms(input: SelfCheckModelInput): string[] {
   return (input.editedTerms ?? []).map((term) => term.trim()).filter(Boolean);
@@ -693,6 +725,16 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
     }
     blocks.push(serialized);
   }
+  // 2026-10-04 (second): the sources the draft was written from, for the
+  // facts check, right after the plan checks. Absent without that check, so
+  // those requests are unchanged.
+  const facts = (input.planChecks ?? []).some((check) => check.ruleId === FACTS_MATCH_SOURCES_RULE_ID);
+  if (facts) {
+    blocks.push(block(
+      SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.blockLabel,
+      input.sourceFacts?.trim() || "(none)"
+    ));
+  }
   // The writer's edited terms, allowed word for word: a block of data and,
   // after the blocks, the rule for them. Absent without edited terms, so
   // those requests are unchanged.
@@ -760,6 +802,8 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
     workAnswers242 ? SUMMARY_PLAN_SELF_CHECK_REQUEST.workAnswers242.instruction : ""
   }${
     targets ? SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.instruction : ""
+  }${
+    facts ? SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction : ""
   }`;
 }
 
@@ -1317,12 +1361,18 @@ export const PLAN_TARGETS_NOT_CHECKED_REASON =
   "Not checked: the plan coverage Self-check gave no verdict for whether each result is stated against its target as the numbers show.";
 export const TARGETS_BREAK_UNLOCATED_REASON =
   "Result reported as misstated against its target named no valid paragraph.";
+/** 2026-10-04 (second): the same reasons for the facts check. */
+export const PLAN_FACTS_NOT_CHECKED_REASON =
+  "Not checked: the plan coverage Self-check gave no verdict for whether each figure and detail is stated as the sources give it.";
+export const FACTS_BREAK_UNLOCATED_REASON =
+  "Figure or detail reported as not matching the sources named no valid paragraph.";
 
 function planNotCheckedReason(check: SummaryPlanRefFields): string {
   if (check.itemId) return PLAN_ITEM_NOT_CHECKED_REASON;
   if (check.droppedSeedId) return PLAN_LEAVE_OUT_NOT_CHECKED_REASON;
   if (check.ruleId === WORK_ANSWERS_242_RULE_ID) return PLAN_WORK_RULE_NOT_CHECKED_REASON;
   if (check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID) return PLAN_TARGETS_NOT_CHECKED_REASON;
+  if (check.ruleId === FACTS_MATCH_SOURCES_RULE_ID) return PLAN_FACTS_NOT_CHECKED_REASON;
   if (check.ruleId) return PLAN_RULE_NOT_CHECKED_REASON;
   return PLAN_SKIP_NOT_CHECKED_REASON;
 }
@@ -1331,6 +1381,7 @@ function planBreakUnlocatedReason(check: SummaryPlanRefFields): string {
   if (check.droppedSeedId) return LEAVE_OUT_BREAK_UNLOCATED_REASON;
   if (check.ruleId === WORK_ANSWERS_242_RULE_ID) return WORK_RULE_BREAK_UNLOCATED_REASON;
   if (check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID) return TARGETS_BREAK_UNLOCATED_REASON;
+  if (check.ruleId === FACTS_MATCH_SOURCES_RULE_ID) return FACTS_BREAK_UNLOCATED_REASON;
   if (check.ruleId) return RULE_BREAK_UNLOCATED_REASON;
   return SKIP_BREAK_UNLOCATED_REASON;
 }
@@ -1697,6 +1748,8 @@ export async function runFinalCoverageSelfCheck(
     editedTerms?: readonly string[];
     writerFeedback?: readonly WriterFeedback[];
     feedbackTerms?: readonly FeedbackGovernedTerm[];
+    /** 2026-10-04 (second): the same SOURCE FACTS the first check read. */
+    sourceFacts?: string;
   }
 ): Promise<{
   planVerdicts: ModelSelfCheckResult["planVerdicts"];
@@ -1718,6 +1771,7 @@ export async function runFinalCoverageSelfCheck(
     ...(input.editedTerms?.length ? { editedTerms: input.editedTerms } : {}),
     ...(input.writerFeedback?.length ? { writerFeedback: input.writerFeedback } : {}),
     ...(input.feedbackTerms?.length ? { feedbackTerms: input.feedbackTerms } : {}),
+    ...(input.sourceFacts !== undefined ? { sourceFacts: input.sourceFacts } : {}),
   });
   return {
     planVerdicts: result.planVerdicts,

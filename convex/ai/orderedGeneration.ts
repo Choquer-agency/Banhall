@@ -47,6 +47,7 @@ import {
   runFinalCoverageSelfCheck,
   runModelSelfCheck,
   selfCheckFailureDiagnostic,
+  sourceFactsBody,
   type ModelSelfCheckResult,
 } from "./selfCheck";
 import {
@@ -459,6 +460,19 @@ export function reportFactsIssuePrefix(verdict: ModelVerdict, glossaryCandidates
 export const TARGETS_INSTRUCTION =
   "State each result against its target as the numbers show";
 
+/** 2026-10-04 (second): the Compliance Note instruction for the facts check. */
+export const FACTS_INSTRUCTION =
+  "State figures and details as the sources give them";
+
+/**
+ * 2026-10-04 (second): how a facts row that a used repair fixed says what was
+ * wrong: the final text's verdict, then what the first check found.
+ */
+export function factsRepairedReason(finalReason: string, firstReason: string): string {
+  const found = firstReason.trim();
+  return found ? `${finalReason.trim()} Fixed by the repair: ${found}` : finalReason.trim();
+}
+
 /**
  * 2026-09-30 (first): the Compliance Note instruction for a LEAVE OUT row,
  * naming the dropped uncertainty by its first words, never an id.
@@ -488,6 +502,8 @@ function planInstruction(expected: PlanCheck): string {
       return WORK_ANSWERS_242_INSTRUCTION;
     case "match_targets":
       return TARGETS_INSTRUCTION;
+    case "match_sources":
+      return FACTS_INSTRUCTION;
     default:
       return `Cover signed-off Summary item ${expected.itemId}`;
   }
@@ -530,10 +546,14 @@ export function leaveOutRepairIssue(
   guidance: string
 ): string {
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.repairGuidance;
-  const where = verdict.paragraphIndex === undefined
+  // 2026-10-04 (second): a facts fix is for the whole section, since its
+  // guidance names every figure and detail to correct, in any paragraph.
+  const where = verdict.paragraphIndex === undefined || check.instruction === "match_sources"
     ? scaffold.wholeSection
     : `${scaffold.paragraphPrefix}${verdict.paragraphIndex + 1}${scaffold.paragraphSuffix}`;
-  const fix = check.instruction === "leave_out"
+  const fix = check.instruction === "match_sources"
+    ? scaffold.factsIssue
+    : check.instruction === "leave_out"
     ? `${scaffold.leaveOutPrefix}${quoteForPrompt(ideaWords(check.wording, 200))}${scaffold.leaveOutSuffix}`
     : check.instruction === "work_answer_242"
       ? scaffold.workAnswers242Issue
@@ -858,6 +878,7 @@ export function planComplianceNoteDrafts(args: {
       const final = args.finalCoverage.ok
         ? planVerdictFor(args.finalCoverage.verdicts, expected)
         : undefined;
+      const repaired = sentToRepair && final?.outcome === "applied";
       return [noteDraft({
         section: args.section,
         ...(final?.paragraphIndex === undefined ? {} : { paragraphIndex: final.paragraphIndex }),
@@ -865,8 +886,14 @@ export function planComplianceNoteDrafts(args: {
         instruction,
         outcome: final?.outcome ?? "not_applied",
         tier: "none",
-        reason: final ? rowReason(final) : FINAL_COVERAGE_NOT_CHECKED_REASON,
-        repaired: sentToRepair && final?.outcome === "applied",
+        // 2026-10-04 (second): a facts row a repair fixed still says what was
+        // wrong, so a reviewer can check the correction.
+        reason: final
+          ? repaired && expected.instruction === "match_sources"
+            ? factsRepairedReason(rowReason(final), verdict.reason)
+            : rowReason(final)
+          : FINAL_COVERAGE_NOT_CHECKED_REASON,
+        repaired,
         planRef,
       })];
     }
@@ -1086,6 +1113,16 @@ export async function draftCheckedSection(input: {
   // after the Brief. Single draft and Compare requests are unchanged.
   const planRun = Boolean(claim.planBlock);
   const reportFacts = planRun ? reportFactsBlock() : "";
+  // 2026-10-04 (second): the sources the draft is written from (the analysis
+  // and the Brief's Storyline and Confidence Map), for the facts check of a
+  // signed-off plan. Only a Line whose plan holds that check sends them.
+  const sourceFacts = claim.planChecks.some((planCheck) => planCheck.instruction === "match_sources")
+    ? sourceFactsBody({
+        analysis,
+        storylineText: claim.brief?.storylineText ?? "",
+        confidenceMap: claim.brief?.confidenceMap ?? [],
+      })
+    : undefined;
   // Review P3-6: the checked text is over a Locked limit and further over
   // it than the other text, which must never be traded back for it.
   const overLimitMore = (checked: string, other: string) =>
@@ -1201,6 +1238,7 @@ export async function draftCheckedSection(input: {
       editedTerms: claim.editedTerms,
       ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
       ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
+      ...(sourceFacts !== undefined ? { sourceFacts } : {}),
     });
     verdicts = result.verdicts;
     storylineQuestion = result.storylineQuestion;
@@ -1251,6 +1289,12 @@ export async function draftCheckedSection(input: {
   // rollback below protects it (targetsIssues).
   const evidenceIssues = new Set<string>();
   const targetsIssues = new Set<string>();
+  // 2026-10-04 (second): facts fixes correct a figure or take a detail out,
+  // so, like a leave-out fix, they are never Must keep lines of the repair's
+  // compression (its number guard would keep the wrong figure); the check of
+  // the final text judges them again, and the COVER rollback protects the
+  // signed-off items.
+  const factsIssues = new Set<string>();
   const planIssues = modelCheck.ok
     ? planVerdicts.flatMap((verdict) => {
         const expected = claim.planChecks.find((check) => sameSummaryPlanRef(verdict, check));
@@ -1271,6 +1315,14 @@ export async function draftCheckedSection(input: {
           const issue = leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason);
           leaveOutIssues.add(issue);
           if (expected.instruction === "work_answer_242") evidenceIssues.add(issue);
+          return [issue];
+        }
+        // 2026-10-04 (second): a figure or detail that does not match the
+        // sources goes to the repair with a fixed start for the whole
+        // section and the check's guidance.
+        if (expected?.instruction === "match_sources") {
+          const issue = leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason);
+          factsIssues.add(issue);
           return [issue];
         }
         // 2026-09-30 (third): a result misstated against its target goes
@@ -1340,6 +1392,7 @@ export async function draftCheckedSection(input: {
           (issue) =>
             !issue.startsWith("Shorten ") &&
             !leaveOutIssues.has(issue) &&
+            !factsIssues.has(issue) &&
             issue !== sourceTalkIssue &&
             !claim.editedTerms.some((term) => containsTerm(issue, term))
         );
@@ -1451,6 +1504,7 @@ export async function draftCheckedSection(input: {
           editedTerms: claim.editedTerms,
           ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
           ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
+          ...(sourceFacts !== undefined ? { sourceFacts } : {}),
         }
       );
       finalCoverage = {
@@ -1528,7 +1582,12 @@ export async function draftCheckedSection(input: {
   // over a Locked limit (Locked Rules first). With no final verdict to read,
   // nothing shows a loss, and the repair stays.
   // Review P3 (targets): a targets fix must keep what the plan holds too.
-  if (repair.succeeded && finalCoverage?.ok && (leaveOutIssues.size > 0 || targetsIssues.size > 0)) {
+  // 2026-10-04 (second): and so must a facts fix.
+  if (
+    repair.succeeded &&
+    finalCoverage?.ok &&
+    (leaveOutIssues.size > 0 || targetsIssues.size > 0 || factsIssues.size > 0)
+  ) {
     const coverage = finalCoverage;
     const lost = claim.planChecks.filter((planCheck) => {
       if (planCheck.instruction !== "cover" || planCheck.confirmedExclusion) return false;
