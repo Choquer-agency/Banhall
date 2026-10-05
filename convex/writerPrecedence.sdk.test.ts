@@ -960,8 +960,6 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
         "submit_self_check",
       ]);
       const final = sent[3]!;
-      expect(final.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.labelsInstruction);
-      expect(final.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
       expect(final.user).toContain(governedLabelLine(entry.instruction, entry.term));
       expect(final.user).toContain("- feedback:F1 (check instruction)");
       if (entry.otherLabels.length > 0) expect(final.user).toContain("- glossary:G1");
@@ -1345,7 +1343,6 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
     }
     // The check of the final text is among them: since 2026-10-05 (Round 2,
     // follow-up) the full Self-check.
-    expect(sent[3]!.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
     expect(sent[3]!.user).toContain("- glossary:G1");
     // A control character reads as a space, never gluing a word to a name.
     expect(quoteForPrompt("a\\b \"c\"\u0007d")).toBe('"a\\\\b \\"c\\" d"');
@@ -1479,7 +1476,6 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
     // label, which the final text still follows.
     const checks = sent.filter((request) => request.stage === "submit_self_check");
     expect(checks).toHaveLength(2);
-    expect(checks[1]!.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.labelsInstruction);
     expect(checks[1]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.writerFeedback.instruction);
     expect(checks[1]!.user).toContain(governedLabelLine(SPINDLE));
     expect(termRow(result)).toMatchObject({

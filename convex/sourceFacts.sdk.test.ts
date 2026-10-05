@@ -511,9 +511,12 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
     expect(sent[1]!.user).toContain('the same fact in other words is not a finding (warming "by 5 C" and warming "5 C, to 65 C" agree)');
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
+    // The stub's repair returns the draft, so the repair left the checked
+    // text as it was (2026-10-05, Round 2 follow-up, review P2).
     expect(factsRow(result)).toMatchObject({
       outcome: "not_applied",
-      reason: 'P3 says "Raising air temperature by 2 C pushed defects back up", but the sources say "Then we nudged the air up 2 C, to 127 C".',
+      reason: 'P3 says "Raising air temperature by 2 C pushed defects back up", but the sources say "Then we nudged the air up 2 C, to 127 C".; the repair left the checked text as it was',
+      repaired: false,
     });
   });
 
@@ -1013,7 +1016,7 @@ describe("the Self-check with both the writer's measured caps and the facts chec
           : Array.isArray(json.system) ? json.system.map((block: { text?: string }) => block.text ?? "").join("") : "";
         const tool = (json.tools as Array<{ name: string }> | undefined)?.[0]?.name ?? null;
         const stage = tool === "submit_self_check"
-          ? user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction) ? "finalCoverage" : "selfCheck"
+          ? "selfCheck"
           : system.startsWith(COMPRESSION_REQUEST.system.slice(0, 60))
             ? "compression"
             : user.includes(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix) ? "repair" : "section";
@@ -1151,7 +1154,6 @@ describe("the Self-check with both the writer's measured caps and the facts chec
     expect(final.split(CAP_SOURCE_FACTS_BLOCK)).toHaveLength(2);
     expect(final.split(factsMatchSourcesInstruction(true))).toHaveLength(2);
     expect(final.split(MEASURED_CAPS)).toHaveLength(2);
-    expect(final).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
 
     // The row describes the final text: the scope finding, verified there,
     // and the steel finding, whose quote the final text no longer holds,

@@ -1865,10 +1865,10 @@ describe("deterministic Self-check rules", () => {
     );
   });
 
-  it("marks plan and model rows not re-verified when compression changed an accepted repair (review P2-1)", () => {
+  it("never marks a plan or model row repaired when no check of the final text ran (review P2-1; follow-up review P2)", () => {
     const summaryVersionId = "summary" as Id<"summaryVersions">;
     const item = "item-1" as Id<"summaryItems">;
-    const planRows = (repairShortened: boolean) =>
+    const planRows = () =>
       planComplianceNoteDrafts({
         section: "246",
         summaryVersionId,
@@ -1884,14 +1884,16 @@ describe("deterministic Self-check rules", () => {
         }],
         verdicts: [{ itemId: item, mergedItemIds: [item], paragraphIndex: 1, outcome: "not_applied", reason: "Missing the 38-day result." }],
         repairSucceeded: true,
-        repairShortened,
         coverageCheckSucceeded: true,
       });
-    expect(planRows(false)[0]).toMatchObject({ outcome: "not_applied", repaired: true, reason: "Missing the 38-day result." });
-    expect(planRows(true)[0]).toMatchObject({
+    // 2026-10-05 (Round 2 follow-up, review P2): a used repair with no check
+    // of the final text left the checked text byte for byte (it came back
+    // unchanged, or shortening turned it back), so the first verdict stands
+    // and nothing is marked repaired.
+    expect(planRows()[0]).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: "Missing the 38-day result.; repaired, then shortened to fit the Line limit, so not re-verified",
+      reason: "Missing the 38-day result.; the repair left the checked text as it was",
     });
 
     const before = runDeterministicSelfCheck({
@@ -1949,7 +1951,6 @@ describe("deterministic Self-check rules", () => {
       }],
       verdicts: [{ itemId: item, mergedItemIds: [item], outcome: "not_applied", reason: "Not checked.", actionableRepair: false }],
       repairSucceeded: true,
-      repairShortened: true,
       coverageCheckSucceeded: true,
     });
     expect(notCheckedPlan[0]).toMatchObject({ reason: "Not checked.", repaired: false });

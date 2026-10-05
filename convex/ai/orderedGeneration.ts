@@ -92,6 +92,7 @@ import {
   consistencyNoteDrafts,
   consistencySummaryNote,
   glossaryTermOf,
+  REPAIR_LEFT_CHECKED_TEXT,
   repairIssues,
   runDeterministicSelfCheck,
   SOURCE_TALK_KEY,
@@ -836,8 +837,6 @@ export function planComplianceNoteDrafts(args: {
   checks: PlanCheck[];
   verdicts: PlanVerdicts;
   repairSucceeded?: boolean;
-  /** The accepted repair was then shortened by compression (review P2-1). */
-  repairShortened?: boolean;
   coverageCheckSucceeded?: boolean;
   finalCoverage?: { ok: true; verdicts: PlanVerdicts } | { ok: false };
   /**
@@ -951,8 +950,12 @@ export function planComplianceNoteDrafts(args: {
         planRef,
       })];
     }
-    // A repair compression then changed was never checked again.
-    const notReverified = sentToRepair && args.repairShortened === true;
+    // 2026-10-05 (Round 2 follow-up, review P2): every used repair that
+    // changed the checked text has a check of the final text above, so a
+    // used repair without one left the checked text byte for byte (it came
+    // back unchanged, or shortening turned it back): the first verdict
+    // describes the final text and nothing was repaired.
+    const unchanged = sentToRepair;
     const repairNotUsed =
       !args.repairSucceeded &&
       args.repairNotUsedReason !== undefined &&
@@ -968,10 +971,10 @@ export function planComplianceNoteDrafts(args: {
       instruction,
       outcome: verdict.outcome,
       tier: "none",
-      reason: notReverified
-        ? `${rowReason(verdict)}; repaired, then shortened to fit the Line limit, so not re-verified`
+      reason: unchanged
+        ? `${rowReason(verdict)}${REPAIR_LEFT_CHECKED_TEXT}`
         : `${rowReason(verdict)}${repairNotUsed}`,
-      repaired: sentToRepair && !notReverified,
+      repaired: false,
       planRef,
     })];
   });
@@ -1616,9 +1619,8 @@ export async function draftCheckedSection(input: {
   // full Self-check judges the final text with the first check's input (its
   // Glossary candidates and rules from the final text's own deterministic
   // check), so every row describes the text that ships. In Summary mode it
-  // is the check of the final text that already ran (once coverage-only), so
-  // no request is added: only a used repair changes the text, so the
-  // coverage-only check is no longer reached. In Single draft and Compare it
+  // is the check of the final text that already ran (coverage-only before
+  // the follow-up), so no request is added. In Single draft and Compare it
   // is one more Self-check request, within the slots the check of the final
   // text has in every mode. A check that fails, or runs out of time, leaves
   // those rows "not checked on the final text", never a verdict on the text
@@ -1632,10 +1634,11 @@ export async function draftCheckedSection(input: {
       ? { ...selfCheckInput, text: finalText, glossaryCandidates: after.glossaryCandidates, rules: after.modelRules }
       : null;
   if (finalCheckInput) {
-    const planRun = Boolean(payload.summaryVersionId) && claim.planChecks.length > 0;
+    // The plan rows read this check's plan verdicts (Summary mode with plan checks).
+    const recordsPlanCoverage = Boolean(payload.summaryVersionId) && claim.planChecks.length > 0;
     try {
       const final = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), finalCheckInput);
-      if (planRun) {
+      if (recordsPlanCoverage) {
         finalCoverage = {
           ok: true,
           verdicts: withLeaveOutFigureNotes(
@@ -1656,7 +1659,7 @@ export async function draftCheckedSection(input: {
       const reason = normalizeProviderError(error).code;
       const detail = selfCheckFailureDiagnostic(error);
       console.warn(`generation:selfCheck:${section}: Self-check of the final text failed (${reason}): ${detail}`);
-      if (planRun) finalCoverage = { ok: false, reason, detail };
+      if (recordsPlanCoverage) finalCoverage = { ok: false, reason, detail };
       finalOrdinary = { ok: false, reason };
       if (feedbackTerms.length > 0) governedFinal = { ok: false };
     }
@@ -1799,7 +1802,6 @@ export async function draftCheckedSection(input: {
       verdicts: planVerdicts,
       repairSucceeded: repair.succeeded,
       ...(repair.notUsedReason ? { repairNotUsedReason: repair.notUsedReason } : {}),
-      repairShortened: repair.shortened === true,
       coverageCheckSucceeded: modelCheck.ok,
       ...(finalCoverage ? { finalCoverage } : {}),
       confirmed: new Map(confirmed.map((conflict) => [conflict.itemId, {

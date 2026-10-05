@@ -1487,6 +1487,37 @@ describe("first contact fixes", () => {
     expect(partial.evidence).toBe('244: 1 label and 0 plan checks "Not checked" of 3');
   });
 
+  it("counts rows not checked on the final text like any not checked row (2026-10-04 first, Round 2 follow-up, review P3-2)", () => {
+    const fixture = byCase("skipped_role_supported");
+    const c = baseCollected();
+    c.summary!.items = [summaryItem("i1", "company_context", "s1")];
+    const label = (section: string, instruction: string, reason: string, outcome = "applied") => ({
+      section, paragraphIndex: null, source: "model", instruction, outcome, tier: "none", reason, repaired: false, planRef: null,
+    });
+    const failed = "Not checked on the final text (the check of the final text did not complete: timeout)";
+    c.complianceNotes = [
+      // 242: the check of the final text did not complete, so nothing on
+      // the final text was checked.
+      label("242", "Storyline", failed, "not_applied"),
+      label("242", "Writer Profile settings", failed, "not_applied"),
+      cover("i1", "242", ["i1"], { outcome: "not_applied", reason: "Not checked: the plan coverage Self-check of the final text did not complete." }),
+      // 244: one label the check of the final text gave no verdict for.
+      label("244", "Storyline", "Matches the Storyline."),
+      label("244", "Confidence Map: Trial 2 is uncertain.", "Not checked on the final text (the Self-check gave no verdict for it)", "not_applied"),
+    ];
+    expect(notCheckedCounts(c)).toEqual([
+      { section: "242", labels: 2, planChecks: 1, total: 3 },
+      { section: "244", labels: 1, planChecks: 0, total: 2 },
+    ]);
+    const ran = runChecks(fixture, c, emptyRunLog(fixture.id, 0)).find((item) => item.id === "self-check-ran")!;
+    expect(ran.status).toBe("fail");
+    expect(ran.evidence).toContain('242: every label and plan check is "Not checked" (3)');
+    expect(ran.evidence).toContain('244: 1 label and 0 plan checks "Not checked" of 2');
+    // A row that only mentions the words later is not counted.
+    c.complianceNotes = [label("244", "Storyline", "Matches the Storyline; not checked on the final text was never the case.")];
+    expect(notCheckedCounts(c)).toEqual([{ section: "244", labels: 0, planChecks: 0, total: 1 }]);
+  });
+
   it("names a failed final coverage check in the Self-check evidence and the pack", () => {
     const fixture = byCase("withdrawn_feedback");
     const c = baseCollected();

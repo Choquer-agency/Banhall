@@ -15,6 +15,7 @@ import { bannedTermPattern } from "../../shared/bannedWords";
 import { sectionMetrics, WORD_CAPS } from "../../convex/lib/lineLimits";
 import { matchesSettingsTitle } from "../../convex/lib/settingsDocument";
 import { extractSettingsRules } from "../../convex/lib/settingsExtraction";
+import { NOT_CHECKED_ON_FINAL_TEXT } from "../../convex/lib/selfCheckRules";
 import {
   PLAN_ROLE_IDS,
   RESULT_ROLE_IDS,
@@ -2522,6 +2523,13 @@ export function describeFailedBatch(batch: Collected["batches"][number]): string
 }
 
 const NOT_CHECKED_PREFIX = "Not checked:";
+/**
+ * 2026-10-04 (first, Round 2 and its follow-up, review P3-2): a row the
+ * Self-check of the final text gave no verdict for, or that check did not
+ * complete for, starts "Not checked on the final text (". It is counted like
+ * any other not checked row.
+ */
+const NOT_CHECKED_ON_FINAL_TEXT_PREFIX = `${NOT_CHECKED_ON_FINAL_TEXT} (`;
 
 export type NotCheckedCount = {
   section: string;
@@ -2550,7 +2558,8 @@ export function notCheckedCounts(c: Collected): NotCheckedCount[] {
         !note.reason.startsWith("Storyline question"),
     );
     const planRows = rows.filter((note) => note.planRef);
-    const notChecked = (note: { reason: string }) => note.reason.startsWith(NOT_CHECKED_PREFIX);
+    const notChecked = (note: { reason: string }) =>
+      note.reason.startsWith(NOT_CHECKED_PREFIX) || note.reason.startsWith(NOT_CHECKED_ON_FINAL_TEXT_PREFIX);
     return {
       section,
       labels: labelRows.filter(notChecked).length,

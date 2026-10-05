@@ -322,7 +322,6 @@ describe("coverage is checked on the final text (real SDK, fetch stubbed)", () =
     expect(final.user).toContain("[P3] Bench runs compared both faces at 40 percent solids for 300 hours each, and the graphite face wore 30 percent less.");
     expect(final.user).not.toContain("The team expected a graphite-filled face");
     expect(final.user).toContain("--- BEGIN [CONTENT PLAN CHECKS] ---");
-    expect(final.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
     expect(final.user.endsWith(
       "Return exactly 3 planVerdicts, one for each plan check below:\n" +
         `- skippedRoleId prior_year_status\n- itemId ${ITEM_WORKPLAN}\n- itemId ${ITEM_HYPOTHESIS}`
@@ -377,7 +376,13 @@ describe("coverage is checked on the final text (real SDK, fetch stubbed)", () =
     const result = await draft();
 
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
-    expect(rowFor(result, ITEM_HYPOTHESIS)).toMatchObject({ outcome: "not_applied", repaired: true });
+    // 2026-10-05 (Round 2 follow-up, review P2): the repair left the checked
+    // text as it was, so the first verdict stands and nothing was repaired.
+    expect(rowFor(result, ITEM_HYPOTHESIS)).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: "P2 states an expectation, not a hypothesis.; the repair left the checked text as it was",
+    });
     expect(rowFor(result, ITEM_WORKPLAN)).toMatchObject({ outcome: "applied", paragraphIndex: 0 });
   });
 

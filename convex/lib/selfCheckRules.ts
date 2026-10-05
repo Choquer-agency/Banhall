@@ -243,6 +243,13 @@ function categoryReason(
  */
 export const NOT_CHECKED_ON_FINAL_TEXT = "Not checked on the final text";
 
+/**
+ * Round 2 (2026-10-05, review P3-4, and the follow-up's review P2): how a
+ * row a used repair was sent for ends when the repair left the checked text
+ * byte for byte, so the first verdict describes the final text.
+ */
+export const REPAIR_LEFT_CHECKED_TEXT = "; the repair left the checked text as it was";
+
 /** Story 3 (AD-26): the reason on a waiver row an org-enforced mode ignored. */
 export const ORG_ENFORCED_WAIVER_REASON =
   "org-enforced: this House Rule applies regardless of the Writer Profile";
@@ -1270,7 +1277,7 @@ export function assembleSectionNotes(input: {
         // Review P3-7: a label the first check did not fail was found on the
         // final text, not checked "again".
         reason: same
-          ? `${verdict.reason || "not applied"}; the repair left the checked text as it was`
+          ? `${verdict.reason || "not applied"}${REPAIR_LEFT_CHECKED_TEXT}`
           : `${verdict.reason || "not applied"}; ${wasFailing ? "checked again" : "found"} on the final text`,
       }));
     }
@@ -1291,6 +1298,25 @@ export function assembleSectionNotes(input: {
           continue;
         }
         remainingFailures += 1;
+        rows.push(noteDraft({
+          ...baseOf(first),
+          tier: "none",
+          outcome: "not_applied",
+          reason: `${NOT_CHECKED_ON_FINAL_TEXT} (the Self-check gave no verdict for it)`,
+        }));
+      }
+      // Follow-up review P3-1: in Single draft and Compare the model words its
+      // own labels and is not asked for one verdict per label, so the check
+      // of the final text can leave out a label the first check found met.
+      // It keeps its row, as not checked on the final text, and is no
+      // failure. A Glossary Term the final text holds needs none: the
+      // final text's deterministic row records it.
+      for (const first of verdicts) {
+        if (governedTermOf(first) || failing(first)) continue;
+        if (final.verdicts.some((verdict) => !governedTermOf(verdict) && same_(first, verdict))) continue;
+        if ([...reported].some((other) => same_(other, first))) continue;
+        reported.add(first);
+        if (first.check === "glossary" && glossaryTermPresent(glossaryTermOf(first, before.glossaryCandidates), input.finalText)) continue;
         rows.push(noteDraft({
           ...baseOf(first),
           tier: "none",

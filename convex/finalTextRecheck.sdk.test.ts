@@ -26,9 +26,10 @@ import type { ActionCtx } from "./_generated/server";
 import { instrumentedAnthropic } from "./ai/instrument";
 import type { GenerationClient } from "./ai/openrouterCore";
 import { draftCheckedSection } from "./ai/orderedGeneration";
-import { ORDERED_PROMPT_SCAFFOLDS, SUMMARY_PLAN_SELF_CHECK_REQUEST } from "./ai/promptDefinitions";
+import { COMPRESSION_REQUEST, ORDERED_PROMPT_SCAFFOLDS } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
+import { sectionMetrics } from "./lib/lineLimits";
 import type { OrderedPayload } from "./lib/orderedChain";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -159,10 +160,21 @@ function userOf(json: Record<string, unknown>): string {
     .join("\n");
 }
 
-/** Scripts one Section: its draft, its repair and each Self-check answer, in order. */
-function installFetch(script: { draft: string; repair: string; checks: unknown[] }): Sent[] {
+type Script = { draft: string; repair: string; checks: unknown[]; compressions?: string[] };
+
+function systemOf(json: Record<string, unknown>): string {
+  return typeof json.system === "string"
+    ? json.system
+    : Array.isArray(json.system)
+      ? json.system.map((block: { text?: string }) => block.text ?? "").join("")
+      : "";
+}
+
+/** Scripts one Section: its draft, each shortening pass, its repair and each Self-check answer, in order. */
+function installFetch(script: Script): Sent[] {
   const sent: Sent[] = [];
   const checks = [...script.checks];
+  const compressions = [...(script.compressions ?? [])];
   vi.stubGlobal(
     "fetch",
     vi.fn<typeof fetch>(async (input, init) => {
@@ -171,7 +183,10 @@ function installFetch(script: { draft: string; repair: string; checks: unknown[]
       const tool = (json.tools as Array<{ name: string }> | undefined)?.[0]?.name ?? null;
       const stage = tool === "submit_self_check"
         ? "selfCheck"
-        : tool ?? (user.includes(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix) ? "repair" : "section");
+        : tool ??
+          (systemOf(json).startsWith(COMPRESSION_REQUEST.system.slice(0, 60))
+            ? "compression"
+            : user.includes(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix) ? "repair" : "section");
       sent.push({ stage, user });
       const base = {
         id: "msg_synthetic",
@@ -191,21 +206,16 @@ function installFetch(script: { draft: string; repair: string; checks: unknown[]
         });
       }
       if (tool) throw new Error(`Unexpected tool ${tool}`);
-      return Response.json({
-        ...base,
-        content: [{ type: "text", text: stage === "repair" ? script.repair : script.draft }],
-        stop_reason: "end_turn",
-      });
+      const text = stage === "compression"
+        ? compressions.shift() ?? ""
+        : stage === "repair" ? script.repair : script.draft;
+      return Response.json({ ...base, content: [{ type: "text", text }], stop_reason: "end_turn" });
     })
   );
   return sent;
 }
 
-async function draft(
-  section: "242" | "244",
-  signedOff: boolean,
-  script: { draft: string; repair: string; checks: unknown[] }
-) {
+async function draft(section: "242" | "244", signedOff: boolean, script: Script) {
   const sent = installFetch(script);
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
@@ -289,7 +299,8 @@ describe("every used repair is checked again on the final text (2026-10-05, Roun
     expect(final).toContain("[P4] It was not known whether a cove could reach full cure");
     expect(final).not.toContain("The team did not know whether");
     expect(final).toContain("--- BEGIN [WRITER INSTRUCTIONS] ---");
-    expect(final).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+    // The first check's own request, on the final text.
+    expect(final.replace("It was not known whether", "The team did not know whether")).toBe(sent[1]!.user);
     expect(settingsRow).toMatchObject({
       outcome: "applied",
       repaired: true,
@@ -373,4 +384,88 @@ describe("every used repair is checked again on the final text (2026-10-05, Roun
       expect(JSON.parse(result.selfCheck)).toMatchObject({ status: "repair_failed", remainingFailures: 1 });
     }
   );
+
+  // Review P2 of the follow-up: on a signed-off plan run the plan rows of a
+  // used repair with no check of the final text (the final text is the
+  // checked text byte for byte) never claim the repair.
+  const itemMissing = {
+    itemId: ITEM_242,
+    mergedItemIds: [ITEM_242],
+    paragraph: 0,
+    outcome: "not_applied",
+    reason: "No paragraph says the coves heat unevenly",
+    repairGuidance: "State that routed coves heat unevenly in the oven.",
+  };
+  const settingsMet = { outcome: "applied", reason: "Third person and the opener are used." };
+  const planRow = (notes: Array<{ planRef?: { itemId?: string } }>) =>
+    notes.find((row) => row.planRef?.itemId === ITEM_242);
+
+  it("a repair that came back unchanged leaves the plan row not applied and not repaired (review P2 a)", async () => {
+    const { sent, result } = await draft("242", true, {
+      draft: DRAFT_242,
+      repair: DRAFT_242,
+      checks: [{ verdicts: [settingsVerdict(true, settingsMet)], planVerdicts: [itemMissing, planVerdicts242[1]] }],
+    });
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
+    expect(planRow(result.notes)).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: "No paragraph says the coves heat unevenly; the repair left the checked text as it was",
+    });
+    expectNoStaleWording(result.notes);
+  });
+
+  it("a repair that shortening turned back into the checked text leaves the plan row not applied and not repaired (review P2 b)", async () => {
+    const filler = (topic: string) =>
+      `The team recorded each ${topic} run in the shop log and compared it with the run before it on the same line.`;
+    const paragraphs = (topic: string, count: number) => Array.from({ length: count }, () => filler(topic)).join(" ");
+    // Within the Locked cap, over the compression floor: the checked text.
+    const checked = `${DRAFT_242}\n\n${paragraphs("oven", 7)}`;
+    // Over the Locked cap: the draft and the repair, before shortening.
+    const long = `${checked}\n\n${paragraphs("door", 9)}`;
+    const repaired = long.replace("The team did not know whether", "It was not known whether");
+    expect(sectionMetrics(checked, "s242").overLimit).toBe(false);
+    expect(sectionMetrics(long, "s242").overLimit).toBe(true);
+    const { sent, result } = await draft("242", true, {
+      draft: long,
+      repair: repaired,
+      compressions: [checked, checked],
+      checks: [{ verdicts: [settingsVerdict(true, settingsMet)], planVerdicts: [itemMissing, planVerdicts242[1]] }],
+    });
+    expect(result.draftText).toBe(checked);
+    // The repair was used and shortened back to the checked text: no check
+    // of the final text runs.
+    expect(sent.map((request) => request.stage)).toEqual(["section", "compression", "selfCheck", "repair", "compression"]);
+    expect(planRow(result.notes)).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: "No paragraph says the coves heat unevenly; the repair left the checked text as it was",
+    });
+    expectNoStaleWording(result.notes);
+  });
+
+  // Review P3-1 of the follow-up: in Single draft and Compare the model words
+  // its own labels, so the check of the final text can leave out a label the
+  // first check found met; it keeps its row, as not checked, and counts as
+  // no failure.
+  it("Single draft: a met label the check of the final text gave no verdict for keeps its row, not checked (review P3-1)", async () => {
+    const hedged = { paragraph: 3, check: "confidence", instruction: "The Trial 2 result is uncertain.", outcome: "applied", reason: "P3 hedges Trial 2." };
+    const { sent, result } = await draft("244", false, {
+      draft: DRAFT_244,
+      repair: REPAIRED_244,
+      checks: [
+        { verdicts: [settingsVerdict(false, THIRD_PERSON_MISSING), hedged] },
+        { verdicts: [settingsVerdict(false, { outcome: "applied", reason: "Third person throughout." })] },
+      ],
+    });
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "selfCheck"]);
+    const rows = result.notes.filter((row) => row.source === "model");
+    expect(rows).toHaveLength(2);
+    expect(rows.find((row) => row.instruction === hedged.instruction)).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: "Not checked on the final text (the Self-check gave no verdict for it)",
+    });
+    expect(JSON.parse(result.selfCheck)).toMatchObject({ status: "repair_attempted", remainingFailures: 0 });
+  });
 });

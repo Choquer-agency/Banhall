@@ -39,7 +39,7 @@ import { instrumentedAnthropic } from "./ai/instrument";
 import type { GenerationClient } from "./ai/openrouterCore";
 import { draftCheckedSection, reportFactsBlock } from "./ai/orderedGeneration";
 import { SUMMARY_PLAN_REPORT_FACTS_RULES } from "./ai/prompts";
-import { ORDERED_PROMPT_SCAFFOLDS, SUMMARY_PLAN_SELF_CHECK_REQUEST } from "./ai/promptDefinitions";
+import { ORDERED_PROMPT_SCAFFOLDS } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { runConsistencyPass } from "./ai/selfCheck";
 import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
@@ -178,10 +178,7 @@ function installFetch(script: { repair?: string; checks: unknown[] }): Sent[] {
       const tool = (json.tools as Array<{ name: string }> | undefined)?.[0]?.name ?? null;
       const user = userOf(json);
       const stage = tool === "submit_self_check"
-        ? user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction) ||
-          user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.labelsInstruction)
-          ? "finalCoverage"
-          : "selfCheck"
+        ? "selfCheck"
         : tool ?? (user.includes(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix) ? "repair" : "section");
       sent.push({ stage, body });
       const base = {
@@ -230,7 +227,6 @@ const THIRD_AMENDMENT_ADDITIONS: Record<string, string[]> = {
   section: [inJson(reportFactsBlock())],
   repair: [inJson(reportFactsBlock())],
   selfCheck: [inJson(`\n\n${SUMMARY_PLAN_REPORT_FACTS_RULES}`)],
-  finalCoverage: [inJson(`\n\n${SUMMARY_PLAN_REPORT_FACTS_RULES}`)],
 };
 
 async function draftAndHash(args: {
@@ -270,6 +266,12 @@ async function hashesOf(sent: Sent[]): Promise<{
    * full Self-check, so the requests before it carry their own pin.
    */
   hashBeforeFinal: string;
+  /**
+   * Follow-up review P3-4: the last request is the first Self-check's own
+   * request with the final text (REPAIRED) in place of the checked one
+   * (DRAFT), byte for byte.
+   */
+  finalIsFirstCheckOnFinalText: boolean;
   additionsFound: boolean;
 }> {
   let additionsFound = true;
@@ -283,8 +285,23 @@ async function hashesOf(sent: Sent[]): Promise<{
     hash: await sha256Hex(JSON.stringify(sent.map((request) => request.body))),
     hashWithoutThirdAmendment: await sha256Hex(JSON.stringify(withoutAdditions)),
     hashBeforeFinal: await sha256Hex(JSON.stringify(sent.slice(0, -1).map((request) => request.body))),
+    finalIsFirstCheckOnFinalText: firstCheckOnFinalText(sent),
     additionsFound,
   };
+}
+
+/** Whether the last request is the first Self-check's request on REPAIRED in place of DRAFT. */
+function firstCheckOnFinalText(sent: Sent[]): boolean {
+  const checks = sent.filter((request) => request.stage === "selfCheck");
+  if (checks.length !== 2 || sent.at(-1) !== checks[1]) return false;
+  const drafted = DRAFT.split("\n\n");
+  // Only the Section text's numbered paragraphs: a plan item may hold the same words.
+  const final = REPAIRED.split("\n\n").reduce(
+    (body, paragraph, index) =>
+      body.split(inJson(`[P${index + 1}] ${paragraph}`)).join(inJson(`[P${index + 1}] ${drafted[index]!}`)),
+    checks[1]!.body
+  );
+  return checks[1]!.body !== checks[0]!.body && final === checks[0]!.body;
 }
 
 const APPLIED = (paragraph: number, reason: string) => ({ paragraph, outcome: "applied", reason });
@@ -301,13 +318,14 @@ const PINNED_021039F5_BEFORE_FINAL = {
 
 /**
  * The hashes this file produced at commit 5c2350ac (before the 2026-09-30
- * first amendment), with the same fixture, provider script and SDK.
+ * first amendment), with the same fixture, provider script and SDK. The
+ * signed-off Line 242 run's pin left with the 2026-10-05 follow-up (see
+ * PINNED_021039F5_BEFORE_FINAL).
  */
 const PINNED_5C2350AC = {
   single246: "c4c0a61c378bd192a7fc87c7e43e5653fd56b0af16666ad18f50e9eb10a6e1ee",
   single244: "73c15286ba167ebcd364aa5f4d8101d83d03ad148b21480d668efce8946684e2",
   signedOff244: "3388881d9651a5c5107618d6f93066c8b0fe993711d1ed12e8f8e236d82b65ab",
-  signedOff242Repaired: "d9c8cd2056f97ec7a0e0f054269decc33281f2cfe224bd3a3d4fdc9143ae77f3",
 } as const;
 
 describe("requests without a dropped uncertainty are unchanged (2026-09-30, first)", () => {
@@ -351,7 +369,7 @@ describe("requests without a dropped uncertainty are unchanged (2026-09-30, firs
     expect(result.hashWithoutThirdAmendment).toBe(PINNED_5C2350AC.signedOff244);
   });
 
-  it("sends a signed-off Line 242's draft, Self-check, repair and final coverage check byte for byte as before", async () => {
+  it("sends a signed-off Line 242's draft, Self-check and repair as at 021039f5, then the first check's own request on the final text", async () => {
     const plan = signedOffPlan("s242");
     const result = await draftAndHash({
       section: "242",
@@ -379,13 +397,15 @@ describe("requests without a dropped uncertainty are unchanged (2026-09-30, firs
     });
     // 2026-10-04 (first, round 2 follow-up, owner decision 2026-10-05):
     // after every used repair the check of the final text is the full
-    // Self-check, so that request changed on purpose (its stage reads
-    // "selfCheck" now); every request before it is pinned as sent at
-    // 021039f5, just before that change.
+    // Self-check, so that request changed on purpose. Every request before
+    // it is pinned as sent at 021039f5, where this test still pinned the
+    // whole run against 5c2350ac with the 2026-09-30 (third) additions
+    // taken out; the last one is the first check's own request on the
+    // final text.
     expect(result.stages).toEqual(["section", "selfCheck", "repair", "selfCheck"]);
     expect(result.additionsFound).toBe(true);
-    expect(result.hashWithoutThirdAmendment).not.toBe(PINNED_5C2350AC.signedOff242Repaired);
     expect(result.hashBeforeFinal).toBe(PINNED_021039F5_BEFORE_FINAL.signedOff242Repaired);
+    expect(result.finalIsFirstCheckOnFinalText).toBe(true);
   });
 });
 
@@ -474,11 +494,12 @@ async function consistencyHash(): Promise<string> {
 
 /**
  * The hashes this file produced at commit cd419ff1, before the 2026-09-30
- * second amendment, with the same fixtures, provider script and SDK.
+ * second amendment, with the same fixtures, provider script and SDK. The
+ * governed-term run's pin left with the 2026-10-05 follow-up (see
+ * PINNED_021039F5_BEFORE_FINAL).
  */
 const PINNED_CD419FF1 = {
   singleConsistency: "7856853b58fb0012bbb401a53096faa433fd1b7475d9149ab3c4e1bace3315a5",
-  signedOff242Governed: "e47448ddce60f0b9018d8333daad8968e7285a08c51f586d4d7f3c3e27953662",
 } as const;
 
 describe("requests the 2026-09-30 (second) amendment leaves alone are unchanged", () => {
@@ -487,7 +508,7 @@ describe("requests the 2026-09-30 (second) amendment leaves alone are unchanged"
     expect(hash).toBe(PINNED_CD419FF1.singleConsistency);
   });
 
-  it("sends a signed-off Line 242 whose governed term no signed-off idea uses byte for byte as before", async () => {
+  it("sends a signed-off Line 242 whose governed term no signed-off idea uses as at 021039f5, then the first check's own request on the final text", async () => {
     const result = await draftClaimAndHash({
       section: "242",
       claim: governedClaim(),
@@ -513,11 +534,14 @@ describe("requests the 2026-09-30 (second) amendment leaves alone are unchanged"
       },
     });
     // 2026-10-04 (first, round 2 follow-up): the check of the final text
-    // after a used repair is the full Self-check now; every request before
-    // it is pinned as sent at 021039f5, just before that change.
+    // after a used repair is the full Self-check now. Every request before
+    // it is pinned as sent at 021039f5, where this test still pinned the
+    // whole run against cd419ff1 with the 2026-09-30 (third) additions
+    // taken out; the last one is the first check's own request on the
+    // final text.
     expect(result.stages).toEqual(["section", "selfCheck", "repair", "selfCheck"]);
     expect(result.additionsFound).toBe(true);
-    expect(result.hashWithoutThirdAmendment).not.toBe(PINNED_CD419FF1.signedOff242Governed);
     expect(result.hashBeforeFinal).toBe(PINNED_021039F5_BEFORE_FINAL.signedOff242Governed);
+    expect(result.finalIsFirstCheckOnFinalText).toBe(true);
   });
 });

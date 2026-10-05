@@ -6775,7 +6775,10 @@ describe("seed Summary sign-off and recovery", () => {
     const missingRow = planRows246.find((row) =>
       row.instruction.includes("Summary item") && row.reason.includes("project status"));
     const conflictRow = planRows246.find((row) => row.tier === "conflict");
-    expect(missingRow).toMatchObject({ outcome: "not_applied", repaired: true });
+    // 2026-10-05 (Round 2 follow-up, review P2): the repair left the checked
+    // text as it was, so the row is not marked repaired.
+    expect(missingRow).toMatchObject({ outcome: "not_applied", repaired: false });
+    expect(missingRow?.reason).toMatch(/; the repair left the checked text as it was$/);
     expect(conflictRow).toMatchObject({
       outcome: "not_applied",
       tier: "conflict",

@@ -1217,12 +1217,6 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
       "Return an empty planVerdicts list: every plan check already has its verdict.",
   },
   /**
-   * 2026-09-28 (third): the coverage-only check of a Section's final text,
-   * sent when an accepted repair changed the text the first Self-check saw.
-   * Its data blocks are the Section text and the plan checks only; this line
-   * comes before the plan list. Its tool schema has no storylineQuestion.
-   */
-  /**
    * 2026-09-28 (second, edited terms): the Line's edited terms, as the
    * drafting request gets them. Release suite run 4 called "cascade-fired
    * lattice" invented and the repair removed it. The block and the line
@@ -1281,15 +1275,6 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     inIdeaSuffix: GOVERNED_IN_IDEA_CLAUSE,
     renamingInstruction:
       " A signed-off idea that uses such a term does not decide it: renaming the term as the Feedback asks is wording, not meaning. The idea's own plan check is covered when the section states the idea's meaning in the Feedback's wording.",
-  },
-  finalCoverage: {
-    instruction:
-      "This check covers the content plan only, on the section's final text. Return an empty verdicts list and leave out storylineQuestion.",
-    // Greptile round 4, P2: after a used repair, the labels of the Glossary
-    // Terms the writer's Feedback governs are checked on the final text in
-    // the same request. Only present when the Line has such a term.
-    labelsInstruction:
-      "This check covers the content plan and the labels listed below only, on the section's final text. Leave out storylineQuestion.",
   },
 } as const;
 

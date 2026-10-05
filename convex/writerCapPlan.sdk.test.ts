@@ -20,7 +20,6 @@ import { governedTermReason, type FeedbackGovernedTerm } from "./lib/writerPrece
 import {
   COMPRESSION_REQUEST,
   ORDERED_PROMPT_SCAFFOLDS,
-  SUMMARY_PLAN_SELF_CHECK_REQUEST,
 } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
@@ -152,7 +151,7 @@ function installFetch(script: { compressions: string[]; repair: string; checks: 
       const tool = (json.tools as Array<{ name: string }> | undefined)?.[0]?.name ?? null;
       const user = userOf(json);
       const stage = tool === "submit_self_check"
-        ? user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction) ? "finalCoverage" : "selfCheck"
+        ? "selfCheck"
         : systemOf(json).startsWith(COMPRESSION_REQUEST.system.slice(0, 60))
           ? "compression"
           : user.includes(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix) ? "repair" : "section";
@@ -331,14 +330,13 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
     });
     expect(run.result.draftText).toBe(SHORT_WITH_ITEM);
     // One check of the final text, with the labels and the plan: no request
-    // is added, and it is not the coverage-only check.
+    // is added (the coverage-only check it replaced is gone since the
+    // 2026-10-05 follow-up).
     const stages = run.sent.map((request) => request.stage);
     expect(stages.filter((stage) => stage === "selfCheck")).toHaveLength(2);
-    expect(stages).not.toContain("finalCoverage");
     const finalCheck = run.sent.filter((request) => request.stage === "selfCheck")[1]!.user;
     expect(finalCheck).toContain("--- BEGIN [WRITER INSTRUCTIONS] ---");
     expect(finalCheck).toContain(SHORT_WITH_ITEM.split("\n\n")[0]!);
-    expect(finalCheck).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
     // The row says what the final text does, never "not re-verified".
     expect(run.result.notes.find((row) => row.source === "model" && row.instruction === SETTINGS)).toMatchObject({
       outcome: "applied",

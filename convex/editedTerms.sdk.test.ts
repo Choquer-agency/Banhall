@@ -540,7 +540,6 @@ describe("a writer's edited term survives drafting, compression and the repair (
     expect(checks).toHaveLength(2);
     const final = checks[1]!;
     // 2026-10-05 (Round 2, follow-up): the full Self-check of the final text.
-    expect(final.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
     expect(final.user).toContain(`${termsBlock}${EXACT.instruction}`);
     expect(planRow(result, ITEM_GOAL)).toMatchObject({ outcome: "applied", repaired: true });
   });
