@@ -1228,7 +1228,8 @@ describe("Greptile on PR #26 at 17d3d1a8: a wrong group rate beside the right ov
       repair: fixed,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, { ...factsWrong, paragraph: 2, findings: [wrongGroup] }, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        // The full Self-check of the final text (2026-10-05, Round 2, follow-up).
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -1262,7 +1263,8 @@ describe("Greptile on PR #26 at 7e3964cc: the draft adds a group to the source's
       repair: fixed,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, { ...factsWrong, paragraph: 2, findings: [wrongGroup] }, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        // The full Self-check of the final text (2026-10-05, Round 2, follow-up).
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
