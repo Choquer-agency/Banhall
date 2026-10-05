@@ -1088,9 +1088,13 @@ type SectionCompletion = {
  * 10 percent over, one targeted pass, 2026-09-28 fifth) + Self-check 2 (its
  * answer plus one structured retry, or in Summary mode its one follow-up for
  * missing labels, 2026-09-28) + repair 1 + compression of the repair 3 + the
- * coverage-only Self-check of the final text 2 (its answer and one
- * follow-up, Summary mode only, when the repair changed the text, 2026-09-28
- * third) = 12 sequential calls (providers.ts ORDERED_SECTION_ACTION_SLOTS);
+ * Self-check of the final text 2 (its answer and one more request: in
+ * Summary mode, when the repair changed the text, the coverage-only check
+ * and its follow-up, 2026-09-28 third, or, when shortening changed the
+ * repair, the full check with labels and plan; in Single draft and Compare,
+ * when shortening changed the repair, the full check and its structured
+ * retry, 2026-10-04 first, round 2) = 12 sequential calls (providers.ts
+ * ORDERED_SECTION_ACTION_SLOTS);
  * the action deadline bounds their time. Shared by the ordered chain and
  * the seed redraft so both draft under the same rules. Throws on a failed
  * draft; the caller records the failure.
@@ -1593,7 +1597,10 @@ export async function draftCheckedSection(input: {
   // the slots the coverage-only check has in Summary mode. A check that
   // fails, or runs out of time, leaves those rows "not checked on the final
   // text", never a verdict on the text before shortening.
-  let finalOrdinary: { ok: true; verdicts: ModelVerdict[] } | { ok: false; reason: string } | undefined;
+  let finalOrdinary:
+    | { ok: true; verdicts: ModelVerdict[]; sameAsChecked?: true }
+    | { ok: false; reason: string }
+    | undefined;
   const finalCheckInput: SelfCheckModelInput | null =
     repair.succeeded && repair.shortened === true && modelCheck.ok && after !== null && !sameUtf8Bytes(text, finalText)
       ? { ...selfCheckInput, text: finalText, glossaryCandidates: after.glossaryCandidates, rules: after.modelRules }
@@ -1649,13 +1656,20 @@ export async function draftCheckedSection(input: {
     try {
       const final = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), finalCheckInput);
       finalOrdinary = { ok: true, verdicts: final.verdicts };
+      // Review P3-2: the governed terms' rows follow the same check.
+      if (feedbackTerms.length > 0) governedFinal = { ok: true, verdicts: final.verdicts };
     } catch (error) {
       const reason = normalizeProviderError(error).code;
       console.warn(
         `generation:selfCheck:${section}: Self-check of the final text failed (${reason}): ${selfCheckFailureDiagnostic(error)}`
       );
       finalOrdinary = { ok: false, reason };
+      if (feedbackTerms.length > 0) governedFinal = { ok: false };
     }
+  } else if (repair.succeeded && repair.shortened === true && modelCheck.ok && sameUtf8Bytes(text, finalText)) {
+    // Review P3-4: shortening left the repair as the checked text, which the
+    // first check judged: its verdicts describe the final text, no request.
+    finalOrdinary = { ok: true, verdicts, sameAsChecked: true };
   }
 
   // CAP-13 rule 4 (2026-09-29, second): a used repair whose final text the

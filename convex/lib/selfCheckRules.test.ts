@@ -493,3 +493,54 @@ describe("no Compliance Note row vouches for a cap code measured (2026-10-04, fi
     expect(withoutLengthClauses("Word cap met.")).toBe("");
   });
 });
+
+describe("rows from the check of the final text (round 2 review)", () => {
+  const brief = { storylineText: "", claimExclusions: [], confidenceMap: [], glossaryTerms: ["cure window"] };
+  const checked = "The bake window was close to zero with that powder.";
+  const final = "The cure window was close to zero.";
+  const glossaryMiss: ModelVerdict = {
+    paragraphIndex: 0,
+    check: "glossary",
+    instruction: "Glossary Term: cure window",
+    outcome: "not_applied",
+    reason: "P1 says bake window.",
+  };
+  const notes = (finalText: string, finalVerdicts: Parameters<typeof assembleSectionNotes>[0]["finalVerdicts"]) => {
+    const before = runDeterministicSelfCheck({ section: "242", text: checked, brief, profile: PROFILE, isFirstInOrder: false });
+    const after = runDeterministicSelfCheck({ section: "242", text: finalText, brief, profile: PROFILE, isFirstInOrder: false });
+    return assembleSectionNotes({
+      section: "242",
+      before,
+      after,
+      verdicts: [glossaryMiss],
+      modelCheck: { ok: true },
+      storylineQuestion: null,
+      repair: { attempted: true, succeeded: true, shortened: true },
+      finalText,
+      ...(finalVerdicts ? { finalVerdicts } : {}),
+    });
+  };
+
+  it("keeps the repaired mark of a Glossary Term the final text now holds (review P3-4)", () => {
+    // The term is in the final text, so it is no candidate there and the
+    // check of the final text gives it no verdict.
+    const { rows, summary } = notes(final, { ok: true, verdicts: [] });
+    expect(rows.find((row) => row.source === "model")).toMatchObject({
+      outcome: "applied",
+      repaired: true,
+      reason: "P1 says bake window.; repaired to the Glossary Term",
+    });
+    expect(summary.remainingFailures).toBe(0);
+  });
+
+  it("reads the first verdicts as final when shortening left the checked text, never 'not re-verified' (review P3-4)", () => {
+    const { rows, summary } = notes(checked, { ok: true, verdicts: [glossaryMiss], sameAsChecked: true });
+    expect(rows.find((row) => row.source === "model")).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: "P1 says bake window.; the repair and shortening left the checked text as it was",
+    });
+    expect(rows.map((row) => row.reason).join(" ")).not.toContain("not re-verified");
+    expect(summary.remainingFailures).toBe(1);
+  });
+});

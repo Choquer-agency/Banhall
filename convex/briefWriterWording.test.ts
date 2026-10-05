@@ -11,7 +11,7 @@ import type { Doc } from "./_generated/dataModel";
 import { BRIEF_WRITER_WORDING, briefSettingsSource, buildBriefUserMessage } from "./lib/briefRequest";
 import { briefInputsHash } from "./lib/briefInputsHash";
 import { sha256 } from "./lib/contracts";
-import { runBriefRequest, type BriefSourceAdapter } from "./ai/brief";
+import { runBriefRequest, type BriefSourceAdapter, type BriefSourceRow } from "./ai/brief";
 import type { GenerationClient, GenerationMessageParams } from "./ai/openrouterCore";
 
 const TRANSCRIPT =
@@ -96,7 +96,14 @@ describe("the Brief follows the settings document's terms (round 2)", () => {
       stop_reason: "tool_use",
       usage: { input_tokens: 1, output_tokens: 1 },
     }));
-    const adapter = { sources: [transcript, settings("writer")] } as unknown as BriefSourceAdapter<string>;
+    // Review P3-6: the adapter's own row type carries uploaderRole, so a
+    // narrowed row cannot drop the rule while the key still hashes it.
+    const adapter: BriefSourceAdapter<string> = {
+      sources: [transcript, settings("writer")].map((row, index) => ({ ...row, _id: `source-${index}` })),
+      speakers: async () => [],
+    };
+    const row: BriefSourceRow<string> = adapter.sources[1]!;
+    expect(row.uploaderRole).toBe("writer");
     await runBriefRequest(adapter, { messages: { create } } as unknown as GenerationClient, "claude-sonnet-5");
     const [params] = create.mock.calls[0]!;
     const user = params.messages[0]!.content;

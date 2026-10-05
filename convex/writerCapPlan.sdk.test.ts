@@ -16,6 +16,7 @@ import { instrumentedAnthropic } from "./ai/instrument";
 import type { GenerationClient } from "./ai/openrouterCore";
 import { draftCheckedSection, planLengthBudgetBlock } from "./ai/orderedGeneration";
 import { NOT_CHECKED_ON_FINAL_TEXT } from "./lib/selfCheckRules";
+import { governedTermReason, type FeedbackGovernedTerm } from "./lib/writerPrecedence";
 import {
   COMPRESSION_REQUEST,
   ORDERED_PROMPT_SCAFFOLDS,
@@ -184,7 +185,10 @@ function installFetch(script: { compressions: string[]; repair: string; checks: 
   return sent;
 }
 
-async function draft(script: { compressions: string[]; repair: string; checks: unknown[] }) {
+async function draft(
+  script: { compressions: string[]; repair: string; checks: unknown[] },
+  claimExtra: Record<string, unknown> = {}
+) {
   const sent = installFetch(script);
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
@@ -194,7 +198,12 @@ async function draft(script: { compressions: string[]; repair: string; checks: u
       (callSite: string) => instrumentedAnthropic(ctx, { callSite }) as unknown as GenerationClient,
       { modelFor: () => SONNET }
     );
-    return await draftCheckedSection({ claim: claim(signedOff), payload: payload(), section: "242", clientFor });
+    return await draftCheckedSection({
+      claim: { ...claim(signedOff), ...claimExtra } as ReturnType<typeof claim>,
+      payload: payload(),
+      section: "242",
+      clientFor,
+    });
   });
   const note = (instruction: string) => result.notes.find((row) => row.instruction === instruction);
   return { sent, result, note };
@@ -347,5 +356,52 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
     expect(row).toMatchObject({ outcome: "not_applied", repaired: false });
     expect(row?.reason).toMatch(new RegExp(`^${NOT_CHECKED_ON_FINAL_TEXT} \\(the check after shortening did not complete: [a-z_]+\\)$`));
     expect(row?.reason).not.toContain("Opener not used verbatim");
+  });
+
+  it("rolls back a shortened repair that loses a signed-off item, and the rows describe the checked draft again (review P3-7)", async () => {
+    // The repair drops the item's sentence; shortening keeps what is left.
+    const shorterWithout = [`The company finishes routed board panels for cabinet makers. ${fillers(2)}`, fillers(2)].join("\n\n");
+    const run = await draft({
+      compressions: [DRAFT, DRAFT, shorterWithout],
+      repair: OVER_WITHOUT_ITEM,
+      checks: [
+        OPENER_MISSED,
+        {
+          verdicts: [{ paragraph: 1, check: "instruction", instruction: "writer:profile", outcome: "applied", reason: "Opener used verbatim." }],
+          planVerdicts: [
+            { itemId: ITEM, mergedItemIds: [ITEM], paragraph: 0, outcome: "not_applied", reason: "The sealer is gone." },
+            { skippedRoleId: "prior_year_status", mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Absent." },
+          ],
+        },
+      ],
+    });
+    // The full check of the final text ran, then the repair was not used.
+    expect(run.sent.filter((request) => request.stage === "selfCheck")).toHaveLength(2);
+    expect(run.result.draftText).toBe(DRAFT);
+    const row = run.result.notes.find((candidate) => candidate.source === "model" && candidate.instruction === SETTINGS);
+    expect(row?.outcome).toBe("not_applied");
+    expect(row?.reason).toContain("Opener not used verbatim.; repair not used (the repaired text no longer covers the signed-off item");
+    expect(row?.reason).not.toContain("checked again on the final text");
+    expect(row?.reason).not.toContain("Opener used verbatim");
+  });
+
+  it("governed terms follow the check of the final text when the run has no plan checks (review P3-2)", async () => {
+    const feedbackTerms: FeedbackGovernedTerm[] = [
+      { term: "sealer", feedback: [{ roleId: "company_context", instruction: "Call it the sealer coat." }] },
+    ];
+    const run = await draft(
+      { compressions: [DRAFT, DRAFT, SHORT_WITH_ITEM], repair: DRAFT, checks: [{ verdicts: [] }, { verdicts: [] }] },
+      { planChecks: [], planChecksBlock: "", feedbackTerms }
+    );
+    expect(run.sent.filter((request) => request.stage === "selfCheck")).toHaveLength(2);
+    expect(run.result.draftText).toBe(SHORT_WITH_ITEM);
+    // Judged on the final text: no verdict there, so "not checked on the
+    // final text", not the first check's state.
+    expect(run.result.notes.find((candidate) => candidate.instruction === "Glossary Term: sealer")?.reason).toBe(
+      governedTermReason(feedbackTerms[0]!.feedback, "final_not_checked")
+    );
+    expect(governedTermReason(feedbackTerms[0]!.feedback, "final_not_checked")).not.toBe(
+      governedTermReason(feedbackTerms[0]!.feedback, "not_checked")
+    );
   });
 });

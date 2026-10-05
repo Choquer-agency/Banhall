@@ -99,6 +99,8 @@ type Script = {
   repair246?: string;
   /** Line 246's second Self-check request (the check of the final text) fails. */
   failFinalCheck246?: boolean;
+  /** Line 246's verdicts on the final text; absent, the first verdicts again. */
+  finalVerdicts246?: unknown[];
   /** Self-check verdicts for Line 246's checks; other Lines get none. */
   verdicts246?: unknown[];
 };
@@ -205,7 +207,11 @@ function installFetch(script: Script): Sent[] {
       if (tool) {
         const answer =
           tool === "submit_self_check"
-            ? { verdicts: user.includes("advancement trial") ? script.verdicts246 ?? [] : [] }
+            ? {
+                verdicts: user.includes("advancement trial")
+                  ? (checks246 === 2 && script.finalVerdicts246 ? script.finalVerdicts246 : script.verdicts246 ?? [])
+                  : [],
+              }
             : TOOL_ANSWERS[tool];
         if (answer === undefined) throw new Error(`Unexpected tool ${tool}`);
         return Response.json({
@@ -340,13 +346,15 @@ async function runSingle(script: Script) {
     if (!found) throw new Error(`No row for Line ${line}`);
     return found.draftText ?? "";
   };
+  const summary = (line: Line) =>
+    JSON.parse(state.rows.find((item) => item.section === `s${line}`)?.selfCheck ?? "null") as { status: string; remainingFailures: number };
   const note = (line: Line, instruction: string) =>
     state.notes.find((row: Doc<"complianceNotes">) => row.section === line && row.instruction === instruction);
   const modelNotes = (line: Line) =>
     state.notes.filter((row: Doc<"complianceNotes">) => row.section === line && row.source === "model");
   const requests = (stage: string, line?: Line) =>
     sent.filter((request) => request.stage === stage && (line === undefined || request.user.includes(`${{ "242": "uncertainty", "244": "work", "246": "advancement" }[line]} trial`)));
-  return { sent, text, note, modelNotes, requests };
+  return { sent, text, note, modelNotes, requests, summary };
 }
 
 // Review P3-2: a real model quotes the document cut short, not whole.
@@ -509,5 +517,56 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
         reason: expect.stringMatching(/^Not checked on the final text \(the check after shortening did not complete: [a-z_]+\)$/),
       }),
     ]);
+  });
+
+  it("Single draft: a failure the check of the final text left out still has its row (review P2-1)", async () => {
+    const run = await runSingle({
+      compressions: [DRAFT_246, DRAFT_246, FIT_246],
+      verdicts246: [{ ...profileVerdict, outcome: "not_applied", reason: "Opener not used.", repairGuidance: "Use the opener." }],
+      finalVerdicts246: [],
+    });
+    expect(run.text("246")).toBe(FIT_246);
+    expect(run.requests("submit_self_check", "246")).toHaveLength(2);
+    expect(run.modelNotes("246")).toEqual([
+      expect.objectContaining({
+        outcome: "not_applied",
+        repaired: false,
+        reason: "Not checked on the final text (the Self-check gave no verdict for it)",
+      }),
+    ]);
+    expect(run.summary("246")).toMatchObject({ status: "repair_failed", remainingFailures: 1 });
+  });
+
+  it("Single draft: a label first seen on the final text is found there, not checked again (review P3-7)", async () => {
+    const third = { paragraph: 1, check: "instruction", instruction: "Write in the third person throughout.", outcome: "not_applied", reason: "P1 says we." };
+    const run = await runSingle({
+      compressions: [DRAFT_246, DRAFT_246, FIT_246],
+      verdicts246: [{ ...profileVerdict, outcome: "not_applied", reason: "Opener not used.", repairGuidance: "Use the opener." }],
+      finalVerdicts246: [{ ...profileVerdict, reason: "Opener used." }, third],
+    });
+    const rows = run.modelNotes("246");
+    expect(rows.find((row) => row.instruction === "Write in the third person throughout.")).toMatchObject({
+      outcome: "not_applied",
+      reason: "P1 says we.; found on the final text after shortening",
+    });
+    expect(rows.find((row) => row.instruction === profileVerdict.instruction)).toMatchObject({
+      outcome: "applied",
+      repaired: true,
+      reason: "Opener used.; repaired, and checked again on the final text",
+    });
+  });
+
+  it("Single draft: shortening that leaves the checked text makes no extra request, and the row says so (review P3-4)", async () => {
+    const run = await runSingle({
+      compressions: [DRAFT_246, DRAFT_246, DRAFT_246],
+      repair246: `${DRAFT_246} The probe design held its reading through every kiln charge in the trials.`,
+      verdicts246: [{ ...profileVerdict, outcome: "not_applied", reason: "Opener not used.", repairGuidance: "Use the opener." }],
+    });
+    expect(run.text("246")).toBe(DRAFT_246);
+    expect(run.requests("submit_self_check", "246")).toHaveLength(1);
+    const row = run.modelNotes("246")[0];
+    expect(row?.outcome).toBe("not_applied");
+    expect(row?.reason).toContain("Opener not used.; the repair and shortening left the checked text as it was");
+    expect(row?.reason).not.toContain("not re-verified");
   });
 });

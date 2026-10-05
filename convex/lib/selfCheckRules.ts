@@ -901,8 +901,10 @@ export function glossaryTermOf(verdict: ModelVerdict, candidates: string[]): str
  * Final Compliance Note rows and Self-check summary for one section. The
  * deterministic rows come from the post-repair re-check when a repair ran;
  * `repaired` marks rows whose failure a repair addressed. Model verdicts are
- * not re-verified by a second model call (the budget allows one Self-check),
- * except glossary verdicts, which the rule-based matcher re-checks.
+ * not re-verified by a second model call after a repair the shortening did
+ * not change, except glossary verdicts, which the rule-based matcher
+ * re-checks. Round 2 (2026-10-05): when shortening changed a used repair,
+ * the check of the final text (`finalVerdicts`) writes the label rows.
  */
 export function assembleSectionNotes(input: {
   section: SectionNumber;
@@ -975,7 +977,17 @@ export function assembleSectionNotes(input: {
    * check of the final text did not complete (its rows then read "not
    * checked on the final text"). The governed terms keep `governedFinal`.
    */
-  finalVerdicts?: { ok: true; verdicts: readonly ModelVerdict[] } | { ok: false; reason: string };
+  finalVerdicts?:
+    | {
+        ok: true;
+        verdicts: readonly ModelVerdict[];
+        /**
+         * Review P3-4: shortening left the repair as the checked text, so
+         * these are the first check's verdicts, which describe it.
+         */
+        sameAsChecked?: true;
+      }
+    | { ok: false; reason: string };
 }): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
   const { section, before, verdicts, repair } = input;
   const failedBefore = new Set(
@@ -1142,6 +1154,19 @@ export function assembleSectionNotes(input: {
     pushModelRow(verdict, noteDraft({ ...base, outcome, reason, repaired }));
   }
   if (final?.ok) {
+    // The first check's label verdict for the same label, if any.
+    const firstOf = (verdict: ModelVerdict) =>
+      verdicts.find(
+        (first) =>
+          !governedTermOf(first) &&
+          first.check === verdict.check &&
+          first.instruction === verdict.instruction
+      );
+    const failing = (verdict: ModelVerdict | undefined) =>
+      verdict !== undefined && verdict.outcome === "not_applied" && !verdict.notChecked;
+    // Review P3-4: the final text is the checked text, so the first check
+    // already judged it; its verdicts are read as the final ones.
+    const same = final.sameAsChecked === true;
     for (const verdict of final.verdicts) {
       if (governedTermOf(verdict)) continue;
       const base = baseOf(verdict);
@@ -1149,23 +1174,16 @@ export function assembleSectionNotes(input: {
         rows.push(noteDraft({ ...base, tier: "none", outcome: "not_applied", reason: `${NOT_CHECKED_ON_FINAL_TEXT} (the Self-check gave no verdict for it)` }));
         continue;
       }
-      // Was it a failure the repair was made for?
-      const wasFailing = verdicts.some(
-        (first) =>
-          !governedTermOf(first) &&
-          first.check === verdict.check &&
-          first.instruction === verdict.instruction &&
-          first.outcome === "not_applied" &&
-          !first.notChecked
-      );
+      const first = same ? undefined : firstOf(verdict);
       if (verdict.outcome === "applied") {
+        const repaired = failing(first);
         pushModelRow(verdict, noteDraft({
           ...base,
           outcome: "applied",
-          reason: wasFailing
+          reason: repaired
             ? `${verdict.reason || "applied"}; repaired, and checked again on the final text`
             : verdict.reason || "applied",
-          repaired: wasFailing,
+          repaired,
         }));
         continue;
       }
@@ -1173,8 +1191,42 @@ export function assembleSectionNotes(input: {
       pushModelRow(verdict, noteDraft({
         ...base,
         outcome: "not_applied",
-        reason: `${verdict.reason || "not applied"}; checked again on the final text after shortening`,
+        // Review P3-7: a label the first check did not fail was found on the
+        // final text, not checked "again".
+        reason: same
+          ? `${verdict.reason || "not applied"}; the repair and shortening left the checked text as it was`
+          : `${verdict.reason || "not applied"}; ${failing(first) ? "checked again" : "found"} on the final text after shortening`,
       }));
+    }
+    // Review P2-1: a failure the repair was made for that the check of the
+    // final text gave no verdict for still has its row, never none. A
+    // Glossary Term the final text now holds keeps its repaired mark
+    // (review P3-4): the rule-based matcher decides it, as before.
+    if (!same) {
+      for (const first of verdicts) {
+        if (governedTermOf(first) || !failing(first)) continue;
+        const judged = final.verdicts.some(
+          (verdict) => !governedTermOf(verdict) && verdict.check === first.check && verdict.instruction === first.instruction
+        );
+        if (judged) continue;
+        const base = baseOf(first);
+        if (first.check === "glossary" && glossaryTermPresent(glossaryTermOf(first, before.glossaryCandidates), input.finalText)) {
+          pushModelRow(first, noteDraft({
+            ...base,
+            outcome: "applied",
+            reason: `${first.reason || "not applied"}; repaired to the Glossary Term`,
+            repaired: true,
+          }));
+          continue;
+        }
+        remainingFailures += 1;
+        rows.push(noteDraft({
+          ...base,
+          tier: "none",
+          outcome: "not_applied",
+          reason: `${NOT_CHECKED_ON_FINAL_TEXT} (the Self-check gave no verdict for it)`,
+        }));
+      }
     }
   }
 
