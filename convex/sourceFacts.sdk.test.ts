@@ -37,6 +37,7 @@ import {
 } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import {
+  EDITED_TERM_ALLOWED_REASON,
   FACTS_BREAK_UNLOCATED_REASON,
   PLAN_FACTS_NOT_CHECKED_REASON,
   sourceFactsBody,
@@ -44,10 +45,12 @@ import {
 import {
   buildFrozenSummaryPlan,
   FACTS_MATCH_SOURCES_RULE_ID,
+  MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
   RESULTS_AGAINST_TARGETS_RULE_ID,
 } from "./lib/seedRevisions";
 import { renderBriefBlock } from "./lib/briefRender";
-import type { OrderedPayload } from "./lib/orderedChain";
+import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 import { FACT_RULES } from "../shared/humanProse";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -117,6 +120,9 @@ const ITEM_TRIAL_1 = "item-velloway-trial-1" as Id<"summaryItems">;
 const ITEM_PILOT = "item-velloway-pilot" as Id<"summaryItems">;
 const TRIAL_1 = "Trial 1 used the supplier's datasheet preheat and cure settings on routed MDF panels.";
 const PILOT = "The production pilot ran 600 doors at line speed, shaker and deep cove.";
+const STATUS_246 = "Deep cove edge coverage stays open for fiscal 2027.";
+/** Every Line's signed-off items, as the frozen plan gives them (claim.planWording). */
+const PLAN_WORDING = [[TRIAL_1], [PILOT], [STATUS_246]];
 
 /** Line 244 of a signed-off plan, with the facts and targets checks as admitted. */
 function plan244(options: { facts?: boolean } = {}) {
@@ -132,7 +138,10 @@ function plan244(options: { facts?: boolean } = {}) {
   });
 }
 
-function claimFor(plan?: ReturnType<typeof plan244>) {
+function claimFor(
+  plan?: { block: string; checksBlock: string; checks: unknown[] },
+  extra: Record<string, unknown> = {}
+) {
   return {
     projectId: "project-velloway",
     model: SONNET,
@@ -150,12 +159,15 @@ function claimFor(plan?: ReturnType<typeof plan244>) {
     droppedNotChecked: [],
     answers242: null,
     workAnswers242: null,
+    planWording: PLAN_WORDING,
+    ...extra,
   } as unknown as Parameters<typeof draftCheckedSection>[0]["claim"];
 }
 
-function payload(summaryVersionId?: Id<"summaryVersions">): OrderedPayload {
+function payload(summaryVersionId?: Id<"summaryVersions">, writerFlavor?: string): OrderedPayload {
   return {
     analysis: JSON.stringify(ANALYSIS),
+    ...(writerFlavor ? { writerFlavor } : {}),
     brainExemplars: { analyzer: "", s242: "", s244: "", s246: "" },
     orderedContext: {
       profileState: "missing",
@@ -246,7 +258,11 @@ function installFetch(script: { draft: string; repair?: string; compressed?: str
   return sent;
 }
 
-async function draft(claim: ReturnType<typeof claimFor>, summaryVersionId?: Id<"summaryVersions">) {
+async function draft(
+  claim: ReturnType<typeof claimFor>,
+  summaryVersionId?: Id<"summaryVersions">,
+  options: { section?: SectionNumber; writerFlavor?: string } = {}
+) {
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
   return await t.action(async (ctx: ActionCtx) => {
@@ -254,7 +270,12 @@ async function draft(claim: ReturnType<typeof claimFor>, summaryVersionId?: Id<"
       (callSite: string) => instrumentedAnthropic(ctx, { callSite }) as unknown as GenerationClient,
       { modelFor: () => SONNET }
     );
-    return await draftCheckedSection({ claim, payload: payload(summaryVersionId), section: "244", clientFor });
+    return await draftCheckedSection({
+      claim,
+      payload: payload(summaryVersionId, options.writerFlavor),
+      section: options.section ?? "244",
+      clientFor,
+    });
   });
 }
 
@@ -285,6 +306,7 @@ const SOURCE_FACTS = sourceFactsBody({
   analysis: parseTranscriptAnalysis(JSON.stringify(ANALYSIS)),
   storylineText: STORYLINE,
   confidenceMap: CONFIDENCE,
+  planWording: PLAN_WORDING,
 });
 const SOURCE_FACTS_BLOCK = `--- BEGIN [SOURCE FACTS] ---\n${SOURCE_FACTS}\n--- END [SOURCE FACTS] ---`;
 
@@ -318,6 +340,8 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     expect(SOURCE_FACTS).toContain("The datasheet cure numbers are for thin flat panels");
     expect(SOURCE_FACTS).toContain(`Storyline:\n${STORYLINE}`);
     expect(SOURCE_FACTS).toContain(`Confidence Map:\n- (partial) ${CONFIDENCE[0]!.text}`);
+    // Review round 1, P2-1: every Line's signed-off items, not only this Line's.
+    expect(SOURCE_FACTS).toContain(`Signed-off plan items, every Line:\n- ${TRIAL_1}\n- ${PILOT}\n- ${STATUS_246}`);
     expect(check.split(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)).toHaveLength(2);
     expect(check).toContain(
       `${SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.instruction}${SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction}`
@@ -494,5 +518,150 @@ describe("requests without the facts check are unchanged (real SDK, fetch stubbe
     expect(older[1]!.user).not.toContain("[SOURCE FACTS]");
     expect(older[1]!.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction);
     expect(result.notes.some((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID)).toBe(false);
+  });
+});
+
+// ─── Review round 1 ────────────────────────────────────────────────────────
+
+const ITEM_STATUS = "item-velloway-status" as Id<"summaryItems">;
+/** A writer's edit to a Line 244 item that adds a figure the analysis lacks. */
+const EDITED_244 = "An edge-only sealer trial on the deep cove panels cut the shortfall to 7 percent.";
+const WRITER_FLAVOR = "Write in the third person. The claim year is fiscal 2026.";
+const writerProfile = { paragraph: 0, check: "instruction", instruction: "writer:profile", outcome: "applied", reason: "Third person throughout." };
+
+function plan246() {
+  return buildFrozenSummaryPlan({
+    section: "s246",
+    items: [{ itemId: ITEM_STATUS, roleId: "project_status", kind: "standard", bullets: [STATUS_246], support: "source_supported" }],
+    skippedRoleIds: [],
+    resultsAgainstTargets: true,
+    factsMatchSources: true,
+  });
+}
+
+describe("review round 1: the sources, the guidance, the figure guard and edited terms (real SDK, fetch stubbed)", () => {
+  it("P2-1, P2-3 and P3-4: Line 246 reads every Line's signed-off items and the writer's instructions, and a facts repair that drops a signed-off figure is set aside", async () => {
+    const draft246 = [
+      "The pilot showed the shaker profile met edge coverage on every panel.",
+      "An edge-only sealer cut the deep cove shortfall to 7 percent, and deep cove edge coverage stays open for fiscal 2027.",
+    ].join("\n\n");
+    const stripped = draft246.replace(" to 7 percent", "");
+    const statusCovered = { itemId: ITEM_STATUS, mergedItemIds: [ITEM_STATUS], paragraph: 2, outcome: "applied", reason: "P2 states the open edge." };
+    // A wrong verdict: 7 percent is in a signed-off Line 244 item.
+    const factsWrongFigure = { ...factsWrong, paragraph: 2, reason: "P2 gives 7%, not in the sources", repairGuidance: "Take out the 7 percent figure." };
+    const sent = installFetch({
+      draft: draft246,
+      repair: stripped,
+      checks: [{ verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, factsWrongFigure, targetsMet] }],
+    });
+    const result = await draft(
+      claimFor(plan246(), { planWording: [[TRIAL_1], [PILOT], [EDITED_244], [STATUS_246]] }),
+      SUMMARY_VERSION,
+      { section: "246", writerFlavor: WRITER_FLAVOR }
+    );
+    const check = sent[1]!.user;
+    expect(check).toContain(`Signed-off plan items, every Line:\n- ${TRIAL_1}\n- ${PILOT}\n- ${EDITED_244}\n- ${STATUS_246}`);
+    expect(check).toContain(`Writer instructions:\n- ${WRITER_FLAVOR}\n--- END [SOURCE FACTS] ---`);
+    expect(check).toContain("A figure or detail a signed-off item of any Line gives, as it gives it, is supported.");
+    // The repair dropped "7 percent", which a signed-off item gives: it is
+    // set aside before any check of its text, and the row says why.
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
+    expect(result.draftText).toBe(draft246);
+    expect(result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID)).toMatchObject({
+      section: "246",
+      instruction: FACTS_INSTRUCTION,
+      outcome: "not_applied",
+      repaired: false,
+      reason: 'P2 gives 7%, not in the sources; repair not used (the repaired text no longer holds the signed-off figure "7 percent", which the checked draft held, and a repair must keep every figure a signed-off item gives, so the checked draft was kept)',
+    });
+  });
+
+  it("P2-2: the facts verdict lists every correction, past 90 characters, and the repair gets all of them unclipped", async () => {
+    const withCause = DRAFT_244.replace("on 4 percent of its panels.", "on 4 percent of its panels, caused by the shielding of the concave cove.");
+    const repaired = REPAIRED_244.replace("4 percent of all 600 pilot panels.", "4 percent of all 600 pilot panels; the shielding of the concave cove is suspected.");
+    const threeCorrections =
+      "P1: the datasheet numbers are for thin flat panels; drop steel. P2: 4% is of all 600 panels, every one deep cove; deep cove was 24 of 180. P2: the cove shielding is suspected, not shown; say it is suspected.";
+    expect(new TextEncoder().encode(threeCorrections).byteLength).toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES);
+    const sent = installFetch({
+      draft: withCause,
+      repair: repaired,
+      checks: [
+        { verdicts: [...ordinary, writerProfile], planVerdicts: [...covered, { ...factsWrong, repairGuidance: threeCorrections }, targetsMet] },
+        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+      ],
+    });
+    const result = await draft(claimFor(plan244()), SUMMARY_VERSION, { writerFlavor: WRITER_FLAVOR });
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    // The rule and the tool schema both allow the longer guidance.
+    const check = sent[1]!;
+    expect(check.user).toContain("For this check, repairGuidance lists every correction in the section");
+    expect(check.user).toContain("it may run past 90 characters, up to about 380.");
+    const guidance = (check.json.tools as Array<{ input_schema: { properties: { planVerdicts: { items: { properties: { repairGuidance: { maxLength: number; description: string } } } } } } }>)[0]!
+      .input_schema.properties.planVerdicts.items.properties.repairGuidance;
+    expect(guidance.maxLength).toBe(MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES);
+    expect(guidance.description).toContain("For ruleId facts_match_sources, list every correction instead, one after another.");
+    // Nothing clips it on its way to the repair.
+    expect(sent[2]!.user).toContain(`- Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${threeCorrections}`);
+    // The check of the final text has no WRITER INSTRUCTIONS block, but its
+    // SOURCE FACTS still hold the writer's instructions.
+    expect(sent[3]!.user).not.toContain("[WRITER INSTRUCTIONS]");
+    expect(sent[3]!.user).toContain(`Writer instructions:\n- ${WRITER_FLAVOR}`);
+    expect(result.draftText).toBe(repaired);
+    expect(result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID)).toMatchObject({ outcome: "applied", repaired: true });
+  });
+
+  it("P3-1: a facts objection to a writer's edited term alone is set aside and never sent to the repair", async () => {
+    const sent = installFetch({
+      draft: REPAIRED_244,
+      checks: [{
+        verdicts: ordinary,
+        planVerdicts: [
+          ...covered,
+          { ...factsWrong, reason: 'P1 "thin flat panels" is not in the sources', repairGuidance: 'Take out "thin flat panels".' },
+          targetsMet,
+        ],
+      }],
+    });
+    const result = await draft(claimFor(plan244(), { editedTerms: ["thin flat panels"] }), SUMMARY_VERSION);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
+    expect(result.draftText).toBe(REPAIRED_244);
+    expect(result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID)).toMatchObject({
+      outcome: "applied",
+      reason: EDITED_TERM_ALLOWED_REASON,
+      repaired: false,
+    });
+  });
+
+  it("P3-4: a facts fix and a targets fix on the same sentence both go to the one repair, and both rows record it", async () => {
+    const sentence = "In the pilot, outgassing defects averaged 0.9 per square metre, over the 1 per square metre limit, and the deep cove profile fell short of 60 microns on 4 percent of its panels.";
+    const fixed = "In the pilot, outgassing defects averaged 0.9 per square metre, within the 1 per square metre limit, and 4 percent of all 600 pilot panels fell short of 60 microns, every one of them a deep cove panel.";
+    const twoErrors = [DRAFT_244.split("\n\n")[0]!.replace("flat steel panels", "thin flat panels"), sentence].join("\n\n");
+    const repaired = [twoErrors.split("\n\n")[0]!, fixed].join("\n\n");
+    const factsOnP2 = { ...factsWrong, paragraph: 2, reason: "P2 gives the all-panel 4% as deep cove's", repairGuidance: "P2: 4% is of all 600 panels, every one deep cove." };
+    const targetsOnP2 = { ruleId: RESULTS_AGAINST_TARGETS_RULE_ID, mergedItemIds: [], paragraph: 2, outcome: "not_applied", reason: "P2 calls 0.9 over the limit of 1", repairGuidance: "Say 0.9 met the limit of 1." };
+    const sent = installFetch({
+      draft: twoErrors,
+      repair: repaired,
+      checks: [
+        { verdicts: ordinary, planVerdicts: [...covered, factsOnP2, targetsOnP2] },
+        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+      ],
+    });
+    const result = await draft(claimFor(plan244()), SUMMARY_VERSION);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    const repair = sent[2]!.user;
+    expect(repair).toContain(`- Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}P2: 4% is of all 600 panels, every one deep cove.`);
+    expect(repair).toContain(`- Paragraph 2: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.targetsIssue}Say 0.9 met the limit of 1.`);
+    expect(result.draftText).toBe(repaired);
+    expect(result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID)).toMatchObject({
+      outcome: "applied",
+      repaired: true,
+      reason: "Figures and details match the sources. Fixed by the repair: P2 gives the all-panel 4% as deep cove's",
+    });
+    expect(result.notes.find((row) => row.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID)).toMatchObject({
+      outcome: "applied",
+      repaired: true,
+      reason: "Every comparison matches.",
+    });
   });
 });

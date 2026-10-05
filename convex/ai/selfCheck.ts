@@ -42,6 +42,7 @@ import {
   clipJsonEscapedUtf8,
   FACTS_MATCH_SOURCES_RULE_ID,
   jsonEscapedUtf8Bytes,
+  MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES,
@@ -604,19 +605,26 @@ export type SelfCheckModelInput = {
 };
 
 /**
- * 2026-10-04 (second): the body of the SOURCE FACTS block, what drafting read
- * besides the plan: the transcript analysis (compact JSON) and the Brief's
- * Storyline and Confidence Map. The first Self-check and the check of the
+ * 2026-10-04 (second): the body of the SOURCE FACTS block, what drafting read:
+ * the transcript analysis (compact JSON), the Brief's Storyline and
+ * Confidence Map, and (review round 1, P2-1) every Line's signed-off items
+ * and the writer's instructions. The first Self-check and the check of the
  * final text read the same block, so they judge against the same sources.
  */
 export function sourceFactsBody(args: {
   analysis: unknown;
   storylineText?: string;
   confidenceMap?: ReadonlyArray<{ text: string; confidence?: string }>;
+  /** The wording of every signed-off item, every Line, skipped steps aside. */
+  planWording?: ReadonlyArray<readonly string[]>;
+  /** The writer's instructions, as the WRITER INSTRUCTIONS block gives them. */
+  writerInstructions?: readonly string[];
 }): string {
   const scaffold = SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources;
   const storyline = args.storylineText?.trim() ?? "";
   const confidence = args.confidenceMap ?? [];
+  const items = (args.planWording ?? []).map((wording) => wording.join(" ").trim()).filter(Boolean);
+  const instructions = (args.writerInstructions ?? []).map((text) => text.trim()).filter(Boolean);
   return [
     `${scaffold.analysisHeading}${JSON.stringify(args.analysis)}`,
     ...(storyline ? [`${scaffold.storylineHeading}${storyline}`] : []),
@@ -624,6 +632,12 @@ export function sourceFactsBody(args: {
       ? [`${scaffold.confidenceHeading}${confidence
           .map((entry) => `${scaffold.confidencePrefix}${entry.confidence ?? "unresolved"}${scaffold.confidenceMiddle}${entry.text}`)
           .join("")}`]
+      : []),
+    ...(items.length > 0
+      ? [`${scaffold.planHeading}${items.map((item) => `${scaffold.planItemPrefix}${item}`).join("")}`]
+      : []),
+    ...(instructions.length > 0
+      ? [`${scaffold.writerHeading}${instructions.map((text) => `${scaffold.writerItemPrefix}${text}`).join("")}`]
       : []),
   ].join(scaffold.partSeparator);
 }
@@ -904,6 +918,17 @@ export function summaryPlanSelfCheckSchemaFor(
       : {}),
   };
   const plan = base.properties.planVerdicts;
+  // 2026-10-04 (second, review round 1, P2-2): the facts verdict lists every
+  // correction, so a request with that check allows its longer guidance.
+  const factsGuidance = ruleIds.includes(FACTS_MATCH_SOURCES_RULE_ID)
+    ? {
+        repairGuidance: {
+          ...plan.items.properties.repairGuidance,
+          maxLength: MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES,
+          description: summaryFactsGuidanceDescription(),
+        },
+      }
+    : {};
   // The final coverage check (2026-09-28, third) never asks a Storyline
   // question, so its schema has no place for one.
   const { storylineQuestion: _question, ...withoutQuestion } = base.properties;
@@ -942,6 +967,7 @@ export function summaryPlanSelfCheckSchemaFor(
               ...plan.items.properties.skippedRoleId,
               ...(skipIds.length > 0 ? { enum: skipIds } : {}),
             },
+            ...factsGuidance,
             ...extraProperties,
           },
           ...(droppedIds.length > 0 || ruleIds.length > 0
@@ -957,6 +983,32 @@ export function summaryPlanSelfCheckSchemaFor(
       },
     },
   };
+}
+
+/**
+ * The plan verdict guidance description of a request with the facts check:
+ * one fix, or for the facts check every correction, within its own limit.
+ */
+function summaryFactsGuidanceDescription(): string {
+  const maximum = MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES;
+  return `${SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.guidanceDescription} Return at most ${MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES} JSON-escaped UTF-8 bytes, or ${maximum} for ruleId facts_match_sources, measured after JSON string escaping and excluding the surrounding quotes. Escapes such as \\n count as two bytes, and non-ASCII text counts by its UTF-8 encoding. maxLength=${maximum} is a conservative character bound; the escaped-byte limits are authoritative.`;
+}
+
+/**
+ * Whether a not applied verdict objects to a writer's edited term as made up
+ * or unsourced, and to nothing else it quotes (2026-09-28, second). Kept when
+ * it also quotes something that is not an edited term: the objection may be
+ * about that too.
+ */
+function objectsOnlyToEditedTerms(
+  verdict: { reason: string; repairGuidance?: string; repairText?: string },
+  editedTerms: readonly string[]
+): boolean {
+  const said = [verdict.reason, verdict.repairGuidance ?? "", verdict.repairText ?? ""].join(" ");
+  const quoted = [...said.matchAll(QUOTED_PHRASE)].map((match) => match[1]!);
+  return INVENTED_TERM_OBJECTION.test(said) &&
+    editedTerms.some((term) => containsTerm(said, term)) &&
+    !quoted.some((phrase) => !editedTerms.some((term) => containsTerm(phrase, term)));
 }
 
 export type ModelSelfCheckResult = {
@@ -1606,17 +1658,7 @@ export async function runModelSelfCheck(
     const setAside: number[] = [];
     verdicts.forEach((verdict, index) => {
       if (verdict.outcome !== "not_applied" || verdict.notChecked) return;
-      const said = [verdict.reason, verdict.repairGuidance ?? "", verdict.repairText ?? ""].join(" ");
-      // Kept when it also quotes something that is not an edited term: the
-      // objection may be about that too.
-      const quoted = [...said.matchAll(QUOTED_PHRASE)].map((match) => match[1]);
-      if (
-        !INVENTED_TERM_OBJECTION.test(said) ||
-        !editedTerms.some((term) => containsTerm(said, term)) ||
-        quoted.some((phrase) => !editedTerms.some((term) => containsTerm(phrase, term)))
-      ) {
-        return;
-      }
+      if (!objectsOnlyToEditedTerms(verdict, editedTerms)) return;
       verdicts[index] = {
         ...(verdict.paragraphIndex === undefined ? {} : { paragraphIndex: verdict.paragraphIndex }),
         check: verdict.check,
@@ -1658,9 +1700,7 @@ export async function runModelSelfCheck(
     question.confidenceEntry <= input.confidenceMap.length
       ? question.confidenceEntry - 1
       : null;
-  return {
-    verdicts,
-    planVerdicts: (input.planChecks ?? []).map((expected) => {
+  const planVerdicts: ModelSelfCheckResult["planVerdicts"] = (input.planChecks ?? []).map((expected) => {
       const verdict = raw.planVerdicts?.find((candidate) => sameSummaryPlanRef(expected, candidate));
       const paragraphIndex = verdict
         ? exactPlanParagraphIndex(verdict.paragraph, count)
@@ -1713,7 +1753,34 @@ export async function runModelSelfCheck(
             : {}),
         ...(repairText ? { repairText } : {}),
       };
-    }),
+    });
+  // 2026-10-04 (second, review round 1, P3-1): the facts check is told the
+  // writer's edited terms are sources, and a facts verdict that still objects
+  // to one alone is set aside like an ordinary one: recorded as applied with a
+  // fixed reason and never sent to the repair, where the repair's guard for
+  // edited terms would set the whole repair aside.
+  if (editedTerms.length > 0) {
+    planVerdicts.forEach((verdict, index) => {
+      if (
+        verdict.ruleId !== FACTS_MATCH_SOURCES_RULE_ID ||
+        verdict.outcome !== "not_applied" ||
+        verdict.actionableRepair !== true ||
+        !objectsOnlyToEditedTerms(verdict, editedTerms)
+      ) {
+        return;
+      }
+      planVerdicts[index] = {
+        ruleId: verdict.ruleId,
+        mergedItemIds: [...verdict.mergedItemIds],
+        outcome: "applied",
+        reason: EDITED_TERM_ALLOWED_REASON,
+      };
+      console.warn(`${SELF_CHECK_REQUEST.toolName}: set aside a facts objection to the writer's edited terms`);
+    });
+  }
+  return {
+    verdicts,
+    planVerdicts,
     storylineQuestion: question?.question.trim()
       ? {
           question: question.question.trim(),

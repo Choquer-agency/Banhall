@@ -2706,6 +2706,36 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
       "Confidence Map:\n- (partial) A shielding effect of the cove is suspected.\n- (unresolved) No confidence level given.",
     ].join("\n\n"));
     expect(sourceFactsBody({ analysis: { a: 1 } })).toBe('Transcript analysis:\n{"a":1}');
+    // Review round 1, P2-1: every Line's signed-off items and the writer's instructions follow.
+    expect(sourceFactsBody({
+      analysis: { a: 1 },
+      planWording: [["A sealer trial cut the shortfall to 7 percent.", "Second bullet."], [" "]],
+      writerInstructions: ["Third person.", " ", "No banned words."],
+    })).toBe([
+      'Transcript analysis:\n{"a":1}',
+      "Signed-off plan items, every Line:\n- A sealer trial cut the shortfall to 7 percent. Second bullet.",
+      "Writer instructions:\n- Third person.\n- No banned words.",
+    ].join("\n\n"));
+  });
+
+  it("allows the facts verdict its longer guidance only in a request with the facts check (review round 1, P2-2)", () => {
+    const base = replayInput();
+    const ordinary = projectSummaryOrdinaryChecks({
+      storylineText: base.storylineText,
+      confidenceMap: base.confidenceMap,
+      glossaryTerms: base.glossaryCandidates,
+      rules: base.rules,
+    });
+    const guidanceOf = (planChecks: SelfCheckPlanCheck[]) =>
+      summaryPlanSelfCheckSchemaFor(ordinary, planChecks).properties.planVerdicts.items.properties.repairGuidance;
+    const without = guidanceOf(base.planChecks);
+    expect(without).toEqual(SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.planVerdicts.items.properties.repairGuidance);
+    const withFacts = guidanceOf([...base.planChecks, facts]);
+    expect(withFacts.maxLength).toBe(4 * MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES);
+    expect(withFacts.description).toContain("For ruleId facts_match_sources, list every correction instead, one after another.");
+    expect(withFacts.description).toContain("Return at most 96 JSON-escaped UTF-8 bytes, or 384 for ruleId facts_match_sources");
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)
+      .toContain("For this check, repairGuidance lists every correction in the section, each figure or detail as the sources give it, one after another; it may run past 90 characters, up to about 380.");
   });
 
   it("sends the SOURCE FACTS block right after the plan checks, and the facts rule last, only with the facts check", () => {
@@ -2740,7 +2770,11 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
       expect(text).toContain(FACT_RULES.scope);
       expect(text).toContain(FACT_RULES.detail);
       expect(text).toContain(FACT_RULES.cause);
+      // Review round 1, P2-4 (b): a hedge stated as firm.
+      expect(text).toContain(FACT_RULES.hedge);
     }
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)
+      .toContain("or states as firm what the sources give only as a hedge");
     // What is never an error: in the drafting rule and the Self-check rule.
     expect(RULES_REPORT_FACTS).toContain(FACT_RULES.allowed);
     expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction).toContain(FACT_RULES.allowed);

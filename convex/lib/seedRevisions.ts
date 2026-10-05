@@ -26,6 +26,14 @@ export const MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES = 32;
 export const MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES = 64;
 export const MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES = 64;
 export const MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES = 96;
+/**
+ * 2026-10-04 (second, review round 1, P2-2): the facts check's repairGuidance
+ * lists every correction in the Line, so its verdict reserves four ordinary
+ * guidances. Sign-off and runtime admission count it in the worst-case
+ * response, and a request with the facts check allows it in its tool schema.
+ */
+export const MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES =
+  4 * MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES;
 export const MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES = 96;
 export const MAX_SUMMARY_SELF_CHECK_PARAGRAPH = 9_999_999_999;
 
@@ -593,6 +601,7 @@ export function projectSummarySelfCheckWorstCaseResponse(
     reason,
     repairGuidance,
   }));
+  const factsGuidance = repeated(MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES, "g");
   const planVerdicts = args.planChecks.map((check) => ({
     ...(check.droppedSeedId ? { droppedSeedId: check.droppedSeedId } : {}),
     ...(check.itemId ? { itemId: check.itemId } : {}),
@@ -600,7 +609,7 @@ export function projectSummarySelfCheckWorstCaseResponse(
     outcome: "not_applied",
     paragraph: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
     reason,
-    repairGuidance,
+    repairGuidance: check.ruleId === FACTS_MATCH_SOURCES_RULE_ID ? factsGuidance : repairGuidance,
     ...(check.ruleId ? { ruleId: check.ruleId } : {}),
     ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
   }));

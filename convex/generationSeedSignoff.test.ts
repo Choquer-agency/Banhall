@@ -871,7 +871,9 @@ function literalSummaryResponseOracle(args: {
             outcome: "not_applied",
             paragraph,
             reason,
-            repairGuidance,
+            // 2026-10-04 (second, review round 1, P2-2): the facts verdict
+            // reserves four ordinary guidances, one per correction it lists.
+            repairGuidance: check.ruleId === "facts_match_sources" ? "g".repeat(4 * 96) : repairGuidance,
             ruleId: check.ruleId,
           })
         : JSON.stringify({
@@ -2877,13 +2879,14 @@ describe("seed Summary sign-off and recovery", () => {
     } as const;
     const accepted = await decisionFixture();
     await makeReady(accepted, selectedShape);
-    // 2026-10-04 (second): Line 242's facts verdict is exactly as long as
-    // one Glossary label's verdict (291 bytes with its comma), so one
-    // Glossary Term fewer keeps the response at exactly 16,384 bytes.
+    // 2026-10-04 (second): Line 242's facts verdict, with its 384-byte
+    // guidance (review round 1, P2-2), is 579 bytes with its comma: one
+    // Glossary label's verdict (291) and one two-digit rule label's (288).
+    // One of each fewer keeps the response at exactly 16,384 bytes.
     await configureS242Ordinary(accepted, {
       additionalConfidence: 4,
       glossaryTerms: 2,
-      rules: 20,
+      rules: 19,
     });
     const acceptedPersistedShape = await persistedFrozenPlanShape(accepted);
     const acceptedBefore = await signoffWriteFootprint(accepted);
@@ -2926,9 +2929,9 @@ describe("seed Summary sign-off and recovery", () => {
       "storyline",
       ...Array.from({ length: 5 }, (_, index) => `confidence:C${index + 1}`),
       ...Array.from({ length: 2 }, (_, index) => `glossary:G${index + 1}`),
-      ...Array.from({ length: 20 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 19 }, (_, index) => `rule:R${index + 1}`),
     ];
-    expect(acceptedLabels).toHaveLength(28);
+    expect(acceptedLabels).toHaveLength(27);
     const acceptedOracle = literalSummaryResponseOracle({
       ordinaryLabels: acceptedLabels,
       planChecks: checks,
@@ -2974,7 +2977,7 @@ describe("seed Summary sign-off and recovery", () => {
       ...Array.from({ length: 4 }, (_, index) => `confidence:C${index + 1}`),
       ...Array.from({ length: 2 }, (_, index) => `glossary:G${index + 1}`),
       "writer:profile",
-      ...Array.from({ length: 20 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 19 }, (_, index) => `rule:R${index + 1}`),
     ];
     expect(refusedLabels).toHaveLength(acceptedLabels.length);
     const refusedOracle = literalSummaryResponseOracle({
@@ -3000,7 +3003,7 @@ describe("seed Summary sign-off and recovery", () => {
       additionalConfidence: 3,
       glossaryTerms: 2,
       writerFlavor: "Profile",
-      rules: 20,
+      rules: 19,
     });
     const refusedPersistedShape = await persistedFrozenPlanShape(refused);
     expect(refusedPersistedShape).toEqual(acceptedPersistedShape);
@@ -3066,9 +3069,9 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(await projectedFixtureOutputEnvelope(accepted, "242", checks))
       .toBe(acceptedOracle);
-    // 2026-10-04 (second): 291 bytes more than 8,150 for Line 242's facts
-    // verdict.
-    expect(utf8Bytes(acceptedOracle)).toBe(8_441);
+    // 2026-10-04 (second): 579 bytes more than 8,150 for Line 242's facts
+    // verdict and its 384-byte guidance (review round 1, P2-2).
+    expect(utf8Bytes(acceptedOracle)).toBe(8_729);
     // The previous 4,096-byte limit refused this ordinary Brief.
     expect(utf8Bytes(acceptedOracle)).toBeGreaterThan(4_096);
     expect(utf8Bytes(acceptedOracle)).toBeLessThanOrEqual(
@@ -3133,7 +3136,7 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(await projectedFixtureOutputEnvelope(refused, "242", refusedChecks))
       .toBe(refusedOracle);
-    expect(utf8Bytes(refusedOracle)).toBe(17_175);
+    expect(utf8Bytes(refusedOracle)).toBe(17_463);
     expect(utf8Bytes(refusedOracle)).toBeGreaterThan(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
@@ -3222,13 +3225,15 @@ describe("seed Summary sign-off and recovery", () => {
     // Re-pinned 2026-09-30 (second): the envelope gains Line 244's work
     // verdict (Rule C). Re-pinned again (third): the targets verdict comes
     // before it. Re-pinned 2026-10-04 (second): the facts verdict comes
-    // before the targets verdict. It still equals the independent oracle
-    // above, which frozenS244OracleChecks extends the same way.
+    // before the targets verdict, with its 384-byte guidance (review round
+    // 1, P2-2). It still equals the independent oracle above, which
+    // frozenS244OracleChecks and literalSummaryResponseOracle extend the
+    // same way.
     expect(replayHashes).toEqual({
-      restored: "4b0d785713c042994989b97233cc759c65b4ea5ede69fa44c045d231e6a2d356",
-      omit_storyline: "ad0aea789aa29b8d9a628208142adc803dbc5de533e89f92b8ad4d5d985960b9",
-      omit_repeated_merge: "af12d642c7ea21badbc04cd96467e7cdd27f6921b9a2a8cbb384b9f2e43fdda6",
-      short_reason: "b953c0920f7f9675dc43ff78686f93d4ad2d2a250c3795d8d17de682d6033019",
+      restored: "454b81768cde0d9eb3a8ea2a14035b49fef9ca9affbb2576f91c8c7155de0f41",
+      omit_storyline: "a255cfc2712ba069ab4fd79658e1ed9e708c405b9e1094365c509abf09c68e2f",
+      omit_repeated_merge: "9ff22c8541e3414907398a0715c118b73deaf2b85bc72cd8842a75ea93a4d287",
+      short_reason: "39136504ceeeca8037604ad123168740e0d980d287696acd7246abd426ede1bd",
     });
   });
 

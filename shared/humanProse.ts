@@ -84,9 +84,24 @@ export const FACT_RULES = {
     "Add no specific detail that the sources and the signed-off plan do not give: no material, place, person, organization, product, supplier, date or number of your own. Never move a detail from the thing it belongs to onto another thing.",
   cause:
     "State a cause as confirmed only where the sources confirm it. A suspected or expected cause stays suspected, and an open question stays open.",
+  // Review round 1, P2-4 (b): the run's analysis wrote datasheets "based on
+  // thin, flat panels and/or steel substrates", and the draft made it firm.
+  hedge:
+    'A hedge in the sources ("typically", "and/or", "such as", "may", "suspected") stays a hedge: stating it as firm adds a detail the sources do not give.',
   allowed:
     "Rounding, the same figure in another unit or form, plain arithmetic on the sources' own numbers and plain-language wording are fine.",
 } as const;
+
+/**
+ * 2026-10-04 (second, review round 1, P2-4 (a)): the same rule for the
+ * transcript analysis, which drafting and the facts check both read. The
+ * run's stored analysis kept "4% of panels ... all from the deep cove
+ * profile" but dropped the per-profile table (13 percent of 180), and added
+ * "and/or steel substrates" and "(typically steel)" that no source states.
+ * Inserted into the analyzer's Critical Rules (convex/ai/prompts.ts).
+ */
+export const RULES_ANALYSIS_FIGURES = `- Keep each figure with the group, test, unit, condition and denominator the source gives it. Where a source gives figures per group (a table row for each profile, batch, site or test), keep each group's figure with its count, and mark a figure over all groups as over all groups.
+- Add no qualifier, material, example or cause the sources do not state: no "typically X", "and/or X" or "such as X" from your own knowledge. Keep a hedge the source makes ("may", "suspected", "about") as a hedge.`;
 
 // 2026-09-30 (third, release suite runs 6, 10 and 11): two rules for report
 // text (the PD Lines) only. Notes, QA findings and the Brief name their
@@ -106,6 +121,7 @@ Figures and details as the sources give them:
 - ${FACT_RULES.scope} Example: "3 percent of all castings were rejected, every one from the night shift" does not mean 3 percent of the night shift's castings were rejected.
 - ${FACT_RULES.detail}
 - ${FACT_RULES.cause}
+- ${FACT_RULES.hedge}
 - ${FACT_RULES.allowed}
 No talk about sources:
 - State the fact, never where it came from. Do not name an interview, an interviewee, a transcript, a memo, notes, a record, a document, the Brief, the Storyline, the Confidence Map or "the sources" in the report text.

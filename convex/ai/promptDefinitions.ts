@@ -540,7 +540,7 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     // check, in FACT_RULES' words, after "Whole section: " (its guidance may
     // name more than one paragraph); the Self-check's guidance follows.
     factsIssue:
-      `state each figure and detail as the sources give it. ${FACT_RULES.scope} ${FACT_RULES.detail} ${FACT_RULES.cause} Correct or take out only the figures and details named here, and keep everything a COVER item holds. `,
+      `state each figure and detail as the sources give it. ${FACT_RULES.scope} ${FACT_RULES.detail} ${FACT_RULES.cause} ${FACT_RULES.hedge} Correct or take out only the figures and details named here, keep every figure a signed-off item of any Line gives, and keep everything a COVER item holds. `,
   },
   // 2026-09-30 (third): a signed-off plan run's drafting request, and its
   // repair, which reuses it, read the report-text rules of
@@ -1019,9 +1019,22 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     confidenceHeading: "Confidence Map:",
     confidencePrefix: "\n- (",
     confidenceMiddle: ") ",
+    // Review round 1, P2-1: every Line's signed-off items and the writer's
+    // instructions, which drafting reads too, so a figure a writer gave in
+    // another Line's item is never called unsupported.
+    planHeading: "Signed-off plan items, every Line:",
+    planItemPrefix: "\n- ",
+    writerHeading: "Writer instructions:",
+    writerItemPrefix: "\n- ",
     partSeparator: "\n\n",
+    // Review round 1, P2-2: this verdict's repairGuidance lists every
+    // correction, so it may run past the 90 characters the Summary system
+    // prompt asks for; the tool schema of a request with this check allows
+    // MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES for it.
+    guidanceDescription:
+      "For not_applied only: give one concrete fix a writer could follow. For ruleId facts_match_sources, list every correction instead, one after another.",
     instruction:
-      `\n\nThe plan check with ruleId facts_match_sources asks whether each figure and each specific detail in the section is stated as the sources give it. Here the sources are the SOURCE FACTS block (what the draft was written from), each plan item's wording, quotes and reference context in CONTENT PLAN CHECKS, the writer's exact terms and the writer's Feedback. ${FACT_RULES.scope} ${FACT_RULES.detail} ${FACT_RULES.cause} Judge it not applied when the section gives a figure for another group, test, unit, condition or denominator than the sources give it, adds a specific detail (a material, place, person, organization, product, supplier, date or number) that no part of the sources gives or that the sources give for another thing, or states as confirmed a cause the sources give as suspected, expected or open: name the first such paragraph, say in the reason what is wrong in plain words, and in repairGuidance give every such figure or detail as the sources give it. Judge it applied, with paragraph 0, when every figure and detail matches the sources. ${FACT_RULES.allowed} So are a summary of several facts, a general technical explanation and a Glossary Term for something the sources describe. Never fail a figure or detail only because the sources word it another way.`,
+      `\n\nThe plan check with ruleId facts_match_sources asks whether each figure and each specific detail in the section is stated as the sources give it. Here the sources are the SOURCE FACTS block (what the draft was written from: the transcript analysis, the Storyline, the Confidence Map, every Line's signed-off items and the writer's instructions), each plan item's wording, quotes and reference context in CONTENT PLAN CHECKS, the writer's exact terms and the writer's Feedback. A figure or detail a signed-off item of any Line gives, as it gives it, is supported. ${FACT_RULES.scope} ${FACT_RULES.detail} ${FACT_RULES.cause} ${FACT_RULES.hedge} Judge it not applied when the section gives a figure for another group, test, unit, condition or denominator than the sources give it, adds a specific detail (a material, place, person, organization, product, supplier, date or number) that no part of the sources gives or that the sources give for another thing, states as confirmed a cause the sources give as suspected, expected or open, or states as firm what the sources give only as a hedge: name the first such paragraph and say in the reason what is wrong in plain words. For this check, repairGuidance lists every correction in the section, each figure or detail as the sources give it, one after another; it may run past 90 characters, up to about 380. Judge it applied, with paragraph 0, when every figure and detail matches the sources. ${FACT_RULES.allowed} So are a summary of several facts, a general technical explanation and a Glossary Term for something the sources describe. Never fail a figure or detail only because the sources word it another way.`,
   },
   /**
    * The one follow-up for an answer that missed labels, sent in place of the

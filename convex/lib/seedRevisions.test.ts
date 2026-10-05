@@ -15,6 +15,7 @@ import {
   MAX_SUMMARY_ORDINARY_VERDICTS,
   MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
   MAX_SUMMARY_PLAN_VERDICTS,
+  MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   SeedContextLimitError,
   assertSummaryPlanCheckInputWithinLimit,
@@ -1697,7 +1698,8 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
     expect(line242.checks.at(-1)).toEqual(facts("s242"));
   });
 
-  it("counts the facts verdict in the worst-case response like any rule verdict", () => {
+  it("counts the facts verdict in the worst-case response with its longer guidance (review round 1, P2-2)", () => {
+    expect(MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES).toBe(384);
     const ordinary = projectSummaryOrdinaryChecks({ storylineText: "Storyline", confidenceMap: [], glossaryTerms: [], rules: [] });
     for (const section of ["s242", "s244", "s246"] as const) {
       const plan = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [] });
@@ -1708,7 +1710,8 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
         outcome: "not_applied",
         paragraph: 9_999_999_999,
         reason: "r".repeat(64),
-        repairGuidance: "g".repeat(96),
+        // Review round 1, P2-2: four ordinary guidances, for every correction.
+        repairGuidance: "g".repeat(MAX_SUMMARY_SELF_CHECK_FACTS_GUIDANCE_ESCAPED_UTF8_BYTES),
         ruleId: FACTS_MATCH_SOURCES_RULE_ID,
       });
       expect(bytes(envelope([...plan.checks, facts(section)])) - bytes(envelope(plan.checks))).toBe(bytes(verdict) + 1);

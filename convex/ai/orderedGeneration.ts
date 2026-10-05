@@ -270,7 +270,9 @@ export function repairDroppedKeptIdeaReason(conflict: Pick<ConfirmedConflict, "w
  * signed-off item the checked draft covered.
  */
 export function repairDroppedCoverItemReason(item: Pick<PlanCheck, "wording">): string {
-  return `the repaired text no longer covers the signed-off item "${ideaWords(item.wording, 120)}", and a leave-out fix must keep what a COVER item holds, so the checked draft was kept`;
+  // 2026-10-04 (second, review round 1, P3-2): neutral, since a targets or
+  // facts fix is set aside the same way as a leave-out fix.
+  return `the repaired text no longer covers the signed-off item "${ideaWords(item.wording, 120)}", and a repair must keep what a COVER item holds, so the checked draft was kept`;
 }
 
 /** The repair fix for an idea the writer kept despite a Claim Exclusion that the draft does not cover. */
@@ -679,7 +681,9 @@ export function lostPlanFigure(
 
 /** Review P2-1: why a Rule C repair that lost a signed-off figure was not used. */
 export function repairLostPlanFigureReason(lost: { figure: string }): string {
-  return `the repaired text no longer holds the signed-off figure "${lost.figure}", which the checked draft held, and a fix that leaves out work must keep the evidence a signed-off item needs, so the checked draft was kept`;
+  // 2026-10-04 (second, review round 1, P3-2): neutral, since a facts fix is
+  // set aside the same way as a Rule C fix.
+  return `the repaired text no longer holds the signed-off figure "${lost.figure}", which the checked draft held, and a repair must keep every figure a signed-off item gives, so the checked draft was kept`;
 }
 
 /** Every LEAVE OUT verdict with its figure note, where one applies; no verdict changes. */
@@ -1113,16 +1117,6 @@ export async function draftCheckedSection(input: {
   // after the Brief. Single draft and Compare requests are unchanged.
   const planRun = Boolean(claim.planBlock);
   const reportFacts = planRun ? reportFactsBlock() : "";
-  // 2026-10-04 (second): the sources the draft is written from (the analysis
-  // and the Brief's Storyline and Confidence Map), for the facts check of a
-  // signed-off plan. Only a Line whose plan holds that check sends them.
-  const sourceFacts = claim.planChecks.some((planCheck) => planCheck.instruction === "match_sources")
-    ? sourceFactsBody({
-        analysis,
-        storylineText: claim.brief?.storylineText ?? "",
-        confidenceMap: claim.brief?.confidenceMap ?? [],
-      })
-    : undefined;
   // Review P3-6: the checked text is over a Locked limit and further over
   // it than the other text, which must never be traded back for it.
   const overLimitMore = (checked: string, other: string) =>
@@ -1217,6 +1211,23 @@ export async function draftCheckedSection(input: {
         : {}),
     });
   const before = check(text);
+  // 2026-10-04 (second): the sources the draft is written from (the analysis,
+  // the Brief's Storyline and Confidence Map, and since review round 1, P2-1,
+  // every Line's signed-off items and the writer's instructions), for the
+  // facts check of a signed-off plan. Only a Line whose plan holds that check
+  // sends them, to the first Self-check and the check of the final text alike.
+  const sourceFacts = claim.planChecks.some((planCheck) => planCheck.instruction === "match_sources")
+    ? sourceFactsBody({
+        analysis,
+        storylineText: brief?.storylineText ?? "",
+        confidenceMap: brief?.confidenceMap ?? [],
+        planWording,
+        writerInstructions: [
+          ...(payload.writerFlavor?.trim() ? [payload.writerFlavor] : []),
+          ...before.modelRules.map((rule) => rule.instruction),
+        ],
+      })
+    : undefined;
 
   let verdicts: ModelVerdict[] = [];
   let storylineQuestion: ModelSelfCheckResult["storylineQuestion"] = null;
@@ -1432,7 +1443,11 @@ export async function draftCheckedSection(input: {
         // of a signed-off item that the checked draft held is gone from it
         // (Greptile round: presence, not count), unless the checked draft is
         // further over a Locked limit (Locked Rules first).
-        const lostFigure = evidenceIssues.size > 0 ? lostPlanFigure(text, fit.text, planWording) : undefined;
+        // 2026-10-04 (second, review round 1, P2-3): so must a facts fix,
+        // whose verdict may be wrong about a figure a signed-off item gives.
+        const lostFigure = evidenceIssues.size > 0 || factsIssues.size > 0
+          ? lostPlanFigure(text, fit.text, planWording)
+          : undefined;
         const figureOverLimit = lostFigure !== undefined && overLimitMore(text, fit.text);
         const failure =
           fit.error === undefined
