@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findExactQuoteSpans } from "../../shared/exactQuote";
+import { unbackedBullets } from "./seedQuoteSupport";
 import {
   MAX_BATCH_SEEDS,
   MAX_BULLET_WORDS,
@@ -981,7 +982,7 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
     expect(quotes.seeds).toEqual(result.seeds);
   });
 
-  it("marks an unrelated line and a reused excerpt, drops nothing, and a Seed with a marked quote is writer-asserted (round 3)", () => {
+  it("marks an unrelated line and a reused excerpt, drops nothing, and stays source-supported", () => {
     const { result, quotes } = checked("batch", [
       candidate([bullets[0]], tags[0], { provenance: [cite(0)] }),
       // Cites the company line for a claim about drilling.
@@ -1008,15 +1009,12 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
       [false],
       [true],
     ]);
-    // 2026-10-04 (second, round 3): a Seed with a marked quote is not
-    // source_supported; its wording is unchanged.
-    expect(quotes.seeds.map((seed) => [seed.support, seed.originalSupport])).toEqual([
-      ["source_supported", "source_supported"],
-      ["writer_asserted", "writer_asserted"],
-      ["source_supported", "source_supported"],
-      ["writer_asserted", "writer_asserted"],
+    expect(quotes.seeds.map((seed) => seed.support)).toEqual([
+      "source_supported",
+      "source_supported",
+      "source_supported",
+      "source_supported",
     ]);
-    expect(quotes.seeds.map((seed) => seed.bullets)).toEqual(result.seeds.map((seed) => seed.bullets));
   });
 
   it("maps each kept Seed back to its place in the model's answer, after a dropped Seed", () => {
@@ -1066,7 +1064,7 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
   });
 });
 
-describe("a Seed with a marked quote is not source-supported (2026-10-04, second, round 3)", () => {
+describe("run 6's Seeds with a marked quote (2026-10-04, second, round 3 and its review)", () => {
   // Fictional lines of the release suite fixture's interview (run 6).
   const lines = [
     "Normal powder for steel cures at 160 to 200 C.",
@@ -1099,7 +1097,7 @@ describe("a Seed with a marked quote is not source-supported (2026-10-04, second
     "Trial 1's datasheet process confirmed that heat built for flat steel panels causes severe outgassing defects on routed MDF edges.",
   ];
 
-  it("marks run 6's steel quote on both Seeds, stores them writer_asserted with their wording unchanged, and leaves a well-quoted Seed as it was", () => {
+  it("marks run 6's steel quote on both Seeds and keeps their support and wording, and leaves a well-quoted Seed as it was (review P2-3)", () => {
     const seeds = [validated(limitation, [1, 0]), validated(advancement, [2, 0]), validated(limitation, [3, 1])];
     expect(seeds.map((seed) => seed.support)).toEqual(["source_supported", "source_supported", "source_supported"]);
     const { seeds: checked, issues } = withQuoteChecks(seeds, "feedback");
@@ -1107,12 +1105,15 @@ describe("a Seed with a marked quote is not source-supported (2026-10-04, second
       { code: "CITATION_UNRELATED", seedIndex: 0, citationIndex: 1 },
       { code: "CITATION_UNRELATED", seedIndex: 1, citationIndex: 1 },
     ]);
+    // Support is unchanged, so the plan and every request read them as before.
     expect(checked.map((seed) => [seed.support, seed.originalSupport])).toEqual([
-      ["writer_asserted", "writer_asserted"],
-      ["writer_asserted", "writer_asserted"],
+      ["source_supported", "source_supported"],
+      ["source_supported", "source_supported"],
       ["source_supported", "source_supported"],
     ]);
     expect(checked.map((seed) => seed.bullets)).toEqual([limitation, advancement, limitation]);
     expect(checked[2]).toEqual(seeds[2]);
+    // The card and the facts check name each Seed's steel sentence.
+    expect(checked.map((seed) => unbackedBullets(seed.bullets, seed.provenance))).toEqual([[limitation[0]], [advancement[1]], []]);
   });
 });

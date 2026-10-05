@@ -264,7 +264,7 @@ describe("quotes the word check cannot judge are never marked (review P2-3)", ()
   });
 });
 
-describe("unbackedBullets (2026-10-04, second, round 3)", () => {
+describe("unbackedBullets (2026-10-04, second, round 3 and its review)", () => {
   const steel = { exactExcerpt: "Normal powder for steel cures at 160 to 200 C.", needsQuoteCheck: true };
   const limitation = [
     "Standard datasheet powder processes are built for flat steel-like panels, not thick routed MDF.",
@@ -276,17 +276,45 @@ describe("unbackedBullets (2026-10-04, second, round 3)", () => {
   ];
   const moisture = { exactExcerpt: "The moisture that gives you conductivity is the same moisture that outgasses, so we didn't know if there was any setting that did both." };
   const peak = { exactExcerpt: "And that on our board the pinholes track the peak board temperature, not the time." };
+  const datasheet = { exactExcerpt: "That the datasheet number is for flat panels." };
+  const thinFlat = { exactExcerpt: "It does, on thin flat panels, and that's what the suppliers show you." };
 
   it("names the sentence of each run 6 Seed that only its marked steel quote stood behind", () => {
     expect(unbackedBullets(limitation, [moisture, steel])).toEqual([limitation[0]]);
     expect(unbackedBullets(advancement, [peak, steel])).toEqual([advancement[1]]);
-    // Every sentence when every quote is marked.
-    expect(unbackedBullets(advancement, [steel])).toEqual(advancement);
+    // Every quote marked: still the sentence that holds the marked quote's words.
+    expect(unbackedBullets(limitation, [steel])).toEqual([limitation[0]]);
+    expect(unbackedBullets(advancement, [steel])).toEqual([advancement[1]]);
+  });
+
+  it("review P2-1: names the steel sentence even beside a good quote that shares other words with it", () => {
+    // Each good quote shares "datasheet", "flat" or "panel" with the steel sentence.
+    expect(unbackedBullets(limitation, [datasheet, steel])).toEqual([limitation[0]]);
+    expect(unbackedBullets(limitation, [thinFlat, steel])).toEqual([limitation[0]]);
+    expect(unbackedBullets(advancement, [datasheet, steel])).toEqual([advancement[1]]);
+    expect(unbackedBullets(advancement, [thinFlat, steel])).toEqual([advancement[1]]);
+  });
+
+  it("names the sentences no quote backs when a marked quote shares no word with the Seed", () => {
+    const knot = { exactExcerpt: "Mireille Strand: That was the knot.", needsQuoteCheck: true };
+    expect(unbackedBullets(limitation, [moisture, knot])).toEqual([limitation[0]]);
   });
 
   it("names nothing for a Seed with no marked quote, even a sentence no quote backs", () => {
     expect(unbackedBullets(limitation, [moisture])).toEqual([]);
     expect(unbackedBullets(limitation, [])).toEqual([]);
+  });
+
+  it("review P3-2: a quote marked only because another Seed reused it still backs its sentence", () => {
+    // The moisture line shares enough words with the Seed: a reuse mark, not an unrelated one.
+    expect(unbackedBullets(limitation, [{ ...moisture, needsQuoteCheck: true }, datasheet])).toEqual([]);
+    // Judged against the Seed's own wording, not only the sentences left to judge.
+    expect(unbackedBullets([limitation[1]], [{ ...moisture, needsQuoteCheck: true }], limitation)).toEqual([]);
+  });
+
+  it("review P2-2: names an unchanged steel sentence beside a changed one, and nothing once the writer rewrote it", () => {
+    expect(unbackedBullets([limitation[0]], [datasheet, steel], limitation)).toEqual([limitation[0]]);
+    expect(unbackedBullets([limitation[1]], [datasheet, steel], limitation)).toEqual([]);
   });
 
   it("never names a sentence beside a quote the word check cannot judge", () => {

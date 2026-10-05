@@ -336,23 +336,49 @@ export function quoteCheckIssues(
 }
 
 /**
- * 2026-10-04 (second, round 3, owner approved 2026-10-05): the bullets of a
- * Seed that none of its evidence quotes backs. A quote marked for a check is
- * not evidence (the draft leaves it out), so only unmarked quotes count; a
- * bullet backs when an unmarked quote shares enough meaningful words with it
- * (`excerptSupportsSeed`), or when the word check cannot judge that quote
- * against it (another script or language), which is never marked. Empty for
- * a Seed with no marked quote: a well-quoted Seed is unchanged. Pure, so the
- * card and the facts check read the same wording.
+ * 2026-10-04 (second, round 3, owner approved 2026-10-05): the sentences of a
+ * Seed that its quotes do not back, when a quote is marked as possibly not
+ * backing it. Pure, so the idea card and the facts check read the same
+ * sentences.
+ *
+ * Only a quote marked as unrelated counts as marked here: a marked quote that
+ * shares enough words with the Seed's own wording (`seedBullets`) was marked
+ * because another Seed reused it, and it backs its sentence like any other
+ * quote (round 3 review, P3-2). Every other quote is evidence.
+ *
+ * Round 3 review, P2-1: a sentence is named when it holds a meaningful word
+ * (two characters or more) that a marked quote has and no evidence quote
+ * has, so a good quote sharing other words with that sentence cannot hide
+ * it. Only when none of the Seed's own sentences holds such a word are the
+ * sentences that no evidence quote backs named (`excerptSupportsSeed`, a
+ * quote the check cannot judge counting as backing). `bullets` are the
+ * sentences to name from (the ones the writer has not changed). Empty for a
+ * Seed with no unrelated marked quote: a well-quoted Seed is unchanged.
  */
 export function unbackedBullets(
   bullets: readonly string[],
-  quotes: ReadonlyArray<{ exactExcerpt: string; needsQuoteCheck?: boolean }>
+  quotes: ReadonlyArray<{ exactExcerpt: string; needsQuoteCheck?: boolean }>,
+  seedBullets: readonly string[] = bullets
 ): string[] {
-  if (!quotes.some((quote) => quote.needsQuoteCheck === true)) return [];
-  const evidence = quotes.filter((quote) => quote.needsQuoteCheck !== true);
-  return bullets.filter((bullet) =>
-    bullet.trim() !== "" &&
+  const seedText = seedBullets.join(" ");
+  const unrelated = (quote: { exactExcerpt: string; needsQuoteCheck?: boolean }) =>
+    quote.needsQuoteCheck === true &&
+    !(canJudgeQuote(seedText, quote.exactExcerpt) && excerptSupportsSeed(seedText, quote.exactExcerpt));
+  const marked = quotes.filter(unrelated);
+  if (marked.length === 0) return [];
+  const evidence = quotes.filter((quote) => !unrelated(quote));
+  const markedWords = marked.flatMap((quote) => contentWords(quote.exactExcerpt));
+  const evidenceWords = evidence.flatMap((quote) => contentWords(quote.exactExcerpt));
+  const sentences = bullets.filter((bullet) => bullet.trim() !== "");
+  // Judged on the Seed's own sentences, so a sentence the writer rewrote
+  // still claims the marked quote's words and is simply no longer named.
+  const onlyMarked = seedBullets.filter((bullet) =>
+    contentWords(bullet).some((word) =>
+      word.length >= 2 &&
+      markedWords.some((other) => sameWord(word, other)) &&
+      !evidenceWords.some((other) => sameWord(word, other))));
+  if (onlyMarked.length > 0) return sentences.filter((bullet) => onlyMarked.includes(bullet));
+  return sentences.filter((bullet) =>
     !evidence.some((quote) =>
       !canJudgeQuote(bullet, quote.exactExcerpt) || excerptSupportsSeed(bullet, quote.exactExcerpt)));
 }

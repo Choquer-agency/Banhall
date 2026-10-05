@@ -4530,11 +4530,9 @@ describe("seed Summary sign-off and recovery", () => {
     expect(notes.find((note) => note.instruction.includes("marked for a check"))?.planRef).toBeUndefined();
   });
 
-  it("2026-10-04 (second, round 3): the facts check reads run 6's two Seeds as product wording their own quotes do not back", async () => {
-    const s = await decisionFixture();
-    await makeReady(s);
+  it("2026-10-04 (second, round 3 and its review): the facts check reads run 6's two Seeds as product wording their own quotes do not back, and the plan is unchanged", async () => {
     // Release suite run 6: two signed-off Seeds whose steel quote the quote
-    // check marked, so (round 3) they were stored writer_asserted.
+    // check marked. Their support stays source_supported (review P2-3).
     const limitation = [
       "Standard datasheet powder processes are built for flat steel-like panels, not thick routed MDF.",
       "No prior process showed whether MDF could reach conductivity without heat that triggers outgassing defects.",
@@ -4543,10 +4541,16 @@ describe("seed Summary sign-off and recovery", () => {
       "The team learned that outgassing defects track peak panel surface temperature rather than dwell time on this board.",
       "Trial 1's datasheet process confirmed that heat built for flat steel panels causes severe outgassing defects on routed MDF edges.",
     ];
+    // Review P2-1: a good quote that shares "datasheet", "flat" and "panel" with the steel sentence.
+    const datasheet = "That the datasheet number is for flat panels.";
     const steel = "Normal powder for steel cures at 160 to 200 C.";
-    const moisture = "The moisture that gives you conductivity is the same moisture that outgasses, so we didn't know if there was any setting that did both.";
     const peak = "And that on our board the pinholes track the peak board temperature, not the time.";
     const companyQuote = "Final company_context wording.";
+    // Review P2-2: the writer changes one word of the second sentence only.
+    const changed = "No prior process showed whether this board could reach conductivity without heat that triggers outgassing defects.";
+    const signedOff = async (markedSteel: boolean) => {
+    const s = await decisionFixture();
+    await makeReady(s);
     await s.t.run(async (ctx) => {
       const seedOf = async (roleId: PdSubsectionRoleId) => (await ctx.db.query("seeds")
         .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", roleId))
@@ -4564,45 +4568,61 @@ describe("seed Summary sign-off and recovery", () => {
           ...(needsQuoteCheck ? { needsQuoteCheck: true } : {}),
         });
       for (const [roleId, bullets, backing] of [
-        ["passive_limitations", limitation, moisture],
+        ["passive_limitations", limitation, datasheet],
         ["specific_advancements", advancement, peak],
       ] as const) {
         const seed = await seedOf(roleId);
-        await ctx.db.patch(seed._id, { bullets: [...bullets], support: "writer_asserted", originalSupport: "writer_asserted" });
+        await ctx.db.patch(seed._id, { bullets: [...bullets] });
         await cite(seed._id, backing);
-        await cite(seed._id, steel, true);
+        if (markedSteel) await cite(seed._id, steel, true);
       }
-      // A well-quoted Seed is unchanged.
-      await cite((await seedOf("company_context"))._id, companyQuote);
+      const limitationSeed = await seedOf("passive_limitations");
+      const selection = await ctx.db.query("seedSelections")
+        .withIndex("by_seedId", (q) => q.eq("seedId", limitationSeed._id)).unique();
+      await ctx.db.patch(selection!._id, { editedBullets: [limitation[0], changed], editedBy: s.userId, editedAt: 6 });
+      // A well-quoted Seed is unchanged, even saved with its own wording
+      // before the review's P2-2 fix stored such a save as an edit.
+      const company = await seedOf("company_context");
+      await cite(company._id, companyQuote);
+      const companySelection = await ctx.db.query("seedSelections")
+        .withIndex("by_seedId", (q) => q.eq("seedId", company._id)).unique();
+      await ctx.db.patch(companySelection!._id, { editedBullets: [...company.bullets], editedBy: s.userId, editedAt: 7 });
     });
     await s.writer.mutation(api.generations.signOffSeedStage, {
       generationId: s.generationId,
       expectedSeedStageVersion: 0,
     });
-    const plan = await s.t.run(async (ctx) =>
-      await loadFrozenSectionPlan(ctx, (await ctx.db.get(s.generationId))!, "242"));
-    const sourceOf = (first: string) => plan.planItemSources.find((item) => item.wording[0] === first);
-    expect(sourceOf(limitation[0])).toEqual({ wording: limitation, writer: false, quotes: [moisture], unbacked: [limitation[0]] });
-    expect(sourceOf(advancement[0])).toEqual({ wording: advancement, writer: false, quotes: [peak], unbacked: [advancement[1]] });
-    expect(sourceOf("Final company_context wording.")).toEqual({
-      wording: ["Final company_context wording."],
-      writer: false,
-      quotes: [companyQuote],
-    });
-    // Only what the writer edited is the writer's wording, never a
-    // writer_asserted item the product wrote.
-    expect(sourceOf("Edited experimentation wording.")).toMatchObject({ writer: true });
-    expect(plan.planItemSources.filter((item) => item.writer).map((item) => item.wording[0]).sort())
-      .toEqual(["Edited active_uncertainties wording.", "Edited experimentation wording."]);
-    // The SOURCE FACTS block marks the wording, and it never stands for the sources.
-    const facts = sourceFactsFor({ analysis: {}, planItems: plan.planItemSources });
-    expect(facts.body).toContain(
-      `- [the product's wording] ${limitation.join(" ")} Quotes: ${JSON.stringify(moisture)} Its own quotes do not back: ${JSON.stringify(limitation[0])}`
-    );
+    return await s.t.run(async (ctx) =>
+      await loadFrozenSectionPlan(ctx, (await ctx.db.get(s.generationId))!, "246"));
+    };
+    const plan = await signedOff(true);
+    // The plan's support is the Seed's, as before: the plan and the check
+    // blocks a model reads are byte for byte those of the same Seeds
+    // without the marked quote (review P2-3).
+    const coverOf = (first: string) => plan.planChecks.find((check) => check.instruction === "cover" && check.wording[0] === first);
+    expect(coverOf(advancement[0])?.support).toBe("source_supported");
+    const unmarked = await signedOff(false);
+    // Document ids differ between the two fixtures; nothing else may.
+    const ids = (text: string) => text.replace(/\d{10,}[A-Za-z]+/g, "<id>");
+    expect(ids(plan.planBlock)).toBe(ids(unmarked.planBlock));
+    expect(ids(plan.planChecksBlock)).toBe(ids(unmarked.planChecksBlock));
+    expect(unmarked.planItemSources.some((item) => item.unbacked)).toBe(false);
+    const sources = plan.planItemSources;
+    const entryOf = (first: string) => sources.find((item) => item.wording[0] === first);
+    // The edited limitation: its unchanged steel sentence stays the product's
+    // and is named; only the changed sentence is the writer's.
+    expect(entryOf(limitation[0])).toEqual({ wording: [limitation[0]], writer: false, quotes: [datasheet], unbacked: [limitation[0]] });
+    expect(entryOf(changed)).toEqual({ wording: [changed], writer: true, quotes: [] });
+    expect(entryOf(advancement[0])).toEqual({ wording: advancement, writer: false, quotes: [peak], unbacked: [advancement[1]] });
+    expect(entryOf("Final company_context wording.")).toEqual({ wording: ["Final company_context wording."], writer: false, quotes: [companyQuote] });
+    expect(sources.filter((item) => item.writer).map((item) => item.wording[0]).sort())
+      .toEqual(["Edited active_uncertainties wording.", "Edited experimentation wording.", changed]);
+    // The SOURCE FACTS block names both, and neither ever stands for the sources.
+    const facts = sourceFactsFor({ analysis: {}, planItems: sources });
+    expect(facts.body).toContain(`- [the product's wording] ${limitation[0]} Quotes: ${JSON.stringify(datasheet)} Its own quotes do not back: ${JSON.stringify(limitation[0])}`);
     expect(facts.body).toContain(`Its own quotes do not back: ${JSON.stringify(advancement[1])}`);
-    expect(facts.product.some((entry) => entry.includes("steel"))).toBe(false);
-    expect(facts.items.some((entry) => entry.includes("steel"))).toBe(false);
-    expect(facts.items).toContain(limitation[1]);
+    expect([...facts.product, ...facts.items, ...facts.evidence].some((entry) => entry.includes("steel"))).toBe(false);
+    expect(facts.evidence).toContain(changed);
   });
 
   it("drafts an item whose quotes are all marked from its wording alone, and says how many were left out", async () => {

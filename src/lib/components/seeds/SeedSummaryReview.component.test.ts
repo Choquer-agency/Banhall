@@ -1762,10 +1762,10 @@ describe("Seed Summary Review", () => {
       expect(card.querySelector("[data-quote-text]")?.textContent).toBe("“We run four sites”");
     });
 
-    it("names the wording its quotes do not back on a run 6 idea with a marked quote, and none on a well-quoted one (2026-10-04, second, round 3)", async () => {
+    it("names the wording its quotes do not back on a run 6 idea with a marked quote, after its list, and none on a well-quoted one (2026-10-04, second, round 3 and its review)", async () => {
       __setQueryData("seeds:getOutline", outline());
-      // Release suite run 6, Specific advancements item 11: the steel quote
-      // the check marked is not evidence, so the second sentence has no quote.
+      // Release suite run 6, Specific advancements item 11. Review P2-1: the
+      // good quote shares "datasheet", "flat" and "panel" with the steel sentence.
       const advancement = [
         "The team learned that outgassing defects track peak panel surface temperature rather than dwell time on this board.",
         "Trial 1's datasheet process confirmed that heat built for flat steel panels causes severe outgassing defects on routed MDF edges.",
@@ -1773,9 +1773,8 @@ describe("Seed Summary Review", () => {
       __setQueryData("seeds:getSummary", onePage([
         withFields(item("seed-a", "specific_advancements", advancement[0]), {
           bullets: advancement,
-          support: "writer_asserted",
           provenance: [
-            { sourceId: "source-1", exactExcerpt: "And that on our board the pinholes track the peak board temperature, not the time.", line: 39 },
+            { sourceId: "source-1", exactExcerpt: "That the datasheet number is for flat panels.", line: 39 },
             { sourceId: "source-1", exactExcerpt: "Normal powder for steel cures at 160 to 200 C.", line: 13, needsQuoteCheck: true },
           ],
         }),
@@ -1784,11 +1783,16 @@ describe("Seed Summary Review", () => {
         }),
       ]));
       const view = await render(SeedSummaryReview, { generationId, userId: "writer-1" });
-      await expect.poll(() => view.container.querySelector('[data-summary-item="seed-a"] [data-summary-unbacked]')?.textContent).toBe(
-        `Its quotes do not back: "${advancement[1]}"`
+      const itemA = () => view.container.querySelector<HTMLElement>('[data-summary-item="seed-a"]');
+      await expect.poll(() => itemA()?.querySelector("[data-summary-unbacked]")?.textContent).toBe(
+        `Its quotes do not back: “${advancement[1]}”`
       );
-      const note = view.container.querySelector<HTMLElement>("[data-summary-unbacked]")!;
+      const note = itemA()!.querySelector<HTMLElement>("[data-summary-unbacked]")!;
       expect(Number(getComputedStyle(note).fontWeight)).toBeLessThanOrEqual(500);
+      // Review P3-3: a paragraph after the list, never an extra bullet.
+      expect(note.tagName).toBe("P");
+      expect(note.closest("ul")).toBeNull();
+      expect(itemA()!.querySelectorAll("li")).toHaveLength(2);
       expect(view.container.querySelector('[data-summary-item="seed-b"] [data-summary-unbacked]')).toBeNull();
       expect(view.container.querySelectorAll("[data-summary-unbacked]")).toHaveLength(1);
     });
