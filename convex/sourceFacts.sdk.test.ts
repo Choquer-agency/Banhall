@@ -841,7 +841,9 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repair: stripped,
       checks: [
         { verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, unbackedFigure, targetsMet] },
-        { verdicts: [], planVerdicts: [statusCovered, factsMatch, targetsMet] },
+        // The check of the final text is the full Self-check on this branch
+        // (2026-10-04 first, Round 2 follow-up), so it answers the labels too.
+        { verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(
