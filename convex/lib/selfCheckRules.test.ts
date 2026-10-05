@@ -4,6 +4,7 @@ import {
   paragraphWithCloseForm,
   repairIssues,
   runDeterministicSelfCheck,
+  sameSelfCheckLabel,
   talksAboutLength,
   withoutLengthClauses,
   writerRowGuard,
@@ -542,5 +543,78 @@ describe("rows from the check of the final text (round 2 review)", () => {
     });
     expect(rows.map((row) => row.reason).join(" ")).not.toContain("not re-verified");
     expect(summary.remainingFailures).toBe(1);
+  });
+});
+
+describe("the check of the final text matches labels, not their exact words (round 2 re-check)", () => {
+  const brief = { storylineText: "The team tested probe designs.", claimExclusions: [], confidenceMap: [], glossaryTerms: ["cure window"] };
+  const text = "The bake window was close to zero.";
+  const shortened = "The bake window was near zero.";
+  const run = (first: ModelVerdict[], final: ModelVerdict[], finalText = shortened) => {
+    const before = runDeterministicSelfCheck({ section: "242", text, brief, profile: PROFILE, isFirstInOrder: false });
+    const after = runDeterministicSelfCheck({ section: "242", text: finalText, brief, profile: PROFILE, isFirstInOrder: false });
+    return assembleSectionNotes({
+      section: "242",
+      before,
+      after,
+      verdicts: first,
+      modelCheck: { ok: true },
+      storylineQuestion: null,
+      repair: { attempted: true, succeeded: true, shortened: true },
+      finalText,
+      finalVerdicts: { ok: true, verdicts: final },
+    });
+  };
+  const v = (check: ModelVerdict["check"], instruction: string, outcome: "applied" | "not_applied", reason = "r"): ModelVerdict =>
+    ({ check, instruction, outcome, reason });
+
+  it.each([
+    ["storyline", v("storyline", "Storyline alignment", "not_applied"), v("storyline", "Follows the Storyline", "applied", "Fits.")],
+    ["glossary", v("glossary", "Glossary Term: cure window", "not_applied"), v("glossary", "cure window (Glossary candidate)", "applied", "Fits.")],
+    ["confidence", v("confidence", "C1: the onset range", "not_applied"), v("confidence", "[C1] Onset is hedged", "applied", "Fits.")],
+    ["instruction", v("instruction", "Write in the third person throughout the whole section.", "not_applied"), v("instruction", "Write in the third person throughout", "applied", "Fits.")],
+  ])("a reworded %s label is the same label: one repaired row, no false 'not checked' row", (_kind, first, final) => {
+    const { rows, summary } = run([first], [final]);
+    const model = rows.filter((row) => row.source === "model");
+    expect(model).toEqual([
+      expect.objectContaining({ outcome: "applied", repaired: true, reason: "Fits.; repaired, and checked again on the final text" }),
+    ]);
+    expect(summary).toMatchObject({ status: "repair_attempted", remainingFailures: 0 });
+  });
+
+  it("a label the check of the final text truly left out still reads not checked, and counts", () => {
+    const { rows, summary } = run(
+      [v("instruction", "Use the opener verbatim in paragraph one.", "not_applied"), v("storyline", "Storyline", "applied")],
+      [v("storyline", "Follows the Storyline", "applied", "Fits.")]
+    );
+    expect(rows.filter((row) => row.source === "model")).toEqual([
+      expect.objectContaining({ outcome: "applied", repaired: false, reason: "Fits." }),
+      expect.objectContaining({ outcome: "not_applied", reason: "Not checked on the final text (the Self-check gave no verdict for it)" }),
+    ]);
+    expect(summary).toMatchObject({ status: "repair_failed", remainingFailures: 1 });
+  });
+
+  it("two different short rules are never taken for one", () => {
+    expect(sameSelfCheckLabel(v("instruction", "Use the term kiln charge.", "applied"), v("instruction", "Use the term cure window.", "applied"), { glossaryCandidates: [] })).toBe(false);
+    expect(sameSelfCheckLabel(v("confidence", "[C1] Onset", "applied"), v("confidence", "[C2] Onset", "applied"), { glossaryCandidates: [] })).toBe(false);
+    expect(sameSelfCheckLabel(v("storyline", "Storyline", "applied"), v("confidence", "Storyline", "applied"), { glossaryCandidates: [] })).toBe(false);
+  });
+
+  it("Summary mode: a label the first check failed and the final check left out counts, and a Glossary Term now held is repaired (re-check P3)", () => {
+    const notChecked = (verdict: ModelVerdict): ModelVerdict => ({ ...verdict, outcome: "not_applied", reason: "Not checked: the Self-check gave no verdict for this check.", notChecked: true });
+    const storyline = v("storyline", "Storyline", "not_applied");
+    const left = run([storyline], [notChecked(storyline)]);
+    expect(left.rows.filter((row) => row.source === "model")).toEqual([
+      expect.objectContaining({ outcome: "not_applied", reason: "Not checked on the final text (the Self-check gave no verdict for it)" }),
+    ]);
+    expect(left.summary).toMatchObject({ status: "repair_failed", remainingFailures: 1 });
+    // A label the first check found met and the final check left out is not a failure.
+    expect(run([v("storyline", "Storyline", "applied")], [notChecked(storyline)]).summary.remainingFailures).toBe(0);
+    const glossary = v("glossary", "Glossary Term: cure window", "not_applied", "P1 says bake window.");
+    const held = run([glossary], [notChecked(glossary)], "The cure window was near zero.");
+    expect(held.rows.filter((row) => row.source === "model")).toEqual([
+      expect.objectContaining({ outcome: "applied", repaired: true, reason: "P1 says bake window.; repaired to the Glossary Term" }),
+    ]);
+    expect(held.summary.remainingFailures).toBe(0);
   });
 });

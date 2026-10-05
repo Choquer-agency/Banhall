@@ -569,4 +569,17 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
     expect(row?.reason).toContain("Opener not used.; the repair and shortening left the checked text as it was");
     expect(row?.reason).not.toContain("not re-verified");
   });
+
+  it("Single draft: the model words a label differently on the final text, and it is still the same label (re-check P2)", async () => {
+    const run = await runSingle({
+      compressions: [DRAFT_246, DRAFT_246, FIT_246],
+      verdicts246: [{ paragraph: 1, check: "storyline", instruction: "Storyline alignment", outcome: "not_applied", reason: "P1 drifts.", repairGuidance: "Tie P1 to the trials." }],
+      finalVerdicts246: [{ paragraph: 1, check: "storyline", instruction: "Follows the Storyline", outcome: "applied", reason: "P1 follows it." }],
+    });
+    expect(run.text("246")).toBe(FIT_246);
+    expect(run.modelNotes("246")).toEqual([
+      expect.objectContaining({ outcome: "applied", repaired: true, reason: "P1 follows it.; repaired, and checked again on the final text" }),
+    ]);
+    expect(run.summary("246")).toMatchObject({ status: "repair_attempted", remainingFailures: 0 });
+  });
 });

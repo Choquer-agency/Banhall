@@ -715,6 +715,63 @@ function quotesWriterProfile(instruction: string, profile: string | undefined): 
   return cutOff && quoted.trim().length < first.trim().length;
 }
 
+/** The [C#] entry a Confidence Map verdict names, or null. */
+function confidenceEntryOf(instruction: string): string | null {
+  return /\bC(\d+)\b/.exec(instruction)?.[1] ?? null;
+}
+
+/**
+ * Two normalized wordings name the same label when equal, or when one opens
+ * the other and the shorter runs to six words or more (a quote the model
+ * cut short), as quotesWriterProfile reads a cut-short profile.
+ */
+function sameWording(a: string, b: string): boolean {
+  const left = normalizeForMatch(a).trim();
+  const right = normalizeForMatch(b).trim();
+  if (left === "" || right === "") return false;
+  if (left === right) return true;
+  const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
+  return shorter.split(" ").length >= 6 && longer.startsWith(shorter);
+}
+
+/**
+ * Round 2 review re-check, P2: whether two Self-check verdicts judge the same
+ * label. In Summary mode the instruction is the label the app supplied, so
+ * equal words match. In Single draft and Compare the model words each
+ * label itself, differently from call to call, so the Storyline matches by
+ * its check alone, a Glossary verdict by the term it names, a Confidence
+ * Map verdict by its [C#] entry (or its wording), and an instruction by its
+ * wording, one opening the other, or both quoting the Writer Profile.
+ */
+export function sameSelfCheckLabel(
+  a: Pick<ModelVerdict, "check" | "instruction">,
+  b: Pick<ModelVerdict, "check" | "instruction">,
+  context: { glossaryCandidates: readonly string[]; writerInstructions?: string }
+): boolean {
+  if (a.check !== b.check) return false;
+  if (a.instruction === b.instruction) return true;
+  switch (a.check) {
+    case "storyline":
+      return true;
+    case "glossary": {
+      const term = (verdict: Pick<ModelVerdict, "instruction">) =>
+        normalizeForMatch(glossaryTermOf(verdict as ModelVerdict, [...context.glossaryCandidates])).trim();
+      return term(a) === term(b);
+    }
+    case "confidence": {
+      const left = confidenceEntryOf(a.instruction);
+      const right = confidenceEntryOf(b.instruction);
+      return left !== null && right !== null ? left === right : sameWording(a.instruction, b.instruction);
+    }
+    case "instruction":
+      return (
+        sameWording(a.instruction, b.instruction) ||
+        (quotesWriterProfile(a.instruction, context.writerInstructions) &&
+          quotesWriterProfile(b.instruction, context.writerInstructions))
+      );
+  }
+}
+
 /**
  * 2026-10-04 (first, release suite alert 7): the guard on a model row for a
  * writer instruction on a Line where code measured a cap as not met. The
@@ -1154,36 +1211,55 @@ export function assembleSectionNotes(input: {
     pushModelRow(verdict, noteDraft({ ...base, outcome, reason, repaired }));
   }
   if (final?.ok) {
-    // The first check's label verdict for the same label, if any.
-    const firstOf = (verdict: ModelVerdict) =>
-      verdicts.find(
-        (first) =>
-          !governedTermOf(first) &&
-          first.check === verdict.check &&
-          first.instruction === verdict.instruction
-      );
+    // Review re-check P2: in Single draft and Compare `instruction` is the
+    // model's own wording, so the two checks are matched by label, not by
+    // their exact words (sameSelfCheckLabel).
+    const candidates = [...before.glossaryCandidates, ...(input.after?.glossaryCandidates ?? [])];
+    const same_ = (a: ModelVerdict, b: ModelVerdict) =>
+      sameSelfCheckLabel(a, b, { glossaryCandidates: candidates, writerInstructions: input.writerInstructions });
     const failing = (verdict: ModelVerdict | undefined) =>
       verdict !== undefined && verdict.outcome === "not_applied" && !verdict.notChecked;
+    // Whether the first check failed this label (any of its verdicts for it).
+    const firstFailed = (verdict: ModelVerdict) =>
+      verdicts.some((first) => !governedTermOf(first) && failing(first) && same_(first, verdict));
     // Review P3-4: the final text is the checked text, so the first check
     // already judged it; its verdicts are read as the final ones.
     const same = final.sameAsChecked === true;
+    /** A Glossary Term the first check failed that the final text now holds. */
+    const glossaryRepaired = (first: ModelVerdict) =>
+      first.check === "glossary" && glossaryTermPresent(glossaryTermOf(first, before.glossaryCandidates), input.finalText);
+    const pushGlossaryRepaired = (first: ModelVerdict) =>
+      pushModelRow(first, noteDraft({
+        ...baseOf(first),
+        outcome: "applied",
+        reason: `${first.reason || "not applied"}; repaired to the Glossary Term`,
+        repaired: true,
+      }));
     for (const verdict of final.verdicts) {
       if (governedTermOf(verdict)) continue;
       const base = baseOf(verdict);
+      const wasFailing = !same && firstFailed(verdict);
       if (verdict.notChecked) {
+        // Re-check P3: a label the first check failed and the check of the
+        // final text left out is a remaining failure, unless the final text
+        // now holds the Glossary Term.
+        const first = verdicts.find((candidate) => !governedTermOf(candidate) && failing(candidate) && same_(candidate, verdict));
+        if (wasFailing && first && glossaryRepaired(first)) {
+          pushGlossaryRepaired(first);
+          continue;
+        }
+        if (wasFailing) remainingFailures += 1;
         rows.push(noteDraft({ ...base, tier: "none", outcome: "not_applied", reason: `${NOT_CHECKED_ON_FINAL_TEXT} (the Self-check gave no verdict for it)` }));
         continue;
       }
-      const first = same ? undefined : firstOf(verdict);
       if (verdict.outcome === "applied") {
-        const repaired = failing(first);
         pushModelRow(verdict, noteDraft({
           ...base,
           outcome: "applied",
-          reason: repaired
+          reason: wasFailing
             ? `${verdict.reason || "applied"}; repaired, and checked again on the final text`
             : verdict.reason || "applied",
-          repaired,
+          repaired: wasFailing,
         }));
         continue;
       }
@@ -1195,7 +1271,7 @@ export function assembleSectionNotes(input: {
         // final text, not checked "again".
         reason: same
           ? `${verdict.reason || "not applied"}; the repair and shortening left the checked text as it was`
-          : `${verdict.reason || "not applied"}; ${failing(first) ? "checked again" : "found"} on the final text after shortening`,
+          : `${verdict.reason || "not applied"}; ${wasFailing ? "checked again" : "found"} on the final text after shortening`,
       }));
     }
     // Review P2-1: a failure the repair was made for that the check of the
@@ -1203,25 +1279,20 @@ export function assembleSectionNotes(input: {
     // Glossary Term the final text now holds keeps its repaired mark
     // (review P3-4): the rule-based matcher decides it, as before.
     if (!same) {
+      const reported = new Set<ModelVerdict>();
       for (const first of verdicts) {
         if (governedTermOf(first) || !failing(first)) continue;
-        const judged = final.verdicts.some(
-          (verdict) => !governedTermOf(verdict) && verdict.check === first.check && verdict.instruction === first.instruction
-        );
-        if (judged) continue;
-        const base = baseOf(first);
-        if (first.check === "glossary" && glossaryTermPresent(glossaryTermOf(first, before.glossaryCandidates), input.finalText)) {
-          pushModelRow(first, noteDraft({
-            ...base,
-            outcome: "applied",
-            reason: `${first.reason || "not applied"}; repaired to the Glossary Term`,
-            repaired: true,
-          }));
+        if (final.verdicts.some((verdict) => !governedTermOf(verdict) && same_(first, verdict))) continue;
+        // One row per label, however many first verdicts it had.
+        if ([...reported].some((other) => same_(other, first))) continue;
+        reported.add(first);
+        if (glossaryRepaired(first)) {
+          pushGlossaryRepaired(first);
           continue;
         }
         remainingFailures += 1;
         rows.push(noteDraft({
-          ...base,
+          ...baseOf(first),
           tier: "none",
           outcome: "not_applied",
           reason: `${NOT_CHECKED_ON_FINAL_TEXT} (the Self-check gave no verdict for it)`,

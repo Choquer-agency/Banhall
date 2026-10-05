@@ -2130,7 +2130,15 @@ export type Collected = {
   }>;
   report: null | { reportId: string; generatedAt: number; sections: { s242: string; s244: string; s246: string } };
   briefEntries: Array<{ entryId: string; group: string; text: string; reason: string | null }>;
-  usage: Array<{ callSite: string; model: string; costUsd: number; inputTokens: number; outputTokens: number }>;
+  usage: Array<{
+    callSite: string;
+    model: string;
+    costUsd: number;
+    inputTokens: number;
+    outputTokens: number;
+    /** 2026-10-04 (first, round 2): absent in results read back before it was exported. */
+    durationMs?: number | null;
+  }>;
   truncated: string[];
 };
 
@@ -2363,6 +2371,15 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
       factsMatchSourcesEvidence(c),
     ),
   );
+  // 2026-10-04 (first, round 2): each Line's Self-check requests and their
+  // times, the check of the final text last, so a slow one shows.
+  checks.push(
+    info(
+      "self-check-times",
+      "Self-check requests per Line and their times (informational; the last is the check of the final text when a repair was used)",
+      selfCheckTimesEvidence(c),
+    ),
+  );
   const requests = seedRequestCount(c);
   checks.push(
     info(
@@ -2373,6 +2390,22 @@ function commonChecks(fixture: FixtureManifest, c: Collected, log: RunLog): Chec
   );
   void fixture;
   return checks;
+}
+
+/**
+ * 2026-10-04 (first, round 2): per Line, how many Self-check requests ran
+ * and how long each took, in the order they were logged, from the usage
+ * rows already collected. A row with no time says so.
+ */
+export function selfCheckTimesEvidence(c: Collected): string {
+  return SETTINGS_LINES.map((line) => {
+    const rows = c.usage.filter((row) => row.callSite === `generation:selfCheck:${line}`);
+    if (rows.length === 0) return `${line}: none`;
+    const times = rows.map((row) =>
+      typeof row.durationMs === "number" && Number.isFinite(row.durationMs) ? `${(row.durationMs / 1000).toFixed(1)} s` : "no time"
+    );
+    return `${line}: ${rows.length} ${rows.length === 1 ? "request" : "requests"} (${times.join(", ")})`;
+  }).join("; ");
 }
 
 /**

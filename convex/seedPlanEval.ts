@@ -498,6 +498,8 @@ export const collect = internalQuery({
         costUsd: row.costUsd,
         inputTokens: row.inputTokens,
         outputTokens: row.outputTokens,
+        // 2026-10-04 (first, round 2): each Self-check request's time.
+        durationMs: row.durationMs ?? null,
         generationId: row.generationId ?? null,
       })),
       truncated,

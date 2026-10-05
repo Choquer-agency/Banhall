@@ -55,6 +55,7 @@ import {
   settingsBrokenText,
   settingsComplianceRows,
   settingsRowsHonestCheck,
+  selfCheckTimesEvidence,
   settingsRuleResults,
   settingsTermPattern,
   OPENERS_ENFORCED_NOTE,
@@ -2072,6 +2073,30 @@ describe("writer settings document (2026-10-02, alert 7)", () => {
     );
     expect(settingsRowsHonestCheck(params(), run).status).toBe("fail");
     expect(runChecks(fixture(), run, emptyRunLog(fixture().id, 0)).find((item) => item.id === "settings-rows-honest")?.status).toBe("fail");
+  });
+
+  it("shows each Line's Self-check requests and their times (round 2)", () => {
+    const c = collectedWith(clean());
+    const usage = (callSite: string, durationMs?: number | null) => ({
+      callSite,
+      model: "claude-sonnet-5",
+      costUsd: 0.07,
+      inputTokens: 20,
+      outputTokens: 900,
+      ...(durationMs !== undefined ? { durationMs } : {}),
+    });
+    c.usage = [
+      usage("generation:selfCheck:242", 41_200),
+      usage("generation:repair:242", 20_000),
+      usage("generation:selfCheck:242", 63_850),
+      usage("generation:selfCheck:244", null),
+      usage("generation:seeds:company_context", 9_000),
+    ];
+    expect(selfCheckTimesEvidence(c)).toBe("242: 2 requests (41.2 s, 63.9 s); 244: 1 request (no time); 246: none");
+    expect(runChecks(fixture(), c, emptyRunLog(fixture().id, 0)).find((item) => item.id === "self-check-times")).toMatchObject({
+      status: "info",
+      evidence: "242: 2 requests (41.2 s, 63.9 s); 244: 1 request (no time); 246: none",
+    });
   });
 
   it("fails every settings check plainly when no report was created", () => {
