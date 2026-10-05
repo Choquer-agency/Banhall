@@ -731,6 +731,26 @@ describe("the classifier reads a field sent as JSON text (Round 3)", () => {
     expect(notes.some((note) => note.reason === "House Rule applied: the settings document could not be analysed for waivers")).toBe(false);
   });
 
+  // Round 4: release suite run 3 of 2026-10-05 failed live with a string
+  // that was not plain JSON; the common wrappers are read too.
+  it.each([
+    ["a code fence", `\`\`\`json\n${JSON.stringify(styleAnalysis.categories, null, 2)}\n\`\`\``],
+    ["prose around the object", `Classification: ${JSON.stringify(styleAnalysis.categories)}. Done.`],
+    ["a JSON string of the JSON", JSON.stringify(JSON.stringify(styleAnalysis.categories))],
+    ["trailing commas", JSON.stringify(styleAnalysis.categories).replace(/}}$/, "},}")],
+  ])("categories in %s decodes in one call, and the waivers apply (Round 4)", async (_label, categories) => {
+    classifier.answer = { categories };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const t = convexTest(schema, modules);
+    const ids = await project(t);
+    const generationId = await reserve(t, ids, [document]);
+    const payload = await runSingle(t, generationId);
+    warn.mockRestore();
+    expect(classifierCalls()).toHaveLength(1);
+    expect((await generationOf(t, generationId)).writerSettings).toMatchObject({ waiverAnalysis: "analyzed", addressedCategories: ADDRESSED });
+    expect(payload.styleOverrides).toEqual({ ...NO_STYLE_OVERRIDES, ...TOGGLES });
+  });
+
   it.each([
     ["a string that is not JSON", { categories: "bannedWords and paragraphDensity are addressed", lockedConflicts: [] }],
     ["JSON text of another shape", { categories: JSON.stringify(Object.values(styleAnalysis.categories)), lockedConflicts: [] }],

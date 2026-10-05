@@ -350,17 +350,67 @@ describe("decodeEncodedToolFields and encodedFieldRecovery (Round 3)", () => {
     expect(decodeEncodedToolFields(sent, schema)).toEqual({
       value: { categories: { a: { on: true } }, items: [{}], note: '{"kept": "as text"}' },
       paths: ["categories", "categories.a", "items"],
+      unread: [],
     });
   });
 
   it("leaves a string that is not JSON, JSON of another shape and a field whose type allows a string as sent", () => {
-    for (const sent of [
-      { categories: "a is on", items: [] },
-      { categories: "[1, 2]", items: '{"not": "an array"}' },
-      { categories: { a: { on: true } }, items: [], note: "[1]" },
-    ]) {
-      expect(decodeEncodedToolFields(sent, schema)).toEqual({ value: sent, paths: [] });
+    for (const [sent, unread] of [
+      [{ categories: "a is on", items: [] }, ["categories"]],
+      [{ categories: "[1, 2]", items: '{"not": "an array"}' }, ["categories", "items"]],
+      [{ categories: { a: { on: true } }, items: [], note: "[1]" }, []],
+    ] as const) {
+      const read = decodeEncodedToolFields(sent, schema);
+      expect(read).toMatchObject({ value: sent, paths: [] });
+      expect(read.unread.map((field) => field.path)).toEqual(unread);
     }
+  });
+
+  // 2026-10-04 (first), Round 4: release suite run 3 of 2026-10-05 still
+  // failed live with "categories: expected object, received string", and
+  // nothing was read, so the text was not plain JSON of the object.
+  it.each([
+    ["a code fence", '```json\n{"a": {"on": true}}\n```'],
+    ["a bare code fence", '```\n{"a": {"on": true}}\n```'],
+    ["prose around one object", 'Here is the classification: {"a": {"on": true}} I hope this helps.'],
+    ["a JSON string whose content is the JSON", JSON.stringify('{"a": {"on": true}}')],
+    ["trailing commas", '{"a": {"on": true,},}'],
+    ["a code fence with trailing commas", '```json\n{"a": {"on": true,},}\n```'],
+  ])("reads an object field sent in %s (Round 4)", (_label, sent) => {
+    expect(decodeEncodedToolFields({ categories: sent, items: [] }, schema)).toEqual({
+      value: { categories: { a: { on: true } }, items: [] },
+      paths: ["categories"],
+      unread: [],
+    });
+  });
+
+  it("guesses nothing else: single-quoted keys, two objects in prose, a broken object and an array around one object stay unread (Round 4)", () => {
+    for (const sent of ["{'a': {'on': true}}", 'First {"a": {"on": true}} then {"b": 1}.', '{"a": {"on": true}', '[{"a": {"on": true}}]']) {
+      const read = decodeEncodedToolFields({ categories: sent, items: [] }, schema);
+      expect(read).toMatchObject({ value: { categories: sent }, paths: [] });
+      expect(read.unread).toHaveLength(1);
+    }
+  });
+
+  it("describes a field it could not read by its shape and by why each way failed, never by its text (Round 4)", async () => {
+    const sent = "{'a': {'on': true}} secret wording";
+    const read = decodeEncodedToolFields({ categories: sent, items: [] }, schema);
+    expect(read.unread).toEqual([{
+      path: "categories",
+      description:
+        'a string of 34 characters, first non-space "{", last non-space "g", no code fence; as JSON: failed at character 1; in a code fence: no code fence; the object within the text: failed at character 1',
+    }]);
+    // generateStructured logs it with the opt-in, and the log holds no text of it.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(generateStructured(clientWith([{ categories: sent, items: [] }]), {
+      system: "system", user: "user", toolName: "submit", description: "submit",
+      schema, validate, attempts: 1, encodedFieldRecovery: true,
+    })).rejects.toThrow("unexpected shape: categories: Invalid input: expected object, received string");
+    const logged = errors.mock.calls.map((call) => call.map(String).join(" "));
+    errors.mockRestore();
+    expect(logged).toContain(`submit: could not read categories sent as text: ${read.unread[0]!.description}`);
+    expect(logged.join("\n")).not.toContain("secret");
+    expect(logged.join("\n")).not.toContain("'a'");
   });
 
   it("is off by default: another caller's answer with a field sent as JSON text still fails as before", async () => {

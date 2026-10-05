@@ -424,10 +424,11 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
     expect(repair[0]!.user).toContain(block);
     expect(repair[0]!.user).toContain(`- Shorten Line 246 to at most 200 words (writer rule: "${CAP_RULE}").`);
     expect(repair[0]!.user).not.toContain("Write AT MOST 297");
-    // Two squeezes on the draft and two on the repair, each aimed at the
-    // writer's cap; 240 words is beyond the targeted pass's reach of it.
+    // Two squeezes and the targeted pass on the draft and on the repair,
+    // each aimed at the writer's cap: within the Locked cap the targeted
+    // pass runs whatever the overage (Round 4; 240 of 200 is 20 percent).
     const compressions = run.requests("compression");
-    expect(compressions).toHaveLength(4);
+    expect(compressions).toHaveLength(6);
     for (const request of compressions) {
       expect(request.user).toContain("the writer's settings ask for at most 200 words in this section");
     }
@@ -436,7 +437,7 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
     expect(run.note("246", CAP_RULE)).toMatchObject({
       outcome: "not_applied",
       reason:
-        "exceeds: 240/200 words; repair failed; still over after 2 shortening passes. The text was not cut to fit: shorten Line 246 to 200 words to meet the writer's settings",
+        "exceeds: 240/200 words; repair failed; still over after 3 shortening passes. The text was not cut to fit: shorten Line 246 to 200 words to meet the writer's settings",
     });
     expect(run.note("246", "Writer Profile")).toMatchObject({
       outcome: "applied",
@@ -473,7 +474,7 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
     expect(run.requests("repair:246")).toHaveLength(1);
     expect(run.text("246")).toBe(DRAFT_246);
     expect(run.note("246", CAP_RULE)?.reason).toMatch(
-      /^exceeds: 240\/200 words; repair not used \(the repaired text came out at 300 words, \d+ lines, further over the writer's cap of 200 words than the checked draft, so the checked draft was kept\); still over after 2 shortening passes/
+      /^exceeds: 240\/200 words; repair not used \(the repaired text came out at 300 words, \d+ lines, further over the writer's cap of 200 words than the checked draft, so the checked draft was kept\); still over after 3 shortening passes/
     );
   });
 
@@ -504,7 +505,7 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
   it("Single draft: says a row was not checked on the final text when the check after shortening fails (round 2)", async () => {
     // The repair is shortened to FIT_246, then the check of it fails.
     const run = await runSingle({
-      compressions: [DRAFT_246, DRAFT_246, FIT_246],
+      compressions: [DRAFT_246, DRAFT_246, DRAFT_246, FIT_246],
       verdicts246: [{ ...profileVerdict, outcome: "not_applied", reason: "Opener not used.", repairGuidance: "Use the opener." }],
       failFinalCheck246: true,
     });
@@ -521,7 +522,7 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
 
   it("Single draft: a failure the check of the final text left out still has its row (review P2-1)", async () => {
     const run = await runSingle({
-      compressions: [DRAFT_246, DRAFT_246, FIT_246],
+      compressions: [DRAFT_246, DRAFT_246, DRAFT_246, FIT_246],
       verdicts246: [{ ...profileVerdict, outcome: "not_applied", reason: "Opener not used.", repairGuidance: "Use the opener." }],
       finalVerdicts246: [],
     });
@@ -540,7 +541,7 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
   it("Single draft: a label first seen on the final text is found there, not checked again (review P3-7)", async () => {
     const third = { paragraph: 1, check: "instruction", instruction: "Write in the third person throughout.", outcome: "not_applied", reason: "P1 says we." };
     const run = await runSingle({
-      compressions: [DRAFT_246, DRAFT_246, FIT_246],
+      compressions: [DRAFT_246, DRAFT_246, DRAFT_246, FIT_246],
       verdicts246: [{ ...profileVerdict, outcome: "not_applied", reason: "Opener not used.", repairGuidance: "Use the opener." }],
       finalVerdicts246: [{ ...profileVerdict, reason: "Opener used." }, third],
     });
@@ -558,7 +559,7 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
 
   it("Single draft: shortening that leaves the checked text makes no extra request, and the row says so (review P3-4)", async () => {
     const run = await runSingle({
-      compressions: [DRAFT_246, DRAFT_246, DRAFT_246],
+      compressions: [DRAFT_246, DRAFT_246, DRAFT_246, DRAFT_246],
       repair246: `${DRAFT_246} The probe design held its reading through every kiln charge in the trials.`,
       verdicts246: [{ ...profileVerdict, outcome: "not_applied", reason: "Opener not used.", repairGuidance: "Use the opener." }],
     });
@@ -572,7 +573,7 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
 
   it("Single draft: the model words a label differently on the final text, and it is still the same label (re-check P2)", async () => {
     const run = await runSingle({
-      compressions: [DRAFT_246, DRAFT_246, FIT_246],
+      compressions: [DRAFT_246, DRAFT_246, DRAFT_246, FIT_246],
       verdicts246: [{ paragraph: 1, check: "storyline", instruction: "Storyline alignment", outcome: "not_applied", reason: "P1 drifts.", repairGuidance: "Tie P1 to the trials." }],
       finalVerdicts246: [{ paragraph: 1, check: "storyline", instruction: "Follows the Storyline", outcome: "applied", reason: "P1 follows it." }],
     });

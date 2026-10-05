@@ -226,13 +226,14 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
 
   it("tells the drafter to cover every item even over the writer's cap, and never shortens an item away for it", async () => {
     // Every shortening pass drops the item; the repair changes nothing.
-    const run = await draft({ compressions: [WITHOUT_ITEM, WITHOUT_ITEM, WITHOUT_ITEM, WITHOUT_ITEM], repair: DRAFT, checks: [FIRST_CHECK] });
+    const run = await draft({ compressions: Array.from({ length: 6 }, () => WITHOUT_ITEM), repair: DRAFT, checks: [FIRST_CHECK] });
     const section = run.sent.find((request) => request.stage === "section")!;
     expect(section.user).toContain(planLengthBudgetBlock("s242", "standard", { words: 120 }));
     expect(section.user).toContain("# LENGTH (the Locked Rule outranks the plan; the writer's settings ask for less)");
     expect(section.user).toContain("cover every COVER item even if that goes over the writer's cap, never over the Locked cap");
-    // Two squeezes on the draft and two on the repair, each held for the item.
-    expect(run.sent.filter((request) => request.stage === "compression")).toHaveLength(4);
+    // Two squeezes and the targeted pass (Round 4: it runs at any overage of
+    // the writer's cap) on the draft and on the repair, each held for the item.
+    expect(run.sent.filter((request) => request.stage === "compression")).toHaveLength(6);
     expect(run.result.draftText).toBe(DRAFT);
     expect(run.note(CAP_RULE)).toMatchObject({
       outcome: "not_applied",
@@ -271,7 +272,7 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
   it("says the item is not why the Line is over when the held passes were over the cap too (re-check P2-a)", async () => {
     expect(sectionMetrics(OVER_WITHOUT_ITEM, "s242").words).toBeGreaterThan(120);
     const run = await draft({
-      compressions: [OVER_WITHOUT_ITEM, OVER_WITHOUT_ITEM, OVER_WITHOUT_ITEM, OVER_WITHOUT_ITEM],
+      compressions: Array.from({ length: 6 }, () => OVER_WITHOUT_ITEM),
       repair: DRAFT,
       checks: [FIRST_CHECK],
     });
@@ -279,7 +280,7 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
     expect(run.note(CAP_RULE)).toMatchObject({
       outcome: "not_applied",
       reason:
-        "exceeds: 164/120 words; repair failed; still over after 2 shortening passes. 2 passes were not kept because they dropped a signed-off item, though they would not have met the cap either. The text was not cut to fit: shorten Line 242 to 120 words to meet the writer's settings",
+        "exceeds: 164/120 words; repair failed; still over after 3 shortening passes. 3 passes were not kept because they dropped a signed-off item, though they would not have met the cap either. The text was not cut to fit: shorten Line 242 to 120 words to meet the writer's settings",
     });
   });
 
@@ -300,7 +301,7 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
     });
     expect(run.result.draftText).toBe(DRAFT);
     const reason = run.note(CAP_RULE)?.reason ?? "";
-    expect(reason).toMatch(/^exceeds: 164\/120 words; repair not used \(the repaired text no longer covers the signed-off item .*, and a repair must keep what a COVER item holds, so the checked draft was kept\); still over after 2 shortening passes\. The text was not cut to fit: shorten Line 242 to 120 words to meet the writer's settings$/);
+    expect(reason).toMatch(/^exceeds: 164\/120 words; repair not used \(the repaired text no longer covers the signed-off item .*, and a repair must keep what a COVER item holds, so the checked draft was kept\); still over after 3 shortening passes\. The text was not cut to fit: shorten Line 242 to 120 words to meet the writer's settings$/);
     expect(reason).not.toContain("to keep every signed-off item");
   });
 
@@ -318,7 +319,7 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
   it("checks the final text again when shortening changed the repair, in place of the coverage-only check (round 2)", async () => {
     expect(sectionMetrics(SHORT_WITH_ITEM, "s242").words).toBeLessThanOrEqual(120);
     const run = await draft({
-      compressions: [DRAFT, DRAFT, SHORT_WITH_ITEM],
+      compressions: [DRAFT, DRAFT, DRAFT, SHORT_WITH_ITEM],
       repair: DRAFT,
       checks: [
         OPENER_MISSED,
@@ -349,7 +350,7 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
 
   it("says a row was not checked on the final text when that check fails (round 2)", async () => {
     // Only the first check is scripted: the check of the final text fails.
-    const run = await draft({ compressions: [DRAFT, DRAFT, SHORT_WITH_ITEM], repair: DRAFT, checks: [OPENER_MISSED] });
+    const run = await draft({ compressions: [DRAFT, DRAFT, DRAFT, SHORT_WITH_ITEM], repair: DRAFT, checks: [OPENER_MISSED] });
     expect(run.result.draftText).toBe(SHORT_WITH_ITEM);
     const row = run.result.notes.find((candidate) => candidate.source === "model" && candidate.instruction === SETTINGS);
     expect(row).toMatchObject({ outcome: "not_applied", repaired: false });
@@ -361,7 +362,7 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
     // The repair drops the item's sentence; shortening keeps what is left.
     const shorterWithout = [`The company finishes routed board panels for cabinet makers. ${fillers(2)}`, fillers(2)].join("\n\n");
     const run = await draft({
-      compressions: [DRAFT, DRAFT, shorterWithout],
+      compressions: [DRAFT, DRAFT, DRAFT, shorterWithout],
       repair: OVER_WITHOUT_ITEM,
       checks: [
         OPENER_MISSED,
@@ -389,7 +390,7 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
       { term: "sealer", feedback: [{ roleId: "company_context", instruction: "Call it the sealer coat." }] },
     ];
     const run = await draft(
-      { compressions: [DRAFT, DRAFT, SHORT_WITH_ITEM], repair: DRAFT, checks: [{ verdicts: [] }, { verdicts: [] }] },
+      { compressions: [DRAFT, DRAFT, DRAFT, SHORT_WITH_ITEM], repair: DRAFT, checks: [{ verdicts: [] }, { verdicts: [] }] },
       { planChecks: [], planChecksBlock: "", feedbackTerms }
     );
     expect(run.sent.filter((request) => request.stage === "selfCheck")).toHaveLength(2);

@@ -1128,9 +1128,10 @@ describe("the Self-check with both the writer's measured caps and the facts chec
     expect(sectionMetrics(DRAFT_244, "s244").words).toBeGreaterThan(60);
     // The repair's shortening came back as long as it went in, so the final
     // text is the repair, and the full Self-check of the final text reads it
-    // (2026-10-05, Round 2, follow-up).
+    // (2026-10-05, Round 2, follow-up). Two squeezes and the targeted pass
+    // run on the draft and on the repair (2026-10-04 first, Round 4).
     expect(sent.map((request) => request.stage)).toEqual([
-      "section", "compression", "compression", "selfCheck", "repair", "compression", "compression", "selfCheck",
+      "section", "compression", "compression", "compression", "selfCheck", "repair", "compression", "compression", "compression", "selfCheck",
     ]);
 
     // The first Self-check: the caps sentence once, scoped to the WRITER
@@ -1174,8 +1175,9 @@ describe("the Self-check with both the writer's measured caps and the facts chec
     expect(SHORTENED).not.toContain(STEEL.draftQuote);
     const sent = installCapFetch({
       repair: REPAIRED,
-      // The draft's two passes echo; the repair's first pass meets the cap.
-      compressions: [DRAFT_244, DRAFT_244, SHORTENED],
+      // The draft's three passes echo (two squeezes and the targeted pass,
+      // Round 4); the repair's first pass meets the cap.
+      compressions: [DRAFT_244, DRAFT_244, DRAFT_244, SHORTENED],
       checks: [
         { verdicts: [...ordinary, profileFollowed], planVerdicts: [...covered, factsWrong, targetsMet] },
         // On the final text the check still names both: the steel quote is
@@ -1188,7 +1190,7 @@ describe("the Self-check with both the writer's measured caps and the facts chec
     // The check of the final text is the full Self-check, in place of the
     // coverage-only one.
     expect(sent.map((request) => request.stage)).toEqual([
-      "section", "compression", "compression", "selfCheck", "repair", "compression", "selfCheck",
+      "section", "compression", "compression", "compression", "selfCheck", "repair", "compression", "selfCheck",
     ]);
     const final = sent.filter((request) => request.stage === "selfCheck")[1]!.user;
     expect(final).toContain(SHORTENED.split("\n\n")[1]!);

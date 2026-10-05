@@ -707,9 +707,16 @@ export async function compressWithinLimit(
   const metrics = sectionMetrics(best, key);
   // The targeted pass aims at the writer's cap when the text is within its
   // reach, else at the Locked limits when within theirs (undefined: none).
+  // 2026-10-04 (first), Round 4: a text within the Locked limits but over
+  // the writer's cap gets it whatever the overage (release suite run 3 of
+  // 2026-10-05 left Line 246 at 288 of 260 words, just past the 10 percent
+  // reach), with the same guards: a pass for the writer's cap alone never
+  // takes words of a signed-off item (coverItemLoss), keeps the Must keep
+  // figures and never ends a paragraph mid-sentence.
+  const writerOnly = writerCap !== null && !metrics.overLimit && capMetrics(best, key, writerCap).overLimit;
   const aim: WriterLineCap | null | undefined = !options.finalCut
     ? undefined
-    : writerCap && withinFinalCutReach(capMetrics(best, key, writerCap))
+    : writerCap && (writerOnly || withinFinalCutReach(capMetrics(best, key, writerCap)))
       ? writerCap
       : withinFinalCutReach(metrics)
         ? null

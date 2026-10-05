@@ -646,7 +646,10 @@ export const generationPromptProgram = {
       // object or array that arrives as JSON text is read, then validated
       // as usual (no request is added); an absent lockedConflicts reads as
       // empty, since no waiver depends on it.
-      answerDecode: "object-or-array-fields-sent-as-json-text-read-then-validated",
+      // Round 4: also inside a code fence, between prose, as a JSON string
+      // of the JSON, or with trailing commas; an unread field is described
+      // in the log by its shape, never its text.
+      answerDecode: "object-or-array-fields-sent-as-json-text-fenced-in-prose-or-with-trailing-commas-read-then-validated",
       lockedConflicts: "absent-read-as-empty-decides-no-waiver",
       callSite: "generation:settings",
       cache: "per-projectId-and-contentHash-and-classifierVersion",
@@ -691,7 +694,9 @@ export const generationPromptProgram = {
       request: COMPRESSION_REQUEST,
       model: { kind: "generation-step", step: "compression", beforeStepRouting: { kind: "candidate" } },
       // 2026-09-28 (fifth, release suite run 6): the ordered chain only.
-      finalCut: "ordered-chain-one-targeted-pass-when-at-most-10-percent-over",
+      // 2026-10-04 (first), Round 4: within the Locked caps it runs toward
+      // the writer's cap whatever the overage.
+      finalCut: "ordered-chain-one-targeted-pass-when-at-most-10-percent-over-or-over-only-the-writers-cap",
     },
     // Story 2 (CAP-9, AD-25/27): one structured Self-check per section.
     selfCheck: {

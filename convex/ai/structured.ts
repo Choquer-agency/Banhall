@@ -84,48 +84,163 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** A JSON text's value, read through at most one more layer of encoding; undefined when it is not JSON. */
-function parseEncodedText(text: string): unknown {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && !trimmed.startsWith('"')) return undefined;
-  try {
-    const once = JSON.parse(trimmed) as unknown;
-    if (typeof once !== "string") return once;
-    const again = once.trim();
-    if (!again.startsWith("{") && !again.startsWith("[")) return undefined;
-    return JSON.parse(again) as unknown;
-  } catch {
-    return undefined;
+type Wanted = "object" | "array";
+
+const isWanted = (value: unknown, wanted: Wanted) =>
+  wanted === "object" ? isPlainObject(value) : Array.isArray(value);
+
+/**
+ * Why JSON.parse failed, safe to log: where it stopped, never its message,
+ * which can quote the text.
+ */
+function parseFailure(error: unknown): string {
+  const at = error instanceof Error ? /position (\d+)/.exec(error.message)?.[1] : undefined;
+  return at === undefined ? "failed" : `failed at character ${at}`;
+}
+
+/** Commas before a closing brace or bracket, outside strings, removed. */
+function withoutTrailingCommas(text: string): string {
+  let out = "";
+  let inString = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]!;
+    if (inString) {
+      out += char;
+      if (char === "\\") {
+        out += text[index + 1] ?? "";
+        index += 1;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') inString = true;
+    if (char === ",") {
+      const next = /^\s*([}\]])/.exec(text.slice(index + 1));
+      if (next) continue;
+    }
+    out += char;
   }
+  return out;
+}
+
+/** A JSON text's value, or why not (no text of it). */
+function tryParse(text: string): { ok: true; value: unknown } | { ok: false; why: string } {
+  try {
+    return { ok: true, value: JSON.parse(text) as unknown };
+  } catch (error) {
+    return { ok: false, why: parseFailure(error) };
+  }
+}
+
+/**
+ * 2026-10-04 (first), Round 4: the ways a field's text is read, in order,
+ * each validated by shape only (the caller validates the value): the text
+ * as JSON; a JSON string whose content is the JSON (at most one more
+ * layer); the JSON inside a code fence; the one object (or array) between
+ * leading and trailing prose; and each of those with trailing commas
+ * removed. Nothing else is guessed. Returns the value, or a description of
+ * the text and of why each way failed that holds no text of it.
+ */
+function readEncodedText(
+  text: string,
+  wanted: Wanted
+): { ok: true; value: unknown } | { ok: false; description: string } {
+  const trimmed = text.trim();
+  const [open, close] = wanted === "object" ? ["{", "}"] : ["[", "]"];
+  const outcome: string[] = [];
+  const attempt = (label: string, candidate: string | null, notPresent: string): unknown => {
+    if (candidate === null) {
+      outcome.push(`${label}: ${notPresent}`);
+      return undefined;
+    }
+    for (const [variant, body] of [["", candidate], [" with trailing commas removed", withoutTrailingCommas(candidate)]] as const) {
+      if (variant && body === candidate) continue;
+      const parsed = tryParse(body);
+      if (!parsed.ok) {
+        outcome.push(`${label}${variant}: ${parsed.why}`);
+        continue;
+      }
+      let value = parsed.value;
+      if (typeof value === "string") {
+        const inner = tryParse(value.trim());
+        if (!inner.ok) {
+          outcome.push(`${label}${variant}: a JSON string whose content ${inner.why}`);
+          continue;
+        }
+        value = inner.value;
+      }
+      if (isWanted(value, wanted)) return value;
+      outcome.push(`${label}${variant}: read as ${Array.isArray(value) ? "an array" : value === null ? "null" : typeof value}, not ${wanted === "object" ? "an object" : "an array"}`);
+    }
+    return undefined;
+  };
+  const fence = /^```[\w-]*[ \t]*\r?\n?([\s\S]*?)\r?\n?[ \t]*```$/.exec(trimmed);
+  const first = trimmed.indexOf(open);
+  const last = trimmed.lastIndexOf(close);
+  // Prose only: text around the span that holds no JSON of its own (an
+  // array around one object is another shape, never read as the object).
+  const prose = (part: string) => !/[[\]{}"]/.test(part);
+  const around = first >= 0 && last > first && (first > 0 || last < trimmed.length - 1);
+  const ways: Array<[string, string | null, string]> = [
+    ["as JSON", trimmed, "empty"],
+    ["in a code fence", fence ? fence[1]!.trim() : null, "no code fence"],
+    [
+      `the ${wanted} within the text`,
+      around && prose(trimmed.slice(0, first)) && prose(trimmed.slice(last + 1)) ? trimmed.slice(first, last + 1) : null,
+      !(first >= 0 && last > first)
+        ? `no ${open} ... ${close} span`
+        : !around
+          ? "no text around it"
+          : "the text around it is not prose",
+    ],
+  ];
+  for (const [label, candidate, notPresent] of ways) {
+    const value = attempt(label, candidate, notPresent);
+    if (value !== undefined) return { ok: true, value };
+  }
+  const firstChar = trimmed.charAt(0);
+  const lastChar = trimmed.charAt(trimmed.length - 1);
+  return {
+    ok: false,
+    description: `a string of ${text.length} characters, first non-space ${firstChar ? JSON.stringify(firstChar) : "none"}, last non-space ${lastChar ? JSON.stringify(lastChar) : "none"}, ${trimmed.includes("```") ? "holds" : "no"} code fence; ${outcome.join("; ")}`,
+  };
 }
 
 /**
  * 2026-10-04 (first), Round 3 (owner approved 2026-10-05): a field the tool
  * schema wants as an object or array that arrived as a string holding valid
- * JSON of that very shape, read as that value. Guided by the schema: a field
- * whose type allows a string is never touched, a string that is not JSON or
- * holds another shape stays as sent, and nothing is invented or dropped.
- * Returns the value (a copy only where something was read) and the paths of
- * the fields it read, never their text. The caller still validates the value
- * as usual; this is a decode, not a repair call.
+ * JSON of that very shape, read as that value (Round 4: also inside a code
+ * fence, between leading and trailing prose, as a JSON string of the JSON,
+ * or with trailing commas; readEncodedText). Guided by the schema: a field
+ * whose type allows a string is never touched, a string none of those ways
+ * reads as that shape stays as sent, and nothing is invented or dropped.
+ * Returns the value (a copy only where something was read), the paths of
+ * the fields it read and, for each string it could not read, a description
+ * that holds none of its text. The caller still validates the value as
+ * usual; this is a decode, not a repair call.
  */
 export function decodeEncodedToolFields(
   value: unknown,
   schema: unknown,
   path = ""
-): { value: unknown; paths: string[] } {
-  if (!isPlainObject(schema)) return { value, paths: [] };
+): { value: unknown; paths: string[]; unread: Array<{ path: string; description: string }> } {
+  if (!isPlainObject(schema)) return { value, paths: [], unread: [] };
   const node = schema as SchemaNode;
   const types = (Array.isArray(node.type) ? node.type : [node.type]).filter(
     (type): type is string => typeof type === "string"
   );
   const paths: string[] = [];
+  const unread: Array<{ path: string; description: string }> = [];
   let current = value;
-  if (typeof current === "string" && !types.includes("string")) {
-    const parsed = parseEncodedText(current);
-    if ((types.includes("object") && isPlainObject(parsed)) || (types.includes("array") && Array.isArray(parsed))) {
-      current = parsed;
+  const wanted: Wanted | null = types.includes("object") ? "object" : types.includes("array") ? "array" : null;
+  if (typeof current === "string" && !types.includes("string") && wanted) {
+    const read = readEncodedText(current, wanted);
+    if (read.ok) {
+      current = read.value;
       paths.push(path || "(root)");
+    } else {
+      unread.push({ path: path || "(root)", description: read.description });
     }
   }
   if (isPlainObject(current) && isPlainObject(node.properties)) {
@@ -133,6 +248,7 @@ export function decodeEncodedToolFields(
     for (const [key, child] of Object.entries(node.properties)) {
       if (!(key in current)) continue;
       const read = decodeEncodedToolFields(current[key], child, path ? `${path}.${key}` : key);
+      unread.push(...read.unread);
       if (read.paths.length === 0) continue;
       copy ??= { ...current };
       copy[key] = read.value;
@@ -143,6 +259,7 @@ export function decodeEncodedToolFields(
     let copy: unknown[] | null = null;
     current.forEach((item, index) => {
       const read = decodeEncodedToolFields(item, node.items, `${path || "(root)"}.${index}`);
+      unread.push(...read.unread);
       if (read.paths.length === 0) return;
       copy ??= [...(current as unknown[])];
       copy[index] = read.value;
@@ -150,7 +267,7 @@ export function decodeEncodedToolFields(
     });
     if (copy) current = copy;
   }
-  return { value: current, paths };
+  return { value: current, paths, unread };
 }
 
 /**
@@ -472,6 +589,11 @@ async function structuredAttempts<T>(
       continue;
     }
     await settle({ ok: false, code: "invalid_output" });
+    // Round 4: each field the decode could not read, described by its shape
+    // and by why each way failed, never by its text.
+    for (const field of fields?.unread ?? []) {
+      console.error(`${opts.toolName}: could not read ${field.path} sent as text: ${field.description}`);
+    }
     // Review P3 (Round 3): when fields were read from JSON text and the
     // answer still fails, report what fails once read (a missing category,
     // say), not the encoding the decode already undid.

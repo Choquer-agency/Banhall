@@ -158,11 +158,63 @@ describe("the shortening passes under a writer's cap", () => {
       finalCut: true,
       writerCap: CAP_260,
     });
-    // Two squeezes; 300 words is beyond the targeted pass's reach of the
-    // writer's cap and within the Locked cap, so no targeted pass.
-    expect(run.create).toHaveBeenCalledTimes(2);
-    expect(fit).toEqual({ text: draft, passes: 2, overLimit: false });
+    // Two squeezes and the targeted pass: within the Locked cap it runs at
+    // any overage of the writer's cap (Round 4); none is cut to fit.
+    expect(run.create).toHaveBeenCalledTimes(3);
+    expect(fit).toEqual({ text: draft, passes: 3, overLimit: false });
     expect(sectionMetrics(fit.text, "s246").words).toBe(300);
+  });
+
+  // 2026-10-04 (first), Round 4: release suite run 3 of 2026-10-05 left Line
+  // 246 at 288 of 260 words after two squeezes, just past the targeted
+  // pass's 10 percent reach (286), so that pass never ran.
+  it("send the targeted pass at the writer's cap at an overage past its 10 percent reach, and keep a pass that meets it (Round 4)", async () => {
+    // A signed-off item and 275 words of other wording: 288 of 260 words.
+    const item = "The cure window held between 118 C and 124 C on routed panels.";
+    const over = `${item}\n\n${text(275)}`;
+    expect(sectionMetrics(over, "s246")).toMatchObject({ words: 288, overLimit: false });
+    // The pass cuts only other wording, and keeps the item.
+    const under = `${item}\n\n${text(227)}`;
+    const run = client([over, over, under]);
+    const fit = await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", over, "standard", undefined, [], [], {
+      finalCut: true,
+      writerCap: CAP_260,
+      coverItems: [item],
+    });
+    expect(run.create).toHaveBeenCalledTimes(3);
+    const targeted = userText(run.create.mock.calls[2]![0]);
+    expect(targeted.startsWith(COMPRESSION_REQUEST.writerCap.finalCutScaffold.prefix)).toBe(true);
+    expect(targeted).toContain("Cut at least 41 words, so that it ends at 247 words or fewer");
+    expect(fit).toEqual({ text: under, passes: 3, overLimit: false });
+    expect(sectionMetrics(fit.text, "s246").words).toBeLessThanOrEqual(260);
+  });
+
+  it("hold a targeted pass for the writer's cap that drops a signed-off item, at any overage (Round 4)", async () => {
+    const item = "The cure window held between 118 C and 124 C on routed panels.";
+    const over = `${item} ${text(280, 1)}`;
+    const dropped = text(240);
+    const run = client([over, over, dropped]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fit = await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", over, "standard", undefined, [], [], {
+      finalCut: true,
+      writerCap: CAP_260,
+      coverItems: [item],
+    });
+    warn.mockRestore();
+    expect(run.create).toHaveBeenCalledTimes(3);
+    // The pass met the cap but took the item: held, the text kept whole.
+    expect(fit).toEqual({ text: over, passes: 3, overLimit: false, heldForPlan: 1 });
+  });
+
+  it("leave the Locked targeted pass as it was: a text over a Locked limit past its reach gets none (Round 4)", async () => {
+    const far = text(400);
+    const run = client([], far);
+    await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", far, "standard", undefined, [], [], {
+      finalCut: true,
+      writerCap: CAP_260,
+    });
+    // 400 of 350 is over the Locked cap past its reach: two squeezes only.
+    expect(run.create).toHaveBeenCalledTimes(2);
   });
 
   it("keep the Locked limits first: a pass under the writer's cap but over a Locked limit is not kept", async () => {
