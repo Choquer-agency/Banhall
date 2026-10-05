@@ -224,6 +224,7 @@ import type * as lib_workItemOversight from "../lib/workItemOversight.js";
 import type * as lib_writerCoverage from "../lib/writerCoverage.js";
 import type * as lib_writerLineCap from "../lib/writerLineCap.js";
 import type * as lib_writerPrecedence from "../lib/writerPrecedence.js";
+import type * as lib_writerWording from "../lib/writerWording.js";
 import type * as modelCatalog from "../modelCatalog.js";
 import type * as myWork from "../myWork.js";
 import type * as myWorkBackfill from "../myWorkBackfill.js";
@@ -486,6 +487,7 @@ declare const fullApi: ApiFromModules<{
   "lib/writerCoverage": typeof lib_writerCoverage;
   "lib/writerLineCap": typeof lib_writerLineCap;
   "lib/writerPrecedence": typeof lib_writerPrecedence;
+  "lib/writerWording": typeof lib_writerWording;
   modelCatalog: typeof modelCatalog;
   myWork: typeof myWork;
   myWorkBackfill: typeof myWorkBackfill;
