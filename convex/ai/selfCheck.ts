@@ -665,6 +665,12 @@ export type SourceFacts = {
   product: string[];
   items: string[];
   documentsComplete: boolean;
+  /**
+   * Round 3: every sentence an item's own quotes do not back. Never evidence,
+   * on any path a source quote is verified against (Greptile on PR #26 at
+   * 1da92721).
+   */
+  unbacked: string[];
 };
 
 /** Every string in a JSON value, in order: the analysis as plain text. */
@@ -789,6 +795,7 @@ export function sourceFactsFor(args: {
     ].map(safe),
     items: items.filter((item) => item.backed).map((item) => item.backed),
     documentsComplete,
+    unbacked: items.flatMap((item) => item.unbacked),
   };
 }
 
@@ -813,6 +820,13 @@ export function factsMatchSourcesInstruction(documentsComplete: boolean): string
 function factsVerificationSources(input: SelfCheckModelInput): string[] {
   const facts = input.sourceFacts;
   const checks = input.planChecks ?? [];
+  // Greptile on PR #26 at 1da92721: a sentence an item's own quotes do not
+  // back never stands for the sources, here either: the plan checks' wording
+  // read while documents are left out leaves it out (from the SOURCE FACTS
+  // items and from each check's own warning).
+  const unbacked = new Set([...(facts?.unbacked ?? []), ...checks.flatMap((check) => check.quotesDoNotBack ?? [])]
+    .map((sentence) => sentence.trim()));
+  const backedOnly = (wording: readonly string[]) => wording.filter((sentence) => !unbacked.has(sentence.trim()));
   // Round 2 re-check (P2): every entry marker-safe, as the block's own are,
   // so no quote verifies against marker text.
   return [
@@ -825,8 +839,8 @@ function factsVerificationSources(input: SelfCheckModelInput): string[] {
       : [
           ...(facts?.product ?? []),
           ...checks.flatMap((check) => [
-            ...check.wording,
-            ...check.relationshipReferences.flatMap((reference) => reference.wording),
+            ...backedOnly(check.wording),
+            ...check.relationshipReferences.flatMap((reference) => backedOnly(reference.wording)),
           ]),
         ]),
   ].map((entry) => neutralizeMarkers(entry));

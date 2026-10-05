@@ -346,17 +346,17 @@ export function quoteCheckIssues(
  * because another Seed reused it, and it backs its sentence like any other
  * quote (round 3 review, P3-2). Every other quote is evidence.
  *
- * Round 3 review, P2-1: a sentence is named when it holds a meaningful word
- * (two characters or more) that a marked quote has and no evidence quote
- * has, so a good quote sharing other words with that sentence cannot hide
- * it; of those, one another quote backs is dropped unless every one is
- * backed (re-check P3-1). Only when none of the Seed's own sentences holds
- * such a word are the sentences that no evidence quote backs named
- * (`excerptSupportsSeed`, a quote the check cannot judge counting as
- * backing), and with no evidence quote at all every sentence is named
- * (re-check P3-2). `bullets` are the sentences to name from (the ones the
- * writer has not changed). Empty for a Seed with no unrelated marked quote:
- * a well-quoted Seed is unchanged.
+ * Every sentence that no evidence quote backs is named (`excerptSupportsSeed`,
+ * a quote the check cannot judge counting as backing; Greptile on PR #26 at
+ * 1da92721), and with no evidence quote at all that is every sentence
+ * (re-check P3-2). A sentence holding a meaningful word (two characters or
+ * more) that a marked quote has and no evidence quote has is named too, so
+ * a good quote sharing other words with it cannot hide it (round 3 review,
+ * P2-1), unless such a sentence is itself unbacked, which makes it the
+ * marked quote's target, so a backed sentence that only shares a word with
+ * the marked quote is not named (re-check P3-1). `bullets` are the
+ * sentences to name from (the ones the writer has not changed). Empty for a
+ * Seed with no unrelated marked quote: a well-quoted Seed is unchanged.
  */
 export function unbackedBullets(
   bullets: readonly string[],
@@ -384,10 +384,12 @@ export function unbackedBullets(
       word.length >= 2 &&
       markedWords.some((other) => sameWord(word, other)) &&
       !evidenceWords.some((other) => sameWord(word, other))));
-  // Re-check P3-1: of those, a sentence another quote backs is not named,
-  // unless every one of them is backed.
-  const unbackedOnly = onlyMarked.filter((bullet) => !backed(bullet));
-  const named = unbackedOnly.length > 0 ? unbackedOnly : onlyMarked;
-  if (named.length > 0) return sentences.filter((bullet) => named.includes(bullet));
-  return sentences.filter((bullet) => !backed(bullet));
+  // Greptile on PR #26 at 1da92721: every sentence is checked. A sentence no
+  // other quote backs is always named. A sentence holding a word only a
+  // marked quote has is named too, even beside a quote that shares other
+  // words with it (review P2-1), unless one of those sentences is itself
+  // unbacked: that one is the marked quote's target, already named, and a
+  // backed sentence that merely shares a word with it is not (re-check P3-1).
+  const target = onlyMarked.some((bullet) => !backed(bullet)) ? [] : onlyMarked;
+  return sentences.filter((bullet) => !backed(bullet) || target.includes(bullet));
 }
