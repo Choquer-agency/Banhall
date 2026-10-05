@@ -87,7 +87,8 @@ export const FACT_RULES = {
   // Review round 1, P2-4 (b): the run's analysis wrote datasheets "based on
   // thin, flat panels and/or steel substrates", and the draft made it firm.
   hedge:
-    'A hedge in the sources ("typically", "and/or", "such as", "may", "suspected") stays a hedge: stating it as firm adds a detail the sources do not give.',
+    // Re-check P3-5: "such as" marks an example, not a hedge.
+    'A hedge in the sources ("typically", "and/or", "may", "suspected") stays a hedge, and an example ("such as") stays an example: stating a hedge as firm, or an example as the whole case, adds a detail the sources do not give.',
   allowed:
     "Rounding, the same figure in another unit or form, plain arithmetic on the sources' own numbers and plain-language wording are fine.",
 } as const;

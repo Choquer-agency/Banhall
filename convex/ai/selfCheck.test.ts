@@ -2774,7 +2774,7 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
       expect(text).toContain(FACT_RULES.hedge);
     }
     expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)
-      .toContain("or states as firm what the sources give only as a hedge");
+      .toContain("states as firm what the sources give only as a hedge, or states as the whole case what the sources give only as an example");
     // What is never an error: in the drafting rule and the Self-check rule.
     expect(RULES_REPORT_FACTS).toContain(FACT_RULES.allowed);
     expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction).toContain(FACT_RULES.allowed);

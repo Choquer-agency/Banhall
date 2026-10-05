@@ -610,7 +610,7 @@ describe("review round 1: the sources, the guidance, the figure guard and edited
     expect(result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID)).toMatchObject({ outcome: "applied", repaired: true });
   });
 
-  it("P3-1: a facts objection to a writer's edited term alone is set aside and never sent to the repair", async () => {
+  it("P3-1: a facts objection to a writer's edited term alone (quoted, and citing no other figure) is set aside and never sent to the repair", async () => {
     const sent = installFetch({
       draft: REPAIRED_244,
       checks: [{
@@ -630,6 +630,51 @@ describe("review round 1: the sources, the guidance, the figure guard and edited
       reason: EDITED_TERM_ALLOWED_REASON,
       repaired: false,
     });
+  });
+
+  it("re-check P2: a real facts error that only mentions an edited term, or cites a figure outside one, is still repaired", async () => {
+    // The re-check's probe: "deep cove" is the writer's edited term, and the
+    // verdict, unquoted, calls the release suite's own error unsupported.
+    const probe = {
+      ...factsWrong,
+      paragraph: 2,
+      reason: "P2 gives the all-panel 4% as deep cove's, unsupported",
+      repairGuidance: "P2: 4% is of all 600 panels, every one deep cove; deep cove was 13 percent of 180.",
+    };
+    const sent = installFetch({
+      draft: DRAFT_244,
+      repair: REPAIRED_244,
+      checks: [
+        { verdicts: ordinary, planVerdicts: [...covered, probe, targetsMet] },
+        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+      ],
+    });
+    const result = await draft(claimFor(plan244(), { editedTerms: ["deep cove"] }), SUMMARY_VERSION);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    expect(sent[2]!.user).toContain(`${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${probe.repairGuidance}`);
+    expect(result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID)).toMatchObject({
+      outcome: "applied",
+      repaired: true,
+      reason: `Figures and details match the sources. Fixed by the repair: ${probe.reason}`,
+    });
+
+    // Quoted edited term, but it also cites a figure no edited term holds.
+    const quotedWithFigure = {
+      ...factsWrong,
+      reason: 'P1 "thin flat panels" is not in the sources',
+      repairGuidance: 'Take out "thin flat panels". P2: 4% is of all 600 panels.',
+    };
+    const again = installFetch({
+      draft: REPAIRED_244,
+      checks: [
+        { verdicts: ordinary, planVerdicts: [...covered, quotedWithFigure, targetsMet] },
+        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+      ],
+    });
+    await draft(claimFor(plan244(), { editedTerms: ["thin flat panels"] }), SUMMARY_VERSION);
+    // Sent to the repair (whose text here comes back unchanged, so there is no check of a final text).
+    expect(again.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
+    expect(again[2]!.user).toContain(`${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${quotedWithFigure.repairGuidance}`);
   });
 
   it("P3-4: a facts fix and a targets fix on the same sentence both go to the one repair, and both rows record it", async () => {

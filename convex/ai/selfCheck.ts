@@ -21,6 +21,7 @@ import {
 } from "./promptDefinitions";
 import { sectionParagraphs } from "../lib/tiptapReport";
 import { containsTerm } from "../lib/editedTerms";
+import { figuresOf } from "../../shared/planFigures";
 import {
   governingFeedbackPhrase,
   quoteForPrompt,
@@ -1011,6 +1012,28 @@ function objectsOnlyToEditedTerms(
     !quoted.some((phrase) => !editedTerms.some((term) => containsTerm(phrase, term)));
 }
 
+/**
+ * 2026-10-04 (second, re-check P2): the facts verdict's stricter set-aside.
+ * Its guidance often names every correction unquoted, so a word such as
+ * "unsupported" beside a mention of an edited term proves nothing ("P2 gives
+ * the all-panel 4% as deep cove's, unsupported" with "deep cove" edited).
+ * It is set aside only when it objects to something as made up or unsourced,
+ * quotes at least one phrase, every phrase it quotes is an edited term, and
+ * every figure it cites sits inside an edited term.
+ */
+function factsObjectsOnlyToEditedTerms(
+  verdict: { reason: string; repairGuidance?: string; repairText?: string },
+  editedTerms: readonly string[]
+): boolean {
+  const said = [verdict.reason, verdict.repairGuidance ?? "", verdict.repairText ?? ""].join(" ");
+  const quoted = [...said.matchAll(QUOTED_PHRASE)].map((match) => match[1]!);
+  const termFigures = new Set(editedTerms.flatMap(figuresOf));
+  return INVENTED_TERM_OBJECTION.test(said) &&
+    quoted.length > 0 &&
+    quoted.every((phrase) => editedTerms.some((term) => containsTerm(phrase, term))) &&
+    figuresOf(said).every((figure) => termFigures.has(figure));
+}
+
 export type ModelSelfCheckResult = {
   verdicts: ModelVerdict[];
   storylineQuestion: {
@@ -1756,16 +1779,18 @@ export async function runModelSelfCheck(
     });
   // 2026-10-04 (second, review round 1, P3-1): the facts check is told the
   // writer's edited terms are sources, and a facts verdict that still objects
-  // to one alone is set aside like an ordinary one: recorded as applied with a
-  // fixed reason and never sent to the repair, where the repair's guard for
-  // edited terms would set the whole repair aside.
+  // to one alone is set aside: recorded as applied with a fixed reason and
+  // never sent to the repair, where the repair's guard for edited terms would
+  // set the whole repair aside. Re-check P2: by the stricter rule of
+  // factsObjectsOnlyToEditedTerms, so a real error that only mentions an
+  // edited term is still repaired.
   if (editedTerms.length > 0) {
     planVerdicts.forEach((verdict, index) => {
       if (
         verdict.ruleId !== FACTS_MATCH_SOURCES_RULE_ID ||
         verdict.outcome !== "not_applied" ||
         verdict.actionableRepair !== true ||
-        !objectsOnlyToEditedTerms(verdict, editedTerms)
+        !factsObjectsOnlyToEditedTerms(verdict, editedTerms)
       ) {
         return;
       }
