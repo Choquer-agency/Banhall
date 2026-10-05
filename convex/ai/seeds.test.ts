@@ -3015,7 +3015,8 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
       expect(requests).toHaveLength(1);
       const stored = await storedCitations(t, fixture.batchId);
       expect(stored.map((seed) => seed.bullets[0])).toEqual(badSeeds(fixture.sourceId).map((seed) => seed.bullets[0]));
-      expect(stored.map((seed) => seed.support)).toEqual(["source_supported", "source_supported", "source_supported"]);
+      // 2026-10-04 (second, round 3): a Seed with a marked quote is writer-asserted.
+      expect(stored.map((seed) => seed.support)).toEqual(["source_supported", "writer_asserted", "writer_asserted"]);
       expect(stored.map((seed) => seed.provenance.map((citation) => citation.needsQuoteCheck ?? false))).toEqual([
         [false],
         [true],

@@ -695,7 +695,13 @@ export function sourceFactsFor(args: {
   storylineByWriter?: boolean;
   confidenceMap?: ReadonlyArray<{ text: string; confidence?: string }>;
   /** Every signed-off item, every Line, skipped steps aside. */
-  planItems?: ReadonlyArray<{ wording: readonly string[]; writer?: boolean; quotes?: readonly string[] }>;
+  planItems?: ReadonlyArray<{
+    wording: readonly string[];
+    writer?: boolean;
+    quotes?: readonly string[];
+    /** Round 3: the wording its own evidence quotes do not back. */
+    unbacked?: readonly string[];
+  }>;
   /** The writer's instructions, as the WRITER INSTRUCTIONS block gives them. */
   writerInstructions?: readonly string[];
   documents?: SourceDocuments;
@@ -704,7 +710,19 @@ export function sourceFactsFor(args: {
   const storyline = args.storylineText?.trim() ?? "";
   const confidence = args.confidenceMap ?? [];
   const items = (args.planItems ?? [])
-    .map((item) => ({ ...item, text: item.wording.join(" ").trim(), quotes: (item.quotes ?? []).map((quote) => quote.trim()).filter(Boolean) }))
+    .map((item) => {
+      // Round 3: the writer's own wording is never marked; the product's is,
+      // where its evidence quotes do not back it.
+      const unbacked = item.writer ? [] : (item.unbacked ?? []).map((bullet) => bullet.trim()).filter(Boolean);
+      return {
+        ...item,
+        text: item.wording.join(" ").trim(),
+        quotes: (item.quotes ?? []).map((quote) => quote.trim()).filter(Boolean),
+        unbacked,
+        // What can stand for the sources: the wording its quotes back.
+        backed: item.wording.map((bullet) => bullet.trim()).filter((bullet) => bullet && !unbacked.includes(bullet)).join(" "),
+      };
+    })
     .filter((item) => item.text);
   const instructions = (args.writerInstructions ?? []).map((text) => text.trim()).filter(Boolean);
   const included = args.documents?.documents ?? [];
@@ -741,6 +759,10 @@ export function sourceFactsFor(args: {
             item.quotes.length > 0
               ? `${scaffold.quotesPrefix}${item.quotes.map((quote) => JSON.stringify(quote)).join(scaffold.quoteSeparator)}`
               : scaffold.noQuotes
+          }${
+            item.unbacked.length > 0
+              ? `${scaffold.unbackedPrefix}${item.unbacked.map((bullet) => JSON.stringify(bullet)).join(scaffold.quoteSeparator)}`
+              : ""
           }`).join("")}`]
       : []),
     ...(instructions.length > 0
@@ -762,9 +784,10 @@ export function sourceFactsFor(args: {
       ...stringLeaves(args.analysis),
       ...(!args.storylineByWriter && storyline ? [storyline] : []),
       ...confidence.map((entry) => entry.text),
-      ...items.filter((item) => !item.writer).map((item) => item.text),
+      // Round 3: wording its own quotes do not back never stands for the sources.
+      ...items.filter((item) => !item.writer && item.backed).map((item) => item.backed),
     ].map(safe),
-    items: items.map((item) => item.text),
+    items: items.filter((item) => item.backed).map((item) => item.backed),
     documentsComplete,
   };
 }
@@ -1568,6 +1591,15 @@ export function factsNotCheckedReason(words: string): string {
   return `Not checked: the facts check flagged something it could not show from the sources (its words: ${rowQuote(words)})`;
 }
 
+/**
+ * 2026-10-04 (second, round 3, owner approved 2026-10-05): the row of a facts
+ * check that found nothing it could show. Fixed text, never the model's
+ * words, so it never reads as a guarantee ("Figures and details match the
+ * sources." sat beside a wrong detail in release suite run 6).
+ */
+export const FACTS_NOTHING_SHOWN_REASON =
+  "The facts check found no figure or detail it could show differs from the sources.";
+
 /** Normalized for quote matching: case, spacing, quote marks and dashes. */
 export function normalizeForQuote(text: string): string {
   return text
@@ -2025,6 +2057,15 @@ export async function runModelSelfCheck(
       // 2026-10-04 (second, round 2): a not applied facts verdict is shown
       // and repaired only for findings whose quotes verify; otherwise it is
       // not checked, in the model's own words, and never repaired.
+      // Round 3: an applied facts verdict says only what the check could not show.
+      if (expected.ruleId === FACTS_MATCH_SOURCES_RULE_ID && verdict?.outcome === "applied") {
+        return {
+          ruleId: expected.ruleId,
+          mergedItemIds: [...expected.mergedItemIds],
+          outcome: "applied" as const,
+          reason: FACTS_NOTHING_SHOWN_REASON,
+        };
+      }
       if (expected.ruleId === FACTS_MATCH_SOURCES_RULE_ID && verdict?.outcome === "not_applied") {
         const { verified, held, unverified } = verifyFactsFindings({
           findings: verdict.findings ?? [],

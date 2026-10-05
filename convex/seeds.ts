@@ -507,6 +507,17 @@ export const useQuotesAnyway = mutation({
     if (marked.length === 0)
       return { seedStageVersion: f.generation.seedStageVersion ?? 0 };
     for (const row of marked) await ctx.db.patch(row._id, { needsQuoteCheck: undefined });
+    // 2026-10-04 (second, round 3): a Seed with a marked quote is
+    // writer_asserted; once the writer keeps its quotes they back it again,
+    // so it is source_supported, unless the writer has edited its wording.
+    const selection = await ctx.db
+      .query("seedSelections")
+      .withIndex("by_seedId", (q) => q.eq("seedId", seed._id))
+      .unique();
+    await ctx.db.patch(seed._id, {
+      originalSupport: "source_supported",
+      ...(selection?.editedBullets ? {} : { support: "source_supported" as const }),
+    });
     await bumpSeedStageVersion(ctx, args.generationId);
     await appendSeedRoleEvent(ctx, f.row, "quotesConfirmed", f.user._id, { seedId: seed._id });
     return { seedStageVersion: await currentVersion(ctx, args.generationId) };

@@ -1995,6 +1995,50 @@ describe("Seed workspace", () => {
     await userEvent.keyboard("{Escape}");
   });
 
+  it("names the wording its quotes do not back on a run 6 idea with a marked quote, and none on a well-quoted or edited idea (2026-10-04, second, round 3)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    // Release suite run 6, Technological limitations item 3: the steel quote
+    // the check marked is not evidence, so the first sentence has no quote.
+    const limitation = [
+      "Standard datasheet powder processes are built for flat steel-like panels, not thick routed MDF.",
+      "No prior process showed whether MDF could reach conductivity without heat that triggers outgassing defects.",
+    ];
+    const backing = {
+      ...seed().provenance[0],
+      _id: "provenance-moisture" as Id<"seedProvenance">,
+      exactExcerpt: "The moisture that gives you conductivity is the same moisture that outgasses, so we didn't know if there was any setting that did both.",
+    };
+    const steel = {
+      ...seed().provenance[0],
+      _id: "provenance-steel" as Id<"seedProvenance">,
+      exactExcerpt: "Normal powder for steel cures at 160 to 200 C.",
+      needsQuoteCheck: true,
+    };
+    const flagged = seed({ bullets: limitation, originalBullets: limitation, support: "writer_asserted", originalSupport: "writer_asserted", provenance: [backing, steel] });
+    __setQueryData("seeds:getSubsection", subsection({ items: [flagged] }));
+    const view = await render(SeedWorkspace, workspaceProps());
+    await expect.poll(() => document.querySelector("[data-seed-unbacked]")?.textContent).toBe(
+      'Its quotes do not back: "Standard datasheet powder processes are built for flat steel-like panels, not thick routed MDF."'
+    );
+    const note = document.querySelector<HTMLElement>("[data-seed-unbacked]")!;
+    expect(Number(getComputedStyle(note).fontWeight)).toBeLessThanOrEqual(500);
+    // The wording is shown as written, never changed, and the idea is writer asserted.
+    expect(document.body.textContent).toContain(limitation[0]);
+    expect(document.querySelector('[data-seed-marker="writer-asserted"]')).not.toBeNull();
+    view.unmount();
+
+    // A well-quoted idea and an idea the writer edited show no such line.
+    __setQueryData("seeds:getSubsection", subsection());
+    const clean = await render(SeedWorkspace, workspaceProps());
+    await expect.poll(() => document.body.textContent?.includes("The control loop stabilized output.")).toBe(true);
+    expect(document.querySelector("[data-seed-unbacked]")).toBeNull();
+    clean.unmount();
+    __setQueryData("seeds:getSubsection", subsection({ items: [{ ...flagged, edited: true, support: "writer_asserted" }] }));
+    await render(SeedWorkspace, workspaceProps());
+    await expect.poll(() => document.body.textContent?.includes(limitation[1])).toBe(true);
+    expect(document.querySelector("[data-seed-unbacked]")).toBeNull();
+  });
+
   it("shows no quote note on a quote that backs its seed", async () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSubsection", subsection());

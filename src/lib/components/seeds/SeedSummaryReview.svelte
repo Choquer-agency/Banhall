@@ -20,6 +20,7 @@
   import { seedTagStyle } from "./seedTags";
   import { attributionFromRead } from "./attribution";
   import SeedQuote from "./SeedQuote.svelte";
+  import { unbackedNote } from "./citations";
   import SeedSignOffDialog from "./SeedSignOffDialog.svelte";
 
   let {
@@ -1054,6 +1055,10 @@
                                 </span>
                               </li>
                             {/each}
+                            {#if unbackedNote(item)}
+                              <!-- 2026-10-04 (second, round 3): the wording its quotes do not back. -->
+                              <li class="text-[0.75rem] leading-4 text-gap-text!" data-summary-unbacked>{unbackedNote(item)}</li>
+                            {/if}
                           </ul>
                           {#if canEdit}
                             <button

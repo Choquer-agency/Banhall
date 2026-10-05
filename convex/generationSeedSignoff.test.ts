@@ -41,7 +41,7 @@ import {
   type GenerationMessageParams,
 } from "./ai/openrouterCore";
 import { currentPromptVersion } from "./ai/promptProgram";
-import { buildConsistencyUserMessage, summaryPlanSelfCheckSchemaFor } from "./ai/selfCheck";
+import { buildConsistencyUserMessage, FACTS_NOTHING_SHOWN_REASON, sourceFactsFor, summaryPlanSelfCheckSchemaFor } from "./ai/selfCheck";
 import { summarizeSlotUsage } from "./ai/instrument";
 import {
   COMPRESSION_REQUEST,
@@ -4530,6 +4530,81 @@ describe("seed Summary sign-off and recovery", () => {
     expect(notes.find((note) => note.instruction.includes("marked for a check"))?.planRef).toBeUndefined();
   });
 
+  it("2026-10-04 (second, round 3): the facts check reads run 6's two Seeds as product wording their own quotes do not back", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    // Release suite run 6: two signed-off Seeds whose steel quote the quote
+    // check marked, so (round 3) they were stored writer_asserted.
+    const limitation = [
+      "Standard datasheet powder processes are built for flat steel-like panels, not thick routed MDF.",
+      "No prior process showed whether MDF could reach conductivity without heat that triggers outgassing defects.",
+    ];
+    const advancement = [
+      "The team learned that outgassing defects track peak panel surface temperature rather than dwell time on this board.",
+      "Trial 1's datasheet process confirmed that heat built for flat steel panels causes severe outgassing defects on routed MDF edges.",
+    ];
+    const steel = "Normal powder for steel cures at 160 to 200 C.";
+    const moisture = "The moisture that gives you conductivity is the same moisture that outgasses, so we didn't know if there was any setting that did both.";
+    const peak = "And that on our board the pinholes track the peak board temperature, not the time.";
+    const companyQuote = "Final company_context wording.";
+    await s.t.run(async (ctx) => {
+      const seedOf = async (roleId: PdSubsectionRoleId) => (await ctx.db.query("seeds")
+        .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", roleId))
+        .take(10)).find((seed) => seed.order === 0)!;
+      const cite = async (seedId: Id<"seeds">, exactExcerpt: string, needsQuoteCheck = false) =>
+        await ctx.db.insert("seedProvenance", {
+          seedId,
+          projectId: s.projectId,
+          generationId: s.generationId,
+          sourceId: s.sourceId,
+          sourceContentHash: "source-hash",
+          startOffset: 0,
+          endOffset: exactExcerpt.length,
+          exactExcerpt,
+          ...(needsQuoteCheck ? { needsQuoteCheck: true } : {}),
+        });
+      for (const [roleId, bullets, backing] of [
+        ["passive_limitations", limitation, moisture],
+        ["specific_advancements", advancement, peak],
+      ] as const) {
+        const seed = await seedOf(roleId);
+        await ctx.db.patch(seed._id, { bullets: [...bullets], support: "writer_asserted", originalSupport: "writer_asserted" });
+        await cite(seed._id, backing);
+        await cite(seed._id, steel, true);
+      }
+      // A well-quoted Seed is unchanged.
+      await cite((await seedOf("company_context"))._id, companyQuote);
+    });
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const plan = await s.t.run(async (ctx) =>
+      await loadFrozenSectionPlan(ctx, (await ctx.db.get(s.generationId))!, "242"));
+    const sourceOf = (first: string) => plan.planItemSources.find((item) => item.wording[0] === first);
+    expect(sourceOf(limitation[0])).toEqual({ wording: limitation, writer: false, quotes: [moisture], unbacked: [limitation[0]] });
+    expect(sourceOf(advancement[0])).toEqual({ wording: advancement, writer: false, quotes: [peak], unbacked: [advancement[1]] });
+    expect(sourceOf("Final company_context wording.")).toEqual({
+      wording: ["Final company_context wording."],
+      writer: false,
+      quotes: [companyQuote],
+    });
+    // Only what the writer edited is the writer's wording, never a
+    // writer_asserted item the product wrote.
+    expect(sourceOf("Edited experimentation wording.")).toMatchObject({ writer: true });
+    expect(plan.planItemSources.filter((item) => item.writer).map((item) => item.wording[0]).sort())
+      .toEqual(["Edited active_uncertainties wording.", "Edited experimentation wording."]);
+    // The SOURCE FACTS block marks the wording, and it never stands for the sources.
+    const facts = sourceFactsFor({ analysis: {}, planItems: plan.planItemSources });
+    expect(facts.body).toContain(
+      `- [the product's wording] ${limitation.join(" ")} Quotes: ${JSON.stringify(moisture)} Its own quotes do not back: ${JSON.stringify(limitation[0])}`
+    );
+    expect(facts.body).toContain(`Its own quotes do not back: ${JSON.stringify(advancement[1])}`);
+    expect(facts.product.some((entry) => entry.includes("steel"))).toBe(false);
+    expect(facts.items.some((entry) => entry.includes("steel"))).toBe(false);
+    expect(facts.items).toContain(limitation[1]);
+  });
+
   it("drafts an item whose quotes are all marked from its wording alone, and says how many were left out", async () => {
     const s = await decisionFixture();
     await makeReady(s);
@@ -5007,7 +5082,8 @@ describe("seed Summary sign-off and recovery", () => {
       // A Skip, a LEAVE OUT and Line 246's advancement check are honoured
       // by absence and carry no paragraph (2026-09-30, first).
       expect(row.paragraphIndex).toBe(check.itemId ? 0 : undefined);
-      expect(row.reason).toBe("Covered.");
+      // 2026-10-04 (second, round 3): the facts row is fixed text.
+      expect(row.reason).toBe(check.ruleId === "facts_match_sources" ? FACTS_NOTHING_SHOWN_REASON : "Covered.");
     }
     const persistedSummary = JSON.parse(state246.run?.selfCheck ?? "{}") as {
       failedChecks?: number;
@@ -5263,6 +5339,11 @@ describe("seed Summary sign-off and recovery", () => {
     const modelRows = state.rows242.filter((row) => row.source === "model");
     expect(modelRows.some((row) => row.reason.endsWith("…"))).toBe(true);
     for (const row of modelRows) {
+      // 2026-10-04 (second, round 3): the facts row is fixed text, not the model's.
+      if (row.planRef?.ruleId === "facts_match_sources") {
+        expect(row.reason).toBe(FACTS_NOTHING_SHOWN_REASON);
+        continue;
+      }
       expect(new TextEncoder().encode(row.reason).byteLength).toBeLessThanOrEqual(64);
     }
     expect(state.rows242.some((row) => row.instruction === "Model Self-check")).toBe(false);
@@ -6478,7 +6559,7 @@ describe("seed Summary sign-off and recovery", () => {
       // 2026-09-29 (second): a kept idea found drafted is applied, tier conflict.
       expect(rowFor(check)).toMatchObject(check.confirmedExclusion
         ? { outcome: "applied", tier: "conflict", repaired: false }
-        : { outcome: "applied", reason: "Covered." });
+        : { outcome: "applied", reason: check.ruleId === "facts_match_sources" ? FACTS_NOTHING_SHOWN_REASON : "Covered." });
     }
     // The check itself completed: no whole-check failure row.
     expect(state.rows.some((row) => row.instruction === "Model Self-check")).toBe(false);

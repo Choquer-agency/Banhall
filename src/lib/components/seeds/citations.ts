@@ -1,3 +1,5 @@
+import { unbackedBullets } from "../../../../convex/lib/seedQuoteSupport";
+
 /**
  * A cited excerpt behind a Seed bullet, as the plan and the Summary show it
  * (exact-quote underlines, owner decision 17). `speaker` and `line` are
@@ -32,6 +34,28 @@ export const QUOTE_CHECK_NOTE = "This quote may not back this idea, so the draft
 
 /** The action that keeps a seed's marked quotes as evidence. */
 export const QUOTE_USE_ANYWAY = "Use it anyway";
+
+/**
+ * 2026-10-04 (second, round 3, owner approved 2026-10-05): the start of the
+ * line that names the wording none of a seed's evidence quotes backs, when
+ * one of its quotes is marked. The wording itself is never changed.
+ */
+export const UNBACKED_NOTE = "Its quotes do not back:";
+
+/**
+ * The card's line for wording its quotes do not back, or null: none for a
+ * seed with no marked quote, and none once the writer edited the wording
+ * (it is then the writer's own).
+ */
+export function unbackedNote(item: {
+  bullets: readonly string[];
+  edited: boolean;
+  provenance: ReadonlyArray<Pick<QuoteCitation, "exactExcerpt" | "needsQuoteCheck">>;
+}): string | null {
+  if (item.edited) return null;
+  const unbacked = unbackedBullets(item.bullets, item.provenance);
+  return unbacked.length > 0 ? `${UNBACKED_NOTE} ${unbacked.map((bullet) => `"${bullet}"`).join(" ")}` : null;
+}
 
 /** "Priya, line 18", "Priya", "Line 18", or null; never a made-up attribution. */
 export function citationSpeakerLine(citation: QuoteCitation): string | null {

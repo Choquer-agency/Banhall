@@ -414,6 +414,34 @@ describe("Use it anyway (2026-09-27, third amendment, review P3-9)", () => {
     expect(again.seedStageVersion).toBe(version + 1);
   });
 
+  test("2026-10-04 (second, round 3): a Seed writer-asserted for its marked quotes is source-supported once kept, unless the writer edited it", async () => {
+    for (const edited of [false, true]) {
+      const { fixture, version } = await markedFixture();
+      await fixture.t.run(async (ctx) => {
+        await ctx.db.patch(fixture.seedId, { support: "writer_asserted", originalSupport: "writer_asserted" });
+        if (edited) {
+          const selection = await ctx.db.query("seedSelections")
+            .withIndex("by_seedId", (q) => q.eq("seedId", fixture.seedId))
+            .unique();
+          if (selection) await ctx.db.patch(selection._id, { editedBullets: ["The writer's own wording."] });
+          else throw new Error("Missing selection");
+        }
+      });
+      await fixture.writer.mutation(api.seeds.useQuotesAnyway, {
+        generationId: fixture.generationId,
+        roleId: "company_context",
+        expectedSeedStageVersion: version,
+        seedId: fixture.seedId,
+      });
+      const seed = await fixture.t.run((ctx) => ctx.db.get(fixture.seedId));
+      expect({ support: seed?.support, originalSupport: seed?.originalSupport }).toEqual(
+        edited
+          ? { support: "writer_asserted", originalSupport: "source_supported" }
+          : { support: "source_supported", originalSupport: "source_supported" }
+      );
+    }
+  });
+
   test("refuses a person without edit access, and a stale stage version, changing nothing", async () => {
     const { fixture, rowIds, version } = await markedFixture();
     await fixture.t.run((ctx) => ctx.db.insert("users", { authId: "seed-approval-outsider", role: "writer" }));
