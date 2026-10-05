@@ -225,7 +225,7 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
     expect(run.note(CAP_RULE)).toMatchObject({
       outcome: "not_applied",
       reason:
-        "exceeds: 164/120 words; repair failed; over the writer's cap at 164/120 words to keep every signed-off item (a shortening pass that dropped words of one was not kept); cut by hand if needed",
+        "exceeds: 164/120 words; repair failed; over the writer's cap at 164/120 words to keep every signed-off item (a shortening pass that met the cap but dropped one was not kept); cut by hand if needed",
     });
   });
 
@@ -251,7 +251,7 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
     expect(cap?.outcome).toBe("not_applied");
     expect(cap?.reason).toMatch(/^exceeds: 164\/120 words; repair not used \(/);
     expect(cap?.reason).toMatch(
-      /; over the writer's cap at 164\/120 words to keep every signed-off item \(the repair that dropped one was not used\); cut by hand if needed$/
+      /; over the writer's cap at 164\/120 words to keep every signed-off item \(the repair that met the cap but dropped one was not used\); cut by hand if needed$/
     );
   });
 });

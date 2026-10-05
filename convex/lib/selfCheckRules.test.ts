@@ -156,6 +156,9 @@ function notesFor(args: {
   profile?: OrderedProfileContext;
   passes?: number;
   heldForPlan?: "pass" | "repair";
+  heldBack?: number;
+  writerInstructions?: string;
+  repairAttempted?: boolean;
 }) {
   const text = lineOf(args.words);
   const before = runDeterministicSelfCheck({
@@ -172,10 +175,10 @@ function notesFor(args: {
     verdicts: args.verdicts,
     modelCheck: { ok: true },
     storylineQuestion: null,
-    repair: { attempted: false, succeeded: false },
+    repair: args.repairAttempted ? { attempted: true, succeeded: false } : { attempted: false, succeeded: false },
     finalText: text,
-    compression: { passes: args.passes ?? 3 },
-    writerInstructions: SETTINGS,
+    compression: { passes: args.passes ?? 3, ...(args.heldBack ? { heldBack: args.heldBack } : {}) },
+    writerInstructions: args.writerInstructions ?? SETTINGS,
     ...(args.heldForPlan ? { heldForPlan: args.heldForPlan } : {}),
   }).rows;
 }
@@ -252,7 +255,7 @@ describe("no Compliance Note row vouches for a cap code measured (2026-10-04, fi
       verdicts: [profileVerdict("P2 says bake window; states the MDF temperature limit", "not_applied")],
     }).find((row) => row.source === "model");
     expect(kept?.reason).toBe(
-      "Not followed: Line 244 is over the writer's cap at 602/520 words (measured by code; see the cap row). Also: P2 says bake window; states the MDF temperature limit"
+      "Not followed: Line 244 is over the writer's cap at 602/520 words (measured by code; see the cap row). Also: P2 says bake window; states the MDF temperature limit."
     );
     const mixed = notesFor({
       section: "244",
@@ -285,11 +288,47 @@ describe("no Compliance Note row vouches for a cap code measured (2026-10-04, fi
   it("says the Line stays over the writer's cap to keep every signed-off item (owner decision, 2026-10-04)", () => {
     const pass = notesFor({ section: "242", words: 287, verdicts: [], heldForPlan: "pass" });
     expect(pass.find((row) => row.instruction === "- Line 242: no more than 260 words.")?.reason).toBe(
-      "exceeds: 287/260 words; over the writer's cap at 287/260 words to keep every signed-off item (a shortening pass that dropped words of one was not kept); cut by hand if needed"
+      "exceeds: 287/260 words; over the writer's cap at 287/260 words to keep every signed-off item (a shortening pass that met the cap but dropped one was not kept); cut by hand if needed"
     );
     const repair = notesFor({ section: "242", words: 287, verdicts: [], heldForPlan: "repair" });
     expect(repair.find((row) => row.instruction === "- Line 242: no more than 260 words.")?.reason).toBe(
-      "exceeds: 287/260 words; over the writer's cap at 287/260 words to keep every signed-off item (the repair that dropped one was not used); cut by hand if needed"
+      "exceeds: 287/260 words; over the writer's cap at 287/260 words to keep every signed-off item (the repair that met the cap but dropped one was not used); cut by hand if needed"
+    );
+  });
+
+  it("keeps the shortening wording when a held pass was over the cap too (review re-check P2-a)", () => {
+    const rows = notesFor({ section: "242", words: 280, verdicts: [], heldBack: 1 });
+    expect(rows.find((row) => row.instruction === "- Line 242: no more than 260 words.")?.reason).toBe(
+      "exceeds: 280/260 words; still over after 3 shortening passes (a pass that dropped a signed-off item was not kept, and it was over the cap too). The text was not cut to fit: shorten Line 242 to 260 words to meet the writer's settings"
+    );
+  });
+
+  it("never takes a profile whose first line is a rule for that rule's row (review re-check P3-1)", () => {
+    const profile = "Write in the third person throughout the report.\n\n- Line 242: no more than 260 words.";
+    const rows = notesFor({
+      section: "242",
+      words: 323,
+      writerInstructions: profile,
+      verdicts: [
+        { check: "instruction", instruction: "Write in the third person throughout the report.", outcome: "applied", reason: "Third person used." },
+        { check: "instruction", instruction: "Write in the third person throughout the report. - Line 242: no more than 260 words.", outcome: "applied", reason: "Fine." },
+      ],
+    }).filter((row) => row.source === "model");
+    expect(rows[0]).toMatchObject({ outcome: "applied", reason: "Third person used." });
+    // An opening that runs past the first line is the profile.
+    expect(rows[1]).toMatchObject({ outcome: "not_applied", reason: expect.stringMatching(/^Not followed in full: Line 242 is over the writer's cap at 323\/260 words/) });
+  });
+
+  it("ends the model's words on a full stop before the fixed words (review re-check P3-4)", () => {
+    const rows = notesFor({
+      section: "242",
+      words: 360,
+      profile: { ...APPLIED, selfCheckRules: [] },
+      repairAttempted: true,
+      verdicts: [profileVerdict("P2 says bake window; over the word limit", "not_applied")],
+    });
+    expect(rows.find((row) => row.source === "model")?.reason).toBe(
+      "P2 says bake window; repair call failed. Length is measured by code: Line 242 is over the Locked cap at 360/350 words (see the cap row)."
     );
   });
 
@@ -390,11 +429,13 @@ describe("no Compliance Note row vouches for a cap code measured (2026-10-04, fi
     for (const reason of [
       "word cap ok",
       "Terms, banned words, third person, and word cap all followed.",
-      "within limits",
+      "under the cap",
+      "within the word limit",
       "over the 520-word cap",
       "length limit met",
       "Section is 300 words.",
-      "602/520",
+      "602/520 words",
+      "40 form lines",
       "line count fine",
     ]) {
       expect(talksAboutLength(reason)).toBe(true);
@@ -407,13 +448,19 @@ describe("no Compliance Note row vouches for a cap code measured (2026-10-04, fi
       "The MDF temperature limit is named.",
       "End caps described.",
       "Length of the trial run is given.",
+      // Review re-check P3-5.
+      "Held below the limit of 122 C.",
+      "A 50/50 resin blend is named.",
+      "Ran on 2 lines.",
+      "within limits",
     ]) {
       expect(talksAboutLength(reason)).toBe(false);
     }
     expect(withoutLengthClauses("Glossary terms used, no banned words, third person, word cap ok.")).toBe(
-      "Glossary terms used, no banned words, third person."
+      "Glossary terms used, no banned words, third person"
     );
-    expect(withoutLengthClauses("Cure at 1,200 rpm noted, within the cap.")).toBe("Cure at 1,200 rpm noted.");
+    expect(withoutLengthClauses("Cure at 1,200 rpm noted, within the cap.")).toBe("Cure at 1,200 rpm noted");
+    expect(withoutLengthClauses("Uses bake window. Within the word limit.")).toBe("Uses bake window.");
     expect(withoutLengthClauses("Word cap met.")).toBe("");
   });
 });

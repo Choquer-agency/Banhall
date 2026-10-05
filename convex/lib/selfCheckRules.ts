@@ -634,19 +634,24 @@ export function runDeterministicSelfCheck(input: {
 }
 
 /**
- * 2026-10-04 (first, review P2-2): what a Self-check reason says about the
- * Line's length: a word or line cap, limit or count, a length cap or limit,
- * being within, under or over the cap or limit, "N words" or "N lines", or
- * a count such as "602/520". Narrow on purpose: everyday SR&ED wording such
- * as "detection limit", "temperature limit" or "end caps" is not length.
+ * 2026-10-04 (first, review P2-2 and re-check P3-5): what a Self-check
+ * reason says about the Line's length: a word or line cap, limit or count;
+ * a length cap or limit; being within, under or over the cap, or a word,
+ * line or length limit; "N words"; "N form lines" or "N lines long"; and a
+ * count with its unit, such as "602/520 words". Narrow on purpose: "the
+ * detection limit", "below the limit" (a temperature), "end caps", "a 50/50
+ * resin blend" and "ran on 2 lines" are not length.
  */
 const LENGTH_TALK = new RegExp(
   [
     String.raw`\b(?:word|line)s?[\s-]+(?:caps?|limits?|counts?|budget)\b`,
     String.raw`\blength[\s-]+(?:caps?|limits?)\b`,
-    String.raw`\b(?:within|under|over|above|below|exceeds?|meets?|met)\s+(?:the\s+|its\s+|a\s+|this\s+)?(?:\d[\d,]*[\s-]*)?(?:(?:words?|lines?)[\s-]+)?(?:caps?|limits?)\b`,
-    String.raw`\b\d[\d,]*[\s-]*(?:words?|lines?)\b`,
-    String.raw`\b\d+\s*\/\s*\d+\b`,
+    String.raw`\b(?:within|under|over|exceeds?|meets?|met)\s+(?:the\s+|its\s+|this\s+|a\s+)?(?:\d[\d,]*[\s-]*(?:words?|lines?)[\s-]+|(?:words?|lines?|length)[\s-]+)?caps?\b`,
+    String.raw`\b(?:within|under|over|exceeds?|meets?|met)\s+(?:the\s+|its\s+|this\s+|a\s+)?(?:\d[\d,]*[\s-]*(?:words?|lines?)|words?|lines?|length)[\s-]+limits?\b`,
+    String.raw`\b\d[\d,]*[\s-]*words?\b`,
+    String.raw`\b\d[\d,]*\s+form\s+lines?\b`,
+    String.raw`\b\d[\d,]*[\s-]*lines?\s+long\b`,
+    String.raw`\b\d[\d,]*\s*\/\s*\d[\d,]*\s*(?:words?|lines?)\b`,
   ].join("|"),
   "i"
 );
@@ -660,7 +665,8 @@ export function talksAboutLength(text: string): boolean {
  * 2026-10-04 (first, review P2-2): `text` without its clauses about length.
  * Clauses end at a semicolon, or at a full stop or comma before a space or
  * the end, so "1,200" and "2.5" stay whole. The clauses kept keep their own
- * words and punctuation; "" when every clause was about length.
+ * words and punctuation, without a dangling semicolon or comma at the end;
+ * "" when every clause was about length.
  */
 export function withoutLengthClauses(text: string): string {
   const parts = text.split(/(;\s*|[.,](?=\s|$)\s*)/);
@@ -671,24 +677,33 @@ export function withoutLengthClauses(text: string): string {
     if (!clause.trim() || talksAboutLength(clause)) continue;
     out += `${clause}${end}`;
   }
-  return out.trim().replace(/[;,]$/, ".").replace(/^(?:and|but|or)\s+/i, "");
+  return out.trim().replace(/[;,]$/, "").replace(/^(?:and|but|or)\s+/i, "");
 }
 
 /**
  * 2026-10-04 (first, review P3-2): whether a model verdict's instruction is
  * the Writer Profile itself. The Summary Self-check labels it with the
  * whole text; in Single draft and Compare the model quotes it, often cut
- * short, so its title line, or an opening of six words or more that the
- * profile starts with, counts too.
+ * short, so its title line when that is a "#" heading, or an opening of six
+ * words or more that the profile starts with and that runs past its first
+ * line, counts too.
  */
 function quotesWriterProfile(instruction: string, profile: string | undefined): boolean {
   const text = normalizeForMatch(profile ?? "");
   if (text.trim() === "") return false;
   const quoted = normalizeForMatch(instruction);
   if (quoted === text) return true;
-  const title = normalizeForMatch(profile?.split(/\r?\n/).find((line) => line.trim() !== "") ?? "");
-  if (title.trim().split(" ").length >= 3 && quoted.includes(title)) return true;
-  return quoted.trim().split(" ").length >= 6 && text.startsWith(quoted.trimEnd());
+  // Review re-check P3-1: the first line names the profile only when it is
+  // a heading; a first line that is a rule ("Write in the third person.")
+  // is that rule, and an opening counts only when it runs past it.
+  const firstLine = profile?.split(/\r?\n/).find((line) => line.trim() !== "") ?? "";
+  const first = normalizeForMatch(firstLine);
+  if (/^\s*#/.test(firstLine) && first.trim().split(" ").length >= 3 && quoted.includes(first)) return true;
+  return (
+    quoted.trim().split(" ").length >= 6 &&
+    quoted.trim().length > first.trim().length &&
+    text.startsWith(quoted.trimEnd())
+  );
 }
 
 /**
@@ -744,15 +759,17 @@ export function writerRowGuard(input: {
       reason,
       repaired: row.repaired,
     });
+  // Review re-check P3-4: the model's words end on a full stop before more follows.
+  const ended = (text: string) => (/[.!?)"']$/.test(text) ? text : `${text}.`);
   if (carried.length > 0) {
     const measured = `${joinedList(carried.map(measuredCapPhrase))} (measured by code; see the cap row)`;
     const applied = verdict.outcome === "applied";
     const rest = kept
-      ? applied ? ` Otherwise followed: ${kept}` : ` Also: ${kept}`
+      ? applied ? ` Otherwise followed: ${ended(kept)}` : ` Also: ${ended(kept)}`
       : applied ? " The Self-check found the other rules followed." : "";
     return rebuilt("not_applied", `${applied ? "Not followed in full" : "Not followed"}: ${measured}.${rest}`);
   }
-  const lead = kept || `${row.outcome === "applied" ? "Followed" : "Not followed"}, as the Self-check found.`;
+  const lead = kept ? ended(kept) : `${row.outcome === "applied" ? "Followed" : "Not followed"}, as the Self-check found.`;
   return rebuilt(
     row.outcome,
     `${lead} Length is measured by code: ${joinedList(failedCaps.map(measuredCapPhrase))} (see the cap row).`
@@ -887,13 +904,18 @@ export function assembleSectionNotes(input: {
    * draft, or the repair when it was used), and the failure that stopped
    * them, if any (review P2-2, P3-6).
    */
-  compression?: { passes: number; failure?: string };
+  /**
+   * `heldBack` (2026-10-04, first, review re-check P2-a): shortening passes
+   * not kept because they dropped a signed-off item, which would have left
+   * the Line over the writer's cap anyway.
+   */
+  compression?: { passes: number; failure?: string; heldBack?: number };
   /**
    * 2026-10-04 (first, owner decision: signed-off items outrank the
    * writer's cap): the Line was kept over the writer's cap to keep a
-   * signed-off item, because a shortening pass that dropped words of one
-   * was not kept ("pass"), or a repair that dropped one was not used
-   * ("repair").
+   * signed-off item: a shortening pass that met the cap but dropped one was
+   * not kept ("pass"), or a repair that met the cap but dropped one was not
+   * used ("repair").
    */
   heldForPlan?: "pass" | "repair";
   /**
@@ -973,8 +995,8 @@ export function assembleSectionNotes(input: {
     // cap. When a shortening pass was not kept because it took words of
     // one, the row says the Line stays over the cap to keep them.
     const held = input.heldForPlan === "pass"
-      ? "a shortening pass that dropped words of one was not kept"
-      : "the repair that dropped one was not used";
+      ? "a shortening pass that met the cap but dropped one was not kept"
+      : "the repair that met the cap but dropped one was not used";
     rows[index] = {
       ...rows[index],
       reason: input.heldForPlan
@@ -983,7 +1005,11 @@ export function assembleSectionNotes(input: {
           }; cut by hand if needed`
         : `${rows[index].reason}; still over after ${passes} shortening ${
             passes === 1 ? "pass" : "passes"
-          }${failure}. The text was not cut to fit: shorten Line ${section} to ${cap.limits} to meet the writer's settings`,
+          }${failure}${
+            (input.compression?.heldBack ?? 0) > 0
+              ? " (a pass that dropped a signed-off item was not kept, and it was over the cap too)"
+              : ""
+          }. The text was not cut to fit: shorten Line ${section} to ${cap.limits} to meet the writer's settings`,
     };
   });
   let remainingFailures = finalEntries.filter(

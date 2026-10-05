@@ -35,6 +35,7 @@ import {
   buildStyleGuidance,
   closerToLimits,
   compressWithinLimit,
+  meetsWriterCap,
   lengthBudgetBlock,
   quotedTerms,
   limitOverage,
@@ -276,7 +277,7 @@ export function repairDroppedKeptIdeaReason(conflict: Pick<ConfirmedConflict, "w
  * signed-off item the checked draft covered.
  */
 export function repairDroppedCoverItemReason(item: Pick<PlanCheck, "wording">): string {
-  return `the repaired text no longer covers the signed-off item "${ideaWords(item.wording, 120)}", and a leave-out fix must keep what a COVER item holds, so the checked draft was kept`;
+  return `the repaired text no longer covers the signed-off item "${ideaWords(item.wording, 120)}", and a repair must keep what a COVER item holds, so the checked draft was kept`;
 }
 
 /** The repair fix for an idea the writer kept despite a Claim Exclusion that the draft does not cover. */
@@ -1451,6 +1452,7 @@ export async function draftCheckedSection(input: {
         } else if (
           writerCap &&
           issues.every((issue) => issue.startsWith("Shorten ")) &&
+          !meetsWriterCap(fit.text, key, writerCap) &&
           closerToLimits(text, fit.text, key, writerCap)
         ) {
           // 2026-10-04 (first, review P3-1): a repair made only to shorten
@@ -1607,9 +1609,10 @@ export async function draftCheckedSection(input: {
       return later !== undefined && later.actionableRepair !== false && later.outcome !== "applied";
     });
     if (lost.length > 0 && !overLimitMore(text, finalText)) {
-      // The Line stays over the writer's cap to keep a signed-off item.
-      heldByRepair = writerCapIssue;
-      console.warn(`generation:repair:${section}: a leave-out repair no longer covers a signed-off item; the checked draft is kept`);
+      // The Line stays over the writer's cap to keep a signed-off item only
+      // when the repair itself met the cap (review re-check P2-a).
+      heldByRepair = writerCapIssue && writerCap !== null && meetsWriterCap(finalText, key, writerCap);
+      console.warn(`generation:repair:${section}: a repair no longer covers a signed-off item; the checked draft is kept`);
       finalText = text;
       repair.succeeded = false;
       repair.shortened = undefined;
@@ -1650,6 +1653,7 @@ export async function draftCheckedSection(input: {
       ...(keptFit.error !== undefined
         ? { failure: normalizeProviderError(keptFit.error).code }
         : {}),
+      ...(keptFit.heldBack ? { heldBack: keptFit.heldBack } : {}),
     },
     ...(keptFit.heldForPlan ? { heldForPlan: "pass" as const } : heldByRepair ? { heldForPlan: "repair" as const } : {}),
     ...(feedbackTerms.length > 0 ? { governed: feedbackTerms } : {}),

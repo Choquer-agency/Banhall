@@ -94,7 +94,7 @@ import {
   STYLE_GUIDANCE_SCAFFOLDS,
 } from "./promptDefinitions";
 import { containsTerm } from "../lib/editedTerms";
-import { contentWords } from "../lib/seedQuoteSupport";
+import { contentWords, excerptSupportsSeed, sameWord } from "../lib/seedQuoteSupport";
 
 export type { BrainExemplarBlocks };
 
@@ -490,22 +490,56 @@ export function compressionLoss(
 }
 
 /**
+ * 2026-10-04 (first, review re-check P2-b): a signed-off item is lost when
+ * this many of its words go from the sentences that state it.
+ */
+export const COVER_ITEM_WORDS_LOST = 2;
+
+/** Sentences of a text: at a full stop, question or exclamation mark, or a blank line. */
+function sentencesOf(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+|\n\s*\n/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+/**
+ * The content words of an item that the sentences of `text` stating it
+ * hold. A sentence states the item when it shares enough meaningful words
+ * with one of the item's bullets (excerptSupportsSeed, the Seed quote
+ * check's own measure).
+ */
+function itemWordsStated(text: string, item: string): string[] {
+  const bullets = sentencesOf(item);
+  const stating = sentencesOf(text).filter((sentence) =>
+    bullets.some((bullet) => excerptSupportsSeed(bullet, sentence))
+  );
+  if (stating.length === 0) return [];
+  const said = contentWords(stating.join(" "));
+  return contentWords(item).filter((word) => said.some((other) => sameWord(word, other)));
+}
+
+/**
  * 2026-10-04 (first, owner decision: signed-off items outrank the writer's
- * cap): why a pass run only for the writer's cap dropped or thinned a
- * signed-off COVER item, or null. Every content word of an item that the
- * given text holds must still be in the pass. Word for word on purpose: a
- * pass that says an item in other words is not kept either, the safe side.
+ * cap): why a pass run only for the writer's cap dropped a signed-off COVER
+ * item, or null. Only the item's words held in the sentences that state it
+ * count, matched loosely (sameWord, so "full" keeps "fully" and "transfer"
+ * keeps "transferable"); the item is lost when the pass's sentences that
+ * state it hold COVER_ITEM_WORDS_LOST or more fewer of them, as when its
+ * sentence or paragraph is deleted. Numbers and negations of Must keep
+ * lines are guarded on their own (compressionLoss).
  */
 export function coverItemLoss(
   input: string,
   output: string,
   coverItems: readonly string[]
 ): string | null {
-  const held = new Set(contentWords(input));
-  const kept = new Set(contentWords(output));
   for (const item of coverItems) {
-    const lost = contentWords(item).filter((word) => held.has(word) && !kept.has(word));
-    if (lost.length > 0) {
+    const before = itemWordsStated(input, item);
+    if (before.length === 0) continue;
+    const after = itemWordsStated(output, item);
+    const lost = before.filter((word) => !after.includes(word));
+    if (lost.length >= COVER_ITEM_WORDS_LOST) {
       return `dropped words of a signed-off item (${lost.slice(0, 3).map((word) => `"${word}"`).join(", ")})`;
     }
   }
@@ -515,8 +549,10 @@ export function coverItemLoss(
 /**
  * What the compression passes left: the text kept, how many passes were
  * sent, whether it is still over, and the error that stopped them, if any.
- * `heldForPlan` (2026-10-04, first): passes run only for the writer's cap
- * that were not kept because they dropped words of a signed-off item.
+ * 2026-10-04 (first): passes run only for the writer's cap that were not
+ * kept because they dropped a signed-off item: `heldForPlan` counts those
+ * whose own text met the writer's cap (the item is why the Line stays
+ * over), `heldBack` those still over it either way (review re-check P2-a).
  */
 export type LimitFit = {
   text: string;
@@ -524,7 +560,13 @@ export type LimitFit = {
   overLimit: boolean;
   error?: unknown;
   heldForPlan?: number;
+  heldBack?: number;
 };
+
+/** 2026-10-04 (first): whether `text` is within the Locked limits and the writer's cap. */
+export function meetsWriterCap(text: string, key: SectionKey, writerCap: WriterLineCap): boolean {
+  return !capMetrics(text, key, writerCap).overLimit;
+}
 
 /**
  * BNH-45 enforcement: still over the form limit after the budgeted draft →
@@ -587,6 +629,7 @@ export async function compressWithinLimit(
   let best = text;
   let passes = 0;
   let heldForPlan = 0;
+  let heldBack = 0;
   const callSite = `generation:compression:${key.slice(1)}`;
   // A pass's answer replaces `best` only when it is closer to the limits
   // and keeps the required content.
@@ -607,14 +650,18 @@ export async function compressWithinLimit(
     const forWriterOnly = writerCap !== null && !sectionMetrics(best, key).overLimit;
     const planLoss = forWriterOnly && coverItems.length > 0 ? coverItemLoss(best, out, coverItems) : null;
     if (planLoss) {
-      heldForPlan += 1;
+      if (writerCap && meetsWriterCap(out, key, writerCap)) heldForPlan += 1;
+      else heldBack += 1;
       console.warn(`${callSite}: pass ${passes} not kept: it ${planLoss}`);
       return;
     }
     best = out;
   };
-  const fit = (fields: Omit<LimitFit, "heldForPlan">): LimitFit =>
-    heldForPlan > 0 ? { ...fields, heldForPlan } : fields;
+  const fit = (fields: Omit<LimitFit, "heldForPlan" | "heldBack">): LimitFit => ({
+    ...fields,
+    ...(heldForPlan > 0 ? { heldForPlan } : {}),
+    ...(heldBack > 0 ? { heldBack } : {}),
+  });
   // Over a Locked limit, or over the writer's cap where one is set.
   const over = (value: string) =>
     writerCap ? capMetrics(value, key, writerCap).overLimit : sectionMetrics(value, key).overLimit;

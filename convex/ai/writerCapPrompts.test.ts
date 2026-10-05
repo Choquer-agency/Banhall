@@ -269,6 +269,20 @@ describe("signed-off items outrank the writer's cap (owner decision, 2026-10-04)
     // Two squeezes, both held for the item, then the targeted pass (203
     // words is within its reach of 200), which comes back unchanged.
     expect(fit).toEqual({ text: draft, passes: 3, overLimit: false, heldForPlan: 2 });
+    // Review re-check P2-a: a held pass whose own text is still over the
+    // cap is counted apart, since the item is not why the Line stays over.
+    const stillOver = Array.from({ length: 13 }, () => FILLER).join(" ");
+    expect(sectionMetrics(stillOver, "s246").words).toBeGreaterThan(200);
+    const longer = withCover(20);
+    expect(sectionMetrics(longer, "s246").overLimit).toBe(false);
+    const over = client([stillOver, stillOver], longer);
+    const heldOver = await compressWithinLimit(over.anthropicFor, "claude-sonnet-5", "s246", longer, "standard", undefined, [COVER], [], {
+      finalCut: true,
+      writerCap: { words: 200 },
+      coverItems: [COVER],
+    });
+    expect(heldOver).toMatchObject({ text: longer, overLimit: false, heldBack: 2 });
+    expect(heldOver.heldForPlan).toBeUndefined();
     // A pass that keeps the item's words is kept.
     const shorter = withCover(8);
     const keeps = client([shorter], draft);

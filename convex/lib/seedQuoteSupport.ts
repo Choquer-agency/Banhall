@@ -115,7 +115,7 @@ export function contentWords(text: string): string[] {
  * letters) opens the longer for its first min(6, length) letters:
  * "structure" and "structural", but not "process" and "procedure".
  */
-function sameWord(left: string, right: string): boolean {
+export function sameWord(left: string, right: string): boolean {
   if (left === right) return true;
   const [short, long] = left.length <= right.length ? [left, right] : [right, left];
   if (short.length < 4) return false;

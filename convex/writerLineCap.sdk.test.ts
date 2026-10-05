@@ -89,6 +89,8 @@ const PROFILE_VERDICT_REASON = "Terms, banned words, third person, and word cap 
 // ─── The stubbed provider ──────────────────────────────────────────────────
 
 type Script = {
+  /** Self-check rules stored on the saved Writer Profile (no extraction then). */
+  profileRules?: Array<{ section?: Line; paragraphIndex?: number; instruction: string; maxWords?: number }>;
   /** Compression answers for Line 246, in order; an empty queue echoes. */
   compressions?: string[];
   /** Every compression request fails with an HTTP 400. */
@@ -225,7 +227,7 @@ function installFetch(script: Script): Sent[] {
 
 // ─── A Single draft run through the ordered chain ──────────────────────────
 
-async function fixture() {
+async function fixture(profileRules?: Script["profileRules"]) {
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
@@ -273,6 +275,7 @@ async function fixture() {
       userId,
       customInstructions: SETTINGS,
       enabled: true,
+      ...(profileRules ? { selfCheckRules: profileRules } : {}),
       updatedBy: userId,
       createdAt: 1,
       updatedAt: 1,
@@ -305,7 +308,7 @@ async function drain(t: T) {
 
 async function runSingle(script: Script) {
   const sent = installFetch(script);
-  const f = await fixture();
+  const f = await fixture(script.profileRules);
   await f.t.action(internal.ai.pipeline.generateReport, { generationId: f.generationId });
   await drain(f.t);
   const state = await f.t.run(async (ctx) => ({
@@ -452,5 +455,29 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
     expect(run.note("246", CAP_RULE)?.reason).toMatch(
       /^exceeds: 240\/200 words; repair not used \(the repaired text came out at 300 words, \d+ lines, further over the writer's cap of 200 words than the checked draft, so the checked draft was kept\); still over after 2 shortening passes/
     );
+  });
+
+  it("uses a repair within the writer's whole-Line cap when only a paragraph cap was over (review re-check P3-2)", async () => {
+    const lineRule = "Line 246: at most 280 words.";
+    const paragraphRule = "Paragraph 1 of Line 246: at most 40 words.";
+    // Paragraph 1 cut to two sentences; the Line grows but stays within 280.
+    const repaired = [
+      "The advancement trial 1.1 compared a capacitive probe with oven-dry samples in the kiln charge. The probe held its reading through every charge.",
+      sectionText("advancement", 3, 5),
+    ].join("\n\n");
+    const words = sectionMetrics(repaired, "s246").words;
+    expect(words).toBeGreaterThan(240);
+    expect(words).toBeLessThanOrEqual(280);
+    const run = await runSingle({
+      profileRules: [
+        { section: "246", instruction: lineRule, maxWords: 280 },
+        { section: "246", paragraphIndex: 0, instruction: paragraphRule, maxWords: 40 },
+      ],
+      repair246: repaired,
+    });
+    expect(run.requests("repair:246")).toHaveLength(1);
+    expect(run.text("246")).toBe(repaired);
+    expect(run.note("246", paragraphRule)).toMatchObject({ outcome: "applied" });
+    expect(run.note("246", lineRule)).toMatchObject({ outcome: "applied", reason: `${words}/280 words` });
   });
 });
