@@ -321,7 +321,7 @@ describe("results, sources and Glossary repairs in a signed-off plan run (real S
       outcome: "applied",
       tier: "none",
       // Round 4: a targets row a repair fixed still says what was wrong.
-      reason: "Every comparison matches. Fixed by the repair: P1 calls met targets close.",
+      reason: "Fixed by the repair: P1 calls met targets close. Every comparison matches.",
       repaired: true,
       planRef: { summaryVersionId: SUMMARY_VERSION, ruleId: RESULTS_AGAINST_TARGETS_RULE_ID, mergedItemIds: [] },
     });

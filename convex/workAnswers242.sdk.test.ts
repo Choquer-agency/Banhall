@@ -796,7 +796,7 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
       outcome: "applied",
       repaired: true,
       // 2026-10-04 (second, round 4): it still says what was wrong.
-      reason: "Results match targets. Fixed by the repair: P3 hides that 1.2 mg/L missed the target.",
+      reason: "Fixed by the repair: P3 hides that 1.2 mg/L missed the target. Results match targets.",
     });
 
     // A targets repair that keeps every figure but loses the work plan

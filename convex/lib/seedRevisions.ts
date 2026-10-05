@@ -63,7 +63,15 @@ export const SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES = 48_000;
  * the targets verdict, whose repair text comes from its entries.
  */
 export const MAX_TARGET_FINDINGS = 3;
-export const MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES = 120;
+/**
+ * Round 4 review (P3-5): shorter fields than a facts finding's, so the
+ * reservation is smaller: the draft's words at issue (they hold the word for
+ * met), the target and the correction. The source quote keeps the facts
+ * limit (MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES).
+ */
+export const MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES = 64;
+export const MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES = 80;
+export const MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES = 80;
 
 /** One frozen source document the facts check reads in full. */
 export type FactsSourceDocument = {
@@ -679,8 +687,8 @@ export function projectSummarySelfCheckWorstCaseResponse(
   // 2026-10-04 (second, round 4): the targets verdict's entries, each at its
   // limits, with the target quote.
   const targetFindings = Array.from({ length: MAX_TARGET_FINDINGS }, () => ({
-    correction: repeated(MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES, "c"),
-    draftQuote: repeated(MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES, "d"),
+    correction: repeated(MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES, "c"),
+    draftQuote: repeated(MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES, "d"),
     sourceQuote: repeated(MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES, "s"),
     targetQuote: repeated(MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES, "t"),
   }));

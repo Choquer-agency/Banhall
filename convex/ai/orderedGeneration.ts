@@ -501,6 +501,16 @@ export function factsRepairedReason(finalReason: string, firstReason: string): s
 }
 
 /**
+ * 2026-10-04 (second, round 4 review, P2-4): a targets row a used repair
+ * fixed says what was wrong first, since the final text's evidence can be
+ * long and a Compliance Note reason is cut at its limit.
+ */
+export function targetsRepairedReason(finalReason: string, firstReason: string): string {
+  const found = firstReason.trim();
+  return found ? `Fixed by the repair: ${found} ${finalReason.trim()}` : finalReason.trim();
+}
+
+/**
  * 2026-09-30 (first): the Compliance Note instruction for a LEAVE OUT row,
  * naming the dropped uncertainty by its first words, never an id.
  */
@@ -919,9 +929,11 @@ export function planComplianceNoteDrafts(args: {
         // wrong, so a reviewer can check the correction; since round 4 a
         // targets row too.
         reason: final
-          ? repaired && (expected.instruction === "match_sources" || expected.instruction === "match_targets")
+          ? repaired && expected.instruction === "match_sources"
             ? factsRepairedReason(rowReason(final), verdict.reason)
-            : rowReason(final)
+            : repaired && expected.instruction === "match_targets"
+              ? targetsRepairedReason(rowReason(final), verdict.reason)
+              : rowReason(final)
           : FINAL_COVERAGE_NOT_CHECKED_REASON,
         repaired,
         planRef,
@@ -1373,10 +1385,15 @@ export async function draftCheckedSection(input: {
         }
         // 2026-09-30 (third): a result misstated against its target goes
         // to the repair with a fixed start and the check's guidance. It asks
-        // to state something, so it stays a Must keep line.
+        // to state something, so it stays a Must keep line. Round 4 review
+        // (P3-6): a fix built from verified entries quotes the draft's wrong
+        // words, so, like a facts fix, it is never a Must keep line (the
+        // number guard would keep the wrong figure) and its repair must keep
+        // every figure of this Line's own signed-off items.
         if (expected?.instruction === "match_targets") {
           const issue = leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason);
           targetsIssues.add(issue);
+          if (verdict.repairFromEntries) factsIssues.add(issue);
           return [issue];
         }
         return [verdict.repairText ?? verdict.repairGuidance ?? verdict.reason];

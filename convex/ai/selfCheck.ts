@@ -1252,6 +1252,11 @@ export type ModelSelfCheckResult = {
     /** In memory only: see ModelVerdict.repairText. Never stored. */
     repairText?: string;
     /**
+     * In memory only (round 4 review, P3-6): the repair text quotes verified
+     * entries (the targets check), so the fix is handled like a facts fix.
+     */
+    repairFromEntries?: true;
+    /**
      * 2026-09-30 (second, Greptile round): a LEAVE OUT verdict's figure note
      * (orderedGeneration.ts leaveOutFigureNote), added to its row's reason;
      * the verdict itself is unchanged.
@@ -1743,6 +1748,11 @@ export function verifyFactsFindings(args: {
   /** The verdict's own paragraph (1-based), preferred where it holds a draft quote. */
   paragraph?: number;
   items?: readonly string[];
+  /**
+   * Round 4 review (P2-3): an applied targets verdict's evidence may quote
+   * words the section copied from the sources, so the same-text drop is off.
+   */
+  sameTextAllowed?: boolean;
 }): { verified: VerifiedFactsFinding[]; held: VerifiedFactsFinding[]; unverified: number } {
   const verified: VerifiedFactsFinding[] = [];
   const held: VerifiedFactsFinding[] = [];
@@ -1753,7 +1763,7 @@ export function verifyFactsFindings(args: {
     const paragraphIndex = holds(named) ? named : args.paragraphs.findIndex((_, index) => holds(index));
     if (paragraphIndex < 0) continue;
     if (!quoteFoundIn(finding.sourceQuote, args.sources)) continue;
-    if (sameQuoteText(finding.sourceQuote, finding.draftQuote)) continue;
+    if (!args.sameTextAllowed && sameQuoteText(finding.sourceQuote, finding.draftQuote)) continue;
     const shown = {
       paragraphIndex,
       draftQuote: finding.draftQuote.trim(),
@@ -1821,6 +1831,7 @@ export function verifyTargetFindings(args: {
   sources: readonly string[];
   paragraph?: number;
   items?: readonly string[];
+  sameTextAllowed?: boolean;
 }): { verified: VerifiedTargetFinding[]; held: VerifiedTargetFinding[]; unverified: number } {
   const verified: VerifiedTargetFinding[] = [];
   const held: VerifiedTargetFinding[] = [];
@@ -1840,32 +1851,89 @@ export function verifyTargetFindings(args: {
   return { verified, held, unverified };
 }
 
-/** Words that say a target was met, and words that name a target. */
-const MET_WORDS = String.raw`met|meets?|meeting|reached|reach(?:es|ing)?|achieved|achiev(?:es|ing)|hits?|exceeded|exceed(?:s|ing)|within|satisfied`;
-const TARGET_WORDS = String.raw`targets?|goals?|thresholds?|specifications?|specs?|limits?`;
+/**
+ * Words that say a target was met, and words that name a target. Round 4
+ * review (P2-1): "exceeded" is left out (for a limit it says the target was
+ * missed), "passed" is in, and requirements, criteria, tolerances, aims and
+ * objectives name a target too.
+ */
+const MET_WORDS = String.raw`met|meets?|meeting|reached|reach(?:es|ing)?|achieved|achiev(?:es|ing)|hits?|within|satisfied|passed|pass(?:es|ing)`;
+const TARGET_WORDS = String.raw`targets?|goals?|thresholds?|specifications?|specs?|limits?|requirements?|criteria|criterion|tolerances?|aims?|objectives?`;
 const MET_WORD = new RegExp(String.raw`\b(?:${MET_WORDS})\b`, "gi");
 const TARGET_WORD = new RegExp(String.raw`\b(?:${TARGET_WORDS})\b`, "i");
-const NEGATION_BEFORE = /(?:\b(?:not|never|no|failed to|fail to|without)|n't)\s+(?:\w+\s+){0,2}$/i;
+/** A negation up to four words before the met word, in the same phrase: "did not meet", "none of the four coatings met". */
+const NEGATION_BEFORE = /(?:\b(?:not|never|no|none|neither|nor|unable|failed to|fail to|without)|n't)\s+(?:[\w'-]+\s+){0,4}$/i;
+/** "to" just before it, or a modal up to two words before: "to meet", "would meet", "could be held within". */
+const UNREAL_BEFORE = /(?:\bto\s+(?:be\s+)?|\b(?:would|could|will|may|might|can|should|must)\s+(?:[\w'-]+\s+){0,2})$/i;
+/**
+ * A plan, an aim or a question earlier in the sentence: "was planned to test
+ * whether", "It was hypothesized", "The aim of this work was to develop".
+ */
+const PLAN_BEFORE = /\b(?:hypothesi[sz]ed|planned|aimed|expected|intended|sought|whether|if|(?:was|were|is|are) to)\b/i;
+/** Where a new clause starts within a sentence. */
+const CLAUSE_BREAK = /,\s+(?:and|but|while|whereas)\s+/i;
+/** "met with" a person, and "reached only" a figure, say no target was met. */
+const NOT_MET_AFTER = /^\s+(?:with|only)\b/i;
+
+export type TargetMetSentence = {
+  paragraphIndex: number;
+  sentence: string;
+  /** The words in it that say a target was met, as the sentence writes them. */
+  metWords: string[];
+};
 
 /**
  * 2026-10-04 (second, round 4): each sentence of the checked text that says a
- * target was met: it names a target and holds a word for met that no
- * negation comes just before ("did not meet" says it was missed).
+ * target was met: it names a target and holds a word for met that says so.
+ * Round 4 review (P2-1): a met word after a negation ("did not meet", "none
+ * met", "unable to meet"), after "to", a modal or "be" ("could be reached",
+ * "would meet"), after a plan, an aim or a question earlier in the sentence
+ * ("was planned to test whether", "It was hypothesized", "The aim of this
+ * work was to develop"), or followed by "with" or "only" ("met with the supplier",
+ * "reached only 35 microns") does not say a target was met.
  */
-export function targetMetSentences(paragraphs: readonly string[]): Array<{ paragraphIndex: number; sentence: string }> {
+export function targetMetSentences(paragraphs: readonly string[]): TargetMetSentence[] {
   return paragraphs.flatMap((paragraph, paragraphIndex) =>
     paragraph.split(/(?<=[.!?;])\s+/).flatMap((sentence) => {
       if (!TARGET_WORD.test(sentence)) return [];
-      const positive = [...sentence.matchAll(MET_WORD)].some((match) =>
-        !NEGATION_BEFORE.test(sentence.slice(0, match.index ?? 0)));
-      return positive ? [{ paragraphIndex, sentence: sentence.trim() }] : [];
+      const metWords = [...sentence.matchAll(MET_WORD)].flatMap((match) => {
+        const at = match.index ?? 0;
+        const before = sentence.slice(0, at);
+        const after = sentence.slice(at + match[0].length);
+        // A plan word counts only in the same clause ("The objective was to
+        // understand ..., and it was largely achieved" states a result).
+        const clause = before.split(CLAUSE_BREAK).pop() ?? before;
+        return NEGATION_BEFORE.test(before) || UNREAL_BEFORE.test(before) || PLAN_BEFORE.test(clause) || NOT_MET_AFTER.test(after)
+          ? []
+          : [match[0]];
+      });
+      return metWords.length > 0 ? [{ paragraphIndex, sentence: sentence.trim(), metWords }] : [];
     }));
 }
 
-/** One finding's quotes, with its target when given, plainly. */
-function targetFindingText(finding: VerifiedTargetFinding, joiner: "but" | "and"): string {
-  return `P${finding.paragraphIndex + 1} says "${rowQuote(finding.draftQuote)}", ${joiner} the sources say "${rowQuote(finding.sourceQuote)}"${
-    finding.targetQuote ? ` against the target "${rowQuote(finding.targetQuote)}"` : ""
+/** Whether an entry's draft quote is in the sentence and holds one of its met words (review P2-2). */
+function coversMetSentence(draftQuote: string, met: TargetMetSentence): boolean {
+  return quoteFoundIn(draftQuote, met.sentence) &&
+    met.metWords.some((word) => new RegExp(String.raw`\b${word}\b`, "i").test(draftQuote));
+}
+
+/** How a quote reads in a targets row: one line, at most 80 characters (review P2-4). */
+function shortQuote(quote: string): string {
+  const flat = quote.replace(/\s+/g, " ").trim();
+  return flat.length > 80 ? `${flat.slice(0, 79).trimEnd()}…` : flat;
+}
+
+/** One entry's quotes, with its target when given, plainly and short. */
+function targetFindingText(finding: VerifiedTargetFinding): string {
+  return `P${finding.paragraphIndex + 1} "${shortQuote(finding.draftQuote)}", the sources "${shortQuote(finding.sourceQuote)}"${
+    finding.targetQuote ? `, the target "${shortQuote(finding.targetQuote)}"` : ""
+  }.`;
+}
+
+/** One error's quotes, with its target when given, plainly and short. */
+function targetErrorText(finding: VerifiedTargetFinding): string {
+  return `P${finding.paragraphIndex + 1} says "${shortQuote(finding.draftQuote)}", but the sources say "${shortQuote(finding.sourceQuote)}"${
+    finding.targetQuote ? ` against the target "${shortQuote(finding.targetQuote)}"` : ""
   }.`;
 }
 
@@ -1876,22 +1944,27 @@ export function targetFindingsReason(
   held: readonly VerifiedTargetFinding[] = []
 ): string {
   return [
-    ...verified.map((finding) => targetFindingText(finding, "but")),
-    ...(held.length > 0 ? [`${FACTS_HELD_PREFIX}${held.map((finding) => targetFindingText(finding, "but")).join(" ")}`] : []),
+    ...verified.map(targetErrorText),
+    ...(held.length > 0 ? [`${FACTS_HELD_PREFIX}${held.map(targetErrorText).join(" ")}`] : []),
     ...(unverified > 0
       ? [`${unverified} more ${unverified === 1 ? "finding was" : "findings were"} not shown: ${unverified === 1 ? "its" : "their"} quotes could not be shown from the sources.`]
       : []),
   ].join(" ");
 }
 
-/** The row of an applied targets verdict whose met targets are each shown (round 4). */
+/**
+ * The row of an applied targets verdict that quoted source words for each
+ * sentence that says a target was met (round 4). Review P2-2: it says what
+ * the check quoted, not that the sources show the claim, since code only
+ * verifies that the quotes exist.
+ */
 export function targetsShownReason(evidence: readonly VerifiedTargetFinding[]): string {
-  return `Each target stated as met is shown in the sources: ${evidence.map((finding) => targetFindingText(finding, "and")).join(" ")}`;
+  return `The targets check quoted these source words for each target stated as met: ${evidence.map(targetFindingText).join(" ")}`;
 }
 
-/** Round 4: a target stated as met that the check could not show from the sources. */
+/** Round 4: a target claim the check could not show from the sources (review P2-1 wording). */
 export function targetsNotShownReason(met: { paragraphIndex: number; sentence: string }): string {
-  return `Not checked: the targets check could not show from the sources that a target was met as P${met.paragraphIndex + 1} states it ("${rowQuote(met.sentence)}").`;
+  return `Not checked: the targets check could not show from the sources the target claim in P${met.paragraphIndex + 1} ("${shortQuote(met.sentence)}").`;
 }
 
 /** Round 4: a not applied targets verdict with no entry whose quotes verify. */
@@ -2212,28 +2285,37 @@ export async function runModelSelfCheck(
       // target was met vouches only where its evidence shows each such
       // sentence from the sources; otherwise the row is not checked.
       if (expected.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID && verdict && input.sourceFacts) {
+        const applied = verdict.outcome === "applied";
         const { verified, held, unverified } = verifyTargetFindings({
-          findings: verdict.targetFindings ?? [],
+          // Review P3-7: an applied verdict's evidence has no correction; an
+          // entry with one is not evidence that the target was met.
+          findings: (verdict.targetFindings ?? []).filter((finding) => !applied || !finding.correction.trim()),
           paragraphs,
           sources: factsVerificationSources(input),
           ...(verdict.paragraph !== undefined ? { paragraph: verdict.paragraph } : {}),
           ...(!input.sourceFacts.documentsComplete ? { items: input.sourceFacts.items } : {}),
+          // Review P2-3: a faithful draft may copy the source's words.
+          ...(applied ? { sameTextAllowed: true } : {}),
         });
         const ref = { ruleId: expected.ruleId, mergedItemIds: [...expected.mergedItemIds] };
-        if (verdict.outcome === "applied") {
+        if (applied) {
           const met = targetMetSentences(paragraphs);
           if (met.length > 0) {
             const evidence = [...verified, ...held];
-            const unshown = met.find((sentence) => !evidence.some((finding) =>
-              finding.paragraphIndex === sentence.paragraphIndex && quoteFoundIn(finding.draftQuote, sentence.sentence)));
+            // Review P2-2 and P3-7: each sentence needs an entry whose draft
+            // quote it holds and that holds its met word, wherever the entry
+            // was located.
+            const unshown = met.find((sentence) => !evidence.some((finding) => coversMetSentence(finding.draftQuote, sentence)));
             if (unshown) {
-              return { ...ref, outcome: "not_applied" as const, reason: targetsNotShownReason(unshown), actionableRepair: false };
+              return { ...ref, paragraphIndex: unshown.paragraphIndex, outcome: "not_applied" as const, reason: targetsNotShownReason(unshown), actionableRepair: false };
             }
             return { ...ref, outcome: "applied" as const, reason: targetsShownReason(evidence) };
           }
         } else if (verified.length === 0 && held.length > 0) {
           return { ...ref, paragraphIndex: held[0]!.paragraphIndex, outcome: "not_applied" as const, reason: targetFindingsReason([], unverified, held), actionableRepair: false };
         } else if (verified.length === 0) {
+          // Review P3-8: never repaired from the model's guidance alone, as for
+          // the facts check: an error that cannot be shown is not checked.
           console.warn(`${SELF_CHECK_REQUEST.toolName}: a targets verdict with ${verdict.targetFindings?.length ?? 0} entr(ies) had none that verified; recorded as not checked`);
           return { ...ref, outcome: "not_applied" as const, reason: targetsNotCheckedReason(verdict.unclipped?.reason ?? verdict.reason), actionableRepair: false };
         } else {
@@ -2244,6 +2326,7 @@ export async function runModelSelfCheck(
             reason: targetFindingsReason(verified, unverified, held),
             actionableRepair: true,
             repairText: targetsRepairText(verified),
+            repairFromEntries: true as const,
           };
         }
       }

@@ -2670,7 +2670,8 @@ describe("results against targets, no talk about sources and Glossary repairs (2
       outcome: "applied",
       repaired: true,
       // 2026-10-04 (second, round 4): a targets row a repair fixed still says what was wrong.
-      reason: "Every comparison matches. Fixed by the repair: P1 calls a met target close.",
+      // Review P2-4: what was wrong comes first.
+      reason: "Fixed by the repair: P1 calls a met target close. Every comparison matches.",
       planRef: { summaryVersionId: "summary-version", ruleId: "results_against_targets", mergedItemIds: [] },
     })]);
   });
@@ -3131,17 +3132,40 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
 });
 
 describe("a target is met only as the sources state it (2026-10-04, second, round 4)", () => {
-  it("finds each sentence that says a target was met, and none that says it was missed or names no target", () => {
-    const paragraphs = [
-      "Overspray onto the faces caused an adhesion problem, rated 3B against a 5B target.",
-      "Splitting the oven profile cut overshoot to 2 C, and the combined process met both the outgassing defect and film build targets together on 140 test panels for the first time.",
-      "The deep cove profile did not meet the 60-micron target. It didn't reach the target either. Edge coverage still met target.",
+  it("finds each sentence that says a target was met in real Line 244 and 246 text, and none that plans, asks or says it was missed (review P2-1)", () => {
+    // Sentences of the release suite's Lines 244 and 246, 2026-10-04 to 2026-10-05 run 7.
+    const met = [
+      "Splitting the oven profile into ramp and hold zones cut overshoot from about 5 C to 2 C, and the combined sealer-and-powder process met both the outgassing defect and film build targets together on 140 test panels for the first time.",
+      "Combined with the edge sealer, full cure was reached at a panel surface temperature of 120 C within a cure window of 113 to 121 C, 8 C wide, meeting cure and outgassing targets together for the first time.",
+      "Shaker profile doors were ready for production at fiscal year end, meeting edge coverage and cure targets.",
+      "The filter captured 41 percent more fine inclusions than the standard 20 ppi filter, exceeding target, and flowed at 3.8 kg/s, a 7 percent reduction within the 10 percent limit.",
+      "The project goal of replacing manual and fixed-force deburring was met using two-angle vision and a non-linear force map.",
+      "This aim was achieved for the shaker profile: a conductive edge sealer decoupled conductivity from preheat.",
+      "The objective was to understand the thermal, electrostatic and cure behaviour of powder on thick routed MDF, and it was largely achieved.",
+      "Mapping the cure window with the sealer in place gave a range of 113 to 121 C, 8 C wide, meeting the production requirement;",
+    ];
+    const notMet = [
+      "A conductive edge sealer trial was planned to test whether edge coverage could be reached without a preheat above the outgassing threshold.",
+      "The company designed a series of trials to isolate whether conductivity could be achieved without raising panel surface temperature past that threshold.",
+      "It was hypothesized that if a conductive edge sealer supplied conductivity instead of preheat, then preheat could drop while edge coverage still met target.",
+      "Trial 1 tested whether the supplier's datasheet process, developed for flat panels, would meet targets on thick routed MDF.",
+      "The aim of this work was to develop a low-temperature powder coating process for thick, routed MDF doors meeting film build, edge coverage, cure and outgassing targets at line speed.",
+      "Film build on the routed edges reached only 35 microns against 82 microns on the faces, and outgassing defects on the routed edges were well above target.",
+      "The company aimed to advance knowledge of burr height estimation, so edge radius could be held within tolerance across varying burr height.",
+      // Negations, a meeting, and a missed limit.
+      "None of the four coatings met the clarity target.",
+      "Neither coating met both targets.",
+      "The line was unable to meet the 2.5 metres per minute target.",
+      "The team met with the supplier to review the cure specification.",
+      "Cure time exceeded the 30-minute limit.",
       "Edge coverage still reached 58 to 64 microns.",
     ];
-    expect(targetMetSentences(paragraphs)).toEqual([
-      { paragraphIndex: 1, sentence: paragraphs[1] },
-      { paragraphIndex: 2, sentence: "Edge coverage still met target." },
-    ]);
+    expect(targetMetSentences(met).map((found) => found.sentence)).toEqual(met);
+    expect(targetMetSentences(notMet)).toEqual([]);
+    expect(targetMetSentences([met[0]!])[0]!.metWords).toEqual(["met"]);
+    // A sentence per paragraph and per clause end.
+    expect(targetMetSentences(["The deep cove profile did not meet the 60-micron target. Edge coverage still met target."]))
+      .toEqual([{ paragraphIndex: 0, sentence: "Edge coverage still met target.", metWords: ["met"] }]);
   });
 
   it("verifies an entry's target quote in the sources too, and drops an entry that quotes the draft back", () => {

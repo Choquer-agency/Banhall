@@ -1641,7 +1641,8 @@ describe("results stated against their targets (2026-09-30, third)", () => {
       projectSummarySelfCheckWorstCaseResponse({ ordinaryChecks: ordinary, planChecks: checks, includeStorylineQuestion: false });
     // Round 4: three entries with a target quote, and no repairGuidance,
     // since the repair text comes from the entries.
-    const entry = { correction: "c".repeat(120), draftQuote: "d".repeat(128), sourceQuote: "s".repeat(160), targetQuote: "t".repeat(120) };
+    // Review P3-5: a 64-byte draft quote, an 80-byte target and correction.
+    const entry = { correction: "c".repeat(80), draftQuote: "d".repeat(64), sourceQuote: "s".repeat(160), targetQuote: "t".repeat(80) };
     const verdict = JSON.stringify({
       mergedItemIds: [],
       outcome: "not_applied",
@@ -1650,9 +1651,9 @@ describe("results stated against their targets (2026-09-30, third)", () => {
       ruleId: RESULTS_AGAINST_TARGETS_RULE_ID,
       targetFindings: [entry, entry, entry],
     });
-    expect([MAX_TARGET_FINDINGS, MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES]).toEqual([3, 120]);
+    expect([MAX_TARGET_FINDINGS, MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES]).toEqual([3, 80]);
     expect(bytes(envelope([...plan.checks, targets("s244")])) - bytes(envelope(plan.checks))).toBe(bytes(verdict) + 1);
-    expect(bytes(verdict) + 1).toBe(1_986);
+    expect(bytes(verdict) + 1).toBe(1_554);
     expect(envelope([...plan.checks, targets("s244")])).toContain(verdict);
   });
 });

@@ -892,10 +892,10 @@ function literalSummaryResponseOracle(args: {
             ...(check.ruleId === "results_against_targets"
               ? {
                   targetFindings: Array.from({ length: 3 }, () => ({
-                    correction: "c".repeat(120),
-                    draftQuote: "d".repeat(128),
+                    correction: "c".repeat(80),
+                    draftQuote: "d".repeat(64),
                     sourceQuote: "s".repeat(160),
-                    targetQuote: "t".repeat(120),
+                    targetQuote: "t".repeat(80),
                   })),
                 }
               : {}),
@@ -3255,15 +3255,15 @@ describe("seed Summary sign-off and recovery", () => {
     // (review round 1, P2-2), again for its three findings (round 2), and
     // again for its halved reservation (round 2 review, P3-1). Re-pinned
     // again in round 4: the targets verdict reserves its three entries in
-    // place of its repairGuidance.
+    // place of its repairGuidance (shorter fields since its review, P3-5).
     // It still equals the independent oracle above, which
     // frozenS244OracleChecks and literalSummaryResponseOracle extend the
     // same way.
     expect(replayHashes).toEqual({
-      restored: "6c25ae474fbbaa4ff079c6632318a75d02fbc5a9c4281e87530995c560d36c3a",
-      omit_storyline: "dfb9a98cd8f67e5daa3590a5edc7d242de6129bd8e82a335f8682beba9231a50",
-      omit_repeated_merge: "c342528d02a36fa785fd30a76140b36b641e16fe4335a94a44f76ed571b3a2e6",
-      short_reason: "b522876bc11eecab522f1c5069acdea62415cdcb02efed0019f450ce272f1e2f",
+      restored: "2aa395504b149cff852a7c159a682c4527cde06a4f49e6f5b855ff21614a262f",
+      omit_storyline: "1ddafb939c8deed9c9441bccc2f5c55c4c553c689a50c0c82b35f6ac41757814",
+      omit_repeated_merge: "e69b02b3b64e2f7cc366a89b485d5ee3ee8c65f0f33c4fb98befb264e961bdbe",
+      short_reason: "9b856eb95963cc6e950765cd85d0a40bb96f5857dcb1967a89f2b6635407882b",
     });
   });
 
