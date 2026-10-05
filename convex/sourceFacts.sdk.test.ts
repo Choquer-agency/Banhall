@@ -49,6 +49,8 @@ import {
   RESULTS_AGAINST_TARGETS_RULE_ID,
 } from "./lib/seedRevisions";
 import { renderBriefBlock } from "./lib/briefRender";
+import { sectionMetrics } from "./lib/lineLimits";
+import { talksAboutLength } from "./lib/selfCheckRules";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 import { FACT_RULES } from "../shared/humanProse";
 
@@ -771,6 +773,147 @@ describe("review round 1: the sources, the guidance, the figure guard and edited
       outcome: "applied",
       repaired: true,
       reason: "Every comparison matches.",
+    });
+  });
+});
+
+// ─── With the writer's measured caps (2026-10-04, first, after the merge) ──
+
+describe("the first Self-check with both the writer's measured caps and the facts check (real SDK, fetch stubbed)", () => {
+  const CAP_RULE = "- Line 244: no more than 60 words.";
+  const WRITER_WITH_CAP = `Write in the third person throughout.\n\n${CAP_RULE}`;
+  /** A facts finding whose words sound like length: a guard on it would rewrite it. */
+  const FACTS_CAP_REASON = "P2 says deep cove stayed under the cap of 5%; sources give 13%";
+  const FACTS_CAP_GUIDANCE = "P2: deep cove fell short on 13% of its 180 panels, 4% of all 600.";
+  const STILL_WRONG_REASON = "P2 still says deep cove stayed under the cap of 5%";
+  const REPAIRED = DRAFT_244.replace("flat steel panels", "thin flat panels");
+  const MEASURED_CAPS =
+    `\n\nCode measures these caps of the writer's and reports them on their own: "${CAP_RULE}". In the verdicts for the WRITER INSTRUCTIONS block, do not judge these caps, and do not mention this section's word or line count. Judge every other rule, including any other length rule.`;
+
+  /** Like installFetch, but a shortening pass for the writer's cap is told apart and echoes its text. */
+  function installCapFetch(script: { repair: string; checks: unknown[] }): Sent[] {
+    const sent: Sent[] = [];
+    const checks = [...script.checks];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        const json = JSON.parse(await new Request(input, init).text()) as Record<string, unknown>;
+        const user = userOf(json);
+        const system = typeof json.system === "string"
+          ? json.system
+          : Array.isArray(json.system) ? json.system.map((block: { text?: string }) => block.text ?? "").join("") : "";
+        const tool = (json.tools as Array<{ name: string }> | undefined)?.[0]?.name ?? null;
+        const stage = tool === "submit_self_check"
+          ? user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction) ? "finalCoverage" : "selfCheck"
+          : system.startsWith(COMPRESSION_REQUEST.system.slice(0, 60))
+            ? "compression"
+            : user.includes(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix) ? "repair" : "section";
+        sent.push({ stage, json, user });
+        const base = {
+          id: "msg_synthetic",
+          type: "message",
+          role: "assistant",
+          model: json.model,
+          stop_sequence: null,
+          usage: { input_tokens: 40, output_tokens: 8 },
+        };
+        if (tool === "submit_self_check") {
+          const answer = checks.shift();
+          if (answer === undefined) throw new Error("No Self-check answer scripted");
+          return Response.json({
+            ...base,
+            content: [{ type: "tool_use", id: "toolu_self_check", name: tool, input: answer }],
+            stop_reason: "tool_use",
+          });
+        }
+        if (tool) throw new Error(`Unexpected tool ${tool}`);
+        const text = stage === "compression"
+          ? user.split(COMPRESSION_REQUEST.writerCap.userScaffold.percentToText)[1] ??
+            user.split(COMPRESSION_REQUEST.writerCap.finalCutScaffold.targetToText)[1] ?? ""
+          : stage === "repair" ? script.repair : DRAFT_244;
+        return Response.json({ ...base, content: [{ type: "text", text }], stop_reason: "end_turn" });
+      })
+    );
+    return sent;
+  }
+
+  it("holds the caps sentence and the facts check once each; the facts finding still reaches the repair and its row is never rewritten", async () => {
+    const sent = installCapFetch({
+      repair: REPAIRED,
+      checks: [
+        {
+          verdicts: [
+            ...ordinary,
+            { paragraph: 0, check: "instruction", instruction: "writer:profile", outcome: "applied", reason: "Third person throughout; word cap ok." },
+          ],
+          planVerdicts: [
+            ...covered,
+            { ...factsWrong, paragraph: 2, reason: FACTS_CAP_REASON, repairGuidance: FACTS_CAP_GUIDANCE },
+            targetsMet,
+          ],
+        },
+        {
+          verdicts: [],
+          planVerdicts: [...covered, { ...factsWrong, paragraph: 2, reason: STILL_WRONG_REASON, repairGuidance: FACTS_CAP_GUIDANCE }, targetsMet],
+        },
+      ],
+    });
+    const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
+    const result = await t.action(async (ctx: ActionCtx) => {
+      const clientFor = Object.assign(
+        (callSite: string) => instrumentedAnthropic(ctx, { callSite }) as unknown as GenerationClient,
+        { modelFor: () => SONNET }
+      );
+      const base = payload(SUMMARY_VERSION, WRITER_WITH_CAP);
+      return await draftCheckedSection({
+        claim: claimFor(plan244()),
+        payload: {
+          ...base,
+          orderedContext: {
+            ...base.orderedContext,
+            profileState: "applied",
+            selfCheckRules: [{ section: "244", instruction: CAP_RULE, maxWords: 60 }],
+          },
+        },
+        section: "244",
+        clientFor,
+      });
+    });
+    expect(sectionMetrics(DRAFT_244, "s244").words).toBeGreaterThan(60);
+    expect(sent.map((request) => request.stage)).toEqual([
+      "section", "compression", "compression", "selfCheck", "repair", "compression", "compression", "finalCoverage",
+    ]);
+
+    // The first Self-check: the caps sentence once, scoped to the WRITER
+    // INSTRUCTIONS verdicts, after the data blocks; the SOURCE FACTS block
+    // and the facts instruction once each.
+    const check = sent.find((request) => request.stage === "selfCheck")!.user;
+    expect(check.split(MEASURED_CAPS)).toHaveLength(2);
+    expect(check.split("In the verdicts for the WRITER INSTRUCTIONS block")).toHaveLength(2);
+    expect(check.split("--- BEGIN [WRITER INSTRUCTIONS] ---")).toHaveLength(2);
+    expect(check.split("--- BEGIN [SOURCE FACTS] ---")).toHaveLength(2);
+    expect(check).toContain(`Writer instructions:\n- ${WRITER_WITH_CAP}\n--- END [SOURCE FACTS] ---`);
+    expect(check.split(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction)).toHaveLength(2);
+    expect(check).toContain(`--- END [SOURCE FACTS] ---${MEASURED_CAPS}`);
+    expect(check.indexOf(MEASURED_CAPS)).toBeLessThan(check.indexOf(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.instruction));
+
+    // The facts finding still goes to the repair, with its guidance whole.
+    const repair = sent.find((request) => request.stage === "repair")!.user;
+    expect(repair).toContain(`- Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${FACTS_CAP_GUIDANCE}`);
+    expect(repair).toContain(`- Shorten Line 244 to at most 60 words (writer rule: "${CAP_RULE}").`);
+
+    // The facts row keeps the final check's own words, though they mention
+    // a cap (the guard would read them as length talk); the writer's
+    // settings row beside it is guarded.
+    expect(talksAboutLength(STILL_WRONG_REASON)).toBe(true);
+    const facts = result.notes.find((row) => row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID);
+    expect(facts).toMatchObject({ instruction: FACTS_INSTRUCTION, outcome: "not_applied", reason: STILL_WRONG_REASON, repaired: false });
+    expect(facts?.reason).not.toContain("measured by code");
+    expect(result.notes.find((row) => row.instruction === CAP_RULE)).toMatchObject({ outcome: "not_applied" });
+    expect(result.notes.find((row) => row.source === "model" && row.instruction === WRITER_WITH_CAP)).toMatchObject({
+      outcome: "not_applied",
+      reason: expect.stringMatching(/^Not followed in full: Line 244 is over the writer's cap at \d+\/60 words \(measured by code; see the cap row\)\. Otherwise followed: Third person throughout\.$/),
     });
   });
 });
