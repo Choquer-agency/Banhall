@@ -20,13 +20,14 @@ import { settingsSupplyLabel } from "../lib/settingsDocument";
 import { MODEL } from "./model";
 import type { GenerationClient } from "./openrouterCore";
 import { normalizeProviderError } from "./providers";
+import { z } from "zod";
 import {
   ANALYSIS_TOOL_SCHEMA,
   STYLE_ANALYSIS_REQUEST,
   STYLE_ANALYSIS_SYSTEM_PROMPT,
   buildStyleAnalysisPrompt,
-  styleAnalysisSchema,
-  type StyleAnalysis,
+  lockedConflictSchema,
+  styleAnalysisCategoriesSchema,
 } from "./styleAnalysis";
 import { generateStructured } from "./structured";
 import {
@@ -163,6 +164,19 @@ async function safeLog(log: ResolverArgs["log"], line: string): Promise<void> {
   }
 }
 
+/**
+ * 2026-10-04 (first), Round 3 (owner approved 2026-10-05): the classifier's
+ * answer as a generation reads it. Every category verdict is required, as
+ * before. `lockedConflicts` is read as empty when the answer leaves it out:
+ * a generation never reads it (the Locked tier holds whatever a document
+ * says), so it decides no waiver. The Settings page analysis, which shows
+ * those conflicts to the writer, still requires it (styleAnalysisSchema).
+ */
+export const settingsClassifierAnswerSchema = z.object({
+  categories: styleAnalysisCategoriesSchema,
+  lockedConflicts: z.array(lockedConflictSchema).optional(),
+});
+
 /** The categories a settings document legislates, per the PSOS-50 classifier. */
 export async function classifySettingsDocument(
   client: GenerationClient | Anthropic,
@@ -170,7 +184,7 @@ export async function classifySettingsDocument(
   model: string = MODEL
 ): Promise<StyleOverrideKey[]> {
   const { system, user } = buildStyleAnalysisPrompt(text);
-  const analysis = await generateStructured<StyleAnalysis>(client, {
+  const analysis = await generateStructured(client, {
     system,
     user,
     toolName: STYLE_ANALYSIS_REQUEST.toolName,
@@ -178,9 +192,12 @@ export async function classifySettingsDocument(
     schema: ANALYSIS_TOOL_SCHEMA,
     maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
     model,
-    validate: styleAnalysisSchema,
+    validate: settingsClassifierAnswerSchema,
     // One attempt: generateReport waits on this call inside its 600 s action.
     attempts: 1,
+    // Round 3: release suite runs 5 and 6 got `categories` as JSON text.
+    // Read such a field and validate it as usual; no request is added.
+    encodedFieldRecovery: true,
   });
   return STYLE_OVERRIDE_KEYS.filter((key) => analysis.categories[key].addressed);
 }

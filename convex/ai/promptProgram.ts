@@ -642,6 +642,12 @@ export const generationPromptProgram = {
       model: { kind: "frozen-role", role: "analysis", legacyModelId: MODEL },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
+      // 2026-10-04 (first), Round 3: a field the tool schema wants as an
+      // object or array that arrives as JSON text is read, then validated
+      // as usual (no request is added); an absent lockedConflicts reads as
+      // empty, since no waiver depends on it.
+      answerDecode: "object-or-array-fields-sent-as-json-text-read-then-validated",
+      lockedConflicts: "absent-read-as-empty-decides-no-waiver",
       callSite: "generation:settings",
       cache: "per-projectId-and-contentHash-and-classifierVersion",
     },

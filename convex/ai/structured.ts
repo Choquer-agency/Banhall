@@ -77,6 +77,82 @@ function unwrapEncodedJson(value: unknown, depth = 0): unknown {
   }
 }
 
+/** A JSON Schema node as far as decodeEncodedToolFields reads it. */
+type SchemaNode = { type?: unknown; properties?: Record<string, unknown>; items?: unknown };
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A JSON text's value, read through at most one more layer of encoding; undefined when it is not JSON. */
+function parseEncodedText(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && !trimmed.startsWith('"')) return undefined;
+  try {
+    const once = JSON.parse(trimmed) as unknown;
+    if (typeof once !== "string") return once;
+    const again = once.trim();
+    if (!again.startsWith("{") && !again.startsWith("[")) return undefined;
+    return JSON.parse(again) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 2026-10-04 (first), Round 3 (owner approved 2026-10-05): a field the tool
+ * schema wants as an object or array that arrived as a string holding valid
+ * JSON of that very shape, read as that value. Guided by the schema: a field
+ * whose type allows a string is never touched, a string that is not JSON or
+ * holds another shape stays as sent, and nothing is invented or dropped.
+ * Returns the value (a copy only where something was read) and the paths of
+ * the fields it read, never their text. The caller still validates the value
+ * as usual; this is a decode, not a repair call.
+ */
+export function decodeEncodedToolFields(
+  value: unknown,
+  schema: unknown,
+  path = ""
+): { value: unknown; paths: string[] } {
+  if (!isPlainObject(schema)) return { value, paths: [] };
+  const node = schema as SchemaNode;
+  const types = (Array.isArray(node.type) ? node.type : [node.type]).filter(
+    (type): type is string => typeof type === "string"
+  );
+  const paths: string[] = [];
+  let current = value;
+  if (typeof current === "string" && !types.includes("string")) {
+    const parsed = parseEncodedText(current);
+    if ((types.includes("object") && isPlainObject(parsed)) || (types.includes("array") && Array.isArray(parsed))) {
+      current = parsed;
+      paths.push(path || "(root)");
+    }
+  }
+  if (isPlainObject(current) && isPlainObject(node.properties)) {
+    let copy: Record<string, unknown> | null = null;
+    for (const [key, child] of Object.entries(node.properties)) {
+      if (!(key in current)) continue;
+      const read = decodeEncodedToolFields(current[key], child, path ? `${path}.${key}` : key);
+      if (read.paths.length === 0) continue;
+      copy ??= { ...current };
+      copy[key] = read.value;
+      paths.push(...read.paths);
+    }
+    if (copy) current = copy;
+  } else if (Array.isArray(current) && node.items !== undefined) {
+    let copy: unknown[] | null = null;
+    current.forEach((item, index) => {
+      const read = decodeEncodedToolFields(item, node.items, `${path || "(root)"}.${index}`);
+      if (read.paths.length === 0) return;
+      copy ??= [...(current as unknown[])];
+      copy[index] = read.value;
+      paths.push(...read.paths);
+    });
+    if (copy) current = copy;
+  }
+  return { value: current, paths };
+}
+
 /**
  * Get structured JSON from the model via tool-use. On Anthropic the API
  * returns the tool input already parsed and schema-valid. On OpenRouter the
@@ -121,6 +197,14 @@ export async function generateStructured<T>(
      * recovery. Strict raw-boundary callers can disable that recovery.
      */
     encodedJsonRecovery?: boolean;
+    /**
+     * 2026-10-04 (first), Round 3: opt in to reading a field `schema` wants
+     * as an object or array that arrived as a string of valid JSON of that
+     * shape (decodeEncodedToolFields), then validating as usual. Off by
+     * default; only the settings document classifier sets it. It makes no
+     * request of its own, so a one-attempt call stays one attempt.
+     */
+    encodedFieldRecovery?: boolean;
     /**
      * Called each time an answer is cut off at the output token limit, on
      * either gateway, even when the repair then succeeds or fails another
@@ -374,6 +458,17 @@ async function structuredAttempts<T>(
     if (parsed.success) {
       await settle({ ok: true });
       if (!(await askedSoftRepair(parsed.data, block.input, lastAttempt))) return await settled(parsed.data);
+      continue;
+    }
+    // Round 3 (opt-in): fields sent as JSON text, read and validated as usual.
+    const fields = opts.encodedFieldRecovery && opts.schema
+      ? decodeEncodedToolFields(unwrapped, opts.schema)
+      : null;
+    const decoded = fields && fields.paths.length > 0 ? opts.validate.safeParse(fields.value) : null;
+    if (decoded?.success) {
+      console.warn(`${opts.toolName}: read ${fields!.paths.join(", ")} sent as JSON text`);
+      await settle({ ok: true });
+      if (!(await askedSoftRepair(decoded.data, block.input, lastAttempt))) return await settled(decoded.data);
       continue;
     }
     await settle({ ok: false, code: "invalid_output" });

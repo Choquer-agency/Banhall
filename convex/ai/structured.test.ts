@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { generateStructured } from "./structured";
+import { decodeEncodedToolFields, generateStructured } from "./structured";
 import { MalformedOutputError, type GenerationClient } from "./openrouterCore";
 
 function clientWith(inputs: unknown[]): GenerationClient {
@@ -317,5 +317,87 @@ describe("generateStructured", () => {
       await expect(generateStructured({ messages: { create } }, opts)).resolves.toEqual({ value: "linked" });
       expect(create).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+// 2026-10-04 (first), Round 3 (owner approved 2026-10-05): a field the schema
+// wants as an object or array that arrived as JSON text.
+describe("decodeEncodedToolFields and encodedFieldRecovery (Round 3)", () => {
+  const schema = {
+    type: "object" as const,
+    properties: {
+      categories: {
+        type: "object",
+        properties: { a: { type: "object", properties: { on: { type: "boolean" } } } },
+      },
+      items: { type: "array", items: { type: "object" } },
+      note: { type: ["string", "null"] },
+    },
+    required: ["categories", "items"],
+  };
+  const validate = z.object({
+    categories: z.object({ a: z.object({ on: z.boolean() }) }),
+    items: z.array(z.object({})),
+    note: z.string().nullable().optional(),
+  });
+
+  it("reads object and array fields sent as JSON text, nested ones too, and names their paths", () => {
+    const sent = {
+      categories: JSON.stringify({ a: JSON.stringify({ on: true }) }),
+      items: "[{}]",
+      note: '{"kept": "as text"}',
+    };
+    expect(decodeEncodedToolFields(sent, schema)).toEqual({
+      value: { categories: { a: { on: true } }, items: [{}], note: '{"kept": "as text"}' },
+      paths: ["categories", "categories.a", "items"],
+    });
+  });
+
+  it("leaves a string that is not JSON, JSON of another shape and a field whose type allows a string as sent", () => {
+    for (const sent of [
+      { categories: "a is on", items: [] },
+      { categories: "[1, 2]", items: '{"not": "an array"}' },
+      { categories: { a: { on: true } }, items: [], note: "[1]" },
+    ]) {
+      expect(decodeEncodedToolFields(sent, schema)).toEqual({ value: sent, paths: [] });
+    }
+  });
+
+  it("is off by default: another caller's answer with a field sent as JSON text still fails as before", async () => {
+    const client = clientWith([{ categories: '{"a": {"on": true}}', items: [] }]);
+    await expect(generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit",
+      schema, validate, attempts: 1,
+    })).rejects.toThrow("unexpected shape: categories");
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("with encodedFieldRecovery, reads it in the same attempt and validates it as usual", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const client = clientWith([{ categories: '{"a": {"on": true}}', items: [] }]);
+    await expect(generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit",
+      schema, validate, attempts: 1, encodedFieldRecovery: true,
+    })).resolves.toEqual({ categories: { a: { on: true } }, items: [] });
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("submit: read categories sent as JSON text");
+    warn.mockRestore();
+  });
+
+  it("with encodedFieldRecovery, a field that is not JSON or that fails validation once read still fails", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const input of [
+      { categories: "a is on", items: [] },
+      { categories: '{"a": {"on": "yes"}}', items: [] },
+      { categories: '{"a": {"on": true}}' },
+    ]) {
+      const client = clientWith([input]);
+      await expect(generateStructured(client, {
+        system: "system", user: "user", toolName: "submit", description: "submit",
+        schema, validate, attempts: 1, encodedFieldRecovery: true,
+      })).rejects.toThrow("unexpected shape");
+      expect(client.messages.create).toHaveBeenCalledTimes(1);
+    }
+    quiet.mockRestore();
   });
 });

@@ -510,6 +510,8 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
+      answerDecode: "object-or-array-fields-sent-as-json-text-read-then-validated",
+      lockedConflicts: "absent-read-as-empty-decides-no-waiver",
       callSite: "generation:settings",
       cache: "per-projectId-and-contentHash-and-classifierVersion",
     });
