@@ -359,6 +359,8 @@ type PlanCheck = {
   instruction: FrozenSummaryPlanInstruction;
   confirmedExclusion: boolean;
   support?: "source_supported" | "writer_asserted";
+  /** 2026-10-04 (second, round 3): the drafter's warning (owner decision 2026-10-05). */
+  quotesDoNotBack?: string[];
   wording: string[];
   relationshipReferences: Array<{
     seedId: Id<"seeds">;

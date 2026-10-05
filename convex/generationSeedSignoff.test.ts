@@ -34,6 +34,7 @@ import {
   projectFrozenSummaryPlanChecks,
   projectSummaryOrdinaryChecks,
   projectSummarySelfCheckWorstCaseResponse,
+  stableSerialize,
   type FrozenSummaryPlanCheck,
 } from "./lib/seedRevisions";
 import {
@@ -4530,7 +4531,7 @@ describe("seed Summary sign-off and recovery", () => {
     expect(notes.find((note) => note.instruction.includes("marked for a check"))?.planRef).toBeUndefined();
   });
 
-  it("2026-10-04 (second, round 3 and its review): the facts check reads run 6's two Seeds as product wording their own quotes do not back, and the plan is unchanged", async () => {
+  it("2026-10-04 (second, round 3 and its re-check): the drafter, the plan checker and the facts check see run 6's two Seeds' unbacked sentences, and nothing else in the plan changes", async () => {
     // Release suite run 6: two signed-off Seeds whose steel quote the quote
     // check marked. Their support stays source_supported (review P2-3).
     const limitation = [
@@ -4592,21 +4593,45 @@ describe("seed Summary sign-off and recovery", () => {
       generationId: s.generationId,
       expectedSeedStageVersion: 0,
     });
-    return await s.t.run(async (ctx) =>
-      await loadFrozenSectionPlan(ctx, (await ctx.db.get(s.generationId))!, "246"));
+    return {
+      s,
+      plans: await s.t.run(async (ctx) => {
+        const generation = (await ctx.db.get(s.generationId))!;
+        return [await loadFrozenSectionPlan(ctx, generation, "242"), await loadFrozenSectionPlan(ctx, generation, "246")] as const;
+      }),
     };
-    const plan = await signedOff(true);
-    // The plan's support is the Seed's, as before: the plan and the check
-    // blocks a model reads are byte for byte those of the same Seeds
-    // without the marked quote (review P2-3).
+    };
+    const marked = await signedOff(true);
+    const [plan242, plan] = marked.plans;
+    // Stored support is unchanged (review P2-3).
     const coverOf = (first: string) => plan.planChecks.find((check) => check.instruction === "cover" && check.wording[0] === first);
     expect(coverOf(advancement[0])?.support).toBe("source_supported");
-    const unmarked = await signedOff(false);
-    // Document ids differ between the two fixtures; nothing else may.
+    // Owner decision 2026-10-05 ("Warn the drafter too"): the plan and the
+    // plan checks name each item's unbacked sentence, and only that; with
+    // the note taken out they are byte for byte those of the same Seeds
+    // without the marked quote, so every other item is unchanged.
+    const note = (sentence: string) => `"quotesDoNotBack":${stableSerialize({
+      instruction: FROZEN_SUMMARY_PLAN_SCAFFOLD.quotesDoNotBackInstruction,
+      wording: [sentence],
+    })},`;
+    expect(FROZEN_SUMMARY_PLAN_SCAFFOLD.quotesDoNotBackInstruction).toBe("Its own quotes do not back this. State it only as the sources give it.");
+    // The drafter's request shows the note (this fixture drafts Line 246 first).
+    configureSummaryActionProvider({ draftText: "A checked paragraph.", repairText: "A repaired checked paragraph." });
+    const request = JSON.stringify(await runNextSectionAction(marked.s, marked.s.generationId));
+    expect(request).toContain("--- BEGIN [SIGNED-OFF CONTENT PLAN] ---");
+    expect(request).toContain(JSON.stringify(note(advancement[1])).slice(1, -1));
+    expect(request.split("quotesDoNotBack")).toHaveLength(2);
+    const [unmarked242, unmarked246] = (await signedOff(false)).plans;
     const ids = (text: string) => text.replace(/\d{10,}[A-Za-z]+/g, "<id>");
-    expect(ids(plan.planBlock)).toBe(ids(unmarked.planBlock));
-    expect(ids(plan.planChecksBlock)).toBe(ids(unmarked.planChecksBlock));
-    expect(unmarked.planItemSources.some((item) => item.unbacked)).toBe(false);
+    for (const [line, unmarked, sentence] of [[plan242, unmarked242, limitation[0]], [plan, unmarked246, advancement[1]]] as const) {
+      for (const block of ["planBlock", "planChecksBlock"] as const) {
+        expect(line[block].split("quotesDoNotBack")).toHaveLength(2);
+        expect(line[block]).toContain(note(sentence));
+        expect(ids(line[block].replace(note(sentence), ""))).toBe(ids(unmarked[block]));
+        expect(unmarked[block]).not.toContain("quotesDoNotBack");
+      }
+    }
+    expect(unmarked246.planItemSources.some((item) => item.unbacked)).toBe(false);
     const sources = plan.planItemSources;
     const entryOf = (first: string) => sources.find((item) => item.wording[0] === first);
     // The edited limitation: its unchanged steel sentence stays the product's
@@ -4623,6 +4648,24 @@ describe("seed Summary sign-off and recovery", () => {
     expect(facts.body).toContain(`Its own quotes do not back: ${JSON.stringify(advancement[1])}`);
     expect([...facts.product, ...facts.items, ...facts.evidence].some((entry) => entry.includes("steel"))).toBe(false);
     expect(facts.evidence).toContain(changed);
+  });
+
+  it("2026-10-04 (second, round 3 re-check, P3-4): an edited item whose Seed cannot be read is the writer's wording", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, { generationId: s.generationId, expectedSeedStageVersion: 0 });
+    const sources = await s.t.run(async (ctx) => {
+      const seed = (await ctx.db.query("seeds")
+        .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", "experimentation"))
+        .take(10)).find((row) => row.order === 0)!;
+      await ctx.db.delete(seed._id);
+      return (await loadFrozenSectionPlan(ctx, (await ctx.db.get(s.generationId))!, "242")).planItemSources;
+    });
+    expect(sources.find((item) => item.wording[0] === "Edited experimentation wording.")).toEqual({
+      wording: ["Edited experimentation wording."],
+      writer: true,
+      quotes: [],
+    });
   });
 
   it("drafts an item whose quotes are all marked from its wording alone, and says how many were left out", async () => {

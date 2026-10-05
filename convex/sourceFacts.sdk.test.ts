@@ -1137,7 +1137,8 @@ describe("round 3 (owner approved 2026-10-05): run 6's Seeds reach the facts che
       { wording: limitation, writer: false, quotes: [datasheet.exactExcerpt], unbacked: unbackedBullets(limitation, [datasheet, steel]) },
       { wording: advancement, writer: false, quotes: [], unbacked: unbackedBullets(advancement, [steel]) },
     ];
-    expect(run6.slice(-2).map((item) => item.unbacked)).toEqual([[limitation[0]], [advancement[1]]]);
+    // Re-check P3-2: with its only quote marked, every sentence of the advancement is named.
+    expect(run6.slice(-2).map((item) => item.unbacked)).toEqual([[limitation[0]], advancement]);
     const sent = installFetch({
       draft: FAITHFUL_244,
       checks: [{ verdicts: ordinary, planVerdicts: [...covered, { ...factsMatch, reason: "All figures and details match sources." }, targetsMet] }],
@@ -1148,7 +1149,7 @@ describe("round 3 (owner approved 2026-10-05): run 6's Seeds reach the facts che
       `- [the product's wording] ${limitation.join(" ")} Quotes: "That the datasheet number is for flat panels." Its own quotes do not back: ${JSON.stringify(limitation[0])}`
     );
     expect(check).toContain(
-      `- [the product's wording] ${advancement.join(" ")} Quotes: none. Its own quotes do not back: ${JSON.stringify(advancement[1])}`
+      `- [the product's wording] ${advancement.join(" ")} Quotes: none. Its own quotes do not back: ${advancement.map((bullet) => JSON.stringify(bullet)).join(" | ")}`
     );
     expect(check).toContain("A signed-off item the product wrote is not settled fact");
     // The model's "All figures and details match sources." never reaches the row.

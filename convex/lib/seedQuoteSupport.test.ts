@@ -282,9 +282,23 @@ describe("unbackedBullets (2026-10-04, second, round 3 and its review)", () => {
   it("names the sentence of each run 6 Seed that only its marked steel quote stood behind", () => {
     expect(unbackedBullets(limitation, [moisture, steel])).toEqual([limitation[0]]);
     expect(unbackedBullets(advancement, [peak, steel])).toEqual([advancement[1]]);
-    // Every quote marked: still the sentence that holds the marked quote's words.
-    expect(unbackedBullets(limitation, [steel])).toEqual([limitation[0]]);
-    expect(unbackedBullets(advancement, [steel])).toEqual([advancement[1]]);
+  });
+
+  it("re-check P3-2: with every quote marked, names every sentence, since no quote is left to back one", () => {
+    expect(unbackedBullets(limitation, [steel])).toEqual(limitation);
+    expect(unbackedBullets(advancement, [steel])).toEqual(advancement);
+    // Only the sentences left to judge.
+    expect(unbackedBullets([limitation[0]], [steel], limitation)).toEqual([limitation[0]]);
+  });
+
+  it("re-check P3-1: of the sentences holding a marked quote's word, one another quote backs is not named", () => {
+    const seed = [
+      "Standard powder processes are built for flat steel panels.",
+      "Low-temperature powder on MDF outgasses at the routed edges.",
+    ];
+    // Backs the second sentence, without the word "powder".
+    const edges = { exactExcerpt: "Low-temperature coatings on MDF outgas at the routed edges, where the fibres open." };
+    expect(unbackedBullets(seed, [edges, steel])).toEqual([seed[0]]);
   });
 
   it("review P2-1: names the steel sentence even beside a good quote that shares other words with it", () => {

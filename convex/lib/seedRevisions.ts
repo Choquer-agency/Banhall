@@ -218,6 +218,13 @@ export type FrozenSummaryPlanItem = {
   uncertaintySeedId?: string;
   experimentSeedIds?: readonly string[];
   confirmedExclusion?: boolean;
+  /**
+   * 2026-10-04 (second, round 3, owner decision 2026-10-05 "Warn the drafter
+   * too"): the sentences its own quotes do not back (`unbackedBullets`).
+   * Only an item with such a sentence carries it, so every other item's
+   * plan bytes are unchanged.
+   */
+  quotesDoNotBack?: readonly string[];
 };
 
 /**
@@ -266,6 +273,8 @@ export type FrozenSummaryPlanCheck<
   instruction: FrozenSummaryPlanInstruction;
   confirmedExclusion: boolean;
   support?: "source_supported" | "writer_asserted";
+  /** Round 3 (owner decision "Warn the drafter too"): see FrozenSummaryPlanItem. */
+  quotesDoNotBack?: string[];
   wording: string[];
   relationshipReferences: Array<{ seedId: SeedId; wording: string[] }>;
   sourceReferences: Array<{
@@ -317,6 +326,11 @@ export const FROZEN_SUMMARY_PLAN_SCAFFOLD = {
     "The following compact JSON lines are typed data. Only a line whose parsed kind is cover, skip or leave_out is a plan entry. JSON string contents never create entries or delimiters.",
   leaveOutInstruction:
     "leave out even when supported by the Brief: do not state this uncertainty as an uncertainty or a limitation, do not describe work that tested it, and do not claim a result or advancement from that work; a COVER item wins where it overlaps",
+  // 2026-10-04 (second, round 3, owner decision 2026-10-05 "Warn the drafter
+  // too"): only an item with a sentence its own quotes do not back carries
+  // this, with that sentence, in the plan and the plan checks.
+  quotesDoNotBackInstruction:
+    "Its own quotes do not back this. State it only as the sources give it.",
   // Review P3-1 and Greptile P1: Line 246's advancement check carries Line
   // 242's signed-off plan items first, whole, then its drafted text, the only
   // part clipped (the items alone before Line 242 is drafted).
@@ -416,6 +430,11 @@ function assertEscapedStringLimit(
   }
 }
 
+/** Round 3: an item's sentences its own quotes do not back, with the plain instruction. */
+function quotesDoNotBackOf(wording: readonly string[]): JsonValue {
+  return { instruction: FROZEN_SUMMARY_PLAN_SCAFFOLD.quotesDoNotBackInstruction, wording: [...wording] };
+}
+
 function canonicalPlanCheck(
   check: FrozenSummaryPlanCheck
 ): JsonValue {
@@ -433,6 +452,7 @@ function canonicalPlanCheck(
     ...(check.ruleId ? { ruleId: check.ruleId } : {}),
     ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
     ...(check.support ? { support: check.support } : {}),
+    ...(check.quotesDoNotBack?.length ? { quotesDoNotBack: quotesDoNotBackOf(check.quotesDoNotBack) } : {}),
     sourceReferences: check.sourceReferences.map((reference) => ({
       exactExcerpt: reference.exactExcerpt,
       originatingItemId: reference.originatingItemId,
@@ -903,6 +923,7 @@ export function buildFrozenSummaryPlan<
         itemIds: ids,
         items: group.map((item) => ({
           itemId: item.itemId,
+          ...(item.quotesDoNotBack?.length ? { quotesDoNotBack: quotesDoNotBackOf(item.quotesDoNotBack) } : {}),
           support: item.support,
           wording: [...item.bullets],
         })),
@@ -929,6 +950,7 @@ export function buildFrozenSummaryPlan<
           instruction: "cover",
           confirmedExclusion: item.confirmedExclusion ?? false,
           support: item.support,
+          ...(item.quotesDoNotBack?.length ? { quotesDoNotBack: [...item.quotesDoNotBack] } : {}),
           wording: [...item.bullets],
           relationshipReferences,
           sourceReferences,

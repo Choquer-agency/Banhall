@@ -600,7 +600,14 @@ export async function signOffSeedStageHandler(
   const referencesBySeedId = new Map(
     frozenItems.map((item) => [item.seedId, item.bullets] as const)
   );
-  const { sourceRefsByItemId } = await loadSummarySourceRefs(ctx, generation, frozenItems);
+  const { sourceRefsByItemId, quoteMarksByItemId } = await loadSummarySourceRefs(ctx, generation, frozenItems);
+  // 2026-10-04 (second, round 3): admission counts the drafter's warning on
+  // each item its own quotes do not back, as each Section claim sends it.
+  const admittedItems = frozenItems.map((item) => {
+    const seed = selectedSeeds.find((candidate) => candidate._id === item.seedId);
+    const { unbacked } = itemQuoteState(item.bullets, seed?.bullets, quoteMarksByItemId.get(item._id) ?? []);
+    return unbacked.length > 0 ? { ...item, quotesDoNotBack: unbacked } : item;
+  });
   const payload = await frozenOrderedPayload(ctx, generation, summaryVersionId);
   try {
     for (const section of ["242", "244", "246"] as const) {
@@ -611,7 +618,7 @@ export async function signOffSeedStageHandler(
       // same reservation and Line 246's signed-off items whole.
       const plan = buildFrozenSummaryPlan({
         section: `s${section}`,
-        items: frozenItems,
+        items: admittedItems,
         skippedRoleIds,
         referencesBySeedId,
         sourceRefsByItemId,
@@ -1144,6 +1151,9 @@ export async function loadFrozenSectionPlan(
     items.map((item) => [item.seedId, item.bullets] as const)
   );
   const { sourceRefsByItemId, quotesLeftOut, quoteMarksByItemId } = await loadSummarySourceRefs(ctx, generation, items);
+  // 2026-10-04 (second, round 3): what each item's own quotes do not back,
+  // for the drafter's warning in the plan and for the facts check.
+  const quoteStates = await itemQuoteStates(ctx, generation, items, quoteMarksByItemId);
   const pdSection = section === "242" ? "s242" : section === "244" ? "s244" : "s246";
   // 2026-09-30 (first, Rule B): Line 242's signed-off plan items, whole, then
   // its drafted text, clipped alone (Greptile P1); before it is drafted, the
@@ -1176,6 +1186,9 @@ export async function loadFrozenSectionPlan(
         ? { experimentSeedIds: item.experimentSeedIds }
         : {}),
       ...(item.confirmedExclusion ? { confirmedExclusion: true } : {}),
+      ...(quoteStates.get(item._id)?.unbacked.length
+        ? { quotesDoNotBack: quoteStates.get(item._id)!.unbacked }
+        : {}),
     })),
     skippedRoleIds: summary.skippedRoleIds,
     referencesBySeedId,
@@ -1256,12 +1269,10 @@ export async function loadFrozenSectionPlan(
     planWording: items
       .filter((item) => !summary.skippedRoleIds.includes(item.roleId))
       .map((item) => [...item.bullets]),
-    planItemSources: await planItemSourcesOf(
-      ctx,
-      generation,
+    planItemSources: planItemSourcesOf(
       items.filter((item) => !summary.skippedRoleIds.includes(item.roleId)),
       sourceRefsByItemId,
-      quoteMarksByItemId
+      quoteStates
     ),
     planBlock: `\n\n${plan.block}`,
     planChecksBlock: plan.checksBlock,
@@ -1275,6 +1286,7 @@ export async function loadFrozenSectionPlan(
       instruction: check.instruction,
       confirmedExclusion: check.confirmedExclusion,
       ...(check.support ? { support: check.support } : {}),
+      ...(check.quotesDoNotBack ? { quotesDoNotBack: check.quotesDoNotBack } : {}),
       wording: check.wording,
       relationshipReferences: check.relationshipReferences,
       sourceReferences: check.sourceReferences,
@@ -1286,34 +1298,77 @@ export async function loadFrozenSectionPlan(
   };
 }
 
+type QuoteMark = { exactExcerpt: string; needsQuoteCheck?: boolean };
+type ItemQuoteState = {
+  /** The Seed's own sentences, or undefined when its Seed cannot be read. */
+  original?: readonly string[];
+  /** The unchanged sentences its own quotes do not back (`unbackedBullets`). */
+  unbacked: string[];
+};
+
+/**
+ * 2026-10-04 (second, round 3): what a signed-off item's own quotes do not
+ * back, judged on the sentences the writer has not changed. One rule for the
+ * plan at sign-off admission and at each Section claim (the drafter's
+ * warning, owner decision 2026-10-05) and for the facts check.
+ */
+function itemQuoteState(
+  bullets: readonly string[],
+  original: readonly string[] | undefined,
+  marks: readonly QuoteMark[]
+): ItemQuoteState {
+  if (!original) return { unbacked: [] };
+  const unchanged = bullets.filter((bullet) => original.includes(bullet));
+  return { original, unbacked: unbackedBullets(unchanged, marks, original) };
+}
+
+/** Each frozen item's quote state, reading the Seed of an item the writer edited. */
+async function itemQuoteStates(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  items: ReadonlyArray<Doc<"summaryItems">>,
+  quoteMarksByItemId: ReadonlyMap<Id<"summaryItems">, readonly QuoteMark[]>
+): Promise<Map<Id<"summaryItems">, ItemQuoteState>> {
+  const states = new Map<Id<"summaryItems">, ItemQuoteState>();
+  for (const item of items) {
+    let original: readonly string[] | undefined = item.bullets;
+    if (item.edited !== false) {
+      const seed = await ctx.db.get(item.seedId);
+      original = seed && seed.projectId === generation.projectId ? seed.bullets : undefined;
+    }
+    states.set(item._id, itemQuoteState(item.bullets, original, quoteMarksByItemId.get(item._id) ?? []));
+  }
+  return states;
+}
+
 /**
  * 2026-10-04 (second, round 3 review, P2-2): each signed-off item as the facts
  * check reads it. A sentence the writer changed (not one of the Seed's own
  * sentences) is the writer's wording; every other sentence is the product's,
  * with its quotes and the sentences they do not back. Saving a sentence
  * unchanged never makes it the writer's. An item frozen before 2026-09-24
- * without the edited flag is compared with its Seed the same way.
+ * without the edited flag is compared with its Seed the same way; an item
+ * whose Seed cannot be read is the writer's when it was edited (re-check P3-4).
  */
-async function planItemSourcesOf(
-  ctx: { db: QueryCtx["db"] },
-  generation: Doc<"generations">,
+function planItemSourcesOf(
   items: ReadonlyArray<Doc<"summaryItems">>,
   sourceRefsByItemId: ReadonlyMap<Id<"summaryItems">, ReadonlyArray<{ exactExcerpt: string }>>,
-  quoteMarksByItemId: ReadonlyMap<Id<"summaryItems">, ReadonlyArray<{ exactExcerpt: string; needsQuoteCheck?: boolean }>>
-): Promise<Array<{ wording: string[]; writer: boolean; quotes: string[]; unbacked?: string[] }>> {
+  states: ReadonlyMap<Id<"summaryItems">, ItemQuoteState>
+): Array<{ wording: string[]; writer: boolean; quotes: string[]; unbacked?: string[] }> {
   const out: Array<{ wording: string[]; writer: boolean; quotes: string[]; unbacked?: string[] }> = [];
   for (const item of items) {
-    let original: readonly string[] = item.bullets;
-    if (item.edited !== false) {
-      const seed = await ctx.db.get(item.seedId);
-      if (seed && seed.projectId === generation.projectId) original = seed.bullets;
+    const quotes = (sourceRefsByItemId.get(item._id) ?? []).map((reference) => reference.exactExcerpt);
+    const state = states.get(item._id);
+    const original = state?.original;
+    if (!original) {
+      out.push({ wording: [...item.bullets], writer: item.edited === true, quotes });
+      continue;
     }
     const product = item.bullets.filter((bullet) => original.includes(bullet));
     const writer = item.bullets.filter((bullet) => !original.includes(bullet));
-    const quotes = (sourceRefsByItemId.get(item._id) ?? []).map((reference) => reference.exactExcerpt);
     if (product.length > 0) {
-      const unbacked = unbackedBullets(product, quoteMarksByItemId.get(item._id) ?? [], original);
-      out.push({ wording: product, writer: false, quotes, ...(unbacked.length > 0 ? { unbacked } : {}) });
+      const unbacked = state.unbacked;
+      out.push({ wording: product, writer: false, quotes, ...(unbacked.length > 0 ? { unbacked: [...unbacked] } : {}) });
     }
     if (writer.length > 0) out.push({ wording: writer, writer: true, quotes: product.length > 0 ? [] : quotes });
   }

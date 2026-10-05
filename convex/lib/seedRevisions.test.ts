@@ -1726,3 +1726,32 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
     }
   });
 });
+
+describe("the drafter's warning (2026-10-04, second, round 3, owner decision 2026-10-05)", () => {
+  const steelSentence = "Standard datasheet powder processes are built for flat steel-like panels, not thick routed MDF.";
+  const items = [
+    { itemId: "limit-1", roleId: "passive_limitations" as const, kind: "standard" as const, bullets: [steelSentence, "No prior process showed it."], support: "source_supported" as const },
+    { itemId: "company-1", roleId: "company_context" as const, kind: "standard" as const, bullets: ["The company finishes MDF panels."], support: "source_supported" as const },
+  ];
+
+  it("names only the item's unbacked sentence, in the plan and the plan checks, and changes no other byte", () => {
+    const plain = buildFrozenSummaryPlan({ section: "s242", items, skippedRoleIds: [], factsMatchSources: true });
+    const warned = buildFrozenSummaryPlan({
+      section: "s242",
+      items: [{ ...items[0]!, quotesDoNotBack: [steelSentence] }, items[1]!],
+      skippedRoleIds: [],
+      factsMatchSources: true,
+    });
+    const note = `"quotesDoNotBack":${stableSerialize({ instruction: FROZEN_SUMMARY_PLAN_SCAFFOLD.quotesDoNotBackInstruction, wording: [steelSentence] })},`;
+    expect(FROZEN_SUMMARY_PLAN_SCAFFOLD.quotesDoNotBackInstruction).toBe("Its own quotes do not back this. State it only as the sources give it.");
+    for (const block of ["block", "checksBlock"] as const) {
+      expect(warned[block].split(note)).toHaveLength(2);
+      expect(warned[block].replace(note, "")).toBe(plain[block]);
+      expect(plain[block]).not.toContain("quotesDoNotBack");
+    }
+    expect(warned.checks.find((check) => check.itemId === "limit-1")?.quotesDoNotBack).toEqual([steelSentence]);
+    expect(warned.checks.find((check) => check.itemId === "company-1")).toEqual(plain.checks.find((check) => check.itemId === "company-1"));
+    // An empty list is no warning at all.
+    expect(buildFrozenSummaryPlan({ section: "s242", items: [{ ...items[0]!, quotesDoNotBack: [] }, items[1]!], skippedRoleIds: [], factsMatchSources: true }).block).toBe(plain.block);
+  });
+});
