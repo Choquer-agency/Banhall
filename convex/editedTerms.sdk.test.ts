@@ -213,6 +213,11 @@ function installFetch(script: {
   checks: PlanAnswer[][];
   /** Ordinary verdicts for the first Self-check request (none by default). */
   ordinary?: unknown[];
+  /**
+   * 2026-10-05 (Round 2, follow-up): ordinary verdicts for the full
+   * Self-check of the final text after a used repair (`ordinary` by default).
+   */
+  finalOrdinary?: unknown[];
 }): Sent[] {
   const sent: Sent[] = [];
   const compressions = [...(script.compressions ?? [])];
@@ -253,9 +258,9 @@ function installFetch(script: {
             id: "toolu_self_check",
             name: tool,
             input: {
-              // The final coverage check asks for plan verdicts only.
-              verdicts: user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction)
-                ? []
+              // The check of the final text follows the repair.
+              verdicts: sent.some((request) => request.stage === "repair")
+                ? script.finalOrdinary ?? script.ordinary ?? []
                 : script.ordinary ?? [],
               planVerdicts: next,
             },
@@ -471,6 +476,7 @@ describe("a writer's edited term survives drafting, compression and the repair (
         "P3 invents term 'helix-bonded matrix', not in storyline",
         "Remove 'helix-bonded matrix'."
       )],
+      finalOrdinary: [storylineVerdict("applied", "Follows the storyline.")],
     });
     const result = await draft([TERM], BRIEF);
 
@@ -478,9 +484,13 @@ describe("a writer's edited term survives drafting, compression and the repair (
     if (!repair) throw new Error("The invented term was not repaired");
     expect(repair.user).toContain("Remove 'helix-bonded matrix'.");
     expect(result.draftText).toBe(DRAFT);
+    // 2026-10-05 (Round 2, follow-up): the row records the check of the final text.
     const storyline = result.notes.find((note) => note.source === "model" && note.instruction === "Storyline");
-    expect(storyline).toMatchObject({ outcome: "not_applied", repaired: true });
-    expect(storyline?.reason).toContain("helix-bonded matrix");
+    expect(storyline).toMatchObject({
+      outcome: "applied",
+      repaired: true,
+      reason: "Follows the storyline.; repaired, and checked again on the final text",
+    });
   });
 
   it("an objection to the edited term and to a genuinely invented one is kept", async () => {
@@ -494,11 +504,12 @@ describe("a writer's edited term survives drafting, compression and the repair (
         "Invents 'cascade-fired lattice' and 'helix-bonded matrix'",
         "Remove the writer's 'helix-bonded matrix'."
       )],
+      finalOrdinary: [storylineVerdict("applied", "Follows the storyline.")],
     });
     const result = await draft([TERM], BRIEF);
     expect(sent.some((request) => request.stage === "repair")).toBe(true);
     const storyline = result.notes.find((note) => note.source === "model" && note.instruction === "Storyline");
-    expect(storyline).toMatchObject({ outcome: "not_applied", repaired: true });
+    expect(storyline).toMatchObject({ outcome: "applied", repaired: true });
   });
 
   it("an objection that names the edited term but is not about invention is kept", async () => {
@@ -528,7 +539,8 @@ describe("a writer's edited term survives drafting, compression and the repair (
     const checks = sent.filter((request) => request.stage === "submit_self_check");
     expect(checks).toHaveLength(2);
     const final = checks[1]!;
-    expect(final.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+    // 2026-10-05 (Round 2, follow-up): the full Self-check of the final text.
+    expect(final.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
     expect(final.user).toContain(`${termsBlock}${EXACT.instruction}`);
     expect(planRow(result, ITEM_GOAL)).toMatchObject({ outcome: "applied", repaired: true });
   });

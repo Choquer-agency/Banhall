@@ -179,8 +179,10 @@ function installFetch(script: { draft: string; repair?: string; compressed?: str
       const json = JSON.parse(await request.text()) as Record<string, unknown>;
       const user = userOf(json);
       const tool = (json.tools as Array<{ name: string }> | undefined)?.[0]?.name ?? null;
+      // 2026-10-05 (Round 2, follow-up): the check of the final text is the
+      // full Self-check, told apart as the one sent after the repair.
       const stage = tool === "submit_self_check"
-        ? user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction) ? "finalCoverage" : "selfCheck"
+        ? sent.some((request) => request.stage === "repair") ? "finalCoverage" : "selfCheck"
         : tool ?? (user.includes(COMPRESSION_REQUEST.userScaffold.wordsToLimit)
           ? "compression"
           : user.includes(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix) ? "repair" : "section");
@@ -255,6 +257,16 @@ const targetsMissed = {
   repairGuidance: "Say 96.4% met the 95% target and 1.6% met the 2% limit.",
 };
 const targetsMet = { ruleId: RESULTS_AGAINST_TARGETS_RULE_ID, mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Every comparison matches." };
+/**
+ * The full Self-check of the repaired final text (2026-10-05, Round 2,
+ * follow-up): its labels pass. The final text holds the Glossary Term, so
+ * no Glossary candidate, and no glossary label, is sent then.
+ */
+const finalOrdinary = [
+  ordinary.storyline,
+  ordinary.c1,
+  { paragraph: 2, check: "confidence", instruction: "confidence:C2", outcome: "applied", reason: "P2 hedges the scrap figure." },
+];
 
 describe("results, sources and Glossary repairs in a signed-off plan run (real SDK, fetch stubbed)", () => {
   it("drafts with the report-text rules after the Brief, checks the targets, and repairs source talk, the hedge, the Glossary Term and the misstated result", async () => {
@@ -263,7 +275,7 @@ describe("results, sources and Glossary repairs in a signed-off plan run (real S
       repair: REPAIRED_246,
       checks: [
         { verdicts: Object.values(ordinary), planVerdicts: [covered, targetsMissed] },
-        { verdicts: [], planVerdicts: [covered, targetsMet] },
+        { verdicts: finalOrdinary, planVerdicts: [covered, targetsMet] },
       ],
     });
     const result = await draft("246", claimFor(plan246()), SUMMARY_VERSION);
@@ -297,8 +309,9 @@ describe("results, sources and Glossary repairs in a signed-off plan run (real S
     expect(repair).toContain(`- Paragraph 1: ${scaffold.targetsIssue}Say 96.4% met the 95% target and 1.6% met the 2% limit.`);
     expect(repair.split(reportFactsBlock())).toHaveLength(2);
 
-    // The final coverage check judges the targets again on the final text.
+    // The check of the final text judges the targets again on the final text.
     expect(sent[3]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.instruction);
+    expect(sent[3]!.user).not.toContain("GLOSSARY CANDIDATES");
 
     const rows = result.notes;
     expect(rows.find((row) => row.instruction === SOURCE_TALK.instruction)).toEqual({
@@ -322,6 +335,8 @@ describe("results, sources and Glossary repairs in a signed-off plan run (real S
     });
     expect(rows.find((row) => row.source === "model" && row.instruction === "Glossary Term: pad pressure map"))
       .toMatchObject({ outcome: "applied", repaired: true, reason: "P3 says pressure table.; repaired to the Glossary Term" });
+    expect(rows.find((row) => row.source === "model" && row.instruction.startsWith("Confidence Map:") && row.reason.startsWith("P2 hedges")))
+      .toMatchObject({ outcome: "applied", repaired: true, reason: "P2 hedges the scrap figure.; repaired, and checked again on the final text" });
     expect(JSON.parse(result.selfCheck).planCoverage).toEqual({ status: "complete", applied: 2, total: 2 });
   });
 
@@ -339,7 +354,7 @@ describe("results, sources and Glossary repairs in a signed-off plan run (real S
       compressed,
       checks: [
         { verdicts: Object.values(ordinary), planVerdicts: [covered, targetsMissed] },
-        { verdicts: [], planVerdicts: [covered, targetsMet] },
+        { verdicts: finalOrdinary, planVerdicts: [covered, targetsMet] },
       ],
     });
     const result = await draft("246", claimFor(plan246()), SUMMARY_VERSION);
@@ -377,7 +392,7 @@ describe("the project's own subject comes from every Line (review P2-4, real SDK
     // A Line 242 item names credit memos: the project's subject.
     const subject = await draft("246", claimFor(plan246(), [["Credit memos are matched to parts."], ["Per-zone pad pressure lifted yield."]]), SUMMARY_VERSION);
     expect(subject.notes.find((row) => row.instruction === SOURCE_TALK.instruction)).toMatchObject({ outcome: "applied" });
-    installFetch({ draft: memoDraft, repair: memoDraft.replace("taken from the credit memo ", ""), checks: [answers, { verdicts: [], planVerdicts: [covered, targetsMet] }] });
+    installFetch({ draft: memoDraft, repair: memoDraft.replace("taken from the credit memo ", ""), checks: [answers, answers] });
     const other = await draft("246", claimFor(plan246(), [["Per-zone pad pressure lifted yield."]]), SUMMARY_VERSION);
     expect(other.notes.find((row) => row.instruction === SOURCE_TALK.instruction)).toMatchObject({ outcome: "applied", repaired: true });
   });
@@ -388,15 +403,20 @@ describe("Single draft and Compare are unchanged (real SDK, fetch stubbed)", () 
     const sent = installFetch({
       draft: DRAFT_246,
       repair: REPAIRED_246,
-      checks: [{
-        verdicts: [
-          { paragraph: 3, check: "glossary", instruction: "pad pressure map", outcome: "not_applied", reason: "P3 says pressure table.", repairGuidance: "Replace pressure table." },
-          { paragraph: 2, check: "confidence", instruction: "Scrap figure", outcome: "not_applied", reason: "P2 is flat.", repairGuidance: "Hedge the scrap figure." },
-        ],
-      }],
+      checks: [
+        {
+          verdicts: [
+            { paragraph: 3, check: "glossary", instruction: "pad pressure map", outcome: "not_applied", reason: "P3 says pressure table.", repairGuidance: "Replace pressure table." },
+            { paragraph: 2, check: "confidence", instruction: "Scrap figure", outcome: "not_applied", reason: "P2 is flat.", repairGuidance: "Hedge the scrap figure." },
+          ],
+        },
+        { verdicts: [{ paragraph: 2, check: "confidence", instruction: "Scrap figure", outcome: "applied", reason: "P2 is hedged." }] },
+      ],
     });
     const result = await draft("246", claimFor());
-    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
+    // 2026-10-05 (Round 2, follow-up): the used repair is checked again on
+    // the final text, with no report-text rules either.
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
     for (const request of sent) {
       expect(request.user).not.toContain(RULES_REPORT_FACTS);
       expect(request.system).not.toContain(RULES_REPORT_FACTS);

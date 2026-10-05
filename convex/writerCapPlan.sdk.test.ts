@@ -250,7 +250,7 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
         FIRST_CHECK,
         // The final text no longer covers the item.
         {
-          verdicts: [],
+          verdicts: FIRST_CHECK.verdicts,
           planVerdicts: [
             { itemId: ITEM, mergedItemIds: [ITEM], paragraph: 0, outcome: "not_applied", reason: "The sealer is gone." },
             { skippedRoleId: "prior_year_status", mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Absent." },
@@ -258,7 +258,8 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
         },
       ],
     });
-    expect(run.sent.map((request) => request.stage)).toContain("finalCoverage");
+    // Round 2 follow-up: the check of the final text after a used repair is the full Self-check.
+    expect(run.sent.filter((request) => request.stage === "selfCheck")).toHaveLength(2);
     expect(run.result.draftText).toBe(DRAFT);
     const cap = run.note(CAP_RULE);
     expect(cap?.outcome).toBe("not_applied");
@@ -290,7 +291,7 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
       checks: [
         FIRST_CHECK,
         {
-          verdicts: [],
+          verdicts: FIRST_CHECK.verdicts,
           planVerdicts: [
             { itemId: ITEM, mergedItemIds: [ITEM], paragraph: 0, outcome: "not_applied", reason: "The sealer is gone." },
             { skippedRoleId: "prior_year_status", mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Absent." },
@@ -354,7 +355,7 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
     expect(run.result.draftText).toBe(SHORT_WITH_ITEM);
     const row = run.result.notes.find((candidate) => candidate.source === "model" && candidate.instruction === SETTINGS);
     expect(row).toMatchObject({ outcome: "not_applied", repaired: false });
-    expect(row?.reason).toMatch(new RegExp(`^${NOT_CHECKED_ON_FINAL_TEXT} \\(the check after shortening did not complete: [a-z_]+\\)$`));
+    expect(row?.reason).toMatch(new RegExp(`^${NOT_CHECKED_ON_FINAL_TEXT} \\(the check of the final text did not complete: [a-z_]+\\)$`));
     expect(row?.reason).not.toContain("Opener not used verbatim");
   });
 

@@ -239,7 +239,7 @@ function categoryReason(
 
 /**
  * Round 2 (2026-10-05): how a Self-check row starts when its label could not
- * be judged on the text that ships after shortening.
+ * be judged on the text that ships after a used repair.
  */
 export const NOT_CHECKED_ON_FINAL_TEXT = "Not checked on the final text";
 
@@ -958,10 +958,9 @@ export function glossaryTermOf(verdict: ModelVerdict, candidates: string[]): str
  * Final Compliance Note rows and Self-check summary for one section. The
  * deterministic rows come from the post-repair re-check when a repair ran;
  * `repaired` marks rows whose failure a repair addressed. Model verdicts are
- * not re-verified by a second model call after a repair the shortening did
- * not change, except glossary verdicts, which the rule-based matcher
- * re-checks. Round 2 (2026-10-05): when shortening changed a used repair,
- * the check of the final text (`finalVerdicts`) writes the label rows.
+ * judged again on the final text after a used repair (Round 2, 2026-10-05,
+ * and its follow-up): the check of the final text (`finalVerdicts`) writes
+ * the label rows; glossary verdicts the rule-based matcher also re-checks.
  */
 export function assembleSectionNotes(input: {
   section: SectionNumber;
@@ -1028,11 +1027,11 @@ export function assembleSectionNotes(input: {
    */
   writerInstructions?: string;
   /**
-   * Round 2 (2026-10-05, owner decision): present only when shortening
-   * changed a used repair. The Self-check's label verdicts on the final
-   * text, which write those rows in place of the first check's, or why the
-   * check of the final text did not complete (its rows then read "not
-   * checked on the final text"). The governed terms keep `governedFinal`.
+   * Round 2 (2026-10-05, owner decision; follow-up: after every used
+   * repair): the Self-check's label verdicts on the final text, which write
+   * those rows in place of the first check's, or why the check of the final
+   * text did not complete (its rows then read "not checked on the final
+   * text"). The governed terms keep `governedFinal`.
    */
   finalVerdicts?:
     | {
@@ -1170,7 +1169,7 @@ export function assembleSectionNotes(input: {
         ...base,
         tier: "none",
         outcome: "not_applied",
-        reason: `${NOT_CHECKED_ON_FINAL_TEXT} (the check after shortening did not complete: ${final.reason})`,
+        reason: `${NOT_CHECKED_ON_FINAL_TEXT} (the check of the final text did not complete: ${final.reason})`,
       }));
       continue;
     }
@@ -1198,12 +1197,13 @@ export function assembleSectionNotes(input: {
           reason = `${reason}; repair failed`;
           remainingFailures += 1;
         }
-      } else if (repair.shortened) {
-        // Review P2-1: compression changed the repair after the fix.
-        repaired = false;
-        reason = `${reason}; repaired, then shortened to fit the Line limit, so not re-verified`;
       } else {
-        reason = `${reason}; repaired (deterministic re-check only; not re-verified by the model)`;
+        // Round 2 follow-up (2026-10-05): every used repair is checked again
+        // on the final text (finalVerdicts), so this is reached only when no
+        // such check ran; the row never reports the verdict on the text
+        // before the repair as if it described the final text.
+        repaired = false;
+        reason = `${NOT_CHECKED_ON_FINAL_TEXT} (no check of the final text ran)`;
       }
     } else if (repair.attempted) {
       reason = `${reason}; ${repairNotDone}`;
@@ -1270,8 +1270,8 @@ export function assembleSectionNotes(input: {
         // Review P3-7: a label the first check did not fail was found on the
         // final text, not checked "again".
         reason: same
-          ? `${verdict.reason || "not applied"}; the repair and shortening left the checked text as it was`
-          : `${verdict.reason || "not applied"}; ${wasFailing ? "checked again" : "found"} on the final text after shortening`,
+          ? `${verdict.reason || "not applied"}; the repair left the checked text as it was`
+          : `${verdict.reason || "not applied"}; ${wasFailing ? "checked again" : "found"} on the final text`,
       }));
     }
     // Review P2-1: a failure the repair was made for that the check of the

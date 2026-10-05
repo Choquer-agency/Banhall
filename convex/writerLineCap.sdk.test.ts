@@ -514,7 +514,7 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
       expect.objectContaining({
         outcome: "not_applied",
         repaired: false,
-        reason: expect.stringMatching(/^Not checked on the final text \(the check after shortening did not complete: [a-z_]+\)$/),
+        reason: expect.stringMatching(/^Not checked on the final text \(the check of the final text did not complete: [a-z_]+\)$/),
       }),
     ]);
   });
@@ -547,7 +547,7 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
     const rows = run.modelNotes("246");
     expect(rows.find((row) => row.instruction === "Write in the third person throughout.")).toMatchObject({
       outcome: "not_applied",
-      reason: "P1 says we.; found on the final text after shortening",
+      reason: "P1 says we.; found on the final text",
     });
     expect(rows.find((row) => row.instruction === profileVerdict.instruction)).toMatchObject({
       outcome: "applied",
@@ -566,7 +566,7 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
     expect(run.requests("submit_self_check", "246")).toHaveLength(1);
     const row = run.modelNotes("246")[0];
     expect(row?.outcome).toBe("not_applied");
-    expect(row?.reason).toContain("Opener not used.; the repair and shortening left the checked text as it was");
+    expect(row?.reason).toContain("Opener not used.; the repair left the checked text as it was");
     expect(row?.reason).not.toContain("not re-verified");
   });
 

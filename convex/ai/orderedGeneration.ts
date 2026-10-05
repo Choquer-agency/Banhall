@@ -46,7 +46,6 @@ import {
 import {
   consistencyFailureReason,
   runConsistencyPass,
-  runFinalCoverageSelfCheck,
   runModelSelfCheck,
   selfCheckFailureDiagnostic,
   sourceFactsFor,
@@ -826,7 +825,8 @@ export function workAnswers242Block(
 /**
  * Convert the Self-check response into one AD-37 row per item/Skip. When an
  * accepted repair changed the checked text, `finalCoverage` carries the
- * coverage-only Self-check of the final text (2026-09-28, third), and the
+ * plan verdicts of the Self-check of the final text (2026-09-28, third; the
+ * full Self-check since 2026-10-05, Round 2, follow-up), and the
  * rows record its verdicts: a row is marked repaired only when the first
  * check sent it to the repair and the final check found it applied.
  */
@@ -882,7 +882,7 @@ export function planComplianceNoteDrafts(args: {
     if (conflict) {
       // CAP-13 rule 4 (2026-09-29, second): the idea is drafted and kept,
       // and its row says so from the verdict that describes the final text
-      // (the coverage-only check after a used repair, else the first
+      // (the check of the final text after a used repair, else the first
       // check). Its excluded words standing in the text never decide it
       // (review P2-1: a disclaimer holds them too); with no usable verdict
       // the row is "Not checked". Tier conflict; never marked repaired.
@@ -1108,12 +1108,11 @@ type SectionCompletion = {
  * 10 percent over, one targeted pass, 2026-09-28 fifth) + Self-check 2 (its
  * answer plus one structured retry, or in Summary mode its one follow-up for
  * missing labels, 2026-09-28) + repair 1 + compression of the repair 3 + the
- * Self-check of the final text 2 (its answer and one more request: in
- * Summary mode, when the repair changed the text, the coverage-only check
- * and its follow-up, 2026-09-28 third, or, when shortening changed the
- * repair, the full check with labels and plan; in Single draft and Compare,
- * when shortening changed the repair, the full check and its structured
- * retry, 2026-10-04 first, round 2) = 12 sequential calls (providers.ts
+ * Self-check of the final text 2 (its answer and one more request: when a
+ * used repair changed the text, the full check with its labels, and in
+ * Summary mode its plan checks, and its follow-up or structured retry;
+ * 2026-09-28 third, 2026-10-04 first, round 2, and its 2026-10-05
+ * follow-up) = 12 sequential calls (providers.ts
  * ORDERED_SECTION_ACTION_SLOTS);
  * the action deadline bounds their time. Shared by the ordered chain and
  * the seed redraft so both draft under the same rules. Throws on a failed
@@ -1601,101 +1600,69 @@ export async function draftCheckedSection(input: {
     }
   }
 
-  // 2026-09-28 (third): the coverage record describes the final text. When
-  // an accepted repair (and its compression) changed the text the Self-check
-  // saw, a coverage-only Self-check on the frozen checking model checks the
-  // final text; nothing changes the text after it. Unchanged text makes no
-  // call, and a first check that failed as a whole stays unavailable.
+  // 2026-09-28 (third): the coverage record describes the final text;
+  // nothing changes the text after its check. Unchanged text makes no call,
+  // and a first check that failed as a whole stays unavailable.
   let finalCoverage:
     | { ok: true; verdicts: PlanVerdicts }
     | { ok: false; reason: string; detail: string }
     | undefined;
   // Greptile round 4, P2: the same request judges the labels of the Glossary
   // Terms the writer's Feedback governs on the final text, so their rows
-  // describe it; no request is added.
+  // describe it.
   let governedFinal: { ok: true; verdicts: ModelVerdict[] } | { ok: false } | undefined;
-  // Round 2 (2026-10-05, owner decision): when shortening changed a used
-  // repair, the rows the Self-check's labels write are judged again on the
-  // final text, so every row describes the text that ships. The check uses
-  // the first check's input on the final text (its Glossary candidates and
-  // rules from the final text's own deterministic check). In Summary mode
-  // it takes the place of the coverage-only check, so no request is added;
-  // in Single draft and Compare it is one more Self-check request, within
-  // the slots the coverage-only check has in Summary mode. A check that
-  // fails, or runs out of time, leaves those rows "not checked on the final
-  // text", never a verdict on the text before shortening.
+  // Round 2 (2026-10-05, owner decision; follow-up "Small fix + Opus trial"):
+  // after every used repair that changed the text, shortened or not, the
+  // full Self-check judges the final text with the first check's input (its
+  // Glossary candidates and rules from the final text's own deterministic
+  // check), so every row describes the text that ships. In Summary mode it
+  // is the check of the final text that already ran (once coverage-only), so
+  // no request is added: only a used repair changes the text, so the
+  // coverage-only check is no longer reached. In Single draft and Compare it
+  // is one more Self-check request, within the slots the check of the final
+  // text has in every mode. A check that fails, or runs out of time, leaves
+  // those rows "not checked on the final text", never a verdict on the text
+  // before the repair.
   let finalOrdinary:
     | { ok: true; verdicts: ModelVerdict[]; sameAsChecked?: true }
     | { ok: false; reason: string }
     | undefined;
   const finalCheckInput: SelfCheckModelInput | null =
-    repair.succeeded && repair.shortened === true && modelCheck.ok && after !== null && !sameUtf8Bytes(text, finalText)
+    repair.succeeded && modelCheck.ok && after !== null && !sameUtf8Bytes(text, finalText)
       ? { ...selfCheckInput, text: finalText, glossaryCandidates: after.glossaryCandidates, rules: after.modelRules }
       : null;
-  if (
-    payload.summaryVersionId &&
-    claim.planChecks.length > 0 &&
-    modelCheck.ok &&
-    !sameUtf8Bytes(text, finalText)
-  ) {
+  if (finalCheckInput) {
+    const planRun = Boolean(payload.summaryVersionId) && claim.planChecks.length > 0;
     try {
-      const final = finalCheckInput
-        ? await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), finalCheckInput)
-        : await runFinalCoverageSelfCheck(
-            clientFor(`generation:selfCheck:${section}`),
-            {
-              section,
-              text: finalText,
-              model: clientFor.modelFor(`generation:selfCheck:${section}`),
-              planChecks: claim.planChecks,
-              planChecksBlock: claim.planChecksBlock,
-              editedTerms: claim.editedTerms,
-              ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
-              ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
-              ...(sourceFacts !== undefined ? { sourceFacts } : {}),
-            }
-          );
-      finalCoverage = {
-        ok: true,
-        verdicts: withLeaveOutFigureNotes(
-          final.planVerdicts,
-          claim.planChecks,
-          finalText,
-          planWording,
-          `generation:selfCheck:${section}: final coverage`
-        ),
-      };
+      const final = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), finalCheckInput);
+      if (planRun) {
+        finalCoverage = {
+          ok: true,
+          verdicts: withLeaveOutFigureNotes(
+            final.planVerdicts,
+            claim.planChecks,
+            finalText,
+            planWording,
+            `generation:selfCheck:${section}: final coverage`
+          ),
+        };
+      }
+      finalOrdinary = { ok: true, verdicts: final.verdicts };
+      // Review P3-2: the governed terms' rows follow the same check.
       if (feedbackTerms.length > 0) governedFinal = { ok: true, verdicts: final.verdicts };
-      if (finalCheckInput) finalOrdinary = { ok: true, verdicts: final.verdicts };
     } catch (error) {
       // Stored beside modelCheckDetail with the same diagnostic: the clause,
       // positions, byte counts and app-supplied ids, never model text.
       const reason = normalizeProviderError(error).code;
       const detail = selfCheckFailureDiagnostic(error);
-      console.warn(
-        `generation:selfCheck:${section}: final coverage Self-check failed (${reason}): ${detail}`
-      );
-      finalCoverage = { ok: false, reason, detail };
-      if (feedbackTerms.length > 0) governedFinal = { ok: false };
-      if (finalCheckInput) finalOrdinary = { ok: false, reason };
-    }
-  } else if (finalCheckInput) {
-    try {
-      const final = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), finalCheckInput);
-      finalOrdinary = { ok: true, verdicts: final.verdicts };
-      // Review P3-2: the governed terms' rows follow the same check.
-      if (feedbackTerms.length > 0) governedFinal = { ok: true, verdicts: final.verdicts };
-    } catch (error) {
-      const reason = normalizeProviderError(error).code;
-      console.warn(
-        `generation:selfCheck:${section}: Self-check of the final text failed (${reason}): ${selfCheckFailureDiagnostic(error)}`
-      );
+      console.warn(`generation:selfCheck:${section}: Self-check of the final text failed (${reason}): ${detail}`);
+      if (planRun) finalCoverage = { ok: false, reason, detail };
       finalOrdinary = { ok: false, reason };
       if (feedbackTerms.length > 0) governedFinal = { ok: false };
     }
-  } else if (repair.succeeded && repair.shortened === true && modelCheck.ok && sameUtf8Bytes(text, finalText)) {
-    // Review P3-4: shortening left the repair as the checked text, which the
-    // first check judged: its verdicts describe the final text, no request.
+  } else if (repair.succeeded && modelCheck.ok && sameUtf8Bytes(text, finalText)) {
+    // Review P3-4: the repair (shortened or not) left the checked text, which
+    // the first check judged: its verdicts describe the final text, no request.
     finalOrdinary = { ok: true, verdicts, sameAsChecked: true };
   }
 

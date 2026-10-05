@@ -346,12 +346,20 @@ function callsFor(section: Section, kind: "draft" | "repair") {
     .map(([params]) => userText(params as GenerationMessageParams))
     .filter((user) => draftSectionOf(user) === section && isRepair(user) === (kind === "repair"));
 }
-function selfCheckPrompt(section: Section): string {
-  const prompts = network.create.mock.calls
+function selfCheckPrompts(section: Section): string[] {
+  return network.create.mock.calls
     .map(([params]) => params as GenerationMessageParams)
     .filter((params) => params.tool_choice?.name === "submit_self_check")
     .map((params) => userText(params))
     .filter((user) => user.includes(`SECTION DRAFT: Line ${section}`));
+}
+
+/**
+ * The Section's one Self-check. Since 2026-10-05 (Round 2, follow-up) a used
+ * repair adds a second, of the final text: use selfCheckPrompts there.
+ */
+function selfCheckPrompt(section: Section): string {
+  const prompts = selfCheckPrompts(section);
   expect(prompts).toHaveLength(1);
   return prompts[0];
 }
@@ -1257,8 +1265,13 @@ describe("Self-check before display (CAP-9)", () => {
     });
     // The rule-based matcher found no verbatim use, so the term was handed to
     // the model as a candidate.
-    expect(selfCheckPrompt("246")).toContain("GLOSSARY CANDIDATES");
-    expect(selfCheckPrompt("246")).toContain("- control loop");
+    // 2026-10-05 (Round 2, follow-up): the used repair is checked again on
+    // the final text, which uses the term, so no candidate is sent then.
+    const [first246, final246] = selfCheckPrompts("246");
+    expect(selfCheckPrompts("246")).toHaveLength(2);
+    expect(first246).toContain("GLOSSARY CANDIDATES");
+    expect(first246).toContain("- control loop");
+    expect(selfCheckDraftBlock(final246!)).toContain(CLEAN["246"]);
     expect(selfCheckPrompt("242")).not.toContain("GLOSSARY CANDIDATES");
     expect(callsFor("246", "repair")).toHaveLength(1);
     expect(callsFor("246", "repair")[0]).toContain("Paragraph 1: Replace 'feedback regulator' with 'control loop'.");
@@ -1398,13 +1411,26 @@ describe("Self-check before display (CAP-9)", () => {
         };
       },
     });
-    // The Self-check sees the Confidence Map entry with its level.
-    expect(selfCheckPrompt("244")).toContain("[C1] (unreliable) Response time under load is unreliable.");
+    // The Self-check sees the Confidence Map entry with its level; a used
+    // repair is checked again on the final text (2026-10-05, Round 2,
+    // follow-up).
+    const prompts244 = selfCheckPrompts("244");
+    expect(prompts244).toHaveLength(fails ? 2 : 1);
+    expect(prompts244[0]).toContain("[C1] (unreliable) Response time under load is unreliable.");
+    if (fails) expect(selfCheckDraftBlock(prompts244[1]!)).toContain("so it remains unconfirmed");
     const rows = notes.filter((note) => note.section === "244" && note.source === "model");
     expect(rows).toHaveLength(1);
     const { row, selfCheck } = rowFor(sectionRows, "244");
     if (fails) {
-      expect(rows[0]).toMatchObject({ outcome: "not_applied", tier: "missing_fact", repaired: true, paragraphIndex: 1 });
+      // 2026-10-05 (Round 2, follow-up): the check of the final text finds
+      // the figure hedged, so the row records the final text's verdict.
+      expect(rows[0]).toMatchObject({
+        outcome: "applied",
+        tier: "none",
+        repaired: true,
+        paragraphIndex: 1,
+        reason: "hedged; repaired, and checked again on the final text",
+      });
       expect(callsFor("244", "repair")).toHaveLength(1);
       expect(callsFor("244", "repair")[0]).toContain("Paragraph 2: Hedge the response-time figure: it was not measured.");
       expect(row.draftText).toBe(hedged);
@@ -1886,7 +1912,16 @@ describe("deterministic Self-check rules", () => {
         repair: { attempted: true, succeeded: true, shortened },
         finalText: "The coating held its transmission.",
       }).rows.find((row) => row.instruction === "Storyline");
-    expect(modelRow(false)).toMatchObject({ repaired: true });
+    // 2026-10-05 (Round 2, follow-up): every used repair is checked again on
+    // the final text, so a row with no such check never claims the repair:
+    // shortened or not, it reads not checked on the final text.
+    for (const shortened of [false, true]) {
+      expect(modelRow(shortened)).toMatchObject({
+        outcome: "not_applied",
+        repaired: false,
+        reason: "Not checked on the final text (no check of the final text ran)",
+      });
+    }
     // "Not checked" rows (2026-09-28) are never repaired, so never shortened.
     const notCheckedRow = assembleSectionNotes({
       section: "246",
@@ -1918,10 +1953,6 @@ describe("deterministic Self-check rules", () => {
       coverageCheckSucceeded: true,
     });
     expect(notCheckedPlan[0]).toMatchObject({ reason: "Not checked.", repaired: false });
-    expect(modelRow(true)).toMatchObject({
-      repaired: false,
-      reason: "Drifts.; repaired, then shortened to fit the Line limit, so not re-verified",
-    });
   });
 });
 

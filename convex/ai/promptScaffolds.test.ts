@@ -558,7 +558,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
       structuredPolicy: "single-attempt-then-missing-labels-follow-up",
       encodedJsonRecovery: "disabled",
-      finalCoverage: "plan-verdicts-and-feedback-term-labels-on-the-changed-final-text",
+      finalCoverage: "full-self-check-on-the-final-text-after-a-used-repair",
       invalidVerdicts: "dropped-and-asked-for-unless-most-are-invalid",
       unreadableLists: "read-as-empty-and-asked-for-unless-neither-is-a-list",
       editedTerms: "allowed-word-for-word-invention-objections-set-aside",

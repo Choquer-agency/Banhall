@@ -176,9 +176,9 @@ function installFetch(script: {
             input: next === "unreadable"
               ? {}
               : {
-                  verdicts: user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction)
-                    ? []
-                    : ordinaryAnswers.shift() ?? script.ordinary ?? [],
+                  // Since 2026-10-05 (Round 2, follow-up) the check of the
+                  // final text is the full Self-check: it judges the labels too.
+                  verdicts: ordinaryAnswers.shift() ?? script.ordinary ?? [],
                   planVerdicts: next,
                 },
           }],
@@ -939,8 +939,10 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
         checks: [[covered(ITEM_CONTEXT, 2)], [covered(ITEM_CONTEXT, 2)]],
         ordinaryAnswers: [
           [...entry.otherLabels, feedbackVerdict("not_applied", paragraph, entry.reason, entry.guidance)],
-          // Greptile round 4, P2: the check of the final text judges the label again.
-          [feedbackVerdict("applied", paragraph, "Follows it now.")],
+          // Greptile round 4, P2: the check of the final text judges the label
+          // again; since 2026-10-05 (Round 2, follow-up) it is the full
+          // Self-check, so it judges the other labels too.
+          [...entry.otherLabels, feedbackVerdict("applied", paragraph, "Follows it now.")],
         ],
       });
       const result = await draft("242", claimFor({
@@ -958,11 +960,12 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
         "submit_self_check",
       ]);
       const final = sent[3]!;
-      expect(final.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.labelsInstruction);
+      expect(final.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.labelsInstruction);
       expect(final.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
       expect(final.user).toContain(governedLabelLine(entry.instruction, entry.term));
       expect(final.user).toContain("- feedback:F1 (check instruction)");
-      expect(final.user).not.toContain("glossary:G");
+      if (entry.otherLabels.length > 0) expect(final.user).toContain("- glossary:G1");
+      else expect(final.user).not.toContain("glossary:G");
       const repair = sent.find((request) => request.stage === "repair")!;
       expect(repair.user, entry.term).toContain(
         `- Paragraph ${paragraph}: for the term "${entry.term}", follow the writer's Feedback on Company / Context: ${quoteForPrompt(entry.instruction)}. ${entry.guidance}`
@@ -1340,8 +1343,10 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
       expect(request.system, request.stage).not.toMatch(/Quillmere|Morgan|Hale/);
       expect(request.user, request.stage).toContain(expected);
     }
-    // The final coverage check is among them.
-    expect(sent[3]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+    // The check of the final text is among them: since 2026-10-05 (Round 2,
+    // follow-up) the full Self-check.
+    expect(sent[3]!.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+    expect(sent[3]!.user).toContain("- glossary:G1");
     // A control character reads as a space, never gluing a word to a name.
     expect(quoteForPrompt("a\\b \"c\"\u0007d")).toBe('"a\\\\b \\"c\\" d"');
     expect(quoteForPrompt("about\u0007Quillmere Analytics Ltd.")).toBe('"about Quillmere Analytics Ltd."');
@@ -1469,11 +1474,12 @@ describe("the writer's Feedback governs a Glossary Term it names (real SDK, fetc
     expect(repair.user).toContain(`- On Company / Context: ${JSON.stringify(SPINDLE)}`);
     // A followed Feedback label is not an issue.
     expect(repair.user).not.toContain("follow the writer's Feedback for the term");
-    // The final coverage check gets the Feedback too, and the governed
-    // term's label, which the final text still follows.
+    // The check of the final text (the full Self-check since 2026-10-05,
+    // Round 2, follow-up) gets the Feedback too, and the governed term's
+    // label, which the final text still follows.
     const checks = sent.filter((request) => request.stage === "submit_self_check");
     expect(checks).toHaveLength(2);
-    expect(checks[1]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.labelsInstruction);
+    expect(checks[1]!.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.labelsInstruction);
     expect(checks[1]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.writerFeedback.instruction);
     expect(checks[1]!.user).toContain(governedLabelLine(SPINDLE));
     expect(termRow(result)).toMatchObject({

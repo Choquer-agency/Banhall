@@ -188,8 +188,10 @@ export const GENERATION_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
  * compression slot also covers the squeezes on its repair, and each of the
  * two compressions may add one targeted pass when the text is still at most
  * 10 percent over (2026-09-28, fifth), so 6 in all. Its Self-check
- * slot also covers the coverage-only Self-check of the final text, with its
- * one follow-up, when a repair changed the checked text (2026-09-28, third).
+ * slot also covers the Self-check of the final text, with its one
+ * follow-up or retry, when a repair changed the checked text (2026-09-28,
+ * third; the full Self-check in every mode since 2026-10-05, Round 2,
+ * follow-up).
  * The one-shot and Section-by-section paths never repair, so they keep the
  * allowances above.
  */

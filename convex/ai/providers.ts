@@ -162,11 +162,10 @@ export const SEED_ANTHROPIC_OPTIONS = {
  * (2026-09-28 fifth: 3 requests) + one Self-check (its answer and at most
  * one structured retry or Summary follow-up: 2 requests) + at most one
  * repair + the same compression again on the repair (2026-09-28, second) +
- * in Summary mode, when the repair changed the checked text, the
- * coverage-only Self-check of the final text (its answer and one follow-up:
- * 2 requests, 2026-09-28 third), or, when shortening changed the repair, the
- * full Self-check of the final text in its place (2026-10-04 first, round
- * 2), which in Single draft and Compare also runs, in the same 2 slots = 12.
+ * when a used repair changed the checked text, the full Self-check of the
+ * final text in every mode (its answer and one follow-up or retry: 2
+ * requests; 2026-09-28 third, 2026-10-04 first, round 2, and its 2026-10-05
+ * follow-up) = 12.
  * Finalize adds consistency + (QA || chronology) = 2.
  * Iterative's one-shot ghost still runs the five-slot chain above. Since
  * 2026-09-25 each of these actions runs under its action deadline (see
@@ -190,8 +189,9 @@ export const ORDERED_SECTION_ACTION_SLOTS = {
   repairCompression: COMPRESSION_REQUEST.squeezes.length + 1,
   // 2026-09-28 (third): plan verdicts on the final text, its answer and the
   // one follow-up for plan checks it missed. Since 2026-10-04 (first, round
-  // 2), when shortening changed a used repair, the full Self-check of the
-  // final text in every mode, its answer and one more request.
+  // 2, and its 2026-10-05 follow-up), after every used repair that changed
+  // the text, the full Self-check of the final text in every mode, its
+  // answer and one more request.
   finalCoverage: 2,
 } as const;
 

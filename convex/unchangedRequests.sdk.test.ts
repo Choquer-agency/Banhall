@@ -237,7 +237,7 @@ async function draftAndHash(args: {
   section: SectionNumber;
   plan?: ReturnType<typeof signedOffPlan>;
   script: { repair?: string; checks: unknown[] };
-}): Promise<{ stages: string[]; hash: string; hashWithoutThirdAmendment: string; additionsFound: boolean }> {
+}): Promise<Awaited<ReturnType<typeof hashesOf>>> {
   const sent = installFetch(args.script);
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
@@ -264,6 +264,12 @@ async function hashesOf(sent: Sent[]): Promise<{
   stages: string[];
   hash: string;
   hashWithoutThirdAmendment: string;
+  /**
+   * 2026-10-04 (first, round 2 follow-up): every request before the last,
+   * as sent; the check of the final text after a used repair is now the
+   * full Self-check, so the requests before it carry their own pin.
+   */
+  hashBeforeFinal: string;
   additionsFound: boolean;
 }> {
   let additionsFound = true;
@@ -276,11 +282,22 @@ async function hashesOf(sent: Sent[]): Promise<{
     stages: sent.map((request) => request.stage),
     hash: await sha256Hex(JSON.stringify(sent.map((request) => request.body))),
     hashWithoutThirdAmendment: await sha256Hex(JSON.stringify(withoutAdditions)),
+    hashBeforeFinal: await sha256Hex(JSON.stringify(sent.slice(0, -1).map((request) => request.body))),
     additionsFound,
   };
 }
 
 const APPLIED = (paragraph: number, reason: string) => ({ paragraph, outcome: "applied", reason });
+
+/**
+ * 2026-10-04 (first, round 2 follow-up): the requests before the check of
+ * the final text, as this file sent them at 021039f5, the commit before the
+ * check after every used repair became the full Self-check.
+ */
+const PINNED_021039F5_BEFORE_FINAL = {
+  signedOff242Repaired: "8ca22dc62513996a928d16588c021fa535fb10aaa1e6913f016e9d76abb4175c",
+  signedOff242Governed: "29b2a7818121a011cf20ddc93106fe6d3a3295d8a38840aecaa4b0945c80e777",
+} as const;
 
 /**
  * The hashes this file produced at commit 5c2350ac (before the 2026-09-30
@@ -360,10 +377,15 @@ describe("requests without a dropped uncertainty are unchanged (2026-09-30, firs
         ],
       },
     });
-    expect(result.stages).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    // 2026-10-04 (first, round 2 follow-up, owner decision 2026-10-05):
+    // after every used repair the check of the final text is the full
+    // Self-check, so that request changed on purpose (its stage reads
+    // "selfCheck" now); every request before it is pinned as sent at
+    // 021039f5, just before that change.
+    expect(result.stages).toEqual(["section", "selfCheck", "repair", "selfCheck"]);
     expect(result.additionsFound).toBe(true);
-    expect(result.hash).not.toBe(PINNED_5C2350AC.signedOff242Repaired);
-    expect(result.hashWithoutThirdAmendment).toBe(PINNED_5C2350AC.signedOff242Repaired);
+    expect(result.hashWithoutThirdAmendment).not.toBe(PINNED_5C2350AC.signedOff242Repaired);
+    expect(result.hashBeforeFinal).toBe(PINNED_021039F5_BEFORE_FINAL.signedOff242Repaired);
   });
 });
 
@@ -389,7 +411,7 @@ async function draftClaimAndHash(args: {
   section: SectionNumber;
   claim: Parameters<typeof draftCheckedSection>[0]["claim"];
   script: { repair?: string; checks: unknown[] };
-}): Promise<{ stages: string[]; hash: string; hashWithoutThirdAmendment: string; additionsFound: boolean }> {
+}): Promise<Awaited<ReturnType<typeof hashesOf>>> {
   const sent = installFetch(args.script);
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
@@ -490,11 +512,12 @@ describe("requests the 2026-09-30 (second) amendment leaves alone are unchanged"
         ],
       },
     });
-    expect(result.stages).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
-    // 2026-09-30 (third): the report-text rules are added on purpose; the
-    // rest of every request is byte for byte as at cd419ff1.
+    // 2026-10-04 (first, round 2 follow-up): the check of the final text
+    // after a used repair is the full Self-check now; every request before
+    // it is pinned as sent at 021039f5, just before that change.
+    expect(result.stages).toEqual(["section", "selfCheck", "repair", "selfCheck"]);
     expect(result.additionsFound).toBe(true);
-    expect(result.hash).not.toBe(PINNED_CD419FF1.signedOff242Governed);
-    expect(result.hashWithoutThirdAmendment).toBe(PINNED_CD419FF1.signedOff242Governed);
+    expect(result.hashWithoutThirdAmendment).not.toBe(PINNED_CD419FF1.signedOff242Governed);
+    expect(result.hashBeforeFinal).toBe(PINNED_021039F5_BEFORE_FINAL.signedOff242Governed);
   });
 });

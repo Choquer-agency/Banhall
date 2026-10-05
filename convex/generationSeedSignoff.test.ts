@@ -230,15 +230,46 @@ function providerPlanChecksBlock(params: GenerationMessageParams): string {
   )?.[0] ?? "";
 }
 
-/** 2026-09-28 (third): the coverage-only Self-check of a repaired final text. */
-function isFinalCoverageRequest(params: GenerationMessageParams): boolean {
-  return params.tool_choice?.name === "submit_self_check" &&
-    providerUser(params).includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+/**
+ * 2026-09-28 (third): the Self-check of a repaired final text. Since
+ * 2026-10-05 (Round 2, follow-up) it is the full Self-check, so it is told
+ * apart by order: the Self-check sent after the Section's repair (and any
+ * compression of it). `requests` is every request in the order sent; the
+ * signature fits `Array.prototype.filter`.
+ */
+function isFinalCoverageRequest(
+  params: GenerationMessageParams,
+  index: number,
+  requests: readonly GenerationMessageParams[]
+): boolean {
+  if (params.tool_choice?.name !== "submit_self_check") return false;
+  for (const earlier of requests.slice(0, index).reverse()) {
+    if (earlier.tool_choice) continue;
+    const rawSystem: unknown = earlier.system;
+    const system = typeof rawSystem === "string"
+      ? rawSystem
+      : Array.isArray(rawSystem)
+        ? rawSystem.map((block: { text?: string }) => block.text ?? "").join("")
+        : "";
+    if (system === COMPRESSION_REQUEST.system) continue;
+    return providerUser(earlier).includes("Self-check repair");
+  }
+  return false;
 }
 
-/** The first Self-check of a Section, not its final coverage check. */
-function isFirstSelfCheckRequest(params: GenerationMessageParams): boolean {
-  return params.tool_choice?.name === "submit_self_check" && !isFinalCoverageRequest(params);
+/** Whether the request a mock answers now is the check of the final text. */
+function isFinalCoverageRequestNow(params: GenerationMessageParams): boolean {
+  const requests = network.create.mock.calls.map(([sent]) => sent as GenerationMessageParams);
+  return isFinalCoverageRequest(params, requests.lastIndexOf(params), requests);
+}
+
+/** The first Self-check of a Section, not its check of the final text. */
+function isFirstSelfCheckRequest(
+  params: GenerationMessageParams,
+  index: number,
+  requests: readonly GenerationMessageParams[]
+): boolean {
+  return params.tool_choice?.name === "submit_self_check" && !isFinalCoverageRequest(params, index, requests);
 }
 
 function providerPlanChecks(params: GenerationMessageParams): ProviderPlanCheck[] {
@@ -663,8 +694,11 @@ function configureSummaryActionProvider(args: {
       };
     }
     const planChecks = providerPlanChecks(params);
+    // 2026-10-05 (Round 2, follow-up): the full Self-check of a changed
+    // final text finds the repaired ordinary issue fixed.
+    const finalText = args.repairText !== args.draftText && providerUser(params).includes(args.repairText);
     const ordinary = providerOrdinaryVerdicts(params).map((verdict, index) =>
-      index === 0
+      index === 0 && !finalText
         ? {
             ...verdict,
             outcome: "not_applied",
@@ -4754,7 +4788,10 @@ describe("seed Summary sign-off and recovery", () => {
     expect(utf8Bytes(planRow?.reason ?? "")).toBeLessThanOrEqual(64);
     const ordinaryRow = rows.find((row) =>
       row.source === "model" && row.instruction === "Storyline" && !row.planRef);
-    expect(ordinaryRow?.reason).toMatch(/^Paragraph 1 describes routine testing[^;]*…; repaired/);
+    // 2026-10-05 (Round 2, follow-up): the check of the final text judges
+    // the Storyline again and still finds it not reflected.
+    expect(ordinaryRow).toMatchObject({ outcome: "not_applied", repaired: false });
+    expect(ordinaryRow?.reason).toMatch(/^Paragraph 1 describes routine testing[^;]*…; checked again on the final text$/);
     // Stored text stays clipped: the whole wording lives only in the request.
     for (const row of rows) {
       expect(row.reason).not.toContain(planGuidance.slice(40));
@@ -4948,21 +4985,30 @@ describe("seed Summary sign-off and recovery", () => {
     });
   });
 
-  // 2026-09-28 (third): a changed repair gets a coverage-only Self-check on
-  // its final text, whose verdicts the rows record; a byte-identical repair
-  // keeps the first check's verdicts and makes no extra call.
+  // 2026-09-28 (third): a changed repair gets a Self-check of its final
+  // text, whose verdicts the rows record; a byte-identical repair keeps the
+  // first check's verdicts and makes no extra call.
+  // 2026-10-05 (Round 2, follow-up): the check of the final text is the
+  // full Self-check, which finds the ordinary issue fixed; a byte-identical
+  // repair fixed nothing, so the first check's verdict stands on it.
   it.each([
     {
       name: "changed repair gets its coverage checked on the final text",
       repairText: "Final specific_advancements wording. The final bytes changed.",
       finalChecks: 1,
+      status: "repair_attempted",
+      remaining: 0,
+      progress: "Self-check: repair attempted; plan coverage complete",
     },
     {
       name: "byte-identical repair preserves applied coverage",
       repairText: "Final specific_advancements wording. Exact checked bytes.",
       finalChecks: 0,
+      status: "repair_failed",
+      remaining: 1,
+      progress: "Self-check repair failed; plan coverage complete",
     },
-  ])("$name", async ({ repairText, finalChecks }) => {
+  ])("$name", async ({ repairText, finalChecks, status, remaining, progress }) => {
     const s = await decisionFixture();
     await makeReady(s);
     await s.writer.mutation(api.generations.signOffSeedStage, {
@@ -5016,15 +5062,15 @@ describe("seed Summary sign-off and recovery", () => {
     // Only the unrelated ordinary issue failed: the checking model found the
     // kept idea covered (2026-09-29, second).
     expect(persistedSummary).toMatchObject({
-      status: "repair_attempted",
+      status,
       repairAttempted: true,
       failedChecks: 1,
       planCoverage: { status: "complete" },
     });
-    // The kept idea is drafted, so nothing stays not applied.
-    expect(persistedSummary.remainingFailures).toBe(0);
+    // The kept idea is drafted, so only an unfixed ordinary issue stays.
+    expect(persistedSummary.remainingFailures).toBe(remaining);
     expect((await exposedProgress(s)).some((line) =>
-      line.includes("Self-check: repair attempted; plan coverage complete")
+      line.includes(progress)
     )).toBe(true);
     await runNextSectionAction(s, s.generationId);
     await runNextSectionAction(s, s.generationId);
@@ -5067,7 +5113,7 @@ describe("seed Summary sign-off and recovery", () => {
     });
     const answerFirstCheck = network.create.getMockImplementation()!;
     network.create.mockImplementation(async (params: GenerationMessageParams) => {
-      if (!isFinalCoverageRequest(params)) return await answerFirstCheck(params);
+      if (!isFinalCoverageRequestNow(params)) return await answerFirstCheck(params);
       // The final answer's only verdict names an item nobody supplied.
       return {
         content: [{

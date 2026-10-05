@@ -228,8 +228,11 @@ function installFetch(script: { draft: string; repair?: string; compressed?: str
       const json = JSON.parse(await request.text()) as Record<string, unknown>;
       const user = userOf(json);
       const tool = (json.tools as Array<{ name: string }> | undefined)?.[0]?.name ?? null;
+      // 2026-10-05 (Round 2, follow-up): the check of the final text is the
+      // full Self-check, told apart as the one sent after the repair; its
+      // scripted answer judges the same labels as the first.
       const stage = tool === "submit_self_check"
-        ? user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction)
+        ? sent.some((request) => request.stage === "repair")
           ? "finalCoverage"
           : user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.missingFollowUp.prefix) ? "followUp" : "selfCheck"
         : tool ?? (user.includes(COMPRESSION_REQUEST.userScaffold.wordsToLimit)
@@ -379,7 +382,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       repair: REPAIRED_244,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsWrong, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -441,7 +444,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       repair: DRAFT_244.replace("flat steel panels", "thin flat panels"),
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsWrong, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, stillWrong, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, stillWrong, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -541,7 +544,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       compressed,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsWrong, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -564,7 +567,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       repair: lostPilot,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsWrong, targetsMet] },
-        { verdicts: [], planVerdicts: [covered[0], pilotLost, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [covered[0], pilotLost, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -604,7 +607,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       repair: fixed242,
       checks: [
         { verdicts: ordinary, planVerdicts: [itemCovered, steelStyle] },
-        { verdicts: [], planVerdicts: [itemCovered, factsMatch] },
+        { verdicts: ordinary, planVerdicts: [itemCovered, factsMatch] },
       ],
     });
     const result = await draft(
@@ -643,7 +646,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       repair: most.replace("flat steel panels", "flat panels"),
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, proportion, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -824,7 +827,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repair: repaired,
       checks: [
         { verdicts: [...ordinary, writerProfile], planVerdicts: [...covered, three, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: [...ordinary, writerProfile], planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION, { writerFlavor: WRITER_FLAVOR });
@@ -832,9 +835,10 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
     expect(sent[2]!.user).toContain(`- Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${factsRepairText(verified)}`);
     expect(sent[2]!.user).not.toContain(`the section says "${CAUSE.draftQuote}"`);
-    // The check of the final text has no WRITER INSTRUCTIONS block, but its
-    // SOURCE FACTS still hold the writer's instructions.
-    expect(sent[3]!.user).not.toContain("[WRITER INSTRUCTIONS]");
+    // The check of the final text is the full Self-check (2026-10-05, Round 2,
+    // follow-up): its WRITER INSTRUCTIONS block and its SOURCE FACTS both
+    // hold the writer's instructions.
+    expect(sent[3]!.user.split("--- BEGIN [WRITER INSTRUCTIONS] ---")).toHaveLength(2);
     expect(sent[3]!.user).toContain(`Writer instructions (the writer's wording):\n- ${WRITER_FLAVOR}`);
     expect(result.draftText).toBe(repaired);
     expect(factsRow(result)).toMatchObject({
@@ -856,7 +860,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repair: REPAIRED_244,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, objection, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), { ...withSources, editedTerms: ["deep cove"] }), SUMMARY_VERSION);
@@ -906,7 +910,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repair: fixed,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, objection, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(
@@ -926,7 +930,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repair: REPAIRED_244,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, probe, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), { ...withSources, editedTerms: ["deep cove"] }), SUMMARY_VERSION);
@@ -951,7 +955,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repair: repaired,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsOnP2, targetsOnP2] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -1073,15 +1077,16 @@ describe("the Self-check with both the writer's measured caps and the facts chec
       repair: REPAIRED,
       checks: [
         { verdicts: [...ordinary, profileFollowed], planVerdicts: [...covered, factsWrong, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, { ...factsWrong, paragraph: 2, reason: "P2 still gives 4% as deep cove's rate", findings: [SCOPE] }, targetsMet] },
+        { verdicts: [...ordinary, profileFollowed], planVerdicts: [...covered, { ...factsWrong, paragraph: 2, reason: "P2 still gives 4% as deep cove's rate", findings: [SCOPE] }, targetsMet] },
       ],
     });
     const result = await draftWithCap();
     expect(sectionMetrics(DRAFT_244, "s244").words).toBeGreaterThan(60);
     // The repair's shortening came back as long as it went in, so the final
-    // text is the repair and the coverage-only check reads it.
+    // text is the repair, and the full Self-check of the final text reads it
+    // (2026-10-05, Round 2, follow-up).
     expect(sent.map((request) => request.stage)).toEqual([
-      "section", "compression", "compression", "selfCheck", "repair", "compression", "compression", "finalCoverage",
+      "section", "compression", "compression", "selfCheck", "repair", "compression", "compression", "selfCheck",
     ]);
 
     // The first Self-check: the caps sentence once, scoped to the WRITER
@@ -1186,7 +1191,7 @@ describe("round 2 re-check, P2: words a finding carries reach the repair marker-
       repair: REPAIRED_244,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, { ...factsWrong, findings: [steel, scope] }, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan, withSources), SUMMARY_VERSION);

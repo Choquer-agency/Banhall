@@ -588,7 +588,7 @@ describe("AD-27 generation call slots", () => {
     expect(summarizeSlotUsage({ "compression:246": 6 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual([]);
     expect(summarizeSlotUsage({ "compression:246": 7 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual(["compression:246"]);
     // 2026-09-28 (third): the ordered chain's Self-check slot also covers the
-    // coverage-only check of a repaired Section's final text and its follow-up.
+    // check of a repaired Section's final text and its follow-up.
     expect(GENERATION_SLOT_ALLOWANCES.selfCheck).toBe(2);
     expect(ORDERED_SLOT_ALLOWANCES.selfCheck).toBe(4);
     expect(summarizeSlotUsage({ "selfCheck:244": 3 }).overrun).toEqual(["selfCheck:244"]);

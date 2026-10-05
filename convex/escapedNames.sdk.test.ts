@@ -230,7 +230,10 @@ describe("names after an escaped break are masked at the request boundary (real 
     expect(sent.map((request) => request.stage)).toEqual([
       "section", "submit_self_check", "repair", "submit_self_check",
     ]);
-    expect(sent[3]!.user).toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+    // 2026-10-05 (Round 2, follow-up): the check of the final text is the
+    // full Self-check, with the same plan checks.
+    expect(sent[3]!.user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction);
+    expect(sent[3]!.user).toContain("\\n[CLIENT_1] built it.\\t[PERSON_1] ran it.");
     for (const request of sent) {
       expect(request.body, request.stage).not.toMatch(HIDDEN);
       expect(request.user, request.stage).toContain("[CLIENT_1] built it.");

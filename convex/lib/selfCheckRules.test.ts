@@ -539,7 +539,7 @@ describe("rows from the check of the final text (round 2 review)", () => {
     expect(rows.find((row) => row.source === "model")).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: "P1 says bake window.; the repair and shortening left the checked text as it was",
+      reason: "P1 says bake window.; the repair left the checked text as it was",
     });
     expect(rows.map((row) => row.reason).join(" ")).not.toContain("not re-verified");
     expect(summary.remainingFailures).toBe(1);

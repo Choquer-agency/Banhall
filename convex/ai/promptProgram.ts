@@ -473,8 +473,10 @@ export const generationPromptProgram = {
             // draft, and kept only if it is no further over a Locked limit.
             "conditionalCompressionOfTheRepair",
             // 2026-09-28 (third): in Summary mode, plan verdicts on the
-            // final text when the repair changed the checked text.
-            "conditionalFinalCoverageSelfCheck",
+            // final text when the repair changed the checked text. Since
+            // 2026-10-05 (Round 2, follow-up), in every mode, the full
+            // Self-check of the final text after a used repair changed it.
+            "conditionalSelfCheckOfTheFinalText",
           ],
           gate: "none",
         },
@@ -702,7 +704,10 @@ export const generationPromptProgram = {
         schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
         structuredPolicy: "single-attempt-then-missing-labels-follow-up",
         encodedJsonRecovery: "disabled",
-        finalCoverage: "plan-verdicts-and-feedback-term-labels-on-the-changed-final-text",
+        // 2026-10-05 (Round 2, follow-up): the check of the final text is
+        // the full Self-check with the first check's input, never
+        // coverage-only.
+        finalCoverage: "full-self-check-on-the-final-text-after-a-used-repair",
         // 2026-09-28, run 4: an invalid verdict is dropped and its label or
         // plan check asked for in the follow-up; only an answer with more
         // invalid verdicts than valid ones is rejected whole.

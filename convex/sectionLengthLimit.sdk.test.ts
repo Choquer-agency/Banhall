@@ -672,7 +672,7 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     expect(run.model("246", "Storyline")).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: "The paragraph drifts from the Storyline.; checked again on the final text after shortening",
+      reason: "The paragraph drifts from the Storyline.; checked again on the final text",
     });
     expectOtherLinesUnchanged(run);
   });
