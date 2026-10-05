@@ -103,8 +103,8 @@ import {
 } from "../lib/selfCheckRules";
 import { noteDraft, type ComplianceNoteDraft } from "../lib/complianceNote";
 import { containsTerm } from "../lib/editedTerms";
-import { extractWriterWordingRules } from "../lib/settingsExtraction";
-import { hasWriterWordingRules } from "../lib/writerWording";
+import { extractWriterWordingRules, unreadWritingRules } from "../lib/settingsExtraction";
+import { hasWriterWordingRules, holdsPhrase } from "../lib/writerWording";
 import {
   confirmedConflictParagraph,
   confirmedConflictsOf,
@@ -342,6 +342,14 @@ export function editedTermsBlock(editedTerms: readonly string[]): string {
 /** Why a repair that dropped a writer's edited term was not used. */
 export function repairDroppedTermReason(term: string): string {
   return `the repaired text dropped the writer's edited term "${term}", so the checked draft was kept`;
+}
+
+/**
+ * Round 5 follow-up (re-check P2-1): why a repair that removed a term the
+ * writer's settings require, which the checked draft held, was not used.
+ */
+export function repairDroppedWriterTermReason(term: string): string {
+  return `the repaired text no longer uses "${term}", the writer's term, which the checked draft used, so the checked draft was kept`;
 }
 
 /**
@@ -1241,6 +1249,9 @@ export async function draftCheckedSection(input: {
     ? extractWriterWordingRules(payload.writerFlavor)
     : null;
   const writerWording = hasWriterWordingRules(extractedWording) ? extractedWording : undefined;
+  // Re-check P1-1 (b): what of the settings the extractor left to the model.
+  const unreadWriting = writerWording && payload.writerFlavor ? unreadWritingRules(payload.writerFlavor) : undefined;
+  const settleContext = { ...(writerWording ? { rules: writerWording } : {}), ...(unreadWriting ? { unread: unreadWriting } : {}) };
   const wordingGuard = writerWording ? { wording: { rules: writerWording, section } } : {};
   // A compression pass that comes back empty after the scrub, no closer to
   // the limits or missing required content never replaces the draft it was
@@ -1361,7 +1372,7 @@ export async function draftCheckedSection(input: {
     const result = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), selfCheckInput);
     // Round 5 follow-up: the settings row never contradicts what code measured.
     verdicts = writerWording || writerCap || payload.orderedContext.selfCheckRules.length > 0
-      ? settleWriterSettingsVerdicts(result.verdicts, before, payload.writerFlavor)
+      ? settleWriterSettingsVerdicts(result.verdicts, before, payload.writerFlavor, settleContext)
       : result.verdicts;
     // Round 5 follow-up: the writer's glossary outranks a Brief Glossary Term.
     if (writerWording) verdicts = settleGlossaryForWriterTerms(verdicts, writerWording, before.glossaryCandidates);
@@ -1558,6 +1569,9 @@ export async function draftCheckedSection(input: {
         const droppedTerm = claim.editedTerms.find(
           (term) => containsTerm(text, term) && !containsTerm(fit.text, term)
         );
+        const droppedWriterTerm = writerWording?.terms
+          .map((rule) => rule.term)
+          .find((term) => holdsPhrase(text, term) && !holdsPhrase(fit.text, term));
         // CAP-13 rule 4 (2026-09-29, second): nor an idea the writer kept
         // despite a Claim Exclusion. The coverage check of the final text
         // decides that below; only with no verdict to read (the first
@@ -1643,6 +1657,12 @@ export async function draftCheckedSection(input: {
           }`;
         } else if (droppedTerm !== undefined) {
           repair.notUsedReason = `${repairDroppedTermReason(droppedTerm)}${failure ? `; ${failure}` : ""}`;
+        } else if (droppedWriterTerm !== undefined) {
+          // Round 5 follow-up (lead decision, owner informed; re-check
+          // P2-1): the writer's glossary outranks the Brief's, so a repair
+          // never removes a term the writer's settings require that the
+          // checked draft used (run 6 rewrote "edge coverage").
+          repair.notUsedReason = `${repairDroppedWriterTermReason(droppedWriterTerm)}${failure ? `; ${failure}` : ""}`;
         } else if (droppedKept.length > 0 && !keptOverLimit) {
           repair.notUsedReason = `${repairDroppedKeptIdeaReason(droppedKept[0]!)}${failure ? `; ${failure}` : ""}`;
         } else if (lostFigure !== undefined && !figureOverLimit) {
@@ -1713,7 +1733,7 @@ export async function draftCheckedSection(input: {
       }
       const settled = after && (writerWording || writerCap || payload.orderedContext.selfCheckRules.length > 0)
         ? settleGlossaryForWriterTerms(
-            settleWriterSettingsVerdicts(final.verdicts, after, payload.writerFlavor),
+            settleWriterSettingsVerdicts(final.verdicts, after, payload.writerFlavor, settleContext),
             writerWording,
             after.glossaryCandidates
           )

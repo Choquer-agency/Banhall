@@ -37,6 +37,7 @@ import {
   holdsPhrase,
   openingAt,
   termRuleHits,
+  type RequiredTermRule,
   type WriterWordingRules,
 } from "./writerWording";
 
@@ -1032,7 +1033,32 @@ const MEASURED_KINDS = {
 } as const;
 /** What code does not measure, so a remark about it stays the model's. */
 const UNMEASURED_KIND =
-  /\b(?:confidence|hedg\w*|storyline|style|tone|voice|tense|person|we|our|ours|us|ourselves|exclu\w*|claim\w*|statements?|objectives?|uncertaint\w*|mid-paragraph|order|sequence|structure|headings?|plain|jargon|figures?|numbers?|results?|targets?|sources?|facts?|passive|active|repetition|density|sentences?\s+length|paragraphs?\s+length)\b/i;
+  /\b(?:confidence|hedg\w*|storyline|style|tone|voice|tense|person|we|our|ours|us|ourselves|exclu\w*|claim\w*|statements?|stated|states|objectives?|uncertaint\w*|mid-paragraph|order|sequence|structure|headings?|plain|jargon|figures?|numbers?|results?|targets?|sources?|facts?|passive|active|repetition|density|topics?|mention\w*|describ\w*|paragraphs?|sentences?|company|naming|name|names)\b/i;
+/**
+ * Re-check P1-1 (a): the words or phrases a remark names: quoted, or after
+ * says, uses, writes, word, term or synonym (articles and generic words such
+ * as "banned" and "word" set aside, up to four words, to the next stop).
+ */
+const NAMED_AFTER =
+  /\b(?:says?|uses?|writes?|word|term|synonym)\s+((?:[A-Za-z][\w-]*\s*){1,7})/gi;
+const NAMED_STOP = /^(?:instead|not|but|where|which|in|on|for|from|than|of|and|or|is|are|was|were|to|that|rather|with|as|by|at)$/i;
+const NAMED_GENERIC = /^(?:the|a|an|banned|ban|word|words|term|terms|synonym|synonyms|phrase|phrases|wording|writer's|writers|settings?)$/i;
+function namedPhrases(remark: string): string[] {
+  const quoted = [...remark.matchAll(/["\u201c\u2018']([^"\u201d\u2019']{2,60})["\u201d\u2019']/g)].map((match) => match[1]!.trim());
+  const after = [...remark.replace(/["\u201c][^"\u201d]*["\u201d]/g, " ").matchAll(NAMED_AFTER)].flatMap((match) => {
+    const words: string[] = [];
+    for (const word of match[1]!.trim().split(/\s+/)) {
+      if (NAMED_STOP.test(word)) break;
+      if (words.length === 0 && NAMED_GENERIC.test(word)) continue;
+      words.push(word);
+      if (words.length === 4) break;
+    }
+    return words.length > 0 ? [words.join(" ")] : [];
+  });
+  return [...quoted, ...after];
+}
+const wordCountOf = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
+
 /** The longest remark of the model's the settings row stores. */
 const MAX_SETTINGS_REMARK_CHARS = 600;
 
@@ -1057,8 +1083,23 @@ const MAX_SETTINGS_REMARK_CHARS = 600;
 export function settleWriterSettingsVerdicts(
   verdicts: readonly ModelVerdict[],
   check: DeterministicSelfCheck,
-  writerInstructions: string | undefined
+  writerInstructions: string | undefined,
+  /**
+   * Re-check P1-1: the measured rules, and what of the settings the
+   * extractor left to the model (a word ban or an opening it did not read).
+   */
+  context: { rules?: WriterWordingRules; unread?: { wordBans: boolean; openings: boolean } } = {}
 ): ModelVerdict[] {
+  const rules = context.rules;
+  const measuredPhrases = rules
+    ? [
+        ...rules.terms.flatMap((rule) => [rule.term, ...rule.banned]),
+        ...rules.banned.flatMap((rule) => [rule.phrase, ...rule.forms]),
+        ...rules.openings.map((rule) => rule.opening),
+      ]
+    : [];
+  const isMeasuredPhrase = (phrase: string) =>
+    measuredPhrases.some((own) => holdsPhrase(phrase, own) && wordCountOf(phrase) <= wordCountOf(own) + 1);
   const measured = check.entries.filter(
     (entry) => entry.measuredWording || (entry.measuredCap?.kind === "writer")
   );
@@ -1076,8 +1117,14 @@ export function settleWriterSettingsVerdicts(
     const whole: ModelVerdict = full === verdict.reason ? verdict : { ...verdict, reason: full };
     if (verdict.outcome !== "not_applied" || verdict.notChecked || !allHeld) return whole;
     const said = [full, verdict.repairGuidance ?? ""].join(" ");
-    const kinds = (Object.keys(MEASURED_KINDS) as Array<keyof typeof MEASURED_KINDS>).filter((kind) => MEASURED_KINDS[kind].test(said));
-    if (kinds.length === 0 || kinds.some((kind) => !present[kind]) || UNMEASURED_KIND.test(said)) return whole;
+    const unquoted = said.replace(/["\u201c][^"\u201d]*["\u201d]/g, " ");
+    const kinds = (Object.keys(MEASURED_KINDS) as Array<keyof typeof MEASURED_KINDS>).filter((kind) => MEASURED_KINDS[kind].test(unquoted));
+    if (kinds.length === 0 || kinds.some((kind) => !present[kind]) || UNMEASURED_KIND.test(unquoted)) return whole;
+    // (a) every word or phrase it names is a measured rule's own.
+    if (!namedPhrases(said).every(isMeasuredPhrase)) return whole;
+    // (b) no rule of the kinds it names was left to the model.
+    if ((kinds.includes("banned") || kinds.includes("term")) && context.unread?.wordBans) return whole;
+    if (kinds.includes("opening") && context.unread?.openings) return whole;
     const { repairGuidance: _guidance, repairText: _text, unclippedReason: _unclipped, ...rest } = verdict;
     return {
       ...rest,
@@ -1093,10 +1140,11 @@ export function settleWriterSettingsVerdicts(
  * Brief's Glossary Terms. Run 6 repaired Line 246 P1 for the Glossary Term
  * "film build" by rewriting the writer's own term "edge coverage", and the
  * consistency pass then flagged the split. A Glossary verdict not applied
- * whose fix would replace or contradict a term the writer's settings
- * require (its words name that term), or whose Brief Glossary Term is a word
- * the writer's settings ban, is read as governed by the writer's settings:
- * applied, with no repair, and its row says so.
+ * whose Brief Glossary Term is a word the writer's settings ban is read as
+ * governed by the writer's settings: applied, with no repair, and its row
+ * says so. A repair that would remove a term the writer's settings require
+ * is stopped at the repair (draftCheckedSection), never here (re-check
+ * P2-1: a remark that names a writer's term as context is no conflict).
  */
 export function settleGlossaryForWriterTerms(
   verdicts: readonly ModelVerdict[],
@@ -1107,20 +1155,23 @@ export function settleGlossaryForWriterTerms(
   return verdicts.map((verdict) => {
     if (verdict.check !== "glossary" || verdict.outcome !== "not_applied" || verdict.notChecked) return verdict;
     const briefTerm = glossaryTermOf(verdict, [...glossaryCandidates]);
-    const said = [verdict.reason, verdict.repairGuidance ?? "", verdict.repairText ?? ""].join(" ");
-    const banning = rules.terms.find((rule) => rule.banned.some((banned) => holdsPhrase(briefTerm, banned)));
-    const replaced = rules.terms.find(
-      (rule) => !holdsPhrase(briefTerm, rule.term) && holdsPhrase(said, rule.term)
-    );
-    const governing = banning ?? replaced;
-    if (!governing) return verdict;
+    // Re-check P2-1: only a Brief term the writer bans; a fix that would
+    // remove a writer's term is stopped at the repair instead.
+    let matched: { rule: RequiredTermRule; banned: string } | undefined;
+    for (const rule of rules.terms) {
+      const banned = rule.banned.find((item) => holdsPhrase(briefTerm, item));
+      if (banned) {
+        matched = { rule, banned };
+        break;
+      }
+    }
+    if (!matched) return verdict;
     const { repairGuidance: _guidance, repairText: _text, unclippedReason: _unclipped, ...rest } = verdict;
+    const remark = (verdict.unclippedReason ?? verdict.reason).slice(0, MAX_SETTINGS_REMARK_CHARS);
     return {
       ...rest,
       outcome: "applied",
-      reason: `The writer's settings govern this wording: "${governing.term}" is the writer's term${
-        banning ? `, and they never allow "${briefTerm}"` : ""
-      } (see its row), so the Brief's Glossary Term is not used in its place; the Self-check's remark, set aside: ${verdict.unclippedReason ?? verdict.reason}`,
+      reason: `The writer's settings govern this wording: "${matched.rule.term}" is the writer's term, and they never allow "${matched.banned}" (see its row), so the Brief's Glossary Term is not used; the Self-check's remark, set aside: ${remark}`,
     };
   });
 }

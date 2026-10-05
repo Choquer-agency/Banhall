@@ -107,7 +107,9 @@ function hitsOf(
       if (!banned.trim()) continue;
       for (const match of paragraph.matchAll(wordingPattern(banned))) {
         const at = match.index ?? 0;
-        if (protectedSpans.some(([from, to]) => at < to && from < at + match[0].length)) continue;
+        // Only a ban inside the term's own words: a ban that holds the term
+        // ("trial and error" beside the term "trial") is still counted.
+        if (protectedSpans.some(([from, to]) => from <= at && at + match[0].length <= to)) continue;
         if (!counts(sentenceAround(paragraph, at, match[0].length))) continue;
         if (hits.some((hit) => hit.paragraphIndex === paragraphIndex && hit.words.toLowerCase() === match[0].toLowerCase())) continue;
         hits.push({ paragraphIndex, words: match[0], banned });

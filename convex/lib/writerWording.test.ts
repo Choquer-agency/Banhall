@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { extractWriterWordingRules } from "./settingsExtraction";
+import { extractWriterWordingRules, unreadWritingRules } from "./settingsExtraction";
 import {
   assembleSectionNotes,
   repairIssues,
@@ -243,6 +243,12 @@ describe("review fixes to the matcher and the settings row guard (Round 5)", () 
     expect(bannedRuleHits("The panel surface temperature rose.", temperature, ["panel surface temperature"])).toEqual([]);
   });
 
+  it("counts a ban that holds its own term (term \"trial\", ban \"trial and error\")", () => {
+    const trial = rule("trial", ["trial and error"]);
+    expect(termRuleHits("It was trial and error.", trial).map((hit) => hit.words)).toEqual(["trial and error"]);
+    expect(termRuleHits("Each trial ran an hour.", trial)).toEqual([]);
+  });
+
   it("reads e.g. and i.e. as no sentence end (P3-1)", () => {
     const pinholes = RULES.terms.find((entry) => entry.term === "outgassing defects")!;
     expect(termRuleHits("Outgassing defects (e.g. pinholes and blisters) rose.", pinholes)).toEqual([]);
@@ -352,17 +358,15 @@ describe("the writer's glossary outranks a Brief Glossary Term (Round 5 follow-u
     repairGuidance,
   });
 
-  it("sets aside a Glossary fix that would replace the writer's term, with no repair, and its row says the writer's settings govern", () => {
-    const verdict = glossary("film build", "P1 says edge coverage where the Glossary Term is film build.", "Write film build on routed edges in P1.");
-    const [settled] = settleGlossaryForWriterTerms([verdict], RULES, ["film build"]);
-    expect(settled).toEqual({
-      check: "glossary",
-      instruction: "Glossary Term: film build",
-      paragraphIndex: 0,
-      outcome: "applied",
-      reason: "The writer's settings govern this wording: \"edge coverage\" is the writer's term (see its row), so the Brief's Glossary Term is not used in its place; the Self-check's remark, set aside: P1 says edge coverage where the Glossary Term is film build.",
-    });
-    expect(repairIssues(check("246", "The edge coverage held at 64 microns."), [settled!])).toEqual([]);
+  it("leaves a Glossary fix that only names a writer's term as context as the model gave it (re-check P2-1)", () => {
+    for (const verdict of [
+      glossary("film build", "P1 says edge coverage where the Glossary Term is film build.", "Write film build on routed edges in P1."),
+      glossary("pad pressure map", "P2 says pressure table near the edge coverage figures.", "Say pad pressure map in P2."),
+      glossary("edge sealer", "P3 calls the edge sealer a primer beside film build.", "Say edge sealer in P3."),
+      glossary("fast-catalysed powder", "P4 says quick powder; cure window is fine.", "Say fast-catalysed powder in P4."),
+    ]) {
+      expect(settleGlossaryForWriterTerms([verdict], RULES, [verdict.instruction.replace("Glossary Term: ", "")])).toEqual([verdict]);
+    }
   });
 
   it("sets aside a Glossary Term that is a word the writer's settings ban", () => {
@@ -373,11 +377,70 @@ describe("the writer's glossary outranks a Brief Glossary Term (Round 5 follow-u
     );
     expect(settled).toMatchObject({ outcome: "applied" });
     expect(settled!.reason).toMatch(/^The writer's settings govern this wording: "cure window" is the writer's term, and they never allow "bake window" \(see its row\)/);
+    // The ban is quoted exactly as the writer wrote it, and the remark is capped.
+    const [gauge] = settleGlossaryForWriterTerms(
+      [{ ...glossary("film thickness gauge", "x".repeat(900), "Use it."), unclippedReason: "y".repeat(900) }],
+      RULES,
+      ["film thickness gauge"]
+    );
+    expect(gauge!.reason).toContain('they never allow "film thickness" (see its row)');
+    expect(gauge!.reason.endsWith(`set aside: ${"y".repeat(600)}`)).toBe(true);
   });
 
   it("leaves a Glossary fix that touches no writer term as the model gave it", () => {
     const verdict = glossary("pad pressure map", "P3 says pressure table.", "Replace pressure table.");
     expect(settleGlossaryForWriterTerms([verdict], RULES, ["pad pressure map"])).toEqual([verdict]);
     expect(settleGlossaryForWriterTerms([verdict], undefined, ["pad pressure map"])).toEqual([verdict]);
+  });
+});
+
+// Re-check of a8e254bd..5367e429, P1-1: the reviewer's probes, on the
+// fixture's settings with every measured rule held on Line 242.
+describe("the settle reads a verdict as applied only when it names nothing code does not measure (re-check P1-1)", () => {
+  const KEPT_242 = LINE_242.replace("This work aimed to develop", "The aim of this work was to develop");
+  const context = { rules: RULES, unread: unreadWritingRules(SETTINGS_TEXT) };
+  const verdict = (reason: string): ModelVerdict => ({
+    check: "instruction",
+    instruction: "# PD Writing Customized Settings ...",
+    outcome: "not_applied",
+    reason,
+  });
+  const settle = (reason: string, text = SETTINGS_TEXT) =>
+    settleWriterSettingsVerdicts([verdict(reason)], check("242", KEPT_242), SETTINGS_TEXT, {
+      rules: RULES,
+      unread: unreadWritingRules(text),
+    })[0]!;
+
+  it("the fixture's settings leave no word ban or opening unread (its first-person ban names pronouns, a kind the settle never settles)", () => {
+    expect(context.unread).toEqual({ wordBans: false, openings: false });
+  });
+
+  it.each([
+    "P1 opener differs",
+    "P2-4 use banned words from the settings document.",
+    'P2 uses "optimized", a banned word.',
+    "P3 uses the term film build correctly.",
+  ])("still settles run 6's false alarm %j", (reason) => {
+    expect(settle(reason)).toMatchObject({ outcome: "applied" });
+  });
+
+  it.each([
+    "P3 describes the powder booth extraction upgrade, a banned topic.",
+    "The settings ban any mention of colour matching; P3 mentions it.",
+    "P1 uses the banned word novel.",
+    "P2 writes coating build instead of the writer's term film build.",
+    "P3 is too long for the settings paragraph limit of 40 words.",
+    "Terms ok but the settings say name the company once.",
+    "The required opening starts P2, but the aim is really stated in P3.",
+  ])("keeps %j not applied", (reason) => {
+    expect(settle(reason)).toMatchObject({ outcome: "not_applied", reason });
+  });
+
+  it("keeps a vague banned-word remark when the settings hold a word ban the extractor left unread", () => {
+    const prose = `${SETTINGS_TEXT}\n\nAlso, never use the word novel in any Line.`;
+    expect(unreadWritingRules(prose)).toEqual({ wordBans: true, openings: false });
+    expect(settle("P2-4 use banned words from the settings document.", prose)).toMatchObject({ outcome: "not_applied" });
+    // An opener remark is still settled: no opening was left unread.
+    expect(settle("P1 opener differs", prose)).toMatchObject({ outcome: "applied" });
   });
 });

@@ -261,31 +261,45 @@ describe("the writer's wording rules are measured, repaired and measured again (
   // Round 5 follow-up (release suite run 6 of 2026-10-05): the settings row
   // read not applied with wrong reasons beside true measured rows, and a
   // Glossary Term repair rewrote the writer's own term.
-  it("reads a settings verdict that only talks about kept measured rules as applied, and sets aside a Glossary fix against the writer's term: no repair", async () => {
+  it("reads a settings verdict that only talks about kept measured rules as applied: no repair", async () => {
     const kept = [
       "Velloway Panel Finishing coats routed MDF cabinet doors with a low-temperature powder.",
       "The aim of this work was to develop a powder finish for routed MDF doors.",
       "It was not known at the outset whether full cure could be reached below the outgassing onset.",
     ].join("\n\n");
-    const { sent, result, note } = await draft("242", {
+    const { sent, result } = await draft("242", {
       draft: kept,
       repair: kept,
-      checks: [{
-        verdicts: [
-          { ...settingsVerdict, outcome: "not_applied", reason: "P1 opener differs", repairGuidance: "Open P1 with the opener." },
-          { paragraph: 2, check: "glossary", instruction: "Glossary Term: film build", outcome: "not_applied", reason: "P2 uses edge coverage, not film build.", repairGuidance: "Replace edge coverage with film build." },
-        ],
-      }],
-    }, ["film build"]);
+      checks: [{ verdicts: [{ ...settingsVerdict, outcome: "not_applied", reason: "P1 opener differs", repairGuidance: "Open P1 with the opener." }] }],
+    });
     // Nothing is left to repair.
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
     expect(result.draftText).toBe(kept);
-    const settingsRow = result.notes.find((row) => row.source === "model" && row.instruction === "# PD Writing Customized Settings ...");
-    expect(settingsRow).toMatchObject({
+    expect(result.notes.find((row) => row.source === "model")).toMatchObject({
       outcome: "applied",
       reason: "Every rule code measures on this Line was kept (see those rows); the Self-check's own remark, which they settle: P1 opener differs",
     });
-    expect(note("Glossary Term: film build")).toMatchObject({ source: "model", outcome: "applied" });
-    expect(note("Glossary Term: film build")?.reason).toMatch(/^The writer's settings govern this wording: "edge coverage" is the writer's term/);
+  });
+
+  // Re-check P2-1 (run 6): a Glossary Term repair rewrote the writer's
+  // "edge coverage"; the repair that removes a writer's term is not used.
+  it("does not use a repair that removes a term the writer's settings require", async () => {
+    const drafted = [
+      "Velloway Panel Finishing ran oven trials on routed MDF doors.",
+      "Trial 1 measured edge coverage at 64 microns on the routed edges.",
+    ].join("\n\n");
+    const rewritten = drafted.replace("edge coverage", "film build");
+    const { sent, result, note } = await draft("246", {
+      draft: drafted,
+      repair: rewritten,
+      checks: [{
+        verdicts: [{ paragraph: 2, check: "glossary", instruction: "Glossary Term: film build", outcome: "not_applied", reason: "P2 uses edge coverage, not film build.", repairGuidance: "Replace edge coverage with film build." }],
+      }],
+    }, ["film build"]);
+    expect(sent.some((request) => request.stage === "repair")).toBe(true);
+    expect(result.draftText).toBe(drafted);
+    expect(note("Glossary Term: film build")?.reason).toBe(
+      'P2 uses edge coverage, not film build.; repair not used (the repaired text no longer uses "edge coverage", the writer\'s term, which the checked draft used, so the checked draft was kept)'
+    );
   });
 });

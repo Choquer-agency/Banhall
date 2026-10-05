@@ -496,3 +496,54 @@ describe("extractWriterWordingRules (Round 5): clear statements only", () => {
     expect(extractWriterWordingRules(text).banned.map((rule) => rule.phrase)).toEqual(["leverage", "synergy"]);
   });
 });
+
+// Re-check of a8e254bd..5367e429: the reviewer's probes.
+describe("extractWriterWordingRules re-check probes", () => {
+  it("opens no terms list under a heading that names style as well as terminology (P1-2)", () => {
+    const text = [
+      "## Style and terminology",
+      "",
+      "- Pronouns: third person. Never write we or us.",
+      "- Jargon: plain words. Never write synergy.",
+      "- Hedging: say it plainly. Never write may or might.",
+      "- Results: state them. Never write promising.",
+      "- Marketing language: none. Never write world-class.",
+    ].join("\n");
+    expect(extractWriterWordingRules(text).terms).toEqual([]);
+    // The labels alone are not terms inside a glossary either.
+    const glossary = text.replace("## Style and terminology", "## Glossary");
+    expect(extractWriterWordingRules(glossary).terms).toEqual([]);
+  });
+
+  it.each([
+    ["a scope in results", "- film build: the thickness. Never write DFT or thickness in results."],
+    ["a scope to a Line", "- cure window: the range. Never write bake window or oven in Line 246."],
+  ])("leaves a term ban with %s unread (P2-2)", (_label, item) => {
+    expect(extractWriterWordingRules(["## Glossary", "", item].join("\n")).terms).toEqual([]);
+  });
+
+  it.each([
+    ['- Line 242: open the objective with the exact words "The aim of this work was to" when the client agrees.'],
+    ['- Line 242: open it with these exact words: "The aim of this work was to", unless the Brief sets another opener.'],
+  ])("reads no conditional opening: %s", (text) => {
+    expect(extractWriterWordingRules(text).openings).toEqual([]);
+  });
+
+  it("reads no banned list under a heading scoped to one Line", () => {
+    const text = ["## Line 246 (results) only", "", "Never use these words:", "", "- novel", "- unique"].join("\n");
+    expect(extractWriterWordingRules(text).banned).toEqual([]);
+  });
+
+  it("opens no terms list from a sentence that only mentions a glossary, and ends a list at a later lead", () => {
+    const text = [
+      "Spell product names as in the client's glossary.",
+      "- pilot: the 600-panel run. Never write production or commercial.",
+      "",
+      "## Glossary",
+      "- film build: the thickness. Never write DFT.",
+      "Ask the client about anything else.",
+      "- prototype: the first build. Never write final or finished.",
+    ].join("\n");
+    expect(extractWriterWordingRules(text).terms.map((rule) => rule.term)).toEqual(["film build"]);
+  });
+});
