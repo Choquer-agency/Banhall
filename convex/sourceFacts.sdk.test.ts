@@ -1043,3 +1043,37 @@ describe("Greptile on PR #26 at 17d3d1a8: a wrong group rate beside the right ov
     });
   });
 });
+
+describe("Greptile on PR #26 at 7e3964cc: the draft adds a group to the source's words (real SDK, fetch stubbed)", () => {
+  it("verifies and repairs the finding, although its draft quote holds its source quote", async () => {
+    const addedGroup = [
+      "Trial 1 ran the supplier's datasheet process on the routed MDF panels. The datasheet cure numbers were for thin flat panels and did not transfer.",
+      "In the 600-door pilot, on the deep cove profile 4 percent of panels had edge DFT below 60 microns.",
+    ].join("\n\n");
+    const fixed = addedGroup.replace("on the deep cove profile 4 percent of panels", "13 percent of the 180 deep cove panels");
+    const wrongGroup = {
+      paragraph: 2,
+      draftQuote: "on the deep cove profile 4 percent of panels had edge DFT below 60 microns",
+      sourceQuote: "4 percent of panels had edge DFT below 60 microns",
+      correction: "13 percent of the 180 deep cove panels",
+    };
+    const sent = installFetch({
+      draft: addedGroup,
+      repair: fixed,
+      checks: [
+        { verdicts: ordinary, planVerdicts: [...covered, { ...factsWrong, paragraph: 2, findings: [wrongGroup] }, targetsMet] },
+        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+      ],
+    });
+    const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    const verified = [verifiedOf(wrongGroup, 1)];
+    expect(sent[2]!.user).toContain(`- Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${factsRepairText(verified)}`);
+    expect(result.draftText).toBe(fixed);
+    expect(factsRow(result)).toMatchObject({
+      outcome: "applied",
+      reason: `Figures and details match the sources. Fixed by the repair: ${factsFindingsReason(verified, 0)}`,
+      repaired: true,
+    });
+  });
+});

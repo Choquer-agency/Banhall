@@ -2952,17 +2952,29 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
     });
   });
 
-  it("never verifies a source quote that is the draft quote itself, either holding the other", () => {
+  const holdingSources = ["4 percent of panels fell below 60 microns. 4 percent of panels fell short across all 600 doors."];
+  it("Greptile on PR #26 at 7e3964cc: verifies a finding whose draft quote adds a group to its source quote", () => {
+    const sources = holdingSources;
+    const addedGroup = { draftQuote: "In the deep cove group, 4 percent of panels fell below 60 microns", sourceQuote: "4 percent of panels fell below 60 microns", correction: "13 percent of the deep cove panels" };
+    expect(verifyFactsFindings({ findings: [addedGroup], paragraphs: ["In the deep cove group, 4 percent of panels fell below 60 microns."], sources }))
+      .toEqual({ verified: [{ paragraphIndex: 0, ...addedGroup }], held: [], unverified: 0 });
+  });
+
+  it("Greptile on PR #26 at 7e3964cc: verifies a finding whose draft quote drops a qualifier its source quote holds", () => {
+    const sources = holdingSources;
+    const droppedQualifier = { draftQuote: "4 percent of panels fell short", sourceQuote: "4 percent of panels fell short across all 600 doors", correction: "4 percent of all 600 doors" };
+    expect(verifyFactsFindings({ findings: [droppedQualifier], paragraphs: ["On the deep cove profile, 4 percent of panels fell short."], sources }))
+      .toEqual({ verified: [{ paragraphIndex: 0, ...droppedQualifier }], held: [], unverified: 0 });
+  });
+
+  it("never verifies a source quote that is the draft quote itself, after normalizing", () => {
     const paragraphs = ["The sealer cut preheat to 85 C on the routed edges."];
     const sources = ["The sealer cut preheat to 85 C on the routed edges, as planned."];
     expect(verifyFactsFindings({
-      findings: [
-        { draftQuote: "cut preheat to 85 C on the routed edges", sourceQuote: "The sealer cut preheat to 85 C on the routed edges", correction: "" },
-        { draftQuote: "The sealer cut preheat to 85 C on the routed edges", sourceQuote: "cut preheat to 85 C", correction: "" },
-      ],
+      findings: [{ draftQuote: "cut preheat to 85 C on the routed edges", sourceQuote: "\u201cCut  preheat to 85 C on the routed edges.\u201d", correction: "" }],
       paragraphs,
       sources,
-    })).toEqual({ verified: [], held: [], unverified: 2 });
+    })).toEqual({ verified: [], held: [], unverified: 1 });
   });
 
   it("never verifies a source quote that is the draft quote, or a draft quote no paragraph holds, and holds a finding on a signed-off item's words while documents are missing (round 2 review, P2-4)", () => {
