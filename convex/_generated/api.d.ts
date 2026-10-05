@@ -222,6 +222,7 @@ import type * as lib_transcripts from "../lib/transcripts.js";
 import type * as lib_uploadAttempts from "../lib/uploadAttempts.js";
 import type * as lib_workItemOversight from "../lib/workItemOversight.js";
 import type * as lib_writerCoverage from "../lib/writerCoverage.js";
+import type * as lib_writerLineCap from "../lib/writerLineCap.js";
 import type * as lib_writerPrecedence from "../lib/writerPrecedence.js";
 import type * as modelCatalog from "../modelCatalog.js";
 import type * as myWork from "../myWork.js";
@@ -483,6 +484,7 @@ declare const fullApi: ApiFromModules<{
   "lib/uploadAttempts": typeof lib_uploadAttempts;
   "lib/workItemOversight": typeof lib_workItemOversight;
   "lib/writerCoverage": typeof lib_writerCoverage;
+  "lib/writerLineCap": typeof lib_writerLineCap;
   "lib/writerPrecedence": typeof lib_writerPrecedence;
   modelCatalog: typeof modelCatalog;
   myWork: typeof myWork;
