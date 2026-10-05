@@ -6,8 +6,9 @@
  * fictional Velloway Panel Finishing, commit e0fd7892), as its pack holds
  * them.
  */
-import { describe, expect, it } from "vitest";
-import { coverItemLoss } from "./pipeline";
+import { describe, expect, it, vi } from "vitest";
+import { compressWithinLimit, coverItemLoss } from "./pipeline";
+import type { GenerationClient } from "./openrouterCore";
 import { sectionMetrics } from "../lib/lineLimits";
 
 /** Each signed-off item as compression gets it: its bullets joined. */
@@ -136,5 +137,79 @@ describe("a shortening pass for the writer's cap keeps every signed-off item (re
       .replace("Trial 2 showed outgassing defects on this board begin", "In Trial 2, outgassing defects on this board began");
     expect(reworded).not.toBe(LINE_246);
     expect(coverItemLoss(LINE_246, reworded, ITEMS_246)).toBeNull();
+  });
+});
+
+describe("the guard's threshold, its stating sentences and its baseline (final re-check)", () => {
+  // Eight content words: edge, sealer, separated, conductivity, heat,
+  // routed, board, panels. Two of them lost is the threshold.
+  const ITEM = "The edge sealer separated conductivity from heat on routed board panels.";
+  const OTHER = "The team logged each trial in the shop book.";
+  const TEXT = `${ITEM} ${OTHER}`;
+
+  it("keeps a pass that loses exactly one of the item's words, matching the others loosely", () => {
+    // "conductive" keeps "conductivity" (sameWord); only "board" goes.
+    const out = `The edge sealer separated conductive layers from heat on routed panels. ${OTHER}`;
+    expect(coverItemLoss(TEXT, out, [ITEM])).toBeNull();
+  });
+
+  it("holds a pass that loses enough of the item's words to cross the threshold", () => {
+    const out = `The edge sealer separated conductivity on panels. ${OTHER}`;
+    expect(coverItemLoss(TEXT, out, [ITEM])).toMatch(/^dropped words of a signed-off item \(/);
+  });
+
+  it("holds a pass whose lost words survive only in a sentence that does not state the item", () => {
+    // "heat" and "board" move to the log sentence, which does not state the
+    // item; counted anywhere in the text, only "routed" would be lost.
+    const out = `The edge sealer separated conductivity on panels. The team logged heat and board readings for each trial in the shop book every morning.`;
+    expect(coverItemLoss(TEXT, out, [ITEM])).toMatch(/^dropped words of a signed-off item \(/);
+  });
+
+  it("scales with the item: a natural merge of Line 242's two limitation sentences is kept", () => {
+    const merged = LINE_242.replace(
+      "Standard powder cure temperatures of 160 to 200 C, developed for steel, exceed what the MDF substrate could tolerate. The board held 6 to 7 percent moisture plus pressing resin, so existing powder recipes were not transferable to this substrate.",
+      "Standard powder cure temperatures of 160 to 200 C, developed for steel, exceed what MDF could tolerate, and its 6 to 7 percent moisture and pressing resin left existing powder recipes not transferable."
+    );
+    expect(merged).not.toBe(LINE_242);
+    // The limitations item loses more than two words, under a quarter of them.
+    expect(coverItemLoss(LINE_242, merged, [ITEMS_242[2]!])).toBeNull();
+    expect(coverItemLoss(LINE_242, merged, ITEMS_242)).toBeNull();
+  });
+
+  it("still protects an item no sentence states, by its words anywhere in the text", () => {
+    // Each sentence shares one word with the item, too few to state it.
+    const item = "Edge trials on routed boards.";
+    const text = "The edge was smooth. Trials ran each day. The routed parts were stacked. Boards were stored dry.";
+    expect(coverItemLoss(text, "The edge was smooth. Trials ran each day.", [item])).toMatch(
+      /^dropped words of a signed-off item \(/
+    );
+    expect(coverItemLoss(text, "The edge was smooth. Trials ran each day. The routed parts were piled. Boards were kept dry.", [item])).toBeNull();
+  });
+
+  it("adds up an item's losses across passes, against the text the passes started from", async () => {
+    // Item 1 of run 2026-10-04's Line 242. Each pass alone loses fewer of
+    // its words than the threshold; the second, against the draft, crosses it.
+    const pass1 = LINE_242.replace("using a solvent-borne liquid lacquer line", "using a lacquer line");
+    const pass2 = pass1
+      .replace("for cabinet and fixture makers using a lacquer line", "for makers using lacquer")
+      .replace(/ The standard fix for a non-conductive substrate[^.]*\./, "");
+    expect(coverItemLoss(LINE_242, pass1, [ITEMS_242[0]!])).toBeNull();
+    expect(coverItemLoss(pass1, pass2, [ITEMS_242[0]!])).toBeNull();
+    expect(coverItemLoss(LINE_242, pass2, [ITEMS_242[0]!])).toMatch(/^dropped words of a signed-off item \(/);
+    expect(sectionMetrics(pass2, "s242").words).toBeGreaterThan(260);
+    const answers = [pass1, pass2];
+    const create = vi.fn(async () => ({
+      content: [{ type: "text", text: answers.shift() ?? LINE_242 }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }));
+    const anthropic = { messages: { create } } as unknown as GenerationClient;
+    const fit = await compressWithinLimit(() => anthropic, "claude-sonnet-5", "s242", LINE_242, "standard", undefined, [], [], {
+      finalCut: true,
+      writerCap: { words: 260 },
+      coverItems: [ITEMS_242[0]!],
+    });
+    expect(fit.text).toBe(pass1);
+    expect(fit.heldBack).toBe(1);
   });
 });

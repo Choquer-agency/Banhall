@@ -490,10 +490,13 @@ export function compressionLoss(
 }
 
 /**
- * 2026-10-04 (first, review re-check P2-b): a signed-off item is lost when
- * this many of its words go from the sentences that state it.
+ * 2026-10-04 (first, review re-checks): a signed-off item is lost when at
+ * least this many of its words go, or COVER_ITEM_SHARE_LOST of them when
+ * that is more: a natural merge of two sentences loses about 13 percent of
+ * an item's words, a deleted sentence or paragraph 50 percent or more.
  */
 export const COVER_ITEM_WORDS_LOST = 2;
+export const COVER_ITEM_SHARE_LOST = 0.25;
 
 /** Sentences of a text: at a full stop, question or exclamation mark, or a blank line. */
 function sentencesOf(text: string): string[] {
@@ -503,31 +506,38 @@ function sentencesOf(text: string): string[] {
     .filter(Boolean);
 }
 
+/** The words of `item` that `text` holds (sameWord). */
+function itemWordsIn(text: string, item: string): string[] {
+  const said = contentWords(text);
+  return contentWords(item).filter((word) => said.some((other) => sameWord(word, other)));
+}
+
 /**
  * The content words of an item that the sentences of `text` stating it
  * hold. A sentence states the item when it shares enough meaningful words
  * with one of the item's bullets (excerptSupportsSeed, the Seed quote
- * check's own measure).
+ * check's own measure). Null when no sentence states it.
  */
-function itemWordsStated(text: string, item: string): string[] {
+function itemWordsStated(text: string, item: string): string[] | null {
   const bullets = sentencesOf(item);
   const stating = sentencesOf(text).filter((sentence) =>
     bullets.some((bullet) => excerptSupportsSeed(bullet, sentence))
   );
-  if (stating.length === 0) return [];
-  const said = contentWords(stating.join(" "));
-  return contentWords(item).filter((word) => said.some((other) => sameWord(word, other)));
+  return stating.length === 0 ? null : itemWordsIn(stating.join(" "), item);
 }
 
 /**
  * 2026-10-04 (first, owner decision: signed-off items outrank the writer's
  * cap): why a pass run only for the writer's cap dropped a signed-off COVER
- * item, or null. Only the item's words held in the sentences that state it
- * count, matched loosely (sameWord, so "full" keeps "fully" and "transfer"
- * keeps "transferable"); the item is lost when the pass's sentences that
- * state it hold COVER_ITEM_WORDS_LOST or more fewer of them, as when its
- * sentence or paragraph is deleted. Numbers and negations of Must keep
- * lines are guarded on their own (compressionLoss).
+ * item, or null. `input` is the text the passes started from, so losses add
+ * up across passes. Only the item's words held in the sentences that state
+ * it count, matched loosely (sameWord, so "full" keeps "fully" and
+ * "transfer" keeps "transferable"); an item no sentence states is judged by
+ * its words anywhere in the text. The item is lost when the pass holds
+ * COVER_ITEM_WORDS_LOST or COVER_ITEM_SHARE_LOST of those words fewer,
+ * whichever is more, as when its sentence or paragraph is deleted. Numbers
+ * and negations of Must keep lines are guarded on their own
+ * (compressionLoss).
  */
 export function coverItemLoss(
   input: string,
@@ -535,11 +545,13 @@ export function coverItemLoss(
   coverItems: readonly string[]
 ): string | null {
   for (const item of coverItems) {
-    const before = itemWordsStated(input, item);
+    const stated = itemWordsStated(input, item);
+    const before = stated ?? itemWordsIn(input, item);
     if (before.length === 0) continue;
-    const after = itemWordsStated(output, item);
+    const after = stated ? itemWordsStated(output, item) ?? [] : itemWordsIn(output, item);
     const lost = before.filter((word) => !after.includes(word));
-    if (lost.length >= COVER_ITEM_WORDS_LOST) {
+    const threshold = Math.max(COVER_ITEM_WORDS_LOST, Math.ceil(before.length * COVER_ITEM_SHARE_LOST));
+    if (lost.length >= threshold) {
       return `dropped words of a signed-off item (${lost.slice(0, 3).map((word) => `"${word}"`).join(", ")})`;
     }
   }
@@ -630,6 +642,10 @@ export async function compressWithinLimit(
   let passes = 0;
   let heldForPlan = 0;
   let heldBack = 0;
+  // Review re-check P3-1: a pass for the writer's cap is judged against the
+  // text the passes started from, or as the last pass for a Locked limit
+  // left it, so an item cannot be thinned a word at a time.
+  let planBaseline = text;
   const callSite = `generation:compression:${key.slice(1)}`;
   // A pass's answer replaces `best` only when it is closer to the limits
   // and keeps the required content.
@@ -648,13 +664,14 @@ export async function compressWithinLimit(
     // Signed-off items outrank the writer's cap: a pass that only the
     // writer's cap asked for never takes words of one.
     const forWriterOnly = writerCap !== null && !sectionMetrics(best, key).overLimit;
-    const planLoss = forWriterOnly && coverItems.length > 0 ? coverItemLoss(best, out, coverItems) : null;
+    const planLoss = forWriterOnly && coverItems.length > 0 ? coverItemLoss(planBaseline, out, coverItems) : null;
     if (planLoss) {
       if (writerCap && meetsWriterCap(out, key, writerCap)) heldForPlan += 1;
       else heldBack += 1;
       console.warn(`${callSite}: pass ${passes} not kept: it ${planLoss}`);
       return;
     }
+    if (!forWriterOnly) planBaseline = out;
     best = out;
   };
   const fit = (fields: Omit<LimitFit, "heldForPlan" | "heldBack">): LimitFit => ({

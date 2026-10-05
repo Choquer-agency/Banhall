@@ -636,8 +636,9 @@ export function runDeterministicSelfCheck(input: {
 /**
  * 2026-10-04 (first, review P2-2 and re-check P3-5): what a Self-check
  * reason says about the Line's length: a word or line cap, limit or count;
- * a length cap or limit; being within, under or over the cap, or a word,
- * line or length limit; "N words"; "N form lines" or "N lines long"; and a
+ * a length cap or limit; being within, under, over, above or below the cap
+ * (or the writer's cap), or within, under or over a word, line or length
+ * limit; "N words"; "N form lines" or "N lines long"; and a
  * count with its unit, such as "602/520 words". Narrow on purpose: "the
  * detection limit", "below the limit" (a temperature), "end caps", "a 50/50
  * resin blend" and "ran on 2 lines" are not length.
@@ -646,7 +647,7 @@ const LENGTH_TALK = new RegExp(
   [
     String.raw`\b(?:word|line)s?[\s-]+(?:caps?|limits?|counts?|budget)\b`,
     String.raw`\blength[\s-]+(?:caps?|limits?)\b`,
-    String.raw`\b(?:within|under|over|exceeds?|meets?|met)\s+(?:the\s+|its\s+|this\s+|a\s+)?(?:\d[\d,]*[\s-]*(?:words?|lines?)[\s-]+|(?:words?|lines?|length)[\s-]+)?caps?\b`,
+    String.raw`\b(?:within|under|over|above|below|exceeds?|meets?|met)\s+(?:the\s+writer's\s+|the\s+|its\s+|this\s+|a\s+)?(?:\d[\d,]*[\s-]*(?:words?|lines?)[\s-]+|(?:words?|lines?|length)[\s-]+)?caps?\b`,
     String.raw`\b(?:within|under|over|exceeds?|meets?|met)\s+(?:the\s+|its\s+|this\s+|a\s+)?(?:\d[\d,]*[\s-]*(?:words?|lines?)|words?|lines?|length)[\s-]+limits?\b`,
     String.raw`\b\d[\d,]*[\s-]*words?\b`,
     String.raw`\b\d[\d,]*\s+form\s+lines?\b`,
@@ -686,7 +687,7 @@ export function withoutLengthClauses(text: string): string {
  * whole text; in Single draft and Compare the model quotes it, often cut
  * short, so its title line when that is a "#" heading, or an opening of six
  * words or more that the profile starts with and that runs past its first
- * line, counts too.
+ * line or stops mid-sentence within it, counts too.
  */
 function quotesWriterProfile(instruction: string, profile: string | undefined): boolean {
   const text = normalizeForMatch(profile ?? "");
@@ -699,11 +700,13 @@ function quotesWriterProfile(instruction: string, profile: string | undefined): 
   const firstLine = profile?.split(/\r?\n/).find((line) => line.trim() !== "") ?? "";
   const first = normalizeForMatch(firstLine);
   if (/^\s*#/.test(firstLine) && first.trim().split(" ").length >= 3 && quoted.includes(first)) return true;
-  return (
-    quoted.trim().split(" ").length >= 6 &&
-    quoted.trim().length > first.trim().length &&
-    text.startsWith(quoted.trimEnd())
-  );
+  if (quoted.trim().split(" ").length < 6 || !text.startsWith(quoted.trimEnd())) return false;
+  // An opening past the first line, or one cut off mid-sentence within it
+  // (review re-check P3-6): a quote of the whole first line is that line.
+  if (quoted.trim().length > first.trim().length) return true;
+  const raw = instruction.trim();
+  const cutOff = /(?:\.\.\.|\u2026)$/.test(raw) || !/[.!?]["')\]]*$/.test(raw);
+  return cutOff && quoted.trim().length < first.trim().length;
 }
 
 /**
@@ -774,6 +777,28 @@ export function writerRowGuard(input: {
     row.outcome,
     `${lead} Length is measured by code: ${joinedList(failedCaps.map(measuredCapPhrase))} (see the cap row).`
   );
+}
+
+/**
+ * 2026-10-04 (first, review re-check P3-7): what else happened to the
+ * shortening passes for a writer's cap, as one plain sentence ("" when
+ * nothing did): a pass that failed, and the passes not kept for a
+ * signed-off item that would not have met the cap either.
+ */
+function writerShorteningNote(failure: string | undefined, heldBack: number): string {
+  const clauses = [
+    ...(failure ? [`a shortening pass failed (${failure})`] : []),
+    ...(heldBack > 0
+      ? [
+          `${heldBack === 1 ? "one pass was" : `${heldBack} passes were`} not kept because ${
+            heldBack === 1 ? "it" : "they"
+          } dropped a signed-off item, though ${heldBack === 1 ? "it" : "they"} would not have met the cap either`,
+        ]
+      : []),
+  ];
+  if (clauses.length === 0) return "";
+  const sentence = clauses.join(", and ");
+  return ` ${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
 }
 
 /** The deterministic entry key of the source-talk check (2026-09-30, third). */
@@ -988,9 +1013,6 @@ export function assembleSectionNotes(input: {
     const cap = entry.measuredCap;
     if (cap?.kind !== "writer" || !cap.wholeLine || entry.row.outcome !== "not_applied") return;
     const passes = input.compression?.passes ?? 0;
-    const failure = input.compression?.failure
-      ? ` (a shortening pass failed: ${input.compression.failure})`
-      : "";
     // Owner decision (2026-10-04): signed-off items outrank the writer's
     // cap. When a shortening pass was not kept because it took words of
     // one, the row says the Line stays over the cap to keep them.
@@ -1005,11 +1027,7 @@ export function assembleSectionNotes(input: {
           }; cut by hand if needed`
         : `${rows[index].reason}; still over after ${passes} shortening ${
             passes === 1 ? "pass" : "passes"
-          }${failure}${
-            (input.compression?.heldBack ?? 0) > 0
-              ? " (a pass that dropped a signed-off item was not kept, and it was over the cap too)"
-              : ""
-          }. The text was not cut to fit: shorten Line ${section} to ${cap.limits} to meet the writer's settings`,
+          }.${writerShorteningNote(input.compression?.failure, input.compression?.heldBack ?? 0)} The text was not cut to fit: shorten Line ${section} to ${cap.limits} to meet the writer's settings`,
     };
   });
   let remainingFailures = finalEntries.filter(

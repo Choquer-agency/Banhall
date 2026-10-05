@@ -61,6 +61,9 @@ const DRAFT = [
 /** Shorter, but without the signed-off item. */
 const WITHOUT_ITEM = [`The company finishes routed board panels for cabinet makers. ${fillers(2)}`, fillers(2)].join("\n\n");
 
+/** Without the signed-off item's sentence, but still over the writer's 120 words. */
+const OVER_WITHOUT_ITEM = DRAFT.replace(`${COVER} `, "");
+
 const ITEM = "item-corrin-sealer" as Id<"summaryItems">;
 
 function plan() {
@@ -253,5 +256,41 @@ describe("signed-off items outrank the writer's cap; the Locked cap outranks bot
     expect(cap?.reason).toMatch(
       /; over the writer's cap at 164\/120 words to keep every signed-off item \(the repair that met the cap but dropped one was not used\); cut by hand if needed$/
     );
+  });
+
+  it("says the item is not why the Line is over when the held passes were over the cap too (re-check P2-a)", async () => {
+    expect(sectionMetrics(OVER_WITHOUT_ITEM, "s242").words).toBeGreaterThan(120);
+    const run = await draft({
+      compressions: [OVER_WITHOUT_ITEM, OVER_WITHOUT_ITEM, OVER_WITHOUT_ITEM, OVER_WITHOUT_ITEM],
+      repair: DRAFT,
+      checks: [FIRST_CHECK],
+    });
+    expect(run.result.draftText).toBe(DRAFT);
+    expect(run.note(CAP_RULE)).toMatchObject({
+      outcome: "not_applied",
+      reason:
+        "exceeds: 164/120 words; repair failed; still over after 2 shortening passes. 2 passes were not kept because they dropped a signed-off item, though they would not have met the cap either. The text was not cut to fit: shorten Line 242 to 120 words to meet the writer's settings",
+    });
+  });
+
+  it("rolls back a repair that drops the item while still over the cap, without blaming the item (re-check P2-a)", async () => {
+    const run = await draft({
+      compressions: [],
+      repair: OVER_WITHOUT_ITEM,
+      checks: [
+        FIRST_CHECK,
+        {
+          verdicts: [],
+          planVerdicts: [
+            { itemId: ITEM, mergedItemIds: [ITEM], paragraph: 0, outcome: "not_applied", reason: "The sealer is gone." },
+            { skippedRoleId: "prior_year_status", mergedItemIds: [], paragraph: 0, outcome: "applied", reason: "Absent." },
+          ],
+        },
+      ],
+    });
+    expect(run.result.draftText).toBe(DRAFT);
+    const reason = run.note(CAP_RULE)?.reason ?? "";
+    expect(reason).toMatch(/^exceeds: 164\/120 words; repair not used \(the repaired text no longer covers the signed-off item .*, and a repair must keep what a COVER item holds, so the checked draft was kept\); still over after 2 shortening passes\. The text was not cut to fit: shorten Line 242 to 120 words to meet the writer's settings$/);
+    expect(reason).not.toContain("to keep every signed-off item");
   });
 });

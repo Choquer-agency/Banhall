@@ -157,6 +157,7 @@ function notesFor(args: {
   passes?: number;
   heldForPlan?: "pass" | "repair";
   heldBack?: number;
+  failure?: string;
   writerInstructions?: string;
   repairAttempted?: boolean;
 }) {
@@ -177,7 +178,11 @@ function notesFor(args: {
     storylineQuestion: null,
     repair: args.repairAttempted ? { attempted: true, succeeded: false } : { attempted: false, succeeded: false },
     finalText: text,
-    compression: { passes: args.passes ?? 3, ...(args.heldBack ? { heldBack: args.heldBack } : {}) },
+    compression: {
+      passes: args.passes ?? 3,
+      ...(args.heldBack ? { heldBack: args.heldBack } : {}),
+      ...(args.failure ? { failure: args.failure } : {}),
+    },
     writerInstructions: args.writerInstructions ?? SETTINGS,
     ...(args.heldForPlan ? { heldForPlan: args.heldForPlan } : {}),
   }).rows;
@@ -299,7 +304,12 @@ describe("no Compliance Note row vouches for a cap code measured (2026-10-04, fi
   it("keeps the shortening wording when a held pass was over the cap too (review re-check P2-a)", () => {
     const rows = notesFor({ section: "242", words: 280, verdicts: [], heldBack: 1 });
     expect(rows.find((row) => row.instruction === "- Line 242: no more than 260 words.")?.reason).toBe(
-      "exceeds: 280/260 words; still over after 3 shortening passes (a pass that dropped a signed-off item was not kept, and it was over the cap too). The text was not cut to fit: shorten Line 242 to 260 words to meet the writer's settings"
+      "exceeds: 280/260 words; still over after 3 shortening passes. One pass was not kept because it dropped a signed-off item, though it would not have met the cap either. The text was not cut to fit: shorten Line 242 to 260 words to meet the writer's settings"
+    );
+    // Review re-check P3-7: one plain sentence, with the right number.
+    const two = notesFor({ section: "242", words: 280, verdicts: [], heldBack: 2, failure: "invalid_request" });
+    expect(two.find((row) => row.instruction === "- Line 242: no more than 260 words.")?.reason).toBe(
+      "exceeds: 280/260 words; still over after 3 shortening passes. A shortening pass failed (invalid_request), and 2 passes were not kept because they dropped a signed-off item, though they would not have met the cap either. The text was not cut to fit: shorten Line 242 to 260 words to meet the writer's settings"
     );
   });
 
@@ -317,6 +327,22 @@ describe("no Compliance Note row vouches for a cap code measured (2026-10-04, fi
     expect(rows[0]).toMatchObject({ outcome: "applied", reason: "Third person used." });
     // An opening that runs past the first line is the profile.
     expect(rows[1]).toMatchObject({ outcome: "not_applied", reason: expect.stringMatching(/^Not followed in full: Line 242 is over the writer's cap at 323\/260 words/) });
+  });
+
+  it("knows a profile with no heading by an opening cut off within its first line (review re-check P3-6)", () => {
+    const profile = "Use these exact terms for the project's named variables and never their synonyms.\n\n- Line 242: no more than 260 words.";
+    const rows = notesFor({
+      section: "242",
+      words: 323,
+      writerInstructions: profile,
+      verdicts: [
+        { check: "instruction", instruction: "Use these exact terms for the project's named variables...", outcome: "applied", reason: "Terms used." },
+        { check: "instruction", instruction: "Use these exact terms for the project's named variables and never their synonyms.", outcome: "applied", reason: "Terms used." },
+      ],
+    }).filter((row) => row.source === "model");
+    expect(rows[0]).toMatchObject({ outcome: "not_applied", reason: expect.stringMatching(/^Not followed in full: Line 242 is over the writer's cap at 323\/260 words/) });
+    // The whole first line quoted is that rule, not the profile.
+    expect(rows[1]).toMatchObject({ outcome: "applied", reason: "Terms used." });
   });
 
   it("ends the model's words on a full stop before the fixed words (review re-check P3-4)", () => {
@@ -437,6 +463,9 @@ describe("no Compliance Note row vouches for a cap code measured (2026-10-04, fi
       "602/520 words",
       "40 form lines",
       "line count fine",
+      // Review re-check P3-5: above and below still count for a cap.
+      "below the cap",
+      "above the writer's cap",
     ]) {
       expect(talksAboutLength(reason)).toBe(true);
     }

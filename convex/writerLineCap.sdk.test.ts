@@ -441,7 +441,7 @@ describe("a writer's cap governs drafting, repair, shortening and the Compliance
     expect(run.text("246")).toBe(DRAFT_246);
     expect(run.note("246", CAP_RULE)).toMatchObject({
       outcome: "not_applied",
-      reason: expect.stringMatching(/^exceeds: 240\/200 words; repair failed; still over after 1 shortening pass \(a shortening pass failed: [a-z_]+\)\. The text was not cut to fit/),
+      reason: expect.stringMatching(/^exceeds: 240\/200 words; repair failed; still over after 1 shortening pass\. A shortening pass failed \([a-z_]+\)\. The text was not cut to fit/),
     });
     expect(run.note("246", "Locked Rule: Line 246 holds at most 350 words and 50 form lines")).toMatchObject({ outcome: "applied" });
   });
