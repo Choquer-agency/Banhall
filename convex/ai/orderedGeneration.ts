@@ -104,7 +104,7 @@ import {
 import { noteDraft, type ComplianceNoteDraft } from "../lib/complianceNote";
 import { containsTerm } from "../lib/editedTerms";
 import { extractWriterWordingRules, unreadWritingRules } from "../lib/settingsExtraction";
-import { hasWriterWordingRules, wordingLossDetail, type WriterWordingRules } from "../lib/writerWording";
+import { hasWriterWordingRules, wordingLossDetails, type WriterWordingRules } from "../lib/writerWording";
 import {
   confirmedConflictParagraph,
   confirmedConflictsOf,
@@ -364,6 +364,15 @@ export function repairDroppedTermReason(term: string): string {
  */
 export function repairBrokeWriterRuleReason(loss: string): string {
   return `the repaired text ${loss}; the checked draft did not, so it was kept`;
+}
+
+/**
+ * Greptile on PR #27 (P1): why a repair made for an issue that outranks the
+ * Writer Profile, which broke a writer's measured rule and left that issue
+ * unfixed on the final text, was not used.
+ */
+export function repairBrokeWriterRuleUnfixedReason(losses: readonly string[]): string {
+  return `the repaired text ${losses.join(", and ")}, and the check of the final text found no issue that outranks the writer's settings fixed, so the checked draft was kept`;
 }
 
 /**
@@ -1619,7 +1628,7 @@ export async function draftCheckedSection(input: {
         // wrote a banned word or synonym) is used only when it fixed what
         // outranks the Writer Profile (accuracy, the Locked Rules, a
         // signed-off item); the rule's row then names the loss.
-        const repairWordingLoss = writerWording ? wordingLossDetail(text, fit.text, writerWording, section) : null;
+        const repairWordingLosses = writerWording ? wordingLossDetails(text, fit.text, writerWording, section) : [];
         // CAP-13 rule 4 (2026-09-29, second): nor an idea the writer kept
         // despite a Claim Exclusion. The coverage check of the final text
         // decides that below; only with no verdict to read (the first
@@ -1705,13 +1714,13 @@ export async function draftCheckedSection(input: {
           }`;
         } else if (droppedTerm !== undefined) {
           repair.notUsedReason = `${repairDroppedTermReason(droppedTerm)}${failure ? `; ${failure}` : ""}`;
-        } else if (repairWordingLoss && !outranksWriterProfile) {
+        } else if (repairWordingLosses.length > 0 && !outranksWriterProfile) {
           // Round 5 follow-up (lead decision, owner informed; re-check
           // P2-1, final re-check P2-C1): the writer's settings outrank the
           // Brief's and the model's judgements, so a repair made only for
           // those never breaks a measured rule of the writer's (run 6
           // rewrote "edge coverage").
-          repair.notUsedReason = `${repairBrokeWriterRuleReason(repairWordingLoss.reason)}${failure ? `; ${failure}` : ""}`;
+          repair.notUsedReason = `${repairBrokeWriterRuleReason(repairWordingLosses.map((loss) => loss.reason).join(", and "))}${failure ? `; ${failure}` : ""}`;
         } else if (droppedKept.length > 0 && !keptOverLimit) {
           repair.notUsedReason = `${repairDroppedKeptIdeaReason(droppedKept[0]!)}${failure ? `; ${failure}` : ""}`;
         } else if (lostFigure !== undefined && !figureOverLimit) {
@@ -1890,6 +1899,39 @@ export async function draftCheckedSection(input: {
     }
   }
 
+  // Greptile on PR #27 (P1): a used repair that broke a measured rule of the
+  // writer's was kept for an issue that outranks the Writer Profile (lead
+  // decision, owner informed). It stays only when the check of the final
+  // text shows such an issue fixed: a signed-off plan check it was sent for
+  // now applied, or the Locked row now held. Otherwise it is treated like
+  // any other repair that breaks a writer's rule: not used, and the row
+  // says why.
+  const repairLosses = repair.succeeded && writerWording
+    ? wordingLossDetails(text, finalText, writerWording, section)
+    : [];
+  if (repairLosses.length > 0) {
+    const coverage = finalCoverage?.ok ? finalCoverage : undefined;
+    const planFixed = coverage !== undefined && claim.planChecks.some((planCheck) => {
+      const first = planVerdictFor(planVerdicts, planCheck);
+      if (first?.outcome !== "not_applied" || first.actionableRepair === false) return false;
+      return planVerdictFor(coverage.verdicts, planCheck)?.outcome === "applied";
+    });
+    const lockedFixed =
+      before.entries.some((entry) => entry.key === "locked" && entry.repairable && entry.row.outcome === "not_applied") &&
+      after?.entries.some((entry) => entry.key === "locked" && entry.row.outcome === "applied") === true;
+    if (!planFixed && !lockedFixed) {
+      console.warn(`generation:repair:${section}: a repair broke a writer's rule and fixed nothing that outranks it; the checked draft is kept`);
+      finalText = text;
+      repair.succeeded = false;
+      repair.notUsedReason = repairBrokeWriterRuleUnfixedReason(repairLosses.map((loss) => loss.reason));
+      keptFit = firstFit;
+      after = null;
+      finalCoverage = undefined;
+      governedFinal = undefined;
+      finalOrdinary = undefined;
+    }
+  }
+
   // Greptile rounds 1 to 4 (lead decision): a used repair whose final text
   // still breaks Rule C is kept. Each set-aside variant discarded or
   // mislabelled valid fixes, so every row reports its own final-text
@@ -1933,13 +1975,14 @@ export async function draftCheckedSection(input: {
   // broke a measured rule of the writer's was kept for what outranks the
   // Writer Profile; that rule's row names the loss plainly, as Rule 12 does
   // for the cap.
-  const keptLoss = repair.succeeded && writerWording ? wordingLossDetail(text, finalText, writerWording, section) : null;
-  if (keptLoss) {
-    const index = rows.findIndex((row) => row.instruction === keptLoss.instruction);
+  // Greptile on PR #27 (P2): every loss, each on its own rule's row.
+  const keptLosses = repair.succeeded && writerWording ? wordingLossDetails(text, finalText, writerWording, section) : [];
+  for (const loss of keptLosses) {
+    const index = rows.findIndex((row) => row.instruction === loss.instruction);
     if (index >= 0) {
       rows[index] = {
         ...rows[index]!,
-        reason: `${rows[index]!.reason}; the repair, kept for what it fixed (which outranks the writer's settings), ${keptLoss.reason}`,
+        reason: `${rows[index]!.reason}; the repair, kept for what it fixed (which outranks the writer's settings), ${loss.reason}`,
       };
     }
   }

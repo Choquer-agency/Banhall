@@ -81,6 +81,8 @@ function payload(signedOff = false): OrderedPayload {
 }
 
 const ITEM_246 = "item-velloway-edge" as Id<"summaryItems">;
+/** The Summary Self-check's label for the writer's settings, held. */
+const profileHeld = { paragraph: 0, check: "instruction", instruction: "writer:profile", outcome: "applied", reason: "Followed." };
 const COVER_246 = "The pilot met the 60 micron edge target on most shaker panels.";
 const PLAN_246 = buildFrozenSummaryPlan({
   section: "s246",
@@ -327,8 +329,8 @@ describe("the writer's wording rules are measured, repaired and measured again (
       draft: drafted,
       repair: repaired,
       checks: [
-        { verdicts: [], planVerdicts: [{ itemId: ITEM_246, mergedItemIds: [ITEM_246], paragraph: 0, outcome: "not_applied", reason: "No paragraph states the 60 micron target.", repairGuidance: "State that the pilot met the 60 micron edge target." }] },
-        { verdicts: [], planVerdicts: [{ itemId: ITEM_246, mergedItemIds: [ITEM_246], paragraph: 2, outcome: "applied", reason: "P2 states the target." }] },
+        { verdicts: [profileHeld], planVerdicts: [{ itemId: ITEM_246, mergedItemIds: [ITEM_246], paragraph: 0, outcome: "not_applied", reason: "No paragraph states the 60 micron target.", repairGuidance: "State that the pilot met the 60 micron edge target." }] },
+        { verdicts: [profileHeld], planVerdicts: [{ itemId: ITEM_246, mergedItemIds: [ITEM_246], paragraph: 2, outcome: "applied", reason: "P2 states the target." }] },
       ],
     }, [], PLAN_246);
     const repair = sent.find((request) => request.stage === "repair")!;
@@ -356,5 +358,50 @@ describe("the writer's wording rules are measured, repaired and measured again (
     expect(note("Storyline")?.reason).toBe(
       'P2 drifts.; repair not used (the repaired text wrote "DFT", which the writer\'s settings ban in favour of "film build"; the checked draft did not, so it was kept)'
     );
+  });
+
+  // Greptile on PR #27 at 09852dfa, P1: a repair made for a signed-off item
+  // that still fails it, but broke a writer's rule, is not used.
+  it("does not use a repair for a signed-off item that broke a writer's rule and left the item unfixed", async () => {
+    const drafted = [
+      "Velloway Panel Finishing ran a pilot on routed MDF doors.",
+      "The pilot measured edge coverage on the shaker doors.",
+    ].join("\n\n");
+    const repaired = drafted.replace("The pilot measured edge coverage on the shaker doors.", "The pilot measured coating on the shaker doors.");
+    const missing = { itemId: ITEM_246, mergedItemIds: [ITEM_246], paragraph: 0, outcome: "not_applied", reason: "No paragraph states the 60 micron target.", repairGuidance: "State that the pilot met the 60 micron edge target." };
+    const { result, note } = await draft("246", {
+      draft: drafted,
+      repair: repaired,
+      checks: [
+        { verdicts: [profileHeld], planVerdicts: [missing] },
+        { verdicts: [profileHeld], planVerdicts: [missing] },
+      ],
+    }, [], PLAN_246);
+    expect(result.draftText).toBe(drafted);
+    expect(note("Writer's term: edge coverage")?.reason).toBe('"edge coverage" used; no banned synonym');
+    const itemRow = result.notes.find((row) => row.planRef?.itemId === ITEM_246);
+    expect(itemRow?.reason).toContain(
+      'repair not used (the repaired text removed the last use of "edge coverage", the writer\'s term, and the check of the final text found no issue that outranks the writer\'s settings fixed, so the checked draft was kept)'
+    );
+  });
+
+  // Greptile on PR #27 at 09852dfa, P2: every loss is explained on its own row.
+  it("explains each writer's rule a kept repair broke on that rule's own row", async () => {
+    const drafted = [
+      "Velloway Panel Finishing ran a pilot on routed MDF doors.",
+      "The pilot measured edge coverage on the shaker doors.",
+    ].join("\n\n");
+    const repaired = drafted.replace("The pilot measured edge coverage on the shaker doors.", `${COVER_246} The log gave it as DFT.`);
+    const { result, note } = await draft("246", {
+      draft: drafted,
+      repair: repaired,
+      checks: [
+        { verdicts: [profileHeld], planVerdicts: [{ itemId: ITEM_246, mergedItemIds: [ITEM_246], paragraph: 0, outcome: "not_applied", reason: "No paragraph states the 60 micron target.", repairGuidance: "State that the pilot met the 60 micron edge target." }] },
+        { verdicts: [profileHeld], planVerdicts: [{ itemId: ITEM_246, mergedItemIds: [ITEM_246], paragraph: 2, outcome: "applied", reason: "P2 states the target." }] },
+      ],
+    }, [], PLAN_246);
+    expect(result.draftText).toBe(repaired);
+    expect(note("Writer's term: edge coverage")?.reason).toMatch(/; the repair, kept for what it fixed \(which outranks the writer's settings\), removed the last use of "edge coverage", the writer's term$/);
+    expect(note("Writer's term: film build")?.reason).toMatch(/; the repair, kept for what it fixed \(which outranks the writer's settings\), wrote "DFT", which the writer's settings ban in favour of "film build"$/);
   });
 });
