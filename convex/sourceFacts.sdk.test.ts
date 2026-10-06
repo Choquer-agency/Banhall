@@ -1595,6 +1595,35 @@ describe("round 4 review: the targets check vouches only for what it quoted (rea
       .toContain('repair not used (the repaired text no longer holds the signed-off figure "7 percent"');
   });
 
+  it("final re-check P2-B1: a correctly stated miss needs no evidence, so a correct applied verdict stays applied, after a repair too", async () => {
+    const miss = "Edge coverage reached 58 microns against the 60 micron target.";
+    const { row } = await targetsRow([p1, miss].join("\n\n"), applied([]));
+    expect(row).toMatchObject({ outcome: "applied", reason: "Targets met." });
+    // A targets repair that states the miss this way is judged applied on its final text.
+    const wrong = "Edge coverage met the 60 micron target on the trial 3 panels.";
+    const error = {
+      ...applied([{ draftQuote: "Edge coverage met the 60 micron target", sourceQuote: "Edge DFT averaged 64 microns, minimum 52", targetQuote: "at least 60 microns on the routed edges", correction: "52 microns minimum against 60" }]),
+      outcome: "not_applied",
+      paragraph: 2,
+      reason: "P2 calls a missed target met",
+    };
+    const fixed = "Edge DFT averaged 64 microns but reached 52 microns at the minimum, short of the 60 micron target.";
+    const sent = installFetch({
+      draft: [p1, wrong].join("\n\n"),
+      repair: [p1, fixed].join("\n\n"),
+      checks: [
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, error] },
+        { verdicts: [], planVerdicts: [...covered, factsMatch, applied([])] },
+      ],
+    });
+    const result = await draft(claimFor(plan244(), sources), SUMMARY_VERSION);
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
+    const repairedRow = result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID);
+    expect(repairedRow).toMatchObject({ outcome: "applied", repaired: true });
+    expect(repairedRow?.reason.startsWith("Fixed by the repair: ")).toBe(true);
+    expect(repairedRow?.reason).not.toContain("Not checked");
+  });
+
   it("P3-8: more than three sentences that say a target was met read not checked, naming the fourth", async () => {
     const sentences = [
       "The shaker profile met the 60-micron edge target on all panels.",

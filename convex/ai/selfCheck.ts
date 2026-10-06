@@ -1852,11 +1852,12 @@ export function verifyTargetFindings(args: {
 
 /**
  * Words that say a target was met, and words that name a target. Round 4
- * review (P2-1): "exceeded" is left out (for a limit it says the target was
- * missed), "passed" is in, and requirements, criteria, tolerances, aims and
- * objectives name a target too.
+ * review (P2-1): "passed" is in, and requirements, criteria, tolerances, aims
+ * and objectives name a target too. Re-check P3-B2: "exceeded" says a target
+ * was met only before a target, goal or requirement (for a limit or a
+ * threshold it says the target was missed).
  */
-const MET_WORDS = String.raw`met|meets?|meeting|reached|reach(?:es|ing)?|achieved|achiev(?:es|ing)|hits?|within|satisfied|passed|pass(?:es|ing)`;
+const MET_WORDS = String.raw`met|meets?|meeting|reached|reach(?:es|ing)?|achieved|achiev(?:es|ing)|hits?|within|satisfied|passed|pass(?:es|ing)|exceed(?:ed|s|ing)?(?=\s+(?:[\w-]+\s+){0,4}?(?:targets?|goals?|requirements?)\b)`;
 const TARGET_WORDS = String.raw`targets?|goals?|thresholds?|specifications?|specs?|limits?|requirements?|criteria|criterion|tolerances?|aims?|objectives?`;
 const MET_WORD = new RegExp(String.raw`\b(?:${MET_WORDS})\b`, "gi");
 const TARGET_WORD = new RegExp(String.raw`\b(?:${TARGET_WORDS})\b`, "i");
@@ -1866,13 +1867,22 @@ const NEGATION_BEFORE = /(?:\b(?:not|never|no|none|neither|nor|unable|failed to|
 const UNREAL_BEFORE = /(?:\bto\s+(?:be\s+)?|\b(?:would|could|will|may|might|can|should|must)\s+(?:[\w'-]+\s+){0,2})$/i;
 /**
  * A plan, an aim or a question earlier in the sentence: "was planned to test
- * whether", "It was hypothesized", "The aim of this work was to develop".
+ * whether", "It was hypothesized that", "The aim of this work was to
+ * develop". Re-check P3-B2: a plan word counts only before "to", "that" or
+ * "whether", so "As expected, it met the target" and "The hypothesized cure
+ * target was reached" state results.
  */
-const PLAN_BEFORE = /\b(?:hypothesi[sz]ed|planned|aimed|expected|intended|sought|whether|if|(?:was|were|is|are) to)\b/i;
+const PLAN_BEFORE = /\b(?:(?:hypothesi[sz]ed|planned|aimed|expected|intended|sought)\s+(?:to|that|whether)|whether|if|(?:was|were|is|are)\s+to)\b/i;
 /** Where a new clause starts within a sentence. */
 const CLAUSE_BREAK = /,\s+(?:and|but|while|whereas)\s+/i;
-/** "met with" a person, and "reached only" a figure, say no target was met. */
-const NOT_MET_AFTER = /^\s+(?:with|only)\b/i;
+/**
+ * After the met word, what says no target was met: "met with" a person,
+ * "reached only" or "reached 58 microns" (a figure, re-check P2-B1),
+ * "passed through" the oven (re-check P3-B3).
+ */
+const NOT_MET_AFTER = /^\s+(?:with|only|through|over|into|(?:(?:about|just|nearly|almost|roughly|around)\s+)?\d)/i;
+/** Re-check P2-B1: a miss stated in the rest of its phrase: "short of", "fell short", "missed", "against", "below". */
+const MISS_IN_PHRASE = /\b(?:short of|fell short|falls short|missed|against|below)\b/i;
 
 export type TargetMetSentence = {
   paragraphIndex: number;
@@ -1902,7 +1912,12 @@ export function targetMetSentences(paragraphs: readonly string[]): TargetMetSent
         // A plan word counts only in the same clause ("The objective was to
         // understand ..., and it was largely achieved" states a result).
         const clause = before.split(CLAUSE_BREAK).pop() ?? before;
-        return NEGATION_BEFORE.test(before) || UNREAL_BEFORE.test(before) || PLAN_BEFORE.test(clause) || NOT_MET_AFTER.test(after)
+        // Re-check P2-B1: the rest of the phrase, up to the next comma or
+        // semicolon, that states a miss ("reached 52 microns, short of",
+        // "reached the width against a 60 micron target").
+        const phrase = after.split(/[,;]/)[0] ?? after;
+        return NEGATION_BEFORE.test(before) || UNREAL_BEFORE.test(before) || PLAN_BEFORE.test(clause) ||
+          NOT_MET_AFTER.test(after) || MISS_IN_PHRASE.test(phrase)
           ? []
           : [match[0]];
       });
