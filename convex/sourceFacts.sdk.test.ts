@@ -47,10 +47,9 @@ import {
   factsRepairText,
   targetsRepairText,
   targetFindingsReason,
-  targetsNotShownReason,
   targetsNotCheckedReason,
   FACTS_HELD_PREFIX,
-  targetsShownReason,
+  TARGETS_NOTHING_SHOWN_REASON,
   PLAN_FACTS_NOT_CHECKED_REASON,
   sourceFactsFor,
   type SourceDocuments,
@@ -1039,7 +1038,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
     expect(result.notes.find((row) => row.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID)).toMatchObject({
       outcome: "applied",
       repaired: true,
-      reason: expect.stringContaining('The targets check quoted these source words for each target stated as met: P2 "outgassing defects averaged 0.9 per square metre, within the 1 per square metre…", the sources "| All | 600 | 0.9 | 4 percent |".'),
+      reason: expect.stringContaining(TARGETS_NOTHING_SHOWN_REASON),
     });
   });
 });
@@ -1499,36 +1498,17 @@ describe("round 4: a target is met only as the sources state it, and the targets
     expect(row?.reason.startsWith(`Fixed by the repair: ${targetFindingsReason(verified, 0)}`)).toBe(true);
   });
 
-  it("never vouches for run 6's P5: an applied verdict that shows no source for a target stated as met is not checked", async () => {
-    const vouching = { ...metShown, targetFindings: undefined };
-    // And an entry whose source words cannot be found is no evidence either.
-    const invented = { ...metShown, targetFindings: [{ ...swapped, sourceQuote: "we met the film build target on every panel", correction: "" }] };
-    for (const verdict of [vouching, invented]) {
-      const sent = installFetch({ draft: draft2(run6), checks: [{ verdicts: ordinary, planVerdicts: [...covered, factsMatch, verdict] }] });
-      const result = await draft(claimFor(plan244(), sources), SUMMARY_VERSION);
-      expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck"]);
-      expect(result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID)).toMatchObject({
-        outcome: "not_applied",
-        repaired: false,
-        reason: targetsNotShownReason({ paragraphIndex: 1, sentence: run6 }),
-      });
-    }
-  });
-
-  it("shows a correctly stated met target from the sources, and the row quotes them", async () => {
-    const correct = [p1, "The combined sealer-and-powder process met the pinhole and cure targets together on 140 test panels for the first time."].join("\n\n");
-    installFetch({ draft: correct, checks: [{ verdicts: ordinary, planVerdicts: [...covered, factsMatch, metShown] }] });
+  it("never vouches for run 6's P5: an applied verdict's row is fixed text, whatever the model wrote (lead decision on Greptile at 12d67e49)", async () => {
+    installFetch({ draft: draft2(run6), checks: [{ verdicts: ordinary, planVerdicts: [...covered, factsMatch, { ...metShown, targetFindings: undefined }] }] });
     const result = await draft(claimFor(plan244(), sources), SUMMARY_VERSION);
-    expect(result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID)).toMatchObject({
-      outcome: "applied",
-      repaired: false,
-      reason: targetsShownReason([{ paragraphIndex: 1, draftQuote: metShown.targetFindings[0]!.draftQuote, sourceQuote: metShown.targetFindings[0]!.sourceQuote, correction: "" }]),
-    });
+    const row = result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID);
+    expect(row).toMatchObject({ outcome: "applied", repaired: false, reason: TARGETS_NOTHING_SHOWN_REASON });
+    expect(row?.reason).not.toContain("Targets and results stated per the numbers shown");
   });
 });
 
 
-describe("round 4 review: the targets check vouches only for what it quoted (real SDK, fetch stubbed)", () => {
+describe("round 4 review: the targets check's evidence and fixed rows (real SDK, fetch stubbed)", () => {
   const interview = [
     "Tobias Achterberg: DFT of 70 to 90 microns on the faces and at least 60 microns on the routed edges.",
     "Tobias Achterberg: Edge DFT averaged 64 microns, minimum 52. That was the first time we met the pinhole target and the cure target on the same panels.",
@@ -1547,28 +1527,6 @@ describe("round 4 review: the targets check vouches only for what it quoted (rea
   };
   const run6 = "The combined process met both the outgassing defect and film build targets together on 140 test panels for the first time.";
   const pinhole = "That was the first time we met the pinhole target and the cure target on the same panels";
-
-  it("P2-2: an entry whose draft quote leaves out the word for met is no evidence for that sentence", async () => {
-    const { row } = await targetsRow([p1, run6].join("\n\n"), applied([{ draftQuote: "film build targets together on 140 test panels", sourceQuote: pinhole, correction: "" }]));
-    expect(row).toMatchObject({ outcome: "not_applied", paragraphIndex: 1, reason: targetsNotShownReason({ paragraphIndex: 1, sentence: run6 }) });
-    expect(row?.reason).toContain("could not show from the sources the target claim in P2");
-  });
-
-  it("P2-3: a faithful sentence that copies the source's words is shown, not dropped as the same text", async () => {
-    const faithful = "That was the first time the line met the pinhole target and the cure target on the same panels.";
-    const quote = "met the pinhole target and the cure target on the same panels";
-    const { row } = await targetsRow([p1, faithful].join("\n\n"), applied([{ draftQuote: quote, sourceQuote: quote, correction: "" }]));
-    expect(row).toMatchObject({ outcome: "applied" });
-    expect(row?.reason.startsWith("The targets check quoted these source words for each target stated as met: ")).toBe(true);
-  });
-
-  it("P3-7: one entry covers the same clause in two paragraphs, and an entry with a correction is no evidence", async () => {
-    const twice = [p1, "The shaker profile met the 60-micron edge target on all panels.", "Again, the shaker profile met the 60-micron edge target on all panels."].join("\n\n");
-    const entry = { draftQuote: "the shaker profile met the 60-micron edge target", sourceQuote: "The shaker edges were all over 60", correction: "" };
-    expect((await targetsRow(twice, applied([entry]))).row).toMatchObject({ outcome: "applied" });
-    expect((await targetsRow(twice, applied([{ ...entry, correction: "every shaker edge was over 60 microns" }]))).row)
-      .toMatchObject({ outcome: "not_applied", paragraphIndex: 1 });
-  });
 
   it("P3-6: a targets fix built from its entries, like a facts fix, must keep every figure of this Line's own signed-off items", async () => {
     const draft246 = [
@@ -1595,52 +1553,6 @@ describe("round 4 review: the targets check vouches only for what it quoted (rea
       .toContain('repair not used (the repaired text no longer holds the signed-off figure "7 percent"');
   });
 
-  it("final re-check P2-B1: a correctly stated miss needs no evidence, so a correct applied verdict stays applied, after a repair too", async () => {
-    const miss = "Edge coverage reached 58 microns against the 60 micron target.";
-    const { row } = await targetsRow([p1, miss].join("\n\n"), applied([]));
-    expect(row).toMatchObject({ outcome: "applied", reason: "Targets met." });
-    // A targets repair that states the miss this way is judged applied on its final text.
-    const wrong = "Edge coverage met the 60 micron target on the trial 3 panels.";
-    const error = {
-      ...applied([{ draftQuote: "Edge coverage met the 60 micron target", sourceQuote: "Edge DFT averaged 64 microns, minimum 52", targetQuote: "at least 60 microns on the routed edges", correction: "52 microns minimum against 60" }]),
-      outcome: "not_applied",
-      paragraph: 2,
-      reason: "P2 calls a missed target met",
-    };
-    const fixed = "Edge DFT averaged 64 microns but reached 52 microns at the minimum, short of the 60 micron target.";
-    const sent = installFetch({
-      draft: [p1, wrong].join("\n\n"),
-      repair: [p1, fixed].join("\n\n"),
-      checks: [
-        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, error] },
-        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, applied([])] },
-      ],
-    });
-    const result = await draft(claimFor(plan244(), sources), SUMMARY_VERSION);
-    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
-    const repairedRow = result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID);
-    expect(repairedRow).toMatchObject({ outcome: "applied", repaired: true });
-    expect(repairedRow?.reason.startsWith("Fixed by the repair: ")).toBe(true);
-    expect(repairedRow?.reason).not.toContain("Not checked");
-  });
-
-  it("P3-8: more than three sentences that say a target was met read not checked, naming the fourth", async () => {
-    const sentences = [
-      "The shaker profile met the 60-micron edge target on all panels.",
-      "The line met the pinhole target on the same panels.",
-      "The fast powder met the cure target on the same panels.",
-      "The process met the face film build target on the same panels.",
-    ];
-    const entries = [
-      { draftQuote: "The shaker profile met the 60-micron edge target", sourceQuote: "The shaker edges were all over 60", correction: "" },
-      { draftQuote: "The line met the pinhole target on the same panels", sourceQuote: pinhole, correction: "" },
-      { draftQuote: "The fast powder met the cure target on the same panels", sourceQuote: pinhole, correction: "" },
-      { draftQuote: "The process met the face film build target", sourceQuote: "DFT of 70 to 90 microns on the faces", correction: "" },
-    ];
-    const { row } = await targetsRow([p1, sentences.join(" ")].join("\n\n"), applied(entries));
-    expect(row).toMatchObject({ outcome: "not_applied", reason: targetsNotShownReason({ paragraphIndex: 1, sentence: sentences[3]! }) });
-  });
-
   it("P3-8: an error none of whose entries verify is not checked and never repaired from the model's guidance alone", async () => {
     const verdict = { ...applied([{ draftQuote: run6.slice(0, 60), sourceQuote: "we met the film build target on every panel", correction: "cure, not film build" }]), outcome: "not_applied", paragraph: 2, reason: "P2 names other targets", repairGuidance: "Say pinhole and cure." };
     const { sent, row } = await targetsRow([p1, run6].join("\n\n"), verdict);
@@ -1661,14 +1573,20 @@ describe("round 4 review: the targets check vouches only for what it quoted (rea
     expect(row?.reason.startsWith(FACTS_HELD_PREFIX)).toBe(true);
   });
 
-  it("P3-8: a Line 246 sentence that says a target was met is shown from the sources, or not checked", async () => {
-    const line246 = "The shaker profile met this target on every pilot panel, while the deep cove profile fell short on 13 percent of panels.";
+  it("P3-8: on Line 246, an applied verdict reads the fixed row, and an error whose quotes verify is shown", async () => {
+    const line246 = "The deep cove profile met this target on every pilot panel, while the shaker profile also met it.";
     const statusCovered = { itemId: ITEM_STATUS, mergedItemIds: [ITEM_STATUS], paragraph: 1, outcome: "applied", reason: "P1 states the open edge." };
-    const evidence = applied([{ draftQuote: "The shaker profile met this target on every pilot panel", sourceQuote: "The shaker edges were all over 60", correction: "" }]);
-    for (const [verdict, outcome] of [[evidence, "applied"], [applied([]), "not_applied"]] as const) {
+    const entry = { draftQuote: "The deep cove profile met this target on every pilot panel", sourceQuote: "every one of them was a deep cove profile", correction: "deep cove panels fell short" };
+    const error = { ...applied([entry]), outcome: "not_applied", paragraph: 1, reason: "P1 calls the deep cove target met" };
+    for (const [verdict, expected] of [
+      [applied([]), { outcome: "applied", reason: TARGETS_NOTHING_SHOWN_REASON }],
+      // On this branch an unchanged repair adds "the repair left the checked
+      // text as it was" to the row (2026-10-04 first, Round 2 follow-up).
+      [error, { outcome: "not_applied", reason: expect.stringContaining(targetFindingsReason([{ paragraphIndex: 0, ...entry }], 0)) }],
+    ] as const) {
       installFetch({ draft: line246, checks: [{ verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, factsMatch, verdict] }] });
       const result = await draft(claimFor(plan246(), { planItemSources: PLAN_ITEM_SOURCES, factsSourceDocuments: documents }), SUMMARY_VERSION, { section: "246", writerFlavor: WRITER_FLAVOR });
-      expect(result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID)).toMatchObject({ section: "246", outcome });
+      expect(result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID)).toMatchObject({ section: "246", ...expected });
     }
   });
 });

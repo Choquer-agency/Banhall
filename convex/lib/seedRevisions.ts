@@ -62,7 +62,9 @@ export const SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES = 48_000;
  * admission reserve every entry at these limits, and no repairGuidance for
  * the targets verdict, whose repair text comes from its entries.
  */
-export const MAX_TARGET_FINDINGS = 3;
+// Greptile round on PR #26 at 12d67e49 (lead decision): only errors carry
+// entries now, so two, as for the facts check.
+export const MAX_TARGET_FINDINGS = 2;
 /**
  * Round 4 review (P3-5): shorter fields than a facts finding's, so the
  * reservation is smaller: the draft's words at issue (they hold the word for

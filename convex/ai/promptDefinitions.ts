@@ -1161,9 +1161,9 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     // the facts verdict, and a target stated as met needs the source words
     // that show it.
     instruction:
-      `\n\nThe plan check with ruleId results_against_targets asks whether each result the section compares with a target (a hypothesis target, a goal, a limit or a threshold) is stated as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} ${TARGET_MET_RULE} A qualifier about one test applies only to that test. Judge it applied, with paragraph 0, when every such comparison matches the numbers, when the section compares no result with a target, or when you cannot tell which way a target runs. When you judge it applied and the section says a target was met, add an entry to targetFindings for each sentence that says so: draftQuote (the section's words that say it was met, with the word for met), sourceQuote (the source words that say it was met, or the result that shows it), targetQuote (the target as the sources give it, when sourceQuote does not give it) and an empty correction. Judge it not applied when the section calls a met target by a word the rule for its direction forbids, calls a missed target met, names other targets than the sources name, calls a target met where an average met it but a minimum or a share fell short, or carries a qualifier about one test to another test or to the final result: name the first such paragraph, give the comparison as the numbers show, and add an entry to targetFindings for each such error, with draftQuote, sourceQuote (the result as the sources give it), targetQuote (the target as the sources give it) and correction (the result against the target as the sources give it). Copy each quote exactly from the section or from a source document, a quote or the writer's wording: a whole clause of at least 8 characters, never a figure alone, and "..." only to skip words inside one sentence of one source. At most three entries. A target stated as met with no entry whose quotes can be found is not checked, and an error whose quotes cannot be found is never shown or repaired.`,
+      `\n\nThe plan check with ruleId results_against_targets asks whether each result the section compares with a target (a hypothesis target, a goal, a limit or a threshold) is stated as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} ${TARGET_MET_RULE} A qualifier about one test applies only to that test. Judge it applied, with paragraph 0, when every such comparison matches the numbers, when the section compares no result with a target, or when you cannot tell which way a target runs. Judge it not applied when the section calls a met target by a word the rule for its direction forbids, calls a missed target met, names other targets than the sources name, calls a target met where an average met it but a minimum or a share fell short, or carries a qualifier about one test to another test or to the final result: name the first such paragraph, give the comparison as the numbers show, and add an entry to targetFindings for each such error, with draftQuote, sourceQuote (the result as the sources give it), targetQuote (the target as the sources give it) and correction (the result against the target as the sources give it). Copy each quote exactly from the section or from a source document, a quote or the writer's wording: a whole clause of at least 8 characters, never a figure alone, and "..." only to skip words inside one sentence of one source. At most two entries. An error whose quotes cannot be found is never shown or repaired.`,
     findingsDescription:
-      "results_against_targets only: for an applied verdict, one entry per sentence that says a target was met, with the source words that show it and an empty correction; for a not_applied verdict, one entry per error. At most three. Each quote is a whole clause of at least 8 characters, copied exactly. An entry whose quotes cannot be found is not shown.",
+      "results_against_targets only, when not_applied: one entry per error, at most two. Each quote is a whole clause of at least 8 characters, copied exactly. An entry whose quotes cannot be found is not shown and not repaired.",
   },
   /**
    * 2026-10-04 (second): every Line of a signed-off plan. Its one check asks
@@ -1388,7 +1388,7 @@ export const SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA = {
         type: "string",
         maxLength: MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
         description: summaryEscapedUtf8Description(
-          "The section's words that state the result against its target, copied exactly, with the word that says it was met: a whole clause of at least 8 characters.",
+          "The section's words that state the result against its target, copied exactly: a whole clause of at least 8 characters.",
           MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES
         ),
       },
@@ -1396,7 +1396,7 @@ export const SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA = {
         type: "string",
         maxLength: MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
         description: summaryEscapedUtf8Description(
-          "The source words that say the target was met, or the result as the sources give it, copied exactly: a whole clause of at least 8 characters, from one place.",
+          "The result as the sources give it, copied exactly: a whole clause of at least 8 characters, from one place.",
           MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES
         ),
       },
@@ -1412,7 +1412,7 @@ export const SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA = {
         type: "string",
         maxLength: MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES,
         description: summaryEscapedUtf8Description(
-          "For an error, the result against the target as the sources give it; empty for an applied verdict's evidence.",
+          "The result against the target as the sources give it.",
           MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES
         ),
       },
