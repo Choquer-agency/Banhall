@@ -1613,7 +1613,7 @@ describe("round 4 review: the targets check vouches only for what it quoted (rea
       repair: [p1, fixed].join("\n\n"),
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsMatch, error] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, applied([])] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, applied([])] },
       ],
     });
     const result = await draft(claimFor(plan244(), sources), SUMMARY_VERSION);
