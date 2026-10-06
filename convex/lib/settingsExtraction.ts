@@ -321,7 +321,7 @@ const OPENING_CUE =
   /(?:^|:\s*|\b(?:must|should|always)\s+)(?:open|begin|start)\b[^"\u201c]*?\bwith\s+(?:these|the)\s+exact\s+words\s*:?\s*["\u201c]([^"\u201d]+)["\u201d]/i;
 const OPENING_NEGATED = /\b(?:never|not|don['\u2019]t|avoid)\b[^"\u201c]*?\b(?:open|begin|start)\b/i;
 const OPENING_NOT_AN_INSTRUCTION =
-  /\b(?:would|could|can|may|might|if|when|unless|except|only|rather\s+than|instead\s+of|default|older|previous|used\s+to|example|e\.g)\b/i;
+  /\b(?:would|could|can|may|might|if|when|where|once|unless|except|only|provided|assuming|subject\s+to|as\s+long\s+as|rather\s+than|instead\s+of|default|older|previous|used\s+to|example|e\.g)\b/i;
 
 const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 
@@ -343,7 +343,9 @@ function termRule(body: string): RequiredTermRule | null {
   if (!head) return null;
   const term = head[1]!.trim();
   const rest = head[2]!;
-  if (wordCount(term) > 5 || TERM_LABEL_WORDS.test(term) || /^["'\u201c\u2018]/.test(rest.trim())) return null;
+  // Final re-check P3-A5: a single Title-case word ("Readability",
+  // "Audience") is a label, not a term.
+  if (wordCount(term) > 5 || TERM_LABEL_WORDS.test(term) || /^[A-Z][a-z]+$/.test(term) || /^["'\u201c\u2018]/.test(rest.trim())) return null;
   for (const sentence of rest.split(/(?<=[.!?])\s+/)) {
     const ban = BAN_SENTENCE.exec(sentence.trim());
     if (!ban) continue;
@@ -490,9 +492,17 @@ export function extractWriterWordingRules(text: string): WriterWordingRules {
   return extractWriterWordingRulesWithLeads(text).rules;
 }
 
-const BAN_LIKE_WORDS = /\b(?:never|do\s+not|don['\u2019]t)\s+(?:write|use|say)\b/i;
+// Final re-check P2-A2: "Avoid ...", "Never include ...", "banned",
+// "forbidden", "prohibited" and "No <kind> words" read as bans too ("Do
+// not describe" or "claim" are topic rules, never word bans).
+const BAN_LIKE_WORDS =
+  /\b(?:(?:never|do\s+not|don['\u2019]t)\s+(?:write|use|say|include)|avoid|banned|forbidden|prohibited|no\s+[\w-]+\s+words)\b/i;
+/** A ban sentence in a lead line that refers to the list below it. */
+const LIST_REFERENCE = /\b(?:alternatives?|listed|these|those|them|following|above|below)\b/i;
 const FIRST_PERSON_ONLY = /^(?:we|our|ours|us|ourselves|i|me|my|mine)$/i;
-const OPENING_LIKE = /\b(?:open|begin|start)\w*\b[^.]*?\bwith\b[^.]*?["\u201c]/i;
+// Final re-check P2-A2: any quote mark, and no "with" needed ("should
+// begin \"The advancement sought was\"").
+const OPENING_LIKE = /\b(?:open|begin|start)\w*\b[^.]*?["\u201c'\u2018]/i;
 
 /**
  * Round 5 follow-up (re-check P1-1 b): whether the settings hold a word ban
@@ -504,20 +514,31 @@ const OPENING_LIKE = /\b(?:open|begin|start)\w*\b[^.]*?\bwith\b[^.]*?["\u201c]/i
  */
 export function unreadWritingRules(text: string): { wordBans: boolean; openings: boolean; pronouns?: string[] } {
   const { rules, leads } = extractWriterWordingRulesWithLeads(text);
-  const sources = new Set([
-    ...rules.terms.map((rule) => rule.source),
-    ...rules.banned.map((rule) => rule.source),
-    ...rules.openings.map((rule) => rule.source),
-    ...leads,
-  ]);
+  const termSources = new Set(rules.terms.map((rule) => rule.source));
+  const bannedSources = new Set(rules.banned.map((rule) => rule.source));
+  const openingSources = new Set(rules.openings.map((rule) => rule.source));
+  const leadSet = new Set(leads);
   let wordBans = false;
   let openings = false;
   const pronouns = new Set<string>();
   for (const raw of text.split(/\r?\n/)) {
     const body = raw.replace(/^\s*(?:[-*\u2022]|\d+[.)])\s+/, "").trim();
-    if (!body || sources.has(body)) continue;
-    for (const sentence of body.split(/(?<=[.!?])\s+/)) {
-      const ban = BAN_SENTENCE.exec(sentence.trim());
+    // A banned item is read whole.
+    if (!body || bannedSources.has(body)) continue;
+    const isLead = leadSet.has(body);
+    if (isLead && HEADING.test(body)) continue;
+    // Final re-check P3-A3: only the sentence a rule was read from is
+    // accounted for; any other ban on the same line still counts.
+    let termBanRead = !termSources.has(body);
+    for (const part of body.split(/(?<=[.!?])\s+/)) {
+      const sentence = part.trim();
+      if (!termBanRead && BAN_SENTENCE.test(sentence)) {
+        termBanRead = true;
+        continue;
+      }
+      if (openingSources.has(body) && OPENING_CUE.test(sentence)) continue;
+      if (isLead && (BAN_LEAD.test(sentence) || (BAN_SENTENCE.test(sentence) && LIST_REFERENCE.test(sentence)))) continue;
+      const ban = BAN_SENTENCE.exec(sentence);
       if (ban) {
         const items = ban[1]!.replace(OWN_SUFFIX, "").split(/\s*,\s*(?:or\s+|and\s+)?|\s+or\s+|\s+and\s+/i).map((item) => item.trim()).filter(Boolean);
         if (!items.every((item) => FIRST_PERSON_ONLY.test(item))) wordBans = true;

@@ -165,22 +165,34 @@ export function hitsPhrase(hits: readonly WordingHit[]): string {
   return listed.length <= 1 ? listed.join("") : `${listed.slice(0, -1).join(", ")} and ${listed[listed.length - 1]}`;
 }
 
+/** The Compliance Note instruction of a term rule's row. */
+export const termRowInstruction = (rule: Pick<RequiredTermRule, "term">) => `Writer's term: ${rule.term}`;
+/** The Compliance Note instruction of a banned word rule's row. */
+export const bannedRowInstruction = (rule: Pick<BannedWordRule, "phrase">) => `Writer's banned word: ${rule.phrase}`;
+/** The statement an opening rule names, in words. */
+export const openingStatement = (rule: Pick<RequiredOpeningRule, "statement">) =>
+  rule.statement ? `the ${rule.statement} statement` : "the statement the writer's settings name";
+/** The Compliance Note instruction of an opening rule's row. */
+export const openingRowInstruction = (rule: Pick<RequiredOpeningRule, "statement" | "opening">) =>
+  `Writer's opening for ${openingStatement(rule)}: "${rule.opening}"`;
+
 /**
- * Round 5 (rule 4): why a shortening pass broke a measured wording rule its
- * input kept, or null. A pass is never kept when it removes a required
- * opening the input held, uses a banned word or synonym the input did not,
- * or removes the last use of a required term the input held.
+ * Round 5 (rule 4): how a text broke a measured wording rule its input
+ * kept: the reason and the row of the rule, or null. It removed a required
+ * opening the input held, used a banned word or synonym more often than the
+ * input did (compared by rule, not by form), or removed the last use of a
+ * required term the input held.
  */
-export function wordingLoss(
+export function wordingLossDetail(
   input: string,
   output: string,
   rules: WriterWordingRules,
   section: SectionNumber
-): string | null {
+): { reason: string; instruction: string } | null {
   for (const rule of rules.openings) {
     if (rule.section !== section) continue;
     if (openingAt(input, rule.opening) && !openingAt(output, rule.opening)) {
-      return `removed the opening "${rule.opening}" the writer's settings require`;
+      return { reason: `removed the opening "${rule.opening}" the writer's settings require`, instruction: openingRowInstruction(rule) };
     }
   }
   // Review P3-7: by rule, not by form: "pinhole" made "pinholes" adds none.
@@ -192,14 +204,26 @@ export function wordingLoss(
   for (const rule of rules.terms) {
     const others = terms.filter((term) => term !== rule.term);
     const added = introduced(termRuleHits(input, rule, others), termRuleHits(output, rule, others));
-    if (added) return `wrote "${added.words}", which the writer's settings ban in favour of "${rule.term}"`;
+    if (added) {
+      return { reason: `wrote "${added.words}", which the writer's settings ban in favour of "${rule.term}"`, instruction: termRowInstruction(rule) };
+    }
     if (holdsPhrase(input, rule.term) && !holdsPhrase(output, rule.term)) {
-      return `removed the last use of "${rule.term}", the writer's term`;
+      return { reason: `removed the last use of "${rule.term}", the writer's term`, instruction: termRowInstruction(rule) };
     }
   }
   for (const rule of rules.banned) {
     const added = introduced(bannedRuleHits(input, rule, terms), bannedRuleHits(output, rule, terms));
-    if (added) return `wrote "${added.words}", which the writer's settings ban`;
+    if (added) return { reason: `wrote "${added.words}", which the writer's settings ban`, instruction: bannedRowInstruction(rule) };
   }
   return null;
+}
+
+/** wordingLossDetail's reason alone (the shortening guard). */
+export function wordingLoss(
+  input: string,
+  output: string,
+  rules: WriterWordingRules,
+  section: SectionNumber
+): string | null {
+  return wordingLossDetail(input, output, rules, section)?.reason ?? null;
 }

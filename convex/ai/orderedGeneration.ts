@@ -104,7 +104,7 @@ import {
 import { noteDraft, type ComplianceNoteDraft } from "../lib/complianceNote";
 import { containsTerm } from "../lib/editedTerms";
 import { extractWriterWordingRules, unreadWritingRules } from "../lib/settingsExtraction";
-import { hasWriterWordingRules, holdsPhrase } from "../lib/writerWording";
+import { hasWriterWordingRules, wordingLossDetail, type WriterWordingRules } from "../lib/writerWording";
 import {
   confirmedConflictParagraph,
   confirmedConflictsOf,
@@ -192,19 +192,32 @@ export function repairGuidanceBlock(
    * 2026-09-30 (second): a Glossary Term the writer's Feedback governs is
    * used by an unedited signed-off idea of the Line.
    */
-  governedInIdea = false
+  governedInIdea = false,
+  /**
+   * 2026-10-04 (first), Round 5 follow-up (final re-check P2-C1): the
+   * writer's measured terms and banned words, for a writer whose settings
+   * hold them. Absent, the request is as before.
+   */
+  writerWording?: WriterWordingRules
 ): string {
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.repairGuidance;
   const terms =
     editedTerms.length > 0
       ? `${scaffold.exactTermsPrefix}${quotedTerms(editedTerms)}${scaffold.exactTermsSuffix}`
       : "";
+  const writerTerms = writerWording?.terms.map((rule) => rule.term) ?? [];
+  const writerBans = writerWording
+    ? [...new Set([...writerWording.terms.flatMap((rule) => rule.banned), ...writerWording.banned.flatMap((rule) => [rule.phrase, ...rule.forms])])]
+    : [];
+  const wording = `${writerTerms.length > 0 ? `${scaffold.writerWording.termsPrefix}${quotedTerms(writerTerms)}${scaffold.writerWording.suffix}` : ""}${
+    writerBans.length > 0 ? `${scaffold.writerWording.bannedPrefix}${quotedTerms(writerBans)}${scaffold.writerWording.suffix}` : ""
+  }`;
   // Round 2 re-check (P2): an issue can carry model-written words (a facts
   // finding's quotes and correction, a check's guidance), so none can open
   // or close a block. Bytes are unchanged unless an issue holds a marker.
   return `${scaffold.prefix}${issues
     .map((issue) => `${scaffold.issuePrefix}${neutralizeMarkers(issue)}`)
-    .join(scaffold.issueSeparator)}${terms}${writerDecisions ? scaffold.writerDecisions : ""}${
+    .join(scaffold.issueSeparator)}${terms}${wording}${writerDecisions ? scaffold.writerDecisions : ""}${
     governedInIdea ? scaffold.governedRename : ""
   }${scaffold.draftPrefix}${draft}`;
 }
@@ -345,11 +358,12 @@ export function repairDroppedTermReason(term: string): string {
 }
 
 /**
- * Round 5 follow-up (re-check P2-1): why a repair that removed a term the
- * writer's settings require, which the checked draft held, was not used.
+ * Round 5 follow-up (re-check P2-1, final re-check P2-C1): why a repair
+ * that broke a measured rule of the writer's, made only for what the
+ * Writer Profile outranks, was not used.
  */
-export function repairDroppedWriterTermReason(term: string): string {
-  return `the repaired text no longer uses "${term}", the writer's term, which the checked draft used, so the checked draft was kept`;
+export function repairBrokeWriterRuleReason(loss: string): string {
+  return `the repaired text ${loss}; the checked draft did not, so it was kept`;
 }
 
 /**
@@ -1514,6 +1528,12 @@ export async function draftCheckedSection(input: {
       entry.repairable &&
       entry.row.outcome === "not_applied"
   );
+  // Final re-check P2-C1 (lead decision, owner informed): what outranks the
+  // Writer Profile: a signed-off plan issue (an item, a Skip, a leave-out,
+  // Rule B or C, a target or a fact) or a Locked Rule.
+  const outranksWriterProfile =
+    planIssues.length > 0 ||
+    before.entries.some((entry) => entry.key === "locked" && entry.repairable && entry.row.outcome === "not_applied");
   // Round 5 (Rule 12): the repair fixes a figure, a signed-off item or a
   // rule code measured (any plan issue, or any deterministic issue).
   const fixesMeasuredOrPlan =
@@ -1555,7 +1575,8 @@ export async function draftCheckedSection(input: {
           text,
           claim.editedTerms,
           decisions !== "",
-          feedbackTerms.some((entry) => entry.inSignedOffIdea === true)
+          feedbackTerms.some((entry) => entry.inSignedOffIdea === true),
+          writerWording
         )
       );
       if (repaired.trim()) {
@@ -1592,9 +1613,13 @@ export async function draftCheckedSection(input: {
         const droppedTerm = claim.editedTerms.find(
           (term) => containsTerm(text, term) && !containsTerm(fit.text, term)
         );
-        const droppedWriterTerm = writerWording?.terms
-          .map((rule) => rule.term)
-          .find((term) => holdsPhrase(text, term) && !holdsPhrase(fit.text, term));
+        // Round 5 follow-up (lead decision, owner informed; final re-check
+        // P2-C1): the full wording check on the repair. A repair that broke
+        // a writer's measured rule (removed a required term or opening, or
+        // wrote a banned word or synonym) is used only when it fixed what
+        // outranks the Writer Profile (accuracy, the Locked Rules, a
+        // signed-off item); the rule's row then names the loss.
+        const repairWordingLoss = writerWording ? wordingLossDetail(text, fit.text, writerWording, section) : null;
         // CAP-13 rule 4 (2026-09-29, second): nor an idea the writer kept
         // despite a Claim Exclusion. The coverage check of the final text
         // decides that below; only with no verdict to read (the first
@@ -1680,12 +1705,13 @@ export async function draftCheckedSection(input: {
           }`;
         } else if (droppedTerm !== undefined) {
           repair.notUsedReason = `${repairDroppedTermReason(droppedTerm)}${failure ? `; ${failure}` : ""}`;
-        } else if (droppedWriterTerm !== undefined) {
+        } else if (repairWordingLoss && !outranksWriterProfile) {
           // Round 5 follow-up (lead decision, owner informed; re-check
-          // P2-1): the writer's glossary outranks the Brief's, so a repair
-          // never removes a term the writer's settings require that the
-          // checked draft used (run 6 rewrote "edge coverage").
-          repair.notUsedReason = `${repairDroppedWriterTermReason(droppedWriterTerm)}${failure ? `; ${failure}` : ""}`;
+          // P2-1, final re-check P2-C1): the writer's settings outrank the
+          // Brief's and the model's judgements, so a repair made only for
+          // those never breaks a measured rule of the writer's (run 6
+          // rewrote "edge coverage").
+          repair.notUsedReason = `${repairBrokeWriterRuleReason(repairWordingLoss.reason)}${failure ? `; ${failure}` : ""}`;
         } else if (droppedKept.length > 0 && !keptOverLimit) {
           repair.notUsedReason = `${repairDroppedKeptIdeaReason(droppedKept[0]!)}${failure ? `; ${failure}` : ""}`;
         } else if (lostFigure !== undefined && !figureOverLimit) {
@@ -1903,6 +1929,20 @@ export async function draftCheckedSection(input: {
     ...(finalOrdinary ? { finalVerdicts: finalOrdinary } : {}),
   });
   const rows = [...baseRows];
+  // Final re-check P2-C1 (lead decision, owner informed): a used repair that
+  // broke a measured rule of the writer's was kept for what outranks the
+  // Writer Profile; that rule's row names the loss plainly, as Rule 12 does
+  // for the cap.
+  const keptLoss = repair.succeeded && writerWording ? wordingLossDetail(text, finalText, writerWording, section) : null;
+  if (keptLoss) {
+    const index = rows.findIndex((row) => row.instruction === keptLoss.instruction);
+    if (index >= 0) {
+      rows[index] = {
+        ...rows[index]!,
+        reason: `${rows[index]!.reason}; the repair, kept for what it fixed (which outranks the writer's settings), ${keptLoss.reason}`,
+      };
+    }
+  }
   let planRows: ComplianceNoteDraft[] = [];
   if (payload.summaryVersionId) {
     planRows = planComplianceNoteDrafts({

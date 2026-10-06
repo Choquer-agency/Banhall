@@ -608,6 +608,13 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     exactTermsPrefix:
       "\n\nKeep the writer's exact terms word for word, even where an issue above calls one unsupported or invented: ",
     exactTermsSuffix: ".",
+    // 2026-10-04 (first), Round 5 follow-up (final re-check P2-C1): only for
+    // a writer whose settings hold terms or banned words code measures.
+    writerWording: {
+      termsPrefix: "\n\nThe writer's settings require these terms word for word: ",
+      bannedPrefix: "\n\nThe writer's settings ban these words, even where the client or the sources use them: never write ",
+      suffix: ".",
+    },
     // 2026-09-29 (second): only present when the Line has WRITER'S DECISIONS
     // (an idea kept despite a Claim Exclusion, active Feedback or a Glossary
     // Term set aside). In release suite run 6 the repair of Line 244 dropped

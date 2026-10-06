@@ -547,3 +547,27 @@ describe("extractWriterWordingRules re-check probes", () => {
     expect(extractWriterWordingRules(text).terms.map((rule) => rule.term)).toEqual(["film build"]);
   });
 });
+
+describe("extractWriterWordingRules final re-check probes", () => {
+  it.each([
+    ['- Line 242: open the objective with the exact words "The aim of this work was to" where the client asks.'],
+    ['- Line 242: open it with these exact words: "The aim of this work was to" once the Brief is signed off.'],
+    ['- Line 242: open it with these exact words: "The aim of this work was to", provided the client agrees.'],
+    ['- Line 242: open it with these exact words: "The aim of this work was to", assuming the plan allows.'],
+    ['- Line 242: open it with these exact words: "The aim of this work was to", subject to review.'],
+    ['- Line 242: open it with these exact words: "The aim of this work was to" as long as it fits.'],
+  ])("reads no conditional opening (P3-A4): %s", (text) => {
+    expect(extractWriterWordingRules(text).openings).toEqual([]);
+  });
+
+  it.each(["## Terminology", "## Preferred terms"])("reads no single Title-case label as a term under %j (P3-A5)", (heading) => {
+    const text = [
+      heading,
+      "",
+      "- Readability: short sentences. Never write utilize.",
+      "- Audience: CRA reviewers. Never write layman.",
+      "- film build: the thickness. Never write DFT.",
+    ].join("\n");
+    expect(extractWriterWordingRules(text).terms.map((rule) => rule.term)).toEqual(["film build"]);
+  });
+});

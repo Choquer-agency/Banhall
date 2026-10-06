@@ -26,6 +26,8 @@ import { draftCheckedSection } from "./ai/orderedGeneration";
 import { COMPRESSION_REQUEST, ORDERED_PROMPT_SCAFFOLDS } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { extractSettingsRules } from "./lib/settingsExtraction";
+import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
+import type { Id } from "./_generated/dataModel";
 import { sectionMetrics } from "./lib/lineLimits";
 import type { OrderedPayload } from "./lib/orderedChain";
 
@@ -53,7 +55,7 @@ const SETTINGS = readFileSync(
   "utf8"
 );
 
-function payload(): OrderedPayload {
+function payload(signedOff = false): OrderedPayload {
   return {
     analysis: JSON.stringify({
       company_context: "A fictional panel finisher",
@@ -74,10 +76,19 @@ function payload(): OrderedPayload {
       selfCheckRules: extractSettingsRules(SETTINGS).selfCheckRules,
     },
     frozenStyleGuidance: "",
+    ...(signedOff ? { summaryVersionId: "summary-version-velloway" as Id<"summaryVersions"> } : {}),
   } as OrderedPayload;
 }
 
-function claim(section: "242" | "244" | "246", glossaryTerms: string[] = []) {
+const ITEM_246 = "item-velloway-edge" as Id<"summaryItems">;
+const COVER_246 = "The pilot met the 60 micron edge target on most shaker panels.";
+const PLAN_246 = buildFrozenSummaryPlan({
+  section: "s246",
+  items: [{ itemId: ITEM_246, roleId: "overall_advancement", kind: "standard", bullets: [COVER_246], support: "source_supported" }],
+  skippedRoleIds: [],
+});
+
+function claim(section: "242" | "244" | "246", glossaryTerms: string[] = [], plan: typeof PLAN_246 | null = null) {
   return {
     projectId: "project-velloway",
     model: SONNET,
@@ -90,9 +101,9 @@ function claim(section: "242" | "244" | "246", glossaryTerms: string[] = []) {
     brief: glossaryTerms.length > 0
       ? { storylineText: "", claimExclusions: [], confidenceMap: [], glossaryTerms }
       : null,
-    planBlock: "",
-    planChecksBlock: "",
-    planChecks: [],
+    planBlock: plan ? `\n\n${plan.block}` : "",
+    planChecksBlock: plan?.checksBlock ?? "",
+    planChecks: plan?.checks ?? [],
     editedTerms: [],
   } as unknown as Parameters<typeof draftCheckedSection>[0]["claim"];
 }
@@ -122,7 +133,8 @@ function systemOf(json: Record<string, unknown>): string {
 async function draft(
   section: "242" | "244" | "246",
   script: { draft: string; repair: string; checks: unknown[] },
-  glossaryTerms: string[] = []
+  glossaryTerms: string[] = [],
+  plan: typeof PLAN_246 | null = null
 ) {
   const sent: Sent[] = [];
   const checks = [...script.checks];
@@ -155,7 +167,7 @@ async function draft(
       (callSite: string) => instrumentedAnthropic(ctx, { callSite }) as unknown as GenerationClient,
       { modelFor: () => SONNET }
     );
-    return await draftCheckedSection({ claim: claim(section, glossaryTerms), payload: payload(), section, clientFor });
+    return await draftCheckedSection({ claim: claim(section, glossaryTerms, plan), payload: payload(plan !== null), section, clientFor });
   });
   const note = (instruction: string) => result.notes.find((row) => row.instruction === instruction);
   return { sent, result, note };
@@ -299,7 +311,50 @@ describe("the writer's wording rules are measured, repaired and measured again (
     expect(sent.some((request) => request.stage === "repair")).toBe(true);
     expect(result.draftText).toBe(drafted);
     expect(note("Glossary Term: film build")?.reason).toBe(
-      'P2 uses edge coverage, not film build.; repair not used (the repaired text no longer uses "edge coverage", the writer\'s term, which the checked draft used, so the checked draft was kept)'
+      'P2 uses edge coverage, not film build.; repair not used (the repaired text removed the last use of "edge coverage", the writer\'s term; the checked draft did not, so it was kept)'
+    );
+  });
+
+  // Final re-check P2-C1 (lead decision, owner informed): accuracy, the
+  // Locked Rules and signed-off items outrank the Writer Profile.
+  it("keeps a repair made for a signed-off item though it dropped the writer's term, and that term's row names the loss", async () => {
+    const drafted = [
+      "Velloway Panel Finishing ran a pilot on routed MDF doors.",
+      "The pilot measured edge coverage on the shaker doors.",
+    ].join("\n\n");
+    const repaired = drafted.replace("The pilot measured edge coverage on the shaker doors.", COVER_246);
+    const { sent, result, note } = await draft("246", {
+      draft: drafted,
+      repair: repaired,
+      checks: [
+        { verdicts: [], planVerdicts: [{ itemId: ITEM_246, mergedItemIds: [ITEM_246], paragraph: 0, outcome: "not_applied", reason: "No paragraph states the 60 micron target.", repairGuidance: "State that the pilot met the 60 micron edge target." }] },
+        { verdicts: [], planVerdicts: [{ itemId: ITEM_246, mergedItemIds: [ITEM_246], paragraph: 2, outcome: "applied", reason: "P2 states the target." }] },
+      ],
+    }, [], PLAN_246);
+    const repair = sent.find((request) => request.stage === "repair")!;
+    // The writer's terms and bans reach the repair (writers with such rules only).
+    expect(repair.user).toContain('The writer\'s settings require these terms word for word: "film build", "panel surface temperature", "cure window", "edge coverage", "outgassing defects".');
+    expect(repair.user).toContain('The writer\'s settings ban these words, even where the client or the sources use them: never write "DFT", ');
+    expect(result.draftText).toBe(repaired);
+    expect(note("Writer's term: edge coverage")?.reason).toBe(
+      'no banned synonym of "edge coverage"; the repair, kept for what it fixed (which outranks the writer\'s settings), removed the last use of "edge coverage", the writer\'s term'
+    );
+  });
+
+  it("does not use a repair made only for the Storyline that writes a banned synonym", async () => {
+    const drafted = [
+      "Velloway Panel Finishing ran oven trials on routed MDF doors.",
+      "Trial 1 measured film build at 64 microns on the routed edges.",
+    ].join("\n\n");
+    const repaired = drafted.replace("film build at 64 microns", "film build at 64 microns, reported as DFT in the log,");
+    const { result, note } = await draft("246", {
+      draft: drafted,
+      repair: repaired,
+      checks: [{ verdicts: [{ paragraph: 2, check: "storyline", instruction: "Storyline", outcome: "not_applied", reason: "P2 drifts.", repairGuidance: "Tie P2 to the trials." }] }],
+    });
+    expect(result.draftText).toBe(drafted);
+    expect(note("Storyline")?.reason).toBe(
+      'P2 drifts.; repair not used (the repaired text wrote "DFT", which the writer\'s settings ban in favour of "film build"; the checked draft did not, so it was kept)'
     );
   });
 });

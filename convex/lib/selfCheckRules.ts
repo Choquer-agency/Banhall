@@ -37,6 +37,11 @@ import {
   holdsPhrase,
   openingAt,
   termRuleHits,
+  wordingPattern,
+  bannedRowInstruction,
+  openingRowInstruction,
+  openingStatement,
+  termRowInstruction,
   type RequiredTermRule,
   type WriterWordingRules,
 } from "./writerWording";
@@ -530,7 +535,7 @@ export function runDeterministicSelfCheck(input: {
     wording.terms.forEach((rule, index) => {
       const hits = termRuleHits(text, rule, requiredTerms.filter((term) => term !== rule.term));
       const used = holdsPhrase(text, rule.term);
-      const instruction = `Writer's term: ${rule.term}`;
+      const instruction = termRowInstruction(rule);
       if (hits.length === 0) {
         add(`wording:term:${index}`, {
           instruction,
@@ -562,7 +567,7 @@ export function runDeterministicSelfCheck(input: {
     });
     wording.banned.forEach((rule, index) => {
       const hits = bannedRuleHits(text, rule, requiredTerms);
-      const instruction = `Writer's banned word: ${rule.phrase}`;
+      const instruction = bannedRowInstruction(rule);
       if (hits.length === 0) {
         add(`wording:banned:${index}`, { instruction, outcome: "applied", tier: "none", reason: `"${rule.phrase}" not used` });
         measuredEntry(rule.source);
@@ -588,8 +593,8 @@ export function runDeterministicSelfCheck(input: {
     const openers = profile.categoryOutcomes.find((outcome) => outcome.category === "openingClauses");
     wording.openings.forEach((rule, index) => {
       if (rule.section !== section) return;
-      const statement = rule.statement ? `the ${rule.statement} statement` : "the statement the writer's settings name";
-      const instruction = `Writer's opening for ${statement}: "${rule.opening}"`;
+      const statement = openingStatement(rule);
+      const instruction = openingRowInstruction(rule);
       // The House Rule openers outrank the writer's opening unless waived.
       if (openers && !openers.effective) {
         add(`wording:opening:${index}`, {
@@ -1059,6 +1064,38 @@ function namedPhrases(remark: string): string[] {
 }
 const wordCountOf = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 
+/**
+ * Final re-check P2-A1: the words a settled remark may hold besides the
+ * measured rules' own phrases and paragraph references: function words, the
+ * kinds code measures, and plain judgement words. Any other word keeps the
+ * model's verdict ("P2 contains optimizing, a banned form." names a form
+ * the matcher does not know).
+ */
+const SETTLE_ALLOWED_WORDS = new Set(
+  (
+    "a an the of in on at to from for with by as and or but not no nor is are was were be been being it its this that these those there here " +
+    "all any each every some one only also than then so yet does do did has have had see per its " +
+    "differs differ different difference missing missed lacks lack lacking wrong wrongly incorrect incorrectly correct correctly right " +
+    "properly used use uses using contains contain found present absent appears appear followed follow follows broken breaks break " +
+    "kept met ok okay fine fails fail failed violates violate violated violation instead required requires require exact exactly verbatim " +
+    "settings setting document writer writer's writers profile rule rules line lines says say writes write word words term terms phrase " +
+    "phrases wording form forms banned ban bans synonym synonyms opener openers opening openings open opens begin begins start starts " +
+    "cap caps length long glossary terminology vocabulary count counts fix fixes fixed change replace rewrite make ensure should must"
+  ).split(" ")
+);
+
+/** Whether a remark holds a word outside the measured phrases, references and SETTLE_ALLOWED_WORDS. */
+function namesUnmeasured(remark: string, measuredPhrases: readonly string[]): boolean {
+  let rest = remark;
+  for (const phrase of measuredPhrases) rest = rest.replace(wordingPattern(phrase), " ");
+  rest = rest
+    .replace(/\bP\d+(?:\s*[-\u2013]\s*P?\d+)?\b/gi, " ")
+    .replace(/\blines?\s+(?:242|244|246)\b/gi, " ")
+    .replace(/\b\d+\s*\/\s*\d+\s+words\b/gi, " ");
+  const words = rest.match(/[\p{L}\p{N}][\p{L}\p{N}'\u2019-]*/gu) ?? [];
+  return words.some((word) => !SETTLE_ALLOWED_WORDS.has(word.toLowerCase().replace(/\u2019/g, "'")));
+}
+
 /** The longest remark of the model's the settings row stores. */
 const MAX_SETTINGS_REMARK_CHARS = 600;
 
@@ -1129,8 +1166,9 @@ export function settleWriterSettingsVerdicts(
     const unquoted = said.replace(/["\u201c][^"\u201d]*["\u201d]/g, " ");
     const kinds = (Object.keys(MEASURED_KINDS) as Array<keyof typeof MEASURED_KINDS>).filter((kind) => MEASURED_KINDS[kind].test(unquoted));
     if (kinds.length === 0 || kinds.some((kind) => !present[kind]) || UNMEASURED_KIND.test(unquoted)) return whole;
-    // (a) every word or phrase it names is a measured rule's own.
-    if (!namedPhrases(said).every(isMeasuredPhrase)) return whole;
+    // (a) every word or phrase it names is a measured rule's own, and it
+    // holds no other word than those, references and plain judgement words.
+    if (!namedPhrases(said).every(isMeasuredPhrase) || namesUnmeasured(said, measuredPhrases)) return whole;
     // (b) no rule of the kinds it names was left to the model.
     if ((kinds.includes("banned") || kinds.includes("term")) && (context.unread?.wordBans || firstPersonUsed)) return whole;
     if (kinds.includes("opening") && context.unread?.openings) return whole;

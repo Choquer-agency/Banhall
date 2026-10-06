@@ -461,3 +461,57 @@ describe("the settle reads a verdict as applied only when it names nothing code 
     expect(settle("P1 opener differs", prose)).toMatchObject({ outcome: "applied" });
   });
 });
+
+// Final combined re-check of 5367e429..0819f8d8.
+describe("final re-check probes (Round 5 follow-up)", () => {
+  const KEPT_242 = LINE_242.replace("This work aimed to develop", "The aim of this work was to develop");
+  const verdict = (reason: string): ModelVerdict => ({ check: "instruction", instruction: "# PD Writing Customized Settings ...", outcome: "not_applied", reason });
+  const settle = (reason: string, settings = SETTINGS_TEXT, text = KEPT_242) =>
+    settleWriterSettingsVerdicts([verdict(reason)], check("242", text), SETTINGS_TEXT, {
+      rules: RULES,
+      unread: unreadWritingRules(settings),
+    })[0]!;
+
+  it.each([
+    "P2 contains optimizing, a banned form.",
+    "Banned word in P2: optimizing.",
+    "P2: optimizing is banned.",
+  ])("keeps %j: a word outside the measured phrases keeps the model's verdict (P2-A1)", (reason) => {
+    expect(settle(reason, SETTINGS_TEXT, `${KEPT_242} The team kept optimizing the line.`)).toMatchObject({ outcome: "not_applied", reason });
+  });
+
+  it.each(["P1 opener differs", "P2-4 use banned words from the settings document."])("still settles run 6's %j (P2-A1)", (reason) => {
+    expect(settle(reason)).toMatchObject({ outcome: "applied" });
+  });
+
+  it.each([
+    ["Avoid the words", "Avoid the words leverage and synergy."],
+    ["Never include", "Never include the word novel."],
+    ["No marketing words", "No marketing words such as world-class or best-in-class."],
+  ])("keeps a vague banned-word remark when the settings say %j (P2-A2)", (_label, line) => {
+    const settings = `${SETTINGS_TEXT}\n\n${line}`;
+    expect(unreadWritingRules(settings).wordBans).toBe(true);
+    expect(settle("P2 uses banned words.", settings)).toMatchObject({ outcome: "not_applied" });
+  });
+
+  it.each([
+    ["single quotes", "- Line 246: the advancement statement should begin 'The advancement sought was'."],
+    ["curly single quotes", "- Line 246: begin the advancement with \u2018The advancement sought was\u2019."],
+    ["no with", '- Line 246 should begin "The advancement sought was".'],
+  ])("keeps an opener remark when an opening in %s is left unread (P2-A2)", (_label, line) => {
+    const settings = `${SETTINGS_TEXT}\n\n${line}`;
+    expect(unreadWritingRules(settings).openings).toBe(true);
+    expect(settle("The advancement opener is missing.", settings)).toMatchObject({ outcome: "not_applied" });
+  });
+
+  it("counts a ban added to a lead line, and a second ban in a read term item (P3-A3)", () => {
+    const lead = SETTINGS_TEXT.replace(
+      "Never use the alternatives listed after each one, even where the client uses them.",
+      "Never use the alternatives listed after each one, even where the client uses them. Never write leverage or synergy."
+    );
+    expect(unreadWritingRules(lead).wordBans).toBe(true);
+    const item = SETTINGS_TEXT.replace("Never write bake window or oven window.", "Never write bake window or oven window. Do not use cure range.");
+    expect(unreadWritingRules(item).wordBans).toBe(true);
+  });
+
+});
