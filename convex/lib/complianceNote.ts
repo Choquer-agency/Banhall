@@ -143,7 +143,7 @@ export type SelfCheckSummary = {
    */
   modelCheckDetail?: string;
   /**
-   * Why the coverage-only Self-check of the final text failed as a whole
+   * Why the Self-check of the final text failed as a whole
    * (2026-09-28, run 4): the same diagnostic as modelCheckDetail. Never
    * model text.
    */

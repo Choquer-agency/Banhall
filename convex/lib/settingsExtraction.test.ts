@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { extractSettingsRules } from "./settingsExtraction";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { extractSettingsRules, extractWriterWordingRules } from "./settingsExtraction";
 import { resolveBuildOrder } from "./orderedChain";
 
 describe("extractSettingsRules golden examples (Design Notes)", () => {
@@ -358,5 +360,214 @@ describe("Build Order run", () => {
       "242",
       "244",
     ]);
+  });
+});
+
+// ─── 2026-10-04 (first), Round 5: the writer's wording rules ───────────────
+
+describe("extractWriterWordingRules (Round 5): clear statements only", () => {
+  it("reads the release suite fixture's settings document: five terms, seven banned words and two openings", () => {
+    const text = readFileSync(
+      path.join(process.cwd(), "scripts/seed-plan-eval/fixtures/writer-settings-document/settings.md"),
+      "utf8"
+    );
+    const rules = extractWriterWordingRules(text);
+    // Each rule keeps its line as written (review P3-4).
+    expect(rules.terms[0]!.source).toBe(
+      "film build: the cured coating thickness, in microns. Never write DFT, dry film thickness, film thickness or coating thickness."
+    );
+    const plain = <T extends { source: string }>(list: T[]) => list.map(({ source: _source, ...rest }) => rest);
+    expect(plain(rules.terms)).toEqual([
+      { term: "film build", banned: ["DFT", "dry film thickness", "film thickness", "coating thickness"], allowedWithTerm: false },
+      { term: "panel surface temperature", banned: ["substrate temperature", "substrate temp", "board temperature", "part temperature"], allowedWithTerm: false },
+      { term: "cure window", banned: ["bake window", "oven window"], allowedWithTerm: false },
+      { term: "edge coverage", banned: ["edge wrap", "edge build"], allowedWithTerm: false },
+      { term: "outgassing defects", banned: ["pinholes", "pinholing", "blisters", "blistering"], allowedWithTerm: true },
+    ]);
+    expect(plain(rules.banned)).toEqual([
+      { phrase: "successfully", forms: [] },
+      { phrase: "in order to", forms: [] },
+      { phrase: "optimize", forms: ["optimise", "optimized", "optimization"] },
+      { phrase: "proprietary", forms: [] },
+      { phrase: "trial and error", forms: [] },
+      { phrase: "breakthrough", forms: [] },
+      { phrase: "industry-leading", forms: [] },
+    ]);
+    expect(plain(rules.openings)).toEqual([
+      { opening: "The aim of this work was to", section: "242", statement: "objective" },
+      { opening: "It was not known at the outset whether", section: "242", statement: "uncertainty" },
+    ]);
+    // The style rule ("Never use we, our, ours, us or ourselves.") has no
+    // term before it and is no list: it stays with the model.
+    expect(rules.banned.some((rule) => rule.phrase === "we")).toBe(false);
+  });
+
+  it.each([
+    ["prose that mentions words", "We discussed DFT and film thickness with the client; the writer prefers film build."],
+    ["a list that is not a ban", "Use these words:\n\n- film build\n- edge coverage"],
+    ["a ban inside an example's quotes", '- Example: "Never write DFT or film thickness."'],
+    ["a term line whose ban is not a plain list", "- film build: the cured thickness. Never write DFT unless the client insists on it in a table."],
+    ["a label, not a term", "- Note: never write DFT, film thickness or coating thickness."],
+    ["a heading with prose under it", "## Banned words\n\nThe client dislikes jargon, so keep it plain."],
+    ["an opening in an example", '- For example, Line 242 could open with these exact words: "The aim of this work was to".'],
+    ["a negated opening", '- Line 242: do not open the objective with these exact words: "The aim of this work was to".'],
+    ["an opening that names no Line", '- Objective statement: open it with these exact words: "The aim of this work was to".'],
+    ["an opening that names two Lines", '- Lines 242 and 244: open each with these exact words: "The aim of this work was to".'],
+    ["a one-word opening", '- Line 242: open it with these exact words: "Aim".'],
+    ["a quoted phrase that is not an opening rule", 'The client says "The aim of this work was to" in every report.'],
+  ])("reads nothing from %s", (_label, text) => {
+    expect(extractWriterWordingRules(text)).toEqual({ terms: [], banned: [], openings: [] });
+  });
+
+  it("reads a banned list after a heading, keeps only list items of the plain shape, and ends at the first other line", () => {
+    const text = [
+      "## Banned words",
+      "",
+      "- leverage",
+      "- cutting-edge (also cutting edge)",
+      "- a phrase far too long to be one banned item here",
+      // A parenthesis that is not a list of forms may qualify the ban.
+      "- synergy (see the style guide, page 4)",
+      "Everything else is fine.",
+      "- paradigm",
+    ].join("\n");
+    expect(extractWriterWordingRules(text).banned.map(({ phrase, forms }) => ({ phrase, forms }))).toEqual([
+      { phrase: "leverage", forms: [] },
+      { phrase: "cutting-edge", forms: ["cutting edge"] },
+    ]);
+  });
+
+  // Review of 13051055..a8e254bd, P1-1, P2-1, P2-2 and P3-3: each of these
+  // read a false rule; each now reads nothing.
+  const glossary = (...items: string[]) => ["## Glossary", "", ...items].join("\n");
+  it.each([
+    ["a ban of a phrase with \"and\" in it, split", glossary("- trial: one run of the line. Never write trial and error."), { terms: [{ term: "trial", banned: ["trial and error"] }] }],
+    ["\"research and development\", split", glossary("- experimental development: the SR&ED work. Never write research and development."), { terms: [{ term: "experimental development", banned: ["research and development"] }] }],
+  ])("keeps %s as one item (P1-1 a)", (_label, text, expected) => {
+    const rules = extractWriterWordingRules(text);
+    expect(rules.terms.map(({ term, banned }) => ({ term, banned }))).toEqual(expected.terms);
+  });
+
+  it.each([
+    ["a style label outside a glossary: Voice", "- Voice: active and plain. Never use we, our or us."],
+    ["a style label outside a glossary: Acronyms", "- Acronyms: spell out on first use. Never write MDF on its own."],
+    ["a style label inside a glossary", glossary("- Acronyms: spell out on first use. Never write MDF on its own.")],
+    ["Spelling inside a glossary", glossary("- Spelling: Canadian. Never write color or center.")],
+    ["Tense, Tone, Person, Numbers, Units, Company name, Why and Reason", glossary(
+      "- Tense: past. Never write will or shall.",
+      "- Tone: plain. Never write amazing.",
+      "- Person: third. Never write we or us.",
+      "- Numbers: digits for 10 and up. Never write ten.",
+      "- Units: SI. Never write inches.",
+      "- Company name: Velloway. Never write the client.",
+      "- Why: clarity. Never write jargon.",
+      "- Reason: tone. Never write slang.",
+    )],
+    ["a term line outside a glossary (P2-2): pilot", "- pilot: the 600-panel run. Never write production or commercial."],
+    ["a term line outside a glossary (P2-2): prototype", "- prototype: the first build. Never write final or finished."],
+    ["an exception in other words (P2-1): alone", glossary("- outgassing defects: gas marks. Never write pinholes or blisters alone.")],
+    ["an exception in other words (P2-1): except", glossary("- film build: the thickness. Never write DFT, except in tables.")],
+    ["an exception in other words (P2-1): unless", glossary("- film build: the thickness. Never write DFT, unless quoting the client.")],
+    ["a sub-item of a term (P3-3)", glossary("- Variables", "  - film build: the thickness. Never write DFT.")],
+  ])("reads no term from %s", (_label, text) => {
+    expect(extractWriterWordingRules(text).terms).toEqual([]);
+  });
+
+  it.each([
+    ["an older report's opening", 'In older reports Line 242 would open with the exact words "The aim of this work was to", which the client disliked.'],
+    ["an opening the writer rejects", 'Line 242 should say what was done, rather than open with these exact words: "The aim of this work was to".'],
+    ["the house default", 'In Line 242 the house default is to open with the exact words "The purpose of this project was to".'],
+    ["a permission, not an instruction", 'If the client asks, Line 246 can begin with the exact words "The work established that".'],
+  ])("reads no opening from %s (P1-1 d)", (_label, text) => {
+    expect(extractWriterWordingRules(text).openings).toEqual([]);
+  });
+
+  it("reads only the top-level items of a banned list, and ends it at a blank line after its items (P3-3)", () => {
+    const text = [
+      "Never use these words:",
+      "",
+      "- leverage",
+      "  - leveraged, leveraging",
+      "- synergy",
+      "",
+      "- these are words the client likes",
+      "- impactful",
+    ].join("\n");
+    expect(extractWriterWordingRules(text).banned.map((rule) => rule.phrase)).toEqual(["leverage", "synergy"]);
+  });
+});
+
+// Re-check of a8e254bd..5367e429: the reviewer's probes.
+describe("extractWriterWordingRules re-check probes", () => {
+  it("opens no terms list under a heading that names style as well as terminology (P1-2)", () => {
+    const text = [
+      "## Style and terminology",
+      "",
+      "- Pronouns: third person. Never write we or us.",
+      "- Jargon: plain words. Never write synergy.",
+      "- Hedging: say it plainly. Never write may or might.",
+      "- Results: state them. Never write promising.",
+      "- Marketing language: none. Never write world-class.",
+    ].join("\n");
+    expect(extractWriterWordingRules(text).terms).toEqual([]);
+    // The labels alone are not terms inside a glossary either.
+    const glossary = text.replace("## Style and terminology", "## Glossary");
+    expect(extractWriterWordingRules(glossary).terms).toEqual([]);
+  });
+
+  it.each([
+    ["a scope in results", "- film build: the thickness. Never write DFT or thickness in results."],
+    ["a scope to a Line", "- cure window: the range. Never write bake window or oven in Line 246."],
+  ])("leaves a term ban with %s unread (P2-2)", (_label, item) => {
+    expect(extractWriterWordingRules(["## Glossary", "", item].join("\n")).terms).toEqual([]);
+  });
+
+  it.each([
+    ['- Line 242: open the objective with the exact words "The aim of this work was to" when the client agrees.'],
+    ['- Line 242: open it with these exact words: "The aim of this work was to", unless the Brief sets another opener.'],
+  ])("reads no conditional opening: %s", (text) => {
+    expect(extractWriterWordingRules(text).openings).toEqual([]);
+  });
+
+  it("reads no banned list under a heading scoped to one Line", () => {
+    const text = ["## Line 246 (results) only", "", "Never use these words:", "", "- novel", "- unique"].join("\n");
+    expect(extractWriterWordingRules(text).banned).toEqual([]);
+  });
+
+  it("opens no terms list from a sentence that only mentions a glossary, and ends a list at a later lead", () => {
+    const text = [
+      "Spell product names as in the client's glossary.",
+      "- pilot: the 600-panel run. Never write production or commercial.",
+      "",
+      "## Glossary",
+      "- film build: the thickness. Never write DFT.",
+      "Ask the client about anything else.",
+      "- prototype: the first build. Never write final or finished.",
+    ].join("\n");
+    expect(extractWriterWordingRules(text).terms.map((rule) => rule.term)).toEqual(["film build"]);
+  });
+});
+
+describe("extractWriterWordingRules final re-check probes", () => {
+  it.each([
+    ['- Line 242: open the objective with the exact words "The aim of this work was to" where the client asks.'],
+    ['- Line 242: open it with these exact words: "The aim of this work was to" once the Brief is signed off.'],
+    ['- Line 242: open it with these exact words: "The aim of this work was to", provided the client agrees.'],
+    ['- Line 242: open it with these exact words: "The aim of this work was to", assuming the plan allows.'],
+    ['- Line 242: open it with these exact words: "The aim of this work was to", subject to review.'],
+    ['- Line 242: open it with these exact words: "The aim of this work was to" as long as it fits.'],
+  ])("reads no conditional opening (P3-A4): %s", (text) => {
+    expect(extractWriterWordingRules(text).openings).toEqual([]);
+  });
+
+  it.each(["## Terminology", "## Preferred terms"])("reads no single Title-case label as a term under %j (P3-A5)", (heading) => {
+    const text = [
+      heading,
+      "",
+      "- Readability: short sentences. Never write utilize.",
+      "- Audience: CRA reviewers. Never write layman.",
+      "- film build: the thickness. Never write DFT.",
+    ].join("\n");
+    expect(extractWriterWordingRules(text).terms.map((rule) => rule.term)).toEqual(["film build"]);
   });
 });

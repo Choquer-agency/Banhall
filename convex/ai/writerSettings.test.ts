@@ -77,7 +77,7 @@ const SETTINGS_TEXT = [
 const ADDRESSED: StyleOverrideKey[] = ["bannedWords", "paragraphDensity"];
 const TOGGLES = { bannedWords: true, paragraphDensity: true };
 
-const classifier = { fail: false, noTool: false };
+const classifier: { fail: boolean; noTool: boolean; answer?: unknown } = { fail: false, noTool: false };
 
 const analysisOutput = {
   company_context: "Test company",
@@ -156,7 +156,7 @@ function install() {
               : name === "submit_consistency_findings"
                 ? { findings: [] }
                 : name === "submit_style_analysis"
-                  ? styleAnalysis
+                  ? classifier.answer ?? styleAnalysis
                   : { entries: [] };
       return { content: [{ type: "tool_use", id: "tool-1", name, input }], usage };
     }
@@ -182,6 +182,7 @@ beforeEach(() => {
   }));
   classifier.fail = false;
   classifier.noTool = false;
+  delete classifier.answer;
   install();
 });
 afterEach(() => {
@@ -693,6 +694,102 @@ describe("classifier caching (AD-27)", () => {
       )
     ).toBe(true);
     expect(notes.filter((note) => note.instruction === "Writer Profile").every((row) => row.outcome === "applied")).toBe(true);
+  });
+});
+
+// 2026-10-04 (first), Round 3 (owner approved 2026-10-05): release suite runs
+// 5 and 6 failed the classifier with "categories: Invalid input: expected
+// object, received string; lockedConflicts: Invalid input: expected array,
+// received undefined", so the document's waivers fell back to the House Rules.
+describe("the classifier reads a field sent as JSON text (Round 3)", () => {
+  const document: DocumentSeed = { category: "writer_notes", fileName: FILE, content: SETTINGS_TEXT, uploaderRole: "writer" };
+
+  it("the run 5 shape (categories as JSON text, no lockedConflicts) decodes in one call, and the waivers apply and are cached", async () => {
+    classifier.answer = { categories: JSON.stringify(styleAnalysis.categories) };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const t = convexTest(schema, modules);
+    const ids = await project(t);
+    const generationId = await reserve(t, ids, [document]);
+    const payload = await runSingle(t, generationId);
+    const warned = warn.mock.calls.map((call) => call.join(" "));
+    warn.mockRestore();
+    expect(classifierCalls()).toHaveLength(1);
+    expect(warned).toContain("submit_style_analysis: read categories sent as JSON text");
+    // The log names the field, never the model's text.
+    expect(warned.join("\n")).not.toContain("Use my own vocabulary rules");
+    expect((await generationOf(t, generationId)).writerSettings).toMatchObject({
+      source: "writer_notes",
+      waiverAnalysis: "analyzed",
+      addressedCategories: ADDRESSED,
+    });
+    expect(payload.styleOverrides).toEqual({ ...NO_STYLE_OVERRIDES, ...TOGGLES });
+    expect(payload.orderedContext?.waiverAnalysisFailed).toBeUndefined();
+    // Cached like any other answer: it passed the same validation.
+    const cache = await t.run((ctx) => ctx.db.query("settingsDocumentAnalyses").collect());
+    expect(cache).toEqual([expect.objectContaining({ addressedCategories: ADDRESSED })]);
+    const notes = await notesOf(t, generationId);
+    expect(notes.some((note) => note.reason === "House Rule applied: the settings document could not be analysed for waivers")).toBe(false);
+  });
+
+  // Round 4: release suite run 3 of 2026-10-05 failed live with a string
+  // that was not plain JSON; the common wrappers are read too.
+  it.each([
+    ["a code fence", `\`\`\`json\n${JSON.stringify(styleAnalysis.categories, null, 2)}\n\`\`\``],
+    ["prose around the object", `Classification: ${JSON.stringify(styleAnalysis.categories)}. Done.`],
+    ["a JSON string of the JSON", JSON.stringify(JSON.stringify(styleAnalysis.categories))],
+    ["trailing commas", JSON.stringify(styleAnalysis.categories).replace(/}}$/, "},}")],
+    // Greptile, older comments on PR #27: a JSON string whose own object has trailing commas.
+    ["a JSON string of the JSON with trailing commas", JSON.stringify(JSON.stringify(styleAnalysis.categories).replace(/}}$/, "},}"))],
+    // Release suite run 4 of 2026-10-05: the rest of the answer inside categories.
+    [
+      "the run 4 shape (lockedConflicts inside categories)",
+      `${JSON.stringify(styleAnalysis.categories, null, 2)},\n"lockedConflicts": [{"excerpt": "no more than 260 words", "rule": "CRA line limits"}]`,
+    ],
+    // Run 7: the same, with the outer object's own closing brace at the end.
+    [
+      "the run 7 shape (the outer closing brace too)",
+      `${JSON.stringify(styleAnalysis.categories, null, 2)},\n"lockedConflicts": []\n}`,
+    ],
+  ])("categories in %s decodes in one call, and the waivers apply (Round 4)", async (_label, categories) => {
+    classifier.answer = { categories };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const t = convexTest(schema, modules);
+    const ids = await project(t);
+    const generationId = await reserve(t, ids, [document]);
+    const payload = await runSingle(t, generationId);
+    warn.mockRestore();
+    expect(classifierCalls()).toHaveLength(1);
+    expect((await generationOf(t, generationId)).writerSettings).toMatchObject({ waiverAnalysis: "analyzed", addressedCategories: ADDRESSED });
+    expect(payload.styleOverrides).toEqual({ ...NO_STYLE_OVERRIDES, ...TOGGLES });
+  });
+
+  it.each([
+    ["a string that is not JSON", { categories: "bannedWords and paragraphDensity are addressed", lockedConflicts: [] }],
+    ["JSON text of another shape", { categories: JSON.stringify(Object.values(styleAnalysis.categories)), lockedConflicts: [] }],
+    [
+      "a missing required category",
+      {
+        categories: JSON.stringify(Object.fromEntries(Object.entries(styleAnalysis.categories).filter(([key]) => key !== "reportSkeleton"))),
+        lockedConflicts: [],
+      },
+    ],
+    ["a missing categories field", { lockedConflicts: [] }],
+  ])("%s still fails in one call, and the rows say the document could not be analysed", async (_label, answer) => {
+    classifier.answer = answer;
+    const quiet = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const quietError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const t = convexTest(schema, modules);
+    const ids = await project(t);
+    const generationId = await reserve(t, ids, [document]);
+    const payload = await runSingle(t, generationId);
+    quiet.mockRestore();
+    quietError.mockRestore();
+    expect(classifierCalls()).toHaveLength(1);
+    expect((await generationOf(t, generationId)).writerSettings).toMatchObject({ waiverAnalysis: "failed" });
+    expect(payload.styleOverrides).toBeUndefined();
+    expect(await t.run((ctx) => ctx.db.query("settingsDocumentAnalyses").collect())).toHaveLength(0);
+    const notes = await notesOf(t, generationId);
+    expect(notes.filter((note) => note.reason === "House Rule applied: the settings document could not be analysed for waivers")).toHaveLength(18);
   });
 });
 

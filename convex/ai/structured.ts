@@ -77,6 +77,296 @@ function unwrapEncodedJson(value: unknown, depth = 0): unknown {
   }
 }
 
+/** A JSON Schema node as far as decodeEncodedToolFields reads it. */
+type SchemaNode = { type?: unknown; properties?: Record<string, unknown>; items?: unknown };
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type Wanted = "object" | "array";
+
+const isWanted = (value: unknown, wanted: Wanted) =>
+  wanted === "object" ? isPlainObject(value) : Array.isArray(value);
+
+/**
+ * Why JSON.parse failed, safe to log: where it stopped, never its message,
+ * which can quote the text.
+ */
+function parseFailure(error: unknown): string {
+  const at = error instanceof Error ? /position (\d+)/.exec(error.message)?.[1] : undefined;
+  return at === undefined ? "failed" : `failed at character ${at}`;
+}
+
+/** Commas before a closing brace or bracket, outside strings, removed. */
+function withoutTrailingCommas(text: string): string {
+  let out = "";
+  let inString = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]!;
+    if (inString) {
+      out += char;
+      if (char === "\\") {
+        out += text[index + 1] ?? "";
+        index += 1;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') inString = true;
+    if (char === ",") {
+      const next = /^\s*([}\]])/.exec(text.slice(index + 1));
+      if (next) continue;
+    }
+    out += char;
+  }
+  return out;
+}
+
+/** What kind of character opens or closes a text, safe to log (never the character). */
+function characterClass(char: string): string {
+  if (char === "") return "none";
+  if (char === "{" || char === "}") return "a brace";
+  if (char === "[" || char === "]") return "a bracket";
+  if (char === "`") return "a backtick";
+  if (char === '"' || char === "'") return "a quote";
+  if (/\p{L}/u.test(char)) return "a letter";
+  if (/\p{N}/u.test(char)) return "a digit";
+  return "another character";
+}
+
+/** A JSON text's value, or why not (no text of it). */
+function tryParse(text: string): { ok: true; value: unknown } | { ok: false; why: string } {
+  try {
+    return { ok: true, value: JSON.parse(text) as unknown };
+  } catch (error) {
+    return { ok: false, why: parseFailure(error) };
+  }
+}
+
+/**
+ * 2026-10-04 (first), Round 4: the ways a field's text is read, in order,
+ * each validated by shape only (the caller validates the value): the text
+ * as JSON; a JSON string whose content is the JSON (at most one more
+ * layer); the JSON inside a code fence; the one object (or array) between
+ * leading and trailing prose; and each of those with trailing commas
+ * removed (inside a JSON string's content too). Nothing else is guessed. Returns the value, or a description of
+ * the text and of why each way failed that holds no text of it.
+ */
+function readEncodedText(
+  text: string,
+  wanted: Wanted
+): { ok: true; value: unknown } | { ok: false; description: string } {
+  const trimmed = text.trim();
+  const [open, close] = wanted === "object" ? ["{", "}"] : ["[", "]"];
+  const outcome: string[] = [];
+  const attempt = (label: string, candidate: string | null, notPresent: string): unknown => {
+    if (candidate === null) {
+      outcome.push(`${label}: ${notPresent}`);
+      return undefined;
+    }
+    for (const [variant, body] of [["", candidate], [" with trailing commas removed", withoutTrailingCommas(candidate)]] as const) {
+      if (variant && body === candidate) continue;
+      const parsed = tryParse(body);
+      if (!parsed.ok) {
+        outcome.push(`${label}${variant}: ${parsed.why}`);
+        continue;
+      }
+      let value = parsed.value;
+      if (typeof value === "string") {
+        // Greptile, older comments on PR #27: the JSON string's own content
+        // gets the same trailing-comma retry as the outer text (the outer
+        // retry never reaches inside a string).
+        const innerText = value.trim();
+        let inner = tryParse(innerText);
+        if (!inner.ok && withoutTrailingCommas(innerText) !== innerText) {
+          const retried = tryParse(withoutTrailingCommas(innerText));
+          inner = retried.ok ? retried : { ok: false, why: `${inner.why}, and with trailing commas removed ${retried.why}` };
+        }
+        if (!inner.ok) {
+          outcome.push(`${label}${variant}: a JSON string whose content ${inner.why}`);
+          continue;
+        }
+        value = inner.value;
+      }
+      if (isWanted(value, wanted)) return value;
+      outcome.push(`${label}${variant}: read as ${Array.isArray(value) ? "an array" : value === null ? "null" : typeof value}, not ${wanted === "object" ? "an object" : "an array"}`);
+    }
+    return undefined;
+  };
+  const fence = /^```[\w-]*[ \t]*\r?\n?([\s\S]*?)\r?\n?[ \t]*```$/.exec(trimmed);
+  const first = trimmed.indexOf(open);
+  const last = trimmed.lastIndexOf(close);
+  // Prose only: text around the span that holds no JSON of its own (an
+  // array around one object is another shape, never read as the object).
+  const prose = (part: string) => !/[[\]{}"]/.test(part);
+  const around = first >= 0 && last > first && (first > 0 || last < trimmed.length - 1);
+  const ways: Array<[string, string | null, string]> = [
+    ["as JSON", trimmed, "empty"],
+    ["in a code fence", fence ? fence[1]!.trim() : null, "no code fence"],
+    [
+      `the ${wanted} within the text`,
+      around && prose(trimmed.slice(0, first)) && prose(trimmed.slice(last + 1)) ? trimmed.slice(first, last + 1) : null,
+      !(first >= 0 && last > first)
+        ? `no ${open} ... ${close} span`
+        : !around
+          ? "no text around it"
+          : "the text around it is not prose",
+    ],
+  ];
+  for (const [label, candidate, notPresent] of ways) {
+    const value = attempt(label, candidate, notPresent);
+    if (value !== undefined) return { ok: true, value };
+  }
+  // Review P3-2: a class of character, never one of the model's own.
+  const firstChar = characterClass(trimmed.charAt(0));
+  const lastChar = characterClass(trimmed.charAt(trimmed.length - 1));
+  return {
+    ok: false,
+    description: `a string of ${text.length} characters, first non-space ${firstChar}, last non-space ${lastChar}, ${trimmed.includes("```") ? "holds" : "no"} code fence; ${outcome.join("; ")}`,
+  };
+}
+
+/**
+ * 2026-10-04 (first), Round 4 (release suite run 4 of 2026-10-05): the
+ * model put the rest of its tool answer inside one top-level field, as
+ * `{ ...the field's object... }, "lockedConflicts": [ ... ]`. When the
+ * field's text is not itself valid JSON, it is read as `{"<field>": <text>}`,
+ * or (run 7) as `{"<field>": <text>` when the text already ends with the
+ * outer object's own closing brace;
+ * that is used only when it parses to an object whose keys are all declared
+ * in the tool schema, whose value for the field has the wanted shape, and
+ * none of whose other keys disagrees with a value the model already sent at
+ * the top level. Nothing else is guessed. The reason it was not used names
+ * no text of the model's (an unknown key is counted, never named).
+ */
+function readAsRestOfAnswer(
+  key: string,
+  text: string,
+  properties: Record<string, unknown>,
+  sent: Record<string, unknown>
+): { ok: true; fields: Record<string, unknown> } | { ok: false; why: string } {
+  const trimmed = text.trim();
+  if (tryParse(trimmed).ok) return { ok: false, why: "not tried, the text is JSON of its own" };
+  const prefix = `{${JSON.stringify(key)}: `;
+  const failedAt = (error: unknown) => {
+    const at = error instanceof Error ? /position (\d+)/.exec(error.message)?.[1] : undefined;
+    return at === undefined ? "failed" : `failed at character ${Math.max(0, Number(at) - prefix.length)}`;
+  };
+  // The text as the rest of the answer, the outer closing brace added; or
+  // (release suite run 7 of 2026-10-05) the text already ending the outer
+  // object with its own closing brace. Nothing else is tried.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(`${prefix}${trimmed}}`) as unknown;
+  } catch (error) {
+    const added = failedAt(error);
+    try {
+      parsed = JSON.parse(`${prefix}${trimmed}`) as unknown;
+    } catch (closedError) {
+      return { ok: false, why: `${added}; with its own closing brace, ${failedAt(closedError)}` };
+    }
+  }
+  if (!isPlainObject(parsed)) return { ok: false, why: "not an object" };
+  const unknown = Object.keys(parsed).filter((name) => !(name in properties));
+  if (unknown.length > 0) {
+    return { ok: false, why: `read, but ${unknown.length} ${unknown.length === 1 ? "key is" : "keys are"} not in the tool schema` };
+  }
+  const own = isPlainObject(properties[key]) ? (properties[key] as SchemaNode).type : undefined;
+  const ownTypes = (Array.isArray(own) ? own : [own]).filter((type): type is string => typeof type === "string");
+  const value = parsed[key];
+  const shaped = (ownTypes.includes("object") && isPlainObject(value)) || (ownTypes.includes("array") && Array.isArray(value));
+  if (!shaped) return { ok: false, why: `read, but ${key} is not ${ownTypes.includes("object") ? "an object" : "an array"}` };
+  const conflicts = Object.keys(parsed).filter(
+    (name) => name !== key && name in sent && JSON.stringify(sent[name]) !== JSON.stringify(parsed[name])
+  );
+  if (conflicts.length > 0) return { ok: false, why: `read, but ${conflicts.join(", ")} disagrees with the value sent beside it` };
+  return { ok: true, fields: parsed };
+}
+
+/**
+ * 2026-10-04 (first), Round 3 (owner approved 2026-10-05): a field the tool
+ * schema wants as an object or array that arrived as a string holding valid
+ * JSON of that very shape, read as that value (Round 4: also inside a code
+ * fence, between leading and trailing prose, as a JSON string of the JSON,
+ * or with trailing commas; readEncodedText). Guided by the schema: a field
+ * whose type allows a string is never touched, a string none of those ways
+ * reads as that shape stays as sent, and nothing is invented or dropped.
+ * Returns the value (a copy only where something was read), the paths of
+ * the fields it read and, for each string it could not read, a description
+ * that holds none of its text. The caller still validates the value as
+ * usual; this is a decode, not a repair call.
+ */
+export function decodeEncodedToolFields(
+  value: unknown,
+  schema: unknown,
+  path = ""
+): { value: unknown; paths: string[]; unread: Array<{ path: string; description: string }> } {
+  if (!isPlainObject(schema)) return { value, paths: [], unread: [] };
+  const node = schema as SchemaNode;
+  const types = (Array.isArray(node.type) ? node.type : [node.type]).filter(
+    (type): type is string => typeof type === "string"
+  );
+  const paths: string[] = [];
+  const unread: Array<{ path: string; description: string }> = [];
+  let current = value;
+  const wanted: Wanted | null = types.includes("object") ? "object" : types.includes("array") ? "array" : null;
+  if (typeof current === "string" && !types.includes("string") && wanted) {
+    const read = readEncodedText(current, wanted);
+    if (read.ok) {
+      current = read.value;
+      paths.push(path || "(root)");
+    } else {
+      unread.push({ path: path || "(root)", description: read.description });
+    }
+  }
+  if (isPlainObject(current) && isPlainObject(node.properties)) {
+    const properties = node.properties;
+    let copy: Record<string, unknown> | null = null;
+    for (const [key, child] of Object.entries(properties)) {
+      if (!(key in current)) continue;
+      const childPath = path ? `${path}.${key}` : key;
+      const read = decodeEncodedToolFields(current[key], child, childPath);
+      const own = read.unread.find((field) => field.path === childPath);
+      if (own && path === "" && typeof current[key] === "string") {
+        // Round 4 (run 4): the rest of the tool answer inside this field.
+        const rest = readAsRestOfAnswer(key, current[key] as string, properties, current);
+        if (rest.ok) {
+          copy ??= { ...current };
+          for (const [name, value] of Object.entries(rest.fields)) {
+            const nested = decodeEncodedToolFields(value, properties[name], name);
+            copy[name] = nested.value;
+            unread.push(...nested.unread);
+          }
+          paths.push(key, ...Object.keys(rest.fields).filter((name) => name !== key).map((name) => `${name} (inside ${key})`));
+          unread.push(...read.unread.filter((field) => field !== own));
+          continue;
+        }
+        own.description = `${own.description}; as the rest of the answer: ${rest.why}`;
+      }
+      unread.push(...read.unread);
+      if (read.paths.length === 0) continue;
+      copy ??= { ...current };
+      copy[key] = read.value;
+      paths.push(...read.paths);
+    }
+    if (copy) current = copy;
+  } else if (Array.isArray(current) && node.items !== undefined) {
+    let copy: unknown[] | null = null;
+    current.forEach((item, index) => {
+      const read = decodeEncodedToolFields(item, node.items, `${path || "(root)"}.${index}`);
+      unread.push(...read.unread);
+      if (read.paths.length === 0) return;
+      copy ??= [...(current as unknown[])];
+      copy[index] = read.value;
+      paths.push(...read.paths);
+    });
+    if (copy) current = copy;
+  }
+  return { value: current, paths, unread };
+}
+
 /**
  * Get structured JSON from the model via tool-use. On Anthropic the API
  * returns the tool input already parsed and schema-valid. On OpenRouter the
@@ -121,6 +411,14 @@ export async function generateStructured<T>(
      * recovery. Strict raw-boundary callers can disable that recovery.
      */
     encodedJsonRecovery?: boolean;
+    /**
+     * 2026-10-04 (first), Round 3: opt in to reading a field `schema` wants
+     * as an object or array that arrived as a string of valid JSON of that
+     * shape (decodeEncodedToolFields), then validating as usual. Off by
+     * default; only the settings document classifier sets it. It makes no
+     * request of its own, so a one-attempt call stays one attempt.
+     */
+    encodedFieldRecovery?: boolean;
     /**
      * Called each time an answer is cut off at the output token limit, on
      * either gateway, even when the repair then succeeds or fails another
@@ -376,7 +674,27 @@ async function structuredAttempts<T>(
       if (!(await askedSoftRepair(parsed.data, block.input, lastAttempt))) return await settled(parsed.data);
       continue;
     }
+    // Round 3 (opt-in): fields sent as JSON text, read and validated as usual.
+    const fields = opts.encodedFieldRecovery && opts.schema
+      ? decodeEncodedToolFields(unwrapped, opts.schema)
+      : null;
+    const decoded = fields && fields.paths.length > 0 ? opts.validate.safeParse(fields.value) : null;
+    if (decoded?.success) {
+      console.warn(`${opts.toolName}: read ${fields!.paths.join(", ")} sent as JSON text`);
+      await settle({ ok: true });
+      if (!(await askedSoftRepair(decoded.data, block.input, lastAttempt))) return await settled(decoded.data);
+      continue;
+    }
     await settle({ ok: false, code: "invalid_output" });
+    // Round 4: each field the decode could not read, described by its shape
+    // and by why each way failed, never by its text.
+    for (const field of fields?.unread ?? []) {
+      console.error(`${opts.toolName}: could not read ${field.path} sent as text: ${field.description}`);
+    }
+    // Review P3 (Round 3): when fields were read from JSON text and the
+    // answer still fails, report what fails once read (a missing category,
+    // say), not the encoding the decode already undid.
+    const failed = decoded && !decoded.success ? decoded : parsed;
 
     try {
       invalidAnswerText = opts.invalidAnswerRepair?.(block.input) ?? null;
@@ -384,18 +702,18 @@ async function structuredAttempts<T>(
       invalidAnswerText = null;
       console.warn(`${opts.toolName}: repair text skipped (${error instanceof Error ? error.name : "error"})`);
     }
-    validationSummary = parsed.error.issues
+    validationSummary = failed.error.issues
       .slice(0, 3)
       .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
       .join("; ");
     console.error(
-      `${opts.toolName}: tool output failed validation`,
-      JSON.stringify(parsed.error.issues.slice(0, 10))
+      `${opts.toolName}: tool output failed validation${failed === parsed ? "" : ` after reading ${fields!.paths.join(", ")} sent as JSON text`}`,
+      JSON.stringify(failed.error.issues.slice(0, 10))
     );
     if (!lastAttempt) continue;
     throw new StructuredValidationError(
       `${opts.toolName}: model returned an unexpected shape: ${validationSummary}`,
-      parsed.error.issues.slice(0, 10).map((issue) => ({
+      failed.error.issues.slice(0, 10).map((issue) => ({
         path: issue.path.map(String).join(".") || "(root)",
         code: issue.code,
         ...(issue.code === "custom" ? { message: issue.message } : {}),

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { generateStructured } from "./structured";
+import { decodeEncodedToolFields, generateStructured } from "./structured";
 import { MalformedOutputError, type GenerationClient } from "./openrouterCore";
 
 function clientWith(inputs: unknown[]): GenerationClient {
@@ -317,5 +317,230 @@ describe("generateStructured", () => {
       await expect(generateStructured({ messages: { create } }, opts)).resolves.toEqual({ value: "linked" });
       expect(create).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+// 2026-10-04 (first), Round 3 (owner approved 2026-10-05): a field the schema
+// wants as an object or array that arrived as JSON text.
+describe("decodeEncodedToolFields and encodedFieldRecovery (Round 3)", () => {
+  const schema = {
+    type: "object" as const,
+    properties: {
+      categories: {
+        type: "object",
+        properties: { a: { type: "object", properties: { on: { type: "boolean" } } } },
+      },
+      items: { type: "array", items: { type: "object" } },
+      note: { type: ["string", "null"] },
+    },
+    required: ["categories", "items"],
+  };
+  const validate = z.object({
+    categories: z.object({ a: z.object({ on: z.boolean() }) }),
+    items: z.array(z.object({})),
+    note: z.string().nullable().optional(),
+  });
+
+  it("reads object and array fields sent as JSON text, nested ones too, and names their paths", () => {
+    const sent = {
+      categories: JSON.stringify({ a: JSON.stringify({ on: true }) }),
+      items: "[{}]",
+      note: '{"kept": "as text"}',
+    };
+    expect(decodeEncodedToolFields(sent, schema)).toEqual({
+      value: { categories: { a: { on: true } }, items: [{}], note: '{"kept": "as text"}' },
+      paths: ["categories", "categories.a", "items"],
+      unread: [],
+    });
+  });
+
+  it("leaves a string that is not JSON, JSON of another shape and a field whose type allows a string as sent", () => {
+    for (const [sent, unread] of [
+      [{ categories: "a is on", items: [] }, ["categories"]],
+      [{ categories: "[1, 2]", items: '{"not": "an array"}' }, ["categories", "items"]],
+      [{ categories: { a: { on: true } }, items: [], note: "[1]" }, []],
+    ] as const) {
+      const read = decodeEncodedToolFields(sent, schema);
+      expect(read).toMatchObject({ value: sent, paths: [] });
+      expect(read.unread.map((field) => field.path)).toEqual(unread);
+    }
+  });
+
+  // 2026-10-04 (first), Round 4: release suite run 3 of 2026-10-05 still
+  // failed live with "categories: expected object, received string", and
+  // nothing was read, so the text was not plain JSON of the object.
+  it.each([
+    ["a code fence", '```json\n{"a": {"on": true}}\n```'],
+    ["a bare code fence", '```\n{"a": {"on": true}}\n```'],
+    ["prose around one object", 'Here is the classification: {"a": {"on": true}} I hope this helps.'],
+    ["a JSON string whose content is the JSON", JSON.stringify('{"a": {"on": true}}')],
+    ["trailing commas", '{"a": {"on": true,},}'],
+    ["a code fence with trailing commas", '```json\n{"a": {"on": true,},}\n```'],
+    // Greptile, older comments on PR #27: the commas inside the JSON string.
+    ["a JSON string whose content has trailing commas", JSON.stringify('{"a": {"on": true,},}')],
+    ["a code fence around a JSON string whose content has trailing commas", `\`\`\`json\n${JSON.stringify('{"a": {"on": true,},}')}\n\`\`\``],
+  ])("reads an object field sent in %s (Round 4)", (_label, sent) => {
+    expect(decodeEncodedToolFields({ categories: sent, items: [] }, schema)).toEqual({
+      value: { categories: { a: { on: true } }, items: [] },
+      paths: ["categories"],
+      unread: [],
+    });
+  });
+
+  it("guesses nothing else: single-quoted keys, two objects in prose, a broken object and an array around one object stay unread (Round 4)", () => {
+    for (const sent of [
+      "{'a': {'on': true}}",
+      'First {"a": {"on": true}} then {"b": 1}.',
+      '{"a": {"on": true}',
+      '[{"a": {"on": true}}]',
+      // Greptile, older comments on PR #27: the inner retry guesses nothing more.
+      JSON.stringify('{"a": {"on": true,}'),
+      JSON.stringify('[{"a": {"on": true,},},]'),
+    ]) {
+      const read = decodeEncodedToolFields({ categories: sent, items: [] }, schema);
+      expect(read).toMatchObject({ value: { categories: sent }, paths: [] });
+      expect(read.unread).toHaveLength(1);
+    }
+  });
+
+  it("describes a field it could not read by its shape and by why each way failed, never by its text (Round 4)", async () => {
+    const sent = "{'a': {'on': true}} secret wording";
+    const read = decodeEncodedToolFields({ categories: sent, items: [] }, schema);
+    expect(read.unread).toEqual([{
+      path: "categories",
+      description:
+        "a string of 34 characters, first non-space a brace, last non-space a letter, no code fence; as JSON: failed at character 1; in a code fence: no code fence; the object within the text: failed at character 1; as the rest of the answer: failed at character 1; with its own closing brace, failed at character 1",
+    }]);
+    // generateStructured logs it with the opt-in, and the log holds no text of it.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(generateStructured(clientWith([{ categories: sent, items: [] }]), {
+      system: "system", user: "user", toolName: "submit", description: "submit",
+      schema, validate, attempts: 1, encodedFieldRecovery: true,
+    })).rejects.toThrow("unexpected shape: categories: Invalid input: expected object, received string");
+    const logged = errors.mock.calls.map((call) => call.map(String).join(" "));
+    errors.mockRestore();
+    expect(logged).toContain(`submit: could not read categories sent as text: ${read.unread[0]!.description}`);
+    expect(logged.join("\n")).not.toContain("secret");
+    expect(logged.join("\n")).not.toContain("'a'");
+  });
+
+  // Release suite run 4 of 2026-10-05: "a string of 1464 characters, first
+  // non-space "{", last non-space "]", ... as JSON: failed at character 386":
+  // the model put the rest of its answer inside the field.
+  it("reads the rest of the answer sent inside a field, its siblings declared in the schema (run 4)", () => {
+    const sent = { categories: '{"a": {"on": true}}, "items": [{}], "note": null' };
+    expect(decodeEncodedToolFields(sent, schema)).toEqual({
+      value: { categories: { a: { on: true } }, items: [{}], note: null },
+      paths: ["categories", "items (inside categories)", "note (inside categories)"],
+      unread: [],
+    });
+    // A sibling the model also sent beside it, with the same value, agrees.
+    expect(decodeEncodedToolFields({ ...sent, items: [{}] }, schema).unread).toEqual([]);
+  });
+
+  // Release suite run 7 of 2026-10-05: "a string of 1639 characters, first
+  // non-space a brace, last non-space a brace, ... as the rest of the answer:
+  // failed at character 1639": the text also held the outer object's own
+  // closing brace.
+  it("reads the rest of the answer when the text already ends the outer object with its own brace (run 7)", () => {
+    const sent = { categories: '{"a": {"on": true}}, "items": [{}], "note": null}' };
+    expect(decodeEncodedToolFields(sent, schema)).toEqual({
+      value: { categories: { a: { on: true } }, items: [{}], note: null },
+      paths: ["categories", "items (inside categories)", "note (inside categories)"],
+      unread: [],
+    });
+    // Two braces too many stay unread, and the log says how each try failed.
+    const extra = decodeEncodedToolFields({ categories: '{"a": {"on": true}}, "items": [{}]}}' }, schema);
+    expect(extra).toMatchObject({ value: { categories: '{"a": {"on": true}}, "items": [{}]}}' }, paths: [] });
+    expect(extra.unread[0]!.description).toMatch(
+      /; as the rest of the answer: failed at character \d+; with its own closing brace, failed at character \d+$/
+    );
+    // The same conditions hold: an undeclared key or a disagreeing value stays unread.
+    expect(decodeEncodedToolFields({ categories: '{"a": {"on": true}}, "secretKey": 1}' }, schema).paths).toEqual([]);
+    expect(decodeEncodedToolFields({ categories: '{"a": {"on": true}}, "items": [{}]}', items: [] }, schema).paths).toEqual([]);
+  });
+
+  it("keeps the rest of the answer unread when a smuggled key is not in the schema, or disagrees with a value sent beside it (run 4)", () => {
+    const unknown = decodeEncodedToolFields({ categories: '{"a": {"on": true}}, "secretKey": [1]' }, schema);
+    expect(unknown).toMatchObject({ value: { categories: '{"a": {"on": true}}, "secretKey": [1]' }, paths: [] });
+    expect(unknown.unread[0]!.description).toMatch(/; as the rest of the answer: read, but 1 key is not in the tool schema$/);
+    expect(unknown.unread[0]!.description).not.toContain("secretKey");
+    const conflict = decodeEncodedToolFields({ categories: '{"a": {"on": true}}, "items": [{}]', items: [] }, schema);
+    expect(conflict).toMatchObject({ paths: [] });
+    expect(conflict.unread[0]!.description).toMatch(/; as the rest of the answer: read, but items disagrees with the value sent beside it$/);
+    // Text that is JSON of its own is never read this way.
+    const json = decodeEncodedToolFields({ categories: "[1]", items: [] }, schema);
+    expect(json.unread[0]!.description).toMatch(/; as the rest of the answer: not tried, the text is JSON of its own$/);
+  });
+
+  it("with encodedFieldRecovery, the run 4 shape validates as one answer", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const client = clientWith([{ categories: '{"a": {"on": true}}, "items": [{}]' }]);
+    await expect(generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit",
+      schema, validate, attempts: 1, encodedFieldRecovery: true,
+    })).resolves.toEqual({ categories: { a: { on: true } }, items: [{}] });
+    expect(warn).toHaveBeenCalledWith("submit: read categories, items (inside categories) sent as JSON text");
+    warn.mockRestore();
+  });
+
+  it("is off by default: another caller's answer with a field sent as JSON text still fails as before", async () => {
+    const client = clientWith([{ categories: '{"a": {"on": true}}', items: [] }]);
+    await expect(generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit",
+      schema, validate, attempts: 1,
+    })).rejects.toThrow("unexpected shape: categories");
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("with encodedFieldRecovery, reads it in the same attempt and validates it as usual", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const client = clientWith([{ categories: '{"a": {"on": true}}', items: [] }]);
+    await expect(generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit",
+      schema, validate, attempts: 1, encodedFieldRecovery: true,
+    })).resolves.toEqual({ categories: { a: { on: true } }, items: [] });
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("submit: read categories sent as JSON text");
+    warn.mockRestore();
+  });
+
+  it("with encodedFieldRecovery, an answer that fails once read reports what fails then, not the encoding (review P3)", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = clientWith([{ categories: '{"b": {"on": true}}', items: [] }]);
+    const failure = generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit",
+      schema, validate, attempts: 1, encodedFieldRecovery: true,
+    });
+    await expect(failure).rejects.toThrow("submit: model returned an unexpected shape: categories.a: Invalid input");
+    await expect(failure).rejects.not.toThrow("received string");
+    const logged = quiet.mock.calls.map((call) => call.join(" "));
+    expect(logged.some((line) => line.startsWith("submit: tool output failed validation after reading categories sent as JSON text") && line.includes('"categories","a"'))).toBe(true);
+    quiet.mockRestore();
+    // With nothing read, the issues are the answer's as sent, as before.
+    const plain = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(generateStructured(clientWith([{ categories: "a is on", items: [] }]), {
+      system: "system", user: "user", toolName: "submit", description: "submit",
+      schema, validate, attempts: 1, encodedFieldRecovery: true,
+    })).rejects.toThrow("unexpected shape: categories: Invalid input: expected object, received string");
+    expect(plain.mock.calls.map((call) => String(call[0]))).toContain("submit: tool output failed validation");
+    plain.mockRestore();
+  });
+
+  it("with encodedFieldRecovery, a field that is not JSON or that fails validation once read still fails", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const input of [
+      { categories: "a is on", items: [] },
+      { categories: '{"a": {"on": "yes"}}', items: [] },
+      { categories: '{"a": {"on": true}}' },
+    ]) {
+      const client = clientWith([input]);
+      await expect(generateStructured(client, {
+        system: "system", user: "user", toolName: "submit", description: "submit",
+        schema, validate, attempts: 1, encodedFieldRecovery: true,
+      })).rejects.toThrow("unexpected shape");
+      expect(client.messages.create).toHaveBeenCalledTimes(1);
+    }
+    quiet.mockRestore();
   });
 });

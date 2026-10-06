@@ -360,6 +360,21 @@ const withoutAnalysisFigureRules = (json: Record<string, unknown>) => {
 };
 const asPinned = (json: Record<string, unknown>) =>
   withPinnedCompressionAnswer(withoutLengthFix(withoutQuoteRules(withoutBriefStream(withoutAnalysisFigureRules(json)))));
+
+/**
+ * 2026-10-05 (Round 2, follow-up): after a used repair the Self-check runs
+ * again on the final text, so Single draft and Compare send one more Self-check
+ * per repaired Line. In this fixture the repair returns SHORT_TEXT, which no
+ * other Self-check holds; the pins on 771af202 predate these requests, so they
+ * are compared on their own (FINAL_TEXT_CHECKS) and every other request still
+ * matches its pin.
+ */
+const isFinalTextCheck = (request: Sent) => stageOf(request.json) === "submit_self_check" && request.body.includes(SHORT_TEXT);
+const beforeFinalTextChecks = (sent: Sent[]) => sent.filter((request) => !isFinalTextCheck(request));
+async function finalTextChecks(sent: Sent[]): Promise<Pin | undefined> {
+  return (await stagesOf(sent.filter(isFinalTextCheck))).submit_self_check;
+}
+
 function expectBriefStreaming(sent: Sent[], streamed: boolean) {
   const briefs = sent.filter((request) => toolOf(request.json) === "submit_generation_brief");
   expect(briefs.length).toBeGreaterThan(0);
@@ -467,6 +482,20 @@ const PINNED_771AF202: Record<Scenario, Record<string, Pin>> = {
     submit_self_check: { count: 6, hash: "558101e20f90725f45e6972b232f98ca245d45e172c09ea52cf00228db3065d8", models: ["claude-haiku-4-5-20251001", "claude-opus-5-5"] },
     submit_transcript_analysis: { count: 1, hash: "d36da10c1e32c7eb4dc6b879f0a4407a2931a9d69ca4e6acb991f60c3a2debfb", models: ["claude-sonnet-5"] },
   },
+};
+
+/**
+ * 2026-10-05 (Round 2, follow-up): the Self-check of the final text after each
+ * used repair, one per repaired Line, which 771af202 did not send. Captured on
+ * the branch that added them.
+ */
+const FINAL_TEXT_CHECKS: Record<Scenario, Pin | undefined> = {
+  "seeds:claude-sonnet-5": undefined,
+  "single:claude-sonnet-5": { count: 3, hash: "d161be54966a9e06d80b4b3bf2992bf34e160afbc2f240e5b15e161ead921314", models: ["claude-sonnet-5"] },
+  "compare:claude-sonnet-5": { count: 6, hash: "f39c5ff1da2bfdfad6141fa97abce8e43459c5df806db0729373dd2c7028a5a7", models: ["claude-haiku-4-5-20251001", "claude-sonnet-5"] },
+  "seeds:claude-opus-5-5": undefined,
+  "single:claude-opus-5-5": { count: 3, hash: "e576ea4d764c731c3339ff6ff4ffff8eef54250ed5013b162c801ca7d4cd099c", models: ["claude-opus-5-5"] },
+  "compare:claude-opus-5-5": { count: 6, hash: "a10d6d5d666506119f24fde5baa186022e371e5d951658b70b632f1099f21b33", models: ["claude-haiku-4-5-20251001", "claude-opus-5-5"] },
 };
 
 /** The helper stages owner decision 43 moves off the writer's model. */
@@ -780,7 +809,8 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       const { wire } = await run(`${mode}:${SONNET}`, "current");
       const pinned = PINNED_771AF202[`${mode}:${SONNET}`];
       expectBriefStreaming(wire.sent, mode === "seeds");
-      const now = await stagesOf(wire.sent, asPinned);
+      const now = await stagesOf(beforeFinalTextChecks(wire.sent), asPinned);
+      expect(await finalTextChecks(wire.sent)).toEqual(FINAL_TEXT_CHECKS[`${mode}:${SONNET}`]);
       const { compression: pinnedCompression, ...pinnedRest } = pinned;
       const { compression, ...rest } = now;
       expect(rest).toEqual(pinnedRest);
@@ -802,7 +832,9 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     async (mode) => {
       const { wire } = await run(`${mode}:${OPUS}`, "current");
       expectBriefStreaming(wire.sent, mode === "seeds");
-      const now = await stagesOf(wire.sent, asPinned);
+      const now = await stagesOf(beforeFinalTextChecks(wire.sent), asPinned);
+      // The re-check of the final text runs on the checking model too: the Sonnet 5 request.
+      expect(await finalTextChecks(wire.sent)).toEqual(FINAL_TEXT_CHECKS[`${mode}:${SONNET}`]);
       const sonnet = PINNED_771AF202[`${mode}:${SONNET}`];
       const before = PINNED_771AF202[`${mode}:${OPUS}`];
       for (const stage of [...PLANNING_STAGES, ...CHECKING_STAGES].filter((name) => name in sonnet)) {
@@ -840,7 +872,8 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     async (scenario) => {
       const { wire } = await run(scenario, "beforeStepRouting");
       expectBriefStreaming(wire.sent, scenario.startsWith("seeds"));
-      expect(await stagesOf(wire.sent, asPinned)).toEqual(PINNED_771AF202[scenario]);
+      expect(await stagesOf(beforeFinalTextChecks(wire.sent), asPinned)).toEqual(PINNED_771AF202[scenario]);
+      expect(await finalTextChecks(wire.sent)).toEqual(FINAL_TEXT_CHECKS[scenario]);
     }
   );
 

@@ -76,9 +76,9 @@ import {
  * client factory, labelled `generation:selfCheck:<n>` and
  * `generation:consistency`. Both use the `two-attempt-repair` structured
  * policy, except the Summary Self-check: one attempt, plus at most one
- * follow-up for labels its answer missed (2026-09-28), and, when a repair
- * changed the checked text, the same for a coverage-only check of the final
- * text (2026-09-28, third). Repair of the prose is never done here: it is the section agent
+ * follow-up for labels its answer missed (2026-09-28), and, when a used
+ * repair changed the checked text, the same for the full check of the final
+ * text (2026-09-28, third; 2026-10-05, Round 2 follow-up). Repair of the prose is never done here: it is the section agent
  * itself, re-run with the repair guidance (orderedGeneration.ts).
  */
 
@@ -639,16 +639,17 @@ export type SelfCheckModelInput = {
   glossaryCandidates: string[];
   writerInstructions?: string;
   rules: Array<{ instruction: string; paragraphIndex?: number }>;
+  /**
+   * 2026-10-04 (first): the writer's cap rules code measures on this Line,
+   * word for word. With writer instructions in the request, the model is
+   * told, for those verdicts only, not to judge these caps or mention the
+   * section's word or line count. Absent or empty: no such sentence, so
+   * those requests keep their bytes.
+   */
+  measuredCaps?: readonly string[];
   model: string;
   planChecks?: SelfCheckPlanCheck[];
   planChecksBlock?: string;
-  /**
-   * 2026-09-28 (third): plan verdicts only, on the final text. Set only by
-   * runFinalCoverageSelfCheck, whose input carries no ordinary labels but
-   * the labels of the Glossary Terms the writer's Feedback governs
-   * (Greptile round 4, P2).
-   */
-  coverageOnly?: boolean;
   /**
    * 2026-09-28 (second, edited terms): the Line's edited terms from the
    * frozen plan, allowed word for word. Summary mode only.
@@ -1041,7 +1042,17 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
   const answers242 = (input.planChecks ?? []).some((check) => check.ruleId === ADVANCEMENTS_ANSWER_242_RULE_ID);
   const workAnswers242 = (input.planChecks ?? []).some((check) => check.ruleId === WORK_ANSWERS_242_RULE_ID);
   const targets = (input.planChecks ?? []).some((check) => check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID);
+  // 2026-10-04 (first): the writer's caps code measures are not the
+  // model's to judge in the writer-instruction verdicts.
+  const measuredCapRules = instructionLines.length > 0
+    ? [...new Set((input.measuredCaps ?? []).map((rule) => rule.trim()).filter(Boolean))]
+    : [];
+  const measured = SELF_CHECK_REQUEST.measuredCaps;
   return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}${
+    measuredCapRules.length > 0
+      ? `${measured.prefix}${measuredCapRules.map(quoteForPrompt).join(measured.separator)}${measured.suffix}`
+      : ""
+  }${
     terms.length > 0 ? exact.instruction : ""
   }${feedback.length > 0 ? (renaming ? writer.renamingInstruction : writer.instruction) : ""}${
     governed.length > 0
@@ -1063,15 +1074,7 @@ export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
   if (!input.planChecks?.length) return message;
   const separator = SUMMARY_PLAN_SELF_CHECK_REQUEST.checklist.separator;
   const checklist = summaryChecklist(summaryOrdinaryChecks(input), input.planChecks);
-  const finalCoverage = SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage;
-  const parts = [
-    message,
-    ...(input.coverageOnly
-      ? [summaryFeedbackTerms(input).length > 0 ? finalCoverage.labelsInstruction : finalCoverage.instruction]
-      : []),
-    ...(checklist ? [checklist] : []),
-  ];
-  return parts.join(separator);
+  return [message, ...(checklist ? [checklist] : [])].join(separator);
 }
 
 function fillRuntime(template: string, values: Record<string, string>): string {
@@ -1133,8 +1136,7 @@ export function summaryChecklist(
  */
 export function summaryPlanSelfCheckSchemaFor(
   ordinary: readonly Pick<SummaryOrdinaryCheck, "label">[],
-  planChecks: readonly SummaryPlanRefFields[],
-  options: { coverageOnly?: boolean } = {}
+  planChecks: readonly SummaryPlanRefFields[]
 ) {
   const base = SUMMARY_PLAN_SELF_CHECK_SCHEMA;
   const labels = ordinary.map((check) => check.label);
@@ -1164,13 +1166,10 @@ export function summaryPlanSelfCheckSchemaFor(
   const targetFindings = ruleIds.includes(RESULTS_AGAINST_TARGETS_RULE_ID)
     ? { targetFindings: SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA }
     : {};
-  // The final coverage check (2026-09-28, third) never asks a Storyline
-  // question, so its schema has no place for one.
-  const { storylineQuestion: _question, ...withoutQuestion } = base.properties;
   return {
     ...base,
     properties: {
-      ...(options.coverageOnly ? withoutQuestion : base.properties),
+      ...base.properties,
       verdicts: {
         ...base.properties.verdicts,
         minItems: labels.length,
@@ -1909,6 +1908,18 @@ function planNotCheckedReason(check: SummaryPlanRefFields): string {
   return PLAN_SKIP_NOT_CHECKED_REASON;
 }
 
+/**
+ * Round 5 (rule 6): the one paragraph of the Line a finding's own words
+ * name ("P2", "paragraph 2"), or undefined when they name none, several, or
+ * one the Line does not have.
+ */
+function paragraphNamedIn(text: string, count: number): number | undefined {
+  const named = new Set([...text.matchAll(/\b(?:P|paragraph\s+)(\d{1,2})\b/gi)].map((match) => Number(match[1])));
+  if (named.size !== 1) return undefined;
+  const [number] = [...named];
+  return number !== undefined && number >= 1 && number <= count ? number - 1 : undefined;
+}
+
 function planBreakUnlocatedReason(check: SummaryPlanRefFields): string {
   if (check.droppedSeedId) return LEAVE_OUT_BREAK_UNLOCATED_REASON;
   if (check.ruleId === WORK_ANSWERS_242_RULE_ID) return WORK_RULE_BREAK_UNLOCATED_REASON;
@@ -1973,9 +1984,7 @@ async function completeSummarySelfCheck(
       user,
       toolName: SELF_CHECK_REQUEST.toolName,
       description: SELF_CHECK_REQUEST.toolDescription,
-      schema: summaryPlanSelfCheckSchemaFor(ordinary, plans, {
-        coverageOnly: input.coverageOnly === true,
-      }) as unknown as Anthropic.Tool.InputSchema,
+      schema: summaryPlanSelfCheckSchemaFor(ordinary, plans) as unknown as Anthropic.Tool.InputSchema,
       maxTokens: SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens,
       model: input.model,
       validate: summaryPlanSelfCheckOutputSchema,
@@ -2127,6 +2136,11 @@ export async function runModelSelfCheck(
           ? { repairGuidance: verdict.repairGuidance.trim() }
           : {}),
         ...(repairText ? { repairText } : {}),
+        // Round 5 follow-up: the reason as sent, when clipping shortened it,
+        // for the one row that stores it whole (the writer's settings row).
+        ...(verdict.unclipped && verdict.unclipped.reason.trim() !== verdict.reason.trim()
+          ? { unclippedReason: verdict.unclipped.reason.trim() }
+          : {}),
       };
     });
   // 2026-09-28 (second, edited terms): the request says the writer's edited
@@ -2292,9 +2306,16 @@ export async function runModelSelfCheck(
           repairText: factsRepairText(verified),
         };
       }
-      const paragraphIndex = verdict
+      let paragraphIndex = verdict
         ? exactPlanParagraphIndex(verdict.paragraph, count)
         : undefined;
+      // 2026-10-04 (first), Round 5 (rule 6): a targets finding whose
+      // paragraph field is not valid but whose own words name exactly one
+      // paragraph of the Line ("P2 says ...") is located there.
+      const targetsFinding = verdict?.outcome === "not_applied" && expected.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID;
+      if (verdict && targetsFinding && paragraphIndex === undefined) {
+        paragraphIndex = paragraphNamedIn(verdict.unclipped?.reason ?? verdict.reason, count);
+      }
       // 2026-09-28 (third): an item is covered where its paragraph says; a
       // Skip is honoured by absence, so an applied Skip needs no paragraph
       // (0 or none), while a Skip that is not honoured must name the
@@ -2330,7 +2351,12 @@ export async function runModelSelfCheck(
         reason: !verdict
           ? planNotCheckedReason(expected)
           : evidenceDowngraded
-            ? skip ? planBreakUnlocatedReason(expected) : ITEM_EVIDENCE_UNLOCATED_REASON
+            ? skip
+              ? targetsFinding && verdict.reason.trim()
+                // Round 5 (rule 6): never only "named no valid paragraph".
+                ? `${planBreakUnlocatedReason(expected)} Its finding: ${verdict.reason.trim()}`
+                : planBreakUnlocatedReason(expected)
+              : ITEM_EVIDENCE_UNLOCATED_REASON
             : verdict.reason.trim() || "Plan verdict was not applied.",
         ...(!evidenceDowngraded && verdict?.repairGuidance?.trim()
           ? { repairGuidance: verdict.repairGuidance.trim() }
@@ -2356,59 +2382,6 @@ export async function runModelSelfCheck(
         }
       : null,
     ...(withheld ? { storylineQuestionWithheld: withheld } : {}),
-  };
-}
-
-/**
- * 2026-09-28 (third): the coverage-only Self-check of a Section's final text,
- * run when an accepted repair (and its compression) changed the text the
- * first Self-check saw. Plan verdicts, and the labels of the Glossary Terms
- * the writer's Feedback governs (Greptile round 4, P2), in the same request:
- * no other ordinary label, no Storyline question. The same Summary rules,
- * frozen checking model and single attempt, with the same one follow-up for
- * plan checks and labels the answer missed; whatever is still missing comes
- * back as not checked. Throws when the check fails as a whole, as
- * runModelSelfCheck does.
- */
-export async function runFinalCoverageSelfCheck(
-  client: GenerationClient,
-  input: {
-    section: SectionNumber;
-    text: string;
-    model: string;
-    planChecks: SelfCheckPlanCheck[];
-    planChecksBlock?: string;
-    editedTerms?: readonly string[];
-    writerFeedback?: readonly WriterFeedback[];
-    feedbackTerms?: readonly FeedbackGovernedTerm[];
-    /** 2026-10-04 (second): the same SOURCE FACTS the first check read. */
-    sourceFacts?: SourceFacts;
-  }
-): Promise<{
-  planVerdicts: ModelSelfCheckResult["planVerdicts"];
-  /** The governed terms' label verdicts on the final text. */
-  verdicts: ModelVerdict[];
-}> {
-  if (input.planChecks.length === 0) return { planVerdicts: [], verdicts: [] };
-  const result = await runModelSelfCheck(client, {
-    section: input.section,
-    text: input.text,
-    storylineText: "",
-    confidenceMap: [],
-    glossaryCandidates: [],
-    rules: [],
-    model: input.model,
-    planChecks: input.planChecks,
-    planChecksBlock: input.planChecksBlock,
-    coverageOnly: true,
-    ...(input.editedTerms?.length ? { editedTerms: input.editedTerms } : {}),
-    ...(input.writerFeedback?.length ? { writerFeedback: input.writerFeedback } : {}),
-    ...(input.feedbackTerms?.length ? { feedbackTerms: input.feedbackTerms } : {}),
-    ...(input.sourceFacts !== undefined ? { sourceFacts: input.sourceFacts } : {}),
-  });
-  return {
-    planVerdicts: result.planVerdicts,
-    verdicts: result.verdicts.filter((verdict) => verdict.feedbackTerm !== undefined),
   };
 }
 

@@ -662,12 +662,17 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     expect(compressions[0].user).toContain(DRAFT_246);
     expect(run.row("246").draftText).toBe(fittedRepair);
     expect(run.locked("246")).toEqual([expect.objectContaining({ outcome: "applied" })]);
-    expect(JSON.parse(run.row("246").selfCheck ?? "null")).toMatchObject({ status: "repair_attempted" });
-    // Compression changed the repair after the fix: not claimed as repaired.
+    // Round 2 (2026-10-05, owner decision): compression changed the repair
+    // after the fix, so the Self-check judges the final text again, and the
+    // row describes the text that ships (the stub still finds the drift).
+    const checks246 = run.sent.filter((request) => request.stage === "submit_self_check" && request.user.includes(CORE_246[0]!));
+    expect(checks246).toHaveLength(2);
+    expect(checks246[1]!.user).toContain(fittedRepair.split("\n\n")[0]!);
+    expect(JSON.parse(run.row("246").selfCheck ?? "null")).toMatchObject({ status: "repair_failed" });
     expect(run.model("246", "Storyline")).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: "The paragraph drifts from the Storyline.; repaired, then shortened to fit the Line limit, so not re-verified",
+      reason: "The paragraph drifts from the Storyline.; checked again on the final text",
     });
     expectOtherLinesUnchanged(run);
   });

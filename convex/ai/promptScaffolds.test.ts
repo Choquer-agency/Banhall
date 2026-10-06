@@ -7,6 +7,7 @@ import {
   BRIEF_REQUEST,
   BRIEF_SCHEMA,
   BRIEF_SYSTEM_PROMPT,
+  BRIEF_WRITER_WORDING,
 } from "./brief";
 import {
   ANALYSIS_TOOL_SCHEMA,
@@ -260,6 +261,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       factModeCitations: "quote-located-in-a-verified-fact-span-on-the-transcript-row",
       contextBudget: BRIEF_INPUT_BUDGET,
       omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
+      // 2026-10-04 (first, round 2): the writer's wording rule, sent only
+      // with a settings document an internal uploader supplied.
+      writerWording: BRIEF_WRITER_WORDING,
       schema: BRIEF_SCHEMA,
       // Owner decision 43: the frozen planning model; the selected model before step routing.
       model: {
@@ -383,7 +387,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("names each experiment's uncertainty and makes advancements follow it (2026-09-29, first amendment)", () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-30.2");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-10-04.1");
     expect(SEED_PROMPT_PROGRAM.user.blocks.experimentLinks).toBe("FROZEN EXPERIMENT LINKS");
     // Run 7: the exact pairs in a repair have their own reserved bytes.
     expect(SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes).toBe(768);
@@ -464,7 +468,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("versions the Seed quote rules (2026-09-27, third amendment)", async () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-09-30.2");
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-10-04.1");
     expect(SEED_PROMPT_PROGRAM.request.quoteRepair.opening).toContain("Some quotes may not back their idea card.");
     expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.quoteRepair)).not.toMatch(/[\u2013\u2014]/);
     expect(generationPromptProgram.templates.seeds.scaffolds.version).toBe(SEED_PROMPT_PROGRAM.version);
@@ -507,6 +511,8 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
+      answerDecode: "object-or-array-fields-sent-as-json-text-fenced-in-prose-or-with-trailing-commas-read-then-validated",
+      lockedConflicts: "absent-read-as-empty-decides-no-waiver",
       callSite: "generation:settings",
       cache: "per-projectId-and-contentHash-and-classifierVersion",
     });
@@ -555,7 +561,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
       structuredPolicy: "single-attempt-then-missing-labels-follow-up",
       encodedJsonRecovery: "disabled",
-      finalCoverage: "plan-verdicts-and-feedback-term-labels-on-the-changed-final-text",
+      finalCoverage: "full-self-check-on-the-final-text-after-a-used-repair",
       invalidVerdicts: "dropped-and-asked-for-unless-most-are-invalid",
       unreadableLists: "read-as-empty-and-asked-for-unless-neither-is-a-list",
       editedTerms: "allowed-word-for-word-invention-objections-set-aside",
@@ -567,6 +573,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       leaveOutFigureBackstop: "not-applied-leave-out-with-no-dropped-figure-or-near-copy-in-the-line-citing-only-plan-figures-recorded-applied-no-repair",
       extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
       resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
+      targetsUnlocated: "located-by-the-one-paragraph-its-words-name-else-its-words-kept",
       hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",
       factsMatchSources: "every-line-plan-check-with-source-facts-block-honoured-by-absence-judged-again-on-final-text",
       factsFindings: "verified-quotes-only-shown-and-repaired-unverified-not-checked-source-documents-within-budget",
@@ -594,6 +601,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     expect(generationPromptProgram.calls.repair.signedOffPlan)
       .toBe("source-talk-found-deterministically-hedge-and-glossary-fixes-get-a-fixed-start");
     // 2026-10-04 (second): the facts fix and its scaffolds are in the program.
+    // 2026-10-04 (first), Round 5: the writer's measured wording rules.
+    expect(generationPromptProgram.calls.repair.writerWording)
+      .toBe("terms-banned-words-and-openings-measured-in-code-exact-repair-issues-shortening-guarded-settings-and-glossary-verdicts-settled");
     expect(generationPromptProgram.calls.repair.factsFix)
       .toBe("whole-section-never-must-keep-cover-rollback");
     expect(generationPromptProgram.calls.selfCheck.summaryPlan.requestScaffold.factsMatchSources)

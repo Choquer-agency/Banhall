@@ -48,12 +48,18 @@ import {
   wordBudget,
   GAP_MARKER_RE,
   LINE_LIMITS,
-  WORD_CAPS,
   CHARS_PER_LINE,
   type LengthTarget,
   type SectionKey,
 } from "../lib/lineLimits";
+import {
+  effectiveLineLimits,
+  writerCapText,
+  type WriterLineCap,
+} from "../lib/writerLineCap";
 import { sha256 } from "../lib/contracts";
+import { wordingLoss, type WriterWordingRules } from "../lib/writerWording";
+import type { SectionNumber } from "../lib/orderedChain";
 import {
   describeTranscriptInput,
   mapClaimToPart,
@@ -90,6 +96,7 @@ import {
   STYLE_GUIDANCE_SCAFFOLDS,
 } from "./promptDefinitions";
 import { containsTerm } from "../lib/editedTerms";
+import { contentWords, excerptSupportsSeed, sameWord } from "../lib/seedQuoteSupport";
 
 export type { BrainExemplarBlocks };
 
@@ -112,9 +119,18 @@ export {
 export function lengthBudgetBlock(
   section: SectionKey,
   target: LengthTarget,
-  words: number = wordBudget(section, target)
+  words: number = wordBudget(section, target),
+  /**
+   * 2026-10-04 (first): the writer's cap below the Locked cap, stated as the
+   * writer's settings. Null or absent sends the block as before.
+   */
+  writerCap: WriterLineCap | null = null
 ): string {
   const lines = LINE_LIMITS[section];
+  if (writerCap) {
+    const scaffold = LENGTH_BUDGET_SCAFFOLD.writerCap;
+    return `${scaffold.prefix}${lines}${scaffold.linesToChars}${CHARS_PER_LINE}${scaffold.charsToWriterCap}${writerCapText(writerCap)}${scaffold.writerCapToWords}${words}${scaffold.suffix}`;
+  }
   return `${LENGTH_BUDGET_SCAFFOLD.prefix}${lines}${LENGTH_BUDGET_SCAFFOLD.linesToChars}${CHARS_PER_LINE}${LENGTH_BUDGET_SCAFFOLD.charsToWords}${words}${LENGTH_BUDGET_SCAFFOLD.suffix}`;
 }
 
@@ -125,22 +141,27 @@ export function lengthBudgetBlock(
  * its line limit (review P3-2) is also held to the words that fit its lines
  * at its current words per line, with the same headroom, so a section over
  * on lines alone is asked for fewer words than it has.
+ *
+ * 2026-10-04 (first): with a writer's cap below the Locked cap, the same
+ * rule aims under the writer's word cap and line cap instead.
  */
 export function compressionTargetWords(
   section: SectionKey,
   target: LengthTarget,
   squeeze = 1,
-  current?: { words: number; lines: number }
+  current?: { words: number; lines: number },
+  writerCap: WriterLineCap | null = null
 ): number {
+  const limits = effectiveLineLimits(section, writerCap);
   let words = Math.min(
     wordBudget(section, target),
-    Math.floor(WORD_CAPS[section] * COMPRESSION_REQUEST.capHeadroom)
+    Math.floor(limits.wordCap * COMPRESSION_REQUEST.capHeadroom)
   );
-  if (current && current.lines > LINE_LIMITS[section]) {
+  if (current && current.lines > limits.lineLimit) {
     words = Math.min(
       words,
       Math.floor(
-        ((current.words * LINE_LIMITS[section]) / current.lines) * COMPRESSION_REQUEST.capHeadroom
+        ((current.words * limits.lineLimit) / current.lines) * COMPRESSION_REQUEST.capHeadroom
       )
     );
   }
@@ -180,14 +201,25 @@ export async function compressSection(
   target: LengthTarget,
   squeeze = 1,
   mustKeep: readonly string[] = [],
-  exactTerms: readonly string[] = []
+  exactTerms: readonly string[] = [],
+  /** 2026-10-04 (first): aim under the writer's cap; null sends the request as before. */
+  writerCap: WriterLineCap | null = null
 ): Promise<string> {
   const m = sectionMetrics(text, section);
-  const words = compressionTargetWords(section, target, squeeze, m);
+  const words = compressionTargetWords(section, target, squeeze, m, writerCap);
   // 2026-09-28 (second, full suite): the request says how much to cut, not only where to
   // land. A Section over on lines alone is asked for fewer words than it has.
   const cut = Math.max(m.words - words, 1);
   const cutPercent = Math.max(Math.round((cut / Math.max(m.words, 1)) * 100), 1);
+  if (writerCap) {
+    const scaffold = COMPRESSION_REQUEST.writerCap.userScaffold;
+    return await requestCompression(
+      anthropic,
+      modelId,
+      text,
+      `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToWriterCap}${writerCapText(writerCap)}${scaffold.writerCapToTarget}${words}${scaffold.targetToCut}${cut}${scaffold.cutToPercent}${cutPercent}${scaffold.percentToText}${text}`
+    );
+  }
   const scaffold = COMPRESSION_REQUEST.userScaffold;
   return await requestCompression(
     anthropic,
@@ -201,17 +233,23 @@ export async function compressSection(
  * 2026-09-28 (fifth): the targeted pass's word target, `finalCut.capHeadroom`
  * of the Locked word cap (332 for Lines 242 and 246, 665 for Line 244), or of
  * the words that fit the Line's lines when it is over on lines.
+ *
+ * 2026-10-04 (first): with a writer's cap below the Locked cap, the same
+ * share of the writer's word cap, or of the words that fit the writer's
+ * line cap.
  */
 export function finalCutTargetWords(
   section: SectionKey,
-  current: { words: number; lines: number }
+  current: { words: number; lines: number },
+  writerCap: WriterLineCap | null = null
 ): number {
   const headroom = COMPRESSION_REQUEST.finalCut.capHeadroom;
-  let words = Math.floor(WORD_CAPS[section] * headroom);
-  if (current.lines > LINE_LIMITS[section]) {
+  const limits = effectiveLineLimits(section, writerCap);
+  let words = Math.floor(limits.wordCap * headroom);
+  if (current.lines > limits.lineLimit) {
     words = Math.min(
       words,
-      Math.floor(((current.words * LINE_LIMITS[section]) / current.lines) * headroom)
+      Math.floor(((current.words * limits.lineLimit) / current.lines) * headroom)
     );
   }
   return words;
@@ -239,11 +277,22 @@ async function finalCutSection(
   section: SectionKey,
   text: string,
   mustKeep: readonly string[],
-  exactTerms: readonly string[]
+  exactTerms: readonly string[],
+  /** 2026-10-04 (first): aim under the writer's cap; null aims under the Locked cap. */
+  writerCap: WriterLineCap | null = null
 ): Promise<string> {
   const m = sectionMetrics(text, section);
-  const words = finalCutTargetWords(section, m);
+  const words = finalCutTargetWords(section, m, writerCap);
   const cut = Math.max(m.words - words, 1);
+  if (writerCap) {
+    const scaffold = COMPRESSION_REQUEST.writerCap.finalCutScaffold;
+    return await requestCompression(
+      anthropic,
+      modelId,
+      text,
+      `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToWriterCap}${writerCapText(writerCap)}${scaffold.writerCapToCut}${cut}${scaffold.cutToTarget}${words}${scaffold.targetToText}${text}`
+    );
+  }
   const scaffold = COMPRESSION_REQUEST.finalCut.userScaffold;
   return await requestCompression(
     anthropic,
@@ -325,6 +374,48 @@ export function limitOverage(text: string, key: SectionKey): number {
   return Math.max(metrics.words / metrics.wordCap, metrics.lines / metrics.limit);
 }
 
+/**
+ * 2026-10-04 (first): the metrics of `text` against the limits it must meet,
+ * the writer's cap where it is below the Locked cap: `overLimit` is over
+ * either, `wordCap` and `limit` are the writer's where set.
+ */
+function capMetrics(text: string, key: SectionKey, writerCap: WriterLineCap) {
+  const metrics = sectionMetrics(text, key);
+  const limits = effectiveLineLimits(key, writerCap);
+  return {
+    words: metrics.words,
+    lines: metrics.lines,
+    wordCap: limits.wordCap,
+    limit: limits.lineLimit,
+    overLimit: metrics.overLimit || metrics.words > limits.wordCap || metrics.lines > limits.lineLimit,
+  };
+}
+
+/**
+ * 2026-10-04 (first): whether a pass brought `out` closer to the limits
+ * than `best`. The Locked limits come first: a pass further over a Locked
+ * limit is never kept, and one closer to it always is; between texts
+ * equally placed against the Locked limits (both within them, most often),
+ * the one closer to the writer's cap is. With no writer's cap this is
+ * exactly the Locked rule.
+ */
+export function closerToLimits(
+  out: string,
+  best: string,
+  key: SectionKey,
+  writerCap: WriterLineCap | null
+): boolean {
+  if (!writerCap) return limitOverage(out, key) < limitOverage(best, key);
+  const lockedOut = Math.max(1, limitOverage(out, key));
+  const lockedBest = Math.max(1, limitOverage(best, key));
+  if (lockedOut !== lockedBest) return lockedOut < lockedBest;
+  const writer = (text: string) => {
+    const metrics = capMetrics(text, key, writerCap);
+    return Math.max(metrics.words / metrics.wordCap, metrics.lines / metrics.limit);
+  };
+  return writer(out) < writer(best);
+}
+
 const NUMBER_RE = /\d+(?:[.,]\d+)*/g;
 /**
  * A negation and the word it negates. "n't" and "cannot" read as "not", and
@@ -334,18 +425,32 @@ const NUMBER_RE = /\d+(?:[.,]\d+)*/g;
 const NEGATION_PHRASE_RE =
   /\b(not|no|never|none|neither|nor|without)\s+(?:(?:a|an|the|be|been|being)\s+)?([a-z0-9][a-z0-9-]*)/g;
 
-function numbersIn(text: string): Set<string> {
+function numberUses(text: string): string[] {
   // "1,200" and "1200" are the same number; a trailing comma is punctuation.
-  return new Set([...text.matchAll(NUMBER_RE)].map((match) => match[0].replace(/,/g, "")));
+  return [...text.matchAll(NUMBER_RE)].map((match) => match[0].replace(/,/g, ""));
 }
 
-function negationsIn(text: string): Set<string> {
+function numbersIn(text: string): Set<string> {
+  return new Set(numberUses(text));
+}
+
+function negationUses(text: string): string[] {
   const normalized = text
     .toLowerCase()
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/\bcannot\b/g, "can not")
     .replace(/n't\b/g, " not");
-  return new Set([...normalized.matchAll(NEGATION_PHRASE_RE)].map((match) => `${match[1]} ${match[2]}`));
+  return [...normalized.matchAll(NEGATION_PHRASE_RE)].map((match) => `${match[1]} ${match[2]}`);
+}
+
+function negationsIn(text: string): Set<string> {
+  return new Set(negationUses(text));
+}
+
+function useCounts(uses: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const use of uses) counts.set(use, (counts.get(use) ?? 0) + 1);
+  return counts;
 }
 
 /**
@@ -401,15 +506,124 @@ export function compressionLoss(
 }
 
 /**
+ * 2026-10-04 (first, review re-checks): a signed-off item is lost when at
+ * least this many of its words go, or COVER_ITEM_SHARE_LOST of them when
+ * that is more: a natural merge of two sentences loses about 13 percent of
+ * an item's words, a deleted sentence or paragraph 50 percent or more.
+ */
+export const COVER_ITEM_WORDS_LOST = 2;
+export const COVER_ITEM_SHARE_LOST = 0.25;
+
+/** Sentences of a text: at a full stop, question or exclamation mark, or a blank line. */
+function sentencesOf(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+|\n\s*\n/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+/** The words of `item` that `text` holds (sameWord). */
+function itemWordsIn(text: string, item: string): string[] {
+  const said = contentWords(text);
+  return contentWords(item).filter((word) => said.some((other) => sameWord(word, other)));
+}
+
+/**
+ * The content words of an item that the sentences of `text` stating it
+ * hold. A sentence states the item when it shares enough meaningful words
+ * with one of the item's bullets (excerptSupportsSeed, the Seed quote
+ * check's own measure). Null when no sentence states it.
+ */
+function itemWordsStated(text: string, item: string): string[] | null {
+  const bullets = sentencesOf(item);
+  const stating = sentencesOf(text).filter((sentence) =>
+    bullets.some((bullet) => excerptSupportsSeed(bullet, sentence))
+  );
+  return stating.length === 0 ? null : itemWordsIn(stating.join(" "), item);
+}
+
+/**
+ * 2026-10-04 (first, owner decision: signed-off items outrank the writer's
+ * cap): why a pass run only for the writer's cap dropped a signed-off COVER
+ * item, or null. `input` is the text the passes started from, so losses add
+ * up across passes. Only the item's words held in the sentences that state
+ * it count, matched loosely (sameWord, so "full" keeps "fully" and
+ * "transfer" keeps "transferable"); an item no sentence states is judged by
+ * its words anywhere in the text. The item is lost when the pass holds
+ * COVER_ITEM_WORDS_LOST or COVER_ITEM_SHARE_LOST of those words fewer,
+ * whichever is more, as when its sentence or paragraph is deleted. Numbers
+ * and negations of Must keep lines are guarded on their own
+ * (compressionLoss).
+ */
+export function coverItemLoss(
+  input: string,
+  output: string,
+  coverItems: readonly string[]
+): string | null {
+  for (const item of coverItems) {
+    const stated = itemWordsStated(input, item);
+    const before = stated ?? itemWordsIn(input, item);
+    if (before.length === 0) continue;
+    const after = stated ? itemWordsStated(output, item) ?? [] : itemWordsIn(output, item);
+    const lost = before.filter((word) => !after.includes(word));
+    const threshold = Math.max(COVER_ITEM_WORDS_LOST, Math.ceil(before.length * COVER_ITEM_SHARE_LOST));
+    if (lost.length >= threshold) {
+      return `dropped words of a signed-off item (${lost.slice(0, 3).map((word) => `"${word}"`).join(", ")})`;
+    }
+  }
+  return null;
+}
+
+/**
  * What the compression passes left: the text kept, how many passes were
  * sent, whether it is still over, and the error that stopped them, if any.
+ * 2026-10-04 (first): passes run only for the writer's cap that were not
+ * kept because they dropped a signed-off item: `heldForPlan` counts those
+ * whose own text met the writer's cap (the item is why the Line stays
+ * over), `heldBack` those still over it either way (review re-check P2-a).
+ * `heldForFigures` (Round 4, review P2-1): a targeted pass for the
+ * writer's cap alone, sent past its old reach (more than 10 percent over the
+ * cap), not kept because it dropped a number or a negation the text held.
  */
 export type LimitFit = {
   text: string;
   passes: number;
   overLimit: boolean;
   error?: unknown;
+  heldForPlan?: number;
+  heldBack?: number;
+  heldForFigures?: number;
 };
+
+/**
+ * Round 4 (review P2-1, lead decision, owner informed): the first number or
+ * negation of `input` that `output` holds fewer times, or null. The whole
+ * text counts, not only its Must keep lines. Greptile, older comments on
+ * PR #27: uses are counted, so with two trials both at "120 C" a pass that
+ * deletes one trial's result is not kept.
+ */
+export function figureOrNegationLoss(input: string, output: string): string | null {
+  const lost = (kind: string, input: readonly string[], output: readonly string[], show: (use: string) => string) => {
+    const kept = useCounts(output);
+    for (const [use, count] of useCounts(input)) {
+      const now = kept.get(use) ?? 0;
+      if (now >= count) continue;
+      return now === 0
+        ? `dropped the ${kind} ${show(use)}, which the text holds`
+        : `dropped a use of the ${kind} ${show(use)}, which the text holds ${count} times and the pass ${now}`;
+    }
+    return null;
+  };
+  return (
+    lost("number", numberUses(input), numberUses(output), (use) => use) ??
+    lost("negation", negationUses(input), negationUses(output), (use) => `"${use}"`)
+  );
+}
+
+/** 2026-10-04 (first): whether `text` is within the Locked limits and the writer's cap. */
+export function meetsWriterCap(text: string, key: SectionKey, writerCap: WriterLineCap): boolean {
+  return !capMetrics(text, key, writerCap).overLimit;
+}
 
 /**
  * BNH-45 enforcement: still over the form limit after the budgeted draft →
@@ -431,7 +645,24 @@ export type LimitFit = {
  * by at most 10 percent of it, one more targeted pass asks for a stated
  * number of words cut (finalCutSection), measured and guarded like the
  * others; it is also not kept when it ends a paragraph mid-sentence. So a
- * call makes at most `squeezes.length + 1` requests.
+ * call makes at most `squeezes.length + 1` requests. 2026-10-04 (first),
+ * Round 4: a text within the Locked limits but over the writer's cap gets
+ * that pass at any overage; past the old 10 percent reach it must also keep
+ * every number and negation of its text, as many times as the text holds
+ * each (figureOrNegationLoss).
+ *
+ * 2026-10-04 (first): with `writerCap` (the writer's whole-Line cap below
+ * the Locked cap, convex/lib/writerLineCap.ts), the passes also run while
+ * the text is over the writer's cap, and aim under it with the same
+ * headroom and the same content guards. The Locked limits come first: a
+ * pass further over a Locked limit is never kept (closerToLimits), and when
+ * the text is within reach of the Locked limits but not of the writer's
+ * cap, the targeted pass aims at the Locked limits as before. Nothing is
+ * cut to fit the writer's cap either. Without `writerCap` every request
+ * and every decision is as before. Owner decision (2026-10-04): signed-off
+ * items outrank the writer's cap, so a pass run only for it (its text
+ * within the Locked limits) that drops words of a COVER item is not kept
+ * (coverItemLoss, counted in `heldForPlan`).
  */
 export async function compressWithinLimit(
   anthropicFor: (callSite: string) => GenerationClient,
@@ -442,18 +673,45 @@ export async function compressWithinLimit(
   styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES,
   mustKeep: readonly string[] = [],
   exactTerms: readonly string[] = [],
-  options: { finalCut?: boolean } = {}
+  options: {
+    finalCut?: boolean;
+    writerCap?: WriterLineCap | null;
+    /**
+     * 2026-10-04 (first, owner decision): the signed-off COVER items. A pass
+     * run only for the writer's cap (its text within the Locked limits)
+     * must keep every word of them the text holds (coverItemLoss); a pass
+     * for a Locked limit is judged as before.
+     */
+    coverItems?: readonly string[];
+    /**
+     * 2026-10-04 (first), Round 5: the writer's measured wording rules. A
+     * pass for the writer's cap alone is not kept when it removes a
+     * required opening its text held, writes a banned word or synonym its
+     * text did not, or removes the last use of a required term
+     * (wordingLoss); a pass for a Locked limit is judged as before.
+     */
+    wording?: { rules: WriterWordingRules; section: SectionNumber };
+  } = {}
 ): Promise<LimitFit> {
+  const writerCap = options.writerCap ?? null;
+  const coverItems = options.coverItems ?? [];
   let best = text;
   let passes = 0;
+  let heldForPlan = 0;
+  let heldBack = 0;
+  let heldForFigures = 0;
+  // Review re-check P3-1: a pass for the writer's cap is judged against the
+  // text the passes started from, or as the last pass for a Locked limit
+  // left it, so an item cannot be thinned a word at a time.
+  let planBaseline = text;
   const callSite = `generation:compression:${key.slice(1)}`;
   // A pass's answer replaces `best` only when it is closer to the limits
   // and keeps the required content.
-  const keep = (compressed: string, targetWords: number, finalCut: boolean) => {
+  const keep = (compressed: string, targetWords: number, finalCut: boolean, pastReach = false) => {
     // PSOS-49: a bannedWords waiver exempts this writer from the scrub;
     // re-scrubbing here would sneak the house vocabulary back in.
     const out = scrubBannedWordsUnlessWaived(compressed, styleOverrides.bannedWords);
-    if (!out.trim() || limitOverage(out, key) >= limitOverage(best, key)) return;
+    if (!out.trim() || !closerToLimits(out, best, key, writerCap)) return;
     const loss =
       compressionLoss(best, out, key, targetWords, mustKeep, exactTerms) ??
       (finalCut ? endedMidSentence(best, out) : null);
@@ -461,11 +719,52 @@ export async function compressWithinLimit(
       console.warn(`${callSite}: pass ${passes} not kept: it ${loss}`);
       return;
     }
+    // Signed-off items outrank the writer's cap: a pass that only the
+    // writer's cap asked for never takes words of one.
+    const forWriterOnly = writerCap !== null && !sectionMetrics(best, key).overLimit;
+    // Round 5 (rule 11; review P1-2): nor breaks a wording rule its text
+    // kept. A pass for a Locked limit is judged as before (Locked outranks
+    // both), and a break it brings is measured on the final text.
+    const wordingBroken = forWriterOnly && options.wording
+      ? wordingLoss(best, out, options.wording.rules, options.wording.section)
+      : null;
+    if (wordingBroken) {
+      console.warn(`${callSite}: pass ${passes} not kept: it ${wordingBroken}`);
+      return;
+    }
+    const planLoss = forWriterOnly && coverItems.length > 0 ? coverItemLoss(planBaseline, out, coverItems) : null;
+    if (planLoss) {
+      if (writerCap && meetsWriterCap(out, key, writerCap)) heldForPlan += 1;
+      else heldBack += 1;
+      console.warn(`${callSite}: pass ${passes} not kept: it ${planLoss}`);
+      return;
+    }
+    // Round 4 (review P2-1, lead decision, owner informed: in the spirit of
+    // signed-off items outranking the writer's cap): the targeted pass that
+    // runs past its old reach (only for the writer's cap) keeps every number
+    // and negation of its text, so a figure or a hedge outranks the cap and
+    // the Line may stay over it, as its row then says.
+    const factLoss = pastReach && forWriterOnly ? figureOrNegationLoss(best, out) : null;
+    if (factLoss) {
+      heldForFigures += 1;
+      console.warn(`${callSite}: pass ${passes} not kept: it ${factLoss}`);
+      return;
+    }
+    if (!forWriterOnly) planBaseline = out;
     best = out;
   };
+  const fit = (fields: Omit<LimitFit, "heldForPlan" | "heldBack" | "heldForFigures">): LimitFit => ({
+    ...fields,
+    ...(heldForPlan > 0 ? { heldForPlan } : {}),
+    ...(heldBack > 0 ? { heldBack } : {}),
+    ...(heldForFigures > 0 ? { heldForFigures } : {}),
+  });
+  // Over a Locked limit, or over the writer's cap where one is set.
+  const over = (value: string) =>
+    writerCap ? capMetrics(value, key, writerCap).overLimit : sectionMetrics(value, key).overLimit;
   for (const squeeze of COMPRESSION_REQUEST.squeezes) {
     const metrics = sectionMetrics(best, key);
-    if (!metrics.overLimit) break;
+    if (!over(best)) break;
     let compressed: string;
     try {
       passes += 1;
@@ -477,25 +776,44 @@ export async function compressWithinLimit(
         lengthTarget,
         squeeze,
         mustKeep,
-        exactTerms
+        exactTerms,
+        writerCap
       );
     } catch (error) {
-      return { text: best, passes, overLimit: metrics.overLimit, error };
+      return fit({ text: best, passes, overLimit: metrics.overLimit, error });
     }
-    keep(compressed, compressionTargetWords(key, lengthTarget, squeeze, metrics), false);
+    keep(compressed, compressionTargetWords(key, lengthTarget, squeeze, metrics, writerCap), false);
   }
   const metrics = sectionMetrics(best, key);
-  if (options.finalCut && withinFinalCutReach(metrics)) {
+  // The targeted pass aims at the writer's cap when the text is within its
+  // reach, else at the Locked limits when within theirs (undefined: none).
+  // 2026-10-04 (first), Round 4: a text within the Locked limits but over
+  // the writer's cap gets it whatever the overage (release suite run 3 of
+  // 2026-10-05 left Line 246 at 288 of 260 words, just past the 10 percent
+  // reach), with the same guards: a pass for the writer's cap alone never
+  // takes words of a signed-off item (coverItemLoss), keeps the Must keep
+  // figures and never ends a paragraph mid-sentence.
+  const writerOnly = writerCap !== null && !metrics.overLimit && capMetrics(best, key, writerCap).overLimit;
+  // A targeted pass the old 10 percent reach would not have sent.
+  const pastReach = writerOnly && writerCap !== null && !withinFinalCutReach(capMetrics(best, key, writerCap));
+  const aim: WriterLineCap | null | undefined = !options.finalCut
+    ? undefined
+    : writerCap && (writerOnly || withinFinalCutReach(capMetrics(best, key, writerCap)))
+      ? writerCap
+      : withinFinalCutReach(metrics)
+        ? null
+        : undefined;
+  if (aim !== undefined) {
     let compressed: string;
     try {
       passes += 1;
-      compressed = await finalCutSection(anthropicFor(callSite), modelId, key, best, mustKeep, exactTerms);
+      compressed = await finalCutSection(anthropicFor(callSite), modelId, key, best, mustKeep, exactTerms, aim);
     } catch (error) {
-      return { text: best, passes, overLimit: true, error };
+      return fit({ text: best, passes, overLimit: metrics.overLimit, error });
     }
-    keep(compressed, finalCutTargetWords(key, metrics), true);
+    keep(compressed, finalCutTargetWords(key, metrics, aim), true, pastReach);
   }
-  return { text: best, passes, overLimit: sectionMetrics(best, key).overLimit };
+  return fit({ text: best, passes, overLimit: sectionMetrics(best, key).overLimit });
 }
 
 /** Where a paragraph may end: sentence punctuation, a closing quote or bracket. */

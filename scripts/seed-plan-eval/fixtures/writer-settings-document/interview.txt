@@ -1,0 +1,101 @@
+Priya Halvorsen: Thanks for making the time, both of you. We're covering fiscal 2026, so July 1 2025 to June 30 2026. Mireille, could you start with a little about Velloway and what you do?
+
+Mireille Strand: Sure. Velloway Panel Finishing Ltd. is in Kessridge, Ontario. We're about 60 people. We finish MDF panels for other companies: cabinet doors for kitchen and bath makers, and display panels for store fixture builders. The customer sends us raw MDF, routed to shape, and we send it back finished. Until this year everything went through our liquid lacquer line, which is solvent-borne. I'm the president. I started the company in 2009.
+
+Tobias Achterberg: I'm the process engineer. I joined in 2021. Before that I spent eight years in automotive paint shops, mostly on powder lines for steel parts, so powder is my background, but not on wood.
+
+Priya Halvorsen: What was the project this year?
+
+Mireille Strand: Powder coating MDF. Our customers want it. Powder has no solvent, so no VOCs, and the finish is tougher than lacquer on the edges, which is where doors get chipped. Two of our biggest customers told us in 2024 that they would move to a powder finisher if we couldn't offer it. We want an industry-leading finish, and we want to be the first finisher in the province doing powder on thick routed doors at line speed.
+
+Priya Halvorsen: And why was that hard? Powder on MDF exists.
+
+Tobias Achterberg: It does, on thin flat panels, and that's what the suppliers show you. Our product is different. Most of our doors are 25 mm board with routed edges: a shaker profile with a 6 mm radius, and a deep cove profile on the premium line. The problems all come from heat. Normal powder for steel cures at 160 to 200 C. MDF can't take that. The board holds 6 to 7 percent moisture, plus resin from the pressing. When the substrate temperature goes much past 120 C, that moisture and some resin vapour come out through the coating while it's still soft. You get pinholes, and at worst blistering. The routed edges are the worst because the machining opens up the fibres. So you have a hard ceiling on board temperature.
+
+Priya Halvorsen: So you need a powder that cures cooler.
+
+Tobias Achterberg: That's half of it. The low-temperature powders on the market say 10 minutes at 130 C object temperature on the datasheet. That's already over our ceiling. And there's a second problem. Powder sticks by static charge, so the part has to conduct to ground. Steel conducts. MDF doesn't, unless there's moisture at the surface. The usual way is to preheat the board, which pulls moisture to the surface, in order to get the powder to stick. But preheating is heat, and heat is what drives the pinholes. So the thing that makes the powder stick is the thing that ruins the finish.
+
+Mireille Strand: That was the knot. Everybody we talked to had a way around one of the two, never both on a thick routed door.
+
+Priya Halvorsen: What did you need to hit? What were the targets?
+
+Tobias Achterberg: DFT of 70 to 90 microns on the faces and at least 60 microns on the routed edges. Edge wrap is the whole point for the customers, because edges are where lacquer fails. Pinholes at most 1 per square metre, which is what our customers' inspectors accept. Full cure, which we test with MEK double rubs: 50 rubs with no break-through to the board. Full cure with the substrate temperature at 120 C or less, because that is about where the pinholes started in our first tests. And a bake window at least 8 C wide, because our oven zones drift by up to 4 C either way, so a window narrower than that means scrap every shift. All of that at 2.5 metres per minute, which is our lacquer line speed.
+
+Priya Halvorsen: Before July 2025, had you done any powder work?
+
+Mireille Strand: No. This was new for us. We hadn't run a single powder panel before July 2025. We bought a small batch oven and an IR preheat panel for the trials and ran them on a spare bay.
+
+Priya Halvorsen: What didn't you know at the start? What were the open questions?
+
+Tobias Achterberg: Three things. First, whether we could make the board conductive enough to get 60 microns on the routed edges without a preheat that pushes the substrate temperature past the point where the pinholes start. The moisture that gives you conductivity is the same moisture that outgasses, so we didn't know if there was any setting that did both. Second, whether any low-temperature powder could reach full cure below that point with a bake window wide enough for a real oven. The catalyst that makes the powder cure faster also shortens the gel time, and a short gel time can leave poor flow, so we didn't know if fast enough and smooth enough could live together. Third, whether the deep cove profile could get the same edge wrap as the faces. A concave cove shields itself from the charge. On steel that's called a Faraday cage effect, and on a routed board nobody had numbers for it.
+
+Priya Halvorsen: Walk me through what you tried.
+
+Tobias Achterberg: Trial 1 was August and September 2025. We did what the supplier datasheet says. IR preheat to a substrate temperature of 110 C, their standard low-temperature powder, gel time 210 seconds at 130 C, then the convection oven at 135 C air for 10 minutes. The board reached 131 C at the surface. Cure was fine, 55 to 62 MEK rubs. But pinholes were 14 per square metre on average and 30 per square metre on the routed edges. Edge DFT was only 35 microns against 82 on the faces. So it failed on both of the things we cared about.
+
+Priya Halvorsen: What did you learn from it?
+
+Tobias Achterberg: That the datasheet number is for flat panels. And that on our board the pinholes track the peak board temperature, not the time. We logged surface temperature with thermocouples on every test panel, so we could see it.
+
+Tobias Achterberg: Trial 2 was October 2025. We lowered the oven air to 125 C and stretched the dwell from 10 to 14 minutes, same preheat. Peak board temperature dropped to 121 C and pinholes dropped to 4 per square metre. But cure dropped too: 30 MEK rubs, so undercured. Then we nudged the air up 2 C, to 127 C, and the pinholes went straight back to 9 per square metre. With that powder the bake window was basically zero. Below about 122 C it wouldn't cure, and above about 120 C on the edges it started outgassing. We ran it at several dwell times and the onset didn't move. That told us dwell time wasn't the lever. Peak temperature was.
+
+Priya Halvorsen: So two problems, one ceiling.
+
+Tobias Achterberg: Right. So we split them. Trial 3, November 2025 to January 2026, went after the conductivity. We tried a water-based conductive sealer on the routed edges only, before the powder. It does two jobs: it carries the charge to ground, and it closes the opened fibres on the edge so less gas gets out. We flash-dried it 6 minutes at 60 C. With the sealer we could cut the preheat from 110 C down to 85 C and still get the powder to stick. Edge DFT went up to 58 microns average, minimum 47. Pinholes came down to 1.8 per square metre. So that was the breakthrough on the conductivity side. But we hit a snag. Overspray of the sealer onto the faces gave poor adhesion. Cross-hatch tests rated 3B against a target of 5B on 12 percent of panels. We fixed that by switching to an edge-only nozzle and a mask on the face, and adhesion went back to 5B.
+
+Mireille Strand: That trial was the turning point for me. Before it I wasn't sure we would get there.
+
+Priya Halvorsen: And the cure side?
+
+Tobias Achterberg: Trial 4, February to April 2026. We worked with the powder supplier on a fast-catalysed version of their polyester-epoxy hybrid. The catalyst is proprietary, they wouldn't tell us what it is, but they gave us three levels to try. The fastest one cut the gel time from 210 seconds to 95 seconds at 125 C. With that powder we could reach full cure at a substrate temperature of 120 C in 9 minutes: 55 MEK rubs. Then we mapped the bake window properly, in 1 C steps, with the edge sealer on. Below 113 C it undercured, under 50 rubs. Above 121 C we got more than 1 pinhole per square metre. So the window was 113 to 121 C, 8 C wide, which is exactly our target. The cost was flow. The fastest catalyst gave a bit of orange peel, rated 5 on the supplier's visual scale against our target of 6. The middle catalyst level flowed better but only gave a 4 C window, so we kept the fast one.
+
+Tobias Achterberg: In the same trial we put the sealer and the new powder together on 140 panels. Edge DFT averaged 64 microns, minimum 52. Faces were 78 microns. Pinholes were 0.6 per square metre. That was the first time we met the pinhole target and the cure target on the same panels.
+
+Priya Halvorsen: Did you change the oven too?
+
+Tobias Achterberg: We tried to optimize the oven profile, yes. We split the dwell into a ramp zone and a hold zone so the board reaches the hold temperature without overshooting. That took the overshoot from about 5 C down to 2 C. It's part of why the 8 C window works in practice.
+
+Priya Halvorsen: And after that?
+
+Mireille Strand: We successfully ran a production pilot.
+
+Tobias Achterberg: Trial 5, May and June 2026. 600 doors over three weeks, at 2.5 metres per minute, on real customer orders. Pinholes averaged 0.9 per square metre. MEK passed on 98 percent of the panels tested. The 2 percent that failed were all from one batch on a day when oven zone 3 drifted 6 C low, which is outside the window, so they undercured. Edge wrap was the open issue. 4 percent of panels had edge DFT below 60 microns, and every one of them was a deep cove profile. The shaker edges were all over 60.
+
+Priya Halvorsen: So where does it stand at June 30?
+
+Tobias Achterberg: The shaker doors are ready for production. The deep cove profile isn't. We don't know yet whether a different sealer, a charged gun angle or a change in the cove geometry gets the inside of the cove to 60 microns. We plan more trials on that in fiscal 2027. We also need tighter control on the oven zones, because a 6 C drift takes you out of an 8 C window.
+
+Priya Halvorsen: What did you learn overall that you didn't know before?
+
+Tobias Achterberg: Three things I'd stand behind. One, on our board the pinholes start at a substrate temperature of about 118 to 122 C, whatever the dwell time. Nobody publishes that for 25 mm routed MDF. Two, you can get the conductivity from an edge sealer instead of from heat, which takes 25 C off the preheat and breaks the link between sticking and outgassing. Three, a powder with a gel time under 100 seconds at 125 C can reach full cure below that ceiling, with a bake window of 8 C. That's enough for a production oven if the zones hold.
+
+Mireille Strand: It wasn't trial and error, either. Tobias logged the board temperature on every panel and changed one thing at a time.
+
+Priya Halvorsen: Who worked on it, and how much time?
+
+Mireille Strand: Tobias was on it about 70 percent of the year. Two line operators ran the trials, about a quarter of their time each. Our quality technician did all the MEK, adhesion and DFT readings, maybe 30 percent of her time. I spent maybe 10 percent, mostly with customers and the supplier.
+
+Tobias Achterberg: Materials were about 1,100 kilograms of powder across the trials and around 1,900 test panels, most of which were scrapped after testing.
+
+Priya Halvorsen: Was anything else going on this year that I should know about, so we know what's in and what's out?
+
+Mireille Strand: Two things, and honestly I'd like them in if they can be. First, the powder booth extraction upgrade. In spring 2026 we had a contractor put in new extraction fans and cartridge filters on the booth. It cost about 180,000 dollars. It was hard to get right, the airflow kept pulling powder off the edges, and we learned a lot about airflow from it. I'd almost call that a breakthrough for the booth.
+
+Tobias Achterberg: The contractor did the design, to be fair. We tested the airflow afterwards with them.
+
+Mireille Strand: Second, colour matching. Our biggest kitchen customer sells 14 catalogue shades, and we had to match all 14 in powder with the supplier. That took weeks of trial and error, mixing and spraying chips until the customer signed off.
+
+Priya Halvorsen: Okay. I'll note both and come back to you on how we treat them.
+
+Priya Halvorsen: Anything else on the core project? Any data I should ask for?
+
+Tobias Achterberg: I'll send you the trial summary. It has the tables for every trial: substrate temperature, DFT on faces and edges, pinholes per square metre, MEK rubs and the cross-hatch results. It also has the bake window map from Trial 4.
+
+Mireille Strand: And the pilot numbers by profile, so you can see the cove problem.
+
+Priya Halvorsen: Great. One last check on the dates. The work ran from July 2025 to the end of June 2026, all at the Kessridge plant?
+
+Tobias Achterberg: Yes. All of it on site. The supplier made the powder batches at their plant, but every test was ours.
+
+Priya Halvorsen: Thank you both. That's what I need for now.

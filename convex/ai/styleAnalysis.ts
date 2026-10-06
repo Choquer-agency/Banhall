@@ -41,16 +41,21 @@ const categorySchema = z.object({
   evidence: z.string().nullable(),
 });
 
+/** Every waivable category's verdict (shared with the settings document classifier). */
+export const styleAnalysisCategoriesSchema = z.object({
+  bannedWords: categorySchema,
+  paragraphDensity: categorySchema,
+  sentenceConstruction: categorySchema,
+  repetitionCaps: categorySchema,
+  openingClauses: categorySchema,
+  reportSkeleton: categorySchema,
+});
+
+export const lockedConflictSchema = z.object({ excerpt: z.string(), rule: z.string() });
+
 export const styleAnalysisSchema: z.ZodType<StyleAnalysis> = z.object({
-  categories: z.object({
-    bannedWords: categorySchema,
-    paragraphDensity: categorySchema,
-    sentenceConstruction: categorySchema,
-    repetitionCaps: categorySchema,
-    openingClauses: categorySchema,
-    reportSkeleton: categorySchema,
-  }),
-  lockedConflicts: z.array(z.object({ excerpt: z.string(), rule: z.string() })),
+  categories: styleAnalysisCategoriesSchema,
+  lockedConflicts: z.array(lockedConflictSchema),
 });
 
 /**

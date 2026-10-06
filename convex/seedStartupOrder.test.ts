@@ -24,7 +24,7 @@ import {
 } from "./seedStartup.fixture";
 import { DRAFTING_INPUTS_LEASE_MS } from "./lib/generations/draftingInputs";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
-import { SEED_QUOTE_RULES } from "./ai/promptDefinitions";
+import { SEED_PROMPT_PROGRAM, SEED_QUOTE_RULES } from "./ai/promptDefinitions";
 import { RULES_ANALYSIS_FIGURES } from "../shared/humanProse";
 import { withPinnedAdvancementLinkRules, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { ActionTimeBudgetError } from "./ai/actionDeadline";
@@ -314,17 +314,25 @@ async function requestHashes(
     // The Seed quote rules (2026-09-27, third amendment) are the only bytes
     // the seed request gained since the pins; they are taken out here.
     // The link sentence changed on 2026-09-28 (fourth); the pins hold the old one.
-    // 2026-10-04 (second, review round 1, P2-4 (a)): so are the analyzer's
-    // figure rules for the analysis request, which holds them exactly once.
-    let serialized = JSON.stringify(withSharedSeedToolOnly(body));
+    // 2026-10-04 (first): this fixture's saved Writer Profile applies, so its
+    // Seed request also carries the writer wording rule after the guidance,
+    // checked here and then taken out exactly. 2026-10-04 (second, review
+    // round 1, P2-4 (a)): so are the analyzer's figure rules for the analysis
+    // request, which holds them exactly once.
+    let json = JSON.stringify(withSharedSeedToolOnly(body));
+    if (name === "submit_seed_batch") {
+      const wording = JSON.stringify(SEED_PROMPT_PROGRAM.user.writerWording).slice(1, -1);
+      expect(json.split(wording)).toHaveLength(2);
+      json = json.replace(wording, "");
+    }
     if (name === "submit_transcript_analysis") {
       const rules = JSON.stringify(`${RULES_ANALYSIS_FIGURES}\n`).slice(1, -1);
-      expect(serialized.split(rules)).toHaveLength(2);
-      serialized = serialized.replace(rules, "");
+      expect(json.split(rules)).toHaveLength(2);
+      json = json.replace(rules, "");
     }
     firstByTool.set(
       name,
-      maskIds(withPinnedAdvancementLinkRules(serialized).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
+      maskIds(withPinnedAdvancementLinkRules(json).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
     );
   }
   const result: Record<string, string> = {};

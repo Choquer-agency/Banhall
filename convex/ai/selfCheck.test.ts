@@ -351,12 +351,20 @@ function callsFor(section: Section, kind: "draft" | "repair") {
     .map(([params]) => userText(params as GenerationMessageParams))
     .filter((user) => draftSectionOf(user) === section && isRepair(user) === (kind === "repair"));
 }
-function selfCheckPrompt(section: Section): string {
-  const prompts = network.create.mock.calls
+function selfCheckPrompts(section: Section): string[] {
+  return network.create.mock.calls
     .map(([params]) => params as GenerationMessageParams)
     .filter((params) => params.tool_choice?.name === "submit_self_check")
     .map((params) => userText(params))
     .filter((user) => user.includes(`SECTION DRAFT: Line ${section}`));
+}
+
+/**
+ * The Section's one Self-check. Since 2026-10-05 (Round 2, follow-up) a used
+ * repair adds a second, of the final text: use selfCheckPrompts there.
+ */
+function selfCheckPrompt(section: Section): string {
+  const prompts = selfCheckPrompts(section);
   expect(prompts).toHaveLength(1);
   return prompts[0];
 }
@@ -1262,8 +1270,13 @@ describe("Self-check before display (CAP-9)", () => {
     });
     // The rule-based matcher found no verbatim use, so the term was handed to
     // the model as a candidate.
-    expect(selfCheckPrompt("246")).toContain("GLOSSARY CANDIDATES");
-    expect(selfCheckPrompt("246")).toContain("- control loop");
+    // 2026-10-05 (Round 2, follow-up): the used repair is checked again on
+    // the final text, which uses the term, so no candidate is sent then.
+    const [first246, final246] = selfCheckPrompts("246");
+    expect(selfCheckPrompts("246")).toHaveLength(2);
+    expect(first246).toContain("GLOSSARY CANDIDATES");
+    expect(first246).toContain("- control loop");
+    expect(selfCheckDraftBlock(final246!)).toContain(CLEAN["246"]);
     expect(selfCheckPrompt("242")).not.toContain("GLOSSARY CANDIDATES");
     expect(callsFor("246", "repair")).toHaveLength(1);
     expect(callsFor("246", "repair")[0]).toContain("Paragraph 1: Replace 'feedback regulator' with 'control loop'.");
@@ -1403,13 +1416,26 @@ describe("Self-check before display (CAP-9)", () => {
         };
       },
     });
-    // The Self-check sees the Confidence Map entry with its level.
-    expect(selfCheckPrompt("244")).toContain("[C1] (unreliable) Response time under load is unreliable.");
+    // The Self-check sees the Confidence Map entry with its level; a used
+    // repair is checked again on the final text (2026-10-05, Round 2,
+    // follow-up).
+    const prompts244 = selfCheckPrompts("244");
+    expect(prompts244).toHaveLength(fails ? 2 : 1);
+    expect(prompts244[0]).toContain("[C1] (unreliable) Response time under load is unreliable.");
+    if (fails) expect(selfCheckDraftBlock(prompts244[1]!)).toContain("so it remains unconfirmed");
     const rows = notes.filter((note) => note.section === "244" && note.source === "model");
     expect(rows).toHaveLength(1);
     const { row, selfCheck } = rowFor(sectionRows, "244");
     if (fails) {
-      expect(rows[0]).toMatchObject({ outcome: "not_applied", tier: "missing_fact", repaired: true, paragraphIndex: 1 });
+      // 2026-10-05 (Round 2, follow-up): the check of the final text finds
+      // the figure hedged, so the row records the final text's verdict.
+      expect(rows[0]).toMatchObject({
+        outcome: "applied",
+        tier: "none",
+        repaired: true,
+        paragraphIndex: 1,
+        reason: "hedged; repaired, and checked again on the final text",
+      });
       expect(callsFor("244", "repair")).toHaveLength(1);
       expect(callsFor("244", "repair")[0]).toContain("Paragraph 2: Hedge the response-time figure: it was not measured.");
       expect(row.draftText).toBe(hedged);
@@ -1844,10 +1870,10 @@ describe("deterministic Self-check rules", () => {
     );
   });
 
-  it("marks plan and model rows not re-verified when compression changed an accepted repair (review P2-1)", () => {
+  it("never marks a plan or model row repaired when no check of the final text ran (review P2-1; follow-up review P2)", () => {
     const summaryVersionId = "summary" as Id<"summaryVersions">;
     const item = "item-1" as Id<"summaryItems">;
-    const planRows = (repairShortened: boolean) =>
+    const planRows = () =>
       planComplianceNoteDrafts({
         section: "246",
         summaryVersionId,
@@ -1863,14 +1889,16 @@ describe("deterministic Self-check rules", () => {
         }],
         verdicts: [{ itemId: item, mergedItemIds: [item], paragraphIndex: 1, outcome: "not_applied", reason: "Missing the 38-day result." }],
         repairSucceeded: true,
-        repairShortened,
         coverageCheckSucceeded: true,
       });
-    expect(planRows(false)[0]).toMatchObject({ outcome: "not_applied", repaired: true, reason: "Missing the 38-day result." });
-    expect(planRows(true)[0]).toMatchObject({
+    // 2026-10-05 (Round 2 follow-up, review P2): a used repair with no check
+    // of the final text left the checked text byte for byte (it came back
+    // unchanged, or shortening turned it back), so the first verdict stands
+    // and nothing is marked repaired.
+    expect(planRows()[0]).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: "Missing the 38-day result.; repaired, then shortened to fit the Line limit, so not re-verified",
+      reason: "Missing the 38-day result.; the repair left the checked text as it was",
     });
 
     const before = runDeterministicSelfCheck({
@@ -1880,7 +1908,7 @@ describe("deterministic Self-check rules", () => {
       profile: PROFILE,
       isFirstInOrder: false,
     });
-    const modelRow = (shortened: boolean) =>
+    const modelRow = () =>
       assembleSectionNotes({
         section: "246",
         before,
@@ -1888,11 +1916,18 @@ describe("deterministic Self-check rules", () => {
         verdicts: [{ check: "storyline", instruction: "Storyline", outcome: "not_applied", reason: "Drifts.", paragraphIndex: 0 }],
         modelCheck: { ok: true },
         storylineQuestion: null,
-        repair: { attempted: true, succeeded: true, shortened },
+        repair: { attempted: true, succeeded: true },
         finalText: "The coating held its transmission.",
       }).rows.find((row) => row.instruction === "Storyline");
-    expect(modelRow(false)).toMatchObject({ repaired: true });
-    // "Not checked" rows (2026-09-28) are never repaired, so never shortened.
+    // 2026-10-05 (Round 2, follow-up): every used repair is checked again on
+    // the final text, so a row with no such check never claims the repair:
+    // shortened or not, it reads not checked on the final text.
+    expect(modelRow()).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: "Not checked on the final text (no check of the final text ran)",
+    });
+    // "Not checked" rows (2026-09-28) are never repaired.
     const notCheckedRow = assembleSectionNotes({
       section: "246",
       before,
@@ -1900,7 +1935,7 @@ describe("deterministic Self-check rules", () => {
       verdicts: [{ check: "storyline", instruction: "Storyline", outcome: "not_applied", reason: "Not checked.", notChecked: true }],
       modelCheck: { ok: true },
       storylineQuestion: null,
-      repair: { attempted: true, succeeded: true, shortened: true },
+      repair: { attempted: true, succeeded: true },
       finalText: "The coating held its transmission.",
     }).rows.find((row) => row.instruction === "Storyline");
     expect(notCheckedRow).toMatchObject({ reason: "Not checked.", repaired: false });
@@ -1919,14 +1954,9 @@ describe("deterministic Self-check rules", () => {
       }],
       verdicts: [{ itemId: item, mergedItemIds: [item], outcome: "not_applied", reason: "Not checked.", actionableRepair: false }],
       repairSucceeded: true,
-      repairShortened: true,
       coverageCheckSucceeded: true,
     });
     expect(notCheckedPlan[0]).toMatchObject({ reason: "Not checked.", repaired: false });
-    expect(modelRow(true)).toMatchObject({
-      repaired: false,
-      reason: "Drifts.; repaired, then shortened to fit the Line limit, so not re-verified",
-    });
   });
 });
 
@@ -2631,12 +2661,54 @@ describe("results against targets, no talk about sources and Glossary repairs (2
     expect(user).not.toContain(SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.instruction);
     expect(user).toContain("- ruleId results_against_targets");
     expect(request.system).toBe(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT);
-    // A not applied verdict must name the paragraph; this one did not.
+    // A not applied verdict must name the paragraph; this one did not, and
+    // its words name none either: the row keeps its finding (Round 5, rule 6).
     expect(result.planVerdicts.at(-1)).toEqual({
       ruleId: "results_against_targets",
       mergedItemIds: [],
       outcome: "not_applied",
-      reason: TARGETS_BREAK_UNLOCATED_REASON,
+      reason: `${TARGETS_BREAK_UNLOCATED_REASON} Its finding: Calls a met target close.`,
+      actionableRepair: false,
+    });
+  });
+
+  // 2026-10-04 (first), Round 5 (rule 6): release suite run 5 of 2026-10-05
+  // read only "named no valid paragraph" for "edge coverage still met
+  // target" (58 against at least 60).
+  it("locates a targets finding by the one paragraph its own words name, and repairs it there (Round 5)", async () => {
+    const base = replayInput();
+    const planChecks = [...base.planChecks, targets];
+    const input = { ...base, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks) };
+    const first = replayResponse();
+    const run = async (reason: string) => {
+      const answers = [{
+        ...first,
+        planVerdicts: [
+          ...first.planVerdicts,
+          { ruleId: "results_against_targets", mergedItemIds: [], paragraph: 0, outcome: "not_applied", reason, repairGuidance: "Say 58 microns missed the 60 micron target." },
+        ],
+      }];
+      const client = {
+        messages: {
+          create: vi.fn(async (params: GenerationMessageParams) => ({
+            content: [{ type: "tool_use" as const, id: "targets", name: params.tool_choice?.name ?? "submit_self_check", input: answers.shift() }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          })),
+        },
+      };
+      return (await runModelSelfCheck(client as GenerationClient, input)).planVerdicts.at(-1);
+    };
+    expect(await run("P2 says edge coverage still met target.")).toMatchObject({
+      ruleId: "results_against_targets",
+      paragraphIndex: 1,
+      outcome: "not_applied",
+      reason: "P2 says edge coverage still met target.",
+      actionableRepair: true,
+    });
+    // Two paragraphs named: not located, and the finding's words are kept.
+    expect(await run("P1 and P2 call a missed target met.")).toMatchObject({
+      outcome: "not_applied",
+      reason: `${TARGETS_BREAK_UNLOCATED_REASON} Its finding: P1 and P2 call a missed target met.`,
       actionableRepair: false,
     });
   });

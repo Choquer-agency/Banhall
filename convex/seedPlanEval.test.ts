@@ -99,6 +99,47 @@ describe("seedPlanEval reads", () => {
     ]);
     const collected = await t.query(collect, { generationId });
     expect(collected.project).toEqual({ projectId, title: "Release eval - Fictional kiln" });
+    // 2026-10-02 (alert 7): the writer settings the generation ran under.
+    expect(collected.generation.writerSettings).toEqual({
+      profileState: "missing",
+      source: "none",
+      fileName: null,
+      matchesProfile: false,
+      savedProfileSuperseded: false,
+      waiverAnalysis: "none",
+      truncated: false,
+      addressedCategories: null,
+    });
+    // A settings document applied from Writer's Notes is read back whole.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(generationId, {
+        writerSettings: {
+          profileState: "applied",
+          source: "writer_notes",
+          fileName: "pd-writing-customized-settings.md",
+          matchesProfile: false,
+          savedProfileSuperseded: true,
+          waiverAnalysis: "analyzed",
+          truncated: false,
+          addressedCategories: ["bannedWords", "openingClauses"],
+        },
+      });
+    });
+    expect((await t.query(collect, { generationId })).generation.writerSettings).toEqual({
+      profileState: "applied",
+      source: "writer_notes",
+      fileName: "pd-writing-customized-settings.md",
+      matchesProfile: false,
+      savedProfileSuperseded: true,
+      waiverAnalysis: "analyzed",
+      truncated: false,
+      addressedCategories: ["bannedWords", "openingClauses"],
+    });
+    // A generation that recorded no writer settings reads back null.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(generationId, { writerSettings: undefined });
+    });
+    expect((await t.query(collect, { generationId })).generation.writerSettings).toBeNull();
     expect(collected.subsections).toHaveLength(13);
     expect(collected.summary).toBeNull();
     expect(collected.report).toBeNull();

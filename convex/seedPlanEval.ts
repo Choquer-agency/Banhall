@@ -368,6 +368,20 @@ export const collect = internalQuery({
         singleModelId: generation.singleModelId ?? null,
         briefVersionId: briefId ?? null,
         summaryVersionId: generation.summaryVersionId ?? null,
+        // 2026-10-02 (alert 7): the writer settings the generation ran
+        // under, so the suite can show whether a settings document applied.
+        writerSettings: generation.writerSettings
+          ? {
+              profileState: generation.writerSettings.profileState,
+              source: generation.writerSettings.source,
+              fileName: generation.writerSettings.fileName ?? null,
+              matchesProfile: generation.writerSettings.matchesProfile,
+              savedProfileSuperseded: generation.writerSettings.savedProfileSuperseded,
+              waiverAnalysis: generation.writerSettings.waiverAnalysis,
+              truncated: generation.writerSettings.truncated,
+              addressedCategories: generation.writerSettings.addressedCategories ?? null,
+            }
+          : null,
       },
       subsections: subsections.map((row) => ({
         roleId: row.roleId,
@@ -484,6 +498,8 @@ export const collect = internalQuery({
         costUsd: row.costUsd,
         inputTokens: row.inputTokens,
         outputTokens: row.outputTokens,
+        // 2026-10-04 (first, round 2): each Self-check request's time.
+        durationMs: row.durationMs ?? null,
         generationId: row.generationId ?? null,
       })),
       truncated,

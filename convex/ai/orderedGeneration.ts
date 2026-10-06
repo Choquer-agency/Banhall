@@ -33,7 +33,9 @@ import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import {
   buildStyleGuidance,
+  closerToLimits,
   compressWithinLimit,
+  meetsWriterCap,
   lengthBudgetBlock,
   quotedTerms,
   limitOverage,
@@ -44,11 +46,11 @@ import {
 import {
   consistencyFailureReason,
   runConsistencyPass,
-  runFinalCoverageSelfCheck,
   runModelSelfCheck,
   selfCheckFailureDiagnostic,
   sourceFactsFor,
   type ModelSelfCheckResult,
+  type SelfCheckModelInput,
 } from "./selfCheck";
 import {
   generationSlotOf,
@@ -73,6 +75,12 @@ import {
   type SectionKey,
 } from "../lib/lineLimits";
 import {
+  lineDraftWordTarget,
+  writerCapText,
+  writerLineCap,
+  type WriterLineCap,
+} from "../lib/writerLineCap";
+import {
   orderedPayloadValidator,
   sectionKeyOf,
   sectionNumberValidator,
@@ -84,14 +92,19 @@ import {
   consistencyNoteDrafts,
   consistencySummaryNote,
   glossaryTermOf,
+  REPAIR_LEFT_CHECKED_TEXT,
   repairIssues,
   runDeterministicSelfCheck,
+  settleGlossaryForWriterTerms,
+  settleWriterSettingsVerdicts,
   SOURCE_TALK_KEY,
   type DeterministicSelfCheck,
   type ModelVerdict,
 } from "../lib/selfCheckRules";
 import { noteDraft, type ComplianceNoteDraft } from "../lib/complianceNote";
 import { containsTerm } from "../lib/editedTerms";
+import { extractWriterWordingRules, unreadWritingRules } from "../lib/settingsExtraction";
+import { hasWriterWordingRules, wordingLossDetails, type WriterWordingRules } from "../lib/writerWording";
 import {
   confirmedConflictParagraph,
   confirmedConflictsOf,
@@ -179,19 +192,32 @@ export function repairGuidanceBlock(
    * 2026-09-30 (second): a Glossary Term the writer's Feedback governs is
    * used by an unedited signed-off idea of the Line.
    */
-  governedInIdea = false
+  governedInIdea = false,
+  /**
+   * 2026-10-04 (first), Round 5 follow-up (final re-check P2-C1): the
+   * writer's measured terms and banned words, for a writer whose settings
+   * hold them. Absent, the request is as before.
+   */
+  writerWording?: WriterWordingRules
 ): string {
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.repairGuidance;
   const terms =
     editedTerms.length > 0
       ? `${scaffold.exactTermsPrefix}${quotedTerms(editedTerms)}${scaffold.exactTermsSuffix}`
       : "";
+  const writerTerms = writerWording?.terms.map((rule) => rule.term) ?? [];
+  const writerBans = writerWording
+    ? [...new Set([...writerWording.terms.flatMap((rule) => rule.banned), ...writerWording.banned.flatMap((rule) => [rule.phrase, ...rule.forms])])]
+    : [];
+  const wording = `${writerTerms.length > 0 ? `${scaffold.writerWording.termsPrefix}${quotedTerms(writerTerms)}${scaffold.writerWording.suffix}` : ""}${
+    writerBans.length > 0 ? `${scaffold.writerWording.bannedPrefix}${quotedTerms(writerBans)}${scaffold.writerWording.suffix}` : ""
+  }`;
   // Round 2 re-check (P2): an issue can carry model-written words (a facts
   // finding's quotes and correction, a check's guidance), so none can open
   // or close a block. Bytes are unchanged unless an issue holds a marker.
   return `${scaffold.prefix}${issues
     .map((issue) => `${scaffold.issuePrefix}${neutralizeMarkers(issue)}`)
-    .join(scaffold.issueSeparator)}${terms}${writerDecisions ? scaffold.writerDecisions : ""}${
+    .join(scaffold.issueSeparator)}${terms}${wording}${writerDecisions ? scaffold.writerDecisions : ""}${
     governedInIdea ? scaffold.governedRename : ""
   }${scaffold.draftPrefix}${draft}`;
 }
@@ -276,8 +302,8 @@ export function repairDroppedKeptIdeaReason(conflict: Pick<ConfirmedConflict, "w
  * signed-off item the checked draft covered.
  */
 export function repairDroppedCoverItemReason(item: Pick<PlanCheck, "wording">): string {
-  // 2026-10-04 (second, review round 1, P3-2): neutral, since a targets or
-  // facts fix is set aside the same way as a leave-out fix.
+  // 2026-10-04 (first and second): neutral, since a targets, facts or
+  // writer's cap fix is set aside the same way as a leave-out fix.
   return `the repaired text no longer covers the signed-off item "${ideaWords(item.wording, 120)}", and a repair must keep what a COVER item holds, so the checked draft was kept`;
 }
 
@@ -332,13 +358,61 @@ export function repairDroppedTermReason(term: string): string {
 }
 
 /**
+ * Round 5 follow-up (re-check P2-1, final re-check P2-C1): why a repair
+ * that broke a measured rule of the writer's, made only for what the
+ * Writer Profile outranks, was not used.
+ */
+export function repairBrokeWriterRuleReason(loss: string): string {
+  return `the repaired text ${loss}; the checked draft did not, so it was kept`;
+}
+
+/**
+ * Greptile on PR #27 (P1): why a repair made for an issue that outranks the
+ * Writer Profile, which broke a writer's measured rule and left that issue
+ * unfixed on the final text, was not used.
+ */
+export function repairBrokeWriterRuleUnfixedReason(losses: readonly string[]): string {
+  return `the repaired text ${losses.join(", and ")}, and the check of the final text found no issue that outranks the writer's settings fixed, so the checked draft was kept`;
+}
+
+/**
  * 2026-09-28 (second): the Locked length restated after a signed-off plan,
  * so the drafter reads it after "Cover every COVER item"; since the full
  * release suite it asks for the draft target, well under the cap.
  */
-export function planLengthBudgetBlock(section: SectionKey, target: LengthTarget): string {
+export function planLengthBudgetBlock(
+  section: SectionKey,
+  target: LengthTarget,
+  /**
+   * 2026-10-04 (first): the writer's whole-Line cap below the Locked cap.
+   * The block then states the Locked cap, the writer's cap as the writer's
+   * settings, and the target under it. Null or absent: as before.
+   */
+  writerCap: WriterLineCap | null = null
+): string {
+  if (writerCap) {
+    const scaffold = ORDERED_PROMPT_SCAFFOLDS.planLengthBudgetWriterCap;
+    return `${scaffold.prefix}${WORD_CAPS[section]}${scaffold.wordCapToLines}${LINE_LIMITS[section]}${scaffold.linesToWriterCap}${writerCapText(writerCap)}${scaffold.writerCapToBudget}${lineDraftWordTarget(section, target, writerCap)}${scaffold.suffix}`;
+  }
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.planLengthBudget;
   return `${scaffold.prefix}${WORD_CAPS[section]}${scaffold.wordCapToLines}${LINE_LIMITS[section]}${scaffold.linesToBudget}${draftWordTarget(section, target)}${scaffold.suffix}`;
+}
+
+/**
+ * 2026-10-04 (first, review P3-1): why a repair made only to shorten was not
+ * used (Compliance Note wording).
+ */
+export function repairOverWriterCapReason(words: number, lines: number, writerCap: WriterLineCap): string {
+  return `the repaired text came out at ${words} words, ${lines} lines, further over the writer's cap of ${writerCapText(writerCap)} than the checked draft, so the checked draft was kept`;
+}
+
+/**
+ * 2026-10-04 (first), Round 5 (Rule 12, review P3-6): why a repair that took
+ * a Line over the writer's cap the checked draft met, made for no figure,
+ * signed-off item or measured rule, was not used.
+ */
+export function repairPushedOverWriterCapReason(words: number, lines: number, writerCap: WriterLineCap): string {
+  return `the repaired text came out at ${words} words, ${lines} lines, over the writer's cap of ${writerCapText(writerCap)} that the checked draft met, and it fixed no figure, signed-off item or measured rule, so the checked draft was kept`;
 }
 
 /** Why a repair that broke a Locked limit was not used (Compliance Note wording). */
@@ -811,7 +885,8 @@ export function workAnswers242Block(
 /**
  * Convert the Self-check response into one AD-37 row per item/Skip. When an
  * accepted repair changed the checked text, `finalCoverage` carries the
- * coverage-only Self-check of the final text (2026-09-28, third), and the
+ * plan verdicts of the Self-check of the final text (2026-09-28, third; the
+ * full Self-check since 2026-10-05, Round 2, follow-up), and the
  * rows record its verdicts: a row is marked repaired only when the first
  * check sent it to the repair and the final check found it applied.
  */
@@ -821,8 +896,6 @@ export function planComplianceNoteDrafts(args: {
   checks: PlanCheck[];
   verdicts: PlanVerdicts;
   repairSucceeded?: boolean;
-  /** The accepted repair was then shortened by compression (review P2-1). */
-  repairShortened?: boolean;
   coverageCheckSucceeded?: boolean;
   finalCoverage?: { ok: true; verdicts: PlanVerdicts } | { ok: false };
   /**
@@ -867,7 +940,7 @@ export function planComplianceNoteDrafts(args: {
     if (conflict) {
       // CAP-13 rule 4 (2026-09-29, second): the idea is drafted and kept,
       // and its row says so from the verdict that describes the final text
-      // (the coverage-only check after a used repair, else the first
+      // (the check of the final text after a used repair, else the first
       // check). Its excluded words standing in the text never decide it
       // (review P2-1: a disclaimer holds them too); with no usable verdict
       // the row is "Not checked". Tier conflict; never marked repaired.
@@ -939,8 +1012,12 @@ export function planComplianceNoteDrafts(args: {
         planRef,
       })];
     }
-    // A repair compression then changed was never checked again.
-    const notReverified = sentToRepair && args.repairShortened === true;
+    // 2026-10-05 (Round 2 follow-up, review P2): every used repair that
+    // changed the checked text has a check of the final text above, so a
+    // used repair without one left the checked text byte for byte (it came
+    // back unchanged, or shortening turned it back): the first verdict
+    // describes the final text and nothing was repaired.
+    const unchanged = sentToRepair;
     const repairNotUsed =
       !args.repairSucceeded &&
       args.repairNotUsedReason !== undefined &&
@@ -956,10 +1033,10 @@ export function planComplianceNoteDrafts(args: {
       instruction,
       outcome: verdict.outcome,
       tier: "none",
-      reason: notReverified
-        ? `${rowReason(verdict)}; repaired, then shortened to fit the Line limit, so not re-verified`
+      reason: unchanged
+        ? `${rowReason(verdict)}${REPAIR_LEFT_CHECKED_TEXT}`
         : `${rowReason(verdict)}${repairNotUsed}`,
-      repaired: sentToRepair && !notReverified,
+      repaired: false,
       planRef,
     })];
   });
@@ -1092,13 +1169,17 @@ type SectionCompletion = {
 
 /**
  * Draft, Self-check and (at most once) repair one section. Worst case:
- * draft 1 + compression 3 (two squeezes and, when the text is still at most
- * 10 percent over, one targeted pass, 2026-09-28 fifth) + Self-check 2 (its
+ * draft 1 + compression 3 (two squeezes and one targeted pass, when the text
+ * is still at most 10 percent over a Locked limit, 2026-09-28 fifth, or over
+ * only the writer's cap at any overage, Round 4) + Self-check 2 (its
  * answer plus one structured retry, or in Summary mode its one follow-up for
  * missing labels, 2026-09-28) + repair 1 + compression of the repair 3 + the
- * coverage-only Self-check of the final text 2 (its answer and one
- * follow-up, Summary mode only, when the repair changed the text, 2026-09-28
- * third) = 12 sequential calls (providers.ts ORDERED_SECTION_ACTION_SLOTS);
+ * Self-check of the final text 2 (its answer and one more request: when a
+ * used repair changed the text, the full check with its labels, and in
+ * Summary mode its plan checks, and its follow-up or structured retry;
+ * 2026-09-28 third, 2026-10-04 first, round 2, and its 2026-10-05
+ * follow-up) = 12 sequential calls (providers.ts
+ * ORDERED_SECTION_ACTION_SLOTS);
  * the action deadline bounds their time. Shared by the ordered chain and
  * the seed redraft so both draft under the same rules. Throws on a failed
  * draft; the caller records the failure.
@@ -1161,6 +1242,10 @@ export async function draftCheckedSection(input: {
   // it than the other text, which must never be traded back for it.
   const overLimitMore = (checked: string, other: string) =>
     sectionMetrics(checked, key).overLimit && limitOverage(checked, key) > limitOverage(other, key);
+  // 2026-10-04 (first): the writer's whole-Line cap below the Locked cap
+  // (null without one). The draft, its repair and every shortening pass aim
+  // under it; the Self-check measures the same rules (writerLineCap.ts).
+  const writerCap = writerLineCap(section, payload.orderedContext.selfCheckRules);
   const draftWith = async (callSite: string, extraGuidance = "") =>
     scrubBannedWordsUnlessWaived(
       await agent(
@@ -1168,14 +1253,15 @@ export async function draftCheckedSection(input: {
         analysis,
         claim.model,
         payload.brainExemplars[key],
-        // 2026-09-28 (second, full suite): drafts and repairs aim well under the cap.
-        lengthBudgetBlock(key, lengthTarget, draftWordTarget(key, lengthTarget)),
+        // 2026-09-28 (second, full suite): drafts and repairs aim well under
+        // the cap; since 2026-10-04 (first), under the writer's cap too.
+        lengthBudgetBlock(key, lengthTarget, lineDraftWordTarget(key, lengthTarget, writerCap), writerCap),
         styleGuidance + extraGuidance,
         styleOverrides,
         // A signed-off plan run restates the Locked length last, after the
         // plan and the Brief (review P3-5).
         claim.planBlock
-          ? claim.briefBlock + reportFacts + decisions + answers242 + editedTermsBlock(claim.editedTerms) + planLengthBudgetBlock(key, lengthTarget)
+          ? claim.briefBlock + reportFacts + decisions + answers242 + editedTermsBlock(claim.editedTerms) + planLengthBudgetBlock(key, lengthTarget, writerCap)
           : claim.briefBlock,
         claim.planBlock
       ),
@@ -1197,6 +1283,17 @@ export async function draftCheckedSection(input: {
   const coverItems = claim.planChecks
     .filter((planCheck) => planCheck.instruction === "cover")
     .map((planCheck) => planCheck.wording.join(" "));
+  // 2026-10-04 (first), Round 5: the writer's wording rules code measures,
+  // read from the instruction text the Writer Profile applied. Absent for a
+  // writer with no such rule, so every row and request stays as before.
+  const extractedWording = payload.orderedContext.profileState === "applied" && payload.writerFlavor?.trim()
+    ? extractWriterWordingRules(payload.writerFlavor)
+    : null;
+  const writerWording = hasWriterWordingRules(extractedWording) ? extractedWording : undefined;
+  // Re-check P1-1 (b): what of the settings the extractor left to the model.
+  const unreadWriting = writerWording && payload.writerFlavor ? unreadWritingRules(payload.writerFlavor) : undefined;
+  const settleContext = { ...(writerWording ? { rules: writerWording } : {}), ...(unreadWriting ? { unread: unreadWriting } : {}) };
+  const wordingGuard = writerWording ? { wording: { rules: writerWording, section } } : {};
   // A compression pass that comes back empty after the scrub, no closer to
   // the limits or missing required content never replaces the draft it was
   // given. A pass that fails keeps the best text so far; only a failure
@@ -1210,10 +1307,14 @@ export async function draftCheckedSection(input: {
     styleOverrides,
     coverItems,
     claim.editedTerms,
-    { finalCut: true }
+    { finalCut: true, writerCap, coverItems, ...wordingGuard }
   );
   if (firstFit.error !== undefined) {
-    if (firstFit.text === text) throw firstFit.error;
+    // 2026-10-04 (first, review P2-3): only a draft over a Locked limit
+    // fails the Section when no pass was kept. A draft within the Locked
+    // caps, shortened only for the writer's cap, is kept as drafted and the
+    // failure is recorded on the cap row (compression.failure).
+    if (firstFit.text === text && sectionMetrics(text, key).overLimit) throw firstFit.error;
     console.warn(
       `generation:compression:${section}: a later pass failed (${normalizeProviderError(firstFit.error).code}); the best pass so far is kept`
     );
@@ -1235,6 +1336,7 @@ export async function draftCheckedSection(input: {
         .map((planCheck) => planCheck.wording),
       glossarySetAside,
       feedbackTerms: feedbackTerms.map((entry) => entry.term),
+      ...(writerWording ? { writerWording } : {}),
       // 2026-09-30 (third): no talk about sources, signed-off plan runs only.
       // The project's subject is every signed-off item's wording across all
       // Lines (review P2-4), the Glossary Terms and the edited terms.
@@ -1251,6 +1353,11 @@ export async function draftCheckedSection(input: {
         : {}),
     });
   const before = check(text);
+  // 2026-10-04 (first): every cap rule of the writer's code measures on this
+  // Line (whole-Line or paragraph, clipped to the Locked cap or not).
+  const writerCapRules = before.entries.flatMap((entry) =>
+    entry.measuredCap?.kind === "writer" && entry.measuredCap.instruction ? [entry.measuredCap.instruction] : []
+  );
   // 2026-10-04 (second): the sources the draft is written from (the analysis,
   // the Brief's Storyline and Confidence Map, and since review round 1, P2-1,
   // every Line's signed-off items and the writer's instructions), for the
@@ -1281,24 +1388,35 @@ export async function draftCheckedSection(input: {
   let storylineQuestionWithheld: string | undefined;
   let planVerdicts: ModelSelfCheckResult["planVerdicts"] = [];
   let modelCheck: { ok: true } | { ok: false; reason: string; detail?: string } = { ok: true };
+  // The first Self-check's input; round 2 (2026-10-05) checks the final
+  // text with the same input when shortening changed a used repair.
+  const selfCheckInput: SelfCheckModelInput = {
+    section,
+    text,
+    storylineText: brief?.storylineText ?? "",
+    confidenceMap: brief?.confidenceMap ?? [],
+    glossaryCandidates: before.glossaryCandidates,
+    writerInstructions: payload.writerFlavor,
+    rules: before.modelRules,
+    // 2026-10-04 (first): the writer's caps code measures, quoted, which
+    // the writer-instruction verdicts are told not to judge.
+    ...(writerCapRules.length > 0 ? { measuredCaps: writerCapRules } : {}),
+    model: clientFor.modelFor(`generation:selfCheck:${section}`),
+    planChecks: claim.planChecks,
+    planChecksBlock: claim.planChecksBlock,
+    editedTerms: claim.editedTerms,
+    ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
+    ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
+    ...(sourceFacts !== undefined ? { sourceFacts } : {}),
+  };
   try {
-    const result = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), {
-      section,
-      text,
-      storylineText: brief?.storylineText ?? "",
-      confidenceMap: brief?.confidenceMap ?? [],
-      glossaryCandidates: before.glossaryCandidates,
-      writerInstructions: payload.writerFlavor,
-      rules: before.modelRules,
-      model: clientFor.modelFor(`generation:selfCheck:${section}`),
-      planChecks: claim.planChecks,
-      planChecksBlock: claim.planChecksBlock,
-      editedTerms: claim.editedTerms,
-      ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
-      ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
-      ...(sourceFacts !== undefined ? { sourceFacts } : {}),
-    });
-    verdicts = result.verdicts;
+    const result = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), selfCheckInput);
+    // Round 5 follow-up: the settings row never contradicts what code measured.
+    verdicts = writerWording || writerCap || payload.orderedContext.selfCheckRules.length > 0
+      ? settleWriterSettingsVerdicts(result.verdicts, before, payload.writerFlavor, settleContext)
+      : result.verdicts;
+    // Round 5 follow-up: the writer's glossary outranks a Brief Glossary Term.
+    if (writerWording) verdicts = settleGlossaryForWriterTerms(verdicts, writerWording, before.glossaryCandidates);
     storylineQuestion = result.storylineQuestion;
     storylineQuestionWithheld = result.storylineQuestionWithheld;
     planVerdicts = withLeaveOutFigureNotes(
@@ -1410,15 +1528,42 @@ export async function draftCheckedSection(input: {
   // 2026-09-30 (third): the source-talk fix asks to take words out, so, like
   // a leave-out fix, it is never a Must keep line of the repair's
   // compression, whose guard would otherwise protect the words it removes.
+  // 2026-10-04 (first): the repair carries a fix for a writer's whole-Line
+  // cap; signed-off items outrank it (the COVER rollback below).
+  const writerCapIssue = before.entries.some(
+    (entry) =>
+      entry.measuredCap?.kind === "writer" &&
+      entry.measuredCap.wholeLine &&
+      entry.repairable &&
+      entry.row.outcome === "not_applied"
+  );
+  // Final re-check P2-C1 (lead decision, owner informed): what outranks the
+  // Writer Profile: a signed-off plan issue (an item, a Skip, a leave-out,
+  // Rule B or C, a target or a fact) or a Locked Rule.
+  const outranksWriterProfile =
+    planIssues.length > 0 ||
+    before.entries.some((entry) => entry.key === "locked" && entry.repairable && entry.row.outcome === "not_applied");
+  // Round 5 (Rule 12): the repair fixes a figure, a signed-off item or a
+  // rule code measured (any plan issue, or any deterministic issue).
+  const fixesMeasuredOrPlan =
+    planIssues.length > 0 ||
+    before.entries.some((entry) => entry.repairable && entry.row.outcome === "not_applied");
   const sourceTalkIssue = before.entries.find(
     (entry) => entry.key === SOURCE_TALK_KEY && entry.repairable && entry.row.outcome === "not_applied"
   )?.guidance;
+  // Round 5: a measured wording fix asks to change words, so, like the
+  // source-talk fix, it is never a Must keep line of the repair's
+  // compression; the wording guard keeps what it fixed.
+  const wordingIssues = new Set(
+    before.entries.flatMap((entry) =>
+      entry.measuredWording && entry.repairable && entry.row.outcome === "not_applied" && entry.guidance ? [entry.guidance] : []
+    )
+  );
   const repair: {
     attempted: boolean;
     succeeded: boolean;
     failureReason?: string;
     notUsedReason?: string;
-    shortened?: boolean;
   } = {
     attempted: issues.length > 0,
     succeeded: false,
@@ -1439,7 +1584,8 @@ export async function draftCheckedSection(input: {
           text,
           claim.editedTerms,
           decisions !== "",
-          feedbackTerms.some((entry) => entry.inSignedOffIdea === true)
+          feedbackTerms.some((entry) => entry.inSignedOffIdea === true),
+          writerWording
         )
       );
       if (repaired.trim()) {
@@ -1457,6 +1603,7 @@ export async function draftCheckedSection(input: {
             !leaveOutIssues.has(issue) &&
             !factsIssues.has(issue) &&
             issue !== sourceTalkIssue &&
+            !wordingIssues.has(issue) &&
             !claim.editedTerms.some((term) => containsTerm(issue, term))
         );
         const fit = await compressWithinLimit(
@@ -1468,13 +1615,20 @@ export async function draftCheckedSection(input: {
           styleOverrides,
           [...coverItems, ...fixes],
           claim.editedTerms,
-          { finalCut: true }
+          { finalCut: true, writerCap, coverItems, ...wordingGuard }
         );
         // CAP-13: a repair never removes a writer's edited term the checked
         // draft held (release suite run 4).
         const droppedTerm = claim.editedTerms.find(
           (term) => containsTerm(text, term) && !containsTerm(fit.text, term)
         );
+        // Round 5 follow-up (lead decision, owner informed; final re-check
+        // P2-C1): the full wording check on the repair. A repair that broke
+        // a writer's measured rule (removed a required term or opening, or
+        // wrote a banned word or synonym) is used only when it fixed what
+        // outranks the Writer Profile (accuracy, the Locked Rules, a
+        // signed-off item); the rule's row then names the loss.
+        const repairWordingLosses = writerWording ? wordingLossDetails(text, fit.text, writerWording, section) : [];
         // CAP-13 rule 4 (2026-09-29, second): nor an idea the writer kept
         // despite a Claim Exclusion. The coverage check of the final text
         // decides that below; only with no verdict to read (the first
@@ -1529,8 +1683,44 @@ export async function draftCheckedSection(input: {
           repair.notUsedReason = `${repairOverLimitReason(section, metrics.words, metrics.lines)}${
             failure ? `; ${failure}` : ""
           }`;
+        } else if (
+          writerCap &&
+          issues.every((issue) => issue.startsWith("Shorten ")) &&
+          !meetsWriterCap(fit.text, key, writerCap) &&
+          closerToLimits(text, fit.text, key, writerCap)
+        ) {
+          // 2026-10-04 (first, review P3-1): a repair made only to shorten
+          // is not used when it is further over the writer's cap than the
+          // checked draft (ties go to the repair).
+          const metrics = sectionMetrics(fit.text, key);
+          repair.notUsedReason = `${repairOverWriterCapReason(metrics.words, metrics.lines, writerCap)}${
+            failure ? `; ${failure}` : ""
+          }`;
+        } else if (
+          writerCap &&
+          !fixesMeasuredOrPlan &&
+          meetsWriterCap(text, key, writerCap) &&
+          !meetsWriterCap(fit.text, key, writerCap)
+        ) {
+          // Round 5 (Rule 12, lead decision, owner informed; review P3-6):
+          // a repair made only for what the Brief sets or the model judged
+          // (a Confidence Map hedge, the Storyline, a Glossary Term, a
+          // writer's rule no code measures) that takes a Line over the
+          // writer's cap it met is not used, as Rule 1b treats a repair made
+          // only to shorten.
+          const metrics = sectionMetrics(fit.text, key);
+          repair.notUsedReason = `${repairPushedOverWriterCapReason(metrics.words, metrics.lines, writerCap)}${
+            failure ? `; ${failure}` : ""
+          }`;
         } else if (droppedTerm !== undefined) {
           repair.notUsedReason = `${repairDroppedTermReason(droppedTerm)}${failure ? `; ${failure}` : ""}`;
+        } else if (repairWordingLosses.length > 0 && !outranksWriterProfile) {
+          // Round 5 follow-up (lead decision, owner informed; re-check
+          // P2-1, final re-check P2-C1): the writer's settings outrank the
+          // Brief's and the model's judgements, so a repair made only for
+          // those never breaks a measured rule of the writer's (run 6
+          // rewrote "edge coverage").
+          repair.notUsedReason = `${repairBrokeWriterRuleReason(repairWordingLosses.map((loss) => loss.reason).join(", and "))}${failure ? `; ${failure}` : ""}`;
         } else if (droppedKept.length > 0 && !keptOverLimit) {
           repair.notUsedReason = `${repairDroppedKeptIdeaReason(droppedKept[0]!)}${failure ? `; ${failure}` : ""}`;
         } else if (lostFigure !== undefined && !figureOverLimit) {
@@ -1540,9 +1730,6 @@ export async function draftCheckedSection(input: {
           if (keptOverLimit) for (const conflict of droppedKept) droppedForLimit.add(conflict.itemId);
           finalText = fit.text;
           repair.succeeded = true;
-          // Review P2-1: a repair the compression changed was not checked
-          // again by the model, so its fixes are not claimed as repaired.
-          repair.shortened = !sameUtf8Bytes(fit.text, repaired);
           keptFit = fit;
           after = check(finalText);
         }
@@ -1555,62 +1742,77 @@ export async function draftCheckedSection(input: {
     }
   }
 
-  // 2026-09-28 (third): the coverage record describes the final text. When
-  // an accepted repair (and its compression) changed the text the Self-check
-  // saw, a coverage-only Self-check on the frozen checking model checks the
-  // final text; nothing changes the text after it. Unchanged text makes no
-  // call, and a first check that failed as a whole stays unavailable.
+  // 2026-09-28 (third): the coverage record describes the final text;
+  // nothing changes the text after its check. Unchanged text makes no call,
+  // and a first check that failed as a whole stays unavailable.
   let finalCoverage:
     | { ok: true; verdicts: PlanVerdicts }
     | { ok: false; reason: string; detail: string }
     | undefined;
   // Greptile round 4, P2: the same request judges the labels of the Glossary
   // Terms the writer's Feedback governs on the final text, so their rows
-  // describe it; no request is added.
+  // describe it.
   let governedFinal: { ok: true; verdicts: ModelVerdict[] } | { ok: false } | undefined;
-  if (
-    payload.summaryVersionId &&
-    claim.planChecks.length > 0 &&
-    modelCheck.ok &&
-    !sameUtf8Bytes(text, finalText)
-  ) {
+  // Round 2 (2026-10-05, owner decision; follow-up "Small fix + Opus trial"):
+  // after every used repair that changed the text, shortened or not, the
+  // full Self-check judges the final text with the first check's input (its
+  // Glossary candidates and rules from the final text's own deterministic
+  // check), so every row describes the text that ships. In Summary mode it
+  // is the check of the final text that already ran (coverage-only before
+  // the follow-up), so no request is added. In Single draft and Compare it
+  // is one more Self-check request, within the slots the check of the final
+  // text has in every mode. A check that fails, or runs out of time, leaves
+  // those rows "not checked on the final text", never a verdict on the text
+  // before the repair.
+  let finalOrdinary:
+    | { ok: true; verdicts: ModelVerdict[]; sameAsChecked?: true }
+    | { ok: false; reason: string }
+    | undefined;
+  const finalCheckInput: SelfCheckModelInput | null =
+    repair.succeeded && modelCheck.ok && after !== null && !sameUtf8Bytes(text, finalText)
+      ? { ...selfCheckInput, text: finalText, glossaryCandidates: after.glossaryCandidates, rules: after.modelRules }
+      : null;
+  if (finalCheckInput) {
+    // The plan rows read this check's plan verdicts (Summary mode with plan checks).
+    const recordsPlanCoverage = Boolean(payload.summaryVersionId) && claim.planChecks.length > 0;
     try {
-      const final = await runFinalCoverageSelfCheck(
-        clientFor(`generation:selfCheck:${section}`),
-        {
-          section,
-          text: finalText,
-          model: clientFor.modelFor(`generation:selfCheck:${section}`),
-          planChecks: claim.planChecks,
-          planChecksBlock: claim.planChecksBlock,
-          editedTerms: claim.editedTerms,
-          ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
-          ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
-          ...(sourceFacts !== undefined ? { sourceFacts } : {}),
-        }
-      );
-      finalCoverage = {
-        ok: true,
-        verdicts: withLeaveOutFigureNotes(
-          final.planVerdicts,
-          claim.planChecks,
-          finalText,
-          planWording,
-          `generation:selfCheck:${section}: final coverage`
-        ),
-      };
+      const final = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), finalCheckInput);
+      if (recordsPlanCoverage) {
+        finalCoverage = {
+          ok: true,
+          verdicts: withLeaveOutFigureNotes(
+            final.planVerdicts,
+            claim.planChecks,
+            finalText,
+            planWording,
+            `generation:selfCheck:${section}: final coverage`
+          ),
+        };
+      }
+      const settled = after && (writerWording || writerCap || payload.orderedContext.selfCheckRules.length > 0)
+        ? settleGlossaryForWriterTerms(
+            settleWriterSettingsVerdicts(final.verdicts, after, payload.writerFlavor, settleContext),
+            writerWording,
+            after.glossaryCandidates
+          )
+        : final.verdicts;
+      finalOrdinary = { ok: true, verdicts: settled };
+      // Review P3-2: the governed terms' rows follow the same check.
       if (feedbackTerms.length > 0) governedFinal = { ok: true, verdicts: final.verdicts };
     } catch (error) {
       // Stored beside modelCheckDetail with the same diagnostic: the clause,
       // positions, byte counts and app-supplied ids, never model text.
       const reason = normalizeProviderError(error).code;
       const detail = selfCheckFailureDiagnostic(error);
-      console.warn(
-        `generation:selfCheck:${section}: final coverage Self-check failed (${reason}): ${detail}`
-      );
-      finalCoverage = { ok: false, reason, detail };
+      console.warn(`generation:selfCheck:${section}: Self-check of the final text failed (${reason}): ${detail}`);
+      if (recordsPlanCoverage) finalCoverage = { ok: false, reason, detail };
+      finalOrdinary = { ok: false, reason };
       if (feedbackTerms.length > 0) governedFinal = { ok: false };
     }
+  } else if (repair.succeeded && modelCheck.ok && sameUtf8Bytes(text, finalText)) {
+    // Review P3-4: the repair (shortened or not) left the checked text, which
+    // the first check judged: its verdicts describe the final text, no request.
+    finalOrdinary = { ok: true, verdicts, sameAsChecked: true };
   }
 
   // CAP-13 rule 4 (2026-09-29, second): a used repair whose final text the
@@ -1647,12 +1849,12 @@ export async function draftCheckedSection(input: {
       console.warn(`generation:repair:${section}: the repair no longer covers an idea the writer kept despite a Claim Exclusion; the checked draft is kept`);
       finalText = text;
       repair.succeeded = false;
-      repair.shortened = undefined;
       repair.notUsedReason = repairDroppedKeptIdeaReason(dropped[0]!);
       keptFit = firstFit;
       after = null;
       finalCoverage = undefined;
       governedFinal = undefined;
+      finalOrdinary = undefined;
     }
   }
 
@@ -1664,11 +1866,14 @@ export async function draftCheckedSection(input: {
   // over a Locked limit (Locked Rules first). With no final verdict to read,
   // nothing shows a loss, and the repair stays.
   // Review P3 (targets): a targets fix must keep what the plan holds too.
+  // 2026-10-04 (first, owner decision): signed-off items outrank the
+  // writer's cap, so a repair asked to shorten for it must keep them too.
   // 2026-10-04 (second): and so must a facts fix.
+  let heldByRepair = false;
   if (
     repair.succeeded &&
     finalCoverage?.ok &&
-    (leaveOutIssues.size > 0 || targetsIssues.size > 0 || factsIssues.size > 0)
+    (leaveOutIssues.size > 0 || targetsIssues.size > 0 || factsIssues.size > 0 || writerCapIssue)
   ) {
     const coverage = finalCoverage;
     const lost = claim.planChecks.filter((planCheck) => {
@@ -1679,15 +1884,51 @@ export async function draftCheckedSection(input: {
       return later !== undefined && later.actionableRepair !== false && later.outcome !== "applied";
     });
     if (lost.length > 0 && !overLimitMore(text, finalText)) {
-      console.warn(`generation:repair:${section}: a leave-out repair no longer covers a signed-off item; the checked draft is kept`);
+      // The Line stays over the writer's cap to keep a signed-off item only
+      // when the repair itself met the cap (review re-check P2-a).
+      heldByRepair = writerCapIssue && writerCap !== null && meetsWriterCap(finalText, key, writerCap);
+      console.warn(`generation:repair:${section}: a repair no longer covers a signed-off item; the checked draft is kept`);
       finalText = text;
       repair.succeeded = false;
-      repair.shortened = undefined;
       repair.notUsedReason = repairDroppedCoverItemReason(lost[0]!);
       keptFit = firstFit;
       after = null;
       finalCoverage = undefined;
       governedFinal = undefined;
+      finalOrdinary = undefined;
+    }
+  }
+
+  // Greptile on PR #27 (P1): a used repair that broke a measured rule of the
+  // writer's was kept for an issue that outranks the Writer Profile (lead
+  // decision, owner informed). It stays only when the check of the final
+  // text shows such an issue fixed: a signed-off plan check it was sent for
+  // now applied, or the Locked row now held. Otherwise it is treated like
+  // any other repair that breaks a writer's rule: not used, and the row
+  // says why.
+  const repairLosses = repair.succeeded && writerWording
+    ? wordingLossDetails(text, finalText, writerWording, section)
+    : [];
+  if (repairLosses.length > 0) {
+    const coverage = finalCoverage?.ok ? finalCoverage : undefined;
+    const planFixed = coverage !== undefined && claim.planChecks.some((planCheck) => {
+      const first = planVerdictFor(planVerdicts, planCheck);
+      if (first?.outcome !== "not_applied" || first.actionableRepair === false) return false;
+      return planVerdictFor(coverage.verdicts, planCheck)?.outcome === "applied";
+    });
+    const lockedFixed =
+      before.entries.some((entry) => entry.key === "locked" && entry.repairable && entry.row.outcome === "not_applied") &&
+      after?.entries.some((entry) => entry.key === "locked" && entry.row.outcome === "applied") === true;
+    if (!planFixed && !lockedFixed) {
+      console.warn(`generation:repair:${section}: a repair broke a writer's rule and fixed nothing that outranks it; the checked draft is kept`);
+      finalText = text;
+      repair.succeeded = false;
+      repair.notUsedReason = repairBrokeWriterRuleUnfixedReason(repairLosses.map((loss) => loss.reason));
+      keptFit = firstFit;
+      after = null;
+      finalCoverage = undefined;
+      governedFinal = undefined;
+      finalOrdinary = undefined;
     }
   }
 
@@ -1720,11 +1961,31 @@ export async function draftCheckedSection(input: {
       ...(keptFit.error !== undefined
         ? { failure: normalizeProviderError(keptFit.error).code }
         : {}),
+      ...(keptFit.heldBack ? { heldBack: keptFit.heldBack } : {}),
+      ...(keptFit.heldForFigures ? { heldForFigures: keptFit.heldForFigures } : {}),
     },
+    ...(keptFit.heldForPlan ? { heldForPlan: "pass" as const } : heldByRepair ? { heldForPlan: "repair" as const } : {}),
     ...(feedbackTerms.length > 0 ? { governed: feedbackTerms } : {}),
     ...(governedFinal ? { governedFinal } : {}),
+    ...(payload.writerFlavor ? { writerInstructions: payload.writerFlavor } : {}),
+    ...(finalOrdinary ? { finalVerdicts: finalOrdinary } : {}),
   });
   const rows = [...baseRows];
+  // Final re-check P2-C1 (lead decision, owner informed): a used repair that
+  // broke a measured rule of the writer's was kept for what outranks the
+  // Writer Profile; that rule's row names the loss plainly, as Rule 12 does
+  // for the cap.
+  // Greptile on PR #27 (P2): every loss, each on its own rule's row.
+  const keptLosses = repair.succeeded && writerWording ? wordingLossDetails(text, finalText, writerWording, section) : [];
+  for (const loss of keptLosses) {
+    const index = rows.findIndex((row) => row.instruction === loss.instruction);
+    if (index >= 0) {
+      rows[index] = {
+        ...rows[index]!,
+        reason: `${rows[index]!.reason}; the repair, kept for what it fixed (which outranks the writer's settings), ${loss.reason}`,
+      };
+    }
+  }
   let planRows: ComplianceNoteDraft[] = [];
   if (payload.summaryVersionId) {
     planRows = planComplianceNoteDrafts({
@@ -1734,7 +1995,6 @@ export async function draftCheckedSection(input: {
       verdicts: planVerdicts,
       repairSucceeded: repair.succeeded,
       ...(repair.notUsedReason ? { repairNotUsedReason: repair.notUsedReason } : {}),
-      repairShortened: repair.shortened === true,
       coverageCheckSucceeded: modelCheck.ok,
       ...(finalCoverage ? { finalCoverage } : {}),
       confirmed: new Map(confirmed.map((conflict) => [conflict.itemId, {

@@ -117,6 +117,7 @@ export {
   BRIEF_REQUEST,
   BRIEF_SCHEMA,
   BRIEF_SYSTEM_PROMPT,
+  BRIEF_WRITER_WORDING,
   briefOmittedSourcesNotice,
   buildBriefUserMessage,
 } from "../lib/briefRequest";
@@ -331,10 +332,14 @@ export type BriefCandidate<I extends string = Id<"generationSources">> = {
   exactExcerpt: string;
 };
 
-/** A frozen evidence row one Brief derivation reads. */
+/**
+ * A frozen evidence row one Brief derivation reads. `uploaderRole`
+ * (2026-10-04, first, review round 2 P3-6) decides the writer's wording
+ * rule (BRIEF_WRITER_WORDING), which the preparation key hashes too.
+ */
 export type BriefSourceRow<I extends string = Id<"generationSources">> = Pick<
   Doc<"generationSources">,
-  "kind" | "label" | "content" | "contentHash" | "transcriptId" | "factSpans"
+  "kind" | "label" | "content" | "contentHash" | "transcriptId" | "factSpans" | "uploaderRole"
 > & { _id: I };
 
 /** One span whose speaker verdict (owner decision 25) is asked for. */

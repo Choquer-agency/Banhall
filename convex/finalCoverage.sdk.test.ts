@@ -9,6 +9,8 @@
  * coverage. Now a coverage-only Self-check (plan verdicts only, on the frozen
  * checking model, with the same one follow-up) checks the final text when an
  * accepted repair changed it, and the Compliance Note records its verdicts.
+ * Since 2026-10-05 (Round 2, follow-up) that check is the full Self-check of
+ * the final text, which carries the same plan checks.
  *
  * Every test drafts one Section through draftCheckedSection with the real
  * Anthropic SDK and the production instrumented client; only `fetch` is
@@ -190,8 +192,10 @@ function schemaOf(sent: Sent) {
 
 /**
  * Scripts one Section: its draft, its repair and the plan verdicts of each
- * Self-check request in order (the first check, then the final coverage
- * check and its follow-up). An answer may be a raw tool input.
+ * Self-check request in order (the first check, then the check of the final
+ * text and its follow-up). An answer may be a raw tool input. Since
+ * 2026-10-05 (Round 2, follow-up) the check of the final text is the full
+ * Self-check, so a Self-check sent after the repair is "finalCoverage".
  */
 function installFetch(script: { repair?: string; checks: Array<PlanAnswer[] | { raw: unknown }> }): Sent[] {
   const sent: Sent[] = [];
@@ -206,14 +210,8 @@ function installFetch(script: { repair?: string; checks: Array<PlanAnswer[] | { 
       const json = JSON.parse(await request.text()) as Record<string, unknown>;
       const user = userOf(json);
       const tool = toolOf(json);
-      // A follow-up repeats the data blocks, not the coverage-only line, so
-      // it belongs to the check it follows.
-      const followUp = user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.missingFollowUp.prefix.trim());
       const stage = tool === "submit_self_check"
-        ? user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction) ||
-          (followUp && sent.at(-1)?.stage === "finalCoverage")
-          ? "finalCoverage"
-          : "selfCheck"
+        ? sent.some((request) => request.stage === "repair") ? "finalCoverage" : "selfCheck"
         : tool ?? (user.includes(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix) ? "repair" : "section");
       sent.push({ stage, json, user });
       const base = {
@@ -318,19 +316,23 @@ describe("coverage is checked on the final text (real SDK, fetch stubbed)", () =
       "finalCoverage",
     ]);
     const final = sent[3]!;
-    // The final text, the plan checks and nothing else to judge.
+    // The final text and the plan checks. Since 2026-10-05 (Round 2,
+    // follow-up) this is the full Self-check, the first check's request on
+    // the final text, never the coverage-only one.
     expect(final.user).toContain("[P3] Bench runs compared both faces at 40 percent solids for 300 hours each, and the graphite face wore 30 percent less.");
     expect(final.user).not.toContain("The team expected a graphite-filled face");
     expect(final.user).toContain("--- BEGIN [CONTENT PLAN CHECKS] ---");
-    expect(final.user).not.toContain("in verdicts, one for each label below");
     expect(final.user.endsWith(
-      `${SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction}\n\n` +
-        "Return exactly 3 planVerdicts, one for each plan check below:\n" +
+      "Return exactly 3 planVerdicts, one for each plan check below:\n" +
         `- skippedRoleId prior_year_status\n- itemId ${ITEM_WORKPLAN}\n- itemId ${ITEM_HYPOTHESIS}`
     )).toBe(true);
-    expect(schemaOf(final).verdicts?.maxItems).toBe(0);
+    const asDrafted = REPAIRED.split("\n\n").reduce(
+      (user, paragraph, index) => user.replace(paragraph, DRAFT.split("\n\n")[index]!),
+      final.user
+    );
+    expect(asDrafted).toBe(sent[1]!.user);
+    expect(final.json.tools).toEqual(sent[1]!.json.tools);
     expect(schemaOf(final).planVerdicts?.maxItems).toBe(3);
-    expect(schemaOf(final)).not.toHaveProperty("storylineQuestion");
     // The frozen checking model, the same one as the first check.
     expect(final.json.model).toBe(sent[1]!.json.model);
 
@@ -374,7 +376,13 @@ describe("coverage is checked on the final text (real SDK, fetch stubbed)", () =
     const result = await draft();
 
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
-    expect(rowFor(result, ITEM_HYPOTHESIS)).toMatchObject({ outcome: "not_applied", repaired: true });
+    // 2026-10-05 (Round 2 follow-up, review P2): the repair left the checked
+    // text as it was, so the first verdict stands and nothing was repaired.
+    expect(rowFor(result, ITEM_HYPOTHESIS)).toMatchObject({
+      outcome: "not_applied",
+      repaired: false,
+      reason: "P2 states an expectation, not a hypothesis.; the repair left the checked text as it was",
+    });
     expect(rowFor(result, ITEM_WORKPLAN)).toMatchObject({ outcome: "applied", paragraphIndex: 0 });
   });
 

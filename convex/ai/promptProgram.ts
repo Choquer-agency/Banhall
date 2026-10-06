@@ -55,6 +55,7 @@ import {
   BRIEF_REQUEST,
   BRIEF_SCHEMA,
   BRIEF_OMITTED_SOURCES_NOTICE,
+  BRIEF_WRITER_WORDING,
 } from "./brief";
 import {
   ANALYSIS_TOOL_SCHEMA,
@@ -477,8 +478,10 @@ export const generationPromptProgram = {
             // draft, and kept only if it is no further over a Locked limit.
             "conditionalCompressionOfTheRepair",
             // 2026-09-28 (third): in Summary mode, plan verdicts on the
-            // final text when the repair changed the checked text.
-            "conditionalFinalCoverageSelfCheck",
+            // final text when the repair changed the checked text. Since
+            // 2026-10-05 (Round 2, follow-up), in every mode, the full
+            // Self-check of the final text after a used repair changed it.
+            "conditionalSelfCheckOfTheFinalText",
           ],
           gate: "none",
         },
@@ -570,6 +573,9 @@ export const generationPromptProgram = {
       factModeCitations: "quote-located-in-a-verified-fact-span-on-the-transcript-row",
       contextBudget: BRIEF_INPUT_BUDGET,
       omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
+      // 2026-10-04 (first, round 2): after the task line, only when the
+      // evidence holds a settings document an internal uploader supplied.
+      writerWording: BRIEF_WRITER_WORDING,
       schema: BRIEF_SCHEMA,
       model: { kind: "generation-step", step: "brief", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
@@ -641,6 +647,15 @@ export const generationPromptProgram = {
       model: { kind: "frozen-role", role: "analysis", legacyModelId: MODEL },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
+      // 2026-10-04 (first), Round 3: a field the tool schema wants as an
+      // object or array that arrives as JSON text is read, then validated
+      // as usual (no request is added); an absent lockedConflicts reads as
+      // empty, since no waiver depends on it.
+      // Round 4: also inside a code fence, between prose, as a JSON string
+      // of the JSON, or with trailing commas; an unread field is described
+      // in the log by its shape, never its text.
+      answerDecode: "object-or-array-fields-sent-as-json-text-fenced-in-prose-or-with-trailing-commas-read-then-validated",
+      lockedConflicts: "absent-read-as-empty-decides-no-waiver",
       callSite: "generation:settings",
       cache: "per-projectId-and-contentHash-and-classifierVersion",
     },
@@ -684,7 +699,9 @@ export const generationPromptProgram = {
       request: COMPRESSION_REQUEST,
       model: { kind: "generation-step", step: "compression", beforeStepRouting: { kind: "candidate" } },
       // 2026-09-28 (fifth, release suite run 6): the ordered chain only.
-      finalCut: "ordered-chain-one-targeted-pass-when-at-most-10-percent-over",
+      // 2026-10-04 (first), Round 4: within the Locked caps it runs toward
+      // the writer's cap whatever the overage.
+      finalCut: "ordered-chain-one-targeted-pass-when-at-most-10-percent-over-or-over-only-the-writers-cap",
     },
     // Story 2 (CAP-9, AD-25/27): one structured Self-check per section.
     selfCheck: {
@@ -703,7 +720,10 @@ export const generationPromptProgram = {
         schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
         structuredPolicy: "single-attempt-then-missing-labels-follow-up",
         encodedJsonRecovery: "disabled",
-        finalCoverage: "plan-verdicts-and-feedback-term-labels-on-the-changed-final-text",
+        // 2026-10-05 (Round 2, follow-up): the check of the final text is
+        // the full Self-check with the first check's input, never
+        // coverage-only.
+        finalCoverage: "full-self-check-on-the-final-text-after-a-used-repair",
         // 2026-09-28, run 4: an invalid verdict is dropped and its label or
         // plan check asked for in the follow-up; only an answer with more
         // invalid verdicts than valid ones is rejected whole.
@@ -750,6 +770,10 @@ export const generationPromptProgram = {
         // the final text. The Summary system prompt also says how to judge
         // hedges, sources and Glossary candidates.
         resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
+        // 2026-10-04 (first), Round 5 (rule 6): a finding with no valid
+        // paragraph is located by the one paragraph its words name, else
+        // its words are kept on the row.
+        targetsUnlocated: "located-by-the-one-paragraph-its-words-name-else-its-words-kept",
         hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",
         // 2026-10-04 (second): every Line of a signed-off plan has one plan
         // check that each figure and detail is stated as the sources give
@@ -808,6 +832,12 @@ export const generationPromptProgram = {
       // Line 244's work fix is set aside when it mentions a signed-off figure
       // fewer times than the checked draft (Locked Rules first).
       evidenceGuard: "work-fixes-keep-every-signed-off-figure-mention",
+      // 2026-10-04 (first), Round 5: the writer's terms, banned words and
+      // required openings, read from the instruction text and measured in
+      // code, reach the repair as exact issues; shortening never breaks one.
+      // Round 5 follow-up: the model's settings and Glossary verdicts are
+      // settled against the measured rules and the writer's terms first.
+      writerWording: "terms-banned-words-and-openings-measured-in-code-exact-repair-issues-shortening-guarded-settings-and-glossary-verdicts-settled",
       // 2026-09-30 (third): in a signed-off plan run, report text that names
       // a source is found deterministically and repaired (never a Must keep
       // line), and Confidence Map, Storyline and Glossary fixes get a fixed
@@ -933,6 +963,10 @@ export const generationPromptProgram = {
       orderedDraftTarget: {
         capShare: DRAFT_WORD_CAP_SHARE,
         rounding: "floor",
+        // 2026-10-04 (first): a writer's whole-Line cap below the Locked cap
+        // (convex/lib/writerLineCap.ts) takes the same share, and the
+        // shortening passes aim under it, Locked limits first.
+        writerCap: "same-share-of-the-tightest-whole-line-writer-cap-clipped-to-the-locked-cap",
       },
     },
     transcripts: {

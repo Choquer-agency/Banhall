@@ -61,6 +61,7 @@ import {
   RESULTS_AGAINST_TARGETS_RULE_ID,
 } from "./lib/seedRevisions";
 import { renderBriefBlock } from "./lib/briefRender";
+import { sectionMetrics } from "./lib/lineLimits";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 import { FACT_RULES, TARGET_MET_RULE } from "../shared/humanProse";
 import { unbackedBullets } from "./lib/seedQuoteSupport";
@@ -235,8 +236,11 @@ function installFetch(script: { draft: string; repair?: string; compressed?: str
       const json = JSON.parse(await request.text()) as Record<string, unknown>;
       const user = userOf(json);
       const tool = (json.tools as Array<{ name: string }> | undefined)?.[0]?.name ?? null;
+      // 2026-10-05 (Round 2, follow-up): the check of the final text is the
+      // full Self-check, told apart as the one sent after the repair; its
+      // scripted answer judges the same labels as the first.
       const stage = tool === "submit_self_check"
-        ? user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction)
+        ? sent.some((request) => request.stage === "repair")
           ? "finalCoverage"
           : user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.missingFollowUp.prefix) ? "followUp" : "selfCheck"
         : tool ?? (user.includes(COMPRESSION_REQUEST.userScaffold.wordsToLimit)
@@ -396,7 +400,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       repair: REPAIRED_244,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsWrong, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -458,7 +462,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       repair: DRAFT_244.replace("flat steel panels", "thin flat panels"),
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsWrong, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, stillWrong, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, stillWrong, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -525,9 +529,12 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
     expect(sent[1]!.user).toContain('the same fact in other words is not a finding (warming "by 5 C" and warming "5 C, to 65 C" agree)');
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair"]);
+    // The stub's repair returns the draft, so the repair left the checked
+    // text as it was (2026-10-05, Round 2 follow-up, review P2).
     expect(factsRow(result)).toMatchObject({
       outcome: "not_applied",
-      reason: 'P3 says "Raising air temperature by 2 C pushed defects back up", but the sources say "Then we nudged the air up 2 C, to 127 C".',
+      reason: 'P3 says "Raising air temperature by 2 C pushed defects back up", but the sources say "Then we nudged the air up 2 C, to 127 C".; the repair left the checked text as it was',
+      repaired: false,
     });
   });
 
@@ -558,7 +565,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       compressed,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsWrong, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -581,7 +588,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       repair: lostPilot,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsWrong, targetsMet] },
-        { verdicts: [], planVerdicts: [covered[0], pilotLost, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [covered[0], pilotLost, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -621,7 +628,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       repair: fixed242,
       checks: [
         { verdicts: ordinary, planVerdicts: [itemCovered, steelStyle] },
-        { verdicts: [], planVerdicts: [itemCovered, factsMatch] },
+        { verdicts: ordinary, planVerdicts: [itemCovered, factsMatch] },
       ],
     });
     const result = await draft(
@@ -661,7 +668,7 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       repair: most.replace("flat steel panels", "flat panels"),
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, proportion, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -850,7 +857,9 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repair: stripped,
       checks: [
         { verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, unbackedFigure, targetsMet] },
-        { verdicts: [], planVerdicts: [statusCovered, factsMatch, targetsMet] },
+        // The check of the final text is the full Self-check on this branch
+        // (2026-10-04 first, Round 2 follow-up), so it answers the labels too.
+        { verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(
@@ -878,7 +887,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repair: repaired,
       checks: [
         { verdicts: [...ordinary, writerProfile], planVerdicts: [...covered, three, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: [...ordinary, writerProfile], planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION, { writerFlavor: WRITER_FLAVOR });
@@ -886,9 +895,10 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
     expect(sent[2]!.user).toContain(`- Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${factsRepairText(verified)}`);
     expect(sent[2]!.user).not.toContain(`the section says "${CAUSE.draftQuote}"`);
-    // The check of the final text has no WRITER INSTRUCTIONS block, but its
-    // SOURCE FACTS still hold the writer's instructions.
-    expect(sent[3]!.user).not.toContain("[WRITER INSTRUCTIONS]");
+    // The check of the final text is the full Self-check (2026-10-05, Round 2,
+    // follow-up): its WRITER INSTRUCTIONS block and its SOURCE FACTS both
+    // hold the writer's instructions.
+    expect(sent[3]!.user.split("--- BEGIN [WRITER INSTRUCTIONS] ---")).toHaveLength(2);
     expect(sent[3]!.user).toContain(`Writer instructions (the writer's wording):\n- ${WRITER_FLAVOR}`);
     expect(result.draftText).toBe(repaired);
     expect(factsRow(result)).toMatchObject({
@@ -910,7 +920,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repair: REPAIRED_244,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, objection, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), { ...withSources, editedTerms: ["deep cove"] }), SUMMARY_VERSION);
@@ -960,7 +970,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repair: fixed,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, objection, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(
@@ -980,7 +990,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repair: REPAIRED_244,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, probe, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), { ...withSources, editedTerms: ["deep cove"] }), SUMMARY_VERSION);
@@ -1015,7 +1025,7 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repair: repaired,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsOnP2, targetsOnP2] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, metShown] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, metShown] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -1030,6 +1040,202 @@ describe("review round 1, its re-check and Greptile round 1 (real SDK, fetch stu
       repaired: true,
       reason: expect.stringContaining(TARGETS_NOTHING_SHOWN_REASON),
     });
+  });
+});
+
+// ─── With the writer's measured caps (2026-10-04, first, after the merge) ──
+
+describe("the Self-check with both the writer's measured caps and the facts check (real SDK, fetch stubbed)", () => {
+  const CAP_RULE = "- Line 244: no more than 60 words.";
+  const WRITER_WITH_CAP = `Write in the third person throughout.\n\n${CAP_RULE}`;
+  const REPAIRED = DRAFT_244.replace("flat steel panels", "thin flat panels");
+  /** The repair shortened under the writer's 60 words, both signed-off items kept, the scope error still in P2. */
+  const SHORTENED = [
+    "Trial 1 ran the supplier's datasheet process on the routed MDF panels, preheating to 110 C and curing at 135 C air; the values did not transfer.",
+    "Trial 5, a production pilot of 600 doors at line speed, met the shaker target; the deep cove profile fell short of that target on 4 percent of its panels.",
+  ].join("\n\n");
+  const MEASURED_CAPS =
+    `\n\nCode measures these caps of the writer's and reports them on their own: "${CAP_RULE}". In the verdicts for the WRITER INSTRUCTIONS block, do not judge these caps, and do not mention this section's word or line count. Judge every other rule, including any other length rule.`;
+  // What drafting read, with the writer's instructions as the WRITER
+  // INSTRUCTIONS block gives them.
+  const CAP_SOURCE_FACTS_BLOCK = `--- BEGIN [SOURCE FACTS] ---\n${sourceFactsFor({
+    analysis: PARSED_ANALYSIS,
+    storylineText: STORYLINE,
+    confidenceMap: CONFIDENCE,
+    planItems: PLAN_ITEM_SOURCES,
+    writerInstructions: [WRITER_WITH_CAP],
+    documents: DOCUMENTS,
+  }).body}\n--- END [SOURCE FACTS] ---`;
+  const profileFollowed = { paragraph: 0, check: "instruction", instruction: "writer:profile", outcome: "applied", reason: "Third person throughout; word cap ok." };
+
+  /** Like installFetch, but a shortening pass for the writer's cap is told apart and answers from `compressions`, else echoes. */
+  function installCapFetch(script: { repair: string; compressions?: string[]; checks: unknown[] }): Sent[] {
+    const sent: Sent[] = [];
+    const checks = [...script.checks];
+    const compressions = [...(script.compressions ?? [])];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        const json = JSON.parse(await new Request(input, init).text()) as Record<string, unknown>;
+        const user = userOf(json);
+        const system = typeof json.system === "string"
+          ? json.system
+          : Array.isArray(json.system) ? json.system.map((block: { text?: string }) => block.text ?? "").join("") : "";
+        const tool = (json.tools as Array<{ name: string }> | undefined)?.[0]?.name ?? null;
+        const stage = tool === "submit_self_check"
+          ? "selfCheck"
+          : system.startsWith(COMPRESSION_REQUEST.system.slice(0, 60))
+            ? "compression"
+            : user.includes(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix) ? "repair" : "section";
+        sent.push({ stage, json, user });
+        const base = {
+          id: "msg_synthetic",
+          type: "message",
+          role: "assistant",
+          model: json.model,
+          stop_sequence: null,
+          usage: { input_tokens: 40, output_tokens: 8 },
+        };
+        if (tool === "submit_self_check") {
+          const answer = checks.shift();
+          if (answer === undefined) throw new Error("No Self-check answer scripted");
+          return Response.json({
+            ...base,
+            content: [{ type: "tool_use", id: "toolu_self_check", name: tool, input: answer }],
+            stop_reason: "tool_use",
+          });
+        }
+        if (tool) throw new Error(`Unexpected tool ${tool}`);
+        const text = stage === "compression"
+          ? compressions.shift() ??
+            user.split(COMPRESSION_REQUEST.writerCap.userScaffold.percentToText)[1] ??
+            user.split(COMPRESSION_REQUEST.writerCap.finalCutScaffold.targetToText)[1] ?? ""
+          : stage === "repair" ? script.repair : DRAFT_244;
+        return Response.json({ ...base, content: [{ type: "text", text }], stop_reason: "end_turn" });
+      })
+    );
+    return sent;
+  }
+
+  async function draftWithCap() {
+    const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
+    return await t.action(async (ctx: ActionCtx) => {
+      const clientFor = Object.assign(
+        (callSite: string) => instrumentedAnthropic(ctx, { callSite }) as unknown as GenerationClient,
+        { modelFor: () => SONNET }
+      );
+      const base = payload(SUMMARY_VERSION, WRITER_WITH_CAP);
+      return await draftCheckedSection({
+        claim: claimFor(plan244(), withSources),
+        payload: {
+          ...base,
+          orderedContext: {
+            ...base.orderedContext,
+            profileState: "applied",
+            selfCheckRules: [{ section: "244", instruction: CAP_RULE, maxWords: 60 }],
+          },
+        },
+        section: "244",
+        clientFor,
+      });
+    });
+  }
+
+  it("holds the caps sentence and the facts check once each; a verified facts finding still reaches the repair and its row is never rewritten", async () => {
+    const sent = installCapFetch({
+      repair: REPAIRED,
+      checks: [
+        { verdicts: [...ordinary, profileFollowed], planVerdicts: [...covered, factsWrong, targetsMet] },
+        { verdicts: [...ordinary, profileFollowed], planVerdicts: [...covered, { ...factsWrong, paragraph: 2, reason: "P2 still gives 4% as deep cove's rate", findings: [SCOPE] }, targetsMet] },
+      ],
+    });
+    const result = await draftWithCap();
+    expect(sectionMetrics(DRAFT_244, "s244").words).toBeGreaterThan(60);
+    // The repair's shortening came back as long as it went in, so the final
+    // text is the repair, and the full Self-check of the final text reads it
+    // (2026-10-05, Round 2, follow-up). Two squeezes and the targeted pass
+    // run on the draft and on the repair (2026-10-04 first, Round 4).
+    expect(sent.map((request) => request.stage)).toEqual([
+      "section", "compression", "compression", "compression", "selfCheck", "repair", "compression", "compression", "compression", "selfCheck",
+    ]);
+
+    // The first Self-check: the caps sentence once, scoped to the WRITER
+    // INSTRUCTIONS verdicts, right after the data blocks; the SOURCE FACTS
+    // block (with the writer's wording) and the facts instruction once each.
+    const check = sent.find((request) => request.stage === "selfCheck")!.user;
+    expect(check.split(MEASURED_CAPS)).toHaveLength(2);
+    expect(check.split("In the verdicts for the WRITER INSTRUCTIONS block")).toHaveLength(2);
+    expect(check.split("--- BEGIN [WRITER INSTRUCTIONS] ---")).toHaveLength(2);
+    expect(check.split(CAP_SOURCE_FACTS_BLOCK)).toHaveLength(2);
+    expect(check.split("--- BEGIN [SOURCE FACTS] ---")).toHaveLength(2);
+    expect(CAP_SOURCE_FACTS_BLOCK).toContain(`Writer instructions (the writer's wording):\n- ${WRITER_WITH_CAP}\n--- END [SOURCE FACTS] ---`);
+    expect(check.split(factsMatchSourcesInstruction(true))).toHaveLength(2);
+    expect(check).toContain(`${CAP_SOURCE_FACTS_BLOCK}${MEASURED_CAPS}`);
+    expect(check.indexOf(MEASURED_CAPS)).toBeLessThan(check.indexOf(factsMatchSourcesInstruction(true)));
+
+    // Both verified findings go to the one repair, beside the writer's cap.
+    const repair = sent.find((request) => request.stage === "repair")!.user;
+    expect(repair).toContain(`- Whole section: ${ORDERED_PROMPT_SCAFFOLDS.repairGuidance.factsIssue}${FIX}`);
+    expect(repair).toContain(`- Shorten Line 244 to at most 60 words (writer rule: "${CAP_RULE}").`);
+
+    // The facts row gives the code's evidence for the finding left on the
+    // final text, word for word; the writer's settings row beside it is guarded.
+    expect(factsRow(result)).toMatchObject({
+      instruction: FACTS_INSTRUCTION,
+      outcome: "not_applied",
+      paragraphIndex: 1,
+      reason: factsFindingsReason([verifiedOf(SCOPE, 1)], 0),
+      repaired: false,
+    });
+    expect(result.notes.find((row) => row.instruction === CAP_RULE)).toMatchObject({ outcome: "not_applied" });
+    expect(result.notes.find((row) => row.source === "model" && row.instruction === WRITER_WITH_CAP)).toMatchObject({
+      outcome: "not_applied",
+      reason: expect.stringMatching(/^Not followed in full: Line 244 is over the writer's cap at \d+\/60 words \(measured by code; see the cap row\)\. Otherwise followed: Third person throughout\.$/),
+    });
+  });
+
+  it("after shortening, the full Self-check of the final text carries the SOURCE FACTS block, and its findings are verified on that text", async () => {
+    expect(sectionMetrics(SHORTENED, "s244").words).toBeLessThanOrEqual(60);
+    expect(SHORTENED).toContain(SCOPE.draftQuote);
+    expect(SHORTENED).not.toContain(STEEL.draftQuote);
+    const sent = installCapFetch({
+      repair: REPAIRED,
+      // The draft's three passes echo (two squeezes and the targeted pass,
+      // Round 4); the repair's first pass meets the cap.
+      compressions: [DRAFT_244, DRAFT_244, DRAFT_244, SHORTENED],
+      checks: [
+        { verdicts: [...ordinary, profileFollowed], planVerdicts: [...covered, factsWrong, targetsMet] },
+        // On the final text the check still names both: the steel quote is
+        // gone from that text, so only the scope finding verifies.
+        { verdicts: [...ordinary, profileFollowed], planVerdicts: [...covered, { ...factsWrong, paragraph: 2, findings: [STEEL, SCOPE] }, targetsMet] },
+      ],
+    });
+    const result = await draftWithCap();
+    expect(result.draftText).toBe(SHORTENED);
+    // The check of the final text is the full Self-check, in place of the
+    // coverage-only one.
+    expect(sent.map((request) => request.stage)).toEqual([
+      "section", "compression", "compression", "compression", "selfCheck", "repair", "compression", "selfCheck",
+    ]);
+    const final = sent.filter((request) => request.stage === "selfCheck")[1]!.user;
+    expect(final).toContain(SHORTENED.split("\n\n")[1]!);
+    expect(final.split(CAP_SOURCE_FACTS_BLOCK)).toHaveLength(2);
+    expect(final.split(factsMatchSourcesInstruction(true))).toHaveLength(2);
+    expect(final.split(MEASURED_CAPS)).toHaveLength(2);
+
+    // The row describes the final text: the scope finding, verified there,
+    // and the steel finding, whose quote the final text no longer holds,
+    // counted as not shown, exactly as for a first check.
+    expect(factsRow(result)).toMatchObject({
+      instruction: FACTS_INSTRUCTION,
+      outcome: "not_applied",
+      paragraphIndex: 1,
+      reason: factsFindingsReason([verifiedOf(SCOPE, 1)], 1),
+      repaired: false,
+    });
+    expect((factsRow(result) as { reason: string }).reason).not.toContain("steel");
+    expect(result.notes.find((row) => row.instruction === CAP_RULE)).toMatchObject({ outcome: "applied" });
   });
 });
 
@@ -1056,7 +1262,7 @@ describe("round 2 re-check, P2: words a finding carries reach the repair marker-
       repair: REPAIRED_244,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, { ...factsWrong, findings: [steel, scope] }, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan, withSources), SUMMARY_VERSION);
@@ -1093,7 +1299,8 @@ describe("Greptile on PR #26 at 17d3d1a8: a wrong group rate beside the right ov
       repair: fixed,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, { ...factsWrong, paragraph: 2, findings: [wrongGroup] }, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        // The full Self-check of the final text (2026-10-05, Round 2, follow-up).
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -1127,7 +1334,8 @@ describe("Greptile on PR #26 at 7e3964cc: the draft adds a group to the source's
       repair: fixed,
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, { ...factsWrong, paragraph: 2, findings: [wrongGroup] }, targetsMet] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, targetsMet] },
+        // The full Self-check of the final text (2026-10-05, Round 2, follow-up).
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -1267,7 +1475,7 @@ describe("round 4: a target is met only as the sources state it, and the targets
       repair: draft2(fixed),
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsMatch, { ...metShown, outcome: "not_applied", paragraph: 2, reason: "P2 names other targets", targetFindings: [swapped, average] }] },
-        { verdicts: [], planVerdicts: [...covered, factsMatch, metShown] },
+        { verdicts: ordinary, planVerdicts: [...covered, factsMatch, metShown] },
       ],
     });
     const result = await draft(claimFor(plan244(), sources), SUMMARY_VERSION);
@@ -1372,7 +1580,9 @@ describe("round 4 review: the targets check's evidence and fixed rows (real SDK,
     const error = { ...applied([entry]), outcome: "not_applied", paragraph: 1, reason: "P1 calls the deep cove target met" };
     for (const [verdict, expected] of [
       [applied([]), { outcome: "applied", reason: TARGETS_NOTHING_SHOWN_REASON }],
-      [error, { outcome: "not_applied", reason: targetFindingsReason([{ paragraphIndex: 0, ...entry }], 0) }],
+      // On this branch an unchanged repair adds "the repair left the checked
+      // text as it was" to the row (2026-10-04 first, Round 2 follow-up).
+      [error, { outcome: "not_applied", reason: expect.stringContaining(targetFindingsReason([{ paragraphIndex: 0, ...entry }], 0)) }],
     ] as const) {
       installFetch({ draft: line246, checks: [{ verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, factsMatch, verdict] }] });
       const result = await draft(claimFor(plan246(), { planItemSources: PLAN_ITEM_SOURCES, factsSourceDocuments: documents }), SUMMARY_VERSION, { section: "246", writerFlavor: WRITER_FLAVOR });

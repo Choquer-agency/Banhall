@@ -234,8 +234,10 @@ function installFetch(script: {
       const user = userOf(json);
       const tool = (json.tools as Array<{ name: string }> | undefined)?.[0]?.name ?? null;
       const followUp = user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.missingFollowUp.prefix.trim());
+      // 2026-10-05 (Round 2, follow-up): the check of the final text is the
+      // full Self-check, told apart as the one sent after the repair.
       const stage = tool === "submit_self_check"
-        ? user.includes(SUMMARY_PLAN_SELF_CHECK_REQUEST.finalCoverage.instruction)
+        ? sent.some((request) => request.stage === "repair")
           ? "finalCoverage"
           : followUp ? "followUp" : "selfCheck"
         : tool ?? (user.includes(COMPRESSION_REQUEST.userScaffold.wordsToLimit)

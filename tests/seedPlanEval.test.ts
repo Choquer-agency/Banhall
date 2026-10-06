@@ -46,10 +46,25 @@ import {
   validateFixture,
   writePack,
   RATE_LIMIT_MARGIN_MS,
+  bannedForms,
+  firstPersonHits,
+  openingAt,
+  sentencesOpeningWith,
+  phraseHits,
+  renderSettingsRules,
+  settingsBrokenCounts,
+  settingsBrokenText,
+  settingsComplianceRows,
+  settingsRowsHonestCheck,
+  selfCheckTimesEvidence,
+  settingsRuleResults,
+  settingsTermPattern,
+  OPENERS_ENFORCED_NOTE,
   type Collected,
   type EvalDriver,
   type Fixture,
   type RunLog,
+  type SettingsParams,
 } from "../scripts/seed-plan-eval/eval";
 
 /**
@@ -1473,6 +1488,37 @@ describe("first contact fixes", () => {
     expect(partial.evidence).toBe('244: 1 label and 0 plan checks "Not checked" of 3');
   });
 
+  it("counts rows not checked on the final text like any not checked row (2026-10-04 first, Round 2 follow-up, review P3-2)", () => {
+    const fixture = byCase("skipped_role_supported");
+    const c = baseCollected();
+    c.summary!.items = [summaryItem("i1", "company_context", "s1")];
+    const label = (section: string, instruction: string, reason: string, outcome = "applied") => ({
+      section, paragraphIndex: null, source: "model", instruction, outcome, tier: "none", reason, repaired: false, planRef: null,
+    });
+    const failed = "Not checked on the final text (the check of the final text did not complete: timeout)";
+    c.complianceNotes = [
+      // 242: the check of the final text did not complete, so nothing on
+      // the final text was checked.
+      label("242", "Storyline", failed, "not_applied"),
+      label("242", "Writer Profile settings", failed, "not_applied"),
+      cover("i1", "242", ["i1"], { outcome: "not_applied", reason: "Not checked: the plan coverage Self-check of the final text did not complete." }),
+      // 244: one label the check of the final text gave no verdict for.
+      label("244", "Storyline", "Matches the Storyline."),
+      label("244", "Confidence Map: Trial 2 is uncertain.", "Not checked on the final text (the Self-check gave no verdict for it)", "not_applied"),
+    ];
+    expect(notCheckedCounts(c)).toEqual([
+      { section: "242", labels: 2, planChecks: 1, total: 3 },
+      { section: "244", labels: 1, planChecks: 0, total: 2 },
+    ]);
+    const ran = runChecks(fixture, c, emptyRunLog(fixture.id, 0)).find((item) => item.id === "self-check-ran")!;
+    expect(ran.status).toBe("fail");
+    expect(ran.evidence).toContain('242: every label and plan check is "Not checked" (3)');
+    expect(ran.evidence).toContain('244: 1 label and 0 plan checks "Not checked" of 2');
+    // A row that only mentions the words later is not counted.
+    c.complianceNotes = [label("244", "Storyline", "Matches the Storyline; not checked on the final text was never the case.")];
+    expect(notCheckedCounts(c)).toEqual([{ section: "244", labels: 0, planChecks: 0, total: 1 }]);
+  });
+
   it("names a failed final coverage check in the Self-check evidence and the pack", () => {
     const fixture = byCase("withdrawn_feedback");
     const c = baseCollected();
@@ -1596,6 +1642,568 @@ describe("results against targets and no talk about sources (2026-09-30, third)"
     c.complianceNotes = [targetsRow("246", "not_applied")];
     expect(runChecks(fixtures[0]!, c, emptyRunLog(fixtures[0]!.id, 0)).find((item) => item.id === "results-against-targets")?.evidence)
       .toBe('244: no row; 246: not_applied ("P1 calls met targets close.")');
+  });
+});
+
+describe("writer settings document (2026-10-02, alert 7)", () => {
+  const fixture = () => byCase("writer_settings_document");
+  const params = () => fixture().params as unknown as SettingsParams;
+  const context = { date: "2026-10-02", deployment: "local-e2e", commit: "abc1234", reviewer: "reviewer@example.com" };
+
+  /** A draft that keeps every rule of the settings document. */
+  const clean = () => ({
+    s242: [
+      "Velloway Panel Finishing Ltd. finishes routed MDF cabinet doors in Kessridge, Ontario.",
+      "The aim of this work was to cure a powder coating on routed MDF with full edge coverage and no outgassing defects.",
+      "It was not known at the outset whether a film build of 60 microns on the edges could be reached while the panel surface temperature stayed below the outgassing onset. The width of the cure window was also unknown.",
+    ].join("\n\n"),
+    s244: "The team tested an edge sealer and a fast-catalysed powder. Edge coverage reached 64 microns on shaker edges.",
+    s246: "The company learned that outgassing defects start near 120 C on this board. Outgassing defects (pinholes and blisters) fell to 0.6 per square metre. The US customers were not part of the work.",
+  });
+
+  /** A draft that breaks at least one rule of every kind. */
+  const broken = () => ({
+    s242: [
+      "We used DFT and board temperature in order to optimize the bake window, a breakthrough.",
+      "The technological objective was to cure powder on MDF. The aim of this work was not stated first.",
+      "The team also did colour matching of the catalogue shades and saw proprietary pinholes.",
+    ].join("\n\n"),
+    s244: `The team successfully reduced edge wrap problems. ${"word ".repeat(600)}`,
+    s246: "Our team saw blistering; it was trial-and-error and industry leading. The booth extraction work helped.",
+  });
+
+  const collectedWith = (sections: { s242: string; s244: string; s246: string }): Collected => ({
+    ...baseCollected(),
+    report: { reportId: "r1", generatedAt: 400_000, sections },
+  });
+
+  it("validates the fixture, and refuses one whose rules are unstated, unread by the product or not tempting", () => {
+    const base = fixture();
+    expect(validateFixture(base)).toEqual([]);
+    const source = base.sources.find((candidate) => candidate.file === params().settingsFile)!;
+    expect(source).toMatchObject({ kind: "document", category: "writer_notes", fileName: "pd-writing-customized-settings.md" });
+
+    const withSettings = (settings: string): Fixture => ({ ...base, texts: { ...base.texts, [source.file]: settings } });
+    const withParams = (changes: Partial<SettingsParams>): Fixture => ({ ...base, params: { ...base.params, ...changes } });
+    const settings = base.texts[source.file]!;
+
+    expect(validateFixture({ ...base, sources: base.sources.map((candidate) => (candidate === source ? { ...candidate, category: "scoping_notes" as const } : candidate)) }))
+      .toContain("params.settingsFile must name a document source in category writer_notes");
+    const untitled = validateFixture({
+      ...withSettings(settings.replace("# PD Writing Customized Settings", "# Notes from the call")),
+      sources: base.sources.map((candidate) => (candidate === source ? { ...candidate, fileName: "call-notes.md" } : candidate)),
+    });
+    expect(untitled).toContain("the settings document's file name or first line must be a settings title the product detects");
+    expect(untitled).toContain("params.settingsTitle must be the settings document's first line");
+
+    // Word caps: below the CRA cap, and stated so the product's extraction reads them.
+    expect(validateFixture(withParams({ wordCaps: { "242": 280, "244": 520, "246": 260 } }))).toContain(
+      "the settings document must state the Line 242 cap of 280 words so the product's rule extraction reads it",
+    );
+    expect(validateFixture(withParams({ wordCaps: { "242": 350, "244": 520, "246": 260 } }))).toContain(
+      "params.wordCaps.242 must be a whole number below the CRA cap of 350 words",
+    );
+    expect(validateFixture(withSettings(settings.replace("- Line 244: no more than 520 words.", "- Line 244: keep it short.")))).toContain(
+      "the settings document must state the Line 244 cap of 520 words so the product's rule extraction reads it",
+    );
+
+    // Required terms: stated, with a synonym the interview or notes use, never overlapping a term.
+    const terms = params().requiredTerms;
+    expect(validateFixture(withParams({ requiredTerms: [...terms.slice(0, 4), { term: "gel time", synonyms: ["gelation time"] }] }))).toEqual(
+      expect.arrayContaining([
+        'the settings document must state the required term "gel time"',
+        'the settings document must name the synonym "gelation time" of "gel time"',
+        'the interview or notes must use a synonym of "gel time", so the rule is tempting to break',
+      ]),
+    );
+    expect(validateFixture(withParams({ requiredTerms: [{ ...terms[0]!, synonyms: [...terms[0]!.synonyms, "film"] }, ...terms.slice(1)] }))).toContain(
+      'the synonym "film" must not overlap the required term "film build"',
+    );
+    expect(validateFixture(withParams({ requiredTerms: terms.slice(0, 3) }))).toContain("params.requiredTerms must hold 4 to 6 terms");
+    // Review P3-3: every scored synonym is one the settings document names.
+    expect(validateFixture(withParams({ requiredTerms: [terms[0]!, { ...terms[1]!, synonyms: [...terms[1]!.synonyms, "panel temp"] }, ...terms.slice(2)] }))).toContain(
+      'the settings document must name the synonym "panel temp" of "panel surface temperature"',
+    );
+    expect(validateFixture(withSettings(settings.replace("substrate temperature, substrate temp, board", "substrate temperature, board")))).toContain(
+      'the settings document must name the synonym "substrate temp" of "panel surface temperature"',
+    );
+
+    // Banned phrases, openings, exclusions and the style rule.
+    expect(validateFixture(withParams({ bannedPhrases: [...params().bannedPhrases, { phrase: "synergistic" }] }))).toEqual(
+      expect.arrayContaining([
+        'the settings document must ban "synergistic"',
+        'the interview or notes must use "synergistic", so the rule is tempting to break',
+      ]),
+    );
+    expect(validateFixture(withParams({ requiredOpenings: [{ statement: "objective", section: "242", opening: "The goal was to" }] }))).toContain(
+      'the settings document must state the opening "The goal was to"',
+    );
+    expect(validateFixture(withParams({ exclusions: [{ name: "the forklift lease", markers: ["forklift"] }] }))).toEqual(
+      expect.arrayContaining([
+        'the settings document must exclude "the forklift lease"',
+        'the interview or notes must mention "the forklift lease", so the rule is tempting to break',
+      ]),
+    );
+    expect(validateFixture(withParams({ styleRule: { kind: "noFirstPerson", rule: "Always write in the first person." } }))).toContain(
+      "the settings document must state params.styleRule.rule",
+    );
+  });
+
+  it("validates under --dry-run: the fixture alone, its plainest session and no deployment needed", () => {
+    const options = parseArgs(["--dry-run", "--fixture", "writer-settings-document"]);
+    const selected = loadFixtures(FIXTURES, options.fixtures);
+    expect(selected.map((candidate) => candidate.id)).toEqual(["writer-settings-document"]);
+    expect(validateFixture(selected[0]!)).toEqual([]);
+    expect(deploymentRefusal(options, {})).toBeNull();
+    const lines = buildPlan(selected[0]!).map(describeStep);
+    expect(lines.at(-1)).toBe("Wait for readiness and the drafting inputs, sign off, and wait for the report");
+    expect(lines).toContain("Skip Previous-year status");
+    for (const line of lines) expect(DASHES.test(line)).toBe(false);
+  });
+
+  it("scripts the plainest path: the ordinary decision on every step, then sign-off", () => {
+    const plan = buildPlan(fixture());
+    expect(plan.map((step) => step.op).filter((op) => !["open", "select", "approve", "skip", "signOff"].includes(op))).toEqual([]);
+    expect(plan.filter((step) => step.op === "skip").map((step) => (step as { role: string }).role)).toEqual(["prior_year_status"]);
+    expect(plan.some((step) => step.op === "approve" && step.expect !== undefined)).toBe(false);
+    for (const step of plan) {
+      if (step.op === "select") expect(["first", "firstN", "linkedAdvancements"]).toContain(step.pick.kind);
+    }
+  });
+
+  it("uploads the settings document as Writer's Notes, after the trial summary", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const driver: EvalDriver = {
+      mutation: async (name, args) => {
+        calls.push({ name, ...args });
+        if (name === "generations:requestGeneration") throw new Error("stop here");
+        return name === "projects:createProject" ? { projectId: "project-1", transcriptIds: ["t-1"] } : "document-1";
+      },
+      query: async () => null,
+      internal: async () => null,
+      now: () => 0,
+      sleep: async () => undefined,
+      log: () => undefined,
+    };
+    await runFixture(fixture(), driver);
+    const uploads = calls.filter((call) => call.name === "documents:uploadDocument");
+    expect(uploads.map((call) => [call.fileName, call.category])).toEqual([
+      ["powder-on-mdf-trial-summary.md", "scoping_notes"],
+      ["pd-writing-customized-settings.md", "writer_notes"],
+    ]);
+    expect(String(uploads[1]!.content).startsWith("# PD Writing Customized Settings")).toBe(true);
+  });
+
+  // Greptile on PR #27 at 60d9b921: the document bans "optimize" in any form,
+  // and only listed forms (plus s or es) count, so the fixture lists them all.
+  it("counts every form of a word the settings document bans in any form, such as optimizer", () => {
+    const sections = clean();
+    for (const form of ["optimizer", "optimizers", "optimiser", "optimizable", "optimizations"]) {
+      const results = settingsRuleResults(params(), { ...sections, s244: `${sections.s244} A ${form} set the line speed.` });
+      const optimize = results.find((result) => result.id === 'banned "optimize"')!;
+      expect({ form, broken: optimize.lines["244"]?.broken }).toEqual({ form, broken: true });
+    }
+    // The documented choice stands: only listed forms count.
+    const successful = settingsRuleResults(params(), { ...sections, s244: `${sections.s244} The trial was successful.` });
+    expect(successful.find((result) => result.id === 'banned "successfully"')?.broken).toBe(false);
+  });
+
+  // Greptile on PR #27 at 60d9b921: any sentence that opens with the words
+  // keeps the rule, though nothing marks it as the objective statement. The
+  // check stays as strict and says it is a heuristic, with the count.
+  it("marks a kept opening as a heuristic and counts the sentences that open with its words", () => {
+    const sections = clean();
+    const unrelated = `The aim of this work was to keep the line running. ${sections.s242}`;
+    const results = settingsRuleResults(params(), { ...sections, s242: unrelated });
+    const objective = results.find((result) => result.id === 'opening "The aim of this work was to" (objective)')!;
+    expect(objective.broken).toBe(false);
+    expect(objective.lines["242"]?.evidence).toBe(
+      "opens P1 (heuristic: 2 sentences open with these words; the judge checks it is the objective statement)",
+    );
+    const checks = runChecks(fixture(), collectedWith({ ...sections, s242: unrelated }), emptyRunLog(fixture().id, 0));
+    const openings = checks.find((item) => item.id === "settings-openings")!;
+    expect(openings.label).toMatch(/^Heuristic: /);
+    expect(openings.evidence).toContain("heuristic: 2 sentences open with these words");
+    // Still a certain break when no sentence opens with the words.
+    const none = settingsRuleResults(params(), { ...sections, s242: sections.s242.split("The aim of this work was to").join("The work set out to") });
+    expect(none.find((result) => result.id === objective.id)?.lines["242"]).toEqual({ broken: true, evidence: "no sentence opens with these words" });
+  });
+
+  it("keeps every rule on a draft that follows the settings document", () => {
+    const results = settingsRuleResults(params(), clean());
+    expect(results.filter((result) => result.broken).map((result) => result.id)).toEqual([]);
+    expect(settingsBrokenText(results)).toBe("Line 242: 0 of 18; Line 244: 0 of 16; Line 246: 0 of 16; overall: 0 of 20");
+    const checks = runChecks(fixture(), collectedWith(clean()), emptyRunLog(fixture().id, 0));
+    for (const id of ["settings-terms", "settings-banned", "settings-openings", "settings-word-caps", "settings-exclusions", "settings-style"]) {
+      expect({ id, status: status(checks, id) }).toEqual({ id, status: "pass" });
+    }
+    expect(checks.find((item) => item.id === "settings-rules-broken")).toMatchObject({
+      status: "info",
+      evidence: "settings rules broken: Line 242: 0 of 18; Line 244: 0 of 16; Line 246: 0 of 16; overall: 0 of 20",
+    });
+    expect(checks.find((item) => item.id === "settings-openings")?.evidence).toBe(
+      '242: opening "The aim of this work was to" (objective) kept, opens P2 (heuristic: 1 sentence opens with these words; the judge checks it is the objective statement); opening "It was not known at the outset whether" (uncertainty) kept, opens P3 (heuristic: 1 sentence opens with these words; the judge checks it is the uncertainty statement)',
+    );
+    expect(checks.find((item) => item.id === "settings-word-caps")?.evidence).toMatch(/^242: word cap Line 242 kept, \d+ of 260 words\. 244: word cap Line 244 kept, \d+ of 520 words\. 246: word cap Line 246 kept, \d+ of 260 words$/);
+  });
+
+  it("counts every broken rule per Line and overall, with where it broke", () => {
+    const results = settingsRuleResults(params(), broken());
+    const byId = new Map(results.map((result) => [result.id, result]));
+    expect(byId.get('term "film build"')?.lines["242"]).toEqual({
+      broken: true,
+      evidence: '"DFT" in P1 ("We used DFT and board temperature in order to optimize the ba")',
+    });
+    expect(byId.get('term "edge coverage"')?.lines["244"]?.broken).toBe(true);
+    expect(byId.get('term "outgassing defects"')?.lines["246"]?.evidence).toContain('"blistering" in P1');
+    expect(byId.get('banned "optimize"')?.lines["242"]?.broken).toBe(true);
+    expect(byId.get('banned "trial and error"')?.lines["246"]?.evidence).toContain('"trial and error" in P1 ("Our team saw blistering; it was trial-and-error');
+    expect(byId.get('banned "industry-leading"')?.lines["246"]?.evidence).toContain('"industry-leading" in P1 (');
+    expect(byId.get('opening "The aim of this work was to" (objective)')?.lines).toEqual({ "242": { broken: true, evidence: "no sentence opens with these words" } });
+    expect(byId.get("word cap Line 244")?.lines["244"]).toEqual({ broken: true, evidence: "607 of 520 words" });
+    expect(byId.get("word cap Line 242")?.broken).toBe(false);
+    expect(byId.get('exclusion "the powder booth extraction upgrade"')?.lines["246"]?.broken).toBe(true);
+    expect(byId.get('exclusion "colour matching of the customer\'s catalogue shades"')?.lines["242"]?.evidence).toContain('"colour matching" in P3');
+    expect(byId.get("style: no first person")?.lines).toMatchObject({ "242": { broken: true }, "244": { broken: false }, "246": { broken: true } });
+
+    expect(settingsBrokenCounts(results).map(({ line, broken: count, total }) => [line, count, total])).toEqual([
+      ["242", 12, 18],
+      ["244", 3, 16],
+      ["246", 5, 16],
+      ["overall", 18, 20],
+    ]);
+    // Review P3-2: the heuristic's share is named.
+    expect(settingsBrokenText(results, { ids: false })).toBe(
+      "Line 242: 12 of 18 (1 from the heuristic); Line 244: 3 of 16; Line 246: 5 of 16 (1 from the heuristic); overall: 18 of 20 (2 from the heuristic)",
+    );
+    expect(settingsBrokenText(results)).toContain('Line 244: 3 of 16 (term "edge coverage", banned "successfully", word cap Line 244)');
+
+    const checks = runChecks(fixture(), collectedWith(broken()), emptyRunLog(fixture().id, 0));
+    for (const id of ["settings-terms", "settings-banned", "settings-openings", "settings-word-caps", "settings-exclusions", "settings-style"]) {
+      expect({ id, status: status(checks, id) }).toEqual({ id, status: "fail" });
+    }
+    expect(checks.find((item) => item.id === "settings-exclusions")?.label).toMatch(/^Heuristic: /);
+    expect(checks.find((item) => item.id === "settings-rules-broken")?.evidence).toMatch(/^settings rules broken: Line 242: 12 of 18 \(1 from the heuristic; term "film build", /);
+    expect(checks.find((item) => item.id === "settings-style")?.evidence).toContain('242: style: no first person broken, "we" in P1');
+  });
+
+  it("breaks a required term no Line uses, report-wide only", () => {
+    const sections = clean();
+    sections.s242 = sections.s242.replace("The width of the cure window was also unknown.", "The width of the range was also unknown.");
+    const results = settingsRuleResults(params(), sections);
+    const term = results.find((result) => result.id === 'term "cure window"')!;
+    expect(term).toMatchObject({ broken: true, note: "never used in any Line" });
+    expect(Object.values(term.lines).every((line) => line?.broken === false)).toBe(true);
+    expect(settingsBrokenText(results)).toBe('Line 242: 0 of 18; Line 244: 0 of 16; Line 246: 0 of 16; overall: 1 of 20 (term "cure window")');
+    const checks = runChecks(fixture(), collectedWith(sections), emptyRunLog(fixture().id, 0));
+    expect(status(checks, "settings-terms")).toBe("fail");
+    expect(checks.find((item) => item.id === "settings-terms")?.evidence).toBe(
+      '242: none broken. 244: none broken. 246: none broken. term "cure window" never used in any Line',
+    );
+  });
+
+  it("reads openings at sentence starts, first person in lower and title case, and banned forms as whole words", () => {
+    expect(openingAt("The aim of this work was to cure it.", "The aim of this work was to")).toEqual({ paragraph: 1, opensParagraph: true });
+    expect(openingAt("Context first.\n\nA lead-in. The aim of this work was to cure it.", "The aim of this work was to")).toEqual({ paragraph: 2, opensParagraph: false });
+    expect(openingAt("Its aim was that the aim of this work was to cure it.", "The aim of this work was to")).toBeNull();
+    expect(openingAt("The aim of this work was not stated.", "The aim of this work was to")).toBeNull();
+
+    expect(firstPersonHits("We tested it. Our oven and ours. The team told us.").map((hit) => hit.phrase)).toEqual(["we", "our", "ours", "us"]);
+    expect(firstPersonHits("The US plant and the user were weary of tours.")).toEqual([]);
+
+    expect(bannedForms({ phrase: "optimize", forms: ["optimised"] })).toEqual(["optimize", "optimised"]);
+    expect(phraseHits("The optimizer ran. It optimised the oven.", ["optimize", "optimised"]).map((hit) => hit.phrase)).toEqual(["optimised"]);
+    expect(phraseHits("Edge  wrap\nissues", ["edge wrap"])).toHaveLength(1);
+    expect(phraseHits("substrate temperature", ["substrate temp"])).toEqual([]);
+  });
+
+  it("says whether the product applied the settings document, from the generation's writer settings, with the House Rule outcomes", () => {
+    const note = (section: string, instruction: string, outcome: string, tier: string, reason: string) => ({
+      section,
+      paragraphIndex: null,
+      source: "deterministic",
+      instruction,
+      outcome,
+      tier,
+      reason,
+      repaired: false,
+      planRef: null,
+    });
+    const applied = (writerSettings: Collected["generation"]["writerSettings"]) => {
+      const c = collectedWith(clean());
+      c.generation = { ...c.generation, writerSettings };
+      c.complianceNotes = ["242", "244", "246"].flatMap((section) => [
+        note(section, "Writer Profile", "applied", "none", "Writer Profile applied"),
+        note(section, "House Rule category: opening clauses", "not_applied", "org_enforced", "House Rule waived for everyone (org mode off)"),
+        note(section, "House Rule category: repetition caps", "applied", "none", "House Rule applied (no Writer Profile waiver)"),
+      ]);
+      return runChecks(fixture(), c, emptyRunLog(fixture().id, 0)).find((item) => item.id === "settings-document-applied")!;
+    };
+    const fromNotes = {
+      profileState: "applied",
+      source: "writer_notes",
+      fileName: "pd-writing-customized-settings.md",
+      matchesProfile: false,
+      savedProfileSuperseded: false,
+      waiverAnalysis: "analyzed",
+      truncated: false,
+      addressedCategories: ["bannedWords", "openingClauses"],
+    };
+    expect(applied(fromNotes)).toMatchObject({
+      status: "pass",
+      evidence:
+        'source writer_notes (pd-writing-customized-settings.md), profile applied, waiver analysis analyzed, House Rule categories it addresses: bannedWords, openingClauses; Writer Profile rows: 242 applied ("Writer Profile applied"), 244 applied ("Writer Profile applied"), 246 applied ("Writer Profile applied"); ' +
+        'House Rule outcomes: opening clauses not_applied, org_enforced ("House Rule waived for everyone (org mode off)") in 242, 244, 246; repetition caps applied, none ("House Rule applied (no Writer Profile waiver)") in 242, 244, 246',
+    });
+    // Review P3-7: the saved Writer Profile counts when it equals the document.
+    expect(applied({ ...fromNotes, source: "profile", fileName: null, matchesProfile: true })).toMatchObject({
+      status: "pass",
+      evidence: expect.stringContaining("source profile, profile applied"),
+    });
+    expect(applied({ ...fromNotes, source: "profile", fileName: null }).status).toBe("fail");
+    expect(applied({ ...fromNotes, source: "attachment" }).status).toBe("fail");
+    expect(applied({ ...fromNotes, fileName: "other-settings.md" }).status).toBe("fail");
+    expect(applied({ ...fromNotes, profileState: "missing" }).status).toBe("fail");
+    expect(applied(null)).toMatchObject({ status: "fail", evidence: expect.stringMatching(/^no writer settings recorded; /) });
+    // Review P3-7: results read back before the field existed are information, from the Writer Profile rows.
+    expect(applied(undefined)).toMatchObject({ status: "info", evidence: expect.stringMatching(/^writer settings not read back .*246 applied/) });
+    const noRows = collectedWith(clean());
+    expect(runChecks(fixture(), noRows, emptyRunLog(fixture().id, 0)).find((item) => item.id === "settings-document-applied")).toMatchObject({
+      status: "info",
+      evidence: expect.stringContaining("Writer Profile rows: 242 no row, 244 no row, 246 no row; House Rule outcomes: opening clauses no row; repetition caps no row"),
+    });
+  });
+
+  it("matches terms, synonyms and banned phrases with a plural or a hyphen, both ways (review P2-1)", () => {
+    const matches = (phrase: string, text: string) => settingsTermPattern(phrase).test(text);
+    expect(matches("DFT", "the DFTs were low")).toBe(true);
+    expect(matches("substrate temperature", "substrate temperatures rose")).toBe(true);
+    expect(matches("edge wrap", "poor edge-wrap on the cove")).toBe(true);
+    expect(matches("dry film thickness", "a dry-film thickness of 60 microns")).toBe(true);
+    expect(matches("outgassing defects", "the outgassing defect rate fell")).toBe(true);
+    expect(matches("pinholes", "one pinhole")).toBe(true);
+    expect(matches("bake window", "two bake windows")).toBe(true);
+    expect(matches("industry-leading", "an industry leading finish")).toBe(true);
+    expect(matches("film thickness", "film thicknesses")).toBe(true);
+    // Not a match: another word, a longer word, or a word inside a longer one.
+    expect(matches("substrate temp", "substrate temperature")).toBe(false);
+    expect(matches("edge wrap", "edge wrapped")).toBe(false);
+    expect(matches("DFT", "a DFTX gauge")).toBe(false);
+    expect(matches("breakthrough", "no break-through to the board")).toBe(false);
+    expect(matches("gas", "ga")).toBe(false);
+
+    const sections = clean();
+    sections.s244 = "Edge coverage reached 64 microns. The DFTs on the faces were 78 microns, and edge-wrap held on shaker edges.";
+    const results = settingsRuleResults(params(), sections);
+    const line244 = (id: string) => results.find((result) => result.id === id)?.lines["244"];
+    expect(line244('term "film build"')).toMatchObject({ broken: true, evidence: expect.stringContaining('"DFT" in P1') });
+    expect(line244('term "edge coverage"')).toMatchObject({ broken: true, evidence: expect.stringContaining('"edge wrap" in P1') });
+    // A term used in another form is still used: no false "never used".
+    const defectRate = clean();
+    defectRate.s242 = defectRate.s242.replace("no outgassing defects", "a low outgassing defect rate");
+    defectRate.s246 = "The company learned where the onset sits on this board.";
+    expect(settingsRuleResults(params(), defectRate).find((result) => result.id === 'term "outgassing defects"')).toMatchObject({ broken: false, note: null });
+  });
+
+  it("allows a synonym beside its term where the settings document does, and only there (review P2-2)", () => {
+    const outgassing = (s246: string) =>
+      settingsRuleResults(params(), { ...clean(), s246 }).find((result) => result.id === 'term "outgassing defects"')!.lines["246"]!;
+    expect(outgassing("Outgassing defects (pinholes and blisters) fell to 0.6 per square metre.")).toEqual({ broken: false, evidence: "term used" });
+    expect(outgassing("The pilot met its target. Pinholes fell to 0.6 per square metre.").broken).toBe(true);
+    expect(outgassing("Outgassing defects fell. Blistering stopped at 113 C.").evidence).toContain('"blistering" in P1');
+    // "film build" carries no such allowance.
+    const film = settingsRuleResults(params(), { ...clean(), s244: "The film build (DFT) was 64 microns on the edges." })
+      .find((result) => result.id === 'term "film build"')!.lines["244"]!;
+    expect(film.broken).toBe(true);
+    expect(params().requiredTerms.filter((entry) => entry.allowedWithTerm).map((entry) => entry.term)).toEqual(["outgassing defects"]);
+  });
+
+  it("finds an opening after a curly quote, a [GAP: ...] marker or a single line break (review P3-1)", () => {
+    const opening = "The aim of this work was to";
+    expect(openingAt("The team asked \u201cwhy.\u201d The aim of this work was to cure it.", opening)).toEqual({ paragraph: 1, opensParagraph: false });
+    expect(openingAt("The board is 25 mm.\u2019 The aim of this work was to cure it.", opening)).toEqual({ paragraph: 1, opensParagraph: false });
+    expect(openingAt("[GAP: company size] The aim of this work was to cure it.", opening)).toEqual({ paragraph: 1, opensParagraph: false });
+    expect(openingAt("Context first\nThe aim of this work was to cure it.", opening)).toEqual({ paragraph: 1, opensParagraph: false });
+    expect(openingAt("Its aim, as the team put it, The aim of this work was to cure it.", opening)).toBeNull();
+    // Greptile on PR #27: how many sentences open with the words.
+    expect(sentencesOpeningWith("The aim of this work was to cure it. It worked.\n\nThe aim of this work was to log it.", opening)).toBe(2);
+    expect(sentencesOpeningWith("Its aim, as the team put it, The aim of this work was to cure it.", opening)).toBe(0);
+  });
+
+  it("does not count a required opening where the org enforces the House Rule openers (review P3-6)", () => {
+    const c = collectedWith(clean());
+    c.report!.sections.s242 = c.report!.sections.s242.replace("The aim of this work was to", "The technological objective was to");
+    const opener = (outcome: string, reason: string) =>
+      ["242", "244", "246"].map((section) => ({
+        section,
+        paragraphIndex: null,
+        source: "deterministic",
+        instruction: "House Rule category: opening clauses",
+        outcome,
+        tier: "org_enforced",
+        reason,
+        repaired: false,
+        planRef: null,
+      }));
+    // Org mode off: the writer's openings apply and the missing one breaks.
+    c.complianceNotes = opener("not_applied", "House Rule waived for everyone (org mode off)");
+    let checks = runChecks(fixture(), c, emptyRunLog(fixture().id, 0));
+    expect(status(checks, "settings-openings")).toBe("fail");
+    expect(checks.find((item) => item.id === "settings-rules-broken")?.evidence).toContain("Line 242: 1 of 18");
+    // Org-enforced openers: both openings are not applicable and not counted.
+    c.complianceNotes = opener("applied", "House Rule applied: org-enforced (writer waivers are ignored)");
+    checks = runChecks(fixture(), c, emptyRunLog(fixture().id, 0));
+    expect(status(checks, "settings-openings")).toBe("pass");
+    expect(checks.find((item) => item.id === "settings-openings")?.evidence).toBe(
+      `opening "The aim of this work was to" (objective) ${OPENERS_ENFORCED_NOTE}. opening "It was not known at the outset whether" (uncertainty) ${OPENERS_ENFORCED_NOTE}`,
+    );
+    expect(checks.find((item) => item.id === "settings-rules-broken")?.evidence).toBe(
+      "settings rules broken: Line 242: 0 of 16; Line 244: 0 of 16; Line 246: 0 of 16; overall: 0 of 18",
+    );
+    const table = renderFixturePack({ fixture: fixture(), log: emptyRunLog(fixture().id, 0), collected: c, checks }, context);
+    expect(table).toContain(`| opening "The aim of this work was to" (objective) (${OPENERS_ENFORCED_NOTE}) | not applicable | not applicable | not applicable |`);
+  });
+
+  it("lists the Compliance Note rows that mention the settings document or the Writer Profile, per Line", () => {
+    const row = (section: string, instruction: string, outcome: string, tier: string, reason: string) => ({
+      section,
+      paragraphIndex: null,
+      source: "deterministic",
+      instruction,
+      outcome,
+      tier,
+      reason,
+      repaired: false,
+      planRef: null,
+    });
+    const c = collectedWith(clean());
+    c.complianceNotes = [
+      row("242", "Writer Profile", "applied", "none", "Writer Profile applied"),
+      row("242", "House Rule category: banned words", "applied", "none", "House Rule applied (no Writer Profile waiver)"),
+      row("242", "House Rule category: paragraph density", "applied", "none", "House Rule applied (no Writer Profile waiver)"),
+      row("242", "House Rule category: opening clauses", "not_applied", "org_enforced", "House Rule waived for everyone (org mode off)"),
+      row("242", "Line 242: no more than 260 words.", "applied", "none", "247/260 words"),
+      row("242", "Locked Rule: Line 242 holds at most 350 words and 50 form lines", "applied", "locked", "within cap at 287/350 words, 30/50 lines"),
+      { ...row("242", "# PD Writing Customized Settings\n\nVelloway Panel Finishing Ltd.", "not_applied", "none", "P1 says DFT."), source: "model" },
+      row("244", "Writer Profile waiver: opening clauses", "not_applied", "org_enforced", "org-enforced: this House Rule applies regardless of the Writer Profile"),
+    ];
+    const evidence = settingsComplianceRows(c, params());
+    expect(evidence).toBe(
+      '242: "Writer Profile" applied: "Writer Profile applied", "Line 242: no more than 260 words." applied: "247/260 words", "# PD Writing Customized Settings Velloway Panel Finishing Ltd." not_applied: "P1 says DFT.", 2 House Rule categories applied with no Writer Profile waiver; ' +
+        '244: "Writer Profile waiver: opening clauses" not_applied (org_enforced): "org-enforced: this House Rule applies regardless of the Writer Profile"; 246: no row',
+    );
+    expect(evidence).not.toContain("Locked Rule");
+    expect(evidence).not.toContain("org mode off");
+    expect(runChecks(fixture(), c, emptyRunLog(fixture().id, 0)).find((item) => item.id === "settings-compliance-rows")).toMatchObject({
+      status: "info",
+      evidence,
+    });
+  });
+
+  it("fails when the settings document row reads as followed beside a cap row that was not met (2026-10-04)", () => {
+    const row = (section: string, source: string, instruction: string, outcome: string, tier: string, reason: string) => ({
+      section,
+      paragraphIndex: null,
+      source,
+      instruction,
+      outcome,
+      tier,
+      reason,
+      repaired: false,
+      planRef: null,
+    });
+    const settings = "# PD Writing Customized Settings Velloway Panel Finishing Ltd., low-temperature powder coating";
+    // Run 2026-10-04 at e0fd7892, Line 244.
+    const run = collectedWith(clean());
+    run.complianceNotes = [
+      row("244", "deterministic", "- Line 244: no more than 520 words.", "not_applied", "none", "exceeds: 602/520 words; repair failed"),
+      row("244", "model", settings, "applied", "none", "Glossary terms used, no banned words, third person, word cap ok."),
+      row("246", "deterministic", "- Line 246: no more than 260 words.", "applied", "none", "247/260 words"),
+      row("246", "model", settings, "applied", "none", "Terms, banned words, third person."),
+    ];
+    const failed = settingsRowsHonestCheck(params(), run);
+    expect(failed).toMatchObject({ id: "settings-rows-honest", status: "fail" });
+    expect(failed.evidence).toBe(
+      '242: measured caps met; no settings document row; 244: a measured cap not met; settings document row applied: "Glossary terms used, no banned words, third person, word cap ok."; ' +
+        '246: measured caps met; settings document row applied: "Terms, banned words, third person."'
+    );
+    // The row as the product now writes it.
+    run.complianceNotes[1] = row(
+      "244",
+      "model",
+      settings,
+      "not_applied",
+      "none",
+      "Not followed in full: Line 244 is over the writer's cap at 602/520 words (measured by code; see the cap row). The Self-check found the other rules followed."
+    );
+    expect(settingsRowsHonestCheck(params(), run).status).toBe("pass");
+    // A Locked cap row not met counts too.
+    run.complianceNotes.push(
+      row("246", "deterministic", "Locked Rule: Line 246 holds at most 350 words and 50 form lines", "not_applied", "locked", "cap breach at 360/350 words, 30/50 lines")
+    );
+    expect(settingsRowsHonestCheck(params(), run).status).toBe("fail");
+    expect(runChecks(fixture(), run, emptyRunLog(fixture().id, 0)).find((item) => item.id === "settings-rows-honest")?.status).toBe("fail");
+  });
+
+  it("shows each Line's Self-check requests and their times (round 2)", () => {
+    const c = collectedWith(clean());
+    const usage = (callSite: string, durationMs?: number | null) => ({
+      callSite,
+      model: "claude-sonnet-5",
+      costUsd: 0.07,
+      inputTokens: 20,
+      outputTokens: 900,
+      ...(durationMs !== undefined ? { durationMs } : {}),
+    });
+    c.usage = [
+      usage("generation:selfCheck:242", 41_200),
+      usage("generation:repair:242", 20_000),
+      usage("generation:selfCheck:242", 63_850),
+      usage("generation:selfCheck:244", null),
+      usage("generation:seeds:company_context", 9_000),
+    ];
+    expect(selfCheckTimesEvidence(c)).toBe("242: 2 requests (41.2 s, 63.9 s); 244: 1 request (no time); 246: none");
+    expect(runChecks(fixture(), c, emptyRunLog(fixture().id, 0)).find((item) => item.id === "self-check-times")).toMatchObject({
+      status: "info",
+      evidence: "242: 2 requests (41.2 s, 63.9 s); 244: 1 request (no time); 246: none",
+    });
+  });
+
+  it("fails every settings check plainly when no report was created", () => {
+    const checks = runChecks(fixture(), { ...baseCollected(), report: null }, emptyRunLog(fixture().id, 0));
+    for (const id of ["settings-terms", "settings-banned", "settings-openings", "settings-word-caps", "settings-exclusions", "settings-style"]) {
+      expect(checks.find((item) => item.id === id)).toMatchObject({ status: "fail", evidence: "no report" });
+    }
+    expect(checks.find((item) => item.id === "settings-rules-broken")).toMatchObject({ status: "info", evidence: "no report" });
+  });
+
+  it("puts the per-rule table, the case's basis and the score in the pack and the summary", () => {
+    const c = collectedWith(broken());
+    const log = emptyRunLog(fixture().id, 0);
+    const checks = runChecks(fixture(), c, log);
+    const text = renderFixturePack({ fixture: fixture(), log, collected: c, checks }, context);
+    expect(text).toContain('Semantic case: **Writer settings document** (owner decision 2026-10-02, alert 7: "a writer\'s settings document in Writer\'s Notes is followed")');
+    expect(text).toContain("## Settings document rules, per Line");
+    expect(text).toContain(
+      "Settings rules broken: Line 242: 12 of 18 (1 from the heuristic); Line 244: 3 of 16; Line 246: 5 of 16 (1 from the heuristic); overall: 18 of 20 (2 from the heuristic).",
+    );
+    expect(text).toContain('| word cap Line 244 | not applicable | broken: 607 of 520 words | not applicable |');
+    for (const question of fixture().judgmentQuestions) expect(text).toContain(question);
+    for (const note of fixture().notes ?? []) expect(text).toContain(`- ${note}`);
+    expect(DASHES.test(text)).toBe(false);
+    expect(renderSettingsRules(settingsRuleResults(params(), broken()))).toHaveLength(6 + 20 + 1);
+    // Earlier fixtures keep CAP-13 as their basis and get no settings table.
+    const other = byCase("skipped_role_supported");
+    const otherText = renderFixturePack({ fixture: other, log: emptyRunLog(other.id, 0), collected: c, checks: [] }, context);
+    expect(otherText).toContain('(CAP-13: "skipped role supported by the Brief")');
+    expect(otherText).not.toContain("## Settings document rules");
+
+    const summary = renderSummary([{ fixture: fixture(), log, collected: c, checks }, { fixture: other, log, collected: null, checks: [] }], context);
+    expect(summary).toContain(
+      "Settings rules broken (writer-settings-document): Line 242: 12 of 18 (1 from the heuristic); Line 244: 3 of 16; Line 246: 5 of 16 (1 from the heuristic); overall: 18 of 20 (2 from the heuristic).",
+    );
+    expect(renderSummary([{ fixture: fixture(), log, collected: null, checks: [] }], context)).toContain("Settings rules broken (writer-settings-document): no report.");
+    expect(DASHES.test(summary)).toBe(false);
   });
 });
 
