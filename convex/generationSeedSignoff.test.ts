@@ -42,7 +42,7 @@ import {
   type GenerationMessageParams,
 } from "./ai/openrouterCore";
 import { currentPromptVersion } from "./ai/promptProgram";
-import { buildConsistencyUserMessage, FACTS_NOTHING_SHOWN_REASON, sourceFactsFor, summaryPlanSelfCheckSchemaFor } from "./ai/selfCheck";
+import { buildConsistencyUserMessage, FACTS_NOTHING_SHOWN_REASON, sourceFactsFor, summaryPlanSelfCheckSchemaFor, TARGETS_NOTHING_SHOWN_REASON } from "./ai/selfCheck";
 import { summarizeSlotUsage } from "./ai/instrument";
 import {
   COMPRESSION_REQUEST,
@@ -886,12 +886,13 @@ function literalSummaryResponseOracle(args: {
             reason,
             ...(check.ruleId === "facts_match_sources" || check.ruleId === "results_against_targets" ? {} : { repairGuidance }),
             ruleId: check.ruleId,
-            // 2026-10-04 (second, round 4): the targets verdict reserves three
-            // entries, each with its quotes, target quote and correction at
-            // their limits, and no repairGuidance.
+            // 2026-10-04 (second, round 4): the targets verdict reserves two
+            // entries (lead decision on Greptile at 12d67e49), each with its
+            // quotes, target quote and correction at their limits, and no
+            // repairGuidance.
             ...(check.ruleId === "results_against_targets"
               ? {
-                  targetFindings: Array.from({ length: 3 }, () => ({
+                  targetFindings: Array.from({ length: 2 }, () => ({
                     correction: "c".repeat(80),
                     draftQuote: "d".repeat(64),
                     sourceQuote: "s".repeat(160),
@@ -3255,15 +3256,16 @@ describe("seed Summary sign-off and recovery", () => {
     // (review round 1, P2-2), again for its three findings (round 2), and
     // again for its halved reservation (round 2 review, P3-1). Re-pinned
     // again in round 4: the targets verdict reserves its three entries in
-    // place of its repairGuidance (shorter fields since its review, P3-5).
+    // place of its repairGuidance (shorter fields since its review, P3-5,
+    // and two entries since the lead decision on Greptile at 12d67e49).
     // It still equals the independent oracle above, which
     // frozenS244OracleChecks and literalSummaryResponseOracle extend the
     // same way.
     expect(replayHashes).toEqual({
-      restored: "2aa395504b149cff852a7c159a682c4527cde06a4f49e6f5b855ff21614a262f",
-      omit_storyline: "1ddafb939c8deed9c9441bccc2f5c55c4c553c689a50c0c82b35f6ac41757814",
-      omit_repeated_merge: "e69b02b3b64e2f7cc366a89b485d5ee3ee8c65f0f33c4fb98befb264e961bdbe",
-      short_reason: "9b856eb95963cc6e950765cd85d0a40bb96f5857dcb1967a89f2b6635407882b",
+      restored: "1b7203ec554ce6ec7a8a61a1260929db510f76d30923aaa19cd15f9b81dc36dd",
+      omit_storyline: "5bdd42200702e99c48652723fea883f07fac725e584fcbe1eaaf7d915e558d32",
+      omit_repeated_merge: "57af7b8946c675bd5f8d1a469b90d1ca48099561a587628492b8b6e0f9ed3b77",
+      short_reason: "ffea5ff55ec7579e091e41eda334300e0bcb4f6a4f8167c22d38987282a2c24e",
     });
   });
 
@@ -5161,7 +5163,10 @@ describe("seed Summary sign-off and recovery", () => {
       // by absence and carry no paragraph (2026-09-30, first).
       expect(row.paragraphIndex).toBe(check.itemId ? 0 : undefined);
       // 2026-10-04 (second, round 3): the facts row is fixed text.
-      expect(row.reason).toBe(check.ruleId === "facts_match_sources" ? FACTS_NOTHING_SHOWN_REASON : "Covered.");
+      // Round 3 and round 4: the facts and targets rows are fixed text.
+      expect(row.reason).toBe(check.ruleId === "facts_match_sources"
+        ? FACTS_NOTHING_SHOWN_REASON
+        : check.ruleId === "results_against_targets" ? TARGETS_NOTHING_SHOWN_REASON : "Covered.");
     }
     const persistedSummary = JSON.parse(state246.run?.selfCheck ?? "{}") as {
       failedChecks?: number;
@@ -6637,7 +6642,9 @@ describe("seed Summary sign-off and recovery", () => {
       // 2026-09-29 (second): a kept idea found drafted is applied, tier conflict.
       expect(rowFor(check)).toMatchObject(check.confirmedExclusion
         ? { outcome: "applied", tier: "conflict", repaired: false }
-        : { outcome: "applied", reason: check.ruleId === "facts_match_sources" ? FACTS_NOTHING_SHOWN_REASON : "Covered." });
+        : { outcome: "applied", reason: check.ruleId === "facts_match_sources"
+          ? FACTS_NOTHING_SHOWN_REASON
+          : check.ruleId === "results_against_targets" ? TARGETS_NOTHING_SHOWN_REASON : "Covered." });
     }
     // The check itself completed: no whole-check failure row.
     expect(state.rows.some((row) => row.instruction === "Model Self-check")).toBe(false);

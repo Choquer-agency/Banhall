@@ -28,6 +28,7 @@ import {
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
 } from "./ai/promptDefinitions";
 import { SELF_CHECK_SYSTEM_PROMPT, SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT } from "./ai/prompts";
+import { TARGETS_NOTHING_SHOWN_REASON } from "./ai/selfCheck";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { buildFrozenSummaryPlan, RESULTS_AGAINST_TARGETS_RULE_ID } from "./lib/seedRevisions";
 import { renderBriefBlock } from "./lib/briefRender";
@@ -321,7 +322,8 @@ describe("results, sources and Glossary repairs in a signed-off plan run (real S
       outcome: "applied",
       tier: "none",
       // Round 4: a targets row a repair fixed still says what was wrong.
-      reason: "Fixed by the repair: P1 calls met targets close. Every comparison matches.",
+      // The final verdict's row is fixed text (lead decision on Greptile at 12d67e49).
+      reason: `Fixed by the repair: P1 calls met targets close. ${TARGETS_NOTHING_SHOWN_REASON}`,
       repaired: true,
       planRef: { summaryVersionId: SUMMARY_VERSION, ruleId: RESULTS_AGAINST_TARGETS_RULE_ID, mergedItemIds: [] },
     });

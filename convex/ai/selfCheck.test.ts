@@ -70,7 +70,7 @@ import {
   sourceFactsFor,
   verifyFactsFindings,
   verifyTargetFindings,
-  targetMetSentences,
+  TARGETS_NOTHING_SHOWN_REASON,
   summaryPlanSelfCheckSchemaFor,
   type SelfCheckPlanCheck,
 } from "./selfCheck";
@@ -2670,7 +2670,8 @@ describe("results against targets, no talk about sources and Glossary repairs (2
       outcome: "applied",
       repaired: true,
       // 2026-10-04 (second, round 4): a targets row a repair fixed still says what was wrong.
-      // Review P2-4: what was wrong comes first.
+      // Review P2-4: what was wrong comes first. The final verdict here is
+      // given straight to the row builder, so its words stand.
       reason: "Fixed by the repair: P1 calls a met target close. Every comparison matches.",
       planRef: { summaryVersionId: "summary-version", ruleId: "results_against_targets", mergedItemIds: [] },
     })]);
@@ -3132,64 +3133,21 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
 });
 
 describe("a target is met only as the sources state it (2026-10-04, second, round 4)", () => {
-  it("finds each sentence that says a target was met in real Line 244 and 246 text, and none that plans, asks or says it was missed (review P2-1)", () => {
-    // Sentences of the release suite's Lines 244 and 246, 2026-10-04 to 2026-10-05 run 7.
-    const met = [
-      "Splitting the oven profile into ramp and hold zones cut overshoot from about 5 C to 2 C, and the combined sealer-and-powder process met both the outgassing defect and film build targets together on 140 test panels for the first time.",
-      "Combined with the edge sealer, full cure was reached at a panel surface temperature of 120 C within a cure window of 113 to 121 C, 8 C wide, meeting cure and outgassing targets together for the first time.",
-      "Shaker profile doors were ready for production at fiscal year end, meeting edge coverage and cure targets.",
-      "The filter captured 41 percent more fine inclusions than the standard 20 ppi filter, exceeding target, and flowed at 3.8 kg/s, a 7 percent reduction within the 10 percent limit.",
-      "The project goal of replacing manual and fixed-force deburring was met using two-angle vision and a non-linear force map.",
-      "This aim was achieved for the shaker profile: a conductive edge sealer decoupled conductivity from preheat.",
-      "The objective was to understand the thermal, electrostatic and cure behaviour of powder on thick routed MDF, and it was largely achieved.",
-      "Mapping the cure window with the sealer in place gave a range of 113 to 121 C, 8 C wide, meeting the production requirement;",
-    ];
-    const notMet = [
-      "A conductive edge sealer trial was planned to test whether edge coverage could be reached without a preheat above the outgassing threshold.",
-      "The company designed a series of trials to isolate whether conductivity could be achieved without raising panel surface temperature past that threshold.",
-      "It was hypothesized that if a conductive edge sealer supplied conductivity instead of preheat, then preheat could drop while edge coverage still met target.",
-      "Trial 1 tested whether the supplier's datasheet process, developed for flat panels, would meet targets on thick routed MDF.",
-      "The aim of this work was to develop a low-temperature powder coating process for thick, routed MDF doors meeting film build, edge coverage, cure and outgassing targets at line speed.",
-      "Film build on the routed edges reached only 35 microns against 82 microns on the faces, and outgassing defects on the routed edges were well above target.",
-      "The company aimed to advance knowledge of burr height estimation, so edge radius could be held within tolerance across varying burr height.",
-      // Negations, a meeting, and a missed limit.
-      "None of the four coatings met the clarity target.",
-      "Neither coating met both targets.",
-      "The line was unable to meet the 2.5 metres per minute target.",
-      "The team met with the supplier to review the cure specification.",
-      "Cure time exceeded the 30-minute limit.",
-      "Edge coverage still reached 58 to 64 microns.",
-    ];
-    expect(targetMetSentences(met).map((found) => found.sentence)).toEqual(met);
-    expect(targetMetSentences(notMet)).toEqual([]);
-    expect(targetMetSentences([met[0]!])[0]!.metWords).toEqual(["met"]);
-    // A sentence per paragraph and per clause end.
-    expect(targetMetSentences(["The deep cove profile did not meet the 60-micron target. Edge coverage still met target."]))
-      .toEqual([{ paragraphIndex: 0, sentence: "Edge coverage still met target.", metWords: ["met"] }]);
-  });
-
-  it("final re-check: reads a correctly stated miss as no met claim, and finds met claims after an expected or a hypothesized target and an exceeded target", () => {
-    const misses = [
-      // P2-B1: a figure right after the met word, or a miss in its phrase.
-      "Edge coverage reached 58 microns against the 60 micron target.",
-      "Trial 2 achieved 52 microns, short of the 60 micron target.",
-      "The cure window reached about 6 C, below the 8 C target.",
-      // P3-B3: "passed" as movement.
-      "Panels that passed through the oven at 135 C missed the target.",
-      // P3-B2: "exceeded" a limit says it was missed.
-      "Cure time exceeded the 30-minute limit.",
-    ];
-    const met = [
-      "As expected, the fast powder met the 120 C cure target.",
-      "The hypothesized cure target of 120 C was reached on 140 panels.",
-      "As planned, the pilot reached the goal of 2.5 metres per minute.",
-      "Edge coverage exceeded the 60 micron target on every shaker panel.",
-    ];
-    expect(targetMetSentences(misses)).toEqual([]);
-    expect(targetMetSentences(met).map((found) => found.sentence)).toEqual(met);
-    expect(targetMetSentences([met[3]!])[0]!.metWords).toEqual(["exceeded"]);
-    // Still plans: a plan word before "to", "that" or "whether".
-    expect(targetMetSentences(["It was expected that the line would reach the speed target.", "The team planned to meet the cure target."])).toEqual([]);
+  it("Greptile on PR #26 at 12d67e49 (lead decision): an applied targets verdict's row is fixed text, whatever the model wrote", async () => {
+    const base = replayInput();
+    const targetsCheck: SelfCheckPlanCheck = { ruleId: "results_against_targets", roleId: "overall_advancement", mergedItemIds: [], instruction: "match_targets", confirmedExclusion: false, wording: [], relationshipReferences: [], sourceReferences: [] };
+    const planChecks = [...base.planChecks, targetsCheck];
+    const input = { ...base, planChecks, planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks) };
+    const response = replayResponse();
+    for (const words of ["Targets and results stated per the numbers shown", "Every comparison matches."]) {
+      const client = replayClient({
+        ...response,
+        planVerdicts: [...response.planVerdicts, { ruleId: "results_against_targets", mergedItemIds: [], paragraph: 0, outcome: "applied", reason: words }],
+      });
+      const result = await runModelSelfCheck(client as unknown as GenerationClient, input);
+      expect(result.planVerdicts.at(-1)).toEqual({ ruleId: "results_against_targets", mergedItemIds: [], outcome: "applied", reason: TARGETS_NOTHING_SHOWN_REASON });
+    }
+    expect(TARGETS_NOTHING_SHOWN_REASON).toBe("The targets check found no result it could show is stated against its target differently from the sources.");
   });
 
   it("verifies an entry's target quote in the sources too, and drops an entry that quotes the draft back", () => {

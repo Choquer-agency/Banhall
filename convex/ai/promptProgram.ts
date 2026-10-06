@@ -772,10 +772,10 @@ export const generationPromptProgram = {
         // quotes do not back (when a quote is marked) is marked and never
         // stands for the sources.
         factsItems: "writer-wording-only-the-sentences-the-writer-changed-unbacked-wording-marked-never-stands-for-the-sources",
-        // Round 4: the targets verdict carries its evidence the same way; an
-        // applied verdict on a Line that says a target was met vouches only
-        // where each such sentence is shown from the sources.
-        targetFindings: "verified-quotes-only-errors-shown-and-repaired-met-targets-shown-or-not-checked",
+        // Round 4: a not applied targets verdict carries its evidence the same
+        // way; an applied one's row is fixed text that never vouches (lead
+        // decision on Greptile at 12d67e49).
+        targetFindings: "verified-quotes-only-errors-shown-and-repaired-applied-row-fixed-text",
         targetFindingsSchema: SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA,
         targetCapacity: {
           maxFindings: MAX_TARGET_FINDINGS,
