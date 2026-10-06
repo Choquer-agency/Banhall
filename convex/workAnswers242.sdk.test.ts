@@ -40,6 +40,7 @@ import {
 } from "./ai/promptDefinitions";
 import {
   PLAN_WORK_RULE_NOT_CHECKED_REASON,
+  TARGETS_NOTHING_SHOWN_REASON,
   WORK_RULE_BREAK_UNLOCATED_REASON,
 } from "./ai/selfCheck";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
@@ -452,7 +453,7 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     expect(rowOf(result, (ref) => ref.ruleId === "work_answers_242")).toMatchObject({
       outcome: "not_applied",
       repaired: false,
-      reason: `P2 adds sensor work, not in 242.; repair not used (the repaired text no longer holds the signed-off figure "8 C", which the checked draft held, and a fix that leaves out work must keep the evidence a signed-off item needs, so the checked draft was kept)`,
+      reason: `P2 adds sensor work, not in 242.; repair not used (the repaired text no longer holds the signed-off figure "8 C", which the checked draft held, and a repair must keep every figure a signed-off item gives, so the checked draft was kept)`,
     });
   });
 
@@ -795,7 +796,8 @@ describe("Line 244 work answers Line 242, or is work a signed-off item holds or 
     expect(rowOf(result, (ref) => ref.ruleId === "results_against_targets")).toMatchObject({
       outcome: "applied",
       repaired: true,
-      reason: "Results match targets.",
+      // 2026-10-04 (second, round 4): it still says what was wrong.
+      reason: `Fixed by the repair: P3 hides that 1.2 mg/L missed the target. ${TARGETS_NOTHING_SHOWN_REASON}`,
     });
 
     // A targets repair that keeps every figure but loses the work plan

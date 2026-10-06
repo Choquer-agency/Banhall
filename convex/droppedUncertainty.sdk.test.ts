@@ -583,7 +583,7 @@ describe("every Line 246 advancement answers a Line 242 uncertainty (real SDK, f
     expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCoverage"]);
     expect(sent[2]!.user).toContain("but keep everything a COVER item holds.");
     expect(result.draftText).toBe(MIXED_246);
-    const reason = 'the repaired text no longer covers the signed-off item "Stepwise acclimation cut cold-water start-up roughly in half at 8 C.", and a leave-out fix must keep what a COVER item holds, so the checked draft was kept';
+    const reason = 'the repaired text no longer covers the signed-off item "Stepwise acclimation cut cold-water start-up roughly in half at 8 C.", and a repair must keep what a COVER item holds, so the checked draft was kept';
     expect(rowOf(result, (ref) => ref.itemId === ITEM_ADVANCEMENT)).toMatchObject({ outcome: "applied", repaired: false, paragraphIndex: 0 });
     expect(rowOf(result, (ref) => ref.ruleId === "advancements_answer_242")).toMatchObject({
       outcome: "not_applied",

@@ -43,6 +43,8 @@ import {
   SEED_PROMPT_PROGRAM,
   SEED_RESULT_LINK_RULES,
   SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
+  SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
+  SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA,
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
 } from "./promptDefinitions";
@@ -566,6 +568,20 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       extraRefSchemas: SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
       resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
       hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",
+      factsMatchSources: "every-line-plan-check-with-source-facts-block-honoured-by-absence-judged-again-on-final-text",
+      factsFindings: "verified-quotes-only-shown-and-repaired-unverified-not-checked-source-documents-within-budget",
+      factsFindingsSchema: SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
+      factsItems: "writer-wording-only-the-sentences-the-writer-changed-unbacked-wording-marked-never-stands-for-the-sources",
+      targetFindings: "verified-quotes-only-errors-shown-and-repaired-applied-row-fixed-text",
+      targetFindingsSchema: SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA,
+      targetCapacity: { maxFindings: 2, draftQuoteBytes: 64, targetQuoteBytes: 80, correctionBytes: 80 },
+      factsCapacity: {
+        maxFindings: 2,
+        draftQuoteBytes: 128,
+        sourceQuoteBytes: 160,
+        correctionBytes: 120,
+        sourceDocumentsBytes: 48_000,
+      },
     });
     // 2026-09-30 (third): the Summary system prompt ends with the rules for
     // hedges, sources and Glossary candidates; the legacy one never has them.
@@ -577,6 +593,26 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     }
     expect(generationPromptProgram.calls.repair.signedOffPlan)
       .toBe("source-talk-found-deterministically-hedge-and-glossary-fixes-get-a-fixed-start");
+    // 2026-10-04 (second): the facts fix and its scaffolds are in the program.
+    expect(generationPromptProgram.calls.repair.factsFix)
+      .toBe("whole-section-never-must-keep-cover-rollback");
+    expect(generationPromptProgram.calls.selfCheck.summaryPlan.requestScaffold.factsMatchSources)
+      .toBe(SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources);
+    // Round 2: changing the findings schema or a facts capacity moves the hash.
+    const changedFindings = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        selfCheck: {
+          ...generationPromptProgram.calls.selfCheck,
+          summaryPlan: {
+            ...generationPromptProgram.calls.selfCheck.summaryPlan,
+            factsCapacity: { ...generationPromptProgram.calls.selfCheck.summaryPlan.factsCapacity, sourceDocumentsBytes: 1 },
+          },
+        },
+      },
+    });
+    expect(changedFindings).not.toBe(await hashPromptProgram(generationPromptProgram));
     expect(generationPromptProgram.templates.ordered.scaffolds.reportFacts.rules).toBe(RULES_REPORT_FACTS);
     expect(generationPromptProgram.templates.ordered.scaffolds.repairGuidance.sourceTalk).toBe(SOURCE_TALK);
     expect(generationPromptProgram.templates.seeds.summaryPlan).toEqual({
@@ -643,7 +679,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
           ...generationPromptProgram.templates.seeds,
           summaryPlan: {
             ...generationPromptProgram.templates.seeds.summaryPlan,
-            serializerVersion: "summary-plan-jsonl-v5",
+            serializerVersion: "summary-plan-jsonl-v6",
           },
         },
       },

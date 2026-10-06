@@ -98,6 +98,8 @@ import {
   SELF_CHECK_SCHEMA,
   SEED_PROMPT_PROGRAM,
   SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
+  SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
+  SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA,
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
   STYLE_GUIDANCE_SCAFFOLDS,
@@ -105,12 +107,21 @@ import {
 import {
   FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
   FROZEN_SUMMARY_PLAN_SCAFFOLD,
+  MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES,
+  MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+  MAX_FACTS_FINDINGS,
+  MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES,
+  MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+  MAX_TARGET_FINDINGS,
+  MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES,
+  MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_ORDINARY_VERDICTS,
   MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
   MAX_SUMMARY_PLAN_VERDICTS,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
   SUMMARY_PLAN_SERIALIZER_VERSION,
+  SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES,
 } from "../lib/seedRevisions";
 import { CANDIDATE_MODE_ROUTING } from "./model";
 import {
@@ -740,6 +751,45 @@ export const generationPromptProgram = {
         // hedges, sources and Glossary candidates.
         resultsAgainstTargets: "lines-244-and-246-plan-check-honoured-by-absence-judged-again-on-final-text",
         hedgesSourcesGlossary: "hedge-states-the-range-never-a-source-glossary-replaces-another-name-only",
+        // 2026-10-04 (second): every Line of a signed-off plan has one plan
+        // check that each figure and detail is stated as the sources give
+        // it, with what drafting read (the transcript analysis, the
+        // Storyline and the Confidence Map) as a SOURCE FACTS data block in
+        // the first request, its follow-up and the check of the final text;
+        // honoured by absence, repaired and judged again on the final text.
+        factsMatchSources: "every-line-plan-check-with-source-facts-block-honoured-by-absence-judged-again-on-final-text",
+        // Round 2 (owner approved 2026-10-05): a not applied facts verdict
+        // carries findings (paragraph, draft quote, source quote, correction);
+        // only findings whose quotes verify are shown and repaired, the rest
+        // are not checked. The source documents are read in full within
+        // SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES, and the product's own wording
+        // proves no detail alone.
+        factsFindings: "verified-quotes-only-shown-and-repaired-unverified-not-checked-source-documents-within-budget",
+        factsFindingsSchema: SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
+        // Round 3 (owner approved 2026-10-05) and its review: only the
+        // sentences the writer changed are the writer's wording; a
+        // product-written item is not settled fact, and the wording its own
+        // quotes do not back (when a quote is marked) is marked and never
+        // stands for the sources.
+        factsItems: "writer-wording-only-the-sentences-the-writer-changed-unbacked-wording-marked-never-stands-for-the-sources",
+        // Round 4: a not applied targets verdict carries its evidence the same
+        // way; an applied one's row is fixed text that never vouches (lead
+        // decision on Greptile at 12d67e49).
+        targetFindings: "verified-quotes-only-errors-shown-and-repaired-applied-row-fixed-text",
+        targetFindingsSchema: SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA,
+        targetCapacity: {
+          maxFindings: MAX_TARGET_FINDINGS,
+          draftQuoteBytes: MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+          targetQuoteBytes: MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES,
+          correctionBytes: MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES,
+        },
+        factsCapacity: {
+          maxFindings: MAX_FACTS_FINDINGS,
+          draftQuoteBytes: MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+          sourceQuoteBytes: MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
+          correctionBytes: MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES,
+          sourceDocumentsBytes: SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES,
+        },
       },
     },
     // Story 2 (CAP-9): the repair is the section agent itself, re-run once
@@ -763,6 +813,10 @@ export const generationPromptProgram = {
       // line), and Confidence Map, Storyline and Glossary fixes get a fixed
       // start.
       signedOffPlan: "source-talk-found-deterministically-hedge-and-glossary-fixes-get-a-fixed-start",
+      // 2026-10-04 (second): a facts fix is for the whole section, never a
+      // Must keep line of the repair's compression, and a repair that loses
+      // a COVER item for it is set aside.
+      factsFix: "whole-section-never-must-keep-cover-rollback",
     },
     // Story 2 (CAP-10, AD-24): one pass over the assembled draft per candidate.
     consistency: {

@@ -16,11 +16,14 @@ import {
   SELF_CHECK_REQUEST,
   SELF_CHECK_SCHEMA,
   SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS,
+  SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA,
+  SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA,
   SUMMARY_PLAN_SELF_CHECK_REQUEST,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
 } from "./promptDefinitions";
 import { sectionParagraphs } from "../lib/tiptapReport";
 import { containsTerm } from "../lib/editedTerms";
+import { neutralizeMarkers } from "./trustedContext";
 import {
   governingFeedbackPhrase,
   quoteForPrompt,
@@ -40,7 +43,10 @@ import type {
 import {
   ADVANCEMENTS_ANSWER_242_RULE_ID,
   clipJsonEscapedUtf8,
+  FACTS_MATCH_SOURCES_RULE_ID,
   jsonEscapedUtf8Bytes,
+  MAX_FACTS_FINDINGS,
+  MAX_TARGET_FINDINGS,
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES,
@@ -55,6 +61,8 @@ import {
   serializeFrozenSummaryPlanChecks,
   summaryPlanRefsOf,
   summarySelfCheckWorstCaseResponse,
+  type FactsSourceDocument,
+  type FactsSourceDocuments,
   type FrozenSummaryPlanCheck,
   type SummaryOrdinaryCheck,
   type SummaryPlanRefFields,
@@ -122,7 +130,27 @@ type RawSelfCheck = {
    */
   unreadableLists?: string[];
 };
+/**
+ * 2026-10-04 (second, round 2): one finding of a not applied facts verdict,
+ * as the model sent it. Its quotes are verified before it is shown.
+ */
+type RawFactsFinding = {
+  paragraph?: number;
+  draftQuote: string;
+  sourceQuote: string;
+  correction: string;
+};
+/**
+ * 2026-10-04 (second, round 4): one entry of the targets verdict, as the
+ * model sent it: an error of a not applied verdict, or the evidence of a
+ * target an applied verdict says the section states as met.
+ */
+type RawTargetFinding = RawFactsFinding & { targetQuote?: string };
 type RawPlanVerdict = {
+  /** 2026-10-04 (second, round 2): the facts verdict's evidence. */
+  findings?: RawFactsFinding[];
+  /** 2026-10-04 (second, round 4): the targets verdict's evidence. */
+  targetFindings?: RawTargetFinding[];
   itemId?: string;
   skippedRoleId?: string;
   /** 2026-09-30 (first): a LEAVE OUT check's dropped uncertainty. */
@@ -172,6 +200,10 @@ const summaryVerdictOutputSchema = z.object({
   repairGuidance: z.string().optional(),
 }).strict();
 const summaryPlanVerdictOutputSchema = z.object({
+  // 2026-10-04 (second, round 2): read finding by finding (factsFindingsOf).
+  findings: z.unknown().optional(),
+  // Round 4: read entry by entry (targetFindingsOf).
+  targetFindings: z.unknown().optional(),
   itemId: z.string().optional(),
   skippedRoleId: z.string().optional(),
   droppedSeedId: z.string().optional(),
@@ -187,6 +219,36 @@ const summaryPlanVerdictOutputSchema = z.object({
 
 function isUnknownRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * 2026-10-04 (second, round 2): a facts verdict's findings, each read on its
+ * own: one without both quotes is left out (it could never be verified), at
+ * most MAX_FACTS_FINDINGS.
+ */
+function factsFindingsOf(value: unknown): RawFactsFinding[] {
+  return findingsOf(value).slice(0, MAX_FACTS_FINDINGS);
+}
+
+/** Round 4: the targets verdict's entries, read the same way, at most MAX_TARGET_FINDINGS. */
+function targetFindingsOf(value: unknown): RawTargetFinding[] {
+  return findingsOf(value).slice(0, MAX_TARGET_FINDINGS);
+}
+
+function findingsOf(value: unknown): RawTargetFinding[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate): RawFactsFinding[] => {
+    if (!isUnknownRecord(candidate)) return [];
+    const { draftQuote, sourceQuote, correction, paragraph, targetQuote } = candidate;
+    if (typeof draftQuote !== "string" || typeof sourceQuote !== "string") return [];
+    return [{
+      ...(typeof paragraph === "number" && Number.isFinite(paragraph) ? { paragraph } : {}),
+      draftQuote,
+      sourceQuote,
+      ...(typeof targetQuote === "string" && targetQuote.trim() ? { targetQuote } : {}),
+      correction: typeof correction === "string" ? correction : "",
+    }];
+  });
 }
 
 /**
@@ -263,7 +325,17 @@ function decodeSummaryItems(value: {
   const planVerdicts: RawPlanVerdict[] = [];
   summaryListOf(value.planVerdicts, "planVerdicts", unreadableLists).forEach((candidate, index) => {
     const parsed = summaryPlanVerdictOutputSchema.safeParse(candidate);
-    if (parsed.success) planVerdicts.push({ ...parsed.data, position: index + 1 });
+    if (parsed.success) {
+      const { findings, targetFindings, ...rest } = parsed.data;
+      const read = factsFindingsOf(findings);
+      const targets = targetFindingsOf(targetFindings);
+      planVerdicts.push({
+        ...rest,
+        ...(read.length > 0 ? { findings: read } : {}),
+        ...(targets.length > 0 ? { targetFindings: targets } : {}),
+        position: index + 1,
+      });
+    }
     else malformed.push(`plan verdict ${index + 1}: ${failedPathOf(parsed.error)}`);
   });
   let storylineQuestion: RawStorylineQuestion | null | undefined;
@@ -594,7 +666,218 @@ export type SelfCheckModelInput = {
    * repaired text is judged for them (Greptile round 4, P2).
    */
   feedbackTerms?: readonly FeedbackGovernedTerm[];
+  /**
+   * 2026-10-04 (second): what the draft was written from, for the facts
+   * check (sourceFactsFor). Sent as the SOURCE FACTS block only when the
+   * plan checks hold that check, so every other request is unchanged.
+   */
+  sourceFacts?: SourceFacts;
 };
+
+/** One frozen source document the facts check may read in full. */
+export type SourceDocument = FactsSourceDocument;
+
+/** The source documents the facts check reads, and the ones left out. */
+export type SourceDocuments = FactsSourceDocuments;
+
+/**
+ * The SOURCE FACTS block's body; the entries a finding's source quote may be
+ * found in (`evidence`), plain text with no JSON escaping; the product's own
+ * entries, which count as well only when the documents are not complete
+ * (`product`); every signed-off item's wording, which a fix may not cut while
+ * they are not (`items`); and whether every source document is in it.
+ */
+export type SourceFacts = {
+  body: string;
+  evidence: string[];
+  product: string[];
+  items: string[];
+  documentsComplete: boolean;
+  /**
+   * Round 3: every sentence an item's own quotes do not back. Never evidence,
+   * on any path a source quote is verified against (Greptile on PR #26 at
+   * 1da92721).
+   */
+  unbacked: string[];
+};
+
+/** Every string in a JSON value, in order: the analysis as plain text. */
+function stringLeaves(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(stringLeaves);
+  if (value && typeof value === "object") return Object.values(value).flatMap(stringLeaves);
+  return [];
+}
+
+/**
+ * 2026-10-04 (second): what the facts check reads. Round 2 (owner approved
+ * 2026-10-05): the source documents first, then the product's own wording,
+ * which can point to a fact but proves no detail on its own: the transcript
+ * analysis (compact JSON), the Brief's Storyline (marked as the writer's when
+ * the writer typed or edited it) and Confidence Map, and (review round 1,
+ * P2-1) every Line's signed-off items, each marked as the writer's or the
+ * product's wording and with its own quotes; and the writer's instructions.
+ * Round 2 review: the whole body is marker-safe (P2-1), and the documents
+ * count as complete only when at least one is in and none is left out (P2-4,
+ * P3-3). The first Self-check and the check of the final text read the same
+ * block.
+ */
+export function sourceFactsFor(args: {
+  analysis: unknown;
+  storylineText?: string;
+  /** The writer typed or edited the Storyline (the Brief's storylineOrigin). */
+  storylineByWriter?: boolean;
+  confidenceMap?: ReadonlyArray<{ text: string; confidence?: string }>;
+  /** Every signed-off item, every Line, skipped steps aside. */
+  planItems?: ReadonlyArray<{
+    wording: readonly string[];
+    writer?: boolean;
+    quotes?: readonly string[];
+    /** Round 3: the wording its own evidence quotes do not back. */
+    unbacked?: readonly string[];
+  }>;
+  /** The writer's instructions, as the WRITER INSTRUCTIONS block gives them. */
+  writerInstructions?: readonly string[];
+  documents?: SourceDocuments;
+}): SourceFacts {
+  const scaffold = SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources;
+  const storyline = args.storylineText?.trim() ?? "";
+  const confidence = args.confidenceMap ?? [];
+  const items = (args.planItems ?? [])
+    .map((item) => {
+      // Round 3: the writer's own wording is never marked; the product's is,
+      // where its evidence quotes do not back it.
+      const unbacked = item.writer ? [] : (item.unbacked ?? []).map((bullet) => bullet.trim()).filter(Boolean);
+      return {
+        ...item,
+        text: item.wording.join(" ").trim(),
+        quotes: (item.quotes ?? []).map((quote) => quote.trim()).filter(Boolean),
+        unbacked,
+        // What can stand for the sources: the wording its quotes back.
+        backed: item.wording.map((bullet) => bullet.trim()).filter((bullet) => bullet && !unbacked.includes(bullet)).join(" "),
+      };
+    })
+    .filter((item) => item.text);
+  const instructions = (args.writerInstructions ?? []).map((text) => text.trim()).filter(Boolean);
+  const included = args.documents?.documents ?? [];
+  const leftOut = args.documents?.leftOut ?? [];
+  const documentsComplete = included.length > 0 && leftOut.length === 0;
+  const documentsPart = !args.documents
+    ? []
+    : [
+        ...(included.length > 0
+          ? [`${scaffold.documentsHeading}${included
+              .map((document) => `${scaffold.documentPrefix}${document.label}${scaffold.documentSuffix}${document.content.trim()}`)
+              .join("\n")}`]
+          : []),
+        ...(leftOut.length > 0
+          ? [`${scaffold.documentsLeftOutPrefix}${args.documents.budget}${scaffold.documentsLeftOutMiddle}${leftOut
+              .map((document) => `${document.label} (${document.bytes} bytes)`)
+              .join(scaffold.documentsLeftOutSeparator)}${scaffold.documentsLeftOutSuffix}`]
+          : []),
+        ...(included.length === 0 && leftOut.length === 0 ? [scaffold.documentsNone] : []),
+      ];
+  const body = [
+    ...documentsPart,
+    scaffold.productHeading,
+    `${scaffold.analysisHeading}${JSON.stringify(args.analysis)}`,
+    ...(storyline ? [`${args.storylineByWriter ? scaffold.writerStorylineHeading : scaffold.storylineHeading}${storyline}`] : []),
+    ...(confidence.length > 0
+      ? [`${scaffold.confidenceHeading}${confidence
+          .map((entry) => `${scaffold.confidencePrefix}${entry.confidence ?? "unresolved"}${scaffold.confidenceMiddle}${entry.text}`)
+          .join("")}`]
+      : []),
+    ...(items.length > 0
+      ? [`${scaffold.planHeading}${items.map((item) =>
+          `${scaffold.planItemPrefix}${item.writer ? scaffold.writerItemLabel : scaffold.productItemLabel}${item.text}${
+            item.quotes.length > 0
+              ? `${scaffold.quotesPrefix}${item.quotes.map((quote) => JSON.stringify(quote)).join(scaffold.quoteSeparator)}`
+              : scaffold.noQuotes
+          }${
+            item.unbacked.length > 0
+              ? `${scaffold.unbackedPrefix}${item.unbacked.map((bullet) => JSON.stringify(bullet)).join(scaffold.quoteSeparator)}`
+              : ""
+          }`).join("")}`]
+      : []),
+    ...(instructions.length > 0
+      ? [`${scaffold.writerHeading}${instructions.map((text) => `${scaffold.writerItemPrefix}${text}`).join("")}`]
+      : []),
+  ].join(scaffold.partSeparator);
+  const safe = (text: string) => neutralizeMarkers(text);
+  return {
+    // Round 2 review, P2-1: no part of the block can close it or open another.
+    body: safe(body),
+    evidence: [
+      ...included.map((document) => document.content),
+      ...items.flatMap((item) => item.quotes),
+      ...items.filter((item) => item.writer).map((item) => item.text),
+      ...(args.storylineByWriter && storyline ? [storyline] : []),
+      ...instructions,
+    ].map(safe),
+    product: [
+      ...stringLeaves(args.analysis),
+      ...(!args.storylineByWriter && storyline ? [storyline] : []),
+      ...confidence.map((entry) => entry.text),
+      // Round 3: wording its own quotes do not back never stands for the sources.
+      ...items.filter((item) => !item.writer && item.backed).map((item) => item.backed),
+    ].map(safe),
+    items: items.filter((item) => item.backed).map((item) => item.backed),
+    documentsComplete,
+    unbacked: items.flatMap((item) => item.unbacked),
+  };
+}
+
+/**
+ * The facts rule after the data blocks: one sentence on the source documents
+ * for whether they are all in the SOURCE FACTS block (round 2).
+ */
+export function factsMatchSourcesInstruction(documentsComplete: boolean): string {
+  const scaffold = SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources;
+  return `${scaffold.instructionIntro}${documentsComplete ? scaffold.documentsIncluded : scaffold.documentsLeftOut}${scaffold.instructionRest}`;
+}
+
+/**
+ * The entries a facts finding's source quote may come from. Round 2 review,
+ * P2-3: with every source document in, only source wording: the documents,
+ * the signed-off items' quotes, and what the writer typed (items marked as
+ * the writer's, a writer's Storyline, the writer's instructions, exact terms
+ * and Feedback). Without every document, the product's own wording too (the
+ * analysis, its Storyline and Confidence Map, every item's and plan check's
+ * wording), as it stands for what the check cannot read.
+ */
+function factsVerificationSources(input: SelfCheckModelInput): string[] {
+  const facts = input.sourceFacts;
+  const checks = input.planChecks ?? [];
+  // Greptile on PR #26 at 1da92721: a sentence an item's own quotes do not
+  // back never stands for the sources, here either: the plan checks' wording
+  // read while documents are left out leaves it out (from the SOURCE FACTS
+  // items and from each check's own warning).
+  const unbacked = new Set([...(facts?.unbacked ?? []), ...checks.flatMap((check) => check.quotesDoNotBack ?? [])]
+    .map((sentence) => sentence.trim()));
+  const backedOnly = (wording: readonly string[]) => wording.filter((sentence) => !unbacked.has(sentence.trim()));
+  // Round 2 re-check (P2): every entry marker-safe, as the block's own are,
+  // so no quote verifies against marker text.
+  return [
+    ...(facts?.evidence ?? []),
+    ...checks.flatMap((check) => check.sourceReferences.map((reference) => reference.exactExcerpt)),
+    ...(input.editedTerms ?? []),
+    ...(input.writerFeedback ?? []).map((entry) => entry.instruction),
+    ...(facts?.documentsComplete
+      ? []
+      : [
+          ...(facts?.product ?? []),
+          ...checks.flatMap((check) => [
+            ...backedOnly(check.wording),
+            ...check.relationshipReferences.flatMap((reference) => backedOnly(reference.wording)),
+          ]),
+        ]),
+  ].map((entry) => neutralizeMarkers(entry));
+}
+
+/** The SOURCE FACTS block's body alone. */
+export function sourceFactsBody(args: Parameters<typeof sourceFactsFor>[0]): string {
+  return sourceFactsFor(args).body;
+}
 
 function summaryEditedTerms(input: SelfCheckModelInput): string[] {
   return (input.editedTerms ?? []).map((term) => term.trim()).filter(Boolean);
@@ -693,6 +976,16 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
     }
     blocks.push(serialized);
   }
+  // 2026-10-04 (second): the sources the draft was written from, for the
+  // facts check, right after the plan checks. Absent without that check, so
+  // those requests are unchanged.
+  const facts = (input.planChecks ?? []).some((check) => check.ruleId === FACTS_MATCH_SOURCES_RULE_ID);
+  if (facts) {
+    blocks.push(block(
+      SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.blockLabel,
+      input.sourceFacts?.body.trim() || "(none)"
+    ));
+  }
   // The writer's edited terms, allowed word for word: a block of data and,
   // after the blocks, the rule for them. Absent without edited terms, so
   // those requests are unchanged.
@@ -760,6 +1053,8 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
     workAnswers242 ? SUMMARY_PLAN_SELF_CHECK_REQUEST.workAnswers242.instruction : ""
   }${
     targets ? SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.instruction : ""
+  }${
+    facts ? factsMatchSourcesInstruction(input.sourceFacts?.documentsComplete === true) : ""
   }`;
 }
 
@@ -860,6 +1155,15 @@ export function summaryPlanSelfCheckSchemaFor(
       : {}),
   };
   const plan = base.properties.planVerdicts;
+  // 2026-10-04 (second, round 2): the facts verdict carries its evidence, so
+  // only a request with that check gains the findings field.
+  const factsFindings = ruleIds.includes(FACTS_MATCH_SOURCES_RULE_ID)
+    ? { findings: SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA }
+    : {};
+  // Round 4: and the targets verdict, only in a request with that check.
+  const targetFindings = ruleIds.includes(RESULTS_AGAINST_TARGETS_RULE_ID)
+    ? { targetFindings: SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA }
+    : {};
   // The final coverage check (2026-09-28, third) never asks a Storyline
   // question, so its schema has no place for one.
   const { storylineQuestion: _question, ...withoutQuestion } = base.properties;
@@ -898,6 +1202,8 @@ export function summaryPlanSelfCheckSchemaFor(
               ...plan.items.properties.skippedRoleId,
               ...(skipIds.length > 0 ? { enum: skipIds } : {}),
             },
+            ...factsFindings,
+            ...targetFindings,
             ...extraProperties,
           },
           ...(droppedIds.length > 0 || ruleIds.length > 0
@@ -945,6 +1251,11 @@ export type ModelSelfCheckResult = {
     actionableRepair?: boolean;
     /** In memory only: see ModelVerdict.repairText. Never stored. */
     repairText?: string;
+    /**
+     * In memory only (round 4 review, P3-6): the repair text quotes verified
+     * entries (the targets check), so the fix is handled like a facts fix.
+     */
+    repairFromEntries?: true;
     /**
      * 2026-09-30 (second, Greptile round): a LEAVE OUT verdict's figure note
      * (orderedGeneration.ts leaveOutFigureNote), added to its row's reason;
@@ -1317,12 +1628,283 @@ export const PLAN_TARGETS_NOT_CHECKED_REASON =
   "Not checked: the plan coverage Self-check gave no verdict for whether each result is stated against its target as the numbers show.";
 export const TARGETS_BREAK_UNLOCATED_REASON =
   "Result reported as misstated against its target named no valid paragraph.";
+/** 2026-10-04 (second): the same reasons for the facts check. */
+export const PLAN_FACTS_NOT_CHECKED_REASON =
+  "Not checked: the plan coverage Self-check gave no verdict for whether each figure and detail is stated as the sources give it.";
+export const FACTS_BREAK_UNLOCATED_REASON =
+  "Figure or detail reported as not matching the sources named no valid paragraph.";
+
+/**
+ * 2026-10-04 (second, round 2, owner approved 2026-10-05): a facts finding
+ * whose quotes do not verify is never shown as an error and never repaired.
+ * Round 2 review (P3-7): the model's words are cut like other stored text.
+ */
+export function factsNotCheckedReason(words: string): string {
+  return `Not checked: the facts check flagged something it could not show from the sources (its words: ${rowQuote(words)})`;
+}
+
+/**
+ * 2026-10-04 (second, round 3, owner approved 2026-10-05): the row of a facts
+ * check that found nothing it could show. Fixed text, never the model's
+ * words, so it never reads as a guarantee ("Figures and details match the
+ * sources." sat beside a wrong detail in release suite run 6).
+ */
+export const FACTS_NOTHING_SHOWN_REASON =
+  "The facts check found no figure or detail it could show differs from the sources.";
+
+/** Normalized for quote matching: case, spacing, quote marks and dashes. */
+export function normalizeForQuote(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[‘’‚‛′`]/g, "'")
+    .replace(/[“”„″]/g, '"')
+    .replace(/[‐-―−]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** The shortest part of a quote that can count as found (the rule says so). */
+export const MIN_QUOTE_PART_CHARS = 8;
+/** The most characters an ellipsis may skip between two parts of a quote. */
+export const MAX_QUOTE_GAP_CHARS = 200;
+
+/** A quote's parts, split at an ellipsis, without the marks around them. */
+function quoteParts(quote: string): string[] {
+  const trim = (part: string) => part.replace(/^["'\s.,;:]+|["'\s.,;:]+$/g, "");
+  return normalizeForQuote(quote).split(/\s*\.\.\.\s*/).map(trim).filter(Boolean);
+}
+
+/** Whether the parts are in one normalized entry, in order, each gap at most MAX_QUOTE_GAP_CHARS. */
+function partsInOrder(parts: readonly string[], entry: string): boolean {
+  for (let start = entry.indexOf(parts[0]!); start >= 0; start = entry.indexOf(parts[0]!, start + 1)) {
+    let end = start + parts[0]!.length;
+    let whole = true;
+    for (const part of parts.slice(1)) {
+      const at = entry.indexOf(part, end);
+      if (at < 0 || at - end > MAX_QUOTE_GAP_CHARS) {
+        whole = false;
+        break;
+      }
+      end = at + part.length;
+    }
+    if (whole) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a quote is in a text or in one of a list of entries: every part
+ * (split at an ellipsis) at least MIN_QUOTE_PART_CHARS long, all in the same
+ * entry, in order, with at most MAX_QUOTE_GAP_CHARS between two parts, after
+ * normalizeForQuote (round 2 review, P2-2: an ellipsis never joins two
+ * places).
+ */
+export function quoteFoundIn(quote: string, text: string | readonly string[]): boolean {
+  const parts = quoteParts(quote);
+  if (parts.length === 0 || parts.some((part) => part.length < MIN_QUOTE_PART_CHARS)) return false;
+  const entries = typeof text === "string" ? [text] : text;
+  return entries.some((entry) => partsInOrder(parts, normalizeForQuote(entry)));
+}
+
+/** Whether two quotes are the same text after normalizing, ellipses and edge marks aside. */
+function sameQuoteText(a: string, b: string): boolean {
+  return quoteParts(a).join(" ") === quoteParts(b).join(" ");
+}
+
+/** A finding whose quotes verified, with the paragraph that holds its draft quote. */
+export type VerifiedFactsFinding = {
+  paragraphIndex: number;
+  draftQuote: string;
+  sourceQuote: string;
+  correction: string;
+};
+
+/** How a quote reads in a row: one line, at most 160 characters. */
+function rowQuote(quote: string): string {
+  const flat = quote.replace(/\s+/g, " ").trim();
+  return flat.length > 160 ? `${flat.slice(0, 159).trimEnd()}…` : flat;
+}
+
+/**
+ * 2026-10-04 (second, round 2): verify a not applied facts verdict's findings.
+ * The draft quote must be in a paragraph of the checked text (the one the
+ * verdict names, else the first that holds it); the source quote must be in
+ * one of the `sources` entries, and the two quotes must not be the same
+ * text after normalizing (the draft quoted back as its source, so nothing
+ * differs). Greptile on PR #26 at 17d3d1a8 and 7e3964cc: a source quote the
+ * paragraph also states, or one quote holding the other, still verifies,
+ * since a draft can add a group to the source's words or drop a qualifier
+ * from them. Whether two different texts state the same fact is the
+ * prompt's job. Round 2 review, P2-4: while the source documents are
+ * not complete, a verified finding whose draft quote a signed-off item's
+ * wording holds (`items`) is held: shown, never repaired, since the
+ * documents that could support the item were not read.
+ */
+export function verifyFactsFindings(args: {
+  findings: readonly RawFactsFinding[];
+  paragraphs: readonly string[];
+  sources: readonly string[];
+  /** The verdict's own paragraph (1-based), preferred where it holds a draft quote. */
+  paragraph?: number;
+  items?: readonly string[];
+}): { verified: VerifiedFactsFinding[]; held: VerifiedFactsFinding[]; unverified: number } {
+  const verified: VerifiedFactsFinding[] = [];
+  const held: VerifiedFactsFinding[] = [];
+  const named = typeof args.paragraph === "number" && Number.isInteger(args.paragraph) ? args.paragraph - 1 : -1;
+  for (const finding of args.findings) {
+    const holds = (index: number) => index >= 0 && index < args.paragraphs.length &&
+      quoteFoundIn(finding.draftQuote, args.paragraphs[index]!);
+    const paragraphIndex = holds(named) ? named : args.paragraphs.findIndex((_, index) => holds(index));
+    if (paragraphIndex < 0) continue;
+    if (!quoteFoundIn(finding.sourceQuote, args.sources)) continue;
+    if (sameQuoteText(finding.sourceQuote, finding.draftQuote)) continue;
+    const shown = {
+      paragraphIndex,
+      draftQuote: finding.draftQuote.trim(),
+      sourceQuote: finding.sourceQuote.trim(),
+      correction: finding.correction.trim(),
+    };
+    if (args.items && quoteFoundIn(finding.draftQuote, args.items)) held.push(shown);
+    else verified.push(shown);
+  }
+  return { verified, held, unverified: args.findings.length - verified.length - held.length };
+}
+
+/** Each finding's two quotes, plainly. */
+function findingsText(findings: readonly VerifiedFactsFinding[]): string {
+  return findings
+    .map((finding) => `P${finding.paragraphIndex + 1} says "${rowQuote(finding.draftQuote)}", but the sources say "${rowQuote(finding.sourceQuote)}".`)
+    .join(" ");
+}
+
+/**
+ * The row of a facts verdict with shown findings: each finding's two quotes;
+ * then any held finding (round 2 review, P2-4) and how many could not be
+ * shown from the sources (P3-6).
+ */
+export function factsFindingsReason(
+  verified: readonly VerifiedFactsFinding[],
+  unverified: number,
+  held: readonly VerifiedFactsFinding[] = []
+): string {
+  const parts = [
+    ...(verified.length > 0 ? [findingsText(verified)] : []),
+    ...(held.length > 0 ? [`${FACTS_HELD_PREFIX}${findingsText(held)}`] : []),
+    ...(unverified > 0
+      ? [`${unverified} more ${unverified === 1 ? "finding was" : "findings were"} not shown: ${unverified === 1 ? "its" : "their"} quotes could not be shown from the sources.`]
+      : []),
+  ];
+  return parts.join(" ");
+}
+
+/** How a held finding begins on its row (round 2 review, P2-4). */
+export const FACTS_HELD_PREFIX =
+  "Not repaired, since a signed-off item gives these words and not every source document could be read: ";
+
+/** The repair's fix for verified findings: each paragraph, both quotes and the correction. */
+export function factsRepairText(verified: readonly VerifiedFactsFinding[]): string {
+  return verified
+    .map((finding) =>
+      `Paragraph ${finding.paragraphIndex + 1}: the section says "${finding.draftQuote}", but the sources say "${finding.sourceQuote}".${
+        finding.correction ? ` Write it as the sources give it: ${finding.correction}` : ""
+      }`)
+    .join(" ");
+}
+
+/**
+ * 2026-10-04 (second, round 4): the targets verdict's evidence, verified like
+ * the facts verdict's (`verifyFactsFindings`: the draft quote in a paragraph,
+ * the source quote in source wording, the quote rules and the same-text
+ * drop), and its target quote, when given, in source wording too.
+ */
+export type VerifiedTargetFinding = VerifiedFactsFinding & { targetQuote?: string };
+
+export function verifyTargetFindings(args: {
+  findings: ReadonlyArray<RawFactsFinding & { targetQuote?: string }>;
+  paragraphs: readonly string[];
+  sources: readonly string[];
+  paragraph?: number;
+  items?: readonly string[];
+}): { verified: VerifiedTargetFinding[]; held: VerifiedTargetFinding[]; unverified: number } {
+  const verified: VerifiedTargetFinding[] = [];
+  const held: VerifiedTargetFinding[] = [];
+  let unverified = 0;
+  for (const finding of args.findings) {
+    const target = finding.targetQuote?.trim();
+    if (target && !quoteFoundIn(target, args.sources)) {
+      unverified += 1;
+      continue;
+    }
+    const one = verifyFactsFindings({ ...args, findings: [finding] });
+    const withTarget = (shown: VerifiedFactsFinding): VerifiedTargetFinding => ({ ...shown, ...(target ? { targetQuote: target } : {}) });
+    verified.push(...one.verified.map(withTarget));
+    held.push(...one.held.map(withTarget));
+    unverified += one.unverified;
+  }
+  return { verified, held, unverified };
+}
+
+/**
+ * 2026-10-04 (second, round 4; Greptile round on PR #26 at 12d67e49, lead
+ * decision): the row of an applied targets verdict. Fixed text, never the
+ * model's words, and never a claim that every result was checked: a keyword
+ * reading of which sentences say a target was met could not be made
+ * reliable, so the row says only what the check could not show, as the facts
+ * row does (round 3).
+ */
+export const TARGETS_NOTHING_SHOWN_REASON =
+  "The targets check found no result it could show is stated against its target differently from the sources.";
+
+/** How a quote reads in a targets row: one line, at most 80 characters (review P2-4). */
+function shortQuote(quote: string): string {
+  const flat = quote.replace(/\s+/g, " ").trim();
+  return flat.length > 80 ? `${flat.slice(0, 79).trimEnd()}…` : flat;
+}
+
+/** One error's quotes, with its target when given, plainly and short. */
+function targetErrorText(finding: VerifiedTargetFinding): string {
+  return `P${finding.paragraphIndex + 1} says "${shortQuote(finding.draftQuote)}", but the sources say "${shortQuote(finding.sourceQuote)}"${
+    finding.targetQuote ? ` against the target "${shortQuote(finding.targetQuote)}"` : ""
+  }.`;
+}
+
+/** The row of a not applied targets verdict with shown entries (round 4). */
+export function targetFindingsReason(
+  verified: readonly VerifiedTargetFinding[],
+  unverified: number,
+  held: readonly VerifiedTargetFinding[] = []
+): string {
+  return [
+    ...verified.map(targetErrorText),
+    ...(held.length > 0 ? [`${FACTS_HELD_PREFIX}${held.map(targetErrorText).join(" ")}`] : []),
+    ...(unverified > 0
+      ? [`${unverified} more ${unverified === 1 ? "finding was" : "findings were"} not shown: ${unverified === 1 ? "its" : "their"} quotes could not be shown from the sources.`]
+      : []),
+  ].join(" ");
+}
+
+/** Round 4: a not applied targets verdict with no entry whose quotes verify. */
+export function targetsNotCheckedReason(words: string): string {
+  return `Not checked: the targets check flagged something it could not show from the sources (its words: ${rowQuote(words)})`;
+}
+
+/** Round 4: the repair's fix for verified target errors. */
+export function targetsRepairText(verified: readonly VerifiedTargetFinding[]): string {
+  return verified
+    .map((finding) =>
+      `Paragraph ${finding.paragraphIndex + 1}: the section says "${finding.draftQuote}", but the sources say "${finding.sourceQuote}"${
+        finding.targetQuote ? ` against the target "${finding.targetQuote}"` : ""
+      }.${finding.correction ? ` Write it as the sources give it: ${finding.correction}` : ""}`)
+    .join(" ");
+}
 
 function planNotCheckedReason(check: SummaryPlanRefFields): string {
   if (check.itemId) return PLAN_ITEM_NOT_CHECKED_REASON;
   if (check.droppedSeedId) return PLAN_LEAVE_OUT_NOT_CHECKED_REASON;
   if (check.ruleId === WORK_ANSWERS_242_RULE_ID) return PLAN_WORK_RULE_NOT_CHECKED_REASON;
   if (check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID) return PLAN_TARGETS_NOT_CHECKED_REASON;
+  if (check.ruleId === FACTS_MATCH_SOURCES_RULE_ID) return PLAN_FACTS_NOT_CHECKED_REASON;
   if (check.ruleId) return PLAN_RULE_NOT_CHECKED_REASON;
   return PLAN_SKIP_NOT_CHECKED_REASON;
 }
@@ -1331,6 +1913,7 @@ function planBreakUnlocatedReason(check: SummaryPlanRefFields): string {
   if (check.droppedSeedId) return LEAVE_OUT_BREAK_UNLOCATED_REASON;
   if (check.ruleId === WORK_ANSWERS_242_RULE_ID) return WORK_RULE_BREAK_UNLOCATED_REASON;
   if (check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID) return TARGETS_BREAK_UNLOCATED_REASON;
+  if (check.ruleId === FACTS_MATCH_SOURCES_RULE_ID) return FACTS_BREAK_UNLOCATED_REASON;
   if (check.ruleId) return RULE_BREAK_UNLOCATED_REASON;
   return SKIP_BREAK_UNLOCATED_REASON;
 }
@@ -1607,10 +2190,108 @@ export async function runModelSelfCheck(
     question.confidenceEntry <= input.confidenceMap.length
       ? question.confidenceEntry - 1
       : null;
-  return {
-    verdicts,
-    planVerdicts: (input.planChecks ?? []).map((expected) => {
+  const paragraphs = sectionParagraphs(input.text);
+  const planVerdicts: ModelSelfCheckResult["planVerdicts"] = (input.planChecks ?? []).map((expected) => {
       const verdict = raw.planVerdicts?.find((candidate) => sameSummaryPlanRef(expected, candidate));
+      // 2026-10-04 (second, round 2): a not applied facts verdict is shown
+      // and repaired only for findings whose quotes verify; otherwise it is
+      // not checked, in the model's own words, and never repaired.
+      // 2026-10-04 (second, round 4): with the SOURCE FACTS block, the targets
+      // verdict carries its evidence. An error is shown and repaired only
+      // when its quotes verify, and an applied verdict on a Line that says a
+      // target was met vouches only where its evidence shows each such
+      // sentence from the sources; otherwise the row is not checked.
+      // 2026-10-04 (second, round 4; lead decision on Greptile at 12d67e49):
+      // an applied targets verdict's row is fixed text that never vouches.
+      if (expected.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID && verdict?.outcome === "applied") {
+        return {
+          ruleId: expected.ruleId,
+          mergedItemIds: [...expected.mergedItemIds],
+          outcome: "applied" as const,
+          reason: TARGETS_NOTHING_SHOWN_REASON,
+        };
+      }
+      // With the SOURCE FACTS block, a not applied targets verdict carries
+      // its evidence: an error is shown and repaired only when its quotes
+      // verify; otherwise it is not checked and never repaired.
+      if (expected.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID && verdict?.outcome === "not_applied" && input.sourceFacts) {
+        const { verified, held, unverified } = verifyTargetFindings({
+          findings: verdict.targetFindings ?? [],
+          paragraphs,
+          sources: factsVerificationSources(input),
+          ...(verdict.paragraph !== undefined ? { paragraph: verdict.paragraph } : {}),
+          ...(!input.sourceFacts.documentsComplete ? { items: input.sourceFacts.items } : {}),
+        });
+        const ref = { ruleId: expected.ruleId, mergedItemIds: [...expected.mergedItemIds] };
+        if (verified.length === 0 && held.length > 0) {
+          return { ...ref, paragraphIndex: held[0]!.paragraphIndex, outcome: "not_applied" as const, reason: targetFindingsReason([], unverified, held), actionableRepair: false };
+        }
+        if (verified.length === 0) {
+          // Review P3-8: never repaired from the model's guidance alone, as for
+          // the facts check: an error that cannot be shown is not checked.
+          console.warn(`${SELF_CHECK_REQUEST.toolName}: a targets verdict with ${verdict.targetFindings?.length ?? 0} entr(ies) had none that verified; recorded as not checked`);
+          return { ...ref, outcome: "not_applied" as const, reason: targetsNotCheckedReason(verdict.unclipped?.reason ?? verdict.reason), actionableRepair: false };
+        }
+        return {
+          ...ref,
+          paragraphIndex: verified[0]!.paragraphIndex,
+          outcome: "not_applied" as const,
+          reason: targetFindingsReason(verified, unverified, held),
+          actionableRepair: true,
+          repairText: targetsRepairText(verified),
+          repairFromEntries: true as const,
+        };
+      }
+      // Round 3: an applied facts verdict says only what the check could not show.
+      if (expected.ruleId === FACTS_MATCH_SOURCES_RULE_ID && verdict?.outcome === "applied") {
+        return {
+          ruleId: expected.ruleId,
+          mergedItemIds: [...expected.mergedItemIds],
+          outcome: "applied" as const,
+          reason: FACTS_NOTHING_SHOWN_REASON,
+        };
+      }
+      if (expected.ruleId === FACTS_MATCH_SOURCES_RULE_ID && verdict?.outcome === "not_applied") {
+        const { verified, held, unverified } = verifyFactsFindings({
+          findings: verdict.findings ?? [],
+          paragraphs,
+          sources: factsVerificationSources(input),
+          ...(verdict.paragraph !== undefined ? { paragraph: verdict.paragraph } : {}),
+          ...(input.sourceFacts && !input.sourceFacts.documentsComplete ? { items: input.sourceFacts.items } : {}),
+        });
+        if (verified.length === 0 && held.length > 0) {
+          return {
+            ruleId: expected.ruleId,
+            mergedItemIds: [...expected.mergedItemIds],
+            paragraphIndex: held[0]!.paragraphIndex,
+            outcome: "not_applied" as const,
+            reason: factsFindingsReason([], unverified, held),
+            actionableRepair: false,
+          };
+        }
+        if (verified.length === 0) {
+          console.warn(`${SELF_CHECK_REQUEST.toolName}: a facts verdict with ${verdict.findings?.length ?? 0} finding(s) had none that verified; recorded as not checked`);
+          return {
+            ruleId: expected.ruleId,
+            mergedItemIds: [...expected.mergedItemIds],
+            outcome: "not_applied" as const,
+            reason: factsNotCheckedReason(verdict.unclipped?.reason ?? verdict.reason),
+            actionableRepair: false,
+          };
+        }
+        if (unverified > 0) {
+          console.warn(`${SELF_CHECK_REQUEST.toolName}: ${unverified} facts finding(s) did not verify; left out`);
+        }
+        return {
+          ruleId: expected.ruleId,
+          mergedItemIds: [...expected.mergedItemIds],
+          paragraphIndex: verified[0]!.paragraphIndex,
+          outcome: "not_applied" as const,
+          reason: factsFindingsReason(verified, unverified, held),
+          actionableRepair: true,
+          repairText: factsRepairText(verified),
+        };
+      }
       const paragraphIndex = verdict
         ? exactPlanParagraphIndex(verdict.paragraph, count)
         : undefined;
@@ -1662,7 +2343,10 @@ export async function runModelSelfCheck(
             : {}),
         ...(repairText ? { repairText } : {}),
       };
-    }),
+    });
+  return {
+    verdicts,
+    planVerdicts,
     storylineQuestion: question?.question.trim()
       ? {
           question: question.question.trim(),
@@ -1697,6 +2381,8 @@ export async function runFinalCoverageSelfCheck(
     editedTerms?: readonly string[];
     writerFeedback?: readonly WriterFeedback[];
     feedbackTerms?: readonly FeedbackGovernedTerm[];
+    /** 2026-10-04 (second): the same SOURCE FACTS the first check read. */
+    sourceFacts?: SourceFacts;
   }
 ): Promise<{
   planVerdicts: ModelSelfCheckResult["planVerdicts"];
@@ -1718,6 +2404,7 @@ export async function runFinalCoverageSelfCheck(
     ...(input.editedTerms?.length ? { editedTerms: input.editedTerms } : {}),
     ...(input.writerFeedback?.length ? { writerFeedback: input.writerFeedback } : {}),
     ...(input.feedbackTerms?.length ? { feedbackTerms: input.feedbackTerms } : {}),
+    ...(input.sourceFacts !== undefined ? { sourceFacts: input.sourceFacts } : {}),
   });
   return {
     planVerdicts: result.planVerdicts,

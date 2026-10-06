@@ -34,6 +34,7 @@ import {
   projectFrozenSummaryPlanChecks,
   projectSummaryOrdinaryChecks,
   projectSummarySelfCheckWorstCaseResponse,
+  stableSerialize,
   type FrozenSummaryPlanCheck,
 } from "./lib/seedRevisions";
 import {
@@ -41,7 +42,7 @@ import {
   type GenerationMessageParams,
 } from "./ai/openrouterCore";
 import { currentPromptVersion } from "./ai/promptProgram";
-import { buildConsistencyUserMessage, summaryPlanSelfCheckSchemaFor } from "./ai/selfCheck";
+import { buildConsistencyUserMessage, FACTS_NOTHING_SHOWN_REASON, sourceFactsFor, summaryPlanSelfCheckSchemaFor, TARGETS_NOTHING_SHOWN_REASON } from "./ai/selfCheck";
 import { summarizeSlotUsage } from "./ai/instrument";
 import {
   COMPRESSION_REQUEST,
@@ -867,12 +868,38 @@ function literalSummaryResponseOracle(args: {
         })
       : check.ruleId
         ? JSON.stringify({
+            // 2026-10-04 (second, round 2 and its review): the facts verdict
+            // reserves two findings, each with its two quotes and correction
+            // at their limits, and no repairGuidance.
+            ...(check.ruleId === "facts_match_sources"
+              ? {
+                  findings: Array.from({ length: 2 }, () => ({
+                    correction: "c".repeat(120),
+                    draftQuote: "d".repeat(128),
+                    sourceQuote: "s".repeat(160),
+                  })),
+                }
+              : {}),
             mergedItemIds: [],
             outcome: "not_applied",
             paragraph,
             reason,
-            repairGuidance,
+            ...(check.ruleId === "facts_match_sources" || check.ruleId === "results_against_targets" ? {} : { repairGuidance }),
             ruleId: check.ruleId,
+            // 2026-10-04 (second, round 4): the targets verdict reserves two
+            // entries (lead decision on Greptile at 12d67e49), each with its
+            // quotes, target quote and correction at their limits, and no
+            // repairGuidance.
+            ...(check.ruleId === "results_against_targets"
+              ? {
+                  targetFindings: Array.from({ length: 2 }, () => ({
+                    correction: "c".repeat(80),
+                    draftQuote: "d".repeat(64),
+                    sourceQuote: "s".repeat(160),
+                    targetQuote: "t".repeat(80),
+                  })),
+                }
+              : {}),
           })
         : JSON.stringify({
             mergedItemIds: [],
@@ -1205,6 +1232,18 @@ async function frozenS242OracleChecks(
         });
       }
     }
+    // 2026-10-04 (second): every signed-off Line has the check that each
+    // figure and detail is stated as the sources give it, after its items.
+    checks.push({
+      ruleId: "facts_match_sources",
+      roleId: "active_uncertainties",
+      mergedItemIds: [],
+      instruction: "match_sources",
+      confirmedExclusion: false,
+      wording: [],
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
     return checks;
   });
 }
@@ -1270,6 +1309,19 @@ async function frozenS244OracleChecks(
         }
       }
     }
+    // 2026-10-04 (second): every signed-off Line has the check that each
+    // figure and detail is stated as the sources give it, before the targets
+    // check.
+    checks.push({
+      ruleId: "facts_match_sources",
+      roleId: "experimentation",
+      mergedItemIds: [],
+      instruction: "match_sources",
+      confirmedExclusion: false,
+      wording: [],
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
     // 2026-09-30 (third): every signed-off Line 244 has the check that each
     // result is stated against its target as the numbers show, before Rule C.
     checks.push({
@@ -1542,6 +1594,8 @@ async function frozenSectionPlan(
       ...(section === "s244" ? { workAnswers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
       // 2026-09-30 (third): as admitted, with the targets check in Lines 244 and 246.
       resultsAgainstTargets: true,
+      // 2026-10-04 (second): as admitted, with the facts check in every Line.
+      factsMatchSources: true,
     });
   });
 }
@@ -2850,10 +2904,16 @@ describe("seed Summary sign-off and recovery", () => {
     } as const;
     const accepted = await decisionFixture();
     await makeReady(accepted, selectedShape);
+    // 2026-10-04 (second, round 2 review): Line 242's facts verdict, with
+    // two findings at their limits, is 1,106 bytes with its comma. Nine
+    // confidence labels (293 each), ten Glossary labels (nine of 291, one of
+    // 292) and five rule labels (287) keep the response at exactly 16,384
+    // bytes, and swapping the ninth confidence label (293) for the writer
+    // label (294) still adds exactly one byte.
     await configureS242Ordinary(accepted, {
-      additionalConfidence: 4,
-      glossaryTerms: 3,
-      rules: 20,
+      additionalConfidence: 8,
+      glossaryTerms: 10,
+      rules: 5,
     });
     const acceptedPersistedShape = await persistedFrozenPlanShape(accepted);
     const acceptedBefore = await signoffWriteFootprint(accepted);
@@ -2863,9 +2923,10 @@ describe("seed Summary sign-off and recovery", () => {
     });
     const checks = await frozenS242OracleChecks(accepted);
     expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
-      checks.filter((check) => check.roleId === role.roleId).length
+      checks.filter((check) => check.itemId && check.roleId === role.roleId).length
     )).toEqual([1, 1, 2, 6, 6]);
-    expect(new Set(checks.flatMap((check) => [
+    expect(checks.at(-1)?.ruleId).toBe("facts_match_sources");
+    expect(new Set(checks.filter((check) => check.itemId).flatMap((check) => [
       utf8Bytes(JSON.stringify(check.itemId)),
       ...check.mergedItemIds.map((id) => utf8Bytes(JSON.stringify(id))),
     ]))).toEqual(new Set([34]));
@@ -2893,11 +2954,11 @@ describe("seed Summary sign-off and recovery", () => {
       .toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1);
     const acceptedLabels = [
       "storyline",
-      ...Array.from({ length: 5 }, (_, index) => `confidence:C${index + 1}`),
-      ...Array.from({ length: 3 }, (_, index) => `glossary:G${index + 1}`),
-      ...Array.from({ length: 20 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 9 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 10 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 5 }, (_, index) => `rule:R${index + 1}`),
     ];
-    expect(acceptedLabels).toHaveLength(29);
+    expect(acceptedLabels).toHaveLength(25);
     const acceptedOracle = literalSummaryResponseOracle({
       ordinaryLabels: acceptedLabels,
       planChecks: checks,
@@ -2940,10 +3001,10 @@ describe("seed Summary sign-off and recovery", () => {
     // adds exactly one byte and keeps the plan and ordinary count fixed.
     const refusedLabels = [
       "storyline",
-      ...Array.from({ length: 4 }, (_, index) => `confidence:C${index + 1}`),
-      ...Array.from({ length: 3 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 8 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 10 }, (_, index) => `glossary:G${index + 1}`),
       "writer:profile",
-      ...Array.from({ length: 20 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 5 }, (_, index) => `rule:R${index + 1}`),
     ];
     expect(refusedLabels).toHaveLength(acceptedLabels.length);
     const refusedOracle = literalSummaryResponseOracle({
@@ -2966,10 +3027,10 @@ describe("seed Summary sign-off and recovery", () => {
     const refused = await decisionFixture();
     await makeReady(refused, selectedShape);
     await configureS242Ordinary(refused, {
-      additionalConfidence: 3,
-      glossaryTerms: 3,
+      additionalConfidence: 7,
+      glossaryTerms: 10,
       writerFlavor: "Profile",
-      rules: 20,
+      rules: 5,
     });
     const refusedPersistedShape = await persistedFrozenPlanShape(refused);
     expect(refusedPersistedShape).toEqual(acceptedPersistedShape);
@@ -3026,7 +3087,7 @@ describe("seed Summary sign-off and recovery", () => {
     });
     const checks = await frozenS242OracleChecks(accepted);
     expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
-      checks.filter((check) => check.roleId === role.roleId).length
+      checks.filter((check) => check.itemId && check.roleId === role.roleId).length
     )).toEqual([1, 1, 1, 2, 2]);
     const acceptedOracle = literalSummaryResponseOracle({
       ordinaryLabels: realisticLabels,
@@ -3035,7 +3096,9 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(await projectedFixtureOutputEnvelope(accepted, "242", checks))
       .toBe(acceptedOracle);
-    expect(utf8Bytes(acceptedOracle)).toBe(8_150);
+    // 2026-10-04 (second, round 2 review): 1,106 bytes more than 8,150 for
+    // Line 242's facts verdict and its two findings.
+    expect(utf8Bytes(acceptedOracle)).toBe(9_256);
     // The previous 4,096-byte limit refused this ordinary Brief.
     expect(utf8Bytes(acceptedOracle)).toBeGreaterThan(4_096);
     expect(utf8Bytes(acceptedOracle)).toBeLessThanOrEqual(
@@ -3082,6 +3145,17 @@ describe("seed Summary sign-off and recovery", () => {
           sourceReferences: [],
         }));
       });
+    // 2026-10-04 (second): Line 242's facts check, as production adds it.
+    refusedChecks.push({
+      ruleId: "facts_match_sources",
+      roleId: "active_uncertainties",
+      mergedItemIds: [],
+      instruction: "match_sources",
+      confirmedExclusion: false,
+      wording: [],
+      relationshipReferences: [],
+      sourceReferences: [],
+    });
     const refusedOracle = literalSummaryResponseOracle({
       ordinaryLabels: realisticLabels,
       planChecks: refusedChecks,
@@ -3089,7 +3163,7 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(await projectedFixtureOutputEnvelope(refused, "242", refusedChecks))
       .toBe(refusedOracle);
-    expect(utf8Bytes(refusedOracle)).toBe(16_884);
+    expect(utf8Bytes(refusedOracle)).toBe(17_990);
     expect(utf8Bytes(refusedOracle)).toBeGreaterThan(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
@@ -3177,12 +3251,21 @@ describe("seed Summary sign-off and recovery", () => {
     expect(productionSerialized).toBe(fixedExpectedOracle);
     // Re-pinned 2026-09-30 (second): the envelope gains Line 244's work
     // verdict (Rule C). Re-pinned again (third): the targets verdict comes
-    // before it. It still equals the independent oracle above.
+    // before it. Re-pinned 2026-10-04 (second): the facts verdict comes
+    // before the targets verdict; re-pinned again for its longer guidance
+    // (review round 1, P2-2), again for its three findings (round 2), and
+    // again for its halved reservation (round 2 review, P3-1). Re-pinned
+    // again in round 4: the targets verdict reserves its three entries in
+    // place of its repairGuidance (shorter fields since its review, P3-5,
+    // and two entries since the lead decision on Greptile at 12d67e49).
+    // It still equals the independent oracle above, which
+    // frozenS244OracleChecks and literalSummaryResponseOracle extend the
+    // same way.
     expect(replayHashes).toEqual({
-      restored: "d2a20fc70ec7fc671bfee54966ac5fbb4cc17085b61da85a94289f9afc9631f9",
-      omit_storyline: "b318072fe428988db993b1407bb025b9109777b40e42a458c9c9c288f8eaf4f9",
-      omit_repeated_merge: "2f136ea54c5b154ac0cfc12735db9df2f20c4c24893bc7ce79929f0157fe92a4",
-      short_reason: "7da4ca3adbe6cb9e0a0d563bcc888c83e9f1e8204e94ed1d36607c8cddde530a",
+      restored: "1b7203ec554ce6ec7a8a61a1260929db510f76d30923aaa19cd15f9b81dc36dd",
+      omit_storyline: "5bdd42200702e99c48652723fea883f07fac725e584fcbe1eaaf7d915e558d32",
+      omit_repeated_merge: "57af7b8946c675bd5f8d1a469b90d1ca48099561a587628492b8b6e0f9ed3b77",
+      short_reason: "ffea5ff55ec7579e091e41eda334300e0bcb4f6a4f8167c22d38987282a2c24e",
     });
   });
 
@@ -4465,6 +4548,143 @@ describe("seed Summary sign-off and recovery", () => {
     expect(notes.find((note) => note.instruction.includes("marked for a check"))?.planRef).toBeUndefined();
   });
 
+  it("2026-10-04 (second, round 3 and its re-check): the drafter, the plan checker and the facts check see run 6's two Seeds' unbacked sentences, and nothing else in the plan changes", async () => {
+    // Release suite run 6: two signed-off Seeds whose steel quote the quote
+    // check marked. Their support stays source_supported (review P2-3).
+    const limitation = [
+      "Standard datasheet powder processes are built for flat steel-like panels, not thick routed MDF.",
+      "No prior process showed whether MDF could reach conductivity without heat that triggers outgassing defects.",
+    ];
+    const advancement = [
+      "The team learned that outgassing defects track peak panel surface temperature rather than dwell time on this board.",
+      "Trial 1's datasheet process confirmed that heat built for flat steel panels causes severe outgassing defects on routed MDF edges.",
+    ];
+    // Review P2-1: a good quote that shares "datasheet", "flat" and "panel" with the steel sentence.
+    const datasheet = "That the datasheet number is for flat panels.";
+    const steel = "Normal powder for steel cures at 160 to 200 C.";
+    const peak = "And that on our board the pinholes track the peak board temperature, not the time.";
+    const companyQuote = "Final company_context wording.";
+    // Review P2-2: the writer changes one word of the second sentence only.
+    const changed = "No prior process showed whether this board could reach conductivity without heat that triggers outgassing defects.";
+    const signedOff = async (markedSteel: boolean) => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.t.run(async (ctx) => {
+      const seedOf = async (roleId: PdSubsectionRoleId) => (await ctx.db.query("seeds")
+        .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", roleId))
+        .take(10)).find((seed) => seed.order === 0)!;
+      const cite = async (seedId: Id<"seeds">, exactExcerpt: string, needsQuoteCheck = false) =>
+        await ctx.db.insert("seedProvenance", {
+          seedId,
+          projectId: s.projectId,
+          generationId: s.generationId,
+          sourceId: s.sourceId,
+          sourceContentHash: "source-hash",
+          startOffset: 0,
+          endOffset: exactExcerpt.length,
+          exactExcerpt,
+          ...(needsQuoteCheck ? { needsQuoteCheck: true } : {}),
+        });
+      for (const [roleId, bullets, backing] of [
+        ["passive_limitations", limitation, datasheet],
+        ["specific_advancements", advancement, peak],
+      ] as const) {
+        const seed = await seedOf(roleId);
+        await ctx.db.patch(seed._id, { bullets: [...bullets] });
+        await cite(seed._id, backing);
+        if (markedSteel) await cite(seed._id, steel, true);
+      }
+      const limitationSeed = await seedOf("passive_limitations");
+      const selection = await ctx.db.query("seedSelections")
+        .withIndex("by_seedId", (q) => q.eq("seedId", limitationSeed._id)).unique();
+      await ctx.db.patch(selection!._id, { editedBullets: [limitation[0], changed], editedBy: s.userId, editedAt: 6 });
+      // A well-quoted Seed is unchanged, even saved with its own wording
+      // before the review's P2-2 fix stored such a save as an edit.
+      const company = await seedOf("company_context");
+      await cite(company._id, companyQuote);
+      const companySelection = await ctx.db.query("seedSelections")
+        .withIndex("by_seedId", (q) => q.eq("seedId", company._id)).unique();
+      await ctx.db.patch(companySelection!._id, { editedBullets: [...company.bullets], editedBy: s.userId, editedAt: 7 });
+    });
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    return {
+      s,
+      plans: await s.t.run(async (ctx) => {
+        const generation = (await ctx.db.get(s.generationId))!;
+        return [await loadFrozenSectionPlan(ctx, generation, "242"), await loadFrozenSectionPlan(ctx, generation, "246")] as const;
+      }),
+    };
+    };
+    const marked = await signedOff(true);
+    const [plan242, plan] = marked.plans;
+    // Stored support is unchanged (review P2-3).
+    const coverOf = (first: string) => plan.planChecks.find((check) => check.instruction === "cover" && check.wording[0] === first);
+    expect(coverOf(advancement[0])?.support).toBe("source_supported");
+    // Owner decision 2026-10-05 ("Warn the drafter too"): the plan and the
+    // plan checks name each item's unbacked sentence, and only that; with
+    // the note taken out they are byte for byte those of the same Seeds
+    // without the marked quote, so every other item is unchanged.
+    const note = (sentence: string) => `"quotesDoNotBack":${stableSerialize({
+      instruction: FROZEN_SUMMARY_PLAN_SCAFFOLD.quotesDoNotBackInstruction,
+      wording: [sentence],
+    })},`;
+    expect(FROZEN_SUMMARY_PLAN_SCAFFOLD.quotesDoNotBackInstruction).toBe("Its own quotes do not back this. State it only as the sources give it.");
+    // The drafter's request shows the note (this fixture drafts Line 246 first).
+    configureSummaryActionProvider({ draftText: "A checked paragraph.", repairText: "A repaired checked paragraph." });
+    const request = JSON.stringify(await runNextSectionAction(marked.s, marked.s.generationId));
+    expect(request).toContain("--- BEGIN [SIGNED-OFF CONTENT PLAN] ---");
+    expect(request).toContain(JSON.stringify(note(advancement[1])).slice(1, -1));
+    expect(request.split("quotesDoNotBack")).toHaveLength(2);
+    const [unmarked242, unmarked246] = (await signedOff(false)).plans;
+    const ids = (text: string) => text.replace(/\d{10,}[A-Za-z]+/g, "<id>");
+    for (const [line, unmarked, sentence] of [[plan242, unmarked242, limitation[0]], [plan, unmarked246, advancement[1]]] as const) {
+      for (const block of ["planBlock", "planChecksBlock"] as const) {
+        expect(line[block].split("quotesDoNotBack")).toHaveLength(2);
+        expect(line[block]).toContain(note(sentence));
+        expect(ids(line[block].replace(note(sentence), ""))).toBe(ids(unmarked[block]));
+        expect(unmarked[block]).not.toContain("quotesDoNotBack");
+      }
+    }
+    expect(unmarked246.planItemSources.some((item) => item.unbacked)).toBe(false);
+    const sources = plan.planItemSources;
+    const entryOf = (first: string) => sources.find((item) => item.wording[0] === first);
+    // The edited limitation: its unchanged steel sentence stays the product's
+    // and is named; only the changed sentence is the writer's.
+    expect(entryOf(limitation[0])).toEqual({ wording: [limitation[0]], writer: false, quotes: [datasheet], unbacked: [limitation[0]] });
+    expect(entryOf(changed)).toEqual({ wording: [changed], writer: true, quotes: [] });
+    expect(entryOf(advancement[0])).toEqual({ wording: advancement, writer: false, quotes: [peak], unbacked: [advancement[1]] });
+    expect(entryOf("Final company_context wording.")).toEqual({ wording: ["Final company_context wording."], writer: false, quotes: [companyQuote] });
+    expect(sources.filter((item) => item.writer).map((item) => item.wording[0]).sort())
+      .toEqual(["Edited active_uncertainties wording.", "Edited experimentation wording.", changed]);
+    // The SOURCE FACTS block names both, and neither ever stands for the sources.
+    const facts = sourceFactsFor({ analysis: {}, planItems: sources });
+    expect(facts.body).toContain(`- [the product's wording] ${limitation[0]} Quotes: ${JSON.stringify(datasheet)} Its own quotes do not back: ${JSON.stringify(limitation[0])}`);
+    expect(facts.body).toContain(`Its own quotes do not back: ${JSON.stringify(advancement[1])}`);
+    expect([...facts.product, ...facts.items, ...facts.evidence].some((entry) => entry.includes("steel"))).toBe(false);
+    expect(facts.evidence).toContain(changed);
+  });
+
+  it("2026-10-04 (second, round 3 re-check, P3-4): an edited item whose Seed cannot be read is the writer's wording", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, { generationId: s.generationId, expectedSeedStageVersion: 0 });
+    const sources = await s.t.run(async (ctx) => {
+      const seed = (await ctx.db.query("seeds")
+        .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", "experimentation"))
+        .take(10)).find((row) => row.order === 0)!;
+      await ctx.db.delete(seed._id);
+      return (await loadFrozenSectionPlan(ctx, (await ctx.db.get(s.generationId))!, "242")).planItemSources;
+    });
+    expect(sources.find((item) => item.wording[0] === "Edited experimentation wording.")).toEqual({
+      wording: ["Edited experimentation wording."],
+      writer: true,
+      quotes: [],
+    });
+  });
+
   it("drafts an item whose quotes are all marked from its wording alone, and says how many were left out", async () => {
     const s = await decisionFixture();
     await makeReady(s);
@@ -4942,7 +5162,11 @@ describe("seed Summary sign-off and recovery", () => {
       // A Skip, a LEAVE OUT and Line 246's advancement check are honoured
       // by absence and carry no paragraph (2026-09-30, first).
       expect(row.paragraphIndex).toBe(check.itemId ? 0 : undefined);
-      expect(row.reason).toBe("Covered.");
+      // 2026-10-04 (second, round 3): the facts row is fixed text.
+      // Round 3 and round 4: the facts and targets rows are fixed text.
+      expect(row.reason).toBe(check.ruleId === "facts_match_sources"
+        ? FACTS_NOTHING_SHOWN_REASON
+        : check.ruleId === "results_against_targets" ? TARGETS_NOTHING_SHOWN_REASON : "Covered.");
     }
     const persistedSummary = JSON.parse(state246.run?.selfCheck ?? "{}") as {
       failedChecks?: number;
@@ -5198,6 +5422,11 @@ describe("seed Summary sign-off and recovery", () => {
     const modelRows = state.rows242.filter((row) => row.source === "model");
     expect(modelRows.some((row) => row.reason.endsWith("…"))).toBe(true);
     for (const row of modelRows) {
+      // 2026-10-04 (second, round 3): the facts row is fixed text, not the model's.
+      if (row.planRef?.ruleId === "facts_match_sources") {
+        expect(row.reason).toBe(FACTS_NOTHING_SHOWN_REASON);
+        continue;
+      }
       expect(new TextEncoder().encode(row.reason).byteLength).toBeLessThanOrEqual(64);
     }
     expect(state.rows242.some((row) => row.instruction === "Model Self-check")).toBe(false);
@@ -6413,7 +6642,9 @@ describe("seed Summary sign-off and recovery", () => {
       // 2026-09-29 (second): a kept idea found drafted is applied, tier conflict.
       expect(rowFor(check)).toMatchObject(check.confirmedExclusion
         ? { outcome: "applied", tier: "conflict", repaired: false }
-        : { outcome: "applied", reason: "Covered." });
+        : { outcome: "applied", reason: check.ruleId === "facts_match_sources"
+          ? FACTS_NOTHING_SHOWN_REASON
+          : check.ruleId === "results_against_targets" ? TARGETS_NOTHING_SHOWN_REASON : "Covered." });
     }
     // The check itself completed: no whole-check failure row.
     expect(state.rows.some((row) => row.instruction === "Model Self-check")).toBe(false);
@@ -10135,8 +10366,10 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
       expect(line.planChecksBlock).toContain(`"droppedSeedId":"${ids.dropped}","instruction":"leave_out"`);
       expect(line.droppedNotChecked).toEqual([]);
     }
-    // Rule B: only Line 246, last, with Line 242 as drafted.
-    expect(frozen.s242.planChecks.some((check) => check.ruleId)).toBe(false);
+    // Rule B: only Line 246, last, with Line 242 as drafted. 2026-10-04
+    // (second): Line 242's only rule check is the facts check.
+    expect(frozen.s242.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
+      .toEqual(["facts_match_sources"]);
     expect(frozen.s244.planChecks.some((check) => check.ruleId === "advancements_answer_242")).toBe(false);
     // 2026-09-30 (third): the targets check in Lines 244 and 246 only, and
     // in Line 246 just before Rule B.
@@ -10545,14 +10778,17 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     }
     // Rule B holds for every signed-off plan's Line 246, and Rule C for
     // every signed-off plan's Line 244 (2026-09-30, second); the targets
-    // check for every Line 244 and 246 comes before them (third).
+    // check for every Line 244 and 246 comes before them (third); the facts
+    // check for every Line comes before the targets check (2026-10-04,
+    // second).
     expect(frozen.s246.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
-      .toEqual(["results_against_targets", "advancements_answer_242"]);
+      .toEqual(["facts_match_sources", "results_against_targets", "advancements_answer_242"]);
     expect(frozen.s244.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
-      .toEqual(["results_against_targets"]);
+      .toEqual(["facts_match_sources", "results_against_targets"]);
     expect(frozen.s244Claimed.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
-      .toEqual(["results_against_targets", "work_answers_242"]);
-    expect(frozen.s242.planChecks.some((check) => check.ruleId)).toBe(false);
+      .toEqual(["facts_match_sources", "results_against_targets", "work_answers_242"]);
+    expect(frozen.s242.planChecks.filter((check) => check.ruleId).map((check) => check.ruleId))
+      .toEqual(["facts_match_sources"]);
     expect(frozen.s244Claimed.answers242).toBeNull();
     expect(frozen.s246.workAnswers242).toBeNull();
     expect(frozen.s242.workAnswers242).toBeNull();

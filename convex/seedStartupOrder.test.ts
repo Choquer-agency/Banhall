@@ -25,6 +25,7 @@ import {
 import { DRAFTING_INPUTS_LEASE_MS } from "./lib/generations/draftingInputs";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
 import { SEED_QUOTE_RULES } from "./ai/promptDefinitions";
+import { RULES_ANALYSIS_FIGURES } from "../shared/humanProse";
 import { withPinnedAdvancementLinkRules, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { ActionTimeBudgetError } from "./ai/actionDeadline";
 import { decisionFixture } from "./seedDecision.fixture";
@@ -313,9 +314,17 @@ async function requestHashes(
     // The Seed quote rules (2026-09-27, third amendment) are the only bytes
     // the seed request gained since the pins; they are taken out here.
     // The link sentence changed on 2026-09-28 (fourth); the pins hold the old one.
+    // 2026-10-04 (second, review round 1, P2-4 (a)): so are the analyzer's
+    // figure rules for the analysis request, which holds them exactly once.
+    let serialized = JSON.stringify(withSharedSeedToolOnly(body));
+    if (name === "submit_transcript_analysis") {
+      const rules = JSON.stringify(`${RULES_ANALYSIS_FIGURES}\n`).slice(1, -1);
+      expect(serialized.split(rules)).toHaveLength(2);
+      serialized = serialized.replace(rules, "");
+    }
     firstByTool.set(
       name,
-      maskIds(withPinnedAdvancementLinkRules(JSON.stringify(withSharedSeedToolOnly(body))).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
+      maskIds(withPinnedAdvancementLinkRules(serialized).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
     );
   }
   const result: Record<string, string> = {};

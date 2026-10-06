@@ -5,6 +5,14 @@
  */
 
 import {
+  MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES,
+  MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+  MAX_FACTS_FINDINGS,
+  MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
+  MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES,
+  MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+  MAX_TARGET_FINDINGS,
+  MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_ORDINARY_VERDICTS,
   MAX_SUMMARY_PLAN_VERDICTS,
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
@@ -16,10 +24,12 @@ import {
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
 } from "../lib/seedRevisions";
 import {
+  FACT_RULES,
   RULES_HUMAN_PROSE,
   RULES_REPORT_FACTS,
   RULES_SEED_WORDING,
   SOURCE_TALK,
+  TARGET_MET_RULE,
   TARGET_RULES,
 } from "../../shared/humanProse";
 import { GOVERNED_IN_IDEA_CLAUSE } from "../lib/writerPrecedence";
@@ -530,11 +540,17 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
     glossaryIssueSuffix:
       " only in place of the words that name that same thing another way. Never add it beside words that already say it, never force it into a sentence where it does not fit, keep the sentence grammatical, and never use it to put the solution into the objective or to change the meaning. ",
     // Review P2-3: split by direction, in TARGET_RULES' words.
+    // Round 4: and a target is met only as the sources state it.
     targetsIssue:
-      `state each result against its target as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} Where the direction is unclear, change nothing. `,
+      `state each result against its target as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} ${TARGET_MET_RULE} Where the direction is unclear, change nothing. `,
     // The deterministic source-talk fix (shared/humanProse.ts), hashed here
     // with the rest of the repair's wording.
     sourceTalk: SOURCE_TALK,
+    // 2026-10-04 (second): the fixed start of the repair issue for the facts
+    // check, in FACT_RULES' words, after "Whole section: " (its guidance may
+    // name more than one paragraph); the Self-check's guidance follows.
+    factsIssue:
+      `state each figure and detail as the sources give it. ${FACT_RULES.scope} ${FACT_RULES.detail} ${FACT_RULES.cause} ${FACT_RULES.hedge} ${FACT_RULES.proportion} No fabrication outranks the signed-off plan: where a finding below names a detail a signed-off item states, state the item without that detail. Correct or take out only the figures and details named here, and keep everything else a COVER item holds, its figures included. `,
   },
   // 2026-09-30 (third): a signed-off plan run's drafting request, and its
   // repair, which reuses it, read the report-text rules of
@@ -545,6 +561,9 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
   reportFacts: {
     prefix: "\n\n# ",
     rules: RULES_REPORT_FACTS,
+    // 2026-10-04 (second, round 4): Lines 244 and 246 only, the Lines with
+    // the targets check, so Line 242's requests are unchanged.
+    targetsMet: `\nTargets met, as the sources state them:\n- ${TARGET_MET_RULE}`,
     brief:
       "\nFrom the Brief: a qualifier the Confidence Map or the Storyline gives about a result applies only to the test it names, never to a later or final result. Their notes on where a fact came from, and on which sources agree or differ, are for you, not for the report.",
   },
@@ -992,8 +1011,75 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
   resultsAgainstTargets: {
     // Review P2-3: split by direction, in TARGET_RULES' words; a comparison
     // whose direction is unclear is judged applied.
+    // Round 4 (2026-10-04, second): the verdict carries its evidence, like
+    // the facts verdict, and a target stated as met needs the source words
+    // that show it.
     instruction:
-      `\n\nThe plan check with ruleId results_against_targets asks whether each result the section compares with a target (a hypothesis target, a goal, a limit or a threshold) is stated as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} A qualifier about one test applies only to that test. Judge it applied, with paragraph 0, when every such comparison matches the numbers, when the section compares no result with a target, or when you cannot tell which way a target runs. Judge it not applied when the section calls a met target by a word the rule for its direction forbids, calls a missed target met, or carries a qualifier about one test to another test or to the final result: name the first such paragraph and give the comparison as the numbers show.`,
+      `\n\nThe plan check with ruleId results_against_targets asks whether each result the section compares with a target (a hypothesis target, a goal, a limit or a threshold) is stated as the numbers show. ${TARGET_RULES.reach} ${TARGET_RULES.limit} ${TARGET_MET_RULE} A qualifier about one test applies only to that test. Judge it applied, with paragraph 0, when every such comparison matches the numbers, when the section compares no result with a target, or when you cannot tell which way a target runs. Judge it not applied when the section calls a met target by a word the rule for its direction forbids, calls a missed target met, names other targets than the sources name, calls a target met where an average met it but a minimum or a share fell short, or carries a qualifier about one test to another test or to the final result: name the first such paragraph, give the comparison as the numbers show, and add an entry to targetFindings for each such error, with draftQuote, sourceQuote (the result as the sources give it), targetQuote (the target as the sources give it) and correction (the result against the target as the sources give it). Copy each quote exactly from the section or from a source document, a quote or the writer's wording: a whole clause of at least 8 characters, never a figure alone, and "..." only to skip words inside one sentence of one source. At most two entries. An error whose quotes cannot be found is never shown or repaired.`,
+    findingsDescription:
+      "results_against_targets only, when not_applied: one entry per error, at most two. Each quote is a whole clause of at least 8 characters, copied exactly. An entry whose quotes cannot be found is not shown and not repaired.",
+  },
+  /**
+   * 2026-10-04 (second): every Line of a signed-off plan. Its one check asks
+   * whether each figure and specific detail is stated as the sources give it
+   * (release suite run of 2026-10-04: a rate over every pilot panel given as
+   * the rate of one profile, and a material the sources name for another
+   * subject added to a datasheet). Until then the Self-check never saw the
+   * sources the draft was written from. The SOURCE FACTS block (what drafting
+   * read: the transcript analysis, the Storyline and the Confidence Map) and
+   * the line after the data blocks are only present when the request has the
+   * check, in the first request, its follow-up and the final coverage check.
+   */
+  factsMatchSources: {
+    blockLabel: "SOURCE FACTS",
+    // Round 2 (owner approved 2026-10-05): the source documents first, each
+    // that fits SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES, then the product's own
+    // wording, which can point to a fact but proves no specific detail alone.
+    // Round 2 review: plain "source documents" (P3-4), each one that does
+    // not fit named with its size (P2-4), and none at all said so (P3-3).
+    documentsHeading: "Source documents:",
+    documentPrefix: "\n[",
+    documentSuffix: "]\n",
+    documentsLeftOutPrefix: "Source documents left out, over this check's ",
+    documentsLeftOutMiddle: "-byte budget: ",
+    documentsLeftOutSeparator: "; ",
+    documentsLeftOutSuffix: ".",
+    documentsNone: "Source documents: none.",
+    productHeading: "The product's own wording (it can point to a fact but proves no specific detail on its own):",
+    analysisHeading: "Transcript analysis:\n",
+    storylineHeading: "Storyline:\n",
+    writerStorylineHeading: "Storyline (the writer's wording):\n",
+    confidenceHeading: "Confidence Map:",
+    confidencePrefix: "\n- (",
+    confidenceMiddle: ") ",
+    // Review round 1, P2-1: every Line's signed-off items and the writer's
+    // instructions, which drafting reads too. Round 2: each item says whose
+    // wording it is and carries its own quotes.
+    planHeading: "Signed-off plan items, every Line:",
+    planItemPrefix: "\n- ",
+    writerItemLabel: "[the writer's wording] ",
+    productItemLabel: "[the product's wording] ",
+    quotesPrefix: " Quotes: ",
+    quoteSeparator: " | ",
+    noQuotes: " Quotes: none.",
+    // Round 3 (owner approved 2026-10-05): the wording of a product-written
+    // item that none of its evidence quotes backs, when a quote was marked.
+    unbackedPrefix: " Its own quotes do not back: ",
+    writerHeading: "Writer instructions (the writer's wording):",
+    writerItemPrefix: "\n- ",
+    partSeparator: "\n\n",
+    findingsDescription:
+      "facts_match_sources only, when not_applied: one entry per finding, at most two. draftQuote copies the section's words at issue exactly; sourceQuote copies the source words that differ exactly; each is a whole clause of at least 8 characters. correction gives the figure or detail as the sources give it. A finding whose quotes cannot be found is not shown and not repaired.",
+    // The opening, then one of the two sentences on the source documents,
+    // then the rest (composed by factsMatchSourcesInstruction).
+    instructionIntro:
+      "\n\nThe plan check with ruleId facts_match_sources asks whether each figure and each specific detail in the section is stated as the sources give it.",
+    documentsIncluded:
+      " The SOURCE FACTS block holds every source document, and then the product's own wording: the transcript analysis, the Storyline, the Confidence Map and every Line's signed-off items, each marked as the writer's or the product's wording, with its quotes and any wording its own quotes do not back. The product's own wording can point to a fact but cannot by itself support a specific detail (a material, place, party, product, or the group a figure belongs to). Such a detail is supported only by the source documents, a quote, or wording the writer typed: an item marked as the writer's wording, the writer's exact terms, the writer's instructions or the writer's Feedback.",
+    documentsLeftOut:
+      " Not every source document is in the SOURCE FACTS block: it holds the ones that fit this check's budget, names any it left out, and then the product's own wording: the transcript analysis, the Storyline, the Confidence Map and every Line's signed-off items, each marked as the writer's or the product's wording, with its quotes and any wording its own quotes do not back. Because you cannot read every source, the transcript analysis and every signed-off item stand for the sources here, except wording an item's own quotes do not back: a detail they give, a quote gives, or the writer typed (an item marked as the writer's wording, the writer's exact terms, the writer's instructions or the writer's Feedback) is supported. Flag only what a source document or a quote you have contradicts.",
+    instructionRest:
+      ` A figure or detail is supported only as the source gives it, for the same thing. The writer's exact terms are the writer's own wording: never object to such a term itself, only to a figure or detail the section states with it. No fabrication is a Locked Rule and outranks the signed-off plan. A signed-off item the product wrote is not settled fact: the writer signed off the idea, not each detail of its wording, so it can still state a detail the sources do not give. Where an item says its own quotes do not back some of its wording, a specific detail in that wording (a material, a cause, a group) is supported only where a source document or the writer's wording gives it. Flag such a detail like any other, and the item still counts as covered when the section states it without that detail. ${FACT_RULES.scope} ${FACT_RULES.detail} ${FACT_RULES.cause} ${FACT_RULES.hedge} ${FACT_RULES.proportion} Judge it not applied when the section gives a figure for another group, test, unit, condition or denominator than the sources give it, adds a specific detail (a material, place, person, organization, product, supplier, date or number) that the sources do not give or give for another thing, states as confirmed a cause the sources give as suspected, expected or open, states as firm what the sources give only as a hedge, states as the whole case what the sources give only as an example, or states a proportion stronger or weaker than the sources give it. Before you flag anything, confirm that the source words you quote say something different from the section: the same fact in other words is not a finding (warming "by 5 C" and warming "5 C, to 65 C" agree). For each finding, at most two, add an entry to findings with draftQuote (the section's words at issue, copied exactly), sourceQuote (the source words that differ, copied exactly from a source document, a quote or the writer's wording) and correction (the figure or detail as the sources give it). Quote a whole clause of at least 8 characters on each side, never a short figure or word alone ("127 C", "most"); use "..." only to skip words inside one sentence of one source, never to join two places. Set paragraph to the first finding's paragraph and say in the reason what is wrong in plain words. A finding whose quotes cannot be found in the section and in what you were given is never shown and never repaired. Judge it applied, with paragraph 0 and no findings, when every figure and detail matches the sources. ${FACT_RULES.allowed} So are a summary of several facts, a general technical explanation and a Glossary Term for something the sources describe. Never fail a figure or detail only because the sources word it another way.`,
   },
   /**
    * The one follow-up for an answer that missed labels, sent in place of the
@@ -1109,6 +1195,99 @@ export const SUMMARY_PLAN_SELF_CHECK_EXTRA_REF_SCHEMAS = {
       SUMMARY_PLAN_SELF_CHECK_REQUEST.answers242.idDescription,
       MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
     ),
+  },
+} as const;
+
+/**
+ * 2026-10-04 (second, round 2, owner approved 2026-10-05): the facts
+ * verdict's evidence. A request's tool schema gains this plan verdict field
+ * only when the request has the facts check, so every other request is
+ * unchanged.
+ */
+export const SUMMARY_PLAN_SELF_CHECK_FACTS_FINDINGS_SCHEMA = {
+  type: "array",
+  maxItems: MAX_FACTS_FINDINGS,
+  description: SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.findingsDescription,
+  items: {
+    type: "object",
+    properties: {
+      draftQuote: {
+        type: "string",
+        maxLength: MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+        description: summaryEscapedUtf8Description(
+          "The section's words at issue, copied exactly: a whole clause of at least 8 characters.",
+          MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES
+        ),
+      },
+      sourceQuote: {
+        type: "string",
+        maxLength: MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
+        description: summaryEscapedUtf8Description(
+          "The source words that differ, copied exactly: a whole clause of at least 8 characters, from one place.",
+          MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES
+        ),
+      },
+      correction: {
+        type: "string",
+        maxLength: MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES,
+        description: summaryEscapedUtf8Description(
+          "The figure or detail as the sources give it.",
+          MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES
+        ),
+      },
+    },
+    required: ["draftQuote", "sourceQuote", "correction"],
+    additionalProperties: false,
+  },
+} as const;
+
+/**
+ * 2026-10-04 (second, round 4): the targets verdict's entries, in a request
+ * with the targets check only (`targetFindings`), so every other request's
+ * schema is unchanged.
+ */
+export const SUMMARY_PLAN_SELF_CHECK_TARGET_FINDINGS_SCHEMA = {
+  type: "array",
+  maxItems: MAX_TARGET_FINDINGS,
+  description: SUMMARY_PLAN_SELF_CHECK_REQUEST.resultsAgainstTargets.findingsDescription,
+  items: {
+    type: "object",
+    properties: {
+      draftQuote: {
+        type: "string",
+        maxLength: MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES,
+        description: summaryEscapedUtf8Description(
+          "The section's words that state the result against its target, copied exactly: a whole clause of at least 8 characters.",
+          MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES
+        ),
+      },
+      sourceQuote: {
+        type: "string",
+        maxLength: MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
+        description: summaryEscapedUtf8Description(
+          "The result as the sources give it, copied exactly: a whole clause of at least 8 characters, from one place.",
+          MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES
+        ),
+      },
+      targetQuote: {
+        type: "string",
+        maxLength: MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES,
+        description: summaryEscapedUtf8Description(
+          "The target as the sources give it, copied exactly, when sourceQuote does not give it.",
+          MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES
+        ),
+      },
+      correction: {
+        type: "string",
+        maxLength: MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES,
+        description: summaryEscapedUtf8Description(
+          "The result against the target as the sources give it.",
+          MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES
+        ),
+      },
+    },
+    required: ["draftQuote", "sourceQuote", "correction"],
+    additionalProperties: false,
   },
 } as const;
 

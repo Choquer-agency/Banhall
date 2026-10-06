@@ -16,6 +16,14 @@ import { requireSeedInitialization } from "./seedGuards";
 import { requireDraftingInputsReady, startDraftingInputsHandler } from "./draftingInputs";
 import { domainError } from "../contracts";
 import {
+  ANALYZER_CATEGORY_LABELS,
+  CONTEXT_SCAFFOLDS,
+  effectiveCategory,
+  neutralizeMarkers,
+  sanitizeFileName,
+  type ContextDocCategory,
+} from "../../ai/trustedContext";
+import {
   briefWithoutExcludedQuotes,
   reusableBriefForGeneration,
   readBriefEntryRowsBounded,
@@ -40,6 +48,9 @@ import {
   ANSWERS_242_WORST_CASE_REFERENCE,
   line242PlanItems,
   line246PlanItems,
+  SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES,
+  type FactsSourceDocument,
+  type FactsSourceDocuments,
   type FrozenDroppedUncertainty,
   type FrozenSummaryPlanInstruction,
   type SummaryPlanRuleId,
@@ -63,6 +74,7 @@ import { isProjectDeleting } from "../projectDeletion";
 import { internal } from "../../_generated/api";
 import { SEED_DECISION_COLLECTION_ROWS } from "../seedDecisionState";
 import { editedTermsOf, MAX_EDITED_TERMS_PER_LINE } from "../editedTerms";
+import { unbackedBullets } from "../seedQuoteSupport";
 import {
   feedbackForLine,
   glossaryTermPrecedence,
@@ -588,7 +600,14 @@ export async function signOffSeedStageHandler(
   const referencesBySeedId = new Map(
     frozenItems.map((item) => [item.seedId, item.bullets] as const)
   );
-  const { sourceRefsByItemId } = await loadSummarySourceRefs(ctx, generation, frozenItems);
+  const { sourceRefsByItemId, quoteMarksByItemId } = await loadSummarySourceRefs(ctx, generation, frozenItems);
+  // 2026-10-04 (second, round 3): admission counts the drafter's warning on
+  // each item its own quotes do not back, as each Section claim sends it.
+  const admittedItems = frozenItems.map((item) => {
+    const seed = selectedSeeds.find((candidate) => candidate._id === item.seedId);
+    const { unbacked } = itemQuoteState(item.bullets, seed?.bullets, quoteMarksByItemId.get(item._id) ?? []);
+    return unbacked.length > 0 ? { ...item, quotesDoNotBack: unbacked } : item;
+  });
   const payload = await frozenOrderedPayload(ctx, generation, summaryVersionId);
   try {
     for (const section of ["242", "244", "246"] as const) {
@@ -599,7 +618,7 @@ export async function signOffSeedStageHandler(
       // same reservation and Line 246's signed-off items whole.
       const plan = buildFrozenSummaryPlan({
         section: `s${section}`,
-        items: frozenItems,
+        items: admittedItems,
         skippedRoleIds,
         referencesBySeedId,
         sourceRefsByItemId,
@@ -608,6 +627,8 @@ export async function signOffSeedStageHandler(
         ...(section === "244" ? { workAnswers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
         // 2026-09-30 (third): Lines 244 and 246 carry the targets check.
         resultsAgainstTargets: true,
+        // 2026-10-04 (second): every Line carries the facts check.
+        factsMatchSources: true,
       });
       const ordinaryChecks = summaryOrdinaryAdmission({
         section,
@@ -1084,6 +1105,16 @@ export async function loadFrozenSectionPlan(
    * reads which figures the plan uses. Never sent to a model.
    */
   planWording: string[][];
+  /**
+   * 2026-10-04 (second, round 2): every signed-off item (skipped steps
+   * aside), whatever its Line: its wording, whether the writer wrote it and
+   * its own quotes, for the facts check's SOURCE FACTS block. Round 3 and its
+   * review (P2-2): only the sentences the writer changed are the writer's
+   * wording; the rest stay the product's, with the sentences its quotes do
+   * not back named when a quote is marked (`unbackedBullets`). An item
+   * with both is two entries.
+   */
+  planItemSources: Array<{ wording: string[]; writer: boolean; quotes: string[]; unbacked?: string[] }>;
 }> {
   if (!generation.summaryVersionId) {
     return {
@@ -1098,6 +1129,7 @@ export async function loadFrozenSectionPlan(
       answers242: null,
       workAnswers242: null,
       planWording: [],
+      planItemSources: [],
     };
   }
   const summary = await ctx.db.get(generation.summaryVersionId);
@@ -1118,7 +1150,10 @@ export async function loadFrozenSectionPlan(
   const referencesBySeedId = new Map(
     items.map((item) => [item.seedId, item.bullets] as const)
   );
-  const { sourceRefsByItemId, quotesLeftOut } = await loadSummarySourceRefs(ctx, generation, items);
+  const { sourceRefsByItemId, quotesLeftOut, quoteMarksByItemId } = await loadSummarySourceRefs(ctx, generation, items);
+  // 2026-10-04 (second, round 3): what each item's own quotes do not back,
+  // for the drafter's warning in the plan and for the facts check.
+  const quoteStates = await itemQuoteStates(ctx, generation, items, quoteMarksByItemId);
   const pdSection = section === "242" ? "s242" : section === "244" ? "s244" : "s246";
   // 2026-09-30 (first, Rule B): Line 242's signed-off plan items, whole, then
   // its drafted text, clipped alone (Greptile P1); before it is drafted, the
@@ -1151,6 +1186,9 @@ export async function loadFrozenSectionPlan(
         ? { experimentSeedIds: item.experimentSeedIds }
         : {}),
       ...(item.confirmedExclusion ? { confirmedExclusion: true } : {}),
+      ...(quoteStates.get(item._id)?.unbacked.length
+        ? { quotesDoNotBack: quoteStates.get(item._id)!.unbacked }
+        : {}),
     })),
     skippedRoleIds: summary.skippedRoleIds,
     referencesBySeedId,
@@ -1162,6 +1200,10 @@ export async function loadFrozenSectionPlan(
     // admission, runtime admission and drafting alike, carries the check
     // that each result is stated against its target as the numbers show.
     resultsAgainstTargets: true,
+    // 2026-10-04 (second): every signed-off Line, at sign-off admission,
+    // runtime admission and drafting alike, carries the check that each
+    // figure and detail is stated as the sources give it.
+    factsMatchSources: true,
   });
   // An edited item's terms: what the writer changed or added compared with
   // the model's original Seed (immutable). Items frozen before 2026-09-24
@@ -1227,6 +1269,11 @@ export async function loadFrozenSectionPlan(
     planWording: items
       .filter((item) => !summary.skippedRoleIds.includes(item.roleId))
       .map((item) => [...item.bullets]),
+    planItemSources: planItemSourcesOf(
+      items.filter((item) => !summary.skippedRoleIds.includes(item.roleId)),
+      sourceRefsByItemId,
+      quoteStates
+    ),
     planBlock: `\n\n${plan.block}`,
     planChecksBlock: plan.checksBlock,
     planChecks: plan.checks.map((check) => ({
@@ -1239,6 +1286,7 @@ export async function loadFrozenSectionPlan(
       instruction: check.instruction,
       confirmedExclusion: check.confirmedExclusion,
       ...(check.support ? { support: check.support } : {}),
+      ...(check.quotesDoNotBack ? { quotesDoNotBack: check.quotesDoNotBack } : {}),
       wording: check.wording,
       relationshipReferences: check.relationshipReferences,
       sourceReferences: check.sourceReferences,
@@ -1247,6 +1295,145 @@ export async function loadFrozenSectionPlan(
         ? { quotesLeftOut: quotesLeftOut.get(check.itemId) }
         : {}),
     })),
+  };
+}
+
+type QuoteMark = { exactExcerpt: string; needsQuoteCheck?: boolean };
+type ItemQuoteState = {
+  /** The Seed's own sentences, or undefined when its Seed cannot be read. */
+  original?: readonly string[];
+  /** The unchanged sentences its own quotes do not back (`unbackedBullets`). */
+  unbacked: string[];
+};
+
+/**
+ * 2026-10-04 (second, round 3): what a signed-off item's own quotes do not
+ * back, judged on the sentences the writer has not changed. One rule for the
+ * plan at sign-off admission and at each Section claim (the drafter's
+ * warning, owner decision 2026-10-05) and for the facts check.
+ */
+function itemQuoteState(
+  bullets: readonly string[],
+  original: readonly string[] | undefined,
+  marks: readonly QuoteMark[]
+): ItemQuoteState {
+  if (!original) return { unbacked: [] };
+  const unchanged = bullets.filter((bullet) => original.includes(bullet));
+  return { original, unbacked: unbackedBullets(unchanged, marks, original) };
+}
+
+/** Each frozen item's quote state, reading the Seed of an item the writer edited. */
+async function itemQuoteStates(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  items: ReadonlyArray<Doc<"summaryItems">>,
+  quoteMarksByItemId: ReadonlyMap<Id<"summaryItems">, readonly QuoteMark[]>
+): Promise<Map<Id<"summaryItems">, ItemQuoteState>> {
+  const states = new Map<Id<"summaryItems">, ItemQuoteState>();
+  for (const item of items) {
+    let original: readonly string[] | undefined = item.bullets;
+    if (item.edited !== false) {
+      const seed = await ctx.db.get(item.seedId);
+      original = seed && seed.projectId === generation.projectId ? seed.bullets : undefined;
+    }
+    states.set(item._id, itemQuoteState(item.bullets, original, quoteMarksByItemId.get(item._id) ?? []));
+  }
+  return states;
+}
+
+/**
+ * 2026-10-04 (second, round 3 review, P2-2): each signed-off item as the facts
+ * check reads it. A sentence the writer changed (not one of the Seed's own
+ * sentences) is the writer's wording; every other sentence is the product's,
+ * with its quotes and the sentences they do not back. Saving a sentence
+ * unchanged never makes it the writer's. An item frozen before 2026-09-24
+ * without the edited flag is compared with its Seed the same way; an item
+ * whose Seed cannot be read is the writer's when it was edited (re-check P3-4).
+ */
+function planItemSourcesOf(
+  items: ReadonlyArray<Doc<"summaryItems">>,
+  sourceRefsByItemId: ReadonlyMap<Id<"summaryItems">, ReadonlyArray<{ exactExcerpt: string }>>,
+  states: ReadonlyMap<Id<"summaryItems">, ItemQuoteState>
+): Array<{ wording: string[]; writer: boolean; quotes: string[]; unbacked?: string[] }> {
+  const out: Array<{ wording: string[]; writer: boolean; quotes: string[]; unbacked?: string[] }> = [];
+  for (const item of items) {
+    const quotes = (sourceRefsByItemId.get(item._id) ?? []).map((reference) => reference.exactExcerpt);
+    const state = states.get(item._id);
+    const original = state?.original;
+    if (!original) {
+      out.push({ wording: [...item.bullets], writer: item.edited === true, quotes });
+      continue;
+    }
+    const product = item.bullets.filter((bullet) => original.includes(bullet));
+    const writer = item.bullets.filter((bullet) => !original.includes(bullet));
+    if (product.length > 0) {
+      const unbacked = state.unbacked;
+      out.push({ wording: product, writer: false, quotes, ...(unbacked.length > 0 ? { unbacked: [...unbacked] } : {}) });
+    }
+    if (writer.length > 0) out.push({ wording: writer, writer: true, quotes: product.length > 0 ? [] : quotes });
+  }
+  return out;
+}
+
+/**
+ * 2026-10-04 (second, round 2, owner approved 2026-10-05): the frozen source
+ * documents (transcripts and project documents, in the order frozen) the
+ * facts check reads in full. Round 2 review: each document is marker-safe
+ * before it is counted (P2-1: its text through neutralizeMarkers, its file
+ * name through sanitizeFileName, and a writer_notes label an internal user
+ * did not upload demoted, as the analyzer's context does), and each one that
+ * still fits SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES, in order, is included while
+ * any that does not is left out and named with its size (P2-4). It reads
+ * every row of the generation's sources once (other kinds are read, not
+ * counted), as the generation input query does.
+ */
+export async function loadFactsSourceDocuments(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">
+): Promise<FactsSourceDocuments> {
+  const budget = SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES;
+  const documents: FactsSourceDocument[] = [];
+  const leftOut: FactsSourceDocuments["leftOut"] = [];
+  let used = 0;
+  for await (const row of ctx.db
+    .query("generationSources")
+    .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))) {
+    if (row.kind !== "transcript" && row.kind !== "project_document") continue;
+    const document = factsSourceDocumentOf(row);
+    const bytes = new TextEncoder().encode(document.content).byteLength;
+    if (used + bytes > budget) {
+      leftOut.push({ label: document.label, bytes });
+      continue;
+    }
+    used += bytes;
+    documents.push(document);
+  }
+  return { documents, leftOut, budget };
+}
+
+/** One frozen transcript or project document, marker-safe, as the facts check reads it. */
+export function factsSourceDocumentOf(
+  row: Pick<Doc<"generationSources">, "kind" | "label" | "content" | "uploaderRole">
+): FactsSourceDocument {
+  const content = neutralizeMarkers(row.content);
+  if (row.kind === "transcript") {
+    return { label: `${CONTEXT_SCAFFOLDS.transcriptLabel}: ${sanitizeFileName(row.label)}`, content };
+  }
+  // A project document's label is "<category>:<file name>" (generation input).
+  const separator = row.label.indexOf(":");
+  const named = separator >= 0 ? row.label.slice(0, separator) : "other";
+  const category: ContextDocCategory = named in ANALYZER_CATEGORY_LABELS ? named as ContextDocCategory : "other";
+  const fileName = separator >= 0 ? row.label.slice(separator + 1) : row.label;
+  const shown = effectiveCategory({
+    category,
+    fileName,
+    content: row.content,
+    ...(row.uploaderRole ? { uploaderRole: row.uploaderRole } : {}),
+  });
+  return {
+    label: `${ANALYZER_CATEGORY_LABELS[shown]}: ${sanitizeFileName(fileName)}`,
+    content,
+    ...(shown === "writer_notes" ? { writer: true } : {}),
   };
 }
 
@@ -1312,6 +1499,9 @@ export async function loadSummarySourceRefs(
   // 2026-09-27 (third): a quote marked for a check may not back its item,
   // so it is never drafting evidence; the item's wording still is.
   const quotesLeftOut = new Map<Id<"summaryItems">, number>();
+  // 2026-10-04 (second, round 3): every quote of each item with its mark,
+  // so the facts check can name the wording its quotes do not back.
+  const quoteMarksByItemId = new Map<Id<"summaryItems">, Array<{ exactExcerpt: string; needsQuoteCheck?: boolean }>>();
   for (const item of items) {
     const rows = await ctx.db.query("seedProvenance")
       .withIndex("by_seedId", (q) => q.eq("seedId", item.seedId))
@@ -1321,6 +1511,10 @@ export async function loadSummarySourceRefs(
     }
     const marked = rows.filter((row) => row.needsQuoteCheck === true).length;
     if (marked > 0) quotesLeftOut.set(item._id, marked);
+    quoteMarksByItemId.set(item._id, rows.map((row) => ({
+      exactExcerpt: row.exactExcerpt,
+      ...(row.needsQuoteCheck === true ? { needsQuoteCheck: true } : {}),
+    })));
     result.set(item._id, rows.filter((row) => row.needsQuoteCheck !== true).map((row) => {
       if (row.projectId !== generation.projectId) {
         domainError("INVALID_STATE", "Seed provenance belongs to another project");
@@ -1334,5 +1528,5 @@ export async function loadSummarySourceRefs(
       };
     }));
   }
-  return { sourceRefsByItemId: result, quotesLeftOut };
+  return { sourceRefsByItemId: result, quotesLeftOut, quoteMarksByItemId };
 }

@@ -20,6 +20,7 @@
   import { seedTagStyle } from "./seedTags";
   import { attributionFromRead } from "./attribution";
   import SeedQuote from "./SeedQuote.svelte";
+  import { unbackedNote } from "./citations";
   import SeedSignOffDialog from "./SeedSignOffDialog.svelte";
 
   let {
@@ -1040,21 +1041,28 @@
                             </button>
                           </div>
                         {:else}
-                          <ul class="flex min-w-0 flex-1 flex-col gap-1.5">
-                            {#each item.bullets as bullet, bulletIndex}
-                              <li class="flex gap-2 text-[0.875rem] leading-5 text-ink">
-                                <span class="mt-2 size-1 shrink-0 rounded-full bg-ink-faint" aria-hidden="true"></span>
-                                <span class="min-w-0 flex-1">
-                                  <span>{@render bulletText(item, bullet)}</span>
-                                  {#if edited && bulletIndex === item.bullets.length - 1}
-                                    <span class="ml-1 inline-flex translate-y-0.5 text-ink-muted" role="img" aria-label="Edited by hand" data-summary-edited-mark>
-                                      {@render revertIcon("size-[0.8125rem]")}
-                                    </span>
-                                  {/if}
-                                </span>
-                              </li>
-                            {/each}
-                          </ul>
+                          {@const unbacked = unbackedNote(item)}
+                          <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+                            <ul class="flex min-w-0 flex-col gap-1.5">
+                              {#each item.bullets as bullet, bulletIndex}
+                                <li class="flex gap-2 text-[0.875rem] leading-5 text-ink">
+                                  <span class="mt-2 size-1 shrink-0 rounded-full bg-ink-faint" aria-hidden="true"></span>
+                                  <span class="min-w-0 flex-1">
+                                    <span>{@render bulletText(item, bullet)}</span>
+                                    {#if edited && bulletIndex === item.bullets.length - 1}
+                                      <span class="ml-1 inline-flex translate-y-0.5 text-ink-muted" role="img" aria-label="Edited by hand" data-summary-edited-mark>
+                                        {@render revertIcon("size-[0.8125rem]")}
+                                      </span>
+                                    {/if}
+                                  </span>
+                                </li>
+                              {/each}
+                            </ul>
+                            {#if unbacked}
+                              <!-- 2026-10-04 (second, round 3): the wording its quotes do not back. -->
+                              <p class="text-[0.75rem] leading-4 text-gap-text!" data-summary-unbacked>{unbacked}</p>
+                            {/if}
+                          </div>
                           {#if canEdit}
                             <button
                               type="button"

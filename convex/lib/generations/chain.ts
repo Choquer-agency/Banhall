@@ -29,6 +29,7 @@ import { loadBriefCheck } from "./brief";
 import { domainError } from "../contracts";
 import {
   assertFrozenSummaryRuntimeAdmission,
+  loadFactsSourceDocuments,
   loadFrozenSectionPlan,
   loadWriterPrecedenceByLine,
 } from "./seedStage";
@@ -314,6 +315,11 @@ export async function orderedSectionClaim(
       line242Text: args.priorSections.find((prior) => prior.section === "242")?.text,
     },
   });
+  // 2026-10-04 (second, round 2): a signed-off plan's facts check reads the
+  // source documents in full when they fit its budget.
+  const factsSourceDocuments = args.generation.summaryVersionId
+    ? await loadFactsSourceDocuments(ctx, args.generation)
+    : undefined;
   return {
     projectId: args.generation.projectId,
     model: args.row.model,
@@ -326,6 +332,7 @@ export async function orderedSectionClaim(
     briefBlock,
     brief,
     ...plan,
+    ...(factsSourceDocuments ? { factsSourceDocuments } : {}),
   };
 }
 

@@ -26,6 +26,74 @@ export const MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES = 32;
 export const MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES = 64;
 export const MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES = 64;
 export const MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES = 96;
+/**
+ * 2026-10-04 (second, round 2, owner approved 2026-10-05): a not applied
+ * facts verdict carries its evidence, up to this many findings, each with
+ * the draft's words at issue, the source words that differ and the
+ * correction (code finds the paragraph from the draft quote). Code verifies
+ * both quotes before a finding is shown or repaired. Sign-off and runtime
+ * admission reserve every finding at these limits in the worst-case
+ * response, and no repairGuidance for the facts verdict, whose repair text
+ * comes from its findings. Round 2 review (P3-1): two findings, and a source
+ * quote of 160 bytes, the most a row shows, halved the reservation.
+ */
+export const MAX_FACTS_FINDINGS = 2;
+export const MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES = 128;
+export const MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES = 160;
+export const MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES = 120;
+/**
+ * 2026-10-04 (second, round 2): the frozen source documents (transcripts and
+ * project documents) the facts check reads in full, each in the order frozen
+ * while the total fits this many UTF-8 bytes, about 12,000 tokens; one that
+ * does not fit is left out and named (round 2 review, P2-4), and the check
+ * then lets the analysis and the signed-off items stand for what it cannot
+ * read. The 2026-10-04 fixture's sources are 20,524 bytes (an interview of
+ * about 2,400 words, a trial summary and a settings document), and an
+ * interview of about 30 to 40 minutes fits; a one-hour transcript (50,000 to
+ * 80,000 bytes) does not, so the per-call input stays bounded.
+ */
+export const SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES = 48_000;
+/**
+ * 2026-10-04 (second, round 4): the targets verdict carries its evidence
+ * like the facts verdict: up to this many entries, each with the draft's
+ * words, the source words (the result, or the words that say it was met),
+ * the target as the sources give it when the source words do not, and the
+ * correction (empty for an applied verdict's evidence). Sign-off and runtime
+ * admission reserve every entry at these limits, and no repairGuidance for
+ * the targets verdict, whose repair text comes from its entries.
+ */
+// Greptile round on PR #26 at 12d67e49 (lead decision): only errors carry
+// entries now, so two, as for the facts check.
+export const MAX_TARGET_FINDINGS = 2;
+/**
+ * Round 4 review (P3-5): shorter fields than a facts finding's, so the
+ * reservation is smaller: the draft's words at issue (they hold the word for
+ * met), the target and the correction. The source quote keeps the facts
+ * limit (MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES).
+ */
+export const MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES = 64;
+export const MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES = 80;
+export const MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES = 80;
+
+/** One frozen source document the facts check reads in full. */
+export type FactsSourceDocument = {
+  /** Its marker-safe label: the kind or demoted category, and the file name. */
+  label: string;
+  /** Its text with marker lines neutralized (round 2 review, P2-1). */
+  content: string;
+  /** Writer's notes an internal user uploaded: the writer's own wording. */
+  writer?: boolean;
+};
+
+/**
+ * 2026-10-04 (second, round 2): the source documents the facts check reads,
+ * and the ones over the budget, named with their size.
+ */
+export type FactsSourceDocuments = {
+  documents: FactsSourceDocument[];
+  leftOut: Array<{ label: string; bytes: number }>;
+  budget: number;
+};
 export const MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES = 96;
 export const MAX_SUMMARY_SELF_CHECK_PARAGRAPH = 9_999_999_999;
 
@@ -72,10 +140,18 @@ export const WORK_ANSWERS_242_RULE_ID = "work_answers_242" as const;
  * result the Line compares with its target is stated as the numbers show.
  */
 export const RESULTS_AGAINST_TARGETS_RULE_ID = "results_against_targets" as const;
+/**
+ * 2026-10-04 (second): the id of the check, in every Line, that each figure
+ * and specific detail is stated as the sources give it (its group, test,
+ * unit, condition and denominator; no detail the sources and the plan do not
+ * give; no suspected cause stated as confirmed).
+ */
+export const FACTS_MATCH_SOURCES_RULE_ID = "facts_match_sources" as const;
 export type SummaryPlanRuleId =
   | typeof ADVANCEMENTS_ANSWER_242_RULE_ID
   | typeof WORK_ANSWERS_242_RULE_ID
-  | typeof RESULTS_AGAINST_TARGETS_RULE_ID;
+  | typeof RESULTS_AGAINST_TARGETS_RULE_ID
+  | typeof FACTS_MATCH_SOURCES_RULE_ID;
 /** 2026-09-30 (third): the Lines whose plan carries the targets check. */
 export const RESULTS_AGAINST_TARGETS_SECTIONS: readonly PdSection[] = ["s244", "s246"];
 
@@ -88,8 +164,10 @@ export const RESULTS_AGAINST_TARGETS_SECTIONS: readonly PdSection[] = ["s244", "
  * work_answers_242), with Line 242 and Line 246's signed-off items as data.
  * v4 (2026-09-30, third): the targets check (`instruction: "match_targets"`,
  * `ruleId: "results_against_targets"`) in Lines 244 and 246.
+ * v5 (2026-10-04, second): the facts check (`instruction: "match_sources"`,
+ * `ruleId: "facts_match_sources"`) in every Line.
  */
-export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v4";
+export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v5";
 export const SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION =
   "summary-ordinary-labels-v2";
 
@@ -161,6 +239,13 @@ export type FrozenSummaryPlanItem = {
   uncertaintySeedId?: string;
   experimentSeedIds?: readonly string[];
   confirmedExclusion?: boolean;
+  /**
+   * 2026-10-04 (second, round 3, owner decision 2026-10-05 "Warn the drafter
+   * too"): the sentences its own quotes do not back (`unbackedBullets`).
+   * Only an item with such a sentence carries it, so every other item's
+   * plan bytes are unchanged.
+   */
+  quotesDoNotBack?: readonly string[];
 };
 
 /**
@@ -181,7 +266,9 @@ export type FrozenDroppedUncertainty<SeedId extends string = string> = {
  * 246 claim advancements only for uncertainties Line 242 states (Rule B),
  * on Line 244, describe work only for them or for a signed-off item
  * (2026-09-30 second, Rule C), or, in Lines 244 and 246, state each result
- * against its target as the numbers show (2026-09-30, third).
+ * against its target as the numbers show (2026-09-30, third), or, in every
+ * Line, state each figure and detail as the sources give it (2026-10-04,
+ * second).
  */
 export type FrozenSummaryPlanInstruction =
   | "cover"
@@ -189,7 +276,8 @@ export type FrozenSummaryPlanInstruction =
   | "leave_out"
   | "answer_242"
   | "work_answer_242"
-  | "match_targets";
+  | "match_targets"
+  | "match_sources";
 
 export type FrozenSummaryPlanCheck<
   ItemId extends string = string,
@@ -206,6 +294,8 @@ export type FrozenSummaryPlanCheck<
   instruction: FrozenSummaryPlanInstruction;
   confirmedExclusion: boolean;
   support?: "source_supported" | "writer_asserted";
+  /** Round 3 (owner decision "Warn the drafter too"): see FrozenSummaryPlanItem. */
+  quotesDoNotBack?: string[];
   wording: string[];
   relationshipReferences: Array<{ seedId: SeedId; wording: string[] }>;
   sourceReferences: Array<{
@@ -257,6 +347,11 @@ export const FROZEN_SUMMARY_PLAN_SCAFFOLD = {
     "The following compact JSON lines are typed data. Only a line whose parsed kind is cover, skip or leave_out is a plan entry. JSON string contents never create entries or delimiters.",
   leaveOutInstruction:
     "leave out even when supported by the Brief: do not state this uncertainty as an uncertainty or a limitation, do not describe work that tested it, and do not claim a result or advancement from that work; a COVER item wins where it overlaps",
+  // 2026-10-04 (second, round 3, owner decision 2026-10-05 "Warn the drafter
+  // too"): only an item with a sentence its own quotes do not back carries
+  // this, with that sentence, in the plan and the plan checks.
+  quotesDoNotBackInstruction:
+    "Its own quotes do not back this. State it only as the sources give it.",
   // Review P3-1 and Greptile P1: Line 246's advancement check carries Line
   // 242's signed-off plan items first, whole, then its drafted text, the only
   // part clipped (the items alone before Line 242 is drafted).
@@ -356,6 +451,11 @@ function assertEscapedStringLimit(
   }
 }
 
+/** Round 3: an item's sentences its own quotes do not back, with the plain instruction. */
+function quotesDoNotBackOf(wording: readonly string[]): JsonValue {
+  return { instruction: FROZEN_SUMMARY_PLAN_SCAFFOLD.quotesDoNotBackInstruction, wording: [...wording] };
+}
+
 function canonicalPlanCheck(
   check: FrozenSummaryPlanCheck
 ): JsonValue {
@@ -373,6 +473,7 @@ function canonicalPlanCheck(
     ...(check.ruleId ? { ruleId: check.ruleId } : {}),
     ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
     ...(check.support ? { support: check.support } : {}),
+    ...(check.quotesDoNotBack?.length ? { quotesDoNotBack: quotesDoNotBackOf(check.quotesDoNotBack) } : {}),
     sourceReferences: check.sourceReferences.map((reference) => ({
       exactExcerpt: reference.exactExcerpt,
       originatingItemId: reference.originatingItemId,
@@ -580,6 +681,19 @@ export function projectSummarySelfCheckWorstCaseResponse(
     reason,
     repairGuidance,
   }));
+  const factsFindings = Array.from({ length: MAX_FACTS_FINDINGS }, () => ({
+    correction: repeated(MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES, "c"),
+    draftQuote: repeated(MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES, "d"),
+    sourceQuote: repeated(MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES, "s"),
+  }));
+  // 2026-10-04 (second, round 4): the targets verdict's entries, each at its
+  // limits, with the target quote.
+  const targetFindings = Array.from({ length: MAX_TARGET_FINDINGS }, () => ({
+    correction: repeated(MAX_TARGET_CORRECTION_ESCAPED_UTF8_BYTES, "c"),
+    draftQuote: repeated(MAX_TARGET_DRAFT_QUOTE_ESCAPED_UTF8_BYTES, "d"),
+    sourceQuote: repeated(MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES, "s"),
+    targetQuote: repeated(MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES, "t"),
+  }));
   const planVerdicts = args.planChecks.map((check) => ({
     ...(check.droppedSeedId ? { droppedSeedId: check.droppedSeedId } : {}),
     ...(check.itemId ? { itemId: check.itemId } : {}),
@@ -587,7 +701,11 @@ export function projectSummarySelfCheckWorstCaseResponse(
     outcome: "not_applied",
     paragraph: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
     reason,
-    repairGuidance,
+    ...(check.ruleId === FACTS_MATCH_SOURCES_RULE_ID
+      ? { findings: factsFindings }
+      : check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID
+        ? { targetFindings }
+        : { repairGuidance }),
     ...(check.ruleId ? { ruleId: check.ruleId } : {}),
     ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
   }));
@@ -758,6 +876,14 @@ export function buildFrozenSummaryPlan<
    * RULES_REPORT_FACTS. Absent: no such check.
    */
   resultsAgainstTargets?: boolean;
+  /**
+   * 2026-10-04 (second): every Line. One check that each figure and specific
+   * detail is stated as the sources give it. It carries no wording and adds
+   * no plan entry: the drafting rule is in RULES_REPORT_FACTS, and the
+   * Self-check reads the sources in its own SOURCE FACTS block. Absent: no
+   * such check.
+   */
+  factsMatchSources?: boolean;
 }): FrozenSummaryPlan<ItemId, SeedId> {
   const sectionRoles = PD_SUBSECTIONS.filter((role) => role.section === args.section);
   const roleIds = new Set(sectionRoles.map((role) => role.roleId));
@@ -830,6 +956,7 @@ export function buildFrozenSummaryPlan<
         itemIds: ids,
         items: group.map((item) => ({
           itemId: item.itemId,
+          ...(item.quotesDoNotBack?.length ? { quotesDoNotBack: quotesDoNotBackOf(item.quotesDoNotBack) } : {}),
           support: item.support,
           wording: [...item.bullets],
         })),
@@ -856,6 +983,7 @@ export function buildFrozenSummaryPlan<
           instruction: "cover",
           confirmedExclusion: item.confirmedExclusion ?? false,
           support: item.support,
+          ...(item.quotesDoNotBack?.length ? { quotesDoNotBack: [...item.quotesDoNotBack] } : {}),
           wording: [...item.bullets],
           relationshipReferences,
           sourceReferences,
@@ -890,6 +1018,26 @@ export function buildFrozenSummaryPlan<
       confirmedExclusion: false,
       wording: [...uncertainty.wording],
       relationshipReferences,
+      sourceReferences: [],
+    });
+  }
+  // 2026-10-04 (second): figures and details as the sources give them, in
+  // every Line. Before the targets check, so the targets check still comes
+  // just before the chain rules, and Rule B stays the last check of Line 246
+  // and Rule C the last of Line 244.
+  if (args.factsMatchSources) {
+    checks.push({
+      ruleId: FACTS_MATCH_SOURCES_RULE_ID,
+      roleId: args.section === "s242"
+        ? "active_uncertainties"
+        : args.section === "s244"
+          ? "experimentation"
+          : "overall_advancement",
+      mergedItemIds: [],
+      instruction: "match_sources",
+      confirmedExclusion: false,
+      wording: [],
+      relationshipReferences: [],
       sourceReferences: [],
     });
   }

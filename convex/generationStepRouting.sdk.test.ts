@@ -58,7 +58,7 @@ import { runSeedDraftingInputs } from "./seedStartup.fixture";
 import { anthropicToolSse, sseResponse } from "./anthropicSse.fixture";
 import { compressionTargetWords, lengthBudgetBlock } from "./ai/pipeline";
 import { draftWordTarget, wordBudget } from "./lib/lineLimits";
-import { RULES_HUMAN_PROSE } from "../shared/humanProse";
+import { RULES_ANALYSIS_FIGURES, RULES_HUMAN_PROSE } from "../shared/humanProse";
 
 const modules = import.meta.glob("./**/*.ts");
 type T = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -346,8 +346,20 @@ const withPinnedCompressionAnswer = (json: Record<string, unknown>) => {
     ? (JSON.parse(body.split(answer).join(JSON.stringify(SHORT_TEXT).slice(1, -1))) as Record<string, unknown>)
     : json;
 };
+/**
+ * 2026-10-04 (second, review round 1, P2-4 (a)): the analyzer's figure rules
+ * are the only bytes the analysis request gained since the pins; each request
+ * holds them exactly once, and taking them out gives the pinned body.
+ */
+const withoutAnalysisFigureRules = (json: Record<string, unknown>) => {
+  if (toolOf(json) !== "submit_transcript_analysis") return json;
+  const rules = JSON.stringify(`${RULES_ANALYSIS_FIGURES}\n`).slice(1, -1);
+  const body = JSON.stringify(json);
+  if (body.split(rules).length !== 2) throw new Error("The analysis request must hold the figure rules once");
+  return JSON.parse(body.replace(rules, "")) as Record<string, unknown>;
+};
 const asPinned = (json: Record<string, unknown>) =>
-  withPinnedCompressionAnswer(withoutLengthFix(withoutQuoteRules(withoutBriefStream(json))));
+  withPinnedCompressionAnswer(withoutLengthFix(withoutQuoteRules(withoutBriefStream(withoutAnalysisFigureRules(json)))));
 function expectBriefStreaming(sent: Sent[], streamed: boolean) {
   const briefs = sent.filter((request) => toolOf(request.json) === "submit_generation_brief");
   expect(briefs.length).toBeGreaterThan(0);

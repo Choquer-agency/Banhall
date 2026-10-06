@@ -1598,3 +1598,37 @@ describe("results against targets and no talk about sources (2026-09-30, third)"
       .toBe('244: no row; 246: not_applied ("P1 calls met targets close.")');
   });
 });
+
+describe("figures and details as the sources give them (2026-10-04, second)", () => {
+  const factsRow = (section: string, outcome: "applied" | "not_applied", repaired = false) => ({
+    section,
+    paragraphIndex: null,
+    source: "model",
+    instruction: "State figures and details as the sources give them",
+    outcome,
+    tier: "none",
+    reason: outcome === "applied"
+      ? repaired
+        ? "Figures and details match the sources. Fixed by the repair: P6 gives the all-panel 4% as deep cove's"
+        : "Figures and details match the sources."
+      : "P2 adds steel to the datasheet panels",
+    repaired,
+    planRef: { itemId: null, skippedRoleId: null, droppedSeedId: null, ruleId: "facts_match_sources", mergedItemIds: [] },
+  });
+
+  it("reports every Line's facts row for every fixture, with what a repair fixed", () => {
+    const c = baseCollected();
+    c.complianceNotes = [factsRow("242", "applied"), factsRow("244", "applied", true), factsRow("246", "not_applied")];
+    for (const fixture of fixtures) {
+      expect(runChecks(fixture, c, emptyRunLog(fixture.id, 0)).find((item) => item.id === "facts-match-sources")).toEqual({
+        id: "facts-match-sources",
+        label: "Figures and details stated as the sources give them, per Line (informational; self-reported by the checking model)",
+        status: "info",
+        evidence: '242: applied ("Figures and details match the sources."); 244: applied, repaired ("Figures and details match the sources. Fixed by the repair: P6 gives the all-panel 4% as deep cove\'s"); 246: not_applied ("P2 adds steel to the datasheet panels")',
+      });
+    }
+    c.complianceNotes = [];
+    expect(runChecks(fixtures[0]!, c, emptyRunLog(fixtures[0]!.id, 0)).find((item) => item.id === "facts-match-sources")?.evidence)
+      .toBe("242: no row; 244: no row; 246: no row");
+  });
+});

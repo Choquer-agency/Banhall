@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ANALYZER_SYSTEM_PROMPT,
   buildSharedWritingRules,
   buildSection242SystemPrompt,
   buildSection244SystemPrompt,
@@ -17,7 +18,13 @@ import {
   resolveEffectiveOverrides,
   type StyleOverrides,
 } from "../../shared/styleOverrides";
-import { findDashConnectors, RULES_HUMAN_PROSE, RULES_SEED_WORDING } from "../../shared/humanProse";
+import {
+  findDashConnectors,
+  RULES_ANALYSIS_FIGURES,
+  RULES_HUMAN_PROSE,
+  RULES_SEED_WORDING,
+} from "../../shared/humanProse";
+import { ANALYZER_REQUEST } from "./analyzerAgent";
 import {
   CONSISTENCY_SYSTEM_PROMPT,
   PD_REVIEW_SYSTEM_PROMPT,
@@ -642,3 +649,35 @@ describe("copy skills reach every writing path (dashfix + copywriting, owner 202
   });
 });
 
+describe("the analyzer keeps figures with their group and adds no qualifier (2026-10-04 second, review round 1, P2-4 (a))", () => {
+  it("reads the figure rules once, among its Critical Rules, in plain words", () => {
+    expect(ANALYZER_SYSTEM_PROMPT.split(RULES_ANALYSIS_FIGURES)).toHaveLength(2);
+    const rules = ANALYZER_SYSTEM_PROMPT.indexOf("## Critical Rules");
+    const output = ANALYZER_SYSTEM_PROMPT.indexOf("## Output Format");
+    const at = ANALYZER_SYSTEM_PROMPT.indexOf(RULES_ANALYSIS_FIGURES);
+    expect(at).toBeGreaterThan(rules);
+    expect(at).toBeLessThan(output);
+    expect(ANALYZER_SYSTEM_PROMPT).toContain(
+      "- If the transcript is vague on a topic, flag it as a gap rather than filling in assumptions.\n" + RULES_ANALYSIS_FIGURES + "\n- For software projects:"
+    );
+    expect(findDashConnectors(RULES_ANALYSIS_FIGURES)).toEqual([]);
+    expect(RULES_ANALYSIS_FIGURES).toContain("keep each group's figure with its count, and mark a figure over all groups as over all groups");
+    expect(RULES_ANALYSIS_FIGURES).toContain('no "typically X", "and/or X" or "such as X" from your own knowledge');
+    // Round 2 (owner approved 2026-10-05): run 4's analysis still merged what
+    // standard powder needs with what the datasheets cover.
+    expect(RULES_ANALYSIS_FIGURES).toContain(
+      "- Keep statements about different things apart. What one material or process needs, and what a datasheet, supplier or standard covers, are separate statements: never merge them into one claim. Example: if a source says standard glue needs high heat on glass, and that the supplier's sheet is written for thin flat boards, do not write that the sheet is written for glass boards."
+    );
+    // No fixture term in the rule. Round 2: "datasheet" is the owner's own
+    // general wording for the kind of statement to keep apart.
+    for (const term of ["deep cove", "steel", "mdf", "powder", "13 percent"]) {
+      expect(RULES_ANALYSIS_FIGURES.toLowerCase()).not.toContain(term);
+    }
+  });
+
+  it("keeps the analysis size limits and the shorter-analysis retry as they were", () => {
+    expect(ANALYZER_REQUEST.maxTokens).toBe(16_000);
+    expect(ANALYZER_REQUEST.shorterRetryNote).toContain("keep each text field to three sentences or fewer");
+    expect(ANALYZER_REQUEST.shorterRetryNote).toContain("give at most 8 experiments or iterations");
+  });
+});

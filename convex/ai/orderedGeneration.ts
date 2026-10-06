@@ -47,6 +47,7 @@ import {
   runFinalCoverageSelfCheck,
   runModelSelfCheck,
   selfCheckFailureDiagnostic,
+  sourceFactsFor,
   type ModelSelfCheckResult,
 } from "./selfCheck";
 import {
@@ -106,12 +107,15 @@ import {
 } from "../lib/writerPrecedence";
 import { generationPromptVersion } from "./promptProgram";
 import {
+  FACTS_MATCH_SOURCES_RULE_ID,
+  type FactsSourceDocuments,
   MAX_DROPPED_UNCERTAINTY_CHECKS,
   sameSummaryPlanRef,
   type FrozenSummaryPlanInstruction,
   type SummaryPlanRuleId,
 } from "../lib/seedRevisions";
 import { sectionParagraphs } from "../lib/tiptapReport";
+import { neutralizeMarkers } from "./trustedContext";
 import { droppedUncertaintyFigures, figuresOf, LEAVE_OUT_FIGURE_NOTE_PREFIX } from "../../shared/planFigures";
 import { isNearCopy } from "../lib/droppedUncertainties";
 import { forwardOrderedPayload } from "../lib/orderedPayloadStore";
@@ -182,8 +186,11 @@ export function repairGuidanceBlock(
     editedTerms.length > 0
       ? `${scaffold.exactTermsPrefix}${quotedTerms(editedTerms)}${scaffold.exactTermsSuffix}`
       : "";
+  // Round 2 re-check (P2): an issue can carry model-written words (a facts
+  // finding's quotes and correction, a check's guidance), so none can open
+  // or close a block. Bytes are unchanged unless an issue holds a marker.
   return `${scaffold.prefix}${issues
-    .map((issue) => `${scaffold.issuePrefix}${issue}`)
+    .map((issue) => `${scaffold.issuePrefix}${neutralizeMarkers(issue)}`)
     .join(scaffold.issueSeparator)}${terms}${writerDecisions ? scaffold.writerDecisions : ""}${
     governedInIdea ? scaffold.governedRename : ""
   }${scaffold.draftPrefix}${draft}`;
@@ -269,7 +276,9 @@ export function repairDroppedKeptIdeaReason(conflict: Pick<ConfirmedConflict, "w
  * signed-off item the checked draft covered.
  */
 export function repairDroppedCoverItemReason(item: Pick<PlanCheck, "wording">): string {
-  return `the repaired text no longer covers the signed-off item "${ideaWords(item.wording, 120)}", and a leave-out fix must keep what a COVER item holds, so the checked draft was kept`;
+  // 2026-10-04 (second, review round 1, P3-2): neutral, since a targets or
+  // facts fix is set aside the same way as a leave-out fix.
+  return `the repaired text no longer covers the signed-off item "${ideaWords(item.wording, 120)}", and a repair must keep what a COVER item holds, so the checked draft was kept`;
 }
 
 /** The repair fix for an idea the writer kept despite a Claim Exclusion that the draft does not cover. */
@@ -350,6 +359,8 @@ type PlanCheck = {
   instruction: FrozenSummaryPlanInstruction;
   confirmedExclusion: boolean;
   support?: "source_supported" | "writer_asserted";
+  /** 2026-10-04 (second, round 3): the drafter's warning (owner decision 2026-10-05). */
+  quotesDoNotBack?: string[];
   wording: string[];
   relationshipReferences: Array<{
     seedId: Id<"seeds">;
@@ -435,9 +446,12 @@ function planVerdictFor(
  * read right after the Brief in a signed-off plan run's drafting request and
  * its repair. Single draft and Compare requests never carry it.
  */
-export function reportFactsBlock(): string {
+export function reportFactsBlock(
+  /** 2026-10-04 (second, round 4): the Line has the targets check. */
+  targets = false
+): string {
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.reportFacts;
-  return `${scaffold.prefix}${scaffold.rules}${scaffold.brief}`;
+  return `${scaffold.prefix}${scaffold.rules}${targets ? scaffold.targetsMet : ""}${scaffold.brief}`;
 }
 
 /**
@@ -458,6 +472,43 @@ export function reportFactsIssuePrefix(verdict: ModelVerdict, glossaryCandidates
 /** 2026-09-30 (third): the Compliance Note instruction for the targets check. */
 export const TARGETS_INSTRUCTION =
   "State each result against its target as the numbers show";
+
+/**
+ * 2026-10-04 (second, round 2): how a facts row says the source documents
+ * were over the check's budget, so it read the quotes and the analysis.
+ */
+export function factsDocumentsLeftOutNote(documents: FactsSourceDocuments): string {
+  if (documents.leftOut.length === 0) {
+    return "(No source document was frozen for this check, so it read the signed-off items' quotes and the analysis.)";
+  }
+  // Round 2 review, P2-4: each document left out is named.
+  return `(Over this check's ${documents.budget}-byte budget it did not read ${documents.leftOut
+    .map((document) => `${document.label} (${document.bytes} bytes)`)
+    .join(", ")}, so it let the signed-off items, their quotes and the analysis stand for them.)`;
+}
+
+/** 2026-10-04 (second): the Compliance Note instruction for the facts check. */
+export const FACTS_INSTRUCTION =
+  "State figures and details as the sources give them";
+
+/**
+ * 2026-10-04 (second): how a facts row that a used repair fixed says what was
+ * wrong: the final text's verdict, then what the first check found.
+ */
+export function factsRepairedReason(finalReason: string, firstReason: string): string {
+  const found = firstReason.trim();
+  return found ? `${finalReason.trim()} Fixed by the repair: ${found}` : finalReason.trim();
+}
+
+/**
+ * 2026-10-04 (second, round 4 review, P2-4): a targets row a used repair
+ * fixed says what was wrong first, since the final text's evidence can be
+ * long and a Compliance Note reason is cut at its limit.
+ */
+export function targetsRepairedReason(finalReason: string, firstReason: string): string {
+  const found = firstReason.trim();
+  return found ? `Fixed by the repair: ${found} ${finalReason.trim()}` : finalReason.trim();
+}
 
 /**
  * 2026-09-30 (first): the Compliance Note instruction for a LEAVE OUT row,
@@ -488,6 +539,8 @@ function planInstruction(expected: PlanCheck): string {
       return WORK_ANSWERS_242_INSTRUCTION;
     case "match_targets":
       return TARGETS_INSTRUCTION;
+    case "match_sources":
+      return FACTS_INSTRUCTION;
     default:
       return `Cover signed-off Summary item ${expected.itemId}`;
   }
@@ -530,10 +583,14 @@ export function leaveOutRepairIssue(
   guidance: string
 ): string {
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.repairGuidance;
-  const where = verdict.paragraphIndex === undefined
+  // 2026-10-04 (second): a facts fix is for the whole section, since its
+  // guidance names every figure and detail to correct, in any paragraph.
+  const where = verdict.paragraphIndex === undefined || check.instruction === "match_sources"
     ? scaffold.wholeSection
     : `${scaffold.paragraphPrefix}${verdict.paragraphIndex + 1}${scaffold.paragraphSuffix}`;
-  const fix = check.instruction === "leave_out"
+  const fix = check.instruction === "match_sources"
+    ? scaffold.factsIssue
+    : check.instruction === "leave_out"
     ? `${scaffold.leaveOutPrefix}${quoteForPrompt(ideaWords(check.wording, 200))}${scaffold.leaveOutSuffix}`
     : check.instruction === "work_answer_242"
       ? scaffold.workAnswers242Issue
@@ -659,7 +716,9 @@ export function lostPlanFigure(
 
 /** Review P2-1: why a Rule C repair that lost a signed-off figure was not used. */
 export function repairLostPlanFigureReason(lost: { figure: string }): string {
-  return `the repaired text no longer holds the signed-off figure "${lost.figure}", which the checked draft held, and a fix that leaves out work must keep the evidence a signed-off item needs, so the checked draft was kept`;
+  // 2026-10-04 (second, review round 1, P3-2): neutral, since a facts fix is
+  // set aside the same way as a Rule C fix.
+  return `the repaired text no longer holds the signed-off figure "${lost.figure}", which the checked draft held, and a repair must keep every figure a signed-off item gives, so the checked draft was kept`;
 }
 
 /** Every LEAVE OUT verdict with its figure note, where one applies; no verdict changes. */
@@ -858,6 +917,7 @@ export function planComplianceNoteDrafts(args: {
       const final = args.finalCoverage.ok
         ? planVerdictFor(args.finalCoverage.verdicts, expected)
         : undefined;
+      const repaired = sentToRepair && final?.outcome === "applied";
       return [noteDraft({
         section: args.section,
         ...(final?.paragraphIndex === undefined ? {} : { paragraphIndex: final.paragraphIndex }),
@@ -865,8 +925,17 @@ export function planComplianceNoteDrafts(args: {
         instruction,
         outcome: final?.outcome ?? "not_applied",
         tier: "none",
-        reason: final ? rowReason(final) : FINAL_COVERAGE_NOT_CHECKED_REASON,
-        repaired: sentToRepair && final?.outcome === "applied",
+        // 2026-10-04 (second): a facts row a repair fixed still says what was
+        // wrong, so a reviewer can check the correction; since round 4 a
+        // targets row too.
+        reason: final
+          ? repaired && expected.instruction === "match_sources"
+            ? factsRepairedReason(rowReason(final), verdict.reason)
+            : repaired && expected.instruction === "match_targets"
+              ? targetsRepairedReason(rowReason(final), verdict.reason)
+              : rowReason(final)
+          : FINAL_COVERAGE_NOT_CHECKED_REASON,
+        repaired,
         planRef,
       })];
     }
@@ -1085,7 +1154,9 @@ export async function draftCheckedSection(input: {
   // 2026-09-30 (third): a signed-off plan run's report-text rules, right
   // after the Brief. Single draft and Compare requests are unchanged.
   const planRun = Boolean(claim.planBlock);
-  const reportFacts = planRun ? reportFactsBlock() : "";
+  const reportFacts = planRun
+    ? reportFactsBlock(claim.planChecks.some((planCheck) => planCheck.instruction === "match_targets"))
+    : "";
   // Review P3-6: the checked text is over a Locked limit and further over
   // it than the other text, which must never be traded back for it.
   const overLimitMore = (checked: string, other: string) =>
@@ -1180,6 +1251,30 @@ export async function draftCheckedSection(input: {
         : {}),
     });
   const before = check(text);
+  // 2026-10-04 (second): the sources the draft is written from (the analysis,
+  // the Brief's Storyline and Confidence Map, and since review round 1, P2-1,
+  // every Line's signed-off items and the writer's instructions), for the
+  // facts check of a signed-off plan. Only a Line whose plan holds that check
+  // sends them, to the first Self-check and the check of the final text alike.
+  // Round 2 (owner approved 2026-10-05): the source documents first, when
+  // they fit their budget, and each signed-off item marked as the writer's or
+  // the product's wording, with its own quotes. Claims loaded before carry
+  // neither: the plan's wording stands in, with no documents.
+  const sourceFacts = claim.planChecks.some((planCheck) => planCheck.instruction === "match_sources")
+    ? sourceFactsFor({
+        analysis,
+        storylineText: brief?.storylineText ?? "",
+        // Round 2 review, P2-3: the writer's Storyline is the writer's wording.
+        ...(brief?.storylineByWriter ? { storylineByWriter: true } : {}),
+        confidenceMap: brief?.confidenceMap ?? [],
+        planItems: claim.planItemSources ?? planWording.map((wording) => ({ wording })),
+        ...(claim.factsSourceDocuments ? { documents: claim.factsSourceDocuments } : {}),
+        writerInstructions: [
+          ...(payload.writerFlavor?.trim() ? [payload.writerFlavor] : []),
+          ...before.modelRules.map((rule) => rule.instruction),
+        ],
+      })
+    : undefined;
 
   let verdicts: ModelVerdict[] = [];
   let storylineQuestion: ModelSelfCheckResult["storylineQuestion"] = null;
@@ -1201,6 +1296,7 @@ export async function draftCheckedSection(input: {
       editedTerms: claim.editedTerms,
       ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
       ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
+      ...(sourceFacts !== undefined ? { sourceFacts } : {}),
     });
     verdicts = result.verdicts;
     storylineQuestion = result.storylineQuestion;
@@ -1251,6 +1347,12 @@ export async function draftCheckedSection(input: {
   // rollback below protects it (targetsIssues).
   const evidenceIssues = new Set<string>();
   const targetsIssues = new Set<string>();
+  // 2026-10-04 (second): facts fixes correct a figure or take a detail out,
+  // so, like a leave-out fix, they are never Must keep lines of the repair's
+  // compression (its number guard would keep the wrong figure); the check of
+  // the final text judges them again, and the COVER rollback protects the
+  // signed-off items.
+  const factsIssues = new Set<string>();
   const planIssues = modelCheck.ok
     ? planVerdicts.flatMap((verdict) => {
         const expected = claim.planChecks.find((check) => sameSummaryPlanRef(verdict, check));
@@ -1273,12 +1375,25 @@ export async function draftCheckedSection(input: {
           if (expected.instruction === "work_answer_242") evidenceIssues.add(issue);
           return [issue];
         }
+        // 2026-10-04 (second): a figure or detail that does not match the
+        // sources goes to the repair with a fixed start for the whole
+        // section and the check's guidance.
+        if (expected?.instruction === "match_sources") {
+          const issue = leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason);
+          factsIssues.add(issue);
+          return [issue];
+        }
         // 2026-09-30 (third): a result misstated against its target goes
         // to the repair with a fixed start and the check's guidance. It asks
-        // to state something, so it stays a Must keep line.
+        // to state something, so it stays a Must keep line. Round 4 review
+        // (P3-6): a fix built from verified entries quotes the draft's wrong
+        // words, so, like a facts fix, it is never a Must keep line (the
+        // number guard would keep the wrong figure) and its repair must keep
+        // every figure of this Line's own signed-off items.
         if (expected?.instruction === "match_targets") {
           const issue = leaveOutRepairIssue(expected, verdict, verdict.repairText ?? verdict.repairGuidance ?? verdict.reason);
           targetsIssues.add(issue);
+          if (verdict.repairFromEntries) factsIssues.add(issue);
           return [issue];
         }
         return [verdict.repairText ?? verdict.repairGuidance ?? verdict.reason];
@@ -1340,6 +1455,7 @@ export async function draftCheckedSection(input: {
           (issue) =>
             !issue.startsWith("Shorten ") &&
             !leaveOutIssues.has(issue) &&
+            !factsIssues.has(issue) &&
             issue !== sourceTalkIssue &&
             !claim.editedTerms.some((term) => containsTerm(issue, term))
         );
@@ -1379,7 +1495,26 @@ export async function draftCheckedSection(input: {
         // of a signed-off item that the checked draft held is gone from it
         // (Greptile round: presence, not count), unless the checked draft is
         // further over a Locked limit (Locked Rules first).
-        const lostFigure = evidenceIssues.size > 0 ? lostPlanFigure(text, fit.text, planWording) : undefined;
+        // 2026-10-04 (second, review round 1, P2-3): so must a facts fix,
+        // whose verdict may be wrong about a figure a signed-off item gives.
+        // Greptile round 1 on PR #26: only this Line's own signed-off items
+        // (its COVER items), so a Line that put another Line's figure on the
+        // wrong subject can drop it; the figure stays in the Line whose item
+        // holds it. Rule C keeps its guard over every Line's items. Round 3
+        // review (P3-1): a figure only wording its own quotes do not back
+        // gives is not protected, so a facts fix may drop it.
+        const unbackedWording = new Set((claim.planItemSources ?? []).flatMap((item) => item.unbacked ?? []));
+        const lostFigure =
+          (evidenceIssues.size > 0 ? lostPlanFigure(text, fit.text, planWording) : undefined) ??
+          (factsIssues.size > 0
+            ? lostPlanFigure(
+                text,
+                fit.text,
+                claim.planChecks
+                  .filter((planCheck) => planCheck.instruction === "cover")
+                  .map((planCheck) => planCheck.wording.filter((sentence) => !unbackedWording.has(sentence)))
+              )
+            : undefined);
         const figureOverLimit = lostFigure !== undefined && overLimitMore(text, fit.text);
         const failure =
           fit.error === undefined
@@ -1451,6 +1586,7 @@ export async function draftCheckedSection(input: {
           editedTerms: claim.editedTerms,
           ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
           ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
+          ...(sourceFacts !== undefined ? { sourceFacts } : {}),
         }
       );
       finalCoverage = {
@@ -1528,7 +1664,12 @@ export async function draftCheckedSection(input: {
   // over a Locked limit (Locked Rules first). With no final verdict to read,
   // nothing shows a loss, and the repair stays.
   // Review P3 (targets): a targets fix must keep what the plan holds too.
-  if (repair.succeeded && finalCoverage?.ok && (leaveOutIssues.size > 0 || targetsIssues.size > 0)) {
+  // 2026-10-04 (second): and so must a facts fix.
+  if (
+    repair.succeeded &&
+    finalCoverage?.ok &&
+    (leaveOutIssues.size > 0 || targetsIssues.size > 0 || factsIssues.size > 0)
+  ) {
     const coverage = finalCoverage;
     const lost = claim.planChecks.filter((planCheck) => {
       if (planCheck.instruction !== "cover" || planCheck.confirmedExclusion) return false;
@@ -1610,6 +1751,15 @@ export async function draftCheckedSection(input: {
       summaryVersionId: payload.summaryVersionId,
       dropped: claim.droppedNotChecked ?? [],
     }));
+    // 2026-10-04 (second, round 2): when not every source document was
+    // read, the facts check's row says which and what stood for them.
+    const documents = claim.factsSourceDocuments;
+    if (sourceFacts && documents && !sourceFacts.documentsComplete) {
+      planRows = planRows.map((row) =>
+        row.planRef?.ruleId === FACTS_MATCH_SOURCES_RULE_ID
+          ? { ...row, reason: `${row.reason} ${factsDocumentsLeftOutNote(documents)}` }
+          : row);
+    }
     rows.push(...planRows);
     if (finalCoverage && !finalCoverage.ok) {
       rows.push(finalCoverageFailureNoteDraft(section, finalCoverage.reason, finalCoverage.detail));

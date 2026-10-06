@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findExactQuoteSpans } from "../../shared/exactQuote";
+import { unbackedBullets } from "./seedQuoteSupport";
 import {
   MAX_BATCH_SEEDS,
   MAX_BULLET_WORDS,
@@ -1060,5 +1061,59 @@ describe("idea card quotes support their card (2026-09-27, third amendment)", ()
     ]);
     expect(result.ok).toBe(true);
     expect(quotes.issues).toEqual([]);
+  });
+});
+
+describe("run 6's Seeds with a marked quote (2026-10-04, second, round 3 and its review)", () => {
+  // Fictional lines of the release suite fixture's interview (run 6).
+  const lines = [
+    "Normal powder for steel cures at 160 to 200 C.",
+    "The moisture that gives you conductivity is the same moisture that outgasses, so we didn't know if there was any setting that did both.",
+    "And that on our board the pinholes track the peak board temperature, not the time.",
+    "That the datasheet number is for flat panels.",
+  ];
+  const content = lines.join("\n");
+  const frozenSources = [{ sourceId: "interview", content, contentHash: "sha256:interview" }];
+  const cite = (line: number) => {
+    const startOffset = content.indexOf(lines[line]);
+    return { sourceId: "interview", startOffset, endOffset: startOffset + lines[line].length, exactExcerpt: lines[line] };
+  };
+  const validated = (bullets: string[], quotes: number[]) => {
+    const result = validateSeed({
+      roleId: "passive_limitations",
+      seed: candidate(bullets, ["technical"], { provenance: quotes.map(cite) }),
+      frozenSources,
+    });
+    if (!result.ok) throw new Error("fixture Seed is invalid");
+    return result.seed;
+  };
+  // Technological limitations item 3 and Specific advancements item 11.
+  const limitation = [
+    "Standard datasheet powder processes are built for flat steel-like panels, not thick routed MDF.",
+    "No prior process showed whether MDF could reach conductivity without heat that triggers outgassing defects.",
+  ];
+  const advancement = [
+    "The team learned that outgassing defects track peak panel surface temperature rather than dwell time on this board.",
+    "Trial 1's datasheet process confirmed that heat built for flat steel panels causes severe outgassing defects on routed MDF edges.",
+  ];
+
+  it("marks run 6's steel quote on both Seeds and keeps their support and wording, and leaves a well-quoted Seed as it was (review P2-3)", () => {
+    const seeds = [validated(limitation, [1, 0]), validated(advancement, [2, 0]), validated(limitation, [3, 1])];
+    expect(seeds.map((seed) => seed.support)).toEqual(["source_supported", "source_supported", "source_supported"]);
+    const { seeds: checked, issues } = withQuoteChecks(seeds, "feedback");
+    expect(issues).toEqual([
+      { code: "CITATION_UNRELATED", seedIndex: 0, citationIndex: 1 },
+      { code: "CITATION_UNRELATED", seedIndex: 1, citationIndex: 1 },
+    ]);
+    // Support is unchanged, so the plan and every request read them as before.
+    expect(checked.map((seed) => [seed.support, seed.originalSupport])).toEqual([
+      ["source_supported", "source_supported"],
+      ["source_supported", "source_supported"],
+      ["source_supported", "source_supported"],
+    ]);
+    expect(checked.map((seed) => seed.bullets)).toEqual([limitation, advancement, limitation]);
+    expect(checked[2]).toEqual(seeds[2]);
+    // The card and the facts check name each Seed's steel sentence.
+    expect(checked.map((seed) => unbackedBullets(seed.bullets, seed.provenance))).toEqual([[limitation[0]], [advancement[1]], []]);
   });
 });

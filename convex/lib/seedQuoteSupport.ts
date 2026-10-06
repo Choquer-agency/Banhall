@@ -334,3 +334,62 @@ export function quoteCheckIssues(
   }
   return issues.sort((left, right) => left.seedIndex - right.seedIndex || left.citationIndex - right.citationIndex);
 }
+
+/**
+ * 2026-10-04 (second, round 3, owner approved 2026-10-05): the sentences of a
+ * Seed that its quotes do not back, when a quote is marked as possibly not
+ * backing it. Pure, so the idea card and the facts check read the same
+ * sentences.
+ *
+ * Only a quote marked as unrelated counts as marked here: a marked quote that
+ * shares enough words with the Seed's own wording (`seedBullets`) was marked
+ * because another Seed reused it, and it backs its sentence like any other
+ * quote (round 3 review, P3-2). Every other quote is evidence.
+ *
+ * Every sentence that no evidence quote backs is named (`excerptSupportsSeed`,
+ * a quote the check cannot judge counting as backing; Greptile on PR #26 at
+ * 1da92721), and with no evidence quote at all that is every sentence
+ * (re-check P3-2). A sentence holding a meaningful word (two characters or
+ * more) that a marked quote has and no evidence quote has is named too, so
+ * a good quote sharing other words with it cannot hide it (round 3 review,
+ * P2-1), unless such a sentence is itself unbacked, which makes it the
+ * marked quote's target, so a backed sentence that only shares a word with
+ * the marked quote is not named (re-check P3-1). `bullets` are the
+ * sentences to name from (the ones the writer has not changed). Empty for a
+ * Seed with no unrelated marked quote: a well-quoted Seed is unchanged.
+ */
+export function unbackedBullets(
+  bullets: readonly string[],
+  quotes: ReadonlyArray<{ exactExcerpt: string; needsQuoteCheck?: boolean }>,
+  seedBullets: readonly string[] = bullets
+): string[] {
+  const seedText = seedBullets.join(" ");
+  const unrelated = (quote: { exactExcerpt: string; needsQuoteCheck?: boolean }) =>
+    quote.needsQuoteCheck === true &&
+    !(canJudgeQuote(seedText, quote.exactExcerpt) && excerptSupportsSeed(seedText, quote.exactExcerpt));
+  const marked = quotes.filter(unrelated);
+  if (marked.length === 0) return [];
+  const evidence = quotes.filter((quote) => !unrelated(quote));
+  const sentences = bullets.filter((bullet) => bullet.trim() !== "");
+  // Re-check P3-2: with no quote left to back anything, every sentence is named.
+  if (evidence.length === 0) return sentences;
+  const backed = (bullet: string) =>
+    evidence.some((quote) => !canJudgeQuote(bullet, quote.exactExcerpt) || excerptSupportsSeed(bullet, quote.exactExcerpt));
+  const markedWords = marked.flatMap((quote) => contentWords(quote.exactExcerpt));
+  const evidenceWords = evidence.flatMap((quote) => contentWords(quote.exactExcerpt));
+  // Judged on the Seed's own sentences, so a sentence the writer rewrote
+  // still claims the marked quote's words and is simply no longer named.
+  const onlyMarked = seedBullets.filter((bullet) =>
+    contentWords(bullet).some((word) =>
+      word.length >= 2 &&
+      markedWords.some((other) => sameWord(word, other)) &&
+      !evidenceWords.some((other) => sameWord(word, other))));
+  // Greptile on PR #26 at 1da92721: every sentence is checked. A sentence no
+  // other quote backs is always named. A sentence holding a word only a
+  // marked quote has is named too, even beside a quote that shares other
+  // words with it (review P2-1), unless one of those sentences is itself
+  // unbacked: that one is the marked quote's target, already named, and a
+  // backed sentence that merely shares a word with it is not (re-check P3-1).
+  const target = onlyMarked.some((bullet) => !backed(bullet)) ? [] : onlyMarked;
+  return sentences.filter((bullet) => !backed(bullet) || target.includes(bullet));
+}

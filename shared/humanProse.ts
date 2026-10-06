@@ -70,11 +70,68 @@ export const TARGET_RULES = {
   limit: `For a limit to stay under, a result ${TARGET_DIRECTIONS.limit.met} met it; never call a met one ${orList(TARGET_DIRECTIONS.limit.misstated)} it.`,
 } as const;
 
+/**
+ * 2026-10-04 (second, round 4): a target is met only as the sources state
+ * it. Release suite runs 3, 5 and 6 wrote "met both the outgassing defect
+ * and film build targets" where the source met the pinhole and cure targets
+ * and the edges averaged 64 microns with a minimum of 52 against at least
+ * 60, and "edge coverage still met target" at 58 against at least 60. Sent
+ * only where the targets check is (Lines 244 and 246 of a signed-off plan):
+ * in the drafting rule, the check and the repair fix.
+ */
+export const TARGET_MET_RULE =
+  "Say a target was met only as the sources state it, and name the same targets the sources name. An average is not every item: where a minimum or a share falls short of the target, say so.";
+
+/**
+ * 2026-10-04 (second, release suite run of 2026-10-04): figures stay with
+ * their group, and no detail beyond the sources. The one wording of the
+ * rule, used as it is by the drafting rule, the Self-check's plan check and
+ * the repair fix (as TARGET_RULES is for targets). Neutral on purpose: no
+ * fixture's figures or terms.
+ */
+export const FACT_RULES = {
+  scope:
+    "Give each figure for the same group, test, unit, condition and denominator the sources give it. A rate over all items is not the rate of one subset, even when every failure came from that subset.",
+  detail:
+    "Add no specific detail that the sources and the signed-off plan do not give: no material, place, person, organization, product, supplier, date or number of your own. Never move a detail from the thing it belongs to onto another thing.",
+  cause:
+    "State a cause as confirmed only where the sources confirm it. A suspected or expected cause stays suspected, and an open question stays open.",
+  // Review round 1, P2-4 (b): the run's analysis wrote datasheets "based on
+  // thin, flat panels and/or steel substrates", and the draft made it firm.
+  hedge:
+    // Re-check P3-5: "such as" marks an example, not a hedge.
+    'A hedge in the sources ("typically", "and/or", "may", "suspected") stays a hedge, and an example ("such as") stays an example: stating a hedge as firm, or an example as the whole case, adds a detail the sources do not give.',
+  // Round 2 (owner approved 2026-10-05): run 4 wrote "only some panels met
+  // it" where most did.
+  proportion:
+    'A proportion keeps its strength: "most" stays "most", "some" or "a few" never stands for "most", and a share given as a number keeps that number or a word that matches it (80 percent is "most", never "some"). Understating or overstating a proportion is a wrong figure.',
+  allowed:
+    "Rounding, the same figure in another unit or form, plain arithmetic on the sources' own numbers and plain-language wording are fine.",
+} as const;
+
+/**
+ * 2026-10-04 (second, review round 1, P2-4 (a)): the same rule for the
+ * transcript analysis, which drafting and the facts check both read. The
+ * run's stored analysis kept "4% of panels ... all from the deep cove
+ * profile" but dropped the per-profile table (13 percent of 180), and added
+ * "and/or steel substrates" and "(typically steel)" that no source states.
+ * Inserted into the analyzer's Critical Rules (convex/ai/prompts.ts).
+ * Round 2 (owner approved 2026-10-05): run 4's analysis still merged what
+ * standard powder needs and what the datasheets cover ("developed for flat
+ * steel/thin flat panel substrates"), so a third line keeps such statements
+ * apart, with a neutral example.
+ */
+export const RULES_ANALYSIS_FIGURES = `- Keep each figure with the group, test, unit, condition and denominator the source gives it. Where a source gives figures per group (a table row for each profile, batch, site or test), keep each group's figure with its count, and mark a figure over all groups as over all groups.
+- Add no qualifier, material, example or cause the sources do not state: no "typically X", "and/or X" or "such as X" from your own knowledge. Keep a hedge the source makes ("may", "suspected", "about") as a hedge.
+- Keep statements about different things apart. What one material or process needs, and what a datasheet, supplier or standard covers, are separate statements: never merge them into one claim. Example: if a source says standard glue needs high heat on glass, and that the supplier's sheet is written for thin flat boards, do not write that the sheet is written for glass boards.`;
+
 // 2026-09-30 (third, release suite runs 6, 10 and 11): two rules for report
 // text (the PD Lines) only. Notes, QA findings and the Brief name their
 // sources on purpose, so this block is not part of RULES_HUMAN_PROSE. Sent
 // in the drafting and repair requests of signed-off plan runs (Step by step);
 // Single draft and Compare keep their requests byte for byte.
+// 2026-10-04 (second): a third rule, figures and details as the sources give
+// them (FACT_RULES).
 export const RULES_REPORT_FACTS = `RESULTS AND SOURCES (MANDATORY in the report text):
 Results against targets:
 - State each result against its target as the numbers show, and mind the direction.
@@ -82,6 +139,13 @@ Results against targets:
 - ${TARGET_RULES.limit} Examples: scrap below 2 percent, an error under 0.5 mm, a cycle under 30 s.
 - Say a result missed its target only when the numbers show it did. Where you cannot tell which way a target runs, give the result and the target as numbers, with no word for met or missed.
 - A qualifier about one result (only approached, not fully met, short of the target) belongs to the test it names. Never carry it to a later or final result.
+Figures and details as the sources give them:
+- ${FACT_RULES.scope} Example: "3 percent of all castings were rejected, every one from the night shift" does not mean 3 percent of the night shift's castings were rejected.
+- ${FACT_RULES.detail}
+- ${FACT_RULES.cause}
+- ${FACT_RULES.hedge}
+- ${FACT_RULES.proportion}
+- ${FACT_RULES.allowed}
 No talk about sources:
 - State the fact, never where it came from. Do not name an interview, an interviewee, a transcript, a memo, notes, a record, a document, the Brief, the Storyline, the Confidence Map or "the sources" in the report text.
 - Where a point is open or disputed, state the uncertainty or the range itself ("about 10 to 12 percent lower", "was not confirmed"), never who said what or which document says it.`;

@@ -320,31 +320,38 @@ async function wordingHandler(
   const f = await decisionFence(ctx, args);
   editable(f.row);
   const seed = await seedOf(ctx, f.row, args.seedId);
+  // 2026-10-04 (second, round 3 review, P2-2): saving the Seed's own wording
+  // is not an edit. With an edit in place it restores the original wording;
+  // otherwise nothing changes, so the idea stays the product's wording.
+  const restoring =
+    restore ||
+    (args.bullets !== undefined &&
+      stableSerialize(args.bullets) === stableSerialize(seed.bullets));
   const prior = await ctx.db
     .query("seedSelections")
     .withIndex("by_seedId", (q) => q.eq("seedId", seed._id))
     .unique();
-  if (restore && prior?.editedBullets === undefined)
+  if (restoring && prior?.editedBullets === undefined)
     return { seedStageVersion: f.generation.seedStageVersion ?? 0 };
   const selection = await selectionForWrite(ctx, seed, f.budget);
-  const bullets = restore ? seed.bullets : (args.bullets ?? []);
+  const bullets = restoring ? seed.bullets : (args.bullets ?? []);
   validBullets(bullets);
   const before = materializeFinalWording(seed, selection);
   if (
     stableSerialize(before) === stableSerialize(bullets) &&
-    (restore
+    (restoring
       ? selection.editedBullets === undefined
       : selection.editedBullets !== undefined)
   )
     return { seedStageVersion: f.generation.seedStageVersion ?? 0 };
   await ctx.db.patch(selection._id, {
-    editedBullets: restore ? undefined : bullets,
-    editedBy: restore ? undefined : f.user._id,
-    editedAt: restore ? undefined : Date.now(),
+    editedBullets: restoring ? undefined : bullets,
+    editedBy: restoring ? undefined : f.user._id,
+    editedAt: restoring ? undefined : Date.now(),
     version: selection.version + 1,
   });
   await ctx.db.patch(seed._id, {
-    support: restore ? seed.originalSupport : "writer_asserted",
+    support: restoring ? seed.originalSupport : "writer_asserted",
   });
   const row = await recomputeSeedDecisions(
     ctx,
@@ -361,12 +368,12 @@ async function wordingHandler(
   await appendSeedRoleEvent(
     ctx,
     row,
-    restore ? "restoreWording" : "edit",
+    restoring ? "restoreWording" : "edit",
     f.user._id,
     {
       seedId: seed._id,
       batchId: seed.batchId,
-      ...(restore ? {} : { editRatio }),
+      ...(restoring ? {} : { editRatio }),
     },
   );
   return { seedStageVersion: await currentVersion(ctx, args.generationId) };

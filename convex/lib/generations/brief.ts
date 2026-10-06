@@ -909,6 +909,12 @@ export async function loadBriefCheck(
     briefEntries: rows,
     brief: {
       storylineText: briefDoc.storylineText,
+      // 2026-10-04 (second, round 2 review, P2-3): the writer typed or edited
+      // the Storyline, so the facts check reads it as the writer's wording.
+      storylineByWriter:
+        briefDoc.storylineOrigin === "writer" ||
+        briefDoc.storylineOrigin === "edited" ||
+        (briefDoc.storylineOrigin === undefined && briefDoc.origin === "writer"),
       claimExclusions: entries
         .filter((entry) => entry.group === "claimExclusion")
         .map((entry) => ({

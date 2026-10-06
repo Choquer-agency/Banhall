@@ -47,6 +47,12 @@ const UNITS: ReadonlyArray<[string, string]> = [
   [String.raw`mm\/s`, "mm/s"],
   [String.raw`kilograms?\s+per\s+second`, "kg/s"],
   [String.raw`kg\/s`, "kg/s"],
+  // 2026-10-04 (second, re-check P3-2): film and coating thickness. "um"
+  // and the micro signs count only as a unit right after a number.
+  [String.raw`micromet(?:re|er)s?`, "microns"],
+  [String.raw`microns?`, "microns"],
+  [String.raw`[\u00b5\u03bc]m`, "microns"],
+  [String.raw`um`, "microns"],
   [String.raw`millimet(?:re|er)s?`, "mm"],
   [String.raw`centimet(?:re|er)s?`, "cm"],
   [String.raw`nanomet(?:re|er)s?`, "nm"],
