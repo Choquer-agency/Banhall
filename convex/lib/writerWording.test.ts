@@ -56,6 +56,18 @@ const LINE_242 = [
   "It was not known at the outset whether full cure could be reached below the outgassing onset.",
 ].join("\n\n");
 
+/**
+ * Line 242 with every measured rule kept, as in release suite run 6: P1
+ * opens with the required words "The aim of this work was to".
+ */
+const RUN6_242 = [
+  "The aim of this work was to develop a powder finish for routed MDF doors.",
+  "Velloway Panel Finishing coats routed MDF doors with a low-temperature powder.",
+  "It was not known at the outset whether full cure could be reached below the outgassing onset.",
+].join("\n\n");
+/** The words open a sentence of the Line, but in P2, not P1. */
+const OPENS_P2_242 = LINE_242.replace("This work aimed to develop", "The aim of this work was to develop");
+
 describe("the matcher (Round 5)", () => {
   it("reads whole words in any case, a space or hyphen between words, and an s or es ending", () => {
     const pinholes = RULES.terms.find((rule) => rule.term === "outgassing defects")!;
@@ -296,7 +308,7 @@ describe("review fixes to the matcher and the settings row guard (Round 5)", () 
 // the whole settings document read not applied with clipped, wrong reasons
 // beside 18 true measured rows.
 describe("the settings row never contradicts what code measured (Round 5 follow-up)", () => {
-  const KEPT_242 = LINE_242.replace("This work aimed to develop", "The aim of this work was to develop");
+  const KEPT_242 = RUN6_242;
   const profileVerdict = (reason: string, unclippedReason?: string): ModelVerdict => ({
     check: "instruction",
     instruction: "# PD Writing Customized Settings ...",
@@ -337,6 +349,27 @@ describe("the settings row never contradicts what code measured (Round 5 follow-
       SETTINGS_TEXT
     );
     expect(settled).toMatchObject({ outcome: "not_applied", reason: "P2 opener differs from the exact words the settings document requires." });
+  });
+
+  // Greptile, older comments on PR #27: code measures only that some
+  // sentence of the Line opens with the words, not which is the objective.
+  it.each([
+    ["names a paragraph that does not open with the words", "P1 opener differs", OPENS_P2_242],
+    ["names a range one paragraph of which does not", "P1-2 opener differs", RUN6_242],
+    ["names a paragraph past the Line's end", "P4 opener differs", RUN6_242],
+    ["names no paragraph", "Opener differs.", RUN6_242],
+  ])("keeps an opener remark that %s, and its repair", (_label, reason, line) => {
+    const lineCheck = check("242", line);
+    // Code measured the opening as kept: some sentence opens with the words.
+    expect(lineCheck.entries.find((entry) => entry.key.startsWith("wording:opening:"))?.row.outcome).toBe("applied");
+    const [settled] = settleWriterSettingsVerdicts([profileVerdict(reason)], lineCheck, SETTINGS_TEXT, { rules: RULES, unread: unreadWritingRules(SETTINGS_TEXT) });
+    expect(settled).toMatchObject({ outcome: "not_applied", reason, repairGuidance: "Fix it." });
+    expect(repairIssues(lineCheck, [settled!])).not.toEqual([]);
+  });
+
+  it("settles an opener remark naming the paragraph that opens with the words, wherever it stands", () => {
+    const [p2] = settleWriterSettingsVerdicts([profileVerdict("P2 opener differs")], check("242", OPENS_P2_242), SETTINGS_TEXT);
+    expect(p2).toMatchObject({ outcome: "applied" });
   });
 
   it("keeps an opener remark the model's own where no opening is measured on the Line", () => {
@@ -397,7 +430,7 @@ describe("the writer's glossary outranks a Brief Glossary Term (Round 5 follow-u
 // Re-check of a8e254bd..5367e429, P1-1: the reviewer's probes, on the
 // fixture's settings with every measured rule held on Line 242.
 describe("the settle reads a verdict as applied only when it names nothing code does not measure (re-check P1-1)", () => {
-  const KEPT_242 = LINE_242.replace("This work aimed to develop", "The aim of this work was to develop");
+  const KEPT_242 = RUN6_242;
   const context = { rules: RULES, unread: unreadWritingRules(SETTINGS_TEXT) };
   const verdict = (reason: string): ModelVerdict => ({
     check: "instruction",
@@ -464,7 +497,7 @@ describe("the settle reads a verdict as applied only when it names nothing code 
 
 // Final combined re-check of 5367e429..0819f8d8.
 describe("final re-check probes (Round 5 follow-up)", () => {
-  const KEPT_242 = LINE_242.replace("This work aimed to develop", "The aim of this work was to develop");
+  const KEPT_242 = RUN6_242;
   const verdict = (reason: string): ModelVerdict => ({ check: "instruction", instruction: "# PD Writing Customized Settings ...", outcome: "not_applied", reason });
   const settle = (reason: string, settings = SETTINGS_TEXT, text = KEPT_242) =>
     settleWriterSettingsVerdicts([verdict(reason)], check("242", text), SETTINGS_TEXT, {

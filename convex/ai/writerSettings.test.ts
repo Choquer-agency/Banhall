@@ -738,6 +738,8 @@ describe("the classifier reads a field sent as JSON text (Round 3)", () => {
     ["prose around the object", `Classification: ${JSON.stringify(styleAnalysis.categories)}. Done.`],
     ["a JSON string of the JSON", JSON.stringify(JSON.stringify(styleAnalysis.categories))],
     ["trailing commas", JSON.stringify(styleAnalysis.categories).replace(/}}$/, "},}")],
+    // Greptile, older comments on PR #27: a JSON string whose own object has trailing commas.
+    ["a JSON string of the JSON with trailing commas", JSON.stringify(JSON.stringify(styleAnalysis.categories).replace(/}}$/, "},}"))],
     // Release suite run 4 of 2026-10-05: the rest of the answer inside categories.
     [
       "the run 4 shape (lockedConflicts inside categories)",

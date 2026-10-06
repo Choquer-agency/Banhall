@@ -276,9 +276,10 @@ describe("the writer's wording rules are measured, repaired and measured again (
   // read not applied with wrong reasons beside true measured rows, and a
   // Glossary Term repair rewrote the writer's own term.
   it("reads a settings verdict that only talks about kept measured rules as applied: no repair", async () => {
+    // As in run 6, P1 opens with the required words.
     const kept = [
-      "Velloway Panel Finishing coats routed MDF cabinet doors with a low-temperature powder.",
-      "The aim of this work was to develop a powder finish for routed MDF doors.",
+      "The aim of this work was to develop a powder finish for routed MDF cabinet doors.",
+      "Velloway Panel Finishing coats routed MDF doors with a low-temperature powder.",
       "It was not known at the outset whether full cure could be reached below the outgassing onset.",
     ].join("\n\n");
     const { sent, result } = await draft("242", {
@@ -293,6 +294,32 @@ describe("the writer's wording rules are measured, repaired and measured again (
       outcome: "applied",
       reason: "Every rule code measures on this Line was kept (see those rows); the Self-check's own remark, which they settle: P1 opener differs",
     });
+  });
+
+  // Greptile, older comments on PR #27: code measures only that some
+  // sentence opens with the words, so a remark that P1's opener differs
+  // where P1 does not open with them keeps the model's verdict and repair.
+  it("keeps an opener remark naming a paragraph that does not open with the required words, and repairs it", async () => {
+    const drafted = [
+      "Velloway Panel Finishing coats routed MDF cabinet doors with a low-temperature powder.",
+      "The aim of this work was to develop a powder finish for routed MDF doors.",
+      "It was not known at the outset whether full cure could be reached below the outgassing onset.",
+    ].join("\n\n");
+    const repaired = [
+      "The aim of this work was to develop a powder finish for routed MDF cabinet doors.",
+      "Velloway Panel Finishing coats routed MDF doors with a low-temperature powder.",
+      "It was not known at the outset whether full cure could be reached below the outgassing onset.",
+    ].join("\n\n");
+    const { sent, result } = await draft("242", {
+      draft: drafted,
+      repair: repaired,
+      checks: [
+        { verdicts: [{ ...settingsVerdict, outcome: "not_applied", reason: "P1 opener differs", repairGuidance: "Open P1 with the opener." }] },
+        { verdicts: [{ ...settingsVerdict, outcome: "applied", reason: "Followed." }] },
+      ],
+    });
+    expect(sent.map((request) => request.stage)).toContain("repair");
+    expect(result.draftText).toBe(repaired);
   });
 
   // Re-check P2-1 (run 6): a Glossary Term repair rewrote the writer's

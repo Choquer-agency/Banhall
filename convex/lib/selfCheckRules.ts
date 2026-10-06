@@ -136,6 +136,12 @@ export type CheckEntry = {
   measuredWording?: true;
   /** Round 5 (review P3-4): the writer's line the measured rule was read from. */
   wordingSource?: string;
+  /**
+   * Greptile, older comments on PR #27: the words a measured opening rule
+   * requires, so the settle can check the paragraph a remark names. In
+   * memory only.
+   */
+  wordingOpening?: string;
 };
 
 /** 2026-10-04 (first): one cap code measured on a Line. */
@@ -525,11 +531,12 @@ export function runDeterministicSelfCheck(input: {
   // exact issue, and the Writer Profile row's caveat below covers it.
   if (profile.profileState === "applied" && input.writerWording) {
     const wording = input.writerWording;
-    const measuredEntry = (source: string, failure?: string) => {
+    const measuredEntry = (source: string, failure?: string, opening?: string) => {
       const entry = entries[entries.length - 1]!;
       entry.measuredWording = true;
       entry.wordingSource = source;
       if (failure) entry.profileRuleFailure = failure;
+      if (opening) entry.wordingOpening = opening;
     };
     const requiredTerms = wording.terms.map((rule) => rule.term);
     wording.terms.forEach((rule, index) => {
@@ -614,7 +621,7 @@ export function runDeterministicSelfCheck(input: {
           tier: "none",
           reason: `P${at.paragraphIndex + 1} ${at.opensParagraph ? "opens" : "has a sentence that opens"} with "${rule.opening}" (whether that sentence is ${statement} is the Self-check's to judge)`,
         });
-        measuredEntry(rule.source);
+        measuredEntry(rule.source, undefined, rule.opening);
         return;
       }
       add(
@@ -630,7 +637,7 @@ export function runDeterministicSelfCheck(input: {
           ? `Open the statement of the ${rule.statement === "objective" ? "objective" : "uncertainties"} with "${rule.opening}".`
           : `Open the statement the writer's settings name with "${rule.opening}".`
       );
-      measuredEntry(rule.source, `no sentence of Line ${section} opens with "${rule.opening}"`);
+      measuredEntry(rule.source, `no sentence of Line ${section} opens with "${rule.opening}"`, rule.opening);
     });
   }
 
@@ -1096,6 +1103,21 @@ function namesUnmeasured(remark: string, measuredPhrases: readonly string[]): bo
   return words.some((word) => !SETTLE_ALLOWED_WORDS.has(word.toLowerCase().replace(/\u2019/g, "'")));
 }
 
+/**
+ * The paragraphs a remark names ("P1", "P2-4"), from 0; empty when it names
+ * none.
+ */
+function namedParagraphIndexes(remark: string): number[] {
+  const indexes = new Set<number>();
+  for (const match of remark.matchAll(/\bP(\d+)(?:\s*[-\u2013]\s*P?(\d+))?\b/gi)) {
+    const first = Number(match[1]);
+    const last = match[2] === undefined ? first : Number(match[2]);
+    if (last < first || last - first > 50) return [-1];
+    for (let paragraph = first; paragraph <= last; paragraph += 1) indexes.add(paragraph - 1);
+  }
+  return [...indexes];
+}
+
 /** The longest remark of the model's the settings row stores. */
 const MAX_SETTINGS_REMARK_CHARS = 600;
 
@@ -1114,6 +1136,13 @@ const MAX_SETTINGS_REMARK_CHARS = 600;
  * kept as a note, and it asks for no repair. A remark about anything code
  * does not measure (a hedge, the Storyline, style, the first person, which
  * sentence is the named statement) keeps the verdict as the model gave it.
+ * Greptile, older comments on PR #27: code measures only that some sentence
+ * of the Line opens with the required words, not which statement is the
+ * objective, so a remark about an opening is settled only when every
+ * paragraph it names holds a sentence that opens with the words of an
+ * opening measured on this Line (run 6's "P1 opener differs", where P1 did);
+ * a remark that names no paragraph, or one that does not, keeps the
+ * model's verdict and its repair.
  * The Writer Profile verdict keeps its reason whole (the unclipped reason,
  * up to 600 characters), so a consultant can read it.
  */
@@ -1172,6 +1201,16 @@ export function settleWriterSettingsVerdicts(
     // (b) no rule of the kinds it names was left to the model.
     if ((kinds.includes("banned") || kinds.includes("term")) && (context.unread?.wordBans || firstPersonUsed)) return whole;
     if (kinds.includes("opening") && context.unread?.openings) return whole;
+    // (c) an opening remark names paragraphs that open with the words.
+    if (kinds.includes("opening")) {
+      const openings = measured.flatMap((entry) => (entry.wordingOpening ? [entry.wordingOpening] : []));
+      const named = namedParagraphIndexes(said);
+      const opensThere = (index: number) => {
+        const paragraph = check.paragraphs[index];
+        return paragraph !== undefined && openings.some((opening) => openingAt(paragraph, opening) !== null);
+      };
+      if (openings.length === 0 || named.length === 0 || !named.every(opensThere)) return whole;
+    }
     const { repairGuidance: _guidance, repairText: _text, unclippedReason: _unclipped, ...rest } = verdict;
     return {
       ...rest,

@@ -151,7 +151,7 @@ function tryParse(text: string): { ok: true; value: unknown } | { ok: false; why
  * as JSON; a JSON string whose content is the JSON (at most one more
  * layer); the JSON inside a code fence; the one object (or array) between
  * leading and trailing prose; and each of those with trailing commas
- * removed. Nothing else is guessed. Returns the value, or a description of
+ * removed (inside a JSON string's content too). Nothing else is guessed. Returns the value, or a description of
  * the text and of why each way failed that holds no text of it.
  */
 function readEncodedText(
@@ -175,7 +175,15 @@ function readEncodedText(
       }
       let value = parsed.value;
       if (typeof value === "string") {
-        const inner = tryParse(value.trim());
+        // Greptile, older comments on PR #27: the JSON string's own content
+        // gets the same trailing-comma retry as the outer text (the outer
+        // retry never reaches inside a string).
+        const innerText = value.trim();
+        let inner = tryParse(innerText);
+        if (!inner.ok && withoutTrailingCommas(innerText) !== innerText) {
+          const retried = tryParse(withoutTrailingCommas(innerText));
+          inner = retried.ok ? retried : { ok: false, why: `${inner.why}, and with trailing commas removed ${retried.why}` };
+        }
         if (!inner.ok) {
           outcome.push(`${label}${variant}: a JSON string whose content ${inner.why}`);
           continue;

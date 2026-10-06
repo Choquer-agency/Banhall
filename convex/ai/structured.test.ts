@@ -376,6 +376,9 @@ describe("decodeEncodedToolFields and encodedFieldRecovery (Round 3)", () => {
     ["a JSON string whose content is the JSON", JSON.stringify('{"a": {"on": true}}')],
     ["trailing commas", '{"a": {"on": true,},}'],
     ["a code fence with trailing commas", '```json\n{"a": {"on": true,},}\n```'],
+    // Greptile, older comments on PR #27: the commas inside the JSON string.
+    ["a JSON string whose content has trailing commas", JSON.stringify('{"a": {"on": true,},}')],
+    ["a code fence around a JSON string whose content has trailing commas", `\`\`\`json\n${JSON.stringify('{"a": {"on": true,},}')}\n\`\`\``],
   ])("reads an object field sent in %s (Round 4)", (_label, sent) => {
     expect(decodeEncodedToolFields({ categories: sent, items: [] }, schema)).toEqual({
       value: { categories: { a: { on: true } }, items: [] },
@@ -385,7 +388,15 @@ describe("decodeEncodedToolFields and encodedFieldRecovery (Round 3)", () => {
   });
 
   it("guesses nothing else: single-quoted keys, two objects in prose, a broken object and an array around one object stay unread (Round 4)", () => {
-    for (const sent of ["{'a': {'on': true}}", 'First {"a": {"on": true}} then {"b": 1}.', '{"a": {"on": true}', '[{"a": {"on": true}}]']) {
+    for (const sent of [
+      "{'a': {'on': true}}",
+      'First {"a": {"on": true}} then {"b": 1}.',
+      '{"a": {"on": true}',
+      '[{"a": {"on": true}}]',
+      // Greptile, older comments on PR #27: the inner retry guesses nothing more.
+      JSON.stringify('{"a": {"on": true,}'),
+      JSON.stringify('[{"a": {"on": true,},},]'),
+    ]) {
       const read = decodeEncodedToolFields({ categories: sent, items: [] }, schema);
       expect(read).toMatchObject({ value: { categories: sent }, paths: [] });
       expect(read.unread).toHaveLength(1);

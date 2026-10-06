@@ -12,6 +12,7 @@ import {
   compressWithinLimit,
   compressionTargetWords,
   coverItemLoss,
+  figureOrNegationLoss,
   finalCutTargetWords,
   lengthBudgetBlock,
 } from "./pipeline";
@@ -247,6 +248,36 @@ describe("the shortening passes under a writer's cap", () => {
       writerCap: CAP_260,
     });
     expect(nearFit.text).toBe(nearCut);
+  });
+
+  // Greptile, older comments on PR #27: figures and negations are counted,
+  // not only looked for, so one trial's result cannot go while another
+  // trial still names the same figure.
+  it("hold a targeted pass past the old reach that deletes one of two results sharing a figure or a negation (Greptile, older comments)", async () => {
+    const facts = "Trial 1 cured at 120 C and the coating did not crack. Trial 2 also cured at 120 C and the coating did not crack.";
+    expect(figureOrNegationLoss(facts, "Trial 1 cured at 120 C and the coating did not crack. Trial 2 ran.")).toBe(
+      "dropped a use of the number 120, which the text holds 2 times and the pass 1"
+    );
+    expect(figureOrNegationLoss(facts, "Trial 1 cured at 120 C and the coating did not crack. Trial 2 also cured at 120 C and held.")).toBe(
+      'dropped a use of the negation "not crack", which the text holds 2 times and the pass 1'
+    );
+    expect(figureOrNegationLoss(facts, facts.replace("also ", ""))).toBeNull();
+    const factsWords = sectionMetrics(facts, "s246").words;
+    const over = `${facts}\n\n${plain(340 - factsWords)}`;
+    expect(sectionMetrics(over, "s246")).toMatchObject({ words: 340, overLimit: false });
+    const cut = `Trial 1 cured at 120 C and the coating did not crack. Trial 2 ran too.\n\n${plain(225)}`;
+    expect(sectionMetrics(cut, "s246").words).toBeLessThanOrEqual(260);
+    const run = client([over, over, cut]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fit = await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", over, "standard", undefined, [], [], {
+      finalCut: true,
+      writerCap: CAP_260,
+    });
+    const warned = warn.mock.calls.map((call) => String(call[0]));
+    warn.mockRestore();
+    expect(run.create).toHaveBeenCalledTimes(3);
+    expect(fit).toEqual({ text: over, passes: 3, overLimit: false, heldForFigures: 1 });
+    expect(warned.some((line) => line.includes("pass 3 not kept: it dropped a use of the number 120"))).toBe(true);
   });
 
   // 2026-10-04 (first), Round 5 (rule 4): a pass for either cap never

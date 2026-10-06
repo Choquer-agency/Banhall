@@ -425,18 +425,32 @@ const NUMBER_RE = /\d+(?:[.,]\d+)*/g;
 const NEGATION_PHRASE_RE =
   /\b(not|no|never|none|neither|nor|without)\s+(?:(?:a|an|the|be|been|being)\s+)?([a-z0-9][a-z0-9-]*)/g;
 
-function numbersIn(text: string): Set<string> {
+function numberUses(text: string): string[] {
   // "1,200" and "1200" are the same number; a trailing comma is punctuation.
-  return new Set([...text.matchAll(NUMBER_RE)].map((match) => match[0].replace(/,/g, "")));
+  return [...text.matchAll(NUMBER_RE)].map((match) => match[0].replace(/,/g, ""));
 }
 
-function negationsIn(text: string): Set<string> {
+function numbersIn(text: string): Set<string> {
+  return new Set(numberUses(text));
+}
+
+function negationUses(text: string): string[] {
   const normalized = text
     .toLowerCase()
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/\bcannot\b/g, "can not")
     .replace(/n't\b/g, " not");
-  return new Set([...normalized.matchAll(NEGATION_PHRASE_RE)].map((match) => `${match[1]} ${match[2]}`));
+  return [...normalized.matchAll(NEGATION_PHRASE_RE)].map((match) => `${match[1]} ${match[2]}`);
+}
+
+function negationsIn(text: string): Set<string> {
+  return new Set(negationUses(text));
+}
+
+function useCounts(uses: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const use of uses) counts.set(use, (counts.get(use) ?? 0) + 1);
+  return counts;
 }
 
 /**
@@ -583,19 +597,27 @@ export type LimitFit = {
 
 /**
  * Round 4 (review P2-1, lead decision, owner informed): the first number or
- * negation of `input` that `output` no longer holds, or null. The whole text
- * counts, not only its Must keep lines.
+ * negation of `input` that `output` holds fewer times, or null. The whole
+ * text counts, not only its Must keep lines. Greptile, older comments on
+ * PR #27: uses are counted, so with two trials both at "120 C" a pass that
+ * deletes one trial's result is not kept.
  */
 export function figureOrNegationLoss(input: string, output: string): string | null {
-  const kept = numbersIn(output);
-  for (const number of numbersIn(input)) {
-    if (!kept.has(number)) return `dropped the number ${number}, which the text holds`;
-  }
-  const keptNegations = negationsIn(output);
-  for (const negation of negationsIn(input)) {
-    if (!keptNegations.has(negation)) return `dropped the negation "${negation}", which the text holds`;
-  }
-  return null;
+  const lost = (kind: string, input: readonly string[], output: readonly string[], show: (use: string) => string) => {
+    const kept = useCounts(output);
+    for (const [use, count] of useCounts(input)) {
+      const now = kept.get(use) ?? 0;
+      if (now >= count) continue;
+      return now === 0
+        ? `dropped the ${kind} ${show(use)}, which the text holds`
+        : `dropped a use of the ${kind} ${show(use)}, which the text holds ${count} times and the pass ${now}`;
+    }
+    return null;
+  };
+  return (
+    lost("number", numberUses(input), numberUses(output), (use) => use) ??
+    lost("negation", negationUses(input), negationUses(output), (use) => `"${use}"`)
+  );
 }
 
 /** 2026-10-04 (first): whether `text` is within the Locked limits and the writer's cap. */
@@ -626,7 +648,8 @@ export function meetsWriterCap(text: string, key: SectionKey, writerCap: WriterL
  * call makes at most `squeezes.length + 1` requests. 2026-10-04 (first),
  * Round 4: a text within the Locked limits but over the writer's cap gets
  * that pass at any overage; past the old 10 percent reach it must also keep
- * every number and negation of its text (figureOrNegationLoss).
+ * every number and negation of its text, as many times as the text holds
+ * each (figureOrNegationLoss).
  *
  * 2026-10-04 (first): with `writerCap` (the writer's whole-Line cap below
  * the Locked cap, convex/lib/writerLineCap.ts), the passes also run while
