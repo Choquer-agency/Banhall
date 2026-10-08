@@ -255,6 +255,10 @@
   // of the conversation counts as here, so an error never leaves the
   // skeleton up (a failed conversation read shows its own notice).
   const threadsLoading = $derived(threadsQ.data === undefined && !threadsQ.error);
+  // The list failed before any data (review P1): whether a conversation
+  // exists is unknown, so Send waits and the panel says so, unless the
+  // writer chose New conversation from the menu.
+  const threadsUnreadable = $derived(threadsQ.data === undefined && !!threadsQ.error && !startingNewChat);
   // The selected conversation failed to load: a send would land in a
   // conversation the writer cannot see, so Send waits for another choice.
   const conversationUnreadable = $derived(!!selectedThreadId && !!ui.error && ui.results.length === 0);
@@ -674,7 +678,7 @@
       researchStarting ||
       publicationPending ||
       (!historical && composerChatBlocked) ||
-      (!historical && (threadsLoading || conversationUnreadable)) ||
+      (!historical && (threadsLoading || threadsUnreadable || conversationUnreadable)) ||
       isStreaming
     ) return;
 
@@ -1514,7 +1518,7 @@
       {:else}
         <button
           onclick={() => sendText(input)}
-          disabled={sending || researchStarting || publicationPending || composerChatBlocked || threadsLoading || conversationUnreadable || (!input.trim() && !pendingHighlight && !pendingResearch)}
+          disabled={sending || researchStarting || publicationPending || composerChatBlocked || threadsLoading || threadsUnreadable || conversationUnreadable || (!input.trim() && !pendingHighlight && !pendingResearch)}
           class="group flex size-[1.625rem] shrink-0 items-center justify-center rounded-full bg-primary-selected text-white transition-[background-color,opacity,transform] hover:bg-primary-dark active:translate-y-px disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11"
           title={pendingResearch ? "Start research" : "Send"}
           aria-label="Send message"
@@ -1619,6 +1623,13 @@
 
   {#if !transcriptReady && visibleLocalSends.length === 0 && !pendingResearch}
     <AssistantPanelSkeleton part="body" {isFull} />
+  {:else if threadsUnreadable && visibleLocalSends.length === 0}
+    <!-- The conversation list failed to load: never the welcome. -->
+    <div class="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-6">
+      <p class="max-w-[18.75rem] text-center text-xs leading-relaxed text-ink-muted" role="alert">
+        Your conversations could not load. Reload the page, or start a new one from the Assistant menu.
+      </p>
+    </div>
   {:else if conversationUnreadable && visibleLocalSends.length === 0}
     <!-- A conversation that failed to load says so, never the welcome. -->
     <div class="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-6">

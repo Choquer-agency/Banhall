@@ -418,6 +418,19 @@ describe("PreviewProjectPage final shell", () => {
     expect(sawNotFound.value).toBe(false);
   });
 
+  it("closes an open delete dialog when the route moves to another project, so it can never delete that one", async () => {
+    seed();
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Delete project" }).click();
+    await expect.element(page.getByRole("heading", { name: "Delete Adaptive cold storage controls?" })).toBeVisible();
+    // Browser Back to another project reuses this page with a new route id.
+    __setPageParams({ id: "project-2" });
+    await expect.poll(() => page.getByRole("heading", { name: "Delete Adaptive cold storage controls?" }).elements().length).toBe(0);
+    expect(__mutationCalls("projects:deleteProject")).toHaveLength(0);
+  });
+
   it("returns focus to More actions when Keep project closes the dialog", async () => {
     seed();
     await render(PreviewProjectPage);

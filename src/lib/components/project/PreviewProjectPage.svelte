@@ -387,9 +387,11 @@
   const transcripts = $derived(transcriptsQ.data ?? []);
   const user = $derived(userQ.data);
   let deleteDialogOpen = $state(false);
-  // The title the open dialog names; it outlives the project row, which
-  // goes away as soon as the delete starts.
-  let deleteDialogTitle = $state<string | null>(null);
+  // The project the open dialog names and deletes, captured together when
+  // it opens: the page is reused across project routes, so the route's id
+  // could change under an open dialog (review P1). It also outlives the
+  // project row, which goes away as soon as the delete starts.
+  let deleteTarget = $state<{ id: Id<"projects">; title: string } | null>(null);
   // A delete started here: the project reads as gone (getProject turns null)
   // before the request returns, so the page shows its loading frame and
   // goes to Projects instead of flashing "Project not found".
@@ -402,6 +404,17 @@
   }
   $effect(() => {
     if (deletingHere && project === null) untrack(leaveAfterDelete);
+  });
+  // Moving to another project (Back, a link) closes a dialog opened on the
+  // one before, unless that delete is already under way.
+  $effect(() => {
+    const id = projectId;
+    untrack(() => {
+      if (deleteTarget && deleteTarget.id !== id && !deletingHere) {
+        deleteDialogOpen = false;
+        deleteTarget = null;
+      }
+    });
   });
   const canDeleteThisProject = $derived(canDeleteProject(user, project?.createdBy));
   // Same authority as publishForReview: project.setStage (the current
@@ -691,7 +704,7 @@
 
   function openDeleteDialog() {
     if (!project) return;
-    deleteDialogTitle = project.title;
+    deleteTarget = { id: projectId, title: project.title };
     deleteDialogOpen = true;
   }
 
@@ -2980,11 +2993,11 @@
       </div>
       {/if}
     </div>
-    {#if deleteDialogTitle !== null}
+    {#if deleteTarget !== null}
       <DeleteProjectDialog
         bind:open={deleteDialogOpen}
-        projectId={projectId}
-        projectTitle={deleteDialogTitle}
+        projectId={deleteTarget.id}
+        projectTitle={deleteTarget.title}
         onDeleting={(pending) => (deletingHere = pending)}
         onDeleted={leaveAfterDelete}
       />

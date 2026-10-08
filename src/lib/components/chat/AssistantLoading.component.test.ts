@@ -6,7 +6,7 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import AgentChatPanel from "./AgentChatPanel.svelte";
 import MessageContent from "./primitives/MessageContent.svelte";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
-import { __mutationCalls, __resetConvexStub, __setPaginatedRows, __setQueryData, __setQueryError } from "$lib/test/convex-svelte-stub.svelte";
+import { __mutationCalls, __resetConvexStub, __setMutationResult, __setPaginatedRows, __setQueryData, __setQueryError } from "$lib/test/convex-svelte-stub.svelte";
 
 // 2026-10-06: the Assistant shows one loading skeleton until its first data
 // lands. The welcome and its starters never flash for a report that already
@@ -88,6 +88,27 @@ it("says a conversation could not load instead of loading forever, and holds Sen
   expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
   expect(watch.seen.welcome).toBe(false);
   watch.stop();
+});
+
+it("says the conversation list could not load, holds Send, and lets New conversation start one", async () => {
+  const watch = watchWelcome();
+  __setQueryError("chatV2:listThreads", new Error("Threads unavailable"));
+  __setMutationResult("chatV2:sendMessage", { threadId: "thread-new", messageId: "m-1" });
+  await render(AgentChatPanel, ids);
+  await expect.element(page.getByRole("alert")).toHaveTextContent("Your conversations could not load.");
+  await composer().fill("Continue where we left off");
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("button", { name: "Send message", exact: true })).toBeDisabled();
+  expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+  expect(watch.seen.welcome).toBe(false);
+  watch.stop();
+  // Choosing New conversation is an explicit choice to start one.
+  await page.getByRole("button", { name: "Conversation menu" }).click();
+  await page.getByRole("menuitem", { name: "New conversation" }).click();
+  await composer().fill("Start fresh");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect.poll(() => __mutationCalls("chatV2:sendMessage").length).toBe(1);
+  expect(__mutationCalls("chatV2:sendMessage")[0]).toMatchObject({ content: "Start fresh", newThread: true });
 });
 
 it("never loads an image from a reply", async () => {
