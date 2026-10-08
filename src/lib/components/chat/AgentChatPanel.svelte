@@ -257,8 +257,11 @@
   const threadsLoading = $derived(threadsQ.data === undefined && !threadsQ.error);
   // The list failed before any data (review P1): whether a conversation
   // exists is unknown, so Send waits and the panel says so, unless the
-  // writer chose New conversation from the menu.
-  const threadsUnreadable = $derived(threadsQ.data === undefined && !!threadsQ.error && !startingNewChat);
+  // writer chose New conversation from the menu or a conversation is
+  // already selected (the one that choice just created, say).
+  const threadsUnreadable = $derived(
+    threadsQ.data === undefined && !!threadsQ.error && !startingNewChat && selectedThreadId === null
+  );
   // The selected conversation failed to load: a send would land in a
   // conversation the writer cannot see, so Send waits for another choice.
   const conversationUnreadable = $derived(!!selectedThreadId && !!ui.error && ui.results.length === 0);

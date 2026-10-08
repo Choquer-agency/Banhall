@@ -109,6 +109,18 @@ it("says the conversation list could not load, holds Send, and lets New conversa
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect.poll(() => __mutationCalls("chatV2:sendMessage").length).toBe(1);
   expect(__mutationCalls("chatV2:sendMessage")[0]).toMatchObject({ content: "Start fresh", newThread: true });
+  // The send lands: the new conversation's messages arrive. It stays on
+  // screen, not behind the notice, and Send works again (review P1).
+  const reply = (role: "user" | "assistant", text: string) => ({
+    id: role === "user" ? "m-1" : "a-1", key: role === "user" ? "m-1" : "a-1", order: 1, stepOrder: role === "user" ? 0 : 1,
+    role, status: "success", text, parts: [{ type: "text", text }], _creationTime: 2000,
+  });
+  __setQueryData("chatV2:listTurns", [{ _id: "turn-new", order: 1, status: "completed", stepCount: 0, promptMessageId: "m-1" }]);
+  __setPaginatedRows("chatV2:listMessages", [reply("user", "Start fresh"), reply("assistant", "Started.")]);
+  await expect.element(page.getByText("Started.", { exact: true })).toBeVisible();
+  expect(page.getByText("Your conversations could not load.", { exact: false }).elements()).toHaveLength(0);
+  await composer().fill("And a follow-up");
+  await expect.element(page.getByRole("button", { name: "Send message", exact: true })).toBeEnabled();
 });
 
 it("never loads an image from a reply", async () => {

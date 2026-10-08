@@ -114,6 +114,10 @@ describe("AdminFlyout (A5)", () => {
 
   it("opens from the keyboard, arrows move, Esc closes and returns focus to the Admin icon", async () => {
     const admin = await mountCollapsed(1);
+    // The hover test before this one leaves the pointer resting on the
+    // Admin icon; after Esc closes the flyout, that resting pointer could
+    // reopen it 150ms later. This test is about the keyboard alone.
+    await userEvent.unhover(admin);
     admin.focus();
     await userEvent.keyboard("{Enter}");
     await expect.poll(flyout).not.toBeNull();
