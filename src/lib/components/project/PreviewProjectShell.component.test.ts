@@ -395,6 +395,40 @@ describe("PreviewProjectPage final shell", () => {
     await expect.poll(() => __navigationCalls.at(-1)?.url ?? null).toContain("/projects");
   });
 
+  it("never flashes Project not found when the project reads as gone before the delete returns", async () => {
+    seed();
+    let finish!: () => void;
+    __setMutationResult("projects:deleteProject", new Promise<void>((resolve) => (finish = resolve)));
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    const sawNotFound = { value: false };
+    const observer = new MutationObserver(() => {
+      if (document.body.textContent?.includes("Project not found")) sawNotFound.value = true;
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    await page.getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Delete project" }).click();
+    await page.getByRole("button", { name: "Delete project", exact: true }).click();
+    // Convex applies the query change before the mutation resolves.
+    __setQueryData("projects:getProject", null);
+    await expect.poll(() => __navigationCalls.at(-1)?.url ?? null).toContain("/projects");
+    finish();
+    await new Promise((done) => setTimeout(done, 50));
+    observer.disconnect();
+    expect(sawNotFound.value).toBe(false);
+  });
+
+  it("returns focus to More actions when Keep project closes the dialog", async () => {
+    seed();
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Delete project" }).click();
+    await expect.element(page.getByRole("button", { name: "Keep project" })).toHaveFocus();
+    await page.getByRole("button", { name: "Keep project" }).click();
+    await expect.element(page.getByRole("button", { name: "More actions", exact: true })).toHaveFocus();
+  });
+
   it("does not offer Delete project to someone who is not the creator or an admin", async () => {
     seed();
     __setQueryData("users:getCurrentUser", { _id: "user-2", role: "manager", firstName: "Sam", lastName: "Chen", email: "sam@example.test" });

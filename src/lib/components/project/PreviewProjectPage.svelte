@@ -390,6 +390,19 @@
   // The title the open dialog names; it outlives the project row, which
   // goes away as soon as the delete starts.
   let deleteDialogTitle = $state<string | null>(null);
+  // A delete started here: the project reads as gone (getProject turns null)
+  // before the request returns, so the page shows its loading frame and
+  // goes to Projects instead of flashing "Project not found".
+  let deletingHere = $state(false);
+  let leftAfterDelete = false;
+  function leaveAfterDelete() {
+    if (leftAfterDelete) return;
+    leftAfterDelete = true;
+    void goto(workspaceHref("/projects"));
+  }
+  $effect(() => {
+    if (deletingHere && project === null) untrack(leaveAfterDelete);
+  });
   const canDeleteThisProject = $derived(canDeleteProject(user, project?.createdBy));
   // Same authority as publishForReview: project.setStage (the current
   // Owner, a Manager or an Admin), never createdBy.
@@ -2044,7 +2057,7 @@
      route-shape tests (and the rollback-purity sentinel) can tell the two
      report cohorts apart even while both sit in identical loading DOM. The
      frozen CurrentProjectPage must never carry this marker. -->
-{#if auth.isLoading || !auth.isAuthenticated || project === undefined}
+{#if auth.isLoading || !auth.isAuthenticated || project === undefined || (project === null && deletingHere)}
   <WorkspaceLoadingShell
     layout="project"
     title={recentProjectTitle(projectId)}
@@ -2972,7 +2985,8 @@
         bind:open={deleteDialogOpen}
         projectId={projectId}
         projectTitle={deleteDialogTitle}
-        onDeleted={() => void goto(workspaceHref("/projects"))}
+        onDeleting={(pending) => (deletingHere = pending)}
+        onDeleted={leaveAfterDelete}
       />
     {/if}
     <!-- BNH-30: one-by-one replace stepper, Word-style "replace & find next" -->

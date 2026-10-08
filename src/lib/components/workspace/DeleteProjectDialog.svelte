@@ -4,6 +4,7 @@
   // dialog: Keep project (chrome, focused on open) and the filled red Delete
   // project. A refusal from the server (open work, or no longer allowed)
   // shows its own words and dims Delete until the dialog opens again.
+  import { tick } from "svelte";
   import { useMutation } from "convex-svelte";
   import { toast } from "svelte-sonner";
   import TeamDialog from "$lib/components/team/TeamDialog.svelte";
@@ -16,12 +17,19 @@
     projectId,
     projectTitle,
     onDeleted = undefined,
+    onDeleting = undefined,
   }: {
     open?: boolean;
     projectId: string;
     projectTitle: string;
     /** After a successful delete, for example to leave the project page. */
     onDeleted?: () => void;
+    /**
+     * True as the request starts, false if it fails. The project page uses
+     * it to show its loading frame, not "Project not found", while it
+     * leaves: the project reads as gone before the request returns.
+     */
+    onDeleting?: (pending: boolean) => void;
   } = $props();
 
   const deleteProject = useMutation(api.projects.deleteProject);
@@ -41,15 +49,24 @@
     // deleting (its row or page goes away), so read everything first.
     const title = projectTitle;
     const done = onDeleted;
+    const pending = onDeleting;
+    pending?.(true);
     try {
       await deleteProject({ projectId: projectId as Id<"projects"> });
       open = false;
       toast.success(`Deleted ${title}.`);
       done?.();
     } catch (error) {
+      pending?.(false);
       errorMessage = userErrorMessage(error, "This project could not be deleted. Try again.");
     } finally {
       busy = false;
+    }
+    // A refusal disables the focused Delete button, which drops focus out
+    // of the dialog; Keep project takes it instead.
+    if (errorMessage) {
+      await tick();
+      keepButton?.focus();
     }
   }
 </script>

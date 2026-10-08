@@ -118,6 +118,8 @@ describe("Delete on a project card", () => {
     await page.getByRole("button", { name: "Delete project" }).click();
     await expect.element(page.getByRole("alert")).toHaveTextContent("Complete, decline, or cancel open work before deleting this project");
     await expect.element(page.getByRole("button", { name: "Delete project" })).toBeDisabled();
+    // The disabled Delete button gives focus to Keep project, inside the dialog.
+    await expect.element(page.getByRole("button", { name: "Keep project" })).toHaveFocus();
     await page.getByRole("button", { name: "Keep project" }).click();
     await userEvent.click(deleteButton()!);
     await expect.element(page.getByRole("button", { name: "Delete project" })).toBeEnabled();
