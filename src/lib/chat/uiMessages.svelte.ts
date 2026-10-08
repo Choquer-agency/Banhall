@@ -211,6 +211,10 @@ export function createUIMessages(
     get status() {
       return paginated.status;
     },
+    /** A failed read of the persisted messages (status stays put on error). */
+    get error() {
+      return paginated.error;
+    },
     get isLoading() {
       return paginated.isLoading;
     },

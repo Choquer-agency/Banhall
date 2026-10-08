@@ -14,6 +14,7 @@
   import { resolve } from "$app/paths";
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import DuplicateProjectButton from "$lib/components/workspace/DuplicateProjectButton.svelte";
+  import DeleteProjectButton from "$lib/components/workspace/DeleteProjectButton.svelte";
   import { generationActivityLabel } from "$lib/dashboard/generationActivity";
   import {
     STAGE_CARD_THEMES,
@@ -28,12 +29,8 @@
     showClient = true,
     showFiscalYear = true,
     showStage = false,
-    onOpen = null,
   }: {
     row: ProjectsTableRow;
-    /** Stash the column's paging context when the card link is followed
-     * (2026-08-13, Attio-research P1). */
-    onOpen?: (() => void) | null;
     /**
      * Render the client supporting line. Client-scoped surfaces (client
      * lanes) pass false because the section header already carries the
@@ -96,12 +93,12 @@
       data-recent-title={row.title}
       data-recent-stage={row.workflowStage ?? undefined}
       data-recent-client={row.clientName || undefined}
-      onclick={() => onOpen?.()}
       class={`block min-w-0 flex-1 truncate rounded-md text-[0.8125rem] font-medium leading-5 ${theme.headerText} after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy`}
     >{row.title}</a>
-    <!-- Hover or focus reveals Duplicate; it keeps its place in the header
-         either way, so the title never reflows. -->
+    <!-- Hover or focus reveals Duplicate and Delete; they keep their place
+         in the header either way, so the title never reflows. -->
     <DuplicateProjectButton projectId={row.id} projectTitle={row.title} deleting={row.deleting} class="-my-1" />
+    <DeleteProjectButton projectId={row.id} projectTitle={row.title} createdBy={row.createdBy} deleting={row.deleting} class="-my-1" />
   </header>
 
   {#if row.sredTitle}

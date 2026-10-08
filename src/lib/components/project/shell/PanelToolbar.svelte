@@ -48,6 +48,7 @@
     showAssistant = false,
     assistantActive = false,
     onToggleAssistant,
+    onAssistantIntent,
     qa,
     showQa = true,
   }: {
@@ -67,11 +68,25 @@
     showAssistant?: boolean;
     assistantActive?: boolean;
     onToggleAssistant?: () => void;
+    /** A pointer rests on, a finger touches, or the keyboard focuses the
+     * Assistant toggle: the page starts loading the Assistant early. */
+    onAssistantIntent?: () => void;
     /** The QA toggle slot. */
     qa?: Snippet;
     /** Whether the QA slot renders anything (it draws the divider before it). */
     showQa?: boolean;
   } = $props();
+
+  // Listeners, not on* attributes: the Tooltip trigger's spread props own
+  // the pointer and focus handlers, and an attribute here would replace them.
+  function assistantIntent(button: HTMLButtonElement) {
+    const intent = () => onAssistantIntent?.();
+    const events = ["pointerenter", "focus", "touchstart"] as const;
+    for (const type of events) button.addEventListener(type, intent);
+    return () => {
+      for (const type of events) button.removeEventListener(type, intent);
+    };
+  }
 
   const toggleBase =
     "flex size-[1.625rem] shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir pointer-coarse:size-11";
@@ -167,6 +182,7 @@
             aria-pressed={assistantActive}
             aria-label="Assistant"
             onclick={onToggleAssistant}
+            {@attach assistantIntent}
             class={toggleClass(assistantActive)}
           >
             <AuroraMark size={18} />

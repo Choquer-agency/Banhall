@@ -18,12 +18,15 @@
     onSelect?: () => void;
     href?: string;
     disabled?: boolean;
+    /** A destructive action (Delete project): red, after a divider. */
+    danger?: boolean;
   };
 </script>
 
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { DropdownMenu } from "bits-ui";
+  import { TrashIcon } from "phosphor-svelte";
   import { IconArrowLeft, IconBell, IconDocument, IconMore } from "$lib/components/icons";
   import PageIconTile from "$lib/components/shell/PageIconTile.svelte";
   import { resolve } from "$app/paths";
@@ -92,6 +95,17 @@
               {#snippet child({ props })}
                 <a {...props} href={item.href} data-top-bar-more-item={item.id} class="flex h-8 w-full items-center rounded-md px-2.5 text-[0.8125rem] text-ink outline-none data-[highlighted]:bg-primary-wash">{item.label}</a>
               {/snippet}
+            </DropdownMenu.Item>
+          {:else if item.danger}
+            <DropdownMenu.Separator class="mx-1 my-1 h-px bg-line-soft" />
+            <DropdownMenu.Item
+              disabled={item.disabled}
+              onSelect={item.onSelect}
+              data-top-bar-more-item={item.id}
+              class="flex h-8 w-full cursor-default items-center gap-2 rounded-md px-2.5 text-[0.8125rem] text-danger-ink-muted outline-none data-[highlighted]:bg-danger-surface data-[disabled]:opacity-50"
+            >
+              <TrashIcon size="0.875rem" aria-hidden="true" />
+              {item.label}
             </DropdownMenu.Item>
           {:else}
             <DropdownMenu.Item

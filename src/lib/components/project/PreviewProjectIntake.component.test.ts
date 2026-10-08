@@ -207,7 +207,7 @@ describe("PreviewProjectPage intake workbench", () => {
       .poll(() => transcriptTriggers()[1].getAttribute("aria-expanded"))
       .toBe("true");
 
-    // Previous/Next project paging swaps the list under a component that stays
+    // Moving to another project swaps the list under a component that stays
     // mounted: t-2 belongs to the project the reader left.
     __setQueryData("transcripts:listTranscripts", [
       transcriptRow("t-9", "Site visit.docx", 30),

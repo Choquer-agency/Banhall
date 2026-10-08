@@ -101,6 +101,8 @@
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
   import { projectCapabilityAllows } from "../../../../shared/capabilities";
+  import { layoutMotion } from "$lib/motion/layoutMotion";
+  import { loadAgentChatPanel } from "$lib/components/chat/chatModules";
 
   const auth = useAuth();
   const convex = useConvexClient();
@@ -1736,9 +1738,9 @@
 
     <!-- Editor workspace + chat rail (single view, resizable — BNH-14) -->
     {#if !awaitingSelection && !showIterativeStepper && !showSeedSummary && !showSeedWorkspace && !showSeedRecovery && !showSeedDrafting && report}
-      <div bind:this={workspaceEl} class={`mx-auto flex min-h-0 w-full flex-1 overflow-hidden transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full" : "max-w-[var(--container-shell)]"}`}>
+      <div bind:this={workspaceEl} class={`mx-auto flex min-h-0 w-full flex-1 overflow-hidden transition-[max-width] ${layoutMotion} ${workspaceMaximized ? "max-w-full" : "max-w-[var(--container-shell)]"}`}>
         <div class="min-h-0 flex-1 overflow-y-auto">
-            <div class={`mx-auto transition-[max-width,padding] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full px-7 py-6" : railOpen ? "max-w-report px-10 py-10" : "max-w-[var(--container-shell)] px-10 py-10"}`}>
+            <div class={`mx-auto transition-[max-width,padding] ${layoutMotion} ${workspaceMaximized ? "max-w-full px-7 py-6" : railOpen ? "max-w-report px-10 py-10" : "max-w-[var(--container-shell)] px-10 py-10"}`}>
               <!-- Project info header -->
               {@render projectMetadata()}
 
@@ -1821,7 +1823,7 @@
              panel stays mounted so chat state survives close/reopen. -->
         {#if report && user}
           <aside
-            class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${railOpen ? (workspaceMaximized ? "pl-1 pr-7" : "pl-1 pr-6") : ""} ${dragging ? "" : "transition-all duration-[325ms] ease-out"}`}
+            class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${railOpen ? (workspaceMaximized ? "pl-1 pr-7" : "pl-1 pr-6") : ""} ${dragging ? "" : `transition-all ${layoutMotion}`}`}
             style={`width: ${railOpen ? `${chatRatio * 100}%` : "0%"}`}
           >
             <!-- Story 4: the Brief rail view (in flow only while railView
@@ -1875,7 +1877,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
-              <LazyModule load={() => import("$lib/components/chat/AgentChatPanel.svelte")} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat"}>
+              <LazyModule load={loadAgentChatPanel} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat"}>
                 {#snippet children(AgentChatPanel)}
                   <AgentChatPanel
                       {projectId}

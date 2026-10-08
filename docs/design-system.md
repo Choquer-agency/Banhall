@@ -702,14 +702,9 @@ reversal (below).
   view. Applying a preset writes the SAME persisted preferences and URL
   params as the individual controls — never a new URL surface or server
   feature. "All projects" is the unnamed baseline.
-- **List-context paging.** Opening a project from a Projects surface
-  stashes the bounded loaded page (ids in view order + label + bounded
-  flag) in `projectPagingContext.ts` (in-memory; survives SPA navigation,
-  honestly dies on reload). The project header shows "N of M[+] in
-  <label>" with size-7 ghost prev/next steppers navigating within that
-  list only — zero new subscriptions; the `+` qualifier renders whenever
-  the page was bounded. Producers: flat List rows, board columns (label =
-  stage), the With-you band. Grouped-list rows are not yet producers.
+- **List-context paging (removed 2026-10-06).** The project header no
+  longer shows "N of M in <label>" with previous and next project buttons.
+  The owner removed it, along with the list stash that fed it.
 - **"With you" Home band — partial reversal of 2026-08-10.** Home carries
   exactly ONE operational band: open work items assigned to the viewer
   (`myWork.listAssignedToMe`, due-ordered, one bounded subscription,
@@ -1203,12 +1198,47 @@ sizes below are at the 16px root; a laptop renders them at 0.9375x.
   subtitle for every step (`pdSubsectionStepSubtitle`); the objectives
   that feed prompts are unchanged. The Outline marks a step an earlier
   change touched "Needs review" (was "Review suggested").
-- **Report width.** The reading column is 45rem of text (720px, was 660px):
-  `max-w-3xl` with 24px sides below `lg`, 50rem with 40px sides from `lg`.
-  Full width has 48px sides when the report is alone (was 96px) and 40px
-  beside a side panel (was 48px). From `lg` up every width keeps at least
-  40px of side padding, so the block handle 34px left of the text is never
-  clipped. The Sources list follows the reading column.
+- **Report width (2026-10-06).** The reading column is 55rem of text
+  (880px, was 720px): `max-w-3xl` with 24px sides below `lg`,
+  `max-w-reading` (60rem, `--container-reading`) with 40px sides from `lg`.
+  Full width has 48px sides when the report is alone and 40px beside a side
+  panel. From `lg` up every width keeps at least 40px of side padding, so
+  the block handle 34px left of the text is never clipped. Every narrow
+  column on the project page uses the same `readingColumn` class
+  (`src/lib/components/ui/readingColumn.ts`): the report, Sources, Summary
+  review, the drafting view, generation progress, intake and the
+  full-screen Assistant. Sources also follows Full width.
+- **Default view (2026-10-06).** A project opens on the report alone, in
+  the reading column, with the Assistant and QA closed. Their open state
+  and Full width are not remembered between visits; the side panel width
+  is.
+- **Assistant loading (2026-10-06).** The Assistant shows one skeleton from
+  the click until its conversation is ready (`AssistantPanelSkeleton`): the
+  real header, quiet message bars that fade in only after 400ms, and the
+  composer well, with one "Loading assistant" status for screen readers. The
+  welcome and its starters wait for the conversation list, and so does Send.
+  Hovering, touching or focusing the Assistant toggle starts its code and
+  conversation list early (`chatModules.ts`); a page where nobody reaches
+  for it loads none of it. Replies never load images.
+- **Delete a project (2026-10-07, Paper K1 to K4).** A trash button sits
+  beside Duplicate on Projects cards (list and board) and on Home's
+  Recently opened rows, with the same reveal (hover or focus, always on
+  touch). The project page's More menu ends with a divider and a red Delete
+  project. Both open one confirm dialog (`DeleteProjectDialog`, the C5
+  Revoke invite frame): Keep project has focus, Delete project is the
+  filled red action, and a server refusal (open work) shows its own words
+  and dims Delete until the dialog opens again. Only the project's creator
+  or an admin sees any of it (`canDeleteProject`, mirroring
+  `projects.deleteProject`). Home's With you rows never offer it: they
+  always carry the viewer's open work, which refuses a delete.
+- **Layout motion (2026-10-06).** Every layout change uses one ease:
+  `--ease-layout` (`cubic-bezier(0.16, 1, 0.3, 1)`, ease-out with no
+  overshoot) over `--duration-layout` (350ms), through `layoutMotion` in
+  `src/lib/motion/layoutMotion.ts` or the variables in plain CSS. That
+  covers Full width, side panels, Assistant full screen, the intake context
+  pane, the candidate view, the sidebar and disclosures. Full width is
+  `max-w-full`, not `max-w-none`, so the width can ease. A tab's page fades
+  in with `.pane-fade-in`. Reduced motion turns all of it off.
 
 ## Panel motion (2026-08-10)
 

@@ -15,6 +15,11 @@ export type HomeRow = {
   editedAt: number | null;
   /** Present (true) only while the project is being deleted. */
   deleting?: boolean;
+  /**
+   * Who created the project, when the source says. "With you" rows leave it
+   * out: they always carry the viewer's open work, which refuses a delete.
+   */
+  createdBy?: string;
 };
 
 type AssignedItem = {
@@ -53,6 +58,7 @@ type LiveProject = {
   clientName: string;
   workflowStage: WorkflowStage;
   updatedAt: number;
+  createdBy?: string;
 };
 
 export function liveProjectRows(rows: readonly LiveProject[]): HomeRow[] {
@@ -62,6 +68,7 @@ export function liveProjectRows(rows: readonly LiveProject[]): HomeRow[] {
     clientName: row.clientName,
     stage: row.workflowStage,
     editedAt: row.updatedAt,
+    ...(row.createdBy !== undefined ? { createdBy: row.createdBy } : {}),
   }));
 }
 

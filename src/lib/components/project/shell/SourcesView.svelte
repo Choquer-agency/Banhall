@@ -6,6 +6,7 @@
   out of AI context.
 -->
 <script lang="ts">
+  import { reportColumn } from "$lib/components/ui/readingColumn";
   import type { Snippet } from "svelte";
   import { FileTextIcon } from "phosphor-svelte";
   import TranscriptSourceList, { type TranscriptListRow } from "./TranscriptSourceList.svelte";
@@ -32,6 +33,8 @@
     onReplaceTranscript,
     onRemoveTranscript,
     transcriptSpeakers,
+    fullWidth = false,
+    sidePanelOpen = false,
   }: {
     transcripts: TranscriptRow[];
     documents: DocumentRow[];
@@ -44,6 +47,9 @@
     onReplaceTranscript?: (transcriptId: string, file: File) => void | Promise<void>;
     onRemoveTranscript?: (transcriptId: string) => void | Promise<void>;
     transcriptSpeakers?: Snippet<[TranscriptRow]>;
+    // The report's Full width toggle, and whether a side panel sits beside it.
+    fullWidth?: boolean;
+    sidePanelOpen?: boolean;
   } = $props();
 
   const active = $derived(documents.filter((doc) => !doc.archived));
@@ -54,11 +60,9 @@
   }
 </script>
 
-<!-- The file list follows the report's reading column (48rem, widened on
-     2026-09-29); a pane wider than a 1440 window can give it gets a wider
-     list (2026-09-28 width pass). -->
-<div class="@container">
-<div data-sources-view class="mx-auto w-full max-w-3xl px-6 py-10 @min-[1400px]:max-w-[60rem]">
+<!-- The file list takes the report's width (owner, 2026-10-06), including
+     its Full width toggle. -->
+<div data-sources-view class={`py-10 ${reportColumn(fullWidth, sidePanelOpen)}`}>
   <h2 class="font-serif text-2xl text-ink">Sources</h2>
   <p class="mt-1 text-[0.8125rem] text-ink-muted">The interviews and documents this report is written from.</p>
 
@@ -115,5 +119,4 @@
       </section>
     {/if}
   {/if}
-</div>
 </div>

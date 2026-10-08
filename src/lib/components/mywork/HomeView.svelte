@@ -139,7 +139,6 @@
           first
           rows={withYou}
           count={withYou ? `${withYou.length}${withYouMore ? "+" : ""}` : null}
-          bounded={withYouMore}
           {now}
           emptyLayout="block"
         >

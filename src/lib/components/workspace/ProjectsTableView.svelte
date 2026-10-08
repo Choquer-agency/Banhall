@@ -35,7 +35,6 @@
   import ProjectsClientGroups from "$lib/components/workspace/ProjectsClientGroups.svelte";
   import ProjectBoardCard from "$lib/components/workspace/ProjectBoardCard.svelte";
   import { toProjectsTableRow } from "$lib/workspace/projectRowMapping";
-  import { setProjectPagingContext } from "$lib/workspace/projectPagingContext";
   import { searchShortcutHint } from "$lib/workspace/searchContinuity";
   import {
     parseHideEmptyParam,
@@ -850,12 +849,6 @@
               <ProjectBoardCard
                 {row}
                 showStage
-                onOpen={() =>
-                  setProjectPagingContext({
-                    ids: rows.map((r) => r.id),
-                    label: q ? "search results" : selectedStage ? stageFilterLabel(stage) : "Projects",
-                    bounded: hasMore,
-                  })}
               />
             </div>
           {/each}

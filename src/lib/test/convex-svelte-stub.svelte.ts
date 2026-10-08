@@ -130,6 +130,7 @@ export function __resetConvexStub() {
   calls.length = 0;
   mutationErrors.clear();
   clientQueries.length = 0;
+  clientSubscriptions.length = 0;
   for (const key of Object.keys(results)) delete results[key];
 }
 
@@ -164,8 +165,27 @@ export function setupConvex(_url?: string) {
   return {};
 }
 
+// Live `client.onUpdate(...)` subscriptions (early loads), kept apart from
+// hook subscriptions so hook budgets stay exact.
+const clientSubscriptions: Array<{ name: string; args: unknown; live: boolean }> = [];
+
+/** Arguments of the live `client.onUpdate` subscriptions for `name`. */
+export function __clientSubscriptions(name: string) {
+  return clientSubscriptions.filter((sub) => sub.name === name && sub.live).map((sub) => sub.args);
+}
+
 export function useConvexClient() {
   return {
+    onUpdate(query: FunctionReference<"query">, args: unknown, callback: (data: never) => void) {
+      const name = getFunctionName(query);
+      const sub = { name, args, live: true };
+      clientSubscriptions.push(sub);
+      const data = queryData(name, args);
+      if (data !== undefined) queueMicrotask(() => sub.live && callback(data as never));
+      return () => {
+        sub.live = false;
+      };
+    },
     async query(query: FunctionReference<"query">, args?: unknown) {
       const name = getFunctionName(query);
       clientQueries.push({ name, args });
@@ -221,8 +241,9 @@ export function usePaginatedQuery(query: FunctionReference<"query">, ...rest: un
       if (skipped(getArgs)) return "LoadingFirstPage";
       return registry.pages[name] === undefined ? "LoadingFirstPage" : "Exhausted";
     },
+    // Like the real client, a failed read leaves the status where it was.
     get error() {
-      return undefined;
+      return skipped(getArgs) ? undefined : registry.errors[name];
     },
     get isLoading() {
       if (skipped(getArgs)) return true;

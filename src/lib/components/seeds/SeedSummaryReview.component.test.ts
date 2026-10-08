@@ -1467,7 +1467,7 @@ describe("Seed Summary Review", () => {
       withFields(item("seed-c", "experimentation", "Hand wording for the trials.", "writer_asserted"), { edited: true }),
     ]);
 
-    it("reads as a 760px document with mono Section eyebrows over serif titles and no page header", async () => {
+    it("reads in the shared 960px reading column with mono Section eyebrows over serif titles and no page header", async () => {
       __setQueryData("seeds:getOutline", outline());
       __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "The company designed adaptive controls.")]));
       const { container } = await render(SeedSummaryReview, { generationId, userId: "writer-1", onClose: vi.fn() });
@@ -1493,7 +1493,7 @@ describe("Seed Summary Review", () => {
       await expect.element(page.getByRole("heading", { level: 2, name: "Section 246, Technological advancement" })).toBeVisible();
 
       const column = titleElement.closest("section")!.parentElement!.parentElement!;
-      expect(column.getBoundingClientRect().width).toBeCloseTo(board(760), 0);
+      expect(column.getBoundingClientRect().width).toBeCloseTo(board(960), 0);
       // Tag pills use the fixed Seed tag palette.
       const tag = page.getByText("Technical", { exact: true }).element() as HTMLElement;
       expect(getComputedStyle(tag).backgroundColor).toBe("rgb(213, 243, 241)");

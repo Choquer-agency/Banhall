@@ -87,6 +87,8 @@ for (const { name, component, openChat, closeChat, openQa, closeQaName, openHist
     const answer = (text: string) => ({ id: "answer-1", key: "answer-1", role: "assistant", order: 1, stepOrder: 1, status: "streaming", text, _creationTime: 1, parts: [{ type: "text", text }] });
     __setPaginatedRows("chatV2:listMessages", [answer("Active response begins")]);
     await render(component);
+    // The preview project page opens with the Assistant closed (2026-10-06).
+    if (name === "preview") await openChat();
     await expect.element(composer()).toBeVisible();
     const textarea = composer().element();
     await expect.element(page.getByText("Active response begins", { exact: true })).toBeVisible();
@@ -145,13 +147,15 @@ it("preview mobile starts report-only, activates the Assistant once, and retains
   expect(composer().element()).toBe(textarea);
 });
 
-it("preview activates the default-open assistant when a mobile report becomes desktop", async () => {
+it("preview keeps the report alone when a mobile report becomes desktop", async () => {
   await page.viewport(390, 850);
   await render(PreviewProjectPage);
   await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
   expect(__activeQueryCount("chatV2:listThreads")).toBe(0);
   await page.viewport(1440, 1000);
-  await expect.element(composer()).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-pressed", "false");
+  expect(__activeQueryCount("chatV2:listThreads")).toBe(0);
+  expect(composer().elements()).toHaveLength(0);
 });
 
 for (const action of ["Ask assistant", "Research this selection"]) {
