@@ -64,7 +64,6 @@
   import Disclosure from "$lib/components/ui/Disclosure.svelte";
   import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
   import { normalizeExtractedText } from "$lib/parseDocument";
-  import { projectPagingPosition } from "$lib/workspace/projectPagingContext";
   import FilingReadinessPanel from "$lib/components/evidence/FilingReadinessPanel.svelte";
   import LogsPanel from "$lib/components/editor/LogsPanel.svelte";
   import CommentOverlay from "$lib/components/comments/CommentOverlay.svelte";
@@ -79,6 +78,12 @@
   import { qaSectionScores } from "$lib/qa/qaSectionScores";
   import { markQaDismissed, markQaSeen, readQaSeen, type QaSeenState } from "$lib/qa/qaSeen";
   import SourcesView from "$lib/components/project/shell/SourcesView.svelte";
+  import { readingColumn, reportColumn } from "$lib/components/ui/readingColumn";
+  import { layoutMotion } from "$lib/motion/layoutMotion";
+  import { loadAgentChatPanel, prewarmAssistant, releaseAssistantPrewarm } from "$lib/components/chat/chatModules";
+  import AssistantPanelSkeleton from "$lib/components/chat/AssistantPanelSkeleton.svelte";
+  import DeleteProjectDialog from "$lib/components/workspace/DeleteProjectDialog.svelte";
+  import { canDeleteProject } from "$lib/workspace/projectDelete";
   import TranscriptSpeakersPopover from "$lib/components/project/shell/TranscriptSpeakersPopover.svelte";
   import {
     readTranscriptFile,
@@ -170,7 +175,7 @@
   let openChoice = $state<Id<"transcripts"> | "default" | null>("default");
   const openTranscriptId = $derived.by(() => {
     const transcripts = transcriptsQ.data;
-    // Paging to the previous/next project keeps this component mounted, so a
+    // Moving to another project keeps this component mounted, so a
     // chosen id can outlive the list it came from. An id no loaded row carries
     // is not a choice: it falls back to the default rather than holding a body
     // subscription nothing on screen shows.
@@ -381,6 +386,37 @@
   const generation = $derived(generationQ.data);
   const transcripts = $derived(transcriptsQ.data ?? []);
   const user = $derived(userQ.data);
+  let deleteDialogOpen = $state(false);
+  // The project the open dialog names and deletes, captured together when
+  // it opens: the page is reused across project routes, so the route's id
+  // could change under an open dialog (review P1). It also outlives the
+  // project row, which goes away as soon as the delete starts.
+  let deleteTarget = $state<{ id: Id<"projects">; title: string } | null>(null);
+  // A delete started here: the project reads as gone (getProject turns null)
+  // before the request returns, so the page shows its loading frame and
+  // goes to Projects instead of flashing "Project not found".
+  let deletingHere = $state(false);
+  let leftAfterDelete = false;
+  function leaveAfterDelete() {
+    if (leftAfterDelete) return;
+    leftAfterDelete = true;
+    void goto(workspaceHref("/projects"));
+  }
+  $effect(() => {
+    if (deletingHere && project === null) untrack(leaveAfterDelete);
+  });
+  // Moving to another project (Back, a link) closes a dialog opened on the
+  // one before, unless that delete is already under way.
+  $effect(() => {
+    const id = projectId;
+    untrack(() => {
+      if (deleteTarget && deleteTarget.id !== id && !deletingHere) {
+        deleteDialogOpen = false;
+        deleteTarget = null;
+      }
+    });
+  });
+  const canDeleteThisProject = $derived(canDeleteProject(user, project?.createdBy));
   // Same authority as publishForReview: project.setStage (the current
   // Owner, a Manager or an Admin), never createdBy.
   const canShare = $derived(
@@ -655,12 +691,31 @@
     editorRef?.locateSectionParagraph(gap.section, gap.paragraph);
   }
 
+  // Start the Assistant's code and first data before the panel asks for
+  // them (chatModules.ts): on intent at the toggle, and with the click or an
+  // Ask AI or Research request, so the conversation list loads alongside
+  // the code rather than after it.
+  function assistantIntent() {
+    if (!report || !user || !reportActionsVisible) return;
+    void loadAgentChatPanel().catch(() => undefined);
+    prewarmAssistant(convex, report._id);
+  }
+  $effect(() => () => releaseAssistantPrewarm());
+
+  function openDeleteDialog() {
+    if (!project) return;
+    deleteTarget = { id: projectId, title: project.title };
+    deleteDialogOpen = true;
+  }
+
   function handleAskAI(selection: { from: number; to: number; text: string }) {
+    assistantIntent();
     void leaveDetailsThen(() => openSidePanel("chat"));
     pendingChatHighlight = selection;
   }
 
   function handleResearch(selection: ResearchSelection) {
+    assistantIntent();
     void leaveDetailsThen(() => openSidePanel("chat"));
     pendingChatHighlight = null;
     pendingResearch = selection;
@@ -679,7 +734,7 @@
   const clampSidePanel = (width: number) =>
     Math.round(Math.min(SIDE_PANEL_MAX, Math.max(SIDE_PANEL_MIN, width)));
   let sidePanelWidth = $state(SIDE_PANEL_DEFAULT);
-  let chatOpen = $state(true);
+  let chatOpen = $state(false);
   let chatPreferencesReady = $state(false);
   let chatFocus = $state(false);
   let desktopAssistant = $state(false);
@@ -722,10 +777,6 @@
   // Review workbench (2026-08-13): the verdict leads the work pane, so the
   // metadata grid demotes into a collapsed disclosure. The page bar already
   // carries the route's h1 title.
-  // List-context paging (2026-08-13, Attio-research P1): position of this
-  // project inside the bounded page the invoking Projects surface stashed.
-  // Recomputed per projectId; null when the reader arrived another way.
-  const pagingPosition = $derived(projectPagingPosition(projectId));
   // The generation gate the backend enforces (convex/generations.ts:371-383):
   // a transcript, or failing that a context document with readable text. A
   // review project with no transcript keeps generating from the feedback
@@ -846,11 +897,9 @@
     const c = localStorage.getItem("banhall_intake_context_ratio");
     if (c) contextRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(c)));
     contextOpen = localStorage.getItem("banhall_intake_context_open") !== "0";
-    const savedQa = localStorage.getItem("banhall_qa_open") === "1";
-    chatOpen = !savedQa && localStorage.getItem("banhall_chat_open") !== "0";
-    qaOpen = savedQa;
-    if (savedQa) railView = "qa";
-    workspaceMaximized = localStorage.getItem("banhall_project_editor_maximized") === "1";
+    // Owner, 2026-10-06: a project always opens on the report alone, in the
+    // reading column, with the Assistant and QA closed. Their open state and
+    // full width are not remembered between visits.
     candidateMaximized = localStorage.getItem("banhall_candidate_editor_maximized") === "1";
     chatPreferencesReady = true;
   });
@@ -858,9 +907,6 @@
     localStorage.setItem("banhall_side_panel_width", String(sidePanelWidth));
     localStorage.setItem("banhall_intake_context_ratio", String(contextRatio));
     localStorage.setItem("banhall_intake_context_open", contextOpen ? "1" : "0");
-    localStorage.setItem("banhall_chat_open", chatOpen ? "1" : "0");
-    localStorage.setItem("banhall_qa_open", qaOpen ? "1" : "0");
-    localStorage.setItem("banhall_project_editor_maximized", workspaceMaximized ? "1" : "0");
     localStorage.setItem("banhall_candidate_editor_maximized", candidateMaximized ? "1" : "0");
   });
 
@@ -2001,6 +2047,10 @@
         : []),
       { id: "history", label: "History", onSelect: () => (showHistory = true) },
       financial,
+      // Paper K4 (2026-10-07): only for the project's creator or an admin.
+      ...(canDeleteThisProject
+        ? [{ id: "delete", label: "Delete project", onSelect: openDeleteDialog, danger: true }]
+        : []),
     ];
   });
 </script>
@@ -2020,7 +2070,7 @@
      route-shape tests (and the rollback-purity sentinel) can tell the two
      report cohorts apart even while both sit in identical loading DOM. The
      frozen CurrentProjectPage must never carry this marker. -->
-{#if auth.isLoading || !auth.isAuthenticated || project === undefined}
+{#if auth.isLoading || !auth.isAuthenticated || project === undefined || (project === null && deletingHere)}
   <WorkspaceLoadingShell
     layout="project"
     title={recentProjectTitle(projectId)}
@@ -2099,42 +2149,6 @@
               candidatesFailed={generation.candidatesFailed ?? 0}
               surface="light"
             />
-          </span>
-        {/if}
-        {#if pagingPosition}
-          <!-- "N of M in <where>": flow-state paging over the bounded page the
-               invoking list stashed. No subscriptions. -->
-          <span data-paging-context class="hidden items-center gap-0.5 lg:flex">
-            <span class="whitespace-nowrap text-xs text-ink-muted">
-              <span class="text-data">{pagingPosition.index + 1} of {pagingPosition.total}{pagingPosition.bounded ? "+" : ""}</span>
-              in {pagingPosition.label}
-            </span>
-            <button
-              type="button"
-              title="Previous project"
-              aria-label={`Previous project in ${pagingPosition.label}`}
-              disabled={!pagingPosition.prevId}
-              onclick={() => {
-                const id = pagingPosition?.prevId;
-                if (id) void goto(resolve("/project/[id]", { id }));
-              }}
-              class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none"
-            >
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
-            </button>
-            <button
-              type="button"
-              title="Next project"
-              aria-label={`Next project in ${pagingPosition.label}`}
-              disabled={!pagingPosition.nextId}
-              onclick={() => {
-                const id = pagingPosition?.nextId;
-                if (id) void goto(resolve("/project/[id]", { id }));
-              }}
-              class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none"
-            >
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
-            </button>
           </span>
         {/if}
         {#if saving}
@@ -2253,7 +2267,11 @@
         showAssistant={reportActionsVisible && !!user}
         showQa={reportActionsVisible && !!user}
         assistantActive={chatShown && sidePanelOnScreen}
-        onToggleAssistant={() => void leaveDetailsThen(() => toggleSidePanel("chat"))}
+        onToggleAssistant={() => {
+          assistantIntent();
+          void leaveDetailsThen(() => toggleSidePanel("chat"));
+        }}
+        onAssistantIntent={assistantIntent}
       >
         {#snippet detailsPeek()}
           <DetailsPopover
@@ -2307,7 +2325,7 @@
             </div>
           {/if}
           {#if sourcesOpen}
-            <div class="min-h-0 flex-1 overflow-y-auto">
+            <div class="pane-fade-in min-h-0 flex-1 overflow-y-auto">
               <SourcesView
                 transcripts={transcripts}
                 documents={documentsQ.data ?? []}
@@ -2321,10 +2339,12 @@
                 onReplaceTranscript={(transcriptId, file) => storeTranscriptFile(file, transcriptId)}
                 onRemoveTranscript={removeTranscript}
                 transcriptSpeakers={transcriptSpeakersChip}
+                fullWidth={workspaceMaximized}
+                {sidePanelOpen}
               />
             </div>
           {/if}
-          <div class={`flex min-h-0 flex-1 flex-col ${sourcesOpen ? "hidden" : ""}`}>
+          <div class={`pane-fade-in flex min-h-0 flex-1 flex-col ${sourcesOpen ? "hidden" : ""}`}>
     {#if generation && showWritingView}
       <!-- Writing view (ui-design-final.md section 6, boards 4.1 to 4.3): the
            signed-off Step-by-step draft writes into the Report tab. The
@@ -2340,7 +2360,7 @@
             role="region"
             aria-label="Generation progress"
             tabindex="-1"
-            class="mx-auto w-full max-w-[50.5rem] px-6 pb-24 pt-6 outline-none"
+            class={`${readingColumn} pb-24 pt-6 outline-none`}
           >
             {#if draftProgress}
               {#key generation._id}
@@ -2382,7 +2402,7 @@
           role="region"
           aria-label="Generation progress"
           tabindex="-1"
-          class="mx-auto my-auto w-full max-w-3xl rounded-xl px-6 py-8 outline-none focus-visible:ring-2 focus-visible:ring-navy"
+          class={`${readingColumn} my-auto rounded-xl py-8 outline-none focus-visible:ring-2 focus-visible:ring-navy`}
         >
           <GenerationProgress generationId={generation._id} />
           {#if isSeedWorkflow && generation.seedStageError}
@@ -2498,24 +2518,21 @@
       </div>
     {/if}
     {#if generationError}
-      <p class="mx-auto mt-4 w-full max-w-3xl px-6 text-sm text-red-700" role="alert">
+      <p class={`${readingColumn} mt-4 text-sm text-red-700`} role="alert">
         {generationError}
       </p>
     {/if}
 
-    <!-- Report surface (ui-design-final.md section 8, row 5, widened by the
-         owner on 2026-09-29): a centred 720px (45rem) reading column, or
-         full width with 40px side padding beside a side panel and 48px when
-         the report is alone. From lg up every width keeps at least 40px of
-         side padding, so the block handle 34px left of the text is never
-         clipped. -->
+    <!-- Report surface (ui-design-final.md section 8, row 5): the shared
+         reading column (readingColumn.ts), or full width with 40px side
+         padding beside a side panel and 48px when the report is alone. -->
     {#if reportActionsVisible && report}
       <div data-project-workspace class="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
         <div class="[container-type:inline-size] flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto">
             <div
               data-report-surface
               data-report-width={workspaceMaximized ? "full" : "reading"}
-              class={`w-full pt-11 pb-10 transition-[padding,max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? (sidePanelOpen ? "px-6 lg:px-10" : "px-6 lg:px-12") : "mx-auto max-w-3xl px-6 lg:max-w-[50rem] lg:px-10"}`}
+              class={`pt-11 pb-10 transition-[padding,max-width] ${layoutMotion} ${reportColumn(workspaceMaximized, sidePanelOpen)}`}
             >
               <!-- Board 2.1: the report opens on its serif title. The top bar
                    holds the page h1; the document's own title heading stays
@@ -2630,7 +2647,7 @@
           data-intake-pane="work"
           class={`${mobileIntakeView === "work" ? "flex" : "hidden"} min-h-0 flex-1 flex-col overflow-y-auto lg:flex`}
         >
-          <div class="mx-auto w-full max-w-3xl px-6 py-8">
+          <div class={`${readingColumn} py-8`}>
             <!-- Project attributes live in the persistent left context pane;
                  this primary plane begins with the actual work, matching the
                  Attio record/detail split. -->
@@ -2744,7 +2761,7 @@
           aria-label="Project context"
           data-intake-pane="context"
           inert={!contextOpen && mobileIntakeView !== "context"}
-          class={`${mobileIntakeView === "context" ? "flex" : "hidden"} min-h-0 w-full flex-1 flex-col overflow-hidden bg-white lg:flex lg:w-[var(--context-width)] lg:flex-none ${contextOpen ? "lg:border-r lg:border-line-soft" : "lg:opacity-0"} ${contextDragging ? "" : "lg:transition-[width,opacity] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
+          class={`${mobileIntakeView === "context" ? "flex" : "hidden"} min-h-0 w-full flex-1 flex-col overflow-hidden bg-white lg:flex lg:w-[var(--context-width)] lg:flex-none ${contextOpen ? "lg:border-r lg:border-line-soft" : "lg:opacity-0"} ${contextDragging ? "" : `lg:transition-[width,opacity] ${layoutMotion}`}`}
           style={`--context-width: ${contextOpen ? contextRatio * 100 : 0}%`}
         >
           <!-- Pane header: names the surface and carries the close control
@@ -2864,7 +2881,7 @@
         <aside
           data-side-panel={sidePanelOpen ? railView : undefined}
           aria-label="Side panel"
-          class={`relative min-h-0 flex-col overflow-hidden bg-surface ${sidePanelOpen && (mobileWorkspaceView === "assistant" || assistantFull) ? "flex w-full flex-1" : "hidden"} lg:flex lg:flex-none lg:w-[var(--side-panel-width)] ${dragging ? "" : "lg:transition-[width] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
+          class={`relative min-h-0 flex-col overflow-hidden bg-surface ${sidePanelOpen && (mobileWorkspaceView === "assistant" || assistantFull) ? "flex w-full flex-1" : "hidden"} lg:ml-auto lg:flex lg:flex-none lg:w-[var(--side-panel-width)] ${dragging ? "" : `lg:transition-[width] ${layoutMotion}`}`}
           style={`--side-panel-width: ${assistantFull ? "100%" : sidePanelOpen ? boardRem(sidePanelWidth) : "0px"}`}
         >
           {#if detailsOpen && railView === "details"}
@@ -2931,8 +2948,18 @@
               aria-label="AI assistant"
               inert={!chatOpen}
             >
-              <div class={assistantFull ? "mx-auto flex h-full w-full max-w-[45rem] flex-col" : "flex h-full flex-col"} data-assistant-column={assistantFull ? "full" : "side"}>
-                <LazyModule load={() => import("$lib/components/chat/AgentChatPanel.svelte")} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat" && (desktopAssistant || mobileWorkspaceView === "assistant" || assistantFull)}>
+              <!-- The side column keeps its minimum width while the panel
+                   slides, so text never re-wraps frame by frame (as QA and
+                   Details do). -->
+              <div
+                class={`flex h-full flex-col transition-[max-width,padding] ${layoutMotion} ${assistantFull ? readingColumn : "mx-auto w-full max-w-full px-0"}`}
+                style={assistantFull ? undefined : `min-width: ${boardRem(SIDE_PANEL_MIN)}`}
+                data-assistant-column={assistantFull ? "full" : "side"}
+              >
+                <LazyModule load={loadAgentChatPanel} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat" && (desktopAssistant || mobileWorkspaceView === "assistant" || assistantFull)}>
+                  {#snippet pending()}
+                    <AssistantPanelSkeleton isFull={assistantFull} />
+                  {/snippet}
                   {#snippet children(AgentChatPanel)}
                     <AgentChatPanel
                         {projectId}
@@ -2966,6 +2993,15 @@
       </div>
       {/if}
     </div>
+    {#if deleteTarget !== null}
+      <DeleteProjectDialog
+        bind:open={deleteDialogOpen}
+        projectId={deleteTarget.id}
+        projectTitle={deleteTarget.title}
+        onDeleting={(pending) => (deletingHere = pending)}
+        onDeleted={leaveAfterDelete}
+      />
+    {/if}
     <!-- BNH-30: one-by-one replace stepper, Word-style "replace & find next" -->
     {#if replaceSession}
       <div class="fixed bottom-6 left-1/2 z-[80] -translate-x-1/2">

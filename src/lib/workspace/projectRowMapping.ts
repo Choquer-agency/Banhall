@@ -29,6 +29,8 @@ export type DashboardProjectionRow = {
   status: string;
   ownerId?: string;
   ownerLabel?: string;
+  /** Who created the project; decides who may delete it (deleteProject). */
+  createdBy?: string;
   writer?: string;
   generationActivity?: string | null;
   /** Optional on legacy rows; `_creationTime` fills the gap when absent. */
@@ -105,6 +107,7 @@ export function toProjectsTableRow(project: DashboardProjectionRow): ProjectsTab
               : formatProjectDate(project.currentHandoff.dueAt),
         }
       : undefined,
+    ...(project.createdBy !== undefined ? { createdBy: project.createdBy } : {}),
     ...(project.deleting ? { deleting: true } : {}),
   };
 }

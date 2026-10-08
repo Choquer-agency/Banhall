@@ -82,7 +82,7 @@
   .disclosure {
     display: grid;
     grid-template-rows: 0fr;
-    transition: grid-template-rows 300ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition: grid-template-rows var(--duration-layout) var(--ease-layout);
   }
   .disclosure[data-open] {
     grid-template-rows: 1fr;

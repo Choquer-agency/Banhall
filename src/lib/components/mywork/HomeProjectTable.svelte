@@ -15,9 +15,9 @@
   import { IconChevronDownSmall, IconClockSmall, IconTable } from "$lib/components/icons";
   import HomeStageChip from "$lib/components/mywork/HomeStageChip.svelte";
   import DuplicateProjectButton from "$lib/components/workspace/DuplicateProjectButton.svelte";
+  import DeleteProjectButton from "$lib/components/workspace/DeleteProjectButton.svelte";
   import { formatEdited } from "$lib/components/project/details/detailsFormat";
   import { clientInitial, clientTone, type HomeRow } from "$lib/mywork/homeRows";
-  import { setProjectPagingContext } from "$lib/workspace/projectPagingContext";
 
   let {
     id,
@@ -25,7 +25,6 @@
     icon,
     rows,
     count = null,
-    bounded = false,
     now,
     first = false,
     columnHeader = true,
@@ -39,8 +38,6 @@
     /** undefined while loading. */
     rows: HomeRow[] | undefined;
     count?: string | null;
-    /** More rows exist beyond the loaded ones (paging context qualifier). */
-    bounded?: boolean;
     now: number;
     /** The first table sits flush with the panel top; later ones get 40px above. */
     first?: boolean;
@@ -56,11 +53,6 @@
   } = $props();
 
   let open = $state(true);
-
-  function stashContext() {
-    if (!rows) return;
-    setProjectPagingContext({ ids: rows.map((row) => row.projectId), label, bounded });
-  }
 </script>
 
 {#snippet columnHeaders()}
@@ -150,10 +142,10 @@
                       data-recent-title={row.title}
                       data-recent-stage={row.stage}
                       data-recent-client={row.clientName || undefined}
-                      onclick={stashContext}
                       class="min-w-0 truncate text-[0.8125rem] font-medium leading-[1.125rem] text-ink outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-fir"
                     >{row.title}</a>
                     <DuplicateProjectButton projectId={row.projectId} projectTitle={row.title} deleting={row.deleting} class="ml-auto" />
+                    <DeleteProjectButton projectId={row.projectId} projectTitle={row.title} createdBy={row.createdBy} deleting={row.deleting} />
                   </div>
                 </td>
                 <td class="pr-3 max-sm:hidden">

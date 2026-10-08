@@ -178,7 +178,7 @@
     </button>
   {/if}
 
-  <article class="flex w-full max-w-[47.5rem] flex-col gap-[1.375rem] pt-2" data-drafting-report>
+  <article class="flex w-full flex-col gap-[1.375rem] pt-2" data-drafting-report>
     <!-- The page's single h1 is the top bar title; the draft's title is h2. -->
     <h2 id={headingId} tabindex="-1" class="font-serif text-[1.875rem] font-normal leading-[2.25rem] text-ink outline-none">{reportTitle}</h2>
 

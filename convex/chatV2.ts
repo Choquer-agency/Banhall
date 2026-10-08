@@ -139,6 +139,9 @@ async function threadRow(ctx: QueryCtx | MutationCtx, agentThreadId: string) {
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
+/** The conversation menu lists at most this many, newest first. */
+const THREAD_LIST_LIMIT = 50;
+
 export const listThreads = query({
   args: { reportId: v.id("reports") },
   handler: async (ctx, args) => {
@@ -150,7 +153,7 @@ export const listThreads = query({
       .query("agentChatThreads")
       .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
       .order("desc")
-      .collect();
+      .take(THREAD_LIST_LIMIT);
   },
 });
 

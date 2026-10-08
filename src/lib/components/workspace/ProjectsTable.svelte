@@ -46,6 +46,8 @@
     };
     /** The project is mid-deletion (server-projected); hides Duplicate. */
     deleting?: boolean;
+    /** Who created the project; only they or an admin may delete it. */
+    createdBy?: string;
   };
 
   export type ProjectsTableColumns = Record<ProjectColumnId, boolean>;
@@ -65,7 +67,6 @@
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import { generationActivityLabel } from "$lib/dashboard/generationActivity";
   import { stageBadgeClasses } from "$lib/workflow/stagePresentation";
-  import { setProjectPagingContext } from "$lib/workspace/projectPagingContext";
 
   let {
     rows,
@@ -77,26 +78,11 @@
       updated: true,
     },
     density = "comfortable",
-    contextLabel = "Projects",
-    contextBounded = false,
   }: {
     rows: ProjectsTableRow[];
     columns?: ProjectsTableColumns;
     density?: ProjectTableDensity;
-    /** Where these rows live, for the project header's "N of M in <label>"
-     * paging context (2026-08-13, Attio-research P1). */
-    contextLabel?: string;
-    /** True when more rows existed beyond this loaded page. */
-    contextBounded?: boolean;
   } = $props();
-
-  function stashPagingContext() {
-    setProjectPagingContext({
-      ids: rows.map((row) => row.id),
-      label: contextLabel,
-      bounded: contextBounded,
-    });
-  }
 
   // Density ladder (2026-08-13, Attio-research P2): compact rows reach the
   // Attio-density ~36px on pointer-fine devices; the ≥44px touch-target
@@ -226,7 +212,6 @@
                 data-recent-title={row.title}
                 data-recent-stage={row.workflowStage ?? undefined}
                 data-recent-client={row.clientName || undefined}
-                onclick={stashPagingContext}
                 class={`flex ${anchorHeight} min-w-0 flex-col justify-center rounded-md text-sm font-medium text-ink transition-colors hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none`}
               >
                 <span class="truncate">{row.title}</span>

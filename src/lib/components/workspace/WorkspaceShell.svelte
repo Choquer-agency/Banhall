@@ -308,11 +308,11 @@
      transition so the edge follows the pointer 1:1. */
   .workspace-shell-grid {
     --workspace-rail-col: var(--workspace-rail-width, 17.1875rem);
-    transition: grid-template-columns 300ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition: grid-template-columns var(--duration-layout) var(--ease-layout);
   }
 
   .workspace-rail-panel {
-    transition: width 300ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition: width var(--duration-layout) var(--ease-layout);
   }
 
   .workspace-shell-grid[data-rail-hidden] {

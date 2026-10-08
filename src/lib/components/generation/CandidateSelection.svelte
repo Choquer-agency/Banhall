@@ -41,6 +41,7 @@
   import { reportSectionMetrics } from "$lib/reportSections";
   import GenerationRecoveryPanel from "./GenerationRecoveryPanel.svelte";
   import { stickyActionBar } from "$lib/shell/stickyActionBars.svelte";
+  import { layoutMotion } from "$lib/motion/layoutMotion";
 
   /**
    * Candidate picker (port of src/components/generation/CandidateSelection.tsx).
@@ -228,9 +229,9 @@
 </script>
 
 {#if candidates && candidates.length > 0 && current}
-  <div bind:this={rootEl} class={`mx-auto flex min-h-0 w-full flex-1 overflow-hidden transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${maximized ? "max-w-full" : "max-w-[var(--container-shell)]"}`}>
+  <div bind:this={rootEl} class={`mx-auto flex min-h-0 w-full flex-1 overflow-hidden transition-[max-width] ${layoutMotion} ${maximized ? "max-w-full" : "max-w-[var(--container-shell)]"}`}>
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <div class={`mx-auto transition-[max-width,padding] duration-[325ms] ease-out motion-reduce:transition-none ${maximized ? "max-w-full px-7 py-6" : qaOpen ? "max-w-report px-8 py-8" : "max-w-[var(--container-shell)] px-8 py-8"}`}>
+    <div class={`mx-auto transition-[max-width,padding] ${layoutMotion} ${maximized ? "max-w-full px-7 py-6" : qaOpen ? "max-w-report px-8 py-8" : "max-w-[var(--container-shell)] px-8 py-8"}`}>
       <div class="mb-1 flex items-center gap-2">
         <span class="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-primary-dark">
           <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -341,7 +342,7 @@
           {actionError}
         </p>
       {/if}
-      <div class={`mx-auto grid grid-cols-[1fr_auto_1fr] items-center gap-4 transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${maximized ? "max-w-full" : qaOpen ? "max-w-report" : "max-w-[var(--container-shell)]"}`}>
+      <div class={`mx-auto grid grid-cols-[1fr_auto_1fr] items-center gap-4 transition-[max-width] ${layoutMotion} ${maximized ? "max-w-full" : qaOpen ? "max-w-report" : "max-w-[var(--container-shell)]"}`}>
         <span class="justify-self-start text-sm text-gray-500">
           Viewing <span class="font-medium text-navy">{current.label ?? `Option ${pos + 1}`}</span>
         </span>
@@ -433,7 +434,7 @@
 
   <!-- QA rail — same motion + resize behaviour as the workspace assistant -->
   <aside
-    class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${qaOpen ? (maximized ? "pl-1 pr-7" : "pl-1 pr-6") : ""} ${qaDragging ? "" : "transition-all duration-[325ms] ease-out motion-reduce:transition-none"}`}
+    class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${qaOpen ? (maximized ? "pl-1 pr-7" : "pl-1 pr-6") : ""} ${qaDragging ? "" : `transition-all ${layoutMotion}`}`}
     style={`width: ${qaOpen ? `${qaRatio * 100}%` : "0%"}`}
   >
     <QARailPanel

@@ -63,11 +63,23 @@ describe("project page rollback-purity boundary", () => {
     }
   });
 
-  it("switches the report between the 720px reading column and full width", () => {
+  it("gives every narrow project surface the one shared reading column", () => {
+    const surfaces = [
+      "src/lib/components/project/PreviewProjectPage.svelte",
+      "src/lib/components/project/shell/SourcesView.svelte",
+      "src/lib/components/seeds/SeedSummaryReview.svelte",
+      "src/lib/components/generation/writing/SeedDraftingView.svelte",
+    ];
+    for (const file of surfaces) {
+      const src = readFileSync(file, "utf8");
+      expect(src, `${file} sets its own column width`).not.toMatch(/max-w-3xl|max-w-\[(45|47\.5|50|50\.5|60)rem\]/);
+    }
+  });
+
+  it("switches the report between the 880px reading column and full width", () => {
     expect(previewSrc).toContain('data-project-workspace class="flex min-h-0 w-full flex-1 flex-col overflow-hidden"');
     expect(previewSrc).toContain('data-report-width={workspaceMaximized ? "full" : "reading"}');
-    expect(previewSrc).toContain('"mx-auto max-w-3xl px-6 lg:max-w-[50rem] lg:px-10"');
-    expect(previewSrc).toContain('sidePanelOpen ? "px-6 lg:px-10" : "px-6 lg:px-12"');
+    expect(previewSrc).toContain("reportColumn(workspaceMaximized, sidePanelOpen)");
     expect(previewSrc).toContain("min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto");
   });
 

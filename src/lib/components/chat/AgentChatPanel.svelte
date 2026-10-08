@@ -31,6 +31,7 @@
     type TurnTiming,
   } from "$lib/chat/turnParts";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
+  import AssistantPanelSkeleton from "./AssistantPanelSkeleton.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
@@ -245,6 +246,33 @@
 
   const researchSessionsQ = useQuery(api.research.listSessions, () => ({ reportId }));
   const hasResearch = $derived((researchSessionsQ.data?.length ?? 0) > 0);
+
+  // 2026-10-06: until the conversation list is here, a send cannot know
+  // whether it continues the newest conversation or starts one, and an empty
+  // transcript cannot be told from one still loading. So the welcome and
+  // its starters wait, and Send waits, for the first data; until then the
+  // message area shows the loading skeleton. A failed read of the list or
+  // of the conversation counts as here, so an error never leaves the
+  // skeleton up (a failed conversation read shows its own notice).
+  const threadsLoading = $derived(threadsQ.data === undefined && !threadsQ.error);
+  // The list failed before any data (review P1): whether a conversation
+  // exists is unknown, so Send waits and the panel says so, unless the
+  // writer chose New conversation from the menu or a conversation is
+  // already selected (the one that choice just created, say).
+  const threadsUnreadable = $derived(
+    threadsQ.data === undefined && !!threadsQ.error && !startingNewChat && selectedThreadId === null
+  );
+  // The selected conversation failed to load: a send would land in a
+  // conversation the writer cannot see, so Send waits for another choice.
+  const conversationUnreadable = $derived(!!selectedThreadId && !!ui.error && ui.results.length === 0);
+  const transcriptReady = $derived(
+    !threadsLoading &&
+      // The newest conversation is about to be selected (an effect does it).
+      !(selectedThreadId === null && !startingNewChat && (threadsQ.data?.length ?? 0) > 0) &&
+      (!selectedThreadId || ui.status !== "LoadingFirstPage" || !!ui.error) &&
+      // Research only decides between the welcome and a research-only feed.
+      (ui.results.length > 0 || researchSessionsQ.data !== undefined || !!researchSessionsQ.error)
+  );
 
   const sendMessage = useMutation(api.chatV2.sendMessage);
   const abortStreaming = useMutation(api.chatV2.abortStreaming);
@@ -653,6 +681,7 @@
       researchStarting ||
       publicationPending ||
       (!historical && composerChatBlocked) ||
+      (!historical && (threadsLoading || threadsUnreadable || conversationUnreadable)) ||
       isStreaming
     ) return;
 
@@ -1492,7 +1521,7 @@
       {:else}
         <button
           onclick={() => sendText(input)}
-          disabled={sending || researchStarting || publicationPending || composerChatBlocked || (!input.trim() && !pendingHighlight && !pendingResearch)}
+          disabled={sending || researchStarting || publicationPending || composerChatBlocked || threadsLoading || threadsUnreadable || conversationUnreadable || (!input.trim() && !pendingHighlight && !pendingResearch)}
           class="group flex size-[1.625rem] shrink-0 items-center justify-center rounded-full bg-primary-selected text-white transition-[background-color,opacity,transform] hover:bg-primary-dark active:translate-y-px disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11"
           title={pendingResearch ? "Start research" : "Send"}
           aria-label="Send message"
@@ -1595,7 +1624,23 @@
   </div>
 
 
-  {#if isConversationEmpty}
+  {#if !transcriptReady && visibleLocalSends.length === 0 && !pendingResearch}
+    <AssistantPanelSkeleton part="body" {isFull} />
+  {:else if threadsUnreadable && visibleLocalSends.length === 0}
+    <!-- The conversation list failed to load: never the welcome. -->
+    <div class="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-6">
+      <p class="max-w-[18.75rem] text-center text-xs leading-relaxed text-ink-muted" role="alert">
+        Your conversations could not load. Reload the page, or start a new one from the Assistant menu.
+      </p>
+    </div>
+  {:else if conversationUnreadable && visibleLocalSends.length === 0}
+    <!-- A conversation that failed to load says so, never the welcome. -->
+    <div class="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-6">
+      <p class="max-w-[18.75rem] text-center text-xs leading-relaxed text-ink-muted" role="alert">
+        This conversation could not load. Pick another from the Assistant menu, or start a new one.
+      </p>
+    </div>
+  {:else if isConversationEmpty}
     <!-- Empty state: brand mark, capability blurb, starter suggestions; the
          composer stays pinned to the bottom (Obvious anatomy) in EVERY state. -->
     <div class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-6">

@@ -36,6 +36,16 @@ async function mount(initial = content()) {
   return { ...result, tiptap: element.editor };
 }
 
+/**
+ * Focuses the editor and waits until it really holds focus. Keys typed with
+ * userEvent go to whatever is focused; on a loaded CI runner they could land
+ * before the focus did, and a Backspace then did nothing.
+ */
+async function focusEditor(tiptap: TiptapEditor) {
+  tiptap.commands.focus();
+  await expect.poll(() => tiptap.view.hasFocus()).toBe(true);
+}
+
 /** Positions around the Line 244 heading: the end of 242's last paragraph and the start of 244's first. */
 function around244(doc: PMNode) {
   let before = -1;
@@ -88,7 +98,7 @@ describe("Section heading protection (reading presentation)", () => {
     it(`does not merge the first paragraph into the heading on ${keys}`, async () => {
       const original = content();
       const { tiptap } = await mount(original);
-      tiptap.commands.focus();
+      await focusEditor(tiptap);
       tiptap.commands.setTextSelection(around244(tiptap.state.doc).after);
       await userEvent.keyboard(keys);
       await userEvent.keyboard(keys);
@@ -100,7 +110,7 @@ describe("Section heading protection (reading presentation)", () => {
     it(`does not merge the heading into the previous paragraph on ${keys}`, async () => {
       const original = content();
       const { tiptap } = await mount(original);
-      tiptap.commands.focus();
+      await focusEditor(tiptap);
       tiptap.commands.setTextSelection(around244(tiptap.state.doc).before);
       await userEvent.keyboard(keys);
       await userEvent.keyboard(keys);
@@ -116,7 +126,7 @@ describe("Section heading protection (reading presentation)", () => {
     it(`keeps the caret out of the heading on ${label} and its reverse`, async () => {
       const original = content();
       const { tiptap } = await mount(original);
-      tiptap.commands.focus();
+      await focusEditor(tiptap);
       tiptap.commands.setTextSelection(around244(tiptap.state.doc).before);
       for (let i = 0; i < 3; i++) {
         await userEvent.keyboard(forward);
@@ -157,7 +167,7 @@ describe("Section heading protection (reading presentation)", () => {
     it(`refuses ${label} over a selection that spans a heading`, async () => {
       const original = content();
       const { tiptap } = await mount(original);
-      tiptap.commands.focus();
+      await focusEditor(tiptap);
       tiptap.commands.setTextSelection(spanning(tiptap));
       await run(tiptap);
       expectIntact(tiptap, original);
@@ -166,7 +176,7 @@ describe("Section heading protection (reading presentation)", () => {
 
   it("still applies a paste inside one Section", async () => {
     const { tiptap } = await mount();
-    tiptap.commands.focus();
+    await focusEditor(tiptap);
     tiptap.commands.setTextSelection(around244(tiptap.state.doc).after);
     tiptap.view.pasteText("Pasted. ");
     expect(parseCanonicalReport(JSON.stringify(tiptap.getJSON())).sections.s244.plainText).toContain("Pasted. Trials");
@@ -175,7 +185,7 @@ describe("Section heading protection (reading presentation)", () => {
   it("removes an empty paragraph under a heading with Backspace", async () => {
     const original = content();
     const { tiptap } = await mount(original);
-    tiptap.commands.focus();
+    await focusEditor(tiptap);
     const { after } = around244(tiptap.state.doc);
     tiptap.commands.setTextSelection(after);
     tiptap.commands.insertContentAt(after - 1, { type: "paragraph" });
@@ -295,7 +305,7 @@ describe("Section heading protection (reading presentation)", () => {
     it("refuses moving a selection that spans a heading by drag and drop", async () => {
       const original = content();
       const { tiptap } = await mount(original);
-      tiptap.commands.focus();
+      await focusEditor(tiptap);
       const { before, after } = around244(tiptap.state.doc);
       tiptap.commands.setTextSelection({ from: before - 5, to: after + 5 });
       drop(tiptap, { slice: tiptap.state.selection.content(), move: true }, inside244Second(tiptap.state.doc));
@@ -330,7 +340,7 @@ describe("Section heading protection (reading presentation)", () => {
       tiptap.state.doc.forEach((node, offset) => {
         if (node.type.name === "heading" && node.textContent.endsWith("X")) end = offset + node.nodeSize - 1;
       });
-      tiptap.commands.focus();
+      await focusEditor(tiptap);
       tiptap.commands.setTextSelection(end);
       await userEvent.keyboard("{Backspace}");
       expect(headingList(tiptap.state.doc)).toContain("Line 244 — Work Performed");
@@ -350,7 +360,7 @@ describe("Section heading protection (reading presentation)", () => {
     it("drops Section headings from pasted content and keeps the rest", async () => {
       const original = content();
       const { tiptap } = await mount(original);
-      tiptap.commands.focus();
+      await focusEditor(tiptap);
       tiptap.commands.setTextSelection(around244(tiptap.state.doc).after);
       tiptap.view.pasteHTML("<h2>Line 244 — Work Performed</h2><p>Pasted paragraph.</p>");
       expect(headingList(tiptap.state.doc)).toEqual(headingList(tiptap.schema.nodeFromJSON(JSON.parse(original))));
@@ -360,7 +370,7 @@ describe("Section heading protection (reading presentation)", () => {
     it("says why an edit was refused", async () => {
       const { tiptap } = await mount();
       const { before, after } = around244(tiptap.state.doc);
-      tiptap.commands.focus();
+      await focusEditor(tiptap);
       tiptap.commands.setTextSelection({ from: before - 5, to: after + 5 });
       await userEvent.keyboard("{Backspace}");
       await expect
@@ -373,7 +383,7 @@ describe("Section heading protection (reading presentation)", () => {
       Object.defineProperty(navigator, "platform", { value: "Win32", configurable: true });
       try {
         const { tiptap } = await mount();
-        tiptap.commands.focus();
+        await focusEditor(tiptap);
         tiptap.commands.setTextSelection(around244(tiptap.state.doc).before);
         for (const init of [{ key: "d", ctrlKey: true }, { key: "h", ctrlKey: true }, { key: "d", altKey: true }]) {
           const event = new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true });
@@ -393,7 +403,7 @@ describe("Section heading protection (reading presentation)", () => {
     it("does nothing, and says why, when the paste held only a Section heading", async () => {
       const original = content();
       const { tiptap } = await mount(original);
-      tiptap.commands.focus();
+      await focusEditor(tiptap);
       const { after } = around244(tiptap.state.doc);
       tiptap.commands.setTextSelection({ from: after, to: after + 6 });
       const before = tiptap.state.doc;
@@ -404,7 +414,7 @@ describe("Section heading protection (reading presentation)", () => {
 
     it("says the headings were left out when a paste carried several Sections", async () => {
       const { tiptap } = await mount();
-      tiptap.commands.focus();
+      await focusEditor(tiptap);
       tiptap.commands.setTextSelection(around244(tiptap.state.doc).after);
       tiptap.view.pasteHTML("<h2>Line 242 — Scientific/Technological Uncertainty</h2><p>First body.</p><h2>Line 244 — Work Performed</h2><p>Second body.</p>");
       expect(headingList(tiptap.state.doc).filter((text) => text.startsWith("Line 24"))).toHaveLength(3);

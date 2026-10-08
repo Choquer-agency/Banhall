@@ -51,7 +51,6 @@
     type WorkflowStage,
   } from "../../../../shared/workflowStages";
   import type { ProjectsTableRow } from "./ProjectsTable.svelte";
-  import { setProjectPagingContext } from "$lib/workspace/projectPagingContext";
 
   let {
     rows,
@@ -195,12 +194,6 @@
                 {row}
                 showClient={showCardClient}
                 showFiscalYear={showCardFiscalYear}
-                onOpen={() =>
-                  setProjectPagingContext({
-                    ids: column.rows.map((r) => r.id),
-                    label: column.label,
-                    bounded: countsApproximate || column.count > column.rows.length,
-                  })}
               />
             {/each}
           {/if}

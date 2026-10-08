@@ -22,6 +22,7 @@
   import SeedQuote from "./SeedQuote.svelte";
   import { unbackedNote } from "./citations";
   import SeedSignOffDialog from "./SeedSignOffDialog.svelte";
+  import { readingColumn } from "$lib/components/ui/readingColumn";
 
   let {
     generationId,
@@ -848,7 +849,7 @@
   >Summary review</h1>
 
   <div class="relative min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto w-full max-w-[47.5rem] px-4 pt-7 pb-14 sm:px-0">
+    <div class={`${readingColumn} pt-7 pb-14`}>
       {#if outlineError}
         <!-- Separate from the Summary-page and revision states below: the
              pages on screen stay complete; only live readiness and

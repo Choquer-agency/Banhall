@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import PreviewProjectPage from "./PreviewProjectPage.svelte";
 import { __resetPage, __setPageParams } from "$lib/test/app-state-stub.svelte";
-import { __resetNavigation } from "$lib/test/app-navigation-stub";
+import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
 import { ConvexError } from "convex/values";
 import {
+  __activeQueryCount,
+  __clientSubscriptions,
   __mutationCalls,
   __resetConvexStub,
   __setMutationError,
@@ -16,6 +18,7 @@ import {
 } from "$lib/test/convex-svelte-stub.svelte";
 import { __resetQaSeenMemory } from "$lib/qa/qaSeen";
 import { board, boardPx } from "$lib/test/boardScale";
+import { releaseAssistantPrewarm } from "$lib/components/chat/chatModules";
 
 /**
  * The preview report page's final shell (ui-design-final.md sections 2 and 8,
@@ -171,7 +174,8 @@ describe("PreviewProjectPage final shell", () => {
     expect(more.compareDocumentPosition(exportButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await page.getByRole("button", { name: "More actions", exact: true }).click();
     const items = Array.from(document.querySelectorAll("[data-top-bar-more-item]")).map((item) => item.getAttribute("data-top-bar-more-item"));
-    expect(items).toEqual(["ai-review", "share", "history", "financial"]);
+    // The seeded viewer created this project, so Delete project ends the menu.
+    expect(items).toEqual(["ai-review", "share", "history", "financial", "delete"]);
     // The QA toggle carries the band chip.
     expect(document.querySelector('[data-panel-toggle="qa"] [data-qa-chip]')?.textContent).toBe("78");
   });
@@ -238,24 +242,33 @@ describe("PreviewProjectPage final shell", () => {
     expect(page.getByText("Evidence from thermal trials.", { exact: true }).element()).toBe(editorText);
   });
 
-  it("switches between the 720px reading column and full width, and remembers it per browser", async () => {
+  it("switches between the 880px reading column and full width, and opens in the column every visit", async () => {
     seed();
-    localStorage.setItem("banhall_chat_open", "0");
+    // Saved state from before 2026-10-06 is ignored: the report opens alone.
+    localStorage.setItem("banhall_chat_open", "1");
+    localStorage.setItem("banhall_qa_open", "1");
+    localStorage.setItem("banhall_project_editor_maximized", "1");
     const screen = await render(PreviewProjectPage);
     await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
     expect(surface().getAttribute("data-report-width")).toBe("reading");
+    await expect.element(page.getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-pressed", "false");
+    expect(page.getByRole("button", { name: "Close QA score", exact: true }).elements()).toHaveLength(0);
     const style = getComputedStyle(surface());
-    // Owner, 2026-09-29: a 720px (45rem) text column, 40px sides from lg up
+    // Owner, 2026-10-06: an 880px (55rem) text column, 40px sides from lg up
     // so the block handle 34px left of the text stays visible.
-    expect(surface().getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)).toBe(board(720));
+    expect(surface().getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)).toBe(board(880));
     expect(style.paddingLeft).toBe(boardPx(40));
     const toggle = page.getByRole("button", { name: "Full width", exact: true });
     await expect.element(toggle).toHaveAttribute("aria-pressed", "false");
+    // Owner, 2026-10-06: Full width eases with the shared layout curve. Full
+    // width is max-width 100%, not none, so the width can animate.
+    expect(style.transitionTimingFunction).toBe("cubic-bezier(0.16, 1, 0.3, 1)");
+    expect(style.transitionDuration).toBe("0.35s");
     await toggle.click();
     await expect.poll(() => surface().getAttribute("data-report-width")).toBe("full");
+    expect(getComputedStyle(surface()).maxWidth).not.toBe("none");
     // Full width alone: 48px sides (was 96).
     await expect.poll(() => getComputedStyle(surface()).paddingLeft).toBe(boardPx(48));
-    await expect.poll(() => localStorage.getItem("banhall_project_editor_maximized")).toBe("1");
     // With a side panel open the full-width report keeps 40px sides (was 48).
     await page.getByRole("button", { name: "Details", exact: true }).click();
     await expect.poll(() => getComputedStyle(surface()).paddingLeft).toBe(boardPx(40));
@@ -263,13 +276,15 @@ describe("PreviewProjectPage final shell", () => {
     document.body.innerHTML = "";
     await render(PreviewProjectPage);
     await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
-    await expect.poll(() => surface().getAttribute("data-report-width")).toBe("full");
-    await expect.element(page.getByRole("button", { name: "Full width", exact: true })).toHaveAttribute("aria-pressed", "true");
+    expect(surface().getAttribute("data-report-width")).toBe("reading");
+    await expect.element(page.getByRole("button", { name: "Full width", exact: true })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("puts the Assistant in a 400px right panel and takes the page in a 720px column when expanded", async () => {
+  it("puts the Assistant in a 400px right panel and takes the page in the shared reading column when expanded", async () => {
     seed();
     await render(PreviewProjectPage);
+    // The project opens on the report alone (owner, 2026-10-06).
+    await page.getByRole("button", { name: "Assistant", exact: true }).click();
     await expect.element(page.getByRole("textbox", { name: "Message the report assistant" })).toBeVisible();
     const aside = document.querySelector<HTMLElement>("[data-side-panel]")!;
     await expect.poll(() => aside.getBoundingClientRect().width).toBe(board(400));
@@ -280,7 +295,7 @@ describe("PreviewProjectPage final shell", () => {
 
     await page.getByRole("button", { name: "Expand assistant", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-assistant-column]")?.getAttribute("data-assistant-column")).toBe("full");
-    await expect.poll(() => document.querySelector<HTMLElement>("[data-assistant-column]")!.getBoundingClientRect().width).toBe(board(720));
+    await expect.poll(() => document.querySelector<HTMLElement>("[data-assistant-column]")!.getBoundingClientRect().width).toBe(board(960));
     expect(getComputedStyle(main).display).toBe("none");
     expect(document.querySelector('[data-panel-toggle="full-width"]')).toBeNull();
     await page.getByRole("button", { name: "Collapse assistant", exact: true }).click();
@@ -291,6 +306,8 @@ describe("PreviewProjectPage final shell", () => {
   it("leaves Assistant full screen when a tab is selected, so the tab's page shows", async () => {
     seed({ seedRun: true });
     await render(PreviewProjectPage);
+    // The project opens on the report alone (owner, 2026-10-06).
+    await page.getByRole("button", { name: "Assistant", exact: true }).click();
     await expect.element(page.getByRole("textbox", { name: "Message the report assistant" })).toBeVisible();
     const main = () => document.querySelector<HTMLElement>("[data-project-main]")!;
 
@@ -339,8 +356,6 @@ describe("PreviewProjectPage final shell", () => {
       summaryVersionId: null,
       postQaStatus: "running",
     });
-    // The saved preference keeps QA open, but a phone starts on the report.
-    localStorage.setItem("banhall_qa_open", "1");
     await page.viewport(390, 844);
     await render(PreviewProjectPage);
     await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
@@ -365,9 +380,98 @@ describe("PreviewProjectPage final shell", () => {
     await expect.poll(() => localStorage.getItem("banhall_qa_seen:gen-1:3000")).toBe("seen");
   });
 
+  it("offers Delete project in More to the creator, asks first, and returns to Projects after deleting", async () => {
+    seed();
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "More actions", exact: true }).click();
+    const item = page.getByRole("menuitem", { name: "Delete project" });
+    await expect.element(item).toBeVisible();
+    await item.click();
+    await expect.element(page.getByRole("heading", { name: "Delete Adaptive cold storage controls?" })).toBeVisible();
+    expect(__mutationCalls("projects:deleteProject")).toHaveLength(0);
+    await page.getByRole("button", { name: "Delete project", exact: true }).click();
+    await expect.poll(() => __mutationCalls("projects:deleteProject")).toEqual([{ projectId: "project-1" }]);
+    await expect.poll(() => __navigationCalls.at(-1)?.url ?? null).toContain("/projects");
+  });
+
+  it("never flashes Project not found when the project reads as gone before the delete returns", async () => {
+    seed();
+    let finish!: () => void;
+    __setMutationResult("projects:deleteProject", new Promise<void>((resolve) => (finish = resolve)));
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    const sawNotFound = { value: false };
+    const observer = new MutationObserver(() => {
+      if (document.body.textContent?.includes("Project not found")) sawNotFound.value = true;
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    await page.getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Delete project" }).click();
+    await page.getByRole("button", { name: "Delete project", exact: true }).click();
+    // Convex applies the query change before the mutation resolves.
+    __setQueryData("projects:getProject", null);
+    await expect.poll(() => __navigationCalls.at(-1)?.url ?? null).toContain("/projects");
+    finish();
+    await new Promise((done) => setTimeout(done, 50));
+    observer.disconnect();
+    expect(sawNotFound.value).toBe(false);
+  });
+
+  it("closes an open delete dialog when the route moves to another project, so it can never delete that one", async () => {
+    seed();
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Delete project" }).click();
+    await expect.element(page.getByRole("heading", { name: "Delete Adaptive cold storage controls?" })).toBeVisible();
+    // Browser Back to another project reuses this page with a new route id.
+    __setPageParams({ id: "project-2" });
+    await expect.poll(() => page.getByRole("heading", { name: "Delete Adaptive cold storage controls?" }).elements().length).toBe(0);
+    expect(__mutationCalls("projects:deleteProject")).toHaveLength(0);
+  });
+
+  it("returns focus to More actions when Keep project closes the dialog", async () => {
+    seed();
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Delete project" }).click();
+    await expect.element(page.getByRole("button", { name: "Keep project" })).toHaveFocus();
+    await page.getByRole("button", { name: "Keep project" }).click();
+    await expect.element(page.getByRole("button", { name: "More actions", exact: true })).toHaveFocus();
+  });
+
+  it("does not offer Delete project to someone who is not the creator or an admin", async () => {
+    seed();
+    __setQueryData("users:getCurrentUser", { _id: "user-2", role: "manager", firstName: "Sam", lastName: "Chen", email: "sam@example.test" });
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "More actions", exact: true }).click();
+    await expect.element(page.getByRole("menuitem", { name: "History" })).toBeVisible();
+    expect(page.getByRole("menuitem", { name: "Delete project" }).elements()).toHaveLength(0);
+  });
+
+  it("starts the Assistant's conversation list on hover, never on page load", async () => {
+    releaseAssistantPrewarm();
+    seed();
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    expect(__clientSubscriptions("chatV2:listThreads")).toHaveLength(0);
+    expect(__activeQueryCount("chatV2:listThreads")).toBe(0);
+    await userEvent.hover(page.getByRole("button", { name: "Assistant", exact: true }));
+    await expect.poll(() => __clientSubscriptions("chatV2:listThreads")).toEqual([{ reportId: "report-1" }]);
+    expect(__clientSubscriptions("research:listSessions")).toHaveLength(1);
+    // The panel itself is still closed.
+    expect(__activeQueryCount("chatV2:listThreads")).toBe(0);
+    releaseAssistantPrewarm();
+  });
+
   it("resizes the side panel from the keyboard and remembers the width", async () => {
     seed();
     await render(PreviewProjectPage);
+    // The project opens on the report alone (owner, 2026-10-06).
+    await page.getByRole("button", { name: "Assistant", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-side-panel-divider]")).not.toBeNull();
     const divider = document.querySelector<HTMLElement>("[data-side-panel-divider]")!;
     divider.focus();
@@ -379,6 +483,8 @@ describe("PreviewProjectPage final shell", () => {
   it("opens Details in the side slot, one panel at a time, and saves a fact through the adapter", async () => {
     seed();
     await render(PreviewProjectPage);
+    // The project opens on the report alone (owner, 2026-10-06).
+    await page.getByRole("button", { name: "Assistant", exact: true }).click();
     await expect.element(page.getByRole("textbox", { name: "Message the report assistant" })).toBeVisible();
     await page.getByRole("button", { name: "Details", exact: true }).click();
     await expect.element(page.getByRole("heading", { name: "Details", exact: true })).toBeVisible();

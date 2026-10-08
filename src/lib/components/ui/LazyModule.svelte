@@ -24,8 +24,9 @@
     {#if pending}
       {@render pending()}
     {:else}
-    <div class="flex items-center justify-center gap-2 p-4 text-sm text-ink-muted" role="status" aria-label={`Loading ${label}`}>
-      <Spinner size="sm" /> Loading {label}…
+    <!-- One status for assistive tech: the spinner's own is hidden. -->
+    <div class="flex flex-1 items-center justify-center gap-2 p-4 text-sm text-ink-muted" role="status" aria-label={`Loading ${label}`}>
+      <span aria-hidden="true"><Spinner size="sm" /></span> Loading {label}…
     </div>
     {/if}
   {:then module}
