@@ -41,6 +41,9 @@ export const domainErrorCodes = [
   // Audit wave 2: a per-user or per-project limit on a paid AI action;
   // carries `retryAfter` in seconds.
   "RATE_LIMITED",
+  // 2026-10-14 saved clients: a client with the same key already exists
+  // (create or a merge rename); carries `existingName` and `existingKey`.
+  "CLIENT_EXISTS",
 ] as const;
 
 export type DomainErrorCode = (typeof domainErrorCodes)[number];

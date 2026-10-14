@@ -232,6 +232,11 @@ export default defineSchema({
     // projects carry a letter "A".."Z" until converted. Conversion is a
     // label-only change; validation lives in projects.setProjectNumber.
     projectNumber: v.optional(v.string()),
+    // 2026-10-14 amendment (D7 widen): the saved client with the same key as
+    // clientName, written alongside it by every clientName writer (cleared
+    // when no active client has that key). clientName stays the field every
+    // reader groups by; nothing reads clientId for grouping yet.
+    clientId: v.optional(v.id("clients")),
     // PSOS-11 widen phase. These additive fields power bounded dashboard
     // projections without changing canonical project/workflow semantics.
     dashboardCompanyKey: v.optional(v.string()),
@@ -356,10 +361,44 @@ export default defineSchema({
     // Story 0 (AD-19): review projects pointing at a deleted source are
     // detached by the purge's final page through this range.
     .index("by_sourceProjectId", ["sourceProjectId"])
+    // 2026-10-14: the projects linked to one saved client (merge, backfill).
+    .index("by_clientId", ["clientId"])
     .searchIndex("search_dashboardSearchText", {
       searchField: "dashboardSearchText",
-      filterFields: ["workflowStage", "ownerId", "industry", "scienceCode"],
+      // dashboardCompanyKey (2026-10-14): scopes search to one client.
+      filterFields: [
+        "workflowStage",
+        "ownerId",
+        "industry",
+        "scienceCode",
+        "dashboardCompanyKey",
+      ],
     }),
+
+  // 2026-10-14 amendment "Saved clients, client merge, and the Projects page
+  // redesign" (D7 widen). One row per client. nameKey is
+  // dashboardCompanyKey(name), the key that groups projects today. A merge
+  // turns the merged rows into `merged` tombstones that point at the kept
+  // client; at most one `active` row exists per nameKey. dashboardCompanies
+  // stays a projection and is not replaced by this table.
+  clients: defineTable({
+    name: v.string(),
+    nameKey: v.string(),
+    // Usual fiscal year end (month 1 to 12 and a day valid for that month);
+    // both set or both absent.
+    fiscalYearEndMonth: v.optional(v.number()),
+    fiscalYearEndDay: v.optional(v.number()),
+    industry: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("merged")),
+    mergedIntoClientId: v.optional(v.id("clients")),
+    mergedAt: v.optional(v.number()),
+    mergedBy: v.optional(v.id("users")),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_status_and_nameKey", ["status", "nameKey"])
+    .index("by_nameKey", ["nameKey"]),
 
   dashboardBackfillRuns: defineTable({
     runKey: v.string(),
