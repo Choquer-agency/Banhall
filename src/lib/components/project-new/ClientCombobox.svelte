@@ -60,7 +60,7 @@
 
   const auth = useAuth();
   // Try again drops the failed subscription for a moment and subscribes
-  // afresh, as the Projects page's Try again does by remounting its list.
+  // afresh, as the Projects page's Try again does.
   let retrying = $state(false);
   const clientsQ = useQuery(api.clients.listClients, () =>
     clients === undefined && auth.isAuthenticated && !retrying ? {} : "skip"

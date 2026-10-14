@@ -8,6 +8,7 @@ import {
   __activeQueryArgs,
   __isQueryActive,
   __mutationCalls,
+  __queryArgsHistory,
   __resetConvexStub,
   __setMutationResult,
   __setPaginatedRows,
@@ -479,6 +480,18 @@ describe("Projects page client area", () => {
     await expect.poll(() => text(document.querySelector("[data-projects-error]"))).toBe(
       "Projects could not be loaded. Try again"
     );
+  });
+});
+
+describe("Client list failure", () => {
+  it("Try again drops the failed list subscription and subscribes afresh", async () => {
+    __setQueryError("clients:listClients", new Error("boom"));
+    await mount();
+    await expect.element(page.getByRole("button", { name: "Try again" })).toBeVisible();
+    const before = __queryArgsHistory("clients:listClients").length;
+    await userEvent.click(page.getByRole("button", { name: "Try again" }));
+    // A skip then a fresh subscription, not just a remounted list.
+    await expect.poll(() => __queryArgsHistory("clients:listClients").slice(before)).toEqual(["skip", {}]);
   });
 });
 

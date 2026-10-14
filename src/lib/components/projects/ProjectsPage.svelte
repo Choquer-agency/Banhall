@@ -53,7 +53,17 @@
 
   const auth = useAuth();
   const userQ = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
-  const clientsQ = useQuery(api.clients.listClients, () => (auth.isAuthenticated ? {} : "skip"));
+  // Try again drops the failed subscription for a moment and subscribes
+  // afresh; remounting the list alone would keep the cached error.
+  let retryingClients = $state(false);
+  const clientsQ = useQuery(api.clients.listClients, () =>
+    auth.isAuthenticated && !retryingClients ? {} : "skip"
+  );
+  async function retryClients() {
+    retryingClients = true;
+    await tick();
+    retryingClients = false;
+  }
 
   const viewer = $derived(userQ.data ?? null);
   const role = $derived(viewer && viewer.isAnonymous !== true ? (viewer.role ?? null) : null);
@@ -134,15 +144,21 @@
     mobileAll = false;
     // The dialog unmounts as the list updates, so focus would fall to the
     // page body: put it on the kept client's row, or on the client title.
-    void goto(clientHref(page.url, result.keptKey), { keepFocus: true, noScroll: true }).then(async () => {
-      await tick();
-      requestAnimationFrame(() => {
-        const target =
-          document.querySelector<HTMLElement>(`[data-client-row="${CSS.escape(result.keptKey)}"]`) ??
-          document.querySelector<HTMLElement>("[data-client-title]");
-        target?.focus();
+    // On small screens the list is hidden, so only a visible target counts.
+    void goto(clientHref(page.url, result.keptKey), { keepFocus: true, noScroll: true })
+      .then(async () => {
+        await tick();
+        requestAnimationFrame(() => {
+          const candidates = [
+            document.querySelector<HTMLElement>(`[data-client-row="${CSS.escape(result.keptKey)}"]`),
+            document.querySelector<HTMLElement>("[data-client-title]"),
+          ];
+          candidates.find((node) => node !== null && node.getClientRects().length > 0)?.focus();
+        });
+      })
+      .catch(() => {
+        // An aborted navigation leaves focus where it was.
       });
-    });
   }
 
   // ─── Card actions ─────────────────────────────────────────────────────────
@@ -235,7 +251,7 @@
         onEndMerge={endMerge}
         onToggleMerge={toggleMerge}
         onMerge={() => (mergeOpen = true)}
-        onRetry={() => (clientsAttempt += 1)}
+        onRetry={() => { clientsAttempt += 1; void retryClients(); }}
       />
     {/key}
   </aside>
