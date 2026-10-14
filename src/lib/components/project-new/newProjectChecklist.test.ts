@@ -14,6 +14,7 @@ import {
 const READY: ChecklistInput = {
   mode: "generate",
   clientName: "Cedarline Systems",
+  clientPicked: true,
   title: "Adaptive cold storage controls",
   transcripts: { count: 2, words: 14_820 },
   unreadableTranscripts: 0,
@@ -46,6 +47,38 @@ describe("buildChecklist", () => {
     const rows = buildChecklist({ ...READY, title: "  " });
     expect(rows[0]).toMatchObject({ id: "client-title", state: "pending", text: "Add a client and a title", blocking: true });
     expect(startBlocked(rows)).toBe(true);
+  });
+
+  it("blocks a client name that is not in the list until one is picked (W8)", () => {
+    const rows = buildChecklist({ ...READY, clientName: "Northwind Robotics", clientPicked: false });
+    expect(rows[0]).toEqual({ id: "client-title", state: "pending", text: "Pick a client from the list", blocking: true });
+    expect(startBlocked(rows)).toBe(true);
+    // The same row asks for the pick whether or not the title is in.
+    expect(buildChecklist({ ...READY, title: "", clientPicked: false })[0]).toMatchObject({
+      text: "Pick a client from the list",
+      blocking: true,
+    });
+  });
+
+  it("waits quietly while the client list loads, still blocking", () => {
+    const rows = buildChecklist({ ...READY, clientPicked: false, clientListLoading: true });
+    expect(rows[0]).toEqual({ id: "client-title", state: "reading", text: "Checking the client list", blocking: true });
+    expect(startBlocked(rows)).toBe(true);
+  });
+
+  it("asks for a client and a title when the client field is empty, picked or not", () => {
+    expect(buildChecklist({ ...READY, clientName: " ", clientPicked: false })[0]).toMatchObject({
+      text: "Add a client and a title",
+      blocking: true,
+    });
+  });
+
+  it("keeps the pick row next to a same-name warning", () => {
+    const rows = buildChecklist({ ...READY, clientPicked: false, duplicateName: true });
+    expect(rows.slice(0, 2).map((row) => [row.id, row.text])).toEqual([
+      ["duplicate", "Same name as an existing project"],
+      ["client-title", "Pick a client from the list"],
+    ]);
   });
 
   it("uses the singular and hides supporting documents when there are none", () => {

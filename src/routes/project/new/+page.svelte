@@ -34,6 +34,9 @@
   import TagPicker from "$lib/components/project-new/TagPicker.svelte";
   import NewProjectSection from "$lib/components/project-new/NewProjectSection.svelte";
   import ClientCombobox from "$lib/components/project-new/ClientCombobox.svelte";
+  import NewClientDialog, { type NewClientResult } from "$lib/components/clients/NewClientDialog.svelte";
+  import type { ClientOption } from "$lib/clients/clientOptions";
+  import { mostRecentYearEnd, yearEndParts } from "$lib/clients/usualYearEnd";
   import WriteModeCards from "$lib/components/project-new/WriteModeCards.svelte";
   import StartChecklist from "$lib/components/project-new/StartChecklist.svelte";
   import SupportingDocCard from "$lib/components/project-new/SupportingDocCard.svelte";
@@ -106,7 +109,7 @@
   } from "$lib/components/icons";
   import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
   import { recordProjectOpen } from "$lib/workspace/recentProjects";
-  import { parseDraftModeParam } from "$lib/workspace/projectDuplicate";
+  import { canCreateProjects, parseDraftModeParam } from "$lib/workspace/projectDuplicate";
   import { page } from "$app/state";
   import { createRequestId } from "$lib/requestId";
   import { registerSaveHold, SAVE_HOLD_ESCAPE_MS } from "$lib/workspace/saveHold";
@@ -151,15 +154,6 @@
   // BNH-35: available tags for the tag selector.
   const tagsQ = useQuery(api.tags.listTags, () => (auth.isAuthenticated ? {} : "skip"));
   const allTags = $derived(tagsQ.data ?? []);
-  // Client suggestions: the recorded client names (first page, D1 read).
-  const companiesQ = useQuery(api.dashboard.listCompanies, () =>
-    auth.isAuthenticated ? { paginationOpts: { numItems: 40, cursor: null } } : "skip"
-  );
-  const clientSuggestions = $derived(
-    ((companiesQ.data as { page?: Array<{ clientName: string }> } | undefined)?.page ?? []).map(
-      (row) => row.clientName
-    )
-  );
 
   // BNH-39: write a new PD from a transcript, or review an existing written PD.
   let mode = $state<"generate" | "review">("generate");
@@ -181,6 +175,14 @@
   // a scheme-named PD still carry it, and the project page edits it.
   let sredTitle = $state("");
   let clientName = $state("");
+  // Saved clients (2026-10-14 amendment, "Pick a client on New project"):
+  // ClientCombobox says whether the field names a listed client; Start
+  // stays blocked until it does. Clients made or chosen in New client count
+  // as listed before the list itself catches up.
+  let pickedClient = $state<ClientOption | null>(null);
+  let clientListLoading = $state(true);
+  let extraClients = $state<ClientOption[]>([]);
+  const mayCreateClient = $derived(canCreateProjects(user.data));
   // Flag 2026-08-14 (Michael): settable at creation, not only post-generation.
   let projectNumber = $state("");
   const projectNumberValid = $derived(
@@ -205,6 +207,41 @@
       : null
   );
   const scienceDisplay = $derived(scienceCodeDisplay(scienceCode || null));
+
+  // A picked client's usual year end and industry fill empty fields ("Usual
+  // fiscal year end"). What a pick filled goes again when the pick changes,
+  // unless the writer has changed it since.
+  let autoFiscalYearEnd: string | null = null;
+  let autoIndustry: string | null = null;
+  function onClientPick(client: ClientOption | null) {
+    if (autoFiscalYearEnd !== null && fiscalYearEnd === autoFiscalYearEnd) fiscalYearEnd = "";
+    if (autoIndustry !== null && industry === autoIndustry) industry = "";
+    autoFiscalYearEnd = null;
+    autoIndustry = null;
+    if (!client) return;
+    if (!fiscalYearEnd && client.fiscalYearEndMonth !== undefined && client.fiscalYearEndDay !== undefined) {
+      const filled = mostRecentYearEnd(client.fiscalYearEndMonth, client.fiscalYearEndDay);
+      if (filled) fiscalYearEnd = autoFiscalYearEnd = filled;
+    }
+    if (!industry && client.industry) industry = autoIndustry = client.industry;
+  }
+
+  // New client from the Client field (W9): the typed name, this project's
+  // year end and industry go in; the client it makes fills the field.
+  let newClientOpen = $state(false);
+  let newClientName = $state("");
+  let newClientYearEnd = $state<{ month: number; day: number } | null>(null);
+  let newClientIndustry = $state("");
+  function openNewClient(typedName: string) {
+    newClientName = typedName;
+    newClientYearEnd = yearEndParts(fiscalYearEnd);
+    newClientIndustry = industry;
+    newClientOpen = true;
+  }
+  function onClientCreated(client: NewClientResult) {
+    extraClients = [...extraClients, { key: client.key, clientId: client.clientId, name: client.name, projectCount: 0 }];
+    clientName = client.name;
+  }
 
   function addInterviewee() {
     const name = intervieweeDraft.trim();
@@ -1107,6 +1144,8 @@
     buildChecklist({
       mode,
       clientName,
+      clientPicked: pickedClient !== null,
+      clientListLoading,
       title,
       transcripts: { count: transcriptCountForSubmit, words: transcriptWordCount },
       unreadableTranscripts: transcriptProblems.length,
@@ -2138,7 +2177,7 @@
       : "Transcripts the PD is written from"
   );
   const sectionChips = $derived([
-    { id: "section-project", label: "Project", short: "Project", done: Boolean(clientName.trim() && title.trim()) },
+    { id: "section-project", label: "Project", short: "Project", done: Boolean(pickedClient && title.trim()) },
     {
       id: "section-interview",
       label: mode === "review" ? "Written PD" : "Interview",
@@ -2597,7 +2636,11 @@
                     <ClientCombobox
                       id="clientName"
                       bind:value={clientName}
-                      suggestions={clientSuggestions}
+                      bind:picked={pickedClient}
+                      bind:loading={clientListLoading}
+                      {extraClients}
+                      onPick={onClientPick}
+                      onNewClient={mayCreateClient ? openNewClient : undefined}
                       inputClass={layout === "phone" ? "h-11 rounded-[0.625rem] pl-3" : "h-9 rounded-lg pl-2.5 pointer-coarse:h-11"}
                     />
                   </label>
@@ -3186,6 +3229,15 @@
           pdPreviewOpen = false;
           pdInput?.click();
         }}
+      />
+      <NewClientDialog
+        bind:open={newClientOpen}
+        initialName={newClientName}
+        initialFiscalYearEnd={newClientYearEnd}
+        initialIndustry={newClientIndustry}
+        description="Once created, it fills the Client field on this project."
+        canAddIndustry={user.data?.role === "admin"}
+        onCreated={onClientCreated}
       />
       <StartRunDialog
         bind:open={startOpen}

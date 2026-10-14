@@ -11,7 +11,7 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
-import { chooseMode, confirmButton, openStartDialog } from "./newProjectTestSupport";
+import { chooseMode, confirmButton, listClients, openStartDialog } from "./newProjectTestSupport";
 
 /**
  * PD file-name prefill (writer request 2026-09-09): in review mode a PD named
@@ -72,6 +72,8 @@ beforeEach(() => {
   __setQueryData("users:getCurrentUser", { _id: "user-1", role: "writer", firstName: "Wendy" });
   __setQueryData("users:getMyUser", { _id: "user-1", role: "writer", firstName: "Wendy" });
   __setQueryData("tags:listTags", []);
+  // The clients these PDs name are listed (2026-10-14: Start needs one).
+  listClients("3GA Marine", "Acme Labs");
 });
 
 it("fills the empty fields from a scheme-named PD and shows the hint", async () => {

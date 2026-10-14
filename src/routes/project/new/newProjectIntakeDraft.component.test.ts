@@ -27,6 +27,7 @@ import {
   addSupportingFiles,
   confirmButton,
   fillBasics,
+  listClients,
   openStartDialog,
   chooseMode,
   openTranscriptPaste,
@@ -70,6 +71,8 @@ beforeEach(async () => {
   __setPageUrl("/project/new");
   __setQueryData("users:getCurrentUser", { _id: "user-1", role: "writer", firstName: "Wendy" });
   __setQueryData("tags:listTags", []);
+  // The clients a restored or retyped draft names are listed (2026-10-14: Start needs one).
+  listClients("Acme Seals", "Acme Seals Ltd");
   __setQueryData("providerReadiness:getCapabilities", {
     models: [{ id: "claude-sonnet-5", label: "Sonnet 5", provider: "Anthropic", gateway: "anthropic", description: "", available: true }],
     defaultModel: "claude-sonnet-5",

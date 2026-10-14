@@ -68,6 +68,11 @@ export function __setQueryData(name: string, data: unknown) {
   delete registry.errors[name];
 }
 
+/** The name-only data seeded for `name` (undefined when unseeded). */
+export function __getQueryData(name: string): unknown {
+  return registry.queries[name];
+}
+
 export function __setQueryError(name: string, error: unknown) {
   registry.errors[name] = error;
 }

@@ -15,6 +15,7 @@ import {
   addSupportingFiles,
   confirmButton,
   fillBasics,
+  listClients,
   openStartDialog,
   openTranscriptPaste,
   setDocumentCategory,
@@ -123,6 +124,8 @@ beforeEach(async () => {
   __resetConvexStub();
   takeProjectStart();
   __setQueryData("users:getMyUser", { _id: "user-1", role: "writer", firstName: "Wendy" });
+  // A duplicate's client is a listed client (2026-10-14: Start needs one).
+  listClients("Forgeworks Inc.");
 });
 
 describe("/project/new with only last year's report (decision 42)", () => {

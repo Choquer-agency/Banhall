@@ -5,6 +5,28 @@
  */
 import { expect } from "vitest";
 import { userEvent } from "vitest/browser";
+import { __getQueryData, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import { dashboardCompanyKey } from "../../../../shared/dashboardProjection";
+import type { ClientOption } from "$lib/clients/clientOptions";
+
+/**
+ * Adds these clients to the Client list (clients.listClients), keeping the
+ * ones already seeded. Start stays blocked until the Client field names a
+ * listed client (2026-10-14 amendment), so a suite that starts a project
+ * lists its client first.
+ */
+export function listClients(...clients: Array<string | (Partial<ClientOption> & { name: string })>) {
+  const seeded = (__getQueryData("clients:listClients") as { clients: ClientOption[] } | undefined)?.clients ?? [];
+  const added = clients.map((client): ClientOption => {
+    const option = typeof client === "string" ? { name: client } : client;
+    return { key: dashboardCompanyKey(option.name), clientId: null, projectCount: 1, ...option };
+  });
+  const keys = new Set(added.map((client) => client.key));
+  __setQueryData("clients:listClients", {
+    clients: [...seeded.filter((client) => !keys.has(client.key)), ...added],
+    truncated: false,
+  });
+}
 
 export const startButton = () =>
   document.querySelector<HTMLButtonElement>("[data-start-button], [data-bottom-start]");
@@ -32,8 +54,9 @@ export function setInputValue(selector: string, value: string) {
   field.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-/** Title and client, the two fields every start needs. */
+/** Title and a listed client, the two fields every start needs. */
 export async function fillBasics(title = "Solar tracker", client = "Acme Labs") {
+  listClients(client);
   await expect.poll(() => document.querySelector("#title")).not.toBeNull();
   setInputValue("#title", title);
   setInputValue("#clientName", client);

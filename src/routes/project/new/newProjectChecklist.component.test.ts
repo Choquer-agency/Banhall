@@ -14,6 +14,7 @@ const text = (node: Element | null | undefined) => (node?.textContent ?? "").rep
 const INPUT: ChecklistInput = {
   mode: "generate",
   clientName: "Cedarline Systems",
+  clientPicked: true,
   title: "Cold storage",
   transcripts: { count: 2, words: 14_820 },
   unreadableTranscripts: 1,

@@ -7,7 +7,7 @@ import { __resetConvexStub, __setQueryData, __setMutationResult, __mutationCalls
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation, __navigationCalls } from "$lib/test/app-navigation-stub";
 import { stashProjectStart } from "$lib/workspace/projectIntentHandoff";
-import { addSupportingFiles, pasteSupportingText, startFromPage } from "./newProjectTestSupport";
+import { addSupportingFiles, listClients, pasteSupportingText, startFromPage } from "./newProjectTestSupport";
 afterEach(() => vi.restoreAllMocks());
 it.each([
   { outcome: "resolve", source: "paste" },
@@ -19,6 +19,8 @@ it.each([
   stashProjectStart({ title: "Cancellation boundary" });
   __setQueryData("users:getCurrentUser", { _id: "writer", firstName: "Test", lastName: "Writer", role: "writer" });
   __setQueryData("tags:listTags", []);
+  // The ?client= prefill names a listed client (2026-10-14: Start needs one).
+  listClients("Test client");
   __setMutationResult("projects:createProject", { projectId: "created-project", transcriptIds: [] });
   let finish: (value: string) => void = () => {};
   let fail: (error: Error) => void = () => {};
