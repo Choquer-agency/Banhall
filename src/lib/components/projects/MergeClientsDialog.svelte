@@ -103,15 +103,15 @@
     if (!canMerge || !preview) return;
     busy = true;
     errorMessage = null;
+    // Read everything before the await: once the merge lands, the client
+    // list updates and the host may shrink `clients` or unmount this dialog.
     const done = onMerged;
+    const count = clients.length;
+    const args = { keepKey, mergeKeys: [...mergeKeys], ...(usingOther ? { name: typedName } : {}) };
     try {
-      const result = await mergeClients({
-        keepKey,
-        mergeKeys,
-        ...(usingOther ? { name: typedName } : {}),
-      });
+      const result = await mergeClients(args);
       open = false;
-      toast.success(`Merged ${clients.length} clients into ${result.keptName}.`);
+      toast.success(`Merged ${count} ${count === 1 ? "client" : "clients"} into ${result.keptName}.`);
       done?.({ keptKey: result.keptKey, keptName: result.keptName, moved: result.moved });
     } catch (error) {
       errorMessage = userErrorMessage(error, "These clients could not be merged. Try again.");

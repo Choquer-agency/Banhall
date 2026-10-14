@@ -4,12 +4,17 @@
  * Save writes only the fields that changed, each through its existing
  * single-project mutation (2026-09-15 metadata edit scope).
  *
- * The fiscal year end follows the project page's Details panel: a yyyy-mm-dd
- * draft, stored as local midnight (`toDateInput`, `fromDateInput`).
+ * The fiscal year end is a UTC calendar day, as the cards, the fiscal year
+ * groups and bulk edit read it: the draft is its yyyy-mm-dd in UTC and Save
+ * stores UTC midnight (`utcDateFromInput`).
  *
  * Pure helpers only: no `$app` imports, so unit tests can load this module.
  */
-import { toDateInput } from "$lib/components/project/details/detailsFormat";
+/** yyyy-mm-dd of a stored fiscal year end, in UTC; "" when not set. */
+export function utcDateInput(timestamp: number | null | undefined): string {
+  if (timestamp == null || !Number.isFinite(timestamp)) return "";
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
 
 export type ProjectEditSource = {
   title: string;
@@ -53,7 +58,7 @@ export function projectEditValues(project: ProjectEditSource): ProjectEditValues
     title: project.title ?? "",
     sredTitle: project.sredTitle ?? "",
     clientName: project.clientName ?? "",
-    fiscalYearEnd: toDateInput(project.fiscalYearEnd ?? null),
+    fiscalYearEnd: utcDateInput(project.fiscalYearEnd),
     projectNumber: project.projectNumber ?? "",
     industry: project.industry ?? "",
     scienceCode: project.scienceCode ?? "",

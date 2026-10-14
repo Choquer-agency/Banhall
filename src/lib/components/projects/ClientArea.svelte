@@ -28,6 +28,7 @@
   import {
     formatYearEnd,
     groupProjectsByFiscalYear,
+    withLoadState,
     projectCountLabel,
     shortYearLabel,
     type ProjectFiscalGroup,
@@ -39,6 +40,7 @@
     initialSearch = "",
     canCreate = false,
     canDuplicate = false,
+    canSelect = false,
     canDelete,
     onEditDetails,
     onDuplicate,
@@ -47,12 +49,20 @@
     onRetry,
     onBack = undefined,
     backLabel = "All clients",
+    allClientsHref = "/projects",
+    onShowAll = undefined,
   }: {
-    /** The selected client; null for All clients. `name` is null until known. */
-    client: { key: string; name: string | null } | null;
+    /**
+     * The selected client; null for All clients. `name` is null until known.
+     * `missing`: the loaded client list does not hold this key (a merged
+     * client, or an old link).
+     */
+    client: { key: string; name: string | null; missing?: boolean } | null;
     initialSearch?: string;
     canCreate?: boolean;
     canDuplicate?: boolean;
+    /** Select and bulk edit: roles bulkUpdateProjects accepts (Consultant, Manager, Admin). */
+    canSelect?: boolean;
     canDelete: (row: ProjectsTableRow) => boolean;
     onEditDetails: (projectId: string) => void;
     onDuplicate: (projectId: string) => void;
@@ -62,6 +72,9 @@
     /** Small screens: back to the client list. */
     onBack?: () => void;
     backLabel?: string;
+    /** All clients, for a client that is no longer in the list. */
+    allClientsHref?: string;
+    onShowAll?: () => void;
   } = $props();
 
   const auth = useAuth();
@@ -103,9 +116,14 @@
   const tableRows = $derived(new Map(raw.map((source) => [source._id, toProjectsTableRow(source)])));
   const loadingFirst = $derived(activeQ.status === "LoadingFirstPage" && !activeQ.error);
   const hasMore = $derived(activeQ.status === "CanLoadMore" || activeQ.status === "LoadingMore");
-  const groups = $derived(client && !q ? groupProjectsByFiscalYear(raw) : []);
+  // While more pages can load, the last loaded fiscal year (and No fiscal
+  // year) may still grow: "3+ projects", and no Short year tag yet.
+  const groups = $derived(client && !q ? withLoadState(groupProjectsByFiscalYear(raw), hasMore) : []);
+  const gone = $derived(Boolean(client?.missing) && client?.name == null && raw.length === 0);
   const displayName = $derived(
-    client ? (client.name ?? raw.find((row) => row.clientName)?.clientName ?? client.key) : "All clients"
+    client
+      ? (client.name ?? raw.find((row) => row.clientName)?.clientName ?? (client.missing ? "Client not found" : client.key))
+      : "All clients"
   );
   const searchLabel = $derived(client ? `Search ${displayName}` : "Search all projects");
 
@@ -250,7 +268,7 @@
   <button type="button" data-select-group onclick={() => selectAll(rows)} class={`${textButton} font-normal text-ink-secondary`}>{label}</button>
 {/snippet}
 
-{#snippet fiscalGroup(group: ProjectFiscalGroup<DashboardProjectionRow>, last: boolean)}
+{#snippet fiscalGroup(group: ProjectFiscalGroup<DashboardProjectionRow> & { more: boolean })}
   {@const headingId = `projects-${group.key}`}
   <section aria-labelledby={headingId} data-fy-group={group.key}>
     <div class="flex h-[2.125rem] items-center gap-2" data-fy-header>
@@ -267,7 +285,7 @@
         {/if}
       {/if}
       {#if selecting}{@render selectAllButton(group.rows, "Select all")}{/if}
-      <span class="ml-auto shrink-0 text-xs leading-4 text-ink-muted" data-fy-count>{projectCountLabel(group.rows.length, last && hasMore)}</span>
+      <span class="ml-auto shrink-0 text-xs leading-4 text-ink-muted" data-fy-count>{projectCountLabel(group.rows.length, group.more)}</span>
     </div>
     <ul class={`${grid} pb-2`}>
       {#each group.rows as source (source._id)}
@@ -292,7 +310,7 @@
     {/if}
 
     <div class="flex flex-wrap items-center gap-2 pb-3 pt-5 max-md:pt-1" data-client-header>
-      <h2 data-client-title class="min-w-0 truncate font-serif text-[1.625rem] leading-8 tracking-[-0.01em] text-ink">{displayName}</h2>
+      <h2 data-client-title tabindex="-1" class="min-w-0 truncate outline-none font-serif text-[1.625rem] leading-8 tracking-[-0.01em] text-ink">{displayName}</h2>
       <div class="flex-1"></div>
       {#if selecting}
         {@render selectAllButton(raw, `Select all ${raw.length}${hasMore ? "+" : ""}`)}
@@ -320,7 +338,9 @@
             class="field-control h-[1.875rem] w-full rounded-[0.4375rem] bg-gray-50! pl-7 pr-2 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint pointer-coarse:h-11"
           />
         </div>
-        <button type="button" data-select-start onclick={() => (selecting = true)} class={quietButton}>Select</button>
+        {#if canSelect}
+          <button type="button" data-select-start onclick={() => (selecting = true)} class={quietButton}>Select</button>
+        {/if}
       {/if}
     </div>
 
@@ -359,6 +379,20 @@
           </ul>
         {/if}
       </section>
+    {:else if gone}
+      <div class="flex flex-col items-start gap-3 py-10" data-client-missing>
+        <p class="text-[0.8125rem] leading-[1.125rem] text-ink-secondary">This client is no longer in the client list. It may have been merged.</p>
+        <a
+          href={allClientsHref}
+          data-client-missing-back
+          onclick={(event) => {
+            if (!onShowAll) return;
+            event.preventDefault();
+            onShowAll();
+          }}
+          class="text-[0.8125rem] leading-[1.125rem] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11"
+        >Go to All clients</a>
+      </div>
     {:else if client && raw.length === 0}
       <div class="flex flex-col items-start gap-3 py-10" data-client-empty>
         <p class="text-[0.8125rem] leading-[1.125rem] text-ink-secondary">{displayName} has no projects yet.</p>
@@ -371,8 +405,8 @@
         {/if}
       </div>
     {:else if client}
-      {#each groups as group, index (group.key)}
-        {@render fiscalGroup(group, index === groups.length - 1)}
+      {#each groups as group (group.key)}
+        {@render fiscalGroup(group)}
       {/each}
     {:else if raw.length === 0}
       <div class="flex flex-col items-start gap-3 py-10" data-client-empty>

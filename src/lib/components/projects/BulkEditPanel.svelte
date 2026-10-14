@@ -85,6 +85,8 @@
   let scienceMode = $state<Mode>("none");
   let scienceValue = $state("");
   let applying = $state(false);
+  /** Escape was pressed over unsaved changes: say how to leave instead. */
+  let escapeNote = $state(false);
   let applyError = $state<string | null>(null);
 
   // Each opening starts from "No change".
@@ -121,6 +123,10 @@
   });
 
   const changedCount = $derived(changedFields(change).length);
+  const dirty = $derived(changedCount > 0 || clientValue.trim() !== "");
+  $effect(() => {
+    if (!open || !dirty) escapeNote = false;
+  });
   const canReview = $derived(changedCount > 0 && !clientInvalid);
   const review = $derived(step === "review" ? reviewRows(rows, change, viewer) : []);
   const note = $derived(skipNote(review));
@@ -186,7 +192,7 @@
   const segment =
     "flex h-[1.625rem] items-center rounded-md px-2.5 text-xs leading-4 text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy data-[state=checked]:bg-primary-selected data-[state=checked]:font-medium data-[state=checked]:text-white motion-reduce:transition-none pointer-coarse:h-11";
   const quietButton =
-    "flex h-8 items-center rounded-[0.4375rem] px-3 text-[0.8125rem] leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
+    "flex h-8 items-center rounded-[0.4375rem] px-3 text-[0.8125rem] leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11";
   const primaryButton =
     "flex h-8 items-center rounded-[0.4375rem] bg-primary-selected px-3.5 text-[0.8125rem] leading-[1.125rem] font-medium text-white transition-colors hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11";
   const QUICK_PICKS = [
@@ -212,10 +218,20 @@
   </RadioGroup.Root>
 {/snippet}
 
+{#snippet escapeHint()}
+  {#if escapeNote}
+    <p class="shrink-0 px-5 pb-2 text-xs leading-4 text-ink-muted" role="status" data-bulk-escape-note>
+      {step === "review" ? "Apply the changes, or go Back and use Cancel to discard them." : "Review the changes, or use Cancel to discard them."}
+    </p>
+  {/if}
+{/snippet}
+
 <ProjectsSidePanel
   bind:open
   layout={step === "review" ? "center" : "side"}
-  guardOutside={changedCount > 0 || applying}
+  busy={applying}
+  {dirty}
+  onEscapeBlocked={() => (escapeNote = true)}
   testId="bulk-edit-panel"
   initialFocus={() => closeButton}
   {returnFocus}
@@ -310,10 +326,11 @@
       </div>
     </div>
 
+    {@render escapeHint()}
     <footer class="flex h-[3.75rem] shrink-0 items-center gap-2 border-t border-line-soft px-5">
       <p class="text-xs leading-4 text-ink-muted" aria-live="polite" data-bulk-count>{changedFieldsLabel(changedCount)}</p>
       <div class="flex-1"></div>
-      <button type="button" class={quietButton} onclick={() => (open = false)} data-bulk-cancel>Cancel</button>
+      <button type="button" class={quietButton} disabled={applying} onclick={() => (open = false)} data-bulk-cancel>Cancel</button>
       <button
         bind:this={reviewButton}
         type="button"
@@ -377,13 +394,14 @@
     {#if applyError}
       <p class="mx-[1.375rem] mb-2 text-xs leading-4 text-danger-ink-muted" role="alert" data-bulk-apply-error>{applyError}</p>
     {/if}
+    {@render escapeHint()}
     <footer class="flex min-h-[3.75rem] shrink-0 items-center gap-2 border-t border-line-soft px-[1.375rem] py-3">
       {#if note}
         <p class="min-w-0 flex-1 text-xs leading-4 text-ink-muted" data-bulk-skip-note>{note}</p>
       {:else}
         <div class="flex-1"></div>
       {/if}
-      <button type="button" class={quietButton} onclick={() => void back()} data-bulk-back>Back</button>
+      <button type="button" class={quietButton} disabled={applying} onclick={() => void back()} data-bulk-back>Back</button>
       <button
         bind:this={applyButton}
         type="button"

@@ -5,10 +5,15 @@
   details in the selection bar).
 
   "side" is the 400px panel on the right over the cards, with no scrim
-  (W2, W3); a click outside closes it unless `guardOutside` is set (the host
-  sets it while there are unsaved edits). "center" is the review dialog with
-  a scrim (W4). Both layouts are the same dialog, so switching between them
-  keeps the edits and the focus trap.
+  (W2, W3). "center" is the review dialog with a scrim (W4). Both layouts
+  are the same dialog, so switching between them keeps the edits and the
+  focus trap.
+
+  While a save or apply runs (`busy`) nothing closes the panel, as in
+  TeamDialog; the host disables its own Cancel and Close too. While there
+  are unsaved edits (`dirty`) Escape and a click outside do not discard
+  them silently: the panel stays and `onEscapeBlocked` lets the host say
+  how to leave (Cancel, or the close button).
 -->
 <script lang="ts">
   import { tick, type Snippet } from "svelte";
@@ -17,7 +22,9 @@
   let {
     open = $bindable(false),
     layout = "side",
-    guardOutside = false,
+    busy = false,
+    dirty = false,
+    onEscapeBlocked = undefined,
     initialFocus = undefined,
     returnFocus = undefined,
     testId = undefined,
@@ -25,8 +32,12 @@
   }: {
     open?: boolean;
     layout?: "side" | "center";
-    /** Keep the panel open on a click outside (unsaved edits). */
-    guardOutside?: boolean;
+    /** A save or apply is running: Escape and a click outside do nothing. */
+    busy?: boolean;
+    /** Unsaved edits: Escape and a click outside keep the panel open. */
+    dirty?: boolean;
+    /** Escape was pressed over unsaved edits (not while busy). */
+    onEscapeBlocked?: () => void;
     /** The element to focus when the panel opens; the first focusable one when absent. */
     initialFocus?: () => HTMLElement | null | undefined;
     /** The element to focus when the panel closes, asked for once the page has settled. */
@@ -64,8 +75,16 @@
         // settled, for example after leaving select mode).
         void tick().then(() => returnFocus?.()?.focus());
       }}
+      onEscapeKeydown={(event) => {
+        if (busy) {
+          event.preventDefault();
+        } else if (dirty) {
+          event.preventDefault();
+          onEscapeBlocked?.();
+        }
+      }}
       onInteractOutside={(event) => {
-        if (guardOutside) event.preventDefault();
+        if (busy || dirty) event.preventDefault();
       }}
     >
       {@render children()}

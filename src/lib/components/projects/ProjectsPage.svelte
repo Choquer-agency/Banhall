@@ -14,6 +14,7 @@
   with `onEditDetails(projectId)` or `onBulkEdit(rows)`.
 -->
 <script lang="ts">
+  import { tick } from "svelte";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -58,6 +59,9 @@
   const role = $derived(viewer && viewer.isAnonymous !== true ? (viewer.role ?? null) : null);
   const canCreate = $derived(canCreateProjects(viewer));
   const canMerge = $derived(role === "manager" || role === "admin");
+  // Select and bulk edit: the roles bulkUpdateProjects accepts. Unknown (still
+  // loading) reads as no.
+  const canSelect = $derived(role === "writer" || role === "manager" || role === "admin");
 
   const clients = $derived((clientsQ.data?.clients ?? []) as ClientEntry[]);
   const selectedKey = $derived(clientKeyFromUrl(page.url));
@@ -66,7 +70,11 @@
   const selectedClient = $derived.by(() => {
     if (selectedKey === null) return null;
     const entry = clients.find((client) => client.key === selectedKey);
-    return { key: selectedKey, name: entry?.name ?? knownNames.get(selectedKey) ?? null };
+    const known = knownNames.get(selectedKey) ?? null;
+    // Gone from a complete, loaded list (merged, or an old link).
+    const missing =
+      !entry && known === null && clientsQ.data !== undefined && !clientsQ.data.truncated;
+    return { key: selectedKey, name: entry?.name ?? known, missing };
   });
 
   // Small screens: the area shows once a client, or All clients, is chosen.
@@ -122,7 +130,19 @@
   function onMerged(result: MergeResult) {
     knownNames.set(result.keptKey, result.keptName);
     endMerge();
-    selectClient(result.keptKey);
+    navigated = true;
+    mobileAll = false;
+    // The dialog unmounts as the list updates, so focus would fall to the
+    // page body: put it on the kept client's row, or on the client title.
+    void goto(clientHref(page.url, result.keptKey), { keepFocus: true, noScroll: true }).then(async () => {
+      await tick();
+      requestAnimationFrame(() => {
+        const target =
+          document.querySelector<HTMLElement>(`[data-client-row="${CSS.escape(result.keptKey)}"]`) ??
+          document.querySelector<HTMLElement>("[data-client-title]");
+        target?.focus();
+      });
+    });
   }
 
   // ─── Card actions ─────────────────────────────────────────────────────────
@@ -228,6 +248,9 @@
         initialSearch={searchSeed}
         {canCreate}
         canDuplicate={canCreate}
+        {canSelect}
+        allClientsHref={clientHref(page.url, null)}
+        onShowAll={() => selectClient(null)}
         {canDelete}
         onEditDetails={editDetails}
         onDuplicate={duplicate}

@@ -14,15 +14,7 @@ import {
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
 import { RECENT_PROJECTS_KEY } from "$lib/workspace/recentProjects";
-import {
-  addSupportingFiles,
-  confirmButton,
-  fillBasics,
-  openStartDialog,
-  openTranscriptPaste,
-  setInputValue,
-  startButton,
-} from "./newProjectTestSupport";
+import { addSupportingFiles, confirmButton, fillBasics, openStartDialog, openTranscriptPaste, setInputValue, startButton, startFromPage } from "./newProjectTestSupport";
 
 /**
  * The start sequence (E1 to F1, G1, G2): the start button opens the dialog
@@ -66,6 +58,17 @@ beforeEach(async () => {
   __setMutationResult("projects:createProject", { projectId: "project-new", transcriptIds: ["transcript-new"] });
   __setMutationResult("documents:uploadDocument", "document-new");
   __setMutationResult("documents:generateUploadUrl", "https://upload.test/url");
+});
+
+describe("the client a project starts under", () => {
+  it("is the listed client's own name, whatever case was typed", async () => {
+    // Regression: "acme labs" was sent as typed and relabelled the shared company row.
+    await readyToStart();
+    setInputValue("#clientName", "acme labs");
+    await startFromPage();
+    await expect.poll(() => __mutationCalls("projects:createProject").length).toBe(1);
+    expect((__mutationCalls("projects:createProject")[0] as { clientName: string }).clientName).toBe("Acme Labs");
+  });
 });
 
 describe("the start dialog names the models that run (decision 52)", () => {

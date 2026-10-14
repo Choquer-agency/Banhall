@@ -13,6 +13,7 @@ import {
   __setMutationResult,
   __setPaginatedRows,
   __setQueryData,
+  __setQueryDataForArgs,
 } from "$lib/test/convex-svelte-stub.svelte";
 
 /**
@@ -68,8 +69,8 @@ const P5_DOC = {
   title: "High-efficiency pump control",
   sredTitle: "Variable-speed pumping under transient load",
   clientName: "Cedarline Systems",
-  // Local midnight, as the project page's Details panel stores it.
-  fiscalYearEnd: new Date(2026, 8, 30).getTime(),
+  // UTC midnight, as the cards, the fiscal year groups and bulk edit read it.
+  fiscalYearEnd: day("2026-09-30"),
   projectNumber: "5",
   industry: "manufacturing",
   scienceCode: "2.03.01",
@@ -156,7 +157,7 @@ describe("Edit details panel (W2)", () => {
     expect(document.activeElement).toBe(field("title"));
     expect(field("sredTitle")?.value).toBe("Variable-speed pumping under transient load");
     expect(page.getByRole("combobox", { name: "Client" }).element()).toHaveProperty("value", "Cedarline Systems");
-    expect(text(field<HTMLButtonElement>("fiscalYearEnd"))).toBe("September 30, 2026 FY 2026");
+    expect(text(field<HTMLButtonElement>("fiscalYearEnd"))).toBe("Sep 30, 2026 FY 2026");
     expect(field("projectNumber")?.value).toBe("5");
     expect(editPanel()!.querySelector<HTMLInputElement>("#edit-project-industry")?.value).toBe("Manufacturing");
     expect(text(field<HTMLButtonElement>("scienceCode"))).toBe("2.03.01 Mechanical engineering");
@@ -261,6 +262,104 @@ describe("Edit details panel (W2)", () => {
     await expect.poll(() => document.querySelector("[data-edit-read-only]")).not.toBeNull();
     expect(text(document.querySelector('[data-edit-readonly="title"]'))).toBe("Title Typed title");
     expect(editPanel()).not.toBeNull();
+  });
+
+  it("writes the fiscal year end as UTC midnight and reads it back in UTC", async () => {
+    // Regression: the panel read and wrote local time while the cards and
+    // bulk edit use UTC date parts, so a date could shift a day.
+    await mount();
+    await openEdit();
+    await expect.poll(() => text(field<HTMLButtonElement>("fiscalYearEnd"))).toBe("Sep 30, 2026 FY 2026");
+    await userEvent.click(field<HTMLButtonElement>("fiscalYearEnd")!);
+    await userEvent.click(page.getByRole("button", { name: "Mar 31" }));
+    await expect.poll(() => text(field<HTMLButtonElement>("fiscalYearEnd"))).toBe("Mar 31, 2026 FY 2026");
+    await userEvent.click(saveButton());
+    await expect.poll(() => __mutationCalls("projects:updateProjectFiscalYear")).toEqual([
+      { projectId: "p5", fiscalYearEnd: Date.UTC(2026, 2, 31) },
+    ]);
+  });
+
+  it("saves a client typed in another case under the listed client's own name", async () => {
+    // Regression: "cedarline systems" was stored lowercase and relabelled the company row.
+    await mount();
+    await openEdit();
+    await expect.poll(() => field("title")?.value).toBe("High-efficiency pump control");
+    await userEvent.fill(page.getByRole("combobox", { name: "Client" }), "acuity insights");
+    await userEvent.click(saveButton());
+    await expect.poll(() => __mutationCalls("projects:updateProjectClientName")).toEqual([
+      { projectId: "p5", clientName: "Acuity Insights" },
+    ]);
+  });
+
+  it("shows and saves the name New client created, even when it differs from the typed text", async () => {
+    __setMutationResult("clients:createClient", { clientId: "c9", key: "nobody limited", name: "Nobody Limited" });
+    await mount();
+    await openEdit();
+    await expect.poll(() => field("title")?.value).toBe("High-efficiency pump control");
+    const client = page.getByRole("combobox", { name: "Client" });
+    await userEvent.fill(client, "Nobody Ltd");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-new-client-option]")!);
+    await expect.element(page.getByRole("dialog", { name: "New client" })).toBeVisible();
+    await expect.poll(() => document.querySelector<HTMLInputElement>("#new-client-name")?.value).toBe("Nobody Ltd");
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-create-client]")?.disabled).toBe(false);
+    await userEvent.click(document.querySelector<HTMLElement>("[data-create-client]")!);
+    await expect.poll(() => (client.element() as HTMLInputElement).value).toBe("Nobody Limited");
+    await userEvent.click(saveButton());
+    await expect.poll(() => __mutationCalls("projects:updateProjectClientName")).toEqual([
+      { projectId: "p5", clientName: "Nobody Limited" },
+    ]);
+  });
+
+  it("shows the look-alike client picked with Use that client", async () => {
+    __setQueryDataForArgs("clients:findSimilarClients", { name: "Acuity Insights Ltd" }, {
+      exact: null,
+      similar: [{ key: "acuity insights", name: "Acuity Insights", projectCount: 4 }],
+    });
+    await mount();
+    await openEdit();
+    await expect.poll(() => field("title")?.value).toBe("High-efficiency pump control");
+    const client = page.getByRole("combobox", { name: "Client" });
+    await userEvent.fill(client, "Acuity Insights Ltd");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-new-client-option]")!);
+    await userEvent.click(page.getByRole("button", { name: "Use that client" }));
+    await expect.poll(() => (client.element() as HTMLInputElement).value).toBe("Acuity Insights");
+    await userEvent.click(saveButton());
+    await expect.poll(() => __mutationCalls("projects:updateProjectClientName")).toEqual([
+      { projectId: "p5", clientName: "Acuity Insights" },
+    ]);
+  });
+
+  it("keeps unsaved edits on Escape and says how to leave; Cancel discards", async () => {
+    await mount();
+    await openEdit();
+    await expect.poll(() => field("title")?.value).toBe("High-efficiency pump control");
+    await userEvent.fill(field("title")!, "Typed title");
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => text(document.querySelector("[data-edit-escape-note]"))).toBe(
+      "Save your changes, or use Cancel to discard them."
+    );
+    expect(editPanel()).not.toBeNull();
+    expect(field("title")?.value).toBe("Typed title");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-cancel]")!);
+    await expect.poll(() => editPanel()).toBeNull();
+    expect(__callOrder()).toEqual([]);
+  });
+
+  it("cannot be closed while a save is running", async () => {
+    let release: (value: null) => void = () => {};
+    __setMutationResult("projects:updateProjectTitles", new Promise<null>((resolve) => (release = resolve)));
+    await mount();
+    await openEdit();
+    await expect.poll(() => field("title")?.value).toBe("High-efficiency pump control");
+    await userEvent.fill(field("title")!, "Typed title");
+    await userEvent.click(saveButton());
+    await expect.poll(() => text(saveButton())).toBe("Saving...");
+    await userEvent.keyboard("{Escape}");
+    expect(editPanel()).not.toBeNull();
+    expect(document.querySelector<HTMLButtonElement>("[data-edit-cancel]")?.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>("[data-edit-close]")?.disabled).toBe(true);
+    release(null);
+    await expect.poll(() => editPanel()).toBeNull();
   });
 
   it("closes on Escape and returns focus to the card menu trigger", async () => {
@@ -423,6 +522,43 @@ describe("Bulk edit panel (W3, W4)", () => {
     expect(document.querySelector("[data-selection-bar]")).not.toBeNull();
   });
 
+  it("keeps bulk changes on Escape, and blocks closing while applying", async () => {
+    let release: (value: { updated: number; skipped: number }) => void = () => {};
+    __setMutationResult(
+      "projects:bulkUpdateProjects",
+      new Promise((resolve) => (release = resolve))
+    );
+    await mount();
+    await openBulk("High-efficiency pump control");
+    await userEvent.click(segment("Industry", "Clear"));
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => text(document.querySelector("[data-bulk-escape-note]"))).toBe(
+      "Review the changes, or use Cancel to discard them."
+    );
+    expect(bulkPanel()).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-review]")!);
+    await userEvent.click(page.getByRole("button", { name: "Apply to 1 project" }));
+    await expect.poll(() => text(document.querySelector("[data-bulk-apply]"))).toBe("Applying...");
+    await userEvent.keyboard("{Escape}");
+    expect(bulkPanel()).not.toBeNull();
+    expect(document.querySelector<HTMLButtonElement>("[data-bulk-back]")?.disabled).toBe(true);
+    release({ updated: 1, skipped: 0 });
+    await expect.poll(() => bulkPanel()).toBeNull();
+  });
+
+  it("shows the client New client created in the bulk Client field", async () => {
+    __setMutationResult("clients:createClient", { clientId: "c9", key: "nobody limited", name: "Nobody Limited" });
+    await mount();
+    await openBulk("High-efficiency pump control");
+    const client = page.getByRole("combobox", { name: "Client" });
+    await userEvent.fill(client, "Nobody Ltd");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-new-client-option]")!);
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-create-client]")?.disabled).toBe(false);
+    await userEvent.click(document.querySelector<HTMLElement>("[data-create-client]")!);
+    await expect.poll(() => (client.element() as HTMLInputElement).value).toBe("Nobody Limited");
+    await expect.poll(() => text(document.querySelector("[data-bulk-count]"))).toBe("1 field changed");
+  });
+
   it("closes on Escape without leaving select mode", async () => {
     await mount();
     await openBulk("High-efficiency pump control");
@@ -459,5 +595,47 @@ describe("Selection hygiene", () => {
     expect(text(document.querySelector("[data-selection-count]"))).toBe("2 selected");
     __setPaginatedRows("dashboard:searchProjects", CEDARLINE.slice(1, 2));
     await expect.poll(() => text(document.querySelector("[data-selection-count]"))).toBe("1 selected");
+  });
+});
+
+describe("Merge result", () => {
+  it("counts the merged clients from before the list updates, and puts focus on the kept client", async () => {
+    const three = [
+      { key: "acuity insights", clientId: "c1", name: "Acuity Insights", projectCount: 4 },
+      { key: "acuity insights inc", clientId: null, name: "Acuity Insights Inc", projectCount: 2 },
+      { key: "acuity inc", clientId: null, name: "Acuity Inc", projectCount: 1 },
+      { key: "cedarline systems", clientId: "c3", name: "Cedarline Systems", projectCount: 6 },
+    ];
+    __setQueryData("clients:listClients", { clients: three, truncated: false });
+    __setQueryData("clients:previewClientMerge", {
+      projectCount: 7,
+      movedCount: 3,
+      tooMany: false,
+      keptName: "Acuity Insights",
+      keptKey: "acuity insights",
+      nameConflict: null,
+      numberCollisions: [],
+    });
+    let release: (value: unknown) => void = () => {};
+    __setMutationResult("clients:mergeClients", new Promise((resolve) => (release = resolve)));
+    await mount("/projects");
+    await expect.poll(() => document.querySelector("[data-start-merge]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-start-merge]")!);
+    for (const name of [/^Acuity Insights 4$/, /^Acuity Insights Inc 2$/, /^Acuity Inc 1$/]) {
+      await userEvent.click(page.getByRole("checkbox", { name }));
+    }
+    await userEvent.click(document.querySelector<HTMLElement>("[data-merge-open]")!);
+    await expect.element(page.getByRole("dialog", { name: "Merge 3 clients" })).toBeVisible();
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-confirm-merge]")?.disabled).toBe(false);
+    await userEvent.click(document.querySelector<HTMLElement>("[data-confirm-merge]")!);
+
+    // The list updates before the mutation's answer arrives.
+    __setQueryData("clients:listClients", { clients: [three[0], three[3]], truncated: false });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    release({ moved: 3, keptKey: "acuity insights", keptName: "Acuity Insights", clientId: "c1" });
+
+    await expect.poll(() => sonner.success.mock.calls).toEqual([["Merged 3 clients into Acuity Insights."]]);
+    await expect.poll(() => appPage.url.searchParams.get("client")).toBe("acuity insights");
+    await expect.poll(() => document.activeElement?.getAttribute("data-client-row")).toBe("acuity insights");
   });
 });

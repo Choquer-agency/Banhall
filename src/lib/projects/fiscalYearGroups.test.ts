@@ -5,6 +5,7 @@ import {
   projectCountLabel,
   shortYearLabel,
   wholeMonthsBetween,
+  withLoadState,
 } from "./fiscalYearGroups";
 
 const day = (iso: string) => Date.parse(`${iso}T00:00:00Z`);
@@ -112,5 +113,44 @@ describe("labels", () => {
     expect(projectCountLabel(1)).toBe("1 project");
     expect(projectCountLabel(3)).toBe("3 projects");
     expect(projectCountLabel(1, true)).toBe("1+ projects");
+  });
+});
+
+describe("withLoadState", () => {
+  const groups = groupProjectsByFiscalYear([
+    row("a", "2026-09-30"),
+    row("b", "2025-09-30"),
+    row("c", "2025-03-31"),
+    row("d"),
+  ]);
+
+  it("claims nothing more and keeps every Short year tag once everything is loaded", () => {
+    const loaded = withLoadState(groups, false);
+    expect(loaded.map((group) => group.more)).toEqual([false, false, false, false]);
+    expect(loaded.map((group) => group.shortYearMonths)).toEqual([null, 6, null, null]);
+  });
+
+  it("marks every group of the last loaded fiscal year, and No fiscal year, while more can load", () => {
+    const partial = withLoadState(groups, true);
+    expect(partial.map((group) => [group.key, group.more])).toEqual([
+      ["fy-2026-2026-09-30", false],
+      ["fy-2025-2025-09-30", true],
+      ["fy-2025-2025-03-31", true],
+      ["none", true],
+    ]);
+    // FY 2025 may be missing a year end, so its Short year tag waits.
+    expect(partial.map((group) => group.shortYearMonths)).toEqual([null, null, null, null]);
+  });
+
+  it("keeps the Short year tag of a fiscal year that is complete", () => {
+    const partial = withLoadState(
+      groupProjectsByFiscalYear([row("a", "2026-09-30"), row("b", "2026-03-31"), row("c", "2025-09-30")]),
+      true
+    );
+    expect(partial.map((group) => [group.shortYearMonths, group.more])).toEqual([
+      [6, false],
+      [null, false],
+      [null, true],
+    ]);
   });
 });

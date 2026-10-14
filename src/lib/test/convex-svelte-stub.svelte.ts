@@ -23,8 +23,10 @@ const registry = $state<{
   errors: Record<string, unknown>;
   stale: Record<string, boolean>;
   pages: Record<string, unknown[]>;
+  /** Paginated reads seeded as having more pages ("CanLoadMore"). */
+  morePages: Record<string, boolean>;
   queryVariants: Record<string, Record<string, unknown>>;
-}>({ queries: {}, errors: {}, stale: {}, pages: {}, queryVariants: {} });
+}>({ queries: {}, errors: {}, stale: {}, pages: {}, morePages: {}, queryVariants: {} });
 
 // Mutation/action calls a suite can assert on, plus the value each one
 // resolves with — a wizard that destructures its mutation result needs one.
@@ -95,8 +97,9 @@ function queryData(name: string, args: unknown) {
   return Object.hasOwn(variants, key) ? variants[key] : registry.queries[name];
 }
 
-export function __setPaginatedRows(name: string, rows: unknown[]) {
+export function __setPaginatedRows(name: string, rows: unknown[], options: { more?: boolean } = {}) {
   registry.pages[name] = rows;
+  registry.morePages[name] = options.more ?? false;
 }
 
 export function __setMutationResult(name: string, value: unknown) {
@@ -130,6 +133,7 @@ export function __resetConvexStub() {
   registry.stale = {};
   registry.queryVariants = {};
   registry.pages = {};
+  registry.morePages = {};
   argsGetters.clear();
   argsHistory.clear();
   calls.length = 0;
@@ -244,7 +248,8 @@ export function usePaginatedQuery(query: FunctionReference<"query">, ...rest: un
     },
     get status() {
       if (skipped(getArgs)) return "LoadingFirstPage";
-      return registry.pages[name] === undefined ? "LoadingFirstPage" : "Exhausted";
+      if (registry.pages[name] === undefined) return "LoadingFirstPage";
+      return registry.morePages[name] ? "CanLoadMore" : "Exhausted";
     },
     // Like the real client, a failed read leaves the status where it was.
     get error() {

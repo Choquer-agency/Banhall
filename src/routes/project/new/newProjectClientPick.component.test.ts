@@ -9,6 +9,7 @@ import {
   __resetConvexStub,
   __setMutationResult,
   __setQueryData,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
 import { mostRecentYearEnd } from "$lib/clients/usualYearEnd";
@@ -175,5 +176,41 @@ describe("the Client field on New project", () => {
     await expect.poll(() => clientField().value).toBe("Forgeworks Inc.");
     await expect.poll(() => clientField().dataset.clientPicked).toBe("true");
     await expect.poll(clientRow).toBe("Client and title");
+  });
+
+  it("shows the name New client made when it differs from the typed text", async () => {
+    // Regression: the field kept the typed text while the page held the
+    // created name, so Start enabled for a name the writer never saw.
+    listClients("Cedarline Systems");
+    __setMutationResult("clients:createClient", {
+      clientId: "client-new",
+      key: "northwind robotics inc",
+      name: "Northwind Robotics Inc",
+    });
+    await render(NewProjectPage, {});
+    await titleAndTranscript();
+    await userEvent.fill(clientField(), "Northwind Robotics");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-new-client-option]")!);
+    await expect.poll(() => document.querySelector<HTMLInputElement>("#new-client-name")?.value).toBe("Northwind Robotics");
+    setInputValue("#new-client-name", "Northwind Robotics Inc");
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-create-client]")?.disabled).toBe(false);
+    await userEvent.click(document.querySelector<HTMLButtonElement>("[data-create-client]")!);
+    await expect.poll(() => clientField().value).toBe("Northwind Robotics Inc");
+    await expect.poll(clientRow).toBe("Client and title");
+  });
+
+  it("says the client list could not be loaded, keeps Start blocked, and tries again", async () => {
+    __setQueryError("clients:listClients", new Error("boom"));
+    await render(NewProjectPage, {});
+    await titleAndTranscript();
+    setInputValue("#clientName", "Cedarline Systems");
+    await expect.poll(clientRow).toBe("We could not load the client list");
+    expect(startButton()?.disabled).toBe(true);
+    expect(text(document.querySelector("[data-client-list-error]"))).toBe("The client list could not be loaded. Try again");
+
+    await userEvent.click(document.querySelector<HTMLElement>("[data-client-list-retry]")!);
+    listClients("Cedarline Systems");
+    await expect.poll(clientRow).toBe("Client and title");
+    await expect.poll(() => startButton()?.disabled).toBe(false);
   });
 });

@@ -112,6 +112,31 @@ export function groupProjectsByFiscalYear<T extends FiscalGroupSource>(
   return groups;
 }
 
+/**
+ * What the loaded groups can claim while more pages may load. A client's
+ * projects load by fiscal year, newest first (`listCompanyProjects` reads
+ * the fiscal year rank index), and within one fiscal year in no date order,
+ * with rows that have no rank yet able to land anywhere in the No fiscal
+ * year group. So while more can load:
+ * - every group of the last loaded fiscal year, and the No fiscal year
+ *   group, may still grow, and counts read "3+ projects";
+ * - the last loaded fiscal year may be missing year-end dates, so its
+ *   "Short year" tags are left off until it is complete.
+ * Earlier fiscal years are complete and keep their counts and tags.
+ */
+export function withLoadState<T extends FiscalGroupSource>(
+  groups: readonly ProjectFiscalGroup<T>[],
+  hasMore: boolean
+): Array<ProjectFiscalGroup<T> & { more: boolean }> {
+  if (!hasMore) return groups.map((group) => ({ ...group, more: false }));
+  const years = groups.flatMap((group) => (group.fiscalYear === null ? [] : [group.fiscalYear]));
+  const lastYear = years.length > 0 ? Math.min(...years) : null;
+  return groups.map((group) => {
+    const open = group.fiscalYear === null || group.fiscalYear === lastYear;
+    return { ...group, more: open, shortYearMonths: open ? null : group.shortYearMonths };
+  });
+}
+
 /** "Sep 30, 2026" (UTC, so a stored midnight never shifts a day). */
 export function formatYearEnd(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString("en-US", {

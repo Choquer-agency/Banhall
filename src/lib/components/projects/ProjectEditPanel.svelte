@@ -34,7 +34,10 @@
   import TagPicker from "$lib/components/project-new/TagPicker.svelte";
   import ScienceCodePicker from "$lib/components/project/details/ScienceCodePicker.svelte";
   import { validateProjectNumber } from "$lib/components/project/details/detailsData.svelte";
-  import { fiscalYearParts, fromDateInput, scienceCodeDisplay } from "$lib/components/project/details/detailsFormat";
+  import { scienceCodeDisplay } from "$lib/components/project/details/detailsFormat";
+  import { formatYearEnd } from "$lib/projects/fiscalYearGroups";
+  import { utcDateFromInput } from "$lib/projects/bulkEdit";
+  import { dashboardFiscalYear } from "../../../../shared/dashboardProjection";
   import NewClientDialog, { type NewClientResult } from "$lib/components/clients/NewClientDialog.svelte";
   import { industryLabel } from "$lib/industries";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
@@ -101,6 +104,11 @@
   let loadedFor = $state<string | null>(null);
   let deniedByServer = $state(false);
   let saving = $state(false);
+  /** Escape was pressed over unsaved edits: say how to leave instead. */
+  let escapeNote = $state(false);
+  $effect(() => {
+    if (!open || !dirty) escapeNote = false;
+  });
   let errors = $state<Partial<Record<ProjectEditField, string>>>({});
   let clientPicked = $state<ClientOption | null>(null);
   let clientsLoading = $state(true);
@@ -133,7 +141,11 @@
   const changed = $derived(saved && draft ? changedProjectFields(saved, draft) : []);
   const dirty = $derived(canEdit && changed.length > 0);
   const projectNumber = $derived(saved?.projectNumber ?? project?.projectNumber ?? null);
-  const fiscal = $derived(draft ? fiscalYearParts(fromDateInput(draft.fiscalYearEnd)) : null);
+  // UTC date parts, as the cards, the fiscal year groups and bulk edit read them.
+  const fiscalEnd = $derived(draft ? utcDateFromInput(draft.fiscalYearEnd) : null);
+  const fiscal = $derived(
+    fiscalEnd === null ? null : { date: formatYearEnd(fiscalEnd), year: String(dashboardFiscalYear(fiscalEnd)) }
+  );
   const science = $derived(draft ? scienceCodeDisplay(draft.scienceCode || null) : null);
   const showDelete = $derived(
     Boolean(onDelete && project && canDeleteProject(viewer, project.createdBy, project.deletionStartedAt !== undefined))
@@ -196,14 +208,15 @@
       list.push({
         fields: ["clientName"],
         fallback: "The client could not be saved.",
-        run: () => updateClientName({ projectId: id, clientName: next.clientName.trim() }),
+        // A listed client goes in under its own name, whatever case was typed.
+        run: () => updateClientName({ projectId: id, clientName: clientPicked?.name ?? next.clientName.trim() }),
       });
     }
     if (has("fiscalYearEnd")) {
       list.push({
         fields: ["fiscalYearEnd"],
         fallback: "The fiscal year end could not be saved.",
-        run: () => updateFiscalYear({ projectId: id, fiscalYearEnd: fromDateInput(next.fiscalYearEnd) ?? undefined }),
+        run: () => updateFiscalYear({ projectId: id, fiscalYearEnd: utcDateFromInput(next.fiscalYearEnd) ?? undefined }),
       });
     }
     if (has("projectNumber")) {
@@ -310,7 +323,9 @@
 
 <ProjectsSidePanel
   bind:open
-  guardOutside={dirty || saving}
+  busy={saving}
+  {dirty}
+  onEscapeBlocked={() => (escapeNote = true)}
   testId="project-edit-panel"
   initialFocus={() => (canEdit && titleInput ? titleInput : closeButton)}
   {returnFocus}
@@ -324,7 +339,8 @@
       bind:ref={closeButton}
       aria-label="Close"
       data-edit-close
-      class="-mr-2 flex size-8 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
+      disabled={saving}
+      class="-mr-2 flex size-8 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
     >
       <IconClose size={16} strokeWidth={1.5} />
     </Dialog.Close>
@@ -523,10 +539,13 @@
   </div>
 
   <footer class="flex h-[3.75rem] shrink-0 items-center gap-2 border-t border-line-soft px-5">
-    {#if showDelete && !loading}
+    {#if escapeNote}
+      <p class="min-w-0 flex-1 text-xs leading-4 text-ink-muted" role="status" data-edit-escape-note>Save your changes, or use Cancel to discard them.</p>
+    {:else if showDelete && !loading}
       <button
         type="button"
         data-edit-delete
+        disabled={saving}
         onclick={requestDelete}
         class="rounded-md text-[0.8125rem] leading-[1.125rem] text-gap-text hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11"
       >Delete project</button>
@@ -536,8 +555,9 @@
       <button
         type="button"
         data-edit-cancel
+        disabled={saving}
         onclick={() => (open = false)}
-        class="flex h-8 items-center rounded-[0.4375rem] px-3 text-[0.8125rem] leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11"
+        class="flex h-8 items-center rounded-[0.4375rem] px-3 text-[0.8125rem] leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11"
       >Cancel</button>
       <button
         type="button"

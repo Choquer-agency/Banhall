@@ -7,6 +7,7 @@
    * Text that names nothing shows "No client named ..." and, when the page
    * allows it, a New client row that hands the typed name back.
    */
+  import { tick } from "svelte";
   import { Combobox } from "bits-ui";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -28,6 +29,7 @@
     extraClients = [],
     picked = $bindable(null),
     loading = $bindable(true),
+    failed = $bindable(false),
     onPick = undefined,
     onNewClient = undefined,
     placeholder = "Client name",
@@ -44,6 +46,8 @@
     picked?: ClientOption | null;
     /** True until the list has loaded. */
     loading?: boolean;
+    /** True while the client list failed to load (the field offers Try again). */
+    failed?: boolean;
     /** Called when the listed client the text names changes (null for none). */
     onPick?: (client: ClientOption | null) => void;
     /** Offers New client for text that names no listed client. */
@@ -55,9 +59,18 @@
   } = $props();
 
   const auth = useAuth();
+  // Try again drops the failed subscription for a moment and subscribes
+  // afresh, as the Projects page's Try again does by remounting its list.
+  let retrying = $state(false);
   const clientsQ = useQuery(api.clients.listClients, () =>
-    clients === undefined && auth.isAuthenticated ? {} : "skip"
+    clients === undefined && auth.isAuthenticated && !retrying ? {} : "skip"
   );
+  const listFailed = $derived(clients === undefined && !retrying && Boolean(clientsQ.error));
+  async function retry() {
+    retrying = true;
+    await tick();
+    retrying = false;
+  }
   const listLoaded = $derived(clients !== undefined || clientsQ.data !== undefined);
   const options = $derived(
     mergeClientOptions((clients ?? clientsQ.data?.clients ?? []) as readonly ClientOption[], extraClients)
@@ -79,6 +92,7 @@
   $effect(() => {
     const current = matched;
     loading = !listLoaded;
+    failed = listFailed;
     picked = current;
     const key = current?.key ?? null;
     if (key === lastPickedKey) return;
@@ -86,12 +100,15 @@
     onPick?.(current);
   });
 
-  // bits-ui's input is uncontrolled: keep it showing `value` when the value
-  // changes from outside (a prefill) and the writer is not typing in it.
+  // bits-ui's input is uncontrolled: keep it showing `value` whenever the
+  // value changes, focused or not. A value set from outside (a prefill, a
+  // New client with another name, "Use that client" on a look-alike) must
+  // show, or the field would read one name while the page holds another.
+  // While typing, `value` is what the input just reported, so this is a no-op.
   $effect(() => {
+    const next = value;
     const input = inputRef;
-    if (!input || document.activeElement === input) return;
-    if (input.value !== value) input.value = value;
+    if (input && input.value !== next) input.value = next;
   });
 
   function choose(next: string) {
@@ -136,6 +153,17 @@
       <IconChevronDown size={14} strokeWidth={1.8} />
     </Combobox.Trigger>
   </div>
+  {#if listFailed}
+    <p class="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs leading-4 text-danger-ink-muted" role="alert" data-client-list-error>
+      The client list could not be loaded.
+      <button
+        type="button"
+        data-client-list-retry
+        onclick={() => void retry()}
+        class="rounded font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy pointer-coarse:min-h-11"
+      >Try again</button>
+    </p>
+  {/if}
   <Combobox.Portal>
     <Combobox.Content
       sideOffset={4}

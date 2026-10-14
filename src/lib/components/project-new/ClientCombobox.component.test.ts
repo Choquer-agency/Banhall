@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import ClientCombobox from "./ClientCombobox.svelte";
-import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import {
+  __queryArgsHistory,
+  __resetConvexStub,
+  __setQueryData,
+  __setQueryError,
+} from "$lib/test/convex-svelte-stub.svelte";
 import type { ClientOption } from "$lib/clients/clientOptions";
 
 /**
@@ -123,5 +128,32 @@ describe("ClientCombobox", () => {
       onPick,
     });
     await expect.poll(() => onPick.mock.lastCall?.[0]?.name).toBe("Northwind Robotics");
+  });
+
+  it("shows a name set from outside even while the field has focus (New client, Use that client)", async () => {
+    // Regression: the field kept the typed text while the page held another
+    // name, so a project could start under a name nobody saw.
+    const screen = await render(ClientCombobox, { value: "", clients: CLIENTS, onNewClient: vi.fn() });
+    await userEvent.fill(input(), "Northwind Robotcs");
+    expect(document.activeElement).toBe(input());
+    await screen.rerender({ value: "Northwind Robotics Inc" });
+    await expect.poll(() => input().value).toBe("Northwind Robotics Inc");
+    // Typing still works after the outside change.
+    await userEvent.fill(input(), "Cedarline Systems");
+    expect(input().value).toBe("Cedarline Systems");
+  });
+
+  it("says the client list could not be loaded and tries again", async () => {
+    __setQueryError("clients:listClients", new Error("boom"));
+    await render(ClientCombobox, { value: "Cedarline Systems" });
+    await expect.poll(() => text(document.querySelector("[data-client-list-error]"))).toBe(
+      "The client list could not be loaded. Try again"
+    );
+    await userEvent.click(page.getByRole("button", { name: "Try again" }));
+    // The failed subscription is dropped and made again.
+    await expect.poll(() => __queryArgsHistory("clients:listClients")).toEqual([{}, "skip", {}]);
+    __setQueryData("clients:listClients", { clients: CLIENTS, truncated: false });
+    await expect.poll(() => document.querySelector("[data-client-list-error]")).toBeNull();
+    expect(input().getAttribute("data-client-picked")).toBe("true");
   });
 });

@@ -60,6 +60,11 @@ describe("buildChecklist", () => {
     });
   });
 
+  it("says the client list could not be loaded, still blocking, instead of waiting forever", () => {
+    const rows = buildChecklist({ ...READY, clientPicked: false, clientListLoading: true, clientListFailed: true });
+    expect(rows[0]).toEqual({ id: "client-title", state: "pending", text: "We could not load the client list", blocking: true });
+  });
+
   it("waits quietly while the client list loads, still blocking", () => {
     const rows = buildChecklist({ ...READY, clientPicked: false, clientListLoading: true });
     expect(rows[0]).toEqual({ id: "client-title", state: "reading", text: "Checking the client list", blocking: true });

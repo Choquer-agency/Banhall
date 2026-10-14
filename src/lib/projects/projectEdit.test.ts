@@ -5,7 +5,8 @@ const PROJECT = {
   title: "Pump control",
   sredTitle: "Variable-speed pumping",
   clientName: "Cedarline Systems",
-  fiscalYearEnd: new Date(2026, 8, 30).getTime(),
+  // UTC midnight, as the cards and bulk edit store it.
+  fiscalYearEnd: Date.UTC(2026, 8, 30),
   projectNumber: "5",
   industry: "manufacturing",
   scienceCode: "2.03.01",
@@ -34,6 +35,11 @@ describe("project edit draft", () => {
     expect(
       changedProjectFields(saved, { ...saved, tagIds: ["t1"], title: "New", fiscalYearEnd: "" })
     ).toEqual(["title", "fiscalYearEnd", "tagIds"]);
+  });
+
+  it("reads the date in UTC, so a UTC midnight never shows the day before", () => {
+    expect(projectEditValues({ ...PROJECT, fiscalYearEnd: Date.UTC(2026, 2, 31) }).fiscalYearEnd).toBe("2026-03-31");
+    expect(projectEditValues({ ...PROJECT, fiscalYearEnd: Date.UTC(2026, 2, 31, 23, 30) }).fiscalYearEnd).toBe("2026-03-31");
   });
 
   it("titles the panel with the project number when there is one", () => {

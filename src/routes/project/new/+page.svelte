@@ -181,6 +181,11 @@
   // as listed before the list itself catches up.
   let pickedClient = $state<ClientOption | null>(null);
   let clientListLoading = $state(true);
+  let clientListFailed = $state(false);
+  // A listed client goes in under its own name, whatever case or spacing
+  // was typed ("cedarline systems" picks Cedarline Systems), so a project
+  // never relabels the shared company row.
+  const submitClientName = $derived(pickedClient?.name ?? clientName.trim());
   let extraClients = $state<ClientOption[]>([]);
   const mayCreateClient = $derived(canCreateProjects(user.data));
   // Flag 2026-08-14 (Michael): settable at creation, not only post-generation.
@@ -653,7 +658,7 @@
   $effect(() => {
     if (!intakeActive) return;
     intake.setContext({
-      clientName: clientName.trim(),
+      clientName: submitClientName,
       ...(interviewerUserId ? { interviewerUserId: interviewerUserId as Id<"users"> } : {}),
       interviewees: [...interviewees],
     });
@@ -1146,6 +1151,7 @@
       clientName,
       clientPicked: pickedClient !== null,
       clientListLoading,
+      clientListFailed,
       title,
       transcripts: { count: transcriptCountForSubmit, words: transcriptWordCount },
       unreadableTranscripts: transcriptProblems.length,
@@ -1668,7 +1674,7 @@
         project: {
           title: title.trim(),
           ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
-          clientName: clientName.trim(),
+          clientName: submitClientName,
           ...(interviewerUserId ? { interviewerUserId: interviewerUserId as Id<"users"> } : {}),
           ...(interviewees.length ? { interviewees } : {}),
           ...(selectedTagIds.length ? { tagIds: selectedTagIds as Id<"tags">[] } : {}),
@@ -1870,7 +1876,7 @@
           createProject({
             title: title.trim(),
             ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
-            clientName: clientName.trim(),
+            clientName: submitClientName,
             ...(interviewerUserId ? { interviewerUserId: interviewerUserId as Id<"users"> } : {}),
             ...(interviewees.length ? { interviewees } : {}),
             ...(selectedTagIds.length ? { tagIds: selectedTagIds as Id<"tags">[] } : {}),
@@ -2638,6 +2644,7 @@
                       bind:value={clientName}
                       bind:picked={pickedClient}
                       bind:loading={clientListLoading}
+                      bind:failed={clientListFailed}
                       {extraClients}
                       onPick={onClientPick}
                       onNewClient={mayCreateClient ? openNewClient : undefined}

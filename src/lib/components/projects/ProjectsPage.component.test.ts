@@ -403,6 +403,62 @@ describe("Projects page client area", () => {
     expect(document.querySelector('[data-testid="bulk-edit-panel"]')?.getAttribute("data-projects-panel")).toBe("side");
   });
 
+  it("offers Select only to roles that may bulk edit, not to Financial or while the role loads", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    __setQueryData("users:getCurrentUser", { _id: "u-1", role: "financial" });
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => fyHeaders().length).toBe(4);
+    expect(document.querySelector("[data-select-start]")).toBeNull();
+    expect(document.querySelector("[data-selection-bar]")).toBeNull();
+
+    __setQueryData("users:getCurrentUser", undefined);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector("[data-select-start]")).toBeNull();
+
+    __setQueryData("users:getCurrentUser", { _id: "u-1", role: "writer" });
+    await expect.poll(() => document.querySelector("[data-select-start]")).not.toBeNull();
+  });
+
+  it("marks every group that may still grow while more projects can load, with no Short year tag yet", async () => {
+    // FY 2025 is the last loaded fiscal year: either of its dates may gain
+    // projects, and an earlier FY 2025 year end may still arrive.
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE, { more: true });
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => fyHeaders().length).toBe(4);
+    expect(fyHeaders()).toEqual([
+      "FY 2026 ended Sep 30, 2026 3 projects",
+      "FY 2025 ended Sep 30, 2025 1+ projects",
+      "FY 2025 ended Mar 31, 2025 1+ projects",
+      "No fiscal year 1+ projects",
+    ]);
+    expect(document.querySelector("[data-short-year]")).toBeNull();
+    expect(document.querySelector("[data-show-more]")).not.toBeNull();
+  });
+
+  it("says a client that is no longer in the list may have been merged, with a way back and no New project", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", []);
+    await mount("/projects?client=old+merged+co");
+    await expect.poll(() => text(document.querySelector("[data-client-missing] p"))).toBe(
+      "This client is no longer in the client list. It may have been merged."
+    );
+    expect(document.querySelector("[data-client-new-project]")).toBeNull();
+    expect(text(title())).toBe("Client not found");
+    const back = document.querySelector<HTMLAnchorElement>("[data-client-missing-back]")!;
+    expect(back.getAttribute("href")).toBe("/projects");
+    await userEvent.click(back);
+    await expect.poll(() => text(title())).toBe("All clients");
+    expect(appPage.url.search).toBe("");
+  });
+
+  it("still says a listed client has no projects yet", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", []);
+    __setQueryData("clients:listClients", { clients: CLIENTS, truncated: true });
+    await mount("/projects?client=old+merged+co");
+    // A cut list cannot prove the client is gone.
+    await expect.poll(() => document.querySelector("[data-client-empty]")).not.toBeNull();
+    expect(document.querySelector("[data-client-missing]")).toBeNull();
+  });
+
   it("says when a client has no projects, with New project for that client", async () => {
     __setPaginatedRows("dashboard:listCompanyProjects", []);
     await mount("/projects?client=societe+generale");
