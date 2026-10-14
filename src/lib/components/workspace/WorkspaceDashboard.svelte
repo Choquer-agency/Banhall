@@ -43,7 +43,7 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import HomeView from "$lib/components/mywork/HomeView.svelte";
-  import ProjectsTableView from "$lib/components/workspace/ProjectsTableView.svelte";
+  import ProjectsPage from "$lib/components/projects/ProjectsPage.svelte";
   import WorkspaceHeader from "$lib/components/workspace/WorkspaceHeader.svelte";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
@@ -106,6 +106,8 @@
   let search = $state(restoredSearch);
   let recents = $state<RecentProject[]>([]);
   let header: { focusSearch: (options?: { select?: boolean }) => void } | null = $state(null);
+  // Projects (2026-10-14 redesign) owns its searches; the header hides its own.
+  let projectsPage: { focusSearch: (options?: { select?: boolean }) => void } | null = $state(null);
 
   const resolvedView = $derived.by(() => {
     if (configQ.error) return "all_projects" as const;
@@ -157,11 +159,9 @@
     const url = new URL(page.url);
     url.searchParams.delete("view");
     if (target === "all_projects") {
-      // Projects always opens as the client-grouped List (2026-08-19 owner
-      // direction): the params ride the URL so the default view is explicit
-      // and shareable, overriding any stored layout preference.
-      if (!url.searchParams.has("layout")) url.searchParams.set("layout", "list");
-      if (!url.searchParams.has("group")) url.searchParams.set("group", "client");
+      // The Projects page (2026-10-14 amendment) is a client list with no
+      // layout or grouping choice, so the link adds no `layout`/`group`
+      // defaults any more; params already on the URL still carry through.
       return `${resolve("/projects")}${url.search}`;
     }
     return `${resolve("/my-work")}${url.search}`;
@@ -193,12 +193,12 @@
     // Chrome-less Home (2026-08-10 amendment) renders no search field:
     // search is project discovery, so invoking it from Home navigates to
     // Projects with a one-shot focus handoff across the remount.
-    if (displayedView === "my_work" || !header) {
+    if (displayedView === "my_work" || !projectsPage) {
       stashWorkspaceSearchFocus();
       selectView("all_projects");
       return;
     }
-    header.focusSearch();
+    projectsPage.focusSearch();
   }
 
   // ⌘K is owned by the shell command palette (2026-08-13, Attio-research
@@ -215,9 +215,9 @@
   // One-shot: a later header rebind must never steal focus again.
   let continuityFocused = false;
   $effect(() => {
-    if ((restoredSearch || restoredSearchFocus) && header && !continuityFocused) {
+    if ((restoredSearch || restoredSearchFocus) && projectsPage && !continuityFocused) {
       continuityFocused = true;
-      header.focusSearch({ select: false });
+      projectsPage.focusSearch({ select: false });
     }
   });
 
@@ -272,6 +272,7 @@
         {railHidden}
         onToggleRail={() => (railHidden = !railHidden)}
         showNewProject
+        showSearch={false}
       />
     {/if}
 
@@ -306,7 +307,9 @@
             </div>
           </div>
         {:else}
-          <ProjectsTableView externalSearch={search} />
+          <!-- 2026-10-14 redesign: the client list and the selected client.
+               ProjectsTableView stays in the repository, unmounted. -->
+          <ProjectsPage bind:this={projectsPage} initialSearch={search} totalLabel={headerCount} />
         {/if}
       </main>
     {/if}

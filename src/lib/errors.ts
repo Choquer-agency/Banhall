@@ -44,6 +44,9 @@ export const HANDLED_REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Audit wave 2: a per-user or per-project limit on a paid AI action. The
   // page that started it shows the server's message (with the wait) inline.
   "RATE_LIMITED",
+  // 2026-10-14 saved clients: a client name that already exists. New client
+  // shows the server's message inline next to the name.
+  "CLIENT_EXISTS",
 ]);
 
 /**

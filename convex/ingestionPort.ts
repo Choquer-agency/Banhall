@@ -16,6 +16,7 @@ import {
 } from "./lib/dashboardProjection";
 import { generateShareToken } from "./projects";
 import { isProjectDeleting } from "./lib/projectDeletion";
+import { activeClientIdForName } from "./lib/clients";
 
 // ─── Historical projects ported from OneDrive ingestion ─────────────────────
 // 2026-08-18 amendment (client meeting): an approved historical PD in the
@@ -165,6 +166,8 @@ export const finalizePort = internalMutation({
         item.fiscalYear!
       );
       const title = `${clientName} — Fiscal ${item.fiscalYear} (historical)`;
+      // 2026-10-14 dual write: link the saved client with the same key.
+      const clientId = await activeClientIdForName(ctx, clientName);
       const dashboardProjection = projectDashboardProjectionPatch({
         title,
         clientName,
@@ -174,6 +177,7 @@ export const finalizePort = internalMutation({
       projectId = await ctx.db.insert("projects", {
         title,
         clientName,
+        ...(clientId ? { clientId } : {}),
         ...dashboardProjection,
         dashboardCompanyCounted: true,
         fiscalYearEnd,

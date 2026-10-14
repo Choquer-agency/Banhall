@@ -62,12 +62,12 @@ describe("canonical workspace routes", () => {
   });
 
   it.each([
-    ["layout=board&utm=x", "layout=board&utm=x&group=client"],
+    ["layout=board&utm=x", "layout=board&utm=x"],
     ["layout=board&group=status&utm=x", "layout=board&group=status&utm=x"],
-    ["utm=x", "utm=x&layout=list&group=client"],
-    ["group=status&utm=x", "group=status&utm=x&layout=list"],
-    ["utm=first&utm=second&note=R%26D%20%2B%20caf%C3%A9", "utm=first&utm=second&note=R%26D%20%2B%20caf%C3%A9&layout=list&group=client"],
-  ])("/projects preserves query %s and supplies missing Projects defaults", async (query, projectsQuery) => {
+    ["utm=x", "utm=x"],
+    ["group=status&utm=x", "group=status&utm=x"],
+    ["utm=first&utm=second&note=R%26D%20%2B%20caf%C3%A9", "utm=first&utm=second&note=R%26D%20%2B%20caf%C3%A9"],
+  ])("/projects preserves query %s and adds no layout or group defaults", async (query, projectsQuery) => {
     __setPageUrl(`/projects?${query}`);
     __setQueryData("workspaceRollout:getAccess", { available: true });
     seedWorkspaceQueries();
@@ -79,7 +79,8 @@ describe("canonical workspace routes", () => {
       .poll(() => document.querySelector("div[data-workspace-shell]"))
       .not.toBeNull();
     expect(document.querySelector('[data-dashboard-experience="preview"]')).not.toBeNull();
-    // 0b094ed4: Home preserves params; Projects adds only absent defaults.
+    // 0b094ed4: Home and Projects preserve params. Since the 2026-10-14
+    // Projects page, the Projects link adds no layout or group defaults.
     const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("nav a"));
     for (const [pathname, expectedQuery] of [["/my-work", query], ["/projects", projectsQuery]]) {
       const link = anchors.find((anchor) => new URL(anchor.href).pathname === pathname);

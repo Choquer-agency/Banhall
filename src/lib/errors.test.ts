@@ -38,6 +38,9 @@ describe("isHandledRefusalLog", () => {
     ] as const) {
       expect(isHandledRefusalLog(convexLog(path, limited, kind))).toBe(true);
     }
+    // 2026-10-14 saved clients: New client shows the name already in use inline.
+    const exists = { code: "CLIENT_EXISTS", message: "Cedarline Systems already exists.", existingName: "Cedarline Systems" };
+    expect(isHandledRefusalLog(convexLog("clients:createClient", exists))).toBe(true);
     // NOT_FOUND itself stays a crash signal.
     expect(isHandledRefusalLog(convexLog("intakeDrafts:saveIntakeSource", { code: "NOT_FOUND", message: "x" }))).toBe(false);
   });

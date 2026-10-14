@@ -358,6 +358,8 @@ export const searchProjects = query({
     tagIds: v.optional(v.array(v.id("tags"))),
     currentAssigneeId: v.optional(v.id("users")),
     projectType: v.optional(projectTypeValidator),
+    // 2026-10-14: scope the search to one client (its dashboardCompanyKey).
+    companyKey: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Decision D1 (pre-existing read contract, reaffirmed 2026-08-06
@@ -376,6 +378,9 @@ export const searchProjects = query({
         if (args.ownerId) builder = builder.eq("ownerId", args.ownerId);
         if (args.industry) builder = builder.eq("industry", args.industry);
         if (args.scienceCode) builder = builder.eq("scienceCode", args.scienceCode);
+        if (args.companyKey !== undefined) {
+          builder = builder.eq("dashboardCompanyKey", args.companyKey);
+        }
         return builder;
       });
     const result = await searchQuery.paginate({

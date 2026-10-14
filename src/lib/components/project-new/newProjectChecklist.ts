@@ -31,6 +31,15 @@ export type ChecklistRow = {
 export type ChecklistInput = {
   mode: "generate" | "review";
   clientName: string;
+  /**
+   * The Client field holds a listed client (2026-10-14 amendment, "Pick a
+   * client on New project"). Start stays blocked until it does.
+   */
+  clientPicked: boolean;
+  /** The client list is still loading, so whether it is listed is not known yet. */
+  clientListLoading?: boolean;
+  /** The client list failed to load; the field offers Try again. Still blocking. */
+  clientListFailed?: boolean;
   title: string;
   transcripts: { count: number; words: number };
   /** Transcript files that held no text (E5). */
@@ -68,8 +77,19 @@ export function buildChecklist(input: ChecklistInput): ChecklistRow[] {
       blocking: false,
     });
   }
-  const hasClientAndTitle = Boolean(input.clientName.trim() && input.title.trim());
-  if (!input.duplicateName || !hasClientAndTitle) {
+  const hasClient = Boolean(input.clientName.trim());
+  const hasClientAndTitle = Boolean(hasClient && input.title.trim());
+  if (hasClient && !input.clientPicked) {
+    // W8: a name that is not in the Client list. While the list loads the
+    // row waits quietly instead of asking for a pick it may not need.
+    rows.push(
+      input.clientListFailed
+        ? { id: "client-title", state: "pending", text: "We could not load the client list", blocking: true }
+        : input.clientListLoading
+          ? { id: "client-title", state: "reading", text: "Checking the client list", blocking: true }
+          : { id: "client-title", state: "pending", text: "Pick a client from the list", blocking: true }
+    );
+  } else if (!input.duplicateName || !hasClientAndTitle) {
     rows.push(
       hasClientAndTitle
         ? { id: "client-title", state: "done", text: "Client and title", blocking: false }
