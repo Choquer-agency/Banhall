@@ -23,6 +23,7 @@
     railHidden = false,
     onToggleRail = null,
     showNewProject = true,
+    showSearch = true,
   }: {
     title: string;
     count?: string | null;
@@ -39,6 +40,11 @@
     onToggleRail?: (() => void) | null;
     /** Home already leads with project intake, so its duplicate nav CTA is hidden. */
     showNewProject?: boolean;
+    /**
+     * Projects (2026-10-14 redesign) carries its own client and project
+     * searches, so it hides this field and its narrow-screen toggle.
+     */
+    showSearch?: boolean;
   } = $props();
 
   let desktopInput: HTMLInputElement | null = $state(null);
@@ -147,13 +153,16 @@
   <!-- Below the persistent-rail breakpoint the header carries search. On a
        full desktop the measured Attio pattern has one search surface in the
        rail, so the duplicate centre field leaves the composition. -->
-  <div class="hidden min-w-0 flex-1 items-center justify-center px-2 md:flex xl:hidden">
-    <div class="w-full max-w-[18.75rem]">
-      {@render searchField((el) => (desktopInput = el), true)}
+  {#if showSearch}
+    <div class="hidden min-w-0 flex-1 items-center justify-center px-2 md:flex xl:hidden">
+      <div class="w-full max-w-[18.75rem]">
+        {@render searchField((el) => (desktopInput = el), true)}
+      </div>
     </div>
-  </div>
+  {/if}
 
   <div class="ml-auto flex shrink-0 items-center gap-1.5">
+    {#if showSearch}
     <button
       type="button"
       aria-label="Search projects"
@@ -172,6 +181,7 @@
     >
       <MagnifyingGlassIcon size="1.125rem" weight="regular" aria-hidden="true" />
     </button>
+    {/if}
 
     {#if showNewProject}
       <Button
@@ -190,10 +200,12 @@
 <!-- Animated mobile search disclosure (2026-08-08 amendment): the revealed
      row enters/exits with the shared ≥300ms disclosure motion instead of
      snapping; reduced motion collapses to instant inside the primitive. -->
-<div class="md:hidden">
-  <Disclosure id="workspace-mobile-search" open={mobileSearchOpen}>
-    <div class="border-b border-line-soft bg-canvas px-3 pb-2 pt-0.5">
-      {@render searchField((el) => (mobileInput = el), false)}
-    </div>
-  </Disclosure>
-</div>
+{#if showSearch}
+  <div class="md:hidden">
+    <Disclosure id="workspace-mobile-search" open={mobileSearchOpen}>
+      <div class="border-b border-line-soft bg-canvas px-3 pb-2 pt-0.5">
+        {@render searchField((el) => (mobileInput = el), false)}
+      </div>
+    </Disclosure>
+  </div>
+{/if}

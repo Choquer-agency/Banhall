@@ -11,6 +11,7 @@
   // current handoff ("With"), generation activity, and available
   // created/updated stamps. No priority is invented. Paused stages keep the
   // dashed-border cue (text label lives on the column chip).
+  import type { Snippet } from "svelte";
   import { resolve } from "$app/paths";
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import DuplicateProjectButton from "$lib/components/workspace/DuplicateProjectButton.svelte";
@@ -29,6 +30,10 @@
     showClient = true,
     showFiscalYear = true,
     showStage = false,
+    actions = undefined,
+    selectable = false,
+    selected = false,
+    onToggleSelect = undefined,
   }: {
     row: ProjectsTableRow;
     /**
@@ -52,6 +57,19 @@
      * color-only. No current consumer — kept for that contract.
      */
     showStage?: boolean;
+    /**
+     * Header actions in place of the default Duplicate and Delete buttons
+     * (the Projects page card menu, 2026-10-14). The snippet keeps the same
+     * host contract: `relative z-10`, revealed on hover or focus-within.
+     */
+    actions?: Snippet;
+    /**
+     * Select mode (Paper V4, 2026-10-14): a checkbox sits at the header's
+     * left and the whole card toggles instead of opening the project.
+     */
+    selectable?: boolean;
+    selected?: boolean;
+    onToggleSelect?: () => void;
   } = $props();
 
   const paused = $derived(
@@ -76,9 +94,21 @@
 
 <article
   data-project-board-card
-  class={`group group/project relative flex min-h-40 max-w-full cursor-pointer flex-col overflow-hidden rounded-xl border shadow-sm transition-colors motion-reduce:transition-none ${theme.footerBg} ${paused ? "border-dashed border-violet-300" : "border-transparent"} ${theme.hoverBorder} ${theme.focusWithinBorder}`}
+  data-selected={selectable ? String(selected) : undefined}
+  class={`group group/project relative flex min-h-40 max-w-full cursor-pointer flex-col overflow-hidden rounded-xl border shadow-sm transition-colors motion-reduce:transition-none ${theme.footerBg} ${paused ? "border-dashed border-violet-300" : "border-transparent"} ${theme.hoverBorder} ${theme.focusWithinBorder} ${selectable && selected ? "ring-2 ring-primary-selected" : ""}`}
 >
   <header data-card-header class="flex min-w-0 items-start gap-2 rounded-t-xl px-2.5 py-2">
+    {#if selectable}
+      <span
+        data-card-checkbox
+        aria-hidden="true"
+        class={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[0.25rem] border ${selected ? "border-fir bg-fir text-white" : "border-line bg-surface"}`}
+      >
+        {#if selected}
+          <svg class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10" /></svg>
+        {/if}
+      </span>
+    {/if}
     {#if row.projectNumber}
       <!-- Per-company project number / draft letter (2026-08-11 amendment):
            a distinct stage-tinted identity badge, never a status control. -->
@@ -88,17 +118,33 @@
         class={`text-data inline-flex min-h-5 shrink-0 items-center gap-0.5 rounded-md border bg-surface px-1.5 py-0.5 font-semibold leading-none shadow-[0_1px_1px_rgba(0,0,0,0.04)] ${theme.border} ${theme.headerText}`}
       ><span aria-hidden="true" class="opacity-60">#</span>{row.projectNumber}</span>
     {/if}
-    <a
-      href={resolve("/project/[id]", { id: row.id })}
-      data-recent-title={row.title}
-      data-recent-stage={row.workflowStage ?? undefined}
-      data-recent-client={row.clientName || undefined}
-      class={`block min-w-0 flex-1 truncate rounded-md text-[0.8125rem] font-medium leading-5 ${theme.headerText} after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy`}
-    >{row.title}</a>
-    <!-- Hover or focus reveals Duplicate and Delete; they keep their place
-         in the header either way, so the title never reflows. -->
-    <DuplicateProjectButton projectId={row.id} projectTitle={row.title} deleting={row.deleting} class="-my-1" />
-    <DeleteProjectButton projectId={row.id} projectTitle={row.title} createdBy={row.createdBy} deleting={row.deleting} class="-my-1" />
+    {#if selectable}
+      <!-- Select mode: the stretched title is a checkbox for the whole card. -->
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={selected}
+        data-card-select={row.id}
+        onclick={() => onToggleSelect?.()}
+        class={`block min-w-0 flex-1 truncate rounded-md text-left text-[0.8125rem] font-medium leading-5 ${theme.headerText} after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy`}
+      >{row.title}</button>
+    {:else}
+      <a
+        href={resolve("/project/[id]", { id: row.id })}
+        data-recent-title={row.title}
+        data-recent-stage={row.workflowStage ?? undefined}
+        data-recent-client={row.clientName || undefined}
+        class={`block min-w-0 flex-1 truncate rounded-md text-[0.8125rem] font-medium leading-5 ${theme.headerText} after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy`}
+      >{row.title}</a>
+      {#if actions}
+        {@render actions()}
+      {:else}
+        <!-- Hover or focus reveals Duplicate and Delete; they keep their place
+             in the header either way, so the title never reflows. -->
+        <DuplicateProjectButton projectId={row.id} projectTitle={row.title} deleting={row.deleting} class="-my-1" />
+        <DeleteProjectButton projectId={row.id} projectTitle={row.title} createdBy={row.createdBy} deleting={row.deleting} class="-my-1" />
+      {/if}
+    {/if}
   </header>
 
   {#if row.sredTitle}

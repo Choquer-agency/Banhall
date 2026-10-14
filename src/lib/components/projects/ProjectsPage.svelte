@@ -1,0 +1,244 @@
+<!--
+  The Projects page body (2026-10-14 amendment, "Saved clients, client
+  merge, and the Projects page redesign"; Paper W1, V1, V4, W5, W6). A
+  client list on the left with its own scroll and the selected client on the
+  right with its own scroll. `?client=<companyKey>` selects a client; no
+  param shows All clients. Choosing a client is a soft navigation that adds a
+  history entry, so back and forward move between clients.
+
+  Below `md` the client list fills the width; choosing a client (or All
+  clients) shows the client area with a back link.
+
+  Hooks a later step swaps for side panels: `onEditDetails(projectId)`
+  (default: open the project) and `onBulkEdit(rows)` (default: the existing
+  BulkEditDialog).
+-->
+<script lang="ts">
+  import { goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
+  import { page } from "$app/state";
+  import { SvelteMap } from "svelte/reactivity";
+  import { useQuery } from "convex-svelte";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
+  import { api } from "../../../../convex/_generated/api";
+  import type { Id } from "../../../../convex/_generated/dataModel";
+  import ClientList from "./ClientList.svelte";
+  import ClientArea from "./ClientArea.svelte";
+  import MergeClientsDialog, { type MergeResult } from "./MergeClientsDialog.svelte";
+  import NewClientDialog, { type NewClientResult } from "$lib/components/clients/NewClientDialog.svelte";
+  import DeleteProjectDialog from "$lib/components/workspace/DeleteProjectDialog.svelte";
+  import BulkEditDialog from "$lib/components/dashboard/BulkEditDialog.svelte";
+  import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
+  import type { DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
+  import { canCreateProjects, duplicateProjectSearch } from "$lib/workspace/projectDuplicate";
+  import { canDeleteProject } from "$lib/workspace/projectDelete";
+  import { clientHref, clientKeyFromUrl, type ClientEntry } from "$lib/projects/clientList";
+
+  let {
+    initialSearch = "",
+    totalLabel = null,
+    onEditDetails = undefined,
+    onBulkEdit = undefined,
+  }: {
+    /** A search handed over from Home; it seeds the first search field shown. */
+    initialSearch?: string;
+    /** All clients count, from the top bar ("128", "1000+"). */
+    totalLabel?: string | null;
+    /** Edit details on a card. Default: open the project page. */
+    onEditDetails?: (projectId: string) => void;
+    /** Edit details for a selection. Default: the existing bulk edit dialog. */
+    onBulkEdit?: (rows: DashboardProjectionRow[]) => void;
+  } = $props();
+
+  const auth = useAuth();
+  const userQ = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
+  const clientsQ = useQuery(api.clients.listClients, () => (auth.isAuthenticated ? {} : "skip"));
+
+  const viewer = $derived(userQ.data ?? null);
+  const role = $derived(viewer && viewer.isAnonymous !== true ? (viewer.role ?? null) : null);
+  const canCreate = $derived(canCreateProjects(viewer));
+  const canMerge = $derived(role === "manager" || role === "admin");
+
+  const clients = $derived((clientsQ.data?.clients ?? []) as ClientEntry[]);
+  const selectedKey = $derived(clientKeyFromUrl(page.url));
+  /** Names learned from New client and merges, until the list catches up. */
+  const knownNames = new SvelteMap<string, string>();
+  const selectedClient = $derived.by(() => {
+    if (selectedKey === null) return null;
+    const entry = clients.find((client) => client.key === selectedKey);
+    return { key: selectedKey, name: entry?.name ?? knownNames.get(selectedKey) ?? null };
+  });
+
+  // Small screens: the area shows once a client, or All clients, is chosen.
+  let mobileAll = $state(false);
+  const areaOnMobile = $derived(selectedKey !== null || mobileAll);
+
+  // Home's search handoff seeds only the first client area shown.
+  let navigated = $state(false);
+  const searchSeed = $derived(navigated ? "" : initialSearch);
+
+  function selectClient(key: string | null) {
+    navigated = true;
+    mobileAll = key === null;
+    void goto(clientHref(page.url, key), { keepFocus: true, noScroll: true });
+  }
+
+  function backToList() {
+    mobileAll = false;
+    if (selectedKey !== null) void goto(clientHref(page.url, null), { keepFocus: true, noScroll: true });
+  }
+
+  // Retry remounts the failed subscription. Changing client does not remount
+  // the area; it resets its search and selection in place.
+  let clientsAttempt = $state(0);
+  let areaAttempt = $state(0);
+
+  // ─── New client ───────────────────────────────────────────────────────────
+  let newClientOpen = $state(false);
+  function onClientCreated(created: NewClientResult) {
+    knownNames.set(created.key, created.name);
+    selectClient(created.key);
+  }
+
+  // ─── Merge ────────────────────────────────────────────────────────────────
+  let mergeMode = $state(false);
+  let mergeKeys = $state<string[]>([]);
+  let mergeOpen = $state(false);
+  const mergeClients = $derived(
+    mergeKeys
+      .map((key) => clients.find((client) => client.key === key))
+      .filter((client): client is ClientEntry => client !== undefined)
+  );
+
+  function toggleMerge(key: string) {
+    mergeKeys = mergeKeys.includes(key) ? mergeKeys.filter((k) => k !== key) : [...mergeKeys, key];
+  }
+
+  function endMerge() {
+    mergeMode = false;
+    mergeKeys = [];
+  }
+
+  function onMerged(result: MergeResult) {
+    knownNames.set(result.keptKey, result.keptName);
+    endMerge();
+    selectClient(result.keptKey);
+  }
+
+  // ─── Card actions ─────────────────────────────────────────────────────────
+  let area: { clearSelection: () => void; focusSearch: (options?: { select?: boolean }) => void } | null =
+    $state(null);
+  let deleteTarget = $state<{ id: string; title: string } | null>(null);
+  let deleteOpen = $state(false);
+  let bulkRows = $state<DashboardProjectionRow[]>([]);
+  let bulkOpen = $state(false);
+
+  function editDetails(projectId: string) {
+    if (onEditDetails) onEditDetails(projectId);
+    else void goto(resolve("/project/[id]", { id: projectId }));
+  }
+
+  function duplicate(projectId: string) {
+    void goto(`${resolve("/project/new")}${duplicateProjectSearch(projectId)}`);
+  }
+
+  function requestDelete(project: { id: string; title: string }) {
+    deleteTarget = project;
+    deleteOpen = true;
+  }
+
+  function bulkEdit(rows: DashboardProjectionRow[]) {
+    if (onBulkEdit) {
+      onBulkEdit(rows);
+      return;
+    }
+    bulkRows = rows;
+    bulkOpen = true;
+  }
+
+  const canDelete = (row: ProjectsTableRow) => canDeleteProject(viewer, row.createdBy, row.deleting);
+
+  /** Focus the visible search field (rail search, Home's search handoff). */
+  export function focusSearch(options: { select?: boolean } = {}) {
+    area?.focusSearch(options);
+  }
+</script>
+
+<div data-projects-page class="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-canvas">
+  <aside
+    aria-label="Clients"
+    class={`flex min-h-0 w-[14.5rem] shrink-0 flex-col border-r border-line-soft max-md:w-full max-md:border-r-0 ${areaOnMobile ? "max-md:hidden" : ""}`}
+  >
+    {#key clientsAttempt}
+      <ClientList
+        {clients}
+        truncated={clientsQ.data?.truncated ?? false}
+        loading={clientsQ.data === undefined && !clientsQ.error}
+        failed={Boolean(clientsQ.error)}
+        {totalLabel}
+        {selectedKey}
+        hrefFor={(key) => clientHref(page.url, key)}
+        onSelect={selectClient}
+        {canCreate}
+        {canMerge}
+        onNewClient={() => (newClientOpen = true)}
+        {mergeMode}
+        {mergeKeys}
+        onStartMerge={() => (mergeMode = true)}
+        onEndMerge={endMerge}
+        onToggleMerge={toggleMerge}
+        onMerge={() => (mergeOpen = true)}
+        onRetry={() => (clientsAttempt += 1)}
+      />
+    {/key}
+  </aside>
+
+  <div class={`flex min-h-0 min-w-0 flex-1 flex-col ${areaOnMobile ? "" : "max-md:hidden"}`}>
+    {#key areaAttempt}
+      <ClientArea
+        bind:this={area}
+        client={selectedClient}
+        initialSearch={searchSeed}
+        {canCreate}
+        canDuplicate={canCreate}
+        {canDelete}
+        onEditDetails={editDetails}
+        onDuplicate={duplicate}
+        onDelete={requestDelete}
+        onBulkEdit={bulkEdit}
+        onRetry={() => (areaAttempt += 1)}
+        onBack={backToList}
+        backLabel={selectedKey === null ? "Clients" : "All clients"}
+      />
+    {/key}
+  </div>
+</div>
+
+{#if canCreate}
+  <NewClientDialog
+    bind:open={newClientOpen}
+    canAddIndustry={role === "admin"}
+    onCreated={onClientCreated}
+  />
+{/if}
+
+{#if canMerge && mergeClients.length >= 2}
+  <MergeClientsDialog bind:open={mergeOpen} clients={mergeClients} {onMerged} />
+{/if}
+
+{#if deleteTarget}
+  <DeleteProjectDialog bind:open={deleteOpen} projectId={deleteTarget.id} projectTitle={deleteTarget.title} />
+{/if}
+
+{#if !onBulkEdit}
+  <BulkEditDialog
+    bind:open={bulkOpen}
+    projects={bulkRows.map((row) => ({
+      _id: row._id as Id<"projects">,
+      clientName: row.clientName,
+      fiscalYearEnd: row.fiscalYearEnd,
+    }))}
+    companies={clients.map((client) => client.name)}
+    onSaved={() => area?.clearSelection()}
+  />
+{/if}
