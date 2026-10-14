@@ -44,6 +44,13 @@ const SIMILAR_CLIENT_LIMIT = 5;
 const CLIENT_NAME_MAX_LENGTH = 200;
 /** A merge that would move more projects than this is refused. */
 const MERGE_PROJECT_LIMIT = 200;
+/**
+ * Most project index rows one merge reads per key while looking for live
+ * projects. Rows of projects being deleted are skipped but still read; a key
+ * that is not exhausted within this many rows makes the merge refuse (the
+ * same user-safe 200 message) rather than guess.
+ */
+const MERGE_KEY_SCAN_LIMIT = 2_000;
 /** Most clients one merge may fold into the kept client. */
 const MERGE_KEY_LIMIT = 20;
 /** Most distinct fiscal years checked against the kept client for collisions. */
@@ -118,9 +125,12 @@ async function loadClientDirectory(ctx: Ctx) {
     .query("clients")
     .withIndex("by_status_and_nameKey", (q) => q.eq("status", "active"))
     .take(CLIENT_DIRECTORY_BOUND + 1);
+  // The unnamed bucket sorts last ("\uffff") and is never listed, so the read
+  // stops before it; otherwise exactly CLIENT_DIRECTORY_BOUND named companies
+  // plus the unnamed row would report a false `truncated`.
   const companyRows = await ctx.db
     .query("dashboardCompanies")
-    .withIndex("by_companyKey")
+    .withIndex("by_companyKey", (q) => q.lt("companyKey", DASHBOARD_UNNAMED_COMPANY_KEY))
     .take(CLIENT_DIRECTORY_BOUND + 1);
   const clientsTruncated = clientRows.length > CLIENT_DIRECTORY_BOUND;
   const companiesTruncated = companyRows.length > CLIENT_DIRECTORY_BOUND;
@@ -314,8 +324,15 @@ type MergePlan = {
   nameConflict: string | null;
   /** Whether the kept client's own projects move (its name or key changes). */
   keepMoves: boolean;
-  /** Live projects that move, read up to MERGE_PROJECT_LIMIT + 1. */
+  /** Live projects that move (client name, clientId, dashboard counts). */
   moving: Doc<"projects">[];
+  /**
+   * Live projects that stay on their key and only gain the kept client's
+   * clientId: the kept key's own unlinked projects (no rename), or leftover
+   * projects already on a new name's key (rename). Counted toward the cap.
+   */
+  linking: Doc<"projects">[];
+  /** moving + linking would exceed MERGE_PROJECT_LIMIT, or a key was too big to read. */
   tooMany: boolean;
   /** Counted projects of every involved client (dashboardCompanies). */
   projectCount: number;
@@ -339,6 +356,33 @@ async function loadMergeSide(ctx: Ctx, key: string): Promise<MergeSide> {
     );
   }
   return { key, client, company };
+}
+
+/**
+ * Reads the live (not deleting) projects of one key that satisfy `wanted`,
+ * stopping once more than `budget` are found. `complete` is false when the
+ * key was not exhausted: either the budget was exceeded or
+ * MERGE_KEY_SCAN_LIMIT index rows were read first.
+ */
+async function liveProjectsOfKey(
+  ctx: Ctx,
+  key: string,
+  budget: number,
+  wanted: (project: Doc<"projects">) => boolean = () => true
+): Promise<{ rows: Doc<"projects">[]; complete: boolean }> {
+  const rows: Doc<"projects">[] = [];
+  let scanned = 0;
+  for await (const project of ctx.db
+    .query("projects")
+    .withIndex("by_dashboardCompanyKey", (q) => q.eq("dashboardCompanyKey", key))) {
+    scanned += 1;
+    if (project.deletionStartedAt === undefined && wanted(project)) {
+      rows.push(project);
+      if (rows.length > budget) return { rows, complete: false };
+    }
+    if (scanned >= MERGE_KEY_SCAN_LIMIT) return { rows, complete: false };
+  }
+  return { rows, complete: true };
 }
 
 /**
@@ -391,15 +435,39 @@ async function planClientMerge(
 
   const keepMoves = keptKey !== keep.key || keptName !== sideName(keep);
   const moveKeys = keepMoves ? [keep.key, ...args.mergeKeys] : args.mergeKeys;
+  // Every key is read until it is exhausted or the cap is passed, so
+  // `tooMany` is exact. A project being deleted is skipped, like the bulk
+  // edit skips it, and does not count.
   const moving: Doc<"projects">[] = [];
+  const linking: Doc<"projects">[] = [];
+  let tooMany = false;
+  const budget = () => MERGE_PROJECT_LIMIT - moving.length - linking.length;
   for (const key of moveKeys) {
-    if (moving.length > MERGE_PROJECT_LIMIT) break;
-    const rows = await ctx.db
-      .query("projects")
-      .withIndex("by_dashboardCompanyKey", (q) => q.eq("dashboardCompanyKey", key))
-      .take(MERGE_PROJECT_LIMIT + 1);
-    // A project being deleted is skipped, like the bulk edit skips it.
-    for (const row of rows) if (row.deletionStartedAt === undefined) moving.push(row);
+    const read = await liveProjectsOfKey(ctx, key, budget());
+    moving.push(...read.rows);
+    if (!read.complete) {
+      tooMany = true;
+      break;
+    }
+  }
+  if (!tooMany) {
+    // Projects that stay on their key but must point at the kept client.
+    // Without a rename that is the kept key's own projects not yet linked
+    // (all of them before the backfill has created its client row); with a
+    // rename to a key outside the merge, any uncounted leftovers already on
+    // that key.
+    const linkKey = keepMoves ? (involved.has(keptKey) ? null : keptKey) : keep.key;
+    if (linkKey !== null) {
+      const keptClientId = keepMoves ? null : (keep.client?._id ?? null);
+      const read = await liveProjectsOfKey(
+        ctx,
+        linkKey,
+        budget(),
+        (project) => keptClientId === null || project.clientId !== keptClientId
+      );
+      linking.push(...read.rows);
+      if (!read.complete) tooMany = true;
+    }
   }
 
   const projectCount = [keep, ...merged].reduce(
@@ -413,8 +481,9 @@ async function planClientMerge(
     keptKey,
     nameConflict,
     keepMoves,
-    moving: moving.slice(0, MERGE_PROJECT_LIMIT + 1),
-    tooMany: moving.length > MERGE_PROJECT_LIMIT,
+    moving,
+    linking,
+    tooMany,
     projectCount,
   };
 }
@@ -502,7 +571,8 @@ export const previewClientMerge = query({
     const plan = await planClientMerge(ctx, args, { strictName: false });
     return {
       projectCount: plan.projectCount,
-      movedCount: Math.min(plan.moving.length, MERGE_PROJECT_LIMIT + 1),
+      // Projects whose client name changes; capped reads stop just past 200.
+      movedCount: plan.moving.length,
       tooMany: plan.tooMany,
       keptName: plan.keptName,
       keptKey: plan.keptKey,
@@ -579,7 +649,13 @@ export const mergeClients = mutation({
       });
     }
 
-    // 4. Projects move: client name and clientId, then the dashboard
+    // 4. Projects that stay on their key are linked first (read in the plan
+    //    before anything moved onto the kept key; no updatedAt bump).
+    for (const project of plan.linking) {
+      await ctx.db.patch(project._id, { clientId: keptClientId });
+    }
+
+    // 5. Projects move: client name and clientId, then the dashboard
     //    projection (company counts, stage buckets, search text) follows in
     //    the same transaction. Project numbers are not changed.
     for (const project of plan.moving) {
@@ -587,19 +663,25 @@ export const mergeClients = mutation({
       await ctx.db.patch(project._id, patch);
       await syncProjectDashboardFields(ctx, project._id, patch);
     }
-    if (!plan.keepMoves) {
-      await linkKeyProjects(ctx, plan.keep.key, keptClientId, MERGE_PROJECT_LIMIT);
-    }
 
-    // 5. Every live project of the merged keys has moved, so a company row
+    // 6. Every live project of the merged keys has moved, so a company row
     //    still standing for one of them only holds drifted counts; remove it
-    //    so the name does not linger in the client list.
+    //    so the name does not linger in the client list. If a live project
+    //    is still on the key, the plan missed it: fail the whole transaction
+    //    rather than delete a row that still counts it.
     const leftKeys = plan.merged.map((side) => side.key);
     if (plan.keepMoves) leftKeys.push(plan.keep.key);
     for (const key of leftKeys) {
       if (key === plan.keptKey) continue;
       const row = await dashboardCompanyForKey(ctx, key);
-      if (row) await ctx.db.delete(row._id);
+      if (!row) continue;
+      const remaining = await liveProjectsOfKey(ctx, key, 0);
+      if (remaining.rows.length > 0 || !remaining.complete) {
+        throw new Error(
+          `mergeClients invariant: live projects remain on merged key ${JSON.stringify(key)}`
+        );
+      }
+      await ctx.db.delete(row._id);
     }
 
     return {
@@ -821,8 +903,17 @@ export const backfillClientsStep = internalMutation({
 
     if (args.pending) {
       companyKey = args.pending.companyKey;
-      clientId = args.pending.clientId;
       projectCursor = args.pending.projectCursor;
+      // Re-read every step: the client saved on an earlier page may have
+      // been merged since. `pending.clientId` is ignored (kept in the
+      // validator only so chains scheduled before this change still run).
+      clientId = (await activeClientForKey(ctx, companyKey))?._id;
+      if (clientId === undefined && !args.dryRun) {
+        // No active client for this key any more (merged away): nothing to
+        // link it to, so move on to the next company.
+        await scheduleClientsBackfillStep(ctx, args, companyKey, null, stats);
+        return null;
+      }
     } else {
       const afterKey = args.afterKey;
       const company =
@@ -885,7 +976,7 @@ export const backfillClientsStep = internalMutation({
       page.isDone ? companyKey : args.afterKey,
       page.isDone
         ? null
-        : { companyKey, ...(clientId ? { clientId } : {}), projectCursor: page.continueCursor },
+        : { companyKey, projectCursor: page.continueCursor },
       stats
     );
     return null;

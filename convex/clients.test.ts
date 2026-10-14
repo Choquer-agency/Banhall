@@ -8,7 +8,7 @@
  */
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import {
@@ -884,5 +884,310 @@ describe("backfillClients", () => {
     expect(forced.started).toBe(true);
     await drain(s);
     expect(await runStats(s, true)).toMatchObject({ status: "completed" });
+  });
+});
+
+// ─── Review regressions (findings 1, 2, 3 and 5 on 88fab996) ────────────────
+
+/** Inserts `count` bare counted projects on one key in a single transaction. */
+async function insertManyProjects(
+  s: Setup,
+  clientName: string,
+  count: number,
+  options: { deleting?: boolean; clientId?: Id<"clients"> } = {}
+) {
+  await s.t.run(async (ctx) => {
+    const now = Date.now();
+    for (let i = 0; i < count; i++) {
+      await ctx.db.insert("projects", {
+        title: `${clientName} ${i}`,
+        clientName,
+        ...(options.clientId ? { clientId: options.clientId } : {}),
+        dashboardCompanyKey: dashboardCompanyKey(clientName),
+        dashboardFiscalYearRank: dashboardFiscalYearRank(undefined),
+        dashboardSearchText: clientName.toLowerCase(),
+        dashboardCompanyCounted: options.deleting ? false : true,
+        ...(options.deleting ? { deletionStartedAt: now } : {}),
+        workflowStage: "intake",
+        workflowStageRank: workflowStageRank("intake"),
+        ownerId: s.writerId,
+        status: "draft",
+        createdBy: s.writerId,
+        shareToken: `many-${clientName}-${i}-${Math.random()}`,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  });
+}
+
+describe("merge reads every live project of a key (finding 1)", () => {
+  it("moves a live project that sits behind more than 201 deleting rows", async () => {
+    const s = await setup();
+    await insertClient(s, "Keep");
+    await insertCompany(s, "Keep", 1, { intake: 1 });
+    await insertProject(s, { clientName: "Keep" });
+    // 250 deleting rows come first in the key's index order.
+    await insertManyProjects(s, "Gone", 250, { deleting: true });
+    await insertCompany(s, "Gone", 1, { intake: 1 });
+    const live = await insertProject(s, { clientName: "Gone" });
+
+    const preview = await s.manager.query(api.clients.previewClientMerge, {
+      keepKey: "keep",
+      mergeKeys: ["gone"],
+    });
+    expect(preview).toMatchObject({ movedCount: 1, tooMany: false });
+
+    const result = await s.manager.mutation(api.clients.mergeClients, {
+      keepKey: "keep",
+      mergeKeys: ["gone"],
+    });
+    expect(result.moved).toBe(1);
+    expect(await getProject(s, live)).toMatchObject({
+      clientName: "Keep",
+      dashboardCompanyKey: "keep",
+      clientId: result.clientId,
+    });
+    expect(await companyRow(s, "Keep")).toMatchObject({
+      projectCount: 2,
+      stageCounts: { intake: 2 },
+    });
+    expect(await companyRow(s, "Gone")).toBeNull();
+  });
+
+  it("allows exactly 200 live projects (tooMany is exact, not off by deleting rows)", async () => {
+    const s = await setup();
+    const keepId = await insertClient(s, "Keep");
+    await insertCompany(s, "Keep", 1);
+    // Already linked, so it does not count toward the limit (finding 2).
+    await insertProject(s, { clientName: "Keep", clientId: keepId });
+    await insertManyProjects(s, "Many", 5, { deleting: true });
+    await insertManyProjects(s, "Many", 200);
+    await insertCompany(s, "Many", 200);
+
+    const preview = await s.manager.query(api.clients.previewClientMerge, {
+      keepKey: "keep",
+      mergeKeys: ["many"],
+    });
+    expect(preview).toMatchObject({ movedCount: 200, tooMany: false });
+    const result = await s.manager.mutation(api.clients.mergeClients, {
+      keepKey: "keep",
+      mergeKeys: ["many"],
+    });
+    expect(result.moved).toBe(200);
+    expect(await companyRow(s, "Keep")).toMatchObject({ projectCount: 201 });
+    expect(await companyRow(s, "Many")).toBeNull();
+  });
+
+  it("refuses rather than guesses when a key holds more rows than one merge reads", async () => {
+    const s = await setup();
+    await insertClient(s, "Keep");
+    await insertCompany(s, "Keep", 1);
+    await insertProject(s, { clientName: "Keep" });
+    await insertManyProjects(s, "Huge", 2000, { deleting: true });
+    await insertCompany(s, "Huge", 1);
+    const live = await insertProject(s, { clientName: "Huge" });
+
+    const preview = await s.manager.query(api.clients.previewClientMerge, {
+      keepKey: "keep",
+      mergeKeys: ["huge"],
+    });
+    expect(preview.tooMany).toBe(true);
+    await expect(
+      s.manager.mutation(api.clients.mergeClients, { keepKey: "keep", mergeKeys: ["huge"] })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    expect(await getProject(s, live)).toMatchObject({ clientName: "Huge" });
+    expect(await companyRow(s, "Huge")).toMatchObject({ projectCount: 1 });
+  });
+});
+
+describe("merge links the kept client's own projects (finding 2)", () => {
+  it("links every live project of a kept key that had no client row yet", async () => {
+    const s = await setup();
+    await insertCompany(s, "Prebackfill", 3);
+    const own = [
+      await insertProject(s, { clientName: "Prebackfill" }),
+      await insertProject(s, { clientName: "Prebackfill" }),
+      await insertProject(s, { clientName: "Prebackfill" }),
+    ];
+    await insertCompany(s, "Other", 1);
+    const moved = await insertProject(s, { clientName: "Other" });
+
+    const result = await s.manager.mutation(api.clients.mergeClients, {
+      keepKey: "prebackfill",
+      mergeKeys: ["other"],
+    });
+    expect(result.moved).toBe(1);
+    for (const projectId of [...own, moved]) {
+      expect((await getProject(s, projectId))?.clientId).toBe(result.clientId);
+    }
+  });
+
+  it("counts the kept key's links toward the 200 limit", async () => {
+    const s = await setup();
+    await insertManyProjects(s, "Prebackfill", 150);
+    await insertCompany(s, "Prebackfill", 150);
+    await insertManyProjects(s, "Other", 51);
+    await insertCompany(s, "Other", 51);
+
+    const preview = await s.manager.query(api.clients.previewClientMerge, {
+      keepKey: "prebackfill",
+      mergeKeys: ["other"],
+    });
+    expect(preview).toMatchObject({ movedCount: 51, tooMany: true });
+    await expect(
+      s.manager.mutation(api.clients.mergeClients, {
+        keepKey: "prebackfill",
+        mergeKeys: ["other"],
+      })
+    ).rejects.toMatchObject({
+      data: {
+        code: "INVALID_INPUT",
+        message: "This merge would move more than 200 projects. Merge fewer clients at a time.",
+      },
+    });
+    expect(await clientsByKey(s, "Prebackfill")).toHaveLength(0);
+  });
+
+  it("does not count already linked kept projects toward the limit", async () => {
+    const s = await setup();
+    const keepId = await insertClient(s, "Linked");
+    await insertManyProjects(s, "Linked", 150, { clientId: keepId });
+    await insertCompany(s, "Linked", 150);
+    await insertManyProjects(s, "Other", 51);
+    await insertCompany(s, "Other", 51);
+
+    const result = await s.manager.mutation(api.clients.mergeClients, {
+      keepKey: "linked",
+      mergeKeys: ["other"],
+    });
+    expect(result).toMatchObject({ moved: 51, clientId: keepId });
+  });
+
+  it("links leftover projects already on a new name's key", async () => {
+    const s = await setup();
+    const keepId = await insertClient(s, "Acme");
+    await insertCompany(s, "Acme", 1);
+    await insertProject(s, { clientName: "Acme", clientId: keepId });
+    await insertCompany(s, "Acme Ltd", 1);
+    await insertProject(s, { clientName: "Acme Ltd" });
+    // Uncounted straggler on the new key: no company row, so no name conflict.
+    const leftover = await insertProject(s, { clientName: "acme robotics" });
+
+    const result = await s.manager.mutation(api.clients.mergeClients, {
+      keepKey: "acme",
+      mergeKeys: ["acme ltd"],
+      name: "Acme Robotics",
+    });
+    expect(result).toMatchObject({ moved: 2, keptKey: "acme robotics", clientId: keepId });
+    expect((await getProject(s, leftover))?.clientId).toBe(keepId);
+  });
+});
+
+describe("backfill re-reads the active client each step (finding 3)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  const drain = (s: Setup) => s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+  async function pendingStep(s: Setup, staleClientId: Id<"clients">) {
+    const projects = [
+      await insertProject(s, { clientName: "Moving Co" }),
+      await insertProject(s, { clientName: "Moving Co" }),
+      await insertProject(s, { clientName: "Moving Co" }),
+    ];
+    const startedAt = Date.now();
+    const cursor = await s.t.run(async (ctx) => {
+      await ctx.db.insert("dashboardBackfillRuns", {
+        runKey: "clients-v1-live",
+        status: "running",
+        dryRun: false,
+        startedAt,
+      });
+      const page = await ctx.db
+        .query("projects")
+        .withIndex("by_dashboardCompanyKey", (q) => q.eq("dashboardCompanyKey", "moving co"))
+        .paginate({ cursor: null, numItems: 1 });
+      return page.continueCursor;
+    });
+    await s.t.mutation(internal.clients.backfillClientsStep, {
+      runKey: "clients-v1-live",
+      runStartedAt: startedAt,
+      dryRun: false,
+      actorId: s.adminId,
+      afterKey: null,
+      pending: { companyKey: "moving co", clientId: staleClientId, projectCursor: cursor },
+      stats: { companiesScanned: 1, clientsCreated: 1, projectsLinked: 0 },
+    });
+    return projects;
+  }
+
+  async function mergedTombstone(s: Setup, into?: Id<"clients">) {
+    return await s.t.run(async (ctx) => {
+      const now = Date.now();
+      const target =
+        into ??
+        (await ctx.db.insert("clients", {
+          name: "Elsewhere",
+          nameKey: "elsewhere",
+          status: "active",
+          createdBy: s.adminId,
+          createdAt: now,
+          updatedAt: now,
+        }));
+      return await ctx.db.insert("clients", {
+        name: "Moving Co",
+        nameKey: "moving co",
+        status: "merged",
+        mergedIntoClientId: target,
+        createdBy: s.adminId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+  }
+
+  it("links later pages to the key's current active client, not the saved one", async () => {
+    const s = await setup();
+    const activeId = await insertClient(s, "Moving Co");
+    const staleId = await mergedTombstone(s);
+    const [, second, third] = await pendingStep(s, staleId);
+    expect((await getProject(s, second))?.clientId).toBe(activeId);
+    expect((await getProject(s, third))?.clientId).toBe(activeId);
+    await drain(s);
+  });
+
+  it("skips linking when the key no longer has an active client", async () => {
+    const s = await setup();
+    const staleId = await mergedTombstone(s);
+    const [, second, third] = await pendingStep(s, staleId);
+    expect(await getProject(s, second)).not.toHaveProperty("clientId");
+    expect(await getProject(s, third)).not.toHaveProperty("clientId");
+    await drain(s);
+  });
+});
+
+describe("listClients bound ignores the unnamed company row (finding 5)", () => {
+  it("is not truncated with exactly 1000 named companies plus the unnamed row", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      const now = Date.now();
+      for (let i = 0; i < 1000; i++) {
+        await ctx.db.insert("dashboardCompanies", {
+          companyKey: `company ${String(i).padStart(4, "0")}`,
+          clientName: `Company ${i}`,
+          projectCount: 1,
+          updatedAt: now,
+        });
+      }
+      await ctx.db.insert("dashboardCompanies", {
+        companyKey: "￿",
+        clientName: "Unnamed",
+        projectCount: 1,
+        updatedAt: now,
+      });
+    });
+    const result = await s.writer.query(api.clients.listClients, {});
+    expect(result.truncated).toBe(false);
+    expect(result.clients).toHaveLength(1000);
   });
 });
