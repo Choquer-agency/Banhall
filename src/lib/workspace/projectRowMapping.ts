@@ -25,6 +25,9 @@ export type DashboardProjectionRow = {
   mode?: "generate" | "review";
   fiscalYearEnd?: number;
   clientName: string;
+  /** Pass-through industry slug and CRA science code (bulk edit "Now:" lines). */
+  industry?: string;
+  scienceCode?: string;
   workflowStage?: WorkflowStage;
   status: string;
   ownerId?: string;

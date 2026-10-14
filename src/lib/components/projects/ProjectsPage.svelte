@@ -9,9 +9,9 @@
   Below `md` the client list fills the width; choosing a client (or All
   clients) shows the client area with a back link.
 
-  Hooks a later step swaps for side panels: `onEditDetails(projectId)`
-  (default: open the project) and `onBulkEdit(rows)` (default: the existing
-  BulkEditDialog).
+  Edit details on a card opens ProjectEditPanel (W2) and Edit details in the
+  selection bar opens BulkEditPanel (W3, W4). A host may take either over
+  with `onEditDetails(projectId)` or `onBulkEdit(rows)`.
 -->
 <script lang="ts">
   import { goto } from "$app/navigation";
@@ -21,13 +21,13 @@
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
-  import type { Id } from "../../../../convex/_generated/dataModel";
   import ClientList from "./ClientList.svelte";
   import ClientArea from "./ClientArea.svelte";
   import MergeClientsDialog, { type MergeResult } from "./MergeClientsDialog.svelte";
   import NewClientDialog, { type NewClientResult } from "$lib/components/clients/NewClientDialog.svelte";
   import DeleteProjectDialog from "$lib/components/workspace/DeleteProjectDialog.svelte";
-  import BulkEditDialog from "$lib/components/dashboard/BulkEditDialog.svelte";
+  import ProjectEditPanel from "./ProjectEditPanel.svelte";
+  import BulkEditPanel from "./BulkEditPanel.svelte";
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import type { DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
   import { canCreateProjects, duplicateProjectSearch } from "$lib/workspace/projectDuplicate";
@@ -44,9 +44,9 @@
     initialSearch?: string;
     /** All clients count, from the top bar ("128", "1000+"). */
     totalLabel?: string | null;
-    /** Edit details on a card. Default: open the project page. */
+    /** Edit details on a card. Default: the edit side panel. */
     onEditDetails?: (projectId: string) => void;
-    /** Edit details for a selection. Default: the existing bulk edit dialog. */
+    /** Edit details for a selection. Default: the bulk edit side panel. */
     onBulkEdit?: (rows: DashboardProjectionRow[]) => void;
   } = $props();
 
@@ -126,16 +126,31 @@
   }
 
   // ─── Card actions ─────────────────────────────────────────────────────────
-  let area: { clearSelection: () => void; focusSearch: (options?: { select?: boolean }) => void } | null =
-    $state(null);
+  let area: {
+    clearSelection: () => void;
+    endSelect: () => void;
+    focusSearch: (options?: { select?: boolean }) => void;
+  } | null = $state(null);
   let deleteTarget = $state<{ id: string; title: string } | null>(null);
   let deleteOpen = $state(false);
   let bulkRows = $state<DashboardProjectionRow[]>([]);
   let bulkOpen = $state(false);
+  let editProjectId = $state<string | null>(null);
+  let editOpen = $state(false);
+
+  /** The card's "..." trigger, where focus goes back after the panel. */
+  function cardMenuTrigger(projectId: string | null) {
+    if (projectId === null) return null;
+    return document.querySelector<HTMLElement>(`[data-card-menu="${CSS.escape(projectId)}"]`);
+  }
 
   function editDetails(projectId: string) {
-    if (onEditDetails) onEditDetails(projectId);
-    else void goto(resolve("/project/[id]", { id: projectId }));
+    if (onEditDetails) {
+      onEditDetails(projectId);
+      return;
+    }
+    editProjectId = projectId;
+    editOpen = true;
   }
 
   function duplicate(projectId: string) {
@@ -154,6 +169,18 @@
     }
     bulkRows = rows;
     bulkOpen = true;
+  }
+
+  /** Applied: leave select mode and keep the page where it is. */
+  function onBulkApplied() {
+    area?.endSelect();
+  }
+
+  function bulkReturnFocus() {
+    return (
+      document.querySelector<HTMLElement>("[data-selection-edit]") ??
+      document.querySelector<HTMLElement>("[data-select-start]")
+    );
   }
 
   const canDelete = (row: ProjectsTableRow) => canDeleteProject(viewer, row.createdBy, row.deleting);
@@ -230,15 +257,22 @@
   <DeleteProjectDialog bind:open={deleteOpen} projectId={deleteTarget.id} projectTitle={deleteTarget.title} />
 {/if}
 
+{#if !onEditDetails}
+  <ProjectEditPanel
+    bind:open={editOpen}
+    projectId={editProjectId}
+    {viewer}
+    returnFocus={() => cardMenuTrigger(editProjectId)}
+    onDelete={requestDelete}
+  />
+{/if}
+
 {#if !onBulkEdit}
-  <BulkEditDialog
+  <BulkEditPanel
     bind:open={bulkOpen}
-    projects={bulkRows.map((row) => ({
-      _id: row._id as Id<"projects">,
-      clientName: row.clientName,
-      fiscalYearEnd: row.fiscalYearEnd,
-    }))}
-    companies={clients.map((client) => client.name)}
-    onSaved={() => area?.clearSelection()}
+    rows={bulkRows}
+    {viewer}
+    returnFocus={bulkReturnFocus}
+    onApplied={onBulkApplied}
   />
 {/if}

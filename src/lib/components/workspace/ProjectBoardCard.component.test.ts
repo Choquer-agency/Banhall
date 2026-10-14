@@ -100,6 +100,10 @@ describe("ProjectBoardCard", () => {
     expect(field?.textContent).toContain("Rita Reviewer");
     expect(field?.textContent).toContain("Internal review");
     expect(field?.textContent).toContain("due Sep 1, 2026");
+    // Plain separators, no middle dots (2026-10-14 copy cleanup).
+    expect(field?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "With Rita Reviewer, Internal review, due Sep 1, 2026"
+    );
   });
 
   it("renders no handoff row when the project has no open blocking handoff", async () => {
@@ -125,9 +129,7 @@ describe("ProjectBoardCard", () => {
       }),
     });
 
-    expect(document.querySelector("[data-owner-legacy-qualifier]")?.textContent).toContain(
-      "Writer · legacy"
-    );
+    expect(document.querySelector("[data-owner-legacy-qualifier]")?.textContent).toBe(", legacy writer");
     expect(document.querySelector("[data-legacy-status-qualifier]")?.textContent).toContain(
       "Legacy status"
     );

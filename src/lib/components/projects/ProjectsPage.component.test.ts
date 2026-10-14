@@ -391,7 +391,7 @@ describe("Projects page client area", () => {
     expect(document.querySelector("[data-client-search]")).not.toBeNull();
   });
 
-  it("opens the existing bulk edit dialog by default", async () => {
+  it("opens the bulk edit side panel by default", async () => {
     __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
     await mount("/projects?client=cedarline+systems");
     await expect.poll(() => document.querySelector("[data-select-start]")).not.toBeNull();
@@ -399,6 +399,8 @@ describe("Projects page client area", () => {
     await userEvent.click(page.getByRole("checkbox", { name: "Defrost cycle prediction" }));
     await userEvent.click(document.querySelector<HTMLElement>("[data-selection-edit]")!);
     await expect.element(page.getByRole("dialog", { name: "Edit 1 project" })).toBeVisible();
+    // The side panel (Paper W3), not the old centered BulkEditDialog.
+    expect(document.querySelector('[data-testid="bulk-edit-panel"]')?.getAttribute("data-projects-panel")).toBe("side");
   });
 
   it("says when a client has no projects, with New project for that client", async () => {

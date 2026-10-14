@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Shared board card — Obvious light board anatomy (full-markup evidence
+  // Shared board card: Obvious light board anatomy (full-markup evidence
   // 2026-08-10): a column-TINTED outer shell (`bg-category-*-bg` analog via
   // the stage card theme) wrapping a neutral white inset panel; no status
   // chip on the card (the tint + column chip carry stage identity).
@@ -39,7 +39,7 @@
     /**
      * Render the client supporting line. Client-scoped surfaces (client
      * lanes) pass false because the section header already carries the
-     * client name — repeating it on every card is noise, not context (live
+     * client name; repeating it on every card is noise, not context (live
      * QA 2026-08-07). The flat stage-first board keeps the default: there
      * the card is the only client signal.
      */
@@ -54,7 +54,7 @@
      * Render the labelled stage badge on the card. Stage-column boards keep
      * the default (the column chip is the labelled stage carrier); a
      * column-less surface must pass true so stage identity is never
-     * color-only. No current consumer — kept for that contract.
+     * color-only. No current consumer; kept for that contract.
      */
     showStage?: boolean;
     /**
@@ -186,11 +186,11 @@
         <span class="sr-only">Owner</span>
         <span class="block min-w-0 flex-1 break-words line-clamp-2">
           {#if row.owner.kind === "legacy_writer"}
-            {row.owner.label} <span data-owner-legacy-qualifier class="text-ink-muted">Writer · legacy</span>
+            {row.owner.label}<span data-owner-legacy-qualifier class="text-ink-muted">, legacy writer</span>
           {:else if row.owner.kind === "canonical_unresolved"}
             <span data-owner-unavailable>{ownerLabel}</span>
           {:else if row.owner.kind === "none"}
-            <span aria-hidden="true">—</span><span data-owner-none class="sr-only">none recorded</span>
+            <span data-owner-none class="text-ink-muted">None recorded</span>
           {:else}
             {ownerLabel}
           {/if}
@@ -205,8 +205,7 @@
           <svg class="mt-0.5 h-3 w-3 shrink-0 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.25a7.36 7.36 0 0 1 7.5-7.25 7.36 7.36 0 0 1 4.06 1.19M15 18h6m0 0-2.5-2.5M21 18l-2.5 2.5" /></svg>
           <span class="sr-only">With</span>
           <span class="block min-w-0 flex-1 break-words line-clamp-2">
-            {row.handoff.assigneeLabel}
-            <span class="text-ink-muted">· {row.handoff.kindLabel}{row.handoff.dueDate ? ` · due ${row.handoff.dueDate}` : ""}</span>
+            {row.handoff.assigneeLabel}<span class="text-ink-muted">, {row.handoff.kindLabel}{row.handoff.dueDate ? `, due ${row.handoff.dueDate}` : ""}</span>
           </span>
         </div>
       {/if}
@@ -234,7 +233,7 @@
       {#if !row.workflowStage}
         <div data-card-field="legacy" class="flex min-w-0 items-start gap-2">
           <svg class="mt-0.5 h-3 w-3 shrink-0 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h10" /></svg>
-          <span data-legacy-status-qualifier class="block min-w-0 flex-1 break-words line-clamp-2">Legacy status · {row.legacyStatus}</span>
+          <span data-legacy-status-qualifier class="block min-w-0 flex-1 break-words line-clamp-2">Legacy status: {row.legacyStatus}</span>
         </div>
       {/if}
     </div>

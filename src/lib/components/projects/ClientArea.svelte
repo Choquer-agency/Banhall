@@ -8,8 +8,9 @@
 
   Select turns the cards into checkboxes with a dark bottom bar (Edit
   details, Clear, Done); Esc leaves it. A selection holds at most 200
-  projects. Edit details and bulk edit go through the host's callbacks so a
-  later step can swap them for side panels.
+  projects, all of them on screen: a project that leaves the visible set
+  drops out of the selection. Edit details and bulk edit go through the
+  host's callbacks (the host opens its side panels).
 -->
 <script lang="ts">
   import { untrack } from "svelte";
@@ -140,10 +141,28 @@
     limitHit = false;
   }
 
-  function endSelect() {
+  /** Leaves select mode with nothing selected (after a bulk edit is applied). */
+  export function endSelect() {
     selecting = false;
     clearSelection();
   }
+
+  // Selection hygiene: the selection only ever holds projects on screen. A
+  // project that leaves the visible set (moved to another client, deleted,
+  // or no longer matching the search) drops out of the selection, so bulk
+  // edit never changes a project the person cannot see. Rows still shown are
+  // refreshed, so the bulk edit's "Now:" lines read the latest values.
+  $effect(() => {
+    if (!selecting || loadingFirst || activeQ.error) return;
+    const visible = new Map(raw.map((row) => [row._id, row]));
+    untrack(() => {
+      for (const [id, row] of selected) {
+        const latest = visible.get(id);
+        if (!latest) selected.delete(id);
+        else if (latest !== row) selected.set(id, latest);
+      }
+    });
+  });
 
   function handleWindowKeydown(event: KeyboardEvent) {
     if (!selecting || event.key !== "Escape" || event.defaultPrevented) return;
