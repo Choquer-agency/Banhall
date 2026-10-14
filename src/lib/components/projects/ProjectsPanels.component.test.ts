@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { ConvexError } from "convex/values";
+import { mostRecentYearEnd } from "$lib/clients/usualYearEnd";
 import ProjectsPage from "./ProjectsPage.svelte";
 import { __resetPage, __setPageUrl, page as appPage } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
@@ -220,6 +221,41 @@ describe("Edit details panel (W2)", () => {
     ]);
   });
 
+  it("writes the client picked when Save was clicked, with every field read only while saving", async () => {
+    let release: (value: null) => void = () => {};
+    __setMutationResult("projects:updateProjectTitles", new Promise((resolve) => (release = resolve)));
+    __setMutationResult("projects:updateProjectClientName", null);
+    await mount();
+    await openEdit();
+    await expect.poll(() => field("title")?.value).toBe("High-efficiency pump control");
+    await userEvent.fill(field("title")!, "Pump control under load");
+    const client = page.getByRole("combobox", { name: "Client" });
+    await userEvent.fill(client, "acuity insights");
+    await userEvent.click(saveButton());
+    await expect.poll(() => text(saveButton())).toBe("Saving...");
+
+    // The title write is still running: nothing in the form can change.
+    const input = client.element() as HTMLInputElement;
+    const disabled = (node: Element | null | undefined) => node?.matches(":disabled") ?? false;
+    expect(disabled(input)).toBe(true);
+    expect(disabled(field("title"))).toBe(true);
+    expect(disabled(field("sredTitle"))).toBe(true);
+    expect(disabled(field("projectNumber"))).toBe(true);
+    expect(disabled(field("fiscalYearEnd"))).toBe(true);
+    expect(disabled(field("scienceCode"))).toBe(true);
+    expect(disabled(editPanel()?.querySelector("#edit-project-industry"))).toBe(true);
+    expect([...(field<HTMLElement>("tagIds")?.querySelectorAll("button") ?? [])].every(disabled)).toBe(true);
+    // Even a change that slips through lands after the values were read.
+    input.value = "Cedarline Systems";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    release(null);
+    await expect.poll(() => editPanel()).toBeNull();
+    expect(__mutationCalls("projects:updateProjectClientName")).toEqual([
+      { projectId: "p5", clientName: "Acuity Insights" },
+    ]);
+  });
+
   it("checks the project number and the client before writing anything", async () => {
     await mount();
     await openEdit();
@@ -327,6 +363,61 @@ describe("Edit details panel (W2)", () => {
     await expect.poll(() => __mutationCalls("projects:updateProjectClientName")).toEqual([
       { projectId: "p5", clientName: "Acuity Insights" },
     ]);
+  });
+
+  it("fills an empty fiscal year end and industry from the client New client makes", async () => {
+    __setQueryData("projects:getProject", { ...P5_DOC, fiscalYearEnd: undefined, industry: undefined });
+    __setMutationResult("clients:createClient", { clientId: "c9", key: "nobody limited", name: "Nobody Limited" });
+    await mount();
+    await openEdit();
+    await expect.poll(() => field("title")?.value).toBe("High-efficiency pump control");
+    expect(text(field("fiscalYearEnd"))).toBe("Choose the year end");
+    await userEvent.fill(page.getByRole("combobox", { name: "Client" }), "Nobody Limited");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-new-client-option]")!);
+    await expect.element(page.getByRole("dialog", { name: "New client" })).toBeVisible();
+    await userEvent.click(document.querySelector<HTMLElement>("#new-client-year-end-month")!);
+    await userEvent.click(page.getByRole("option", { name: "September", exact: true }));
+    await userEvent.click(document.querySelector<HTMLElement>("#new-client-year-end-day")!);
+    await userEvent.click(page.getByRole("option", { name: "30", exact: true }));
+    await userEvent.click(document.querySelector<HTMLElement>("#new-client-industry")!);
+    await userEvent.click(page.getByRole("option", { name: "Manufacturing", exact: true }));
+    await userEvent.click(document.querySelector<HTMLElement>("[data-create-client]")!);
+
+    const expected = mostRecentYearEnd(9, 30)!;
+    await expect.poll(() => text(field("fiscalYearEnd")?.querySelector("[data-edit-fiscal-year]"))).toBe(
+      `FY ${expected.slice(0, 4)}`
+    );
+    await expect.poll(() => editPanel()?.querySelector<HTMLInputElement>("#edit-project-industry")?.value).toBe("Manufacturing");
+    await userEvent.click(saveButton());
+    await expect.poll(() => editPanel()).toBeNull();
+    expect(__mutationCalls("projects:updateProjectClientName")).toEqual([{ projectId: "p5", clientName: "Nobody Limited" }]);
+    expect(__mutationCalls("projects:updateProjectFiscalYear")).toEqual([
+      { projectId: "p5", fiscalYearEnd: Date.parse(`${expected}T00:00:00Z`) },
+    ]);
+    expect(__mutationCalls("projects:updateProjectIndustry")).toEqual([{ projectId: "p5", industry: "manufacturing" }]);
+  });
+
+  it("fills them from the listed client that Use that client picks", async () => {
+    __setQueryData("clients:listClients", {
+      clients: [{ ...CLIENTS[0], fiscalYearEndMonth: 6, fiscalYearEndDay: 30, industry: "software" }, CLIENTS[1]],
+      truncated: false,
+    });
+    __setQueryData("projects:getProject", { ...P5_DOC, fiscalYearEnd: undefined, industry: undefined });
+    __setQueryDataForArgs("clients:findSimilarClients", { name: "Acuity Insights Ltd" }, {
+      exact: null,
+      similar: [{ key: "acuity insights", name: "Acuity Insights", projectCount: 4 }],
+    });
+    await mount();
+    await openEdit();
+    await expect.poll(() => field("title")?.value).toBe("High-efficiency pump control");
+    await userEvent.fill(page.getByRole("combobox", { name: "Client" }), "Acuity Insights Ltd");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-new-client-option]")!);
+    await userEvent.click(page.getByRole("button", { name: "Use that client" }));
+    const expected = mostRecentYearEnd(6, 30)!;
+    await expect.poll(() => text(field("fiscalYearEnd")?.querySelector("[data-edit-fiscal-year]"))).toBe(
+      `FY ${expected.slice(0, 4)}`
+    );
+    await expect.poll(() => editPanel()?.querySelector<HTMLInputElement>("#edit-project-industry")?.value).toBe("Software");
   });
 
   it("keeps unsaved edits on Escape and says how to leave; Cancel discards", async () => {
@@ -584,6 +675,47 @@ describe("Selection hygiene", () => {
     await expect.poll(() => text(document.querySelector("[data-selection-count]"))).toBe("1 selected");
     await userEvent.click(document.querySelector<HTMLElement>("[data-selection-edit]")!);
     await expect.element(page.getByRole("dialog", { name: "Edit 1 project" })).toBeVisible();
+  });
+
+  it("takes a project that leaves the selection out of an open bulk edit and asks for a new review", async () => {
+    __setMutationResult("projects:bulkUpdateProjects", { updated: 1, skipped: 0 });
+    await mount();
+    await openBulk("High-efficiency pump control", "Defrost cycle prediction");
+    await userEvent.click(segment("Industry", "Clear"));
+    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-review]")!);
+    await expect.element(page.getByRole("dialog", { name: "Review changes to 2 projects" })).toBeVisible();
+    // Defrost cycle prediction moves to another client while the review shows.
+    __setPaginatedRows(
+      "dashboard:listCompanyProjects",
+      CEDARLINE.filter((row) => row._id !== "p6")
+    );
+    await expect.element(page.getByRole("dialog", { name: "Edit 1 project" })).toBeVisible();
+    expect(text(document.querySelector("[data-bulk-selection-changed]"))).toBe(
+      "The selection changed. Review the changes again."
+    );
+    expect(document.querySelector("[data-bulk-apply]")).toBeNull();
+    // The edits stay.
+    await expect.element(segment("Industry", "Clear")).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-review]")!);
+    await expect.element(page.getByRole("dialog", { name: "Review changes to 1 project" })).toBeVisible();
+    expect([...document.querySelectorAll("[data-bulk-review-row]")].map((row) => row.getAttribute("data-bulk-review-row"))).toEqual(["p5"]);
+    expect(document.querySelector("[data-bulk-selection-changed]")).toBeNull();
+    await userEvent.click(page.getByRole("button", { name: "Apply to 1 project" }));
+    await expect.poll(() => __mutationCalls("projects:bulkUpdateProjects")).toEqual([
+      { projectIds: ["p5"], industry: null },
+    ]);
+  });
+
+  it("closes an open bulk edit once none of its projects is still selected", async () => {
+    await mount();
+    await openBulk("Defrost cycle prediction");
+    await userEvent.click(segment("Industry", "Clear"));
+    __setPaginatedRows(
+      "dashboard:listCompanyProjects",
+      CEDARLINE.filter((row) => row._id !== "p6")
+    );
+    await expect.poll(() => bulkPanel()).toBeNull();
+    expect(__mutationCalls("projects:bulkUpdateProjects")).toEqual([]);
   });
 
   it("keeps a search's selection to its results as they change", async () => {

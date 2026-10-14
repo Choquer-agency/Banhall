@@ -163,14 +163,26 @@
 
   // ─── Card actions ─────────────────────────────────────────────────────────
   let area: {
+    selectedRows: () => DashboardProjectionRow[];
     clearSelection: () => void;
     endSelect: () => void;
     focusSearch: (options?: { select?: boolean }) => void;
   } | null = $state(null);
   let deleteTarget = $state<{ id: string; title: string } | null>(null);
   let deleteOpen = $state(false);
-  let bulkRows = $state<DashboardProjectionRow[]>([]);
+  // The bulk panel follows the live selection: it holds the projects picked
+  // when it opened that are still selected, with their latest values. A
+  // project that leaves the visible set drops out of the selection
+  // (ClientArea) and so out of the panel; the panel closes once none is left.
+  let bulkIds = $state<ReadonlySet<string>>(new Set());
   let bulkOpen = $state(false);
+  const bulkRows = $derived.by(() => {
+    if (!area) return [];
+    return area.selectedRows().filter((row) => bulkIds.has(row._id));
+  });
+  $effect(() => {
+    if (bulkOpen && bulkRows.length === 0) bulkOpen = false;
+  });
   let editProjectId = $state<string | null>(null);
   let editOpen = $state(false);
 
@@ -203,7 +215,7 @@
       onBulkEdit(rows);
       return;
     }
-    bulkRows = rows;
+    bulkIds = new Set(rows.map((row) => row._id));
     bulkOpen = true;
   }
 

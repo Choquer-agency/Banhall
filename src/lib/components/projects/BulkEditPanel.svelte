@@ -12,9 +12,13 @@
   theirs (bulkUpdateProjects skips them). Apply makes one
   `projects.bulkUpdateProjects` call, toasts the result, closes the panel
   and hands the result to the host. Nothing here offers undo.
+
+  `rows` follows the host's live selection. If the set of projects changes
+  while the review shows, the panel goes back to the edit step and says so,
+  so Apply only ever sends the set the person reviewed.
 -->
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { Dialog, RadioGroup } from "bits-ui";
   import { useMutation } from "convex-svelte";
   import { toast } from "svelte-sonner";
@@ -27,7 +31,7 @@
   import ScienceCodePicker from "$lib/components/project/details/ScienceCodePicker.svelte";
   import NewClientDialog, { type NewClientResult } from "$lib/components/clients/NewClientDialog.svelte";
   import { userErrorMessage } from "$lib/errors";
-  import type { ClientOption } from "$lib/clients/clientOptions";
+  import { addedClientOption, type ClientOption } from "$lib/clients/clientOptions";
   import { canCreateProjects } from "$lib/workspace/projectDuplicate";
   import type { CapabilityRole } from "../../../../shared/capabilities";
   import { dashboardFiscalYear } from "../../../../shared/dashboardProjection";
@@ -62,7 +66,7 @@
     onApplied = undefined,
   }: {
     open?: boolean;
-    /** The selected projects, as the cards hold them. */
+    /** The selected projects, as the cards hold them now (follows the selection). */
     rows: BulkEditRow[];
     viewer: Viewer;
     /** Where focus goes when the panel closes. */
@@ -88,6 +92,11 @@
   /** Escape was pressed over unsaved changes: say how to leave instead. */
   let escapeNote = $state(false);
   let applyError = $state<string | null>(null);
+  /** The projects the review showed, as a key of their ids. */
+  let reviewedKey = $state<string | null>(null);
+  /** The selection changed under the review: the person reviews again. */
+  let selectionChanged = $state(false);
+  const rowsKey = $derived(rows.map((row) => row._id).join("\n"));
 
   // Each opening starts from "No change".
   $effect(() => {
@@ -102,6 +111,22 @@
     scienceMode = "none";
     scienceValue = "";
     applyError = null;
+    reviewedKey = null;
+    selectionChanged = false;
+  });
+
+  // A project left the selection (or the set otherwise changed) while the
+  // review showed: back to the edit step, so Apply never sends a set that
+  // was not reviewed. Not while an apply runs; its ids are already sent.
+  $effect(() => {
+    if (!open || step !== "review" || applying || reviewedKey === null || rowsKey === reviewedKey) return;
+    untrack(() => {
+      step = "edit";
+      reviewedKey = null;
+      selectionChanged = true;
+      applyError = null;
+      void tick().then(() => reviewButton?.focus());
+    });
   });
 
   const clientInvalid = $derived(clientValue.trim() !== "" && !clientsLoading && !clientPicked);
@@ -143,6 +168,8 @@
   async function toReview() {
     if (!canReview) return;
     applyError = null;
+    reviewedKey = rowsKey;
+    selectionChanged = false;
     step = "review";
     await tick();
     applyButton?.focus();
@@ -150,13 +177,14 @@
 
   async function back() {
     step = "edit";
+    reviewedKey = null;
     applyError = null;
     await tick();
     reviewButton?.focus();
   }
 
   async function apply() {
-    if (applying || allSkipped || changedCount === 0) return;
+    if (applying || allSkipped || changedCount === 0 || rowsKey !== reviewedKey) return;
     applying = true;
     applyError = null;
     try {
@@ -179,7 +207,7 @@
   let newClientOpen = $state(false);
   let newClientName = $state("");
   function onClientCreated(client: NewClientResult) {
-    extraClients = [...extraClients, { key: client.key, clientId: client.clientId, name: client.name, projectCount: 0 }];
+    extraClients = [...extraClients, addedClientOption(client)];
     clientValue = client.name;
   }
 
@@ -326,6 +354,11 @@
       </div>
     </div>
 
+    {#if selectionChanged}
+      <p class="shrink-0 px-5 pb-2 text-xs leading-4 text-ink-secondary" role="status" data-bulk-selection-changed>
+        The selection changed. Review the changes again.
+      </p>
+    {/if}
     {@render escapeHint()}
     <footer class="flex h-[3.75rem] shrink-0 items-center gap-2 border-t border-line-soft px-5">
       <p class="text-xs leading-4 text-ink-muted" aria-live="polite" data-bulk-count>{changedFieldsLabel(changedCount)}</p>

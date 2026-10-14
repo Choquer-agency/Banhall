@@ -153,6 +153,14 @@
     limitHit = result.refused;
   }
 
+  /**
+   * The selected projects as they stand now (reactive): the bulk edit panel
+   * follows this, so a project that leaves the visible set leaves the panel.
+   */
+  export function selectedRows(): DashboardProjectionRow[] {
+    return [...selected.values()];
+  }
+
   /** Empties the selection (after a bulk edit is saved). */
   export function clearSelection() {
     selected.clear();

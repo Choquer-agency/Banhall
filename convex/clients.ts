@@ -53,10 +53,13 @@ const MERGE_PROJECT_LIMIT = 200;
 const MERGE_KEY_SCAN_LIMIT = 2_000;
 /** Most clients one merge may fold into the kept client. */
 const MERGE_KEY_LIMIT = 20;
-/** Most distinct fiscal years checked against the kept client for collisions. */
-const MERGE_COLLISION_RANK_LIMIT = 20;
-/** Kept-client projects read per fiscal year for the collision check. */
-const MERGE_COLLISION_RANK_READ = 100;
+/**
+ * Most kept-client project rows the number collision check reads, across
+ * every fiscal year a numbered moving project falls in. Past this bound the
+ * preview says the check is incomplete instead of silently missing a
+ * collision.
+ */
+const MERGE_COLLISION_READ_LIMIT = 1_000;
 
 const clientListEntryValidator = v.object({
   key: v.string(),
@@ -501,29 +504,46 @@ function projectKey(project: Doc<"projects">) {
  * same number (trimmed, lowercase) on projects that came from at least two
  * different clients. Numbers that were already duplicated inside one client
  * are not the merge's doing and are not listed. Numbers are never changed.
+ *
+ * When the kept client's own projects stay put, every kept project in each
+ * fiscal year a numbered moving project falls in is read, by index, up to
+ * MERGE_COLLISION_READ_LIMIT rows in all. `complete` is false when that bound
+ * cut the read short, so a collision may be missing from the list.
  */
 async function mergeNumberCollisions(ctx: Ctx, plan: MergePlan) {
-  const pool = [...plan.moving];
+  const pool = new Map<Id<"projects">, Doc<"projects">>();
+  for (const project of [...plan.moving, ...plan.linking]) pool.set(project._id, project);
+  let complete = true;
   if (!plan.keepMoves) {
     const ranks = new Set<number>();
     for (const project of plan.moving) {
       if (project.projectNumber?.trim()) ranks.add(projectRank(project));
     }
-    for (const rank of [...ranks].slice(0, MERGE_COLLISION_RANK_LIMIT)) {
+    let read = 0;
+    for (const rank of ranks) {
+      const left = MERGE_COLLISION_READ_LIMIT - read;
+      // One row past the bound tells a cut read from an exhausted one.
       const rows = await ctx.db
         .query("projects")
         .withIndex("by_dashboardCompanyKey_and_dashboardFiscalYearRank", (q) =>
           q.eq("dashboardCompanyKey", plan.keep.key).eq("dashboardFiscalYearRank", rank)
         )
-        .take(MERGE_COLLISION_RANK_READ);
-      for (const row of rows) if (row.deletionStartedAt === undefined) pool.push(row);
+        .take(left + 1);
+      for (const row of rows.slice(0, left)) {
+        if (row.deletionStartedAt === undefined) pool.set(row._id, row);
+      }
+      read += Math.min(rows.length, left);
+      if (rows.length > left) {
+        complete = false;
+        break;
+      }
     }
   }
   const groups = new Map<
     string,
     { rank: number; projectNumber: string; titles: string[]; keys: Set<string> }
   >();
-  for (const project of pool) {
+  for (const project of pool.values()) {
     const projectNumber = project.projectNumber?.trim().toLowerCase();
     if (!projectNumber) continue;
     const rank = projectRank(project);
@@ -534,7 +554,7 @@ async function mergeNumberCollisions(ctx: Ctx, plan: MergePlan) {
     group.keys.add(projectKey(project));
     groups.set(groupKey, group);
   }
-  return [...groups.values()]
+  const collisions = [...groups.values()]
     .filter((group) => group.titles.length >= 2 && group.keys.size >= 2)
     .sort(
       (a, b) =>
@@ -546,6 +566,7 @@ async function mergeNumberCollisions(ctx: Ctx, plan: MergePlan) {
       projectNumber: group.projectNumber,
       titles: group.titles.sort((a, b) => a.localeCompare(b, "en-CA")),
     }));
+  return { collisions, complete };
 }
 
 export const previewClientMerge = query({
@@ -564,11 +585,14 @@ export const previewClientMerge = query({
         titles: v.array(v.string()),
       })
     ),
+    /** The collision check hit its read bound: numbers may repeat unlisted. */
+    collisionCheckIncomplete: v.boolean(),
   }),
   handler: async (ctx, args) => {
     // "Merge clients": Manager and Admin only.
     await requireRole(ctx, ["manager", "admin"]);
     const plan = await planClientMerge(ctx, args, { strictName: false });
+    const check = await mergeNumberCollisions(ctx, plan);
     return {
       projectCount: plan.projectCount,
       // Projects whose client name changes; capped reads stop just past 200.
@@ -577,7 +601,8 @@ export const previewClientMerge = query({
       keptName: plan.keptName,
       keptKey: plan.keptKey,
       nameConflict: plan.nameConflict,
-      numberCollisions: await mergeNumberCollisions(ctx, plan),
+      numberCollisions: check.collisions,
+      collisionCheckIncomplete: !check.complete,
     };
   },
 });

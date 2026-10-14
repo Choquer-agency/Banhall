@@ -1,5 +1,18 @@
 <script module lang="ts">
-  export type NewClientResult = { clientId: string | null; key: string; name: string };
+  /**
+   * The client New client made, or the existing one "Use that client" chose.
+   * A made client carries the usual year end and industry it was saved with,
+   * so the page can fill an empty fiscal year and industry on the first pick
+   * (an existing client's come from the client list).
+   */
+  export type NewClientResult = {
+    clientId: string | null;
+    key: string;
+    name: string;
+    fiscalYearEndMonth?: number;
+    fiscalYearEndDay?: number;
+    industry?: string;
+  };
 </script>
 
 <script lang="ts">
@@ -7,9 +20,11 @@
   // A name, an optional usual fiscal year end (month and day) and an
   // optional industry. While the name is typed, findSimilarClients looks for
   // the same name (Create is refused) and for names that look alike (a
-  // warning; the person decides). Both offer "Use that client". Each opening
+  // warning; the person decides). Both offer "Use that client". Create waits
+  // for that check to answer for the name as it stands, so a look-alike is
+  // never made unwarned; a failed check offers Try again. Each opening
   // starts from the initial props. Shared by New project and Projects.
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import TeamDialog from "$lib/components/team/TeamDialog.svelte";
@@ -106,16 +121,33 @@
     const timer = setTimeout(() => (checkedName = next), 250);
     return () => clearTimeout(timer);
   });
+  // Try again drops the failed check for a moment and asks afresh.
+  let retryingCheck = $state(false);
   const similarQ = useQuery(api.clients.findSimilarClients, () =>
-    open && auth.isAuthenticated && checkedName ? { name: checkedName } : "skip"
+    open && auth.isAuthenticated && checkedName && !retryingCheck ? { name: checkedName } : "skip"
   );
+  async function retryCheck() {
+    retryingCheck = true;
+    await tick();
+    retryingCheck = false;
+  }
   // Only an answer for the name as it stands now counts.
-  const similar = $derived(checkedName === name.trim() && checkedName ? similarQ.data : undefined);
+  const current = $derived(checkedName !== "" && checkedName === name.trim() && !retryingCheck);
+  const checkFailed = $derived(current && Boolean(similarQ.error));
+  const similar = $derived.by(() => {
+    const data = similarQ.data;
+    return current && !similarQ.error ? data : undefined;
+  });
   const exact = $derived(similar?.exact ?? null);
   const lookAlikes = $derived(exact ? [] : (similar?.similar ?? []).slice(0, 3));
 
   const yearEndIncomplete = $derived(Boolean(month) !== Boolean(day));
-  const canCreate = $derived(Boolean(name.trim()) && !exact && !yearEndIncomplete && !busy);
+  // Create waits for the check on this name: before it answers (typing,
+  // the 250ms pause, the read itself) or after it failed, nothing is known
+  // about look-alikes yet.
+  const canCreate = $derived(
+    Boolean(name.trim()) && similar !== undefined && !exact && !yearEndIncomplete && !busy
+  );
 
   const projectCount = (count: number) =>
     count === 0 ? "no projects" : count === 1 ? "1 project" : `${count} projects`;
@@ -131,14 +163,16 @@
     busy = true;
     errorMessage = null;
     const done = onCreated;
+    // What is sent is what the client is saved with: the page fills an empty
+    // fiscal year and industry from it.
+    const defaults = {
+      ...(month && day ? { fiscalYearEndMonth: Number(month), fiscalYearEndDay: Number(day) } : {}),
+      ...(industry ? { industry } : {}),
+    };
     try {
-      const created = await createClient({
-        name: name.trim(),
-        ...(month && day ? { fiscalYearEndMonth: Number(month), fiscalYearEndDay: Number(day) } : {}),
-        ...(industry ? { industry } : {}),
-      });
+      const created = await createClient({ name: name.trim(), ...defaults });
       open = false;
-      done?.({ clientId: created.clientId, key: created.key, name: created.name });
+      done?.({ clientId: created.clientId, key: created.key, name: created.name, ...defaults });
     } catch (error) {
       errorMessage = userErrorMessage(error, "This client could not be created. Try again.");
     } finally {
@@ -207,6 +241,17 @@
           >Use that client</button>
         </div>
       {/each}
+      {#if checkFailed}
+        <p role="alert" class="flex flex-wrap items-center gap-x-2 text-xs leading-4 text-danger-ink-muted" data-client-check-error>
+          We could not check this name.
+          <button
+            type="button"
+            data-client-check-retry
+            onclick={() => void retryCheck()}
+            class="rounded font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy pointer-coarse:min-h-11"
+          >Try again</button>
+        </p>
+      {/if}
       {#if errorMessage}
         <p role="alert" class="rounded-lg border border-danger-line bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger-ink-muted" data-new-client-error>{errorMessage}</p>
       {/if}

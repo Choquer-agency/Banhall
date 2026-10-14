@@ -4,7 +4,9 @@
   one, and confirm. previewClientMerge counts the projects, reports a typed
   name that another client already uses (nameConflict) and a merge over the
   200 project cap (tooMany), and lists project numbers the merge makes appear
-  twice in one fiscal year. Either refusal disables Merge clients.
+  twice in one fiscal year. When that check hit its read bound
+  (collisionCheckIncomplete) the dialog says so. Either refusal disables
+  Merge clients.
 -->
 <script module lang="ts">
   export type MergeResult = { keptKey: string; keptName: string; moved: number };
@@ -195,6 +197,11 @@
             <li>{mergeCollisionText(collision)}</li>
           {/each}
         </ul>
+      {/if}
+      {#if preview?.collisionCheckIncomplete && preview.nameConflict === null && !preview.tooMany}
+        <p data-merge-collisions-incomplete class="rounded-lg border border-warning-line bg-warning-surface px-3 py-2.5 text-xs leading-[1.0625rem] text-warning-ink">
+          Some project numbers could not be checked. Look for repeated numbers after the merge.
+        </p>
       {/if}
       {#if preview?.nameConflict}
         <p role="alert" data-merge-error="name" class="rounded-lg border border-danger-line bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger-ink-muted">

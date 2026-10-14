@@ -35,7 +35,7 @@
   import NewProjectSection from "$lib/components/project-new/NewProjectSection.svelte";
   import ClientCombobox from "$lib/components/project-new/ClientCombobox.svelte";
   import NewClientDialog, { type NewClientResult } from "$lib/components/clients/NewClientDialog.svelte";
-  import type { ClientOption } from "$lib/clients/clientOptions";
+  import { addedClientOption, type ClientOption } from "$lib/clients/clientOptions";
   import { mostRecentYearEnd, yearEndParts } from "$lib/clients/usualYearEnd";
   import WriteModeCards from "$lib/components/project-new/WriteModeCards.svelte";
   import StartChecklist from "$lib/components/project-new/StartChecklist.svelte";
@@ -232,7 +232,9 @@
   }
 
   // New client from the Client field (W9): the typed name, this project's
-  // year end and industry go in; the client it makes fills the field.
+  // year end and industry go in; the client it makes fills the field. Its
+  // option carries the year end and industry it was saved with, so the
+  // first pick (onClientPick) fills an empty fiscal year and industry.
   let newClientOpen = $state(false);
   let newClientName = $state("");
   let newClientYearEnd = $state<{ month: number; day: number } | null>(null);
@@ -244,7 +246,7 @@
     newClientOpen = true;
   }
   function onClientCreated(client: NewClientResult) {
-    extraClients = [...extraClients, { key: client.key, clientId: client.clientId, name: client.name, projectCount: 0 }];
+    extraClients = [...extraClients, addedClientOption(client)];
     clientName = client.name;
   }
 

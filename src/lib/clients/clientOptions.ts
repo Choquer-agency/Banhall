@@ -20,6 +20,32 @@ export type ClientOption = {
   industry?: string;
 };
 
+/**
+ * A client the New client dialog made (with the year end and industry it was
+ * saved with) or chose, as an option until the client list has it. Listed
+ * clients still win in mergeClientOptions, so "Use that client" keeps the
+ * listed client's own year end and industry.
+ */
+export function addedClientOption(client: {
+  key: string;
+  clientId: string | null;
+  name: string;
+  fiscalYearEndMonth?: number;
+  fiscalYearEndDay?: number;
+  industry?: string;
+}): ClientOption {
+  return {
+    key: client.key,
+    clientId: client.clientId,
+    name: client.name,
+    projectCount: 0,
+    ...(client.fiscalYearEndMonth !== undefined && client.fiscalYearEndDay !== undefined
+      ? { fiscalYearEndMonth: client.fiscalYearEndMonth, fiscalYearEndDay: client.fiscalYearEndDay }
+      : {}),
+    ...(client.industry ? { industry: client.industry } : {}),
+  };
+}
+
 /** Most options the open list shows at once. */
 export const CLIENT_OPTION_LIMIT = 8;
 

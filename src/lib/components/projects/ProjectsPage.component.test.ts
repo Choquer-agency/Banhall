@@ -172,6 +172,7 @@ describe("Merging clients", () => {
     keptKey: "acuity insights",
     nameConflict: null,
     numberCollisions: [],
+    collisionCheckIncomplete: false,
   };
 
   async function openMerge() {
@@ -233,6 +234,17 @@ describe("Merging clients", () => {
       "Project number 1 appears twice in FY 2025: Coil sensing, Leak detection. Change one after the merge."
     );
     expect(confirm().disabled).toBe(false);
+  });
+
+  it("says when some project numbers could not be checked, and still lets the merge run", async () => {
+    await openMerge();
+    expect(document.querySelector("[data-merge-collisions-incomplete]")).toBeNull();
+    __setQueryData("clients:previewClientMerge", { ...PREVIEW, collisionCheckIncomplete: true });
+    await expect.poll(() => text(document.querySelector("[data-merge-collisions-incomplete]"))).toBe(
+      "Some project numbers could not be checked. Look for repeated numbers after the merge."
+    );
+    expect(confirm().disabled).toBe(false);
+    expect(dialogText()).not.toMatch(DASHES);
   });
 
   it("uses a different name, and refuses one that another client has", async () => {

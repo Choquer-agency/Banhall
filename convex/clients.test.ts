@@ -541,7 +541,93 @@ describe("previewClientMerge and mergeClients", () => {
       numberCollisions: [
         { fiscalYear: 2025, projectNumber: "1", titles: ["Acme one", "Inc one"] },
       ],
+      collisionCheckIncomplete: false,
     });
+  });
+
+  /** `count` kept Acme projects in FY 2025, linked and unnumbered, in one write. */
+  async function insertKeptAcmeProjects(s: Setup, acmeId: Id<"clients">, count: number) {
+    await s.t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < count; index += 1) {
+        const title = `Acme bulk ${index}`;
+        await ctx.db.insert("projects", {
+          title,
+          clientName: "Acme",
+          clientId: acmeId,
+          dashboardCompanyKey: "acme",
+          dashboardFiscalYearRank: dashboardFiscalYearRank(FY2025),
+          dashboardSearchText: `${title}\nacme`,
+          dashboardCompanyCounted: true,
+          fiscalYearEnd: FY2025,
+          workflowStage: "intake",
+          workflowStageRank: workflowStageRank("intake"),
+          ownerId: s.writerId,
+          workflowVersion: 0,
+          status: "draft",
+          createdBy: s.writerId,
+          shareToken: `cl-bulk-${index}`,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    });
+  }
+
+  it("finds a repeated number past the first 100 kept projects of a fiscal year", async () => {
+    const s = await setup();
+    const acmeId = await insertClient(s, "Acme");
+    const ltdId = await insertClient(s, "Acme Ltd");
+    await insertCompany(s, "Acme", 106);
+    await insertCompany(s, "Acme Ltd", 1);
+    await insertKeptAcmeProjects(s, acmeId, 105);
+    // Read last in the fiscal year's index order.
+    await insertProject(s, {
+      clientName: "Acme",
+      clientId: acmeId,
+      fiscalYearEnd: FY2025,
+      projectNumber: "7",
+      title: "Acme seven",
+    });
+    await insertProject(s, {
+      clientName: "Acme Ltd",
+      clientId: ltdId,
+      fiscalYearEnd: FY2025,
+      projectNumber: "7",
+      title: "Ltd seven",
+    });
+    const preview = await s.manager.query(api.clients.previewClientMerge, {
+      keepKey: "acme",
+      mergeKeys: ["acme ltd"],
+    });
+    expect(preview.tooMany).toBe(false);
+    expect(preview.numberCollisions).toEqual([
+      { fiscalYear: 2025, projectNumber: "7", titles: ["Acme seven", "Ltd seven"] },
+    ]);
+    expect(preview.collisionCheckIncomplete).toBe(false);
+  });
+
+  it("says the number check is incomplete when the kept client has more rows than it reads", async () => {
+    const s = await setup();
+    const acmeId = await insertClient(s, "Acme");
+    const ltdId = await insertClient(s, "Acme Ltd");
+    await insertCompany(s, "Acme", 1_001);
+    await insertCompany(s, "Acme Ltd", 1);
+    // One past MERGE_COLLISION_READ_LIMIT (1,000) in the same fiscal year.
+    await insertKeptAcmeProjects(s, acmeId, 1_001);
+    await insertProject(s, {
+      clientName: "Acme Ltd",
+      clientId: ltdId,
+      fiscalYearEnd: FY2025,
+      projectNumber: "7",
+      title: "Ltd seven",
+    });
+    const preview = await s.manager.query(api.clients.previewClientMerge, {
+      keepKey: "acme",
+      mergeKeys: ["acme ltd"],
+    });
+    expect(preview.tooMany).toBe(false);
+    expect(preview.collisionCheckIncomplete).toBe(true);
   });
 
   it("moves projects, counts and stage buckets to the kept client and leaves tombstones", async () => {

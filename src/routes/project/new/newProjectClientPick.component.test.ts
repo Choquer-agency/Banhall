@@ -116,6 +116,43 @@ describe("the Client field on New project", () => {
     await expect.poll(() => startButton()?.disabled).toBe(false);
   });
 
+  it("fills an empty fiscal year and industry from the year end and industry New client saved", async () => {
+    // Regression: the made client was picked without them, and the later
+    // pick from the list (same key) never filled the project.
+    listClients("Cedarline Systems");
+    __setMutationResult("clients:createClient", {
+      clientId: "client-new",
+      key: "northwind robotics",
+      name: "Northwind Robotics",
+    });
+    await render(NewProjectPage, {});
+    await expect.poll(() => document.querySelector("#clientName")).not.toBeNull();
+    expect(fiscalYear()).toContain("Choose the year end");
+    await userEvent.fill(clientField(), "Northwind Robotics");
+    await expect.poll(() => document.querySelector("[data-new-client-option]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-new-client-option]")!);
+    await expect.element(page.getByRole("dialog", { name: "New client" })).toBeInTheDocument();
+
+    await userEvent.click(document.querySelector<HTMLElement>("#new-client-year-end-month")!);
+    await userEvent.click(page.getByRole("option", { name: "September", exact: true }));
+    await userEvent.click(document.querySelector<HTMLElement>("#new-client-year-end-day")!);
+    await userEvent.click(page.getByRole("option", { name: "30", exact: true }));
+    await userEvent.click(document.querySelector<HTMLElement>("#new-client-industry")!);
+    await userEvent.click(page.getByRole("option", { name: "Manufacturing", exact: true }));
+    await userEvent.click(document.querySelector<HTMLButtonElement>("[data-create-client]")!);
+    await expect.poll(() => __mutationCalls("clients:createClient")).toEqual([
+      { name: "Northwind Robotics", fiscalYearEndMonth: 9, fiscalYearEndDay: 30, industry: "manufacturing" },
+    ]);
+
+    await expect.poll(() => clientField().value).toBe("Northwind Robotics");
+    await expect.poll(fiscalYear).toContain(longDate(mostRecentYearEnd(9, 30)!));
+    await expect.poll(() => document.querySelector<HTMLInputElement>("#industry")?.value).toBe("Manufacturing");
+    // The list catching up with the same client changes nothing.
+    listClients("Cedarline Systems", { name: "Northwind Robotics", fiscalYearEndMonth: 9, fiscalYearEndDay: 30, industry: "manufacturing" });
+    await expect.poll(() => clientField().dataset.clientPicked).toBe("true");
+    expect(fiscalYear()).toContain(longDate(mostRecentYearEnd(9, 30)!));
+  });
+
   it("offers no New client to a role that may not create projects", async () => {
     __setQueryData("users:getCurrentUser", { _id: "user-2", role: "financial", firstName: "Fran" });
     listClients("Cedarline Systems");

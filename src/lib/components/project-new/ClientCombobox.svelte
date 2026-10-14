@@ -5,7 +5,10 @@
    * company names with no client row yet (`clients.listClients`). Typing
    * filters it; text that names a listed client (same key) is "picked".
    * Text that names nothing shows "No client named ..." and, when the page
-   * allows it, a New client row that hands the typed name back.
+   * allows it, a New client row that hands the typed name back. Text that is
+   * part of other names ("Acme" with only "Acme Manufacturing") shows those
+   * names and, below them, a New client row for the typed name, so the
+   * person can still make it.
    */
   import { tick } from "svelte";
   import { Combobox } from "bits-ui";
@@ -84,6 +87,10 @@
   const matches = $derived(matchingClients(options, value));
   // Text that names nothing, once the list is in (never while it loads).
   const noMatch = $derived(listLoaded && typed !== "" && !matched && matches.length === 0);
+  // Suggestions, but none is the typed name: New client for it goes below.
+  const newBelowMatches = $derived(
+    Boolean(onNewClient) && listLoaded && typed !== "" && !matched && matches.length > 0
+  );
   const hasContent = $derived(matches.length > 0 || noMatch);
 
   // The page reads whether the text is a listed client, and hears when it
@@ -204,6 +211,18 @@
               {client.name}
             </Combobox.Item>
           {/each}
+          {#if newBelowMatches}
+            <div class="my-1 h-px bg-line-soft" aria-hidden="true"></div>
+            <Combobox.Item
+              value={NEW_CLIENT_VALUE}
+              label={typed}
+              data-new-client-option
+              class="flex min-h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[1.125rem] font-medium text-primary-selected outline-none data-highlighted:bg-primary-wash pointer-coarse:min-h-11"
+            >
+              <IconPlus size={14} strokeWidth={2} class="shrink-0" />
+              <span class="min-w-0 break-words">New client "{typed}"</span>
+            </Combobox.Item>
+          {/if}
         {/if}
       </Combobox.Viewport>
     </Combobox.Content>

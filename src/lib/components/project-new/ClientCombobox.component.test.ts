@@ -98,12 +98,41 @@ describe("ClientCombobox", () => {
     expect(input().value).toBe("Northwind Robotics");
   });
 
+  it("offers New client for the typed name below names that only contain it", async () => {
+    const onNewClient = vi.fn();
+    await render(ClientCombobox, { value: "", clients: CLIENTS, onNewClient });
+    await userEvent.fill(input(), "Cedar");
+    await expect.poll(shown).toEqual(["Cedarline Systems", "Cedar Ridge Analytics"]);
+    // Suggestions show, so no "No client named" block.
+    expect(document.querySelector("[data-client-no-match]")).toBeNull();
+    const row = document.querySelector<HTMLElement>("[data-new-client-option]")!;
+    expect(text(row)).toBe('New client "Cedar"');
+    // Below the suggestions, after a divider.
+    const options = [...document.querySelectorAll('[role="option"]')];
+    expect(options.at(-1)).toBe(row);
+    expect(row.previousElementSibling?.getAttribute("aria-hidden")).toBe("true");
+    await userEvent.click(row);
+    expect(onNewClient).toHaveBeenCalledWith("Cedar");
+    await expect.poll(() => document.querySelector("[data-client-suggestions]")).toBeNull();
+    expect(input().value).toBe("Cedar");
+
+    // A typed name that is a listed client needs no New client row.
+    await userEvent.fill(input(), "Cedarline Systems");
+    await userEvent.fill(input(), "Cedar Ridge Analytics");
+    await expect.poll(() => input().dataset.clientPicked).toBe("true");
+    expect(document.querySelector("[data-new-client-option]")).toBeNull();
+  });
+
   it("leaves New client out when the page does not offer it", async () => {
     await render(ClientCombobox, { value: "", clients: CLIENTS });
     await userEvent.fill(input(), "Northwind Robotics");
     await expect.poll(() => text(document.querySelector("[data-client-no-match]"))).toBe(
       "No client named Northwind Robotics Check the spelling."
     );
+    expect(document.querySelector("[data-new-client-option]")).toBeNull();
+    // Nor below suggestions.
+    await userEvent.fill(input(), "Cedar");
+    await expect.poll(shown).toEqual(["Cedarline Systems", "Cedar Ridge Analytics"]);
     expect(document.querySelector("[data-new-client-option]")).toBeNull();
   });
 

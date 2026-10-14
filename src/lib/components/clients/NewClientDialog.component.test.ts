@@ -6,11 +6,13 @@ import NewClientDialog from "./NewClientDialog.svelte";
 import {
   __activeQueryArgs,
   __mutationCalls,
+  __queryArgsHistory,
   __resetConvexStub,
   __setMutationError,
   __setMutationResult,
   __setQueryData,
   __setQueryDataForArgs,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 
 /**
@@ -110,8 +112,76 @@ describe("NewClientDialog", () => {
     await expect.poll(() => __mutationCalls("clients:createClient")).toEqual([
       { name: "Northwind Robotics", fiscalYearEndMonth: 6, fiscalYearEndDay: 30, industry: "manufacturing" },
     ]);
-    expect(onCreated).toHaveBeenCalledWith({ clientId: "client-9", key: "northwind robotics", name: "Northwind Robotics" });
+    // The saved year end and industry go back with it, so the page can fill
+    // an empty fiscal year and industry on its first pick.
+    expect(onCreated.mock.calls).toEqual([
+      [
+        {
+          clientId: "client-9",
+          key: "northwind robotics",
+          name: "Northwind Robotics",
+          fiscalYearEndMonth: 6,
+          fiscalYearEndDay: 30,
+          industry: "manufacturing",
+        },
+      ],
+    ]);
     await expect.poll(dialog).toBeNull();
+  });
+
+  it("keeps Create off until the name check has answered for the name as typed", async () => {
+    // Regression: Enter before the 250ms pause, or while the check ran,
+    // made a look-alike with no warning.
+    __setMutationResult("clients:createClient", { clientId: "client-3", key: "cedarline systems inc", name: "Cedarline Systems Inc" });
+    __setQueryData("clients:findSimilarClients", undefined);
+    await render(NewClientDialog, { open: true });
+    await userEvent.fill(nameField(), "Cedarline Systems Inc");
+    await userEvent.keyboard("{Enter}");
+    expect(__mutationCalls("clients:createClient")).toEqual([]);
+    expect(createButton().disabled).toBe(true);
+    // Asked, but no answer yet.
+    await expect.poll(() => __activeQueryArgs("clients:findSimilarClients")).toEqual([{ name: "Cedarline Systems Inc" }]);
+    await userEvent.keyboard("{Enter}");
+    expect(createButton().disabled).toBe(true);
+    // Nothing alarming while it waits.
+    expect(document.querySelector('[data-testid="new-client-dialog"] [role="alert"]')).toBeNull();
+    expect(__mutationCalls("clients:createClient")).toEqual([]);
+
+    __setQueryDataForArgs("clients:findSimilarClients", { name: "Cedarline Systems Inc" }, {
+      exact: null,
+      similar: [{ key: "cedarline systems", name: "Cedarline Systems", projectCount: 1 }],
+    });
+    await expect.poll(() => document.querySelector("[data-client-similar]")).not.toBeNull();
+    expect(createButton().disabled).toBe(false);
+    // A new name waits for its own answer.
+    await userEvent.fill(nameField(), "Cedarline Systems Incorporated");
+    expect(createButton().disabled).toBe(true);
+    await userEvent.keyboard("{Enter}");
+    expect(__mutationCalls("clients:createClient")).toEqual([]);
+  });
+
+  it("says when the name could not be checked, keeps Create off, and tries again", async () => {
+    __setQueryError("clients:findSimilarClients", new Error("boom"));
+    await render(NewClientDialog, { open: true });
+    await userEvent.fill(nameField(), "Borealis");
+    await expect.poll(() => text(document.querySelector("[data-client-check-error]"))).toBe(
+      "We could not check this name. Try again"
+    );
+    expect(createButton().disabled).toBe(true);
+    await userEvent.keyboard("{Enter}");
+    expect(__mutationCalls("clients:createClient")).toEqual([]);
+    expect(text(dialog())).not.toMatch(/[\u2010-\u2015\u00b7]/);
+
+    const before = __queryArgsHistory("clients:findSimilarClients").length;
+    await userEvent.click(page.getByRole("button", { name: "Try again" }));
+    // The failed check is dropped and asked again.
+    await expect.poll(() => __queryArgsHistory("clients:findSimilarClients").slice(before)).toEqual([
+      "skip",
+      { name: "Borealis" },
+    ]);
+    __setQueryData("clients:findSimilarClients", NO_MATCH);
+    await expect.poll(() => document.querySelector("[data-client-check-error]")).toBeNull();
+    expect(createButton().disabled).toBe(false);
   });
 
   it("sends no year end or industry when they are left empty", async () => {
