@@ -37,7 +37,6 @@
   import { scienceCodeDisplay } from "$lib/components/project/details/detailsFormat";
   import { formatYearEnd } from "$lib/projects/fiscalYearGroups";
   import { utcDateFromInput } from "$lib/projects/bulkEdit";
-  import { mostRecentYearEnd } from "$lib/clients/usualYearEnd";
   import { dashboardFiscalYear } from "../../../../shared/dashboardProjection";
   import NewClientDialog, { type NewClientResult } from "$lib/components/clients/NewClientDialog.svelte";
   import { industryLabel } from "$lib/industries";
@@ -124,7 +123,6 @@
         deniedByServer = false;
         errors = {};
         extraClients = [];
-        fillOnPick = null;
       });
       return;
     }
@@ -165,25 +163,11 @@
     newClientName = typedName;
     newClientOpen = true;
   }
-  // The client New client made or chose fills an empty fiscal year end
-  // (the most recent past occurrence of its usual year end) and an empty
-  // industry, as picking a client does on New project. Only that first pick
-  // fills: the option is the listed client when the list has it, else the
-  // one the dialog handed back with the values it saved.
-  let fillOnPick: string | null = null;
+  // An existing project keeps its own fiscal year end and industry: a
+  // client's defaults fill only New project (2026-10-14 amendment).
   function onClientCreated(client: NewClientResult) {
     extraClients = [...extraClients, addedClientOption(client)];
-    fillOnPick = client.key;
     if (draft) draft.clientName = client.name;
-  }
-  function onClientPick(client: ClientOption | null) {
-    if (!client || client.key !== fillOnPick || !draft) return;
-    fillOnPick = null;
-    if (!draft.fiscalYearEnd && client.fiscalYearEndMonth !== undefined && client.fiscalYearEndDay !== undefined) {
-      const filled = mostRecentYearEnd(client.fiscalYearEndMonth, client.fiscalYearEndDay);
-      if (filled) draft.fiscalYearEnd = filled;
-    }
-    if (!draft.industry && client.industry) draft.industry = client.industry;
   }
 
   // ─── Save ─────────────────────────────────────────────────────────────────
@@ -458,7 +442,6 @@
                 bind:picked={clientPicked}
                 bind:loading={clientsLoading}
                 {extraClients}
-                onPick={onClientPick}
                 onNewClient={mayCreateClient ? openNewClient : undefined}
                 inputClass="h-[2.125rem] rounded-[0.4375rem] pl-2.5 text-[0.8125rem]! pointer-coarse:h-11"
               />

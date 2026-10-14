@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { ConvexError } from "convex/values";
-import { mostRecentYearEnd } from "$lib/clients/usualYearEnd";
 import ProjectsPage from "./ProjectsPage.svelte";
 import { __resetPage, __setPageUrl, page as appPage } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
@@ -365,13 +364,12 @@ describe("Edit details panel (W2)", () => {
     ]);
   });
 
-  it("fills an empty fiscal year end and industry from the client New client makes", async () => {
+  it("never fills an existing project's fiscal year end or industry from the client New client makes", async () => {
     __setQueryData("projects:getProject", { ...P5_DOC, fiscalYearEnd: undefined, industry: undefined });
     __setMutationResult("clients:createClient", { clientId: "c9", key: "nobody limited", name: "Nobody Limited" });
     await mount();
     await openEdit();
     await expect.poll(() => field("title")?.value).toBe("High-efficiency pump control");
-    expect(text(field("fiscalYearEnd"))).toBe("Choose the year end");
     await userEvent.fill(page.getByRole("combobox", { name: "Client" }), "Nobody Limited");
     await userEvent.click(document.querySelector<HTMLElement>("[data-new-client-option]")!);
     await expect.element(page.getByRole("dialog", { name: "New client" })).toBeVisible();
@@ -383,21 +381,19 @@ describe("Edit details panel (W2)", () => {
     await userEvent.click(page.getByRole("option", { name: "Manufacturing", exact: true }));
     await userEvent.click(document.querySelector<HTMLElement>("[data-create-client]")!);
 
-    const expected = mostRecentYearEnd(9, 30)!;
-    await expect.poll(() => text(field("fiscalYearEnd")?.querySelector("[data-edit-fiscal-year]"))).toBe(
-      `FY ${expected.slice(0, 4)}`
+    await expect.poll(() => (page.getByRole("combobox", { name: "Client" }).element() as HTMLInputElement).value).toBe(
+      "Nobody Limited"
     );
-    await expect.poll(() => editPanel()?.querySelector<HTMLInputElement>("#edit-project-industry")?.value).toBe("Manufacturing");
+    expect(text(field("fiscalYearEnd"))).toBe("Choose the year end");
+    expect(editPanel()?.querySelector<HTMLInputElement>("#edit-project-industry")?.value).toBe("Not set (all industries)");
     await userEvent.click(saveButton());
     await expect.poll(() => editPanel()).toBeNull();
     expect(__mutationCalls("projects:updateProjectClientName")).toEqual([{ projectId: "p5", clientName: "Nobody Limited" }]);
-    expect(__mutationCalls("projects:updateProjectFiscalYear")).toEqual([
-      { projectId: "p5", fiscalYearEnd: Date.parse(`${expected}T00:00:00Z`) },
-    ]);
-    expect(__mutationCalls("projects:updateProjectIndustry")).toEqual([{ projectId: "p5", industry: "manufacturing" }]);
+    expect(__mutationCalls("projects:updateProjectFiscalYear")).toEqual([]);
+    expect(__mutationCalls("projects:updateProjectIndustry")).toEqual([]);
   });
 
-  it("fills them from the listed client that Use that client picks", async () => {
+  it("never fills them from the listed client that Use that client picks", async () => {
     __setQueryData("clients:listClients", {
       clients: [{ ...CLIENTS[0], fiscalYearEndMonth: 6, fiscalYearEndDay: 30, industry: "software" }, CLIENTS[1]],
       truncated: false,
@@ -413,11 +409,11 @@ describe("Edit details panel (W2)", () => {
     await userEvent.fill(page.getByRole("combobox", { name: "Client" }), "Acuity Insights Ltd");
     await userEvent.click(document.querySelector<HTMLElement>("[data-new-client-option]")!);
     await userEvent.click(page.getByRole("button", { name: "Use that client" }));
-    const expected = mostRecentYearEnd(6, 30)!;
-    await expect.poll(() => text(field("fiscalYearEnd")?.querySelector("[data-edit-fiscal-year]"))).toBe(
-      `FY ${expected.slice(0, 4)}`
+    await expect.poll(() => (page.getByRole("combobox", { name: "Client" }).element() as HTMLInputElement).value).toBe(
+      "Acuity Insights"
     );
-    await expect.poll(() => editPanel()?.querySelector<HTMLInputElement>("#edit-project-industry")?.value).toBe("Software");
+    expect(text(field("fiscalYearEnd"))).toBe("Choose the year end");
+    expect(editPanel()?.querySelector<HTMLInputElement>("#edit-project-industry")?.value).toBe("Not set (all industries)");
   });
 
   it("keeps unsaved edits on Escape and says how to leave; Cancel discards", async () => {
