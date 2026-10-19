@@ -35,6 +35,7 @@
   import { canCreateProjects, duplicateProjectSearch } from "$lib/workspace/projectDuplicate";
   import { canDeleteProject } from "$lib/workspace/projectDelete";
   import { clientHref, clientKeyFromUrl, type ClientEntry } from "$lib/projects/clientList";
+  import { pruneRecentCompanies, rememberRecentCompany } from "$lib/workspace/recentCompanies";
 
   let {
     initialSearch = "",
@@ -86,6 +87,21 @@
     const missing =
       !entry && known === null && clientsQ.data !== undefined && !clientsQ.data.truncated;
     return { key: selectedKey, name: entry?.name ?? known, missing };
+  });
+
+  // Rail v3 "Recent companies": the company opened here goes first, and the
+  // complete company list refreshes names and drops merged companies.
+  $effect(() => {
+    const userId = viewer?._id;
+    const opened = selectedClient;
+    if (!userId || !opened?.name || opened.missing) return;
+    rememberRecentCompany(userId, { key: opened.key, name: opened.name });
+  });
+  $effect(() => {
+    const userId = viewer?._id;
+    const data = clientsQ.data;
+    if (!userId || !data || data.truncated) return;
+    pruneRecentCompanies(userId, new Map(data.clients.map((client) => [client.key, client.name])));
   });
 
   // Small screens: the area shows once a client, or All clients, is chosen.

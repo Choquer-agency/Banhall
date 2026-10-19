@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { Snippet } from "svelte";
   import { beforeNavigate } from "$app/navigation";
   import { IconClose } from "$lib/components/icons";
@@ -149,8 +150,14 @@
   const railCollapsed = $derived(tablet ? !tabletExpanded : railHidden);
   const railOverlay = $derived(tablet && tabletExpanded);
   function toggleRail() {
+    // The toggle moves between the rail header and its foot, so a press
+    // (or the shortcut) from inside the rail would drop focus to the page:
+    // put it on the toggle in its new place.
+    const panel = root?.querySelector<HTMLElement>("[data-rail-panel]");
+    const focusInRail = Boolean(panel && document.activeElement && panel.contains(document.activeElement));
     if (tablet) tabletExpanded = !tabletExpanded;
     else railHidden = !railHidden;
+    if (focusInRail) void tick().then(() => panel?.querySelector<HTMLElement>("[data-rail-toggle]")?.focus());
   }
   // Rail v3 (owner, 2026-10-19, replacing the 2026-09-28 top bar control):
   // the collapse and expand control lives in the rail itself, in its header

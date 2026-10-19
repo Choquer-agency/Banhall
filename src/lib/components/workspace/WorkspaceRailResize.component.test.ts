@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { page as browserPage } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
+import { userEvent } from "vitest/browser";
 import WorkspaceDashboard from "./WorkspaceDashboard.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation, goto } from "$lib/test/app-navigation-stub";
@@ -75,6 +76,16 @@ describe("Workspace rail resize + hide/show", () => {
     __resetNavigation();
     __resetConvexStub();
     document.body.innerHTML = "";
+  });
+
+  it("keeps keyboard focus on the collapse control as it moves between the header and the foot", async () => {
+    await mountShell();
+    await expect.poll(() => railToggle()).not.toBeNull();
+    railToggle()!.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => document.activeElement?.getAttribute("data-rail-direction")).toBe("expand");
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => document.activeElement?.getAttribute("data-rail-direction")).toBe("collapse");
   });
 
   it("exposes a keyboard separator with truthful aria values and ±8/±32/Home/End steps that persist", async () => {

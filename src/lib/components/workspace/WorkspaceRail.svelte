@@ -32,8 +32,7 @@
   import { detectPlatform, shortcutHint } from "$lib/shell/shortcuts";
   import { VIEW_AS_LABELS, effectiveViewer } from "$lib/shell/viewAs.svelte";
   import { loadRailPreferences, persistRailPreferences } from "$lib/workspace/railPreferences";
-  import { loadRecentProjects } from "$lib/workspace/recentProjects";
-  import { recentCompanies, recentCompanyHref, type RecentCompany } from "$lib/workspace/recentCompanies";
+  import { loadRecentCompanies, recentCompanyHref, type RecentCompany } from "$lib/workspace/recentCompanies";
 
   let {
     variant = "rail",
@@ -78,9 +77,10 @@
   const attentionQ = useQuery(api.adminAttention.getAttention, () =>
     auth.isAuthenticated && canSeeAdmin(viewer) ? {} : "skip"
   );
-  // Rail v3 counts beside Projects and Companies: the same reads the Projects
-  // page makes (Convex shares one subscription), expanded rail only.
-  const countsOn = $derived(auth.isAuthenticated && internal && !collapsed);
+  // Rail v3 counts beside Projects and Companies, only on the Projects page,
+  // where the page already holds these two reads (Convex shares one
+  // subscription). Elsewhere the rail adds no reads (Home's cost rule).
+  const countsOn = $derived(auth.isAuthenticated && internal && !collapsed && displayedView === "all_projects");
   const facetsQ = useQuery(api.dashboard.getFacets, () => (countsOn ? {} : "skip"));
   const clientsQ = useQuery(api.clients.listClients, () => (countsOn ? {} : "skip"));
   const attention = $derived(attentionQ.data ?? { total: 0, ingestionFailed: 0 });
@@ -111,8 +111,8 @@
       {
         myWorkHref,
         projectsHref,
-        // No Companies page yet: the Projects page is the company list.
-        companiesHref: projectsHref,
+        // No Companies page yet: All companies on the Projects page.
+        companiesHref: resolve("/projects"),
         // WS2 lands the /team route; until then the path is not a typed route id.
         teamHref: `${resolve("/")}team`,
         adminHref: resolve("/admin/house-rules"),
@@ -135,12 +135,13 @@
       .filter((item) => item.id !== "changelog")
   );
 
-  // Recent companies: the companies of this browser's recent projects. Read
-  // again on every navigation, since opening a project records one.
+  // Recent companies: the companies this person last opened on the Projects
+  // page (per user, refreshed against the company list there). Read again on
+  // every navigation.
   let recent = $state<RecentCompany[]>([]);
   $effect(() => {
     void page.url.href;
-    recent = recentCompanies(loadRecentProjects());
+    recent = internal ? loadRecentCompanies(user?._id) : [];
   });
 
   const platform = detectPlatform();

@@ -84,7 +84,9 @@
     if (canViewTeam(viewer.role)) list.push({ href: `${resolve("/")}team`, label: "Team", keywords: "team people invite members" });
     list.push(
       { href: resolve("/settings"), label: "Settings", keywords: "settings account" },
-      { href: resolve("/settings/shortcuts" as "/"), label: "Keyboard shortcuts", keywords: "keys shortcuts help" }
+      { href: resolve("/settings/shortcuts" as "/"), label: "Keyboard shortcuts", keywords: "keys shortcuts help" },
+      // What's new left the rail in Rail v3; it stays one search away.
+      { href: resolve("/changelog"), label: "What's new", keywords: "changelog updates release notes new" }
     );
     if (canSeeAdmin(viewer)) {
       list.push(...ADMIN_ROUTES.map((r) => ({ href: resolve(r.href as "/"), label: r.label, keywords: "admin" })));

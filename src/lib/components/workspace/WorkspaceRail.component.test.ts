@@ -9,7 +9,7 @@ import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-s
 import { __isQueryActive, __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import { viewAs } from "$lib/shell/viewAs.svelte";
 import { RAIL_PREFERENCES_KEY } from "$lib/workspace/railPreferences";
-import { RECENT_PROJECTS_KEY } from "$lib/workspace/recentProjects";
+const RECENT_COMPANIES_KEY = "banhall.recentCompanies.v1:u-c";
 
 vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn(async () => {}) } }));
 vi.mock("$lib/uploads/attemptOutbox", async (importOriginal) => {
@@ -168,6 +168,14 @@ describe("WorkspaceRail (Rail v3)", () => {
     expect(item("home")!.querySelector("[data-rail-count]")).toBeNull();
   });
 
+  it("reads no count outside the Projects page", async () => {
+    seed("consultant");
+    await render(WorkspaceRail, baseProps({ displayedView: "my_work" }));
+    await expect.poll(() => item("projects")).not.toBeNull();
+    expect(__isQueryActive("dashboard:getFacets")).toBe(false);
+    expect(__isQueryActive("clients:listClients")).toBe(false);
+  });
+
   it("reads neither count while collapsed", async () => {
     seed("consultant");
     await render(WorkspaceRail, baseProps({ collapsed: true }));
@@ -176,16 +184,16 @@ describe("WorkspaceRail (Rail v3)", () => {
     expect(__isQueryActive("clients:listClients")).toBe(false);
   });
 
-  it("lists up to three recent companies from recent projects, linked to the Projects page", async () => {
+  it("lists this person's recent companies, linked to the Projects page", async () => {
     seed("consultant");
+    // Another person's list on the same browser never shows.
+    localStorage.setItem("banhall.recentCompanies.v1:someone-else", JSON.stringify([{ key: "acme", name: "Acme" }]));
     localStorage.setItem(
-      RECENT_PROJECTS_KEY,
+      RECENT_COMPANIES_KEY,
       JSON.stringify([
-        { id: "p1", title: "Defrost cycle prediction", client: "Cedarline Systems" },
-        { id: "p2", title: "Pump control", client: "Delta Hydraulics" },
-        { id: "p3", title: "Cold storage", client: "Cedarline Systems" },
-        { id: "p4", title: "Seal testing" },
-        { id: "p5", title: "Irrigation", client: "Alder Research" },
+        { key: "cedarline systems", name: "Cedarline Systems" },
+        { key: "delta hydraulics", name: "Delta Hydraulics" },
+        { key: "alder research", name: "Alder Research" },
       ])
     );
     const view = await render(WorkspaceRail, baseProps());
@@ -211,19 +219,19 @@ describe("WorkspaceRail (Rail v3)", () => {
     await expect.poll(() => item("home")).not.toBeNull();
     expect(nav().querySelector("[data-rail-recent]")).toBeNull();
     collapsed.unmount();
-    localStorage.removeItem(RECENT_PROJECTS_KEY);
+    localStorage.removeItem(RECENT_COMPANIES_KEY);
     await render(WorkspaceRail, baseProps());
     await expect.poll(() => item("home")).not.toBeNull();
     expect(nav().querySelector("[data-rail-recent]")).toBeNull();
   });
 
-  it("gives Home and Projects real links; Companies opens the Projects page, which lists the companies", async () => {
+  it("gives Home and Projects real links; Companies opens All companies on the Projects page", async () => {
     seed("consultant");
     await render(WorkspaceRail, baseProps({ projectsHref: "/projects?layout=board" }));
     await expect.poll(() => item("home")).not.toBeNull();
     expect(item("home")!.getAttribute("href")).toBe("/my-work?layout=board");
     expect(item("projects")!.getAttribute("href")).toBe("/projects?layout=board");
-    expect(item("companies")!.getAttribute("href")).toBe("/projects?layout=board");
+    expect(item("companies")!.getAttribute("href")).toBe("/projects");
     expect(item("companies")!.getAttribute("aria-current")).toBeNull();
   });
 

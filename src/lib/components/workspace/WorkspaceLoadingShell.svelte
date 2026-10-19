@@ -81,7 +81,8 @@
            from the rail, the right edge and the foot (2026-10-19). -->
       <div data-workspace-loading={layout} class="flex min-h-0 min-w-0 flex-col overflow-hidden bg-workspace-shell px-3 pb-3">
         <PageTopBar {title} onOpenNavigation={() => (navigationOpen = true)} />
-        <main class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <!-- The same white panel the Projects page draws, so nothing jumps. -->
+        <main class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface">
           <WorkspacePanelSkeleton {layout} {label} {...rest} />
         </main>
       </div>
