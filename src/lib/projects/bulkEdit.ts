@@ -126,6 +126,24 @@ export function summarizeValues(values: ReadonlyArray<string | null>): string {
   return parts.length > SUMMARY_LIMIT ? `${shown}, +${parts.length - SUMMARY_LIMIT} more` : shown;
 }
 
+/**
+ * What a bulk edit field shows before anything is picked (owner, 2026-10-19,
+ * in place of "No change"): the value every selected project shares, "Not
+ * set" when none has one, or "Varies" when they differ. Fiscal year ends
+ * read as the date alone ("September 30, 2026"), as the field shows them.
+ */
+export function sharedValueLabel(rows: readonly BulkEditRow[], field: BulkField): string {
+  const values = new Set(
+    rows.map((row) =>
+      field === "fiscalYearEnd"
+        ? (row.fiscalYearEnd === undefined || row.fiscalYearEnd === null ? null : formatYearEnd(row.fiscalYearEnd))
+        : rowValueLabel(row, field)
+    )
+  );
+  if (values.size !== 1) return values.size === 0 ? "Not set" : "Varies";
+  return [...values][0] ?? "Not set";
+}
+
 export function currentSummary(rows: readonly BulkEditRow[], field: BulkField): string {
   return summarizeValues(rows.map((row) => rowValueLabel(row, field, "summary")));
 }

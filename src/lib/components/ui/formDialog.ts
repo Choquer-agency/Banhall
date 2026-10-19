@@ -13,7 +13,7 @@ export const formPicker = `${formField} flex items-center gap-2 text-left`;
 
 /** SelectInput / IndustrySelect sized like the other fields. */
 export const formSelect =
-  "[&_input]:h-9! [&_input]:rounded-lg! [&_input]:px-3! [&_input]:text-sm! pointer-coarse:[&_input]:h-11! [&_button]:right-1!";
+  "[&_input]:h-9! [&_input]:rounded-lg! [&_input]:px-3! [&_input]:text-sm! [&_input]:placeholder:text-ink-muted! pointer-coarse:[&_input]:h-11! [&_button]:right-1!";
 
 /** A field's error line. */
 export const formError = "text-[0.8125rem] leading-[1.125rem] text-danger-ink-muted";

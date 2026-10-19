@@ -28,6 +28,7 @@
   import ProjectCardMenu from "./ProjectCardMenu.svelte";
   import { IconArrowLeft, IconSearch } from "$lib/components/icons";
   import { isOpen, openByRule, readOverrides, writeOverrides } from "$lib/projects/fiscalYearOpen";
+  import { popIn, popOut } from "$lib/motion/panelMotion";
   import { toProjectsTableRow, type DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
   import {
     formatYearEnd,
@@ -190,11 +191,16 @@
       ?.focus();
   }
 
-  /** The bar left with focus in it (Clear, Escape): focus the client title. */
+  /**
+   * The selection ended with focus on the bar, or on a card control that
+   * went away (Clear, Escape): focus the company title. The bar animates out,
+   * so focus inside it moves at once rather than when it leaves the page.
+   */
   async function keepAreaFocus() {
     await tick();
     const active = document.activeElement;
-    if (active && active !== document.body && document.contains(active)) return;
+    const lost = !active || active === document.body || !document.contains(active);
+    if (!lost && !active.closest("[data-selection-bar]")) return;
     document.querySelector<HTMLElement>("[data-client-title]")?.focus();
   }
 
@@ -542,22 +548,27 @@
           You can select up to {PROJECT_SELECTION_LIMIT} projects at a time.
         </p>
       {/if}
+      <!-- Owner, 2026-10-19: the dark teal bar for contrast, popping in and
+           out like the app's menus (panelMotion). -->
       <div
         role="toolbar"
         aria-label="Selected projects"
         data-selection-bar
-        class="pointer-events-auto flex h-12 w-full max-w-[28.75rem] items-center gap-2 rounded-[0.625rem] border border-line bg-gray-50 pl-4 pr-2 shadow-selection-bar"
+        data-side="top"
+        in:popIn
+        out:popOut
+        class="pointer-events-auto flex h-12 w-full max-w-[28.75rem] items-center gap-2 rounded-[0.625rem] bg-fir pl-4 pr-2 shadow-toast-dark"
       >
         <p class="flex min-w-0 items-baseline gap-1.5" aria-live="polite" data-selection-count>
-          <span class="text-sm leading-5 font-medium text-ink">{selected.size} selected</span>
-          <span class="text-[0.8125rem] leading-4 text-ink-muted">of {shownRows.length}{hasMore ? "+" : ""}</span>
+          <span class="text-sm leading-5 font-medium text-white">{selected.size} selected</span>
+          <span class="text-[0.8125rem] leading-4 text-white/70">of {shownRows.length}{hasMore ? "+" : ""}</span>
         </p>
         <div class="flex-1"></div>
         <button
           type="button"
           data-selection-edit
           onclick={() => onBulkEdit([...selected.values()])}
-          class="flex h-8 items-center rounded-lg border border-line bg-surface px-3 text-[0.8125rem] leading-[1.125rem] font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11"
+          class="flex h-8 items-center rounded-lg bg-surface px-3 text-[0.8125rem] leading-[1.125rem] font-medium text-fir transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-light motion-reduce:transition-none pointer-coarse:h-11"
         >Edit details</button>
         <button
           type="button"
@@ -566,7 +577,7 @@
             clearSelection();
             void keepAreaFocus();
           }}
-          class="flex h-8 items-center rounded-lg px-2.5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11"
+          class="flex h-8 items-center rounded-lg px-2.5 text-[0.8125rem] leading-[1.125rem] text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-light motion-reduce:transition-none pointer-coarse:h-11"
         >Clear</button>
       </div>
     </div>

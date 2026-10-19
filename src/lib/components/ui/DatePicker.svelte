@@ -33,8 +33,6 @@
     helper,
     align = "start",
     onCommit,
-    clearLabel = undefined,
-    onClear = undefined,
   }: {
     /** yyyy-mm-dd, or "" when unset. */
     value?: string;
@@ -55,10 +53,6 @@
     align?: "start" | "center" | "end";
     /** Called with the new yyyy-mm-dd value each time a date is picked. */
     onCommit?: (value: string) => void;
-    /** A Clear action under the calendar, with this label. */
-    clearLabel?: string;
-    /** Called by the Clear action (the popover closes). */
-    onClear?: () => void;
   } = $props();
 
   const parsed = $derived.by(() => {
@@ -215,18 +209,6 @@
       {/if}
       {#if helper}
         <p class="text-xs leading-[1.125rem] text-ink-muted">{helper}</p>
-      {/if}
-      {#if clearLabel && onClear}
-        <div class="h-px shrink-0 bg-line-soft" aria-hidden="true"></div>
-        <button
-          type="button"
-          data-date-clear
-          onclick={() => {
-            open = false;
-            onClear?.();
-          }}
-          class="flex h-8 items-center self-end rounded-md px-2 text-[0.8125rem] text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
-        >{clearLabel}</button>
       {/if}
       </div>
     </Popover.Content>

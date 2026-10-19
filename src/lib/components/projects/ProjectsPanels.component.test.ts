@@ -481,6 +481,11 @@ const applyButton = () => document.querySelector<HTMLButtonElement>("[data-bulk-
 const resets = () => [...(bulkPanel()?.querySelectorAll("[data-bulk-reset]") ?? [])].map((node) => node.getAttribute("data-bulk-reset"));
 
 async function clearOnEvery(trigger: "[data-bulk-date]" | "[data-bulk-science]") {
+  if (trigger === "[data-bulk-date]") {
+    // The year end clears from the action under its field.
+    await userEvent.click(bulkPanel()!.querySelector<HTMLElement>('[data-bulk-clear="fiscalYearEnd"]')!);
+    return;
+  }
   await userEvent.click(bulkPanel()!.querySelector<HTMLElement>(trigger)!);
   await userEvent.click(page.getByRole("button", { name: "Clear on every project" }));
 }
@@ -491,14 +496,16 @@ async function pickIndustry(label: string) {
 }
 
 describe("Bulk edit dialog (Z7p)", () => {
-  it("starts every field at No change, with Cancel and Apply on the right", async () => {
+  it("starts every field at what the projects hold now (shared value, or Varies), with Cancel and Apply on the right", async () => {
     await mount();
     await openBulk("High-efficiency pump control", "Evaporator coil frost sensing", "Compressor vibration damping");
     await expect.element(page.getByRole("dialog", { name: "Edit 3 projects" })).toBeVisible();
-    expect(page.getByRole("combobox", { name: "Company" }).element()).toHaveProperty("placeholder", "No change");
-    expect(text(bulkPanel()!.querySelector("[data-bulk-date]"))).toBe("No change");
-    expect(bulkPanel()!.querySelector<HTMLInputElement>("#bulk-edit-industry")?.value).toBe("No change");
-    expect(text(bulkPanel()!.querySelector("[data-bulk-science]"))).toBe("No change");
+    expect(page.getByRole("combobox", { name: "Company" }).element()).toHaveProperty("placeholder", "Cedarline Systems");
+    expect(text(bulkPanel()!.querySelector("[data-bulk-date]"))).toBe("Varies");
+    expect(bulkPanel()!.querySelector<HTMLInputElement>("#bulk-edit-industry")?.value).toBe("");
+    expect(bulkPanel()!.querySelector<HTMLInputElement>("#bulk-edit-industry")?.placeholder).toBe("Varies");
+    expect(text(bulkPanel()!.querySelector("[data-bulk-science]"))).toBe("Varies");
+    expect(text(bulkPanel())).not.toContain("No change");
     expect(resets()).toEqual([]);
     expect(bulkPanel()!.querySelector("[data-changed]")).toBeNull();
     expect(applyButton().disabled).toBe(true);
@@ -524,9 +531,9 @@ describe("Bulk edit dialog (Z7p)", () => {
 
     await userEvent.click(bulkPanel()!.querySelector<HTMLElement>('[data-bulk-reset="industry"]')!);
     await expect.poll(resets).toEqual(["fiscalYearEnd"]);
-    expect(bulkPanel()!.querySelector<HTMLInputElement>("#bulk-edit-industry")?.value).toBe("No change");
+    expect(bulkPanel()!.querySelector<HTMLInputElement>("#bulk-edit-industry")?.placeholder).toBe("Manufacturing");
     await userEvent.click(bulkPanel()!.querySelector<HTMLElement>('[data-bulk-reset="fiscalYearEnd"]')!);
-    await expect.poll(() => text(bulkPanel()!.querySelector("[data-bulk-date]"))).toBe("No change");
+    await expect.poll(() => text(bulkPanel()!.querySelector("[data-bulk-date]"))).toBe("Varies");
     expect(applyButton().disabled).toBe(true);
   });
 

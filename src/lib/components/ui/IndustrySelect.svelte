@@ -31,6 +31,7 @@
     class: className = "",
     canCreate = false,
     noChangeLabel = undefined,
+    clearable = true,
     ariaLabel = undefined,
     onValueChange,
   }: {
@@ -42,10 +43,13 @@
     class?: string;
     canCreate?: boolean;
     /**
-     * Bulk edit: "" reads as this label (nothing changes) and a "Not set"
-     * option with the value INDUSTRY_CLEAR clears the industry.
+     * Bulk edit: "" shows this label as the muted placeholder (nothing
+     * changes), and a "Not set" option with the value INDUSTRY_CLEAR clears
+     * the industry.
      */
     noChangeLabel?: string;
+    /** With `noChangeLabel`: offer the "Not set" (clear) option. */
+    clearable?: boolean;
     /** The input's accessible name; without it the placeholder names it. */
     ariaLabel?: string;
     onValueChange?: (value: string) => void;
@@ -70,8 +74,7 @@
   const items = $derived([
     ...(noChangeLabel !== undefined && variant === "picker"
       ? [
-          { value: "", label: noChangeLabel },
-          { value: INDUSTRY_CLEAR, label: "Not set" },
+          ...(clearable ? [{ value: INDUSTRY_CLEAR, label: "Not set" }] : []),
         ]
       : [
           {
@@ -99,7 +102,7 @@
   bind:value
   {items}
   class={className}
-  placeholder="Not set (all industries)"
+  placeholder={noChangeLabel ?? "Not set (all industries)"}
   {ariaLabel}
   {onValueChange}
   onCreate={variant === "picker" && canCreate ? addIndustry : undefined}

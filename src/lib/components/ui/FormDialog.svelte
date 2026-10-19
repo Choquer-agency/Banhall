@@ -17,6 +17,7 @@
   import { tick, type Snippet } from "svelte";
   import { Dialog } from "bits-ui";
   import { IconClose } from "$lib/components/icons";
+  import { modalPop, overlayFade } from "$lib/motion";
 
   let {
     open = $bindable(false),
@@ -64,75 +65,94 @@
   } = $props();
 </script>
 
+<!-- The shared overlay motion ($lib/motion): the scrim fades, the dialog
+     rises and settles on the way in and sinks away on the way out. A
+     centering layer keeps the dialog's own transform free for the motion. -->
 <Dialog.Root bind:open>
   <Dialog.Portal>
-    <Dialog.Overlay data-form-dialog-scrim class="fixed inset-0 z-[105] bg-form-dialog-scrim" />
-    <Dialog.Content
-      data-form-dialog
-      data-testid={testId}
-      style={`width:${width / 16}rem`}
-      class="fixed left-1/2 top-1/2 z-[105] flex max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-surface shadow-dialog outline-none"
-      onOpenAutoFocus={(event) => {
-        const target = initialFocus?.();
-        if (!target) return;
-        event.preventDefault();
-        target.focus();
-      }}
-      onCloseAutoFocus={(event) => {
-        if (!returnFocus) return;
-        event.preventDefault();
-        // After the page behind the dialog is interactive again.
-        void tick().then(() => returnFocus?.()?.focus());
-      }}
-      onEscapeKeydown={(event) => {
-        if (busy) {
+    <Dialog.Overlay forceMount>
+      {#snippet child({ props, open: isOpen })}
+        {#if isOpen}<div {...props} transition:overlayFade data-form-dialog-scrim class="fixed inset-0 z-[105] bg-form-dialog-scrim"></div>{/if}
+      {/snippet}
+    </Dialog.Overlay>
+    <div class="pointer-events-none fixed inset-0 z-[105] flex items-center justify-center p-4">
+      <Dialog.Content
+        forceMount
+        onOpenAutoFocus={(event) => {
+          const target = initialFocus?.();
+          if (!target) return;
           event.preventDefault();
-        } else if (dirty) {
+          target.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          if (!returnFocus) return;
           event.preventDefault();
-          onEscapeBlocked?.();
-        }
-      }}
-      onInteractOutside={(event) => {
-        if (busy) {
-          event.preventDefault();
-        } else if (dirty) {
-          event.preventDefault();
-          onEscapeBlocked?.();
-        }
-      }}
-    >
-      <header class="flex shrink-0 items-start gap-2 px-6 pt-[1.375rem]">
-        <div class="flex min-w-0 flex-1 flex-col gap-1">
-          <Dialog.Title class="text-lg leading-6 font-medium text-ink" data-form-dialog-title>{title}</Dialog.Title>
-          {#if description}
-            <Dialog.Description class="text-sm leading-5 text-ink-secondary">{description}</Dialog.Description>
-          {:else if srDescription}
-            <Dialog.Description class="sr-only">{srDescription}</Dialog.Description>
+          // After the page behind the dialog is interactive again.
+          void tick().then(() => returnFocus?.()?.focus());
+        }}
+        onEscapeKeydown={(event) => {
+          if (busy) {
+            event.preventDefault();
+          } else if (dirty) {
+            event.preventDefault();
+            onEscapeBlocked?.();
+          }
+        }}
+        onInteractOutside={(event) => {
+          if (busy) {
+            event.preventDefault();
+          } else if (dirty) {
+            event.preventDefault();
+            onEscapeBlocked?.();
+          }
+        }}
+      >
+        {#snippet child({ props, open: isOpen })}
+          {#if isOpen}
+            <div
+              {...props}
+              transition:modalPop
+              data-form-dialog
+              data-testid={testId}
+              style={`width:${width / 16}rem`}
+              class="pointer-events-auto flex max-h-[calc(100dvh-2rem)] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-dialog outline-none"
+            >
+              <header class="flex shrink-0 items-start gap-2 px-6 pt-[1.375rem]">
+                <div class="flex min-w-0 flex-1 flex-col gap-1">
+                  <Dialog.Title class="text-lg leading-6 font-medium text-ink" data-form-dialog-title>{title}</Dialog.Title>
+                  {#if description}
+                    <Dialog.Description class="text-sm leading-5 text-ink-secondary">{description}</Dialog.Description>
+                  {:else if srDescription}
+                    <Dialog.Description class="sr-only">{srDescription}</Dialog.Description>
+                  {/if}
+                </div>
+                <Dialog.Close
+                  bind:ref={closeButton}
+                  aria-label="Close"
+                  data-form-dialog-close
+                  disabled={busy}
+                  class="-mr-1.5 flex size-8 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none pointer-coarse:size-11"
+                >
+                  <IconClose size={18} strokeWidth={1.8} />
+                </Dialog.Close>
+              </header>
+
+              <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-[1.125rem]" data-form-dialog-body>
+                {@render children()}
+              </div>
+
+              <footer class="flex min-h-[3.75rem] shrink-0 items-center gap-2 border-t border-line-soft bg-gray-50 px-6 py-3" data-form-dialog-footer>
+                {#if footerNote}
+                  <div class="min-w-0 flex-1">{@render footerNote()}</div>
+                {:else}
+                  <div class="flex-1"></div>
+                {/if}
+                {@render footer()}
+              </footer>
+            </div>
           {/if}
-        </div>
-        <Dialog.Close
-          bind:ref={closeButton}
-          aria-label="Close"
-          data-form-dialog-close
-          disabled={busy}
-          class="-mr-1.5 flex size-8 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none pointer-coarse:size-11"
-        >
-          <IconClose size={18} strokeWidth={1.8} />
-        </Dialog.Close>
-      </header>
-
-      <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-[1.125rem]" data-form-dialog-body>
-        {@render children()}
-      </div>
-
-      <footer class="flex min-h-[3.75rem] shrink-0 items-center gap-2 border-t border-line-soft bg-gray-50 px-6 py-3" data-form-dialog-footer>
-        {#if footerNote}
-          <div class="min-w-0 flex-1">{@render footerNote()}</div>
-        {:else}
-          <div class="flex-1"></div>
-        {/if}
-        {@render footer()}
-      </footer>
-    </Dialog.Content>
+        {/snippet}
+      </Dialog.Content>
+    </div>
   </Dialog.Portal>
 </Dialog.Root>

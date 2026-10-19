@@ -7,6 +7,7 @@ import {
   currentSummary,
   reviewCountSentence,
   reviewRows,
+  sharedValueLabel,
   skipNote,
   summarizeValues,
   utcDateFromInput,
@@ -103,3 +104,17 @@ describe("result toast", () => {
     expect(all.toLowerCase()).not.toContain("undo");
   });
 });
+
+describe("sharedValueLabel", () => {
+  const row = (overrides: Partial<BulkEditRow>): BulkEditRow => ({ _id: "x", title: "X", clientName: "Cedarline Systems", ...overrides });
+
+  it("shows the shared value, Not set, or Varies", () => {
+    const sep = Date.UTC(2026, 8, 30);
+    expect(sharedValueLabel([row({}), row({})], "clientName")).toBe("Cedarline Systems");
+    expect(sharedValueLabel([row({ fiscalYearEnd: sep }), row({ fiscalYearEnd: sep })], "fiscalYearEnd")).toBe("September 30, 2026");
+    expect(sharedValueLabel([row({}), row({})], "industry")).toBe("Not set");
+    expect(sharedValueLabel([row({ industry: "manufacturing" }), row({})], "industry")).toBe("Varies");
+    expect(sharedValueLabel([], "scienceCode")).toBe("Not set");
+  });
+});
+

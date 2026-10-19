@@ -50,6 +50,7 @@
     projectsLabel,
     reviewRows,
     scienceCodeLabel,
+    sharedValueLabel,
     skipNote,
     utcDateFromInput,
     type BulkChange,
@@ -142,6 +143,15 @@
   // A picked day clicked again empties the date: that is no change.
   const fyShown = $derived<Mode>(fyMode === "set" && setDate === null ? "none" : fyMode);
   const scienceShown = $derived(scienceCodeLabel(scienceValue || null));
+  // Before anything is picked each field shows what the projects hold now:
+  // the shared value, "Not set", or "Varies" (owner, 2026-10-19).
+  const shared = $derived({
+    clientName: sharedValueLabel(rows, "clientName"),
+    fiscalYearEnd: sharedValueLabel(rows, "fiscalYearEnd"),
+    industry: sharedValueLabel(rows, "industry"),
+    scienceCode: sharedValueLabel(rows, "scienceCode"),
+  });
+  const anyYearEnd = $derived(rows.some((row) => row.fiscalYearEnd !== undefined && row.fiscalYearEnd !== null));
 
   let closeButton: HTMLButtonElement | null = $state(null);
 
@@ -217,7 +227,7 @@
   bind:open
   bind:closeButton
   title={`Edit ${projectsLabel(rows.length)}`}
-  srDescription="Every field starts at No change. Only the fields you change are applied."
+  srDescription="Each field shows what the selected projects hold now. Only the fields you change are applied."
   busy={applying}
   {dirty}
   onEscapeBlocked={() => (escapeNote = true)}
@@ -236,12 +246,12 @@
         bind:picked={clientPicked}
         bind:loading={clientsLoading}
         {extraClients}
-        placeholder="No change"
+        placeholder={shared.clientName}
         onNewClient={mayCreateClient ? openNewClient : undefined}
         inputClass="h-9 rounded-lg pl-3 text-sm! placeholder:text-ink-muted! pointer-coarse:h-11"
       />
       {#if clientInvalid}
-        <p class={formError} role="alert" data-bulk-error="clientName">Pick a company from the list, or empty the field for no change.</p>
+        <p class={formError} role="alert" data-bulk-error="clientName">Pick a company from the list, or empty the field to keep each project's company.</p>
       {/if}
       {#if clientValue.trim()}
         {@render reset("clientName", "Company", () => (clientValue = ""))}
@@ -255,11 +265,6 @@
         heading="Year end"
         quickPicks={QUICK_PICKS}
         helper="The fiscal year takes the year of its end date."
-        clearLabel={CLEAR_ALL}
-        onClear={() => {
-          fyDate = "";
-          fyMode = "clear";
-        }}
         onCommit={() => (fyMode = "set")}
       >
         {#snippet trigger({ props })}
@@ -271,26 +276,39 @@
             data-changed={fyShown !== "none" ? "" : undefined}
             class={`field-control ${formPicker}`}
           >
+            <IconCalendar size={15} strokeWidth={1.5} class="shrink-0 text-ink-muted" />
             {#if fyShown === "set" && setDate !== null}
               <span class="min-w-0 flex-1 truncate">{formatYearEnd(setDate)}</span>
               <span class="shrink-0 text-[0.8125rem] leading-4 text-ink-muted">FY {dashboardFiscalYear(setDate)}</span>
             {:else if fyShown === "clear"}
               <span class="min-w-0 flex-1 truncate">Not set</span>
             {:else}
-              <span class="min-w-0 flex-1 truncate text-ink-muted">No change</span>
-              <IconCalendar size={14} strokeWidth={1.4} class="shrink-0 text-ink-muted" />
+              <span class="min-w-0 flex-1 truncate text-ink-muted">{shared.fiscalYearEnd}</span>
             {/if}
           </button>
         {/snippet}
       </DatePicker>
       {#if fyShown !== "none"}
         {@render reset("fiscalYearEnd", "Fiscal year end", resetFiscalYear)}
+      {:else if anyYearEnd}
+        <div class="flex justify-end">
+          <button
+            type="button"
+            data-bulk-clear="fiscalYearEnd"
+            aria-label="Clear the fiscal year end on every project"
+            onclick={() => {
+              fyDate = "";
+              fyMode = "clear";
+            }}
+            class={formFieldAction}
+          >{CLEAR_ALL}</button>
+        </div>
       {/if}
     </div>
 
     <div class="flex flex-col gap-1.5" data-bulk-field="industry" data-changed={industryMode !== "none" ? "" : undefined}>
       <label for="bulk-edit-industry" class={formLabel}>Industry</label>
-      <IndustrySelect ariaLabel="Industry" id="bulk-edit-industry" bind:value={industryValue} noChangeLabel="No change" canCreate={isAdmin} class={formSelect} />
+      <IndustrySelect ariaLabel="Industry" id="bulk-edit-industry" bind:value={industryValue} noChangeLabel={shared.industry} clearable={shared.industry !== "Not set"} canCreate={isAdmin} class={formSelect} />
       {#if industryMode !== "none"}
         {@render reset("industry", "Industry", () => (industryValue = ""))}
       {/if}
@@ -320,7 +338,7 @@
             {:else if scienceMode === "clear"}
               <span class="min-w-0 flex-1 truncate">Not set</span>
             {:else}
-              <span class="min-w-0 flex-1 truncate text-ink-muted">No change</span>
+              <span class="min-w-0 flex-1 truncate text-ink-muted">{shared.scienceCode}</span>
             {/if}
             <IconChevronDown size={14} strokeWidth={1.6} class="shrink-0 text-ink-muted" />
           </button>

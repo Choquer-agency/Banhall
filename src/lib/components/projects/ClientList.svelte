@@ -79,7 +79,7 @@
 <!-- Paper Z3d and Z7e (2026-10-16): 240 wide, 14px padding, 32px rows,
      14px names, 12px counts, the 38px search, then New company and Merge
      companies under a hairline at the bottom. -->
-<div data-client-list class="flex min-h-0 flex-1 flex-col px-3.5 py-5">
+<div data-client-list class="flex min-h-0 flex-1 flex-col px-3.5 pb-2 pt-5">
   <div class="relative shrink-0" role="search">
     <IconSearch size={15} strokeWidth={2} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
     <input

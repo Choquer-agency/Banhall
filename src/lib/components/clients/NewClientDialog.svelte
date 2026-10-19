@@ -214,6 +214,7 @@
         autocomplete="off"
         maxlength={200}
         placeholder="Company name"
+        data-filled={name.trim() ? "" : undefined}
         oninput={() => (errorMessage = null)}
         onkeydown={(event) => {
           // Enter in the name field creates the client.
@@ -254,7 +255,7 @@
 
     <div class="flex flex-col gap-1.5">
         <span class={formLabel} id="new-client-year-end-label">Usual fiscal year end</span>
-        <div class="flex gap-2" role="group" aria-labelledby="new-client-year-end-label">
+        <div class="flex gap-2" role="group" aria-labelledby="new-client-year-end-label" data-filled={month && day ? "" : undefined}>
           <SelectInput
             id="new-client-year-end-month"
             bind:value={month}
@@ -283,7 +284,7 @@
         </p>
     </div>
 
-    <div class="flex flex-col gap-1.5">
+    <div class="flex flex-col gap-1.5" data-filled={industry ? "" : undefined}>
       <label for="new-client-industry" class={formLabel}>Industry</label>
       <IndustrySelect ariaLabel="Industry" id="new-client-industry" bind:value={industry} canCreate={canAddIndustry} class={formSelect} />
     </div>

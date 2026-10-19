@@ -50,6 +50,7 @@
     formCancel,
     formError,
     formField,
+    formFieldAction,
     formLabel,
     formPicker,
     formPrimary,
@@ -405,6 +406,7 @@
               bind:this={titleInput}
               bind:value={draft.title}
               data-edit-field="title"
+              data-filled={draft.title.trim() ? "" : undefined}
               autocomplete="off"
               aria-invalid={errors.title ? "true" : undefined}
               aria-describedby={errors.title ? "edit-project-title-error" : undefined}
@@ -417,6 +419,7 @@
             <input
               bind:value={draft.projectNumber}
               data-edit-field="projectNumber"
+              data-filled={draft.projectNumber.trim() ? "" : undefined}
               autocomplete="off"
               placeholder="Not set"
               aria-label="Project number"
@@ -435,6 +438,7 @@
           <input
             bind:value={draft.sredTitle}
             data-edit-field="sredTitle"
+            data-filled={draft.sredTitle.trim() ? "" : undefined}
             autocomplete="off"
             placeholder="Add the formal SR&ED title"
             aria-invalid={errors.sredTitle ? "true" : undefined}
@@ -444,7 +448,7 @@
         </label>
 
         <div class="flex gap-3 max-sm:flex-col">
-          <div class="flex min-w-0 flex-1 flex-col gap-1.5" data-edit-field="clientName">
+          <div class="flex min-w-0 flex-1 flex-col gap-1.5" data-edit-field="clientName" data-filled={draft.clientName.trim() ? "" : undefined}>
             <label for="edit-project-client" class={formLabel}>Company</label>
             <ClientCombobox
               id="edit-project-client"
@@ -465,28 +469,31 @@
               heading="Year end"
               quickPicks={QUICK_PICKS}
               helper="The fiscal year takes the year of its end date."
-              clearLabel={draft.fiscalYearEnd ? "Clear the year end" : undefined}
-              onClear={() => draft && (draft.fiscalYearEnd = "")}
               disabled={saving}
             >
               {#snippet trigger({ props })}
-                <button {...props} type="button" aria-labelledby="edit-project-fiscal-label" data-edit-field="fiscalYearEnd" class={`field-control ${formPicker}`}>
+                <button {...props} type="button" aria-labelledby="edit-project-fiscal-label" data-edit-field="fiscalYearEnd" data-filled={fiscal ? "" : undefined} class={`field-control ${formPicker}`}>
+                  <IconCalendar size={15} strokeWidth={1.5} class="shrink-0 text-ink-muted" />
                   {#if fiscal}
                     <span class="min-w-0 flex-1 truncate">{fiscal.date}</span>
                     <span class="shrink-0 text-[0.8125rem] leading-4 text-ink-muted" data-edit-fiscal-year>FY {fiscal.year}</span>
                   {:else}
                     <span class="min-w-0 flex-1 truncate text-ink-muted">Choose the year end</span>
-                    <IconCalendar size={14} strokeWidth={1.4} class="shrink-0 text-ink-muted" />
                   {/if}
                 </button>
               {/snippet}
             </DatePicker>
+            {#if draft.fiscalYearEnd}
+              <div class="flex justify-end">
+                <button type="button" data-edit-fiscal-clear onclick={() => draft && (draft.fiscalYearEnd = "")} class={formFieldAction}>Clear</button>
+              </div>
+            {/if}
             {@render fieldError("fiscalYearEnd")}
           </div>
         </div>
 
         <div class="flex gap-3 max-sm:flex-col">
-          <div class="flex min-w-0 flex-1 flex-col gap-1.5" data-edit-field="industry">
+          <div class="flex min-w-0 flex-1 flex-col gap-1.5" data-edit-field="industry" data-filled={draft.industry ? "" : undefined}>
             <label for="edit-project-industry" class={formLabel}>Industry</label>
             <IndustrySelect ariaLabel="Industry" id="edit-project-industry" bind:value={draft.industry} canCreate={isAdmin} disabled={saving} class={formSelect} />
             {@render fieldError("industry")}
@@ -501,7 +508,7 @@
               }}
             >
               {#snippet trigger({ props })}
-                <button {...props} type="button" aria-labelledby="edit-project-science-label" data-edit-field="scienceCode" class={`field-control ${formPicker}`}>
+                <button {...props} type="button" aria-labelledby="edit-project-science-label" data-edit-field="scienceCode" data-filled={science ? "" : undefined} class={`field-control ${formPicker}`}>
                   {#if science}
                     <span class="min-w-0 flex-1 truncate">{science.code} {science.label}</span>
                   {:else}
@@ -515,7 +522,7 @@
           </div>
         </div>
 
-        <div class="flex flex-col gap-1.5" data-edit-field="tagIds">
+        <div class="flex flex-col gap-1.5" data-edit-field="tagIds" data-filled={draft.tagIds.length > 0 ? "" : undefined}>
           <span class={formLabel}>Tags</span>
           <TagPicker allTags={tagsQ.data ?? []} bind:selectedTagIds={draft.tagIds} label={null} variant="field" />
           {@render fieldError("tagIds")}
