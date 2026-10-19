@@ -321,7 +321,7 @@ describe("WorkspaceRail (Rail v3)", () => {
     expect(item("projects")!.getAttribute("aria-current")).toBeNull();
   });
 
-  it("Z11d: the collapsed rail is the B tile, search and icon tiles in board order, then the account menu and the expand control", async () => {
+  it("Z11d: the collapsed rail is the B tile and the expand control under it, then search and icon tiles in board order, then the account menu", async () => {
     seed("admin", { unseen: 3, failed: 1 });
     const onToggleRail = vi.fn();
     await render(WorkspaceRail, baseProps({ collapsed: true, onToggleRail }));
@@ -332,7 +332,8 @@ describe("WorkspaceRail (Rail v3)", () => {
       element.getAttribute("data-rail-item") ??
       (element.hasAttribute("data-rail-search") ? "search" : element.hasAttribute("data-rail-identity") ? "identity" : "toggle")
     );
-    expect(order).toEqual(["search", "home", "projects", "companies", "team", "admin", "settings", "identity", "toggle"]);
+    // Owner, 2026-10-19: the expand control sits right under the B tile.
+    expect(order).toEqual(["toggle", "search", "home", "projects", "companies", "team", "admin", "settings", "identity"]);
     for (const id of ["home", "projects", "companies", "team", "settings"]) {
       expect(item(id)!.getAttribute("aria-label")).toBeTruthy();
       expect(item(id)!.getBoundingClientRect().width).toBe(40);
@@ -356,7 +357,7 @@ describe("WorkspaceRail (Rail v3)", () => {
     expect(onToggleRail).toHaveBeenCalledOnce();
   });
 
-  it("collapsed, the tiles keep the board's 6px rhythm under the 22px gap below the tile", async () => {
+  it("collapsed, the B tile lines up with the expanded header and the tiles keep the board's 6px rhythm", async () => {
     seed("consultant");
     await render(WorkspaceRail, baseProps({ collapsed: true }));
     await expect.poll(() => item("settings")).not.toBeNull();
@@ -364,13 +365,17 @@ describe("WorkspaceRail (Rail v3)", () => {
     const top = nav().getBoundingClientRect().top;
     const tile = nav().querySelector<HTMLElement>("[data-rail-brand-tile]")!.getBoundingClientRect();
     const search = nav().querySelector<HTMLElement>("[data-rail-search]")!.getBoundingClientRect();
-    expect(tile.top - top).toBe(12);
-    expect(search.top - tile.bottom).toBe(22);
+    // The tile sits centered on the same 38px row as the expanded header
+    // (12px padding + 8px), so it lines up with the top bar title.
+    expect(tile.top - top).toBe(20);
+    const toggle = nav().querySelector<HTMLElement>("[data-rail-toggle]")!.getBoundingClientRect();
+    expect(toggle.top - (top + 12 + 38)).toBe(6);
+    expect(search.top - toggle.bottom).toBe(6);
     expect(item("home")!.getBoundingClientRect().top - search.bottom).toBe(6);
     expect(item("projects")!.getBoundingClientRect().top - item("home")!.getBoundingClientRect().bottom).toBe(6);
     const bottom = nav().getBoundingClientRect().bottom;
-    const toggle = nav().querySelector<HTMLElement>("[data-rail-toggle]")!.getBoundingClientRect();
-    expect(bottom - toggle.bottom).toBe(12);
+    const identity = nav().querySelector<HTMLElement>("[data-rail-identity]")!.getBoundingClientRect();
+    expect(bottom - identity.bottom).toBe(12);
   });
 
   it("Projects stays selected inside a project and on New project", async () => {

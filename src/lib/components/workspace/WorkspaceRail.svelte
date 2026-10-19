@@ -55,7 +55,7 @@
     onFocusSearch: () => void;
     /**
      * Collapse and expand (Rail v3, 2026-10-19): the control sits in the
-     * rail's own header when expanded and at the foot of the collapsed rail.
+     * rail's own header when expanded and under the B tile of the collapsed rail.
      * Null (and always in the drawer) draws no control.
      */
     onToggleRail?: (() => void) | null;
@@ -208,7 +208,7 @@
   Alerts, Feature requests, Settings) above a hairline and the person's name
   and role, which open the account menu (D1). Collapsed (board Z11d): the
   tile, search, the same rows as icons, the account menu and the expand
-  control at the foot. This replaces the owner's 2026-09-28 direction that
+  control under the B tile. This replaces the owner's 2026-09-28 direction that
   put the control in the top bar.
 -->
 {#snippet itemIcon(id: RailItemId)}
@@ -440,16 +440,22 @@
   }`}
 >
   {#if collapsed}
-    <a
-      href={myWorkHref}
-      aria-label="Banhall home"
-      data-banhall-rail-mark="collapsed"
-      onclick={onNavigate}
-      class={`flex h-[1.375rem] shrink-0 items-center rounded-md ${focusRing}`}
-    >
-      {@render brandTile()}
-    </a>
-    <div aria-hidden="true" class="h-[1.375rem] shrink-0"></div>
+    <!-- Owner, 2026-10-19: the B tile sits on the same 38px row as the
+         expanded header, so it lines up with the top bar title, and the
+         expand control comes straight under it where it is easy to find. -->
+    <div data-rail-header class="flex h-[2.375rem] shrink-0 items-center">
+      <a
+        href={myWorkHref}
+        aria-label="Banhall home"
+        data-banhall-rail-mark="collapsed"
+        onclick={onNavigate}
+        class={`flex h-[1.375rem] shrink-0 items-center rounded-md ${focusRing}`}
+      >
+        {@render brandTile()}
+      </a>
+    </div>
+    {#if showToggle}<div class="mt-1.5 shrink-0">{@render toggleButton()}</div>{/if}
+    <div aria-hidden="true" class="h-1.5 shrink-0"></div>
     <Tooltip text="Search" hint={searchHint} side="right" delayDuration={300}>
       {#snippet children({ props })}
         <button
@@ -479,7 +485,6 @@
     </div>
     <div class="mt-1.5 flex shrink-0 flex-col items-center gap-1.5">
       {@render identity()}
-      {#if showToggle}{@render toggleButton()}{/if}
     </div>
   {:else}
     <div data-rail-header class={`flex h-[2.375rem] shrink-0 items-center gap-2 pl-1.5 ${variant === "drawer" ? "pr-12" : "pr-1.5"}`}>
