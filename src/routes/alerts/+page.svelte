@@ -49,7 +49,8 @@
 </script>
 
 {#snippet alertsContent(showHeading: boolean)}
-    <main class={`w-full flex-1 page-gutter page-gutter-y ${showHeading ? "mx-auto max-w-[var(--container-shell)]" : ""} pb-8`}>
+    <!-- In the workspace the work panel already pads its content (2026-10-19). -->
+    <main class={`w-full flex-1 ${showHeading ? "page-gutter page-gutter-y mx-auto max-w-[var(--container-shell)] pb-8" : ""}`}>
       <!-- Alert rows read best at a threads-list width inside the shared shell. -->
       <div class={`w-full ${showHeading ? "mx-auto max-w-3xl" : ""}`}>
       <div class={`flex items-center ${showHeading ? "justify-between" : "justify-end"}`}>
@@ -132,7 +133,7 @@
       </div>
     {/snippet}
     {#snippet preview()}
-      <WorkspaceChrome title="Alerts" description="Bugs, flagged issues, and feature requests" icon={IconWarning} viewAsGate="alerts">
+      <WorkspaceChrome title="Alerts" viewAsGate="alerts">
         {#snippet children()}
           {@render alertsContent(false)}
         {/snippet}

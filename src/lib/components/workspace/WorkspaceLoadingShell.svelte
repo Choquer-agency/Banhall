@@ -90,7 +90,8 @@
       <!-- The frame of WorkspaceChrome and Home: the 64px top bar on
            the shell background, then the white panel inset 12px. -->
       <div data-workspace-loading={layout} class="flex min-h-0 min-w-0 flex-col overflow-hidden bg-workspace-shell px-3 pb-3">
-        <PageTopBar {title} {icon} {breadcrumb} onOpenNavigation={() => (navigationOpen = true)} />
+        <!-- The same bar the loaded page draws: the title only (2026-10-19). -->
+        <PageTopBar {title} onOpenNavigation={() => (navigationOpen = true)} />
         <main data-work-panel class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface">
           <WorkspacePanelSkeleton {layout} {label} {...rest} />
         </main>

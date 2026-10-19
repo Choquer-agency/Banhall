@@ -26,7 +26,7 @@ describe("AdminWorkspacePage", () => {
     __setQueryData("myWork:getViewConfig", { killSwitch: false, ready: true });
   });
 
-  it("B3: renders the round 2 frame with the Admin breadcrumb, serif heading and the action in the top bar", async () => {
+  it("renders the standard frame: the title alone in the top bar, the action there, the description in the panel", async () => {
     __setPageUrl("/admin/models");
     await render(AdminWorkspacePage, {
       title: "Models",
@@ -41,44 +41,32 @@ describe("AdminWorkspacePage", () => {
     expect(root.querySelectorAll("main")).toHaveLength(1);
     expect(root.querySelectorAll("h1")).toHaveLength(1);
     const bar = root.querySelector<HTMLElement>("[data-page-top-bar]")!;
-    // The standard top bar (2026-10-19): 64px, no page tile.
+    // The standard top bar (owner, 2026-10-19): 64px, the title only, no tile or trail.
     expect(bar.getBoundingClientRect().height).toBe(64);
     expect(bar.querySelector("[data-page-icon-tile]")).toBeNull();
-    const crumb = bar.querySelector<HTMLAnchorElement>("[data-page-breadcrumb]")!;
-    expect(crumb.textContent).toBe("Admin");
-    expect(crumb.getAttribute("href")).toBe("/admin/house-rules");
+    expect(bar.querySelector("[data-page-breadcrumb]")).toBeNull();
     expect(bar.querySelector("h1")?.textContent).toBe("Models");
     expect(bar.querySelector("[data-testid=admin-action]")).not.toBeNull();
-    const heading = root.querySelector<HTMLElement>("[data-admin-page-heading] h2")!;
-    expect(heading.textContent).toBe("Models");
-    expect(getComputedStyle(heading).fontFamily).toContain("Georgia");
-    expect(getComputedStyle(heading).lineHeight).toBe("34px");
-    expect(getComputedStyle(heading).fontSize).toBe("28px");
-    expect(getComputedStyle(heading).fontWeight).toBe("400");
-    expect(getComputedStyle(heading).letterSpacing).toBe("normal");
-    // B3: the description is 14/20 in muted ink (the board, not the spec).
-    const description = root.querySelector<HTMLElement>("[data-admin-page-heading] p")!;
+    // No second serif title in the panel; the description stays, 14/20 muted.
+    expect(root.querySelector("[data-admin-page-heading] h2")).toBeNull();
+    const description = root.querySelector<HTMLElement>("[data-admin-page-description]")!;
     expect(description.textContent).toBe("Operational model evidence.");
     expect(getComputedStyle(description).fontSize).toBe("14px");
     expect(getComputedStyle(description).lineHeight).toBe("20px");
     expect(getComputedStyle(description).color).toBe("rgb(107, 127, 123)");
-    // B3 panel: 28px top and bottom; radius 12 (2026-10-19 work surface).
+    // The shared panel inset: 20px top, 32px bottom (sides are 16px on this
+    // narrow test frame, 24px from 640px up); radius 12.
     const panel = root.querySelector<HTMLElement>("[data-work-panel]")!;
-    expect(getComputedStyle(panel).paddingTop).toBe("28px");
-    expect(getComputedStyle(panel).paddingBottom).toBe("28px");
+    expect(getComputedStyle(panel).paddingTop).toBe("20px");
+    expect(getComputedStyle(panel).paddingBottom).toBe("32px");
+    expect(["16px", "24px"]).toContain(getComputedStyle(panel).paddingLeft);
     expect(getComputedStyle(panel).borderRadius).toBe("12px");
-    // B3 breadcrumb: "Admin /" is one muted run, 10px before the page name.
-    const trail = bar.querySelector<HTMLElement>("nav[aria-label=Breadcrumb]")!;
-    expect(getComputedStyle(trail).columnGap).toBe("10px");
-    expect(trail.firstElementChild?.textContent).toBe("Admin /");
-    expect(getComputedStyle(trail.firstElementChild!).color).toBe("rgb(107, 127, 123)");
     expect(root.querySelector("[data-work-panel] [data-testid=route-content]")).not.toBeNull();
     expect(root.querySelector('a[href="/my-work"]')).not.toBeNull();
     // Full width: the width prop remains data for the ?workspace=current branch.
     const adminContent = root.querySelector("[data-admin-content-width=compact]");
     expect(adminContent?.className).toContain("w-full");
     expect(adminContent?.className).not.toContain("max-w-");
-    expect(root.querySelector("[data-work-panel]")?.getAttribute("data-work-panel-padding")).toBe("admin");
   });
 
   it("D4: shows the hidden state while a developer views as a role without Admin", async () => {

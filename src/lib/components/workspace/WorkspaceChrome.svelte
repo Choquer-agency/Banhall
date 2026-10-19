@@ -12,7 +12,8 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
-  import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
+  import PageTopBar, { type TopBarPrimaryAction } from "$lib/components/shell/PageTopBar.svelte";
+  import { workPanelPadding } from "$lib/components/shell/topBar";
   import ViewAsHiddenPage from "$lib/components/shell/ViewAsHiddenPage.svelte";
   import { VIEW_AS_GATE_PAGE_NAMES, viewerCanOpen, type ViewAsGate } from "$lib/shell/navigation";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
@@ -36,20 +37,30 @@
     children,
     actions,
     status,
+    count = null,
+    primaryAction = null,
   }: {
     title: string;
-    /** Legacy muted line beside the title; `subtitle` wins when both are set. */
+    /** Muted count after the title, as on Projects. */
+    count?: string | number | null;
+    /** The top bar's filled button. */
+    primaryAction?: TopBarPrimaryAction | null;
+    /**
+     * @deprecated Every top bar is the title and its count (owner,
+     * 2026-10-19); a page that needs a sentence of context puts it in its body.
+     */
     description?: string | null;
-    /** Muted line beside the title (for example the Settings section name). */
+    /** @deprecated See `description`. */
     subtitle?: string | null;
-    /** Page icon in the top bar tile (a board icon from `$lib/components/icons`). */
+    /** @deprecated The standard bar draws no page tile. */
     icon?: PageIcon;
     iconSnippet?: Snippet;
-    /** Parent page link ("Admin /") shown before the title. */
+    /** @deprecated The standard bar shows the page title only, no trail. */
     breadcrumb?: { label: string; href: string } | null;
     /**
-     * `padded`: the panel pads its content (`padding` picks 56px sides for
-     * Settings and Team, 40px for admin pages). `flush`: the page pads itself.
+     * `padded`: the panel pads its content with the one inset every screen
+     * shares (24px sides, 20px top, as Projects; `padding` no longer changes
+     * it). `flush`: the page pads itself, with `workPanelPadding`.
      */
     panel?: "padded" | "flush";
     padding?: "wide" | "admin";
@@ -141,12 +152,13 @@
     <!-- D4: while the page is hidden in a View as role, the bar names the
          gated page on its own ("Admin") with its address as the muted line
          ("banhall.app/admin"), and no breadcrumb or actions. -->
+    <!-- Owner, 2026-10-19: every header is the Projects bar: the title, its
+         count, the bell and one plain main button. No muted line, no trail. -->
     <PageTopBar
       title={hiddenInView && viewAsGate ? VIEW_AS_GATE_PAGE_NAMES[viewAsGate] : title}
-      subtitle={hiddenInView ? `${page.url.host}${page.url.pathname}` : (subtitle ?? description)}
-      breadcrumb={hiddenInView ? null : breadcrumb}
-      {icon}
-      {iconSnippet}
+      subtitle={hiddenInView ? `${page.url.host}${page.url.pathname}` : null}
+      count={hiddenInView ? null : count}
+      primaryAction={hiddenInView ? null : primaryAction}
       tone={theme === "dark" ? "dark" : "light"}
       onOpenNavigation={() => (navigationOpen = true)}
       {status}
@@ -158,7 +170,7 @@
       data-work-panel
       data-work-panel-padding={panel === "padded" && !hiddenInView ? padding : "flush"}
       class={`min-h-0 min-w-0 flex-1 overflow-y-auto bg-surface ${frame === "inset" ? "rounded-xl border border-line" : ""} ${hiddenInView ? "flex flex-col" : ""} ${
-        panel === "flush" || hiddenInView ? "" : padding === "admin" ? "px-5 py-7 md:px-10" : "px-5 pb-12 pt-8 md:px-14"
+        panel === "flush" || hiddenInView ? "" : workPanelPadding
       }`}
     >
       {#if hiddenInView && viewAsGate}

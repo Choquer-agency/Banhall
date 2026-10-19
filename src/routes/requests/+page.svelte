@@ -36,7 +36,8 @@
 </script>
 
 {#snippet requestsContent(showHeading: boolean)}
-    <main class={`w-full flex-1 page-gutter page-gutter-y ${showHeading ? "mx-auto max-w-[var(--container-shell)]" : ""} pb-10`}>
+    <!-- In the workspace the work panel already pads its content (2026-10-19). -->
+    <main class={`w-full flex-1 ${showHeading ? "page-gutter page-gutter-y mx-auto max-w-[var(--container-shell)] pb-10" : ""}`}>
       <div class={`w-full ${showHeading ? "mx-auto max-w-3xl" : ""}`}>
         {#if showHeading}
           <h1 class="text-display">Feature requests</h1>
@@ -103,7 +104,7 @@
       </div>
     {/snippet}
     {#snippet preview()}
-      <WorkspaceChrome title="Feature requests" description="Shared product suggestions and priorities" icon={IconLightbulb} viewAsGate="requests">
+      <WorkspaceChrome title="Feature requests" viewAsGate="requests">
         {#snippet children()}
           {@render requestsContent(false)}
         {/snippet}

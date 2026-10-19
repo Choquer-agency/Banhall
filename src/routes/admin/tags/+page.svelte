@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { topBarSecondary } from "$lib/components/shell/topBar";
   import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
   import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   import { resolve } from "$app/paths";
@@ -334,14 +335,7 @@
   >
     {#snippet actions()}
       {#if isAdmin}
-        <Button
-          variant="secondary"
-          class="min-h-11"
-          disabled={busy}
-          onclick={() => run(() => seedDefaults({}))}
-        >
-          Repair defaults
-        </Button>
+        <button type="button" class={topBarSecondary} disabled={busy} onclick={() => run(() => seedDefaults({}))}>Repair defaults</button>
       {/if}
     {/snippet}
       {#if currentUserQ.data === undefined}

@@ -132,13 +132,17 @@
   // Tablet widths (1024 to 1279px) keep the icons-only rail on screen
   // (ui-design-final.md section 3, board 3.5); the preference applies from
   // 1280px up.
-  let tablet = $state(false);
+  // Read at once (not after the first paint): a page loaded at a tablet
+  // width used to draw the full rail over the icons-only column for a
+  // frame, so the loading skeleton slid under it (owner, 2026-10-19).
+  const TABLET_QUERY = "(min-width: 64rem) and (max-width: 79.98rem)";
+  let tablet = $state(typeof window !== "undefined" && window.matchMedia(TABLET_QUERY).matches);
   // H1, H3: the tablet rail keeps an expand toggle (at the rail's foot). Expanding lays the full
   // rail over the page for the moment (the column stays icons-only, so the
   // content never reflows) and never touches the persisted preference.
   let tabletExpanded = $state(false);
   $effect(() => {
-    const media = window.matchMedia("(min-width: 64rem) and (max-width: 79.98rem)");
+    const media = window.matchMedia(TABLET_QUERY);
     const update = () => {
       tablet = media.matches;
       if (!tablet) tabletExpanded = false;
@@ -315,6 +319,15 @@
 
   .workspace-rail-panel {
     transition: width var(--duration-layout) var(--ease-layout);
+  }
+
+  /* The tablet range keeps the icons-only column, so a rail drawn before the
+     page knows its width (server render, first frame) never spills over the
+     content; the overlaid rail is the one exception. */
+  @media (min-width: 64rem) and (max-width: 79.98rem) {
+    .workspace-rail-panel:not([data-rail-overlay]) {
+      width: var(--workspace-rail-collapsed-width) !important;
+    }
   }
 
   .workspace-shell-grid[data-rail-hidden] {

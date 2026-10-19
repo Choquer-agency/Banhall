@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { topBarSecondary } from "$lib/components/shell/topBar";
   import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   import { isParseAbort } from "$lib/spreadsheetClient";
   import { onDestroy, onMount, untrack } from "svelte";
@@ -2544,6 +2545,10 @@
     onBack={cancel}
   >
     {#snippet actions()}
+      {#if layout === "desktop"}
+        <!-- The standard header's plain secondary button (2026-10-19). -->
+        <button type="button" class={topBarSecondary} onclick={cancel} data-new-project-cancel>Cancel</button>
+      {:else}
       <Button
         variant="destructive-soft"
         size="sm"
@@ -2557,6 +2562,7 @@
         onclick={cancel}
         data-new-project-cancel>Cancel</Button
       >
+      {/if}
     {/snippet}
     {#snippet children()}
         <div data-new-project-panel class="flex min-h-full">

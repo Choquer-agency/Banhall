@@ -79,13 +79,10 @@
       </div>
     {/snippet}
     {#snippet preview()}
-      <WorkspaceChrome title="Settings" subtitle={active.label} icon={IconGear} panel="padded" padding="wide">
+      <WorkspaceChrome title="Settings" panel="padded">
         {#snippet children()}
           <div data-settings-frame class="flex flex-col gap-6">
-            <div class="flex flex-col gap-3.5">
-              <h2 data-settings-title class="font-serif text-[1.75rem] font-normal leading-[2.125rem] text-ink">Settings</h2>
-              <SettingsTabs tabs={links} activeKey={active.key} />
-            </div>
+            <SettingsTabs tabs={links} activeKey={active.key} />
             <!-- Settings use the full width of the work panel like the other
                  round 2 pages (owner, 2026-09-29); each field column still
                  stops at 40rem (SettingsRow). -->
