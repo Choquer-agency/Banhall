@@ -122,6 +122,9 @@
   const covered = $derived(
     coverage ? STYLE_OVERRIDE_KEYS.filter((key) => coverage.categories[key].addressed).length : 0
   );
+  // Saved instructions with no stored check (never run, or the check
+  // failed): the page says "not checked yet", never "covers nothing".
+  const unchecked = $derived(coverage === null && Boolean(seed?.text.trim()));
   let checking = $state(false);
   let checkError = $state("");
   let conflicts = $state<StyleAnalysis["lockedConflicts"]>([]);
@@ -224,7 +227,7 @@
   <WorkspacePanelSkeleton layout="fields" label="Loading writing preferences" />
 {:else}
   <div data-writing-preferences class="flex flex-col gap-6">
-    <CoverageSummaryCard {covered} bind:enabled onEdit={() => (editorOpen = true)} />
+    <CoverageSummaryCard {covered} checked={!unchecked} bind:enabled onEdit={() => (editorOpen = true)} />
 
     <div class="flex flex-col items-start gap-6 lg:flex-row">
       <StylePreviewCard bind:variant {preview} onRetry={() => void loadPreview(variant)} />
@@ -236,6 +239,7 @@
           {conflicts}
           {checking}
           canCheck={Boolean(seed?.text.trim()) && modesQ.data !== undefined}
+          {unchecked}
           error={checkError}
           onCheck={() => void checkCoverage(seed?.text ?? "")}
         />

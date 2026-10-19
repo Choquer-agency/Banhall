@@ -237,6 +237,32 @@ describe("attempt lifecycle", () => {
     );
     expect(row?.status).toBe("dismissed");
   });
+
+  test("a removed row stays removed when a failure queued earlier arrives later", async () => {
+    const { t, projectId, writer } = await setup();
+    await writer.mutation(api.uploadAttempts.recordUploadAttempts, {
+      projectId,
+      attempts: [{ ...attempt(), failureCode: "upload_failed" }],
+    });
+    await writer.mutation(api.uploadAttempts.dismissUploadAttempt, { projectId, attemptKey: KEY_A });
+
+    // The browser outbox flushing the same failure, a reopen, and a late
+    // failure report: none of them brings the row back.
+    await writer.mutation(api.uploadAttempts.recordUploadAttempts, {
+      projectId,
+      attempts: [{ ...attempt(), failureCode: "upload_failed" }],
+    });
+    await writer.mutation(api.uploadAttempts.recordUploadAttempts, { projectId, attempts: [attempt()] });
+    await writer.mutation(api.uploadAttempts.failUploadAttempt, {
+      projectId,
+      attemptKey: KEY_A,
+      failureCode: "upload_failed",
+    });
+
+    expect(await writer.query(api.uploadAttempts.listUploadAttempts, { projectId })).toEqual([]);
+    const row = await t.run(async (ctx) => await ctx.db.query("documentUploadAttempts").unique());
+    expect(row?.status).toBe("dismissed");
+  });
 });
 
 describe("listUploadAttempts contract", () => {

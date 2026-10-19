@@ -13,6 +13,7 @@ import { SECTION_246_REQUEST } from "./section246Agent";
 import type { GenerationMessageParams } from "./openrouterCore";
 import { lengthBudgetBlock } from "./pipeline";
 import { draftWordTarget } from "../lib/lineLimits";
+import { withPinnedLine242Opening } from "../line242Opening.fixture";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -178,6 +179,9 @@ const sectionRequests = [SECTION_242_REQUEST, SECTION_244_REQUEST, SECTION_246_R
 // 96663c9e..., b32eb92a.... 2026-09-28 (second, full suite): the ordered chain's drafts ask
 // for the draft target (85 percent of the word cap) instead of the length
 // budget; the hash is taken with the budget put back (withoutDraftHeadroom).
+// 2026-10-19 (owner approved): Line 242's plain opening moved the Line 242
+// instructions; the hash is taken with the old ones put back
+// (withPinnedLine242Opening).
 // Any other change to these requests is still unintended.
 const HISTORICAL_NO_PLAN_SECTION_REQUEST_HASHES = [
   "2bd255c79925e24f18538a5a2a8653ab3e75ac31511628f62d15ef801ec4ae0c",
@@ -198,7 +202,7 @@ function withoutDraftHeadroom(params: GenerationMessageParams): string {
 }
 
 async function completeRequestHash(params: GenerationMessageParams): Promise<string> {
-  const bytes = new TextEncoder().encode(withoutDraftHeadroom(params));
+  const bytes = new TextEncoder().encode(withPinnedLine242Opening(withoutDraftHeadroom(params)));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))

@@ -23,6 +23,12 @@ type PdSubsectionDefinition = {
  * The canonical ordered vocabulary for the thirteen content roles in a PD.
  * A Subsection is a planning role only. Its title never becomes a report
  * heading, and `order` is its sole predecessor/successor relation.
+ *
+ * 2026-10-19 (owner approved, client meeting of 2026-10-16): Line 242 opens
+ * with one plain sentence on who the company is, then the project's
+ * business goal in plain words, then the context that makes the SR&ED work
+ * credible (SECTION_242_OPENING_RULES in convex/ai/prompts.ts). The first
+ * two objectives say so, since the Seed requests send them.
  */
 export const PD_SUBSECTIONS = [
   {
@@ -32,7 +38,7 @@ export const PD_SUBSECTIONS = [
     kind: "standard",
     title: "Company / Context",
     objective:
-      "Establish the company's relevant domain expertise and operating context for the project.",
+      "Say in one plain, high-level sentence who the company is and what it does, with no customer lists, history, technical detail or guessed specifics.",
   },
   {
     roleId: "goal_problem",
@@ -41,7 +47,7 @@ export const PD_SUBSECTIONS = [
     kind: "standard",
     title: "Goal / Problem",
     objective:
-      "State the physical or practical product, process, or system the company sought to create or improve.",
+      "State the project's business goal in plain, non-technical words, then the operations and experience that make its SR&ED work credible.",
   },
   {
     roleId: "passive_limitations",
@@ -338,10 +344,13 @@ export function pdSubsectionRoleList(
 }
 
 /**
- * The step "Approve and continue" lands on: the next step in order, or the
- * first undecided step before it once the last is done, or null (the
- * Summary). Shared by the workspace and the approve mutation, which marks a
- * prefetch there as waited on (2026-09-27, third amendment).
+ * The step "Approve and continue" lands on: the first undecided step after
+ * it in order, else the first undecided step before it, else null (the
+ * Summary), so approving the last open step opens the Summary wherever that
+ * step sits (2026-09-28 sixth; 2026-10-19). Both callers pass
+ * `stepNeedsWriter`, so a step marked for review counts as undecided. Shared
+ * by the workspace and the approve mutation, which marks a prefetch there as
+ * waited on (2026-09-27, third amendment).
  */
 export function stepAfterApproval(
   approvedRoleId: PdSubsectionRoleId,
@@ -349,5 +358,14 @@ export function stepAfterApproval(
 ): PdSubsectionRoleId | null {
   const order = PD_SUBSECTIONS.map((definition) => definition.roleId);
   const index = order.indexOf(approvedRoleId);
-  return order[index + 1] ?? order.slice(0, index).find(undecided) ?? null;
+  return order.slice(index + 1).find(undecided) ?? order.slice(0, index).find(undecided) ?? null;
+}
+
+/**
+ * Whether a step still needs the writer for "Approve and continue": not yet
+ * approved or skipped, or approved but marked for review (stale) after an
+ * earlier change (review round 1, P2-2). A step with no row needs the writer.
+ */
+export function stepNeedsWriter(row: { state: string; stale: boolean } | undefined): boolean {
+  return !row || row.stale || (row.state !== "approved" && row.state !== "skipped");
 }

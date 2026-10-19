@@ -185,8 +185,8 @@ const KNOWN_SERVER_STORAGE_WRITERS: Record<string, string> = {
 const KNOWN_CLIENT_UPLOADERS: Record<string, string> = {
   "../src/lib/transcriptUpload.ts": "transcripts.originalStorageId (the caller's save)",
   "../src/lib/uploads/originalUpload.ts": "projectDocuments.storageId (the caller's uploadDocument)",
+  "../src/lib/uploads/storeProjectFile.ts": "projectDocuments.storageId (uploadDocument: the files panel's Add files and Replace file)",
   "../src/lib/components/review-pd/PdReviewStart.svelte": "projectDocuments.storageId (uploadDocument)",
-  "../src/lib/components/chat/AgentChatPanel.svelte": "projectDocuments.storageId (uploadDocument)",
   "../src/lib/components/project/PreviewProjectPage.svelte": "transcripts.originalStorageId (add or replace)",
   "../src/lib/components/editor/FilesPanel.svelte": "projectDocuments.storageId (uploadDocument)",
   "../src/routes/project/new/+page.svelte": "projectDocuments.storageId and transcripts.originalStorageId",

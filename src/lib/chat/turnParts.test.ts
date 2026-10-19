@@ -199,6 +199,9 @@ describe("normalizeTurnParts — tools", () => {
     expect(toolLabel("searchBrain", "input-available")).toBe("Searching The Brain…");
     expect(toolLabel("searchBrain", "output-available")).toBe("Searched The Brain");
     expect(toolLabel("searchBrain", "output-error")).toBe("Couldn’t reach The Brain");
+    expect(toolLabel("searchWeb", "input-available")).toBe("Searching the web…");
+    expect(toolLabel("searchWeb", "output-available")).toBe("Searched the web");
+    expect(toolLabel("searchWeb", "output-error")).toBe("Couldn’t reach web search");
   });
 
   it("maps each state to a plain-language accessible status", () => {

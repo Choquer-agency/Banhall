@@ -141,10 +141,25 @@ describe("/settings/writing (I2)", () => {
   });
 
   it("says when nothing is covered", async () => {
-    seedProfile({ coverage: undefined });
+    seedProfile({ coverage: coverage([]) });
     await render(SettingsWritingPage, {});
     await expect.poll(text).toContain("Your preferences do not cover any area yet");
     expect(document.querySelector("[data-coverage-ring]")?.getAttribute("data-coverage-ring")).toBe("0/6");
+    expect(document.querySelector('[data-coverage-row="paragraphDensity"] [data-coverage-status]')?.textContent).toBe(
+      "Not in your instructions",
+    );
+  });
+
+  it("says saved instructions with no stored check are not checked yet, never that they cover nothing", async () => {
+    // A check that failed stores nothing (2026-10-07): the page must not
+    // read that as "covers nothing".
+    seedProfile({ coverage: undefined });
+    await render(SettingsWritingPage, {});
+    await expect.poll(text).toContain("Your instructions have not been checked yet");
+    expect(text()).not.toContain("Your preferences do not cover any area yet");
+    const statuses = [...document.querySelectorAll("[data-coverage-status]")].map((el) => el.textContent);
+    expect(statuses).toHaveLength(6);
+    expect(new Set(statuses)).toEqual(new Set(["Not checked yet"]));
   });
 
   it("shows the excerpt and character count, or the empty state", async () => {
@@ -166,17 +181,71 @@ describe("/settings/writing (I2)", () => {
     await expect.poll(() => document.querySelector("#style-instructions")).not.toBeNull();
   });
 
-  it("lists what the instructions cover for writer-choice areas only", async () => {
-    seedProfile();
+  it("lists all six areas, so the rows match the count, and marks the ones the organization sets", async () => {
+    // Opening phrases is off for everyone by default (2026-09-15), which
+    // used to hide its row while the heading still said "of 6".
+    seedProfile({ coverage: coverage(["bannedWords", "sentenceConstruction", "reportSkeleton", "openingClauses"]) });
     await render(SettingsWritingPage, {});
-    await expect.poll(() => document.querySelectorAll("[data-coverage-row]").length).toBe(4);
+    await expect.poll(() => document.querySelectorAll("[data-coverage-row]").length).toBe(6);
+    expect(text()).toContain("Your preferences cover 4 of 6 areas");
+    expect(document.querySelector("[data-coverage-ring]")?.getAttribute("data-coverage-ring")).toBe("4/6");
     const row = (key: string) => document.querySelector<HTMLElement>(`[data-coverage-row="${key}"]`);
     expect(row("bannedWords")?.getAttribute("data-covered")).toBe("true");
     expect(row("bannedWords")?.textContent).toContain("Word list");
     expect(row("bannedWords")?.textContent).toContain('"evidence for bannedWords"');
+    expect(row("bannedWords")?.querySelector("[data-coverage-locked]")).toBeNull();
     expect(row("paragraphDensity")?.textContent).toContain("Not in your instructions");
-    expect(row("repetitionCaps")).toBeNull();
-    expect(row("openingClauses")).toBeNull();
+    expect(row("repetitionCaps")?.querySelector("[data-coverage-locked]")?.textContent).toBe(
+      "Set by your organization: the house rule always applies",
+    );
+    expect(row("openingClauses")?.getAttribute("data-covered")).toBe("true");
+    expect(row("openingClauses")?.querySelector("[data-coverage-locked]")?.textContent).toBe(
+      "Set by your organization: the house rule is off",
+    );
+  });
+
+  it("says what the switches mean: they decide who wins, they do not turn the instructions off", async () => {
+    seedProfile();
+    await render(SettingsWritingPage, {});
+    await expect.poll(() => document.querySelector("[data-switch-meaning]")?.textContent).toBe(
+      "On: your instructions win over the house rule. Off: the house rule wins.",
+    );
+    expect(document.querySelector("[data-preference-wins]")?.textContent).toContain(
+      "Banhall uses your instructions either way. CRA line and word limits always apply.",
+    );
+    // The card line says what the house rule is about.
+    expect(document.querySelector('[data-win-card="bannedWords"]')?.textContent).toContain("House list of words to avoid");
+  });
+
+  it("opens an info popover for each area with the house rule, an example and what the switch changes", async () => {
+    seedProfile();
+    await render(SettingsWritingPage, {});
+    await expect.poll(() => document.querySelectorAll("[data-win-card] [data-area-info]").length).toBe(6);
+    expect(document.querySelectorAll("[data-coverage-row] [data-area-info]")).toHaveLength(6);
+
+    const info = document.querySelector<HTMLButtonElement>('[data-win-card="bannedWords"] [data-area-info]')!;
+    expect(info.getAttribute("aria-label")).toBe("About Word list");
+    await userEvent.click(info);
+    const panel = () => document.querySelector<HTMLElement>('[data-area-info-panel="bannedWords"]');
+    await expect.poll(() => panel()).not.toBeNull();
+    expect(panel()!.getAttribute("role")).toBe("dialog");
+    expect(panel()!.textContent).toContain("House rule");
+    expect(panel()!.querySelector("[data-area-info-rule]")?.textContent).toContain("words drafts must not use");
+    expect(panel()!.querySelector("[data-area-info-example]")?.textContent).toBe(
+      'A draft that says "a novel, robust method" comes out as "a new, reliable method".',
+    );
+    expect(panel()!.querySelector("[data-area-info-on]")?.textContent).toContain(
+      "Your instructions decide which words to avoid",
+    );
+    expect(panel()!.querySelector("[data-area-info-mode]")).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => panel()).toBeNull();
+
+    // A locked area says why its switch is locked.
+    await userEvent.click(document.querySelector<HTMLButtonElement>('[data-win-card="openingClauses"] [data-area-info]')!);
+    await expect.poll(() => document.querySelector('[data-area-info-panel="openingClauses"] [data-area-info-mode]')?.textContent).toBe(
+      "Your organization turned this house rule off for everyone, so your instructions already apply here.",
+    );
   });
 
   it("locks the areas the organization sets and stages the rest until Save", async () => {

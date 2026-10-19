@@ -702,6 +702,91 @@ describe("uploadDocument processing status", () => {
     expect(stored?.processingStatus).toBe("could_not_read");
     expect(stored?.processingDetail).toBe("no_text_extracted");
   });
+
+  test("a retry under the same attempt key gets the document that attempt already made", async () => {
+    const { t, projectId, writer } = await setup();
+    const attemptKey = "33333333-3333-4333-8333-333333333333";
+    await writer.mutation(api.uploadAttempts.recordUploadAttempts, {
+      projectId,
+      attempts: [{ attemptKey, fileName: "scan.pdf", origin: "context_input" }],
+    });
+    // An unreadable file has no text, so the content dedupe cannot catch it.
+    const args = {
+      projectId, fileName: "scan.pdf", fileType: "pdf", content: "", extractionOutcome: "failed", attemptKey,
+    } satisfies FunctionArgs<typeof api.documents.uploadDocument>;
+    const first = await writer.mutation(api.documents.uploadDocument, args);
+    // The first answer was lost to a timeout; the browser retries.
+    const retried = await writer.mutation(api.documents.uploadDocument, args);
+    expect(retried).toBe(first);
+
+    // A different attempt with the same empty file is a second upload.
+    const other = await writer.mutation(api.documents.uploadDocument, {
+      ...args, attemptKey: "44444444-4444-4444-8444-444444444444",
+    });
+    expect(other).not.toBe(first);
+    const ids = await t.run(async (ctx) =>
+      (await ctx.db.query("projectDocuments").collect()).map((doc) => doc._id)
+    );
+    expect(ids.sort()).toEqual([first, other].sort());
+  });
+
+  test("an attempt key reused for another file is a new upload", async () => {
+    const { t, projectId, writer } = await setup();
+    const attemptKey = "66666666-6666-4666-8666-666666666666";
+    await writer.mutation(api.uploadAttempts.recordUploadAttempts, {
+      projectId,
+      attempts: [{ attemptKey, fileName: "scan.pdf", origin: "context_input" }],
+    });
+    // The first save stored no original and no text.
+    const first = await writer.mutation(api.documents.uploadDocument, {
+      projectId, fileName: "scan.pdf", fileType: "pdf", content: "", attemptKey,
+    });
+
+    // Another name under the same key: its bytes go to a new document.
+    const storageId = await t.run(async (ctx) => await ctx.storage.store(new Blob(["other bytes"])));
+    const otherName = await writer.mutation(api.documents.uploadDocument, {
+      projectId, fileName: "survey.pdf", fileType: "pdf", content: "", attemptKey, storageId,
+    });
+    expect(otherName).not.toBe(first);
+
+    // The same name with different text: also a new document.
+    const textKey = "77777777-7777-4777-8777-777777777777";
+    const withText = await writer.mutation(api.documents.uploadDocument, {
+      projectId, fileName: "notes.txt", fileType: "txt", content: "First trial notes.", attemptKey: textKey,
+    });
+    const otherText = await writer.mutation(api.documents.uploadDocument, {
+      projectId, fileName: "notes.txt", fileType: "txt", content: "Second trial notes.", attemptKey: textKey,
+    });
+    expect(otherText).not.toBe(withText);
+
+    const docs = await t.run(async (ctx) => ({
+      first: await ctx.db.get(first),
+      otherName: await ctx.db.get(otherName),
+      withText: await ctx.db.get(withText),
+      otherText: await ctx.db.get(otherText),
+    }));
+    expect(docs.first).not.toHaveProperty("storageId");
+    expect(docs.otherName).toMatchObject({ fileName: "survey.pdf", storageId });
+    expect(docs.withText?.content).toBe("First trial notes.");
+    expect(docs.otherText?.content).toBe("Second trial notes.");
+  });
+
+  test("a retry under the attempt key of a deleted document saves it again", async () => {
+    const { t, projectId, writer } = await setup();
+    const attemptKey = "55555555-5555-4555-8555-555555555555";
+    await writer.mutation(api.uploadAttempts.recordUploadAttempts, {
+      projectId,
+      attempts: [{ attemptKey, fileName: "scan.pdf", origin: "context_input" }],
+    });
+    const args = {
+      projectId, fileName: "scan.pdf", fileType: "pdf", content: "", attemptKey,
+    } satisfies FunctionArgs<typeof api.documents.uploadDocument>;
+    const first = await writer.mutation(api.documents.uploadDocument, args);
+    await t.run(async (ctx) => await ctx.db.delete(first));
+    const again = await writer.mutation(api.documents.uploadDocument, args);
+    expect(again).not.toBe(first);
+    expect(await t.run(async (ctx) => await ctx.db.get(again))).not.toBeNull();
+  });
 });
 
 describe("listDocuments", () => {

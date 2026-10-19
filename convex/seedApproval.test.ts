@@ -2198,6 +2198,34 @@ describe("public seed approval", () => {
     expect(batches[0]).toMatchObject({ operation: "prefetch", writerWaitingAt: expect.any(Number) });
   });
 
+  // 2026-10-19 (review round 1, P2-2): a step marked for review (approved
+  // but stale) is where "Approve and continue" lands, so its prefetch is
+  // waited on; the untouched step after it is not.
+  test("lands on a later step marked for review and marks its prefetch as waited on", async () => {
+    const fixture = await approvalFixture({ roleId: "company_context" });
+    const prefetchId = await seedBatch(fixture, {
+      roleId: "goal_problem",
+      operation: "prefetch",
+      status: "running",
+      key: "stale-step-prefetch",
+    });
+    await fixture.t.run(async (ctx) => {
+      const staleId = fixture.subsectionIds.goal_problem;
+      if (!staleId) throw new Error("Missing goal_problem subsection");
+      const row = await ctx.db.get(staleId);
+      await ctx.db.patch(staleId, {
+        state: "approved",
+        approvedContextRevision: row?.currentContextRevision,
+        approvedSelectionRevision: "selection-before-the-earlier-change",
+        pendingBatchId: prefetchId,
+      });
+    });
+    await approveExact(fixture);
+    await expect(fixture.t.run((ctx) => ctx.db.get(prefetchId))).resolves.toMatchObject({
+      writerWaitingAt: expect.any(Number),
+    });
+  });
+
   test("leaves a prefetch on a step the writer does not land on free to repair", async () => {
     const fixture = await approvalFixture({ roleId: "company_context" });
     await fixture.t.run(async (ctx) => {

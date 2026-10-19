@@ -25,6 +25,8 @@ import type * as ai_brief from "../ai/brief.js";
 import type * as ai_changelogPipeline from "../ai/changelogPipeline.js";
 import type * as ai_chatAgentV2 from "../ai/chatAgentV2.js";
 import type * as ai_chatEvidence from "../ai/chatEvidence.js";
+import type * as ai_chatWebSearch from "../ai/chatWebSearch.js";
+import type * as ai_chatWebSearchNode from "../ai/chatWebSearchNode.js";
 import type * as ai_chronologyAgent from "../ai/chronologyAgent.js";
 import type * as ai_condense from "../ai/condense.js";
 import type * as ai_condenseAgent from "../ai/condenseAgent.js";
@@ -290,6 +292,8 @@ declare const fullApi: ApiFromModules<{
   "ai/changelogPipeline": typeof ai_changelogPipeline;
   "ai/chatAgentV2": typeof ai_chatAgentV2;
   "ai/chatEvidence": typeof ai_chatEvidence;
+  "ai/chatWebSearch": typeof ai_chatWebSearch;
+  "ai/chatWebSearchNode": typeof ai_chatWebSearchNode;
   "ai/chronologyAgent": typeof ai_chronologyAgent;
   "ai/condense": typeof ai_condense;
   "ai/condenseAgent": typeof ai_condenseAgent;

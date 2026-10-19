@@ -596,12 +596,16 @@
         </p>
         <PromptInput bind:value={demoPrompt} onSubmit={() => (demoPrompt = "")}>
           <PromptInputActions>
+            <!-- Message options, never an attach control: the chat reads only
+                 typed text (owner, 2026-10-19). -->
             <button
-              aria-label="Attach a document"
+              aria-label="Message options"
               class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-primary-wash hover:text-gray-600"
             >
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" d="M4 7h9M17 7h3M4 17h3M11 17h9" />
+                <circle cx="15" cy="7" r="2" />
+                <circle cx="9" cy="17" r="2" />
               </svg>
             </button>
           </PromptInputActions>

@@ -12,7 +12,7 @@ import {
 } from "./processingStatus";
 
 /**
- * PSOS-04: the pure seam between the two server queries (plus the chat panel's
+ * PSOS-04: the pure seam between the two server queries (plus the files panel's
  * in-session entries) and the receipt UI.
  *
  * Everything here is data-in/data-out so the acceptance scenarios can be

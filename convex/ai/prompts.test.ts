@@ -8,6 +8,7 @@ import {
   buildQaSystemPrompt,
   buildSectionStructureRules,
   buildChatSystemPromptV2,
+  CHAT_EVIDENCE_GUIDANCE,
   waivedCategoryLabels,
 } from "./prompts";
 import {
@@ -26,12 +27,15 @@ import {
 } from "../../shared/humanProse";
 import { ANALYZER_REQUEST } from "./analyzerAgent";
 import {
+  ANALYZER_COMPANY_AND_GOAL_CATEGORIES,
   CONSISTENCY_SYSTEM_PROMPT,
   PD_REVIEW_SYSTEM_PROMPT,
+  QA_LINE_242_OPENING_CHECK,
+  SECTION_242_OPENING_RULES,
   SELF_CHECK_SYSTEM_PROMPT,
   SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
 } from "./prompts";
-import { COMPRESSION_REQUEST } from "./promptDefinitions";
+import { COMPRESSION_KEEPS_PLAIN_OPENING, COMPRESSION_REQUEST } from "./promptDefinitions";
 import { BRIEF_SYSTEM_PROMPT } from "./brief";
 import { CHRONOLOGY_SYSTEM_PROMPT } from "./chronologyAgent";
 import { buildSeedSystemPrompt } from "./trustedContext";
@@ -163,6 +167,63 @@ describe("section 242 prompt", () => {
     );
     expect(allWaived).toContain("CRITICAL DISTINCTION between passive and active uncertainties");
     expect(allWaived).toContain("The BECAUSE clause is what makes an uncertainty credible");
+  });
+
+  // 2026-10-19 (owner approved, client meeting of 2026-10-16): Line 242 opens
+  // with who the company is, then the business goal in plain words, then the
+  // context that makes the SR&ED work credible; the old "NOT a company bio"
+  // rule, which made drafts open on technical detail, is gone.
+  it("opens with a plain company sentence, then the plain business goal, then the SR&ED context", () => {
+    for (const prompt of [
+      buildSection242SystemPrompt(),
+      buildSection242SystemPrompt(SHIPPED_DEFAULT),
+      buildSection242SystemPrompt(ALL_HOUSE_STYLE_WAIVED),
+    ]) {
+      expect(prompt).toContain(SECTION_242_OPENING_RULES);
+      const company = prompt.indexOf(
+        "Open Line 242 with one plain, high-level sentence on who the company is and what it does"
+      );
+      const goal = prompt.indexOf("state the project's business goal in one plain, non-technical sentence");
+      const context = prompt.indexOf("Then give the context that makes this SR&ED work credible");
+      const limitations = prompt.indexOf("**PASSIVE TECHNOLOGICAL UNCERTAINTIES/LIMITATIONS:**");
+      expect(company).toBeGreaterThan(-1);
+      expect(goal).toBeGreaterThan(company);
+      expect(context).toBeGreaterThan(goal);
+      expect(limitations).toBeGreaterThan(context);
+      expect(prompt).toContain("Everything after them is technical and SR&ED focused.");
+      // No invention: only the material, the most general accurate description.
+      expect(prompt).toContain("Use only what the provided material says about the company.");
+      expect(prompt).toContain("write the most general accurate description it supports");
+      expect(prompt).toContain("never guess specifics");
+      // Short, not a bio.
+      expect(prompt).toContain("no customer lists, markets served, company history, size or awards");
+      expect(prompt).toContain("take one or two sentences together");
+      // The old rule is gone.
+      expect(prompt).not.toContain("NOT a company bio");
+      expect(prompt).not.toContain("BAD example (generic company description)");
+      expect(prompt).not.toContain("it is the physical or practical objective");
+    }
+    // A waived skeleton leaves the opening to the writer's preferences.
+    expect(buildSection242SystemPrompt(waive("reportSkeleton"))).not.toContain(SECTION_242_OPENING_RULES);
+  });
+
+  it("carries the plain opening through the analysis, QA and shortening (2026-10-19)", () => {
+    expect(ANALYZER_SYSTEM_PROMPT).toContain(ANALYZER_COMPANY_AND_GOAL_CATEGORIES);
+    expect(ANALYZER_SYSTEM_PROMPT).toContain("Who the company is and what it does, in one plain, high-level line");
+    expect(ANALYZER_SYSTEM_PROMPT).not.toContain("Only include context relevant to the SR&ED project.");
+    expect(buildQaSystemPrompt()).toContain(QA_LINE_242_OPENING_CHECK);
+    expect(buildQaSystemPrompt(SHIPPED_DEFAULT)).toContain(QA_LINE_242_OPENING_CHECK);
+    expect(buildQaSystemPrompt(waive("reportSkeleton"))).not.toContain(QA_LINE_242_OPENING_CHECK);
+    expect(COMPRESSION_REQUEST.system).toContain(COMPRESSION_KEEPS_PLAIN_OPENING);
+    for (const text of [
+      SECTION_242_OPENING_RULES,
+      ANALYZER_COMPANY_AND_GOAL_CATEGORIES,
+      QA_LINE_242_OPENING_CHECK,
+      COMPRESSION_KEEPS_PLAIN_OPENING,
+    ]) {
+      expect(findDashConnectors(text)).toEqual([]);
+      expect(text).not.toMatch(/[–—]/);
+    }
   });
 });
 
@@ -326,7 +387,7 @@ describe("chat skeleton + system prompt", () => {
     const rules = buildSectionStructureRules(waive("openingClauses"));
     expect(rules).not.toContain('P3 opens "The limitations to standard practice were..."');
     expect(rules).not.toContain('opens "It was hypothesized that if..."');
-    expect(rules).toContain("Line 242: Scientific/Technological Uncertainty**: company context → goal/problem → passive uncertainties");
+    expect(rules).toContain("Line 242: Scientific/Technological Uncertainty**: company context (one plain sentence on who the company is) → goal/problem (the business goal in plain words, then the context that makes the work credible) → passive uncertainties");
     expect(rules).toContain("never impose or restore a paragraph count");
     expect(rules).not.toContain("(5 paragraphs)");
     expect(rules).not.toContain("≈6 paragraphs");
@@ -361,11 +422,22 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
       "compareReferencePd",
       "highlightPassages",
       "searchBrain",
+      "searchWeb",
     ]) {
       expect(prompt, tool).toContain(tool);
     }
     // Both new tools are read only and say so.
     expect(prompt).toContain("call the matching read-only tool FIRST");
+  });
+
+  // 2026-10-19 (first): a long list is revised one Line per reply, and the
+  // assistant never claims to have read a file it cannot see.
+  it("revises a long deviation list one Line per reply and names what it cannot see", () => {
+    expect(prompt).toContain("work one Line per reply whenever the list holds more than 8 Deviations or spans more than one Line");
+    expect(prompt).toContain("call deviationInventory with section set to the first Line");
+    expect(prompt).toContain("are unverified, not Deviations");
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain("Never say you checked, read or compared a file you cannot see");
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain("Files cannot be attached to a chat message");
   });
 
   // 2026-10-01 (first) and its review P2-2: a large revision is split into

@@ -10,6 +10,7 @@ import {
   CHAT_TAIL_SHARE,
   DEFAULT_CHAT_EVIDENCE_BUDGET,
   arrangeChatContext,
+  isThinkingOnlyReply,
   EMPTY_ANALYSIS_TEXT,
   EMPTY_REPORT_TEXT,
   EVIDENCE_LABELS,
@@ -190,11 +191,12 @@ describe("chat evidence message", () => {
       budget: budget({ maxDocuments: 12 }),
     });
     for (let i = 0; i < 12; i += 1) expect(message).toContain(`doc-${i}.txt`);
-    for (const i of [12, 13, 14]) expect(message).not.toContain(`doc-${i}.txt`);
-    // The rendered set says how many more there were: an absent block reads
-    // as "never provided", and the writer can see all fifteen in the project.
+    for (const i of [12, 13, 14]) expect(message).not.toContain(`Body ${i}.`);
+    // The rendered set says how many more there were, and which: an absent
+    // block reads as "never provided", and the writer can see all fifteen in
+    // the project (2026-10-19: named, so the assistant can say which).
     expect(message).toContain(
-      "[3 further attached document(s) were omitted to fit the context budget.]"
+      '[3 further attached document(s) were omitted to fit the context budget, so you cannot see them in this turn: "doc-12.txt", "doc-13.txt", "doc-14.txt".]'
     );
     expect(message.indexOf("further attached document")).toBeGreaterThan(
       message.indexOf("doc-11.txt")
@@ -441,6 +443,38 @@ describe("chat evidence message", () => {
     ).toEqual([EVIDENCE_LABELS.analysis, "late.txt"]);
   });
 
+  // 2026-10-19 (a writer's PD13 c): seven images took seven of the twelve slots
+  // and pushed the writer's glossary and settings document out of the turn.
+  it("gives no document slot to a file with no text", () => {
+    const images = Array.from({ length: 7 }, (_, i) =>
+      doc({ fileName: `photo-${i}.png`, content: "", category: "other" })
+    );
+    const texts = Array.from({ length: 12 }, (_, i) =>
+      doc({ fileName: `notes-${i}.txt`, content: `Notes ${i}.`, category: "other" })
+    );
+    const { message } = buildChatEvidence({
+      reportText: "R",
+      analysisText: "A",
+      documents: [...images, ...texts],
+      budget: budget({ maxDocuments: 12 }),
+    });
+    for (let i = 0; i < 12; i += 1) expect(message).toContain(`Notes ${i}.`);
+    expect(message).not.toContain("omitted to fit the context budget");
+    expect(message).toContain("[7 attached file(s) carry no text you can read");
+    expect(message).toContain('"photo-0.png"');
+  });
+
+  it("names unreadable files even when no document has text", () => {
+    const { message } = buildChatEvidence({
+      reportText: "R",
+      analysisText: "A",
+      documents: [doc({ fileName: "diagram.png", content: "", category: "other" })],
+    });
+    expect(message).toContain(
+      `${EVIDENCE_LABELS.documentsHeading}\n[1 attached file(s) carry no text you can read (for example images or scans), so you cannot see them: "diagram.png".]`
+    );
+  });
+
   it("renders no block at all for a document whose extraction produced no text", () => {
     const { message, report } = buildChatEvidence({
       reportText: "R",
@@ -450,10 +484,14 @@ describe("chat evidence message", () => {
         doc({ fileName: "real.txt", content: "Real body.", category: "other" }),
       ],
     });
-    expect(message).not.toContain("scan.pdf");
+    expect(message).not.toMatch(/BEGIN[^\n]*scan\.pdf/);
     // Nothing was omitted "to fit" anything: an empty row is not a budget cut.
     expect(message).not.toContain("attached document(s) were omitted");
     expect(message).toContain("real.txt");
+    // 2026-10-19: named as unreadable, so the assistant never claims it read it.
+    expect(message).toContain(
+      '[1 attached file(s) carry no text you can read (for example images or scans), so you cannot see them: "scan.pdf".]'
+    );
     expect(report.sources.find((s) => s.label === "scan.pdf")).toMatchObject({
       included: false,
       includedLength: 0,
@@ -1069,5 +1107,47 @@ describe("chat history window", () => {
     // One enormous turn cannot fit any boundary: the plain bound applies.
     expect(chatHistoryWindowRows(rows(Array(40).fill(7)), { maxRows: 30, chunkTurns: 4, complete: true })).toBe(30);
     expect(chatHistoryWindowRows([], { maxRows: 30, chunkTurns: 4, complete: true })).toBe(30);
+  });
+});
+
+/**
+ * 2026-10-19 (the 2026-10-07 deviation chat failure): a step that thought to the
+ * output limit was stored as a reasoning-only reply and replayed into every
+ * later request, about 16,500 input tokens per failure.
+ */
+describe("thinking-only replies stay out of the history", () => {
+  const thinkingOnly: ModelMessage = {
+    role: "assistant",
+    content: [{ type: "reasoning", text: "", providerOptions: { anthropic: { signature: "sig" } } }],
+  };
+  const answered: ModelMessage = {
+    role: "assistant",
+    content: [
+      { type: "reasoning", text: "", providerOptions: { anthropic: { signature: "sig2" } } },
+      { type: "text", text: "Here is the list." },
+    ],
+  };
+  const user: ModelMessage = { role: "user", content: "Fix them." };
+
+  it("recognizes only an assistant reply with reasoning and nothing else", () => {
+    expect(isThinkingOnlyReply(thinkingOnly)).toBe(true);
+    expect(isThinkingOnlyReply(answered)).toBe(false);
+    expect(isThinkingOnlyReply(user)).toBe(false);
+    expect(isThinkingOnlyReply({ role: "assistant", content: "" })).toBe(false);
+    expect(isThinkingOnlyReply({ role: "assistant", content: [] })).toBe(false);
+  });
+
+  it("drops them from the history and this turn's earlier passes, nowhere else", () => {
+    const evidence: ModelMessage = { role: "user", content: "EVIDENCE" };
+    const arranged = arrangeChatContext(1, {
+      search: [],
+      recent: [user, thinkingOnly, answered],
+      inputMessages: [evidence],
+      inputPrompt: [user],
+      existingResponses: [thinkingOnly],
+    });
+    expect(arranged).not.toContain(thinkingOnly);
+    expect(arranged).toContain(answered);
+    expect(arranged).toHaveLength(4);
   });
 });

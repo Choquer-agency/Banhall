@@ -69,6 +69,13 @@ import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
 import type { Doc, Id } from "./_generated/dataModel";
 import { outputArtifact, outputsInArtifacts } from "./lib/generationOutputs";
 import { matchProposalTurn } from "./lib/chatProposalTurns";
+import { listProjectTranscripts } from "./lib/transcripts";
+import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
+import {
+  prepareWebSearchQuery,
+  webSearchKnownNames,
+  type PreparedChatWebSearch,
+} from "./ai/chatWebSearch";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -395,6 +402,8 @@ export const sendMessage = mutation({
     /** Force a fresh thread even when the report already has one ("New chat"). */
     newThread: v.optional(v.boolean()),
     allowBrain: v.optional(v.boolean()),
+    /** 2026-10-19: "Search the web" for this message (terms and CRA only). */
+    allowWeb: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
@@ -515,6 +524,7 @@ export const sendMessage = mutation({
       // creator) is the wrong writer for later participants.
       userId,
       ...(args.allowBrain === true ? { allowBrain: true } : {}),
+      ...(args.allowWeb === true ? { allowWeb: true } : {}),
     });
 
     return { threadId: agentThreadId, messageId };
@@ -989,6 +999,26 @@ export const turnSavedEditProposal = internalQuery({
       if (row.kind !== "references" && !isRecordOnlyProposal(row)) return true;
     }
     return false;
+  },
+});
+
+/**
+ * 2026-10-19 (review P3-4): whether this turn saved any card at all, a
+ * record-only revision or a highlight included. The recovery pass after a
+ * thinking-only cut cannot see a card the first pass saved, so any card
+ * rules it out, and the writer is pointed to the cards instead.
+ */
+export const turnSavedAnyProposal = internalQuery({
+  args: { agentThreadId: v.string(), promptMessageId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("chatProposals")
+      .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+        q.eq("agentThreadId", args.agentThreadId).eq("promptMessageId", args.promptMessageId)
+      )
+      .first();
+    return row !== null;
   },
 });
 
@@ -1489,6 +1519,34 @@ export const getThreadBrainContext = internalQuery({
     return {
       industry: project?.industry ?? null,
       scienceCode: normalizeCraScienceCode(project?.scienceCode) ?? null,
+    };
+  },
+});
+
+/**
+ * The searchWeb tool's query with every name removed (decision 26), and the
+ * project it bills to. The placeholder map is built whatever the transcript
+ * placeholder setting says: that setting governs what models read, while a
+ * query leaving for a search provider never carries a name (2026-10-19).
+ */
+export const prepareChatWebSearch = internalQuery({
+  args: { agentThreadId: v.string(), query: v.string() },
+  handler: async (ctx, args): Promise<PreparedChatWebSearch | null> => {
+    const thread = await threadRow(ctx, args.agentThreadId);
+    if (!thread || (await isProjectDeleting(ctx, thread.projectId))) return null;
+    const project = await ctx.db.get(thread.projectId);
+    if (!project) return null;
+    const placeholders = await projectPlaceholderMap(
+      ctx,
+      project,
+      await listProjectTranscripts(ctx, project._id)
+    );
+    return {
+      projectId: project._id,
+      ...prepareWebSearchQuery(args.query, {
+        placeholders,
+        knownNames: webSearchKnownNames(project, placeholders),
+      }),
     };
   },
 });

@@ -6,6 +6,7 @@ import { api, components, internal } from "./_generated/api";
 import schema from "./schema";
 import {
   CHAT_CONTEXT_OPTIONS,
+  CHAT_REPLY_CUT_OFF_REPLY,
   reportChatAgent,
 } from "./ai/chatAgentV2";
 import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
@@ -179,7 +180,10 @@ describe("bounded chat context", () => {
     const messages = await f.t.run(ctx => reportChatAgent.fetchContextMessages(ctx, {
       userId: f.userId, threadId: result.threadId, contextOptions: CHAT_CONTEXT_OPTIONS,
     }));
-    expect(JSON.stringify(messages)).toContain("Try again.");
+    // 2026-10-19: a reply cut off in its text says to continue.
+    expect(JSON.stringify(messages)).toContain(
+      finishReason === "length" ? CHAT_REPLY_CUT_OFF_REPLY : "Try again."
+    );
   });
   // Review r2 P3 (2026-09-25): a timer that fired after a tool step left the
   // last step's finish reason, so a partial reply was marked completed.
@@ -622,7 +626,7 @@ describe("bounded chat context", () => {
     // The dropped document is named in the message and in the cut log, so a
     // budget gap never reads as an interview gap.
     expect(evidence).toContain(
-      "[1 further attached document(s) were omitted to fit the context budget.]"
+      '[1 further attached document(s) were omitted to fit the context budget, so you cannot see them in this turn: "second.md".]'
     );
     const cutLine = infoLines.find((line) =>
       line.startsWith(`chat evidence ${result.threadId}`)

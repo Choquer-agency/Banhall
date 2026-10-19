@@ -12,7 +12,7 @@ import {
   deriveProcessingStatus,
   deriveStoredProcessing,
 } from "../shared/documentStatus";
-import { requireAttemptKey, resolveUploadAttempt } from "./lib/uploadAttempts";
+import { findAttempt, requireAttemptKey, resolveUploadAttempt } from "./lib/uploadAttempts";
 import {
   claimUpload as claimFreshUpload,
   deleteStorageIfUnreferenced,
@@ -110,18 +110,42 @@ export const uploadDocument = mutation({
     // to save by deduping. Two identical unreadable uploads now make two rows,
     // which is the honest answer: the user performed two uploads.
     const canDedupe = args.content.trim().length > 0;
-    const existingDocs = canDedupe
+    // A retry of a save that committed but whose answer never arrived (a
+    // timeout) carries the same attempt key: it gets the document that attempt
+    // already made. Empty files are exempt from the content dedupe below, so
+    // without this an unreadable file retried after a timeout is saved twice.
+    // Only the same file counts as a retry: the same name, and the same text
+    // when both have text. A key reused for another file is a new upload, so
+    // its bytes can never attach to a document with different text.
+    const attempted = args.attemptKey
+      ? await findAttempt(ctx, args.projectId, requireAttemptKey(args.attemptKey))
+      : null;
+    const madeByAttempt =
+      attempted?.status === "succeeded" && attempted.documentId
+        ? await ctx.db.get(attempted.documentId)
+        : null;
+    const retried =
+      madeByAttempt &&
+      madeByAttempt.projectId === args.projectId &&
+      madeByAttempt.fileName === args.fileName &&
+      (!canDedupe ||
+        madeByAttempt.content.trim().length === 0 ||
+        madeByAttempt.content === args.content)
+        ? madeByAttempt
+        : null;
+    const existingDocs = canDedupe && !retried
       ? await ctx.db
           .query("projectDocuments")
           .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
           .collect()
       : [];
     const dup =
-      canDedupe
+      retried ??
+      (canDedupe
         ? existingDocs.find(
             (d) => d.fileName === args.fileName && d.content === args.content
           )
-        : undefined;
+        : undefined);
     const derived = deriveProcessingStatus({
       fileName: args.fileName,
       content: args.content,

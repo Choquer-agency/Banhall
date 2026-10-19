@@ -10,6 +10,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import {
   PD_SUBSECTIONS,
   stepAfterApproval,
+  stepNeedsWriter,
   type PdSubsectionRoleId,
 } from "../shared/pdSubsections";
 import { requireCurrentUser, requireInternalProjectAccess } from "./lib/auth";
@@ -1006,10 +1007,12 @@ export const approve = mutation({
     }
     // 2026-09-27 (third, P1-1): "Approve and continue" lands on this step at
     // once and its open is skipped while a Batch is pending, so a prefetch
-    // there is waited on from now and never spends the quote repair.
+    // there is waited on from now and never spends the quote repair. A step
+    // marked for review (approved but stale) is a landing step too
+    // (2026-10-19), as in the workspace.
     const landing = stepAfterApproval(args.roleId, (roleId) => {
       const row = state.subsections.find((s) => s.roleId === roleId);
-      return !row || (row.state !== "approved" && row.state !== "skipped");
+      return stepNeedsWriter(row && { state: row.state, stale: isSeedSubsectionStale(row) });
     });
     if (landing) {
       const landingRow = await ctx.db

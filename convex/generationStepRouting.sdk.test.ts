@@ -32,6 +32,7 @@ import {
 } from "./ai/promptDefinitions";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
 import { withPinnedAdvancementLinkRules, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
+import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import { BRIEF_REQUEST } from "./ai/brief";
 import { describeBriefOutcome } from "./lib/briefRender";
 import { QA_REQUEST } from "./ai/qaAgent";
@@ -358,8 +359,22 @@ const withoutAnalysisFigureRules = (json: Record<string, unknown>) => {
   if (body.split(rules).length !== 2) throw new Error("The analysis request must hold the figure rules once");
   return JSON.parse(body.replace(rules, "")) as Record<string, unknown>;
 };
+/**
+ * 2026-10-19 (owner approved): Line 242's plain opening moved the 242
+ * drafting and repair rules, the analyzer's company and goal categories, the
+ * first two Seed objectives and a QA line. Putting the old texts back gives
+ * the pinned body. Applied last: the shortening rule it also moved sits in
+ * the compression system text that withoutLengthFix replaces whole.
+ */
+const withoutLine242Opening = (json: Record<string, unknown>) => {
+  const body = JSON.stringify(json);
+  const pinned = withPinnedLine242Opening(body);
+  return pinned === body ? json : (JSON.parse(pinned) as Record<string, unknown>);
+};
 const asPinned = (json: Record<string, unknown>) =>
-  withPinnedCompressionAnswer(withoutLengthFix(withoutQuoteRules(withoutBriefStream(withoutAnalysisFigureRules(json)))));
+  withoutLine242Opening(
+    withPinnedCompressionAnswer(withoutLengthFix(withoutQuoteRules(withoutBriefStream(withoutAnalysisFigureRules(json)))))
+  );
 
 /**
  * 2026-10-05 (Round 2, follow-up): after a used repair the Self-check runs
@@ -879,7 +894,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
 
   it("an always-thinking planning or checking model an admin assigned runs at low effort; the writer's Sonnet 5 is untouched", async () => {
     const { wire } = await runOneShot("single", SONNET, "current", { planning: OPUS, checking: OPUS });
-    const now = await stagesOf(wire.sent, (json) => withPinnedCompressionAnswer(withoutDraftHeadroom(json)));
+    const now = await stagesOf(wire.sent, (json) => withoutLine242Opening(withPinnedCompressionAnswer(withoutDraftHeadroom(json))));
     const pinned = PINNED_771AF202[`single:${SONNET}`];
     for (const stage of [...PLANNING_STAGES, ...CHECKING_STAGES].filter((name) => name in now)) {
       expect([stage, now[stage].models]).toEqual([stage, [OPUS]]);

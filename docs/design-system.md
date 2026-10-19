@@ -1391,15 +1391,19 @@ AppNav + PageBar ledger bands.
 - `WorkspaceChrome`'s header title is `font-medium` (max-weight-500 rule).
 
 Workbench density (2026-08-10, Obvious doc-artifact study): the agent
-composer is a white bordered rounded-2xl box in the Obvious two-row anatomy —
-textarea on top ("What should we work on?"), action row beneath with attach
-left and the round navy send right — pinned to the pane bottom in every
-state including the empty thread. The chat header, empty state, and starter
-suggestions are compact (13px scale, medium weights). The right pane's
-project metadata heading is `text-xl font-medium` (EditableText
-`headingClass` override; `text-display` stays the default elsewhere), the
-metadata grid is 13px, and the PD review score card is proportionally
-smaller. The report editor itself already reads at 14px serif.
+composer is a white bordered rounded-2xl box in the Obvious two-row anatomy
+— textarea on top ("What should we work on?"), action row beneath with
+attach left and the round navy send right — pinned to the pane bottom in
+every state including the empty thread. Since 2026-10-19 the left control is
+a "Message options" menu, not attach. It holds the per-message options,
+Brain examples and web search, each shown as a removable chip while on. The
+chat reads only typed text, so the composer must not offer or hint at file
+uploads. The chat header, empty state, and starter suggestions are compact
+(13px scale, medium weights). The right pane's project metadata heading is
+`text-xl font-medium` (EditableText `headingClass` override; `text-display`
+stays the default elsewhere), the metadata grid is 13px, and the PD review
+score card is proportionally smaller. The report editor itself already reads
+at 14px serif.
 
 Ghost header controls (2026-08-10, measured off Obvious): every workbench
 header control is a ghost — the workflow menu and the chat thread selector

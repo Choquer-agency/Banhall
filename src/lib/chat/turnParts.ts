@@ -143,6 +143,12 @@ const TOOL_COPY: Record<string, ToolCopy> = {
     // The failure mode is reachability, not a bad search.
     error: "Couldn’t reach The Brain",
   },
+  // 2026-10-19: web search, when the writer turned it on for the message.
+  searchWeb: {
+    running: "Searching the web…",
+    done: "Searched the web",
+    error: "Couldn’t reach web search",
+  },
 };
 
 // A tool we have no copy for is described generically. Pasting a camelCase

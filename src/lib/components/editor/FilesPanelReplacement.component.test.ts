@@ -33,6 +33,8 @@ beforeEach(() => {
   }]);
   __setQueryData("transcripts:listTranscripts", []);
   __setQueryData("uploadAttempts:listUploadAttempts", []);
+  // Replace file is offered only to people who may edit the report.
+  __setQueryData("projects:getProjectEditAccess", { canEditDetails: true });
   __setMutationResult("documents:generateUploadUrl", "https://upload.test/original");
   vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ storageId: "original-bytes" }));
 });
@@ -143,4 +145,110 @@ it.each(["replacement-document", "original-document"])("preserves successful rep
     ? [] : [{ documentId: "original-document" }]);
   if (documentId === "original-document") expect(infoToast).toHaveBeenCalledWith(REPLACE_UNCHANGED_COPY);
   expect(__mutationCalls("uploadAttempts:failUploadAttempt")).toEqual([]);
+});
+
+const failedAttempt = {
+  attemptKey: "22222222-2222-4222-8222-222222222222",
+  fileName: "failed.txt",
+  fileSizeBytes: 12,
+  origin: "context_input",
+  failureCode: "upload_failed",
+  createdAt: 1,
+  displayStatus: "failed",
+};
+
+it.each([
+  ["cannot edit the report", { canEditDetails: false }],
+  ["edit access is still loading", undefined],
+])("offers no Replace file when the viewer %s, and its advice does not name one", async (_case, access) => {
+  __setQueryData("projects:getProjectEditAccess", access);
+  __setQueryData("uploadAttempts:listUploadAttempts", [failedAttempt]);
+  await render(FilesPanel, { projectId: originalProjectId, initiallyOpen: true });
+  await expect.element(page.getByText("original.txt", { exact: true })).toBeVisible();
+  await expect.element(page.getByText("failed.txt", { exact: true })).toBeVisible();
+  expect(page.getByRole("button", { name: /^Replace file/ }).elements()).toHaveLength(0);
+  expect(document.body.textContent).not.toContain("Replace file");
+  // Nor does it tell this viewer to add a file themselves.
+  expect(document.body.textContent).not.toContain("from the Files panel");
+  expect(document.body.textContent).toContain("Someone who can edit this report can add a text-based version.");
+  expect(document.body.textContent).toContain("Someone who can edit this report can upload it again.");
+  // Remove a failed row needs no edit access, so it stays.
+  await expect.element(page.getByRole("button", { name: "Remove — failed.txt", exact: true })).toBeVisible();
+});
+
+it("offers no Replace file when the project's files cannot be seen", async () => {
+  __setQueryData("uploadAttempts:listUploadAttempts", null);
+  await render(FilesPanel, { projectId: originalProjectId, initiallyOpen: true });
+  await expect.element(page.getByText("You don't have permission to view this project's files.", { exact: true })).toBeVisible();
+  expect(page.getByRole("button", { name: /^Replace file/ }).elements()).toHaveLength(0);
+});
+
+it("offers Replace file on a file and on a failed upload to someone who may edit the report", async () => {
+  __setQueryData("uploadAttempts:listUploadAttempts", [failedAttempt]);
+  await render(FilesPanel, { projectId: originalProjectId, initiallyOpen: true });
+  await expect.element(page.getByRole("button", { name: "Replace file… — original.txt", exact: true })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Replace file… — failed.txt", exact: true })).toBeVisible();
+});
+
+it("closes a staged replacement when edit access is withdrawn", async () => {
+  await render(FilesPanel, { projectId: originalProjectId, initiallyOpen: true });
+  await chooseReplacement();
+  await expect.element(page.getByRole("dialog")).toBeVisible();
+  __setQueryData("projects:getProjectEditAccess", { canEditDetails: false });
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  expect(__mutationCalls("documents:uploadDocument")).toEqual([]);
+});
+
+async function replaceFailedUpload(file: File, attempt = failedAttempt) {
+  __setQueryData("uploadAttempts:listUploadAttempts", [attempt]);
+  await render(FilesPanel, { projectId: originalProjectId, initiallyOpen: true });
+  const button = page.getByRole("button", { name: `Replace file… — ${attempt.fileName}`, exact: true });
+  await button.click();
+  const input = button.element().closest("li")?.querySelector('input[type="file"]');
+  if (!(input instanceof HTMLInputElement)) throw new Error("Missing row replacement input");
+  const files = new DataTransfer();
+  files.items.add(file);
+  input.files = files.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+it("asks for the category before replacing a failed upload, so it keeps its weight", async () => {
+  __setMutationResult("documents:uploadDocument", "replacement-document");
+  await replaceFailedUpload(new File(["Interview direction."], "notes-again.txt"));
+  const picker = page.getByRole("group", { name: "Choose a category for “notes-again.txt”." });
+  await expect.element(picker).toBeVisible();
+  expect(__mutationCalls("documents:uploadDocument")).toEqual([]);
+  await page.getByRole("button", { name: "Writer's notes", exact: true }).click();
+  await expect.element(picker).not.toBeInTheDocument();
+  await expect.poll(() => __mutationCalls("documents:uploadDocument")).toEqual([expect.objectContaining({
+    projectId: originalProjectId,
+    fileName: "notes-again.txt",
+    source: "context_input",
+    category: "writer_notes",
+    attemptKey: failedAttempt.attemptKey,
+  })]);
+  expect(__mutationCalls("uploadAttempts:recordUploadAttempts")).toEqual([{
+    projectId: originalProjectId,
+    attempts: [expect.objectContaining({ attemptKey: failedAttempt.attemptKey, origin: "context_input" })],
+  }]);
+});
+
+it("saves nothing when the category question is cancelled", async () => {
+  await replaceFailedUpload(new File(["Interview direction."], "notes-again.txt"));
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect.element(page.getByRole("group", { name: /^Choose a category/ })).not.toBeInTheDocument();
+  expect(__mutationCalls("uploadAttempts:recordUploadAttempts")).toEqual([]);
+  expect(__mutationCalls("documents:uploadDocument")).toEqual([]);
+});
+
+it("replaces a failed PD under review without a category question", async () => {
+  __setMutationResult("documents:uploadDocument", "replacement-document");
+  await replaceFailedUpload(new File(["Project description."], "pd-again.txt"), {
+    ...failedAttempt, fileName: "pd.txt", origin: "review_pd",
+  });
+  await expect.poll(() => __mutationCalls("documents:uploadDocument").length).toBe(1);
+  expect(page.getByRole("group", { name: /^Choose a category/ }).elements()).toHaveLength(0);
+  const [saved] = __mutationCalls("documents:uploadDocument") as Record<string, unknown>[];
+  expect(saved).toMatchObject({ source: "review_pd", fileName: "pd-again.txt" });
+  expect(saved).not.toHaveProperty("category");
 });

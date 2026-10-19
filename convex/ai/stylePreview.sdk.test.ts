@@ -75,6 +75,8 @@ test("sends the house preview request through the real SDK and stores the decode
     model: ROLE_POLICIES.planning.defaultModelId,
     system: expected.system,
     messages: [{ role: "user", content: expected.user }],
+    // 2026-10-19: long writer instructions were cut off at 2,048.
+    max_tokens: 8192,
   });
   expect(body).not.toHaveProperty("tools");
   const usage = await t.run((ctx) => ctx.db.query("aiUsage").take(5));

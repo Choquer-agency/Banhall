@@ -150,33 +150,40 @@ const completionReportFindingUnion = z.discriminatedUnion("status", [
   }),
 ]);
 
+const KIND_BY_ID_PREFIX: Readonly<Record<string, CompletionReportKind>> = Object.freeze(
+  Object.fromEntries(
+    (Object.entries(ID_KIND_PREFIX) as Array<[CompletionReportKind, string]>).map(
+      ([kind, prefix]) => [prefix, kind]
+    )
+  )
+);
+
 /**
- * The id is trusted verbatim as the Deviation Inventory's own key, but nothing
- * else checked that a model echoing it back also kept `kind`/`section`
- * consistent with it. A finding whose id embeds a different kind or section
- * than its own fields is refused here, before it can be persisted as a
- * self-contradictory `chatProposalItems` row.
+ * The id is trusted verbatim as the Deviation Inventory's own key, so a
+ * finding whose `kind` or `section` disagrees with the id it echoes takes the
+ * id's. 2026-10-19 (the 2026-10-07 deviation chat failure): the model labelled r- ids
+ * "content", and refusing the whole call for it threw away three parallel
+ * revisions ("Couldn't write that suggestion") before a retry got through.
+ * The persisted `chatProposalItems` row stays consistent with its id either
+ * way. An id in another shape is left alone. A transform, not a preprocess:
+ * the JSON Schema the model sees is the input side, which is unchanged.
  */
-export const completionReportFindingSchema = completionReportFindingUnion.superRefine(
-  (finding, ctx) => {
-    const match = ID_SHAPE.exec(finding.id);
-    if (!match) return;
-    const [, prefix, idSection] = match;
-    if (prefix !== ID_KIND_PREFIX[finding.kind]) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["id"],
-        message: `${finding.id} does not match kind "${finding.kind}": an id for this kind starts with "${ID_KIND_PREFIX[finding.kind]}-".`,
-      });
-    }
-    if (idSection !== finding.section) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["id"],
-        message: `${finding.id} names Line ${idSection}, but this finding's section is Line ${finding.section}.`,
-      });
-    }
-  }
+export function withKindAndSectionFromId<T extends { id: string; kind: CompletionReportKind; section: CompletionReportSection }>(
+  finding: T
+): T {
+  const match = ID_SHAPE.exec(finding.id);
+  if (!match) return finding;
+  const [, prefix, idSection] = match;
+  const kind = KIND_BY_ID_PREFIX[prefix!];
+  if (!kind) return finding;
+  const section = idSection as CompletionReportSection;
+  return kind === finding.kind && section === finding.section
+    ? finding
+    : { ...finding, kind, section };
+}
+
+export const completionReportFindingSchema = completionReportFindingUnion.transform(
+  (finding) => withKindAndSectionFromId(finding)
 );
 
 export type CompletionReportFinding = z.infer<typeof completionReportFindingSchema>;
@@ -240,7 +247,13 @@ export function coverageIssue(input: {
     input.edits.some((_, i) => !covered.has(i + 1)) ||
     missingRule
   ) {
-    return COVERAGE_RULE_MESSAGE;
+    // Name the ids that lack a rule, so the retry fixes exactly those.
+    const ruleless = input.findings
+      .filter((f) => f.kind === "rule" && !f.rule?.trim())
+      .map((f) => f.id);
+    return ruleless.length
+      ? `${COVERAGE_RULE_MESSAGE} These rule findings name no rule: ${ruleless.join(", ")}.`
+      : COVERAGE_RULE_MESSAGE;
   }
   return null;
 }

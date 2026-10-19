@@ -10,6 +10,7 @@ import {
   PROCESSING_STATUS_COPY,
   REPLACE_UNCHANGED_COPY,
   SUMMARY_CLAUSE,
+  alreadyInProjectCopy,
   SUMMARY_LOADING_CLAUSE,
   SUMMARY_UNKNOWN_CLAUSE,
   UNKNOWN_STATUS_COPY,
@@ -47,8 +48,10 @@ describe("copy map", () => {
           statusAction(status, { canRetry: true, canReplace: false }) ?? "",
           statusAction(status, { canRetry: false, canReplace: true }) ?? "",
           statusAction(status, { canRetry: false, canReplace: false }) ?? "",
+          statusAction(status, { canRetry: false, canReplace: false, canAdd: false }) ?? "",
         ];
       }),
+      alreadyInProjectCopy("notes.txt"),
       LOADING_COPY.label,
       DENIED_COPY.label,
       DENIED_COPY.explanation,
@@ -89,6 +92,12 @@ describe("copy map", () => {
     expect(replace).toMatch(/replace/i);
   });
 
+  it("names no button for a failed upload the viewer may not replace", () => {
+    const neither = statusAction("upload_failed", { canRetry: false, canReplace: false, canAdd: false })!;
+    expect(neither).not.toMatch(/replace|try again/i);
+    expect(neither).toMatch(/edit this report/);
+  });
+
   it("ignores the flags for statuses that do not branch", () => {
     const branching: ReceiptStatus[] = ["upload_failed", "could_not_read"];
     for (const status of ALL_STATUSES.filter((s) => !branching.includes(s))) {
@@ -99,8 +108,8 @@ describe("copy map", () => {
   });
 
   it("only names the Replace button when the row actually offers one", () => {
-    // The live chat receipt shows unreadable files but no Replace control;
-    // advice pointing at a button that is not there is worse than none.
+    // A row can show an unreadable file with no Replace control; advice
+    // pointing at a button that is not there is worse than none.
     const withButton = statusAction("could_not_read", {
       canRetry: false,
       canReplace: true,
@@ -111,7 +120,47 @@ describe("copy map", () => {
     })!;
     expect(withButton).toContain('"Replace file…"');
     expect(withoutButton).not.toContain("Replace file");
-    expect(withoutButton).toMatch(/paste the text into the chat/);
+    expect(withoutButton).toMatch(/from the Files panel/);
+  });
+});
+
+describe("advice for a viewer who may not add files", () => {
+  const ADD_ADVICE: ReceiptStatus[] = [
+    "ready_truncated",
+    "reference_only",
+    "could_not_read",
+    "skipped_unsupported",
+    "upload_failed",
+  ];
+
+  it("sends advice to add a file to someone who can", () => {
+    for (const status of ADD_ADVICE) {
+      const advice = statusAction(status, { canRetry: false, canReplace: false, canAdd: false })!;
+      expect(advice, status).toMatch(/someone who can edit this report/i);
+      expect(advice, status).not.toMatch(/Files panel|Add files|Replace file|try again/);
+    }
+  });
+
+  it("tells a viewer who may add files how to do it themselves", () => {
+    for (const status of ADD_ADVICE) {
+      for (const canAdd of [true, undefined]) {
+        const advice = statusAction(status, { canRetry: false, canReplace: false, canAdd })!;
+        expect(advice, status).not.toMatch(/someone who can edit/i);
+      }
+    }
+    expect(statusAction("upload_failed", { canRetry: false, canReplace: false, canAdd: true })).toBe(
+      "Choose it again with Add files."
+    );
+  });
+
+  it("uses no long dashes in the advice and explanations", () => {
+    for (const status of ALL_STATUSES) {
+      expect(PROCESSING_STATUS_COPY[status].explanation, status).not.toMatch(/[\u2013\u2014]/);
+      for (const canAdd of [true, false]) {
+        const advice = statusAction(status, { canRetry: false, canReplace: false, canAdd }) ?? "";
+        expect(advice, status).not.toMatch(/[\u2013\u2014]/);
+      }
+    }
   });
 });
 

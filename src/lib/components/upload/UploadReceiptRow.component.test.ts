@@ -195,11 +195,20 @@ describe("UploadReceiptRow archived files", () => {
     expect(labels).toEqual(["Remove"]);
   });
 
+  it("sends advice to add a file to someone who can when the viewer may not", async () => {
+    const { container } = await render(UploadReceiptRow, {
+      row: row({ status: "could_not_read" }),
+      canAdd: false,
+    });
+    expect(container.textContent).toContain("Someone who can edit this report can add a text-based version.");
+    expect(container.textContent).not.toContain("Files panel");
+  });
+
   it("does not tell a user to press a Replace button that is not there", async () => {
     const { container } = await render(UploadReceiptRow, {
       row: row({ status: "could_not_read" }),
     });
     expect(container.textContent).not.toContain("Replace file");
-    expect(container.textContent).toContain("paste the text into the chat");
+    expect(container.textContent).toContain("from the Files panel");
   });
 });

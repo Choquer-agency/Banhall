@@ -1,17 +1,40 @@
-import type { StyleOverrideKey } from "../../../shared/styleOverrides";
+import {
+  STYLE_OVERRIDE_META,
+  type StyleOverrideKey,
+  type StyleOverrideMeta,
+} from "../../../shared/styleOverrides";
+
+export type WritingArea = { key: StyleOverrideKey; label: string } & Pick<
+  StyleOverrideMeta,
+  "summary" | "houseRule" | "example" | "whenOn"
+>;
+
+/** The order the six waivable house-style areas appear in on Writing preferences. */
+const WRITING_AREA_ORDER: ReadonlyArray<StyleOverrideKey> = [
+  "bannedWords",
+  "sentenceConstruction",
+  "reportSkeleton",
+  "paragraphDensity",
+  "repetitionCaps",
+  "openingClauses",
+];
 
 /**
- * Round 2 (I2) names for the six waivable house-style areas on Writing
- * preferences. UI only: the admin pages keep STYLE_OVERRIDE_META.
+ * Round 2 (I2) areas on Writing preferences. The copy lives in
+ * STYLE_OVERRIDE_META, shared with the admin pages; `label` here is the
+ * writer's name for the area (writerLabel).
  */
-export const WRITING_AREAS: ReadonlyArray<{ key: StyleOverrideKey; label: string; description: string }> = [
-  { key: "bannedWords", label: "Word list", description: "Your words, not the house list" },
-  { key: "sentenceConstruction", label: "Sentence length", description: "Your sentence length" },
-  { key: "reportSkeleton", label: "Section structure", description: "Your order inside each line" },
-  { key: "paragraphDensity", label: "Paragraph length", description: "Your paragraph length" },
-  { key: "repetitionCaps", label: "Repeated phrases", description: "Limits on repeated CRA phrases" },
-  { key: "openingClauses", label: "Opening phrases", description: "CRA signal phrases at the start" },
-];
+export const WRITING_AREAS: ReadonlyArray<WritingArea> = WRITING_AREA_ORDER.map((key) => {
+  const meta = STYLE_OVERRIDE_META[key];
+  return {
+    key,
+    label: meta.writerLabel,
+    summary: meta.summary,
+    houseRule: meta.houseRule,
+    example: meta.example,
+    whenOn: meta.whenOn,
+  };
+});
 
 export const WRITING_AREA_COUNT = WRITING_AREAS.length;
 
@@ -19,8 +42,12 @@ export function writingAreaLabel(key: StyleOverrideKey): string {
   return WRITING_AREAS.find((area) => area.key === key)?.label ?? key;
 }
 
-/** "Your preferences cover 3 of 6 areas", or the zero case. */
-export function coverageHeading(covered: number): string {
+/**
+ * "Your preferences cover 3 of 6 areas", the zero case, or, when saved
+ * instructions have no stored check yet, says so instead of claiming zero.
+ */
+export function coverageHeading(covered: number, checked = true): string {
+  if (!checked) return "Your instructions have not been checked yet";
   return covered === 0
     ? "Your preferences do not cover any area yet"
     : `Your preferences cover ${covered} of ${WRITING_AREA_COUNT} areas`;

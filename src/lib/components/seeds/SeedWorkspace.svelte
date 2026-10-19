@@ -8,6 +8,7 @@
     pdSubsectionOutlineLabel,
     pdSubsectionStepSubtitle,
     stepAfterApproval,
+    stepNeedsWriter,
     type PdSubsectionRoleId,
   } from "../../../../shared/pdSubsections";
   import { useStableQuery } from "$lib/stableQuery.svelte";
@@ -501,15 +502,16 @@
     };
   }
 
-  /** After "Approve and continue": the next step in order, or the first open
-   * step before it once the last is done, or the Summary when none is left. */
+  /** After "Approve and continue": the first step after it that is open or
+   * marked for review, else the first such step before it, else the Summary
+   * when none is left. */
   function continueAfterApproval(approvedRoleId: PdSubsectionRoleId) {
     if (disposed || !ownerMatches() || activeRoleId !== approvedRoleId) return;
     // The approve mutation marks a prefetch on this same step as waited on.
-    const next = stepAfterApproval(approvedRoleId, (roleId) => {
-      const row = outline?.rows.find((candidate) => candidate.roleId === roleId);
-      return !row || (row.state !== "approved" && row.state !== "skipped");
-    });
+    // A step marked for review (approved but stale) still needs the writer.
+    const next = stepAfterApproval(approvedRoleId, (roleId) =>
+      stepNeedsWriter(outline?.rows.find((candidate) => candidate.roleId === roleId))
+    );
     if (next) void openRoleFromOutline(next);
     else onOpenSummary();
   }

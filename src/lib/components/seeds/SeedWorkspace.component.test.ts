@@ -2022,7 +2022,7 @@ describe("Seed workspace", () => {
       exactExcerpt: "The moisture that gives you conductivity is the same moisture that outgasses, so we didn't know if there was any setting that did both.",
     };
     const flagged = seed({ bullets: limitation, originalBullets: limitation, provenance: [backing, moisture, steel] });
-    const note = `Its quotes do not back: “${limitation[0]}”`;
+    const note = `The quotes on this idea may not support this wording, so check them or ask the client for a source: “${limitation[0]}”`;
     __setQueryData("seeds:getSubsection", subsection({ items: [flagged] }));
     const view = await render(SeedWorkspace, workspaceProps());
     await expect.poll(() => document.querySelector("[data-seed-unbacked]")?.textContent).toBe(note);
@@ -3784,6 +3784,74 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     await expect.poll(() => onOpenSummary.mock.calls.length).toBe(1);
   });
 
+  it("skips approved steps after approval: back to the earlier open step, or the Summary once none is open (2026-10-19)", async () => {
+    // The 2026-10-08 report: every step after Hypothesis was approved, and
+    // approving Hypothesis landed on the approved step after it.
+    const open = (...roleIds: string[]) => ({
+      ...outline(),
+      rows: outline().rows.map((row) => (roleIds.includes(row.roleId) ? row : { ...row, state: "approved" })),
+    });
+    localStorage.setItem(`seeds.openRole:writer-1:${generationId}`, "hypothesis");
+    __setQueryData("seeds:getOutline", open("goal_problem", "hypothesis"));
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "hypothesis" }, subsection({
+      roleId: "hypothesis",
+      items: [seed({ seedId: "seed-hypothesis" as Id<"seeds">, roleId: "hypothesis" })],
+      approvalChallenge: cleanChallenge(),
+    }));
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "goal_problem" }, subsection({
+      roleId: "goal_problem",
+      items: [seed({ seedId: "seed-goal" as Id<"seeds">, roleId: "goal_problem", bullets: ["Goal Seed wording."] })],
+      approvalChallenge: cleanChallenge(),
+    }));
+    const onOpenSummary = vi.fn();
+    const view = await render(SeedWorkspace, workspaceProps({ onOpenSummary }));
+    await page.getByRole("button", { name: "Approve and continue", exact: true }).click();
+    expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: "hypothesis" })]);
+    await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
+    expect(onOpenSummary).not.toHaveBeenCalled();
+    view.unmount();
+
+    // Hypothesis is the last open step, in the middle of the order: the Summary.
+    document.body.innerHTML = "";
+    localStorage.setItem(`seeds.openRole:writer-1:${generationId}`, "hypothesis");
+    __setQueryData("seeds:getOutline", open("hypothesis"));
+    await render(SeedWorkspace, workspaceProps({ onOpenSummary }));
+    await page.getByRole("button", { name: "Approve and continue", exact: true }).click();
+    await expect.poll(() => onOpenSummary.mock.calls.length).toBe(1);
+  });
+
+  it("lands after approval on a later step marked for review, not the Summary (2026-10-19, review round 1, P2-2)", async () => {
+    // A changed pick on Goal / Problem marked Hypothesis for review: it stays
+    // approved but stale, and still needs the writer.
+    localStorage.setItem(`seeds.openRole:writer-1:${generationId}`, "goal_problem");
+    __setQueryData("seeds:getOutline", {
+      ...outline(),
+      rows: outline().rows.map((row) =>
+        row.roleId === "goal_problem"
+          ? row
+          : { ...row, state: "approved", stale: row.roleId === "hypothesis" }
+      ),
+    });
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "goal_problem" }, subsection({
+      roleId: "goal_problem",
+      items: [seed({ seedId: "seed-goal" as Id<"seeds">, roleId: "goal_problem", bullets: ["Goal Seed wording."] })],
+      approvalChallenge: cleanChallenge(),
+    }));
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "hypothesis" }, subsection({
+      roleId: "hypothesis",
+      state: "approved",
+      stale: true,
+      items: [seed({ seedId: "seed-hypothesis" as Id<"seeds">, roleId: "hypothesis" })],
+      approvalChallenge: cleanChallenge(),
+    }));
+    const onOpenSummary = vi.fn();
+    await render(SeedWorkspace, workspaceProps({ onOpenSummary }));
+    await page.getByRole("button", { name: "Approve and continue", exact: true }).click();
+    expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: "goal_problem" })]);
+    await expect.element(page.getByRole("heading", { name: "Hypothesis", exact: true })).toBeVisible();
+    expect(onOpenSummary).not.toHaveBeenCalled();
+  });
+
   it("lands after approval on the step the approve mutation marks as waited on, with no open of its own (2026-09-27, third)", async () => {
     // The next step's prefetch is still running: the workspace never opens
     // it, so only the approve mutation can mark it as waited on, and it
@@ -4388,11 +4456,12 @@ describe("step subtitles (F3 to F5)", () => {
       .find((button) => textOf(button).includes("Goal / Problem"))!
       .click();
     await expect.poll(subtitle).toBe("What the project set out to do, and what stood in the way.");
-    expect(document.body.textContent).not.toContain("State the physical or practical product");
+    expect(document.body.textContent).not.toContain("State the project's business goal");
 
-    // Display only: the registry objective that feeds prompts, QA and the Summary is unchanged.
+    // Display only: the registry objective feeds the Seed prompts (2026-10-19:
+    // it asks for Line 242's plain opening); the subtitle above stays.
     expect(PD_SUBSECTIONS.find((row) => row.roleId === "company_context")!.objective).toBe(
-      "Establish the company's relevant domain expertise and operating context for the project."
+      "Say in one plain, high-level sentence who the company is and what it does, with no customer lists, history, technical detail or guessed specifics."
     );
   });
 

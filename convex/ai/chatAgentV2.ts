@@ -35,6 +35,7 @@ import {
   assembleDeviationInventory,
   renderInventory,
   type InventoryNote,
+  type InventorySection,
   type InventorySections,
   type RulesStatus,
 } from "../lib/deviationInventory";
@@ -54,6 +55,7 @@ import { MAX_PROJECT_DOCUMENT_SCAN } from "../chatV2";
 import { describeContextCuts } from "./trustedContext";
 import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
+import { makeSearchWebTool, newWebSearchTurn, type WebSearchTurn } from "./chatWebSearch";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
 import { anthropicCacheWrite1hTokens } from "./instrument";
 import { ACTION_REQUEST_WINDOW_MS } from "./actionDeadline";
@@ -228,6 +230,18 @@ export type ChatContentDeviation = {
   instruction: string;
 };
 
+/**
+ * 2026-10-19: one Line of the inventory. A fix request over a long list ran out
+ * of output thinking about every item at once (a writer's PD08 and PD13 c turns),
+ * so the prompt has a long list revised one Line per reply.
+ */
+const inventorySectionSchema = z
+  .enum(["242", "244", "246"])
+  .optional()
+  .describe(
+    "List one Line only. Use it when fixing a long list: one Line per reply, in build order 242, 244, 246. Omit it to list the whole report."
+  );
+
 const contentDeviationsSchema = z
   .array(
     z.object({
@@ -264,6 +278,7 @@ function renderOrExplain(args: {
   context: InventoryContext;
   contentDeviations?: ChatContentDeviation[];
   referenceSections?: InventorySections | null;
+  section?: InventorySection;
 }): string {
   try {
     return renderInventory(
@@ -273,7 +288,8 @@ function renderOrExplain(args: {
         ...(args.contentDeviations ? { contentDeviations: args.contentDeviations } : {}),
         ...(args.referenceSections ? { referenceSections: args.referenceSections } : {}),
         rulesStatus: args.context.rulesStatus,
-      })
+      }),
+      args.section ? { section: args.section } : {}
     );
   } catch (error) {
     // A writer-named paragraph outside the report: hand back the valid range so
@@ -290,7 +306,7 @@ function renderOrExplain(args: {
 /** CAP-12's tool body. Read only: it creates no proposal. */
 export async function runDeviationInventory(
   ctx: ChatToolCtx,
-  input: { contentDeviations?: ChatContentDeviation[] }
+  input: { contentDeviations?: ChatContentDeviation[]; section?: InventorySection }
 ): Promise<string> {
   const context = await inventoryContext(ctx);
   if (!context.found) {
@@ -299,13 +315,18 @@ export async function runDeviationInventory(
   return renderOrExplain({
     context,
     ...(input.contentDeviations ? { contentDeviations: input.contentDeviations } : {}),
+    ...(input.section ? { section: input.section } : {}),
   });
 }
 
 /** CAP-15's tool body. Read only: it creates no proposal. */
 export async function runCompareReferencePd(
   ctx: ChatToolCtx,
-  input: { fileName?: string; contentDeviations?: ChatContentDeviation[] }
+  input: {
+    fileName?: string;
+    contentDeviations?: ChatContentDeviation[];
+    section?: InventorySection;
+  }
 ): Promise<string> {
   const context = await inventoryContext(ctx, input.fileName);
   if (!context.found) {
@@ -355,6 +376,7 @@ export async function runCompareReferencePd(
     context,
     ...(input.contentDeviations ? { contentDeviations: input.contentDeviations } : {}),
     referenceSections: context.reference.sections,
+    ...(input.section ? { section: input.section } : {}),
   });
   return truncated ? `${rendered}\n\n${scanNote.trim()}` : rendered;
 }
@@ -397,8 +419,11 @@ export async function runProposeBulkEdits(
 
 const deviationInventory = createTool({
   description:
-    "List every paragraph of the current report exactly once, in build order 242, 244, 246, with its rule Deviations from the stored Compliance Notes and any content Deviations the writer named. READ ONLY: it changes nothing and creates no proposal. Use it when the writer asks for the deviation list or inventory, or before a coordinated revision over a list of items, so every item has a stable id.",
-  inputSchema: z.object({ contentDeviations: contentDeviationsSchema }),
+    "List every paragraph of the current report (or of one Line) exactly once, in build order 242, 244, 246, with its rule Deviations from the stored Compliance Notes and any content Deviations the writer named. READ ONLY: it changes nothing and creates no proposal. Use it when the writer asks for the deviation list or inventory, or before a coordinated revision over a list of items, so every item has a stable id.",
+  inputSchema: z.object({
+    contentDeviations: contentDeviationsSchema,
+    section: inventorySectionSchema,
+  }),
   execute: async (ctx, input): Promise<string> =>
     await runDeviationInventory(ctx, input),
 });
@@ -415,6 +440,7 @@ const compareReferencePd = createTool({
         "The Reference PD's file name, exactly as the project lists it. Omit when the project has only one."
       ),
     contentDeviations: contentDeviationsSchema,
+    section: inventorySectionSchema,
   }),
   execute: async (ctx, input): Promise<string> =>
     await runCompareReferencePd(ctx, input),
@@ -570,6 +596,85 @@ export const CHAT_STEP_LIMIT_REPLY =
 /** The same, for a turn that saved no edit proposal (PR #24 review P3). */
 export const CHAT_STEP_LIMIT_REPLY_OTHER =
   "I stopped at the step limit for one reply. Ask me to continue.";
+
+/**
+ * 2026-10-19 (the 2026-10-07 deviation chat failure). In all four failed "address
+ * each deviation" turns (PD08 on 09-29, PD13 c on 10-07) the step after a long
+ * deviationInventory result spent the whole output limit thinking: no tool
+ * call and no text, so the 10-01 cut-off rules above (which need a cut tool
+ * call) never fired and the writer read a generic "Try again". A step that
+ * follows a list result now thinks at medium effort, and a step that still
+ * thinks to the limit gets one recovery pass (see `streamChatReply`).
+ */
+export const CHAT_LIST_STEP_EFFORT = "medium" as const;
+
+/** The read-only tools whose long result the next step has to plan over. */
+const LIST_TOOLS: ReadonlySet<string> = new Set(["deviationInventory", "compareReferencePd"]);
+
+export function followsListResult(
+  steps: ReadonlyArray<{ toolCalls: ReadonlyArray<{ toolName: string } | undefined> }>
+): boolean {
+  return steps.some((step) => step.toolCalls.some((call) => call !== undefined && LIST_TOOLS.has(call.toolName)));
+}
+
+/** Merged into a step's provider options (AI SDK `prepareStep`). */
+export const CHAT_LIST_STEP_PROVIDER_OPTIONS = {
+  anthropic: { effort: CHAT_LIST_STEP_EFFORT },
+};
+
+/**
+ * The recovery pass thinks at low effort, with the same cache breakpoints. A
+ * change of effort between requests rewrites the cached message prefix (the
+ * tools and system prompt stay cached), so a recovered turn pays one more
+ * cache write; so does the medium-effort step after a list result.
+ */
+export const CHAT_RECOVERY_PROVIDER_OPTIONS = {
+  anthropic: { ...CHAT_PROVIDER_OPTIONS.anthropic, effort: "low" as const },
+};
+
+/**
+ * Time the recovery pass needs left in the action's window. A failed pass
+ * took 140 to 168 seconds to think to the limit; a pass that plans briefly and
+ * proposes one Line takes well under this.
+ */
+export const CHAT_RECOVERY_MIN_REMAINING_MS = 150_000;
+
+/** The instruction the recovery pass gets after the writer's message. */
+export const CHAT_THINKING_RECOVERY_INSTRUCTION =
+  "Your previous attempt at this request spent its whole output allowance planning and wrote nothing, so nothing was proposed. Plan briefly this time, then act. If the request covers more than one Line or a long list, do only the first Line it concerns, in build order 242, 244, 246: for deviations, call deviationInventory with that section, then propose that Line's revision. Close by naming what is left, so the writer can ask you to continue.";
+
+/** What the writer reads when a step thought to the limit and nothing was saved. */
+export const CHAT_THINKING_CUT_OFF_REPLY =
+  "That request was too big to finish in one reply, so I proposed nothing. Ask for one part at a time, for example: Fix the deviations in Line 244.";
+
+/** The same, when the turn saved an edit proposal before the step that ran out. */
+export const CHAT_THINKING_CUT_OFF_PARTIAL_REPLY =
+  "I proposed part of this above, then ran out of room before the rest. Review the cards, then ask me to continue.";
+
+/** What the writer reads when the closing text itself hit the limit. */
+export const CHAT_REPLY_CUT_OFF_REPLY =
+  "My reply hit the length limit before it finished. Ask me to continue, or ask for one part at a time.";
+
+/** The parts of a finished step `thinkingOnlyCutOff` reads. */
+type ThinkingCutStep = {
+  finishReason: string;
+  toolCalls: ReadonlyArray<unknown>;
+  text: string;
+};
+
+/**
+ * True for a step cut off at the output limit that wrote no tool call and no
+ * text: it spent the limit thinking. `sawToolInput` covers a call whose block
+ * never closed, which the step does not record as a call.
+ */
+export function thinkingOnlyCutOff(step: ThinkingCutStep, sawToolInput: boolean): boolean {
+  return (
+    step.finishReason === "length" &&
+    !sawToolInput &&
+    step.toolCalls.length === 0 &&
+    step.text.trim().length === 0
+  );
+}
 
 
 /** The parts of an AI SDK step result the cut-off rules read. */
@@ -766,7 +871,16 @@ async function chatContextOptions(
   }
 }
 
-export const buildChatTools = (bannedWordsWaived: boolean, allowBrain = false) => ({
+/**
+ * The tools for one model pass. `webSearch` is the turn's web search state
+ * (2026-10-19): searchWeb is offered only when the authenticated send allowed
+ * it for the message, and its per-turn count is shared by every pass.
+ */
+export const buildChatTools = (
+  bannedWordsWaived: boolean,
+  allowBrain = false,
+  webSearch: WebSearchTurn | null = null
+) => ({
   proposeEdit: makeProposeEdit(bannedWordsWaived),
   proposeReplacements: makeProposeReplacements(bannedWordsWaived),
   proposeBulkEdits: makeProposeBulkEdits(bannedWordsWaived),
@@ -774,6 +888,7 @@ export const buildChatTools = (bannedWordsWaived: boolean, allowBrain = false) =
   compareReferencePd,
   highlightPassages,
   ...(allowBrain ? { searchBrain } : {}),
+  ...(webSearch ? { searchWeb: makeSearchWebTool(webSearch) } : {}),
 });
 
 const CHAT_TOOLS = buildChatTools(false);
@@ -901,6 +1016,12 @@ export function chatFailureReply(error: unknown): string {
       return "That response took too long, so I stopped it before it finished. Try again.";
     case "CHAT_CUT_OFF_TOOL_CALL":
       return CHAT_CUT_OFF_REPLY;
+    case "CHAT_THINKING_CUT_OFF":
+      return CHAT_THINKING_CUT_OFF_REPLY;
+    case "CHAT_THINKING_CUT_OFF_PARTIAL":
+      return CHAT_THINKING_CUT_OFF_PARTIAL_REPLY;
+    case "CHAT_REPLY_CUT_OFF":
+      return CHAT_REPLY_CUT_OFF_REPLY;
     default:
       return "I couldn’t finish that response. Try again.";
   }
@@ -917,6 +1038,8 @@ export const streamChatReply = internalAction({
     userId: v.optional(v.id("users")),
     // Only the authenticated send mutation can authorize this turn's retrieval.
     allowBrain: v.optional(v.boolean()),
+    // 2026-10-19: web search for this message, authorized the same way.
+    allowWeb: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const startedAt = Date.now();
@@ -936,6 +1059,9 @@ export const streamChatReply = internalAction({
     // call whose block never closed, so the step recorded no call at all.
     let sawToolInput = false;
     let lastStepCutToolCall = false;
+    // 2026-10-19: whether the last step thought to the output limit and wrote
+    // no tool call and no text (`thinkingOnlyCutOff`).
+    let lastStepThinkingOnly = false;
     const finishedSteps: CutOffStep[] = [];
     // Review P2-1: a step the agent held back, logged once a later step
     // finishes (see stepHeldBackByAgent).
@@ -1021,109 +1147,208 @@ export const streamChatReply = internalAction({
       const turnModel = chatTurnModel(ctx, chatModel.gateway === "anthropic" ? chatModel.id : MODEL);
       served = turnModel.served;
 
-      const result = await reportChatAgent.streamText(
-        ctx,
-        { threadId: args.agentThreadId },
-        {
-          promptMessageId: args.promptMessageId,
-          model: turnModel.model,
-          system: turn.system,
-          // Ephemeral: with `promptMessageId` set the agent library saves no
-          // input messages, so the evidence never enters thread history.
-          // The context handler below places them around the history.
-          messages: turn.messages,
-          tools: buildChatTools(styleOverrides.bannedWords, args.allowBrain === true),
-          providerOptions: CHAT_PROVIDER_OPTIONS,
-          maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
-          abortSignal,
-          // Must run upstream of the agent's smoothStream — see the module
-          // comment. Without it, multi-step tool turns lose the thinking
-          // signature and the model's reasoning is dropped between steps.
-          experimental_transform: preserveReasoningSignature<typeof CHAT_TOOLS>(),
-          // 2026-10-01 (first): a call cut off at the output limit gets its
-          // tool's fixed instruction instead of its parse error, and a second
-          // cut-off ends the turn. A turn that is never cut off sends exactly
-          // the requests it sent before (the same messages array).
-          stopWhen: [stepCountIs(CHAT_MAX_STEPS), stopAfterSecondCutOff],
-          prepareStep: async ({ steps, messages }) => {
-            // PR #24 review P3: once the agent stopped streaming, check the
-            // writer did not press Stop before paying for another step.
-            if (agentStreamBlind) {
-              const active: boolean = await ctx.runQuery(internal.chatV2.isTurnActive, {
-                agentThreadId: args.agentThreadId,
-                promptMessageId: args.promptMessageId,
-              });
-              if (!active) throw new Error("CHAT_STOPPED_AFTER_CUT_OFF");
-            }
-            const next = withCutOffInstruction(messages, steps);
-            return next === messages ? undefined : { messages: next };
+      // One model pass over this turn. The turn makes a second pass only to
+      // recover a step that thought to the output limit (2026-10-19), so the
+      // per-pass state below starts fresh each time; `toolCallIds` counts the
+      // whole turn.
+      // Created once, so the recovery pass shares the turn's search count.
+      const webSearch =
+        args.allowWeb === true
+          ? newWebSearchTurn({
+              ...(args.userId ? { userId: args.userId } : {}),
+              deadline: startedAt + ACTION_REQUEST_WINDOW_MS,
+            })
+          : null;
+
+      const runPass = async (pass: {
+        messages: ModelMessage[];
+        providerOptions: typeof CHAT_PROVIDER_OPTIONS;
+        listStepProviderOptions: typeof CHAT_LIST_STEP_PROVIDER_OPTIONS | undefined;
+        contextOptions?: ContextOptions;
+      }) => {
+        sawToolInput = false;
+        lastStepCutToolCall = false;
+        lastStepThinkingOnly = false;
+        finishedSteps.length = 0;
+        heldBackStep = undefined;
+        agentStreamBlind = false;
+        const result = await reportChatAgent.streamText(
+          ctx,
+          { threadId: args.agentThreadId },
+          {
+            promptMessageId: args.promptMessageId,
+            model: turnModel.model,
+            system: turn.system,
+            // Ephemeral: with `promptMessageId` set the agent library saves no
+            // input messages, so the evidence never enters thread history.
+            // The context handler below places them around the history.
+            messages: pass.messages,
+            tools: buildChatTools(styleOverrides.bannedWords, args.allowBrain === true, webSearch),
+            providerOptions: pass.providerOptions,
+            maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
+            abortSignal,
+            // Must run upstream of the agent's smoothStream — see the module
+            // comment. Without it, multi-step tool turns lose the thinking
+            // signature and the model's reasoning is dropped between steps.
+            experimental_transform: preserveReasoningSignature<typeof CHAT_TOOLS>(),
+            // 2026-10-01 (first): a call cut off at the output limit gets its
+            // tool's fixed instruction instead of its parse error, and a second
+            // cut-off ends the turn. A turn that is never cut off sends exactly
+            // the requests it sent before (the same messages array).
+            stopWhen: [stepCountIs(CHAT_MAX_STEPS), stopAfterSecondCutOff],
+            prepareStep: async ({ steps, messages }) => {
+              // PR #24 review P3: once the agent stopped streaming, check the
+              // writer did not press Stop before paying for another step.
+              if (agentStreamBlind) {
+                const active: boolean = await ctx.runQuery(internal.chatV2.isTurnActive, {
+                  agentThreadId: args.agentThreadId,
+                  promptMessageId: args.promptMessageId,
+                });
+                if (!active) throw new Error("CHAT_STOPPED_AFTER_CUT_OFF");
+              }
+              const next = withCutOffInstruction(messages, steps);
+              // 2026-10-19: a step that plans over a list result thinks at
+              // medium effort.
+              const listStep =
+                pass.listStepProviderOptions !== undefined && followsListResult(steps);
+              if (next === messages && !listStep) return undefined;
+              return {
+                ...(next === messages ? {} : { messages: next }),
+                ...(listStep ? { providerOptions: pass.listStepProviderOptions } : {}),
+              };
+            },
+            onChunk: ({ chunk }) => {
+              if (chunk.type === "tool-input-start") sawToolInput = true;
+            },
+            onStepFinish: async (step) => {
+              for (const toolCall of step.toolCalls) {
+                if (toolCall) toolCallIds.add(toolCall.toolCallId);
+              }
+              finishedSteps.push(step);
+              lastStepCutToolCall =
+                step.finishReason === "length" &&
+                (sawToolInput || step.toolCalls.length > 0);
+              lastStepThinkingOnly = thinkingOnlyCutOff(step, sawToolInput);
+              sawToolInput = false;
+              // Sizes only, never report text: to tune the per-call bound.
+              for (const call of cutOffToolCalls(step)) {
+                console.warn("chat tool call cut off at the output limit", {
+                  threadId: args.agentThreadId,
+                  toolName: call.toolName,
+                  inputChars:
+                    typeof call.input === "string"
+                      ? call.input.length
+                      : JSON.stringify(call.input ?? null).length,
+                  outputTokens: step.usage.outputTokens ?? null,
+                });
+              }
+              if (lastStepThinkingOnly) {
+                console.warn("chat step thought to the output limit", {
+                  threadId: args.agentThreadId,
+                  stepNumber: finishedSteps.length,
+                  outputTokens: step.usage.outputTokens ?? null,
+                });
+              }
+              // Review P2-1: a later step finished, so the agent replaced the
+              // step it held back and will never log that step's usage.
+              const replaced = heldBackStep;
+              heldBackStep = undefined;
+              if (replaced) {
+                await turnModel.usageHandler(ctx, {
+                  userId: await threadUserId(ctx, args.agentThreadId),
+                  threadId: args.agentThreadId,
+                  agentName: "report-editor",
+                  model: turnModel.model.modelId,
+                  provider: turnModel.model.provider,
+                  usage: replaced.usage,
+                  providerMetadata: replaced.providerMetadata,
+                });
+              }
+              if (stepHeldBackByAgent(step, finishedSteps)) {
+                heldBackStep = step;
+                agentStreamBlind = true;
+              }
+            },
           },
-          onChunk: ({ chunk }) => {
-            if (chunk.type === "tool-input-start") sawToolInput = true;
-          },
-          onStepFinish: async (step) => {
-            for (const toolCall of step.toolCalls) {
-              if (toolCall) toolCallIds.add(toolCall.toolCallId);
-            }
-            finishedSteps.push(step);
-            lastStepCutToolCall =
-              step.finishReason === "length" &&
-              (sawToolInput || step.toolCalls.length > 0);
-            sawToolInput = false;
-            // Sizes only, never report text: to tune the per-call bound.
-            for (const call of cutOffToolCalls(step)) {
-              console.warn("chat tool call cut off at the output limit", {
-                threadId: args.agentThreadId,
-                toolName: call.toolName,
-                inputChars:
-                  typeof call.input === "string"
-                    ? call.input.length
-                    : JSON.stringify(call.input ?? null).length,
-                outputTokens: step.usage.outputTokens ?? null,
-              });
-            }
-            // Review P2-1: a later step finished, so the agent replaced the
-            // step it held back and will never log that step's usage.
-            const replaced = heldBackStep;
-            heldBackStep = undefined;
-            if (replaced) {
-              await turnModel.usageHandler(ctx, {
-                userId: await threadUserId(ctx, args.agentThreadId),
-                threadId: args.agentThreadId,
-                agentName: "report-editor",
-                model: turnModel.model.modelId,
-                provider: turnModel.model.provider,
-                usage: replaced.usage,
-                providerMetadata: replaced.providerMetadata,
-              });
-            }
-            if (stepHeldBackByAgent(step, finishedSteps)) {
-              heldBackStep = step;
-              agentStreamBlind = true;
-            }
-          },
-        },
-        {
-          saveStreamDeltas: true,
-          contextOptions,
-          usageHandler: turnModel.usageHandler,
-          // Evidence head before the history, per-turn tail after the
-          // prompt: see arrangeChatContext for the cache layout.
-          contextHandler: async (_ctx, parts) =>
-            arrangeChatContext(turn.headCount, parts),
-        }
-      );
-      await result.consumeStream();
-      const finishReason = await result.finishReason;
+          {
+            saveStreamDeltas: true,
+            contextOptions: pass.contextOptions ?? contextOptions,
+            usageHandler: turnModel.usageHandler,
+            // Evidence head before the history, per-turn tail after the
+            // prompt: see arrangeChatContext for the cache layout.
+            contextHandler: async (_ctx, parts) =>
+              arrangeChatContext(turn.headCount, parts),
+          }
+        );
+        await result.consumeStream();
+        return await result.finishReason;
+      };
+
+      let finishReason = await runPass({
+        messages: turn.messages,
+        providerOptions: CHAT_PROVIDER_OPTIONS,
+        listStepProviderOptions: CHAT_LIST_STEP_PROVIDER_OPTIONS,
+      });
       // A timer that fires after a tool step leaves the last step's finish
       // reason in place, so the reply would read as complete (review r2 P3).
       if (abortSignal.aborted) throw new Error("CHAT_TIMED_OUT");
+      // 2026-10-19: the last step thought to the output limit and wrote
+      // nothing. One recovery pass, at low effort and told to do the first
+      // part only, when this turn saved no edit yet (the pass would not see
+      // it: tool rows stay out of the history), enough of the window is left,
+      // and the writer has not pressed Stop.
+      if (finishReason === "length" && lastStepThinkingOnly) {
+        // Review P3-4: any card, a record-only revision or a highlight too.
+        const savedCard: boolean = await ctx.runQuery(internal.chatV2.turnSavedAnyProposal, {
+          agentThreadId: args.agentThreadId,
+          promptMessageId: args.promptMessageId,
+        });
+        if (savedCard) throw new Error("CHAT_THINKING_CUT_OFF_PARTIAL");
+        const timeLeft = startedAt + ACTION_REQUEST_WINDOW_MS - Date.now();
+        const active: boolean =
+          timeLeft >= CHAT_RECOVERY_MIN_REMAINING_MS &&
+          (await ctx.runQuery(internal.chatV2.isTurnActive, {
+            agentThreadId: args.agentThreadId,
+            promptMessageId: args.promptMessageId,
+          }));
+        if (!active) throw new Error("CHAT_THINKING_CUT_OFF");
+        console.info("chat recovery pass after a step thought to the limit", {
+          threadId: args.agentThreadId,
+          timeLeftMs: timeLeft,
+        });
+        finishReason = await runPass({
+          messages: [
+            ...turn.messages,
+            { role: "user", content: CHAT_THINKING_RECOVERY_INSTRUCTION },
+          ],
+          providerOptions: CHAT_RECOVERY_PROVIDER_OPTIONS,
+          listStepProviderOptions: undefined,
+          // Review P3-3: the first pass stored one thinking-only row on the
+          // prompt's order. It fills a history slot before
+          // `withoutThinkingOnlyReplies` drops it, so the window gets one
+          // more row and keeps its oldest one.
+          contextOptions: {
+            ...contextOptions,
+            recentMessages:
+              (contextOptions.recentMessages ?? CHAT_CONTEXT_OPTIONS.recentMessages) + 1,
+          },
+        });
+        if (abortSignal.aborted) throw new Error("CHAT_TIMED_OUT");
+      }
       // A turn whose last step was cut off while writing a tool call could
       // not go on (the second cut-off, or the step limit): say what to do.
       if (finishReason === "length" && lastStepCutToolCall) {
         throw new Error("CHAT_CUT_OFF_TOOL_CALL");
       }
-      if (finishReason === "content-filter" || finishReason === "length") {
+      if (finishReason === "length" && lastStepThinkingOnly) {
+        const savedCard: boolean = await ctx.runQuery(internal.chatV2.turnSavedAnyProposal, {
+          agentThreadId: args.agentThreadId,
+          promptMessageId: args.promptMessageId,
+        });
+        throw new Error(savedCard ? "CHAT_THINKING_CUT_OFF_PARTIAL" : "CHAT_THINKING_CUT_OFF");
+      }
+      if (finishReason === "length") throw new Error("CHAT_REPLY_CUT_OFF");
+      if (finishReason === "content-filter") {
         throw new Error("CHAT_INCOMPLETE_RESPONSE");
       }
       const finished: {

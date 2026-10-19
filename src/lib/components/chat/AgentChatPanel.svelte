@@ -1,23 +1,7 @@
 <script lang="ts">
-  import { createExtractionScope } from "$lib/extractionScope.svelte";
-  import { isParseAbort } from "$lib/spreadsheetClient";
   import { tick, untrack } from "svelte";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import { appendOutbox } from "$lib/uploads/attemptOutbox";
-  import {
-    ATTEMPT_BATCH_LIMIT,
-    flushOutboxFor,
-    shouldDropOutboxEntry,
-    withUploadTimeout,
-  } from "$lib/uploads/outboxFlush";
-  import UploadReceipt from "$lib/components/upload/UploadReceipt.svelte";
-  import {
-    buildReceiptRows,
-    type EphemeralEntry,
-    type ReceiptRow,
-  } from "$lib/uploads/receiptRows";
-  import { deriveProcessingStatus } from "../../../../shared/documentStatus";
   import { api } from "../../../../convex/_generated/api";
   import type { Doc, Id } from "../../../../convex/_generated/dataModel";
   import { createUIMessages } from "$lib/chat/uiMessages.svelte";
@@ -32,12 +16,11 @@
   } from "$lib/chat/turnParts";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import AssistantPanelSkeleton from "./AssistantPanelSkeleton.svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
   import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
   import { DropdownMenu, Checkbox } from "bits-ui";
+  import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
-  import Button from "$lib/components/ui/Button.svelte";
   import { fade } from "svelte/transition";
   import {
     ChatContainer,
@@ -52,17 +35,6 @@
     Loader,
     Suggestion,
   } from "$lib/components/chat/primitives";
-  import {
-    parseFileToText,
-    isSupportedFile,
-    SUPPORTED_ACCEPT,
-    SUPPORTED_LABEL,
-  } from "$lib/parseDocument";
-  import {
-    CONTEXT_CATEGORIES,
-    type ContextCategoryId,
-    categoryMeta,
-  } from "$lib/contextCategories";
   import { createRequestId } from "$lib/requestId";
   import { userErrorMessage } from "$lib/errors";
 
@@ -75,6 +47,8 @@
   type Proposal = Doc<"chatProposals">;
 
   interface Props {
+    /** Hosts still pass it; the panel reads everything through the report
+     * since chat uploads were removed (2026-10-19). */
     projectId: Id<"projects">;
     reportId: Id<"reports">;
     pendingHighlight?: { from: number; to: number; text: string } | null;
@@ -103,7 +77,6 @@
   }
 
   let {
-    projectId,
     reportId,
     pendingHighlight,
     onClearHighlight,
@@ -119,8 +92,6 @@
     reviewingId,
     onBeforeApply,
   }: Props = $props();
-  const uploadOwner = $derived(`${projectId}:${reportId}`);
-  const extractionScope = createExtractionScope(() => uploadOwner);
 
   /** The source passages a proposal references — for scroll-and-highlight. */
   function proposalRefs(p: Proposal): string[] {
@@ -130,24 +101,6 @@
     }
     if (p.targetText) return [p.targetText];
     return [];
-  }
-
-  function trimName(name: string): string {
-    return name.length > 40 ? name.slice(0, 37) + "…" : name;
-  }
-
-  function guessFileType(
-    name: string
-  ): "txt" | "md" | "pdf" | "docx" | "msg" | "eml" | "xlsx" | "image" | "other" {
-    const l = name.toLowerCase();
-    if (l.endsWith(".pdf")) return "pdf";
-    if (l.endsWith(".docx")) return "docx";
-    if (l.endsWith(".msg")) return "msg";
-    if (l.endsWith(".eml") || l.endsWith(".mbox")) return "eml";
-    if (l.endsWith(".xlsx") || l.endsWith(".xls") || l.endsWith(".csv")) return "xlsx";
-    if (l.endsWith(".md") || l.endsWith(".markdown")) return "md";
-    if (l.endsWith(".txt")) return "txt";
-    return "other";
   }
 
   /** Visible text of a UIMessage (joins text parts; ignores tool/reasoning). */
@@ -276,23 +229,22 @@
 
   const sendMessage = useMutation(api.chatV2.sendMessage);
   const abortStreaming = useMutation(api.chatV2.abortStreaming);
-  const uploadDocument = useMutation(api.documents.uploadDocument);
-  const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
   const startResearch = useMutation(api.research.startResearch);
-  const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
-  const dismissUploadAttempt = useMutation(api.uploadAttempts.dismissUploadAttempt);
 
-  // Only needed to scope the offline outbox to whoever queued an entry: a
-  // failure recorded by one user must never be flushed under another's session.
-  const uploadAuth = useAuth();
+  // Answer feedback is offered only to a signed-in, non-anonymous user with a
+  // role, and each saved vote is keyed by that user.
+  const auth = useAuth();
   const currentUserQ = useQuery(api.users.getCurrentUser, () =>
-    uploadAuth.isAuthenticated ? {} : "skip"
+    auth.isAuthenticated ? {} : "skip"
   );
 
 
   let input = $state("");
   let allowBrain = $state(false);
   $effect(() => { conversationScope; allowBrain = false; });
+  // 2026-10-19: per-message web search (terms and CRA only), like Brain.
+  let allowWeb = $state(false);
+  $effect(() => { conversationScope; allowWeb = false; });
   let sending = $state(false);
   let researchStarting = $state(false);
   let researchError = $state<string | null>(null);
@@ -367,7 +319,6 @@
   let pendingResearchId = $state<Id<"researchSessions"> | null>(null);
   let refiningProposal = $state<Proposal | null>(null);
   let stopping = $state(false);
-  let uploading = $state(false);
 
   // Copy-to-clipboard feedback (assistant hover actions).
   let copiedId = $state<string | null>(null);
@@ -412,36 +363,7 @@
       /* ignore */
     }
   }
-  /**
-   * The live receipt: one entry per file in the current batch. Plain data only
-   * — the `File` objects live in `retryableFiles` below, deliberately outside
-   * reactive state, because host objects don't belong in a proxy.
-   */
-  let receiptEntries = $state<EphemeralEntry[]>([]);
-  const retryableFiles = new Map<string, { file: File; category: ContextCategoryId }>();
-  const receiptBusy = new SvelteSet<string>();
-  $effect(() => {
-    // Upload UI and retained files belong to this exact owner. Keep completed
-    // receipts across ordinary rerenders, but discard old-owner selections,
-    // context pills and retries when its scope ends.
-    uploadOwner;
-    return () => {
-      receiptEntries = [];
-      retryableFiles.clear();
-      receiptBusy.clear();
-      pendingFiles = null;
-      attachments = [];
-      if (fileInputEl) fileInputEl.value = "";
-    };
-  });
-  const receiptRows = $derived(buildReceiptRows([], [], receiptEntries));
-  const receiptSettled = $derived(receiptEntries.some((entry) => entry.status !== null));
-  let attachments = $state<
-    { documentId: Id<"projectDocuments">; fileName: string; category: ContextCategoryId }[]
-  >([]);
-  let pendingFiles = $state<File[] | null>(null);
 
-  let fileInputEl: HTMLInputElement | null = $state(null);
   let textareaEl: HTMLTextAreaElement | null = $state(null);
   let pillEl: HTMLSpanElement | null = $state(null);
   let pillWidth = $state(0);
@@ -591,7 +513,7 @@
     void feedbackTurnIdKey;
     return untrack(() => [...feedbackTurnByMessage.values()]);
   });
-  const eligibleFeedbackViewer = $derived(uploadAuth.isAuthenticated &&
+  const eligibleFeedbackViewer = $derived(auth.isAuthenticated &&
     !!currentUserQ.data?.role && currentUserQ.data.isAnonymous !== true);
   const feedbackQ = useQuery(api.chatFeedback.getViewerVotes, () =>
     eligibleFeedbackViewer && selectedThreadId && feedbackTurnIds.length
@@ -716,6 +638,7 @@
       reportId,
       content: trimmed,
       ...(!historical && allowBrain ? { allowBrain: true } : {}),
+      ...(!historical && allowWeb ? { allowWeb: true } : {}),
       ...(intent.kind === "regenerate" ? { threadId: intent.threadId } : {
         ...(selectedThreadId ? { threadId: selectedThreadId } : {}),
         ...(pendingHighlight ? { highlight: { ...pendingHighlight } } : {}),
@@ -739,6 +662,7 @@
       input = "";
       refiningProposal = null;
       allowBrain = false;
+      allowWeb = false;
       onClearHighlight?.();
     }
     dismissHint();
@@ -782,308 +706,6 @@
     } finally {
       sending = false;
     }
-  }
-
-  type AttemptInfo = { attemptKey: string; fileName: string; fileSizeBytes: number };
-
-  /**
-   * Record failures durably. If the server is unreachable the failure is queued
-   * locally instead, because a network failure is precisely the case that
-   * leaves no server-side trace. Never throws: failing to record a failure must
-   * not also break the upload flow.
-   */
-  async function recordFailedChatAttempts(
-    entries: AttemptInfo[],
-    failureCode: "rejected_unsupported" | "upload_failed"
-  ) {
-    for (let i = 0; i < entries.length; i += ATTEMPT_BATCH_LIMIT) {
-      const slice = entries.slice(i, i + ATTEMPT_BATCH_LIMIT);
-      try {
-        await withUploadTimeout(
-          recordUploadAttempts({
-            projectId,
-            attempts: slice.map((a) => ({
-              attemptKey: a.attemptKey,
-              fileName: a.fileName,
-              fileSizeBytes: a.fileSizeBytes,
-              origin: "chat_upload" as const,
-              failureCode,
-            })),
-          })
-        );
-      } catch (err) {
-        console.error("Failed to record upload attempts", err);
-        // The server considered it and refused: queueing would be poison.
-        if (shouldDropOutboxEntry(err)) continue;
-        const userId = currentUserQ.data?._id;
-        if (!userId) continue;
-        for (const a of slice) {
-          appendOutbox(userId, {
-            userId,
-            projectId,
-            attemptKey: a.attemptKey,
-            fileName: a.fileName,
-            fileSizeBytes: a.fileSizeBytes,
-            origin: "chat_upload",
-            failureCode,
-            at: Date.now(),
-          });
-        }
-      }
-    }
-  }
-
-  /** Update one receipt row in place, keyed by its attempt. */
-  function patchReceipt(attemptKey: string, patch: Partial<EphemeralEntry>) {
-    receiptEntries = receiptEntries.map((entry) =>
-      entry.attemptKey === attemptKey ? { ...entry, ...patch } : entry
-    );
-  }
-
-  /**
-   * Run one file all the way through: extract the text, store the bytes, and
-   * record the document. Returns whether the row ended up on the receipt as a
-   * success, so the caller can decide about the rest of the batch.
-   */
-  async function uploadOne(
-    file: File,
-    attemptKey: string,
-    category: ContextCategoryId
-  ): Promise<boolean> {
-    const operation = extractionScope.capture();
-    const operationProjectId = projectId;
-    const operationReportId = reportId;
-    operation.throwIfAborted();
-    let parsed;
-    let extractionFailed = false;
-    try {
-      parsed = await parseFileToText(file, { signal: operation.signal });
-    } catch (e) {
-      if (isParseAbort(e)) throw e;
-      console.error("Parse failed", e);
-      extractionFailed = true;
-      parsed = { fileName: file.name, fileType: guessFileType(file.name), content: "" };
-    }
-
-    operation.throwIfAborted();
-    let storageId: Id<"_storage"> | undefined;
-    try {
-      const url = await withUploadTimeout(generateUploadUrl({}));
-      operation.throwIfAborted();
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-        signal: operation.signal,
-      });
-      const json = (await res.json()) as { storageId: Id<"_storage"> };
-      storageId = json.storageId;
-    } catch (e) {
-      if (isParseAbort(e)) throw e;
-      // Losing the original bytes still leaves the extracted text worth having.
-      console.error("File storage upload failed", e);
-    }
-
-    operation.throwIfAborted();
-    try {
-      const documentId = await withUploadTimeout(
-        uploadDocument({
-          projectId: operationProjectId,
-          reportId: operationReportId,
-          fileName: file.name,
-          fileType: parsed.fileType,
-          content: parsed.content,
-          source: "chat_upload",
-          category,
-          // A validated enum, never the error itself: the server decides
-          // what the failure means, and no provider text can ride along.
-          extractionOutcome: extractionFailed ? "failed" : "ok",
-          // Resolves this file's attempt in the same transaction as the insert.
-          attemptKey,
-          ...(storageId ? { storageId } : {}),
-          ...(file.type ? { mimeType: file.type } : {}),
-        })
-      );
-
-      // The server owns the stored status; deriving the same facts here only
-      // decides what this row shows, and uses the very same function.
-      const derived = deriveProcessingStatus({
-        fileName: file.name,
-        content: parsed.content,
-        extractionFailed,
-      });
-      operation.throwIfAborted();
-      patchReceipt(attemptKey, {
-        status: derived.status,
-        detail: derived.detail,
-        documentId,
-        hasFile: false,
-      });
-      // The bytes are only needed for a retry, and this one succeeded.
-      retryableFiles.delete(attemptKey);
-      attachments = [...attachments, { documentId, fileName: file.name, category }];
-      return true;
-    } catch (e) {
-      console.error("Upload failed", e);
-      operation.throwIfAborted();
-      patchReceipt(attemptKey, { status: "upload_failed", hasFile: true });
-      await recordFailedChatAttempts(
-        [{ attemptKey, fileName: file.name, fileSizeBytes: file.size }],
-        "upload_failed"
-      );
-      return false;
-    }
-  }
-
-  async function uploadFiles(files: File[], category: ContextCategoryId) {
-    const batchOperation = extractionScope.capture();
-    const batchProjectId = projectId;
-    if (!files || files.length === 0) return;
-    pendingFiles = null;
-    uploading = true;
-
-    const flushUserId = currentUserQ.data?._id;
-    if (flushUserId) {
-      // Opportunistic: anything queued while offline goes out now that we know
-      // the network is being used again.
-      void flushOutboxFor(flushUserId, projectId, (attempts) =>
-        recordUploadAttempts({ projectId, attempts })
-      );
-    }
-
-    const batch = files.map((file) => ({ file, attemptKey: createRequestId() }));
-
-    // Every file appears immediately as its own row, so the user watches the
-    // batch resolve instead of waiting for one message at the end.
-    receiptEntries = [
-      ...receiptEntries,
-      ...batch.map(({ file, attemptKey }) => ({
-        attemptKey,
-        fileName: file.name,
-        fileSizeBytes: file.size,
-        status: null,
-        hasFile: true,
-      })),
-    ];
-    for (const { file, attemptKey } of batch) {
-      retryableFiles.set(attemptKey, { file, category });
-    }
-
-    try {
-      for (let i = 0; i < batch.length; i += ATTEMPT_BATCH_LIMIT) {
-        batchOperation.throwIfAborted();
-        await withUploadTimeout(
-          recordUploadAttempts({
-            projectId: batchProjectId,
-            attempts: batch.slice(i, i + ATTEMPT_BATCH_LIMIT).map((b) => ({
-              attemptKey: b.attemptKey,
-              fileName: b.file.name,
-              fileSizeBytes: b.file.size,
-              origin: "chat_upload" as const,
-            })),
-          })
-        );
-        batchOperation.throwIfAborted();
-      }
-    } catch (e) {
-      // A lost begin is safe: the failure path upserts its own row, and
-      // resolving a non-existent attempt is a no-op.
-      console.error("Failed to open upload attempts", e);
-    }
-
-    try {
-      for (const { file, attemptKey } of batch) {
-        batchOperation.throwIfAborted();
-        const ok = await uploadOne(file, attemptKey, category);
-        if (!ok) {
-          // The batch stops at the first failure, so mark the files that never
-          // got their turn rather than leaving them reading forever.
-          const remaining = batch.slice(batch.findIndex((b) => b.attemptKey === attemptKey) + 1);
-          for (const b of remaining) {
-            patchReceipt(b.attemptKey, { status: "upload_failed", hasFile: true });
-          }
-          if (remaining.length) {
-            await recordFailedChatAttempts(
-              remaining.map((b) => ({
-                attemptKey: b.attemptKey,
-                fileName: b.file.name,
-                fileSizeBytes: b.file.size,
-              })),
-              "upload_failed"
-            );
-          }
-          break;
-        }
-      }
-    } catch (error) {
-      if (!isParseAbort(error)) throw error;
-    } finally {
-      uploading = false;
-      if (fileInputEl) fileInputEl.value = "";
-    }
-  }
-
-  async function retryUpload(row: ReceiptRow) {
-    const batchOperation = extractionScope.capture();
-    const batchProjectId = projectId;
-    const key = row.attemptKey;
-    if (!key || uploading || receiptBusy.has(row.key)) return;
-    const held = retryableFiles.get(key);
-    if (!held) return;
-
-    receiptBusy.add(row.key);
-    patchReceipt(key, { status: null });
-    try {
-      // Same attemptKey throughout: the server upsert flips the row back to
-      // in-progress, so a retry can never create a second record.
-      await withUploadTimeout(
-        recordUploadAttempts({
-          projectId: batchProjectId,
-          attempts: [
-            {
-              attemptKey: key,
-              fileName: held.file.name,
-              fileSizeBytes: held.file.size,
-              origin: "chat_upload" as const,
-            },
-          ],
-        })
-      );
-    } catch (e) {
-      console.error("Failed to reopen upload attempt", e);
-    }
-    try {
-      batchOperation.throwIfAborted();
-      await uploadOne(held.file, key, held.category);
-    } catch (error) {
-      if (!isParseAbort(error)) throw error;
-    } finally {
-      receiptBusy.delete(row.key);
-    }
-  }
-
-  async function removeReceiptRow(row: ReceiptRow) {
-    const key = row.attemptKey;
-    if (!key) return;
-    retryableFiles.delete(key);
-    receiptEntries = receiptEntries.filter((entry) => entry.attemptKey !== key);
-    try {
-      await withUploadTimeout(dismissUploadAttempt({ projectId, attemptKey: key }));
-    } catch (e) {
-      // The row is already gone from view; the durable row ages out on its own.
-      console.error("Could not dismiss upload attempt", e);
-    }
-  }
-
-  /** Clears rows that have finished, keeping anything still in flight. */
-  function dismissReceipt() {
-    const settledKeys = new Set(
-      receiptEntries
-        .filter((entry) => entry.status !== null)
-        .map((entry) => entry.attemptKey)
-    );
-    for (const key of settledKeys) retryableFiles.delete(key);
-    receiptEntries = receiptEntries.filter((entry) => entry.status === null);
   }
 
   const highlightLineCount = $derived(
@@ -1236,72 +858,6 @@
     </div>
   {/if}
 
-  {#if receiptRows.length > 0}
-    <!-- One row per file, replacing the single overwriting error message: in a
-         mixed batch that message could only ever describe one file. -->
-    <div class="mb-2 rounded-xl border border-line bg-chrome/50 px-3 py-2">
-      <UploadReceipt
-        rows={receiptRows}
-        heading="Uploads"
-        busy={receiptBusy}
-        onRetry={retryUpload}
-        onRemove={removeReceiptRow}
-      />
-      {#if receiptSettled}
-        <div class="mt-2 flex justify-end">
-          <Button variant="ghost" size="sm" class="min-h-11" onclick={dismissReceipt}>
-            Dismiss
-          </Button>
-        </div>
-      {/if}
-    </div>
-  {/if}
-
-  {#if pendingFiles}
-    {@const files = pendingFiles}
-    <div class="mb-2 rounded-xl border border-navy/15 bg-navy/5 p-3">
-      <p class="mb-2 text-xs text-navy">
-        What {files.length > 1 ? "are these files" : `is “${trimName(files[0].name)}”`}? Pick a category:
-      </p>
-      <div class="flex flex-wrap gap-1.5">
-        {#each CONTEXT_CATEGORIES as c (c.id)}
-          <button
-            onclick={() => uploadFiles(files, c.id)}
-            class={`rounded-full px-2.5 py-1 text-[0.6875rem] font-medium transition-opacity hover:opacity-80 ${c.pill}`}
-          >
-            {c.label}
-          </button>
-        {/each}
-        <button
-          onclick={() => (pendingFiles = null)}
-          class="rounded-full px-2.5 py-1 text-[0.6875rem] font-medium text-gray-400 hover:text-gray-600"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  {/if}
-
-  {#if attachments.length > 0}
-    <div class="mb-2 flex flex-wrap gap-1.5">
-      {#each attachments as a, i (`${a.documentId}-${i}`)}
-        {@const meta = categoryMeta(a.category)}
-        <span class="inline-flex items-center gap-1 rounded-md bg-chrome px-2 py-1 text-[0.6875rem] text-gray-600">
-          <svg class="h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-          </svg>
-          {trimName(a.fileName)}
-          {#if meta}
-            <span class={`rounded-full px-1.5 py-0.5 text-[0.5625rem] font-medium ${meta.pill}`}>
-              {meta.label}
-            </span>
-          {/if}
-          <span class="ml-1 text-[0.625rem] text-ink-muted">Project context</span>
-        </span>
-      {/each}
-    </div>
-  {/if}
-
   {#if researchError}
     <div class="mb-2 flex items-start justify-between gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600" role="alert">
       <span>{researchError}</span>
@@ -1319,8 +875,8 @@
   {/if}
 
   <PromptInput bind:value={input} isLoading={sending || researchStarting} onSubmit={(v) => sendText(v)} class="flex-col items-stretch gap-3 rounded-xl px-3.5 py-3">
-    <!-- Board 2.1 composer: the text on top, then + at the left and a round
-         send button at the right. -->
+    <!-- Board 2.1 composer: the text on top, then message options at the left
+         and a round send button at the right. -->
     <div>
     <PromptInputTextarea
       bind:ref={textareaEl}
@@ -1394,43 +950,35 @@
       {/snippet}
     </PromptInputTextarea>
     </div>
-    <!-- Board 2.1 anatomy: + at the left (add a document, Brain examples),
-         send at the right. -->
+    <!-- Board 2.1 anatomy: message options at the left (Brain examples, web search),
+         send at the right. The chat reads only typed text, so the composer
+         offers no way to add files (owner, 2026-10-19). -->
     <div class="flex items-center justify-between gap-2">
     <PromptInputActions class="min-w-0 items-center gap-1.5">
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger
-          aria-label="Add to message"
-          title="Add to message"
-          disabled={uploading}
-          class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-full border border-line text-ink transition-colors hover:bg-primary-wash data-[state=open]:bg-primary-wash disabled:opacity-50 motion-reduce:transition-none pointer-coarse:size-11"
-        >
-          {#if uploading}
-            <Spinner size="sm" class="border-gray-300 border-t-gray-500" />
-          {:else}
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
-              <path d="M6 2v8M2 6h8" />
-            </svg>
-          {/if}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            side="top"
-            align="start"
-            sideOffset={8}
-            class="z-[100] w-72 rounded-xl border border-line bg-white p-1 shadow-lg"
-          >
-            <DropdownMenu.Item
-              onSelect={() => fileInputEl?.click()}
-              title="Add a document to project context"
-              class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash"
+      {#if !pendingResearch}
+        <DropdownMenu.Root>
+          <Tooltip text="Message options">
+            {#snippet children({ props: tooltipProps })}
+              <DropdownMenu.Trigger
+                {...tooltipProps}
+                aria-label="Message options"
+                class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-full border border-line text-ink transition-colors hover:bg-primary-wash data-[state=open]:bg-primary-wash motion-reduce:transition-none pointer-coarse:size-11"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                  <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
+                  <circle cx="15" cy="7" r="2" />
+                  <circle cx="9" cy="17" r="2" />
+                </svg>
+              </DropdownMenu.Trigger>
+            {/snippet}
+          </Tooltip>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              side="top"
+              align="start"
+              sideOffset={8}
+              class="z-[100] w-72 rounded-xl border border-line bg-white p-1 shadow-lg"
             >
-              <svg class="size-4 shrink-0 text-ink-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z M14 3v5h5 M12 12v6 M9 15h6" />
-              </svg>
-              Add a document
-            </DropdownMenu.Item>
-            {#if !pendingResearch}
               <DropdownMenu.CheckboxItem
                 bind:checked={allowBrain}
                 disabled={sending || isStreaming}
@@ -1447,10 +995,26 @@
                   Use Brain examples for this message
                 {/snippet}
               </DropdownMenu.CheckboxItem>
-            {/if}
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+              <DropdownMenu.CheckboxItem
+                bind:checked={allowWeb}
+                disabled={sending || isStreaming}
+                closeOnSelect={false}
+                title="Allow a web search for what a term or method means, or for CRA guidance. Names are removed before anything is searched."
+                class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50"
+              >
+                {#snippet children({ checked })}
+                  <span class={`flex size-4 shrink-0 items-center justify-center rounded border ${checked ? "border-primary-selected bg-primary-selected text-white" : "border-line"}`} aria-hidden="true">
+                    {#if checked}
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7" /></svg>
+                    {/if}
+                  </span>
+                  Search the web for this message
+                {/snippet}
+              </DropdownMenu.CheckboxItem>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      {/if}
       {#if allowBrain && !pendingResearch}
         <!-- The per-message Brain choice stays visible while it is on. -->
         <span data-brain-chip class="inline-flex h-[1.375rem] min-w-0 items-center gap-1 rounded-full bg-primary-wash pr-1 pl-2 text-[0.6875rem] text-primary-selected">
@@ -1466,44 +1030,21 @@
           </button>
         </span>
       {/if}
-      <input
-        bind:this={fileInputEl}
-        type="file"
-        multiple
-        accept={SUPPORTED_ACCEPT}
-        class="hidden"
-        onchange={(e) => {
-          const target = e.currentTarget;
-          if (target.files && target.files.length) {
-            const all = Array.from(target.files);
-            const ok = all.filter((f) => isSupportedFile(f.name));
-            const bad = all.filter((f) => !isSupportedFile(f.name));
-            if (bad.length) {
-              const rejected = bad.map((f) => ({
-                attemptKey: createRequestId(),
-                fileName: f.name,
-                fileSizeBytes: f.size,
-              }));
-              // Each rejected file gets its own receipt row saying why, instead
-              // of one message listing them all.
-              receiptEntries = [
-                ...receiptEntries,
-                ...rejected.map((r) => ({
-                  ...r,
-                  status: "skipped_unsupported" as const,
-                  detail: "unsupported_extension" as const,
-                  hasFile: false,
-                })),
-              ];
-              // These never reach the server, so without a recorded attempt the
-              // rejection would vanish on reload with nothing to show for it.
-              void recordFailedChatAttempts(rejected, "rejected_unsupported");
-            }
-            if (ok.length) pendingFiles = ok;
-          }
-          target.value = "";
-        }}
-      />
+      {#if allowWeb && !pendingResearch}
+        <!-- The per-message web search choice stays visible while it is on. -->
+        <span data-web-chip class="inline-flex h-[1.375rem] min-w-0 items-center gap-1 rounded-full bg-primary-wash pr-1 pl-2 text-[0.6875rem] text-primary-selected">
+          <span class="truncate">Web search</span>
+          <button
+            type="button"
+            onclick={() => (allowWeb = false)}
+            disabled={sending || isStreaming}
+            aria-label="Stop searching the web for this message"
+            class="flex size-4 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100"
+          >
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          </button>
+        </span>
+      {/if}
     </PromptInputActions>
     <PromptInputActions>
       {#if isStreaming}

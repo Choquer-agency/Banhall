@@ -115,13 +115,26 @@ describe("PD_SUBSECTIONS", () => {
       expect(subtitle.length).toBeLessThan(subsection.objective.length);
       expect(subtitle).not.toMatch(/[\u2013\u2014]/);
     }
-    // The objectives that feed prompts, QA and the Summary are unchanged.
+    // The subtitles are display only; the objectives feed the Seed prompts.
+    // 2026-10-19 (owner approved): the first two ask for Line 242's plain
+    // opening, see the next test.
     expect(PD_SUBSECTIONS[0].objective).toBe(
-      "Establish the company's relevant domain expertise and operating context for the project."
+      "Say in one plain, high-level sentence who the company is and what it does, with no customer lists, history, technical detail or guessed specifics."
     );
     expect(PD_SUBSECTIONS[1].objective).toBe(
-      "State the physical or practical product, process, or system the company sought to create or improve."
+      "State the project's business goal in plain, non-technical words, then the operations and experience that make its SR&ED work credible."
     );
+  });
+
+  it("asks the first two steps for Line 242's plain opening (2026-10-19)", () => {
+    const [company, goal] = PD_SUBSECTIONS;
+    expect(company.objective).toContain("one plain, high-level sentence who the company is and what it does");
+    expect(company.objective).not.toMatch(/domain expertise/);
+    expect(goal.objective).toContain("business goal in plain, non-technical words");
+    expect(goal.objective).not.toMatch(/physical or practical/);
+    for (const objective of [company.objective, goal.objective]) {
+      expect(objective).not.toMatch(/[–—]/);
+    }
   });
 
   it("provides display labels for the closed seed tag vocabulary", () => {

@@ -1786,7 +1786,7 @@ describe("Seed Summary Review", () => {
       const view = await render(SeedSummaryReview, { generationId, userId: "writer-1" });
       const itemA = () => view.container.querySelector<HTMLElement>('[data-summary-item="seed-a"]');
       await expect.poll(() => itemA()?.querySelector("[data-summary-unbacked]")?.textContent).toBe(
-        `Its quotes do not back: “${advancement[1]}”`
+        `The quotes on this idea may not support this wording, so check them or ask the client for a source: “${advancement[1]}”`
       );
       const note = itemA()!.querySelector<HTMLElement>("[data-summary-unbacked]")!;
       expect(Number(getComputedStyle(note).fontWeight)).toBeLessThanOrEqual(500);

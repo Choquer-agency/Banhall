@@ -59,6 +59,19 @@ export const styleAnalysisSchema: z.ZodType<StyleAnalysis> = z.object({
 });
 
 /**
+ * 2026-10-19: how the Settings page check (analyzeMyInstructions) reads the
+ * answer. Every category verdict is still required. An absent
+ * `lockedConflicts` reads as empty, as it already does for the settings
+ * document classifier (writerSettings.ts, Round 3), so the categories can
+ * still be stored as coverage. The Locked tier holds whatever the
+ * instructions say, so the list is shown to the writer and decides nothing.
+ */
+export const styleAnalysisAnswerSchema = z.object({
+  categories: styleAnalysisCategoriesSchema,
+  lockedConflicts: z.array(lockedConflictSchema).optional(),
+});
+
+/**
  * The classifier's system text. Story 3 (CAP-8): the generation-time
  * settings-document classifier (convex/ai/writerSettings.ts) reuses this,
  * the prompt builder and the schema verbatim, and the prompt program
@@ -182,7 +195,7 @@ export const analyzeMyInstructions = action({
         userId: identity.tokenIdentifier,
       });
       const { system, user } = buildStyleAnalysisPrompt(text);
-      result = await generateStructured<StyleAnalysis>(client, {
+      const answer = await generateStructured(client, {
         system,
         user,
         toolName: STYLE_ANALYSIS_REQUEST.toolName,
@@ -190,8 +203,20 @@ export const analyzeMyInstructions = action({
         schema: ANALYSIS_TOOL_SCHEMA,
         maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
         model,
-        validate: styleAnalysisSchema,
+        validate: styleAnalysisAnswerSchema,
+        // 2026-10-19: a writer's 61,000-character instructions were checked
+        // twice on 2026-10-07. Both checks failed validation on both
+        // attempts ("categories: expected object, received string;
+        // lockedConflicts: expected array, received undefined", the Round 3
+        // and Round 4 shapes), so nothing was stored. Read such a field and
+        // validate as usual, as the settings document classifier does. No
+        // request is added.
+        encodedFieldRecovery: true,
       });
+      if (answer.lockedConflicts === undefined) {
+        console.warn(`${STYLE_ANALYSIS_REQUEST.toolName}: the answer left out lockedConflicts, read as empty`);
+      }
+      result = { categories: answer.categories, lockedConflicts: answer.lockedConflicts ?? [] };
     }
     if (args.persist === true) {
       await ctx.runMutation(internal.writerProfiles.recordMyCoverage, {

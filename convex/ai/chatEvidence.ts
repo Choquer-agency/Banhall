@@ -192,6 +192,23 @@ function labelledBlock(label: string, body: string): string {
   return `${D.beginPrefix}${line}${D.contentPrefix}${body}${D.contentSuffix}${D.endPrefix}${line}`;
 }
 
+/** At most this many file names in one notice line; the rest are counted. */
+const MAX_NOTICE_FILE_NAMES = 20;
+const MAX_NOTICE_FILE_NAME_CHARS = 80;
+
+/**
+ * File names for a notice line, quoted, sanitized like a marker line's and
+ * bounded. They are the uploader's names, so they are data, not instructions.
+ */
+function fileNameList(names: string[]): string {
+  const shown = names.slice(0, MAX_NOTICE_FILE_NAMES).map((name) => {
+    const safe = neutralizeMarkers(sanitizeFileName(name)).replace(/"/g, "'");
+    return `"${safe.length > MAX_NOTICE_FILE_NAME_CHARS ? `${safe.slice(0, MAX_NOTICE_FILE_NAME_CHARS - 1)}…` : safe}"`;
+  });
+  const more = names.length - shown.length;
+  return more > 0 ? `${shown.join(", ")} and ${more} more` : shown.join(", ");
+}
+
 /** A document block: label plus the sanitized file name in the marker line. */
 function documentBlock(doc: ChatEvidenceDoc, body: string): string {
   const label = ANALYZER_CATEGORY_LABELS[docCategory(doc)];
@@ -545,9 +562,14 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
     });
   const perDocChars = chars(budget.perDocumentTokens);
   const documentBlocks: string[] = [];
-  ordered.forEach(({ doc }, rank) => {
+  // 2026-10-19: only documents with text take one of the `maxDocuments`
+  // slots. An image, a reference-only file or a failed extraction has nothing
+  // to read; on one live project seven images took seven of the twelve slots
+  // and pushed the writer's glossary and settings document out of the turn.
+  let readableRank = 0;
+  ordered.forEach(({ doc }) => {
     const extra = { category: docCategory(doc) };
-    if (rank >= budget.maxDocuments) {
+    if (doc.content.length > 0 && readableRank++ >= budget.maxDocuments) {
       sources.push({
         kind: "document",
         label: doc.fileName,
@@ -579,9 +601,14 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
 
   // Documents that carried text and lost all of it to the budget. Empty rows
   // are not counted: nothing was omitted to fit anything.
-  const droppedDocuments = sources.filter(
-    (source) => source.kind === "document" && !source.included && source.originalLength > 0
-  ).length;
+  const droppedNames = sources
+    .filter((source) => source.kind === "document" && !source.included && source.originalLength > 0)
+    .map((source) => source.label);
+  const droppedDocuments = droppedNames.length;
+  // Documents with no text at all (see `readableRank`).
+  const unreadableNames = sources
+    .filter((source) => source.kind === "document" && source.originalLength === 0)
+    .map((source) => source.label);
 
   /**
    * Some documents rendered and others did not. The guidance says an absent
@@ -589,9 +616,17 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
    * writer that a document they can see in the project does not exist. One
    * line, not one notice per document: a dozen dropped rows would otherwise
    * be a wall of notices. Chat-only: the analyzer's bytes are frozen.
+   * 2026-10-19: the line names them, so the assistant can say which file it
+   * could not see instead of claiming it checked "the full evidence set".
    */
-  const furtherOmittedNotice = (count: number): string =>
-    `[${count} further attached document(s) were omitted to fit the context budget.]`;
+  const furtherOmittedNotice = (names: string[]): string =>
+    `[${names.length} further attached document(s) were omitted to fit the context budget, so you cannot see them in this turn: ${fileNameList(names)}.]`;
+  const unreadableNotice = (names: string[]): string =>
+    `[${names.length} attached file(s) carry no text you can read (for example images or scans), so you cannot see them: ${fileNameList(names)}.]`;
+  const documentNotices = [
+    ...(droppedDocuments && documentBlocks.length ? [furtherOmittedNotice(droppedNames)] : []),
+    ...(unreadableNames.length ? [unreadableNotice(unreadableNames)] : []),
+  ];
 
   // ── Assembly ──────────────────────────────────────────────────────────────
   // Render order is split for prompt caching (see `arrangeChatContext`). The
@@ -610,19 +645,18 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   if (analysisBody !== null) {
     stableParts.push(labelledBlock(EVIDENCE_LABELS.analysis, analysisBody));
   }
+  const notices = documentNotices.length ? `\n\n${documentNotices.join("\n")}` : "";
   if (documentBlocks.length) {
     const rendered = documentBlocks.join("\n\n");
-    stableParts.push(
-      `${EVIDENCE_LABELS.documentsHeading}\n${rendered}${
-        droppedDocuments ? `\n\n${furtherOmittedNotice(droppedDocuments)}` : ""
-      }`
-    );
+    stableParts.push(`${EVIDENCE_LABELS.documentsHeading}\n${rendered}${notices}`);
   } else if (droppedDocuments) {
     // Documents WERE supplied and the budget kept none of them: keep the
     // heading with a notice rather than implying the project has no documents.
     stableParts.push(
-      `${EVIDENCE_LABELS.documentsHeading}\n${omittedMaterialsNotice(droppedDocuments)}`
+      `${EVIDENCE_LABELS.documentsHeading}\n${omittedMaterialsNotice(droppedDocuments)}\n${furtherOmittedNotice(droppedNames).replace(" further ", " ")}${notices}`
     );
+  } else if (unreadableNames.length) {
+    stableParts.push(`${EVIDENCE_LABELS.documentsHeading}\n${unreadableNotice(unreadableNames)}`);
   }
   const tailParts: string[] = [];
   if (reportBody !== null) {
@@ -791,10 +825,37 @@ export function arrangeChatContext(
   );
   return [
     ...head,
-    ...parts.search,
-    ...parts.recent,
+    ...withoutThinkingOnlyReplies(parts.search),
+    ...withoutThinkingOnlyReplies(parts.recent),
     ...prompt,
     ...tail,
-    ...parts.existingResponses,
+    ...withoutThinkingOnlyReplies(parts.existingResponses),
   ];
+}
+
+/**
+ * True for an assistant message with reasoning and nothing else: no text and
+ * no tool call. Only a step cut off at the output limit while thinking leaves
+ * one (a step that calls a tool is a tool row, which the history leaves out,
+ * and a finished reply has text).
+ */
+export function isThinkingOnlyReply(message: ModelMessage): boolean {
+  if (message.role !== "assistant" || typeof message.content === "string") return false;
+  if (message.content.length === 0) return false;
+  return message.content.every(
+    (part) => part.type === "reasoning" || (part.type === "text" && part.text.trim() === "")
+  );
+}
+
+/**
+ * 2026-10-19 (the 2026-10-07 deviation chat failure): a step that thought to the
+ * output limit was saved as such a message and replayed into every later
+ * request of the thread, about 16,500 input tokens per failure (61,539, then
+ * 78,070, then 94,601 on PD13 c). It answered nothing, so it is left out. The
+ * rule is the same on every turn, so the cached history prefix stays stable.
+ */
+export function withoutThinkingOnlyReplies(messages: ModelMessage[]): ModelMessage[] {
+  return messages.some(isThinkingOnlyReply)
+    ? messages.filter((message) => !isThinkingOnlyReply(message))
+    : messages;
 }
