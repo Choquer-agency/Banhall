@@ -1,7 +1,7 @@
 // Which fiscal year sections start open on a company's Projects page (owner
-// pick 2026-10-19, the "smart rule"): the two newest years are open; an
-// older year, or "No fiscal year", is open only while it still has work in
-// progress. A person's own toggles are kept per company for the session and
+// pick 2026-10-19, the "smart rule"): the two newest fiscal years are open;
+// an older year, or "No fiscal year", is open only while it still has work
+// in progress. A person's own toggles are kept per company for the session and
 // override the rule.
 import type { WorkflowStage } from "../../../shared/workflowStages";
 
@@ -9,16 +9,30 @@ const DONE: ReadonlySet<WorkflowStage> = new Set<WorkflowStage>(["delivered", "a
 
 export type FiscalSection = {
   key: string;
+  /** null for the "No fiscal year" section. */
+  fiscalYear: number | null;
+  /** More pages may still add projects to this section. */
+  more?: boolean;
   rows: ReadonlyArray<{ workflowStage?: WorkflowStage | null }>;
 };
 
-/** Open by the rule: the first two sections (newest first), or any with work in progress. */
+/**
+ * Open by the rule: every section of the two newest fiscal years (a short
+ * year has two sections in one fiscal year), any section with work in
+ * progress, and a section that may still grow while more pages load, so a
+ * section never closes under the reader when "Show more" reorders them.
+ * A legacy row without a workflow stage counts as work in progress.
+ */
 export function openByRule(sections: readonly FiscalSection[]): Set<string> {
+  const newest = [...new Set(sections.map((section) => section.fiscalYear).filter((year): year is number => year !== null))]
+    .sort((a, b) => b - a)
+    .slice(0, 2);
   const open = new Set<string>();
-  sections.forEach((section, index) => {
-    const inProgress = section.rows.some((row) => row.workflowStage != null && !DONE.has(row.workflowStage));
-    if (index < 2 || inProgress) open.add(section.key);
-  });
+  for (const section of sections) {
+    const inProgress = section.rows.some((row) => row.workflowStage == null || !DONE.has(row.workflowStage));
+    const recent = section.fiscalYear !== null && newest.includes(section.fiscalYear);
+    if (recent || inProgress || section.more) open.add(section.key);
+  }
   return open;
 }
 

@@ -869,7 +869,7 @@ describe("previewClientMerge and mergeClients", () => {
     ).rejects.toMatchObject({
       data: {
         code: "INVALID_INPUT",
-        message: "This merge would move more than 200 projects. Merge fewer clients at a time.",
+        message: "This merge would move more than 200 projects. Merge fewer companies at a time.",
       },
     });
     expect(await companyRow(s, "Bigger")).toMatchObject({ projectCount: 201 });
@@ -1129,7 +1129,7 @@ describe("merge links the kept client's own projects (finding 2)", () => {
     ).rejects.toMatchObject({
       data: {
         code: "INVALID_INPUT",
-        message: "This merge would move more than 200 projects. Merge fewer clients at a time.",
+        message: "This merge would move more than 200 projects. Merge fewer companies at a time.",
       },
     });
     expect(await clientsByKey(s, "Prebackfill")).toHaveLength(0);

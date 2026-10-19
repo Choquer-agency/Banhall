@@ -26,6 +26,7 @@
     createdAt = undefined,
     updatedAt,
     showCompany = false,
+    showFiscalYear = false,
     actions = undefined,
     selectable = false,
     selected = false,
@@ -38,6 +39,8 @@
     updatedAt: number;
     /** The company line above the title, for cards outside their company. */
     showCompany?: boolean;
+    /** A Year row, for cards outside their fiscal year section (search, recent). */
+    showFiscalYear?: boolean;
     /** The "..." menu in the stage band. */
     actions?: Snippet;
     selectable?: boolean;
@@ -111,14 +114,14 @@
           data-card-checkbox
           data-card-select-box={row.id}
           onclick={() => onToggleSelect?.()}
-          class="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-[0.1875rem] opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy group-hover/project:opacity-100 motion-reduce:transition-none pointer-coarse:opacity-100 pointer-coarse:before:absolute pointer-coarse:before:-inset-3.5 pointer-coarse:before:content-['']"
+          class="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-[0.1875rem] opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy group-hover/project:opacity-100 motion-reduce:transition-none pointer-coarse:opacity-100 before:absolute before:-inset-1.5 before:content-[''] pointer-coarse:before:-inset-4"
         >{@render checkmark()}</button>
       {/if}
     </span>
     <span class={`min-w-0 truncate text-[0.8125rem] leading-4 font-medium ${tone.label}`} data-card-stage>{stageLabel}</span>
     <span class="flex-1"></span>
     {#if row.projectNumber}
-      <span data-card-project-number aria-label={`Project number ${row.projectNumber}`} class="shrink-0 font-mono text-xs leading-4 text-ink-muted">#{row.projectNumber}</span>
+      <span data-card-project-number class="shrink-0 font-mono text-xs leading-4 text-ink-muted"><span class="sr-only">Project number </span>#{row.projectNumber}</span>
     {/if}
     {#if actions && !selectionActive}
       {@render actions()}
@@ -154,6 +157,7 @@
 
   <div class="flex flex-1 flex-col gap-[0.1875rem] border-t border-line-soft px-3.5 py-2.5">
     {@render field("Owner", ownerLabel, "owner")}
+    {#if showFiscalYear}{@render field("Year", row.fiscalYear ? `FY ${row.fiscalYear}` : "Not set", "fiscal-year")}{/if}
     {#if createdAt !== undefined}{@render field("Created", longDate(createdAt), "created")}{/if}
     {@render field("Updated", longDate(updatedAt), "updated")}
   </div>

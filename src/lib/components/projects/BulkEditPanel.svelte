@@ -244,7 +244,7 @@
         <p class={formError} role="alert" data-bulk-error="clientName">Pick a company from the list, or empty the field for no change.</p>
       {/if}
       {#if clientValue.trim()}
-        {@render reset("clientName", "Client", () => (clientValue = ""))}
+        {@render reset("clientName", "Company", () => (clientValue = ""))}
       {/if}
     </div>
 

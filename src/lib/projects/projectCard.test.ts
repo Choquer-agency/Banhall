@@ -11,6 +11,8 @@ describe("project card copy", () => {
     expect(
       cardStatusLine({ generationActivity: null, handoff: { assigneeLabel: "Maya Chen", kindLabel: "Internal review", dueDate: "Oct 20" } })
     ).toEqual({ text: "With Maya Chen for internal review, due Oct 20", ai: false });
+    expect(cardStatusLine({ generationActivity: null, handoff: { assigneeLabel: "Maya Chen", kindLabel: "Financial" } })).toEqual({ text: "With Maya Chen for the financial review", ai: false });
+    expect(cardStatusLine({ generationActivity: null, handoff: { assigneeLabel: "Maya Chen", kindLabel: "Other" } })).toEqual({ text: "With Maya Chen", ai: false });
     expect(cardStatusLine({ generationActivity: null, handoff: undefined })).toBeNull();
   });
 });

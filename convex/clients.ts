@@ -187,7 +187,7 @@ function clientExistsError(existingName: string, existingKey: string): never {
 function requireClientName(raw: string): string {
   const name = raw.trim();
   if (!name || dashboardCompanyKey(name) === DASHBOARD_UNNAMED_COMPANY_KEY) {
-    domainError("INVALID_INPUT", "Enter a client name.");
+    domainError("INVALID_INPUT", "Enter a company name.");
   }
   if (name.length > CLIENT_NAME_MAX_LENGTH) {
     domainError(
@@ -355,7 +355,7 @@ async function loadMergeSide(ctx: Ctx, key: string): Promise<MergeSide> {
   if (!client && !company) {
     domainError(
       "INVALID_INPUT",
-      "One of the selected clients no longer exists. Refresh and try again."
+      "One of the selected companies no longer exists. Refresh and try again."
     );
   }
   return { key, client, company };
@@ -399,22 +399,22 @@ async function planClientMerge(
   options: { strictName: boolean }
 ): Promise<MergePlan> {
   if (args.mergeKeys.length === 0) {
-    domainError("INVALID_INPUT", "Select at least one client to merge.");
+    domainError("INVALID_INPUT", "Select at least one company to merge.");
   }
   if (args.mergeKeys.length > MERGE_KEY_LIMIT) {
-    domainError("INVALID_INPUT", `Merge at most ${MERGE_KEY_LIMIT} clients at a time.`);
+    domainError("INVALID_INPUT", `Merge at most ${MERGE_KEY_LIMIT} companies at a time.`);
   }
   if (new Set(args.mergeKeys).size !== args.mergeKeys.length) {
-    domainError("INVALID_INPUT", "Each client can be merged only once.");
+    domainError("INVALID_INPUT", "Each company can be merged only once.");
   }
   if (args.mergeKeys.includes(args.keepKey)) {
-    domainError("INVALID_INPUT", "The client you keep cannot also be merged into itself.");
+    domainError("INVALID_INPUT", "The company you keep cannot also be merged into itself.");
   }
   if (
     args.keepKey === DASHBOARD_UNNAMED_COMPANY_KEY ||
     args.mergeKeys.includes(DASHBOARD_UNNAMED_COMPANY_KEY)
   ) {
-    domainError("INVALID_INPUT", "Projects without a client name cannot be merged.");
+    domainError("INVALID_INPUT", "Projects without a company name cannot be merged.");
   }
 
   let name: string | undefined;
@@ -623,7 +623,7 @@ export const mergeClients = mutation({
     if (plan.tooMany) {
       domainError(
         "INVALID_INPUT",
-        `This merge would move more than ${MERGE_PROJECT_LIMIT} projects. Merge fewer clients at a time.`
+        `This merge would move more than ${MERGE_PROJECT_LIMIT} projects. Merge fewer companies at a time.`
       );
     }
     const now = Date.now();

@@ -82,6 +82,7 @@ const selectionCount = () => text(document.querySelector("[data-selection-count]
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   __resetPage();
   __resetNavigation();
   __resetConvexStub();
@@ -456,6 +457,54 @@ describe("Projects page client area", () => {
 
     __setQueryData("users:getCurrentUser", { _id: "u-1", role: "writer" });
     await expect.poll(() => document.querySelector("[data-card-select-box]")).not.toBeNull();
+  });
+
+  it("opens and closes fiscal years, keeps the choice per company, and starts older finished years closed", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", [
+      ...CEDARLINE.slice(0, 3),
+      project("p1", { title: "Evaporator coil frost sensing", projectNumber: "1", fiscalYearEnd: day("2025-09-30"), workflowStage: "delivered" }),
+      project("p0", { title: "Older delivered work", projectNumber: "3", fiscalYearEnd: day("2024-03-31"), workflowStage: "delivered" }),
+    ]);
+    const screen = await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => fyHeaders().length).toBe(3);
+    const toggle = (key: string) => document.querySelector<HTMLButtonElement>(`[data-fy-toggle="${key}"]`)!;
+    const cardsIn = (key: string) => document.querySelectorAll(`[data-fy-group="${key}"] [data-project-board-card]`).length;
+    // Two newest fiscal years open; FY 2024 is finished, so it starts closed.
+    expect(toggle("fy-2026-2026-09-30").getAttribute("aria-expanded")).toBe("true");
+    expect(toggle("fy-2025-2025-09-30").getAttribute("aria-expanded")).toBe("true");
+    expect(toggle("fy-2024-2024-03-31").getAttribute("aria-expanded")).toBe("false");
+    expect(cardsIn("fy-2024-2024-03-31")).toBe(0);
+    // The year is a heading with the toggle inside it.
+    expect(toggle("fy-2026-2026-09-30").closest("h3")).not.toBeNull();
+
+    await userEvent.click(toggle("fy-2026-2026-09-30"));
+    await expect.poll(() => cardsIn("fy-2026-2026-09-30")).toBe(0);
+    await userEvent.click(toggle("fy-2024-2024-03-31"));
+    await expect.poll(() => cardsIn("fy-2024-2024-03-31")).toBe(1);
+
+    // The choice is kept for this company when the page comes back.
+    screen.unmount();
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => fyHeaders().length).toBe(3);
+    expect(toggle("fy-2026-2026-09-30").getAttribute("aria-expanded")).toBe("false");
+    expect(toggle("fy-2024-2024-03-31").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("never selects or keeps projects inside a closed fiscal year", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => fyHeaders().length).toBe(4);
+    await userEvent.click(page.getByRole("checkbox", { name: "Select Refrigerant leak detection" }));
+    expect(selectionCount()).toBe("1 selected of 6");
+    // Closing the section takes its ticked card out of the selection.
+    await userEvent.click(document.querySelector<HTMLElement>('[data-fy-toggle="fy-2025-2025-03-31"]')!);
+    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
+
+    // Select all ticks only what is on screen.
+    await userEvent.click(document.querySelector<HTMLElement>('[data-fy-toggle="fy-2026-2026-09-30"]')!);
+    await userEvent.click(page.getByRole("checkbox", { name: "Select Evaporator coil frost sensing" }));
+    await userEvent.click(page.getByText("Select all 2"));
+    expect(selectionCount()).toBe("2 selected of 2");
   });
 
   it("marks every group that may still grow while more projects can load, with no Short year tag yet", async () => {

@@ -5,15 +5,35 @@ const done = { workflowStage: "delivered" as const };
 const working = { workflowStage: "drafting" as const };
 
 describe("fiscal year sections open by the rule", () => {
-  it("opens the two newest years, and an older one only while it has work in progress", () => {
+  it("opens the two newest fiscal years, and an older one only while it has work in progress", () => {
     const open = openByRule([
-      { key: "fy-2026", rows: [done] },
-      { key: "fy-2025", rows: [done] },
-      { key: "fy-2024", rows: [done, { workflowStage: "abandoned" }] },
-      { key: "fy-2023", rows: [done, working] },
-      { key: "none", rows: [{ workflowStage: null }] },
+      { key: "fy-2026", fiscalYear: 2026, rows: [done] },
+      { key: "fy-2025", fiscalYear: 2025, rows: [done] },
+      { key: "fy-2024", fiscalYear: 2024, rows: [done, { workflowStage: "abandoned" }] },
+      { key: "fy-2023", fiscalYear: 2023, rows: [done, working] },
+      { key: "none", fiscalYear: null, rows: [done] },
     ]);
     expect([...open]).toEqual(["fy-2026", "fy-2025", "fy-2023"]);
+  });
+
+  it("counts a short year's two sections as one fiscal year", () => {
+    const open = openByRule([
+      { key: "fy-2026-sep", fiscalYear: 2026, rows: [done] },
+      { key: "fy-2026-mar", fiscalYear: 2026, rows: [done] },
+      { key: "fy-2025", fiscalYear: 2025, rows: [done] },
+      { key: "fy-2024", fiscalYear: 2024, rows: [done] },
+    ]);
+    expect([...open]).toEqual(["fy-2026-sep", "fy-2026-mar", "fy-2025"]);
+  });
+
+  it("opens No fiscal year only for work in progress, keeps a growing section open, and counts legacy rows as open work", () => {
+    expect([...openByRule([{ key: "fy-2026", fiscalYear: 2026, rows: [done] }, { key: "none", fiscalYear: null, rows: [done] }])]).toEqual(["fy-2026"]);
+    expect([...openByRule([
+      { key: "fy-2026", fiscalYear: 2026, rows: [done] },
+      { key: "fy-2025", fiscalYear: 2025, rows: [done] },
+      { key: "fy-2024", fiscalYear: 2024, more: true, rows: [done] },
+      { key: "fy-2023", fiscalYear: 2023, rows: [{ workflowStage: null }] },
+    ])]).toEqual(["fy-2026", "fy-2025", "fy-2024", "fy-2023"]);
   });
 });
 

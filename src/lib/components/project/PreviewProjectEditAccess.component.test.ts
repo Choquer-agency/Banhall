@@ -127,7 +127,7 @@ function rowValue(label: string) {
 const EDIT_CONTROLS = [
   "Edit internal project title",
   "Edit SR&ED title",
-  "Edit client name",
+  "Edit company name",
   "Edit project number",
   "Edit fiscal year",
   "Edit industry",
@@ -189,16 +189,16 @@ describe("PreviewProjectPage metadata edit access", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 
     // The client EditableText really opens.
-    button("Edit client name")!.click();
+    button("Edit company name")!.click();
     await expect
-      .poll(() => document.querySelector<HTMLInputElement>('input[aria-label="Edit client name"]'))
+      .poll(() => document.querySelector<HTMLInputElement>('input[aria-label="Edit company name"]'))
       .not.toBeNull();
   });
 
   it("keeps the controls editable while the access answer is still loading", async () => {
     await mountWithAccess(undefined);
 
-    expect(button("Edit client name")).not.toBeNull();
+    expect(button("Edit company name")).not.toBeNull();
     expect(button("Edit SR&ED title")).not.toBeNull();
     expect(button("Add tags")).not.toBeNull();
   });

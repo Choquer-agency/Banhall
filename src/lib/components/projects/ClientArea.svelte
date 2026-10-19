@@ -134,6 +134,34 @@
   );
   const searchLabel = $derived("Search projects");
 
+  // ─── Fiscal year sections (Paper 2V1W-0; the smart rule, 2026-10-19) ──────
+  // Read with the company key, before the first frame, so one company's
+  // toggles never show on another.
+  let overridesVersion = $state(0);
+  const overrides = $derived.by(() => {
+    void overridesVersion;
+    return client ? readOverrides(client.key) : {};
+  });
+  const openRule = $derived(openByRule(groups));
+  function sectionOpen(key: string) {
+    return isOpen(key, openRule, overrides);
+  }
+  function toggleSection(key: string) {
+    if (!client) return;
+    const next = { ...overrides, [key]: !sectionOpen(key) };
+    writeOverrides(client.key, next);
+    overridesVersion += 1;
+  }
+
+  /**
+   * The projects on screen: in a company's view only those in open fiscal
+   * year sections, so select all, the selection and bulk edit never reach
+   * a project inside a closed section.
+   */
+  const shownRows = $derived(
+    client && !q ? groups.filter((group) => sectionOpen(group.key)).flatMap((group) => group.rows) : raw
+  );
+
   // ─── Selection (Paper Z7n) ────────────────────────────────────────────────
   const selected = new SvelteMap<string, DashboardProjectionRow>();
   /** Something is ticked: every card shows its checkbox and the bar shows. */
@@ -218,7 +246,7 @@
   // refreshed, so the bulk edit's "Now:" lines read the latest values.
   $effect(() => {
     if (!selecting || loadingFirst || activeQ.error) return;
-    const visible = new Map(raw.map((row) => [row._id, row]));
+    const visible = new Map(shownRows.map((row) => [row._id, row]));
     untrack(() => {
       for (const [id, row] of selected) {
         const latest = visible.get(id);
@@ -267,22 +295,6 @@
     });
   });
 
-  // ─── Fiscal year sections (Paper 2V1W-0; the smart rule, 2026-10-19) ──────
-  let overrides = $state<Record<string, boolean>>({});
-  $effect(() => {
-    const key = client?.key ?? null;
-    overrides = key ? readOverrides(key) : {};
-  });
-  const openRule = $derived(openByRule(groups));
-  function sectionOpen(key: string) {
-    return isOpen(key, openRule, overrides);
-  }
-  function toggleSection(key: string) {
-    if (!client) return;
-    overrides = { ...overrides, [key]: !sectionOpen(key) };
-    writeOverrides(client.key, overrides);
-  }
-
   const quietButton =
     "flex h-[1.875rem] shrink-0 items-center rounded-[0.4375rem] border border-line px-2.5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
   const textButton =
@@ -298,7 +310,7 @@
   onpointerdowncapture={() => (keyboardInput = false)}
 />
 
-{#snippet card(source: DashboardProjectionRow, showCompany: boolean)}
+{#snippet card(source: DashboardProjectionRow, showCompany: boolean, showFiscalYear = false)}
   {@const row = tableRows.get(source._id) ?? toProjectsTableRow(source)}
   <li class="min-w-0">
     <ProjectCard
@@ -306,6 +318,7 @@
       createdAt={source.createdAt ?? source._creationTime}
       updatedAt={source.updatedAt}
       {showCompany}
+      {showFiscalYear}
       selectable={canSelect}
       selected={selected.has(source._id)}
       selectionActive={selecting}
@@ -336,29 +349,29 @@
   {@const open = sectionOpen(group.key)}
   <section aria-labelledby={headingId} data-fy-group={group.key} data-open={open ? "true" : "false"} class={first ? "" : "pt-8"}>
     <div class="flex min-w-0 items-center gap-3" data-fy-header>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={`${headingId}-cards`}
-        data-fy-toggle={group.key}
-        onclick={() => toggleSection(group.key)}
-        class="flex min-w-0 flex-1 items-baseline gap-2.5 rounded-md text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
-      >
-        {#if group.fiscalYear === null || group.yearEnd === null}
-          <h3 id={headingId} class="text-[0.9375rem] leading-5 font-medium text-ink">No fiscal year</h3>
-        {:else}
-          <h3 id={headingId} class="flex min-w-0 items-baseline gap-2.5">
+      <h3 id={headingId} class="flex min-w-0 flex-1">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={`${headingId}-cards`}
+          data-fy-toggle={group.key}
+          onclick={() => toggleSection(group.key)}
+          class="flex min-w-0 flex-1 items-baseline gap-2.5 rounded-md text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+        >
+          {#if group.fiscalYear === null || group.yearEnd === null}
+            <span class="text-[0.9375rem] leading-5 font-medium text-ink">No fiscal year</span>
+          {:else}
             <span class="shrink-0 text-[0.9375rem] leading-5 font-medium text-ink">FY {group.fiscalYear}</span>
             <span class="truncate text-sm leading-[1.125rem] text-ink-muted">{formatYearEnd(group.yearEnd)}</span>
-          </h3>
-          {#if group.shortYearMonths !== null}
-            <span data-short-year class="flex h-5 shrink-0 items-center self-center rounded-[0.3125rem] bg-gray-50 px-[0.4375rem] text-xs leading-4 text-ink-secondary">{shortYearLabel(group.shortYearMonths)}</span>
+            {#if group.shortYearMonths !== null}
+              <span data-short-year class="flex h-5 shrink-0 items-center self-center rounded-[0.3125rem] bg-gray-50 px-[0.4375rem] text-xs leading-4 text-ink-secondary">{shortYearLabel(group.shortYearMonths)}</span>
+            {/if}
           {/if}
-        {/if}
-        <span class="flex-1"></span>
-        <span class="shrink-0 text-[0.8125rem] leading-4 text-ink-muted" data-fy-count>{projectCountLabel(group.rows.length, group.more)}</span>
-        <svg class={`size-3.5 shrink-0 self-center text-ink-secondary transition-transform motion-reduce:transition-none ${open ? "" : "rotate-180"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
-      </button>
+          <span class="flex-1"></span>
+          <span class="shrink-0 text-[0.8125rem] leading-4 text-ink-muted" data-fy-count>{projectCountLabel(group.rows.length, group.more)}</span>
+          <svg class={`size-3.5 shrink-0 self-center text-ink-secondary transition-transform motion-reduce:transition-none ${open ? "" : "rotate-180"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
+        </button>
+      </h3>
       {#if selecting && open}{@render selectAllButton(group.rows, "Select all")}{/if}
     </div>
     {#if open}
@@ -394,7 +407,7 @@
       {/if}
       <div class="flex-1"></div>
       {#if selecting}
-        {@render selectAllButton(raw, `Select all ${raw.length}${hasMore ? "+" : ""}`)}
+        {@render selectAllButton(shownRows, `Select all ${shownRows.length}${hasMore ? "+" : ""}`)}
       {/if}
       <div role="search" class="relative w-80 max-w-full max-md:order-last max-md:w-full">
         <IconSearch size={14} strokeWidth={2} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
@@ -450,7 +463,7 @@
         {#if raw.length > 0}
           <ul class={grid}>
             {#each raw as source (source._id)}
-              {@render card(source, !client)}
+              {@render card(source, !client, true)}
             {/each}
           </ul>
         {/if}
@@ -502,7 +515,7 @@
         </div>
         <ul class={`${grid} pt-3.5`}>
           {#each raw as source (source._id)}
-            {@render card(source, true)}
+            {@render card(source, true, true)}
           {/each}
         </ul>
       </section>
@@ -536,7 +549,7 @@
       >
         <p class="flex min-w-0 items-baseline gap-1.5" aria-live="polite" data-selection-count>
           <span class="text-sm leading-5 font-medium text-ink">{selected.size} selected</span>
-          <span class="text-[0.8125rem] leading-4 text-ink-muted">of {raw.length}{hasMore ? "+" : ""}</span>
+          <span class="text-[0.8125rem] leading-4 text-ink-muted">of {shownRows.length}{hasMore ? "+" : ""}</span>
         </p>
         <div class="flex-1"></div>
         <button

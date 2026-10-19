@@ -201,13 +201,13 @@
           data-merge-open
           disabled={mergeKeys.length < 2}
           onclick={onMerge}
-          class="flex h-9 min-w-0 flex-1 items-center justify-center rounded-lg bg-primary-selected px-3 text-sm leading-[1.125rem] font-medium text-white transition-colors hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 pointer-coarse:h-11"
+          class="flex h-9 min-w-0 flex-1 items-center justify-center whitespace-nowrap rounded-lg bg-primary-selected px-2.5 text-[0.8125rem] leading-[1.125rem] font-medium text-white transition-colors hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 pointer-coarse:h-11"
         >{mergeKeys.length >= 2 ? `Merge ${mergeKeys.length} companies` : "Merge"}</button>
         <button
           type="button"
           data-merge-done
           onclick={onEndMerge}
-          class="flex h-9 shrink-0 items-center rounded-lg border border-line bg-surface px-3 text-sm leading-[1.125rem] font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:h-11"
+          class="flex h-9 shrink-0 items-center rounded-lg border border-line bg-surface px-2.5 text-[0.8125rem] leading-[1.125rem] font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:h-11"
         >Cancel</button>
       </div>
     </div>
