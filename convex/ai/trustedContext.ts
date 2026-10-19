@@ -217,7 +217,9 @@ export interface TrustedContextSource {
     | "report"
     | "analysis"
     | "decisions"
-    | "openQuestions";
+    | "openQuestions"
+    // The chat's FILES IN THIS PROJECT list (2026-10-19, chat parity Phase A).
+    | "files";
   sourceId?: Id<"generationSources">;
   label: string;
   trust: TrustLevel;

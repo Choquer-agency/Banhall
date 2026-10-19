@@ -71,6 +71,7 @@ import { domainError, sha256 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { isRecordOnlyProposal, proposalPairs } from "../shared/chatProposals";
+import { MAX_CHAT_HIGHLIGHT_CHARS, MAX_CHAT_MESSAGE_CHARS } from "../shared/chatLimits";
 import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
 import {
   DEFAULT_CHAT_EVIDENCE_BUDGET,
@@ -380,14 +381,130 @@ export const listTurns = query({
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
 
+const ROLLING_SPEND_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 2026-10-19 (chat parity Phase A): how long until the project's rolling
+ * 24-hour spend falls back to `budgetUnits`, assuming nothing new is spent.
+ * Spend is summed over `[now - 24h, now]` (`projectRollingCostUsdUnits`), so
+ * a row stops counting 1 ms after it is 24 hours old. Walks the same rows
+ * oldest first and returns the wait for the first row whose expiry brings
+ * the sum within the budget; null only when no expiry would (a budget below
+ * zero cannot happen, but the refusal must not depend on it). Read only on
+ * the refusal path, so an admitted send reads nothing more.
+ */
+async function rollingBudgetRetryAfterMs(
+  ctx: Pick<QueryCtx, "db">,
+  projectId: Id<"projects">,
+  now: number,
+  budgetUnits: bigint
+): Promise<number | null> {
+  const rows: Array<{ createdAt: number; units: bigint }> = [];
+  let total = 0n;
+  const window = ctx.db.query("aiUsage").withIndex("by_projectId_and_createdAt", (q) =>
+    q.eq("projectId", projectId).gte("createdAt", now - ROLLING_SPEND_WINDOW_MS).lte("createdAt", now)
+  );
+  for await (const row of window) {
+    const units = usdDecimalUnits(row.costUsd);
+    rows.push({ createdAt: row.createdAt, units });
+    total += units;
+  }
+  for (const row of rows) {
+    total -= row.units;
+    if (total <= budgetUnits) {
+      return Math.max(1, row.createdAt + ROLLING_SPEND_WINDOW_MS + 1 - now);
+    }
+  }
+  return null;
+}
+
+/**
+ * The display name of a chat turn's sender, for the CHAT_TURN_ACTIVE refusal.
+ * Legacy turns carry no `userId`; their prompt message names the sender.
+ * Names only (first and last, then the legacy single name), never an email.
+ */
+async function turnSenderName(
+  ctx: QueryCtx,
+  turn: Doc<"chatTurns">
+): Promise<{ userId: Id<"users"> | null; name: string | undefined }> {
+  let userId: Id<"users"> | null = turn.userId ?? null;
+  if (!userId) {
+    const [prompt] = await ctx.runQuery(components.agent.messages.getMessagesByIds, {
+      messageIds: [turn.promptMessageId],
+    });
+    userId = prompt?.userId ? ctx.db.normalizeId("users", prompt.userId) : null;
+  }
+  const user = userId ? await ctx.db.get(userId) : null;
+  const full = [user?.firstName?.trim(), user?.lastName?.trim()].filter(Boolean).join(" ");
+  return { userId, name: full || user?.name?.trim() || undefined };
+}
+
+/**
+ * Where a server-built block starts in a prompt. `sendMessage` appends these
+ * to the writer's text, and a regenerated prompt resends the stored text
+ * whole, so the size check reads the writer's own part before the first one.
+ */
+const HIGHLIGHT_BLOCK_PREFIX = "\n\n[Writer highlighted this excerpt from the report]:\n";
+const REFINEMENT_BLOCK_PREFIX = "\n\n[Writer is refining suggestion ";
+const QUOTED_HIGHLIGHT = /\[Writer highlighted this excerpt from the report\]:\n"""([\s\S]*?)"""/;
+/**
+ * A ceiling on a whole regenerated prompt: the writer's text, a highlight and
+ * a refinement block quoting a suggestion's target and wording. Generous on
+ * purpose (a prompt the server stored is never refused on regenerate), and
+ * still a bound on text a client can claim the server built.
+ */
+const MAX_CHAT_PROMPT_CHARS = 4 * (MAX_CHAT_MESSAGE_CHARS + MAX_CHAT_HIGHLIGHT_CHARS);
+
+function messageTooLong(what: "message" | "highlight", maxChars: number): never {
+  const limit = maxChars.toLocaleString("en-US");
+  domainError(
+    "CHAT_MESSAGE_TOO_LONG",
+    what === "highlight"
+      ? `The highlighted text is limited to ${limit} characters. Highlight a shorter passage.`
+      : `A message is limited to ${limit} characters. Shorten it or send it in parts.`,
+    { maxChars }
+  );
+}
+
+/**
+ * 2026-10-19 (chat parity Phase A): the size limits on one message, checked
+ * right after access and before anything is written. The writer's own text is held to
+ * MAX_CHAT_MESSAGE_CHARS and a highlight (sent, or quoted in a regenerated
+ * prompt) to MAX_CHAT_HIGHLIGHT_CHARS.
+ */
+function assertChatMessageSize(content: string, highlight: { text: string } | undefined): void {
+  const blockStarts = [HIGHLIGHT_BLOCK_PREFIX, REFINEMENT_BLOCK_PREFIX]
+    .map((prefix) => content.indexOf(prefix))
+    .filter((index) => index >= 0);
+  const ownEnd = blockStarts.length ? Math.min(...blockStarts) : content.length;
+  if (ownEnd > MAX_CHAT_MESSAGE_CHARS) messageTooLong("message", MAX_CHAT_MESSAGE_CHARS);
+  if (highlight && highlight.text.length > MAX_CHAT_HIGHLIGHT_CHARS) {
+    messageTooLong("highlight", MAX_CHAT_HIGHLIGHT_CHARS);
+  }
+  if (blockStarts.length) {
+    const quoted = QUOTED_HIGHLIGHT.exec(content.slice(ownEnd))?.[1];
+    if (quoted !== undefined && quoted.length > MAX_CHAT_HIGHLIGHT_CHARS) {
+      messageTooLong("highlight", MAX_CHAT_HIGHLIGHT_CHARS);
+    }
+    if (content.length > MAX_CHAT_PROMPT_CHARS) messageTooLong("message", MAX_CHAT_PROMPT_CHARS);
+  }
+}
+
 async function assertChatAdmission(
   ctx: MutationCtx,
   projectId: Id<"projects">,
   userId: Id<"users">
 ): Promise<void> {
   const limits = await chatAdmissionLimits(ctx);
-  if (await projectRollingCostUsdUnits(ctx, { projectId, now: Date.now() }) > usdDecimalUnits(limits.dailyBudgetUsd)) {
-    domainError("CHAT_SPEND_BUDGET_EXCEEDED", "Project AI spending budget exceeded; chat is unavailable");
+  const now = Date.now();
+  const budgetUnits = usdDecimalUnits(limits.dailyBudgetUsd);
+  if (await projectRollingCostUsdUnits(ctx, { projectId, now }) > budgetUnits) {
+    const retryAfterMs = await rollingBudgetRetryAfterMs(ctx, projectId, now, budgetUnits);
+    domainError(
+      "CHAT_SPEND_BUDGET_EXCEEDED",
+      "Project AI spending budget exceeded; chat is unavailable",
+      retryAfterMs === null ? undefined : { retryAfterMs }
+    );
   }
   let queued = 0;
   const ownTurns = ctx.db.query("chatTurns")
@@ -472,6 +589,7 @@ export const sendMessage = mutation({
     if (!args.content.trim() && !args.highlight) {
       throw new Error("Message is empty");
     }
+    assertChatMessageSize(args.content, args.highlight);
     const userId = user._id;
 
     let refineProposal;
@@ -513,10 +631,16 @@ export const sendMessage = mutation({
 
     await assertChatAdmission(ctx, report.projectId, userId);
 
-    if (agentThreadId && (await otherActiveTurn(ctx, agentThreadId))) {
+    const activeTurn = agentThreadId ? await otherActiveTurn(ctx, agentThreadId) : null;
+    if (activeTurn) {
+      // 2026-10-19 (chat parity Phase A): its own code, so the composer shows
+      // it quietly, naming whoever is getting the reply. A writer's own turn
+      // (another tab, a double send) is not named back to them.
+      const sender = await turnSenderName(ctx, activeTurn);
       domainError(
-        "INVALID_STATE",
-        "A reply is still being written in this chat. Wait for it to finish, or press Stop if it seems stuck, then send again."
+        "CHAT_TURN_ACTIVE",
+        "A reply is still being written in this chat. Wait for it to finish, or press Stop if it seems stuck, then send again.",
+        sender.name && sender.userId !== userId ? { senderName: sender.name } : undefined
       );
     }
 
@@ -2274,6 +2398,14 @@ export const getChatContextV2 = internalQuery({
           content: d.content,
           ...(d.category ? { category: d.category } : {}),
           ...(d.uploaderRole ? { uploaderRole: d.uploaderRole } : {}),
+          // 2026-10-19 (chat parity Phase A): stored facts for the FILES IN
+          // THIS PROJECT list. The id and the original's presence are for the
+          // later file tools; the list renders name, category, status, size.
+          documentId: d._id,
+          fileType: d.fileType,
+          ...(d.processingStatus ? { processingStatus: d.processingStatus } : {}),
+          textLength: d.content.length,
+          hasOriginal: d.storageId !== undefined,
         })),
       decisions,
       // CAP-14: the unresolved and unreliable Confidence Map facts of THIS

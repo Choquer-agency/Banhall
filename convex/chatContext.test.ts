@@ -223,11 +223,73 @@ describe("getChatContextV2 evidence inputs", () => {
         content: "Writer direction.",
         category: "writer_notes",
         uploaderRole: "writer",
+        documentId: expect.any(String),
+        fileType: "md",
+        textLength: "Writer direction.".length,
+        hasOriginal: false,
       },
       // A legacy row carries neither field; both absences fail closed later.
-      { fileName: "legacy.txt", content: "Legacy body." },
+      {
+        fileName: "legacy.txt",
+        content: "Legacy body.",
+        documentId: expect.any(String),
+        fileType: "txt",
+        textLength: "Legacy body.".length,
+        hasOriginal: false,
+      },
     ]);
     expect(context.documents.map((d) => d.fileName)).not.toContain("archived.txt");
+  });
+
+  // 2026-10-19 (chat parity Phase A): the FILES IN THIS PROJECT list reads
+  // stored facts, so the query passes them through as stored.
+  test("carries the stored facts the files list reads", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, transcriptId } = await seedProject(t);
+    await insertGeneration(t, { projectId, transcriptId, status: "completed" });
+    const { reportId, imageId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const storageId = await ctx.storage.store(new Blob(["fictional image bytes"]));
+      const imageId = await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "bench-photo.png",
+        fileType: "image",
+        content: "",
+        storageId,
+        processingStatus: "reference_only",
+        processingDetail: "image_reference",
+        category: "other",
+        source: "context_input",
+        uploadedBy: "chat-context-uploader",
+        uploaderRole: "writer",
+        createdAt: now,
+      });
+      const reportId = await ctx.db.insert("reports", {
+        projectId,
+        content: JSON.stringify({ type: "doc", content: [] }),
+        version: 1,
+        generatedAt: now,
+        updatedAt: now,
+      });
+      return { reportId, imageId };
+    });
+    const context = await t.query(internal.chatV2.getChatContextV2, {
+      reportId,
+      agentThreadId: "thread-file-facts",
+    });
+    expect(context.documents).toEqual([
+      {
+        fileName: "bench-photo.png",
+        content: "",
+        category: "other",
+        uploaderRole: "writer",
+        documentId: imageId,
+        fileType: "image",
+        processingStatus: "reference_only",
+        textLength: 0,
+        hasOriginal: true,
+      },
+    ]);
   });
 
   test("resolves the evidence budget, honouring settings and ignoring garbage", async () => {

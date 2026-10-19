@@ -2137,13 +2137,13 @@ describe("one turn at a time per thread (a4 #17)", () => {
         threadId: result.threadId,
       });
 
-    await expect(again()).rejects.toMatchObject({ data: { code: "INVALID_STATE" } });
+    await expect(again()).rejects.toMatchObject({ data: { code: "CHAT_TURN_ACTIVE" } });
     await s.t.mutation(internal.chatV2.markTurnStarted, {
       agentThreadId: result.threadId,
       promptMessageId: result.messageId,
       startedAt: Date.now(),
     });
-    await expect(again()).rejects.toMatchObject({ data: { code: "INVALID_STATE" } });
+    await expect(again()).rejects.toMatchObject({ data: { code: "CHAT_TURN_ACTIVE" } });
     // "New chat" is a new thread, so it is not held up.
     await expect(
       s.actor.mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "Elsewhere.", newThread: true })

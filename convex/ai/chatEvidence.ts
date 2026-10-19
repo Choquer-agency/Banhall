@@ -30,6 +30,7 @@ import {
   cutToBudget,
   documentTrust,
   effectiveCategory,
+  formatCount,
   isInternalUploaderRole,
   neutralizeMarkers,
   sanitizeFileName,
@@ -45,6 +46,8 @@ import {
 import { CHAT_EVIDENCE_GUIDANCE, buildChatSystemPromptV2 } from "./prompts";
 import { extractPlainText } from "../lib/reportEdits";
 import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
+import { chooseSettingsSource } from "../lib/settingsDocument";
+import type { Doc } from "../_generated/dataModel";
 import {
   NO_STYLE_OVERRIDES,
   type StyleOverrides,
@@ -61,6 +64,20 @@ export interface ChatEvidenceDoc {
   content: string;
   category?: ContextDocCategory;
   uploaderRole?: string;
+  /**
+   * 2026-10-19 (chat parity Phase A): stored facts for the FILES IN THIS
+   * PROJECT list. All optional, so a caller that has only name and text
+   * (tests, older callers) still builds a turn; an absent status is read
+   * from the text itself. `documentId` and `hasOriginal` are carried for the
+   * later file tools and are not rendered.
+   */
+  documentId?: Doc<"projectDocuments">["_id"];
+  processingStatus?: Doc<"projectDocuments">["processingStatus"];
+  fileType?: Doc<"projectDocuments">["fileType"];
+  /** Characters of extracted text the row stores; `content.length` when absent. */
+  textLength?: number;
+  /** Whether the original file is kept in storage. */
+  hasOriginal?: boolean;
 }
 
 export interface ChatEvidenceBudget {
@@ -121,6 +138,9 @@ export const EVIDENCE_LABELS = {
   // contract, not a caption.
   openQuestions: "OPEN QUESTIONS FOR THE CLIENT",
   documentsHeading: "# ATTACHED CONTEXT DOCUMENTS",
+  // 2026-10-19 (chat parity Phase A): every non-archived project file, named
+  // by the evidence guidance.
+  files: "FILES IN THIS PROJECT",
   // Heads the per-turn evidence sent after the writer's newest message.
   turnHeading: "# EVIDENCE FOR THIS TURN, CONTINUED",
 } as const;
@@ -201,12 +221,99 @@ const MAX_NOTICE_FILE_NAME_CHARS = 80;
  * bounded. They are the uploader's names, so they are data, not instructions.
  */
 function fileNameList(names: string[]): string {
-  const shown = names.slice(0, MAX_NOTICE_FILE_NAMES).map((name) => {
-    const safe = neutralizeMarkers(sanitizeFileName(name)).replace(/"/g, "'");
-    return `"${safe.length > MAX_NOTICE_FILE_NAME_CHARS ? `${safe.slice(0, MAX_NOTICE_FILE_NAME_CHARS - 1)}…` : safe}"`;
-  });
+  const shown = names.slice(0, MAX_NOTICE_FILE_NAMES).map(quotedFileName);
   const more = names.length - shown.length;
   return more > 0 ? `${shown.join(", ")} and ${more} more` : shown.join(", ");
+}
+
+/** One file name, quoted, sanitized like a marker line's and bounded. */
+function quotedFileName(name: string): string {
+  const safe = neutralizeMarkers(sanitizeFileName(name)).replace(/"/g, "'");
+  return `"${safe.length > MAX_NOTICE_FILE_NAME_CHARS ? `${safe.slice(0, MAX_NOTICE_FILE_NAME_CHARS - 1)}…` : safe}"`;
+}
+
+/**
+ * 2026-10-19 (chat parity Phase A): at most this many rows in the FILES IN
+ * THIS PROJECT list; the rest are counted in one line.
+ */
+export const MAX_CHAT_FILE_LIST_ROWS = 60;
+
+/**
+ * 2026-10-19 (chat parity Phase A): the writer settings document's own
+ * allowance, outside the `maxDocuments` slots and the per-document cap. The
+ * same 75,000 characters generation reads of it (`settingsDocumentText`).
+ */
+export const CHAT_SETTINGS_DOCUMENT_CHARS = MAX_INSTRUCTIONS_CHARS;
+
+/**
+ * The index in `documents` of the writer settings document, or null. The one
+ * rule generation and the Brief use (`chooseSettingsSource`): an internal
+ * uploader's document whose file name or first line is a settings title,
+ * Writer's Notes first, then the order given. A role outside the internal
+ * union counts as absent, the trust floor `toContextDoc` applies.
+ */
+export function chatSettingsDocumentIndex(documents: readonly ChatEvidenceDoc[]): number | null {
+  const chosen = chooseSettingsSource(
+    documents.map((doc, index) => ({
+      index,
+      kind: "project_document",
+      label: `${doc.category ?? "other"}:${doc.fileName}`,
+      content: doc.content,
+      ...(isInternalUploaderRole(doc.uploaderRole) ? { uploaderRole: doc.uploaderRole } : {}),
+    }))
+  );
+  return chosen ? chosen.source.index : null;
+}
+
+/** Characters of text a document row carries. */
+function textLengthOf(doc: ChatEvidenceDoc): number {
+  return doc.textLength ?? doc.content.length;
+}
+
+/**
+ * What happened to a file's text, in plain words, from stored facts only (so
+ * the list is byte-stable while the files do not change). A row with no
+ * status is read from its text alone.
+ */
+function fileStatus(doc: ChatEvidenceDoc): string {
+  if (textLengthOf(doc) > 0) {
+    return doc.processingStatus === "ready_truncated" ? "text read, cut short at upload" : "text read";
+  }
+  if (doc.fileType === "image") return "image, no text";
+  switch (doc.processingStatus) {
+    case "could_not_read":
+      return "could not be read, no text";
+    case "skipped_unsupported":
+      return "file type not supported, no text";
+    case "reference_only":
+      return "kept for reference, no text";
+    default:
+      return "no text";
+  }
+}
+
+/**
+ * The FILES IN THIS PROJECT list: every document the turn was given (the
+ * query leaves archived files out), in the order their blocks are spent.
+ * One row per file: quoted name, category label, status, text size. Names
+ * are the uploader's, so they go through the same sanitizing as a notice.
+ */
+function filesListText(rows: ReadonlyArray<{ doc: ChatEvidenceDoc; settings: boolean }>): string {
+  const lines = rows.slice(0, MAX_CHAT_FILE_LIST_ROWS).map(({ doc, settings }) =>
+    [
+      quotedFileName(doc.fileName),
+      ANALYZER_CATEGORY_LABELS[docCategory(doc)],
+      fileStatus(doc),
+      `${formatCount(textLengthOf(doc))} characters`,
+      ...(settings ? ["writer settings document"] : []),
+    ].join(" | ")
+  );
+  const more = rows.length - lines.length;
+  return [
+    `${formatCount(rows.length)} file(s) in this project's files panel, archived files not counted. Each line: name | category | status | text size.`,
+    ...lines,
+    ...(more > 0 ? [`[${formatCount(more)} more file(s) are not listed.]`] : []),
+  ].join("\n");
 }
 
 /** A document block: label plus the sanitized file name in the marker line. */
@@ -425,8 +532,10 @@ function spend(
  * Build the single user-role evidence message plus a report of what the budget
  * kept, cut and dropped.
  *
- * Spend order is fixed: report, analysis, prior decisions, open questions, then documents in
- * `effectiveCategory` trust order then insertion order. Two fixed
+ * Spend order is fixed: report, analysis, prior decisions, open questions,
+ * the FILES IN THIS PROJECT list, the writer settings document (its own
+ * allowance, CHAT_SETTINGS_DOCUMENT_CHARS, outside the document slots), then
+ * documents in `effectiveCategory` trust order then insertion order. Two fixed
  * allowances partition `totalTokens` (cost phase 1): the tail (report first,
  * then decisions, then open questions) spends CHAT_TAIL_SHARE of it and the
  * head (analysis, documents) the rest, so nothing in the tail can move a cut
@@ -441,7 +550,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   message: string;
   /**
    * The evidence sent BEFORE the conversation history, one cacheable block:
-   * guidance, analysis and documents. See `arrangeChatContext`.
+   * guidance, analysis, the files list and documents. See `arrangeChatContext`.
    */
   head: string;
   /**
@@ -474,6 +583,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   let tailRemaining = tailChars;
   const HEAD_KINDS: ReadonlySet<TrustedContextSource["kind"]> = new Set([
     "analysis",
+    "files",
     "document",
   ]);
 
@@ -560,14 +670,62 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
         ANALYZER_CATEGORY_ORDER.indexOf(docCategory(b.doc));
       return trust !== 0 ? trust : a.index - b.index;
     });
+  // 2026-10-19 (chat parity Phase A): the writer settings document, found by
+  // the rule generation uses, is spent first with its own allowance and is
+  // listed and rendered first. It never also takes a normal document slot.
+  const settingsIndex = chatSettingsDocumentIndex(documents);
+  const settingsEntry = ordered.find(({ index }) => index === settingsIndex);
+  const others = ordered.filter(({ index }) => index !== settingsIndex);
+
+  // ── Files list (head; spent after the analysis, before any document) ──────
+  // Built from stored facts only, so it is byte-stable while the files do not
+  // change. Absent when the project has no files: nothing to list.
+  let filesBody: string | null = null;
+  if (documents.length) {
+    filesBody = soloBody(
+      charge(
+        spend(
+          "files",
+          EVIDENCE_LABELS.files,
+          "client",
+          filesListText([
+            ...(settingsEntry ? [{ doc: settingsEntry.doc, settings: true }] : []),
+            ...others.map(({ doc }) => ({ doc, settings: false })),
+          ]),
+          totalChars,
+          headRemaining
+        )
+      )
+    );
+  }
+
   const perDocChars = chars(budget.perDocumentTokens);
   const documentBlocks: string[] = [];
+
+  // ── Writer settings document (head; its own allowance) ────────────────────
+  if (settingsEntry) {
+    const doc = settingsEntry.doc;
+    const { body } = charge(
+      spend(
+        "document",
+        doc.fileName,
+        docTrust(doc),
+        // Trimmed, as generation reads it (`settingsDocumentText`).
+        doc.content.trim(),
+        CHAT_SETTINGS_DOCUMENT_CHARS,
+        headRemaining,
+        { category: docCategory(doc) }
+      )
+    );
+    if (body !== null) documentBlocks.push(documentBlock(doc, body));
+  }
+
   // 2026-10-19: only documents with text take one of the `maxDocuments`
   // slots. An image, a reference-only file or a failed extraction has nothing
   // to read; on one live project seven images took seven of the twelve slots
   // and pushed the writer's glossary and settings document out of the turn.
   let readableRank = 0;
-  ordered.forEach(({ doc }) => {
+  others.forEach(({ doc }) => {
     const extra = { category: docCategory(doc) };
     if (doc.content.length > 0 && readableRank++ >= budget.maxDocuments) {
       sources.push({
@@ -644,6 +802,9 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   const stableParts: string[] = [`${EVIDENCE_LABELS.heading}\n${CHAT_EVIDENCE_GUIDANCE}`];
   if (analysisBody !== null) {
     stableParts.push(labelledBlock(EVIDENCE_LABELS.analysis, analysisBody));
+  }
+  if (filesBody !== null) {
+    stableParts.push(labelledBlock(EVIDENCE_LABELS.files, filesBody));
   }
   const notices = documentNotices.length ? `\n\n${documentNotices.join("\n")}` : "";
   if (documentBlocks.length) {

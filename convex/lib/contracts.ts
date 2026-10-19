@@ -16,6 +16,11 @@ export const domainErrorCodes = [
   "GENERATION_ACTIVE",
   "CHAT_SPEND_BUDGET_EXCEEDED",
   "CHAT_QUEUE_LIMIT_EXCEEDED",
+  // 2026-10-19 chat parity Phase A: a reply is still being written in the
+  // thread (may carry `senderName`), and a message or highlight over its size
+  // limit (carries `maxChars`).
+  "CHAT_TURN_ACTIVE",
+  "CHAT_MESSAGE_TOO_LONG",
   "TRANSCRIPT_PROJECT_MISMATCH",
   "STALE_REVISION",
   "INVALID_TRANSITION",
