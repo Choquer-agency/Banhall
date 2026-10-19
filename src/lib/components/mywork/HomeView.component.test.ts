@@ -117,25 +117,23 @@ describe("Home", () => {
     const newProject = bar.querySelector<HTMLAnchorElement>("[data-home-new-project]")!;
     expect(newProject.getAttribute("href")).toBe("/project/new");
     expect(newProject.textContent?.trim()).toBe("New project");
-    // Round 2 shell parity: page icon tile, shell background, work panel.
-    expect(bar.querySelector("[data-home-page-icon]")?.className).toContain("bg-workspace-page-icon");
+    // The standard top bar (2026-10-19): no page tile, 64px, the 22/28
+    // title, and the 38px primary button (radius 9, 15/500), no plus.
+    expect(bar.querySelector("[data-home-page-icon]")).toBeNull();
     expect(document.querySelector("[data-home]")?.className).toContain("bg-workspace-shell");
     expect(document.querySelector("[data-home-panel]")?.hasAttribute("data-work-panel")).toBe(true);
-    // Board sizes (A1, J7): 30px New project with the 12-grid plus (stroke
-    // 1.5), a 36px bell with the 16px board bell, and a 10px-radius panel
-    // with the line border.
-    expect(newProject.getBoundingClientRect().height).toBe(board(30));
-    expect(getComputedStyle(newProject).borderRadius).toBe(boardPx(7));
-    const plus = newProject.querySelector("svg")!;
-    expect(plus.getAttribute("viewBox")).toBe("0 0 12 12");
-    expect(plus.getAttribute("stroke-width")).toBe("1.5");
-    expect(plus.querySelector("path")?.getAttribute("d")).toBe("M6 2v8M2 6h8");
+    expect(bar.getBoundingClientRect().height).toBe(board(64));
+    expect(getComputedStyle(bar.querySelector("h1")!).fontSize).toBe(boardPx(22));
+    expect(newProject.getBoundingClientRect().height).toBe(board(38));
+    expect(getComputedStyle(newProject).borderRadius).toBe(boardPx(9));
+    expect(getComputedStyle(newProject).fontSize).toBe(boardPx(15));
+    expect(newProject.querySelector("svg")).toBeNull();
     const bell = bar.querySelector<HTMLElement>("[data-top-bar-bell]")!;
     expect(bell.getBoundingClientRect().width).toBe(board(36));
     expect(bell.querySelector("svg")?.getAttribute("width")).toBe("16");
     expect(bell.querySelector("path")?.getAttribute("d")).toBe("M5 17h14l-2-3V9a5 5 0 0 0-10 0v5Z M10 21h4");
     const panel = document.querySelector<HTMLElement>("[data-home-panel]")!;
-    expect(getComputedStyle(panel).borderRadius).toBe(boardPx(10));
+    expect(getComputedStyle(panel).borderRadius).toBe(boardPx(12));
     expect(getComputedStyle(panel).borderTopColor).toBe("rgb(218, 229, 227)");
     // Home stays simple: no search field on the dashboard.
     expect(document.querySelector('input[type="search"], [role="searchbox"]')).toBeNull();

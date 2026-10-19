@@ -18,12 +18,12 @@ import { board } from "$lib/test/boardScale";
 /**
  * Home inside the workspace shell (ui-design-final.md section 9, boards 1.1
  * and 1.2; replaces the 2026-08-13 composer layout):
- * - Home owns one top bar (page icon, "Home", greeting, bell, New project)
+ * - Home owns one top bar ("Home", greeting, bell, New project)
  *   and one bordered panel that scrolls on its own; the shell never grows.
  * - "Recently opened" is fed by the browser-local recents list, read live
  *   through myWork.listRecentProjects.
- * - Collapsed, the rail keeps its icons and the expand control sits in
- *   Home's top bar (board 1.2).
+ * - Collapsed, the rail keeps its icons and its own expand control
+ *   (Rail v3, board Z11d).
  * - The workspace rail's Home row is exactly ONE focus stop (the link).
  */
 function itemRow(id: string) {
@@ -164,7 +164,7 @@ describe("Home in the workspace shell", () => {
   it.each([
     ["expanded", false, "collapse"],
     ["collapsed", true, "expand"],
-  ])("puts the rail control at the left edge of Home's top bar, beside the title, while %s (owner, 2026-09-28)", async (_state, hidden, direction) => {
+  ])("Rail v3: the collapse control lives in the rail, not Home's top bar, while %s (owner, 2026-10-19)", async (_state, hidden, direction) => {
     localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden }));
     __setPageUrl("/my-work");
     seedHome();
@@ -173,33 +173,28 @@ describe("Home in the workspace shell", () => {
 
     await expect.poll(() => document.querySelector("[data-home-top-bar]")).not.toBeNull();
     expect(document.querySelector("nav[data-rail-collapsed]") !== null).toBe(hidden);
-    expect(document.querySelector("#workspace-rail [data-rail-toggle]")).toBeNull();
-    const toggles = document.querySelectorAll<HTMLButtonElement>("[data-rail-toggle]");
+    expect(document.querySelector("[data-home-top-bar] [data-rail-toggle]")).toBeNull();
+    const toggles = document.querySelectorAll<HTMLButtonElement>("#workspace-rail [data-rail-toggle]");
     expect(toggles).toHaveLength(1);
     const toggle = toggles[0];
-    expect(toggle.closest("[data-home-top-bar]")).not.toBeNull();
     expect(toggle.dataset.railDirection).toBe(direction);
     expect(toggle.getAttribute("aria-expanded")).toBe(String(!hidden));
-    // First visible control in the bar, then the page tile and the title.
+    if (!hidden) expect(toggle.closest("[data-rail-header]")).not.toBeNull();
+    // The bar leads with the title: no page tile.
     const bar = document.querySelector<HTMLElement>("[data-home-top-bar]")!;
-    const visible = [...bar.querySelectorAll<HTMLElement>("button, a, h1, [data-home-page-icon]")].filter(
+    expect(bar.querySelector("[data-home-page-icon]")).toBeNull();
+    const visible = [...bar.querySelectorAll<HTMLElement>("button, a, h1")].filter(
       (element) => element.getClientRects().length > 0
     );
-    expect(visible[0]).toBe(toggle);
-    expect(visible[1]).toBe(bar.querySelector("[data-home-page-icon]"));
-    expect(visible[2]).toBe(bar.querySelector("h1"));
-    const rail = document.getElementById("workspace-rail")!.getBoundingClientRect();
-    await expect
-      .poll(() => Math.round(toggle.getBoundingClientRect().left - rail.right), { timeout: 2000 })
-      .toBeLessThanOrEqual(24);
+    expect(visible[0]).toBe(bar.querySelector("h1"));
     // Clicking it flips the rail and the control, and the choice is saved.
     toggle.click();
-    await expect.poll(() => document.querySelector<HTMLElement>("[data-rail-toggle]")?.dataset.railDirection)
+    await expect.poll(() => document.querySelector<HTMLElement>("#workspace-rail [data-rail-toggle]")?.dataset.railDirection)
       .toBe(direction === "collapse" ? "expand" : "collapse");
     expect(JSON.parse(localStorage.getItem(RAIL_PREFERENCES_KEY)!).hidden).toBe(!hidden);
   });
 
-  it("toggles the rail from the top bar with the existing shortcut and shows the hint in the tooltip", async () => {
+  it("toggles the rail with the existing shortcut and shows the hint in the rail control's tooltip", async () => {
     __setPageUrl("/my-work");
     seedHome();
     await browserPage.viewport(1440, 900);
@@ -216,7 +211,7 @@ describe("Home in the workspace shell", () => {
     expect(document.body.textContent).toContain("Expand the rail");
   });
 
-  it("A4 with decision 59 and the owner's 2026-09-28 rail: the collapsed rail shows no logo and Home has no checkboxes", async () => {
+  it("Z11d: the collapsed rail shows only the B tile as its mark and Home has no checkboxes", async () => {
     localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: true }));
     __setPageUrl("/my-work");
     seedHome();
@@ -231,20 +226,21 @@ describe("Home in the workspace shell", () => {
 
     await expect.poll(() => document.querySelectorAll('[data-home-table="home-with-you"] tbody tr').length).toBe(3);
     const rail = document.querySelector<HTMLElement>("nav[data-rail-collapsed]")!;
-    expect(rail.querySelector("[data-banhall-rail-mark], svg[data-logo-mark], img")).toBeNull();
+    expect(rail.querySelector("svg[data-logo-mark], img")).toBeNull();
+    expect(rail.querySelector('[data-banhall-rail-mark="collapsed"] [data-rail-brand-tile]')?.textContent).toBe("B");
     const home = document.querySelector<HTMLElement>("[data-home-panel]")!;
     expect(home.querySelector('input[type="checkbox"], [role="checkbox"]')).toBeNull();
     expect(home.querySelector('[data-home-table="home-with-you"] [data-home-column-header]')!.children).toHaveLength(4);
     await browserPage.screenshot({ path: "../../../../.vitest-attachments/decisions-home-logo/a4-collapsed-rail-home.png" });
   });
 
-  it("shows the round 2 identity row: name, role chip and the account menu, no sign-out icon or Flag issue row", async () => {
+  it("shows the Rail v3 identity: name, role and the account menu, no sign-out icon or Flag issue row", async () => {
     __setPageUrl("/my-work");
     seedHome();
     __setQueryData("users:getCurrentUser", { _id: "u-1", firstName: "Olivia", lastName: "Owner", role: "writer" });
     await browserPage.viewport(1440, 900);
     await render(WorkspaceDashboard, { view: "my_work" });
-    await expect.poll(() => document.querySelector("nav [data-rail-identity] [data-role-chip]")).not.toBeNull();
+    await expect.poll(() => document.querySelector("nav [data-rail-identity] [data-rail-identity-role]")?.textContent).toBe("Consultant");
     const identity = document.querySelector<HTMLElement>("nav [data-rail-identity]")!;
     expect(identity.tagName).toBe("BUTTON");
     expect(identity.getAttribute("aria-haspopup")).toBe("menu");

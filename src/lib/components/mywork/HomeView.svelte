@@ -1,7 +1,8 @@
 <!--
-  Home (ui-design-final.md section 9, boards 1.1 and 1.2). Top bar: page
-  icon, "Home", the greeting, the bell and New project. One panel splits into
-  two tables on the left and "Continue working" on the right.
+  Home (ui-design-final.md section 9, boards 1.1 and 1.2). Top bar: the
+  standard 64px bar of the 2026-10-19 amendment ("Home" at 22/28, the
+  greeting as the muted line, the bell and New project). One panel splits
+  into two tables on the left and "Continue working" on the right.
 
   Data:
   - "With you": open work items assigned to the viewer
@@ -19,7 +20,7 @@
   import { resolve } from "$app/paths";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { usePaginatedQuery, useQuery } from "convex-svelte";
-  import { IconBell, IconHome, IconPlus, IconPlusSmall } from "$lib/components/icons";
+  import { IconBell, IconPlus, IconPlusSmall } from "$lib/components/icons";
   import { api } from "../../../../convex/_generated/api";
   import HomeContinueCard from "$lib/components/mywork/HomeContinueCard.svelte";
   import HomeProjectTable from "$lib/components/mywork/HomeProjectTable.svelte";
@@ -32,13 +33,13 @@
 
   let {
     recentProjects = [],
-    railHidden = false,
-    onToggleRail,
     onOpenNavigation,
   }: {
     recentProjects?: RecentProject[];
+    /** @deprecated The rail draws its own collapse control (2026-10-19). */
     railHidden?: boolean;
-    onToggleRail: () => void;
+    /** @deprecated The rail draws its own collapse control (2026-10-19). */
+    onToggleRail?: () => void;
     onOpenNavigation: () => void;
   } = $props();
 
@@ -92,13 +93,12 @@
 <svelte:window onfocus={() => (now = Date.now())} />
 
 <div data-home class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-workspace-shell">
-  <header data-workspace-page-header data-home-top-bar class="flex h-14 shrink-0 items-center gap-2.5 px-3 sm:px-5">
-    <WorkspaceShellControls tone="light" {onOpenNavigation} {railHidden} {onToggleRail} />
-    <span aria-hidden="true" data-home-page-icon class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-md bg-workspace-page-icon text-primary">
-      <IconHome size={15} strokeWidth={1.8} />
-    </span>
-    <h1 class="shrink-0 text-sm font-medium leading-5 text-ink">Home</h1>
-    <p data-home-greeting class="min-w-0 truncate text-xs leading-[1.125rem] text-ink-muted max-sm:hidden">{greeting}</p>
+  <!-- The standard top bar (2026-10-19): 64px, the title 8px inside the
+       panel's left edge, which sits 12px from the rail. -->
+  <header data-workspace-page-header data-home-top-bar class="flex h-16 shrink-0 items-center gap-2.5 px-5">
+    <WorkspaceShellControls tone="light" {onOpenNavigation} />
+    <h1 class="shrink-0 text-[1.375rem] font-medium leading-7 text-ink">Home</h1>
+    <p data-home-greeting class="min-w-0 truncate text-[0.9375rem] leading-5 text-ink-muted max-sm:hidden">{greeting}</p>
     <div class="flex-1"></div>
     <a
       href={resolve("/changelog")}
@@ -114,9 +114,8 @@
     <a
       href={resolve("/project/new")}
       data-home-new-project
-      class="inline-flex h-[1.875rem] shrink-0 items-center gap-[0.3125rem] rounded-[0.4375rem] bg-primary-selected pl-2.5 pr-3 text-[0.8125rem] leading-[1.125rem] font-medium text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
+      class="inline-flex h-[2.375rem] shrink-0 items-center rounded-[0.5625rem] bg-primary-selected px-4 text-[0.9375rem] font-medium leading-5 text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
     >
-      <IconPlusSmall size={12} strokeWidth={1.5} class="shrink-0" />
       New project
     </a>
   </header>
@@ -124,7 +123,7 @@
   <main
     data-home-panel
     data-work-panel
-    class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-[0.625rem] border border-line bg-surface"
+    class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-xl border border-line bg-surface"
   >
     <!-- Owner direction 2026-09-28 (overrides the A1, A4 fixed 752px): the
          tables take every pixel the window gives them, Continue working

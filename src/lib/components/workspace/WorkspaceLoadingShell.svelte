@@ -16,7 +16,6 @@
   import type { PageIcon } from "$lib/components/shell/pageIcon";
   import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
-  import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import WorkspacePanelSkeleton, {
     type PanelSkeletonLayout,
   } from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
@@ -78,22 +77,20 @@
     drawerDescription="Navigate between work, projects, and account pages."
   >
     {#if layout === "projects"}
-      <!-- The Projects toolbar: the same 49px bar as WorkspaceHeader. -->
-      <div data-workspace-loading={layout} class="flex min-h-0 min-w-0 flex-col overflow-hidden">
-        <header data-workspace-page-header class="flex h-[3.0625rem] shrink-0 items-center gap-2 border-b border-workspace-rail-line bg-canvas px-3 sm:px-4">
-          <WorkspaceShellControls tone="light" onOpenNavigation={() => (navigationOpen = true)} />
-          <h1 class="truncate text-sm font-medium tracking-[-0.01em] text-ink">{title}</h1>
-        </header>
+      <!-- The Projects frame: the standard 64px top bar, then the page 12px
+           from the rail, the right edge and the foot (2026-10-19). -->
+      <div data-workspace-loading={layout} class="flex min-h-0 min-w-0 flex-col overflow-hidden bg-workspace-shell px-3 pb-3">
+        <PageTopBar {title} onOpenNavigation={() => (navigationOpen = true)} />
         <main class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <WorkspacePanelSkeleton {layout} {label} {...rest} />
         </main>
       </div>
     {:else}
-      <!-- The round 2 frame of WorkspaceChrome and Home: the 56px top bar on
+      <!-- The frame of WorkspaceChrome and Home: the 64px top bar on
            the shell background, then the white panel inset 12px. -->
       <div data-workspace-loading={layout} class="flex min-h-0 min-w-0 flex-col overflow-hidden bg-workspace-shell px-3 pb-3">
         <PageTopBar {title} {icon} {breadcrumb} onOpenNavigation={() => (navigationOpen = true)} />
-        <main data-work-panel class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[0.625rem] border border-line bg-surface">
+        <main data-work-panel class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface">
           <WorkspacePanelSkeleton {layout} {label} {...rest} />
         </main>
       </div>

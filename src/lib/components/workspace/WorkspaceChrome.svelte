@@ -129,9 +129,11 @@
   onFocusSearch={focusProjectSearch}
   drawerDescription="Navigate between work, projects, and account pages."
 >
-  <!-- Round 2 frame (decision 53): the 56px top bar on the shell background,
-       then the white work panel inset 12px, which owns the vertical scroll.
-       `data-work-panel` is the shared hook for the View as frame. -->
+  <!-- Rail v3 frame (2026-10-19): the 64px standard top bar on the shell
+       background, then the white work panel (radius 12, line border) with
+       12px between it and the rail, the window's right edge and its foot.
+       The panel owns the vertical scroll. `data-work-panel` is the shared
+       hook for the View as frame. -->
   <div
     data-chrome-frame={frame}
     class={`flex min-h-0 min-w-0 flex-col overflow-hidden ${frame === "inset" ? "bg-workspace-shell px-3 pb-3" : "bg-surface"}`}
@@ -146,9 +148,7 @@
       {icon}
       {iconSnippet}
       tone={theme === "dark" ? "dark" : "light"}
-      {railHidden}
       onOpenNavigation={() => (navigationOpen = true)}
-      onToggleRail={() => (railHidden = !railHidden)}
       {status}
       actions={hiddenInView ? undefined : actions}
       variant={frame === "inset" ? "default" : frame}
@@ -157,7 +157,7 @@
     <main
       data-work-panel
       data-work-panel-padding={panel === "padded" && !hiddenInView ? padding : "flush"}
-      class={`min-h-0 min-w-0 flex-1 overflow-y-auto bg-surface ${frame === "inset" ? "rounded-[0.625rem] border border-line" : ""} ${hiddenInView ? "flex flex-col" : ""} ${
+      class={`min-h-0 min-w-0 flex-1 overflow-y-auto bg-surface ${frame === "inset" ? "rounded-xl border border-line" : ""} ${hiddenInView ? "flex flex-col" : ""} ${
         panel === "flush" || hiddenInView ? "" : padding === "admin" ? "px-5 py-7 md:px-10" : "px-5 pb-12 pt-8 md:px-14"
       }`}
     >

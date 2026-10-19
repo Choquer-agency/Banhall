@@ -41,8 +41,9 @@ describe("AdminWorkspacePage", () => {
     expect(root.querySelectorAll("main")).toHaveLength(1);
     expect(root.querySelectorAll("h1")).toHaveLength(1);
     const bar = root.querySelector<HTMLElement>("[data-page-top-bar]")!;
-    expect(bar.getBoundingClientRect().height).toBe(56);
-    expect(bar.querySelector("[data-page-icon-tile]")).not.toBeNull();
+    // The standard top bar (2026-10-19): 64px, no page tile.
+    expect(bar.getBoundingClientRect().height).toBe(64);
+    expect(bar.querySelector("[data-page-icon-tile]")).toBeNull();
     const crumb = bar.querySelector<HTMLAnchorElement>("[data-page-breadcrumb]")!;
     expect(crumb.textContent).toBe("Admin");
     expect(crumb.getAttribute("href")).toBe("/admin/house-rules");
@@ -61,11 +62,11 @@ describe("AdminWorkspacePage", () => {
     expect(getComputedStyle(description).fontSize).toBe("14px");
     expect(getComputedStyle(description).lineHeight).toBe("20px");
     expect(getComputedStyle(description).color).toBe("rgb(107, 127, 123)");
-    // B3 panel: 28px top and bottom, 10px radius.
+    // B3 panel: 28px top and bottom; radius 12 (2026-10-19 work surface).
     const panel = root.querySelector<HTMLElement>("[data-work-panel]")!;
     expect(getComputedStyle(panel).paddingTop).toBe("28px");
     expect(getComputedStyle(panel).paddingBottom).toBe("28px");
-    expect(getComputedStyle(panel).borderRadius).toBe("10px");
+    expect(getComputedStyle(panel).borderRadius).toBe("12px");
     // B3 breadcrumb: "Admin /" is one muted run, 10px before the page name.
     const trail = bar.querySelector<HTMLElement>("nav[aria-label=Breadcrumb]")!;
     expect(getComputedStyle(trail).columnGap).toBe("10px");
@@ -91,13 +92,11 @@ describe("AdminWorkspacePage", () => {
     );
     expect(document.querySelector("[data-testid=route-content]")).toBeNull();
     expect(document.querySelector("[data-testid=admin-action]")).toBeNull();
-    // D4 top bar: the shield tile and "Admin" on its own, no breadcrumb.
+    // D4 top bar: "Admin" on its own, no breadcrumb (and, since 2026-10-19, no tile).
     const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
     expect(bar.querySelector("h1")?.textContent).toBe("Admin");
     expect(bar.querySelector("[data-page-breadcrumb]")).toBeNull();
-    expect(bar.querySelector("[data-page-icon-tile] path")?.getAttribute("d")).toBe(
-      "M12 3 5 6v5.5c0 4.3 3 7.7 7 9.5 4-1.8 7-5.2 7-9.5V6Z"
-    );
+    expect(bar.querySelector("[data-page-icon-tile]")).toBeNull();
     // D4 body: the 20px eye at stroke 1.6 in warning ink, 36px buttons at radius 8.
     const hidden = document.querySelector<HTMLElement>("[data-view-as-hidden-page]")!;
     const eye = hidden.querySelector<SVGElement>("svg")!;

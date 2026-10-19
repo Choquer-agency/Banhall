@@ -69,7 +69,7 @@ describe("round 2 shell captures", () => {
 
   it("A5: collapsed developer rail with the Admin flyout", async () => {
     seed(developer);
-    localStorage.setItem("banhall.workspaceRail.v2", JSON.stringify({ width: 200, hidden: true, adminOpen: false }));
+    localStorage.setItem("banhall.workspaceRail.v3", JSON.stringify({ width: 224, hidden: true, adminOpen: false }));
     __setPageUrl("/settings");
     await render(WorkspaceChrome, { title: "Settings", children: body });
     await expect.poll(() => document.querySelector<HTMLElement>('[data-rail-item="admin"]')).not.toBeNull();

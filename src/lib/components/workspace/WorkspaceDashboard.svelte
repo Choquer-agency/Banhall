@@ -44,9 +44,8 @@
   import { api } from "../../../../convex/_generated/api";
   import HomeView from "$lib/components/mywork/HomeView.svelte";
   import ProjectsPage from "$lib/components/projects/ProjectsPage.svelte";
-  import WorkspaceHeader from "$lib/components/workspace/WorkspaceHeader.svelte";
+  import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
-  import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import { resolveDashboardView, type DashboardView } from "$lib/dashboard/viewMode";
   import { preloadOnProjectLinkIntent, preloadProjectPage } from "$lib/components/project/projectPageModules";
   import {
@@ -56,7 +55,6 @@
     type RecentProject,
   } from "$lib/workspace/recentProjects";
   import {
-    stashWorkspaceSearch,
     stashWorkspaceSearchFocus,
     takeWorkspaceSearch,
     takeWorkspaceSearchFocus,
@@ -103,9 +101,8 @@
   // Focus-only handoff (chrome-less Home): search invoked on Home navigates
   // here with no query but with the intent to land in the search field.
   const restoredSearchFocus = takeWorkspaceSearchFocus();
-  let search = $state(restoredSearch);
+  const search = restoredSearch;
   let recents = $state<RecentProject[]>([]);
-  let header: { focusSearch: (options?: { select?: boolean }) => void } | null = $state(null);
   // Projects (2026-10-14 redesign) owns its searches; the header hides its own.
   let projectsPage: { focusSearch: (options?: { select?: boolean }) => void } | null = $state(null);
 
@@ -175,17 +172,6 @@
       noScroll: true,
       keepFocus: true,
     });
-  }
-
-  function handleSearchChange(value: string) {
-    search = value;
-    // Search is project discovery — typing from My work lands on Projects.
-    // The navigation remounts this component, so the query rides the
-    // handoff and continuity focus restores the caret after the remount.
-    if (value.trim() && displayedView !== "all_projects") {
-      stashWorkspaceSearch(value);
-      selectView("all_projects");
-    }
   }
 
   function focusSearch() {
@@ -262,18 +248,18 @@
 >
   <div class="relative flex min-h-0 min-w-0 flex-col overflow-hidden">
     {#if displayedView === "all_projects"}
-      <WorkspaceHeader
-        bind:this={header}
-        title={activeLabel}
-        count={headerCount}
-        searchValue={search}
-        onSearchChange={handleSearchChange}
-        onOpenNavigation={() => (navigationOpen = true)}
-        {railHidden}
-        onToggleRail={() => (railHidden = !railHidden)}
-        showNewProject
-        showSearch={false}
-      />
+      <!-- Rail v3 (2026-10-19): the standard 64px top bar, "Projects" with
+           the truthful count and New project. The page below draws its own
+           white panel; this frame keeps 12px to the rail, the right edge and
+           the foot, like every other workspace screen. -->
+      <div data-projects-top-bar class="shrink-0 bg-workspace-shell px-3">
+        <PageTopBar
+          title={activeLabel}
+          count={headerCount}
+          primaryAction={{ label: "New project", href: resolve("/project/new") }}
+          onOpenNavigation={() => (navigationOpen = true)}
+        />
+      </div>
     {/if}
 
     {#if configQ.error}
@@ -292,14 +278,16 @@
         onOpenNavigation={() => (navigationOpen = true)}
       />
     {:else}
-      <main class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <main
+        data-projects-work-surface={displayedView === "all_projects" ? "" : undefined}
+        class={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${displayedView === "all_projects" ? "bg-workspace-shell px-3 pb-3" : ""}`}
+      >
         {#if displayedView === null}
           <!-- Neutral skeleton while the rollout decision loads: the top bar
                height and one panel, so neither Home nor Projects flashes. -->
           <div class="flex min-h-0 flex-1 flex-col bg-workspace-shell" role="status" aria-label="Loading workspace">
-            <div class="flex h-14 shrink-0 items-center gap-2.5 px-4">
-              <div class="h-[1.625rem] w-[1.625rem] animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>
-              <div class="h-4 w-24 animate-pulse rounded bg-chrome motion-reduce:animate-none"></div>
+            <div class="flex h-16 shrink-0 items-center px-5">
+              <div class="h-6 w-28 animate-pulse rounded bg-chrome motion-reduce:animate-none"></div>
             </div>
             <div class="mx-3 mb-3 flex-1 rounded-xl border border-workspace-rail-line bg-surface p-6">
               <div class="h-[1.625rem] w-32 animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>

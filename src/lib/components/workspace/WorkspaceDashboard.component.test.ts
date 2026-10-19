@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { page as browserPage } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import WorkspaceDashboard from "./WorkspaceDashboard.svelte";
+import { board } from "$lib/test/boardScale";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
@@ -131,7 +132,11 @@ describe("WorkspaceDashboard viewport containment (real +layout flex context)", 
     expect(heading?.textContent).toBe("Projects");
     const pageHeader = document.querySelector<HTMLElement>("[data-workspace-page-header]");
     expect(pageHeader).not.toBeNull();
-    expect(pageHeader?.className).toContain("h-[3.0625rem]");
+    // The standard 64px top bar (2026-10-19) with the truthful count.
+    expect(pageHeader?.hasAttribute("data-page-top-bar")).toBe(true);
+    expect(pageHeader?.getBoundingClientRect().height).toBe(board(64));
+    expect(pageHeader?.querySelector("[data-page-count]")?.textContent).toBe("30");
+    expect(pageHeader?.querySelector("[data-top-bar-primary]")?.textContent?.trim()).toBe("New project");
     expect(pageHeader?.querySelector('a[href="/project/new"]')).not.toBeNull();
     expect(
       document.querySelector('[data-projects-page] a[href="/project/new"]')
@@ -140,10 +145,10 @@ describe("WorkspaceDashboard viewport containment (real +layout flex context)", 
     expect(pageHeader?.querySelector('input[type="search"]')).toBeNull();
     expect(pageHeader?.querySelector('button[aria-label="Search projects"]')).toBeNull();
 
-    const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("nav a"));
-    const projectsLink = anchors.find((a) => a.textContent?.trim() === "Projects");
+    const projectsLink = document.querySelector<HTMLAnchorElement>('nav [data-rail-item="projects"]');
     // 2026-08-08 amendment: rail label is "Home"; canonical URL unchanged.
-    const myWorkLink = anchors.find((a) => a.textContent?.trim() === "Home");
+    const myWorkLink = document.querySelector<HTMLAnchorElement>('nav [data-rail-item="home"]');
+    expect(myWorkLink?.textContent?.trim()).toBe("Home");
     // Typed canonical routes; ?layout carries through; ?view never leaks
     // onto the canonical URLs (the path encodes the view).
     expect(projectsLink?.getAttribute("href")).toBe("/projects?layout=list&group=none");

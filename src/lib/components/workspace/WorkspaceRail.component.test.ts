@@ -9,6 +9,7 @@ import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-s
 import { __isQueryActive, __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import { viewAs } from "$lib/shell/viewAs.svelte";
 import { RAIL_PREFERENCES_KEY } from "$lib/workspace/railPreferences";
+import { RECENT_PROJECTS_KEY } from "$lib/workspace/recentProjects";
 
 vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn(async () => {}) } }));
 vi.mock("$lib/uploads/attemptOutbox", async (importOriginal) => {
@@ -16,15 +17,16 @@ vi.mock("$lib/uploads/attemptOutbox", async (importOriginal) => {
   return { ...actual, clearAllOutboxes: vi.fn() };
 });
 
-/** Round 2 rail (boards A1 to A5, B1, B2; decision 53). */
+/** Rail v3 (Paper boards Z11a and Z11d, 2026-10-19 amendment). */
 function baseProps(overrides: Record<string, unknown> = {}) {
   return {
     variant: "rail" as const,
     displayedView: "all_projects" as const,
     myWorkAvailable: true,
     myWorkHref: "/my-work?layout=board",
-    projectsHref: "/projects?layout=board",
+    projectsHref: "/projects",
     onFocusSearch: () => {},
+    onToggleRail: () => {},
     ...overrides,
   };
 }
@@ -55,15 +57,14 @@ function seed(user: keyof typeof USERS, extra: { openAlerts?: number; unseen?: n
 
 const nav = () => document.querySelector<HTMLElement>('nav[aria-label="Workspace"]')!;
 const item = (id: string) => nav().querySelector<HTMLElement>(`[data-rail-item="${id}"]`);
-const groupLabels = () =>
-  Array.from(nav().querySelectorAll<HTMLElement>("[data-rail-group]")).map((group) => [
-    group.querySelector("p")?.textContent?.trim(),
-    Array.from(group.querySelectorAll<HTMLElement>("[data-rail-item]")).map((row) =>
-      row.textContent?.replace(/\s+/g, " ").trim()
-    ),
-  ]);
+const rows = (group: "top" | "bottom") =>
+  Array.from(nav().querySelectorAll<HTMLElement>(`[data-rail-group="${group}"] [data-rail-item]`)).map((row) =>
+    row.textContent?.replace(/\s+/g, " ").trim()
+  );
+const railRows = () => ({ top: rows("top"), bottom: rows("bottom") });
+const style = (element: Element) => getComputedStyle(element);
 
-describe("WorkspaceRail (round 2)", () => {
+describe("WorkspaceRail (Rail v3)", () => {
   beforeEach(() => {
     __resetPage();
     __resetNavigation();
@@ -75,76 +76,155 @@ describe("WorkspaceRail (round 2)", () => {
     vi.mocked(clearAllOutboxes).mockClear();
   });
 
-  it("A1: a Consultant sees Workspace and Other, with the identity chip and no Flag issue or search row", async () => {
+  it("a Consultant gets Home, Projects and Companies, then Settings, with no group labels and no What's new", async () => {
     seed("consultant", { unseen: 2 });
     await render(WorkspaceRail, baseProps());
-    await expect.poll(groupLabels).toEqual([
-      ["Workspace", ["Home", "Projects", "Companies"]],
-      ["Other", ["What's new 2", "Settings"]],
-    ]);
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Settings"] });
+    expect(nav().querySelector("[data-rail-group-label]")).toBeNull();
+    expect(item("changelog")).toBeNull();
+    expect(nav().textContent).not.toContain("What's new");
     expect(nav().textContent).not.toContain("Flag issue");
-    expect(nav().textContent).not.toContain("Current dashboard");
-    expect(nav().querySelector('button[aria-label="Search projects"]')).toBeNull();
+    // Board header: the 22px fir B tile and "Banhall" at 16/500.
+    const tile = nav().querySelector<HTMLElement>("[data-rail-brand-tile]")!;
+    expect(tile.getBoundingClientRect().width).toBe(22);
+    expect(style(tile).backgroundColor).toBe("rgb(10, 58, 56)");
+    const home = nav().querySelector<HTMLAnchorElement>('a[aria-label="Banhall home"]')!;
+    expect(home.getAttribute("href")).toBe("/my-work?layout=board");
+    const name = home.querySelector<HTMLElement>("span:not([data-rail-brand-tile])")!;
+    expect([name.textContent, style(name).fontSize, style(name).fontWeight]).toEqual(["Banhall", "16px", "500"]);
+    // The person's name at 14/500 and the role at 13 in muted ink, no chip or avatar.
     const identity = nav().querySelector<HTMLElement>("[data-rail-identity]")!;
-    expect(identity.textContent).toContain("Jane Ellis");
-    expect(identity.querySelector("[data-role-chip]")?.textContent?.trim()).toBe("Consultant");
-    expect(nav().querySelector("[data-banhall-rail-mark]")).not.toBeNull();
-    // Count badge: 18px, primary-selected on What's new.
-    const badge = item("changelog")!.querySelector<HTMLElement>("[data-rail-badge]")!;
-    expect(badge.getBoundingClientRect().height).toBe(18);
-    expect(badge.className).toContain("bg-primary-selected");
+    const person = identity.querySelector<HTMLElement>("[data-rail-identity-name]")!;
+    const role = identity.querySelector<HTMLElement>("[data-rail-identity-role]")!;
+    expect([person.textContent, style(person).fontSize, style(person).fontWeight]).toEqual(["Jane Ellis", "14px", "500"]);
+    expect([role.textContent, style(role).fontSize, style(role).color]).toEqual(["Consultant", "13px", "rgb(107, 127, 123)"]);
+    expect(identity.querySelector("[data-role-chip], [data-avatar]")).toBeNull();
   });
 
-  it("A1 to A3 values: muted 11px group labels and board icons at 15 / 1.5", async () => {
-    seed("developerAdmin", { openAlerts: 4 });
+  it("Z11a values: 36px rows with 15px labels, the selected wash, the 36px search field and the 28px collapse button with no fill", async () => {
+    seed("admin");
     await render(WorkspaceRail, baseProps());
-    await expect.poll(() => item("alerts")).not.toBeNull();
-    const labels = Array.from(nav().querySelectorAll<HTMLElement>("[data-rail-group-label]"));
-    expect(labels.map((label) => label.textContent?.trim())).toEqual(["Workspace", "Manage", "Developer", "Other"]);
-    for (const label of labels) {
-      expect(getComputedStyle(label).color).toBe("rgb(107, 127, 123)");
-      expect(getComputedStyle(label).fontSize).toBe("11px");
-      expect(getComputedStyle(label).lineHeight).toBe("16px");
-    }
+    await expect.poll(() => item("team")).not.toBeNull();
+    const projects = item("projects")!;
+    const homeRow = item("home")!;
+    expect(projects.getBoundingClientRect().height).toBe(36);
+    expect(style(projects).borderRadius).toBe("8px");
+    expect([style(projects).paddingLeft, style(projects).columnGap]).toEqual(["10px", "10px"]);
+    expect(projects.getAttribute("aria-current")).toBe("page");
+    expect(style(projects).backgroundColor).toBe("rgb(241, 250, 249)");
+    expect([style(projects).color, style(projects).fontWeight]).toEqual(["rgb(8, 122, 117)", "500"]);
+    expect([style(homeRow).fontSize, style(homeRow).lineHeight, style(homeRow).color]).toEqual(["15px", "20px", "rgb(79, 97, 93)"]);
+    expect(style(homeRow).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    // Board icons: 16px at stroke 1.7, drawn from the board.
     const paths: Record<string, string> = {
-      home: "M3 10l9-7 9 7v10H3Z M9 20v-7h6v7",
-      projects: "M3 6h6l2 2h10v12H3Z",
-      team: "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z M2 21a7 7 0 0 1 14 0 M16 3.5a4 4 0 0 1 0 7 M18 14a7 7 0 0 1 4 7",
-      admin: "M12 3 5 6v5.5c0 4.3 3 7.7 7 9.5 4-1.8 7-5.2 7-9.5V6Z",
-      alerts: "M12 9v4 M12 17h.01 M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
+      home: "M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z",
+      projects: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
+      companies: "M4 20V6l7-3v17M11 9h8v11M7 9h1M7 13h1M15 13h1M15 16h1",
     };
     for (const [id, d] of Object.entries(paths)) {
       const icon = item(id)!.querySelector<SVGElement>(`[data-rail-icon="${id}"]`)!;
-      expect(icon.getAttribute("viewBox")).toBe("0 0 24 24");
-      expect(icon.getAttribute("width")).toBe("15");
-      expect(icon.getAttribute("stroke-width")).toBe("1.5");
+      expect([icon.getAttribute("width"), icon.getAttribute("stroke-width")]).toEqual(["16", "1.7"]);
       expect(icon.querySelector("path")?.getAttribute("d")).toBe(d);
     }
-    // Admin chevron: the board's 14px, stroke 1.8, in muted ink.
-    const chevron = item("admin")!.querySelector<SVGElement>("[data-admin-chevron]")!;
-    expect(chevron.getAttribute("width")).toBe("14");
-    expect(chevron.getAttribute("stroke-width")).toBe("1.8");
-    expect(chevron.querySelector("path")?.getAttribute("d")).toBe("m6 9 6 6 6-6");
-    expect(getComputedStyle(chevron).color).toBe("rgb(107, 127, 123)");
-    // The collapse control moved to the page's top bar (owner, 2026-09-28).
-    expect(nav().querySelector("[data-rail-toggle]")).toBeNull();
-    // The identity row: 44px, name 12/16 in ink.
-    const identity = nav().querySelector<HTMLElement>("[data-rail-identity]")!;
-    expect(identity.getBoundingClientRect().height).toBe(44);
+    // Search: 36px, white, a soft line, radius 8, "Search" at 14px muted.
+    const search = nav().querySelector<HTMLElement>("[data-rail-search]")!;
+    expect(search.getBoundingClientRect().height).toBe(36);
+    expect([style(search).backgroundColor, style(search).borderTopColor, style(search).borderRadius]).toEqual([
+      "rgb(255, 255, 255)",
+      "rgb(233, 240, 239)",
+      "8px",
+    ]);
+    expect(search.textContent?.trim()).toBe("Search");
+    expect([style(search).fontSize, style(search).color]).toEqual(["14px", "rgb(107, 127, 123)"]);
+    // Header: 38px, with the collapse control on the right and no fill.
+    expect(nav().querySelector<HTMLElement>("[data-rail-header]")!.getBoundingClientRect().height).toBe(38);
+    const toggle = nav().querySelector<HTMLButtonElement>("[data-rail-toggle]")!;
+    expect(toggle.closest("[data-rail-header]")).not.toBeNull();
+    expect(toggle.getBoundingClientRect().width).toBe(28);
+    expect(toggle.dataset.railDirection).toBe("collapse");
+    expect(style(toggle).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    await userEvent.hover(toggle);
+    expect(style(toggle).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    const glyph = toggle.querySelector<SVGElement>('[data-rail-icon="collapse"]')!;
+    expect([glyph.getAttribute("width"), glyph.getAttribute("stroke-width")]).toEqual(["16", "1.8"]);
+    expect(glyph.querySelector("path")?.getAttribute("d")).toBe("M9 4v16M15 10l-2 2 2 2");
+    // A hairline under Settings, above the person.
+    const bottom = nav().querySelector<HTMLElement>('[data-rail-group="bottom"]')!;
+    expect([style(bottom).borderBottomWidth, style(bottom).borderBottomColor]).toEqual(["1px", "rgb(233, 240, 239)"]);
   });
 
-  it("gives Home and Projects real links; Companies is the Projects view grouped by client", async () => {
+  it("shows the Projects and Companies counts at 13px in muted ink", async () => {
     seed("consultant");
+    __setQueryData("dashboard:getFacets", { total: 42, truncated: false, stageCounts: {} });
+    __setQueryData("clients:listClients", {
+      clients: Array.from({ length: 5 }, (_, index) => ({ key: `c${index}`, clientId: null, name: `C${index}`, projectCount: 1 })),
+      truncated: true,
+    });
     await render(WorkspaceRail, baseProps());
+    await expect.poll(() => item("projects")?.querySelector("[data-rail-count]")?.textContent).toBe("42");
+    const count = item("projects")!.querySelector<HTMLElement>("[data-rail-count]")!;
+    expect([style(count).fontSize, style(count).color, style(count).fontWeight]).toEqual(["13px", "rgb(107, 127, 123)", "400"]);
+    expect(item("companies")!.querySelector("[data-rail-count]")?.textContent).toBe("5+");
+    expect(item("home")!.querySelector("[data-rail-count]")).toBeNull();
+  });
+
+  it("reads neither count while collapsed", async () => {
+    seed("consultant");
+    await render(WorkspaceRail, baseProps({ collapsed: true }));
+    await expect.poll(() => item("projects")).not.toBeNull();
+    expect(__isQueryActive("dashboard:getFacets")).toBe(false);
+    expect(__isQueryActive("clients:listClients")).toBe(false);
+  });
+
+  it("lists up to three recent companies from recent projects, linked to the Projects page", async () => {
+    seed("consultant");
+    localStorage.setItem(
+      RECENT_PROJECTS_KEY,
+      JSON.stringify([
+        { id: "p1", title: "Defrost cycle prediction", client: "Cedarline Systems" },
+        { id: "p2", title: "Pump control", client: "Delta Hydraulics" },
+        { id: "p3", title: "Cold storage", client: "Cedarline Systems" },
+        { id: "p4", title: "Seal testing" },
+        { id: "p5", title: "Irrigation", client: "Alder Research" },
+      ])
+    );
+    const view = await render(WorkspaceRail, baseProps());
+    await expect.poll(() => nav().querySelectorAll("[data-rail-recent-company]").length).toBe(3);
+    const label = nav().querySelector<HTMLElement>("[data-rail-recent-label]")!;
+    expect([label.textContent, style(label).fontSize, style(label).color]).toEqual([
+      "Recent companies",
+      "13px",
+      "rgb(107, 127, 123)",
+    ]);
+    const companies = Array.from(nav().querySelectorAll<HTMLAnchorElement>("[data-rail-recent-company]"));
+    expect(companies.map((link) => [link.textContent?.trim(), link.getAttribute("href")])).toEqual([
+      ["Cedarline Systems", "/projects?client=cedarline+systems"],
+      ["Delta Hydraulics", "/projects?client=delta+hydraulics"],
+      ["Alder Research", "/projects?client=alder+research"],
+    ]);
+    expect(companies[0].getBoundingClientRect().height).toBe(34);
+    expect([style(companies[0]).fontSize, style(companies[0]).color]).toEqual(["14px", "rgb(79, 97, 93)"]);
+    view.unmount();
+
+    // Collapsed, and with no recent company, the section is not drawn.
+    const collapsed = await render(WorkspaceRail, baseProps({ collapsed: true }));
+    await expect.poll(() => item("home")).not.toBeNull();
+    expect(nav().querySelector("[data-rail-recent]")).toBeNull();
+    collapsed.unmount();
+    localStorage.removeItem(RECENT_PROJECTS_KEY);
+    await render(WorkspaceRail, baseProps());
+    await expect.poll(() => item("home")).not.toBeNull();
+    expect(nav().querySelector("[data-rail-recent]")).toBeNull();
+  });
+
+  it("gives Home and Projects real links; Companies opens the Projects page, which lists the companies", async () => {
+    seed("consultant");
+    await render(WorkspaceRail, baseProps({ projectsHref: "/projects?layout=board" }));
     await expect.poll(() => item("home")).not.toBeNull();
     expect(item("home")!.getAttribute("href")).toBe("/my-work?layout=board");
     expect(item("projects")!.getAttribute("href")).toBe("/projects?layout=board");
-    expect(item("companies")!.getAttribute("href")).toBe("/projects?layout=board&group=client");
-    expect(item("projects")!.getAttribute("aria-current")).toBe("page");
-    expect(item("projects")!.className).toContain("bg-workspace-rail-selected");
-    expect(item("projects")!.className).toContain("text-fir");
+    expect(item("companies")!.getAttribute("href")).toBe("/projects?layout=board");
     expect(item("companies")!.getAttribute("aria-current")).toBeNull();
-    expect(item("home")!.getBoundingClientRect().height).toBe(32);
   });
 
   it("keeps Home disabled while My Work is not ready", async () => {
@@ -153,73 +233,57 @@ describe("WorkspaceRail (round 2)", () => {
     await expect.poll(() => item("home")?.getAttribute("aria-disabled")).toBe("true");
   });
 
-  it("a Manager gets Team only under Manage", async () => {
+  it("a Manager gets Team above Settings", async () => {
     seed("manager");
     await render(WorkspaceRail, baseProps());
-    await expect.poll(groupLabels).toEqual([
-      ["Workspace", ["Home", "Projects", "Companies"]],
-      ["Manage", ["Team"]],
-      ["Other", ["What's new", "Settings"]],
-    ]);
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Settings"] });
     expect(__isQueryActive("adminAttention:getAttention")).toBe(false);
   });
 
-  it.each(["admin", "owner"] as const)("A2: %s gets Team and Admin (decision 53), with the attention dot", async (user) => {
+  it.each(["admin", "owner"] as const)("%s gets Team, Admin with the attention dot, and Settings", async (user) => {
     seed(user, { failed: 1 });
     await render(WorkspaceRail, baseProps());
-    await expect.poll(groupLabels).toEqual([
-      ["Workspace", ["Home", "Projects", "Companies"]],
-      ["Manage", ["Team", "Admin"]],
-      ["Other", ["What's new", "Settings"]],
-    ]);
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Admin", "Settings"] });
     await expect.poll(() => item("admin")!.querySelector("[data-rail-attention]")).not.toBeNull();
     expect(item("admin")!.querySelector("[data-rail-attention]")!.className).toContain("bg-stale-dot");
     expect(item("team")!.getAttribute("href")).toBe("/team");
-    const chip = nav().querySelector("[data-rail-identity] [data-role-chip]")!;
-    expect(chip.textContent?.trim()).toBe(user === "owner" ? "Owner" : "Admin");
+    expect(nav().querySelector("[data-rail-identity-role]")?.textContent).toBe(user === "owner" ? "Owner" : "Admin");
   });
 
-  it("A3: a developer Admin gets the Developer group with the red Alerts count", async () => {
+  it("a developer Admin gets Alerts with the red count and Feature requests above Settings", async () => {
     seed("developerAdmin", { openAlerts: 4 });
     await render(WorkspaceRail, baseProps());
-    await expect.poll(groupLabels).toEqual([
-      ["Workspace", ["Home", "Projects", "Companies"]],
-      ["Manage", ["Team", "Admin"]],
-      ["Developer", ["Alerts 4", "Feature requests"]],
-      ["Other", ["What's new", "Settings"]],
-    ]);
+    await expect.poll(railRows).toEqual({
+      top: ["Home", "Projects", "Companies"],
+      bottom: ["Team", "Admin", "Alerts 4", "Feature requests", "Settings"],
+    });
     expect(item("alerts")!.querySelector("[data-rail-badge]")!.className).toContain("bg-danger");
-    expect(nav().querySelector("[data-rail-identity] [data-role-chip]")?.textContent?.trim()).toBe("Developer");
+    expect(nav().querySelector("[data-rail-identity-role]")?.textContent).toBe("Developer");
   });
 
   it("decision 49: a developer without ops.viewAlerts gets Feature requests only and no Alerts subscription", async () => {
     seed("developerConsultant", { openAlerts: 4 });
     await render(WorkspaceRail, baseProps());
-    await expect.poll(groupLabels).toEqual([
-      ["Workspace", ["Home", "Projects", "Companies"]],
-      ["Developer", ["Feature requests"]],
-      ["Other", ["What's new", "Settings"]],
-    ]);
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Feature requests", "Settings"] });
     expect(__isQueryActive("errorReports:openCount")).toBe(false);
   });
 
-  it("B1, B2: the Admin chevron points down closed and up open, and the choice persists", async () => {
+  it("B1, B2: the Admin chevron sits on the right, down closed and up open, and the choice persists", async () => {
     seed("admin", { failed: 1 });
     await render(WorkspaceRail, baseProps());
     await expect.poll(() => item("admin")).not.toBeNull();
     const toggle = item("admin") as HTMLButtonElement;
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(toggle.querySelector("[data-admin-chevron]")!.getAttribute("data-admin-chevron")).toBe("down");
+    const chevron = toggle.querySelector<SVGElement>("[data-admin-chevron]")!;
+    expect(chevron.getAttribute("data-admin-chevron")).toBe("down");
+    expect(toggle.lastElementChild).toBe(chevron);
     expect(nav().querySelector("[data-rail-admin-links]")).toBeNull();
-
-    expect(getComputedStyle(toggle.querySelector("span")!).color).toBe("rgb(79, 97, 93)");
     expect(toggle.querySelector("[data-rail-attention]")).not.toBeNull();
 
     toggle.click();
     await expect.poll(() => toggle.getAttribute("aria-expanded")).toBe("true");
     expect(toggle.querySelector("[data-admin-chevron]")!.getAttribute("data-admin-chevron")).toBe("up");
-    // B2: open, the label is ink and the dot moves down to OneDrive import.
-    await expect.poll(() => getComputedStyle(toggle.querySelector("span")!).color).toBe("rgb(22, 33, 31)");
+    await expect.poll(() => style(toggle).color).toBe("rgb(22, 33, 31)");
     expect(toggle.querySelector("[data-rail-attention]")).toBeNull();
     const links = Array.from(nav().querySelectorAll<HTMLAnchorElement>("[data-admin-link]"));
     expect(links.map((link) => [link.textContent?.trim(), link.getAttribute("href")])).toEqual([
@@ -232,9 +296,9 @@ describe("WorkspaceRail (round 2)", () => {
       ["Learning health", "/admin/learning"],
       ["AI usage and cost", "/admin/usage"],
     ]);
-    expect(links[0].getBoundingClientRect().height).toBe(28);
+    expect(links[0].getBoundingClientRect().height).toBe(32);
+    expect(style(links[0]).fontSize).toBe("14px");
     expect(links[3].querySelector("[data-rail-attention]")).not.toBeNull();
-    expect(nav().textContent).not.toContain("Users and roles");
     expect(JSON.parse(localStorage.getItem(RAIL_PREFERENCES_KEY)!).adminOpen).toBe(true);
   });
 
@@ -245,93 +309,63 @@ describe("WorkspaceRail (round 2)", () => {
     await expect.poll(() => item("admin")?.getAttribute("aria-expanded")).toBe("true");
     const models = nav().querySelector<HTMLAnchorElement>('[data-admin-link="/admin/models"]')!;
     expect(models.getAttribute("aria-current")).toBe("page");
-    expect(models.className).toContain("bg-workspace-rail-selected");
-    // B3: the open group's label is ink; its shield stays secondary; the chevron points up.
-    const admin = item("admin")!;
-    expect(getComputedStyle(admin.querySelector("span")!).color).toBe("rgb(22, 33, 31)");
-    expect(getComputedStyle(admin.querySelector('[data-rail-icon="admin"]')!).color).toBe("rgb(79, 97, 93)");
-    expect(admin.querySelector("[data-admin-chevron]")!.getAttribute("data-admin-chevron")).toBe("up");
+    expect(style(models).backgroundColor).toBe("rgb(241, 250, 249)");
+    expect(item("projects")!.getAttribute("aria-current")).toBeNull();
   });
 
-  it("A4: the collapsed rail is icons only in board order, with tooltips' names and no role chip", async () => {
+  it("Z11d: the collapsed rail is the B tile, search and icon tiles in board order, then the account menu and the expand control", async () => {
     seed("admin", { unseen: 3, failed: 1 });
-    await render(WorkspaceRail, baseProps({ collapsed: true }));
+    const onToggleRail = vi.fn();
+    await render(WorkspaceRail, baseProps({ collapsed: true, onToggleRail }));
     await expect.poll(() => item("admin")).not.toBeNull();
-    const order = Array.from(nav().querySelectorAll<HTMLElement>("[data-rail-item], [data-rail-search], [data-rail-toggle]")).map(
-      (element) => element.getAttribute("data-rail-item") ?? (element.hasAttribute("data-rail-search") ? "search" : "toggle")
+    const order = Array.from(
+      nav().querySelectorAll<HTMLElement>("[data-rail-item], [data-rail-search], [data-rail-identity], [data-rail-toggle]")
+    ).map((element) =>
+      element.getAttribute("data-rail-item") ??
+      (element.hasAttribute("data-rail-search") ? "search" : element.hasAttribute("data-rail-identity") ? "identity" : "toggle")
     );
-    // Owner, 2026-09-28: no expand control here; it sits in the top bar.
-    expect(order).toEqual(["search", "home", "projects", "companies", "team", "admin", "changelog", "settings"]);
-    for (const id of ["home", "projects", "companies", "team", "changelog", "settings"]) {
+    expect(order).toEqual(["search", "home", "projects", "companies", "team", "admin", "settings", "identity", "toggle"]);
+    for (const id of ["home", "projects", "companies", "team", "settings"]) {
       expect(item(id)!.getAttribute("aria-label")).toBeTruthy();
-      expect(item(id)!.getBoundingClientRect().width).toBe(36);
+      expect(item(id)!.getBoundingClientRect().width).toBe(40);
+      expect(item(id)!.getBoundingClientRect().height).toBe(36);
     }
-    // No labels and no logo: the avatar's initials are the only text.
-    expect(nav().textContent?.replace(/\s+/g, " ").trim()).toBe("AA");
-    expect(nav().querySelector("[data-role-chip]")).toBeNull();
-    // What's new is a 7px dot here, not a count.
-    expect(item("changelog")!.querySelector("[data-rail-dot]")).not.toBeNull();
-    expect(item("changelog")!.querySelector("[data-rail-badge]")).toBeNull();
+    // No labels: the B of the tile is the only text, and no avatar or chip.
+    expect(nav().textContent?.replace(/\s+/g, " ").trim()).toBe("B");
+    expect(nav().querySelector("[data-role-chip], [data-avatar]")).toBeNull();
+    expect(nav().querySelector('a[aria-label="Banhall home"] [data-rail-brand-tile]')).not.toBeNull();
     expect(item("admin")!.querySelector("[data-rail-attention]")).not.toBeNull();
-    expect(nav().querySelector<HTMLElement>("[data-rail-identity] [data-avatar]")!.getBoundingClientRect().width).toBe(30);
-    // A4: 17px icons at stroke 1.5 and the search glass.
-    expect(item("home")!.querySelector("svg")!.getAttribute("width")).toBe("17");
-    expect(item("home")!.querySelector("svg")!.getAttribute("stroke-width")).toBe("1.5");
-    const search = nav().querySelector<SVGElement>("[data-rail-search] svg")!;
-    expect(search.getAttribute("width")).toBe("17");
-    expect(search.querySelector("path")?.getAttribute("d")).toBe("M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z M20 20l-4-4");
+    expect(item("projects")!.getAttribute("aria-current")).toBe("page");
+    expect(style(item("projects")!).backgroundColor).toBe("rgb(241, 250, 249)");
+    const toggle = nav().querySelector<HTMLButtonElement>("[data-rail-toggle]")!;
+    expect([toggle.dataset.railDirection, toggle.getAttribute("aria-expanded"), toggle.getAttribute("aria-label")]).toEqual([
+      "expand",
+      "false",
+      "Expand navigation rail",
+    ]);
+    expect(style(toggle).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    toggle.click();
+    expect(onToggleRail).toHaveBeenCalledOnce();
   });
 
-  it("collapsed, the rail shows no logo, starts with search in the top bar's row and ends 22px under the avatar", async () => {
-    seed("consultant", { unseen: 2 });
+  it("collapsed, the tiles keep the board's 6px rhythm under the 22px gap below the tile", async () => {
+    seed("consultant");
     await render(WorkspaceRail, baseProps({ collapsed: true }));
     await expect.poll(() => item("settings")).not.toBeNull();
     nav().parentElement!.style.height = "900px";
     const top = nav().getBoundingClientRect().top;
-    // Owner, 2026-09-28: icons only, no logo (the favicon keeps the mark).
-    expect(nav().querySelector("[data-banhall-rail-mark], svg[data-logo-mark], img")).toBeNull();
-    expect(nav().querySelector('a[aria-label="Banhall home"]')).toBeNull();
-    // The 36px search tile is centred on the 56px top bar row: 10px down.
-    expect(nav().querySelector<HTMLElement>("[data-rail-search]")!.getBoundingClientRect().top - top).toBe(10);
-    // Board A4 (2px column gap) with the owner's 2026-09-29 spacing: no
-    // divider, 22px above and below the avatar. Avatar 848 to 878, Settings
-    // 790 to 826 and What's new 752 to 788 on a 900 tall rail.
+    const tile = nav().querySelector<HTMLElement>("[data-rail-brand-tile]")!.getBoundingClientRect();
+    const search = nav().querySelector<HTMLElement>("[data-rail-search]")!.getBoundingClientRect();
+    expect(tile.top - top).toBe(12);
+    expect(search.top - tile.bottom).toBe(22);
+    expect(item("home")!.getBoundingClientRect().top - search.bottom).toBe(6);
+    expect(item("projects")!.getBoundingClientRect().top - item("home")!.getBoundingClientRect().bottom).toBe(6);
     const bottom = nav().getBoundingClientRect().bottom;
-    const avatar = nav().querySelector<HTMLElement>("[data-rail-identity] [data-avatar]")!.getBoundingClientRect();
-    expect(bottom - avatar.bottom).toBe(22);
-    expect(bottom - item("settings")!.getBoundingClientRect().bottom).toBe(74);
-    expect(bottom - item("changelog")!.getBoundingClientRect().bottom).toBe(112);
-    // Nothing divides the avatar from the icons above it.
-    expect(nav().querySelector("[data-rail-identity]")!.parentElement!.previousElementSibling?.hasAttribute("data-rail-scroll")).toBe(true);
+    const toggle = nav().querySelector<HTMLElement>("[data-rail-toggle]")!.getBoundingClientRect();
+    expect(bottom - toggle.bottom).toBe(12);
   });
 
-  it("A1 to A3, D3: the identity avatar is coloured by the person's own role", async () => {
-    const avatarBg = () =>
-      getComputedStyle(nav().querySelector<HTMLElement>("[data-rail-identity] [data-avatar]")!).backgroundColor;
-    seed("consultant");
-    const first = await render(WorkspaceRail, baseProps());
-    await expect.poll(() => nav()?.querySelector("[data-rail-identity] [data-avatar]")).not.toBeNull();
-    expect(avatarBg()).toBe("rgb(10, 58, 56)");
-    first.unmount();
-
-    seed("owner");
-    const second = await render(WorkspaceRail, baseProps());
-    await expect.poll(avatarBg).toBe("rgb(8, 122, 117)");
-    second.unmount();
-
-    seed("admin");
-    const third = await render(WorkspaceRail, baseProps());
-    await expect.poll(avatarBg).toBe("rgb(29, 78, 216)");
-    third.unmount();
-
-    // D3: viewing as Consultant keeps the Developer purple.
-    seed("developerAdmin");
-    viewAs.enter("consultant");
-    await render(WorkspaceRail, baseProps());
-    await expect.poll(avatarBg).toBe("rgb(126, 34, 206)");
-  });
-
-  it("E1, F2, H3: Projects stays selected inside a project and on New project", async () => {
+  it("Projects stays selected inside a project and on New project", async () => {
     seed("consultant");
     __setPageUrl("/project/p1");
     await render(WorkspaceRail, baseProps({ displayedView: null, collapsed: true }));
@@ -343,33 +377,39 @@ describe("WorkspaceRail (round 2)", () => {
     await expect.poll(() => item("projects")?.getAttribute("aria-current")).toBeNull();
   });
 
-  it("A5: the collapsed developer rail puts Alerts with a count and Feature requests near the bottom", async () => {
+  it("A5: the collapsed developer rail puts Alerts with a count and Feature requests above Settings", async () => {
     seed("developerAdmin", { openAlerts: 4 });
     await render(WorkspaceRail, baseProps({ collapsed: true }));
     await expect.poll(() => item("alerts")).not.toBeNull();
     const ids = Array.from(nav().querySelectorAll<HTMLElement>("[data-rail-item]")).map((el) => el.dataset.railItem);
-    expect(ids).toEqual(["home", "projects", "companies", "team", "admin", "alerts", "requests", "changelog", "settings"]);
+    expect(ids).toEqual(["home", "projects", "companies", "team", "admin", "alerts", "requests", "settings"]);
     expect(item("alerts")!.querySelector("[data-rail-badge]")?.textContent?.trim()).toBe("4");
   });
 
-  it("renders no collapse or expand control in either state, and search opens the palette from the collapsed rail", async () => {
+  it("the collapse control calls the shell, search opens the palette in both states, and no control shows without a handler", async () => {
     seed("consultant");
     const onFocusSearch = vi.fn();
-    const view = await render(WorkspaceRail, baseProps({ onFocusSearch }));
+    const onToggleRail = vi.fn();
+    const view = await render(WorkspaceRail, baseProps({ onFocusSearch, onToggleRail }));
     await expect.poll(() => item("home")).not.toBeNull();
-    expect(nav().querySelector("[data-rail-toggle]")).toBeNull();
-    // The expanded rail keeps the full wordmark.
-    expect(nav().querySelector('[data-banhall-rail-mark="expanded"]')).not.toBeNull();
-    view.unmount();
-
-    await render(WorkspaceRail, baseProps({ collapsed: true, onFocusSearch }));
-    await expect.poll(() => item("home")).not.toBeNull();
-    expect(nav().querySelector("[data-rail-toggle]")).toBeNull();
+    nav().querySelector<HTMLButtonElement>("[data-rail-toggle]")!.click();
+    expect(onToggleRail).toHaveBeenCalledOnce();
     nav().querySelector<HTMLButtonElement>("[data-rail-search]")!.click();
     expect(onFocusSearch).toHaveBeenCalledOnce();
+    view.unmount();
+
+    const collapsed = await render(WorkspaceRail, baseProps({ collapsed: true, onFocusSearch }));
+    await expect.poll(() => item("home")).not.toBeNull();
+    nav().querySelector<HTMLButtonElement>("[data-rail-search]")!.click();
+    expect(onFocusSearch).toHaveBeenCalledTimes(2);
+    collapsed.unmount();
+
+    await render(WorkspaceRail, baseProps({ onToggleRail: null }));
+    await expect.poll(() => item("home")).not.toBeNull();
+    expect(nav().querySelector("[data-rail-toggle]")).toBeNull();
   });
 
-  it("does not render the desktop collapse control inside the mobile drawer and keeps 44px rows there", async () => {
+  it("does not render the collapse control inside the mobile drawer and keeps 44px rows there", async () => {
     seed("consultant");
     await render(WorkspaceRail, baseProps({ variant: "drawer" }));
     await expect.poll(() => item("home")).not.toBeNull();
@@ -377,26 +417,20 @@ describe("WorkspaceRail (round 2)", () => {
     expect(item("home")!.className).toContain("min-h-11");
   });
 
-  it("D1: the identity row opens the account menu; developers get View as, everyone gets Flag an issue", async () => {
+  it("D1: the name opens the account menu; developers get View as, everyone gets Flag an issue", async () => {
     seed("developerAdmin");
     await render(WorkspaceRail, baseProps());
     await expect.poll(() => nav().querySelector("[data-rail-identity]")?.textContent).toContain("Johnny Nguyen");
     await page.getByRole("button", { name: "Johnny Nguyen, account menu" }).click();
     const menu = page.getByRole("menu");
     await expect.element(menu).toBeVisible();
-    // D1: the open row takes the selected fill at radius 8; the menu sits 8px above it.
     const row = nav().querySelector<HTMLElement>("[data-rail-identity]")!;
-    await expect.poll(() => getComputedStyle(row).backgroundColor).toBe("rgb(233, 241, 239)");
-    expect(getComputedStyle(row).borderRadius).toBe("8px");
+    await expect.poll(() => style(row).backgroundColor).toBe("rgb(233, 241, 239)");
+    expect(style(row).borderRadius).toBe("8px");
     const menuPanel = document.querySelector<HTMLElement>("[data-identity-menu]")!;
     await expect
       .poll(() => Math.round(row.getBoundingClientRect().top - menuPanel.getBoundingClientRect().bottom))
       .toBe(8);
-    const menuIcons = Array.from(menuPanel.querySelectorAll<SVGElement>('[role="menuitem"] svg'));
-    expect(menuIcons.map((icon) => icon.getAttribute("width"))).toEqual(["15", "15", "15", "15"]);
-    expect(menuIcons.map((icon) => icon.getAttribute("stroke-width"))).toEqual(["1.5", "1.5", "1.5", "1.5"]);
-    expect(menuIcons[0].querySelector("path")?.getAttribute("d")).toBe("M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z M4 21a8 8 0 0 1 16 0");
-    expect(menuIcons[3].querySelector("path")?.getAttribute("d")).toBe("M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4 M10 16l-4-4 4-4 M6 12h10");
     const items = Array.from(document.querySelectorAll<HTMLElement>('[data-identity-menu] [role="menuitem"]')).map(
       (element) => element.textContent?.replace(/\s+/g, " ").trim()
     );
@@ -411,12 +445,32 @@ describe("WorkspaceRail (round 2)", () => {
     expect(flagged).toHaveBeenCalledOnce();
   });
 
+  it("D1: the collapsed rail keeps the account menu behind a person icon", async () => {
+    seed("consultant");
+    await render(WorkspaceRail, baseProps({ collapsed: true }));
+    await page.getByRole("button", { name: "Jane Ellis, account menu" }).click();
+    await expect.element(page.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
+  });
+
   it("D1: a Consultant's menu has no View as", async () => {
     seed("consultant");
     await render(WorkspaceRail, baseProps());
     await page.getByRole("button", { name: "Jane Ellis, account menu" }).click();
     await expect.element(page.getByRole("menuitem", { name: "Account" })).toBeVisible();
     expect(page.getByRole("menuitem", { name: /View as/ }).elements()).toHaveLength(0);
+  });
+
+  it("D3: the account menu's avatar keeps the person's own role colour while viewing as another role", async () => {
+    seed("developerAdmin");
+    viewAs.enter("consultant");
+    await render(WorkspaceRail, baseProps());
+    await page.getByRole("button", { name: "Johnny Nguyen, account menu" }).click();
+    await expect
+      .poll(() => {
+        const avatar = document.querySelector<HTMLElement>("[data-identity-menu-header] [data-avatar]");
+        return avatar ? style(avatar).backgroundColor : null;
+      })
+      .toBe("rgb(126, 34, 206)");
   });
 
   it("D1: Sign out needs no confirm; it signs out, clears outboxes and View as, then goes to login", async () => {
@@ -445,18 +499,16 @@ describe("WorkspaceRail (round 2)", () => {
   });
 
   it.each([
-    ["consultant", [["Workspace", ["Home", "Projects", "Companies"]], ["Other", ["What's new", "Settings"]]], "Viewing as Consultant"],
-    ["manager", [["Workspace", ["Home", "Projects", "Companies"]], ["Manage", ["Team"]], ["Other", ["What's new", "Settings"]]], "Viewing as Manager"],
-    ["admin", [["Workspace", ["Home", "Projects", "Companies"]], ["Manage", ["Team", "Admin"]], ["Other", ["What's new", "Settings"]]], "Viewing as Admin"],
-    ["owner", [["Workspace", ["Home", "Projects", "Companies"]], ["Manage", ["Team", "Admin"]], ["Other", ["What's new", "Settings"]]], "Viewing as Owner"],
-  ] as const)("D3: viewing as %s shows that role's rail and a Viewing as chip", async (role, groups, chip) => {
+    ["consultant", ["Settings"], "Viewing as Consultant"],
+    ["manager", ["Team", "Settings"], "Viewing as Manager"],
+    ["admin", ["Team", "Admin", "Settings"], "Viewing as Admin"],
+    ["owner", ["Team", "Admin", "Settings"], "Viewing as Owner"],
+  ] as const)("D3: viewing as %s shows that role's rail and names the role under the person", async (role, bottom, label) => {
     seed("developerAdmin", { openAlerts: 2 });
     viewAs.enter(role);
     await render(WorkspaceRail, baseProps());
-    await expect.poll(groupLabels).toEqual(groups);
-    const chipElement = nav().querySelector<HTMLElement>("[data-rail-identity] [data-role-chip]")!;
-    expect(chipElement.textContent?.trim()).toBe(chip);
-    expect(chipElement.dataset.roleChip).toBe(role);
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: [...bottom] });
+    expect(nav().querySelector("[data-rail-identity-role]")?.textContent).toBe(label);
   });
 
   it("View as is ignored for someone who is not a developer", async () => {
@@ -464,25 +516,30 @@ describe("WorkspaceRail (round 2)", () => {
     sessionStorage.setItem("banhall.viewAs.v1", "consultant");
     viewAs.reload();
     await render(WorkspaceRail, baseProps());
-    await expect.poll(groupLabels).toEqual([
-      ["Workspace", ["Home", "Projects", "Companies"]],
-      ["Manage", ["Team", "Admin"]],
-      ["Other", ["What's new", "Settings"]],
-    ]);
-    expect(nav().querySelector("[data-rail-identity] [data-role-chip]")?.textContent?.trim()).toBe("Admin");
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Admin", "Settings"] });
+    expect(nav().querySelector("[data-rail-identity-role]")?.textContent).toBe("Admin");
   });
 
-  it("the keyboard reaches each row once, in order", async () => {
+  it("the keyboard reaches each control once, in order", async () => {
     seed("admin");
     await render(WorkspaceRail, baseProps());
     await expect.poll(() => item("admin")).not.toBeNull();
     (nav().querySelector('a[aria-label="Banhall home"]') as HTMLElement).focus();
     const reached: string[] = [];
-    for (let step = 0; step < 8; step += 1) {
+    for (let step = 0; step < 9; step += 1) {
       await userEvent.keyboard("{Tab}");
       const active = document.activeElement as HTMLElement;
-      reached.push(active.dataset.railItem ?? (active.hasAttribute("data-rail-toggle") ? "toggle" : active.hasAttribute("data-rail-identity") ? "identity" : "?"));
+      reached.push(
+        active.dataset.railItem ??
+          (active.hasAttribute("data-rail-toggle")
+            ? "toggle"
+            : active.hasAttribute("data-rail-search")
+              ? "search"
+              : active.hasAttribute("data-rail-identity")
+                ? "identity"
+                : "?")
+      );
     }
-    expect(reached).toEqual(["home", "projects", "companies", "team", "admin", "changelog", "settings", "identity"]);
+    expect(reached).toEqual(["toggle", "search", "home", "projects", "companies", "team", "admin", "settings", "identity"]);
   });
 });
