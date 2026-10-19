@@ -130,7 +130,7 @@
     {/if}
   </div>
 
-  <div class="min-h-16 px-3.5 py-3">
+  <div class="px-3.5 py-3">
     {#if showCompany}
       <p data-card-field="client" class="truncate pb-0.5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary">{row.clientName || "No company name"}</p>
     {/if}
