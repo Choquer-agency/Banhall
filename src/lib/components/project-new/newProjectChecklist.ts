@@ -84,16 +84,16 @@ export function buildChecklist(input: ChecklistInput): ChecklistRow[] {
     // row waits quietly instead of asking for a pick it may not need.
     rows.push(
       input.clientListFailed
-        ? { id: "client-title", state: "pending", text: "We could not load the client list", blocking: true }
+        ? { id: "client-title", state: "pending", text: "We could not load the company list", blocking: true }
         : input.clientListLoading
-          ? { id: "client-title", state: "reading", text: "Checking the client list", blocking: true }
-          : { id: "client-title", state: "pending", text: "Pick a client from the list", blocking: true }
+          ? { id: "client-title", state: "reading", text: "Checking the company list", blocking: true }
+          : { id: "client-title", state: "pending", text: "Pick a company from the list", blocking: true }
     );
   } else if (!input.duplicateName || !hasClientAndTitle) {
     rows.push(
       hasClientAndTitle
-        ? { id: "client-title", state: "done", text: "Client and title", blocking: false }
-        : { id: "client-title", state: "pending", text: "Add a client and a title", blocking: true }
+        ? { id: "client-title", state: "done", text: "Company and title", blocking: false }
+        : { id: "client-title", state: "pending", text: "Add a company and a title", blocking: true }
     );
   }
   if (input.mode === "review") {

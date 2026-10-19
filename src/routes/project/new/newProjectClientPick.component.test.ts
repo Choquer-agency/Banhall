@@ -58,11 +58,11 @@ describe("the Client field on New project", () => {
     await render(NewProjectPage, {});
     await titleAndTranscript();
     setInputValue("#clientName", "Northwind Robotics");
-    await expect.poll(clientRow).toBe("Pick a client from the list");
+    await expect.poll(clientRow).toBe("Pick a company from the list");
     expect(startButton()?.disabled).toBe(true);
 
     setInputValue("#clientName", "cedarline systems");
-    await expect.poll(clientRow).toBe("Client and title");
+    await expect.poll(clientRow).toBe("Company and title");
     await expect.poll(() => startButton()?.disabled).toBe(false);
   });
 
@@ -73,7 +73,7 @@ describe("the Client field on New project", () => {
       const screen = await render(NewProjectPage, {});
       await titleAndTranscript();
       setInputValue("#clientName", "Northwind Robotics");
-      await expect.poll(() => text(document.querySelector("[data-bottom-summary]"))).toBe("Pick a client from the list");
+      await expect.poll(() => text(document.querySelector("[data-bottom-summary]"))).toBe("Pick a company from the list");
       expect(document.querySelector<HTMLButtonElement>("[data-bottom-start]")?.disabled).toBe(true);
       setInputValue("#clientName", "Cedarline Systems");
       await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-bottom-start]")?.disabled).toBe(false);
@@ -94,17 +94,17 @@ describe("the Client field on New project", () => {
     await userEvent.fill(clientField(), "Northwind Robotics");
     await expect
       .poll(() => text(document.querySelector("[data-client-no-match]")))
-      .toBe("No client named Northwind Robotics Check the spelling, or add it as a new client.");
+      .toBe("No company named Northwind Robotics Check the spelling, or add it as a new company.");
     await userEvent.click(document.querySelector<HTMLElement>("[data-new-client-option]")!);
 
-    const dialog = page.getByRole("dialog", { name: "New client" });
+    const dialog = page.getByRole("dialog", { name: "New company" });
     await expect.element(dialog).toBeInTheDocument();
-    expect(text(dialog.element())).toContain("Once created, it fills the Client field on this project.");
+    expect(text(dialog.element())).toContain("Once created, it fills the Company field on this project.");
     expect(document.querySelector<HTMLInputElement>("#new-client-name")!.value).toBe("Northwind Robotics");
     expect(document.querySelector<HTMLInputElement>("#new-client-year-end-month")!.value).toBe("June");
     expect(document.querySelector<HTMLInputElement>("#new-client-year-end-day")!.value).toBe("30");
     expect(text(document.querySelector("[data-year-end-helper]"))).toBe(
-      "Filled from this project. New projects for this client start with it."
+      "Filled from this project. New projects for this company start with it."
     );
 
     await userEvent.click(document.querySelector<HTMLButtonElement>("[data-create-client]")!);
@@ -112,7 +112,7 @@ describe("the Client field on New project", () => {
       { name: "Northwind Robotics", fiscalYearEndMonth: 6, fiscalYearEndDay: 30 },
     ]);
     await expect.poll(() => clientField().value).toBe("Northwind Robotics");
-    await expect.poll(clientRow).toBe("Client and title");
+    await expect.poll(clientRow).toBe("Company and title");
     await expect.poll(() => startButton()?.disabled).toBe(false);
   });
 
@@ -131,7 +131,7 @@ describe("the Client field on New project", () => {
     await userEvent.fill(clientField(), "Northwind Robotics");
     await expect.poll(() => document.querySelector("[data-new-client-option]")).not.toBeNull();
     await userEvent.click(document.querySelector<HTMLElement>("[data-new-client-option]")!);
-    await expect.element(page.getByRole("dialog", { name: "New client" })).toBeInTheDocument();
+    await expect.element(page.getByRole("dialog", { name: "New company" })).toBeInTheDocument();
 
     await userEvent.click(document.querySelector<HTMLElement>("#new-client-year-end-month")!);
     await userEvent.click(page.getByRole("option", { name: "September", exact: true }));
@@ -161,7 +161,7 @@ describe("the Client field on New project", () => {
     await userEvent.fill(clientField(), "Northwind Robotics");
     await expect
       .poll(() => text(document.querySelector("[data-client-no-match]")))
-      .toBe("No client named Northwind Robotics Check the spelling.");
+      .toBe("No company named Northwind Robotics Check the spelling.");
     expect(document.querySelector("[data-new-client-option]")).toBeNull();
   });
 
@@ -196,12 +196,12 @@ describe("the Client field on New project", () => {
     await render(NewProjectPage, {});
     await titleAndTranscript();
     await expect.poll(() => clientField().value).toBe("Cedarline Systems");
-    await expect.poll(clientRow).toBe("Checking the client list");
-    expect(document.body.textContent).not.toContain("Pick a client from the list");
+    await expect.poll(clientRow).toBe("Checking the company list");
+    expect(document.body.textContent).not.toContain("Pick a company from the list");
     expect(startButton()?.disabled).toBe(true);
 
     listClients("Cedarline Systems");
-    await expect.poll(clientRow).toBe("Client and title");
+    await expect.poll(clientRow).toBe("Company and title");
     await expect.poll(() => startButton()?.disabled).toBe(false);
   });
 
@@ -212,7 +212,7 @@ describe("the Client field on New project", () => {
     await render(NewProjectPage, {});
     await expect.poll(() => clientField().value).toBe("Forgeworks Inc.");
     await expect.poll(() => clientField().dataset.clientPicked).toBe("true");
-    await expect.poll(clientRow).toBe("Client and title");
+    await expect.poll(clientRow).toBe("Company and title");
   });
 
   it("shows the name New client made when it differs from the typed text", async () => {
@@ -233,7 +233,7 @@ describe("the Client field on New project", () => {
     await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-create-client]")?.disabled).toBe(false);
     await userEvent.click(document.querySelector<HTMLButtonElement>("[data-create-client]")!);
     await expect.poll(() => clientField().value).toBe("Northwind Robotics Inc");
-    await expect.poll(clientRow).toBe("Client and title");
+    await expect.poll(clientRow).toBe("Company and title");
   });
 
   it("says the client list could not be loaded, keeps Start blocked, and tries again", async () => {
@@ -241,13 +241,13 @@ describe("the Client field on New project", () => {
     await render(NewProjectPage, {});
     await titleAndTranscript();
     setInputValue("#clientName", "Cedarline Systems");
-    await expect.poll(clientRow).toBe("We could not load the client list");
+    await expect.poll(clientRow).toBe("We could not load the company list");
     expect(startButton()?.disabled).toBe(true);
-    expect(text(document.querySelector("[data-client-list-error]"))).toBe("The client list could not be loaded. Try again");
+    expect(text(document.querySelector("[data-client-list-error]"))).toBe("The company list could not be loaded. Try again");
 
     await userEvent.click(document.querySelector<HTMLElement>("[data-client-list-retry]")!);
     listClients("Cedarline Systems");
-    await expect.poll(clientRow).toBe("Client and title");
+    await expect.poll(clientRow).toBe("Company and title");
     await expect.poll(() => startButton()?.disabled).toBe(false);
   });
 });

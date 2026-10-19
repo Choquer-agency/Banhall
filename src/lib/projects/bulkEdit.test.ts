@@ -26,7 +26,7 @@ describe("Now: summaries", () => {
   it("names one shared value alone, counts mixed values most common first, and says not set", () => {
     expect(currentSummary(ROWS, "clientName")).toBe("Cedarline Systems");
     expect(currentSummary(ROWS, "fiscalYearEnd")).toBe(
-      "FY 2026 ended Sep 30, 2026 (2), FY 2025 ended Mar 31, 2025 (1)"
+      "FY 2026 ended September 30, 2026 (2), FY 2025 ended March 31, 2025 (1)"
     );
     expect(currentSummary(ROWS, "scienceCode")).toMatch(/^2\.03\.01 .+ \(2\), not set \(1\)$/);
     expect(currentSummary([ROWS[0]], "scienceCode")).toBe("not set");
@@ -48,7 +48,7 @@ describe("changes and review", () => {
 
   it("says one sentence per changed field", () => {
     expect(changeSentences({ fiscalYearEnd: day("2026-09-30"), industry: null })).toEqual([
-      "Fiscal year end set to Sep 30, 2026.",
+      "Fiscal year end set to September 30, 2026.",
       "Industry cleared.",
     ]);
     expect(changeSentences({ clientName: "Acuity Insights" })).toEqual(["Client set to Acuity Insights."]);
@@ -57,9 +57,9 @@ describe("changes and review", () => {
   it("lists only changed fields, with No change where a project already matches", () => {
     const rows = reviewRows(ROWS, { fiscalYearEnd: day("2026-09-30") }, { _id: "u-1", role: "manager" });
     expect(rows.map((row) => [row.id, row.status, row.cells])).toEqual([
-      ["p1", "change", [{ field: "fiscalYearEnd", now: "FY 2025, Mar 31, 2025", after: "FY 2026, Sep 30, 2026" }]],
-      ["p4", "match", [{ field: "fiscalYearEnd", now: "FY 2026, Sep 30, 2026", after: null }]],
-      ["p6", "match", [{ field: "fiscalYearEnd", now: "FY 2026, Sep 30, 2026", after: null }]],
+      ["p1", "change", [{ field: "fiscalYearEnd", now: "FY 2025, March 31, 2025", after: "FY 2026, September 30, 2026" }]],
+      ["p4", "match", [{ field: "fiscalYearEnd", now: "FY 2026, September 30, 2026", after: null }]],
+      ["p6", "match", [{ field: "fiscalYearEnd", now: "FY 2026, September 30, 2026", after: null }]],
     ]);
     expect(reviewCountSentence(rows)).toBe("1 project will change, 2 already match.");
     expect(skipNote(rows)).toBeNull();

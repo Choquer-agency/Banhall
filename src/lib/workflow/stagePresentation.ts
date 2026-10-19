@@ -106,8 +106,6 @@ export const STAGE_CARD_THEMES: Record<
   {
     border: string;
     hoverBorder: string;
-    /** A selected card's 1px border, the hover color at rest (Projects page select). */
-    selectedBorder: string;
     focusWithinBorder: string;
     footerBg: string;
     footerText: string;
@@ -118,7 +116,6 @@ export const STAGE_CARD_THEMES: Record<
   neutral: {
     border: "border-gray-200",
     hoverBorder: "hover:border-gray-300",
-    selectedBorder: "border-gray-300",
     focusWithinBorder: "focus-within:border-gray-300",
     footerBg: "bg-gray-50",
     footerText: "text-gray-500",
@@ -128,7 +125,6 @@ export const STAGE_CARD_THEMES: Record<
   active: {
     border: "border-blue-200",
     hoverBorder: "hover:border-blue-300",
-    selectedBorder: "border-blue-300",
     focusWithinBorder: "focus-within:border-blue-300",
     footerBg: "bg-blue-50/70",
     footerText: "text-blue-700",
@@ -138,7 +134,6 @@ export const STAGE_CARD_THEMES: Record<
   review: {
     border: "border-amber-200",
     hoverBorder: "hover:border-amber-300",
-    selectedBorder: "border-amber-300",
     focusWithinBorder: "focus-within:border-amber-300",
     footerBg: "bg-amber-50/70",
     footerText: "text-amber-800",
@@ -148,7 +143,6 @@ export const STAGE_CARD_THEMES: Record<
   client: {
     border: "border-purple-200",
     hoverBorder: "hover:border-purple-300",
-    selectedBorder: "border-purple-300",
     focusWithinBorder: "focus-within:border-purple-300",
     footerBg: "bg-purple-50/70",
     footerText: "text-purple-700",
@@ -158,7 +152,6 @@ export const STAGE_CARD_THEMES: Record<
   delivery: {
     border: "border-primary/30",
     hoverBorder: "hover:border-primary/50",
-    selectedBorder: "border-primary/50",
     focusWithinBorder: "focus-within:border-primary/50",
     footerBg: "bg-primary-wash",
     footerText: "text-primary-dark",
@@ -168,7 +161,6 @@ export const STAGE_CARD_THEMES: Record<
   held: {
     border: "border-violet-200 border-dashed",
     hoverBorder: "hover:border-violet-300",
-    selectedBorder: "border-violet-300",
     focusWithinBorder: "focus-within:border-violet-300",
     footerBg: "bg-violet-50/70",
     footerText: "text-violet-700",
@@ -178,7 +170,6 @@ export const STAGE_CARD_THEMES: Record<
   paused: {
     border: "border-gray-200 border-dashed",
     hoverBorder: "hover:border-gray-300",
-    selectedBorder: "border-gray-300",
     focusWithinBorder: "focus-within:border-gray-300",
     footerBg: "bg-gray-50",
     footerText: "text-gray-500",

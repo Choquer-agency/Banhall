@@ -229,7 +229,7 @@
 >
   <fieldset disabled={applying} class="flex min-w-0 flex-col gap-3.5" data-bulk-fields>
     <div class="flex flex-col gap-1.5" data-bulk-field="clientName" data-changed={clientValue.trim() ? "" : undefined}>
-      <label for="bulk-edit-client" class={formLabel}>Client</label>
+      <label for="bulk-edit-client" class={formLabel}>Company</label>
       <ClientCombobox
         id="bulk-edit-client"
         bind:value={clientValue}
@@ -241,7 +241,7 @@
         inputClass="h-9 rounded-lg pl-3 text-sm! placeholder:text-ink-muted! pointer-coarse:h-11"
       />
       {#if clientInvalid}
-        <p class={formError} role="alert" data-bulk-error="clientName">Pick a client from the list, or empty the field for no change.</p>
+        <p class={formError} role="alert" data-bulk-error="clientName">Pick a company from the list, or empty the field for no change.</p>
       {/if}
       {#if clientValue.trim()}
         {@render reset("clientName", "Client", () => (clientValue = ""))}
@@ -341,7 +341,7 @@
   <NewClientDialog
     bind:open={newClientOpen}
     initialName={newClientName}
-    description="Once created, it fills the Client field for these projects."
+    description="Once created, it fills the Company field for these projects."
     canAddIndustry={isAdmin}
     onCreated={onClientCreated}
   />

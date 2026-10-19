@@ -80,16 +80,16 @@ describe("ClientCombobox", () => {
     expect(input().dataset.clientPicked).toBeUndefined();
   });
 
-  it("shows No client named and a New client row for a name that matches nothing (W8)", async () => {
+  it("shows No company named and a New client row for a name that matches nothing (W8)", async () => {
     const onNewClient = vi.fn();
     await render(ClientCombobox, { value: "", clients: CLIENTS, onNewClient });
     await userEvent.fill(input(), "Northwind Robotics");
     await expect.poll(() => document.querySelector("[data-client-no-match]")).not.toBeNull();
     expect(text(document.querySelector("[data-client-no-match]"))).toBe(
-      "No client named Northwind Robotics Check the spelling, or add it as a new client."
+      "No company named Northwind Robotics Check the spelling, or add it as a new company."
     );
     const row = document.querySelector<HTMLElement>("[data-new-client-option]")!;
-    expect(text(row)).toBe("New client");
+    expect(text(row)).toBe("New company");
     expect(getComputedStyle(row).fontWeight).toBe("500");
     await userEvent.click(row);
     expect(onNewClient).toHaveBeenCalledWith("Northwind Robotics");
@@ -103,10 +103,10 @@ describe("ClientCombobox", () => {
     await render(ClientCombobox, { value: "", clients: CLIENTS, onNewClient });
     await userEvent.fill(input(), "Cedar");
     await expect.poll(shown).toEqual(["Cedarline Systems", "Cedar Ridge Analytics"]);
-    // Suggestions show, so no "No client named" block.
+    // Suggestions show, so no "No company named" block.
     expect(document.querySelector("[data-client-no-match]")).toBeNull();
     const row = document.querySelector<HTMLElement>("[data-new-client-option]")!;
-    expect(text(row)).toBe('New client "Cedar"');
+    expect(text(row)).toBe('New company "Cedar"');
     // Below the suggestions, after a divider.
     const options = [...document.querySelectorAll('[role="option"]')];
     expect(options.at(-1)).toBe(row);
@@ -127,7 +127,7 @@ describe("ClientCombobox", () => {
     await render(ClientCombobox, { value: "", clients: CLIENTS });
     await userEvent.fill(input(), "Northwind Robotics");
     await expect.poll(() => text(document.querySelector("[data-client-no-match]"))).toBe(
-      "No client named Northwind Robotics Check the spelling."
+      "No company named Northwind Robotics Check the spelling."
     );
     expect(document.querySelector("[data-new-client-option]")).toBeNull();
     // Nor below suggestions.
@@ -176,7 +176,7 @@ describe("ClientCombobox", () => {
     __setQueryError("clients:listClients", new Error("boom"));
     await render(ClientCombobox, { value: "Cedarline Systems" });
     await expect.poll(() => text(document.querySelector("[data-client-list-error]"))).toBe(
-      "The client list could not be loaded. Try again"
+      "The company list could not be loaded. Try again"
     );
     await userEvent.click(page.getByRole("button", { name: "Try again" }));
     // The failed subscription is dropped and made again.

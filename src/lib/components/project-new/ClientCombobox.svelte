@@ -35,7 +35,7 @@
     failed = $bindable(false),
     onPick = undefined,
     onNewClient = undefined,
-    placeholder = "Client name",
+    placeholder = "Company name",
     class: className = "",
     inputClass = "h-9 rounded-lg pl-2.5 pointer-coarse:h-11",
   }: {
@@ -143,7 +143,7 @@
       bind:ref={inputRef}
       defaultValue={value}
       {placeholder}
-      aria-label="Client"
+      aria-label="Company"
       autocomplete="off"
       data-client-picked={matched ? "true" : undefined}
       oninput={(event) => {
@@ -154,7 +154,7 @@
       class={`field-control w-full pr-8 text-sm text-ink placeholder:text-ink-faint ${inputClass}`}
     />
     <Combobox.Trigger
-      aria-label="Show clients"
+      aria-label="Show companies"
       class="absolute top-1/2 right-[0.3125rem] flex size-6 -translate-y-1/2 items-center justify-center text-ink-faint"
     >
       <IconChevronDown size={14} strokeWidth={1.8} />
@@ -162,7 +162,7 @@
   </div>
   {#if listFailed}
     <p class="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs leading-4 text-danger-ink-muted" role="alert" data-client-list-error>
-      The client list could not be loaded.
+      The company list could not be loaded.
       <button
         type="button"
         data-client-list-retry
@@ -181,9 +181,9 @@
         {#if noMatch}
           <!-- W8: nothing by that name; New client takes the typed text. -->
           <div class="flex flex-col gap-0.5 px-2 pt-2 pb-1.5" data-client-no-match>
-            <p class="text-[0.8125rem] leading-[1.125rem] text-ink">No client named {typed}</p>
+            <p class="text-[0.8125rem] leading-[1.125rem] text-ink">No company named {typed}</p>
             <p class="text-xs leading-[1.0625rem] text-ink-muted">
-              {onNewClient ? "Check the spelling, or add it as a new client." : "Check the spelling."}
+              {onNewClient ? "Check the spelling, or add it as a new company." : "Check the spelling."}
             </p>
           </div>
           {#if onNewClient}
@@ -197,7 +197,7 @@
               class="flex h-8 cursor-default items-center gap-2 rounded-md bg-primary-wash px-2 text-[0.8125rem] leading-[1.125rem] font-medium text-primary-selected outline-none data-highlighted:bg-chrome pointer-coarse:h-11"
             >
               <IconPlus size={14} strokeWidth={2} class="shrink-0" />
-              New client
+              New company
             </Combobox.Item>
           {/if}
         {:else}
@@ -220,7 +220,7 @@
               class="flex min-h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[1.125rem] font-medium text-primary-selected outline-none data-highlighted:bg-primary-wash pointer-coarse:min-h-11"
             >
               <IconPlus size={14} strokeWidth={2} class="shrink-0" />
-              <span class="min-w-0 break-words">New client "{typed}"</span>
+              <span class="min-w-0 break-words">New company "{typed}"</span>
             </Combobox.Item>
           {/if}
         {/if}

@@ -248,7 +248,7 @@ describe("H1 tablet (1024)", () => {
     expect(getComputedStyle(bar).paddingLeft).toBe("32px");
     expect(getComputedStyle(bar).position).toBe("sticky");
     // A blocking problem replaces the Ready line in danger ink.
-    expect(text(bar.querySelector("[data-bottom-summary]"))).toBe("Add a client and a title");
+    expect(text(bar.querySelector("[data-bottom-summary]"))).toBe("Add a company and a title");
     expect(document.querySelector<HTMLButtonElement>("[data-bottom-start]")!.disabled).toBe(true);
 
     await fillBasics();
@@ -353,7 +353,7 @@ describe("H2 phone (390)", () => {
     expect(getComputedStyle(start).height).toBe("48px");
     expect(getComputedStyle(start).fontSize).toBe("16px");
     // H2: the button alone once nothing blocks; the blocking line otherwise.
-    expect(text(document.querySelector("[data-bottom-summary]"))).toBe("Add a client and a title");
+    expect(text(document.querySelector("[data-bottom-summary]"))).toBe("Add a company and a title");
     // 44px fields with radius 10 and 13px labels; the mode switch leads.
     const title = getComputedStyle(document.querySelector("#title")!);
     expect([title.height, title.borderTopLeftRadius, title.paddingLeft]).toEqual(["44px", "10px", "12px"]);

@@ -41,7 +41,7 @@
     initialFiscalYearEnd = null,
     initialIndustry = "",
     onCreated = undefined,
-    description = "Clients appear in the Client list when you start a project.",
+    description = "It shows up in the company list and when you start a new project.",
     canAddIndustry = false,
   }: {
     open?: boolean;
@@ -176,7 +176,7 @@
       open = false;
       done?.({ clientId: created.clientId, key: created.key, name: created.name, ...defaults });
     } catch (error) {
-      errorMessage = userErrorMessage(error, "This client could not be created. Try again.");
+      errorMessage = userErrorMessage(error, "This company could not be created. Try again.");
     } finally {
       busy = false;
     }
@@ -191,13 +191,13 @@
 {#snippet footer()}
   <button type="button" disabled={busy} onclick={() => (open = false)} class={formCancel}>Cancel</button>
   <button type="button" data-create-client disabled={!canCreate} onclick={() => void create()} class={formPrimary}>
-    {busy ? "Creating..." : "Create client"}
+    {busy ? "Creating..." : "Create company"}
   </button>
 {/snippet}
 
 <FormDialog
   bind:open
-  title="New client"
+  title="New company"
   {description}
   initialFocus={() => nameInput}
   {busy}
@@ -213,7 +213,7 @@
         bind:value={name}
         autocomplete="off"
         maxlength={200}
-        placeholder="Client name"
+        placeholder="Company name"
         oninput={() => (errorMessage = null)}
         onkeydown={(event) => {
           // Enter in the name field creates the client.
@@ -227,13 +227,13 @@
       {#if exact}
         <div class={notice} role="status" data-client-exists>
           <p class={noticeText}>{exact.name} already exists, with {projectCount(exact.projectCount)}.</p>
-          <button type="button" data-use-client={exact.key} onclick={() => useExisting(exact)} class={noticeAction}>Use that client</button>
+          <button type="button" data-use-client={exact.key} onclick={() => useExisting(exact)} class={noticeAction}>Use that company</button>
         </div>
       {/if}
       {#each lookAlikes as client (client.key)}
         <div class={notice} role="status" data-client-similar>
           <p class={noticeText}>Looks like {client.name} ({projectCount(client.projectCount)}).</p>
-          <button type="button" data-use-client={client.key} onclick={() => useExisting(client)} class={noticeAction}>Use that client</button>
+          <button type="button" data-use-client={client.key} onclick={() => useExisting(client)} class={noticeAction}>Use that company</button>
         </div>
       {/each}
       {#if checkFailed}
@@ -278,8 +278,8 @@
           {yearEndIncomplete
             ? "Pick both a month and a day, or leave both empty."
             : filledFromProject
-              ? "Filled from this project. New projects for this client start with it."
-              : "Optional. It fills in on new projects for this client, and you can change it on any project."}
+              ? "Filled from this project. New projects for this company start with it."
+              : "Optional. It fills in on new projects for this company, and you can change it on any project."}
         </p>
     </div>
 

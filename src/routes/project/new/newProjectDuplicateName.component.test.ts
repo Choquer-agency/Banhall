@@ -99,7 +99,7 @@ describe("E6 project already exists", () => {
       .click();
     await expect.poll(() => document.querySelector("[data-same-project]")).toBeNull();
     expect(document.querySelector('[data-checklist-row="duplicate"]')).toBeNull();
-    expect(text(document.querySelector('[data-checklist-row="client-title"]'))).toContain("Client and title");
+    expect(text(document.querySelector('[data-checklist-row="client-title"]'))).toContain("Company and title");
   });
 
   it("never asks on a duplicate, whose title already says copy", async () => {

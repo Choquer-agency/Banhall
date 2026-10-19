@@ -1,9 +1,8 @@
 <!--
   The "..." menu on a Projects page card (Paper V1, 2026-10-14 amendment;
   Open removed 2026-10-16, a click on the card opens it): Edit details,
-  Duplicate and Delete. The trigger shows on card hover
-  and on keyboard focus inside the card, and always on touch screens, so
-  nothing is hover-only. It sits above the card's stretched title link
+  Duplicate and Delete. The trigger always shows in the card's stage band
+  (Paper Z11a), so nothing is hover-only. It sits above the card's stretched title link
   (`relative z-10`). Duplicate and Delete appear only when the viewer may use
   them; the host decides (canCreateProjects, canDeleteProject) and opens the
   shared Delete dialog.
@@ -11,7 +10,6 @@
 <script lang="ts">
   import { DropdownMenu } from "bits-ui";
   import { CopyIcon, PencilSimpleIcon, TrashIcon } from "phosphor-svelte";
-  import { IconMore } from "$lib/components/icons";
 
   let {
     projectId,
@@ -39,9 +37,9 @@
   <DropdownMenu.Trigger
     aria-label={`More actions for ${projectTitle}`}
     data-card-menu={projectId}
-    class="relative z-10 -my-0.5 flex size-[1.375rem] shrink-0 items-center justify-center rounded-[0.3125rem] border border-line bg-surface text-ink opacity-0 transition-opacity hover:bg-primary-wash focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy group-hover/project:opacity-100 group-focus-within/project:opacity-100 data-[state=open]:opacity-100 motion-reduce:transition-none pointer-coarse:opacity-100 pointer-coarse:before:absolute pointer-coarse:before:-inset-[0.6875rem] pointer-coarse:before:content-['']"
+    class="relative z-10 flex size-6 shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-white/70 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy data-[state=open]:bg-white/70 motion-reduce:transition-none pointer-coarse:before:absolute pointer-coarse:before:-inset-[0.625rem] pointer-coarse:before:content-['']"
   >
-    <IconMore size={14} strokeWidth={2.4} />
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="3" cy="7" r="1.3" fill="currentColor" /><circle cx="7" cy="7" r="1.3" fill="currentColor" /><circle cx="11" cy="7" r="1.3" fill="currentColor" /></svg>
   </DropdownMenu.Trigger>
   <DropdownMenu.Portal>
     <DropdownMenu.Content

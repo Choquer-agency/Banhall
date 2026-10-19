@@ -101,8 +101,8 @@ export function mergeSummaryText(projectCount: number, keptName: string, otherNa
         : `${projects(projectCount)} will show under ${name} Their fiscal years stay as they are.`;
   const names =
     otherNames === 1
-      ? "The other name is removed from the client list."
-      : "The other names are removed from the client list.";
+      ? "The other name is removed from the company list."
+      : "The other names are removed from the company list.";
   return `${move} ${names}`;
 }
 

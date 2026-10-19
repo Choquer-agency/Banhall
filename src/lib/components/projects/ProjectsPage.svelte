@@ -240,10 +240,11 @@
   }
 </script>
 
-<div data-projects-page class="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-canvas">
+<!-- Paper Z3d: the white panel under the top bar, the company list on its left. -->
+<div data-projects-page class="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-line bg-surface">
   <aside
-    aria-label="Clients"
-    class={`flex min-h-0 w-[14.5rem] shrink-0 flex-col border-r border-line-soft max-md:w-full max-md:border-r-0 ${areaOnMobile ? "max-md:hidden" : ""}`}
+    aria-label="Companies"
+    class={`flex min-h-0 w-60 shrink-0 flex-col border-r border-line-soft max-md:w-full max-md:border-r-0 ${areaOnMobile ? "max-md:hidden" : ""}`}
   >
     {#key clientsAttempt}
       <ClientList
@@ -287,7 +288,13 @@
         onBulkEdit={bulkEdit}
         onRetry={() => (areaAttempt += 1)}
         onBack={backToList}
-        backLabel={selectedKey === null ? "Clients" : "All clients"}
+        backLabel={selectedKey === null ? "Companies" : "All companies"}
+        countLabel={selectedKey === null
+          ? totalLabel
+          : (() => {
+              const count = clients.find((client) => client.key === selectedKey)?.projectCount;
+              return count === undefined ? null : String(count);
+            })()}
       />
     {/key}
   </div>

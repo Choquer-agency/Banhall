@@ -117,10 +117,10 @@
     try {
       const result = await mergeClients(args);
       open = false;
-      toast.success(`Merged ${count} ${count === 1 ? "client" : "clients"} into ${result.keptName}.`);
+      toast.success(`Merged ${count} ${count === 1 ? "company" : "companies"} into ${result.keptName}.`);
       done?.({ keptKey: result.keptKey, keptName: result.keptName, moved: result.moved });
     } catch (error) {
-      errorMessage = userErrorMessage(error, "These clients could not be merged. Try again.");
+      errorMessage = userErrorMessage(error, "These companies could not be merged. Try again.");
     } finally {
       busy = false;
     }
@@ -144,7 +144,7 @@
 {#snippet footer()}
   <button type="button" disabled={busy} onclick={() => (open = false)} class={formCancel}>Cancel</button>
   <button type="button" data-confirm-merge disabled={!canMerge} onclick={() => void confirm()} class={formPrimary}>
-    {busy ? "Merging..." : keptLabel ? `Merge into ${keptLabel}` : "Merge clients"}
+    {busy ? "Merging..." : keptLabel ? `Merge into ${keptLabel}` : "Merge companies"}
   </button>
 {/snippet}
 
@@ -156,7 +156,7 @@
       `[data-testid="merge-clients-dialog"] [data-merge-keep="${CSS.escape(defaultKeepKey(clients) ?? "")}"]`
     )}
   testId="merge-clients-dialog"
-  title={`Merge ${clients.length} clients`}
+  title={`Merge ${clients.length} companies`}
   description={mergeIntroText(projectCount)}
   {footer}
 >
@@ -193,7 +193,7 @@
             bind:this={otherInput}
             bind:value={otherName}
             data-merge-other-name
-            aria-label="Different client name"
+            aria-label="Different company name"
             aria-invalid={usingOther && preview?.nameConflict ? "true" : undefined}
             data-changed={usingOther ? "" : undefined}
             placeholder="Use a different name"
@@ -226,12 +226,12 @@
     {/if}
     {#if preview?.nameConflict}
       <p role="alert" data-merge-error="name" class={errorBox}>
-        {preview.nameConflict} is already a client. Select it in the client list to merge into it, or type another name.
+        {preview.nameConflict} is already a company. Select it in the company list to merge into it, or type another name.
       </p>
     {/if}
     {#if preview?.tooMany}
       <p role="alert" data-merge-error="too-many" class={errorBox}>
-        This merge would move more than 200 projects. Merge fewer clients at a time.
+        This merge would move more than 200 projects. Merge fewer companies at a time.
       </p>
     {/if}
     {#if previewError}

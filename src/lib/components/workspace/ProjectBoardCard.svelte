@@ -33,7 +33,6 @@
     actions = undefined,
     selectable = false,
     selected = false,
-    selectionActive = false,
     onToggleSelect = undefined,
   }: {
     row: ProjectsTableRow;
@@ -65,17 +64,11 @@
      */
     actions?: Snippet;
     /**
-     * Selection (Paper Z7n, 2026-10-19): a checkbox at the header's left that
-     * shows on hover, on keyboard focus and on touch screens. Its slot is
-     * always there, so nothing moves when it appears.
+     * Select mode (Paper V4, 2026-10-14): a checkbox sits at the header's
+     * left and the whole card toggles instead of opening the project.
      */
     selectable?: boolean;
     selected?: boolean;
-    /**
-     * Something on the page is ticked: every checkbox shows, and the whole
-     * card toggles instead of opening the project.
-     */
-    selectionActive?: boolean;
     onToggleSelect?: () => void;
   } = $props();
 
@@ -102,32 +95,19 @@
 <article
   data-project-board-card
   data-selected={selectable ? String(selected) : undefined}
-  class={`group group/project relative flex min-h-40 max-w-full cursor-pointer flex-col overflow-hidden rounded-xl border shadow-sm transition-colors motion-reduce:transition-none ${theme.footerBg} ${selectable && selected && paused ? "border-dashed border-violet-500" : `${selectable && selected ? theme.selectedBorder : paused ? "border-dashed border-violet-300" : "border-transparent"} ${theme.hoverBorder} ${theme.focusWithinBorder}`}`}
+  class={`group group/project relative flex min-h-40 max-w-full cursor-pointer flex-col overflow-hidden rounded-xl border shadow-sm transition-colors motion-reduce:transition-none ${theme.footerBg} ${paused ? "border-dashed border-violet-300" : "border-transparent"} ${theme.hoverBorder} ${theme.focusWithinBorder} ${selectable && selected ? "ring-2 ring-primary-selected" : ""}`}
 >
   <header data-card-header class="flex min-w-0 items-start gap-2 rounded-t-xl px-2.5 py-2">
-    {#snippet checkmark()}
+    {#if selectable}
       <span
-        class={`flex size-4 items-center justify-center rounded-[0.25rem] border ${selected ? "border-primary-selected bg-primary-selected text-white" : "border-gray-300 bg-surface"}`}
+        data-card-checkbox
+        aria-hidden="true"
+        class={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[0.25rem] border ${selected ? "border-fir bg-fir text-white" : "border-line bg-surface"}`}
       >
         {#if selected}
-          <svg class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg>
+          <svg class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10" /></svg>
         {/if}
       </span>
-    {/snippet}
-    {#if selectable && selectionActive}
-      <span data-card-checkbox aria-hidden="true" class="mt-0.5 flex size-4 shrink-0">{@render checkmark()}</span>
-    {:else if selectable}
-      <!-- Shows on hover, keyboard focus and touch; its slot never moves. -->
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={selected}
-        aria-label={`Select ${row.title}`}
-        data-card-checkbox
-        data-card-select-box={row.id}
-        onclick={() => onToggleSelect?.()}
-        class="relative z-10 mt-0.5 flex size-4 shrink-0 rounded-[0.25rem] opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy group-hover/project:opacity-100 motion-reduce:transition-none pointer-coarse:opacity-100 pointer-coarse:before:absolute pointer-coarse:before:-inset-3.5 pointer-coarse:before:content-['']"
-      >{@render checkmark()}</button>
     {/if}
     {#if row.projectNumber}
       <!-- Per-company project number / draft letter (2026-08-11 amendment):
@@ -138,8 +118,8 @@
         class={`text-data inline-flex min-h-5 shrink-0 items-center gap-0.5 rounded-md border bg-surface px-1.5 py-0.5 font-semibold leading-none shadow-[0_1px_1px_rgba(0,0,0,0.04)] ${theme.border} ${theme.headerText}`}
       ><span aria-hidden="true" class="opacity-60">#</span>{row.projectNumber}</span>
     {/if}
-    {#if selectable && selectionActive}
-      <!-- Something is ticked: the stretched title is a checkbox for the whole card. -->
+    {#if selectable}
+      <!-- Select mode: the stretched title is a checkbox for the whole card. -->
       <button
         type="button"
         role="checkbox"

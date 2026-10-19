@@ -23,10 +23,11 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import { DASHBOARD_PROJECT_PAGE_SIZE } from "../../../../shared/dashboardProjection";
-  import ProjectBoardCard from "$lib/components/workspace/ProjectBoardCard.svelte";
+  import ProjectCard from "./ProjectCard.svelte";
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import ProjectCardMenu from "./ProjectCardMenu.svelte";
-  import { IconArrowLeft, IconClock, IconSearch } from "$lib/components/icons";
+  import { IconArrowLeft, IconSearch } from "$lib/components/icons";
+  import { isOpen, openByRule, readOverrides, writeOverrides } from "$lib/projects/fiscalYearOpen";
   import { toProjectsTableRow, type DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
   import {
     formatYearEnd,
@@ -51,9 +52,10 @@
     onBulkEdit,
     onRetry,
     onBack = undefined,
-    backLabel = "All clients",
+    backLabel = "All companies",
     allClientsHref = "/projects",
     onShowAll = undefined,
+    countLabel = null,
   }: {
     /**
      * The selected client; null for All clients. `name` is null until known.
@@ -78,6 +80,8 @@
     /** All clients, for a client that is no longer in the list. */
     allClientsHref?: string;
     onShowAll?: () => void;
+    /** How many projects the title stands for ("10", "1000+"), from the company list. */
+    countLabel?: string | null;
   } = $props();
 
   const auth = useAuth();
@@ -125,10 +129,10 @@
   const gone = $derived(Boolean(client?.missing) && client?.name == null && raw.length === 0);
   const displayName = $derived(
     client
-      ? (client.name ?? raw.find((row) => row.clientName)?.clientName ?? (client.missing ? "Client not found" : client.key))
-      : "All clients"
+      ? (client.name ?? raw.find((row) => row.clientName)?.clientName ?? (client.missing ? "Company not found" : client.key))
+      : "All companies"
   );
-  const searchLabel = $derived(client ? `Search ${displayName}` : "Search all projects");
+  const searchLabel = $derived("Search projects");
 
   // ─── Selection (Paper Z7n) ────────────────────────────────────────────────
   const selected = new SvelteMap<string, DashboardProjectionRow>();
@@ -263,11 +267,29 @@
     });
   });
 
+  // ─── Fiscal year sections (Paper 2V1W-0; the smart rule, 2026-10-19) ──────
+  let overrides = $state<Record<string, boolean>>({});
+  $effect(() => {
+    const key = client?.key ?? null;
+    overrides = key ? readOverrides(key) : {};
+  });
+  const openRule = $derived(openByRule(groups));
+  function sectionOpen(key: string) {
+    return isOpen(key, openRule, overrides);
+  }
+  function toggleSection(key: string) {
+    if (!client) return;
+    overrides = { ...overrides, [key]: !sectionOpen(key) };
+    writeOverrides(client.key, overrides);
+  }
+
   const quietButton =
     "flex h-[1.875rem] shrink-0 items-center rounded-[0.4375rem] border border-line px-2.5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
   const textButton =
     "shrink-0 rounded-md text-xs leading-4 font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11";
-  const grid = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-3";
+  // Paper Z11a: four cards a row at 1440 (and at 1280 with the rail
+  // collapsed), five at 1920.
+  const grid = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,12.5rem),1fr))] gap-3";
 </script>
 
 <svelte:window
@@ -276,14 +298,14 @@
   onpointerdowncapture={() => (keyboardInput = false)}
 />
 
-{#snippet card(source: DashboardProjectionRow, showClient: boolean, showFiscalYear: boolean)}
+{#snippet card(source: DashboardProjectionRow, showCompany: boolean)}
   {@const row = tableRows.get(source._id) ?? toProjectsTableRow(source)}
-  <li>
-    <ProjectBoardCard
+  <li class="min-w-0">
+    <ProjectCard
       {row}
-      {showClient}
-      {showFiscalYear}
-      showStage
+      createdAt={source.createdAt ?? source._creationTime}
+      updatedAt={source.updatedAt}
+      {showCompany}
       selectable={canSelect}
       selected={selected.has(source._id)}
       selectionActive={selecting}
@@ -300,49 +322,57 @@
           onDelete={() => onDelete({ id: row.id, title: row.title })}
         />
       {/snippet}
-    </ProjectBoardCard>
+    </ProjectCard>
   </li>
 {/snippet}
 
-{#snippet calendarIcon(muted: boolean)}
-  <svg class={`size-[0.8125rem] shrink-0 ${muted ? "text-ink-faint" : "text-ink-secondary"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d={muted ? "M8 3v3 M16 3v3 M4 9h16 M5 5h14v15H5Z M9.5 13l5 4 M14.5 13l-5 4" : "M8 3v3 M16 3v3 M4 9h16 M5 5h14v15H5Z"} />
-  </svg>
-{/snippet}
 
 {#snippet selectAllButton(rows: readonly DashboardProjectionRow[], label: string)}
-  <button type="button" data-select-group onclick={() => selectAll(rows)} class={`${textButton} font-normal text-ink-secondary`}>{label}</button>
+  <button type="button" data-select-group onclick={() => selectAll(rows)} class={`${textButton} text-[0.8125rem]`}>{label}</button>
 {/snippet}
 
-{#snippet fiscalGroup(group: ProjectFiscalGroup<DashboardProjectionRow> & { more: boolean })}
+{#snippet fiscalGroup(group: ProjectFiscalGroup<DashboardProjectionRow> & { more: boolean }, first: boolean)}
   {@const headingId = `projects-${group.key}`}
-  <section aria-labelledby={headingId} data-fy-group={group.key}>
-    <div class="flex h-[2.125rem] items-center gap-2" data-fy-header>
-      {@render calendarIcon(group.fiscalYear === null)}
-      {#if group.fiscalYear === null || group.yearEnd === null}
-        <h3 id={headingId} class="text-xs leading-4 font-medium text-ink-muted">No fiscal year</h3>
-      {:else}
-        <h3 id={headingId} class="flex min-w-0 items-baseline gap-2 text-xs leading-4">
-          <span class="font-medium text-ink">FY {group.fiscalYear}</span>
-          <span class="truncate text-ink-muted">ended {formatYearEnd(group.yearEnd)}</span>
-        </h3>
-        {#if group.shortYearMonths !== null}
-          <span data-short-year class="flex h-5 shrink-0 items-center rounded-[0.3125rem] bg-gray-50 px-[0.4375rem] text-[0.6875rem] leading-[0.875rem] text-ink-secondary">{shortYearLabel(group.shortYearMonths)}</span>
+  {@const open = sectionOpen(group.key)}
+  <section aria-labelledby={headingId} data-fy-group={group.key} data-open={open ? "true" : "false"} class={first ? "" : "pt-8"}>
+    <div class="flex min-w-0 items-center gap-3" data-fy-header>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={`${headingId}-cards`}
+        data-fy-toggle={group.key}
+        onclick={() => toggleSection(group.key)}
+        class="flex min-w-0 flex-1 items-baseline gap-2.5 rounded-md text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+      >
+        {#if group.fiscalYear === null || group.yearEnd === null}
+          <h3 id={headingId} class="text-[0.9375rem] leading-5 font-medium text-ink">No fiscal year</h3>
+        {:else}
+          <h3 id={headingId} class="flex min-w-0 items-baseline gap-2.5">
+            <span class="shrink-0 text-[0.9375rem] leading-5 font-medium text-ink">FY {group.fiscalYear}</span>
+            <span class="truncate text-sm leading-[1.125rem] text-ink-muted">{formatYearEnd(group.yearEnd)}</span>
+          </h3>
+          {#if group.shortYearMonths !== null}
+            <span data-short-year class="flex h-5 shrink-0 items-center self-center rounded-[0.3125rem] bg-gray-50 px-[0.4375rem] text-xs leading-4 text-ink-secondary">{shortYearLabel(group.shortYearMonths)}</span>
+          {/if}
         {/if}
-      {/if}
-      {#if selecting}{@render selectAllButton(group.rows, "Select all")}{/if}
-      <span class="ml-auto shrink-0 text-xs leading-4 text-ink-muted" data-fy-count>{projectCountLabel(group.rows.length, group.more)}</span>
+        <span class="flex-1"></span>
+        <span class="shrink-0 text-[0.8125rem] leading-4 text-ink-muted" data-fy-count>{projectCountLabel(group.rows.length, group.more)}</span>
+        <svg class={`size-3.5 shrink-0 self-center text-ink-secondary transition-transform motion-reduce:transition-none ${open ? "" : "rotate-180"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
+      </button>
+      {#if selecting && open}{@render selectAllButton(group.rows, "Select all")}{/if}
     </div>
-    <ul class={`${grid} pb-2`}>
-      {#each group.rows as source (source._id)}
-        {@render card(source, false, false)}
-      {/each}
-    </ul>
+    {#if open}
+      <ul id={`${headingId}-cards`} class={`${grid} pt-3.5`}>
+        {#each group.rows as source (source._id)}
+          {@render card(source, false)}
+        {/each}
+      </ul>
+    {/if}
   </section>
 {/snippet}
 
 <section aria-label={displayName} class="relative flex min-h-0 min-w-0 flex-1 flex-col" data-client-area={client?.key ?? "all"}>
-  <div class={`min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 ${selecting ? "pb-24" : "pb-6"}`} data-client-area-scroll>
+  <div class={`min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 ${selecting ? "pb-24" : "pb-8"}`} data-client-area-scroll>
     {#if onBack}
       <button
         type="button"
@@ -355,14 +385,19 @@
       </button>
     {/if}
 
-    <div class="flex flex-wrap items-center gap-2 pb-3 pt-5 max-md:pt-1" data-client-header>
-      <h2 data-client-title tabindex="-1" class="min-w-0 truncate outline-none font-serif text-[1.625rem] leading-8 tracking-[-0.01em] text-ink">{displayName}</h2>
+    <!-- Paper Z3d: the company name at 20/500 with its project count, the
+         search on the right, 28px above the first fiscal year. -->
+    <div class="flex flex-wrap items-center gap-3 pb-7 pt-5 max-md:pt-1" data-client-header>
+      <h2 data-client-title tabindex="-1" class="min-w-0 truncate text-xl leading-[1.625rem] font-medium text-ink outline-none">{displayName}</h2>
+      {#if countLabel !== null && !gone}
+        <span class="shrink-0 text-[0.9375rem] leading-5 text-ink-muted" data-client-count>{countLabel === "1" ? "1 project" : `${countLabel} projects`}</span>
+      {/if}
       <div class="flex-1"></div>
       {#if selecting}
         {@render selectAllButton(raw, `Select all ${raw.length}${hasMore ? "+" : ""}`)}
       {/if}
-      <div role="search" class="relative w-[16.25rem] max-w-full max-md:order-last max-md:w-full">
-        <IconSearch size={14} strokeWidth={1.4} class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-ink-muted" />
+      <div role="search" class="relative w-80 max-w-full max-md:order-last max-md:w-full">
+        <IconSearch size={14} strokeWidth={2} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
         <input
           bind:this={searchEl}
           bind:value={searchInput}
@@ -380,7 +415,7 @@
               event.currentTarget.blur();
             }
           }}
-          class="field-control h-[1.875rem] w-full rounded-[0.4375rem] bg-gray-50! pl-7 pr-2 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint pointer-coarse:h-11"
+          class="field-control h-9 w-full rounded-lg pl-[2.125rem] pr-3 text-sm leading-[1.125rem] text-ink placeholder:text-ink-muted pointer-coarse:h-11"
         />
       </div>
     </div>
@@ -403,8 +438,8 @@
       </div>
     {:else if q}
       <section aria-labelledby="projects-search-results" data-search-results>
-        <div class="flex h-[2.125rem] items-center gap-2">
-          <h3 id="projects-search-results" class="text-xs leading-4 text-ink-secondary" role="status">
+        <div class="flex items-baseline gap-3 pb-3.5">
+          <h3 id="projects-search-results" class="text-[0.9375rem] leading-5 font-medium text-ink" role="status">
             {raw.length === 0
               ? `No projects match "${q}".`
               : `${raw.length}${hasMore ? "+" : ""} ${raw.length === 1 && !hasMore ? "project matches" : "projects match"}`}
@@ -415,14 +450,14 @@
         {#if raw.length > 0}
           <ul class={grid}>
             {#each raw as source (source._id)}
-              {@render card(source, !client, true)}
+              {@render card(source, !client)}
             {/each}
           </ul>
         {/if}
       </section>
     {:else if gone}
       <div class="flex flex-col items-start gap-3 py-10" data-client-missing>
-        <p class="text-[0.8125rem] leading-[1.125rem] text-ink-secondary">This client is no longer in the client list. It may have been merged.</p>
+        <p class="text-[0.8125rem] leading-[1.125rem] text-ink-secondary">This company is no longer in the company list. It may have been merged.</p>
         <a
           href={allClientsHref}
           data-client-missing-back
@@ -432,7 +467,7 @@
             onShowAll();
           }}
           class="text-[0.8125rem] leading-[1.125rem] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11"
-        >Go to All clients</a>
+        >Go to All companies</a>
       </div>
     {:else if client && raw.length === 0}
       <div class="flex flex-col items-start gap-3 py-10" data-client-empty>
@@ -446,8 +481,8 @@
         {/if}
       </div>
     {:else if client}
-      {#each groups as group (group.key)}
-        {@render fiscalGroup(group)}
+      {#each groups as group, index (group.key)}
+        {@render fiscalGroup(group, index === 0)}
       {/each}
     {:else if raw.length === 0}
       <div class="flex flex-col items-start gap-3 py-10" data-client-empty>
@@ -461,14 +496,13 @@
       </div>
     {:else}
       <section aria-labelledby="projects-recent" data-recent-projects>
-        <div class="flex h-[2.125rem] items-center gap-2">
-          <IconClock size={13} strokeWidth={1.4} class="shrink-0 text-ink-secondary" />
-          <h3 id="projects-recent" class="text-xs leading-4 font-medium text-ink">Recently edited</h3>
+        <div class="flex items-baseline gap-3">
+          <h3 id="projects-recent" class="text-[0.9375rem] leading-5 font-medium text-ink">Recently updated</h3>
           {#if selecting}{@render selectAllButton(raw, "Select all")}{/if}
         </div>
-        <ul class={grid}>
+        <ul class={`${grid} pt-3.5`}>
           {#each raw as source (source._id)}
-            {@render card(source, true, true)}
+            {@render card(source, true)}
           {/each}
         </ul>
       </section>

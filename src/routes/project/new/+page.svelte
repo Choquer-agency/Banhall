@@ -2640,7 +2640,7 @@
                   layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-2 gap-x-4 gap-y-3.5" : "grid-cols-[16.25rem_minmax(0,1fr)] gap-x-4 gap-y-3.5"
                 }`}>
                   <label class="flex flex-col gap-1.5">
-                    <span class={labelClass}>Client</span>
+                    <span class={labelClass}>Company</span>
                     <ClientCombobox
                       id="clientName"
                       bind:value={clientName}
@@ -3244,7 +3244,7 @@
         initialName={newClientName}
         initialFiscalYearEnd={newClientYearEnd}
         initialIndustry={newClientIndustry}
-        description="Once created, it fills the Client field on this project."
+        description="Once created, it fills the Company field on this project."
         canAddIndustry={user.data?.role === "admin"}
         onCreated={onClientCreated}
       />

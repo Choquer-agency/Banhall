@@ -179,9 +179,9 @@
     const found: Partial<Record<ProjectEditField, string>> = {};
     if (fields.includes("title") && !next.title.trim()) found.title = "Add a title.";
     if (fields.includes("clientName")) {
-      if (!next.clientName.trim()) found.clientName = "Pick a client.";
-      else if (clientsLoading) found.clientName = "The client list is still loading. Try again in a moment.";
-      else if (!clientPicked) found.clientName = "Pick a client from the list, or add it as a new client.";
+      if (!next.clientName.trim()) found.clientName = "Pick a company.";
+      else if (clientsLoading) found.clientName = "The company list is still loading. Try again in a moment.";
+      else if (!clientPicked) found.clientName = "Pick a company from the list, or add it as a new company.";
     }
     if (fields.includes("projectNumber")) {
       try {
@@ -223,7 +223,7 @@
     if (has("clientName")) {
       list.push({
         fields: ["clientName"],
-        fallback: "The client could not be saved.",
+        fallback: "The company could not be saved.",
         run: () => updateClientName({ projectId: id, clientName }),
       });
     }
@@ -376,7 +376,7 @@
       <dl class="flex flex-col">
         {@render readRow("Title", draft.title, "title")}
         {@render readRow("SR&ED title", draft.sredTitle, "sredTitle")}
-        {@render readRow("Client", draft.clientName, "clientName")}
+        {@render readRow("Company", draft.clientName, "clientName")}
         {@render readRow("Fiscal year end", fiscal ? `${fiscal.date}, FY ${fiscal.year}` : null, "fiscalYearEnd")}
         {@render readRow("Number", draft.projectNumber, "projectNumber")}
         {@render readRow("Industry", draft.industry ? industryLabel(draft.industry) : null, "industry")}
@@ -445,7 +445,7 @@
 
         <div class="flex gap-3 max-sm:flex-col">
           <div class="flex min-w-0 flex-1 flex-col gap-1.5" data-edit-field="clientName">
-            <label for="edit-project-client" class={formLabel}>Client</label>
+            <label for="edit-project-client" class={formLabel}>Company</label>
             <ClientCombobox
               id="edit-project-client"
               bind:value={draft.clientName}
@@ -529,7 +529,7 @@
   <NewClientDialog
     bind:open={newClientOpen}
     initialName={newClientName}
-    description="Once created, it fills the Client field on this project."
+    description="Once created, it fills the Company field on this project."
     canAddIndustry={isAdmin}
     onCreated={onClientCreated}
   />

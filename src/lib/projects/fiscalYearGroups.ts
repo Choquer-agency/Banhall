@@ -140,7 +140,7 @@ export function withLoadState<T extends FiscalGroupSource>(
 /** "Sep 30, 2026" (UTC, so a stored midnight never shifts a day). */
 export function formatYearEnd(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString("en-US", {
-    month: "short",
+    month: "long",
     day: "numeric",
     year: "numeric",
     timeZone: "UTC",

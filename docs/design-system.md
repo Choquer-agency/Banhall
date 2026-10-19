@@ -1246,6 +1246,7 @@ sizes below are at the 16px root; a laptop renders them at 0.9375x.
 - **Fields.** Labels are 13/16 500 secondary ink; inputs and picker triggers are 36px, radius 8, 14px text. Inside `[data-form-dialog]` every `field-control` reads `gray-50` with a `line-soft` line; hover and focus take the lagoon line. A bulk edit field that will change carries `data-changed` and keeps the selected lagoon line at rest. The shared classes live in `src/lib/components/ui/formDialog.ts`.
 - **Buttons.** Cancel is white with a `line` border; the main action is the `primary-selected` fill. Both are 36px with 14/18 500 text.
 - **Selection bar.** The Projects page selection bar is light grey: `gray-50` with a `line` border, radius 10, 48px tall, `shadow-selection-bar`, "N selected" at 14/20 500 with "of M" in muted 13px, a white bordered Edit details and a quiet Clear.
+- **Projects page (Paper Z3d, Z11a).** A white panel (radius 12, `line` border). Company list 240 wide with 14px padding, a 38px search, 32px rows with 14px names and 12px counts. Title 20/500 sans with a muted 15px count; 36px search 320 wide. Fiscal year headers: 15/500 "FY 2026", the full year end in muted 14px, the count in muted 13px and a 14px chevron; 32px above each later year, 14px above its cards. Cards: radius 10, `line` border, a 34px stage band (7px dot, 13/500 stage, mono 12 number, 24px menu), a 15/500 title, 12px labels and 13px values for Owner, Created and Updated, and a `canvas` footer line. Hover and selected borders take the stage dot color.
 
 ## Panel motion (2026-08-10)
 

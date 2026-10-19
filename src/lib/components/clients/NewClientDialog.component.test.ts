@@ -17,7 +17,7 @@ import {
 
 /**
  * New client (Paper W6 and W9; 2026-10-14 amendment, "Create a client").
- * The same name refuses Create and offers "Use that client"; a name that
+ * The same name refuses Create and offers "Use that company"; a name that
  * only looks alike warns and leaves Create on; Create sends the name, the
  * usual year end and the industry; the server's refusal shows inline.
  */
@@ -38,9 +38,9 @@ describe("NewClientDialog", () => {
   it("opens on the name with W6's copy and no dashes", async () => {
     await render(NewClientDialog, { open: true });
     await expect.poll(dialog).not.toBeNull();
-    await expect.element(page.getByRole("dialog", { name: "New client" })).toBeInTheDocument();
-    expect(text(dialog())).toContain("Clients appear in the Client list when you start a project.");
-    expect(text(dialog())).toContain("Optional. It fills in on new projects for this client, and you can change it on any project.");
+    await expect.element(page.getByRole("dialog", { name: "New company" })).toBeInTheDocument();
+    expect(text(dialog())).toContain("It shows up in the company list and when you start a new project.");
+    expect(text(dialog())).toContain("Optional. It fills in on new projects for this company, and you can change it on any project.");
     expect(text(dialog())).not.toMatch(/[\u2010-\u2015\u00b7]/);
     await expect.poll(() => document.activeElement).toBe(nameField());
     // Nothing typed: Create waits for a name.
@@ -56,11 +56,11 @@ describe("NewClientDialog", () => {
     await render(NewClientDialog, { open: true, onCreated });
     await userEvent.fill(nameField(), "Cedarline Systems");
     await expect.poll(() => text(document.querySelector("[data-client-exists]"))).toBe(
-      "Cedarline Systems already exists, with 6 projects. Use that client"
+      "Cedarline Systems already exists, with 6 projects. Use that company"
     );
     expect(createButton().disabled).toBe(true);
 
-    await userEvent.click(page.getByRole("button", { name: "Use that client" }));
+    await userEvent.click(page.getByRole("button", { name: "Use that company" }));
     expect(onCreated).toHaveBeenCalledWith({ clientId: null, key: "cedarline systems", name: "Cedarline Systems" });
     await expect.poll(dialog).toBeNull();
     expect(__mutationCalls("clients:createClient")).toEqual([]);
@@ -82,7 +82,7 @@ describe("NewClientDialog", () => {
     await render(NewClientDialog, { open: true });
     await userEvent.fill(nameField(), "Cedarline Systems Inc");
     await expect.poll(() => text(document.querySelector("[data-client-similar]"))).toBe(
-      "Looks like Cedarline Systems (1 project). Use that client"
+      "Looks like Cedarline Systems (1 project). Use that company"
     );
     expect(createButton().disabled).toBe(false);
   });
@@ -95,13 +95,13 @@ describe("NewClientDialog", () => {
       initialName: "Northwind Robotics",
       initialFiscalYearEnd: { month: 6, day: 30 },
       initialIndustry: "manufacturing",
-      description: "Once created, it fills the Client field on this project.",
+      description: "Once created, it fills the Company field on this project.",
       onCreated,
     });
     await expect.poll(() => nameField()?.value).toBe("Northwind Robotics");
-    expect(text(dialog())).toContain("Once created, it fills the Client field on this project.");
+    expect(text(dialog())).toContain("Once created, it fills the Company field on this project.");
     expect(text(document.querySelector("[data-year-end-helper]"))).toBe(
-      "Filled from this project. New projects for this client start with it."
+      "Filled from this project. New projects for this company start with it."
     );
     expect(document.querySelector<HTMLInputElement>("#new-client-year-end-month")!.value).toBe("June");
     expect(document.querySelector<HTMLInputElement>("#new-client-year-end-day")!.value).toBe("30");
@@ -215,7 +215,7 @@ describe("NewClientDialog", () => {
     await screen.rerender({ open: true, initialName: "Second" });
     await expect.poll(() => nameField()?.value).toBe("Second");
     expect(text(document.querySelector("[data-year-end-helper]"))).toBe(
-      "Optional. It fills in on new projects for this client, and you can change it on any project."
+      "Optional. It fills in on new projects for this company, and you can change it on any project."
     );
   });
 });

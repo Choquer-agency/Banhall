@@ -102,8 +102,8 @@ describe("wholeMonthsBetween", () => {
 
 describe("labels", () => {
   it("formats the year end in UTC", () => {
-    expect(formatYearEnd(day("2026-09-30"))).toBe("Sep 30, 2026");
-    expect(formatYearEnd(day("2025-03-31"))).toBe("Mar 31, 2025");
+    expect(formatYearEnd(day("2026-09-30"))).toBe("September 30, 2026");
+    expect(formatYearEnd(day("2025-03-31"))).toBe("March 31, 2025");
   });
 
   it("names short years and project counts in plain words", () => {

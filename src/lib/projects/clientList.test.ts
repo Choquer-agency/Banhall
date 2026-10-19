@@ -12,7 +12,7 @@ import {
 } from "./clientList";
 
 describe("client URL state", () => {
-  it("reads the selected client key, treating a blank value as All clients", () => {
+  it("reads the selected client key, treating a blank value as All companies", () => {
     expect(clientKeyFromUrl(new URL("http://x/projects?client=cedarline%20systems"))).toBe(
       "cedarline systems"
     );
@@ -74,10 +74,10 @@ describe("merge copy", () => {
     expect(mergeIntroText(7)).toBe("Pick the name to keep. All 7 projects move to it.");
     expect(mergeIntroText(1)).toBe("Pick the name to keep. The 1 project moves to it.");
     expect(mergeSummaryText(7, "Acuity Insights Inc.", 2)).toBe(
-      "7 projects will show under Acuity Insights Inc. Their fiscal years stay as they are. The other names are removed from the client list."
+      "7 projects will show under Acuity Insights Inc. Their fiscal years stay as they are. The other names are removed from the company list."
     );
     expect(mergeSummaryText(1, "Acme", 1)).toBe(
-      "1 project will show under Acme. Its fiscal year stays as it is. The other name is removed from the client list."
+      "1 project will show under Acme. Its fiscal year stays as it is. The other name is removed from the company list."
     );
   });
 
