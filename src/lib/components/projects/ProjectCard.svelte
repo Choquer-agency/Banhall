@@ -132,7 +132,7 @@
 
   <div class="px-3.5 py-3">
     {#if showCompany}
-      <p data-card-field="client" class="truncate pb-0.5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary">{row.clientName || "No company name"}</p>
+      <p data-card-field="client" class="truncate pb-0.5 text-xs leading-4 text-ink-secondary">{row.clientName || "No company name"}</p>
     {/if}
     {#if selectable && selectionActive}
       <!-- Something is ticked: the stretched title is a checkbox for the whole card. -->
@@ -142,7 +142,7 @@
         aria-checked={selected}
         data-card-select={row.id}
         onclick={() => onToggleSelect?.()}
-        class="block w-full rounded-md text-left text-[0.9375rem] leading-5 font-medium text-ink line-clamp-2 after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+        class="block w-full rounded-md text-left text-sm leading-[1.125rem] font-medium text-ink line-clamp-2 after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
       >{row.title}</button>
     {:else}
       <a
@@ -150,7 +150,7 @@
         data-recent-title={row.title}
         data-recent-stage={row.workflowStage ?? undefined}
         data-recent-client={row.clientName || undefined}
-        class="block rounded-md text-[0.9375rem] leading-5 font-medium text-ink line-clamp-2 after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+        class="block rounded-md text-sm leading-[1.125rem] font-medium text-ink line-clamp-2 after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
       >{row.title}</a>
     {/if}
   </div>

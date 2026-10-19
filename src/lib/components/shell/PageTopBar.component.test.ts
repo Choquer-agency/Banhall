@@ -15,7 +15,7 @@ describe("PageTopBar", () => {
     __resetConvexStub();
   });
 
-  it("2026-10-19 standard bar: 64px, 8px sides, a 22/28 500 title, a muted 15px line, no page tile, and the unseen dot on the bell", async () => {
+  it("2026-10-19 standard bar: 64px, 8px sides, a 20/26 500 title, a muted 14px line, no page tile, and the unseen dot on the bell", async () => {
     __setQueryData("changelog:unseenCount", 2);
     await render(PageTopBar, { title: "Settings", subtitle: "Account", icon: IconGear, onOpenNavigation: vi.fn() });
     const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
@@ -23,10 +23,10 @@ describe("PageTopBar", () => {
     expect([getComputedStyle(bar).paddingLeft, getComputedStyle(bar).columnGap]).toEqual(["8px", "10px"]);
     const title = bar.querySelector("h1")!;
     expect(title.textContent).toBe("Settings");
-    expect([getComputedStyle(title).fontSize, getComputedStyle(title).lineHeight, getComputedStyle(title).fontWeight]).toEqual(["22px", "28px", "500"]);
+    expect([getComputedStyle(title).fontSize, getComputedStyle(title).lineHeight, getComputedStyle(title).fontWeight]).toEqual(["20px", "26px", "500"]);
     expect(getComputedStyle(title).color).toBe("rgb(22, 33, 31)");
     const subtitle = bar.querySelector<HTMLElement>("[data-page-subtitle]")!;
-    expect([subtitle.textContent, getComputedStyle(subtitle).fontSize, getComputedStyle(subtitle).color]).toEqual(["Account", "15px", "rgb(107, 127, 123)"]);
+    expect([subtitle.textContent, getComputedStyle(subtitle).fontSize, getComputedStyle(subtitle).color]).toEqual(["Account", "14px", "rgb(107, 127, 123)"]);
     expect(bar.querySelector("[data-page-icon-tile]")).toBeNull();
     expect(bar.querySelector("[data-rail-toggle]")).toBeNull();
     expect(bar.querySelector("[data-page-breadcrumb]")).toBeNull();
@@ -55,7 +55,7 @@ describe("PageTopBar", () => {
     const count = bar.querySelector<HTMLElement>("[data-page-count]")!;
     expect([count.textContent, getComputedStyle(count).fontSize, getComputedStyle(count).lineHeight, getComputedStyle(count).color]).toEqual([
       "42",
-      "15px",
+      "14px",
       "20px",
       "rgb(107, 127, 123)",
     ]);

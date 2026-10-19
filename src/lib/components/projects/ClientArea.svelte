@@ -366,16 +366,16 @@
           class="flex min-w-0 flex-1 items-baseline gap-2.5 rounded-md text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
         >
           {#if group.fiscalYear === null || group.yearEnd === null}
-            <span class="text-[0.9375rem] leading-5 font-medium text-ink">No fiscal year</span>
+            <span class="text-sm leading-5 font-medium text-ink">No fiscal year</span>
           {:else}
-            <span class="shrink-0 text-[0.9375rem] leading-5 font-medium text-ink">FY {group.fiscalYear}</span>
-            <span class="truncate text-sm leading-[1.125rem] text-ink-muted">{formatYearEnd(group.yearEnd)}</span>
+            <span class="shrink-0 text-sm leading-5 font-medium text-ink">FY {group.fiscalYear}</span>
+            <span class="truncate text-[0.8125rem] leading-[1.125rem] text-ink-muted">{formatYearEnd(group.yearEnd)}</span>
             {#if group.shortYearMonths !== null}
               <span data-short-year class="flex h-5 shrink-0 items-center self-center rounded-[0.3125rem] bg-gray-50 px-[0.4375rem] text-xs leading-4 text-ink-secondary">{shortYearLabel(group.shortYearMonths)}</span>
             {/if}
           {/if}
           <span class="flex-1"></span>
-          <span class="shrink-0 text-[0.8125rem] leading-4 text-ink-muted" data-fy-count>{projectCountLabel(group.rows.length, group.more)}</span>
+          <span class="shrink-0 text-xs leading-4 text-ink-muted" data-fy-count>{projectCountLabel(group.rows.length, group.more)}</span>
           <svg class={`size-3.5 shrink-0 self-center text-ink-secondary transition-transform motion-reduce:transition-none ${open ? "" : "rotate-180"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
         </button>
       </h3>
@@ -408,9 +408,9 @@
     <!-- Paper Z3d: the company name at 20/500 with its project count, the
          search on the right, 28px above the first fiscal year. -->
     <div class="flex flex-wrap items-center gap-3 pb-7 pt-5 max-md:pt-1" data-client-header>
-      <h2 data-client-title tabindex="-1" class="min-w-0 truncate text-xl leading-[1.625rem] font-medium text-ink outline-none">{displayName}</h2>
+      <h2 data-client-title tabindex="-1" class="min-w-0 truncate text-lg leading-6 font-medium text-ink outline-none">{displayName}</h2>
       {#if countLabel !== null && !gone}
-        <span class="shrink-0 text-[0.9375rem] leading-5 text-ink-muted" data-client-count>{countLabel === "1" ? "1 project" : `${countLabel} projects`}</span>
+        <span class="shrink-0 text-sm leading-5 text-ink-muted" data-client-count>{countLabel === "1" ? "1 project" : `${countLabel} projects`}</span>
       {/if}
       <div class="flex-1"></div>
       {#if selecting}
@@ -459,7 +459,7 @@
     {:else if q}
       <section aria-labelledby="projects-search-results" data-search-results>
         <div class="flex items-baseline gap-3 pb-3.5">
-          <h3 id="projects-search-results" class="text-[0.9375rem] leading-5 font-medium text-ink" role="status">
+          <h3 id="projects-search-results" class="text-sm leading-5 font-medium text-ink" role="status">
             {raw.length === 0
               ? `No projects match "${q}".`
               : `${raw.length}${hasMore ? "+" : ""} ${raw.length === 1 && !hasMore ? "project matches" : "projects match"}`}
@@ -517,7 +517,7 @@
     {:else}
       <section aria-labelledby="projects-recent" data-recent-projects>
         <div class="flex items-baseline gap-3">
-          <h3 id="projects-recent" class="text-[0.9375rem] leading-5 font-medium text-ink">Recently updated</h3>
+          <h3 id="projects-recent" class="text-sm leading-5 font-medium text-ink">Recently updated</h3>
           {#if selecting}{@render selectAllButton(raw, "Select all")}{/if}
         </div>
         <ul class={`${grid} pt-3.5`}>

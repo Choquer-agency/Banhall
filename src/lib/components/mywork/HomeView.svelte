@@ -97,7 +97,7 @@
        panel's left edge, which sits 12px from the rail. -->
   <header data-workspace-page-header data-home-top-bar class="flex h-16 shrink-0 items-center gap-2.5 px-5">
     <WorkspaceShellControls tone="light" {onOpenNavigation} />
-    <h1 class="shrink-0 text-[1.375rem] font-medium leading-7 text-ink">Home</h1>
+    <h1 class="shrink-0 text-xl font-medium leading-[1.625rem] text-ink">Home</h1>
     <p data-home-greeting class="min-w-0 truncate text-[0.9375rem] leading-5 text-ink-muted max-sm:hidden">{greeting}</p>
     <div class="flex-1"></div>
     <a

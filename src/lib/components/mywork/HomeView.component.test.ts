@@ -123,7 +123,7 @@ describe("Home", () => {
     expect(document.querySelector("[data-home]")?.className).toContain("bg-workspace-shell");
     expect(document.querySelector("[data-home-panel]")?.hasAttribute("data-work-panel")).toBe(true);
     expect(bar.getBoundingClientRect().height).toBe(board(64));
-    expect(getComputedStyle(bar.querySelector("h1")!).fontSize).toBe(boardPx(22));
+    expect(getComputedStyle(bar.querySelector("h1")!).fontSize).toBe(boardPx(20));
     expect(newProject.getBoundingClientRect().height).toBe(board(38));
     expect(getComputedStyle(newProject).borderRadius).toBe(boardPx(9));
     expect(getComputedStyle(newProject).fontSize).toBe(boardPx(15));

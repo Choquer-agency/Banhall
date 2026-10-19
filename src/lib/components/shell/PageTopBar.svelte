@@ -14,7 +14,7 @@
   /**
    * The standard top bar (owner rule, Paper "Top bar" on board Z11a,
    * 2026-10-19 amendment in docs/design-system.md): a 64px row, 8px sides,
-   * the page title at 22/28 500 in ink, then a muted 15px count (or a muted
+   * the page title at 20/26 500 in ink (owner, 2026-10-19: a step smaller), then a muted 14px count (or a muted
    * subtitle), or a breadcrumb ("Admin / House rules"). Right: a status slot,
    * the bell (What's new, with the unseen dot), the page actions and the
    * primary button. The centre stays free for the View as pill, which the
@@ -116,7 +116,7 @@
     <h1 class="min-w-0 flex-1 truncate text-base leading-[1.375rem] font-medium text-ink">{title}</h1>
   {:else if breadcrumb}
     <!-- B3: "Admin /" is one muted run, then the bar gap, then the page. -->
-    <nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-2.5 text-[1.375rem] leading-7">
+    <nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-2.5 text-xl leading-[1.625rem]">
       <span class="shrink-0 whitespace-pre text-ink-muted"><a
           href={breadcrumb.href}
           data-page-breadcrumb
@@ -125,12 +125,12 @@
       <h1 aria-current="page" class="min-w-0 truncate font-medium text-ink">{title}</h1>
     </nav>
   {:else}
-    <h1 class="min-w-0 shrink truncate text-[1.375rem] font-medium leading-7 text-ink">{title}</h1>
+    <h1 class="min-w-0 shrink truncate text-xl font-medium leading-[1.625rem] text-ink">{title}</h1>
     {#if count !== null && count !== undefined && count !== ""}
-      <span data-page-count class="shrink-0 text-[0.9375rem] leading-5 text-ink-muted">{count}</span>
+      <span data-page-count class="shrink-0 text-sm leading-5 text-ink-muted">{count}</span>
     {/if}
     {#if subtitle}
-      <p data-page-subtitle class="min-w-0 truncate text-[0.9375rem] leading-5 text-ink-muted max-sm:hidden">{subtitle}</p>
+      <p data-page-subtitle class="min-w-0 truncate text-sm leading-5 text-ink-muted max-sm:hidden">{subtitle}</p>
     {/if}
   {/if}
   {#if variant !== "phone"}<div class="flex-1"></div>{/if}
