@@ -334,7 +334,7 @@ describe("Projects page client area", () => {
     await expect.poll(() => fyHeaders().length).toBe(4);
   });
 
-  it("puts a card menu on each card, reachable from the keyboard, with Open, Edit details, Duplicate and Delete", async () => {
+  it("puts a card menu on each card, reachable from the keyboard, with Edit details, Duplicate and Delete", async () => {
     __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
     const onEditDetails = vi.fn();
     await mount("/projects?client=cedarline+systems", { onEditDetails });
@@ -351,8 +351,8 @@ describe("Projects page client area", () => {
     await userEvent.keyboard("{Enter}");
     await expect.poll(() => document.querySelector('[data-card-menu-content="p5"]')).not.toBeNull();
     const items = [...document.querySelectorAll("[data-card-menu-item]")].map((item) => text(item));
-    expect(items).toEqual(["Open", "Edit details", "Duplicate", "Delete"]);
-    expect(document.querySelector('[data-card-menu-item="open"]')?.getAttribute("href")).toBe("/project/p5");
+    // No Open: a click on the card opens the project.
+    expect(items).toEqual(["Edit details", "Duplicate", "Delete"]);
     await userEvent.click(document.querySelector<HTMLElement>('[data-card-menu-item="edit"]')!);
     expect(onEditDetails).toHaveBeenCalledWith("p5");
   });
@@ -375,61 +375,85 @@ describe("Projects page client area", () => {
     await expect.element(page.getByRole("dialog", { name: "Delete Adaptive cold storage controls?" })).toBeVisible();
   });
 
-  it("selects cards with a bottom bar, opens bulk edit, and leaves on Escape", async () => {
+  it("shows a checkbox on hover, a light grey bar once one is ticked, and clears on Escape", async () => {
     __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
     const onBulkEdit = vi.fn();
     await mount("/projects?client=cedarline+systems", { onBulkEdit });
-    await expect.poll(() => document.querySelector("[data-select-start]")).not.toBeNull();
-    await userEvent.click(document.querySelector<HTMLElement>("[data-select-start]")!);
-    expect(selectionCount()).toBe("0 selected");
-    expect(document.querySelector<HTMLButtonElement>("[data-selection-edit]")?.disabled).toBe(true);
-    // The search gives way to Select all and Done, as V4 draws it.
-    expect(document.querySelector("[data-client-search]")).toBeNull();
+    await expect.poll(() => document.querySelector('[data-card-select-box="p5"]')).not.toBeNull();
+    // No Select button and no bar until something is ticked; the checkbox
+    // waits for hover or focus, in a slot that never moves.
+    expect(document.querySelector("[data-select-start]")).toBeNull();
+    expect(document.querySelector("[data-selection-bar]")).toBeNull();
+    expect(getComputedStyle(document.querySelector('[data-card-select-box="p5"]')!).opacity).toBe("0");
 
-    await userEvent.click(page.getByRole("checkbox", { name: "High-efficiency pump control" }));
-    await userEvent.click(page.getByRole("checkbox", { name: "Compressor vibration damping" }));
-    expect(selectionCount()).toBe("2 selected");
+    await userEvent.click(page.getByRole("checkbox", { name: "Select High-efficiency pump control" }));
+    expect(selectionCount()).toBe("1 selected of 6");
+    // Once one is ticked, a click anywhere on another card ticks it.
+    await userEvent.click(page.getByRole("checkbox", { name: "Compressor vibration damping", exact: true }));
+    expect(selectionCount()).toBe("2 selected of 6");
     expect(document.querySelector('[data-card-select="p5"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(document.querySelector('[data-project-board-card][data-selected="true"]')).not.toBeNull();
+    // The search stays.
+    expect(document.querySelector("[data-client-search]")).not.toBeNull();
+    expect(text(document.querySelector("[data-selection-bar]"))).toBe("2 selected of 6 Edit details Clear");
     await userEvent.click(document.querySelector<HTMLElement>("[data-selection-edit]")!);
     expect(onBulkEdit).toHaveBeenCalledTimes(1);
     expect(onBulkEdit.mock.calls[0][0].map((r: { _id: string }) => r._id)).toEqual(["p5", "pa"]);
 
     await userEvent.click(document.querySelector<HTMLElement>("[data-selection-clear]")!);
-    expect(selectionCount()).toBe("0 selected");
+    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
+    await userEvent.click(page.getByRole("checkbox", { name: "Select Defrost cycle prediction" }));
     await userEvent.click(page.getByText("Select all 6"));
-    expect(selectionCount()).toBe("6 selected");
+    expect(selectionCount()).toBe("6 selected of 6");
 
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
-    expect(document.querySelector("[data-client-search]")).not.toBeNull();
+    expect(document.querySelector("[data-card-select]")).toBeNull();
   });
 
-  it("opens the bulk edit side panel by default", async () => {
+  it("keeps keyboard focus on the card when ticking swaps its controls, and on the title after Clear", async () => {
     __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
     await mount("/projects?client=cedarline+systems");
-    await expect.poll(() => document.querySelector("[data-select-start]")).not.toBeNull();
-    await userEvent.click(document.querySelector<HTMLElement>("[data-select-start]")!);
-    await userEvent.click(page.getByRole("checkbox", { name: "Defrost cycle prediction" }));
-    await userEvent.click(document.querySelector<HTMLElement>("[data-selection-edit]")!);
-    await expect.element(page.getByRole("dialog", { name: "Edit 1 project" })).toBeVisible();
-    // The side panel (Paper W3), not the old centered BulkEditDialog.
-    expect(document.querySelector('[data-testid="bulk-edit-panel"]')?.getAttribute("data-projects-panel")).toBe("side");
+    await expect.poll(() => document.querySelector('[data-card-select-box="p5"]')).not.toBeNull();
+    document.querySelector<HTMLElement>('[data-card-select-box="p5"]')!.focus();
+    await userEvent.keyboard(" ");
+    expect(selectionCount()).toBe("1 selected of 6");
+    await expect.poll(() => document.activeElement?.getAttribute("data-card-select")).toBe("p5");
+    await userEvent.keyboard(" ");
+    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
+    await expect.poll(() => document.activeElement?.getAttribute("data-card-select-box")).toBe("p5");
+    await userEvent.keyboard(" ");
+    document.querySelector<HTMLElement>("[data-selection-clear]")!.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
+    await expect.poll(() => document.activeElement?.hasAttribute("data-client-title")).toBe(true);
   });
 
-  it("offers Select only to roles that may bulk edit, not to Financial or while the role loads", async () => {
+  it("opens the bulk edit dialog by default", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => document.querySelector('[data-card-select-box="p6"]')).not.toBeNull();
+    await userEvent.click(page.getByRole("checkbox", { name: "Select Defrost cycle prediction" }));
+    await userEvent.click(document.querySelector<HTMLElement>("[data-selection-edit]")!);
+    await expect.element(page.getByRole("dialog", { name: "Edit 1 project" })).toBeVisible();
+    // The centered dialog (Paper Z7p), not a side panel.
+    expect(document.querySelector('[data-testid="bulk-edit-panel"]')?.hasAttribute("data-form-dialog")).toBe(true);
+  });
+
+  it("offers the checkboxes only to roles that may bulk edit, not to Financial or while the role loads", async () => {
     __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
     __setQueryData("users:getCurrentUser", { _id: "u-1", role: "financial" });
     await mount("/projects?client=cedarline+systems");
     await expect.poll(() => fyHeaders().length).toBe(4);
-    expect(document.querySelector("[data-select-start]")).toBeNull();
+    expect(document.querySelector("[data-card-select-box]")).toBeNull();
     expect(document.querySelector("[data-selection-bar]")).toBeNull();
 
     __setQueryData("users:getCurrentUser", undefined);
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(document.querySelector("[data-select-start]")).toBeNull();
+    expect(document.querySelector("[data-card-select-box]")).toBeNull();
 
     __setQueryData("users:getCurrentUser", { _id: "u-1", role: "writer" });
-    await expect.poll(() => document.querySelector("[data-select-start]")).not.toBeNull();
+    await expect.poll(() => document.querySelector("[data-card-select-box]")).not.toBeNull();
   });
 
   it("marks every group that may still grow while more projects can load, with no Short year tag yet", async () => {

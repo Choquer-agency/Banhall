@@ -6,14 +6,17 @@
   client: "All clients", a search across every project, and the recently
   edited projects, each card naming its client.
 
-  Select turns the cards into checkboxes with a dark bottom bar (Edit
-  details, Clear, Done); Esc leaves it. A selection holds at most 200
-  projects, all of them on screen: a project that leaves the visible set
-  drops out of the selection. Edit details and bulk edit go through the
-  host's callbacks (the host opens its side panels).
+  Selecting (Paper Z7n, 2026-10-19): a checkbox shows on a card's hover
+  (and on keyboard focus and touch). Once one card is ticked every card
+  shows its checkbox, a click anywhere on a card toggles it, and a light
+  grey bar at the bottom reads "N selected of M" with Edit details and
+  Clear; Esc clears. A selection holds at most 200 projects, all of them on
+  screen: a project that leaves the visible set drops out of the selection.
+  Edit details and bulk edit go through the host's callbacks (the host
+  opens its dialogs).
 -->
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
   import { resolve } from "$app/paths";
   import { usePaginatedQuery } from "convex-svelte";
@@ -127,12 +130,44 @@
   );
   const searchLabel = $derived(client ? `Search ${displayName}` : "Search all projects");
 
-  // ─── Select mode (Paper V4) ───────────────────────────────────────────────
-  let selecting = $state(false);
+  // ─── Selection (Paper Z7n) ────────────────────────────────────────────────
   const selected = new SvelteMap<string, DashboardProjectionRow>();
+  /** Something is ticked: every card shows its checkbox and the bar shows. */
+  const selecting = $derived(selected.size > 0);
   let limitHit = $state(false);
 
+  /** The last input was a key press (not a pointer). */
+  let keyboardInput = false;
+
+  /**
+   * Ticking the first card or unticking the last swaps the card's controls
+   * (hover checkbox, whole-card toggle, title link). When focus was on the
+   * control that left, put it on the same card's new one.
+   */
+  async function keepCardFocus(id: string) {
+    // Pointer users keep the browser's own focus; only the keyboard needs it.
+    if (!keyboardInput) return;
+    await tick();
+    const active = document.activeElement;
+    if (active && active !== document.body && document.contains(active)) return;
+    const escaped = CSS.escape(id);
+    document
+      .querySelector<HTMLElement>(
+        `[data-card-select="${escaped}"], [data-card-select-box="${escaped}"]`
+      )
+      ?.focus();
+  }
+
+  /** The bar left with focus in it (Clear, Escape): focus the client title. */
+  async function keepAreaFocus() {
+    await tick();
+    const active = document.activeElement;
+    if (active && active !== document.body && document.contains(active)) return;
+    document.querySelector<HTMLElement>("[data-client-title]")?.focus();
+  }
+
   function toggle(source: DashboardProjectionRow) {
+    void keepCardFocus(source._id);
     if (selected.has(source._id)) {
       selected.delete(source._id);
       limitHit = false;
@@ -167,9 +202,8 @@
     limitHit = false;
   }
 
-  /** Leaves select mode with nothing selected (after a bulk edit is applied). */
+  /** Leaves the selection (after a bulk edit is applied). */
   export function endSelect() {
-    selecting = false;
     clearSelection();
   }
 
@@ -195,6 +229,7 @@
     // An open dialog or menu takes Escape for itself.
     if (document.querySelector('[role="dialog"], [role="menu"]')) return;
     endSelect();
+    void keepAreaFocus();
   }
 
   /** Focus the page search (the rail's search and Home's search handoff). */
@@ -232,12 +267,14 @@
     "flex h-[1.875rem] shrink-0 items-center rounded-[0.4375rem] border border-line px-2.5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
   const textButton =
     "shrink-0 rounded-md text-xs leading-4 font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11";
-  const barButton =
-    "flex h-[1.875rem] items-center rounded-[0.4375rem] px-2.5 text-[0.8125rem] leading-[1.125rem] text-white transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-light disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11";
   const grid = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-3";
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
+<svelte:window
+  onkeydown={handleWindowKeydown}
+  onkeydowncapture={() => (keyboardInput = true)}
+  onpointerdowncapture={() => (keyboardInput = false)}
+/>
 
 {#snippet card(source: DashboardProjectionRow, showClient: boolean, showFiscalYear: boolean)}
   {@const row = tableRows.get(source._id) ?? toProjectsTableRow(source)}
@@ -247,8 +284,9 @@
       {showClient}
       {showFiscalYear}
       showStage
-      selectable={selecting}
+      selectable={canSelect}
       selected={selected.has(source._id)}
+      selectionActive={selecting}
       onToggleSelect={() => toggle(source)}
     >
       {#snippet actions()}
@@ -322,34 +360,29 @@
       <div class="flex-1"></div>
       {#if selecting}
         {@render selectAllButton(raw, `Select all ${raw.length}${hasMore ? "+" : ""}`)}
-        <button type="button" data-select-done onclick={endSelect} class={`${quietButton} font-medium text-ink`}>Done</button>
-      {:else}
-        <div role="search" class="relative w-[16.25rem] max-w-full max-md:order-last max-md:w-full">
-          <IconSearch size={14} strokeWidth={1.4} class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-ink-muted" />
-          <input
-            bind:this={searchEl}
-            bind:value={searchInput}
-            type="search"
-            data-client-search
-            aria-label={searchLabel}
-            placeholder={searchLabel}
-            autocomplete="off"
-            onkeydown={(event) => {
-              if (event.key !== "Escape") return;
-              if (searchInput) {
-                event.stopPropagation();
-                clearSearch();
-              } else {
-                event.currentTarget.blur();
-              }
-            }}
-            class="field-control h-[1.875rem] w-full rounded-[0.4375rem] bg-gray-50! pl-7 pr-2 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint pointer-coarse:h-11"
-          />
-        </div>
-        {#if canSelect}
-          <button type="button" data-select-start onclick={() => (selecting = true)} class={quietButton}>Select</button>
-        {/if}
       {/if}
+      <div role="search" class="relative w-[16.25rem] max-w-full max-md:order-last max-md:w-full">
+        <IconSearch size={14} strokeWidth={1.4} class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-ink-muted" />
+        <input
+          bind:this={searchEl}
+          bind:value={searchInput}
+          type="search"
+          data-client-search
+          aria-label={searchLabel}
+          placeholder={searchLabel}
+          autocomplete="off"
+          onkeydown={(event) => {
+            if (event.key !== "Escape") return;
+            if (searchInput) {
+              event.stopPropagation();
+              clearSearch();
+            } else {
+              event.currentTarget.blur();
+            }
+          }}
+          class="field-control h-[1.875rem] w-full rounded-[0.4375rem] bg-gray-50! pl-7 pr-2 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint pointer-coarse:h-11"
+        />
+      </div>
     </div>
 
     {#if activeQ.error}
@@ -465,20 +498,28 @@
         role="toolbar"
         aria-label="Selected projects"
         data-selection-bar
-        class="pointer-events-auto flex h-11 w-full max-w-[28.75rem] items-center gap-1 rounded-[0.6875rem] bg-ink pl-3.5 pr-1.5 shadow-toast-dark"
+        class="pointer-events-auto flex h-12 w-full max-w-[28.75rem] items-center gap-2 rounded-[0.625rem] border border-line bg-gray-50 pl-4 pr-2 shadow-selection-bar"
       >
-        <p class="text-[0.8125rem] leading-[1.125rem] font-medium text-white" aria-live="polite" data-selection-count>{selected.size} selected</p>
+        <p class="flex min-w-0 items-baseline gap-1.5" aria-live="polite" data-selection-count>
+          <span class="text-sm leading-5 font-medium text-ink">{selected.size} selected</span>
+          <span class="text-[0.8125rem] leading-4 text-ink-muted">of {raw.length}{hasMore ? "+" : ""}</span>
+        </p>
         <div class="flex-1"></div>
         <button
           type="button"
           data-selection-edit
-          disabled={selected.size === 0}
           onclick={() => onBulkEdit([...selected.values()])}
-          class={`${barButton} bg-white/15`}
+          class="flex h-8 items-center rounded-lg border border-line bg-surface px-3 text-[0.8125rem] leading-[1.125rem] font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11"
         >Edit details</button>
-        <button type="button" data-selection-clear disabled={selected.size === 0} onclick={clearSelection} class={barButton}>Clear</button>
-        <span aria-hidden="true" class="mx-1 h-[1.125rem] w-px bg-white/20"></span>
-        <button type="button" data-selection-done onclick={endSelect} class={barButton}>Done</button>
+        <button
+          type="button"
+          data-selection-clear
+          onclick={() => {
+            clearSelection();
+            void keepAreaFocus();
+          }}
+          class="flex h-8 items-center rounded-lg px-2.5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11"
+        >Clear</button>
       </div>
     </div>
   {/if}

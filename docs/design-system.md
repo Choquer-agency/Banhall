@@ -1240,6 +1240,13 @@ sizes below are at the 16px root; a laptop renders them at 0.9375x.
   `max-w-full`, not `max-w-none`, so the width can ease. A tab's page fades
   in with `.pane-fade-in`. Reduced motion turns all of it off.
 
+### 2026-10-19 amendment - form dialogs (owner direction)
+
+- **One frame.** `FormDialog` (`src/lib/components/ui/FormDialog.svelte`) is the frame for the Projects page form dialogs: Edit details (600 wide), bulk edit, New client and Merge clients (520). A centered dialog, radius 12, `shadow-dialog`, over the `form-dialog-scrim`. The header is the 18/24 500 title with an optional 14/20 line under it and a 32px close button; the body scrolls on its own with 24px side padding; the footer is a `gray-50` band with a `line-soft` top line and the actions on the right, Cancel first and the main action last.
+- **Fields.** Labels are 13/16 500 secondary ink; inputs and picker triggers are 36px, radius 8, 14px text. Inside `[data-form-dialog]` every `field-control` reads `gray-50` with a `line-soft` line; hover and focus take the lagoon line. A bulk edit field that will change carries `data-changed` and keeps the selected lagoon line at rest. The shared classes live in `src/lib/components/ui/formDialog.ts`.
+- **Buttons.** Cancel is white with a `line` border; the main action is the `primary-selected` fill. Both are 36px with 14/18 500 text.
+- **Selection bar.** The Projects page selection bar is light grey: `gray-50` with a `line` border, radius 10, 48px tall, `shadow-selection-bar`, "N selected" at 14/20 500 with "of M" in muted 13px, a white bordered Edit details and a quiet Clear.
+
 ## Panel motion (2026-08-10)
 
 Floating panels animate with a shadcn-style **pop** (owner direction,

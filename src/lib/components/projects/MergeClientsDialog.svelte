@@ -13,12 +13,16 @@
 </script>
 
 <script lang="ts">
+  // Merge clients (Paper W5; 2026-10-14 amendment, "Merge clients"; the
+  // shared FormDialog frame since Paper Z7m, 2026-10-19). The person picks
+  // the name to keep, or types another, and confirms.
   import { untrack } from "svelte";
   import { RadioGroup } from "bits-ui";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { toast } from "svelte-sonner";
-  import TeamDialog from "$lib/components/team/TeamDialog.svelte";
+  import FormDialog from "$lib/components/ui/FormDialog.svelte";
+  import { formCancel, formError, formField, formLabel, formPrimary } from "$lib/components/ui/formDialog";
   import { userErrorMessage } from "$lib/errors";
   import {
     defaultKeepKey,
@@ -122,13 +126,30 @@
     }
   }
 
-  const radioCircle = "flex size-4 shrink-0 items-center justify-center rounded-full border";
+  const keptLabel = $derived(
+    usingOther ? typedName : (clients.find((client) => client.key === keepKey)?.name ?? "")
+  );
+  const option =
+    "flex h-10 w-full items-center gap-2.5 rounded-lg border bg-gray-50 px-3 text-left outline-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
+  const errorBox = "rounded-lg border border-danger-line bg-danger-surface px-3 py-2.5 text-sm leading-5 text-danger-ink-muted";
 </script>
 
-<TeamDialog
+{#snippet radio(checked: boolean)}
+  <span
+    aria-hidden="true"
+    class={`flex size-4 shrink-0 rounded-full bg-surface ${checked ? "border-[0.3125rem] border-primary-selected" : "border-[1.5px] border-gray-300"}`}
+  ></span>
+{/snippet}
+
+{#snippet footer()}
+  <button type="button" disabled={busy} onclick={() => (open = false)} class={formCancel}>Cancel</button>
+  <button type="button" data-confirm-merge disabled={!canMerge} onclick={() => void confirm()} class={formPrimary}>
+    {busy ? "Merging..." : keptLabel ? `Merge into ${keptLabel}` : "Merge clients"}
+  </button>
+{/snippet}
+
+<FormDialog
   bind:open
-  width={480}
-  top={190}
   {busy}
   initialFocus={() =>
     document.querySelector<HTMLElement>(
@@ -137,105 +158,87 @@
   testId="merge-clients-dialog"
   title={`Merge ${clients.length} clients`}
   description={mergeIntroText(projectCount)}
+  {footer}
 >
-  <div class="flex flex-col px-7 pb-1 pt-3">
-    <RadioGroup.Root bind:value={choice} aria-label="Name to keep" class="flex flex-col">
-      {#each clients as client (client.key)}
-        <RadioGroup.Item
-          value={client.key}
-          data-merge-keep={client.key}
-          class="flex h-10 w-full items-center gap-2.5 rounded-md text-left outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:h-11"
-        >
-          {#snippet children({ checked })}
-            <span aria-hidden="true" class={`${radioCircle} ${checked ? "border-fir" : "border-line"}`}>
-              {#if checked}<span class="size-2 rounded-full bg-fir"></span>{/if}
-            </span>
-            <span class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-[1.125rem] text-ink ${checked ? "font-medium" : ""}`}>{client.name}</span>
-            <span class="shrink-0 text-xs leading-4 text-ink-muted">{projectsLabel(client.projectCount)}</span>
-          {/snippet}
-        </RadioGroup.Item>
-      {/each}
-      <div class="flex h-11 items-center gap-2.5">
-        <RadioGroup.Item
-          value={OTHER}
-          aria-label="Use a different name"
-          data-merge-keep="other"
-          onclick={() => queueMicrotask(() => otherInput?.focus())}
-          class="flex size-4 shrink-0 items-center justify-center rounded-full outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:before:absolute pointer-coarse:before:size-11 pointer-coarse:before:content-[''] relative"
-        >
-          {#snippet children({ checked })}
-            <span aria-hidden="true" class={`${radioCircle} ${checked ? "border-fir" : "border-line"}`}>
-              {#if checked}<span class="size-2 rounded-full bg-fir"></span>{/if}
-            </span>
-          {/snippet}
-        </RadioGroup.Item>
-        <input
-          bind:this={otherInput}
-          bind:value={otherName}
-          data-merge-other-name
-          aria-label="Different client name"
-          aria-invalid={usingOther && preview?.nameConflict ? "true" : undefined}
-          placeholder="Use a different name"
-          autocomplete="off"
-          maxlength={200}
-          onfocus={() => (choice = OTHER)}
-          oninput={() => (errorMessage = null)}
-          class="field-control h-8 min-w-0 flex-1 rounded-[0.4375rem] px-2.5 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint pointer-coarse:h-11"
-        />
-      </div>
-    </RadioGroup.Root>
+  <div class="flex flex-col gap-3.5">
+    <div class="flex flex-col gap-1.5">
+      <span class={formLabel} id="merge-keep-label">Name to keep</span>
+      <RadioGroup.Root bind:value={choice} aria-labelledby="merge-keep-label" class="flex flex-col gap-1.5">
+        {#each clients as client (client.key)}
+          <RadioGroup.Item
+            value={client.key}
+            data-merge-keep={client.key}
+            class={`${option} ${choice === client.key ? "border-primary-selected" : "border-line-soft hover:border-primary"}`}
+          >
+            {#snippet children({ checked })}
+              {@render radio(checked)}
+              <span class="min-w-0 flex-1 truncate text-sm leading-5 text-ink">{client.name}</span>
+              <span class="shrink-0 text-[0.8125rem] leading-4 text-ink-muted">{projectsLabel(client.projectCount)}</span>
+            {/snippet}
+          </RadioGroup.Item>
+        {/each}
+        <div class="flex items-center gap-2.5">
+          <RadioGroup.Item
+            value={OTHER}
+            aria-label="Use a different name"
+            data-merge-keep="other"
+            onclick={() => queueMicrotask(() => otherInput?.focus())}
+            class="relative flex size-4 shrink-0 items-center justify-center rounded-full outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:before:absolute pointer-coarse:before:size-11 pointer-coarse:before:content-['']"
+          >
+            {#snippet children({ checked })}
+              {@render radio(checked)}
+            {/snippet}
+          </RadioGroup.Item>
+          <input
+            bind:this={otherInput}
+            bind:value={otherName}
+            data-merge-other-name
+            aria-label="Different client name"
+            aria-invalid={usingOther && preview?.nameConflict ? "true" : undefined}
+            data-changed={usingOther ? "" : undefined}
+            placeholder="Use a different name"
+            autocomplete="off"
+            maxlength={200}
+            onfocus={() => (choice = OTHER)}
+            oninput={() => (errorMessage = null)}
+            class={`field-control ${formField} min-w-0 flex-1`}
+          />
+        </div>
+      </RadioGroup.Root>
+    </div>
 
-    <div class="flex flex-col gap-2 pb-4 pt-2">
-      {#if preview && preview.nameConflict === null && !preview.tooMany}
-        <p data-merge-summary class="rounded-lg bg-gray-50 px-3 py-2.5 text-xs leading-[1.0625rem] text-ink-secondary">
-          {mergeSummaryText(preview.projectCount, preview.keptName, clients.length - 1)}
-        </p>
-      {/if}
-      {#if preview && preview.numberCollisions.length > 0 && preview.nameConflict === null && !preview.tooMany}
-        <ul data-merge-collisions class="flex flex-col gap-1 rounded-lg border border-warning-line bg-warning-surface px-3 py-2.5 text-xs leading-[1.0625rem] text-warning-ink">
-          {#each preview.numberCollisions as collision (`${collision.fiscalYear}:${collision.projectNumber}`)}
-            <li>{mergeCollisionText(collision)}</li>
-          {/each}
-        </ul>
-      {/if}
-      {#if preview?.collisionCheckIncomplete && preview.nameConflict === null && !preview.tooMany}
-        <p data-merge-collisions-incomplete class="rounded-lg border border-warning-line bg-warning-surface px-3 py-2.5 text-xs leading-[1.0625rem] text-warning-ink">
-          Some project numbers could not be checked. Look for repeated numbers after the merge.
-        </p>
-      {/if}
-      {#if preview?.nameConflict}
-        <p role="alert" data-merge-error="name" class="rounded-lg border border-danger-line bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger-ink-muted">
-          {preview.nameConflict} is already a client. Select it in the client list to merge into it, or type another name.
-        </p>
-      {/if}
-      {#if preview?.tooMany}
-        <p role="alert" data-merge-error="too-many" class="rounded-lg border border-danger-line bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger-ink-muted">
-          This merge would move more than 200 projects. Merge fewer clients at a time.
-        </p>
-      {/if}
-      {#if previewError}
-        <p role="alert" data-merge-error="preview" class="rounded-lg border border-danger-line bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger-ink-muted">{previewError}</p>
-      {/if}
-      {#if errorMessage}
-        <p role="alert" data-merge-error="merge" class="rounded-lg border border-danger-line bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger-ink-muted">{errorMessage}</p>
-      {/if}
-    </div>
+    {#if preview && preview.nameConflict === null && !preview.tooMany}
+      <p data-merge-summary class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">
+        {mergeSummaryText(preview.projectCount, preview.keptName, clients.length - 1)}
+      </p>
+    {/if}
+    {#if preview && preview.numberCollisions.length > 0 && preview.nameConflict === null && !preview.tooMany}
+      <ul data-merge-collisions class="flex flex-col gap-1 rounded-lg bg-gap-bg px-3 py-2.5 text-sm leading-5 text-gap-text">
+        {#each preview.numberCollisions as collision (`${collision.fiscalYear}:${collision.projectNumber}`)}
+          <li>{mergeCollisionText(collision)}</li>
+        {/each}
+      </ul>
+    {/if}
+    {#if preview?.collisionCheckIncomplete && preview.nameConflict === null && !preview.tooMany}
+      <p data-merge-collisions-incomplete class="rounded-lg bg-gap-bg px-3 py-2.5 text-sm leading-5 text-gap-text">
+        Some project numbers could not be checked. Look for repeated numbers after the merge.
+      </p>
+    {/if}
+    {#if preview?.nameConflict}
+      <p role="alert" data-merge-error="name" class={errorBox}>
+        {preview.nameConflict} is already a client. Select it in the client list to merge into it, or type another name.
+      </p>
+    {/if}
+    {#if preview?.tooMany}
+      <p role="alert" data-merge-error="too-many" class={errorBox}>
+        This merge would move more than 200 projects. Merge fewer clients at a time.
+      </p>
+    {/if}
+    {#if previewError}
+      <p role="alert" data-merge-error="preview" class={errorBox}>{previewError}</p>
+    {/if}
+    {#if errorMessage}
+      <p role="alert" data-merge-error="merge" class={formError}>{errorMessage}</p>
+    {/if}
   </div>
-  {#snippet footer()}
-    <div class="flex h-[3.75rem] items-center justify-end gap-2 border-t border-line-soft px-[1.375rem]">
-      <button
-        type="button"
-        disabled={busy}
-        onclick={() => (open = false)}
-        class="h-8 rounded-[0.4375rem] px-3 text-[0.8125rem] leading-[1.125rem] text-ink-secondary hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 pointer-coarse:h-11"
-      >Cancel</button>
-      <button
-        type="button"
-        data-confirm-merge
-        disabled={!canMerge}
-        onclick={() => void confirm()}
-        class="h-8 rounded-[0.4375rem] bg-fir px-3.5 text-[0.8125rem] leading-[1.125rem] font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-50 pointer-coarse:h-11"
-      >{busy ? "Merging..." : "Merge clients"}</button>
-    </div>
-  {/snippet}
-</TeamDialog>
+</FormDialog>

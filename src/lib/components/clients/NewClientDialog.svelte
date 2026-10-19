@@ -16,7 +16,8 @@
 </script>
 
 <script lang="ts">
-  // New client (Paper W6 and W9; 2026-10-14 amendment, "Create a client").
+  // New client (Paper W6 and W9; 2026-10-14 amendment, "Create a client";
+  // the shared FormDialog frame since Paper Z7m, 2026-10-19).
   // A name, an optional usual fiscal year end (month and day) and an
   // optional industry. While the name is typed, findSimilarClients looks for
   // the same name (Create is refused) and for names that look alike (a
@@ -27,7 +28,8 @@
   import { tick, untrack } from "svelte";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import TeamDialog from "$lib/components/team/TeamDialog.svelte";
+  import FormDialog from "$lib/components/ui/FormDialog.svelte";
+  import { formCancel, formError, formField, formLabel, formPrimary, formSelect } from "$lib/components/ui/formDialog";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
   import { userErrorMessage } from "$lib/errors";
@@ -180,24 +182,31 @@
     }
   }
 
-  const labelClass = "text-xs leading-4 text-ink-secondary";
-  const selectClass =
-    "[&_input]:h-9! [&_input]:rounded-lg! [&_input]:px-2.5! [&_input]:text-[0.8125rem]! pointer-coarse:[&_input]:h-11! [&_button]:right-[0.1875rem]! [&_button_svg]:[stroke-width:1.8]";
+  const notice = "flex items-center gap-2.5 rounded-lg bg-gap-bg px-3 py-2.5";
+  const noticeText = "min-w-0 flex-1 text-sm leading-5 text-gap-text";
+  const noticeAction =
+    "shrink-0 rounded-md text-sm leading-5 font-medium text-gap-text hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy pointer-coarse:min-h-11";
 </script>
 
-<TeamDialog
+{#snippet footer()}
+  <button type="button" disabled={busy} onclick={() => (open = false)} class={formCancel}>Cancel</button>
+  <button type="button" data-create-client disabled={!canCreate} onclick={() => void create()} class={formPrimary}>
+    {busy ? "Creating..." : "Create client"}
+  </button>
+{/snippet}
+
+<FormDialog
   bind:open
-  width={480}
-  top={200}
+  title="New client"
+  {description}
   initialFocus={() => nameInput}
   {busy}
   testId="new-client-dialog"
-  title="New client"
-  {description}
+  {footer}
 >
-  <div class="flex flex-col gap-4 px-7 pt-5 pb-1">
+  <div class="flex flex-col gap-3.5">
     <div class="flex flex-col gap-1.5">
-      <label for="new-client-name" class={labelClass}>Client name</label>
+      <label for="new-client-name" class={formLabel}>Name</label>
       <input
         id="new-client-name"
         bind:this={nameInput}
@@ -213,36 +222,22 @@
             void create();
           }
         }}
-        class="field-control h-9 w-full rounded-lg px-2.5 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint pointer-coarse:h-11"
+        class={`field-control ${formField}`}
       />
       {#if exact}
-        <div class="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-[0.5625rem]" role="status" data-client-exists>
-          <p class="min-w-0 flex-1 text-xs leading-[1.0625rem] text-ink-secondary">
-            {exact.name} already exists, with {projectCount(exact.projectCount)}.
-          </p>
-          <button
-            type="button"
-            data-use-client={exact.key}
-            onclick={() => useExisting(exact)}
-            class="shrink-0 rounded-md text-xs leading-[1.0625rem] font-medium text-primary-selected hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >Use that client</button>
+        <div class={notice} role="status" data-client-exists>
+          <p class={noticeText}>{exact.name} already exists, with {projectCount(exact.projectCount)}.</p>
+          <button type="button" data-use-client={exact.key} onclick={() => useExisting(exact)} class={noticeAction}>Use that client</button>
         </div>
       {/if}
       {#each lookAlikes as client (client.key)}
-        <div class="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-[0.5625rem]" role="status" data-client-similar>
-          <p class="min-w-0 flex-1 text-xs leading-[1.0625rem] text-ink-secondary">
-            {client.name} already exists, with {projectCount(client.projectCount)}.
-          </p>
-          <button
-            type="button"
-            data-use-client={client.key}
-            onclick={() => useExisting(client)}
-            class="shrink-0 rounded-md text-xs leading-[1.0625rem] font-medium text-primary-selected hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >Use that client</button>
+        <div class={notice} role="status" data-client-similar>
+          <p class={noticeText}>Looks like {client.name} ({projectCount(client.projectCount)}).</p>
+          <button type="button" data-use-client={client.key} onclick={() => useExisting(client)} class={noticeAction}>Use that client</button>
         </div>
       {/each}
       {#if checkFailed}
-        <p role="alert" class="flex flex-wrap items-center gap-x-2 text-xs leading-4 text-danger-ink-muted" data-client-check-error>
+        <p role="alert" class={`flex flex-wrap items-center gap-x-2 ${formError}`} data-client-check-error>
           We could not check this name.
           <button
             type="button"
@@ -253,61 +248,44 @@
         </p>
       {/if}
       {#if errorMessage}
-        <p role="alert" class="rounded-lg border border-danger-line bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger-ink-muted" data-new-client-error>{errorMessage}</p>
+        <p role="alert" class={formError} data-new-client-error>{errorMessage}</p>
       {/if}
     </div>
 
     <div class="flex flex-col gap-1.5">
-      <span class={labelClass} id="new-client-year-end-label">Usual fiscal year end</span>
-      <div class="flex gap-2" role="group" aria-labelledby="new-client-year-end-label">
-        <SelectInput
-          id="new-client-year-end-month"
-          bind:value={month}
-          items={MONTH_ITEMS}
-          placeholder="Month"
-          ariaLabel="Usual fiscal year end month"
-          class={`min-w-0 flex-1 ${selectClass}`}
-          onValueChange={() => (filledFromProject = false)}
-        />
-        <SelectInput
-          id="new-client-year-end-day"
-          bind:value={day}
-          items={dayItems}
-          placeholder="Day"
-          ariaLabel="Usual fiscal year end day"
-          class={`w-[5.625rem] shrink-0 ${selectClass}`}
-          onValueChange={() => (filledFromProject = false)}
-        />
-      </div>
-      <p class="text-xs leading-4 text-ink-muted" data-year-end-helper>
-        {yearEndIncomplete
-          ? "Pick both a month and a day, or leave both empty."
-          : filledFromProject
-            ? "Filled from this project. New projects for this client start with it."
-            : "Fills the fiscal year on new projects. You can change it on any project."}
-      </p>
+        <span class={formLabel} id="new-client-year-end-label">Usual fiscal year end</span>
+        <div class="flex gap-2" role="group" aria-labelledby="new-client-year-end-label">
+          <SelectInput
+            id="new-client-year-end-month"
+            bind:value={month}
+            items={MONTH_ITEMS}
+            placeholder="Month"
+            ariaLabel="Usual fiscal year end month"
+            class={`min-w-0 flex-1 ${formSelect}`}
+            onValueChange={() => (filledFromProject = false)}
+          />
+          <SelectInput
+            id="new-client-year-end-day"
+            bind:value={day}
+            items={dayItems}
+            placeholder="Day"
+            ariaLabel="Usual fiscal year end day"
+            class={`w-28 shrink-0 ${formSelect}`}
+            onValueChange={() => (filledFromProject = false)}
+          />
+        </div>
+        <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted" data-year-end-helper>
+          {yearEndIncomplete
+            ? "Pick both a month and a day, or leave both empty."
+            : filledFromProject
+              ? "Filled from this project. New projects for this client start with it."
+              : "Optional. It fills in on new projects for this client, and you can change it on any project."}
+        </p>
     </div>
 
     <div class="flex flex-col gap-1.5">
-      <label for="new-client-industry" class={labelClass}>Industry</label>
-      <IndustrySelect id="new-client-industry" bind:value={industry} canCreate={canAddIndustry} class={selectClass} />
+      <label for="new-client-industry" class={formLabel}>Industry</label>
+      <IndustrySelect ariaLabel="Industry" id="new-client-industry" bind:value={industry} canCreate={canAddIndustry} class={formSelect} />
     </div>
   </div>
-  {#snippet footer()}
-    <div class="mt-4 flex h-[3.75rem] shrink-0 items-center justify-end gap-2 border-t border-line-soft px-[1.375rem]">
-      <button
-        type="button"
-        disabled={busy}
-        onclick={() => (open = false)}
-        class="h-8 rounded-lg px-3 text-[0.8125rem] leading-[1.125rem] text-ink-secondary hover:bg-primary-wash hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 pointer-coarse:h-11"
-      >Cancel</button>
-      <button
-        type="button"
-        data-create-client
-        disabled={!canCreate}
-        onclick={() => void create()}
-        class="h-8 rounded-lg bg-fir px-3.5 text-[0.8125rem] leading-[1.125rem] font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fir focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:h-11"
-      >{busy ? "Creating..." : "Create client"}</button>
-    </div>
-  {/snippet}
-</TeamDialog>
+</FormDialog>

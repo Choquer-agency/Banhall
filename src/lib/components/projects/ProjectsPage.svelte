@@ -9,9 +9,10 @@
   Below `md` the client list fills the width; choosing a client (or All
   clients) shows the client area with a back link.
 
-  Edit details on a card opens ProjectEditPanel (W2) and Edit details in the
-  selection bar opens BulkEditPanel (W3, W4). A host may take either over
-  with `onEditDetails(projectId)` or `onBulkEdit(rows)`.
+  Edit details on a card opens ProjectEditPanel and Edit details in the
+  selection bar opens BulkEditPanel, both centered dialogs (Paper Z7m to
+  Z7p, 2026-10-19). A host may take either over with
+  `onEditDetails(projectId)` or `onBulkEdit(rows)`.
 -->
 <script lang="ts">
   import { tick } from "svelte";
@@ -45,9 +46,9 @@
     initialSearch?: string;
     /** All clients count, from the top bar ("128", "1000+"). */
     totalLabel?: string | null;
-    /** Edit details on a card. Default: the edit side panel. */
+    /** Edit details on a card. Default: the Edit details dialog. */
     onEditDetails?: (projectId: string) => void;
-    /** Edit details for a selection. Default: the bulk edit side panel. */
+    /** Edit details for a selection. Default: the bulk edit dialog. */
     onBulkEdit?: (rows: DashboardProjectionRow[]) => void;
   } = $props();
 
@@ -170,10 +171,10 @@
   } | null = $state(null);
   let deleteTarget = $state<{ id: string; title: string } | null>(null);
   let deleteOpen = $state(false);
-  // The bulk panel follows the live selection: it holds the projects picked
+  // The bulk dialog follows the live selection: it holds the projects picked
   // when it opened that are still selected, with their latest values. A
   // project that leaves the visible set drops out of the selection
-  // (ClientArea) and so out of the panel; the panel closes once none is left.
+  // (ClientArea) and so out of the dialog; it closes once none is left.
   let bulkIds = $state<ReadonlySet<string>>(new Set());
   let bulkOpen = $state(false);
   const bulkRows = $derived.by(() => {
@@ -186,7 +187,7 @@
   let editProjectId = $state<string | null>(null);
   let editOpen = $state(false);
 
-  /** The card's "..." trigger, where focus goes back after the panel. */
+  /** The card's "..." trigger, where focus goes back after the dialog. */
   function cardMenuTrigger(projectId: string | null) {
     if (projectId === null) return null;
     return document.querySelector<HTMLElement>(`[data-card-menu="${CSS.escape(projectId)}"]`);
@@ -219,7 +220,7 @@
     bulkOpen = true;
   }
 
-  /** Applied: leave select mode and keep the page where it is. */
+  /** Applied: clear the selection and keep the page where it is. */
   function onBulkApplied() {
     area?.endSelect();
   }
@@ -227,7 +228,7 @@
   function bulkReturnFocus() {
     return (
       document.querySelector<HTMLElement>("[data-selection-edit]") ??
-      document.querySelector<HTMLElement>("[data-select-start]")
+      document.querySelector<HTMLElement>("[data-client-title]")
     );
   }
 
@@ -314,7 +315,6 @@
     projectId={editProjectId}
     {viewer}
     returnFocus={() => cardMenuTrigger(editProjectId)}
-    onDelete={requestDelete}
   />
 {/if}
 

@@ -1,6 +1,7 @@
 <!--
-  The "..." menu on a Projects page card (Paper V1, 2026-10-14 amendment):
-  Open, Edit details, Duplicate and Delete. The trigger shows on card hover
+  The "..." menu on a Projects page card (Paper V1, 2026-10-14 amendment;
+  Open removed 2026-10-16, a click on the card opens it): Edit details,
+  Duplicate and Delete. The trigger shows on card hover
   and on keyboard focus inside the card, and always on touch screens, so
   nothing is hover-only. It sits above the card's stretched title link
   (`relative z-10`). Duplicate and Delete appear only when the viewer may use
@@ -9,8 +10,7 @@
 -->
 <script lang="ts">
   import { DropdownMenu } from "bits-ui";
-  import { resolve } from "$app/paths";
-  import { ArrowSquareOutIcon, CopyIcon, PencilSimpleIcon, TrashIcon } from "phosphor-svelte";
+  import { CopyIcon, PencilSimpleIcon, TrashIcon } from "phosphor-svelte";
   import { IconMore } from "$lib/components/icons";
 
   let {
@@ -51,14 +51,6 @@
       data-card-menu-content={projectId}
       class="z-[100] min-w-[11.25rem] rounded-xl border border-line bg-surface p-1.5 shadow-menu outline-none"
     >
-      <DropdownMenu.Item class="rounded-md outline-none data-[highlighted]:bg-primary-wash">
-        {#snippet child({ props })}
-          <a {...props} href={resolve("/project/[id]", { id: projectId })} data-card-menu-item="open" class={item}>
-            <ArrowSquareOutIcon size="0.9375rem" class="text-ink-muted" aria-hidden="true" />
-            Open
-          </a>
-        {/snippet}
-      </DropdownMenu.Item>
       <DropdownMenu.Item onSelect={onEditDetails} data-card-menu-item="edit" class={item}>
         <PencilSimpleIcon size="0.9375rem" class="text-ink-muted" aria-hidden="true" />
         Edit details

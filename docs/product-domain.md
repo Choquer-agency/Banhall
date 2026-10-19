@@ -254,6 +254,19 @@ These decisions provide defaults so implementation does not invent product behav
 
 ## Approved amendments
 
+### 2026-10-19 - Projects page dialogs and selection
+
+Presentation amendment to the 2026-10-14 entry below, from the Paper rows Z7j to Z7p. Storage, authorization, workflow stages and the `bulkUpdateProjects` scope do not change.
+
+- **Affected scope:** untracked owner direction (no BNH ticket), given in the Paper design session of 2026-10-16 to 2026-10-19.
+- **One dialog frame:** Edit details, bulk edit, New client and Merge clients are centered dialogs over a dark scrim, with the same frame: the title and a close button, the fields, and a grey footer with Cancel and the main action together on the right. Every field in them is light grey. No side panels remain on the Projects page.
+- **Edit details:** titled "Edit details" with no project number, owner or stage. The fields sit in two columns (title and number, SR&ED title, client and fiscal year end, industry and science code, tags). Delete project is no longer in it; it stays in the card menu.
+- **Bulk edit:** every field starts at "No change". A field that will change shows a lagoon border and a small Reset under it on the right. Each picker can also clear the field on every project (the date picker's and science code picker's Clear, Industry's "Not set"). The review step is removed: Apply writes at once. A Consultant still sees, in the footer, how many selected projects are not theirs and will be skipped.
+- **Selection:** the Select button and select mode are removed. A checkbox shows on a card's hover, on keyboard focus and on touch screens, in a slot that never moves. Once one card is ticked, every card shows its checkbox and a click anywhere on a card toggles it. A light grey bar reads "N selected of M" with Edit details and Clear (no Done). Escape clears the selection. A selected card has a 1px border in its stage color.
+- **Card menu:** Open is removed; a click on the card opens the project. The menu is Edit details, Duplicate and Delete.
+- **Tests:** `ProjectsPanels.component.test.ts`, `ProjectsPage.component.test.ts` and `NewClientDialog.component.test.ts`.
+- **Approval:** product owner picks of 2026-10-17 to 2026-10-19 ("All Edit and drawers should be a centered dialog", grey bar A, Edit details B, bulk edit A, "all inputs on dialogs and should be the same grey", the review step may go, Cancel on the right with Apply).
+
 ### 2026-10-14 - Saved clients, client merge, and the Projects page redesign
 
 Storage, authorization and presentation amendment. It starts the D7 client migration (widen, backfill, dual write) and redesigns the Projects page from the Paper exploration "Projects page, exploration" (boards U1, V1, V4 and W1 to W9). Workflow stages, transitions, ownership and report rules do not change.

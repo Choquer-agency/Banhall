@@ -78,7 +78,16 @@
   }
 </script>
 
-<svelte:window onclick={onWindowClick} onkeydown={(e) => e.key === "Escape" && (open = false)} />
+<!-- Capture phase: an open dropdown takes Escape for itself, so a dialog
+     around the picker stays open. -->
+<svelte:window
+  onclick={onWindowClick}
+  onkeydowncapture={(e) => {
+    if (e.key !== "Escape" || !open) return;
+    e.stopPropagation();
+    open = false;
+  }}
+/>
 
 {#snippet dropdown()}
   {#if open && !readonly}

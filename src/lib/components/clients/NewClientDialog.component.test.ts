@@ -40,7 +40,7 @@ describe("NewClientDialog", () => {
     await expect.poll(dialog).not.toBeNull();
     await expect.element(page.getByRole("dialog", { name: "New client" })).toBeInTheDocument();
     expect(text(dialog())).toContain("Clients appear in the Client list when you start a project.");
-    expect(text(dialog())).toContain("Fills the fiscal year on new projects. You can change it on any project.");
+    expect(text(dialog())).toContain("Optional. It fills in on new projects for this client, and you can change it on any project.");
     expect(text(dialog())).not.toMatch(/[\u2010-\u2015\u00b7]/);
     await expect.poll(() => document.activeElement).toBe(nameField());
     // Nothing typed: Create waits for a name.
@@ -82,7 +82,7 @@ describe("NewClientDialog", () => {
     await render(NewClientDialog, { open: true });
     await userEvent.fill(nameField(), "Cedarline Systems Inc");
     await expect.poll(() => text(document.querySelector("[data-client-similar]"))).toBe(
-      "Cedarline Systems already exists, with 1 project. Use that client"
+      "Looks like Cedarline Systems (1 project). Use that client"
     );
     expect(createButton().disabled).toBe(false);
   });
@@ -215,7 +215,7 @@ describe("NewClientDialog", () => {
     await screen.rerender({ open: true, initialName: "Second" });
     await expect.poll(() => nameField()?.value).toBe("Second");
     expect(text(document.querySelector("[data-year-end-helper]"))).toBe(
-      "Fills the fiscal year on new projects. You can change it on any project."
+      "Optional. It fills in on new projects for this client, and you can change it on any project."
     );
   });
 });

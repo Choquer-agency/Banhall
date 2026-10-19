@@ -1,9 +1,10 @@
 <!--
-  Edit details for one project (Paper W2; 2026-10-14 amendment, "Edit
-  details panel"). A side panel over the cards with the project's detail
-  fields: title, SR&ED title, client, fiscal year end, project number,
-  industry, science code and tags. Owner and stage are read only; the stage
-  changes inside the project.
+  Edit details for one project (Paper Z7m and Z7o, 2026-10-19; replaces the
+  2026-10-14 side panel). A centered FormDialog, 600 wide, titled "Edit
+  details" with the project's detail fields in two columns: title and
+  project number, SR&ED title, client and fiscal year end, industry and
+  science code, then tags. Owner, stage and Delete are not here: the stage
+  changes inside the project and Delete stays in the card menu.
 
   The details come from the same reads as the project page's Details panel
   (`projects.getProject`, `projects.getProjectDetailsPanel`); the edit gate is
@@ -11,23 +12,17 @@
   scope. Save writes only the fields that changed, through the existing
   single-project mutations, in field order. A failed write stops there with
   its message under the field and keeps every edit; the fields saved before
-  it stay saved. A refusal from the server turns the panel read only with a
+  it stay saved. A refusal from the server turns the dialog read only with a
   sentence that says why.
-
-  Delete stays the card menu's Delete dialog: the panel's Delete project
-  hands the project back to the host, and shows only to people the card
-  menu would show it to (canDeleteProject).
 -->
 <script lang="ts">
   import { untrack } from "svelte";
-  import { Dialog } from "bits-ui";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { toast } from "svelte-sonner";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
-  import { WORKFLOW_STAGE_LABELS } from "../../../../shared/workflowLabels";
-  import { IconCalendar, IconChevronDown, IconClose } from "$lib/components/icons";
+  import { IconCalendar, IconChevronDown } from "$lib/components/icons";
   import DatePicker from "$lib/components/ui/DatePicker.svelte";
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
   import ClientCombobox from "$lib/components/project-new/ClientCombobox.svelte";
@@ -44,15 +39,22 @@
   import { addedClientOption, type ClientOption } from "$lib/clients/clientOptions";
   import { canCreateProjects } from "$lib/workspace/projectDuplicate";
   import type { CapabilityRole } from "../../../../shared/capabilities";
-  import { canDeleteProject } from "$lib/workspace/projectDelete";
   import {
     changedProjectFields,
-    editPanelTitle,
     projectEditValues,
     type ProjectEditField,
     type ProjectEditValues,
   } from "$lib/projects/projectEdit";
-  import ProjectsSidePanel from "./ProjectsSidePanel.svelte";
+  import FormDialog from "$lib/components/ui/FormDialog.svelte";
+  import {
+    formCancel,
+    formError,
+    formField,
+    formLabel,
+    formPicker,
+    formPrimary,
+    formSelect,
+  } from "$lib/components/ui/formDialog";
 
   type Viewer = { _id: string; role?: CapabilityRole | null; isAnonymous?: boolean } | null;
 
@@ -61,16 +63,13 @@
     projectId,
     viewer,
     returnFocus = undefined,
-    onDelete = undefined,
   }: {
     open?: boolean;
     /** The project to edit; the panel reads it while open. */
     projectId: string | null;
     viewer: Viewer;
-    /** Where focus goes when the panel closes (the card's menu trigger). */
+    /** Where focus goes when the dialog closes (the card's menu trigger). */
     returnFocus?: () => HTMLElement | null | undefined;
-    /** Delete project: the host closes the panel and opens its Delete dialog. */
-    onDelete?: (project: { id: string; title: string }) => void;
   } = $props();
 
   const READ_ONLY_REASON =
@@ -140,21 +139,26 @@
   const canEdit = $derived(Boolean(details?.permissions.canEditDetails) && !deniedByServer);
   const changed = $derived(saved && draft ? changedProjectFields(saved, draft) : []);
   const dirty = $derived(canEdit && changed.length > 0);
-  const projectNumber = $derived(saved?.projectNumber ?? project?.projectNumber ?? null);
   // UTC date parts, as the cards, the fiscal year groups and bulk edit read them.
   const fiscalEnd = $derived(draft ? utcDateFromInput(draft.fiscalYearEnd) : null);
   const fiscal = $derived(
     fiscalEnd === null ? null : { date: formatYearEnd(fiscalEnd), year: String(dashboardFiscalYear(fiscalEnd)) }
   );
   const science = $derived(draft ? scienceCodeDisplay(draft.scienceCode || null) : null);
-  const showDelete = $derived(
-    Boolean(onDelete && project && canDeleteProject(viewer, project.createdBy, project.deletionStartedAt !== undefined))
-  );
   const mayCreateClient = $derived(canCreateProjects(viewer));
   const isAdmin = $derived(viewer?.role === "admin");
 
   let titleInput: HTMLInputElement | null = $state(null);
   let closeButton: HTMLButtonElement | null = $state(null);
+  // Opened while still loading, focus starts on Close: move it to the title
+  // once the fields show, unless the person has moved it themselves.
+  $effect(() => {
+    const input = titleInput;
+    if (!open || !input || !canEdit) return;
+    untrack(() => {
+      if (document.activeElement === closeButton) input.focus();
+    });
+  });
 
   // ─── New client from the Client field (W9) ────────────────────────────────
   let newClientOpen = $state(false);
@@ -298,22 +302,6 @@
     }
   }
 
-  function requestDelete() {
-    if (!project || !onDelete) return;
-    const target = { id: String(project._id), title: project.title };
-    open = false;
-    onDelete(target);
-  }
-
-  const labelClass = "text-xs leading-4 text-ink-secondary";
-  // Text inputs add `field-control` in their own class attribute (the
-  // borderless form-control source contract reads it there).
-  const fieldSize =
-    "h-[2.125rem] w-full rounded-[0.4375rem] px-2.5 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint pointer-coarse:h-11";
-  const pickerClass = `field-control ${fieldSize} flex items-center gap-2 text-left`;
-  const selectClass =
-    "[&_input]:h-[2.125rem]! [&_input]:rounded-[0.4375rem]! [&_input]:px-2.5! [&_input]:text-[0.8125rem]! pointer-coarse:[&_input]:h-11! [&_button]:right-[0.1875rem]!";
-  const errorClass = "text-xs leading-4 text-danger-ink-muted";
   const QUICK_PICKS = [
     { label: "Mar 31", month: 3, day: 31 },
     { label: "Jun 30", month: 6, day: 30 },
@@ -324,276 +312,218 @@
 
 {#snippet fieldError(field: ProjectEditField)}
   {#if errors[field]}
-    <p id={`edit-project-${field}-error`} class={errorClass} role="alert" data-edit-error={field}>{errors[field]}</p>
+    <p id={`edit-project-${field}-error`} class={formError} role="alert" data-edit-error={field}>{errors[field]}</p>
   {/if}
 {/snippet}
 
 {#snippet readRow(label: string, value: string | null, attr: string)}
-  <div class="flex min-h-8 items-start gap-3 py-1.5 text-[0.8125rem] leading-[1.125rem]" data-edit-readonly={attr}>
-    <dt class="w-[6.875rem] shrink-0 text-ink-secondary">{label}</dt>
-    <dd class="min-w-0 flex-1 break-words text-ink">{#if value}{value}{:else}<span class="text-ink-faint">Not set</span>{/if}</dd>
+  <div class="flex min-h-9 items-start gap-3 py-2 text-sm leading-5" data-edit-readonly={attr}>
+    <dt class="w-[8.75rem] shrink-0 text-ink-secondary">{label}</dt>
+    <dd class="min-w-0 flex-1 break-words text-ink">{#if value}{value}{:else}<span class="text-ink-muted">Not set</span>{/if}</dd>
   </div>
 {/snippet}
 
-<ProjectsSidePanel
+{#snippet footerNote()}
+  {#if escapeNote}
+    <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted" role="status" data-edit-escape-note>Save your changes, or use Cancel to discard them.</p>
+  {/if}
+{/snippet}
+
+{#snippet footer()}
+  {#if canEdit && draft && !loading}
+    <button type="button" data-edit-cancel disabled={saving} onclick={() => (open = false)} class={formCancel}>Cancel</button>
+    <button type="button" data-edit-save disabled={!dirty || saving} onclick={() => void save()} class={formPrimary}>
+      {saving ? "Saving..." : "Save changes"}
+    </button>
+  {:else}
+    <button type="button" data-edit-done onclick={() => (open = false)} class={formCancel}>Close</button>
+  {/if}
+{/snippet}
+
+<FormDialog
   bind:open
+  bind:closeButton
+  title="Edit details"
+  srDescription="Change this project's details. Only the fields you change are saved."
+  width={600}
   busy={saving}
   {dirty}
   onEscapeBlocked={() => (escapeNote = true)}
   testId="project-edit-panel"
   initialFocus={() => (canEdit && titleInput ? titleInput : closeButton)}
   {returnFocus}
+  {footer}
+  {footerNote}
 >
-  <header class="flex h-14 shrink-0 items-center gap-2 border-b border-line-soft px-5">
-    <Dialog.Title class="min-w-0 truncate text-[0.9375rem] leading-5 font-medium text-ink" data-edit-title>
-      {#if projectNumber}Edit project <span class="font-mono text-xs leading-4 font-normal text-ink-muted">#{projectNumber}</span>{:else}{editPanelTitle(null)}{/if}
-    </Dialog.Title>
-    <div class="flex-1"></div>
-    <Dialog.Close
-      bind:ref={closeButton}
-      aria-label="Close"
-      data-edit-close
-      disabled={saving}
-      class="-mr-2 flex size-8 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
-    >
-      <IconClose size={16} strokeWidth={1.5} />
-    </Dialog.Close>
-  </header>
-
-  <div class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-    {#if loading}
-      <div class="flex flex-col gap-4 p-5" role="status" aria-label="Loading project details" data-edit-loading>
-        {#each [0, 1, 2, 3, 4] as item (item)}
-          <div class="flex flex-col gap-1.5">
-            <span class="h-3 w-20 animate-pulse rounded bg-chrome motion-reduce:animate-none"></span>
-            <span class="h-[2.125rem] animate-pulse rounded-[0.4375rem] bg-chrome motion-reduce:animate-none"></span>
-          </div>
-        {/each}
-      </div>
-    {:else if unavailable || !draft || !details}
-      <p class="p-5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary" role="alert" data-edit-unavailable>
-        This project's details could not be loaded. Close the panel and try again.
+  {#if loading}
+    <div class="flex flex-col gap-3.5" role="status" aria-label="Loading project details" data-edit-loading>
+      {#each [0, 1, 2, 3, 4] as item (item)}
+        <div class="flex flex-col gap-1.5">
+          <span class="h-4 w-24 animate-pulse rounded bg-chrome motion-reduce:animate-none"></span>
+          <span class="h-9 animate-pulse rounded-lg bg-chrome motion-reduce:animate-none"></span>
+        </div>
+      {/each}
+    </div>
+  {:else if unavailable || !draft || !details}
+    <p class="text-sm leading-5 text-ink-secondary" role="alert" data-edit-unavailable>
+      This project's details could not be loaded. Close this and try again.
+    </p>
+  {:else if !canEdit}
+    <div class="flex flex-col gap-3">
+      <p class="rounded-lg bg-gray-50 px-3 py-2.5 text-sm leading-5 text-ink-secondary" role="status" data-edit-read-only>
+        {READ_ONLY_REASON}
       </p>
-    {:else}
-      <Dialog.Description class="sr-only">Change this project's details. Only the fields you change are saved.</Dialog.Description>
-      {#if !canEdit}
-        <div class="flex flex-col gap-3 p-5">
-          <p class="rounded-lg bg-gray-50 px-3 py-2.5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary" role="status" data-edit-read-only>
-            {READ_ONLY_REASON}
-          </p>
-          <dl class="flex flex-col">
-            {@render readRow("Title", draft.title, "title")}
-            {@render readRow("SR&ED title", draft.sredTitle, "sredTitle")}
-            {@render readRow("Client", draft.clientName, "clientName")}
-            {@render readRow("Fiscal year end", fiscal ? `${fiscal.date}, FY ${fiscal.year}` : null, "fiscalYearEnd")}
-            {@render readRow("Project number", draft.projectNumber, "projectNumber")}
-            {@render readRow("Industry", draft.industry ? industryLabel(draft.industry) : null, "industry")}
-            {@render readRow("Science code", science ? `${science.code} ${science.label}` : null, "scienceCode")}
-            {@render readRow(
-              "Tags",
-              (tagsQ.data ?? []).filter((tag) => draft?.tagIds.includes(tag._id)).map((tag) => tag.name).join(", ") || null,
-              "tagIds"
-            )}
-          </dl>
-        </div>
-      {:else}
-        <form
-          class="p-5"
-          data-edit-form
-          onsubmit={(event) => {
-            event.preventDefault();
-            void save();
-          }}
-        >
-          <!-- Read only while a save runs: what it writes was read on Save. -->
-          <fieldset disabled={saving} data-edit-fields class="flex min-w-0 flex-col gap-4">
-            <label class="flex flex-col gap-1.5">
-              <span class={labelClass}>Title</span>
-              <input
-                bind:this={titleInput}
-                bind:value={draft.title}
-                data-edit-field="title"
-                autocomplete="off"
-                aria-invalid={errors.title ? "true" : undefined}
-                aria-describedby={errors.title ? "edit-project-title-error" : undefined}
-                class={`field-control ${fieldSize}`}
-              />
-              {@render fieldError("title")}
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <span class={labelClass}>SR&amp;ED title</span>
-              <input
-                bind:value={draft.sredTitle}
-                data-edit-field="sredTitle"
-                autocomplete="off"
-                placeholder="Add the formal SR&ED title"
-                aria-invalid={errors.sredTitle ? "true" : undefined}
-                class={`field-control ${fieldSize}`}
-              />
-              {@render fieldError("sredTitle")}
-            </label>
-
-            <div class="flex flex-col gap-1.5" data-edit-field="clientName">
-              <label for="edit-project-client" class={labelClass}>Client</label>
-              <ClientCombobox
-                id="edit-project-client"
-                bind:value={draft.clientName}
-                bind:picked={clientPicked}
-                bind:loading={clientsLoading}
-                {extraClients}
-                onNewClient={mayCreateClient ? openNewClient : undefined}
-                inputClass="h-[2.125rem] rounded-[0.4375rem] pl-2.5 text-[0.8125rem]! pointer-coarse:h-11"
-              />
-              {@render fieldError("clientName")}
-            </div>
-
-            <div class="flex flex-col gap-1.5">
-              <div class="flex items-center gap-2">
-                <span class={labelClass} id="edit-project-fiscal-label">Fiscal year end</span>
-                {#if draft.fiscalYearEnd}
-                  <button
-                    type="button"
-                    data-edit-fiscal-clear
-                    onclick={() => draft && (draft.fiscalYearEnd = "")}
-                    class="ml-auto rounded text-xs leading-4 text-ink-muted hover:text-ink hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy"
-                  >Clear</button>
-                {/if}
-              </div>
-              <DatePicker
-                bind:value={draft.fiscalYearEnd}
-                heading="Year end"
-                quickPicks={QUICK_PICKS}
-                helper="The fiscal year takes the year of its end date."
-                disabled={saving}
-              >
-                {#snippet trigger({ props })}
-                  <button {...props} type="button" aria-labelledby="edit-project-fiscal-label" data-edit-field="fiscalYearEnd" class={pickerClass}>
-                    <IconCalendar size={13} strokeWidth={1.4} class="shrink-0 text-ink-secondary" />
-                    {#if fiscal}
-                      <span class="min-w-0 flex-1 truncate">{fiscal.date}</span>
-                      <span class="shrink-0 text-xs leading-4 text-ink-muted" data-edit-fiscal-year>FY {fiscal.year}</span>
-                    {:else}
-                      <span class="min-w-0 flex-1 truncate text-ink-faint">Choose the year end</span>
-                    {/if}
-                  </button>
-                {/snippet}
-              </DatePicker>
-              {@render fieldError("fiscalYearEnd")}
-            </div>
-
-            <div class="flex gap-3">
-              <label class="flex w-[6.875rem] shrink-0 flex-col gap-1.5">
-                <span class={labelClass}>Project number</span>
-                <input
-                  bind:value={draft.projectNumber}
-                  data-edit-field="projectNumber"
-                  autocomplete="off"
-                  placeholder="Not set"
-                  aria-invalid={errors.projectNumber ? "true" : undefined}
-                  aria-describedby={errors.projectNumber ? "edit-project-projectNumber-error" : undefined}
-                  class={`field-control ${fieldSize} font-mono`}
-                />
-              </label>
-              <div class="flex min-w-0 flex-1 flex-col gap-1.5" data-edit-field="industry">
-                <label for="edit-project-industry" class={labelClass}>Industry</label>
-                <IndustrySelect id="edit-project-industry" bind:value={draft.industry} canCreate={isAdmin} disabled={saving} class={selectClass} />
-              </div>
-            </div>
-            {#if errors.projectNumber || errors.industry}
-              <div class="-mt-2 flex flex-col gap-1">
-                {@render fieldError("projectNumber")}
-                {@render fieldError("industry")}
-              </div>
-            {/if}
-
-            <div class="flex flex-col gap-1.5">
-              <span class={labelClass} id="edit-project-science-label">Science code</span>
-              <ScienceCodePicker
-                value={draft.scienceCode || null}
-                onSelect={(code) => {
-                  if (draft) draft.scienceCode = code ?? "";
-                }}
-              >
-                {#snippet trigger({ props })}
-                  <button {...props} type="button" aria-labelledby="edit-project-science-label" data-edit-field="scienceCode" class={pickerClass}>
-                    {#if science}
-                      <span class="min-w-0 flex-1 truncate"><span class="font-mono">{science.code}</span> {science.label}</span>
-                    {:else}
-                      <span class="min-w-0 flex-1 truncate text-ink-faint">Choose a science code</span>
-                    {/if}
-                    <IconChevronDown size={12} strokeWidth={1.4} class="shrink-0 text-ink-muted" />
-                  </button>
-                {/snippet}
-              </ScienceCodePicker>
-              {@render fieldError("scienceCode")}
-            </div>
-
-            <div class="flex flex-col gap-1.5" data-edit-field="tagIds">
-              <span class={labelClass}>Tags</span>
-              <TagPicker allTags={tagsQ.data ?? []} bind:selectedTagIds={draft.tagIds} label={null} variant="field" />
-              {@render fieldError("tagIds")}
-            </div>
-          </fieldset>
-        </form>
-      {/if}
-
-      <dl class="mx-5 mb-5 flex flex-col border-t border-line-soft pt-3" data-edit-readonly-facts>
-        <div class="flex min-h-8 items-center gap-3 text-[0.8125rem] leading-[1.125rem]" data-edit-owner>
-          <dt class="w-[6.875rem] shrink-0 text-ink-secondary">Owner</dt>
-          <dd class="min-w-0 flex-1 truncate text-ink">
-            {#if details.owner}{details.owner.label}{details.owner.isYou ? " (you)" : ""}{:else}<span class="text-ink-faint">No owner recorded</span>{/if}
-          </dd>
-        </div>
-        <div class="flex min-h-8 items-center gap-3 text-[0.8125rem] leading-[1.125rem]" data-edit-stage>
-          <dt class="w-[6.875rem] shrink-0 text-ink-secondary">Stage</dt>
-          <dd class="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 py-1.5">
-            <span class="text-ink">{WORKFLOW_STAGE_LABELS[details.stage]}</span>
-            <span class="text-ink-muted">Changed inside the project</span>
-          </dd>
-        </div>
+      <dl class="flex flex-col">
+        {@render readRow("Title", draft.title, "title")}
+        {@render readRow("SR&ED title", draft.sredTitle, "sredTitle")}
+        {@render readRow("Client", draft.clientName, "clientName")}
+        {@render readRow("Fiscal year end", fiscal ? `${fiscal.date}, FY ${fiscal.year}` : null, "fiscalYearEnd")}
+        {@render readRow("Number", draft.projectNumber, "projectNumber")}
+        {@render readRow("Industry", draft.industry ? industryLabel(draft.industry) : null, "industry")}
+        {@render readRow("Science code", science ? `${science.code} ${science.label}` : null, "scienceCode")}
+        {@render readRow(
+          "Tags",
+          (tagsQ.data ?? []).filter((tag) => draft?.tagIds.includes(tag._id)).map((tag) => tag.name).join(", ") || null,
+          "tagIds"
+        )}
       </dl>
-    {/if}
-  </div>
+    </div>
+  {:else}
+    <form
+      data-edit-form
+      onsubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      <!-- Read only while a save runs: what it writes was read on Save. -->
+      <fieldset disabled={saving} data-edit-fields class="flex min-w-0 flex-col gap-3.5">
+        <div class="flex gap-3">
+          <label class="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span class={formLabel}>Title</span>
+            <input
+              bind:this={titleInput}
+              bind:value={draft.title}
+              data-edit-field="title"
+              autocomplete="off"
+              aria-invalid={errors.title ? "true" : undefined}
+              aria-describedby={errors.title ? "edit-project-title-error" : undefined}
+              class={`field-control ${formField}`}
+            />
+            {@render fieldError("title")}
+          </label>
+          <label class="flex w-24 shrink-0 flex-col gap-1.5">
+            <span class={formLabel}>Number</span>
+            <input
+              bind:value={draft.projectNumber}
+              data-edit-field="projectNumber"
+              autocomplete="off"
+              placeholder="Not set"
+              aria-label="Project number"
+              aria-invalid={errors.projectNumber ? "true" : undefined}
+              aria-describedby={errors.projectNumber ? "edit-project-projectNumber-error" : undefined}
+              class={`field-control ${formField}`}
+            />
+          </label>
+        </div>
+        {#if errors.projectNumber}
+          <div class="-mt-2">{@render fieldError("projectNumber")}</div>
+        {/if}
 
-  <footer class="flex h-[3.75rem] shrink-0 items-center gap-2 border-t border-line-soft px-5">
-    {#if escapeNote}
-      <p class="min-w-0 flex-1 text-xs leading-4 text-ink-muted" role="status" data-edit-escape-note>Save your changes, or use Cancel to discard them.</p>
-    {:else if showDelete && !loading}
-      <button
-        type="button"
-        data-edit-delete
-        disabled={saving}
-        onclick={requestDelete}
-        class="rounded-md text-[0.8125rem] leading-[1.125rem] text-gap-text hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11"
-      >Delete project</button>
-    {/if}
-    <div class="flex-1"></div>
-    {#if canEdit && draft && !loading}
-      <button
-        type="button"
-        data-edit-cancel
-        disabled={saving}
-        onclick={() => (open = false)}
-        class="flex h-8 items-center rounded-[0.4375rem] px-3 text-[0.8125rem] leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11"
-      >Cancel</button>
-      <button
-        type="button"
-        data-edit-save
-        disabled={!dirty || saving}
-        onclick={() => void save()}
-        class="flex h-8 items-center rounded-[0.4375rem] bg-primary-selected px-3.5 text-[0.8125rem] leading-[1.125rem] font-medium text-white transition-colors hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11"
-      >{saving ? "Saving..." : "Save changes"}</button>
-    {:else}
-      <button
-        type="button"
-        data-edit-done
-        onclick={() => (open = false)}
-        class="flex h-8 items-center rounded-[0.4375rem] border border-line px-3 text-[0.8125rem] leading-[1.125rem] text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11"
-      >Close</button>
-    {/if}
-  </footer>
-</ProjectsSidePanel>
+        <label class="flex flex-col gap-1.5">
+          <span class={formLabel}>SR&amp;ED title</span>
+          <input
+            bind:value={draft.sredTitle}
+            data-edit-field="sredTitle"
+            autocomplete="off"
+            placeholder="Add the formal SR&ED title"
+            aria-invalid={errors.sredTitle ? "true" : undefined}
+            class={`field-control ${formField}`}
+          />
+          {@render fieldError("sredTitle")}
+        </label>
+
+        <div class="flex gap-3 max-sm:flex-col">
+          <div class="flex min-w-0 flex-1 flex-col gap-1.5" data-edit-field="clientName">
+            <label for="edit-project-client" class={formLabel}>Client</label>
+            <ClientCombobox
+              id="edit-project-client"
+              bind:value={draft.clientName}
+              bind:picked={clientPicked}
+              bind:loading={clientsLoading}
+              {extraClients}
+              onNewClient={mayCreateClient ? openNewClient : undefined}
+              inputClass="h-9 rounded-lg pl-3 text-sm! pointer-coarse:h-11"
+            />
+            {@render fieldError("clientName")}
+          </div>
+
+          <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span class={formLabel} id="edit-project-fiscal-label">Fiscal year end</span>
+            <DatePicker
+              bind:value={draft.fiscalYearEnd}
+              heading="Year end"
+              quickPicks={QUICK_PICKS}
+              helper="The fiscal year takes the year of its end date."
+              clearLabel={draft.fiscalYearEnd ? "Clear the year end" : undefined}
+              onClear={() => draft && (draft.fiscalYearEnd = "")}
+              disabled={saving}
+            >
+              {#snippet trigger({ props })}
+                <button {...props} type="button" aria-labelledby="edit-project-fiscal-label" data-edit-field="fiscalYearEnd" class={`field-control ${formPicker}`}>
+                  {#if fiscal}
+                    <span class="min-w-0 flex-1 truncate">{fiscal.date}</span>
+                    <span class="shrink-0 text-[0.8125rem] leading-4 text-ink-muted" data-edit-fiscal-year>FY {fiscal.year}</span>
+                  {:else}
+                    <span class="min-w-0 flex-1 truncate text-ink-muted">Choose the year end</span>
+                    <IconCalendar size={14} strokeWidth={1.4} class="shrink-0 text-ink-muted" />
+                  {/if}
+                </button>
+              {/snippet}
+            </DatePicker>
+            {@render fieldError("fiscalYearEnd")}
+          </div>
+        </div>
+
+        <div class="flex gap-3 max-sm:flex-col">
+          <div class="flex min-w-0 flex-1 flex-col gap-1.5" data-edit-field="industry">
+            <label for="edit-project-industry" class={formLabel}>Industry</label>
+            <IndustrySelect ariaLabel="Industry" id="edit-project-industry" bind:value={draft.industry} canCreate={isAdmin} disabled={saving} class={formSelect} />
+            {@render fieldError("industry")}
+          </div>
+
+          <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span class={formLabel} id="edit-project-science-label">Science code</span>
+            <ScienceCodePicker
+              value={draft.scienceCode || null}
+              onSelect={(code) => {
+                if (draft) draft.scienceCode = code ?? "";
+              }}
+            >
+              {#snippet trigger({ props })}
+                <button {...props} type="button" aria-labelledby="edit-project-science-label" data-edit-field="scienceCode" class={`field-control ${formPicker}`}>
+                  {#if science}
+                    <span class="min-w-0 flex-1 truncate">{science.code} {science.label}</span>
+                  {:else}
+                    <span class="min-w-0 flex-1 truncate text-ink-muted">Choose a science code</span>
+                  {/if}
+                  <IconChevronDown size={14} strokeWidth={1.6} class="shrink-0 text-ink-muted" />
+                </button>
+              {/snippet}
+            </ScienceCodePicker>
+            {@render fieldError("scienceCode")}
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-1.5" data-edit-field="tagIds">
+          <span class={formLabel}>Tags</span>
+          <TagPicker allTags={tagsQ.data ?? []} bind:selectedTagIds={draft.tagIds} label={null} variant="field" />
+          {@render fieldError("tagIds")}
+        </div>
+      </fieldset>
+    </form>
+  {/if}
+</FormDialog>
 
 {#if mayCreateClient}
   <NewClientDialog

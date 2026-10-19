@@ -17,18 +17,16 @@ import {
 } from "$lib/test/convex-svelte-stub.svelte";
 
 /**
- * The Projects page side panels (2026-10-14 amendment, "Edit details panel"
- * and "Select and bulk edit"; Paper W2, W3 and W4): edit one project from
- * its card menu, bulk edit a selection with a review step, and selection
- * hygiene when cards leave the visible set.
+ * The Projects page dialogs (Paper Z7m to Z7p, 2026-10-19; amending the
+ * 2026-10-14 "Edit details panel" and "Select and bulk edit"): edit one
+ * project from its card menu, bulk edit a selection straight from "No
+ * change", and selection hygiene when cards leave the visible set.
  */
 const sonner = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), dismiss: vi.fn() }));
 vi.mock("svelte-sonner", () => ({ toast: sonner }));
 
 const day = (iso: string) => Date.parse(`${iso}T00:00:00Z`);
 const text = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
-/** Rendered text, with table cells and block lines kept apart. */
-const shown = (node: Element | null | undefined) => ((node as HTMLElement | null)?.innerText ?? "").replace(/\s+/g, " ").trim();
 const DASHES = /[\u2010-\u2015\u00b7]/;
 
 const CLIENTS = [
@@ -148,11 +146,12 @@ async function settled(panel: () => HTMLElement | null) {
   await expect.poll(() => panel()!.getAnimations().length).toBe(0);
 }
 
-describe("Edit details panel (W2)", () => {
-  it("opens from the card menu prefilled, with owner and stage read only", async () => {
+describe("Edit details dialog (Z7o)", () => {
+  it("opens from the card menu prefilled, titled Edit details, with no owner, stage or Delete", async () => {
     await mount();
     await openEdit();
-    await expect.element(page.getByRole("dialog", { name: "Edit project #5" })).toBeVisible();
+    await expect.element(page.getByRole("dialog", { name: "Edit details" })).toBeVisible();
+    expect(editPanel()!.hasAttribute("data-form-dialog")).toBe(true);
     await expect.poll(() => field("title")?.value).toBe("High-efficiency pump control");
     expect(document.activeElement).toBe(field("title"));
     expect(field("sredTitle")?.value).toBe("Variable-speed pumping under transient load");
@@ -162,12 +161,16 @@ describe("Edit details panel (W2)", () => {
     expect(editPanel()!.querySelector<HTMLInputElement>("#edit-project-industry")?.value).toBe("Manufacturing");
     expect(text(field<HTMLButtonElement>("scienceCode"))).toBe("2.03.01 Mechanical engineering");
     expect(text(editPanel()!.querySelector("[data-tag-chip]"))).toBe("Controls");
-    expect(text(editPanel()!.querySelector("[data-edit-owner]"))).toBe("Owner Jordan Ellis (you)");
-    expect(text(editPanel()!.querySelector("[data-edit-stage]"))).toBe("Stage Client review Changed inside the project");
-    // Nothing changed yet.
+    expect(text(editPanel())).not.toContain("Owner");
+    expect(text(editPanel())).not.toContain("Client review");
+    // Delete stays in the card menu.
+    expect(editPanel()!.querySelector("[data-edit-delete]")).toBeNull();
+    // Nothing changed yet; Cancel and Save sit together on the right.
     expect(saveButton().disabled).toBe(true);
-    // Delete reuses the card menu's permission; the creator sees it.
-    expect(editPanel()!.querySelector("[data-edit-delete]")).not.toBeNull();
+    expect([...editPanel()!.querySelectorAll("[data-form-dialog-footer] button")].map((node) => text(node))).toEqual([
+      "Cancel",
+      "Save changes",
+    ]);
     expect(text(editPanel())).not.toMatch(DASHES);
   });
 
@@ -444,7 +447,7 @@ describe("Edit details panel (W2)", () => {
     await userEvent.keyboard("{Escape}");
     expect(editPanel()).not.toBeNull();
     expect(document.querySelector<HTMLButtonElement>("[data-edit-cancel]")?.disabled).toBe(true);
-    expect(document.querySelector<HTMLButtonElement>("[data-edit-close]")?.disabled).toBe(true);
+    expect(editPanel()?.querySelector<HTMLButtonElement>("[data-form-dialog-close]")?.disabled).toBe(true);
     release(null);
     await expect.poll(() => editPanel()).toBeNull();
   });
@@ -458,20 +461,14 @@ describe("Edit details panel (W2)", () => {
     await expect.poll(() => document.activeElement?.getAttribute("data-card-menu")).toBe("p5");
   });
 
-  it("hands Delete project to the card menu's Delete dialog", async () => {
-    await mount();
-    await openEdit();
-    await expect.poll(() => editPanel()?.querySelector("[data-edit-delete]")).not.toBeNull();
-    await userEvent.click(editPanel()!.querySelector<HTMLElement>("[data-edit-delete]")!);
-    await expect.element(page.getByRole("dialog", { name: "Delete High-efficiency pump control?" })).toBeVisible();
-    await expect.poll(() => editPanel()).toBeNull();
-  });
 });
 
+/** Ticks the first card with its checkbox; the rest toggle from anywhere on the card. */
 async function selectCards(...titles: string[]) {
-  await expect.poll(() => document.querySelector("[data-select-start]")).not.toBeNull();
-  await userEvent.click(document.querySelector<HTMLElement>("[data-select-start]")!);
-  for (const title of titles) await userEvent.click(page.getByRole("checkbox", { name: title }));
+  const [first, ...rest] = titles;
+  await expect.poll(() => document.querySelector("[data-card-select-box]")).not.toBeNull();
+  await userEvent.click(page.getByRole("checkbox", { name: `Select ${first}` }));
+  for (const title of rest) await userEvent.click(page.getByRole("checkbox", { name: title, exact: true }));
 }
 
 async function openBulk(...titles: string[]) {
@@ -480,74 +477,64 @@ async function openBulk(...titles: string[]) {
   await settled(bulkPanel);
 }
 
-const now = (name: string) => text(bulkPanel()?.querySelector(`[data-bulk-now="${name}"]`));
-const segment = (group: string, label: string) =>
-  page.getByRole("radiogroup", { name: group }).getByRole("radio", { name: label });
+const applyButton = () => document.querySelector<HTMLButtonElement>("[data-bulk-apply]")!;
+const resets = () => [...(bulkPanel()?.querySelectorAll("[data-bulk-reset]") ?? [])].map((node) => node.getAttribute("data-bulk-reset"));
 
-describe("Bulk edit panel (W3, W4)", () => {
-  it("starts every field at No change and sums up what the selection holds now", async () => {
+async function clearOnEvery(trigger: "[data-bulk-date]" | "[data-bulk-science]") {
+  await userEvent.click(bulkPanel()!.querySelector<HTMLElement>(trigger)!);
+  await userEvent.click(page.getByRole("button", { name: "Clear on every project" }));
+}
+
+async function pickIndustry(label: string) {
+  await userEvent.click(bulkPanel()!.querySelector<HTMLElement>("#bulk-edit-industry")!);
+  await userEvent.click(page.getByRole("option", { name: label, exact: true }));
+}
+
+describe("Bulk edit dialog (Z7p)", () => {
+  it("starts every field at No change, with Cancel and Apply on the right", async () => {
     await mount();
     await openBulk("High-efficiency pump control", "Evaporator coil frost sensing", "Compressor vibration damping");
     await expect.element(page.getByRole("dialog", { name: "Edit 3 projects" })).toBeVisible();
-    expect(text(bulkPanel())).toContain("Only the fields you change are applied.");
-    expect(now("clientName")).toBe("Now: Cedarline Systems");
-    expect(now("fiscalYearEnd")).toBe(
-      "Now: FY 2026 ended Sep 30, 2026 (1), FY 2025 ended Mar 31, 2025 (1), not set (1)"
-    );
-    expect(now("industry")).toBe("Now: Manufacturing (2), not set (1)");
-    expect(now("scienceCode")).toBe("Now: not set (2), 2.03.01 Mechanical engineering (1)");
     expect(page.getByRole("combobox", { name: "Client" }).element()).toHaveProperty("placeholder", "No change");
-    expect(text(document.querySelector("[data-bulk-count]"))).toBe("No changes yet");
-    expect(document.querySelector<HTMLButtonElement>("[data-bulk-review]")!.disabled).toBe(true);
-    for (const group of ["Fiscal year end", "Industry", "Science code"]) {
-      await expect.element(segment(group, "No change")).toHaveAttribute("aria-checked", "true");
-    }
+    expect(text(bulkPanel()!.querySelector("[data-bulk-date]"))).toBe("No change");
+    expect(bulkPanel()!.querySelector<HTMLInputElement>("#bulk-edit-industry")?.value).toBe("No change");
+    expect(text(bulkPanel()!.querySelector("[data-bulk-science]"))).toBe("No change");
+    expect(resets()).toEqual([]);
+    expect(bulkPanel()!.querySelector("[data-changed]")).toBeNull();
+    expect(applyButton().disabled).toBe(true);
+    expect([...bulkPanel()!.querySelectorAll("[data-form-dialog-footer] button")].map((node) => text(node))).toEqual([
+      "Cancel",
+      "Apply to 3 projects",
+    ]);
+    // No "Now:" lines and no review step.
+    expect(text(bulkPanel())).not.toContain("Now:");
     expect(text(bulkPanel())).not.toMatch(DASHES);
     expect(text(bulkPanel()).toLowerCase()).not.toContain("undo");
   });
 
-  it("switches fields with the segmented control and counts the changed fields", async () => {
+  it("marks a changed field with the lagoon line and a Reset under it that puts it back", async () => {
     await mount();
     await openBulk("High-efficiency pump control", "Evaporator coil frost sensing");
-    await userEvent.click(segment("Fiscal year end", "Set date"));
-    await expect.poll(() => bulkPanel()?.querySelector("[data-bulk-date]")).not.toBeNull();
-    // Set date without a date is not a change yet.
-    expect(text(document.querySelector("[data-bulk-count]"))).toBe("No changes yet");
-    await userEvent.click(segment("Fiscal year end", "Clear"));
-    expect(bulkPanel()?.querySelector("[data-bulk-date]")).toBeNull();
-    await userEvent.click(segment("Industry", "Clear"));
-    await expect.poll(() => text(document.querySelector("[data-bulk-count]"))).toBe("2 fields changed");
-    expect(document.querySelector<HTMLButtonElement>("[data-bulk-review]")!.disabled).toBe(false);
-    await userEvent.click(segment("Industry", "No change"));
-    await expect.poll(() => text(document.querySelector("[data-bulk-count]"))).toBe("1 field changed");
+    await clearOnEvery("[data-bulk-date]");
+    await expect.poll(() => text(bulkPanel()!.querySelector("[data-bulk-date]"))).toBe("Not set");
+    expect(bulkPanel()!.querySelector("[data-bulk-date]")?.hasAttribute("data-changed")).toBe(true);
+    await pickIndustry("Not set");
+    await expect.poll(resets).toEqual(["fiscalYearEnd", "industry"]);
+    expect(applyButton().disabled).toBe(false);
+
+    await userEvent.click(bulkPanel()!.querySelector<HTMLElement>('[data-bulk-reset="industry"]')!);
+    await expect.poll(resets).toEqual(["fiscalYearEnd"]);
+    expect(bulkPanel()!.querySelector<HTMLInputElement>("#bulk-edit-industry")?.value).toBe("No change");
+    await userEvent.click(bulkPanel()!.querySelector<HTMLElement>('[data-bulk-reset="fiscalYearEnd"]')!);
+    await expect.poll(() => text(bulkPanel()!.querySelector("[data-bulk-date]"))).toBe("No change");
+    expect(applyButton().disabled).toBe(true);
   });
 
-  it("reviews each project's current and new values, No change where one already matches, then applies once", async () => {
+  it("applies straight away with one call, then clears the selection on the same client", async () => {
     __setMutationResult("projects:bulkUpdateProjects", { updated: 2, skipped: 0 });
     await mount();
     await openBulk("High-efficiency pump control", "Evaporator coil frost sensing", "Compressor vibration damping");
-    await userEvent.click(segment("Fiscal year end", "Clear"));
-    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-review]")!);
-
-    await expect.element(page.getByRole("dialog", { name: "Review changes to 3 projects" })).toBeVisible();
-    expect(document.querySelector('[data-projects-panel="center"]')).not.toBeNull();
-    expect(text(document.querySelector("[data-bulk-summary]"))).toBe(
-      "Fiscal year end cleared. 2 projects will change, 1 already matches."
-    );
-    const rows = [...document.querySelectorAll("[data-bulk-review-row]")].map((row) => shown(row));
-    expect(rows).toEqual([
-      "#5 High-efficiency pump control FY 2026, Sep 30, 2026 Not set",
-      "#1 Evaporator coil frost sensing FY 2025, Mar 31, 2025 Not set",
-      "#A Compressor vibration damping Not set No change",
-    ]);
-    expect(document.querySelector("[data-bulk-skip-note]")).toBeNull();
-    expect(text(bulkPanel()).toLowerCase()).not.toContain("undo");
-    expect(text(bulkPanel())).not.toMatch(DASHES);
-
-    // Back keeps the edits.
-    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-back]")!);
-    await expect.element(segment("Fiscal year end", "Clear")).toHaveAttribute("aria-checked", "true");
-    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-review]")!);
+    await clearOnEvery("[data-bulk-date]");
     await userEvent.click(page.getByRole("button", { name: "Apply to 3 projects" }));
 
     await expect.poll(() => bulkPanel()).toBeNull();
@@ -555,28 +542,24 @@ describe("Bulk edit panel (W3, W4)", () => {
       { projectIds: ["p5", "p1", "pa"], fiscalYearEnd: null },
     ]);
     expect(sonner.success).toHaveBeenCalledWith("Updated 2 projects.");
-    // Out of select mode, on the same client.
     await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
     expect(appPage.url.searchParams.get("client")).toBe("cedarline systems");
   });
 
-  it("sets a date and a client, with one sentence each", async () => {
+  it("sets a date and a client", async () => {
+    __setMutationResult("projects:bulkUpdateProjects", { updated: 2, skipped: 0 });
     await mount();
     await openBulk("High-efficiency pump control", "Evaporator coil frost sensing");
     await userEvent.fill(page.getByRole("combobox", { name: "Client" }), "Acuity Insights");
-    await userEvent.click(segment("Fiscal year end", "Set date"));
     await userEvent.click(bulkPanel()!.querySelector<HTMLElement>("[data-bulk-date]")!);
     await userEvent.click(page.getByRole("button", { name: "Sep 30" }));
-    await expect.poll(() => text(document.querySelector("[data-bulk-count]"))).toBe("2 fields changed");
-    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-review]")!);
     const year = new Date().getFullYear();
-    await expect.poll(() => text(document.querySelector("[data-bulk-summary]"))).toContain(
-      `Client set to Acuity Insights. Fiscal year end set to Sep 30, ${year}.`
-    );
-    // Two changed fields: each cell names its field.
-    expect(shown(document.querySelector('[data-bulk-review-row="p1"] [data-bulk-after-cell]'))).toBe(
-      `Client: Acuity Insights Fiscal year end: FY ${year}, Sep 30, ${year}`
-    );
+    await expect.poll(() => text(bulkPanel()!.querySelector("[data-bulk-date]"))).toBe(`Sep 30, ${year} FY ${year}`);
+    await expect.poll(resets).toEqual(["clientName", "fiscalYearEnd"]);
+    await userEvent.click(applyButton());
+    await expect.poll(() => __mutationCalls("projects:bulkUpdateProjects")).toEqual([
+      { projectIds: ["p5", "p1"], clientName: "Acuity Insights", fiscalYearEnd: Date.UTC(year, 8, 30) },
+    ]);
   });
 
   it("tells a writer which projects are not theirs, applies once, and says what was skipped", async () => {
@@ -584,12 +567,10 @@ describe("Bulk edit panel (W3, W4)", () => {
     __setMutationResult("projects:bulkUpdateProjects", { updated: 2, skipped: 1 });
     await mount();
     await openBulk("High-efficiency pump control", "Defrost cycle prediction", "Evaporator coil frost sensing");
-    await userEvent.click(segment("Industry", "Clear"));
-    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-review]")!);
     await expect.poll(() => text(document.querySelector("[data-bulk-skip-note]"))).toBe(
       "You can only change projects you own. 1 of these is not yours and will be skipped."
     );
-    expect(text(document.querySelector('[data-bulk-review-row="p6"] [data-bulk-after-cell]'))).toBe("Skipped, not yours");
+    await pickIndustry("Not set");
     await userEvent.click(page.getByRole("button", { name: "Apply to 3 projects" }));
     await expect.poll(() => __mutationCalls("projects:bulkUpdateProjects")).toEqual([
       { projectIds: ["p5", "p6", "p1"], industry: null },
@@ -597,15 +578,15 @@ describe("Bulk edit panel (W3, W4)", () => {
     await expect.poll(() => sonner.success.mock.calls).toEqual([["Updated 2 projects, skipped 1 you don't own."]]);
   });
 
-  it("keeps the panel and the edits when the apply fails", async () => {
+  it("keeps the dialog and the edits when the apply fails", async () => {
     __setMutationError("projects:bulkUpdateProjects", new ConvexError({ code: "INVALID_INPUT", message: "Select a valid CRA science code" }));
     await mount();
     await openBulk("High-efficiency pump control");
-    await userEvent.click(segment("Science code", "Clear"));
-    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-review]")!);
+    await clearOnEvery("[data-bulk-science]");
     await userEvent.click(page.getByRole("button", { name: "Apply to 1 project" }));
     await expect.poll(() => text(document.querySelector("[data-bulk-apply-error]"))).toBe("Select a valid CRA science code");
     expect(bulkPanel()).not.toBeNull();
+    expect(text(bulkPanel()!.querySelector("[data-bulk-science]"))).toBe("Not set");
     expect(document.querySelector("[data-selection-bar]")).not.toBeNull();
   });
 
@@ -617,18 +598,17 @@ describe("Bulk edit panel (W3, W4)", () => {
     );
     await mount();
     await openBulk("High-efficiency pump control");
-    await userEvent.click(segment("Industry", "Clear"));
+    await pickIndustry("Not set");
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => text(document.querySelector("[data-bulk-escape-note]"))).toBe(
-      "Review the changes, or use Cancel to discard them."
+      "Apply the changes, or use Cancel to discard them."
     );
     expect(bulkPanel()).not.toBeNull();
-    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-review]")!);
     await userEvent.click(page.getByRole("button", { name: "Apply to 1 project" }));
-    await expect.poll(() => text(document.querySelector("[data-bulk-apply]"))).toBe("Applying...");
+    await expect.poll(() => text(applyButton())).toBe("Applying...");
     await userEvent.keyboard("{Escape}");
     expect(bulkPanel()).not.toBeNull();
-    expect(document.querySelector<HTMLButtonElement>("[data-bulk-back]")?.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>("[data-bulk-cancel]")?.disabled).toBe(true);
     release({ updated: 1, skipped: 0 });
     await expect.poll(() => bulkPanel()).toBeNull();
   });
@@ -643,17 +623,17 @@ describe("Bulk edit panel (W3, W4)", () => {
     await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-create-client]")?.disabled).toBe(false);
     await userEvent.click(document.querySelector<HTMLElement>("[data-create-client]")!);
     await expect.poll(() => (client.element() as HTMLInputElement).value).toBe("Nobody Limited");
-    await expect.poll(() => text(document.querySelector("[data-bulk-count]"))).toBe("1 field changed");
+    await expect.poll(() => applyButton().disabled).toBe(false);
   });
 
-  it("closes on Escape without leaving select mode", async () => {
+  it("closes on Escape and keeps the selection", async () => {
     await mount();
     await openBulk("High-efficiency pump control");
     await expect.poll(() => bulkPanel()?.contains(document.activeElement)).toBe(true);
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => bulkPanel()).toBeNull();
     expect(document.querySelector("[data-selection-bar]")).not.toBeNull();
-    expect(text(document.querySelector("[data-selection-count]"))).toBe("1 selected");
+    expect(text(document.querySelector("[data-selection-count]"))).toBe("1 selected of 5");
     await expect.poll(() => document.activeElement?.hasAttribute("data-selection-edit")).toBe(true);
   });
 });
@@ -662,40 +642,29 @@ describe("Selection hygiene", () => {
   it("drops a selected project that leaves the visible set, so bulk edit never touches it", async () => {
     await mount();
     await selectCards("High-efficiency pump control", "Defrost cycle prediction");
-    expect(text(document.querySelector("[data-selection-count]"))).toBe("2 selected");
+    expect(text(document.querySelector("[data-selection-count]"))).toBe("2 selected of 5");
     // Defrost cycle prediction moves to another client.
     __setPaginatedRows(
       "dashboard:listCompanyProjects",
       CEDARLINE.filter((row) => row._id !== "p6")
     );
-    await expect.poll(() => text(document.querySelector("[data-selection-count]"))).toBe("1 selected");
+    await expect.poll(() => text(document.querySelector("[data-selection-count]"))).toBe("1 selected of 4");
     await userEvent.click(document.querySelector<HTMLElement>("[data-selection-edit]")!);
     await expect.element(page.getByRole("dialog", { name: "Edit 1 project" })).toBeVisible();
   });
 
-  it("takes a project that leaves the selection out of an open bulk edit and asks for a new review", async () => {
+  it("takes a project that leaves the selection out of an open bulk edit, keeping the edits", async () => {
     __setMutationResult("projects:bulkUpdateProjects", { updated: 1, skipped: 0 });
     await mount();
     await openBulk("High-efficiency pump control", "Defrost cycle prediction");
-    await userEvent.click(segment("Industry", "Clear"));
-    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-review]")!);
-    await expect.element(page.getByRole("dialog", { name: "Review changes to 2 projects" })).toBeVisible();
-    // Defrost cycle prediction moves to another client while the review shows.
+    await pickIndustry("Not set");
+    // Defrost cycle prediction moves to another client while the dialog is open.
     __setPaginatedRows(
       "dashboard:listCompanyProjects",
       CEDARLINE.filter((row) => row._id !== "p6")
     );
     await expect.element(page.getByRole("dialog", { name: "Edit 1 project" })).toBeVisible();
-    expect(text(document.querySelector("[data-bulk-selection-changed]"))).toBe(
-      "The selection changed. Review the changes again."
-    );
-    expect(document.querySelector("[data-bulk-apply]")).toBeNull();
-    // The edits stay.
-    await expect.element(segment("Industry", "Clear")).toHaveAttribute("aria-checked", "true");
-    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-review]")!);
-    await expect.element(page.getByRole("dialog", { name: "Review changes to 1 project" })).toBeVisible();
-    expect([...document.querySelectorAll("[data-bulk-review-row]")].map((row) => row.getAttribute("data-bulk-review-row"))).toEqual(["p5"]);
-    expect(document.querySelector("[data-bulk-selection-changed]")).toBeNull();
+    expect(resets()).toEqual(["industry"]);
     await userEvent.click(page.getByRole("button", { name: "Apply to 1 project" }));
     await expect.poll(() => __mutationCalls("projects:bulkUpdateProjects")).toEqual([
       { projectIds: ["p5"], industry: null },
@@ -705,7 +674,7 @@ describe("Selection hygiene", () => {
   it("closes an open bulk edit once none of its projects is still selected", async () => {
     await mount();
     await openBulk("Defrost cycle prediction");
-    await userEvent.click(segment("Industry", "Clear"));
+    await pickIndustry("Not set");
     __setPaginatedRows(
       "dashboard:listCompanyProjects",
       CEDARLINE.filter((row) => row._id !== "p6")
@@ -720,9 +689,9 @@ describe("Selection hygiene", () => {
     await userEvent.fill(page.getByRole("searchbox", { name: "Search Cedarline Systems" }), "control");
     await expect.poll(() => text(document.querySelector("#projects-search-results"))).toBe("2 projects match");
     await selectCards("Adaptive cold storage controls", "High-efficiency pump control");
-    expect(text(document.querySelector("[data-selection-count]"))).toBe("2 selected");
+    expect(text(document.querySelector("[data-selection-count]"))).toBe("2 selected of 2");
     __setPaginatedRows("dashboard:searchProjects", CEDARLINE.slice(1, 2));
-    await expect.poll(() => text(document.querySelector("[data-selection-count]"))).toBe("1 selected");
+    await expect.poll(() => text(document.querySelector("[data-selection-count]"))).toBe("1 selected of 1");
   });
 });
 
