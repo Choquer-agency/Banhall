@@ -84,8 +84,8 @@
 
 {#snippet field(label: string, value: string, attr: string)}
   <div class="flex min-w-0 gap-2" data-card-field={attr}>
-    <span class="w-[3.375rem] shrink-0 text-xs leading-[1.0625rem] text-ink-muted">{label}</span>
-    <span class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[1.0625rem] text-ink">{value}</span>
+    <span class="w-[3.125rem] shrink-0 text-[0.6875rem] leading-4 text-ink-muted">{label}</span>
+    <span class="min-w-0 flex-1 truncate text-xs leading-4 text-ink">{value}</span>
   </div>
 {/snippet}
 
@@ -155,7 +155,7 @@
     {/if}
   </div>
 
-  <div class="flex flex-1 flex-col gap-[0.1875rem] border-t border-line-soft px-3.5 py-2.5">
+  <div class="flex flex-1 flex-col gap-0.5 border-t border-line-soft px-3.5 py-2.5">
     {@render field("Owner", ownerLabel, "owner")}
     {#if showFiscalYear}{@render field("Year", row.fiscalYear ? `FY ${row.fiscalYear}` : "Not set", "fiscal-year")}{/if}
     {#if createdAt !== undefined}{@render field("Created", longDate(createdAt), "created")}{/if}

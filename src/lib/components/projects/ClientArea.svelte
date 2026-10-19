@@ -299,9 +299,10 @@
     "flex h-[1.875rem] shrink-0 items-center rounded-[0.4375rem] border border-line px-2.5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
   const textButton =
     "shrink-0 rounded-md text-xs leading-4 font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11";
-  // Paper Z11a: four cards a row at 1440 (and at 1280 with the rail
-  // collapsed), five at 1920.
-  const grid = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,12.5rem),1fr))] gap-3";
+  // Cards adjust to the space (owner, 2026-10-19): three a row on a 13 inch
+  // MacBook (1440 or 1280), four around 1680, five at 1920, two on a
+  // tablet, one on a phone. Each card stays at least 264px wide.
+  const grid = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,16.5rem),1fr))] gap-3";
 </script>
 
 <svelte:window

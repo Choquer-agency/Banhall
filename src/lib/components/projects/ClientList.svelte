@@ -67,9 +67,9 @@
   }
 
   const rowBase =
-    "flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left outline-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
+    "flex h-[1.875rem] w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left outline-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
   const footerRow =
-    "flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
+    "flex h-[1.875rem] w-full items-center gap-2 rounded-lg px-2.5 text-left text-[0.8125rem] leading-4 text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
 </script>
 
 {#snippet countCell(count: number | string)}
@@ -109,7 +109,7 @@
         >Try again</button>
       </div>
     {:else if mergeMode}
-      <p class="px-1 pb-2 pt-1 text-sm leading-5 text-ink-secondary" data-merge-header>Tick the names that are the same company.</p>
+      <p class="px-1 pb-2 pt-1 text-[0.8125rem] leading-[1.125rem] text-ink-secondary" data-merge-header>Tick the names that are the same company.</p>
       <ul aria-label="Companies to merge" class="flex flex-col gap-0.5">
         {#each visible as client (client.key)}
           {@const checked = mergeSet.has(client.key)}
@@ -130,7 +130,7 @@
                   <svg class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10" /></svg>
                 {/if}
               </span>
-              <span class={`min-w-0 flex-1 truncate text-sm leading-[1.125rem] ${checked ? "text-ink" : "text-ink-secondary"}`}>{client.name}</span>
+              <span class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-4 ${checked ? "text-ink" : "text-ink-secondary"}`}>{client.name}</span>
               {@render countCell(client.projectCount)}
             </button>
           </li>
@@ -147,13 +147,13 @@
               onclick={(event) => navigate(event, null)}
               class={`${rowBase} ${selectedKey === null ? "bg-primary-wash" : "hover:bg-primary-wash"}`}
             >
-              <span class={`min-w-0 flex-1 truncate text-sm leading-[1.125rem] ${selectedKey === null ? "font-medium text-primary-selected" : "text-ink-secondary"}`}>All companies</span>
+              <span class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-4 ${selectedKey === null ? "font-medium text-primary-selected" : "text-ink-secondary"}`}>All companies</span>
               {#if totalLabel}{@render countCell(totalLabel)}{/if}
             </a>
           </li>
           {#if loading}
             {#each [0, 1, 2, 3, 4, 5, 6, 7] as item (item)}
-              <li class="flex h-8 items-center px-2.5" aria-hidden="true">
+              <li class="flex h-[1.875rem] items-center px-2.5" aria-hidden="true">
                 <span class="h-3.5 animate-pulse rounded bg-chrome motion-reduce:animate-none" style={`width:${55 + ((item * 17) % 35)}%`}></span>
               </li>
             {/each}
@@ -168,7 +168,7 @@
                   onclick={(event) => navigate(event, client.key)}
                   class={`${rowBase} ${active ? "bg-primary-wash" : "hover:bg-primary-wash"}`}
                 >
-                  <span class={`min-w-0 flex-1 truncate text-sm leading-[1.125rem] ${active ? "font-medium text-primary-selected" : "text-ink-secondary"}`}>{client.name}</span>
+                  <span class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-4 ${active ? "font-medium text-primary-selected" : "text-ink-secondary"}`}>{client.name}</span>
                   {@render countCell(client.projectCount)}
                 </a>
               </li>
@@ -215,13 +215,13 @@
     <div class="flex shrink-0 flex-col gap-0.5 border-t border-line-soft pt-2.5">
       {#if canCreate}
         <button type="button" data-new-client onclick={onNewClient} class={footerRow}>
-          <IconPlus size={16} strokeWidth={2} class="shrink-0" />
+          <IconPlus size={15} strokeWidth={2} class="shrink-0" />
           New company
         </button>
       {/if}
       {#if canMerge}
         <button type="button" data-start-merge onclick={onStartMerge} class={footerRow}>
-          <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4v4a4 4 0 0 0 4 4h4a4 4 0 0 1 4 4v4M18 4v4a4 4 0 0 1-4 4" /></svg>
+          <svg class="size-[0.9375rem] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4v4a4 4 0 0 0 4 4h4a4 4 0 0 1 4 4v4M18 4v4a4 4 0 0 1-4 4" /></svg>
           Merge companies
         </button>
       {/if}
