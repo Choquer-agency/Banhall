@@ -439,22 +439,6 @@ async function turnSenderName(
   return { userId, name: full || user?.name?.trim() || undefined };
 }
 
-/**
- * Where a server-built block starts in a prompt. `sendMessage` appends these
- * to the writer's text, and a regenerated prompt resends the stored text
- * whole, so the size check reads the writer's own part before the first one.
- */
-const HIGHLIGHT_BLOCK_PREFIX = "\n\n[Writer highlighted this excerpt from the report]:\n";
-const REFINEMENT_BLOCK_PREFIX = "\n\n[Writer is refining suggestion ";
-const QUOTED_HIGHLIGHT = /\[Writer highlighted this excerpt from the report\]:\n"""([\s\S]*?)"""/;
-/**
- * A ceiling on a whole regenerated prompt: the writer's text, a highlight and
- * a refinement block quoting a suggestion's target and wording. Generous on
- * purpose (a prompt the server stored is never refused on regenerate), and
- * still a bound on text a client can claim the server built.
- */
-const MAX_CHAT_PROMPT_CHARS = 4 * (MAX_CHAT_MESSAGE_CHARS + MAX_CHAT_HIGHLIGHT_CHARS);
-
 function messageTooLong(what: "message" | "highlight", maxChars: number): never {
   const limit = maxChars.toLocaleString("en-US");
   domainError(
@@ -466,28 +450,78 @@ function messageTooLong(what: "message" | "highlight", maxChars: number): never 
   );
 }
 
+/** How many of a thread's newest turns a regenerated prompt is matched against. */
+const REGENERATE_MATCH_TURNS = 50;
+/** Prompt messages read per batch while matching, newest first. */
+const REGENERATE_MATCH_BATCH = 10;
+
+/**
+ * True when `content` is exactly the stored text of one of the thread's
+ * newest prompts. Regenerate resends a stored prompt whole: the writer's
+ * text plus the highlight and refinement blocks the server added, which can
+ * pass MAX_CHAT_MESSAGE_CHARS together, and prompts stored before the limit
+ * existed can pass it alone. Matching the stored text, rather than parsing
+ * the blocks out of client text, means a client cannot claim a server block
+ * it never got. Read newest first in small batches, and only for content
+ * over the limit.
+ */
+async function isStoredPrompt(
+  ctx: QueryCtx,
+  agentThreadId: string,
+  content: string
+): Promise<boolean> {
+  const turns = await ctx.db
+    .query("chatTurns")
+    .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", agentThreadId))
+    .order("desc")
+    .take(REGENERATE_MATCH_TURNS);
+  for (let i = 0; i < turns.length; i += REGENERATE_MATCH_BATCH) {
+    const prompts = await ctx.runQuery(components.agent.messages.getMessagesByIds, {
+      messageIds: turns.slice(i, i + REGENERATE_MATCH_BATCH).map((turn) => turn.promptMessageId),
+    });
+    const match = prompts.some(
+      (prompt) =>
+        prompt?.threadId === agentThreadId &&
+        prompt.message?.role === "user" &&
+        prompt.message.content === content
+    );
+    if (match) return true;
+  }
+  return false;
+}
+
 /**
  * 2026-10-19 (chat parity Phase A): the size limits on one message, checked
- * right after access and before anything is written. The writer's own text is held to
- * MAX_CHAT_MESSAGE_CHARS and a highlight (sent, or quoted in a regenerated
- * prompt) to MAX_CHAT_HIGHLIGHT_CHARS.
+ * before anything is written. The writer's text (`content`) is held to
+ * MAX_CHAT_MESSAGE_CHARS and a highlight to MAX_CHAT_HIGHLIGHT_CHARS, both
+ * read from the structured arguments; the highlight and refinement blocks
+ * the server adds are never counted against the writer. The one exception
+ * (review P3-3): content over the limit that is exactly a prompt stored in
+ * the thread named by `threadId`, which is how Regenerate resends it.
  */
-function assertChatMessageSize(content: string, highlight: { text: string } | undefined): void {
-  const blockStarts = [HIGHLIGHT_BLOCK_PREFIX, REFINEMENT_BLOCK_PREFIX]
-    .map((prefix) => content.indexOf(prefix))
-    .filter((index) => index >= 0);
-  const ownEnd = blockStarts.length ? Math.min(...blockStarts) : content.length;
-  if (ownEnd > MAX_CHAT_MESSAGE_CHARS) messageTooLong("message", MAX_CHAT_MESSAGE_CHARS);
-  if (highlight && highlight.text.length > MAX_CHAT_HIGHLIGHT_CHARS) {
+async function assertChatMessageSize(
+  ctx: QueryCtx,
+  args: {
+    content: string;
+    highlight?: { text: string };
+    threadId?: string;
+    refineProposalId?: Id<"chatProposals">;
+  }
+): Promise<void> {
+  if (args.highlight && args.highlight.text.length > MAX_CHAT_HIGHLIGHT_CHARS) {
     messageTooLong("highlight", MAX_CHAT_HIGHLIGHT_CHARS);
   }
-  if (blockStarts.length) {
-    const quoted = QUOTED_HIGHLIGHT.exec(content.slice(ownEnd))?.[1];
-    if (quoted !== undefined && quoted.length > MAX_CHAT_HIGHLIGHT_CHARS) {
-      messageTooLong("highlight", MAX_CHAT_HIGHLIGHT_CHARS);
-    }
-    if (content.length > MAX_CHAT_PROMPT_CHARS) messageTooLong("message", MAX_CHAT_PROMPT_CHARS);
+  if (args.content.length <= MAX_CHAT_MESSAGE_CHARS) return;
+  // A regenerate never carries a new highlight or refinement of its own.
+  if (
+    args.threadId &&
+    !args.highlight &&
+    !args.refineProposalId &&
+    (await isStoredPrompt(ctx, args.threadId, args.content))
+  ) {
+    return;
   }
+  messageTooLong("message", MAX_CHAT_MESSAGE_CHARS);
 }
 
 async function assertChatAdmission(
@@ -589,7 +623,6 @@ export const sendMessage = mutation({
     if (!args.content.trim() && !args.highlight) {
       throw new Error("Message is empty");
     }
-    assertChatMessageSize(args.content, args.highlight);
     const userId = user._id;
 
     let refineProposal;
@@ -628,6 +661,10 @@ export const sendMessage = mutation({
             .first();
       agentThreadId = latest?.agentThreadId;
     }
+
+    // After the thread check, so a resent stored prompt is matched only in a
+    // thread of this report; before any write.
+    await assertChatMessageSize(ctx, args);
 
     await assertChatAdmission(ctx, report.projectId, userId);
 

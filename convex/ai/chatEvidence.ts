@@ -46,7 +46,11 @@ import {
 import { CHAT_EVIDENCE_GUIDANCE, buildChatSystemPromptV2 } from "./prompts";
 import { extractPlainText } from "../lib/reportEdits";
 import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
-import { chooseSettingsSource } from "../lib/settingsDocument";
+import {
+  chooseSettingsSource,
+  normalizeSettingsText,
+  settingsDocumentText,
+} from "../lib/settingsDocument";
 import type { Doc } from "../_generated/dataModel";
 import {
   NO_STYLE_OVERRIDES,
@@ -190,6 +194,12 @@ export interface ChatEvidenceInput {
   openQuestions?: ChatOpenQuestion[];
   openQuestionsOmitted?: ChatOpenQuestionsOmitted;
   budget?: ChatEvidenceBudget;
+  /**
+   * The sender's saved style preferences, the text `buildChatSystem` already
+   * puts in the system string. A settings document with the same text is not
+   * sent again (generation's `matchesProfile` rule).
+   */
+  profileInstructions?: string | null;
 }
 
 /** The raw grounding row `chatV2.getChatContextV2` returns. */
@@ -298,14 +308,23 @@ function fileStatus(doc: ChatEvidenceDoc): string {
  * One row per file: quoted name, category label, status, text size. Names
  * are the uploader's, so they go through the same sanitizing as a notice.
  */
-function filesListText(rows: ReadonlyArray<{ doc: ChatEvidenceDoc; settings: boolean }>): string {
+/** How the settings document's row is marked, when it is one. */
+type SettingsMark = "sent" | "in_preferences" | null;
+
+/** The mark a settings document carries in the files list. */
+export const SETTINGS_ROW_MARKS = {
+  sent: "writer settings document",
+  in_preferences: "writer settings document, same text as the writer's personal style preferences",
+} as const;
+
+function filesListText(rows: ReadonlyArray<{ doc: ChatEvidenceDoc; settings: SettingsMark }>): string {
   const lines = rows.slice(0, MAX_CHAT_FILE_LIST_ROWS).map(({ doc, settings }) =>
     [
       quotedFileName(doc.fileName),
       ANALYZER_CATEGORY_LABELS[docCategory(doc)],
       fileStatus(doc),
       `${formatCount(textLengthOf(doc))} characters`,
-      ...(settings ? ["writer settings document"] : []),
+      ...(settings ? [SETTINGS_ROW_MARKS[settings]] : []),
     ].join(" | ")
   );
   const more = rows.length - lines.length;
@@ -543,7 +562,10 @@ function spend(
  * `proposeEdit` requires a verbatim substring of it, so a truncated report
  * silently breaks every edit proposal, and documents can never crowd it out.
  *
- * Every input source appears exactly once in `report.sources`.
+ * Every input source appears exactly once in `report.sources`, except a
+ * settings document whose text is the sender's saved preferences
+ * (`profileInstructions`): it is already in the system string, so it is
+ * listed in the files block and neither sent nor reported as cut.
  */
 export function buildChatEvidence(input: ChatEvidenceInput): {
   /** Every evidence block in render order: `head`, then `tail`. */
@@ -676,6 +698,16 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   const settingsIndex = chatSettingsDocumentIndex(documents);
   const settingsEntry = ordered.find(({ index }) => index === settingsIndex);
   const others = ordered.filter(({ index }) => index !== settingsIndex);
+  // Review P3-2: when the sender saved this document as their Writer Profile,
+  // the system string already carries the same text (`writerPreferencesBlock`).
+  // Generation's rule (`matchesProfile`, whitespace-normalized equality of the
+  // 75,000-character text) decides; a match is listed, not sent again. It
+  // takes no source row: nothing was cut to fit the budget.
+  const settingsInPreferences =
+    settingsEntry !== undefined &&
+    Boolean(input.profileInstructions?.trim()) &&
+    normalizeSettingsText(settingsDocumentText(settingsEntry.doc.content)) ===
+      normalizeSettingsText(input.profileInstructions ?? "");
 
   // ── Files list (head; spent after the analysis, before any document) ──────
   // Built from stored facts only, so it is byte-stable while the files do not
@@ -689,8 +721,10 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
           EVIDENCE_LABELS.files,
           "client",
           filesListText([
-            ...(settingsEntry ? [{ doc: settingsEntry.doc, settings: true }] : []),
-            ...others.map(({ doc }) => ({ doc, settings: false })),
+            ...(settingsEntry
+              ? [{ doc: settingsEntry.doc, settings: settingsInPreferences ? ("in_preferences" as const) : ("sent" as const) }]
+              : []),
+            ...others.map(({ doc }) => ({ doc, settings: null })),
           ]),
           totalChars,
           headRemaining
@@ -703,7 +737,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   const documentBlocks: string[] = [];
 
   // ── Writer settings document (head; its own allowance) ────────────────────
-  if (settingsEntry) {
+  if (settingsEntry && !settingsInPreferences) {
     const doc = settingsEntry.doc;
     const { body } = charge(
       spend(
@@ -939,6 +973,7 @@ export function buildChatTurnRequest(args: {
         }
       : {}),
     ...(budget ? { budget } : {}),
+    profileInstructions: args.customInstructions ?? null,
   });
   return {
     system: buildChatSystem(styleOverrides, args.customInstructions),

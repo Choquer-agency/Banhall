@@ -4,6 +4,7 @@ import {
   DEFAULT_CHAT_EVIDENCE_BUDGET,
   EVIDENCE_LABELS,
   MAX_CHAT_FILE_LIST_ROWS,
+  SETTINGS_ROW_MARKS,
   buildChatEvidence,
   buildChatTurnRequest,
   chatSettingsDocumentIndex,
@@ -11,7 +12,7 @@ import {
   type ChatEvidenceDoc,
 } from "./chatEvidence";
 import { CHAT_EVIDENCE_GUIDANCE } from "./prompts";
-import { CHARS_PER_TOKEN } from "./trustedContext";
+import { CHARS_PER_TOKEN, describeContextCuts } from "./trustedContext";
 import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
 import { findDashConnectors } from "../../shared/humanProse";
 
@@ -328,5 +329,58 @@ describe("writer settings document allowance", () => {
     // The per-document cap of 20,000 characters, cut at a word boundary.
     expect(row?.includedLength).toBeLessThanOrEqual(DEFAULT_CHAT_EVIDENCE_BUDGET.perDocumentTokens * CHARS_PER_TOKEN);
     expect(row?.includedLength).toBeGreaterThan(19_950);
+  });
+});
+
+// Review P3-2: a settings document the sender saved as their Writer Profile
+// is already in the system string; generation's `matchesProfile` rule keeps
+// it from being sent twice.
+describe("settings document already in the writer's saved preferences", () => {
+  const label = "WRITER'S NOTES (unreliable narrator)] Avery writing settings.docx";
+  const settings = settingsDoc(30_000);
+  const others = [doc({ fileName: "notes-0.txt", content: "Notes 0.", category: "other" })];
+  const turn = (customInstructions: string | null) =>
+    buildChatTurnRequest({
+      context: { reportContent: null, agentOutputs: null, documents: [settings, ...others], decisions: [] },
+      customInstructions,
+    });
+  const headOf = (request: ReturnType<typeof turn>) => String(request.messages[0]?.content);
+
+  it("lists it, marked, and sends its text only once, in the system string", () => {
+    // The saved profile differs only in whitespace, as generation allows.
+    const profile = `  ${settings.content.replace(/\. /g, ".\n")}  `;
+    const request = turn(profile);
+    const head = headOf(request);
+    expect(head).not.toContain(`--- BEGIN [${label} ---`);
+    expect(head).not.toContain("Prefer short plain sentences. Prefer");
+    expect(request.system).toContain("WRITER'S PERSONAL STYLE PREFERENCES");
+    expect(filesBlock(head).split("\n")[1]).toBe(
+      `"Avery writing settings.docx" | WRITER'S NOTES (unreliable narrator) | text read | 30,000 characters | ${SETTINGS_ROW_MARKS.in_preferences}`
+    );
+    // Not a budget cut: no source row, no omission notice, nothing logged.
+    expect(request.report.sources.some((source) => source.label === settings.fileName)).toBe(false);
+    expect(head).not.toContain("omitted to fit the context budget");
+    expect(describeContextCuts(request.report)).toBeNull();
+    // The other documents are unaffected.
+    expect(head).toContain("Notes 0.");
+  });
+
+  it("still sends it when the saved profile says something else, or there is none", () => {
+    for (const profile of [null, "", "Short sentences only."]) {
+      const head = headOf(turn(profile));
+      expect(blockBody(head, label)).toBe(settings.content);
+      expect(filesBlock(head).split("\n")[1]).toMatch(/ \| writer settings document$/);
+    }
+  });
+
+  it("keeps the head byte-identical across turns for the same sender", () => {
+    const profile = settings.content;
+    expect(headOf(turn(profile))).toBe(headOf(turn(profile)));
+  });
+
+  it("is explained by the evidence guidance", () => {
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain("the same text as the writer's personal style preferences");
+    expect(SETTINGS_ROW_MARKS.in_preferences).toContain("same text as the writer's personal style preferences");
+    expect(findDashConnectors(CHAT_EVIDENCE_GUIDANCE)).toEqual([]);
   });
 });
