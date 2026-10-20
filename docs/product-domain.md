@@ -3545,6 +3545,157 @@ Origin: the owner asked on 2026-10-19 how to close the gaps between the report c
   - The screens were verified with browser component tests and screenshots, not in a live session against a backend; the engine was verified in a real replay on a local copy.
 - **Approval.** Product owner, 2026-10-19 (Phase A scope and the decisions above).
 
+### 2026-10-20 (first): Report chat parity, Phase B: the chat opens files and transcripts, continues long jobs on its own, cites web sources, and applied cards can be undone (owner)
+
+Origin: Phase B of the plan in `_bmad-output/planning-artifacts/research/chat-parity-plan-2026-10-19.md`. The spec is `_bmad-output/implementation-artifacts/spec-chat-parity-phase-b.md`.
+
+Owner decisions, 2026-10-19:
+- The chat may read transcripts whenever it needs to, names as written.
+- Long jobs continue on their own, with no cap beyond the project's daily chat budget, and Stop on any link ends the chain.
+- Web search is set per conversation, with source cards and numbered citations.
+- Undo for an applied card is approved.
+- Stop stays open to anyone on the report.
+
+Owner direction to build it: 2026-10-20 ("can we do it").
+
+The lead decisions in the spec (web search on by default, Undo back to pending, 8 steps, citations by part, settings on by default) are reported to the owner and can be reversed.
+
+**Reading files and transcripts (amends Rule 8 of 2026-10-19 first, and decision 26)**
+- **Handles.** The FILES IN THIS PROJECT list gives each file a handle (`F1` to `F60`), in the list's existing order. A new TRANSCRIPTS IN THIS PROJECT block in the cached head lists each active transcript (not archived, not replaced) with:
+  - a handle (`T1`...);
+  - its label;
+  - its number of speaker turns;
+  - its size;
+  - its speakers and their roles (interviewer, client, other, unknown; a role guessed with low confidence reads as unknown).
+- **Three reading tools, offered on every turn after the existing tools:**
+  - `readDocument` opens a file by handle or exact name, in parts of 40,000 characters, up to 3 parts per call.
+  - `searchDocuments` finds up to 8 excerpts of up to 1,500 characters across the files (the `search_content` index) and the transcripts, each with its place (`F3 part 2`, `T1 turns 40-46`).
+  - `readTranscript` opens a transcript by handle or exact label, speaker turn by speaker turn, up to 40,000 characters per call. Each line gives the turn number, the time when known, the speaker's role and the speaker's name as written. A transcript with no parsed turns is read in parts.
+- **Limits.** All three share one allowance of 240,000 characters per reply, across its passes.
+- **Scope.** Each read is checked against the conversation's project and report. Archived files and removed or replaced transcripts cannot be opened. Images, scans and files with no text cannot be opened yet (Phase C).
+- **Opened text is never stored.** A tool's saved result is a short receipt with no text from the file. The text is added to the model's request for the rest of that reply only, on every later step, in the same bytes (AI SDK `prepareStep`), inside the same data markers and trust labels as project documents. It never goes into the agent's tables, a new table, a log line (one "chat document read" line counts characters and parts only) or the browser. The recovery pass starts without it. A later reply must open the file again.
+- **Accepted path.** The model's reply, and the reasoning summary shown in the trace (2026-10-19 seventh), may quote or paraphrase what it opened. Both are stored and shown to people on the report, who can already open the same files.
+- **Guidance.** The evidence guidance now says:
+  - the lists show what exists;
+  - the model opens what it needs;
+  - opened text is not kept between replies;
+  - it must never claim to have read or checked what it did not open in this reply;
+  - images and scans cannot be opened yet;
+  - quotes are short;
+  - only the client's words back a claim about the company's work, which includes a client turn opened in this reply.
+
+  The notices for files left out by the budget say they can be opened. This replaces Rule 8's "never the raw interview transcripts" and "files a notice names".
+- **Decision 26 exception.** The report chat now reads the transcripts it opens with names as written, as it already does with project documents. The chat exception list says so.
+- **Admin setting.** `ai.chatDocumentTools` (anything other than "off" means on). Off keeps the three tools registered; they then say opening files is turned off.
+
+**Long jobs continue on their own (amends Rule 6 of 2026-10-19 first and the Continue rules of 2026-10-19 seventh)**
+- **When a link starts.** At the very end of a reply, after every message of the turn is saved, `chatV2.continueChain` decides in one transaction whether to start the next link. It starts one only when all of these hold:
+  - the turn completed, or failed cut off, with a Continue offer;
+  - Stop was not pressed just after it;
+  - it is the conversation's newest turn and nothing is queued or running;
+  - `ai.chatAutoContinue` is on;
+  - the turn made progress;
+  - the project's rolling 24-hour chat spend is within its budget;
+  - the sender still has access to the project.
+- **Progress.** A turn made progress when its offer is `lines_left` or it saved a card. A link counts only when the Deviations left fall below the lowest count seen in the chain so far, or the next Line moves forward in build order past the furthest one seen. A chain that cannot measure progress stops.
+- **What a link is.** It saves the same writer message the Continue button sends ("Continue with Line 244." or "Continue.") under the job's original sender, queues a turn with `chatTurns.origin: "auto_continue"`, and schedules its reply. Brain is off for the link, and web search follows the conversation's setting.
+- **Limits.** Links do not count toward the queue limit. Usage is logged by a scheduled job, so the budget check can be one link behind: a chain can run at most one link past the budget.
+- **Why a chain stopped.** A chain that stops for the budget, for no progress or because the setting is off records `chatTurns.autoContinueSkipped`, and the Continue button says why for the first two.
+- **Stop.** Stop on a queued or running link ends the chain. Stop pressed within 30 seconds after a reply with a Continue offer finished records `chatTurns.chainStoppedAt`, so no link starts from it. If a link already started (the page had not caught up), that link is stopped.
+- **Screens.** A link's prompt shows as a muted chip ("Continuing with Line 244"), not as a writer message.
+
+**Steps and time (amends "Not changed" in 2026-10-19 first)**
+- **Step limit.** A reply pass may take 8 steps (`CHAT_MAX_STEPS`, was 5), because opening files takes steps. The recovery pass keeps 5, so a recovered turn makes at most 13 model requests.
+- **Time stop.** A new step does not start with less than 150 seconds left in the action window (`CHAT_MIN_STEP_REMAINING_MS`). A pass stopped for time ends like the step limit, with the closing note and a `step_limit` Continue offer.
+- **Timed out after saving cards.** A turn that times out after it saved a card gets a `cut_off` Continue offer, so the chain can carry on.
+- **Timing report.** `aiUsage.chatTimingReport` is admin only and gives numbers only: step duration and time to first token by effort, stop reasons and steps per turn.
+
+**Web search per conversation, with sources (amends 2026-10-19 sixth)**
+- **The setting.** Web search is a setting of the conversation (`agentChatThreads.webSearch`), on by default, including for existing conversations. "Search the web in this conversation" in Message options turns it off or on (`chatV2.setThreadWebSearch`), and a chip shows while it is on. It is no longer cleared after each send.
+- **Who reads it.** `sendMessage` reads the stored setting. A new conversation's first send seeds it. Continue, Regenerate and automatic links follow it. A missing conversation row fails closed.
+- **One small record per search that was sent.** `chatWebSearches` stores:
+  - the query exactly as sent, after name stripping;
+  - whether it worked;
+  - up to 5 sources, each with its number, link, title and domain.
+
+  The answer text is never stored. A search that was refused for names, turned off, over its limit or never sent writes nothing. Only `http` and `https` links are kept, with credentials removed, and titles are plain text. The table is erased with its project.
+- **Numbered citations.** Sources are numbered across the whole reply: a second search continues the numbers, and a repeated link keeps its number. The model cites them as `[n]`.
+- **Screens.** The reply shows:
+  - numbered citation pills for that reply's own sources only;
+  - a Sources row (number, favicon by hostname, title, domain; links open in a new tab with no referrer);
+  - "Searched the web: {query}" in the trace.
+
+  `[GAP: ...]`, inventory ids and any other brackets render exactly as before. "Sources appear only in the reply text" no longer holds.
+
+**Undo for an applied card (new transition: `applied -> pending`)**
+- **Recording a change.** When a card is applied (`applyProposal` or `markProposalApplied`), the server records the changed runs of top-level report blocks before and after (`chatProposals.appliedChange`). Each run is widened with neighbouring blocks until it is unique; runs that touch are merged. The record is kept only when undoing it on the applied report reproduces the original block for block; otherwise no Undo is offered. For a card applied one change at a time (`markProposalApplied`), only the runs the card's own changes touched are kept. The record is capped at 400,000 characters and 600,000 bytes; above that, no Undo is offered.
+- **What Undo does.** `chatV2.undoProposal` needs report edit access. It finds each applied run exactly once in the current report, compared in a canonical form that survives the editor saving the text again, and puts the original blocks back, marks included, all or nothing. In one transaction it:
+  - takes a `pre_chat_undo` snapshot ("Before undo" in Version history);
+  - bumps the revision;
+  - refreshes provenance as any edit does;
+  - recomputes the deterministic findings;
+  - returns the card to `pending` (`undoneAt`, `undoneBy`).
+- **After Undo.** The card can be applied again or dismissed.
+- **When Undo refuses.** If the passage changed since, it says so and points to Version history (`PROPOSAL_UNDO_CONFLICT`). It also refuses, with a plain message, when the result would pass the report size limit of 1,000,000 characters.
+- **No Undo.** Record-only cards, highlights, research cards and cards applied before this change have no Undo. Cards that went stale because of the apply stay stale.
+- **Writer lists.** `undoProposal` is the eighth revision writer (AD-3) and the only `applied -> pending` path (AD-4). It is added to the report prose writer list above and to `convex/reportAuthz.test.ts`.
+- **Coverage.** A pending card counts as handled, so handled-item coverage is unchanged.
+
+**Authors and a reply-ready signal**
+- **Authors.** New conversations record who started them (`agentChatThreads.createdBy`; older ones fall back to the first turn's sender). When a conversation has messages from more than one person, each writer message shows its author's name ("You" for your own), never an email. The conversation list shows "Started by {name}" for conversations someone else started.
+- **Stopping someone else's reply.** It asks first ("Stop {name}'s reply?"). Anyone on the report may still stop it.
+- **Reply ready.** A page-level query (`chatV2.reportChatActivity`) drives a working ring on the Assistant button while any reply on the report runs. A dot appears when one of your replies finished after you last had the panel open (remembered per report in this browser). While the tab is hidden, its title starts with "Reply ready - ". An optional browser notification ("Notify me when a reply is ready") asks for permission when turned on, shows only while the tab is hidden, and says only "Your reply is ready."
+
+**Migration and compatibility.** Widen only, with no backfill:
+- `chatTurns.origin`, `autoContinueSkipped` and `chainStoppedAt`;
+- `agentChatThreads.createdBy` and `webSearch`;
+- `chatProposals.appliedChange`, `undoneAt` and `undoneBy`;
+- the `pre_chat_undo` snapshot reason;
+- the new `chatWebSearches` table, with indexes `by_agentThreadId_and_promptMessageId`, `by_agentThreadId` and `by_projectId`.
+
+The evidence head gains handles and the transcripts block, so the first turn of each conversation after deploy pays one more cache write. For a short time after deploy, an old open browser that sends without `allowWeb` gets the conversation's setting, which is on by default.
+
+**Authorization.**
+- No role gains a right. Undo uses report edit access, like Apply.
+- The new queries and mutations require internal project access, and `chatTimingReport` is admin only.
+- `continueChain` is internal and re-checks the sender's access.
+- Stop is unchanged.
+
+**Tests.**
+- Reading:
+  - `convex/chatDocumentTools.sdk.test.ts`
+  - `convex/ai/chatDocumentTools.test.ts`
+  - `convex/chatDocuments.test.ts`
+  - `convex/chatTimingReport.test.ts`
+  - the evidence and prompt suites
+- Chain:
+  - `convex/chatAutoContinue.test.ts`
+  - `convex/chatAutoContinue.sdk.test.ts` (a real reply that ends, then its link, in order)
+  - `convex/chatBulkSplit.sdk.test.ts` (8 steps, the time stop)
+  - `convex/chatParity.sdk.test.ts`
+- Web:
+  - `convex/chatWebSearch.sdk.test.ts`
+  - `convex/ai/chatWebSearch.test.ts`
+  - `src/lib/chat/webSources.test.ts`
+  - `convex/projectErasure.test.ts`
+- Undo:
+  - `convex/chatUndo.test.ts`
+  - `src/lib/chat/appliedChange.test.ts` (the real editor's save)
+  - `convex/reportAuthz.test.ts`
+- Screens:
+  - `src/lib/components/chat/ChatParityPhaseB.component.test.ts`
+  - `src/lib/components/chat/ChatParityPhaseBSources.component.test.ts`
+  - `ComposerOptions.component.test.ts`
+
+**Known limitations.**
+- Files are cited by part, not page, because page breaks are not stored.
+- `searchDocuments` finds file text through an index that does not ignore accents.
+- Undo of a card applied one change at a time (`markProposalApplied`) also reverts what the writer typed during that session inside, or right next to, the paragraphs the card changed.
+- Citation popover links are easier to reach from the Sources row than by keyboard inside the reply.
+- The budget check can run one link late.
+
+**Approval.** Product owner, 2026-10-19 (decisions) and 2026-10-20 ("can we do it").
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:
