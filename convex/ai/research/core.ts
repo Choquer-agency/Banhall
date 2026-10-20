@@ -241,7 +241,8 @@ export type ProjectEvidenceExcerpt = {
   score: number;
 };
 
-const STOP_WORDS = new Set([
+/** Shared with the report chat's searchDocuments (chat parity Phase B). */
+export const STOP_WORDS: ReadonlySet<string> = new Set([
   "about",
   "after",
   "again",
@@ -315,6 +316,20 @@ function documentChunks(content: string): string[] {
   return chunks;
 }
 
+/**
+ * How well a lower-cased chunk matches the query terms: each term counts up
+ * to 4 times, a term of 8 or more characters twice. Shared with the report
+ * chat's searchDocuments (chat parity Phase B).
+ */
+export function chunkScore(lowerChunk: string, terms: readonly string[]): number {
+  let score = 0;
+  for (const term of terms) {
+    const matches = lowerChunk.split(term).length - 1;
+    if (matches > 0) score += Math.min(matches, 4) * (term.length >= 8 ? 2 : 1);
+  }
+  return score;
+}
+
 /** Cheap, deterministic project-document retrieval; no extra model/search bill. */
 export function selectProjectEvidence(
   documents: ProjectDocumentInput[],
@@ -326,12 +341,7 @@ export function selectProjectEvidence(
   const candidates: ProjectEvidenceExcerpt[] = [];
   for (const document of documents) {
     for (const chunk of documentChunks(document.content)) {
-      const lower = chunk.toLowerCase();
-      let score = 0;
-      for (const term of terms) {
-        const matches = lower.split(term).length - 1;
-        if (matches > 0) score += Math.min(matches, 4) * (term.length >= 8 ? 2 : 1);
-      }
+      const score = chunkScore(chunk.toLowerCase(), terms);
       if (score > 0) {
         candidates.push({
           documentId: document.id,

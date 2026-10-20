@@ -91,6 +91,9 @@ import { outputArtifact, outputsInArtifacts } from "./lib/generationOutputs";
 import { matchProposalTurn } from "./lib/chatProposalTurns";
 import { listProjectTranscripts } from "./lib/transcripts";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
+// Chat parity Phase B (W1): the reading tools' setting and transcript list.
+import { chatDocumentToolsEnabled } from "./appSettings";
+import { chatTranscriptSummaries } from "./chatDocuments";
 import {
   prepareWebSearchQuery,
   webSearchKnownNames,
@@ -2553,6 +2556,13 @@ export const getChatContextV2 = internalQuery({
 
     const openQuestions = await openQuestionsFor(ctx, ownGeneration, budget);
 
+    // Chat parity Phase B (2026-10-20): the project's active transcripts,
+    // listed (never sent) in the head so readTranscript can open them, and
+    // the reading tools' admin setting. Read last, so the reads above keep
+    // the budget they had.
+    const transcriptList = await chatTranscriptSummaries(ctx, report.projectId, budget);
+    const documentToolsRead = await budget.read(() => chatDocumentToolsEnabled(ctx), 1024);
+
     return {
       reportContent: report.content ?? null,
       agentOutputs: agentOutputs ?? null,
@@ -2590,6 +2600,10 @@ export const getChatContextV2 = internalQuery({
       // Resolved in the query, exactly as `getGenerationInput` resolves the
       // analyzer's: the action sends context, it does not decide policy.
       evidenceBudget,
+      transcripts: transcriptList.transcripts,
+      ...(transcriptList.complete ? {} : { transcriptsIncomplete: true }),
+      // A setting the budget could not read stays on, as the setting does.
+      documentTools: documentToolsRead.ok ? documentToolsRead.value : true,
     };
   },
 });

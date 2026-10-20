@@ -287,6 +287,22 @@ export async function transcriptPlaceholdersEnabled(ctx: QueryCtx | MutationCtx)
   return row?.value.trim() !== "off";
 }
 
+/** Chat parity Phase B (2026-10-20): the report chat's reading tools. */
+export const CHAT_DOCUMENT_TOOLS_KEY = "ai.chatDocumentTools";
+
+/**
+ * Kill switch for readDocument, searchDocuments and readTranscript. Anything
+ * but "off" means on. Off keeps the tools registered (the tool list stays the
+ * same every turn); each then says opening files is turned off.
+ */
+export async function chatDocumentToolsEnabled(ctx: QueryCtx | MutationCtx): Promise<boolean> {
+  const row = await ctx.db
+    .query("appSettings")
+    .withIndex("by_key", (q) => q.eq("key", CHAT_DOCUMENT_TOOLS_KEY))
+    .unique();
+  return row?.value.trim() !== "off";
+}
+
 async function writeTranscriptMethod(
   ctx: MutationCtx,
   args: { factsMode?: TranscriptFactsMode; placeholders?: boolean },

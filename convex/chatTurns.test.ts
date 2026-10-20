@@ -652,7 +652,7 @@ describe("bounded chat context", () => {
     // The dropped document is named in the message and in the cut log, so a
     // budget gap never reads as an interview gap.
     expect(evidence).toContain(
-      '[1 further attached document(s) were omitted to fit the context budget, so you cannot see them in this turn: "second.md".]'
+      '[1 further attached document(s) were omitted to fit the context budget, so their text is not shown here; open one with readDocument to read it: F2 "second.md".]'
     );
     const cutLine = infoLines.find((line) =>
       line.startsWith(`chat evidence ${result.threadId}`)

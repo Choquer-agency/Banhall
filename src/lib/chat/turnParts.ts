@@ -150,6 +150,23 @@ const TOOL_COPY: Record<string, ToolCopy> = {
     done: "Searched the web",
     error: "Couldn’t reach web search",
   },
+  // Chat parity Phase B (2026-10-20): the reading tools. The trace names the
+  // kind of step only, never the file or what it said.
+  readDocument: {
+    running: "Reading a project file…",
+    done: "Read a project file",
+    error: "Couldn’t read that file",
+  },
+  searchDocuments: {
+    running: "Searching project files…",
+    done: "Searched project files",
+    error: "Couldn’t search the project files",
+  },
+  readTranscript: {
+    running: "Reading a transcript…",
+    done: "Read a transcript",
+    error: "Couldn’t read that transcript",
+  },
 };
 
 // A tool we have no copy for is described generically. Pasting a camelCase

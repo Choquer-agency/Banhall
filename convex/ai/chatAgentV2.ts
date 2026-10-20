@@ -57,6 +57,14 @@ import { describeContextCuts } from "./trustedContext";
 import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
 import { makeSearchWebTool, newWebSearchTurn, type WebSearchTurn } from "./chatWebSearch";
+import {
+  makeReadDocumentTool,
+  makeReadTranscriptTool,
+  makeSearchDocumentsTool,
+  newDocumentReadTurn,
+  withOpenedText,
+  type DocumentReadTurn,
+} from "./chatDocumentTools";
 import type { ChatTurnContinuationReason, ChatTurnProgress } from "../lib/chatTurnState";
 import {
   coverageFor,
@@ -1017,12 +1025,15 @@ async function chatContextWindow(
  * and rewrites the prompt cache. The per-message permission is enforced
  * inside each tool body (`CHAT_BRAIN_OFF`, `CHAT_WEB_SEARCH_OFF`). `webSearch`
  * is the turn's web search state, its count shared by every pass; without
- * one, searchWeb searches nothing.
+ * one, searchWeb searches nothing. Phase B (2026-10-20): the three reading
+ * tools come last; `documentReads` is the turn's reading state, and without
+ * one they open nothing.
  */
 export const buildChatTools = (
   bannedWordsWaived: boolean,
   allowBrain = false,
-  webSearch: WebSearchTurn | null = null
+  webSearch: WebSearchTurn | null = null,
+  documentReads: DocumentReadTurn | null = null
 ) => ({
   proposeEdit: makeProposeEdit(bannedWordsWaived),
   proposeReplacements: makeProposeReplacements(bannedWordsWaived),
@@ -1032,6 +1043,14 @@ export const buildChatTools = (
   highlightPassages,
   searchBrain: makeSearchBrain(allowBrain),
   searchWeb: makeSearchWebTool(webSearch ?? newWebSearchTurn({ allowed: false })),
+  ...readingTools(documentReads ?? newDocumentReadTurn()),
+});
+
+/** Phase B: the reading tools, appended in this fixed order. */
+const readingTools = (turn: DocumentReadTurn) => ({
+  readDocument: makeReadDocumentTool(turn),
+  searchDocuments: makeSearchDocumentsTool(turn),
+  readTranscript: makeReadTranscriptTool(turn),
 });
 
 const CHAT_TOOLS = buildChatTools(false);
@@ -1876,6 +1895,9 @@ export const streamChatReply = internalAction({
         ...(args.userId ? { userId: args.userId } : {}),
         deadline: startedAt + ACTION_REQUEST_WINDOW_MS,
       });
+      // Phase B: the turn's reading state (handles from this turn's
+      // evidence, the shared character allowance), created once per turn.
+      const documentReads = newDocumentReadTurn(context);
 
       const runPass = async (pass: {
         messages: ModelMessage[];
@@ -1909,7 +1931,7 @@ export const streamChatReply = internalAction({
               // input messages, so the evidence never enters thread history.
               // The context handler below places them around the history.
               messages: pass.messages,
-              tools: buildChatTools(styleOverrides.bannedWords, args.allowBrain === true, webSearch),
+              tools: buildChatTools(styleOverrides.bannedWords, args.allowBrain === true, webSearch, documentReads),
               providerOptions: pass.providerOptions,
               maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
               abortSignal,
@@ -1942,7 +1964,9 @@ export const streamChatReply = internalAction({
                 if (turnAbort.signal.aborted) {
                   throw new Error(stoppedByWriter ? "CHAT_STOPPED" : "CHAT_TIMED_OUT");
                 }
-                const next = withCutOffInstruction(messages, steps);
+                // Phase B: text a reading tool opened goes back into its
+                // result on every later step of the pass, the same bytes.
+                const next = withOpenedText(withCutOffInstruction(messages, steps), documentReads, steps);
                 // 2026-10-19: a step that plans over a list result thinks at
                 // medium effort.
                 const listStep =

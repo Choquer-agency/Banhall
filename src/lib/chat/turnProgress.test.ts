@@ -37,6 +37,12 @@ describe("progressLabel (Phase A, task 5)", () => {
     expect(progressLabel({ phase: "tool", tool: "internalHelper", step: 2, since: 0 })).toBe("Working…");
   });
 
+  it("names the reading tools' steps, never the file (Phase B)", () => {
+    expect(progressLabel({ phase: "tool", tool: "readDocument", step: 1, since: 0 })).toBe("Reading a project file…");
+    expect(progressLabel({ phase: "tool", tool: "searchDocuments", step: 1, since: 0 })).toBe("Searching project files…");
+    expect(progressLabel({ phase: "tool", tool: "readTranscript", step: 1, since: 0 })).toBe("Reading a transcript…");
+  });
+
   it("feeds the live summary, with the turn's elapsed time", () => {
     const timing: TurnTiming = {
       status: "running", startedAt: 1_000, stepCount: 1,

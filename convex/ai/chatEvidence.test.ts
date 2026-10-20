@@ -198,7 +198,7 @@ describe("chat evidence message", () => {
     // block reads as "never provided", and the writer can see all fifteen in
     // the project (2026-10-19: named, so the assistant can say which).
     expect(message).toContain(
-      '[3 further attached document(s) were omitted to fit the context budget, so you cannot see them in this turn: "doc-12.txt", "doc-13.txt", "doc-14.txt".]'
+      '[3 further attached document(s) were omitted to fit the context budget, so their text is not shown here; open one with readDocument to read it: F13 "doc-12.txt", F14 "doc-13.txt", F15 "doc-14.txt".]'
     );
     expect(message.indexOf("further attached document")).toBeGreaterThan(
       message.indexOf("doc-11.txt")
@@ -480,7 +480,7 @@ describe("chat evidence message", () => {
       documents: [doc({ fileName: "diagram.png", content: "", category: "other" })],
     });
     expect(message).toContain(
-      `${EVIDENCE_LABELS.documentsHeading}\n[1 attached file(s) carry no text you can read (for example images or scans), so you cannot see them: "diagram.png".]`
+      `${EVIDENCE_LABELS.documentsHeading}\n[1 attached file(s) carry no text you can read (for example images or scans), so you cannot see them and readDocument cannot open them: F1 "diagram.png".]`
     );
   });
 
@@ -499,7 +499,7 @@ describe("chat evidence message", () => {
     expect(message).toContain("real.txt");
     // 2026-10-19: named as unreadable, so the assistant never claims it read it.
     expect(message).toContain(
-      '[1 attached file(s) carry no text you can read (for example images or scans), so you cannot see them: "scan.pdf".]'
+      '[1 attached file(s) carry no text you can read (for example images or scans), so you cannot see them and readDocument cannot open them: F1 "scan.pdf".]'
     );
     expect(report.sources.find((s) => s.label === "scan.pdf")).toMatchObject({
       included: false,
@@ -549,9 +549,10 @@ describe("chat evidence message", () => {
         doc({ fileName: "left-out.txt", content: "y".repeat(400), category: "other" }),
       ],
       decisions: [],
-      // Head allowance 400 characters: the analysis placeholder, then 366 of
-      // kept-short, then nothing for left-out.
-      budget: budget({ totalTokens: 100, perDocumentTokens: 100 }),
+      // Head allowance 360 characters: the analysis placeholder, the files
+      // list (with its Phase B handles), then part of kept-short, then
+      // nothing for left-out.
+      budget: budget({ totalTokens: 120, perDocumentTokens: 100 }),
     });
     const cuts = describeContextCuts(report);
     expect(cuts).toContain("shortened");

@@ -26,6 +26,7 @@ import {
   RULES_SEED_WORDING,
 } from "../../shared/humanProse";
 import { ANALYZER_REQUEST } from "./analyzerAgent";
+import { CHAT_READ_MAX_TURN_CHARS } from "../chatDocuments";
 import {
   ANALYZER_COMPANY_AND_GOAL_CATEGORIES,
   CONSISTENCY_SYSTEM_PROMPT,
@@ -423,11 +424,31 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
       "highlightPassages",
       "searchBrain",
       "searchWeb",
+      "readDocument",
+      "searchDocuments",
+      "readTranscript",
     ]) {
       expect(prompt, tool).toContain(tool);
     }
     // Both new tools are read only and say so.
     expect(prompt).toContain("call the matching read-only tool FIRST");
+  });
+
+  // Chat parity Phase B (2026-10-20): the reading lines of the lane.
+  it("says the reading tools open what the evidence lacks, within one reply's allowance", () => {
+    expect(prompt).toContain("the project files and transcripts you open in this reply with readDocument, searchDocuments or readTranscript");
+    expect(prompt).toContain("the lists of the project's files and transcripts");
+    expect(prompt).toContain("Call no edit tool. When the answer needs a file or transcript the evidence does not show, open it first");
+    expect(prompt).toContain(
+      `one reply may read about ${CHAT_READ_MAX_TURN_CHARS.toLocaleString("en-US")} characters in all`
+    );
+    expect(prompt).toContain("Never tell the writer you read or checked something you did not open in this reply.");
+    const readingLines = prompt.split("\n").filter((line) => /readDocument|reading tool|files and transcripts/.test(line));
+    expect(readingLines.length).toBeGreaterThanOrEqual(4);
+    for (const line of readingLines) {
+      expect(findDashConnectors(line)).toEqual([]);
+      expect(line).not.toMatch(/[\u2010-\u2015\u2212]/);
+    }
   });
 
   // 2026-10-19 (first): a long list is revised one Line per reply, and the
