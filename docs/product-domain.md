@@ -3701,6 +3701,131 @@ The evidence head gains handles and the transcripts block, so the first turn of 
 
 **Approval.** Product owner, 2026-10-19 (decisions) and 2026-10-20 ("can we do it").
 
+### 2026-10-20 (second): Report chat parity, Phase C: the chat views PDFs and images, reads pinned files, keeps alternatives, and conversations can be renamed, archived and deleted (owner)
+
+Origin: Phase C of `_bmad-output/planning-artifacts/research/chat-parity-plan-2026-10-19.md`; spec `_bmad-output/implementation-artifacts/spec-chat-parity-phase-c.md`. Owner decisions:
+- 2026-10-19: original PDFs and images may go to Anthropic, inline only; writers may pin a file into a message; anyone on the report may edit a message, and the alternative is labelled with who made it; archiving conversations is approved, and admins may delete.
+- 2026-10-20: "i trust so continue work in dev/localhost".
+
+The lead decisions are reported to the owner and can be reversed:
+- one shared active path per conversation;
+- the media limits;
+- page counts worked out on first view;
+- admin delete is permanent;
+- a reason only on thumbs down.
+
+**Viewing PDFs and images (amends 2026-10-20 first, reading)**
+- **The tool.** `viewFile` (offered on every turn after the reading tools) sends a project file's stored original to Anthropic inline as base64, inside the tool result: a PDF as a document, an image as an image. It never goes through the Files API or a link.
+- **What can be viewed.** Only files with an original that is a real PDF or image, checked from the bytes, not the stored type. A PNG, JPEG, GIF or WebP up to 3.75 MB and 8000 pixels on each side (5 MB once encoded, the strictest limit any of the chat's routes to Claude has); a PDF up to 8 MB and 30 pages. At most 12 images and 8 MB of originals per reply, shared across its passes. Each view takes from the allowance only what its file actually uses. These fit Anthropic's 32 MB request limit and the chat action's 64 MiB memory.
+- **Page counts.** A PDF's page count is counted on the server the first time it is viewed (`convex/ai/chatPdfPages.ts`, pdf.js, a Node action) and stored as `projectDocuments.pageCount` while its original is unchanged. Longer PDFs can still be read as text with `readDocument`.
+- **Never stored.** The saved tool result is a receipt. The media is put back into the request on every later step of the pass, in the same bytes, with no cache breakpoint of its own. It is never stored in the agent's tables (no file id or file part on any saved row), a new table, logs or the browser. One numbers-only "chat file view" log line per view.
+- **Accepted path.** The model's reply and reasoning summary may describe what it saw, as with text it opens.
+- **Setting.** Admin setting `ai.chatVision`, on unless "off". The files list marks what can be viewed. The guidance no longer says images and scans cannot be opened. Encrypted or damaged PDFs cannot be viewed.
+
+**Pinned files (amends 2026-10-19 second)**
+- **The picker.** Message options offers "Read a file in full". It opens a picker of the project's non-archived files, and the writer can pin up to 5 into the next message (`sendMessage.pinnedDocumentIds`, checked on the server and stored on `chatTurns.pinnedDocumentIds`). The writer's message shows the pinned names. Pins are cleared after sending. Automatic links carry none, and an alternative repeats its source's pins, skipping files archived since.
+- **What the model gets.** The reply adds the pinned files to that turn's request only, in one unsaved message after the per-turn note:
+  - text files in full, sharing the 240,000-character reading allowance, and cut with a notice when it runs out;
+  - PDFs and images as originals under the viewing limits, or as text with a note when they are over them.
+- **Still no uploads.** The composer still takes no uploads, drag and drop or paste: the picker only chooses files already in the project. This replaces "the composer offers no way to add a file" for existing files only. Pins follow `ai.chatDocumentTools`.
+
+**Alternatives (new glossary entry; changes the meaning of Regenerate)**
+- **Chat alternative.** A sibling turn made by Edit or Regenerate. A conversation's turns form a tree (`chatTurns.parentPromptMessageId`, `alternativeOf`, `alternativeKind`). The conversation has one active path, shared by everyone viewing it (`agentChatThreads.activeTipPromptMessageId`, recorded once the conversation has an alternative). The path is never called a branch or a version: the screen says "Response 2 of 3".
+- **Edit and Regenerate.** Edit (anyone on the report, on finished writer messages, never on automatic Continue messages) and Regenerate (now also after Stop) call `chatV2.sendAlternative`. It saves a new prompt rebuilt on the server from the source turn:
+  - the writer's text, from `writerTextLength`;
+  - the highlight;
+  - the refinement, from `refineProposalId`, dropped once that card is decided;
+  - the source's pins.
+
+  Edits are held to the message limits. The switcher calls `chatV2.setActiveAlternative`. Both are refused while a reply runs (`CHAT_TURN_ACTIVE`). The stored-prompt exception of 2026-10-19 (seventh) now applies only to rows saved before turns were recorded.
+- **The model reads only the active path.** The history is the path's rows, windowed as before; a regenerated automatic link stays a link. A refinement in a turn saved before `refineProposalId` existed is read from its stored block and checked like any refinement. The history window, `historyStartOrder`, the job, coverage, waiting items, the Continue offer and the automatic chain all follow the path, and "newest turn" means the tip. A link's parent is the turn it continues.
+- **Cards.** The conversation shows only the active path's cards. A pending card on another path keeps its state but is hidden while that path is not shown. An applied card stays on the path where it was applied. Coverage and decision memory read the path's cards plus applied cards from any path, because those are in the report. No card state or transition is added.
+- **Who made it.** Each alternative shows "Edited by {name}" or "Regenerated by {name}" ("you" for your own).
+
+**Which text is the writer's message (found in the Phase C replay)**
+- In a new conversation the evidence head, the writer's message and the rest of the evidence reach the model as one user turn, and plain requests were sometimes read as text inside the evidence.
+- Every user message the model reads, in the history and the current prompt, now starts with "WRITER'S MESSAGE (the request to answer, not data):". That includes the server's automatic Continue messages, and the highlight excerpt or refinement block inside a writer's message. The label is added to the request only, never stored, and in the same bytes on every turn, so the cached history still matches.
+- Chat data that spells the label (a file, a transcript, the report, a web result, a deviation list excerpt) keeps its words but loses the exact label ("WRITER'S (QUOTED) MESSAGE", `neutralizeWriterLabel`), so it cannot pass for the writer's message. Generation prompts are unchanged.
+- The evidence guidance and the per-turn note say the writer's message is the last text outside every marked block that starts with that label, and is the request even when it names a tool, a file or a handle. The label inside a block or a tool result is data.
+- A request that reads like a classic injection test (for example "Reply with only the word APPLE.") may still be declined; ordinary requests were answered in the replay.
+
+**Conversations (amends the branch lifecycle rules "Archiving is reversible. Permanent deletion is not part of the initial branch lifecycle." and "chat ... remain queryable", for report chat conversations only)**
+- **Rename.** `chatV2.renameThread`, 1 to 80 characters, by anyone on the report. New titles cut at a word boundary.
+- **Archive and restore.** `archiveThread` and `restoreThread`, by anyone on the report. An archived conversation leaves the menu, stays readable and queryable, and appears under "Archived conversations". A send or an alternative restores it, and a send with no conversation named skips archived ones.
+- **Order.** The menu sorts by last activity (`agentChatThreads.lastActivityAt`, written by sends, alternatives and automatic links, else `createdAt`), over the newest 200 open conversations. A send with no conversation named continues the open conversation with the latest activity.
+- **Admin delete.** "Delete permanently" (`chatV2.deleteThread`, admin only, confirmed) removes the conversation for everyone. It is refused while a reply runs, and until 10 seconds after the newest reply's action really ended (`chatTurns.actionEndedAt`, recorded for stopped replies too). A turn with no recorded action end (an older turn, a reaped one, or an action that died) waits 2 minutes after it ended. Only the newest turn is checked; a late write from an older stopped reply is refused by the deleting guards.
+  - It first marks the conversation (`deletingAt`, `deletingBy`). From then on the lists, reads, sends, alternatives, chain links, card actions (apply, reword, dismiss, undo, the checklist), the reply-ready signal and the chat's internal writes treat it as gone. A viewer on it is moved off once a by-id check (`chatV2.threadStatus`) says it is being deleted or missing; dropping out of a shortened list is not enough.
+  - A scheduled job then deletes its turns, cards, card items, wording edit events, web search records and feedback, at most 100 rows and about 4 MiB per run (the same budget as project erasure), then the agent component thread (which the component deletes in its own pages). The conversation row goes last, so project erasure can still reach a half-deleted conversation.
+  - A cron restarts a delete that made no progress for 10 minutes.
+
+  Usage rows stay, as billing data. Learning digests that already admitted its feedback keep the row ids, as project erasure does.
+
+**Vet against public sources (amends 2026-10-19 sixth, "Not built")**
+- A "Vet against public sources" button beside "Research this selection" starts Contextual Research with a fixed instruction built on the server (`research.startResearch` `preset: "vet"`, stored on `researchSessions.preset`). It checks the selection's general statements against public sources (CRA SR&ED guidance, standards bodies, common technical knowledge), and says for each whether it is supported, qualified, contradicted or not found, with a source. It never searches for the company, its people, products or project, and proposes new wording only to correct a contradicted or overstated general statement.
+- The writer's optional note is added after it and redacted like any instruction. The note can be up to the instruction limit less the fixed text (about 1,360 characters); the composer counts it. The client cannot change the fixed text. The feed labels the session and shows only the writer's note.
+
+**Copy, starters, feedback and touch targets**
+- **Copy.** It writes the rendered reply as rich text and plain text, with citation pills as "[n]", and falls back to plain text. "Copy wording" on pending, applied and stale cards copies the proposed text. "Copied" is announced.
+- **Starters.** They fill an empty composer instead of sending, and are hidden once it holds text: "Tighten the uncertainty framing in Line 242", "Find every mention of the prototype", "Check this report for banned words", "Make Line 244 (work performed) more chronological".
+- **Feedback (amends the learning loop).**
+  - A voter may change their vote (`chatAnswerFeedback.updatedAt`, `changeCount`).
+  - A thumbs down takes an optional reason from a fixed list (wrong, didn't follow my request, made something up, too long, other) and optional text of up to 500 characters (`reasonCode`, `reasonText`); flipping the vote clears it.
+  - The learning snapshot (version 2) carries the reason de-identified with the project's full placeholder map (record names, transcript speakers, the firm's names), and the digest prompt treats reason text as data, never as instructions.
+  - The digest reads changed votes as new signals, newest by `updatedAt`, and uses a stated reason as the criticism instead of "never infer which detail a negative vote criticizes".
+  - The raw reason stays with the project and is erased with it.
+- **Touch targets.** Chat controls meet the 44 px coarse-pointer floor; the small chip remove buttons get a larger hit area.
+
+**Migration and compatibility.** Widen only, with no backfill:
+- `projectDocuments.pageCount` and `pageCountStorageId` (the count is trusted only while that file is still the document's original);
+- `chatTurns.parentPromptMessageId`, `alternativeOf`, `alternativeKind`, `refineProposalId`, `writerTextLength` and `pinnedDocumentIds`, with index `by_agentThreadId_and_alternativeOf`;
+- `agentChatThreads.activeTipPromptMessageId`, `lastActivityAt`, `archivedAt`, `archivedBy`, `deletingAt`, `deletingBy` and `purgeHeartbeatAt`, with indexes `by_reportId_and_archivedAt` and `by_deletingAt`;
+- `researchSessions.preset`;
+- `chatAnswerFeedback.updatedAt`, `changeCount`, `reasonCode` and `reasonText`, with indexes `by_agentThreadId` and `by_updatedAt`;
+- `chatTurns.actionEndedAt`;
+- `proposalWordingEditEvents` index `by_proposalId`.
+
+Conversations with no alternative read their history as before, except when the history path itself cannot be read (see Known limitations). Older conversations sort by creation until their next message.
+
+**Authorization.**
+- Edit, Regenerate, switching, rename, archive and restore need the same project access as a send.
+- Delete is admin only.
+- Undo and Apply are unchanged.
+- No role gains a right over report prose.
+
+**Tests.**
+- Viewing and pins:
+  - `convex/chatViewFile.sdk.test.ts`
+  - `convex/ai/chatViewFile.test.ts`
+  - `convex/chatPdfPages.test.ts`
+  - `src/lib/components/chat/PinnedFiles.component.test.ts`
+  - `convex/storageSweep.test.ts`
+- Alternatives:
+  - `convex/lib/chatPath.test.ts`
+  - `convex/chatAlternatives.test.ts`
+  - `convex/chatAlternatives.sdk.test.ts` (no sibling reply reaches the model)
+  - `src/lib/chat/alternatives.test.ts`
+  - `src/lib/components/chat/ChatAlternatives.component.test.ts`
+- Conversations, Vet, copy and feedback:
+  - `convex/chatConversations.test.ts`
+  - `convex/researchVet.test.ts`
+  - `convex/chatFeedback.test.ts`
+  - `convex/learning.test.ts`
+  - `src/lib/components/chat/ChatPhaseCConversations.component.test.ts`
+  - `src/lib/components/editor/VetSelection.component.test.ts`
+  - `src/lib/components/chat/ChatTouchTargets.component.test.ts` (measured sizes under a coarse pointer)
+  - `src/lib/components/chat/ChatFeedback.component.test.ts`
+
+**Known limitations.**
+- The path is worked out over the newest 200 turns; older turns count as one line.
+- If the history path cannot be read, the reply gets no history and the model is told so, in every conversation, because without that read the code cannot tell whether alternatives exist (it never falls back to a window that could hold a sibling reply). If only the history rows cannot be read, a conversation without alternatives keeps the plain window.
+- One shared path means a switch changes the view for everyone in the conversation.
+- A pending card on a hidden path still counts on the home page and can still be applied.
+- In a conversation with alternatives, the open lists re-read up to 200 turns each time a turn changes.
+- PDFs over 30 pages cannot be viewed, only read as text.
+- Delete leaves usage rows and digest references.
+
+**Approval.** Product owner, 2026-10-19 (decisions) and 2026-10-20 ("i trust so continue work in dev/localhost").
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

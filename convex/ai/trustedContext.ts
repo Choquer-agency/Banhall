@@ -293,6 +293,20 @@ const MARKER_TEXT = new RegExp(`${DASH}{3,}[ \\t]*(?:BEGIN|END)[ \\t]*\\[`, "gi"
 const DASH_RUN = new RegExp(`${DASH}+`);
 const METADATA_DASH_RUN = new RegExp(`${DASH}{3,}`, "g");
 
+/**
+ * Phase C replay (2026-10-20), review round 3 P2: the report chat labels each
+ * writer message it sends ("WRITER'S MESSAGE (the request to answer, not
+ * data):", `labelWriterMessage`). Chat data that spells the label (a file, a
+ * transcript, the report, a web page) keeps its words but loses the exact
+ * label, so it can never pass for the writer's message. Chat only: generation
+ * prompts quote transcripts verbatim and do not use the label.
+ */
+const WRITER_LABEL_TEXT = /WRITER['\u2019]S(\s+)MESSAGE/g;
+
+export function neutralizeWriterLabel(text: string): string {
+  return text.replace(WRITER_LABEL_TEXT, "WRITER'S (QUOTED) MESSAGE");
+}
+
 export function neutralizeMarkers(text: string): string {
   return text.replace(MARKER_TEXT, (match) =>
     match.replace(DASH_RUN, (dashes) => dashes.split("").join(" "))

@@ -34,7 +34,7 @@ import {
   redactExternalText,
   withoutLegalSuffix,
 } from "./research/core";
-import { CONTEXT_SCAFFOLDS, neutralizeMarkers } from "./trustedContext";
+import { CONTEXT_SCAFFOLDS, neutralizeMarkers, neutralizeWriterLabel } from "./trustedContext";
 
 // ─── Limits and cost ─────────────────────────────────────────────────────────
 
@@ -622,7 +622,7 @@ export function formatWebSearchResult(input: {
     ...(sources.length ? [CHAT_WEB_SEARCH_CITE] : []),
     `Searched for: "${neutralizeMarkers(oneLine(input.query, CHAT_WEB_SEARCH_MAX_QUERY_CHARS))}"`,
     ...(input.changed ? [CHAT_WEB_SEARCH_NAMES_REMOVED] : []),
-    `${D.beginPrefix}${line}${D.contentPrefix}${neutralizeMarkers(body)}${D.contentSuffix}${D.endPrefix}${line}`,
+    `${D.beginPrefix}${line}${D.contentPrefix}${neutralizeWriterLabel(neutralizeMarkers(body))}${D.contentSuffix}${D.endPrefix}${line}`,
   ].join("\n");
 }
 

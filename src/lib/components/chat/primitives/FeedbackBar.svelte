@@ -59,7 +59,10 @@
   let awaitingVote: 1 | -1 | null = null;
   function vote(next: 1 | -1, handler: (() => void | Promise<void>) | undefined) {
     awaitingVote = next;
-    void handler?.();
+    // Round 3: a vote that failed is never announced later as recorded.
+    void Promise.resolve(handler?.()).catch(() => {
+      if (awaitingVote === next) awaitingVote = null;
+    });
   }
   $effect(() => {
     const current = value;

@@ -33,6 +33,7 @@ import {
   formatCount,
   isInternalUploaderRole,
   neutralizeMarkers,
+  neutralizeWriterLabel,
   sanitizeFileName,
   tokensForChars,
   omittedMaterialsNotice,
@@ -263,7 +264,7 @@ const D = CONTEXT_SCAFFOLDS.documentDelimiters;
 /** A block with a label and no file name, delimited like the transcript is. */
 function labelledBlock(label: string, body: string): string {
   const line = `${label}${CONTEXT_SCAFFOLDS.labelClose}${D.lineSuffix}`;
-  return `${D.beginPrefix}${line}${D.contentPrefix}${body}${D.contentSuffix}${D.endPrefix}${line}`;
+  return `${D.beginPrefix}${line}${D.contentPrefix}${neutralizeWriterLabel(body)}${D.contentSuffix}${D.endPrefix}${line}`;
 }
 
 /** At most this many file names in one notice line; the rest are counted. */
@@ -507,7 +508,7 @@ function transcriptsListText(transcripts: readonly ChatEvidenceTranscript[], inc
 function documentBlock(doc: ChatEvidenceDoc, body: string): string {
   const label = ANALYZER_CATEGORY_LABELS[docCategory(doc)];
   const line = `${label}${D.categoryToFile}${sanitizeFileName(doc.fileName)}${D.lineSuffix}`;
-  return `${D.beginPrefix}${line}${D.contentPrefix}${body}${D.contentSuffix}${D.endPrefix}${line}`;
+  return `${D.beginPrefix}${line}${D.contentPrefix}${neutralizeWriterLabel(body)}${D.contentSuffix}${D.endPrefix}${line}`;
 }
 
 /**
@@ -545,7 +546,7 @@ export function openedMediaMarkers(
 /** The same for opened transcript text, under the transcript's own label. */
 export function openedTranscriptBlock(label: string, place: string, text: string): string {
   const line = `${CONTEXT_SCAFFOLDS.transcriptLabel}${CONTEXT_SCAFFOLDS.labelClose} ${sanitizeFileName(`${place}, ${label}`)}${D.lineSuffix}`;
-  return `${D.beginPrefix}${line}${D.contentPrefix}${neutralizeMarkers(text)}${D.contentSuffix}${D.endPrefix}${line}`;
+  return `${D.beginPrefix}${line}${D.contentPrefix}${neutralizeWriterLabel(neutralizeMarkers(text))}${D.contentSuffix}${D.endPrefix}${line}`;
 }
 
 /**
