@@ -7,7 +7,8 @@ import type { Id } from "./_generated/dataModel";
 import { reportChatAgent } from "./ai/chatAgentV2";
 import schema from "./schema";
 import { threadTitleFrom } from "./lib/chatThreads";
-import { PURGE_BUDGET } from "./lib/chatThreadPurge";
+import { PURGE_MAX_BYTES_READ, PURGE_PAGE_ROWS, PURGE_STALL_MS } from "./lib/chatThreadPurge";
+import { THREAD_DELETE_SETTLE_MS } from "./chatV2";
 
 /**
  * Report chat parity, Phase C (2026-10-20), W3: conversation management.
@@ -19,8 +20,8 @@ import { PURGE_BUDGET } from "./lib/chatThreadPurge";
 const modules = import.meta.glob("./**/*.ts");
 const START = new Date("2026-10-20T12:00:00.000Z").getTime();
 
-async function setup() {
-  const t = convexTest(schema, modules);
+async function setup(options: { transactionLimits?: boolean } = {}) {
+  const t = convexTest({ schema, modules, transactionLimits: options.transactionLimits ?? false });
   agentTest.register(t);
   const ids = await t.run(async (ctx) => {
     const writerId = await ctx.db.insert("users", { authId: "conv-writer", role: "writer", firstName: "Avery", lastName: "Quill" });
@@ -224,6 +225,14 @@ describe("archive, restore and the menu's order", () => {
     expect(await threadRow(s, fresh.threadId)).toMatchObject({ title: "Start over", lastActivityAt: START });
   });
 
+  test("a send without a conversation continues the one with the latest activity (review R2 P3-9)", async () => {
+    const s = await setup();
+    const older = await conversation(s, "Older but active", { createdAt: START - 2000, lastActivityAt: START - 10 });
+    await conversation(s, "Newer but quiet", { createdAt: START - 1000 });
+    const sent = await s.writer.mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "Carry on" });
+    expect(sent.threadId).toBe(older.threadId);
+  });
+
   test("a send in an archived conversation restores it", async () => {
     const s = await setup();
     const { threadId } = await conversation(s, "Back again");
@@ -334,7 +343,7 @@ describe("delete permanently", () => {
     const doomed = await conversation(s, "Doomed");
     const kept = await conversation(s, "Kept");
     // More checklist items than one run deletes, so the job pages.
-    await fill(s, doomed.threadId, doomed.turnId, doomed.promptMessageId, PURGE_BUDGET);
+    await fill(s, doomed.threadId, doomed.turnId, doomed.promptMessageId, PURGE_PAGE_ROWS);
     await fill(s, kept.threadId, kept.turnId, kept.promptMessageId, 2);
 
     for (const actor of [s.writer, s.manager, s.t]) {
@@ -342,12 +351,34 @@ describe("delete permanently", () => {
     }
     expect((await keyedRows(s, doomed.threadId)).threads).toHaveLength(1);
 
+    await s.writer.mutation(api.chatV2.archiveThread, { threadId: kept.threadId });
+    await s.writer.mutation(api.chatV2.restoreThread, { threadId: kept.threadId });
     await s.admin.mutation(api.chatV2.deleteThread, { threadId: doomed.threadId });
-    // The row is gone at once: the menu no longer lists it, and a send refuses it.
+    // The row is marked at once and stays until the purge ends; every read
+    // and send treats the conversation as gone.
+    expect(await threadRow(s, doomed.threadId)).toMatchObject({ deletingAt: START, deletingBy: s.adminId });
     expect((await s.writer.query(api.chatV2.listThreads, { reportId: s.reportId })).map((row) => row.title)).toEqual(["Kept"]);
+    expect(await s.writer.query(api.chatV2.listArchivedThreads, { reportId: s.reportId })).toEqual([]);
+    const page = { cursor: null, numItems: 10 };
+    expect((await s.writer.query(api.chatV2.listMessages, { threadId: doomed.threadId, paginationOpts: page, streamArgs: undefined })).page).toEqual([]);
+    expect(await s.writer.query(api.chatV2.listTurns, { threadId: doomed.threadId })).toEqual([]);
+    expect(await s.writer.query(api.chatV2.listProposals, { threadId: doomed.threadId })).toEqual([]);
     await expect(
       s.writer.mutation(api.chatV2.sendMessage, { reportId: s.reportId, threadId: doomed.threadId, content: "Hello?" })
     ).rejects.toThrow("Thread not found");
+    await expect(s.writer.mutation(api.chatV2.sendAlternative, {
+      threadId: doomed.threadId, ofPromptMessageId: doomed.promptMessageId, kind: "regenerate",
+    })).rejects.toThrow();
+    for (const call of [
+      () => s.writer.mutation(api.chatV2.renameThread, { threadId: doomed.threadId, title: "Back" }),
+      () => s.writer.mutation(api.chatV2.archiveThread, { threadId: doomed.threadId }),
+      () => s.admin.mutation(api.chatV2.deleteThread, { threadId: doomed.threadId }),
+    ]) {
+      await expect(call()).rejects.toMatchObject({ data: { code: "NOT_FOUND" } });
+    }
+    await expect(s.writer.mutation(api.chatFeedback.submitFeedback, { turnId: doomed.turnId, vote: 1 })).rejects.toMatchObject({
+      data: { code: "NOT_FOUND" },
+    });
 
     await s.t.finishAllScheduledFunctions(vi.runAllTimers);
 
@@ -368,6 +399,86 @@ describe("delete permanently", () => {
     expect(other.proposals).toHaveLength(3);
     expect(other.items).toHaveLength(6);
     expect(other.events).toHaveLength(3);
+  });
+
+  test("pages a conversation with large applied cards within the transaction limits", async () => {
+    const s = await setup({ transactionLimits: true });
+    const big = await conversation(s, "Big cards");
+    // Applied cards carry `appliedChange` hunks of up to 600 KB each: 40 of
+    // them are about 24 MB, well past one transaction's read limit.
+    const hunk = { before: "b".repeat(300_000), after: "a".repeat(300_000) };
+    for (let card = 0; card < 40; card += 1) {
+      await s.t.run(async (ctx) => {
+        const proposalId = await ctx.db.insert("chatProposals", {
+          agentThreadId: big.threadId, projectId: s.projectId, reportId: s.reportId,
+          kind: "edit", state: "applied", newText: `Fictional wording ${card}`, createdAt: Date.now(),
+          appliedChange: { revisionNumber: card, appliedAt: Date.now(), appliedBy: s.writerId, hunks: [hunk] },
+        });
+        await ctx.db.insert("proposalWordingEditEvents", {
+          projectId: s.projectId, reportId: s.reportId, proposalId, userId: s.writerId,
+          originalText: "x".repeat(200_000), editedText: "y".repeat(200_000), createdAt: Date.now(),
+        });
+      });
+    }
+    // Votes with full stored texts.
+    await s.t.run(async (ctx) => {
+      for (let i = 0; i < 150; i += 1) {
+        await ctx.db.insert("chatAnswerFeedback", {
+          turnId: big.turnId, userId: s.writerId, projectId: s.projectId, reportId: s.reportId,
+          agentThreadId: big.threadId, promptMessageId: big.promptMessageId, answerMessageId: `answer-${i}`,
+          promptText: "p".repeat(4000), answerText: "q".repeat(4000), vote: 1, createdAt: Date.now(),
+        });
+      }
+    });
+    await s.admin.mutation(api.chatV2.deleteThread, { threadId: big.threadId });
+    // Each run stays inside its byte budget; the next continues.
+    let runs = 0;
+    for (;;) {
+      const scheduled = await s.t.run(async (ctx) =>
+        (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) =>
+          job.name.includes("purgeThread") && job.state.kind === "pending"));
+      if (scheduled.length === 0) break;
+      const job = scheduled[0];
+      await s.t.mutation(internal.chatV2.purgeThread, job.args[0] as { agentThreadId: string });
+      await s.t.run(async (ctx) => await ctx.scheduler.cancel(job._id));
+      runs += 1;
+      expect(runs).toBeLessThan(400);
+    }
+    expect(runs).toBeGreaterThan(Math.ceil((40 * 600_000) / PURGE_MAX_BYTES_READ));
+    const left = await keyedRows(s, big.threadId);
+    for (const [table, rows] of Object.entries(left)) expect(rows, table).toEqual([]);
+  });
+
+  test("a purge run that failed is resumed while the row stands", async () => {
+    const s = await setup();
+    const stuck = await conversation(s, "Stuck");
+    await fill(s, stuck.threadId, stuck.turnId, stuck.promptMessageId, 2);
+    await s.admin.mutation(api.chatV2.deleteThread, { threadId: stuck.threadId });
+    // The scheduled run never happens (as if it hit a limit and failed).
+    await s.t.run(async (ctx) => {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) await ctx.scheduler.cancel(job._id);
+    });
+    expect(await s.t.mutation(internal.chatV2.resumeStalledThreadPurges, {})).toBe(0);
+    vi.setSystemTime(START + PURGE_STALL_MS + 1);
+    expect(await s.t.mutation(internal.chatV2.resumeStalledThreadPurges, {})).toBe(1);
+    // Resumed once: the sweep does not start a second chain while it runs.
+    expect(await s.t.mutation(internal.chatV2.resumeStalledThreadPurges, {})).toBe(0);
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const after = await keyedRows(s, stuck.threadId);
+    for (const [table, rows] of Object.entries(after)) expect(rows, table).toEqual([]);
+  });
+
+  test("waits out a reply that just ended, so a stopped turn's late writes land first (review R2 P3-1)", async () => {
+    const s = await setup();
+    const recent = await conversation(s, "Just stopped");
+    await s.t.run(async (ctx) => await ctx.db.patch(recent.turnId, { status: "aborted", endedAt: START - 2000 }));
+    await expect(s.admin.mutation(api.chatV2.deleteThread, { threadId: recent.threadId })).rejects.toMatchObject({
+      data: { code: "CHAT_TURN_ACTIVE", message: "A reply just finished in this conversation. Try again in a few seconds." },
+    });
+    expect(await threadRow(s, recent.threadId)).not.toHaveProperty("deletingAt");
+    vi.setSystemTime(START - 2000 + THREAD_DELETE_SETTLE_MS);
+    await s.admin.mutation(api.chatV2.deleteThread, { threadId: recent.threadId });
+    expect(await threadRow(s, recent.threadId)).toHaveProperty("deletingAt");
   });
 
   test("refuses while a reply runs, and for a conversation that is gone", async () => {

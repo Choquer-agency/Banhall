@@ -3,7 +3,11 @@ import { internalQuery, mutation, query } from "./_generated/server";
 import { components } from "./_generated/api";
 import { getInternalProjectAccessOrNull, requireInternalProjectAccess } from "./lib/auth";
 import { domainError } from "./lib/contracts";
-import { deidentify } from "./lib/deidentify";
+import { deidentify, pseudonymize } from "./lib/deidentify";
+import { isThreadDeleting } from "./lib/chatThreads";
+import { listProjectTranscripts } from "./lib/transcripts";
+import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
+import type { QueryCtx } from "./_generated/server";
 import { chatFeedbackReasonValidator } from "./lib/chatFeedbackReasons";
 import {
   MAX_CHAT_FEEDBACK_REASON_CHARS,
@@ -55,13 +59,26 @@ function storedReason(row: Doc<"chatAnswerFeedback">): FeedbackReason | undefine
     : undefined;
 }
 
-/** The reason as the learning digest may read it: the code, and the text de-identified. */
-function snapshotReason(
+/**
+ * The reason as the learning digest may read it: the code, and the text
+ * de-identified. Review R2 P3-8: the writer's own words can name anyone in
+ * the project's transcripts, so they go through the project's placeholder
+ * map (as research and web search do) before the record's names are removed.
+ * The map is built only when there is text.
+ */
+async function snapshotReason(
+  ctx: QueryCtx,
   reason: FeedbackReason | undefined,
-  project: Parameters<typeof deidentify>[1]
-): { reasonCode?: ChatFeedbackReasonCode; reasonText?: string } {
+  project: Doc<"projects">
+): Promise<{ reasonCode?: ChatFeedbackReasonCode; reasonText?: string }> {
   if (!reason) return {};
-  const text = reason.reasonText ? deidentify(reason.reasonText, project).trim() : "";
+  let text = "";
+  if (reason.reasonText) {
+    const placeholders = await projectPlaceholderMap(
+      ctx, project, await listProjectTranscripts(ctx, project._id), [reason.reasonText]
+    );
+    text = deidentify(pseudonymize(reason.reasonText, placeholders), project).trim();
+  }
   return { reasonCode: reason.reasonCode, ...(text ? { reasonText: text } : {}) };
 }
 
@@ -80,7 +97,8 @@ export const submitFeedback = mutation({
     if (!turn) domainError("NOT_FOUND", "Chat answer not found");
     const thread = await ctx.db.query("agentChatThreads")
       .withIndex("by_agentThreadId", q => q.eq("agentThreadId", turn.agentThreadId)).unique();
-    if (!thread) domainError("NOT_FOUND", "Chat answer not found");
+    // Phase C (W3): a conversation being deleted takes no votes.
+    if (!thread || isThreadDeleting(thread)) domainError("NOT_FOUND", "Chat answer not found");
     const { user, project } = await requireInternalProjectAccess(ctx, thread.projectId);
     const report = await ctx.db.get(thread.reportId);
     if (!report || report.projectId !== thread.projectId)
@@ -114,7 +132,7 @@ export const submitFeedback = mutation({
                 version: 2 as const,
                 promptText: existing.learningSnapshot.promptText,
                 answerText: existing.learningSnapshot.answerText,
-                ...snapshotReason(next, project),
+                ...(await snapshotReason(ctx, next, project)),
               },
             }
           : {}),
@@ -166,7 +184,7 @@ export const submitFeedback = mutation({
         version: 2,
         promptText: excerpt(deidentify(promptText, project), MAX_TEXT),
         answerText: excerpt(deidentify(answerText, project), MAX_TEXT),
-        ...snapshotReason(reason, project),
+        ...(await snapshotReason(ctx, reason, project)),
       },
       vote: args.vote, createdAt: Date.now(),
       ...(reason ?? {}),
@@ -199,7 +217,7 @@ export const getViewerVotes = query({
     if (!access) return [];
     const thread = await ctx.db.query("agentChatThreads")
       .withIndex("by_agentThreadId", q => q.eq("agentThreadId", args.threadId)).unique();
-    if (!thread || thread.reportId !== report._id || thread.projectId !== report.projectId) return [];
+    if (!thread || isThreadDeleting(thread) || thread.reportId !== report._id || thread.projectId !== report.projectId) return [];
     const votes = [];
     for (const turnId of new Set(args.turnIds)) {
       const turn = await ctx.db.get(turnId);

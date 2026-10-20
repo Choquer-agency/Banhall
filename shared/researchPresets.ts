@@ -22,6 +22,25 @@ export const VET_INSTRUCTION =
 /** Joins the fixed instruction and the writer's own words, when any. */
 export const VET_NOTE_SEPARATOR = "\n\nThe writer also asks: ";
 
+/**
+ * A research instruction's limit (`MAX_INSTRUCTION` in
+ * convex/ai/research/core.ts; a test keeps them equal).
+ */
+export const RESEARCH_INSTRUCTION_MAX_CHARS = 2_000;
+
+/**
+ * The writer's note on a vet: what the fixed instruction leaves of the
+ * research instruction's limit (review R2 P3-7). The composer counts
+ * against it and the server names it.
+ */
+export const VET_NOTE_MAX_CHARS =
+  RESEARCH_INSTRUCTION_MAX_CHARS - VET_INSTRUCTION.length - VET_NOTE_SEPARATOR.length;
+
+/** The server's refusal of a note over VET_NOTE_MAX_CHARS. */
+export function vetNoteTooLongMessage(): string {
+  return `Your note can be up to ${VET_NOTE_MAX_CHARS.toLocaleString("en-US")} characters.`;
+}
+
 /** The instruction a vet session runs with. */
 export function vetInstruction(writerNote: string): string {
   const note = writerNote.trim();

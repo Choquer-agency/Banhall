@@ -9,8 +9,61 @@
 
 /** A rendered citation pill (svelte-streamdown's inline citation preview). */
 const CITATION_PILL = "[data-streamdown-citation-preview]";
-/** Controls and popovers inside the answer that are not part of its text. */
-const NOT_TEXT = "button, [data-citation-popover], [role='dialog'], [role='tooltip'], .sr-only, script, style";
+/**
+ * Controls, popovers and anything active inside the answer: removed with
+ * their content, as none of it is the answer's text.
+ */
+const NOT_TEXT = [
+  "button", "[data-citation-popover]", "[role='dialog']", "[role='tooltip']", ".sr-only",
+  "script", "style", "template", "noscript", "iframe", "frame", "object", "embed",
+  "svg", "math", "img", "picture", "video", "audio", "canvas", "source", "track",
+  "input", "textarea", "select", "form", "link", "meta", "base",
+].join(", ");
+
+/**
+ * Review R2 P3-6: the elements a pasted answer keeps. Any other element is
+ * replaced by its children, and every attribute is dropped except a safe
+ * link's `href`.
+ */
+const KEPT_ELEMENTS = new Set([
+  "a", "b", "strong", "i", "em", "u", "s", "del", "ins", "mark", "small", "sub", "sup", "code", "kbd",
+  "p", "br", "hr", "div", "span", "blockquote", "pre",
+  "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "dl", "dt", "dd",
+  "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption",
+]);
+
+/** A link a pasted answer may keep: web and mail links only. */
+export function safeHref(href: string | null): string | null {
+  if (!href) return null;
+  try {
+    const url = new URL(href, "https://invalid.example/");
+    if (url.origin === "https://invalid.example") return null;
+    return url.protocol === "https:" || url.protocol === "http:" || url.protocol === "mailto:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Strips every element and attribute a paste must not carry, in place. */
+function sanitize(root: HTMLElement) {
+  for (const node of root.querySelectorAll(NOT_TEXT)) node.remove();
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_COMMENT);
+  const comments: Node[] = [];
+  while (walker.nextNode()) comments.push(walker.currentNode);
+  for (const comment of comments) comment.parentNode?.removeChild(comment);
+  // Deepest first, so an unwrapped element's children are already clean.
+  for (const element of [...root.querySelectorAll("*")].reverse()) {
+    const tag = element.tagName.toLowerCase();
+    if (!KEPT_ELEMENTS.has(tag)) {
+      element.replaceWith(...element.childNodes);
+      continue;
+    }
+    const href = tag === "a" ? safeHref(element.getAttribute("href")) : null;
+    for (const name of element.getAttributeNames()) element.removeAttribute(name);
+    if (href) element.setAttribute("href", href);
+  }
+  for (const name of root.getAttributeNames()) root.removeAttribute(name);
+}
 
 /** The numbers a citation pill shows, as "[1][2]". */
 export function citationLabel(pill: Element): string {
@@ -22,7 +75,8 @@ export function citationLabel(pill: Element): string {
 
 /**
  * A copy of the rendered answer ready for the clipboard: each citation pill
- * replaced by its "[n]" text, controls and screen reader text removed.
+ * replaced by its "[n]" text; controls, screen reader text, active content
+ * and every attribute but a safe link's `href` removed.
  */
 export function clipboardFragment(answer: Element): HTMLElement {
   const clone = answer.cloneNode(true) as HTMLElement;
@@ -32,8 +86,7 @@ export function clipboardFragment(answer: Element): HTMLElement {
     const target = control && clone.contains(control) ? control : pill;
     target.replaceWith(clone.ownerDocument.createTextNode(citationLabel(pill)));
   }
-  for (const node of clone.querySelectorAll(NOT_TEXT)) node.remove();
-  for (const node of clone.querySelectorAll("[id]")) node.removeAttribute("id");
+  sanitize(clone);
   return clone;
 }
 

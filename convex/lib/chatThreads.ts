@@ -21,6 +21,14 @@ const NEW_THREAD_TITLE_CHARS = 60;
 
 type ThreadRow = Doc<"agentChatThreads">;
 
+/**
+ * Review R2 P2-1: a conversation an admin is deleting. Its row stays until
+ * the purge ends, but every read and send treats it as gone.
+ */
+export function isThreadDeleting(thread: Pick<ThreadRow, "deletingAt">): boolean {
+  return thread.deletingAt !== undefined;
+}
+
 /** When the conversation last had a message; older rows use creation time. */
 export function threadActivityAt(thread: Pick<ThreadRow, "lastActivityAt" | "createdAt">): number {
   return thread.lastActivityAt ?? thread.createdAt;
@@ -43,6 +51,7 @@ export async function listOpenThreads(
     .order("desc")
     .take(THREAD_LIST_SCAN);
   return rows
+    .filter((thread) => !isThreadDeleting(thread))
     .sort((a, b) => threadActivityAt(b) - threadActivityAt(a))
     .slice(0, THREAD_LIST_LIMIT);
 }
@@ -52,27 +61,25 @@ export async function listArchivedThreadRows(
   ctx: QueryCtx,
   reportId: Id<"reports">
 ): Promise<ThreadRow[]> {
-  return await ctx.db
+  const rows = await ctx.db
     .query("agentChatThreads")
     .withIndex("by_reportId_and_archivedAt", (q) =>
       q.eq("reportId", reportId).gt("archivedAt", 0)
     )
     .order("desc")
     .take(THREAD_LIST_LIMIT);
+  return rows.filter((thread) => !isThreadDeleting(thread));
 }
 
-/** The newest open conversation by creation: a send without a thread continues it. */
+/**
+ * The conversation a send without a thread continues: the menu's first,
+ * the open conversation with the latest activity (review R2 P3-9).
+ */
 export async function newestOpenThread(
   ctx: QueryCtx,
   reportId: Id<"reports">
 ): Promise<ThreadRow | null> {
-  return await ctx.db
-    .query("agentChatThreads")
-    .withIndex("by_reportId_and_archivedAt", (q) =>
-      q.eq("reportId", reportId).eq("archivedAt", undefined)
-    )
-    .order("desc")
-    .first();
+  return (await listOpenThreads(ctx, reportId))[0] ?? null;
 }
 
 /**
@@ -113,7 +120,7 @@ async function threadByAgentId(ctx: QueryCtx, agentThreadId: string) {
  */
 export async function noteThreadSend(ctx: MutationCtx, agentThreadId: string): Promise<void> {
   const thread = await threadByAgentId(ctx, agentThreadId);
-  if (!thread) return;
+  if (!thread || isThreadDeleting(thread)) return;
   await ctx.db.patch(thread._id, {
     lastActivityAt: Date.now(),
     ...(thread.archivedAt !== undefined ? { archivedAt: undefined, archivedBy: undefined } : {}),

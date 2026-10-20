@@ -34,6 +34,7 @@
   import Input from "$lib/components/ui/Input.svelte";
   import { copyRenderedAnswer } from "$lib/chat/richCopy";
   import type { ChatFeedbackReasonCode } from "../../../../shared/chatFeedback";
+  import { VET_NOTE_MAX_CHARS } from "../../../../shared/researchPresets";
   import { notificationsSupported, notifyRepliesEnabled, setNotifyReplies } from "$lib/chat/replySignal.svelte";
   import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
@@ -256,6 +257,27 @@
   // Set by a menu action that places focus itself (Rename): the menu must
   // not hand focus back to its trigger.
   let conversationMenuFocus: (() => void) | null = null;
+  // Review R2 P3-3: rename and delete hand focus back to the menu button.
+  let conversationMenuButton: HTMLButtonElement | null = $state(null);
+  function focusConversationMenu() {
+    void tick().then(() => conversationMenuButton?.focus());
+  }
+
+  // Review R2 P3-2: a conversation someone else deleted leaves every list.
+  // Once both lists have loaded, a selected conversation they listed before
+  // and list no longer is left (a brand-new one, not yet listed, stays).
+  const listedThreadIds = new Set<string>();
+  $effect(() => {
+    const open = threadsQ.data;
+    const archived = archivedThreadsQ.data;
+    if (!open || !archived) return;
+    const listed = new Set([...open, ...archived].map((thread) => thread.agentThreadId));
+    for (const id of listed) listedThreadIds.add(id);
+    const selected = selectedThreadId;
+    if (!selected || listed.has(selected) || !listedThreadIds.has(selected)) return;
+    listedThreadIds.delete(selected);
+    untrack(() => leaveConversation(selected));
+  });
 
   /** Leave a conversation that left the menu: the next open one, or a new one. */
   function leaveConversation(threadId: string) {
@@ -269,16 +291,27 @@
     conversationError = null;
     renaming = { threadId: thread.agentThreadId, title: thread.title };
     renameDraft = thread.title;
-    conversationMenuFocus = () => {
-      const field = renameField?.querySelector("input");
-      field?.focus();
-      field?.select();
-    };
+    conversationMenuFocus = focusRenameField;
+  }
+
+  function focusRenameField() {
+    const field = renameField?.querySelector("input");
+    field?.focus();
+    field?.select();
+  }
+
+  /** Escape anywhere in the rename row (field, Save or Cancel) cancels it. */
+  function renameKeydown(event: KeyboardEvent) {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    cancelRename();
   }
 
   function cancelRename() {
     renaming = null;
     renameDraft = "";
+    focusConversationMenu();
   }
 
   async function saveRename() {
@@ -329,6 +362,7 @@
     const thread = deleteTarget;
     deleteTarget = null;
     if (!thread) return;
+    focusConversationMenu();
     try {
       await deleteThreadMutation({ threadId: thread.agentThreadId });
       leaveConversation(thread.agentThreadId);
@@ -459,6 +493,10 @@
   const messageTooLong = $derived(composedLength > MAX_CHAT_MESSAGE_CHARS);
   const highlightTooLong = $derived((pendingHighlight?.text.length ?? 0) > MAX_CHAT_HIGHLIGHT_CHARS);
   const showCounter = $derived(composedLength >= MAX_CHAT_MESSAGE_CHARS * 0.8);
+  // Phase C (W3, review R2 P3-7): a Vet note has its own, shorter limit.
+  const vetNoteActive = $derived(pendingResearch?.preset === "vet");
+  const vetNoteTooLong = $derived(vetNoteActive && composedLength > VET_NOTE_MAX_CHARS);
+  const showVetCounter = $derived(vetNoteActive && composedLength >= VET_NOTE_MAX_CHARS * 0.8);
 
   // Phase A (task 10): Convex connection state.
   const connection = useChatConnection();
@@ -1097,6 +1135,7 @@
       (historical ? !trimmed.trim() : (!trimmed && !pendingHighlight && !pendingResearch)) ||
       (intent.kind !== "composer" && (intent.threadId !== selectedThreadId || regenerationBusy)) ||
       (!historical && !pendingResearch && (messageTooLong || highlightTooLong)) ||
+      (!historical && vetNoteTooLong) ||
       sending ||
       researchStarting ||
       publicationPending ||
@@ -1764,6 +1803,12 @@
       {/if}
     </PromptInputActions>
     <PromptInputActions class="items-center gap-2">
+      {#if showVetCounter}
+        <span class={`text-data ${vetNoteTooLong ? "text-red-600" : "text-ink-muted"}`} data-vet-note-counter>
+          {composedLength.toLocaleString("en-US")} / {VET_NOTE_MAX_CHARS.toLocaleString("en-US")}
+          {#if vetNoteTooLong}<span class="sr-only">characters. This note is too long to send.</span>{:else}<span class="sr-only">characters</span>{/if}
+        </span>
+      {/if}
       {#if showCounter && !pendingResearch}
         <!-- Phase A (task 11): the server's message limit, shown near it. -->
         <span class={`text-data ${messageTooLong ? "text-red-600" : "text-ink-muted"}`} data-composer-counter>
@@ -1786,7 +1831,7 @@
       {:else}
         <button
           onclick={() => sendText(input)}
-          disabled={sending || researchStarting || publicationPending || composerChatBlocked || threadsLoading || threadsUnreadable || conversationUnreadable || (!input.trim() && !pendingHighlight && !pendingResearch) || (!pendingResearch && (messageTooLong || highlightTooLong))}
+          disabled={sending || researchStarting || publicationPending || composerChatBlocked || threadsLoading || threadsUnreadable || conversationUnreadable || (!input.trim() && !pendingHighlight && !pendingResearch) || (!pendingResearch && (messageTooLong || highlightTooLong)) || vetNoteTooLong}
           class="group flex size-[1.625rem] shrink-0 items-center justify-center rounded-full bg-primary-selected text-white transition-[background-color,opacity,transform] hover:bg-primary-dark active:translate-y-px disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11"
           title={pendingResearch?.preset === "vet" ? "Vet against public sources" : pendingResearch ? "Start research" : "Send"}
           aria-label="Send message"
@@ -1821,6 +1866,7 @@
     <AuroraMark size={20} />
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
+        bind:ref={conversationMenuButton}
         aria-label="Conversation menu"
         title="Conversations"
         class="group -ml-1.5 flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-[0.8125rem] leading-[1.125rem] font-medium text-ink transition-colors hover:bg-chrome/60 data-[state=open]:bg-chrome/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
@@ -1840,7 +1886,7 @@
             conversationMenuFocus = null;
             if (!focus) return;
             event.preventDefault();
-            void tick().then(focus);
+            focus();
           }}
           class="z-[100] max-h-80 w-72 overflow-y-auto rounded-xl border border-line bg-white p-1 shadow-lg"
         >
@@ -1984,24 +2030,24 @@
         void saveRename();
       }}
     >
-      <div class="min-w-0 flex-1" bind:this={renameField}>
+      <div class="min-w-0 flex-1" bind:this={renameField} {@attach (field: HTMLElement) => {
+        // Opened from the menu, the menu hands focus over as it closes;
+        // otherwise the field takes it once it is in the page.
+        requestAnimationFrame(() => {
+          if (field.isConnected && !field.contains(document.activeElement)) focusRenameField();
+        });
+      }}>
         <Input
           bind:value={renameDraft}
           aria-label="Conversation name"
           maxlength={80}
-          disabled={renameSaving}
-          onkeydown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              event.stopPropagation();
-              cancelRename();
-            }
-          }}
+          readonly={renameSaving}
+          onkeydown={renameKeydown}
           class="h-8 w-full px-2.5 py-1 text-[0.8125rem] pointer-coarse:h-11"
         />
       </div>
-      <ActionButton variant="primary" type="submit" class="min-h-8 pointer-coarse:min-h-11" disabled={renameSaving || !renameDraft.trim()}>Save</ActionButton>
-      <ActionButton variant="ghost" class="min-h-8 pointer-coarse:min-h-11" onclick={cancelRename}>Cancel</ActionButton>
+      <ActionButton variant="primary" type="submit" class="min-h-8 pointer-coarse:min-h-11" disabled={renameSaving || !renameDraft.trim()} onkeydown={renameKeydown}>Save</ActionButton>
+      <ActionButton variant="ghost" class="min-h-8 pointer-coarse:min-h-11" onclick={cancelRename} onkeydown={renameKeydown}>Cancel</ActionButton>
     </form>
   {/if}
   {#if conversationError}
@@ -2193,5 +2239,5 @@
   <!-- Preserve the composer and keyboard focus across the first local row. -->
   <div bind:offsetHeight={composerHeight} class={`shrink-0 pt-2 pb-6 ${isFull ? "px-6 lg:px-0" : "px-6"}`}>{@render composer()}</div>
   <StopReplyDialog bind:open={stopConfirmOpen} name={stopConfirmName} onConfirm={() => void stopGeneration()} />
-  <DeleteConversationDialog bind:open={deleteOpen} title={deleteTarget?.title} onConfirm={() => void confirmDelete()} />
+  <DeleteConversationDialog bind:open={deleteOpen} title={deleteTarget?.title} onConfirm={() => void confirmDelete()} onCloseFocus={focusConversationMenu} />
 </div>

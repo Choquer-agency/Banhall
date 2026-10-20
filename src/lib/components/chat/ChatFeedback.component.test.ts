@@ -58,7 +58,7 @@ it.each([1, -1] as const)("saves vote %s once and restores it after remount", as
   await page.getByRole("button", { name: label, exact: true }).click();
   await expect.element(page.getByRole("button", { name: label, exact: true })).toHaveAttribute("aria-pressed", "true");
   expect(__mutationCalls("chatFeedback:submitFeedback")).toEqual([{ turnId: "turn-1", vote }]);
-  await expect.element(page.getByRole("button", { name: label, exact: true })).toBeDisabled();
+  await expect.element(page.getByRole("button", { name: label, exact: true })).toHaveAttribute("aria-disabled", "true");
   await mounted.unmount();
   __setQueryData("chatFeedback:getViewerVotes", [{ turnId: "turn-1", vote }]);
   await render(AgentChatPanel, { reportId, projectId });
@@ -70,13 +70,13 @@ it("keeps feedback disabled while loading and retries a failed vote with the key
   __setQueryData("chatFeedback:getViewerVotes", undefined);
   await render(AgentChatPanel, { reportId, projectId });
   const helpful = page.getByRole("button", { name: "Mark response helpful", exact: true });
-  await expect.element(helpful).toBeDisabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "true");
   __setQueryData("chatFeedback:getViewerVotes", []);
   __setMutationError("chatFeedback:submitFeedback", new Error("SECRET"));
   await helpful.click();
   await expect.element(page.getByRole("alert")).toHaveTextContent("Could not save feedback. Please try again.");
   expect(document.body.textContent).not.toContain("SECRET");
-  await expect.element(helpful).toBeEnabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "false");
   __setMutationResult("chatFeedback:submitFeedback", 1);
   const button = helpful.element();
   if (!(button instanceof HTMLButtonElement)) throw new Error("Missing helpful control");
@@ -150,7 +150,7 @@ it("keeps distinct persisted votes attached to their answers with an unrated thi
   const unhelpful = page.getByRole("button", { name: "Mark response not helpful", exact: true });
   await expect.element(helpful.nth(0)).toHaveAttribute("aria-pressed", "true");
   await expect.element(unhelpful.nth(1)).toHaveAttribute("aria-pressed", "true");
-  await expect.element(helpful.nth(2)).toBeEnabled();
+  await expect.element(helpful.nth(2)).toHaveAttribute("aria-disabled", "false");
   await expect.element(helpful.nth(2)).toHaveAttribute("aria-pressed", "false");
   const answerIds = new Set<string>();
   for (const i of [1, 2, 3]) {
@@ -172,14 +172,14 @@ it("suppresses duplicate clicks while a vote is pending and isolates a changed v
   await render(AgentChatPanel, { reportId, projectId });
   const helpful = page.getByRole("button", { name: "Mark response helpful", exact: true });
   await helpful.click();
-  await expect.element(helpful).toBeDisabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "true");
   const button = helpful.element();
   if (!(button instanceof HTMLButtonElement)) throw new Error("Missing control");
   button.click();
   expect(__mutationCalls("chatFeedback:submitFeedback")).toHaveLength(1);
   __setQueryData("users:getCurrentUser", { _id: "writer-2", role: "writer" });
   settle(1);
-  await expect.element(helpful).toBeEnabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "false");
   await expect.element(helpful).toHaveAttribute("aria-pressed", "false");
   __setQueryData("users:getCurrentUser", { _id: "writer-1", role: "writer" });
   await expect.element(helpful).toHaveAttribute("aria-pressed", "true");
@@ -189,14 +189,14 @@ it("recovers safely from a vote query error after a page remount", async () => {
   __setQueryError("chatFeedback:getViewerVotes", new Error("SECRET QUERY"));
   const mounted = await render(AgentChatPanel, { reportId, projectId });
   const helpful = page.getByRole("button", { name: "Mark response helpful", exact: true });
-  await expect.element(helpful).toBeDisabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "true");
   await expect.element(page.getByRole("alert")).toHaveTextContent("Feedback is unavailable. Please refresh this page to try again.");
   expect(document.body.textContent).not.toContain("SECRET QUERY");
   const subscriptionsBefore = __activeQueryArgs("chatFeedback:getViewerVotes").length;
   await mounted.unmount();
   __setQueryData("chatFeedback:getViewerVotes", []);
   await render(AgentChatPanel, { reportId, projectId });
-  await expect.element(helpful).toBeEnabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "false");
   expect(__activeQueryArgs("chatFeedback:getViewerVotes").length).toBeGreaterThan(subscriptionsBefore);
   await helpful.click();
   await expect.element(helpful).toHaveAttribute("aria-pressed", "true");
@@ -239,7 +239,7 @@ it("does not attach an old pending vote to another conversation", async () => {
   await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
   await page.getByRole("menuitem", { name: "Second conversation", exact: false }).click();
   settle(1);
-  await expect.element(helpful).toBeEnabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "false");
   await expect.element(helpful).toHaveAttribute("aria-pressed", "false");
   expect(__activeQueryArgs("chatFeedback:getViewerVotes")).toEqual([{ reportId, threadId: "thread-2", turnIds: ["turn-2"] }]);
   expect(__mutationCalls("chatFeedback:submitFeedback")).toEqual([{ turnId: "turn-1", vote: 1 }]);

@@ -13,7 +13,7 @@ import {
 import { turnSenders } from "./chatAuthors";
 import { threadWebSearchOn } from "./chatWebSearches";
 import { appendTurnAtTip, chatTipTurn, loadChatPath } from "./chatPath";
-import { noteThreadActivity } from "./chatThreads";
+import { isThreadDeleting, noteThreadActivity } from "./chatThreads";
 
 /**
  * Report chat parity, Phase B (2026-10-20), W2: a long job carries on by
@@ -36,10 +36,12 @@ export type ContinueChainResult =
   | { kind: "none" };
 
 async function threadRow(ctx: QueryCtx, agentThreadId: string) {
-  return await ctx.db
+  const thread = await ctx.db
     .query("agentChatThreads")
     .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", agentThreadId))
     .unique();
+  // Phase C (W3): a conversation being deleted starts no link.
+  return thread && !isThreadDeleting(thread) ? thread : null;
 }
 
 async function turnByPrompt(ctx: QueryCtx, key: ChainTurnKey) {

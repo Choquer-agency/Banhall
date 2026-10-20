@@ -49,6 +49,14 @@ crons.interval(
 );
 // A crashed chat reply holds its thread until this sweep (review r1 P3-3):
 // every 2 minutes, for turns past the 540 s stream window plus 5 minutes.
+// Phase C (W3, review R2 P2-1): a conversation delete whose purge stalled
+// (a failed run is not retried) is started again.
+crons.interval(
+  "resume stalled conversation deletes",
+  { minutes: 5 },
+  internal.chatV2.resumeStalledThreadPurges,
+  {}
+);
 crons.interval(
   "recover stale chat turns",
   { minutes: 2 },

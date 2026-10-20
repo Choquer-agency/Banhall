@@ -34,9 +34,9 @@ import {
   selectProjectEvidence,
 } from "./ai/research/core";
 import {
-  VET_INSTRUCTION,
-  VET_NOTE_SEPARATOR,
+  VET_NOTE_MAX_CHARS,
   vetInstruction,
+  vetNoteTooLongMessage,
   vetWriterNote,
 } from "../shared/researchPresets";
 
@@ -118,16 +118,15 @@ export const startResearch = mutation({
       MAX_CONTEXT_TEXT,
       "Surrounding context"
     );
-    const instruction =
-      args.preset === "vet"
-        ? vetInstruction(
-            bounded(
-              args.instruction,
-              MAX_INSTRUCTION - VET_INSTRUCTION.length - VET_NOTE_SEPARATOR.length,
-              "Research instruction"
-            )
-          )
-        : bounded(args.instruction, MAX_INSTRUCTION, "Research instruction");
+    let instruction: string;
+    if (args.preset === "vet") {
+      // Review R2 P3-7: the note's own limit, named in the refusal.
+      const note = args.instruction.replace(/\u0000/g, "").trim();
+      if (note.length > VET_NOTE_MAX_CHARS) domainError("INVALID_INPUT", vetNoteTooLongMessage());
+      instruction = vetInstruction(note);
+    } else {
+      instruction = bounded(args.instruction, MAX_INSTRUCTION, "Research instruction");
+    }
 
     // One active run per writer/report prevents double-clicks from creating two
     // expensive sets of provider calls.

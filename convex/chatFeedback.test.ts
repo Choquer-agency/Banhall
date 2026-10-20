@@ -275,3 +275,25 @@ describe("Phase C: changeable votes and reasons", () => {
     expect(row?.learningSnapshot?.answerText).not.toContain("Acme Farms");
   });
 });
+
+test("Phase C (review R2 P3-8): a transcript speaker named in the reason never reaches the learning snapshot", async () => {
+  const s = await setup();
+  await s.t.run(async ctx => {
+    await ctx.db.insert("transcripts", {
+      projectId: s.projectId, position: 0, createdAt: 1,
+      content: "Priya Okonkwo: We dried the birch at 80 C.\nMarten Vasquez: The boards warped twice.",
+    });
+  });
+  await s.actor.mutation(api.chatFeedback.submitFeedback, {
+    turnId: s.turnId, vote: -1, reasonCode: "made_up",
+    reasonText: "Priya Okonkwo never said that; Marten Vasquez ran the second trial.",
+  });
+  const row = await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").first());
+  // The voter's own words stay on the row; only the learning copy is masked.
+  expect(row?.reasonText).toContain("Priya Okonkwo");
+  const learned = row?.learningSnapshot?.reasonText ?? "";
+  for (const name of ["Priya", "Okonkwo", "Marten", "Vasquez"]) expect(learned).not.toContain(name);
+  expect(learned).toContain("never said that");
+  const signals = JSON.stringify(await s.t.query(internal.chatFeedback.getFeedbackForDigest, { limit: 20 }));
+  for (const name of ["Priya", "Okonkwo", "Marten", "Vasquez"]) expect(signals).not.toContain(name);
+});

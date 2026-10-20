@@ -26,6 +26,7 @@ import { evidenceRole, listSpeakerRows } from "./lib/transcriptStructure";
 import { formatTimestamp } from "../shared/transcriptParse";
 import { STOP_WORDS, chunkScore } from "./ai/research/core";
 import type { ChatEvidenceTranscript, ChatSpeakerRole } from "./ai/chatEvidence";
+import { isThreadDeleting } from "./lib/chatThreads";
 
 // ─── Shared reading limits ───────────────────────────────────────────────────
 
@@ -144,7 +145,8 @@ async function chatScope(ctx: QueryCtx, agentThreadId: string): Promise<{ projec
     .query("agentChatThreads")
     .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", agentThreadId))
     .unique();
-  if (!thread) return null;
+  // Phase C (W3): a conversation being deleted is gone.
+  if (!thread || isThreadDeleting(thread)) return null;
   if (await isProjectDeleting(ctx, thread.projectId)) return null;
   const report = await ctx.db.get(thread.reportId);
   if (!report || report.projectId !== thread.projectId) return null;

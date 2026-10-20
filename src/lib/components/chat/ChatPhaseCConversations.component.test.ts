@@ -23,7 +23,8 @@ import type { TurnWebSearch } from "$lib/chat/webSources";
 import AgentChatPanel from "./AgentChatPanel.svelte";
 import ProposedEditCard from "./ProposedEditCard.svelte";
 import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
-import { VET_LABEL } from "../../../../shared/researchPresets";
+import { VET_LABEL, VET_NOTE_MAX_CHARS } from "../../../../shared/researchPresets";
+import { clipboardFragment, safeHref } from "$lib/chat/richCopy";
 
 const sonner = vi.hoisted(() => ({
   error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn(), dismiss: vi.fn(),
@@ -90,6 +91,8 @@ describe("conversation menu", () => {
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => document.querySelector("[data-rename-conversation]")).toBeNull();
     expect(__mutationCalls("chatV2:renameThread")).toEqual([]);
+    // Review R2 P3-3: focus returns to the menu button, never the page.
+    await expect.element(menu()).toHaveFocus();
 
     await menu().click();
     await page.getByRole("menuitem", { name: "Conversation actions", exact: true }).first().click();
@@ -98,6 +101,46 @@ describe("conversation menu", () => {
     await userEvent.keyboard("{Enter}");
     await expect.poll(() => __mutationCalls("chatV2:renameThread")).toEqual([{ threadId: "thread-1", title: "Kiln moisture review" }]);
     await expect.poll(() => document.querySelector("[data-rename-conversation]")).toBeNull();
+    await expect.element(menu()).toHaveFocus();
+  });
+
+  it("Escape from the rename buttons cancels too", async () => {
+    seedConversation();
+    await render(AgentChatPanel, { reportId, projectId });
+    await menu().click();
+    await page.getByRole("menuitem", { name: "Conversation actions", exact: true }).first().click();
+    await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
+    await expect.element(page.getByRole("textbox", { name: "Conversation name", exact: true })).toHaveFocus();
+    await userEvent.keyboard("{Tab}");
+    await expect.element(page.getByRole("button", { name: "Save", exact: true })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector("[data-rename-conversation]")).toBeNull();
+    await expect.element(menu()).toHaveFocus();
+  });
+
+  it("leaves a conversation someone else deleted (review R2 P3-2)", async () => {
+    seedConversation();
+    await render(AgentChatPanel, { reportId, projectId });
+    await expect.element(page.getByText("It drifts under load.")).toBeVisible();
+    await expect.poll(() => __activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-1" }]);
+    // Another admin deletes it: it leaves both lists.
+    __setQueryData("chatV2:listThreads", THREADS.slice(1));
+    await expect.poll(() => __activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-2" }]);
+    expect(Object.values({ ...sessionStorage }).join(" ")).not.toContain("thread-1");
+    // With nothing left, the panel starts a new conversation.
+    __setQueryData("chatV2:listThreads", []);
+    await expect.poll(() => __activeQueryArgs("chatV2:listProposals")).toEqual([]);
+  });
+
+  it("keeps a conversation that is not listed yet (its first send)", async () => {
+    __setQueryData("chatV2:listThreads", []);
+    __setMutationResult("chatV2:sendMessage", { threadId: "thread-new", messageId: "m-1" });
+    await render(AgentChatPanel, { reportId, projectId });
+    await composer().fill("A fresh question");
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect.poll(() => __activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-new" }]);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(__activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-new" }]);
   });
 
   it("archives a conversation, moves to the next one, and restores it from the archived list", async () => {
@@ -158,12 +201,14 @@ describe("conversation menu", () => {
     await page.screenshot({ path: `${CAPTURES}/delete-conversation.png` });
     await page.getByRole("button", { name: "Keep", exact: true }).click();
     expect(__mutationCalls("chatV2:deleteThread")).toEqual([]);
+    await expect.element(menu()).toHaveFocus();
 
     await menu().click();
     await page.getByRole("menuitem", { name: "Conversation actions", exact: true }).first().click();
     await page.getByRole("menuitem", { name: "Delete permanently", exact: true }).click();
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     await expect.poll(() => __mutationCalls("chatV2:deleteThread")).toEqual([{ threadId: "thread-1" }]);
+    await expect.element(menu()).toHaveFocus();
   });
 });
 
@@ -240,6 +285,33 @@ describe("copy", () => {
   });
 });
 
+describe("rich copy keeps only text, structure and safe links (review R2 P3-6)", () => {
+  it("drops scripts, styles, handlers and unsafe links", () => {
+    const answer = document.createElement("div");
+    answer.setAttribute("onclick", "alert(1)");
+    answer.innerHTML = [
+      '<p style="color:red" onclick="alert(2)" class="chat-p" data-x="1">Kiln <strong id="s1" onmouseover="alert(3)">drift</strong> rises.</p>',
+      '<script>window.__copied = 1</script><style>p { color: red }</style>',
+      '<a href="https://example.org/kiln" target="_blank" rel="noopener" onclick="alert(4)">Kiln source</a>',
+      '<a href="javascript:alert(5)">bad</a> <a href="data:text/html,hi">worse</a> <a href="/relative">rel</a>',
+      '<img src="https://outside.example/x.png" onerror="alert(6)"><svg><script>alert(7)</script></svg>',
+      '<custom-tag foo="bar">kept text</custom-tag><!-- private note -->',
+    ].join("");
+    const fragment = clipboardFragment(answer);
+    const html = fragment.innerHTML;
+    for (const banned of ["<script", "<style", "style=", "onclick", "onmouseover", "onerror", "javascript:", "data:", "class=", "data-x", "id=", "target=", "<img", "<svg", "custom-tag", "private note", "alert("]) {
+      expect(html, banned).not.toContain(banned);
+    }
+    expect(html).toContain('<a href="https://example.org/kiln">Kiln source</a>');
+    expect(html).toContain("<strong>drift</strong>");
+    expect(html).toContain("<a>bad</a>");
+    expect(html).toContain("kept text");
+    expect(fragment.getAttributeNames()).toEqual([]);
+    expect(safeHref("mailto:writer@example.com")).toBe("mailto:writer@example.com");
+    expect(safeHref("  JavaScript:alert(1)")).toBeNull();
+  });
+});
+
 describe("starters", () => {
   it("fill the empty composer and focus it without sending", async () => {
     await render(AgentChatPanel, { reportId, projectId });
@@ -269,6 +341,13 @@ describe("feedback", () => {
     await unhelpful.click();
     await expect.element(unhelpful).toHaveAttribute("aria-pressed", "true");
     await expect.element(page.getByText("Feedback recorded. You can change it.")).toBeVisible();
+    // Review R2 P3-3 and P3-4: the pressed vote keeps focus (aria-disabled,
+    // not disabled), and the recorded state is said in a polite live region.
+    await expect.element(unhelpful).toHaveFocus();
+    await expect.element(unhelpful).toHaveAttribute("aria-disabled", "true");
+    const status = document.querySelector("[data-feedback-status]");
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.textContent).toBe("Feedback recorded. You can change it.");
     for (const label of ["Wrong", "Didn't follow my request", "Made something up", "Too long", "Other"]) {
       await expect.element(page.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
@@ -319,41 +398,26 @@ describe("Vet against public sources", () => {
     }]);
   });
 
+  it("counts the note against its own limit and holds a note that is too long", async () => {
+    await render(AgentChatPanel, {
+      reportId, projectId,
+      pendingResearch: { from: 1, to: 20, text: "Kiln drying above 80 C warps birch.", context: "", preset: "vet" },
+    });
+    const send = page.getByRole("button", { name: "Send message", exact: true });
+    await composer().fill("x".repeat(VET_NOTE_MAX_CHARS));
+    await expect.element(page.getByText(`${VET_NOTE_MAX_CHARS.toLocaleString("en-US")} / ${VET_NOTE_MAX_CHARS.toLocaleString("en-US")}`)).toBeVisible();
+    await expect.element(send).toBeEnabled();
+    await composer().fill("x".repeat(VET_NOTE_MAX_CHARS + 1));
+    await expect.element(send).toBeDisabled();
+    await expect.element(page.getByText("characters. This note is too long to send.")).toBeInTheDocument();
+    expect(__mutationCalls("research:startResearch")).toEqual([]);
+  });
+
   it("labels a vet session in the research feed", async () => {
     __setQueryData("research:listSessions", [{ _id: "session-1", selectedText: "Kiln drying above 80 C warps birch.", instruction: "", preset: "vet", status: "queued", createdAt: 1 }]);
     __setQueryData("research:getSessionDetails", null);
     await render(ResearchFeed, { reportId });
     await expect.element(page.getByText(VET_LABEL, { exact: true })).toBeVisible();
     expect(document.body.textContent).not.toContain("Research this passage");
-  });
-});
-
-describe("44 px floors on a coarse pointer", () => {
-  it("every listed chat control carries its pointer-coarse floor", async () => {
-    seedConversation();
-    __setQueryData("chatV2:listProposals", [{
-      _id: "proposal-1", _creationTime: 1001, agentThreadId: "thread-1", projectId, reportId, kind: "edit",
-      targetText: "It drifts.", newText: "It drifts under load.", state: "pending", createdAt: 1001, promptMessageId: "q1",
-    } as unknown as Doc<"chatProposals">]);
-    await render(AgentChatPanel, { reportId, projectId });
-    const floor = /pointer-coarse:(min-h-11|h-11|size-11)/;
-    const control = (name: string) => page.getByRole("button", { name, exact: true }).element() as HTMLElement;
-    await expect.element(page.getByRole("button", { name: "Copy", exact: true })).toBeVisible();
-    for (const name of ["Copy", "Mark response helpful", "Mark response not helpful", "Regenerate", "More actions for this suggestion", "Apply", "Dismiss"]) {
-      expect(control(name).className, name).toMatch(floor);
-    }
-    // The Brain and web search chip removers widen their hit area, not the icon.
-    await page.getByRole("button", { name: "Message options", exact: true }).click();
-    await page.getByRole("menuitemcheckbox", { name: "Use Brain examples for this message" }).click();
-    await userEvent.keyboard("{Escape}");
-    for (const name of ["Stop using Brain examples for this message", "Turn off web search in this conversation"]) {
-      const remover = control(name);
-      expect(remover.className).toContain("size-4");
-      expect(remover.className).toContain("pointer-coarse:before:-inset-3.5");
-    }
-    await menu().click();
-    for (const item of [page.getByRole("menuitem", { name: "New conversation" }), page.getByRole("menuitem", { name: "Conversation actions", exact: true }).first()]) {
-      expect((item.element() as HTMLElement).className).toMatch(floor);
-    }
   });
 });

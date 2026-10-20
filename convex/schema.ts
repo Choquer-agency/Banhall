@@ -1801,13 +1801,23 @@ export default defineSchema({
     lastActivityAt: v.optional(v.number()),
     archivedAt: v.optional(v.number()),
     archivedBy: v.optional(v.id("users")),
+    // Phase C (W3, review R2 P2-1), widen only. An admin's permanent delete
+    // marks the row first: from then on every read and send treats the
+    // conversation as gone, while `chatV2.purgeThread` deletes its rows in
+    // pages and the row last. `purgeHeartbeatAt` is when a purge run last
+    // finished; a stalled purge is resumed from it.
+    deletingAt: v.optional(v.number()),
+    deletingBy: v.optional(v.id("users")),
+    purgeHeartbeatAt: v.optional(v.number()),
   })
     .index("by_reportId", ["reportId"])
     .index("by_agentThreadId", ["agentThreadId"])
     .index("by_projectId", ["projectId"])
     // Phase C (W3): open conversations (`archivedAt` absent) and archived
     // ones, newest first, without reading the other kind.
-    .index("by_reportId_and_archivedAt", ["reportId", "archivedAt"]),
+    .index("by_reportId_and_archivedAt", ["reportId", "archivedAt"])
+    // Review R2 P2-1: conversations being deleted, for the stalled-purge sweep.
+    .index("by_deletingAt", ["deletingAt"]),
 
   // The agent UIMessage cannot durably express turn start/end, so app-owned
   // timing keeps queued and terminal states stable across reloads and races.

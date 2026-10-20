@@ -140,6 +140,7 @@ import {
   type ChatPath,
 } from "./lib/chatPath";
 import {
+  isThreadDeleting,
   listArchivedThreadRows,
   listOpenThreads,
   newestOpenThread,
@@ -147,7 +148,7 @@ import {
   renamedThreadTitle,
   threadTitleFrom,
 } from "./lib/chatThreads";
-import { purgeStepValidator, purgeThreadRows } from "./lib/chatThreadPurge";
+import { PURGE_STALL_MS, purgeStepValidator, purgeThreadRows } from "./lib/chatThreadPurge";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -229,8 +230,18 @@ async function windowTurns(
   return await loadNewestTurns(ctx, args);
 }
 
-/** Resolve a component thread id to our mapping row (or null). */
+/**
+ * Resolve a component thread id to our mapping row (or null). Phase C (W3,
+ * review R2 P2-1): a conversation being deleted resolves to null, so every
+ * read, send and internal write treats it as gone.
+ */
 async function threadRow(ctx: QueryCtx | MutationCtx, agentThreadId: string) {
+  const thread = await anyThreadRow(ctx, agentThreadId);
+  return thread && !isThreadDeleting(thread) ? thread : null;
+}
+
+/** The mapping row even while it is being deleted: the purge's own lookup. */
+async function anyThreadRow(ctx: QueryCtx | MutationCtx, agentThreadId: string) {
   return await ctx.db
     .query("agentChatThreads")
     .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", agentThreadId))
@@ -3232,15 +3243,23 @@ export const listArchivedThreads = query({
 });
 
 /**
- * Admin only, and never while a reply runs. The row goes now, so the
- * conversation leaves every menu at once; `chatThreadPurge.purgeThread`
- * deletes the rest in pages.
+ * A reply that ended this recently may still be writing its last rows (a
+ * stopped turn's action runs on for a moment): a delete waits it out
+ * (review R2 P3-1).
+ */
+export const THREAD_DELETE_SETTLE_MS = 10_000;
+
+/**
+ * Admin only, never while a reply runs or just after one ended. The row is
+ * marked (`deletingAt`) now, so the conversation leaves every menu and
+ * refuses every send at once; `purgeThread` deletes the rest in bounded
+ * pages and the row last (review R2 P2-1).
  */
 export const deleteThread = mutation({
   args: { threadId: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireRole(ctx, ["admin"]);
+    const admin = await requireRole(ctx, ["admin"]);
     const { thread } = await managedThread(ctx, args.threadId);
     if (await otherActiveTurn(ctx, thread.agentThreadId)) {
       domainError(
@@ -3248,7 +3267,19 @@ export const deleteThread = mutation({
         "A reply is still being written in this conversation. Wait for it to finish, or press Stop, then delete it."
       );
     }
-    await ctx.db.delete(thread._id);
+    const now = Date.now();
+    const newest = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", thread.agentThreadId))
+      .order("desc")
+      .first();
+    if (newest?.endedAt !== undefined && now - newest.endedAt < THREAD_DELETE_SETTLE_MS) {
+      domainError(
+        "CHAT_TURN_ACTIVE",
+        "A reply just finished in this conversation. Try again in a few seconds."
+      );
+    }
+    await ctx.db.patch(thread._id, { deletingAt: now, deletingBy: admin._id, purgeHeartbeatAt: now });
     await ctx.scheduler.runAfter(0, internal.chatV2.purgeThread, {
       agentThreadId: thread.agentThreadId,
     });
@@ -3256,13 +3287,20 @@ export const deleteThread = mutation({
   },
 });
 
-/** One page of a deleted conversation's rows (lib/chatThreadPurge.ts). */
+/**
+ * One bounded run of a deleting conversation's purge (lib/chatThreadPurge.ts).
+ * Idempotent: it starts from whatever rows are left. When the row is gone
+ * (project erasure took it), there is nothing left to do.
+ */
 export const purgeThread = internalMutation({
   args: { agentThreadId: v.string(), step: v.optional(purgeStepValidator) },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const thread = await anyThreadRow(ctx, args.agentThreadId);
+    if (!thread || !isThreadDeleting(thread)) return null;
     const next = await purgeThreadRows(ctx, args.agentThreadId, args.step);
     if (next) {
+      await ctx.db.patch(thread._id, { purgeHeartbeatAt: Date.now() });
       await ctx.scheduler.runAfter(0, internal.chatV2.purgeThread, {
         agentThreadId: args.agentThreadId,
         step: next,
@@ -3270,10 +3308,40 @@ export const purgeThread = internalMutation({
       return null;
     }
     // Last: the component deletes its thread, messages and streams in its
-    // own pages (the same call as project erasure).
+    // own pages (the same call as project erasure), then the row goes.
     await ctx.scheduler.runAfter(0, internal.projects.deleteAgentChatThread, {
       agentThreadId: args.agentThreadId,
     });
+    await ctx.db.delete(thread._id);
     return null;
+  },
+});
+
+/** Deleting conversations the stalled-purge sweep looks at per run. */
+const PURGE_SWEEP_LIMIT = 20;
+
+/**
+ * Review R2 P2-1: a purge run that failed (a limit error is not retried)
+ * leaves its conversation marked. Every few minutes, a marked conversation
+ * whose purge made no progress for PURGE_STALL_MS is started again from
+ * its first step; the run is idempotent.
+ */
+export const resumeStalledThreadPurges = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const deleting = await ctx.db
+      .query("agentChatThreads")
+      .withIndex("by_deletingAt", (q) => q.gt("deletingAt", 0))
+      .take(PURGE_SWEEP_LIMIT);
+    let resumed = 0;
+    for (const thread of deleting) {
+      if (now - (thread.purgeHeartbeatAt ?? thread.deletingAt ?? now) < PURGE_STALL_MS) continue;
+      await ctx.db.patch(thread._id, { purgeHeartbeatAt: now });
+      await ctx.scheduler.runAfter(0, internal.chatV2.purgeThread, { agentThreadId: thread.agentThreadId });
+      resumed += 1;
+    }
+    return resumed;
   },
 });

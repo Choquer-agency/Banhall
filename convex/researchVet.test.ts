@@ -7,7 +7,13 @@ import schema from "./schema";
 import workflowSchema from "../node_modules/@convex-dev/workflow/src/component/schema.js";
 import workpoolSchema from "../node_modules/@convex-dev/workpool/src/component/schema.js";
 import { MAX_INSTRUCTION } from "./ai/research/core";
-import { VET_INSTRUCTION, VET_NOTE_SEPARATOR, vetWriterNote } from "../shared/researchPresets";
+import {
+  RESEARCH_INSTRUCTION_MAX_CHARS,
+  VET_INSTRUCTION,
+  VET_NOTE_MAX_CHARS,
+  VET_NOTE_SEPARATOR,
+  vetWriterNote,
+} from "../shared/researchPresets";
 
 /**
  * Report chat parity, Phase C (2026-10-20), W3: "Vet against public
@@ -92,13 +98,14 @@ describe("Vet against public sources", () => {
     expect(listed.instruction).toBe(note);
   });
 
-  it("refuses words that would push the instruction past its limit", async () => {
+  it("refuses a note past its own limit, naming that limit (review R2 P3-7)", async () => {
     const s = await setup();
-    const room = MAX_INSTRUCTION - VET_INSTRUCTION.length - VET_NOTE_SEPARATOR.length;
-    await expect(s.start({ instruction: "x".repeat(room + 1), preset: "vet" })).rejects.toMatchObject({
-      data: { code: "INVALID_INPUT" },
+    expect(RESEARCH_INSTRUCTION_MAX_CHARS).toBe(MAX_INSTRUCTION);
+    expect(VET_NOTE_MAX_CHARS).toBe(MAX_INSTRUCTION - VET_INSTRUCTION.length - VET_NOTE_SEPARATOR.length);
+    await expect(s.start({ instruction: "x".repeat(VET_NOTE_MAX_CHARS + 1), preset: "vet" })).rejects.toMatchObject({
+      data: { code: "INVALID_INPUT", message: `Your note can be up to ${VET_NOTE_MAX_CHARS.toLocaleString("en-US")} characters.` },
     });
-    const sessionId = await s.start({ instruction: "x".repeat(room), preset: "vet" });
+    const sessionId = await s.start({ instruction: "x".repeat(VET_NOTE_MAX_CHARS), preset: "vet" });
     const session = await s.t.run((ctx) => ctx.db.get(sessionId));
     expect(session?.instruction.length).toBe(MAX_INSTRUCTION);
   });

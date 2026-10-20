@@ -7,11 +7,17 @@
     open = $bindable(false),
     title,
     onConfirm,
+    onCloseFocus,
   }: {
     open?: boolean;
     /** The conversation's name, so the admin knows which one goes. */
     title?: string;
     onConfirm: () => void;
+    /**
+     * Review R2 P3-3: where focus goes when the dialog closes. The menu item
+     * that opened it is gone by then.
+     */
+    onCloseFocus?: () => void;
   } = $props();
 
   let keepButton: HTMLButtonElement | null = $state(null);
@@ -25,6 +31,11 @@
       onOpenAutoFocus={(event) => {
         event.preventDefault();
         keepButton?.focus();
+      }}
+      onCloseAutoFocus={(event) => {
+        if (!onCloseFocus) return;
+        event.preventDefault();
+        onCloseFocus();
       }}
       class="fixed left-1/2 top-1/2 z-[130] w-[calc(100%-2rem)] max-w-[25rem] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-line bg-surface shadow-dialog"
     >
