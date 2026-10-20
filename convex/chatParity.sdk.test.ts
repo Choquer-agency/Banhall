@@ -347,8 +347,8 @@ describe("one tool list whatever the message options", () => {
     expect(JSON.stringify(toggledSent[0]!.tools)).toBe(JSON.stringify(plainSent[0]!.tools));
     expect(JSON.stringify(toggledSent[0]!.system)).toBe(JSON.stringify(plainSent[0]!.system));
     // The options reach the model in the per-turn note after the evidence.
-    expect(lastUserText(plainSent[0]!)).toContain("Brain examples are off, web search is off.");
-    expect(lastUserText(toggledSent[0]!)).toContain("Brain examples are on, web search is on.");
+    expect(lastUserText(plainSent[0]!)).toContain("Brain examples are off for this message, web search is off in this conversation.");
+    expect(lastUserText(toggledSent[0]!)).toContain("Brain examples are on for this message, web search is on in this conversation.");
     // Not in the cached head: the first block of the first message.
     const head = (body: Body) => JSON.stringify((body.messages[0]!.content as unknown[])[0]);
     expect(head(plainSent[0]!)).toContain("EVIDENCE FOR THIS TURN");

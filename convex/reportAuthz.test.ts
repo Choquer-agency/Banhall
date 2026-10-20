@@ -450,6 +450,47 @@ describe("applyProposal write boundary", () => {
   });
 });
 
+// Phase B (2026-10-20): Undo for an applied card is the eighth revision
+// writer (AD-3). It refuses the same actors as applyProposal and writes
+// nothing for them.
+describe("undoProposal write boundary", () => {
+  it("rejects ineligible actors and writes nothing", async () => {
+    const f = await setup();
+    await f.owner.mutation(api.chatV2.applyProposal, { proposalId: f.proposalId });
+    const beforeReport = await reportRow(f);
+    const beforeProposal = await proposalRow(f);
+    const beforeSnapshots = await snapshotIds(f);
+    for (const [label, actor, code] of rejectedActors(f)) {
+      expect(
+        await errorCode(() =>
+          actor.mutation(api.chatV2.undoProposal, { proposalId: f.proposalId })
+        ),
+        label
+      ).toBe(code);
+      expect(await reportRow(f), `${label}: report row`).toEqual(beforeReport);
+      expect(await proposalRow(f), `${label}: proposal row`).toEqual(
+        beforeProposal
+      );
+      expect(await snapshotIds(f), `${label}: snapshots`).toEqual(
+        beforeSnapshots
+      );
+    }
+  });
+
+  it("undoes for an eligible owner, with the snapshot and revision bump", async () => {
+    const f = await setup();
+    await f.owner.mutation(api.chatV2.applyProposal, { proposalId: f.proposalId });
+    const beforeSnapshots = await snapshotIds(f);
+    await f.owner.mutation(api.chatV2.undoProposal, { proposalId: f.proposalId });
+    const report = await reportRow(f);
+    expect(report?.content).toContain("tested the alloy");
+    expect(report?.content).not.toContain("measured the alloy");
+    expect(report?.revisionNumber).toBe(2);
+    expect((await proposalRow(f))?.state).toBe("pending");
+    expect((await snapshotIds(f)).length).toBe(beforeSnapshots.length + 1);
+  });
+});
+
 describe("inherited query and action blast radius", () => {
   it("rejects ineligible actors on inherited queries", async () => {
     const f = await setup();
