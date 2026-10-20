@@ -17,7 +17,9 @@ import {
 } from "./lib/contracts";
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import {
+  chatAutoContinueSkipValidator,
   chatTurnContinuationValidator,
+  chatTurnOriginValidator,
   chatTurnProgressValidator,
 } from "./lib/chatTurnState";
 import { styleOverridesValidator } from "./lib/styleOverrides";
@@ -1780,6 +1782,9 @@ export default defineSchema({
     agentThreadId: v.string(), // component thread id
     title: v.string(),
     createdAt: v.number(),
+    // Phase B (2026-10-20), widen only: who started the conversation, set
+    // when the row is created. Older rows fall back to the first turn's sender.
+    createdBy: v.optional(v.id("users")),
   })
     .index("by_reportId", ["reportId"])
     .index("by_agentThreadId", ["agentThreadId"])
@@ -1819,6 +1824,13 @@ export default defineSchema({
     // tool first ran a search. Reasoning summaries of such a turn are not
     // shown (convex/lib/chatPublicOutput.ts).
     brainSearchedAt: v.optional(v.number()),
+    // Phase B (2026-10-20), widen only. A turn the server started to carry
+    // on a job on its own (chatV2.continueChain).
+    origin: v.optional(chatTurnOriginValidator),
+    // Why a finished turn with a `continuation` did not continue on its own.
+    autoContinueSkipped: v.optional(chatAutoContinueSkipValidator),
+    // Stop was pressed just after this turn finished: its chain ends here.
+    chainStoppedAt: v.optional(v.number()),
   })
     .index("by_agentThreadId_and_promptMessageId", [
       "agentThreadId",

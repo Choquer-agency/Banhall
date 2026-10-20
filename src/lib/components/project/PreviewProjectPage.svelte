@@ -19,6 +19,7 @@
   import { overlayFade, modalPop } from "$lib/motion";
   import { boardRem, rootScale } from "$lib/rootScale";
   import { api } from "../../../../convex/_generated/api";
+  import { useReplySignal } from "$lib/chat/replySignal.svelte";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import ProjectStateBadge from "$lib/components/dashboard/ProjectStateBadge.svelte";
   import Button from "$lib/components/ui/Button.svelte";
@@ -1841,6 +1842,12 @@
   // no panel, divider or full screen on the page.
   const sideSurfacesAvailable = $derived(Boolean(report && user && reportActionsVisible));
   const chatShown = $derived(chatOpen && sideSurfacesAvailable);
+  // Phase B (2026-10-20): the reply signal on the Assistant toggle; the panel
+  // is lazy-mounted, so it is read here.
+  const replySignal = useReplySignal(() => ({
+    reportId: reportQ.data?._id,
+    panelOpen: chatShown && sidePanelOnScreen,
+  }));
   const qaShown = $derived(qaOpen && sideSurfacesAvailable);
   // The persisted open state (chatOpen, qaOpen) is a preference. A surface
   // the page does not offer right now (Seed phases, writing, intake) takes
@@ -2270,6 +2277,7 @@
         showAssistant={reportActionsVisible && !!user}
         showQa={reportActionsVisible && !!user}
         assistantActive={chatShown && sidePanelOnScreen}
+        assistantSignal={replySignal.signal}
         onToggleAssistant={() => {
           assistantIntent();
           void leaveDetailsThen(() => toggleSidePanel("chat"));

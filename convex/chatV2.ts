@@ -60,11 +60,18 @@ import {
   publicChatMessage,
 } from "./lib/chatPublicOutput";
 import {
+  chatAutoContinueSkipValidator,
   chatTurnContinuationReasonValidator,
   chatTurnProgressValidator,
   type ChatTurnContinuation,
 } from "./lib/chatTurnState";
 import { sectionNumberValidator } from "./lib/orderedChain";
+import { turnSenders, threadStarter, userNames } from "./lib/chatAuthors";
+import {
+  continueChain as runContinueChain,
+  reportChatActivity as readReportChatActivity,
+  stopChainAfter,
+} from "./lib/chatChain";
 import { INVENTORY_SECTION_ORDER } from "./lib/deviationInventory";
 import {
   coverageFor,
@@ -199,13 +206,26 @@ export const listThreads = query({
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) return [];
-    if (!(await getInternalProjectAccessOrNull(ctx, report.projectId))) return [];
+    const access = await getInternalProjectAccessOrNull(ctx, report.projectId);
+    if (!access) return [];
 
-    return await ctx.db
+    const threads = await ctx.db
       .query("agentChatThreads")
       .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
       .order("desc")
       .take(THREAD_LIST_LIMIT);
+    // Phase B (2026-10-20), W2: who started each conversation, by name only.
+    const starters = await Promise.all(threads.map((thread) => threadStarter(ctx, thread)));
+    const names = await userNames(ctx, starters);
+    return threads.map((thread, index) => {
+      const starter = starters[index] ?? null;
+      const createdByName = starter ? names.get(starter) : undefined;
+      return {
+        ...thread,
+        ...(createdByName ? { createdByName } : {}),
+        startedByCurrentUser: starter === access.user._id,
+      };
+    });
   },
 });
 
@@ -376,16 +396,29 @@ export const listTurns = query({
 
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) return [];
-    if (!(await getInternalProjectAccessOrNull(ctx, thread.projectId))) return [];
+    const access = await getInternalProjectAccessOrNull(ctx, thread.projectId);
+    if (!access) return [];
 
     const turns = await loadNewestTurns(ctx, {
       agentThreadId: args.threadId,
       ...window,
     });
+    // Phase B (2026-10-20), W2: each turn's sender by name (never an email)
+    // and whether it is the viewer, for author labels and the Stop check.
+    const senders = await turnSenders(ctx, turns);
+    const names = await userNames(ctx, senders.values());
     // Phase A (2026-10-19): each turn carries `progress`, `continuation` and
-    // `historyStartOrder` when it has them. `brainSearchedAt` stays on the
-    // server: it only steers the reasoning filter.
-    return turns.map(({ brainSearchedAt: _serverOnly, ...turn }) => turn);
+    // `historyStartOrder` when it has them. `brainSearchedAt` and
+    // `chainStoppedAt` stay on the server.
+    return turns.map(({ brainSearchedAt: _serverOnly, chainStoppedAt: _chainOnly, ...turn }) => {
+      const sender = senders.get(turn._id) ?? null;
+      const senderName = sender ? names.get(sender) : undefined;
+      return {
+        ...turn,
+        ...(senderName ? { senderName } : {}),
+        fromCurrentUser: sender === access.user._id,
+      };
+    });
   },
 });
 
@@ -554,6 +587,8 @@ async function assertChatAdmission(
   const ownTurns = ctx.db.query("chatTurns")
     .withIndex("by_userId_and_status", (q) => q.eq("userId", userId).eq("status", "queued"));
   for await (const turn of ownTurns) {
+    // Phase B (2026-10-20): a link the server started does not count.
+    if (turn.origin === "auto_continue") continue;
     queued += 1;
     if (queued >= limits.maxQueuedTurns) {
       domainError("CHAT_QUEUE_LIMIT_EXCEEDED", "Your queued chat turn limit has been reached");
@@ -700,6 +735,7 @@ export const sendMessage = mutation({
         agentThreadId,
         title,
         createdAt: Date.now(),
+        createdBy: userId,
       });
     }
 
@@ -791,13 +827,24 @@ export const abortStreaming = mutation({
         endedAt: Date.now(),
       });
     }
+    // Phase B (2026-10-20), W2: Stop just after a reply that offers Continue
+    // ends its chain (a stopped turn never continues): the next link is not
+    // started, or a link already started from it is stopped.
+    const chainStop = !appTurnStopped && turn ? await stopChainAfter(ctx, turn) : { stopped: false as const };
+    if (chainStop.stopped && chainStop.linkOrder !== undefined) {
+      await abortStream(ctx, components.agent, {
+        threadId: args.threadId,
+        order: chainStop.linkOrder,
+        reason: "Writer pressed stop",
+      });
+    }
 
     const componentStreamStopped = await abortStream(ctx, components.agent, {
       threadId: args.threadId,
       order: args.order,
       reason: "Writer pressed stop",
     });
-    return appTurnStopped || componentStreamStopped;
+    return appTurnStopped || chainStop.stopped || componentStreamStopped;
   },
 });
 
@@ -1648,6 +1695,43 @@ export const failStaleChatTurns = internalMutation({
       }
     }
     return { failed };
+  },
+});
+
+/**
+ * Phase B (2026-10-20), W2: start the next link of a long job, or record why
+ * not (`convex/lib/chatChain.ts`). Called once, at the very end of
+ * `streamChatReply`, after every message of the turn was saved.
+ */
+export const continueChain = internalMutation({
+  args: { agentThreadId: v.string(), promptMessageId: v.string() },
+  returns: v.union(
+    v.object({ kind: v.literal("linked"), promptMessageId: v.string() }),
+    v.object({ kind: v.literal("skipped"), reason: chatAutoContinueSkipValidator }),
+    v.object({ kind: v.literal("none") })
+  ),
+  handler: async (ctx, args) => await runContinueChain(ctx, args),
+});
+
+/**
+ * Phase B (2026-10-20), W2: the report page's reply signal. Whether any
+ * reply on the report runs, whether one of the viewer's does, and when the
+ * viewer's newest reply finished. Quietly idle for a reader without access.
+ */
+export const reportChatActivity = query({
+  args: { reportId: v.id("reports") },
+  returns: v.object({
+    active: v.boolean(),
+    mineActive: v.boolean(),
+    mineLastFinishedAt: v.union(v.number(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const idle = { active: false, mineActive: false, mineLastFinishedAt: null };
+    const report = await ctx.db.get(args.reportId);
+    if (!report) return idle;
+    const access = await getInternalProjectAccessOrNull(ctx, report.projectId);
+    if (!access) return idle;
+    return await readReportChatActivity(ctx, args.reportId, access.user._id);
   },
 });
 

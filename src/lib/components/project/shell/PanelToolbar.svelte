@@ -49,6 +49,7 @@
     assistantActive = false,
     onToggleAssistant,
     onAssistantIntent,
+    assistantSignal = null,
     qa,
     showQa = true,
   }: {
@@ -71,6 +72,8 @@
     /** A pointer rests on, a finger touches, or the keyboard focuses the
      * Assistant toggle: the page starts loading the Assistant early. */
     onAssistantIntent?: () => void;
+    /** Phase B reply signal: a ring while a reply runs, a dot when yours is ready. */
+    assistantSignal?: "working" | "ready" | null;
     /** The QA toggle slot. */
     qa?: Snippet;
     /** Whether the QA slot renders anything (it draws the divider before it). */
@@ -180,12 +183,17 @@
             type="button"
             data-panel-toggle="assistant"
             aria-pressed={assistantActive}
-            aria-label="Assistant"
+            aria-label={assistantSignal === "working" ? "Assistant, writing a reply" : assistantSignal === "ready" ? "Assistant, your reply is ready" : "Assistant"}
             onclick={onToggleAssistant}
             {@attach assistantIntent}
-            class={toggleClass(assistantActive)}
+            class={`relative ${toggleClass(assistantActive)}`}
           >
             <AuroraMark size={18} />
+            {#if assistantSignal === "working"}
+              <span data-assistant-working aria-hidden="true" class="pointer-events-none absolute inset-0 animate-pulse rounded-md ring-2 ring-primary-selected/50 motion-reduce:animate-none"></span>
+            {:else if assistantSignal === "ready"}
+              <span data-assistant-ready-dot aria-hidden="true" class="absolute -right-0.5 -top-0.5 size-2 rounded-full border-2 border-surface bg-primary-selected"></span>
+            {/if}
           </button>
         {/snippet}
       </Tooltip>

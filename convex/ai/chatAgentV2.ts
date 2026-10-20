@@ -655,8 +655,44 @@ export const CHAT_PROVIDER_OPTIONS = {
  */
 export const CHAT_MAX_OUTPUT_TOKENS = 16384;
 
-/** Reply, tool call, short lead-in; searchBrain adds a hop. 5 is headroom. */
-export const CHAT_MAX_STEPS = 5;
+/**
+ * Model requests per pass. Phase B (2026-10-20): 8, up from 5, because the
+ * reading tools need steps of their own; a pass now also stops before the
+ * action window runs out (`CHAT_MIN_STEP_REMAINING_MS`), so the longer limit
+ * cannot outrun the window.
+ */
+export const CHAT_MAX_STEPS = 8;
+
+/**
+ * The recovery pass after a thinking-only cut keeps its own limit of 5
+ * (2026-10-19 (first), Rule 2): it plans briefly and does one Line.
+ */
+export const CHAT_RECOVERY_MAX_STEPS = 5;
+
+/**
+ * Phase B (2026-10-20): a new step does not start with less than this left
+ * in the action window. A pass stopped for time ends exactly like the step
+ * limit: the closing note and a `step_limit` Continue offer.
+ */
+export const CHAT_MIN_STEP_REMAINING_MS = 90_000;
+
+/**
+ * The stop condition for time: true once less than CHAT_MIN_STEP_REMAINING_MS
+ * is left of the window that began at `startedAt`. The AI SDK checks stop
+ * conditions only before it would start another step, so `onStop` runs only
+ * when this ends the pass.
+ */
+export function stopBeforeWindowEnds(
+  startedAt: number,
+  onStop: () => void,
+  now: () => number = Date.now
+): () => boolean {
+  return () => {
+    const tooLate = startedAt + ACTION_REQUEST_WINDOW_MS - now() < CHAT_MIN_STEP_REMAINING_MS;
+    if (tooLate) onStop();
+    return tooLate;
+  };
+}
 
 /**
  * 2026-10-01 (first), alerts triage. A step cut off at the output limit while
@@ -1718,6 +1754,12 @@ export const streamChatReply = internalAction({
     // no tool call and no text (`thinkingOnlyCutOff`).
     let lastStepThinkingOnly = false;
     const finishedSteps: CutOffStep[] = [];
+    // Phase B (2026-10-20): the running pass's step limit, and whether the
+    // time stop (`stopBeforeWindowEnds`) ended it.
+    let passMaxSteps = CHAT_MAX_STEPS;
+    let passStoppedForTime = false;
+    // Phase B: whether the turn reached finishTurn, so the chain may go on.
+    let reachedFinish = false;
     // Review P2-1: a step the agent held back, logged once a later step
     // finishes (see stepHeldBackByAgent), with the measurements it finished
     // with.
@@ -1906,7 +1948,11 @@ export const streamChatReply = internalAction({
         /** The effort the pass's steps are sent with, for the usage rows. */
         effort: string;
         contextOptions?: ContextOptions;
+        /** The pass's own step limit (the recovery pass keeps 5). */
+        maxSteps: number;
       }) => {
+        passMaxSteps = pass.maxSteps;
+        passStoppedForTime = false;
         sawToolInput = false;
         lastStepCutToolCall = false;
         lastStepThinkingOnly = false;
@@ -1950,7 +1996,15 @@ export const streamChatReply = internalAction({
               // tool's fixed instruction instead of its parse error, and a second
               // cut-off ends the turn. A turn that is never cut off sends exactly
               // the requests it sent before (the same messages array).
-              stopWhen: [stepCountIs(CHAT_MAX_STEPS), stopAfterSecondCutOff],
+              // Phase B (2026-10-20): and no new step with less than
+              // CHAT_MIN_STEP_REMAINING_MS left of the action window.
+              stopWhen: [
+                stepCountIs(pass.maxSteps),
+                stopAfterSecondCutOff,
+                stopBeforeWindowEnds(startedAt, () => {
+                  passStoppedForTime = true;
+                }),
+              ],
               prepareStep: async ({ steps, messages }) => {
                 // PR #24 review P3: once the agent stopped streaming, check the
                 // writer did not press Stop before paying for another step.
@@ -2099,6 +2153,7 @@ export const streamChatReply = internalAction({
         providerOptions: CHAT_PROVIDER_OPTIONS,
         listStepProviderOptions: CHAT_LIST_STEP_PROVIDER_OPTIONS,
         effort: "default",
+        maxSteps: CHAT_MAX_STEPS,
       });
       // A timer that fires after a tool step leaves the last step's finish
       // reason in place, so the reply would read as complete (review r2 P3).
@@ -2130,6 +2185,7 @@ export const streamChatReply = internalAction({
           providerOptions: CHAT_RECOVERY_PROVIDER_OPTIONS,
           listStepProviderOptions: undefined,
           effort: CHAT_RECOVERY_PROVIDER_OPTIONS.anthropic.effort,
+          maxSteps: CHAT_RECOVERY_MAX_STEPS,
           // Review P3-3: the first pass stored one thinking-only row on the
           // prompt's order. It fills a history slot before
           // `withoutThinkingOnlyReplies` drops it, so the window gets one
@@ -2156,9 +2212,18 @@ export const streamChatReply = internalAction({
         throw new Error("CHAT_INCOMPLETE_RESPONSE");
       }
       // Review P2-2: the step limit ended the turn on a tool call, so the
-      // model never wrote its closing text.
+      // model never wrote its closing text. Phase B: a pass the time stop
+      // ended reads exactly the same.
       const endedOnStepLimit =
-        finishReason === "tool-calls" && finishedSteps.length >= CHAT_MAX_STEPS;
+        finishReason === "tool-calls" &&
+        (finishedSteps.length >= passMaxSteps || passStoppedForTime);
+      if (passStoppedForTime && finishReason === "tool-calls") {
+        console.info("chat pass stopped before the action window ran out", {
+          threadId: args.agentThreadId,
+          steps: finishedSteps.length,
+          timeLeftMs: startedAt + ACTION_REQUEST_WINDOW_MS - Date.now(),
+        });
+      }
       // Phase A: the Continue offer, while the turn still runs. A reply that
       // finished its Line offers the next one only when it saved a
       // Completion Report (setTurnContinuation checks).
@@ -2176,6 +2241,7 @@ export const streamChatReply = internalAction({
         endedAt: Date.now(),
         stepCount: toolCallIds.size,
       });
+      reachedFinish = finished.status === "completed";
       // Say what is left.
       if (endedOnStepLimit && finished.status === "completed") {
         // PR #24 round 2: only a saved proposal means there are cards to
@@ -2217,6 +2283,7 @@ export const streamChatReply = internalAction({
         endedAt: Date.now(),
         stepCount: toolCallIds.size,
       });
+      reachedFinish = !stopped && finish.status === "failed";
       // A Stop is the writer's choice, not a failure: no error log and no
       // failure message.
       if (stopped || finish.status === "aborted") {
@@ -2245,6 +2312,17 @@ export const streamChatReply = internalAction({
       endStopWatch?.();
       timeoutSignal?.removeEventListener("abort", onTimeout);
       await progress.flush();
+      // Phase B (2026-10-20): the very last step, after every message of the
+      // turn was saved. One transaction decides whether the job goes on by
+      // itself and, if so, saves the Continue message, queues the next link
+      // and schedules it (chatV2.continueChain).
+      if (reachedFinish) {
+        try {
+          await ctx.runMutation(internal.chatV2.continueChain, turnKey);
+        } catch (error) {
+          console.error("chat chain could not continue", safeErrorDetails(error));
+        }
+      }
     }
   },
 });

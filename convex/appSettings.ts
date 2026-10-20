@@ -233,6 +233,20 @@ export async function chatAdmissionLimits(ctx: QueryCtx | MutationCtx) {
   };
 }
 
+/**
+ * Phase B (2026-10-20): the kill switch for a report chat job carrying on by
+ * itself (`chatV2.continueChain`). On by default; anything but "off" means on.
+ */
+export const CHAT_AUTO_CONTINUE_KEY = "ai.chatAutoContinue";
+
+export async function chatAutoContinueEnabled(ctx: QueryCtx | MutationCtx): Promise<boolean> {
+  const row = await ctx.db
+    .query("appSettings")
+    .withIndex("by_key", (q) => q.eq("key", CHAT_AUTO_CONTINUE_KEY))
+    .unique();
+  return row?.value.trim() !== "off";
+}
+
 export const setChatAdmissionLimits = mutation({
   args: { dailyBudgetUsd: v.number(), maxQueuedTurns: v.number() },
   returns: v.null(),

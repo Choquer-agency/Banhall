@@ -166,6 +166,10 @@ async function setup(options: {
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const userId = await ctx.db.insert("users", { authId, role: "writer" });
+    // Phase B (2026-10-20): these suites drive the writer's own Continue
+    // messages, so automatic continuing is off here (convex/chatAutoContinue.test.ts
+    // covers it).
+    await ctx.db.insert("appSettings", { key: "ai.chatAutoContinue", value: "off", updatedBy: userId, updatedAt: now });
     const projectId = await ctx.db.insert("projects", {
       title: "Parity project", clientName: "Client", status: "review",
       createdBy: userId, ownerId: userId, shareToken: "parity-token", createdAt: now, updatedAt: now,

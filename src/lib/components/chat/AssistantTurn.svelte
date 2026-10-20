@@ -33,7 +33,13 @@
     /** The copy of this answer failed; the button says so instead of a toast. */
     copyFailed?: boolean;
     /** Phase A: the turn's structured Continue offer, on the newest turn only. */
-    continuation?: { label: string; disabled: boolean; onContinue: () => Promise<void> | void };
+    continuation?: {
+      label: string;
+      disabled: boolean;
+      onContinue: () => Promise<void> | void;
+      /** Phase B: why the job did not carry on by itself (budget, no progress). */
+      skipNote?: string;
+    };
     /** Freeze the live timer while the connection is down. */
     paused?: boolean;
     onCopy?: (messageId: string, text: string) => void;
@@ -133,12 +139,15 @@
   {#if continuation}
     <!-- Phase A: the server's structured offer to carry on (the next Line, or
          where a long job stopped). It sends an ordinary writer message. -->
-    <div class="pt-1">
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1">
       <ActionButton variant="secondary" data-continue-offer
         disabled={continuation.disabled || continuing}
         loading={continuing} loadingLabel="Sending…"
         onclick={runContinue}
         class="pointer-coarse:min-h-11">{continuation.label}</ActionButton>
+      {#if continuation.skipNote}
+        <p class="min-w-0 flex-1 text-xs text-ink-muted" data-auto-continue-skip>{continuation.skipNote}</p>
+      {/if}
     </div>
   {/if}
 

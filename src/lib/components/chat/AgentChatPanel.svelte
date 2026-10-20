@@ -24,6 +24,8 @@
   import { MAX_CHAT_HIGHLIGHT_CHARS, MAX_CHAT_MESSAGE_CHARS } from "../../../../shared/chatLimits";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import AssistantPanelSkeleton from "./AssistantPanelSkeleton.svelte";
+  import StopReplyDialog from "./StopReplyDialog.svelte";
+  import { notificationsSupported, notifyRepliesEnabled, setNotifyReplies } from "$lib/chat/replySignal.svelte";
   import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
   import { DropdownMenu, Checkbox } from "bits-ui";
@@ -596,12 +598,51 @@
     const label = continueLabel(timing.continuation);
     const text = continueMessage(timing.continuation);
     if (!label || !text || visibleLocalSends.length > 0) return undefined;
+    // Phase B: why the job did not carry on by itself, when it says.
+    const skipped = turnByOrder.get(order)?.autoContinueSkipped;
+    const skipNote = skipped === "budget" || skipped === "no_progress" ? SKIP_NOTES[skipped] : undefined;
     return {
       label,
       disabled: regenerationBusy,
       onContinue: () => sendText(text, { kind: "continue", threadId }),
+      ...(skipNote ? { skipNote } : {}),
     };
   }
+
+  // Phase B (2026-10-20), W2: each turn by its order, for author labels,
+  // automatic links and the Stop check.
+  type ListedTurn = NonNullable<typeof turnsQ.data>[number];
+  const turnByOrder = $derived.by(() => {
+    const map = new Map<number, ListedTurn>();
+    for (const turn of turnsQ.data ?? []) map.set(turn.order, turn);
+    return map;
+  });
+  // Author labels show only when the conversation has messages from more
+  // than one person. A link speaks for whoever started the job.
+  const multipleAuthors = $derived.by(() => {
+    const authors = new Set<string>();
+    for (const turn of turnsQ.data ?? []) {
+      if (turn.origin === "auto_continue") continue;
+      authors.add(turn.userId ?? (turn.fromCurrentUser ? "you" : `name:${turn.senderName ?? ""}`));
+    }
+    return authors.size > 1;
+  });
+  function authorLabel(order: number): string | null {
+    if (!multipleAuthors) return null;
+    const turn = turnByOrder.get(order);
+    if (!turn) return null;
+    return turn.fromCurrentUser ? "You" : (turn.senderName ?? null);
+  }
+  /** The muted chip a server-started link shows instead of a writer message. */
+  function autoContinueChip(order: number, text: string): string | null {
+    if (turnByOrder.get(order)?.origin !== "auto_continue") return null;
+    const line = /^Continue with Line (242|244|246)\.$/.exec(text.trim())?.[1];
+    return line ? `Continuing with Line ${line}` : "Continuing";
+  }
+  const SKIP_NOTES = {
+    budget: "Stopped continuing automatically: this project's daily chat budget is used up.",
+    no_progress: "Stopped continuing automatically because the last reply made no progress.",
+  } as const;
 
   // Phase A (task 8): where the model stopped reading older messages.
   const contextBoundary = $derived(contextBoundaryOrder(
@@ -946,6 +987,34 @@
     if (!isStreaming) stopError = null;
   });
 
+  // Phase B (2026-10-20), W2: Stop on a reply someone else started asks
+  // first. It never restricts Stop.
+  let stopConfirmOpen = $state(false);
+  let stopConfirmName = $state<string | undefined>(undefined);
+  function requestStop() {
+    if (!selectedThreadId || !lastMessage || stopping) return;
+    const turn = turnByOrder.get(lastMessage.order);
+    if (turn && turn.fromCurrentUser === false && (turn.status === "queued" || turn.status === "running")) {
+      stopConfirmName = turn.senderName;
+      stopConfirmOpen = true;
+      return;
+    }
+    void stopGeneration();
+  }
+
+  // Phase B: the opt-in for a browser notification when a reply is ready
+  // (the page-level reply signal fires it, only while the tab is hidden).
+  let canNotify = $state(false);
+  let notifyReplies = $state(false);
+  $effect(() => {
+    canNotify = notificationsSupported();
+    notifyReplies = notifyRepliesEnabled();
+  });
+  async function toggleNotifyReplies(on: boolean) {
+    notifyReplies = on;
+    notifyReplies = await setNotifyReplies(on);
+  }
+
   // ── Day separators ──────────────────────────────────────────────────────
   function sameDay(a: number, b: number): boolean {
     const da = new Date(a);
@@ -1254,7 +1323,7 @@
       {/if}
       {#if isStreaming}
         <button
-          onclick={stopGeneration}
+          onclick={requestStop}
           disabled={stopping || !selectedThreadId}
           class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-full bg-primary-selected text-white transition-[background-color,transform] hover:bg-primary-dark active:translate-y-px disabled:opacity-50 motion-reduce:transition-none pointer-coarse:size-11"
           title="Stop generating"
@@ -1338,15 +1407,40 @@
             {#each threadsQ.data ?? [] as thread (thread._id)}
               <DropdownMenu.Item
                 onSelect={() => selectThread(thread.agentThreadId)}
-                class={`flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-sm outline-none hover:bg-chrome/60 focus:bg-chrome/60 ${thread.agentThreadId === selectedThreadId ? "bg-chrome" : ""}`}
+                class={`flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm outline-none hover:bg-chrome/60 focus:bg-chrome/60 ${thread.agentThreadId === selectedThreadId ? "bg-chrome" : ""}`}
               >
                 <span class="size-2 shrink-0 rounded-full bg-primary-selected" aria-hidden="true"></span>
-                <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{thread.title}</span>
+                <span class="flex min-w-0 flex-1 flex-col">
+                  <span class="truncate text-sm font-medium text-ink">{thread.title}</span>
+                  {#if !thread.startedByCurrentUser && thread.createdByName}
+                    <!-- Phase B: a conversation someone else started says who. -->
+                    <span class="truncate text-xs text-ink-muted" data-thread-starter>Started by {thread.createdByName}</span>
+                  {/if}
+                </span>
                 <span class="shrink-0 text-xs text-ink-faint">
                   {new Date(thread.createdAt).toLocaleDateString()}
                 </span>
               </DropdownMenu.Item>
             {/each}
+          {/if}
+          {#if canNotify}
+            <div class="my-1 border-t border-line-soft"></div>
+            <DropdownMenu.CheckboxItem
+              checked={notifyReplies}
+              onCheckedChange={(on) => void toggleNotifyReplies(on)}
+              closeOnSelect={false}
+              data-notify-replies
+              class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash"
+            >
+              {#snippet children({ checked })}
+                <span class={`flex size-4 shrink-0 items-center justify-center rounded border ${checked ? "border-primary-selected bg-primary-selected text-white" : "border-line"}`} aria-hidden="true">
+                  {#if checked}
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7" /></svg>
+                  {/if}
+                </span>
+                Notify me when a reply is ready
+              {/snippet}
+            </DropdownMenu.CheckboxItem>
           {/if}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -1457,11 +1551,31 @@
         {/if}
         {#if m.role === "user"}
           {@const split = splitWriterMessage(visibleWriterMessage(text))}
-          <Message role="user">
-            <MessageContent class="min-w-0 [overflow-wrap:anywhere]">
-              {@render writerContent(split)}
-            </MessageContent>
-          </Message>
+          {@const chip = autoContinueChip(m.order, text)}
+          {@const author = chip ? null : authorLabel(m.order)}
+          {#if chip}
+            <!-- Phase B: a link the server started carries the job on; it is
+                 not something a person wrote. -->
+            <div class="flex justify-center" data-auto-continue-chip>
+              <span class="rounded-full bg-chrome px-2.5 py-0.5 text-[0.6875rem] leading-4 text-ink-muted">{chip}</span>
+            </div>
+          {:else if author}
+            <!-- Phase B: who wrote it, when more than one person wrote here. -->
+            <div class="flex flex-col gap-1">
+              <p class="text-right text-[0.6875rem] leading-4 text-ink-muted" data-message-author>{author}</p>
+              <Message role="user">
+                <MessageContent class="min-w-0 [overflow-wrap:anywhere]">
+                  {@render writerContent(split)}
+                </MessageContent>
+              </Message>
+            </div>
+          {:else}
+            <Message role="user">
+              <MessageContent class="min-w-0 [overflow-wrap:anywhere]">
+                {@render writerContent(split)}
+              </MessageContent>
+            </Message>
+          {/if}
           {#if !turnPrompts.assistantOrders.has(m.order) && timingByOrder.has(m.order)}
             <!-- Keep a durable turn without an assistant row at its prompt's
                  position, even after later prompts and replies arrive. -->
@@ -1524,4 +1638,5 @@
   {/if}
   <!-- Preserve the composer and keyboard focus across the first local row. -->
   <div bind:offsetHeight={composerHeight} class={`shrink-0 pt-2 pb-6 ${isFull ? "px-6 lg:px-0" : "px-6"}`}>{@render composer()}</div>
+  <StopReplyDialog bind:open={stopConfirmOpen} name={stopConfirmName} onConfirm={() => void stopGeneration()} />
 </div>

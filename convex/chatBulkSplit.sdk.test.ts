@@ -8,6 +8,8 @@ import {
   CHAT_CUT_OFF_REPLY,
   CHAT_MAX_OUTPUT_TOKENS,
   CHAT_MAX_STEPS,
+  CHAT_MIN_STEP_REMAINING_MS,
+  CHAT_RECOVERY_MAX_STEPS,
   CHAT_RECOVERY_MIN_REMAINING_MS,
   CHAT_REPLY_CUT_OFF_REPLY,
   CHAT_STEP_LIMIT_REPLY,
@@ -168,6 +170,9 @@ async function setup() {
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const userId = await ctx.db.insert("users", { authId, role: "writer" });
+    // Phase B (2026-10-20): these tests read one turn's own ending, so the
+    // job does not carry on by itself here (convex/chatAutoContinue.test.ts).
+    await ctx.db.insert("appSettings", { key: "ai.chatAutoContinue", value: "off", updatedBy: userId, updatedAt: now });
     const projectId = await ctx.db.insert("projects", {
       title: "Bulk split project", clientName: "Client", status: "review",
       createdBy: userId, ownerId: userId, shareToken: "bulk-split-token", createdAt: now, updatedAt: now,
@@ -600,5 +605,68 @@ describe("a step that thinks to the output limit", () => {
     expect(texts.at(-1)).toBe(CHAT_THINKING_CUT_OFF_PARTIAL_REPLY);
     const listed = await f.actor.query(api.chatV2.listProposals, { threadId: f.threadId });
     expect(listed.map((row) => row.toolCallId)).toEqual(["toolu_part1"]);
+  });
+});
+
+// Phase B (2026-10-20), W2: 8 steps per pass, the recovery pass keeps 5, and
+// no step starts with less than CHAT_MIN_STEP_REMAINING_MS of the window left.
+describe("step limit and time stop", () => {
+  test("a pass makes at most 8 requests; the recovery pass keeps 5", () => {
+    expect(CHAT_MAX_STEPS).toBe(8);
+    expect(CHAT_RECOVERY_MAX_STEPS).toBe(5);
+    expect(CHAT_MIN_STEP_REMAINING_MS).toBe(90_000);
+  });
+
+  test("a pass stopped for time ends exactly like the step limit", async () => {
+    const f = await setup();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const started = Date.now();
+    const sent = stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_part1", JSON.stringify(smallInput), "tool_use"),
+      () => {
+        // The second request took the window down to under 90 seconds.
+        vi.setSystemTime(started + ACTION_REQUEST_WINDOW_MS - CHAT_MIN_STEP_REMAINING_MS + 1_000);
+        return toolAnswer("msg_2", "toolu_part2", JSON.stringify(smallInput), "tool_use");
+      },
+    ]);
+    await f.run();
+
+    // No third request: it would have started with too little time left.
+    expect(sent).toHaveLength(2);
+    const turn = await f.turn();
+    expect(turn.status).toBe("completed");
+    expect(turn.continuation).toEqual({ reason: "step_limit" });
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY);
+  });
+
+  test("with time left, the pass runs all 8 steps", async () => {
+    const f = await setup();
+    const sent = stubAnthropic(
+      Array.from({ length: CHAT_MAX_STEPS + 1 }, (_, i) => () =>
+        toolAnswer(`msg_${i + 1}`, `toolu_more${i + 1}`, "{}", "tool_use", "deviationInventory"))
+    );
+    await f.run();
+    expect(sent).toHaveLength(8);
+    expect((await f.turn()).continuation).toEqual({ reason: "step_limit" });
+  });
+
+  test("the recovery pass stops at its own limit of 5", async () => {
+    const f = await setup();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const sent = stubAnthropic([
+      () => thinkingOnlyAnswer("msg_1"),
+      ...Array.from({ length: CHAT_MAX_STEPS }, (_, i) => () =>
+        toolAnswer(`msg_r${i + 1}`, `toolu_rec${i + 1}`, "{}", "tool_use", "deviationInventory")),
+    ]);
+    await f.run();
+    expect(sent).toHaveLength(1 + CHAT_RECOVERY_MAX_STEPS);
+    expect(JSON.stringify(sent[1]!.messages)).toContain(CHAT_THINKING_RECOVERY_INSTRUCTION);
+    const turn = await f.turn();
+    expect(turn.status).toBe("completed");
+    expect(turn.continuation).toEqual({ reason: "step_limit" });
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY_OTHER);
   });
 });
