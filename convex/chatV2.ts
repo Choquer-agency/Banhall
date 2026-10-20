@@ -241,6 +241,29 @@ async function threadRow(ctx: QueryCtx | MutationCtx, agentThreadId: string) {
   return thread && !isThreadDeleting(thread) ? thread : null;
 }
 
+/**
+ * Round 2 N3: a card whose chat conversation is being deleted takes no
+ * action. Research cards (`research:` thread ids) belong to no chat
+ * conversation and are never affected.
+ */
+async function cardConversationDeleting(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Pick<Doc<"chatProposals">, "agentThreadId">
+): Promise<boolean> {
+  if (proposal.agentThreadId.startsWith("research:")) return false;
+  const thread = await anyThreadRow(ctx, proposal.agentThreadId);
+  return !!thread && isThreadDeleting(thread);
+}
+
+async function assertCardConversationLive(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Pick<Doc<"chatProposals">, "agentThreadId">
+): Promise<void> {
+  if (await cardConversationDeleting(ctx, proposal)) {
+    domainError("NOT_FOUND", "This conversation no longer exists");
+  }
+}
+
 /** The mapping row even while it is being deleted: the purge's own lookup. */
 async function anyThreadRow(ctx: QueryCtx | MutationCtx, agentThreadId: string) {
   return await ctx.db
@@ -1102,6 +1125,7 @@ export const applyProposal = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Proposal not found");
+    await assertCardConversationLive(ctx, proposal);
     if (proposal.kind === "references") {
       domainError("INVALID_INPUT", "Highlights have nothing to apply.");
     }
@@ -1322,6 +1346,7 @@ export const markProposalApplied = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Proposal not found");
+    await assertCardConversationLive(ctx, proposal);
     // report.editProse: this path writes the final document content.
     const { user } = await requireReportEditAccess(ctx, proposal.projectId);
     const report = await ctx.db.get(proposal.reportId);
@@ -1416,6 +1441,7 @@ export const updateProposalWording = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Suggestion not found");
+    await assertCardConversationLive(ctx, proposal);
     // The owner applies stored wording as is, so rewording a pending
     // suggestion is editing report prose (audit 2026-09-25, a2 P2-2).
     const { user } = await requireReportEditAccess(ctx, proposal.projectId);
@@ -1492,6 +1518,7 @@ export const rejectProposal = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
+    await assertCardConversationLive(ctx, proposal);
     await requireReportEditAccess(ctx, proposal.projectId);
     if (isRecordOnlyProposal(proposal)) {
       domainError("INVALID_INPUT", "This record has nothing to reject.");
@@ -1529,6 +1556,7 @@ export const undoProposal = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Suggestion not found");
+    await assertCardConversationLive(ctx, proposal);
     // report.editProse: undoing writes report prose.
     const { user } = await requireReportEditAccess(ctx, proposal.projectId);
     if (proposal.state !== "applied" || !proposal.appliedChange) {
@@ -1759,20 +1787,27 @@ export const finishTurn = internalMutation({
     const stepCount = Number.isFinite(args.stepCount)
       ? Math.max(0, Math.floor(args.stepCount))
       : 0;
+    // Round 2 N5: when the chat action really reached its end, whatever the
+    // turn's status. A stopped turn's `endedAt` is the Stop; its action can
+    // run on inside a long tool call. `deleteThread` waits for this.
+    const actionEndedAt = Date.now();
     if (turn.status === "queued" || turn.status === "running") {
       await ctx.db.patch(turn._id, {
         status: args.requestedStatus,
         endedAt: args.endedAt,
         stepCount,
+        actionEndedAt,
       });
       return { status: args.requestedStatus };
     }
     if (turn.status === "aborted") {
-      if (stepCount > turn.stepCount) {
-        await ctx.db.patch(turn._id, { stepCount });
-      }
+      await ctx.db.patch(turn._id, {
+        actionEndedAt,
+        ...(stepCount > turn.stepCount ? { stepCount } : {}),
+      });
       return { status: "aborted" as const };
     }
+    await ctx.db.patch(turn._id, { actionEndedAt });
     return { status: turn.status };
   },
 });
@@ -2517,6 +2552,7 @@ export const listProposalItems = query({
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) return [];
     await requireInternalProjectAccess(ctx, proposal.projectId);
+    if (await cardConversationDeleting(ctx, proposal)) return [];
     const rows = await ctx.db
       .query("chatProposalItems")
       .withIndex("by_proposalId", (q) => q.eq("proposalId", args.proposalId))
@@ -3242,6 +3278,23 @@ export const listArchivedThreads = query({
  * (review R2 P3-1).
  */
 export const THREAD_DELETE_SETTLE_MS = 10_000;
+/**
+ * Round 2 N5: how long after a turn ended a delete waits for its action to
+ * report its real end (`actionEndedAt`). Past this the action is taken to
+ * have died (the stale-turn reaper ends such turns without one).
+ */
+export const THREAD_DELETE_ACTION_CEILING_MS = 2 * 60 * 1000;
+
+/**
+ * Whether the newest turn's action may still write: until it reported its
+ * real end plus THREAD_DELETE_SETTLE_MS, or, when it never reported one,
+ * until THREAD_DELETE_ACTION_CEILING_MS after the turn ended.
+ */
+function replyStillSettling(turn: Doc<"chatTurns">, now: number): boolean {
+  if (turn.actionEndedAt !== undefined) return now - turn.actionEndedAt < THREAD_DELETE_SETTLE_MS;
+  if (turn.endedAt === undefined) return false;
+  return now - turn.endedAt < THREAD_DELETE_ACTION_CEILING_MS;
+}
 
 /**
  * Admin only, never while a reply runs or just after one ended. The row is
@@ -3267,7 +3320,7 @@ export const deleteThread = mutation({
       .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", thread.agentThreadId))
       .order("desc")
       .first();
-    if (newest?.endedAt !== undefined && now - newest.endedAt < THREAD_DELETE_SETTLE_MS) {
+    if (newest && replyStillSettling(newest, now)) {
       domainError(
         "CHAT_TURN_ACTIVE",
         "A reply just finished in this conversation. Try again in a few seconds."
@@ -3308,6 +3361,25 @@ export const purgeThread = internalMutation({
     });
     await ctx.db.delete(thread._id);
     return null;
+  },
+});
+
+/**
+ * Round 2 N2: one conversation's status, by id, for a viewer whose selected
+ * conversation is not in the bounded menu lists. Only `deleting` and
+ * `missing` (gone, or out of the viewer's reach) mean the viewer should
+ * leave it; a conversation can drop out of a 50-row list and still exist.
+ */
+export const threadStatus = query({
+  args: { threadId: v.string() },
+  returns: v.union(v.literal("open"), v.literal("archived"), v.literal("deleting"), v.literal("missing")),
+  handler: async (ctx, args) => {
+    const thread = await anyThreadRow(ctx, args.threadId);
+    if (!thread) return "missing" as const;
+    const access = await getInternalProjectAccessOrNull(ctx, thread.projectId);
+    if (!access) return "missing" as const;
+    if (isThreadDeleting(thread)) return "deleting" as const;
+    return thread.archivedAt !== undefined ? ("archived" as const) : ("open" as const);
   },
 });
 

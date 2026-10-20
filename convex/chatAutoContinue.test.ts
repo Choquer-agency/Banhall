@@ -655,3 +655,21 @@ describe("items waiting on a pending card (Continue offer)", () => {
     expect(state.pendingParagraphs).toEqual([]);
   });
 });
+
+describe("a conversation being deleted (Phase C, W3, round 2 N4)", () => {
+  test("starts no link, where the same turn otherwise would", async () => {
+    const f = await setup();
+    await f.finish(f.promptMessageId, linesLeft);
+    const before = (await f.turns()).length;
+    const setDeleting = (deletingAt: number | undefined) => f.t.run(async (ctx) => {
+      const row = await ctx.db.query("agentChatThreads").withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", f.threadId)).unique();
+      await ctx.db.patch(row!._id, { deletingAt });
+    });
+    await setDeleting(Date.now());
+    expect(await f.chain(f.promptMessageId)).toEqual({ kind: "none" });
+    expect(await f.turns()).toHaveLength(before);
+    // The deletion is the only thing in the way.
+    await setDeleting(undefined);
+    expect((await f.chain(f.promptMessageId)).kind).toBe("linked");
+  });
+});

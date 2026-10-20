@@ -263,19 +263,28 @@
     void tick().then(() => conversationMenuButton?.focus());
   }
 
-  // Review R2 P3-2: a conversation someone else deleted leaves every list.
-  // Once both lists have loaded, a selected conversation they listed before
-  // and list no longer is left (a brand-new one, not yet listed, stays).
-  const listedThreadIds = new Set<string>();
-  $effect(() => {
+  // Review R2 P3-2, round 2 N2: a conversation someone else deleted. The
+  // menu lists are bounded (50 rows), so a conversation missing from both
+  // may simply have dropped out of them; only its own status, read by id,
+  // says it is gone. Read only while the selection is in neither list.
+  const selectedUnlisted = $derived.by(() => {
     const open = threadsQ.data;
     const archived = archivedThreadsQ.data;
-    if (!open || !archived) return;
-    const listed = new Set([...open, ...archived].map((thread) => thread.agentThreadId));
-    for (const id of listed) listedThreadIds.add(id);
     const selected = selectedThreadId;
-    if (!selected || listed.has(selected) || !listedThreadIds.has(selected)) return;
-    listedThreadIds.delete(selected);
+    if (!selected || !open || !archived) return null;
+    return open.some((thread) => thread.agentThreadId === selected) ||
+      archived.some((thread) => thread.agentThreadId === selected)
+      ? null
+      : selected;
+  });
+  const selectedStatusQ = useQuery(api.chatV2.threadStatus, () =>
+    selectedUnlisted ? { threadId: selectedUnlisted } : "skip"
+  );
+  $effect(() => {
+    const status = selectedStatusQ.data;
+    const selected = selectedUnlisted;
+    // A status still read for the previous selection says nothing.
+    if (!selected || selectedStatusQ.isStale || (status !== "deleting" && status !== "missing")) return;
     untrack(() => leaveConversation(selected));
   });
 

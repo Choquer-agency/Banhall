@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import { cn } from "$lib/utils";
@@ -50,6 +51,24 @@
   const helpfulInactive = $derived(locked || (changeable && value === 1));
   const notHelpfulInactive = $derived(locked || (changeable && value === -1));
   const showReasons = $derived(value === -1 && !!reasons?.length && !!onReason);
+  const recordedText = $derived(changeable ? "Feedback recorded. You can change it." : "Feedback recorded");
+
+  // Round 2 N1: only a vote made in this bar is announced, once it is
+  // recorded. Votes loaded with the page are shown, never read out.
+  let announcement = $state("");
+  let awaitingVote: 1 | -1 | null = null;
+  function vote(next: 1 | -1, handler: (() => void | Promise<void>) | undefined) {
+    awaitingVote = next;
+    void handler?.();
+  }
+  $effect(() => {
+    const current = value;
+    if (awaitingVote === null || current !== awaitingVote) return;
+    awaitingVote = null;
+    // Cleared first, so a changed vote is announced again.
+    announcement = "";
+    void tick().then(() => (announcement = recordedText));
+  });
 
   // The text field holds the writer's words until they send them; a saved
   // reason from the server fills it when it changes.
@@ -77,8 +96,9 @@
 
 <div class={cn("flex flex-col gap-1.5 py-1 text-xs text-ink-muted", className)}>
   <div class="flex items-center gap-1.5">
-    <!-- Review R2 P3-4: the recorded state is announced politely. -->
-    <span class="mr-1" aria-live="polite" aria-atomic="true" data-feedback-status>{value ? (changeable ? "Feedback recorded. You can change it." : "Feedback recorded") : title}</span>
+    <span class="mr-1" data-feedback-status>{value ? recordedText : title}</span>
+    <!-- Review R2 P3-4, round 2 N1: a vote made here is announced politely. -->
+    <span class="sr-only" aria-live="polite" aria-atomic="true" data-feedback-announcement>{announcement}</span>
 
     <Tooltip text="Helpful" side="bottom" delayDuration={300}>
       {#snippet children({ props })}
@@ -89,7 +109,7 @@
           aria-pressed={value === 1}
           aria-disabled={helpfulInactive}
           onclick={() => {
-            if (!helpfulInactive) void onHelpful?.();
+            if (!helpfulInactive) vote(1, onHelpful);
           }}
           class={`flex h-7 w-7 items-center justify-center rounded-md transition-colors aria-disabled:cursor-default pointer-coarse:size-11 ${
             value === 1
@@ -113,7 +133,7 @@
           aria-pressed={value === -1}
           aria-disabled={notHelpfulInactive}
           onclick={() => {
-            if (!notHelpfulInactive) void onNotHelpful?.();
+            if (!notHelpfulInactive) vote(-1, onNotHelpful);
           }}
           class={`flex h-7 w-7 items-center justify-center rounded-md transition-colors aria-disabled:cursor-default pointer-coarse:size-11 ${
             value === -1

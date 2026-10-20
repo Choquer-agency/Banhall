@@ -1860,6 +1860,10 @@ export default defineSchema({
     autoContinueSkipped: v.optional(chatAutoContinueSkipValidator),
     // Stop was pressed just after this turn finished: its chain ends here.
     chainStoppedAt: v.optional(v.number()),
+    // Phase C (W3, round 2 N5), widen only: when the chat action really
+    // reached its end (finishTurn), stopped turns included. A stopped turn's
+    // `endedAt` is the Stop; its action may run on for a while.
+    actionEndedAt: v.optional(v.number()),
     // Chat parity Phase C (W2), widen only: alternatives (convex/lib/chatPath.ts).
     // The turn this one follows. Absent means the turn with the next lower
     // order, or, for an alternative, its group's first turn's parent.

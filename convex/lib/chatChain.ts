@@ -294,6 +294,8 @@ export async function reportChatActivity(
   let mineActive = false;
   let mineLastFinishedAt: number | null = null;
   for (const thread of threads) {
+    // Phase C (W3, round 2 N3): a conversation being deleted is gone.
+    if (isThreadDeleting(thread)) continue;
     const turns = await ctx.db
       .query("chatTurns")
       .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", thread.agentThreadId))

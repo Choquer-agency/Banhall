@@ -18,6 +18,7 @@ import {
   __setMutationResult,
   __setPaginatedRows,
   __setQueryData,
+  __setQueryDataForArgs,
 } from "$lib/test/convex-svelte-stub.svelte";
 import type { TurnWebSearch } from "$lib/chat/webSources";
 import AgentChatPanel from "./AgentChatPanel.svelte";
@@ -123,13 +124,32 @@ describe("conversation menu", () => {
     await render(AgentChatPanel, { reportId, projectId });
     await expect.element(page.getByText("It drifts under load.")).toBeVisible();
     await expect.poll(() => __activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-1" }]);
-    // Another admin deletes it: it leaves both lists.
+    expect(__activeQueryArgs("chatV2:threadStatus")).toEqual([]);
+    // Another admin deletes it: it leaves both lists, and its own status
+    // (read by id only now) says it is being deleted.
+    __setQueryDataForArgs("chatV2:threadStatus", { threadId: "thread-1" }, "deleting");
     __setQueryData("chatV2:listThreads", THREADS.slice(1));
     await expect.poll(() => __activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-2" }]);
     expect(Object.values({ ...sessionStorage }).join(" ")).not.toContain("thread-1");
-    // With nothing left, the panel starts a new conversation.
+    // With nothing left (this one gone outright), the panel starts a new one.
+    __setQueryDataForArgs("chatV2:threadStatus", { threadId: "thread-2" }, "missing");
     __setQueryData("chatV2:listThreads", []);
     await expect.poll(() => __activeQueryArgs("chatV2:listProposals")).toEqual([]);
+  });
+
+  it.each(["open", "archived"] as const)("stays on a conversation that only dropped out of the bounded lists (%s, round 2 N2)", async (status) => {
+    seedConversation();
+    __setQueryDataForArgs("chatV2:threadStatus", { threadId: "thread-1" }, status);
+    await render(AgentChatPanel, { reportId, projectId });
+    await expect.element(page.getByText("It drifts under load.")).toBeVisible();
+    // Fifty newer conversations push it out of the open list.
+    __setQueryData("chatV2:listThreads", Array.from({ length: 50 }, (_, i) => ({
+      _id: `mapping-n${i}`, agentThreadId: `thread-n${i}`, title: `Newer ${i}`, createdAt: 10 + i, startedByCurrentUser: true, webSearch: true,
+    })));
+    await expect.poll(() => __activeQueryArgs("chatV2:threadStatus")).toEqual([{ threadId: "thread-1" }]);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(__activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-1" }]);
+    await expect.element(page.getByText("It drifts under load.")).toBeVisible();
   });
 
   it("keeps a conversation that is not listed yet (its first send)", async () => {
@@ -340,14 +360,15 @@ describe("feedback", () => {
     const unhelpful = page.getByRole("button", { name: "Mark response not helpful", exact: true });
     await unhelpful.click();
     await expect.element(unhelpful).toHaveAttribute("aria-pressed", "true");
-    await expect.element(page.getByText("Feedback recorded. You can change it.")).toBeVisible();
+    await expect.poll(() => document.querySelector("[data-feedback-status]")?.textContent).toBe("Feedback recorded. You can change it.");
     // Review R2 P3-3 and P3-4: the pressed vote keeps focus (aria-disabled,
     // not disabled), and the recorded state is said in a polite live region.
     await expect.element(unhelpful).toHaveFocus();
     await expect.element(unhelpful).toHaveAttribute("aria-disabled", "true");
-    const status = document.querySelector("[data-feedback-status]");
-    expect(status?.getAttribute("aria-live")).toBe("polite");
-    expect(status?.textContent).toBe("Feedback recorded. You can change it.");
+    const live = document.querySelector("[data-feedback-announcement]");
+    expect(live?.getAttribute("aria-live")).toBe("polite");
+    await expect.poll(() => live?.textContent).toBe("Feedback recorded. You can change it.");
+    expect(document.querySelector("[data-feedback-status]")?.getAttribute("aria-live")).toBeNull();
     for (const label of ["Wrong", "Didn't follow my request", "Made something up", "Too long", "Other"]) {
       await expect.element(page.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
@@ -371,6 +392,27 @@ describe("feedback", () => {
     await expect.element(helpful).toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => __mutationCalls("chatFeedback:submitFeedback").at(-1)).toEqual({ turnId: "turn-1", vote: 1 });
     await expect.poll(() => document.querySelector("[data-feedback-reasons]")).toBeNull();
+  });
+
+  it("announces only a vote made here, never the votes loaded with the page (round 2 N1)", async () => {
+    __setQueryData("chatV2:listThreads", THREADS);
+    __setPaginatedRows("chatV2:listMessages", [1, 2, 3].flatMap((i) => [
+      row(`q${i}`, `Question ${i}`, i, "user"), row(`a${i}`, `Answer ${i}.`, i, "assistant"),
+    ]));
+    __setQueryData("chatV2:listTurns", [1, 2, 3].map((i) => ({ _id: `turn-${i}`, promptMessageId: `q${i}`, order: i, status: "completed", startedAt: 1, endedAt: 2, stepCount: 1 })));
+    __setQueryData("chatFeedback:getViewerVotes", undefined);
+    __setMutationResult("chatFeedback:submitFeedback", 1);
+    await render(AgentChatPanel, { reportId, projectId });
+    await expect.element(page.getByText("Answer 3.")).toBeVisible();
+    const live = () => [...document.querySelectorAll("[data-feedback-announcement]")].map((node) => node.textContent);
+    // The saved votes arrive after the page: shown, not announced.
+    __setQueryData("chatFeedback:getViewerVotes", [{ turnId: "turn-1", vote: 1 }, { turnId: "turn-2", vote: -1 }]);
+    await expect.poll(() => [...document.querySelectorAll("[data-feedback-status]")].filter((node) => node.textContent === "Feedback recorded. You can change it.").length).toBe(2);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(live()).toEqual(["", "", ""]);
+    // A vote made here is announced, once, in its own bar.
+    await page.getByRole("button", { name: "Mark response helpful", exact: true }).nth(2).click();
+    await expect.poll(live).toEqual(["", "", "Feedback recorded. You can change it."]);
   });
 
   it("shows a saved reason after reload", async () => {

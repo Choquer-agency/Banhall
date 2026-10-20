@@ -2,13 +2,14 @@
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { makeFunctionReference, type FunctionReference } from "convex/server";
 import { api, components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { reportChatAgent } from "./ai/chatAgentV2";
 import schema from "./schema";
-import { threadTitleFrom } from "./lib/chatThreads";
+import { noteThreadSend, threadTitleFrom } from "./lib/chatThreads";
 import { PURGE_MAX_BYTES_READ, PURGE_PAGE_ROWS, PURGE_STALL_MS } from "./lib/chatThreadPurge";
-import { THREAD_DELETE_SETTLE_MS } from "./chatV2";
+import { THREAD_DELETE_ACTION_CEILING_MS, THREAD_DELETE_SETTLE_MS } from "./chatV2";
 
 /**
  * Report chat parity, Phase C (2026-10-20), W3: conversation management.
@@ -468,17 +469,47 @@ describe("delete permanently", () => {
     for (const [table, rows] of Object.entries(after)) expect(rows, table).toEqual([]);
   });
 
-  test("waits out a reply that just ended, so a stopped turn's late writes land first (review R2 P3-1)", async () => {
+  test("waits for a stopped turn's action to really end, then THREAD_DELETE_SETTLE_MS (round 2 N5)", async () => {
     const s = await setup();
-    const recent = await conversation(s, "Just stopped");
-    await s.t.run(async (ctx) => await ctx.db.patch(recent.turnId, { status: "aborted", endedAt: START - 2000 }));
-    await expect(s.admin.mutation(api.chatV2.deleteThread, { threadId: recent.threadId })).rejects.toMatchObject({
-      data: { code: "CHAT_TURN_ACTIVE", message: "A reply just finished in this conversation. Try again in a few seconds." },
+    const stopped = await conversation(s, "Just stopped");
+    // Stop pressed 30 s ago; the action is still inside a long tool call.
+    await s.t.run(async (ctx) => await ctx.db.patch(stopped.turnId, { status: "aborted", endedAt: START - 30_000 }));
+    const refused = { data: { code: "CHAT_TURN_ACTIVE", message: "A reply just finished in this conversation. Try again in a few seconds." } };
+    await expect(s.admin.mutation(api.chatV2.deleteThread, { threadId: stopped.threadId })).rejects.toMatchObject(refused);
+    // The action reaches finishTurn: its real end is recorded, Stop or not.
+    vi.setSystemTime(START + 5_000);
+    expect(await s.t.mutation(internal.chatV2.finishTurn, {
+      agentThreadId: stopped.threadId, promptMessageId: stopped.promptMessageId,
+      requestedStatus: "failed", endedAt: START + 5_000, stepCount: 2,
+    })).toEqual({ status: "aborted" });
+    expect(await s.t.run((ctx) => ctx.db.get(stopped.turnId))).toMatchObject({ status: "aborted", endedAt: START - 30_000, actionEndedAt: START + 5_000 });
+    vi.setSystemTime(START + 5_000 + THREAD_DELETE_SETTLE_MS - 1);
+    await expect(s.admin.mutation(api.chatV2.deleteThread, { threadId: stopped.threadId })).rejects.toMatchObject(refused);
+    vi.setSystemTime(START + 5_000 + THREAD_DELETE_SETTLE_MS);
+    await s.admin.mutation(api.chatV2.deleteThread, { threadId: stopped.threadId });
+    expect(await threadRow(s, stopped.threadId)).toHaveProperty("deletingAt");
+  });
+
+  test("an action that never reports its end is waited for up to THREAD_DELETE_ACTION_CEILING_MS", async () => {
+    const s = await setup();
+    const died = await conversation(s, "Died mid-call");
+    await s.t.run(async (ctx) => await ctx.db.patch(died.turnId, { status: "aborted", endedAt: START }));
+    vi.setSystemTime(START + THREAD_DELETE_ACTION_CEILING_MS - 1);
+    await expect(s.admin.mutation(api.chatV2.deleteThread, { threadId: died.threadId })).rejects.toMatchObject({ data: { code: "CHAT_TURN_ACTIVE" } });
+    vi.setSystemTime(START + THREAD_DELETE_ACTION_CEILING_MS);
+    await s.admin.mutation(api.chatV2.deleteThread, { threadId: died.threadId });
+    expect(await threadRow(s, died.threadId)).toHaveProperty("deletingAt");
+  });
+
+  test("a completed turn's finishTurn records its real end too", async () => {
+    const s = await setup();
+    const done = await conversation(s, "Done");
+    await s.t.run(async (ctx) => await ctx.db.patch(done.turnId, { status: "running", endedAt: undefined }));
+    await s.t.mutation(internal.chatV2.finishTurn, {
+      agentThreadId: done.threadId, promptMessageId: done.promptMessageId,
+      requestedStatus: "completed", endedAt: START, stepCount: 1,
     });
-    expect(await threadRow(s, recent.threadId)).not.toHaveProperty("deletingAt");
-    vi.setSystemTime(START - 2000 + THREAD_DELETE_SETTLE_MS);
-    await s.admin.mutation(api.chatV2.deleteThread, { threadId: recent.threadId });
-    expect(await threadRow(s, recent.threadId)).toHaveProperty("deletingAt");
+    expect(await s.t.run((ctx) => ctx.db.get(done.turnId))).toMatchObject({ status: "completed", endedAt: START, actionEndedAt: START });
   });
 
   test("refuses while a reply runs, and for a conversation that is gone", async () => {
@@ -492,5 +523,120 @@ describe("delete permanently", () => {
     await expect(s.admin.mutation(api.chatV2.deleteThread, { threadId: "missing" })).rejects.toMatchObject({
       data: { code: "NOT_FOUND" },
     });
+  });
+});
+
+describe("a conversation being deleted (round 2 N2 to N4)", () => {
+  async function markDeleting(s: Setup, threadId: string) {
+    await s.t.run(async (ctx) => {
+      const row = await ctx.db.query("agentChatThreads").withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", threadId)).unique();
+      if (!row) throw new Error("missing thread");
+      await ctx.db.patch(row._id, { deletingAt: START, deletingBy: s.adminId });
+    });
+  }
+
+  test("threadStatus says open, archived, deleting or missing, by id", async () => {
+    const s = await setup();
+    const { threadId } = await conversation(s, "Status");
+    const status = () => s.writer.query(api.chatV2.threadStatus, { threadId });
+    expect(await status()).toBe("open");
+    await s.writer.mutation(api.chatV2.archiveThread, { threadId });
+    expect(await status()).toBe("archived");
+    await markDeleting(s, threadId);
+    expect(await status()).toBe("deleting");
+    expect(await s.writer.query(api.chatV2.threadStatus, { threadId: "nowhere" })).toBe("missing");
+    // Out of the viewer's reach reads as missing, never as its real state.
+    expect(await s.t.query(api.chatV2.threadStatus, { threadId })).toBe("missing");
+  });
+
+  test("a conversation beyond the menu's 50 rows is still open", async () => {
+    const s = await setup();
+    const oldest = await conversation(s, "Oldest", { createdAt: START - 100_000 });
+    for (let i = 0; i < 50; i += 1) await conversation(s, `Newer ${i}`, { createdAt: START - 50_000 + i });
+    const listed = await s.writer.query(api.chatV2.listThreads, { reportId: s.reportId });
+    expect(listed).toHaveLength(50);
+    expect(listed.map((row) => row.agentThreadId)).not.toContain(oldest.threadId);
+    expect(await s.writer.query(api.chatV2.threadStatus, { threadId: oldest.threadId })).toBe("open");
+  });
+
+  test("card actions refuse and the checklist reads empty; research cards are unaffected (N3)", async () => {
+    const s = await setup();
+    const doomed = await conversation(s, "Doomed cards");
+    const ids = await s.t.run(async (ctx) => {
+      const card = (agentThreadId: string, state: "pending" | "applied") => ctx.db.insert("chatProposals", {
+        agentThreadId, projectId: s.projectId, reportId: s.reportId, kind: "edit", state,
+        targetText: "Old wording", newText: "New wording", createdAt: Date.now(),
+        ...(state === "applied" ? { appliedChange: { revisionNumber: 1, appliedAt: Date.now(), appliedBy: s.writerId, hunks: [{ before: "Old wording", after: "New wording" }] } } : {}),
+      });
+      const pending = await card(doomed.threadId, "pending");
+      const applied = await card(doomed.threadId, "applied");
+      const research = await card("research:session-1", "pending");
+      await ctx.db.insert("chatProposalItems", { proposalId: pending, projectId: s.projectId, itemId: "i-1", status: "resolved", reason: "Fictional", createdAt: Date.now() });
+      await ctx.db.insert("chatProposalItems", { proposalId: research, projectId: s.projectId, itemId: "i-2", status: "resolved", reason: "Fictional", createdAt: Date.now() });
+      return { pending, applied, research };
+    });
+    expect(await s.writer.query(api.chatV2.listProposalItems, { proposalId: ids.pending })).toHaveLength(1);
+    await markDeleting(s, doomed.threadId);
+    const gone = { data: { code: "NOT_FOUND", message: "This conversation no longer exists" } };
+    await expect(s.admin.mutation(api.chatV2.applyProposal, { proposalId: ids.pending })).rejects.toMatchObject(gone);
+    await expect(s.admin.mutation(api.chatV2.markProposalApplied, { proposalId: ids.pending, content: "{}", expectedRevisionNumber: 0 })).rejects.toMatchObject(gone);
+    await expect(s.admin.mutation(api.chatV2.updateProposalWording, { proposalId: ids.pending, newText: "Other wording" })).rejects.toMatchObject(gone);
+    await expect(s.admin.mutation(api.chatV2.rejectProposal, { proposalId: ids.pending })).rejects.toMatchObject(gone);
+    await expect(s.admin.mutation(api.chatV2.undoProposal, { proposalId: ids.applied })).rejects.toMatchObject(gone);
+    expect(await s.writer.query(api.chatV2.listProposalItems, { proposalId: ids.pending })).toEqual([]);
+    expect(await s.t.run((ctx) => ctx.db.get(ids.pending))).toMatchObject({ state: "pending", newText: "New wording" });
+    // A research card is no chat conversation's: it still acts.
+    expect(await s.writer.query(api.chatV2.listProposalItems, { proposalId: ids.research })).toHaveLength(1);
+    await s.admin.mutation(api.chatV2.rejectProposal, { proposalId: ids.research });
+    expect(await s.t.run((ctx) => ctx.db.get(ids.research))).toMatchObject({ state: "rejected" });
+  });
+
+  test("report chat activity skips a conversation being deleted (N3)", async () => {
+    const s = await setup();
+    const busy = await conversation(s, "Busy");
+    await s.t.run(async (ctx) => await ctx.db.patch(busy.turnId, { status: "running" }));
+    expect(await s.writer.query(api.chatV2.reportChatActivity, { reportId: s.reportId })).toMatchObject({ active: true, mineActive: true });
+    await markDeleting(s, busy.threadId);
+    expect(await s.writer.query(api.chatV2.reportChatActivity, { reportId: s.reportId })).toMatchObject({ active: false, mineActive: false });
+  });
+
+  test("the chat's file tools treat it as gone (chatDocuments guard, N4)", async () => {
+    const s = await setup();
+    const { threadId } = await conversation(s, "Files");
+    const documentId = await s.t.run((ctx) => ctx.db.insert("projectDocuments", {
+      projectId: s.projectId, fileName: "kiln-log.txt", fileType: "txt", content: "Kiln held 78 C for six hours.",
+      source: "upload", uploadedBy: "conv-writer", createdAt: START,
+    }));
+    // Typed by hand, as in chatDocuments.test.ts: api.d.ts lists the module after codegen.
+    const readDocument = makeFunctionReference("chatDocuments:readDocumentForChat") as unknown as FunctionReference<
+      "query", "internal", { agentThreadId: string; documentId: Id<"projectDocuments">; start: number; maxChars: number }, { status: string }
+    >;
+    const read = () => s.t.query(readDocument, { agentThreadId: threadId, documentId, start: 0, maxChars: 100 });
+    expect(await read()).toMatchObject({ status: "ok" });
+    await markDeleting(s, threadId);
+    expect(await read()).toEqual({ status: "unavailable" });
+  });
+
+  test("getViewerVotes reads nothing (chatFeedback guard, N4)", async () => {
+    const s = await setup();
+    const { threadId, turnId, promptMessageId } = await conversation(s, "Votes");
+    await s.t.run((ctx) => ctx.db.insert("chatAnswerFeedback", {
+      turnId, userId: s.writerId, projectId: s.projectId, reportId: s.reportId, agentThreadId: threadId,
+      promptMessageId, answerMessageId: "answer", promptText: "p", answerText: "a", vote: 1, createdAt: START,
+    }));
+    const votes = () => s.writer.query(api.chatFeedback.getViewerVotes, { reportId: s.reportId, threadId, turnIds: [turnId] });
+    expect(await votes()).toEqual([{ turnId, vote: 1 }]);
+    await markDeleting(s, threadId);
+    expect(await votes()).toEqual([]);
+  });
+
+  test("noteThreadSend neither restores nor touches it (chatThreads guard, N4)", async () => {
+    const s = await setup();
+    const { threadId } = await conversation(s, "Archived then deleting", { lastActivityAt: START - 1 });
+    await s.writer.mutation(api.chatV2.archiveThread, { threadId });
+    await markDeleting(s, threadId);
+    vi.setSystemTime(START + 60_000);
+    await s.t.run(async (ctx) => await noteThreadSend(ctx, threadId));
+    expect(await threadRow(s, threadId)).toMatchObject({ archivedAt: START, lastActivityAt: START - 1, deletingAt: START });
   });
 });
