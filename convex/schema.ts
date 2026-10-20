@@ -2020,6 +2020,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_agentThreadId_and_promptMessageId", ["agentThreadId", "promptMessageId"])
+    // Review R2 P3-3: a conversation's newest searches first (creation time).
+    .index("by_agentThreadId", ["agentThreadId"])
     .index("by_projectId", ["projectId"]),
 
   chatMessages: defineTable({

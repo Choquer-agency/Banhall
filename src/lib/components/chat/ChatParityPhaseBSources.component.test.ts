@@ -21,6 +21,7 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import type { TurnWebSearch } from "$lib/chat/webSources";
+import { Streamdown } from "svelte-streamdown";
 import ErrorMonitor from "$lib/components/errors/ErrorMonitor.svelte";
 import AgentChatPanel from "./AgentChatPanel.svelte";
 import AssistantTurn from "./AssistantTurn.svelte";
@@ -122,19 +123,25 @@ describe("citations and sources", () => {
     expect(answer.textContent!.replace(/\s+/g, "")).toBe(TEXT.replace(/\s+/g, ""));
     expect(document.querySelector("[data-web-sources]")).toBeNull();
     plain.unmount();
-    // A gap that holds one of the turn's numbers renders the same markup
-    // whether or not the turn has sources.
-    const GAPS = "Add [GAP: need 2 load results] and [GAP: 1 more test] to item [r-242-3] here.";
-    // Streamdown's per-instance block ids aside.
-    const markup = (element: Element) => element.innerHTML.replace(/ data-streamdown-[a-z-]+="[^"]*"/g, "");
-    const without = await render(AssistantTurn, { message: reply(GAPS), onRefine: vi.fn() });
-    const before = markup(without.container.querySelector(".chat-markdown")!);
-    without.unmount();
-    const cited = await render(AssistantTurn, { message: reply(GAPS), webSearches: SEARCHES, onRefine: vi.fn() });
-    const markdown = cited.container.querySelector(".chat-markdown")!;
-    expect(markup(markdown)).toBe(before);
+    // Review R2 P3-2: compared with Streamdown as the reply was rendered
+    // before Phase B (no sources, no snippets, no theme). A gap that holds
+    // one of the turn's numbers, and words an object inherits, stay text.
+    const GAPS = "Add [GAP: need 2 load results] and [GAP: 1 more test] to item [r-242-3]. Then [call toString first] and [constructor] [__proto__] here.";
+    // Svelte's anchors and Streamdown's per-instance block ids aside.
+    const markup = (element: Element) =>
+      element.innerHTML.replace(/<!--[\s\S]*?-->/g, "").replace(/ data-streamdown-[a-z-]+="[^"]*"/g, "").trim();
+    const baseline = await render(Streamdown, { content: GAPS, allowedImagePrefixes: [] });
+    const before = markup(baseline.container);
+    baseline.unmount();
     expect(before).toContain("[GAP: 1 more test]");
-    expect(markdown.querySelectorAll("[data-streamdown-citation-preview]")).toHaveLength(0);
+    expect(before).toContain("[call toString first]");
+    for (const webSearches of [undefined, SEARCHES]) {
+      const turn = await render(AssistantTurn, { message: reply(GAPS), ...(webSearches ? { webSearches } : {}), onRefine: vi.fn() });
+      const markdown = turn.container.querySelector(".chat-markdown")!;
+      expect(markup(markdown)).toBe(before);
+      expect(markdown.querySelectorAll("[data-streamdown-citation-preview]")).toHaveLength(0);
+      turn.unmount();
+    }
   });
 
   it("lists the sources under the reply with safe links and hostname-only favicons", async () => {
@@ -259,6 +266,25 @@ describe("the web search switch", () => {
     await page.getByRole("button", { name: "Turn off web search in this conversation", exact: true }).click();
     expect(__mutationCalls("chatV2:setThreadWebSearch").at(-1)).toEqual({ threadId: "thread-1", enabled: false });
     expect(chip().elements()).toHaveLength(0);
+  });
+
+  // Review R2 P3-6: an unknown setting is never shown as on.
+  it("shows no chip and waits while the conversation's setting is unknown", async () => {
+    __setQueryData("chatV2:listThreads", [{ _id: "mapping-1", agentThreadId: "thread-1", title: "Off conversation", webSearch: false, createdAt: 1 }]);
+    await render(AgentChatPanel, { reportId, projectId });
+    await expect.element(composer()).toBeVisible();
+    await options().click();
+    await expect.element(web()).toHaveAttribute("aria-checked", "false");
+    await expect.element(web()).not.toHaveAttribute("data-disabled");
+    await userEvent.keyboard("{Escape}");
+    // The list no longer holds the open conversation (51 newer ones, say).
+    __setQueryData("chatV2:listThreads", [{ _id: "mapping-2", agentThreadId: "thread-2", title: "Newer", webSearch: true, createdAt: 2 }]);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(chip().elements()).toHaveLength(0);
+    await options().click();
+    await expect.element(web()).toHaveAttribute("aria-checked", "false");
+    await expect.element(web()).toHaveAttribute("data-disabled");
+    expect(__mutationCalls("chatV2:setThreadWebSearch")).toEqual([]);
   });
 
   it("says when the switch could not be saved, and shows the stored setting again", async () => {

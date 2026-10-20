@@ -779,16 +779,17 @@ export async function runSearchWeb(
       return chatWebSearchRateLimitedText(wait);
     }
     const query = prepared.query;
-    let result: { answer: string; sources: CleanWebSource[] };
-    try {
-      result = await ctx.runAction(searchWebForChatRef, {
-        query,
-        projectId: prepared.projectId,
-        userId: turn.userId,
-        timeoutMs,
-      });
-    } catch (error) {
-      console.error("searchWeb tool failed", safeErrorDetails(error));
+    // A throw here means nothing was sent (the outer catch, no record).
+    // Review R2 P3-4: only a request the provider was sent records a failure.
+    const result:
+      | { status: "ok"; answer: string; sources: CleanWebSource[] }
+      | { status: "failed" } = await ctx.runAction(searchWebForChatRef, {
+      query,
+      projectId: prepared.projectId,
+      userId: turn.userId,
+      timeoutMs,
+    });
+    if (result.status === "failed") {
       await recordWebSearch(ctx, { ...call, query, status: "failed", sources: [] });
       return CHAT_WEB_SEARCH_FAILED;
     }

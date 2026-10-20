@@ -1168,6 +1168,8 @@ export const markProposalApplied = mutation({
           revisionNumber: revisionNumber + 1,
           appliedAt: now,
           appliedBy: user._id,
+          // Review R2 P3-1: only the runs this card's pairs touched.
+          touchedBy: proposalPairs(proposal),
         });
     await ctx.db.patch(args.proposalId, { state: "applied", ...(appliedChange ? { appliedChange } : {}) });
     await pruneSnapshots(ctx, report._id);
@@ -1283,6 +1285,11 @@ export const rejectProposal = mutation({
 /** Phase B (W3): the Undo refusal when the applied passage changed since. */
 export const PROPOSAL_UNDO_CONFLICT_MESSAGE =
   "This passage changed after it was applied, so it can't be undone here. Use Version history to go back.";
+/** The longest report body, the limit `assertEditorDocument` and the editor use. */
+const REPORT_CONTENT_MAX_CHARS = 1_000_000;
+/** Review R2 P3-5: Undo would make the report longer than it may be. */
+export const PROPOSAL_UNDO_TOO_LONG_MESSAGE =
+  "Undoing this would make the report longer than 1,000,000 characters, so it can't be undone here. Use Version history to go back.";
 
 /**
  * Chat parity Phase B (W3): Undo an applied chat card. The only new card
@@ -1314,6 +1321,11 @@ export const undoProposal = mutation({
     if (!undone.ok) domainError("PROPOSAL_UNDO_CONFLICT", PROPOSAL_UNDO_CONFLICT_MESSAGE);
 
     const content = JSON.stringify(undone.doc);
+    // Review R2 P3-5: the editor's size limit, and the document limit, which
+    // counts bytes: refused here rather than failing the write.
+    if (content.length > REPORT_CONTENT_MAX_CHARS || new TextEncoder().encode(content).length > REPORT_CONTENT_MAX_CHARS) {
+      domainError("INVALID_INPUT", PROPOSAL_UNDO_TOO_LONG_MESSAGE);
+    }
     const revisionNumber = report.revisionNumber ?? 0;
     const now = Date.now();
     await writePreEditSnapshot(ctx, report, "pre_chat_undo", { createdAt: now });

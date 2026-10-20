@@ -109,12 +109,12 @@
 <div class={cn(roleClass, className)}>
   {#if markdown}
     <!-- One instance whether or not sources have arrived, so a reply that
-         gains its sources mid-stream is not rebuilt. With no sources no key
-         matches, and every bracket renders as written. -->
+         gains its sources mid-stream is not rebuilt. With no sources none are
+         passed, and every bracket renders as written. -->
     <Streamdown
       content={shown}
       allowedImagePrefixes={NO_IMAGES}
-      sources={sourceMap}
+      sources={citations.length ? sourceMap : undefined}
       inlineCitationsMode="list"
       theme={CITATION_THEME}
       inlineCitationPreview={citationPreview}

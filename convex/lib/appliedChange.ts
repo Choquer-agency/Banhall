@@ -19,6 +19,7 @@
  */
 
 import type { Id } from "../_generated/dataModel";
+import { nodeText, normalizeForMatch } from "./reportEdits";
 
 export type AppliedHunk = { before: string; after: string };
 
@@ -186,12 +187,19 @@ function occurrences(keys: string[], run: string[]): number[] {
   return found;
 }
 
-/** Merge runs that overlap or that a context step made touch. */
+/**
+ * Merge runs that overlap or touch on either side. Review R2 P2-1: merging
+ * only on new-side overlap left runs that touched, whose `before` and `after`
+ * then covered different spans, and Undo duplicated a paragraph.
+ */
 function mergeRanges(ranges: Range[]): Range[] {
   const out: Range[] = [];
-  for (const range of [...ranges].sort((a, b) => a.newStart - b.newStart)) {
+  const sorted = [...ranges].sort((a, b) => a.newStart - b.newStart || a.oldStart - b.oldStart);
+  for (const range of sorted) {
     const last = out.at(-1);
-    if (last && range.newStart < last.newEnd) {
+    if (last && (range.newStart <= last.newEnd || range.oldStart <= last.oldEnd)) {
+      last.oldStart = Math.min(last.oldStart, range.oldStart);
+      last.newStart = Math.min(last.newStart, range.newStart);
       last.oldEnd = Math.max(last.oldEnd, range.oldEnd);
       last.newEnd = Math.max(last.newEnd, range.newEnd);
       continue;
@@ -273,6 +281,11 @@ export function computeAppliedHunks(before: unknown, after: unknown): AppliedHun
     if (!grew) break;
   }
   ranges = mergeRanges(ranges);
+  // A run still not unique could not be found by Undo: offer none.
+  for (const range of ranges) {
+    const run = newKeys.slice(range.newStart, range.newEnd);
+    if (run.length === 0 || occurrences(newKeys, run).length !== 1) return null;
+  }
 
   const hunks = ranges.map((range) => ({
     before: JSON.stringify(oldBlocks.slice(range.oldStart, range.oldEnd)),
@@ -286,7 +299,37 @@ export function computeAppliedHunks(before: unknown, after: unknown): AppliedHun
     bytes += utf8Bytes(hunk.before) + utf8Bytes(hunk.after);
     if (bytes > APPLIED_CHANGE_MAX_BYTES) return null;
   }
+  // Self-check: undoing the record on the applied document must give back
+  // the stored document block for block. Otherwise no Undo is offered.
+  const undone = undoAppliedHunks(after, hunks);
+  if (!undone.ok) return null;
+  const restored = topBlocks(undone.doc) ?? [];
+  if (restored.length !== oldKeys.length || restored.some((block, index) => canonicalBlockKey(block) !== oldKeys[index])) {
+    return null;
+  }
   return hunks;
+}
+
+/**
+ * Review R2 P3-1: keep only the runs a card's own pairs touched, so Undo of a
+ * stepped apply leaves the writer's other edits from that session alone. A
+ * run counts when its old text holds a pair's target or its new text holds a
+ * pair's wording, matched the way apply matches (normalized, any case).
+ */
+export function hunksTouchedBy(
+  hunks: readonly AppliedHunk[],
+  pairs: ReadonlyArray<{ find: string; replaceWith: string }>
+): AppliedHunk[] {
+  // Spacing is ignored: a hard break inside a block reads as no space here.
+  const norm = (text: string) => normalizeForMatch(text).toLowerCase().replace(/ /g, "");
+  const finds = pairs.map((pair) => norm(pair.find)).filter(Boolean);
+  const wordings = pairs.map((pair) => norm(pair.replaceWith)).filter(Boolean);
+  const runText = (run: string) => norm((parseRun(run) ?? []).map((block) => nodeText(block)).join("\n"));
+  return hunks.filter((hunk) => {
+    const before = runText(hunk.before);
+    const after = runText(hunk.after);
+    return finds.some((find) => before.includes(find)) || wordings.some((wording) => after.includes(wording));
+  });
 }
 
 function parseRun(text: string): Block[] | null {
@@ -341,8 +384,14 @@ export function appliedChangeFor(input: {
   revisionNumber: number;
   appliedAt: number;
   appliedBy: Id<"users">;
+  /**
+   * A stepped apply (`markProposalApplied`): keep only the runs the card's
+   * pairs touched, so Undo does not revert the writer's other edits.
+   */
+  touchedBy?: ReadonlyArray<{ find: string; replaceWith: string }>;
 }): AppliedChange | undefined {
-  const hunks = computeAppliedHunks(input.before, input.after);
+  const all = computeAppliedHunks(input.before, input.after);
+  const hunks = all && input.touchedBy ? hunksTouchedBy(all, input.touchedBy) : all;
   if (!hunks || hunks.length === 0) return undefined;
   return {
     revisionNumber: input.revisionNumber,

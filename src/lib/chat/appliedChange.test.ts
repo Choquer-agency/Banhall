@@ -4,6 +4,7 @@ import { getEditorExtensions } from "$lib/tiptapConfig";
 import {
   canonicalBlockKey,
   computeAppliedHunks,
+  hunksTouchedBy,
   undoAppliedHunks,
 } from "../../../convex/lib/appliedChange";
 import { applyReplacements, type PMNode } from "../../../convex/lib/reportEdits";
@@ -101,6 +102,103 @@ describe("computeAppliedHunks", () => {
   it("returns null for something that is not a document", () => {
     expect(computeAppliedHunks(null, ORIGINAL)).toBeNull();
     expect(computeAppliedHunks(ORIGINAL, { type: "doc" })).toBeNull();
+  });
+});
+
+// Review R2 P2-1: runs that touched on one side only were left unmerged, and
+// Undo could report success while duplicating a paragraph.
+describe("repeated blocks with an inserted or deleted block", () => {
+  const p = (value: string) => (value === "_" ? { type: "paragraph" } : paragraph(text(value)));
+  const doc = (spec: string) => ({ type: "doc", content: spec.split(" ").map(p) });
+  const keys = (value: unknown) =>
+    ((value as { content: unknown[] }).content).map((block) => canonicalBlockKey(block));
+
+  /** Either no Undo is offered, or Undo gives back exactly the stored document. */
+  function expectExactOrNone(before: unknown, after: unknown) {
+    const hunks = computeAppliedHunks(before, after);
+    if (hunks === null) return "none";
+    if (hunks.length === 0) {
+      expect(keys(after)).toEqual(keys(before));
+      return "unchanged";
+    }
+    const undone = undoAppliedHunks(after, hunks);
+    expect(undone.ok).toBe(true);
+    if (undone.ok) expect(keys(undone.doc)).toEqual(keys(before));
+    return "exact";
+  }
+
+  it("reproduces the reviewer's case exactly: a stepper card changes A and C, Enter above A", () => {
+    const before = doc("A _ B _ _ C _ D");
+    const after = doc("_ A2 _ B _ _ C2 _ D");
+    expect(expectExactOrNone(before, after)).toBe("exact");
+  });
+
+  it.each([
+    ["an empty paragraph inserted between two changes", "A _ B _ C", "A2 _ B _ _ C2"],
+    ["an empty paragraph deleted between two changes", "A _ _ B _ C", "A2 _ B _ C2"],
+    ["a repeated block deleted next to a change", "A B B C", "A2 B C"],
+    ["a repeated block inserted next to a change", "A B C B", "A B B C2 B"],
+    ["every block repeated", "_ _ _ A _ _ _", "_ _ A2 _ _ _ _"],
+  ])("handles %s", (_name, stored, applied) => {
+    expect(expectExactOrNone(doc(stored), doc(applied))).not.toBe("unchanged");
+  });
+
+  it("offers no Undo when a changed run cannot be told apart from its copies", () => {
+    // The new text exists twice and every neighbour repeats too.
+    const before = doc("_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ A _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _");
+    const after = doc("_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _");
+    expect(computeAppliedHunks(before, after)).toBeNull();
+  });
+
+  it("never reports success with a wrong document (seeded randomized property)", () => {
+    // mulberry32: deterministic, so a failure reproduces from the seed.
+    let seed = 0x5eed_2026;
+    const random = () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const pick = <T,>(items: readonly T[]) => items[Math.floor(random() * items.length)]!;
+    const ALPHABET = ["_", "_", "_", "A", "B", "C", "D"];
+    const outcomes = { none: 0, exact: 0, unchanged: 0 };
+    for (let run = 0; run < 3000; run += 1) {
+      const stored = Array.from({ length: 3 + Math.floor(random() * 10) }, () => pick(ALPHABET));
+      const applied = [...stored];
+      const edits = 1 + Math.floor(random() * 3);
+      for (let edit = 0; edit < edits; edit += 1) {
+        const kind = random();
+        const at = Math.floor(random() * (applied.length + 1));
+        if (kind < 0.5 && applied.length) applied[Math.min(at, applied.length - 1)] = `X${run}x${edit}`;
+        else if (kind < 0.8) applied.splice(at, 0, pick(ALPHABET));
+        else if (applied.length > 1) applied.splice(Math.min(at, applied.length - 1), 1);
+      }
+      const before = doc(stored.join(" "));
+      const after = doc(applied.join(" "));
+      outcomes[expectExactOrNone(before, after) as keyof typeof outcomes] += 1;
+    }
+    // Most changes keep an Undo; the rest offer none rather than a wrong one.
+    expect(outcomes.exact).toBeGreaterThan(2000);
+  });
+});
+
+describe("hunksTouchedBy (a stepped apply)", () => {
+  it("keeps the runs the card's pairs touched and drops the writer's other edits", () => {
+    const middle = paragraph(text("Middle."));
+    const before = { type: "doc", content: [paragraph(text("The team tested the alloy.")), middle, paragraph(text("Other.")), paragraph(text("End."))] };
+    const after = { type: "doc", content: [paragraph(text("The team measured the alloy.")), middle, paragraph(text("Other, edited by hand.")), paragraph(text("End."))] };
+    const hunks = computeAppliedHunks(before, after)!;
+    expect(hunks).toHaveLength(2);
+    const touched = hunksTouchedBy(hunks, [{ find: "tested", replaceWith: "measured" }]);
+    expect(touched).toHaveLength(1);
+    const undone = undoAppliedHunks(after, touched);
+    expect(undone.ok && (undone.doc.content as unknown[])).toEqual([
+      paragraph(text("The team tested the alloy.")),
+      middle,
+      paragraph(text("Other, edited by hand.")),
+      paragraph(text("End.")),
+    ]);
+    expect(hunksTouchedBy(hunks, [{ find: "not in the report", replaceWith: "nor this" }])).toEqual([]);
   });
 });
 

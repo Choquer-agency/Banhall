@@ -26,6 +26,7 @@ import {
   type WebSearchTurn,
 } from "./ai/chatWebSearch";
 import { AI_RATE_LIMITS } from "./lib/aiRateLimits";
+import { MAX_THREAD_WEB_SEARCH_ROWS } from "./lib/chatWebSearches";
 import { remaining, spendAll } from "./aiRateLimits.fixture";
 import { buildChatSystemPromptV2 } from "./ai/prompts";
 import { findDashConnectors } from "../shared/humanProse";
@@ -395,6 +396,48 @@ describe("search records (chatWebSearches)", () => {
     const rows = await f.records();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ status: "failed", sources: [], query: "Coriolis meter drift", promptMessageId: messageId });
+  });
+
+  // Review R2 P3-4: a search that never reached the provider is not a search.
+  test("records nothing when the search fails before its request is sent", async () => {
+    const f = await setup();
+    const { threadId, messageId } = await f.send(true);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const sent = stubOpenRouter();
+    const result = await f.t.action((ctx) =>
+      runSearchWeb(
+        {
+          ...ctx, threadId, promptMessageId: messageId,
+          runAction: (() => Promise.reject(new Error("Node action unavailable"))) as typeof ctx.runAction,
+        },
+        { query: "Coriolis meter drift" },
+        newWebSearchTurn({ allowed: true, userId: f.userId })
+      )
+    );
+    expect(result).toBe(CHAT_WEB_SEARCH_FAILED);
+    expect(sent).toEqual([]);
+    expect(await f.records()).toEqual([]);
+  });
+
+  // Review R2 P3-3: past the read bound, the oldest searches drop, never the newest.
+  test("lists a long conversation's newest searches, oldest first", async () => {
+    const f = await setup();
+    const { threadId } = await f.send(true);
+    const total = MAX_THREAD_WEB_SEARCH_ROWS + 5;
+    await f.t.run(async (ctx) => {
+      for (let i = 0; i < total; i += 1) {
+        // The newest prompt ids sort last, so a read by prompt id drops them.
+        await ctx.db.insert("chatWebSearches", {
+          projectId: f.projectId, reportId: f.reportId, agentThreadId: threadId,
+          promptMessageId: `p${String(i).padStart(4, "0")}`, query: `query ${i}`, status: "ok",
+          sources: [], createdAt: i,
+        });
+      }
+    });
+    const listed = await f.actor.query(api.chatV2.listTurnWebSources, { threadId });
+    expect(listed).toHaveLength(MAX_THREAD_WEB_SEARCH_ROWS);
+    expect(listed[0]!.query).toBe("query 5");
+    expect(listed.at(-1)!.query).toBe(`query ${total - 1}`);
   });
 
   test("deleting the project erases its search records", async () => {

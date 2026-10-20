@@ -6,7 +6,7 @@ import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { APPLIED_CHANGE_MAX_CHARS } from "./lib/appliedChange";
-import { PROPOSAL_UNDO_CONFLICT_MESSAGE } from "./chatV2";
+import { PROPOSAL_UNDO_CONFLICT_MESSAGE, PROPOSAL_UNDO_TOO_LONG_MESSAGE } from "./chatV2";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -250,6 +250,52 @@ describe("undoProposal", () => {
     expect((await f.listed(id)).undoable).toBe(true);
     await f.owner.mutation(api.chatV2.undoProposal, { proposalId: id });
     expect((await f.report()).content).toBe(f.content);
+  });
+
+  it("leaves the writer's other edits from a stepped session in place", async () => {
+    const f = await setup();
+    const id = await f.propose("replacements", [{ find: "sprayed", replaceWith: "brushed" }]);
+    const stepped = structuredClone(ORIGINAL);
+    stepped.content[2] = paragraph(text("The coating was brushed twice."));
+    // Typed by the writer during the session, away from the card's passage.
+    stepped.content[4] = paragraph(text("The rig ran overnight and again at noon."));
+    await f.owner.mutation(api.chatV2.markProposalApplied, {
+      proposalId: id, content: JSON.stringify(stepped), expectedRevisionNumber: 0,
+    });
+    expect((await f.proposal(id)).appliedChange!.hunks).toHaveLength(1);
+    await f.owner.mutation(api.chatV2.undoProposal, { proposalId: id });
+    const restored = JSON.parse((await f.report()).content);
+    expect(restored.content[2]).toEqual(ORIGINAL.content[2]);
+    expect(restored.content[4]).toEqual(paragraph(text("The rig ran overnight and again at noon.")));
+  });
+
+  it("refuses an Undo that would make the report too long, and changes nothing", async () => {
+    const f = await setup();
+    const id = await f.propose("edit", [{ find: TARGET, replaceWith: REWRITE }]);
+    await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id });
+    // The applied passage stays; the old text it puts back is large, and the
+    // writer has since filled the report close to the limit.
+    await f.t.run(async (ctx) => {
+      const card = (await ctx.db.get(id))!;
+      const hunk = card.appliedChange!.hunks[0]!;
+      const big = JSON.stringify([paragraph(text("x".repeat(300_000)))]);
+      await ctx.db.patch(id, { appliedChange: { ...card.appliedChange!, hunks: [{ before: big, after: hunk.after }] } });
+      const report = (await ctx.db.get(f.reportId))!;
+      const doc = JSON.parse(report.content);
+      doc.content.push(paragraph(text("y".repeat(800_000))));
+      await ctx.db.patch(f.reportId, { content: JSON.stringify(doc) });
+    });
+    const stored = await f.report();
+    let message = "";
+    try {
+      await f.owner.mutation(api.chatV2.undoProposal, { proposalId: id });
+    } catch (error) {
+      message = String((error as { data?: { message?: unknown } }).data?.message);
+    }
+    expect(message).toBe(PROPOSAL_UNDO_TOO_LONG_MESSAGE);
+    expect(await errorCode(() => f.owner.mutation(api.chatV2.undoProposal, { proposalId: id }))).toBe("INVALID_INPUT");
+    expect(await f.report()).toEqual(stored);
+    expect((await f.proposal(id)).state).toBe("applied");
   });
 
   it("lets an undone card be applied again, and undone again", async () => {

@@ -71,6 +71,10 @@ describe("citation keys and sources", () => {
     const sources = citationSources([source(1), source(2)]);
     expect(Object.keys(sources)).toEqual([K(1), K(2)]);
     expect(sources["1"]).toBeUndefined();
+    // No prototype: a bracketed word never finds an inherited member.
+    for (const word of ["toString", "constructor", "__proto__", "hasOwnProperty"]) {
+      expect(sources[word], word).toBeUndefined();
+    }
   });
 });
 

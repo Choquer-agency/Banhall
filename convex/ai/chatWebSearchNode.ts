@@ -11,6 +11,7 @@ import { internalAction } from "../_generated/server";
 import { v } from "convex/values";
 import { openRouterChatCompletion } from "./openrouter";
 import { parseOpenRouterResearchResponse } from "./research/core";
+import { safeErrorDetails } from "../lib/safeErrorDetails";
 import {
   CHAT_WEB_SEARCH_CALL_SITE,
   CHAT_WEB_SEARCH_MAX_QUERY_CHARS,
@@ -30,36 +31,49 @@ export const searchWebForChat = internalAction({
     userId: v.id("users"),
     timeoutMs: v.number(),
   },
-  returns: v.object({
-    answer: v.string(),
-    // Phase B: only http and https links, credentials removed, a plain
-    // title and the link's host (`cleanWebSource`).
-    sources: v.array(v.object({ url: v.string(), title: v.string(), domain: v.string() })),
-  }),
+  // Review R2 P3-4: "failed" means the provider request was made and did not
+  // give a usable answer. A throw means nothing was sent, so the tool records
+  // no search.
+  returns: v.union(
+    v.object({
+      status: v.literal("ok"),
+      answer: v.string(),
+      // Phase B: only http and https links, credentials removed, a plain
+      // title and the link's host (`cleanWebSource`).
+      sources: v.array(v.object({ url: v.string(), title: v.string(), domain: v.string() })),
+    }),
+    v.object({ status: v.literal("failed") })
+  ),
   handler: async (ctx, args) => {
     const query = args.query.trim();
     if (!query || query.length > CHAT_WEB_SEARCH_MAX_QUERY_CHARS) {
       throw new Error("Web search query is empty or too long");
     }
-    const body = await openRouterChatCompletion(ctx, {
-      body: buildChatWebSearchRequest(query, new Date().toISOString().slice(0, 10)),
-      model: CHAT_WEB_SEARCH_MODEL,
-      callSite: CHAT_WEB_SEARCH_CALL_SITE,
-      projectId: args.projectId,
-      userId: args.userId,
-      headers: { "X-Title": "Banhall Chat Web Search" },
-      timeoutMs: Math.min(
-        CHAT_WEB_SEARCH_TIMEOUT_MS,
-        Math.max(CHAT_WEB_SEARCH_MIN_TIMEOUT_MS, args.timeoutMs)
-      ),
-      maxRetries: 0,
-    });
-    const parsed = parseOpenRouterResearchResponse(body);
-    return {
-      answer: parsed.text,
-      sources: parsed.citations
-        .flatMap((citation) => cleanWebSource({ url: citation.url, title: citation.title }) ?? [])
-        .slice(0, MAX_WEB_SEARCH_SOURCES),
-    };
+    try {
+      const body = await openRouterChatCompletion(ctx, {
+        body: buildChatWebSearchRequest(query, new Date().toISOString().slice(0, 10)),
+        model: CHAT_WEB_SEARCH_MODEL,
+        callSite: CHAT_WEB_SEARCH_CALL_SITE,
+        projectId: args.projectId,
+        userId: args.userId,
+        headers: { "X-Title": "Banhall Chat Web Search" },
+        timeoutMs: Math.min(
+          CHAT_WEB_SEARCH_TIMEOUT_MS,
+          Math.max(CHAT_WEB_SEARCH_MIN_TIMEOUT_MS, args.timeoutMs)
+        ),
+        maxRetries: 0,
+      });
+      const parsed = parseOpenRouterResearchResponse(body);
+      return {
+        status: "ok" as const,
+        answer: parsed.text,
+        sources: parsed.citations
+          .flatMap((citation) => cleanWebSource({ url: citation.url, title: citation.title }) ?? [])
+          .slice(0, MAX_WEB_SEARCH_SOURCES),
+      };
+    } catch (error) {
+      console.error("chat web search request failed", safeErrorDetails(error));
+      return { status: "failed" as const };
+    }
   },
 });

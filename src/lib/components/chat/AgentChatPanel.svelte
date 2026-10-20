@@ -329,11 +329,14 @@
   const selectedThreadWebSearch = $derived(
     threadsQ.data?.find((thread) => thread.agentThreadId === selectedThreadId)?.webSearch
   );
-  const webSearchOn = $derived(
+  // Review R2 P3-6: null while a saved conversation's setting is unknown (the
+  // list is loading, or no longer holds it): no chip, and the switch waits.
+  const webSearchSetting = $derived<boolean | null>(
     selectedThreadId
-      ? (webSearchPending.get(selectedThreadId) ?? selectedThreadWebSearch ?? true)
+      ? (webSearchPending.get(selectedThreadId) ?? selectedThreadWebSearch ?? null)
       : draftWebSearch
   );
+  const webSearchOn = $derived(webSearchSetting === true);
   $effect(() => {
     for (const thread of threadsQ.data ?? []) {
       if (untrack(() => webSearchPending.get(thread.agentThreadId)) === thread.webSearch) {
@@ -943,8 +946,9 @@
       } : candidate);
       // Phase B: a new conversation keeps the web setting it was sent with
       // until the conversation list carries it.
-      if (request.intent.kind === "composer" && request.args.allowWeb !== undefined && request.args.threadId === undefined) {
-        webSearchPending.set(res.threadId, request.args.allowWeb);
+      // (Sent without a setting, it started with the default: on.)
+      if (request.intent.kind === "composer" && request.args.threadId === undefined) {
+        webSearchPending.set(res.threadId, request.args.allowWeb ?? true);
       }
       if (isOriginVisible && request.intent.kind === "composer") {
         // The new conversation got its thread: whatever the writer typed
@@ -1324,7 +1328,7 @@
               <DropdownMenu.CheckboxItem
                 checked={webSearchOn}
                 onCheckedChange={(on) => void setWebSearch(on)}
-                disabled={sending}
+                disabled={sending || webSearchSetting === null}
                 closeOnSelect={false}
                 title="Allow web searches for what a term or method means, or for CRA guidance. Names are removed before anything is searched."
                 class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50"

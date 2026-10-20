@@ -63,9 +63,15 @@ export function turnWebSources(searches: readonly TurnWebSearch[]): WebSource[] 
   return [...byNumber.values()].sort((left, right) => left.n - right.n);
 }
 
-/** Streamdown's `sources`, keyed by `citationKey`. */
+/**
+ * Streamdown's `sources`, keyed by `citationKey`. Review R2 P3-2: no
+ * prototype, because Streamdown looks keys up with `sources[key]`, and
+ * "[call toString first]" would otherwise find `toString`.
+ */
 export function citationSources(sources: readonly WebSource[]): Record<string, WebSource> {
-  return Object.fromEntries(sources.map((source) => [citationKey(source.n), source]));
+  const map = Object.create(null) as Record<string, WebSource>;
+  for (const source of sources) map[citationKey(source.n)] = source;
+  return map;
 }
 
 const GROUP = String.raw`\[[ \t]*\d{1,3}(?:[ \t]*[,;][ \t]*\d{1,3})*[ \t]*\]`;

@@ -57,14 +57,19 @@ export const turnWebSourcesValidator = v.object({
  */
 export const MAX_THREAD_WEB_SEARCH_ROWS = 600;
 
-/** A conversation's search records in creation order, without ids or answer text. */
+/**
+ * A conversation's newest search records, in creation order, without ids or
+ * answer text. Review R2 P3-3: read newest first by creation time, so a long
+ * conversation drops its oldest searches, never its newest.
+ */
 export async function listThreadWebSources(ctx: QueryCtx, agentThreadId: string) {
   const rows = await ctx.db
     .query("chatWebSearches")
-    .withIndex("by_agentThreadId_and_promptMessageId", (q) => q.eq("agentThreadId", agentThreadId))
+    .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", agentThreadId))
+    .order("desc")
     .take(MAX_THREAD_WEB_SEARCH_ROWS);
   return rows
-    .sort((left, right) => left._creationTime - right._creationTime)
+    .reverse()
     .map((row) => ({
       promptMessageId: row.promptMessageId,
       ...(row.toolCallId ? { toolCallId: row.toolCallId } : {}),
