@@ -648,6 +648,12 @@ export interface RenderInventoryOptions {
    * other Lines hold so the writer can be told what is left.
    */
   section?: InventorySection;
+  /**
+   * Phase A review P2-2: what this conversation already did with each item
+   * (`convex/lib/chatItemCoverage.ts`). Each listed item it names is marked,
+   * so the model revises only the unmarked ones.
+   */
+  coverage?: ReadonlyMap<string, { label: string; handled: boolean }>;
 }
 
 function deviationCount(result: DeviationInventory, section: InventorySection): number {
@@ -734,7 +740,7 @@ export function renderInventory(
       lines.push("No Deviation listed.");
     } else {
       for (const item of entry.items) {
-        lines.push(`- ${renderItem(item)}`);
+        lines.push(`- ${renderItem(item)}${coverageMark(options.coverage?.get(item.id))}`);
       }
     }
     lines.push("");
@@ -779,10 +785,18 @@ export function renderInventory(
     lines.push("");
   }
 
+  const handled = items.filter((item) => options.coverage?.get(item.id)?.handled === true).length;
   lines.push(
-    `Item ids are stable: reuse them verbatim as the finding ids of the revision, split into proposeBulkEdits calls as the size rule says, and report each Deviation as resolved, blocked or conflicting. ${items.length} Deviation(s) listed${scope === undefined ? "" : ` in Line ${scope}`}${unverified.length ? `, plus ${unverified.length} not checked` : ""}.`
+    `Item ids are stable: reuse them verbatim as the finding ids of the revision, split into proposeBulkEdits calls as the size rule says, and report each Deviation as resolved, blocked or conflicting. ${items.length} Deviation(s) listed${scope === undefined ? "" : ` in Line ${scope}`}${unverified.length ? `, plus ${unverified.length} not checked` : ""}.${handled ? ` ${handled} of them are marked HANDLED: this conversation already proposed or recorded them, so leave them out of the revision and revise only the others.` : ""}`
   );
   return lines.join("\n");
+}
+
+function coverageMark(coverage: { label: string; handled: boolean } | undefined): string {
+  if (!coverage) return "";
+  return coverage.handled
+    ? ` HANDLED in this conversation (${coverage.label}): do not propose it again.`
+    : ` Earlier in this conversation: ${coverage.label}; it may be revised again.`;
 }
 
 function renderItem(item: InventoryItem): string {

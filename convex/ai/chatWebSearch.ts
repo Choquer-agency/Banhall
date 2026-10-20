@@ -583,11 +583,14 @@ export type WebSearchTurn = {
 export function newWebSearchTurn(input: {
   userId?: Id<"users">;
   deadline?: number;
-  /** Defaults to true; the chat action passes the send's choice. */
+  /**
+   * Review P3-7: fails closed. Only the chat action passes the
+   * authenticated send's choice.
+   */
   allowed?: boolean;
 }): WebSearchTurn {
   return {
-    allowed: input.allowed ?? true,
+    allowed: input.allowed === true,
     sent: 0,
     ...(input.userId ? { userId: input.userId } : {}),
     ...(input.deadline !== undefined ? { deadline: input.deadline } : {}),

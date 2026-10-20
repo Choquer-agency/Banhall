@@ -66,6 +66,11 @@ import {
 } from "./lib/chatTurnState";
 import { sectionNumberValidator } from "./lib/orderedChain";
 import { INVENTORY_SECTION_ORDER } from "./lib/deviationInventory";
+import {
+  itemCoverage,
+  type ItemCoverage,
+  type ItemCoverageRow,
+} from "./lib/chatItemCoverage";
 import { safeErrorDetails } from "./lib/safeErrorDetails";
 import { domainError, sha256 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
@@ -1411,18 +1416,78 @@ export const markTurnBrainSearched = internalMutation({
   },
 });
 
-/** Newest proposals of a thread read to find the Deviations already revised. */
-const CONTINUATION_PROPOSAL_SCAN = 100;
+/** Newest proposals of a thread read to find the Deviations already handled. */
+const COVERAGE_PROPOSAL_SCAN = 100;
+
+/**
+ * Phase A review P2-2: the Completion Report rows of the thread's newest
+ * proposals with the state of each card, and whether any of them belongs to
+ * `promptMessageId`. Bounded: COVERAGE_PROPOSAL_SCAN proposals, each read up
+ * to the tool's own findings cap.
+ */
+async function threadCoverageRows(
+  ctx: QueryCtx | MutationCtx,
+  agentThreadId: string,
+  promptMessageId?: string
+): Promise<{ rows: ItemCoverageRow[]; promptSavedReport: boolean }> {
+  const proposals = await ctx.db
+    .query("chatProposals")
+    .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", agentThreadId))
+    .order("desc")
+    .take(COVERAGE_PROPOSAL_SCAN);
+  const rows: ItemCoverageRow[] = [];
+  let promptSavedReport = false;
+  for (const proposal of proposals) {
+    if (proposal.kind !== "replacements") continue;
+    const items = await ctx.db
+      .query("chatProposalItems")
+      .withIndex("by_proposalId", (q) => q.eq("proposalId", proposal._id))
+      .take(MAX_COMPLETION_REPORT_FINDINGS);
+    for (const item of items) {
+      rows.push({
+        itemId: item.itemId,
+        ...(item.section ? { section: item.section } : {}),
+        status: item.status,
+        proposalState: proposal.state,
+        createdAt: item.createdAt,
+      });
+    }
+    if (items.length > 0 && promptMessageId !== undefined && proposal.promptMessageId === promptMessageId) {
+      promptSavedReport = true;
+    }
+  }
+  return { rows, promptSavedReport };
+}
+
+const itemCoverageValidator = v.object({
+  itemId: v.string(),
+  section: v.optional(sectionNumberValidator),
+  label: v.string(),
+  handled: v.boolean(),
+});
+
+/**
+ * Phase A review P2-2: what this conversation already did with each
+ * Deviation (`convex/lib/chatItemCoverage.ts`), for the inventory tools and
+ * the per-turn note.
+ */
+export const getThreadItemCoverage = internalQuery({
+  args: { agentThreadId: v.string() },
+  returns: v.array(itemCoverageValidator),
+  handler: async (ctx, args): Promise<ItemCoverage[]> =>
+    itemCoverage((await threadCoverageRows(ctx, args.agentThreadId)).rows),
+});
 
 /**
  * Phase A (2026-10-19): the structured Continue offer a turn ends with.
- * `outstanding` is the stored Deviation Inventory's items at the end of the
- * turn; the ones any proposal in this conversation already carries (applied,
- * pending or not) are left out, so Continue moves on to the next Line instead
- * of returning to one already revised. "lines_left" is set only when this
- * turn saved a Completion Report and Deviations remain; "step_limit" and
- * "cut_off" are always set. Only while the turn runs: a stopped turn offers
- * nothing. Returns what was stored, or null.
+ * `outstanding` is every inventory item the turn worked on (rule, content or
+ * reference, review P3-1), or the stored rule Deviations when it listed
+ * none. Items this conversation already handled (on a pending or applied
+ * card, or blocked or conflicting; review P2-2) are left out, so Continue
+ * moves on instead of returning to a Line already done. "lines_left" is set
+ * only when this turn saved a Completion Report and items remain;
+ * "step_limit" and "cut_off" are always set. Only while the turn runs: a
+ * stopped turn offers nothing. Returns what was stored, or null.
  */
 export const setTurnContinuation = internalMutation({
   args: {
@@ -1443,27 +1508,16 @@ export const setTurnContinuation = internalMutation({
     const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
     if (!turn || !turnIsActive(turn)) return null;
 
-    const covered = new Set<string>();
+    const handled = new Set<string>();
     let turnSavedReport = false;
     if (args.outstanding.length > 0 || args.reason === "lines_left") {
-      const proposals = await ctx.db
-        .query("chatProposals")
-        .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", args.agentThreadId))
-        .order("desc")
-        .take(CONTINUATION_PROPOSAL_SCAN);
-      for (const proposal of proposals) {
-        if (proposal.kind !== "replacements") continue;
-        const items = await ctx.db
-          .query("chatProposalItems")
-          .withIndex("by_proposalId", (q) => q.eq("proposalId", proposal._id))
-          .take(MAX_COMPLETION_REPORT_FINDINGS);
-        for (const item of items) covered.add(item.itemId);
-        if (items.length > 0 && proposal.promptMessageId === args.promptMessageId) {
-          turnSavedReport = true;
-        }
+      const read = await threadCoverageRows(ctx, args.agentThreadId, args.promptMessageId);
+      turnSavedReport = read.promptSavedReport;
+      for (const item of itemCoverage(read.rows)) {
+        if (item.handled) handled.add(item.itemId);
       }
     }
-    const left = args.outstanding.filter((item) => !covered.has(item.itemId));
+    const left = args.outstanding.filter((item) => !handled.has(item.itemId));
     const nextSection = INVENTORY_SECTION_ORDER.find((section) =>
       left.some((item) => item.section === section)
     );

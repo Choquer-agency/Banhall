@@ -451,7 +451,7 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     // Phase A (2026-10-19): the writer continues from a button, and the
     // reply does not retype the ids the card already shows.
     expect(BULK_EDIT_SIZE_RULE).toContain(
-      "If items are still left after that, say in one sentence how many are left and in which Lines, then stop: the writer gets a Continue button under your reply."
+      "If items are still left after that, say in one sentence how many are left and in which Lines, then stop, so the writer can ask you to continue."
     );
     expect(BULK_EDIT_SIZE_RULE).not.toContain("name their ids");
     expect(prompt).toContain(`when they fit in one call. ${BULK_EDIT_SIZE_RULE} ${BULK_EDIT_REFINE_RULE}`);
@@ -532,7 +532,12 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     expect(prompt).not.toContain("include the Completion Report checklist returned by each proposeBulkEdits call verbatim");
     expect(prompt).not.toContain("keep the checklist");
     expect(prompt).not.toContain("ask the writer to say continue");
-    expect(prompt).toContain('which sends "Continue with Line N." for the next Line: read that message as the same request for Line N.');
+    expect(prompt).toContain('which sends "Continue with Line N.": read that message as the same request for Line N.');
+    // Review P3-1: no rule promises a button that may not appear.
+    expect(BULK_EDIT_SIZE_RULE).not.toContain("Continue button");
+    // Review P2-2: the model skips what the inventory marks HANDLED.
+    expect(prompt).toContain("that still has Deviations not marked HANDLED");
+    expect(prompt).toContain("never propose a HANDLED item again and leave it out of the findings, so revise only the unmarked items.");
   });
 
   // Phase A (2026-10-19): both outside-source tools are always offered and

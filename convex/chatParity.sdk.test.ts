@@ -569,3 +569,194 @@ describe("history the model no longer reads", () => {
     expect(JSON.stringify(sent[0]!.messages)).toContain("Earlier question 0.");
   });
 });
+
+// ─── Backend review fixes (Claude Opus 5.5, high effort) ─────────────────────
+
+/** A tool call cut off at the output limit: the API closes the block first. */
+function cutToolAnswer(id: string, toolUseId: string): Response {
+  const json = JSON.stringify({ edits: [{ targetText: P1, newText: "Trial 1 described a pressure operating envelope." }], findings: [] }).slice(0, 60);
+  return sse([
+    messageStart(id),
+    ...thinking(id),
+    { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: toolUseId, name: "proposeBulkEdits", input: {} } },
+    { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: json } },
+    { type: "content_block_stop", index: 1 },
+    { type: "message_delta", delta: { stop_reason: "max_tokens", stop_sequence: null }, usage: { output_tokens: CHAT_MAX_OUTPUT_TOKENS } },
+    { type: "message_stop" },
+  ]);
+}
+
+async function chatUsage(f: Awaited<ReturnType<typeof setup>>) {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await f.t.finishAllScheduledFunctions(() => {});
+  return (await f.t.run((ctx) => ctx.db.query("aiUsage").collect())).filter((row) => row.callSite === "chat_v2");
+}
+
+describe("review P2-1: a Stop caught before a pass's stream exists", () => {
+  test("ends the turn before the recovery pass sends its request", async () => {
+    vi.useRealTimers();
+    const f = await setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const sent = stubAnthropic([
+      () => thinkingOnlyAnswer("msg_1"),
+      () => textAnswer("msg_2", "Recovered after the Stop."),
+    ]);
+    const original = reportChatAgent.streamText.bind(reportChatAgent);
+    let passes = 0;
+    vi.spyOn(reportChatAgent, "streamText").mockImplementation((async (...args: unknown[]) => {
+      passes += 1;
+      if (passes === 2) {
+        // The recovery pass has begun: the writer stops, and the watcher
+        // sees it before the agent links its own abort to the turn's.
+        const { order } = await f.turn();
+        await f.actor.mutation(api.chatV2.abortStreaming, { threadId: f.threadId, order });
+        await new Promise((resolve) => setTimeout(resolve, CHAT_STOP_POLL_MS + 300));
+      }
+      return await (original as (...a: unknown[]) => Promise<unknown>)(...args);
+    }) as never);
+    await f.run();
+
+    expect(passes).toBe(2);
+    expect(sent).toHaveLength(1);
+    const turn = await f.turn();
+    expect(turn.status).toBe("aborted");
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts).not.toContain("Recovered after the Stop.");
+    expect(texts).not.toContain(chatFailureReply(new Error("CHAT_THINKING_CUT_OFF")));
+    expect(texts).not.toContain(chatFailureReply(new Error("CHAT_STOPPED")));
+  });
+});
+
+describe("review P2-2: the conversation's record of handled Deviations", () => {
+  async function secondTurn(f: Awaited<ReturnType<typeof setup>>, content: string) {
+    const next = await f.actor.mutation(api.chatV2.sendMessage, { reportId: f.reportId, content, threadId: f.threadId });
+    await f.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: next.threadId, promptMessageId: next.messageId, reportId: f.reportId, userId: f.userId,
+    });
+    return next;
+  }
+
+  test("the next turn's inventory marks the items an earlier card carries, and the note counts them", async () => {
+    const f = await setup({ notes: [{ section: "242", paragraphIndex: 0 }, { section: "244", paragraphIndex: 0 }] });
+    let ids: { r242: string; r244: string } | undefined;
+    const first = stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_inv", "deviationInventory", {}),
+      () => {
+        const listed = JSON.stringify(toolResult(first[1]!, "toolu_inv"));
+        ids = { r242: /r-242-\d+-\d+/.exec(listed)![0], r244: /r-244-\d+-\d+/.exec(listed)![0] };
+        return toolAnswer("msg_2", "toolu_bulk", "proposeBulkEdits", {
+          edits: [{ targetText: P1, newText: "Trial 1 described a pressure operating envelope." }],
+          findings: [{ id: ids.r242, section: "242", paragraph: 1, kind: "rule", rule: "Call the range the operating envelope.", status: "resolved", editNumbers: [1] }],
+        });
+      },
+      () => textAnswer("msg_3", "Proposed the Line 242 revision."),
+    ]);
+    await f.run();
+    // Before this turn nothing was handled, so neither the list nor the note marks anything.
+    expect(JSON.stringify(toolResult(first[1]!, "toolu_inv"))).not.toContain("HANDLED");
+    expect(lastUserText(first[0]!)).not.toContain("already handled");
+
+    const second = stubAnthropic([
+      () => toolAnswer("msg_4", "toolu_inv2", "deviationInventory", {}),
+      () => textAnswer("msg_5", "Line 244 is next."),
+    ]);
+    await secondTurn(f, "Continue with Line 244.");
+    expect(second).toHaveLength(2);
+    expect(lastUserText(second[0]!)).toContain(
+      "Deviations already handled in this conversation (on a pending or applied card, or blocked or conflicting): Line 242 1."
+    );
+    const listed = String(toolResult(second[1]!, "toolu_inv2")?.content);
+    const line242 = listed.split("\n").find((line) => line.includes(ids!.r242));
+    const line244 = listed.split("\n").find((line) => line.includes(ids!.r244));
+    expect(line242).toContain("HANDLED in this conversation (already on a pending card): do not propose it again.");
+    expect(line244).not.toContain("HANDLED");
+    expect(listed).toContain("1 of them are marked HANDLED");
+  });
+
+  test("after an all-blocked revision the Line is handled, so Continue moves on", async () => {
+    const f = await setup({ notes: [{ section: "242", paragraphIndex: 0 }, { section: "244", paragraphIndex: 0 }] });
+    const first = stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_inv", "deviationInventory", { section: "242" }),
+      () => {
+        const id = /r-242-\d+-\d+/.exec(JSON.stringify(toolResult(first[1]!, "toolu_inv")))![0];
+        return toolAnswer("msg_2", "toolu_rec", "proposeBulkEdits", {
+          edits: [],
+          findings: [{ id, section: "242", paragraph: 1, kind: "rule", rule: "Call the range the operating envelope.", status: "blocked",
+            reason: "The sources do not give the range.", missingFact: "The pressure range.", missingFactSource: "The interview." }],
+        });
+      },
+      () => textAnswer("msg_3", "Nothing to apply: Line 242 needs the pressure range."),
+    ]);
+    await f.run();
+    expect((await f.turn()).continuation).toEqual({ reason: "lines_left", nextSection: "244", remaining: 1 });
+
+    const second = stubAnthropic([
+      () => toolAnswer("msg_4", "toolu_inv2", "deviationInventory", { section: "242" }),
+      () => textAnswer("msg_5", "Line 242 waits for the writer."),
+    ]);
+    await secondTurn(f, "continue");
+    expect(String(toolResult(second[1]!, "toolu_inv2")?.content)).toContain(
+      "HANDLED in this conversation (blocked: needs a missing fact from the writer): do not propose it again."
+    );
+  });
+});
+
+describe("review P3-1: Continue for every item kind", () => {
+  test("content Deviations the writer named and the turn left open offer the next Line", async () => {
+    const f = await setup();
+    const contentDeviations = [
+      { section: "242", paragraph: 1, instruction: "Call it the operating envelope." },
+      { section: "244", paragraph: 1, instruction: "Name the month the rig was rebuilt." },
+    ];
+    const sent = stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_inv", "deviationInventory", { contentDeviations, section: "242" }),
+      () => {
+        const id = /c-242-\d+-\d+/.exec(JSON.stringify(toolResult(sent[1]!, "toolu_inv")))![0];
+        return toolAnswer("msg_2", "toolu_bulk", "proposeBulkEdits", {
+          edits: [{ targetText: P1, newText: "Trial 1 described a pressure operating envelope." }],
+          findings: [{ id, section: "242", paragraph: 1, kind: "content", status: "resolved", editNumbers: [1] }],
+        });
+      },
+      () => textAnswer("msg_3", "Proposed the Line 242 revision. Line 244 has one item left."),
+    ]);
+    await f.run();
+    expect(sent).toHaveLength(3);
+    expect((await f.turn()).continuation).toEqual({ reason: "lines_left", nextSection: "244", remaining: 1 });
+  });
+});
+
+describe("review P3-4: measurements belong to their own step", () => {
+  test("a held-back step logged after a Stop keeps its own stop reason and effort", async () => {
+    vi.useRealTimers();
+    const f = await setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    let requested!: () => void;
+    const secondRequest = new Promise<void>((resolve) => { requested = resolve; });
+    const sent = stubAnthropic([
+      () => cutToolAnswer("msg_1", "toolu_cut"),
+      (signal) => {
+        requested();
+        return stillThinking("msg_2", "Splitting the revision.", signal);
+      },
+    ]);
+    const running = f.run();
+    await secondRequest;
+    const { order } = await f.turn();
+    await f.actor.mutation(api.chatV2.abortStreaming, { threadId: f.threadId, order });
+    await running;
+
+    expect(sent).toHaveLength(2);
+    expect((await f.turn()).status).toBe("aborted");
+    const rows = await chatUsage(f);
+    const held = rows.find((row) => row.outputTokens === CHAT_MAX_OUTPUT_TOKENS);
+    const stopped = rows.find((row) => row.partial === true);
+    expect(rows).toHaveLength(2);
+    expect(held).toMatchObject({ stopReason: "max_tokens", effort: "default" });
+    expect(held?.partial).toBeUndefined();
+    expect(stopped).toMatchObject({ stopReason: "aborted", outputTokens: Math.ceil("Splitting the revision.".length / 3) });
+  });
+});

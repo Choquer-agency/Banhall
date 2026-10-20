@@ -112,11 +112,13 @@ describe("setTurnContinuation", () => {
     { section: "246" as const, itemId: "r-246-1-1" },
   ];
 
-  test("offers the first Line whose Deviations no proposal in the conversation carries", async () => {
+  test("offers the first Line whose Deviations the conversation has not handled", async () => {
     const f = await setup();
-    // An earlier turn revised Line 242 (its card was rejected; still revised).
+    // An earlier turn's card for Line 242 was applied; its card for Line 246
+    // was rejected, so that item is still to do (review P2-2).
     await f.turn("p0", 0, "completed");
-    await f.proposal("p0", ["r-242-1-1"], "rejected");
+    await f.proposal("p0", ["r-242-1-1"], "applied");
+    await f.proposal("p0", ["r-246-1-1"], "rejected");
     const id = await f.turn("p1", 1);
     await f.proposal("p1", ["r-244-1-1"]);
     const stored = await f.t.mutation(internal.chatV2.setTurnContinuation, {
@@ -161,6 +163,21 @@ describe("setTurnContinuation", () => {
       ...key("p1"), reason: "cut_off", outstanding,
     })).toBeNull();
     expect((await f.read(id))?.continuation).toBeUndefined();
+  });
+});
+
+describe("getThreadItemCoverage (review P2-2)", () => {
+  test("reads each item's newest card state for the thread", async () => {
+    const f = await setup();
+    await f.proposal("p0", ["r-242-1-1", "r-244-1-1"], "applied");
+    await f.proposal("p1", ["r-246-1-1"], "rejected");
+    await f.proposal("p2", ["r-244-1-1"]);
+    const coverage = await f.t.query(internal.chatV2.getThreadItemCoverage, { agentThreadId: THREAD });
+    const byId = new Map(coverage.map((item) => [item.itemId, item]));
+    expect(byId.get("r-242-1-1")).toMatchObject({ label: "applied", handled: true });
+    expect(byId.get("r-244-1-1")).toMatchObject({ label: "already on a pending card", handled: true });
+    expect(byId.get("r-246-1-1")).toMatchObject({ handled: false });
+    expect(await f.t.query(internal.chatV2.getThreadItemCoverage, { agentThreadId: "another-thread" })).toEqual([]);
   });
 });
 

@@ -57,6 +57,7 @@ import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
 import { makeSearchWebTool, newWebSearchTurn, type WebSearchTurn } from "./chatWebSearch";
 import type { ChatTurnContinuationReason, ChatTurnProgress } from "../lib/chatTurnState";
+import { handledItemsNote, type ItemCoverage } from "../lib/chatItemCoverage";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
 import { anthropicCacheWrite1hTokens } from "./instrument";
 import { ACTION_REQUEST_WINDOW_MS } from "./actionDeadline";
@@ -275,11 +276,30 @@ async function inventoryContext(
   });
 }
 
+/**
+ * Phase A review P2-2: what this conversation already did with each item,
+ * keyed by item id, so the inventory marks it. An empty map when the read
+ * fails: the list is still right, only unmarked.
+ */
+async function threadCoverage(ctx: ChatToolCtx): Promise<Map<string, ItemCoverage>> {
+  if (!ctx.threadId) return new Map();
+  try {
+    const coverage: ItemCoverage[] = await ctx.runQuery(internal.chatV2.getThreadItemCoverage, {
+      agentThreadId: ctx.threadId,
+    });
+    return new Map(coverage.map((item) => [item.itemId, item]));
+  } catch (error) {
+    console.error("chat item coverage could not be read", safeErrorDetails(error));
+    return new Map();
+  }
+}
+
 function renderOrExplain(args: {
   context: InventoryContext;
   contentDeviations?: ChatContentDeviation[];
   referenceSections?: InventorySections | null;
   section?: InventorySection;
+  coverage?: ReadonlyMap<string, ItemCoverage>;
 }): string {
   try {
     return renderInventory(
@@ -290,7 +310,10 @@ function renderOrExplain(args: {
         ...(args.referenceSections ? { referenceSections: args.referenceSections } : {}),
         rulesStatus: args.context.rulesStatus,
       }),
-      args.section ? { section: args.section } : {}
+      {
+        ...(args.section ? { section: args.section } : {}),
+        ...(args.coverage && args.coverage.size > 0 ? { coverage: args.coverage } : {}),
+      }
     );
   } catch (error) {
     // A writer-named paragraph outside the report: hand back the valid range so
@@ -309,7 +332,7 @@ export async function runDeviationInventory(
   ctx: ChatToolCtx,
   input: { contentDeviations?: ChatContentDeviation[]; section?: InventorySection }
 ): Promise<string> {
-  const context = await inventoryContext(ctx);
+  const [context, coverage] = await Promise.all([inventoryContext(ctx), threadCoverage(ctx)]);
   if (!context.found) {
     return "The current report could not be loaded, so there is no paragraph list to build.";
   }
@@ -317,6 +340,7 @@ export async function runDeviationInventory(
     context,
     ...(input.contentDeviations ? { contentDeviations: input.contentDeviations } : {}),
     ...(input.section ? { section: input.section } : {}),
+    coverage,
   });
 }
 
@@ -378,6 +402,7 @@ export async function runCompareReferencePd(
     ...(input.contentDeviations ? { contentDeviations: input.contentDeviations } : {}),
     referenceSections: context.reference.sections,
     ...(input.section ? { section: input.section } : {}),
+    coverage: await threadCoverage(ctx),
   });
   return truncated ? `${rendered}\n\n${scanNote.trim()}` : rendered;
 }
@@ -904,9 +929,13 @@ export function chatTurnNote(args: {
   allowBrain: boolean;
   allowWeb: boolean;
   historyCut: boolean;
+  /** Review P2-2: the handled Deviations per Line (`handledItemsNote`). */
+  handled?: string | null;
 }): string {
   const options = `Message options for this message: Brain examples are ${args.allowBrain ? "on" : "off"}, web search is ${args.allowWeb ? "on" : "off"}.`;
-  return args.historyCut ? `${options}\n${CHAT_CONTEXT_LOSS_NOTE}` : options;
+  return [options, args.handled ?? null, args.historyCut ? CHAT_CONTEXT_LOSS_NOTE : null]
+    .filter((line): line is string => line !== null)
+    .join("\n");
 }
 
 async function chatContextWindow(
@@ -1118,6 +1147,8 @@ export class ChatTurnMeter {
   current: ChatStepMetrics | undefined;
   /** The chat tools the model called in this turn. */
   readonly toolNames = new Set<string>();
+  /** The turn's deviationInventory and compareReferencePd calls, for Continue. */
+  readonly listCalls: Array<{ toolName: string; input: unknown }> = [];
 
   constructor(
     private readonly progress: (update: ProgressUpdate) => void = () => {},
@@ -1185,13 +1216,25 @@ export class ChatTurnMeter {
   onToolCall(toolName: string, input: unknown): void {
     if (!this.current || !CHAT_TOOL_NAMES.has(toolName)) return;
     this.toolNames.add(toolName);
+    if (LIST_TOOLS.has(toolName)) this.listCalls.push({ toolName, input });
     const section = toolCallSection(input);
     this.progress({ phase: "tool", tool: toolName, ...(section ? { section } : {}), step: this.current.step });
   }
 
-  finishStep(): ChatStepMetrics | undefined {
-    if (this.current) this.current.stepFinished = true;
+  /** Review P3-4: each finished step's numbers, by its usage object. */
+  private readonly byUsage = new WeakMap<object, ChatStepMetrics>();
+
+  finishStep(usage?: object): ChatStepMetrics | undefined {
+    if (this.current) {
+      this.current.stepFinished = true;
+      if (usage) this.byUsage.set(usage, this.current);
+    }
     return this.current;
+  }
+
+  /** The numbers of the finished step a usage object belongs to. */
+  metricsFor(usage: object): ChatStepMetrics | undefined {
+    return this.byUsage.get(usage);
   }
 }
 
@@ -1327,9 +1370,12 @@ function chatUsageHandler(
   served: Readonly<ChatServedState>,
   meter?: ChatTurnMeter
 ): UsageHandler {
-  // The agent logs a step from inside its step end, before the next request
-  // begins, so the meter's current step is the step being logged.
-  return async (ctx, payload) => await logChatUsage(ctx, served, payload, meter?.current);
+  // Review P3-4: a step the app saw finish is matched by its usage object
+  // (the agent logs `step.usage` itself). The agent logs a normal step from
+  // inside its step end, before the app's own step end and before the next
+  // request, so the meter's current step is that step.
+  return async (ctx, payload) =>
+    await logChatUsage(ctx, served, payload, meter?.metricsFor(payload.usage) ?? meter?.current);
 }
 
 /**
@@ -1406,17 +1452,44 @@ export function watchForStop(options: {
  * or the notes cannot be read.
  */
 async function outstandingDeviations(
-  ctx: ChatToolCtx
+  ctx: ChatToolCtx,
+  listCalls: ReadonlyArray<{ toolName: string; input: unknown }>
 ): Promise<Array<{ section: ChatSection; itemId: string }>> {
   try {
-    const context = await inventoryContext(ctx);
-    if (!context.found || !context.rulesAvailable) return [];
-    const inventory = assembleDeviationInventory({
-      sections: context.sections,
-      notes: context.notes,
-      rulesStatus: context.rulesStatus,
-    });
-    return inventory.items.map((item) => ({ section: item.section, itemId: item.id }));
+    // Review P3-1: every item kind the turn's own list calls produced (rule,
+    // content and reference), rebuilt from their inputs; the stored rule
+    // Deviations when the turn made no list call.
+    const calls = listCalls.length > 0 ? listCalls : [{ toolName: "deviationInventory", input: {} }];
+    const items = new Map<string, ChatSection>();
+    const seen = new Set<string>();
+    for (const call of calls) {
+      const key = JSON.stringify([call.toolName, call.input]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const input = (call.input && typeof call.input === "object" ? call.input : {}) as Record<string, unknown>;
+      const content = contentDeviationsSchema.safeParse(input.contentDeviations);
+      const contentDeviations = content.success ? content.data : undefined;
+      const compare = call.toolName === "compareReferencePd";
+      const fileName = compare && typeof input.fileName === "string" ? input.fileName : undefined;
+      const context = await inventoryContext(ctx, fileName);
+      if (!context.found) continue;
+      if (listCalls.length === 0 && !context.rulesAvailable) continue;
+      const referenceSections =
+        compare && context.referenceStatus === "resolved" && context.reference ? context.reference.sections : null;
+      try {
+        const inventory = assembleDeviationInventory({
+          sections: context.sections,
+          notes: context.notes,
+          ...(contentDeviations ? { contentDeviations } : {}),
+          ...(referenceSections ? { referenceSections } : {}),
+          rulesStatus: context.rulesStatus,
+        });
+        for (const item of inventory.items) items.set(item.id, item.section);
+      } catch (error) {
+        if (!(error instanceof InventoryAnchorError)) throw error;
+      }
+    }
+    return [...items].map(([itemId, section]) => ({ section, itemId }));
   } catch (error) {
     console.error("chat continuation inventory failed", safeErrorDetails(error));
     return [];
@@ -1561,7 +1634,10 @@ export const streamChatReply = internalAction({
       try {
         const workedOnList = [...meter.toolNames].some((name) => DEVIATION_TOOLS.has(name));
         const outstanding = workedOnList
-          ? await outstandingDeviations({ threadId: args.agentThreadId, runQuery: ctx.runQuery, runMutation: ctx.runMutation })
+          ? await outstandingDeviations(
+              { threadId: args.agentThreadId, runQuery: ctx.runQuery, runMutation: ctx.runMutation },
+              meter.listCalls
+            )
           : [];
         await ctx.runMutation(internal.chatV2.setTurnContinuation, { ...turnKey, reason, outstanding });
       } catch (error) {
@@ -1651,6 +1727,14 @@ export const streamChatReply = internalAction({
           historyStartOrder: history.historyStartOrder,
         });
       }
+      // Review P2-2: the replies no longer carry item ids and statuses (the
+      // card shows them) and the history leaves tool rows out, so the model
+      // is told how many Deviations each Line already had handled.
+      const coverage = await threadCoverage({
+        threadId: args.agentThreadId,
+        runQuery: ctx.runQuery,
+        runMutation: ctx.runMutation,
+      });
       const turnMessages: ModelMessage[] = [
         ...turn.messages,
         {
@@ -1659,6 +1743,7 @@ export const streamChatReply = internalAction({
             allowBrain: args.allowBrain === true,
             allowWeb: args.allowWeb === true,
             historyCut: history.historyStartOrder !== undefined,
+            handled: handledItemsNote([...coverage.values()]),
           }),
         },
       ];
@@ -1704,6 +1789,10 @@ export const streamChatReply = internalAction({
         heldBackMetrics = undefined;
         agentStreamBlind = false;
         let passAborted = false;
+        // Review P2-1: the agent links its own abort to ours with a listener,
+        // which never fires for a signal already aborted, so a Stop caught
+        // before this pass starts must end it here.
+        if (turnAbort.signal.aborted) throw new Error(stoppedByWriter ? "CHAT_STOPPED" : "CHAT_TIMED_OUT");
         try {
           const result = await reportChatAgent.streamText(
             ctx,
@@ -1743,6 +1832,12 @@ export const streamChatReply = internalAction({
                   const active: boolean = await ctx.runQuery(internal.chatV2.isTurnActive, turnKey);
                   if (!active) throw new Error("CHAT_STOPPED_AFTER_CUT_OFF");
                 }
+                // Review P2-1: runs after the agent attached its listener, so a
+                // Stop or time limit that fell between the pass start and the
+                // agent's stream setup still ends the pass before any request.
+                if (turnAbort.signal.aborted) {
+                  throw new Error(stoppedByWriter ? "CHAT_STOPPED" : "CHAT_TIMED_OUT");
+                }
                 const next = withCutOffInstruction(messages, steps);
                 // 2026-10-19: a step that plans over a list result thinks at
                 // medium effort.
@@ -1764,7 +1859,7 @@ export const streamChatReply = internalAction({
                 if (chunk.type === "tool-call") meter.onToolCall(chunk.toolName, chunk.input);
               },
               onStepFinish: async (step) => {
-                const metrics = meter.finishStep();
+                const metrics = meter.finishStep(step.usage);
                 for (const toolCall of step.toolCalls) {
                   if (toolCall) toolCallIds.add(toolCall.toolCallId);
                 }
@@ -1943,6 +2038,7 @@ export const streamChatReply = internalAction({
       else if ([...meter.toolNames].some((name) => DEVIATION_TOOLS.has(name))) {
         await offerContinuation("lines_left");
       }
+      endStopWatch?.();
       await progress.flush();
       const finished: {
         status: "queued" | "running" | "completed" | "failed" | "aborted";
@@ -1968,16 +2064,21 @@ export const streamChatReply = internalAction({
         });
       }
     } catch (caught) {
+      // Review P3-5: no later check may turn a real failure into a Stop. The
+      // turn's own finishTurn("failed") makes it inactive, which a late tick
+      // would read as the writer's Stop.
+      endStopWatch?.();
+      const stopped = stoppedByWriter;
       // The time limit can surface as the SDK's own abort error when it fell
       // in the first step; the writer still reads "took too long".
       const error =
-        !stoppedByWriter &&
+        !stopped &&
         turnAbort.signal.aborted &&
         !(caught instanceof Error && caught.message.startsWith("CHAT_"))
           ? new Error("CHAT_TIMED_OUT")
           : caught;
       // Phase A: a reply cut off offers Continue; a stopped one offers nothing.
-      const continuation = stoppedByWriter ? null : continuationReasonForFailure(error);
+      const continuation = stopped ? null : continuationReasonForFailure(error);
       if (continuation) await offerContinuation(continuation);
       await progress.flush();
       const finish: {
@@ -1990,7 +2091,7 @@ export const streamChatReply = internalAction({
       });
       // A Stop is the writer's choice, not a failure: no error log and no
       // failure message.
-      if (stoppedByWriter || finish.status === "aborted") {
+      if (stopped || finish.status === "aborted") {
         console.info("chat turn stopped by the writer", {
           threadId: args.agentThreadId,
           step: meter.step,

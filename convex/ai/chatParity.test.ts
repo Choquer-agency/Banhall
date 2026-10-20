@@ -12,7 +12,8 @@ import {
   toolCallSection,
   watchForStop,
 } from "./chatAgentV2";
-import { newWebSearchTurn } from "./chatWebSearch";
+import { CHAT_WEB_SEARCH_OFF, newWebSearchTurn, runSearchWeb } from "./chatWebSearch";
+import { handledItemsNote, itemCoverage } from "../lib/chatItemCoverage";
 import { completionReportCounts } from "../lib/completionReport";
 import { findDashConnectors } from "../../shared/humanProse";
 
@@ -211,5 +212,62 @@ describe("Continue and the Completion Report", () => {
       { id: "r-244-2-1", status: "blocked" },
     ])).toBe("1 resolved, 2 blocked (c-242-2-1, r-244-2-1), 1 conflicting (x-244-1-1)");
     expect(completionReportCounts([])).toBe("0 resolved, 0 blocked, 0 conflicting");
+  });
+});
+
+describe("review P2-2: handled items", () => {
+  const row = (itemId: string, status: "resolved" | "blocked" | "conflicting", proposalState: "pending" | "applied" | "rejected" | "stale", createdAt: number, section?: "242" | "244" | "246") =>
+    ({ itemId, status, proposalState, createdAt, ...(section ? { section } : {}) });
+
+  it("labels each item by its newest row and leaves rejected and stale ones to revise", () => {
+    const coverage = itemCoverage([
+      row("r-242-1-1", "resolved", "pending", 1, "242"),
+      row("r-242-2-1", "resolved", "applied", 1, "242"),
+      row("c-244-1-1", "blocked", "applied", 1, "244"),
+      row("x-246-1-1", "conflicting", "pending", 1, "246"),
+      row("r-244-2-1", "resolved", "rejected", 1, "244"),
+      row("r-246-2-1", "resolved", "stale", 1, "246"),
+      // Blocked first, then resolved on a newer pending card.
+      row("r-242-3-1", "blocked", "applied", 1, "242"),
+      row("r-242-3-1", "resolved", "pending", 2, "242"),
+    ]);
+    const byId = new Map(coverage.map((item) => [item.itemId, item]));
+    expect(byId.get("r-242-1-1")).toMatchObject({ label: "already on a pending card", handled: true });
+    expect(byId.get("r-242-2-1")).toMatchObject({ label: "applied", handled: true });
+    expect(byId.get("c-244-1-1")).toMatchObject({ label: "blocked: needs a missing fact from the writer", handled: true });
+    expect(byId.get("x-246-1-1")).toMatchObject({ label: "conflicting: needs the writer's decision", handled: true });
+    expect(byId.get("r-244-2-1")).toMatchObject({ label: "the writer rejected the card that carried it", handled: false });
+    expect(byId.get("r-246-2-1")).toMatchObject({ label: "the card that carried it went stale", handled: false });
+    expect(byId.get("r-242-3-1")).toMatchObject({ label: "already on a pending card", handled: true });
+    expect(coverage).toHaveLength(7);
+
+    const note = handledItemsNote(coverage);
+    expect(note).toBe(
+      "Deviations already handled in this conversation (on a pending or applied card, or blocked or conflicting): Line 242 3, Line 244 1, Line 246 1. deviationInventory and compareReferencePd mark each one; revise only the unmarked items."
+    );
+    expect(findDashConnectors(note!)).toEqual([]);
+    expect(handledItemsNote(coverage.filter((item) => !item.handled))).toBeNull();
+    expect(chatTurnNote({ allowBrain: false, allowWeb: false, historyCut: true, handled: note }).split("\n")).toEqual([
+      "Message options for this message: Brain examples are off, web search is off.",
+      note,
+      CHAT_CONTEXT_LOSS_NOTE,
+    ]);
+  });
+});
+
+describe("review P3-7: web search fails closed", () => {
+  it("a turn state made without a choice searches nothing", async () => {
+    const turn = newWebSearchTurn({});
+    expect(turn.allowed).toBe(false);
+    const ctx = {
+      threadId: "thread",
+      runQuery: vi.fn(),
+      runMutation: vi.fn(),
+      runAction: vi.fn(),
+    };
+    expect(await runSearchWeb(ctx as never, { query: "What is a Kalman filter?" }, turn)).toBe(CHAT_WEB_SEARCH_OFF);
+    expect(ctx.runQuery).not.toHaveBeenCalled();
+    expect(ctx.runAction).not.toHaveBeenCalled();
+    expect(newWebSearchTurn({ allowed: true }).allowed).toBe(true);
   });
 });
