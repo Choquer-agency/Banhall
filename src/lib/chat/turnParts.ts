@@ -944,14 +944,16 @@ export function associateTurnPrompts(messages: readonly UIMessage[]) {
   return { promptByOrder, promptByAssistantId, assistantOrders: new Set(finalAssistantByOrder.keys()) };
 }
 
-/** Explicit live or stopped state always wins over a terminal snapshot. */
+/**
+ * Explicit live state always wins over a terminal snapshot. Phase C (W2): a
+ * stopped turn may be regenerated once it is no longer streaming.
+ */
 export function canRegenerateTurn(
   status: UIMessage["status"] | undefined,
   timing: TurnTiming | undefined,
 ): boolean {
   if (status === "streaming" || status === "pending" ||
-      timing?.status === "queued" || timing?.status === "running" ||
-      timing?.status === "aborted") return false;
+      timing?.status === "queued" || timing?.status === "running") return false;
   return status === "success" || status === "failed" ||
-    timing?.status === "completed" || timing?.status === "failed";
+    timing?.status === "completed" || timing?.status === "failed" || timing?.status === "aborted";
 }

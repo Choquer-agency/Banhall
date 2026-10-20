@@ -1789,6 +1789,10 @@ export default defineSchema({
     // Absent means on; `chatV2.setThreadWebSearch` and a send's `allowWeb`
     // write it.
     webSearch: v.optional(v.boolean()),
+    // Chat parity Phase C (W2), widen only: the newest turn of the path the
+    // conversation shows and the model reads (one shared path per
+    // conversation). Absent means the newest turn (convex/lib/chatPath.ts).
+    activeTipPromptMessageId: v.optional(v.string()),
   })
     .index("by_reportId", ["reportId"])
     .index("by_agentThreadId", ["agentThreadId"])
@@ -1835,6 +1839,20 @@ export default defineSchema({
     autoContinueSkipped: v.optional(chatAutoContinueSkipValidator),
     // Stop was pressed just after this turn finished: its chain ends here.
     chainStoppedAt: v.optional(v.number()),
+    // Chat parity Phase C (W2), widen only: alternatives (convex/lib/chatPath.ts).
+    // The turn this one follows. Absent means the turn with the next lower
+    // order, or, for an alternative, its group's first turn's parent.
+    parentPromptMessageId: v.optional(v.string()),
+    // The group's first turn (its promptMessageId), set on every later
+    // alternative; Edit and Regenerate make one.
+    alternativeOf: v.optional(v.string()),
+    alternativeKind: v.optional(v.union(v.literal("edit"), v.literal("regenerate"))),
+    // The card a refining send named; the server rebuilds its block from it.
+    refineProposalId: v.optional(v.id("chatProposals")),
+    // The writer's own text length at the start of the stored prompt.
+    writerTextLength: v.optional(v.number()),
+    // Chat parity Phase C (W1 contract): project files pinned into this message.
+    pinnedDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
   })
     .index("by_agentThreadId_and_promptMessageId", [
       "agentThreadId",
@@ -1846,6 +1864,8 @@ export default defineSchema({
     .index("by_agentThreadId_and_startedAt", ["agentThreadId", "startedAt"])
     // One turn at a time per thread (security wave 1, a4 #17).
     .index("by_agentThreadId_and_status", ["agentThreadId", "status"])
+    // Phase C (W2): the alternatives of one group.
+    .index("by_agentThreadId_and_alternativeOf", ["agentThreadId", "alternativeOf"])
     .index("by_userId_and_status", ["userId", "status"])
     // Stale-turn reaper: sweep queued/running rows regardless of thread.
     .index("by_status", ["status"]),

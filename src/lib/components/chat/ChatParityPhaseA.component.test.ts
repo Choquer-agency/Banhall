@@ -466,7 +466,8 @@ describe("task 7: Continue offer after a failed send", () => {
       row("q1", "A very long old prompt.", 1, "user"), row("a1", "An answer.", 1, "assistant"),
     ]);
     __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "q1", order: 1, status: "completed", startedAt: 3, endedAt: 4, stepCount: 0 }]);
-    __setMutationResult(sendName, refusedSend({ code: "CHAT_MESSAGE_TOO_LONG", message: "x", maxChars: 128_000 }));
+    // Phase C (W2): Regenerate of a durable turn makes an alternative.
+    __setMutationResult("chatV2:sendAlternative", refusedSend({ code: "CHAT_MESSAGE_TOO_LONG", message: "x", maxChars: 128_000 }));
     await render(AgentChatPanel, { reportId, projectId });
     await page.getByRole("button", { name: "Regenerate", exact: true }).click();
     await expect.element(page.getByRole("alert"))

@@ -26,6 +26,10 @@
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import AssistantPanelSkeleton from "./AssistantPanelSkeleton.svelte";
   import StopReplyDialog from "./StopReplyDialog.svelte";
+  // Phase C (W2): Edit, Regenerate as an alternative, and the switcher.
+  import MessageEditor from "./MessageEditor.svelte";
+  import WriterMessageFooter from "./WriterMessageFooter.svelte";
+  import { alternativeAuthorLine, alternativeSwitchErrorMessage, canEditTurn } from "$lib/chat/alternatives";
   import { notificationsSupported, notifyRepliesEnabled, setNotifyReplies } from "$lib/chat/replySignal.svelte";
   import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
@@ -219,6 +223,22 @@
   );
   const messages = $derived(ui.results);
 
+  // Phase C (W2): the server leaves other alternatives' rows out of each
+  // page, so a page can come back short. Load more, a few pages at most,
+  // until enough of the conversation shows or its start is reached.
+  const SHORT_PAGE_MESSAGES = 10;
+  const MAX_SHORT_PAGE_LOADS = 5;
+  let shortPageLoads = $state(0);
+  $effect(() => { void selectedThreadId; shortPageLoads = 0; });
+  $effect(() => {
+    if (ui.status !== "CanLoadMore" || ui.results.length >= SHORT_PAGE_MESSAGES) return;
+    untrack(() => {
+      if (shortPageLoads >= MAX_SHORT_PAGE_LOADS) return;
+      shortPageLoads += 1;
+      ui.loadMore(80);
+    });
+  });
+
   const proposalsQ = useQuery(api.chatV2.listProposals, () =>
     selectedThreadId ? { threadId: selectedThreadId } : "skip"
   );
@@ -249,11 +269,17 @@
       // The newest conversation is about to be selected (an effect does it).
       !(selectedThreadId === null && !startingNewChat && (threadsQ.data?.length ?? 0) > 0) &&
       (!selectedThreadId || ui.status !== "LoadingFirstPage" || !!ui.error) &&
+      // Phase C (W2): a page with only other alternatives' rows is not an
+      // empty conversation; more is loading (below).
+      (!selectedThreadId || ui.results.length > 0 || !!ui.error || shortPageLoads >= MAX_SHORT_PAGE_LOADS ||
+        (ui.status !== "CanLoadMore" && ui.status !== "LoadingMore")) &&
       // Research only decides between the welcome and a research-only feed.
       (ui.results.length > 0 || researchSessionsQ.data !== undefined || !!researchSessionsQ.error)
   );
 
   const sendMessage = useMutation(api.chatV2.sendMessage);
+  const sendAlternative = useMutation(api.chatV2.sendAlternative);
+  const setActiveAlternative = useMutation(api.chatV2.setActiveAlternative);
   const abortStreaming = useMutation(api.chatV2.abortStreaming);
   const startResearch = useMutation(api.research.startResearch);
 
@@ -365,12 +391,16 @@
   let researchError = $state<string | null>(null);
   // "continue" is the Continue offer's message (Phase A, task 7): sent into
   // the thread like a regenerate, without consuming the composer.
-  type SendIntent = { kind: "composer" } | { kind: "regenerate" | "continue"; threadId: string };
+  type SendIntent = { kind: "composer" } | { kind: "regenerate" | "continue" | "edit"; threadId: string };
+  // Phase C (W2): Edit and Regenerate make an alternative of a turn; the
+  // server rebuilds its prompt.
+  type AlternativeSend = { kind: "edit" | "regenerate"; ofPromptMessageId: string; content?: string };
   type LocalSend = {
     key: string;
     scope: string;
     intent: SendIntent;
     args: Parameters<typeof sendMessage>[0];
+    alternative?: AlternativeSend;
     display: { content: string; highlight?: string };
     startOrder: number;
     afterOrder: number;
@@ -626,11 +656,16 @@
     // An absent timing record outside the capped window is not proof of a
     // legacy turn; it could be a stopped or still-running durable turn.
     if (!timing && turnsQ.data?.length === 200 && order < Math.min(...turnsQ.data.map(turn => turn.order))) return undefined;
+    // Phase C (W2): a durable turn's Regenerate makes an alternative, which
+    // the server rebuilds; a stopped turn may be regenerated once it stopped.
+    // A row saved before turns were recorded resends its stored prompt.
+    const turn = turnByOrder.get(order);
     const excerpt = text.replace(/\s+/g, " ").trim();
     return {
       disabled: regenerationBusy,
       description: `Regenerate response to: ${excerpt.length > 160 ? `${excerpt.slice(0, 159)}…` : excerpt}`,
-      onRegenerate: () => sendText(text, { kind: "regenerate", threadId }),
+      onRegenerate: () => sendText(text, { kind: "regenerate", threadId },
+        turn?.promptMessageId ? { kind: "regenerate", ofPromptMessageId: turn.promptMessageId } : undefined),
     };
   }
 
@@ -688,6 +723,43 @@
     const line = /^Continue with Line (242|244|246)\.$/.exec(text.trim())?.[1];
     return line ? `Continuing with Line ${line}` : "Continuing";
   }
+  // Phase C (W2): Edit on a finished writer message on the path (never an
+  // automatic link), the switcher between alternatives, and who made one.
+  let editingOrder = $state<number | null>(null);
+  let switchError = $state<{ order: number; message: string } | null>(null);
+  $effect(() => { conversationScope; editingOrder = null; switchError = null; });
+  function editOffer(order: number) {
+    if (!selectedThreadId || !canEditTurn(turnByOrder.get(order))) return undefined;
+    return { disabled: regenerationBusy || editingOrder !== null, onEdit: () => { editingOrder = order; } };
+  }
+  async function sendEdit(order: number, text: string) {
+    const turn = turnByOrder.get(order);
+    const threadId = selectedThreadId;
+    editingOrder = null;
+    if (!turn || !threadId) return;
+    await sendText(text, { kind: "edit", threadId },
+      { kind: "edit", ofPromptMessageId: turn.promptMessageId, content: text });
+  }
+  async function switchAlternative(order: number, promptMessageId: string) {
+    const threadId = selectedThreadId;
+    if (!threadId) return;
+    switchError = null;
+    try {
+      await setActiveAlternative({ threadId, promptMessageId });
+    } catch (e) {
+      switchError = { order, message: alternativeSwitchErrorMessage(e) };
+    }
+  }
+  function writerFooter(order: number) {
+    const turn = turnByOrder.get(order);
+    return {
+      edit: editOffer(order),
+      alternatives: turn?.alternatives,
+      authorLine: turn ? alternativeAuthorLine(turn.alternativeKind, turn.alternativeAuthorName, turn.fromCurrentUser) : null,
+      error: switchError?.order === order ? switchError.message : null,
+    };
+  }
+
   const SKIP_NOTES = {
     budget: "Stopped continuing automatically: this project's daily chat budget is used up.",
     no_progress: "Stopped continuing automatically because the last reply made no progress.",
@@ -838,7 +910,7 @@
     if (composerSelection) textareaEl?.focus();
   });
 
-  async function sendText(text: string, intent: SendIntent = { kind: "composer" }) {
+  async function sendText(text: string, intent: SendIntent = { kind: "composer" }, alternative?: AlternativeSend) {
     const historical = intent.kind !== "composer";
     const trimmed = historical ? text : text.trim();
     if (
@@ -898,7 +970,8 @@
     };
     const request: LocalSend = {
       key: createRequestId(), scope: conversationScope, intent, args,
-      display: historical ? splitWriterMessage(visibleWriterMessage(trimmed)) : {
+      ...(alternative ? { alternative } : {}),
+      display: alternative?.kind === "edit" ? { content: trimmed } : historical ? splitWriterMessage(visibleWriterMessage(trimmed)) : {
         content: trimmed, ...(args.highlight ? { highlight: args.highlight.text } : {}),
       },
       startOrder: Math.max(0, endOrder), afterOrder: endOrder,
@@ -934,7 +1007,15 @@
     localSends = localSends.map(candidate => candidate.key === request.key
       ? { ...candidate, retried: candidate.retried || !!retryButton, state: { kind: "sending" } } : candidate);
     try {
-      const res = await sendMessage(request.args);
+      const alternative = request.alternative;
+      const res = alternative && request.intent.kind !== "composer"
+        ? await sendAlternative({
+          threadId: request.intent.threadId,
+          ofPromptMessageId: alternative.ofPromptMessageId,
+          kind: alternative.kind,
+          ...(alternative.content !== undefined ? { content: alternative.content } : {}),
+        })
+        : await sendMessage(request.args);
       if (res.messageId) pendingSendByThread.set(res.threadId, { messageId: res.messageId, startOrder: request.startOrder });
       const isOriginVisible = conversationScope === request.scope;
       // Keep Retry mounted during transmission. On success hand keyboard focus
@@ -962,7 +1043,7 @@
       // Phase A (task 1): plain words for a refusal, never the Convex
       // client's raw "[CONVEX M(...)] [Request ID: ...]" text.
       localSends = localSends.map(candidate => candidate.key === request.key ? {
-        ...candidate, state: { kind: "failed", error: chatSendErrorMessage(e, { resend: request.intent.kind !== "composer" }) },
+        ...candidate, state: { kind: "failed", error: chatSendErrorMessage(e, { resend: request.intent.kind !== "composer" && request.intent.kind !== "edit" }) },
       } : candidate);
     } finally {
       sending = false;
@@ -974,7 +1055,8 @@
   );
 
   const isEmpty = $derived(!messages || messages.length === 0);
-  const isConversationEmpty = $derived(isEmpty && visibleLocalSends.length === 0 && !hasResearch && !pendingResearch);
+  // Phase C (W2): older pages may still hold this path's messages.
+  const isConversationEmpty = $derived(isEmpty && visibleLocalSends.length === 0 && !hasResearch && !pendingResearch && !canLoadOlder);
 
   // Typing dots while the reply hasn't started streaming text yet.
   const lastMessage = $derived(
@@ -1622,22 +1704,29 @@
             <div class="flex justify-center" data-auto-continue-chip>
               <span class="rounded-full bg-chrome px-2.5 py-0.5 text-[0.6875rem] leading-4 text-ink-muted">{chip}</span>
             </div>
-          {:else if author}
-            <!-- Phase B: who wrote it, when more than one person wrote here. -->
-            <div class="flex flex-col gap-1">
-              <p class="text-right text-[0.6875rem] leading-4 text-ink-muted" data-message-author>{author}</p>
-              <Message role="user">
-                <MessageContent class="min-w-0 [overflow-wrap:anywhere]">
-                  {@render writerContent(split)}
-                </MessageContent>
-              </Message>
-            </div>
           {:else}
-            <Message role="user">
-              <MessageContent class="min-w-0 [overflow-wrap:anywhere]">
-                {@render writerContent(split)}
-              </MessageContent>
-            </Message>
+            {@const footer = writerFooter(m.order)}
+            <div class="group flex flex-col gap-1">
+              {#if author}
+                <!-- Phase B: who wrote it, when more than one person wrote here. -->
+                <p class="text-right text-[0.6875rem] leading-4 text-ink-muted" data-message-author>{author}</p>
+              {/if}
+              {#if editingOrder === m.order}
+                <!-- Phase C (W2): Enter sends an alternative, Escape cancels. -->
+                <MessageEditor initial={split.content.trim()} disabled={regenerationBusy}
+                  onSend={(text) => sendEdit(m.order, text)} onCancel={() => (editingOrder = null)} />
+              {:else}
+                <Message role="user">
+                  <MessageContent class="min-w-0 [overflow-wrap:anywhere]">
+                    {@render writerContent(split)}
+                  </MessageContent>
+                </Message>
+              {/if}
+              <WriterMessageFooter edit={editingOrder === m.order ? undefined : footer.edit}
+                alternatives={footer.alternatives} switchDisabled={regenerationBusy}
+                onSwitch={(promptMessageId) => switchAlternative(m.order, promptMessageId)}
+                authorLine={footer.authorLine} error={footer.error} />
+            </div>
           {/if}
           {#if !turnPrompts.assistantOrders.has(m.order) && timingByOrder.has(m.order)}
             <!-- Keep a durable turn without an assistant row at its prompt's

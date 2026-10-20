@@ -912,8 +912,14 @@ describe("regeneration association", () => {
     expect(associateTurnPrompts([assistant([])]).promptByAssistantId.size).toBe(0);
     expect(associateTurnPrompts([assistant([{ type: "text", text: " " }], { role: "user" }), assistant([])]).promptByAssistantId.size).toBe(0);
   });
-  it.each(["queued", "running", "aborted"] as const)("suppresses durable %s even with a successful row", status => {
+  it.each(["queued", "running"] as const)("suppresses durable %s even with a successful row", status => {
     expect(canRegenerateTurn("success", { status, stepCount: 0 })).toBe(false);
+  });
+  // Phase C (W2): Regenerate after Stop, once the turn stopped streaming.
+  it("offers a stopped turn once it is no longer streaming", () => {
+    expect(canRegenerateTurn("success", { status: "aborted", stepCount: 0 })).toBe(true);
+    expect(canRegenerateTurn(undefined, { status: "aborted", stepCount: 0 })).toBe(true);
+    expect(canRegenerateTurn("streaming", { status: "aborted", stepCount: 0 })).toBe(false);
   });
   it.each(["streaming", "pending"] as const)("suppresses %s even with completed timing", status => {
     expect(canRegenerateTurn(status, { status: "completed", stepCount: 0 })).toBe(false);

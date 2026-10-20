@@ -55,7 +55,8 @@ it("does not treat timing omitted by the newest-200 cap as legacy", async () => 
   __setQueryData("chatV2:listTurns", turns(2));
   await render(AgentChatPanel, { reportId, projectId });
   await expect.poll(() => regenerate().elements().length).toBe(1);
-  __setQueryData("chatV2:listTurns", [{ _id: "old", order: 1, status: "aborted", stepCount: 0 }, ...turns(2).slice(1)]);
+  // Phase C (W2): a stopped turn may now be regenerated, so a running one stands in.
+  __setQueryData("chatV2:listTurns", [{ _id: "old", order: 1, status: "running", stepCount: 0 }, ...turns(2).slice(1)]);
   await expect.poll(() => regenerate().elements().length).toBe(1);
 });
 

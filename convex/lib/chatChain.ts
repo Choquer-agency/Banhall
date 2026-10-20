@@ -12,6 +12,7 @@ import {
 } from "./chatTurnState";
 import { turnSenders } from "./chatAuthors";
 import { threadWebSearchOn } from "./chatWebSearches";
+import { appendTurnAtTip, chatTipTurn, loadChatPath } from "./chatPath";
 
 /**
  * Report chat parity, Phase B (2026-10-20), W2: a long job carries on by
@@ -49,13 +50,12 @@ async function turnByPrompt(ctx: QueryCtx, key: ChainTurnKey) {
     .unique();
 }
 
-/** The thread's newest turn by order. */
+/**
+ * Phase C (W2): the newest turn of the active path (the tip), which is the
+ * thread's newest turn when it has no alternatives.
+ */
 async function newestTurn(ctx: QueryCtx, agentThreadId: string) {
-  return await ctx.db
-    .query("chatTurns")
-    .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", agentThreadId))
-    .order("desc")
-    .first();
+  return await chatTipTurn(ctx, agentThreadId);
 }
 
 async function hasActiveTurn(ctx: QueryCtx, agentThreadId: string): Promise<boolean> {
@@ -101,14 +101,27 @@ export const CHAIN_HISTORY_LIMIT = 50;
  * before it, newest first, and the turn that started the job (the first one
  * a person sent), bounded to CHAIN_HISTORY_LIMIT turns.
  */
-async function chainBefore(ctx: QueryCtx, agentThreadId: string, order: number) {
-  const turns = await ctx.db
-    .query("chatTurns")
-    .withIndex("by_agentThreadId_and_order", (q) =>
-      q.eq("agentThreadId", agentThreadId).lt("order", order)
-    )
-    .order("desc")
-    .take(CHAIN_HISTORY_LIMIT);
+async function chainBefore(ctx: QueryCtx, turn: Doc<"chatTurns">) {
+  // Phase C (W2): the turns above `turn` on the active path, newest first,
+  // walking parents (by order when the thread has no alternatives).
+  const path = await loadChatPath(ctx, turn.agentThreadId);
+  const turns: Doc<"chatTurns">[] = [];
+  if (path) {
+    let above = path.turns.find((row) => row._id === turn._id);
+    for (above = above ? path.parentOf(above) ?? undefined : undefined;
+      above && turns.length < CHAIN_HISTORY_LIMIT;
+      above = path.parentOf(above) ?? undefined) {
+      turns.push(above);
+    }
+  } else {
+    turns.push(...await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_order", (q) =>
+        q.eq("agentThreadId", turn.agentThreadId).lt("order", turn.order)
+      )
+      .order("desc")
+      .take(CHAIN_HISTORY_LIMIT));
+  }
   const offers: Array<Doc<"chatTurns">["continuation"]> = [];
   for (const turn of turns) {
     offers.push(turn.continuation);
@@ -173,7 +186,7 @@ export async function continueChain(ctx: MutationCtx, key: ChainTurnKey): Promis
   const progressed = continuation.reason === "lines_left" || (await turnSavedAnyProposal(ctx, key));
   if (!progressed) return await skip("no_progress");
   if (turn.origin === "auto_continue") {
-    const earlier = await chainBefore(ctx, key.agentThreadId, turn.order);
+    const earlier = await chainBefore(ctx, turn);
     if (!chainLinkMadeProgress(earlier, continuation)) return await skip("no_progress");
   }
 
@@ -190,7 +203,7 @@ export async function continueChain(ctx: MutationCtx, key: ChainTurnKey): Promis
     userId,
     message: { role: "user", content: autoContinueMessage(continuation) },
   });
-  await ctx.db.insert("chatTurns", {
+  const linkId = await ctx.db.insert("chatTurns", {
     userId,
     agentThreadId: key.agentThreadId,
     promptMessageId: messageId,
@@ -199,6 +212,8 @@ export async function continueChain(ctx: MutationCtx, key: ChainTurnKey): Promis
     stepCount: 0,
     origin: "auto_continue",
   });
+  // Phase C (W2): a link's parent is the turn it continues; it becomes the tip.
+  await appendTurnAtTip(ctx, { _id: linkId, agentThreadId: key.agentThreadId, promptMessageId: messageId }, turn.promptMessageId);
   // Brain off; web search from the conversation's own setting.
   await ctx.scheduler.runAfter(0, internal.ai.chatAgentV2.streamChatReply, {
     agentThreadId: key.agentThreadId,
@@ -237,13 +252,16 @@ export async function stopChainAfter(
   if (newest.origin !== "auto_continue" || (newest.status !== "queued" && newest.status !== "running")) {
     return { stopped: false };
   }
-  const before = await ctx.db
-    .query("chatTurns")
-    .withIndex("by_agentThreadId_and_order", (q) =>
-      q.eq("agentThreadId", turn.agentThreadId).lt("order", newest.order)
-    )
-    .order("desc")
-    .first();
+  // Phase C (W2): the link's parent, the turn it continues.
+  const before = newest.parentPromptMessageId !== undefined
+    ? await turnByPrompt(ctx, { agentThreadId: turn.agentThreadId, promptMessageId: newest.parentPromptMessageId })
+    : await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_order", (q) =>
+        q.eq("agentThreadId", turn.agentThreadId).lt("order", newest.order)
+      )
+      .order("desc")
+      .first();
   if (before?._id !== turn._id) return { stopped: false };
   await ctx.db.patch(newest._id, { status: "aborted", endedAt: now });
   return { stopped: true, linkOrder: newest.order };

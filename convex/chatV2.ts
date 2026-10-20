@@ -122,6 +122,19 @@ import {
   webSourceValidator,
 } from "./lib/chatWebSearches";
 import { appliedChangeFor, parseReportDocument, undoAppliedHunks } from "./lib/appliedChange";
+// Chat parity Phase C (W2): alternatives and the active path.
+import {
+  appendTurnAtTip,
+  excerptBlock,
+  loadChatPath,
+  pathTurnsNewestFirst,
+  readChatPath,
+  refinableProposal,
+  refinementBlock,
+  setChatTip,
+  writerTextOf,
+  type ChatPath,
+} from "./lib/chatPath";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -303,17 +316,22 @@ export const listMessages = query({
       ...paginated.page.filter(messageHasReasoning).map((message) => message.order),
       ...reasoningStreamOrders,
     ]);
+    // Phase C (W2): only the active path's messages and streams. A filtered
+    // page can come back short; the panel loads more.
+    const path = await loadChatPath(ctx, args.threadId, thread);
+    const onPath = (order: number | undefined) => !path || (order !== undefined && path.onPathOrder(order));
     return { ...paginated,
-      page: paginated.page.map((message) =>
+      page: paginated.page.filter((message) => onPath(message.order)).map((message) =>
         publicChatMessage(message, { brainSearched: brainOrders.has(message.order) })),
       streams: streams?.kind === "deltas"
-        ? { ...streams, deltas: streams.deltas.map((delta) => {
+        ? { ...streams, deltas: streams.deltas.filter((delta) => onPath(streamOrders.get(delta.streamId))).map((delta) => {
           const order = streamOrders.get(delta.streamId);
           return publicChatDelta(delta, { brainSearched: order !== undefined && brainOrders.has(order) });
         }) }
         : streams?.kind === "list"
-          ? { ...streams, messages: streams.messages.map(({ streamId, status, format, order, stepOrder }) =>
-            ({ streamId, status, format, order, stepOrder })) }
+          ? { ...streams, messages: streams.messages.filter((stream) => onPath(stream.order))
+            .map(({ streamId, status, format, order, stepOrder }) =>
+              ({ streamId, status, format, order, stepOrder })) }
           : streams };
   },
 });
@@ -356,8 +374,12 @@ export const listProposals = query({
       agentThreadId: args.threadId,
       ...window,
     });
+    // Phase C (W2): only the active path's cards. A card applied on another
+    // path stays there, and a pending one keeps its state, hidden.
+    const path = await loadChatPath(ctx, args.threadId, thread);
+    const onPath = (promptMessageId: string | undefined) => !path || path.onPathPrompt(promptMessageId);
     const promptMessageIds = [
-      ...new Set(turns.map((turn) => turn.promptMessageId)),
+      ...new Set(turns.filter((turn) => onPath(turn.promptMessageId)).map((turn) => turn.promptMessageId)),
     ];
     const proposalsByTurn = await Promise.all(
       promptMessageIds.map(async (promptMessageId) =>
@@ -382,7 +404,7 @@ export const listProposals = query({
       .take(UNANCHORED_PROPOSAL_LIMIT);
     const placed = unanchored.flatMap((proposal) => {
       const match = matchProposalTurn(proposal.createdAt, turns);
-      return match.kind === "match"
+      return match.kind === "match" && onPath(match.turn.promptMessageId)
         ? [{ ...proposal, promptMessageId: match.turn.promptMessageId }]
         : [];
     });
@@ -424,10 +446,13 @@ export const listTurns = query({
     const access = await getInternalProjectAccessOrNull(ctx, thread.projectId);
     if (!access) return [];
 
-    const turns = await loadNewestTurns(ctx, {
+    // Phase C (W2): only the active path's turns, each with its place among
+    // its alternatives (`alternatives`, when there is more than one).
+    const path = await loadChatPath(ctx, args.threadId, thread);
+    const turns = (await loadNewestTurns(ctx, {
       agentThreadId: args.threadId,
       ...window,
-    });
+    })).filter((turn) => !path || path.onPathPrompt(turn.promptMessageId));
     // Phase B (2026-10-20), W2: each turn's sender by name (never an email)
     // and whether it is the viewer, for author labels and the Stop check.
     const senders = await turnSenders(ctx, turns);
@@ -438,10 +463,13 @@ export const listTurns = query({
     return turns.map(({ brainSearchedAt: _serverOnly, chainStoppedAt: _chainOnly, ...turn }) => {
       const sender = senders.get(turn._id) ?? null;
       const senderName = sender ? names.get(sender) : undefined;
+      const alternatives = path?.group(turn);
       return {
         ...turn,
         ...(senderName ? { senderName } : {}),
         fromCurrentUser: sender === access.user._id,
+        ...(alternatives ? { alternatives } : {}),
+        ...(turn.alternativeKind && senderName ? { alternativeAuthorName: senderName } : {}),
       };
     });
   },
@@ -701,14 +729,8 @@ export const sendMessage = mutation({
     let refineProposal;
     if (args.refineProposalId) {
       refineProposal = await ctx.db.get(args.refineProposalId);
-      if (
-        !refineProposal ||
-        refineProposal.reportId !== report._id ||
-        refineProposal.projectId !== report.projectId ||
-        refineProposal.kind === "references" ||
-        // DW-135: a record-only revision has no wording to refine.
-        isRecordOnlyProposal(refineProposal)
-      ) {
+      // DW-135: a record-only revision has no wording to refine.
+      if (!refinableProposal(refineProposal, report)) {
         throw new Error("Suggestion not found");
       }
     }
@@ -767,15 +789,8 @@ export const sendMessage = mutation({
       });
     }
 
-    const excerpt = args.highlight
-      ? `\n\n[Writer highlighted this excerpt from the report]:\n"""${args.highlight.text}"""`
-      : "";
-    const refinement = refineProposal
-      ? `\n\n[Writer is refining suggestion ${refineProposal._id}. Keep this exact canonical report target:]
-"""${proposalPairs(refineProposal).map((pair) => pair.find).join("\n---\n")}"""
-[Current candidate wording:]
-"""${proposalPairs(refineProposal).map((pair) => pair.replaceWith).join("\n---\n")}"""`
-      : "";
+    const excerpt = args.highlight ? excerptBlock(args.highlight.text) : "";
+    const refinement = refineProposal ? refinementBlock(refineProposal) : "";
     const { messageId, message } = await saveMessage(ctx, components.agent, {
       threadId: agentThreadId,
       userId,
@@ -799,7 +814,7 @@ export const sendMessage = mutation({
         .take(50);
       highlight = earlier.find((turn) => turn.highlight?.text === quoted)?.highlight;
     }
-    await ctx.db.insert("chatTurns", {
+    const turnId = await ctx.db.insert("chatTurns", {
       userId,
       agentThreadId,
       promptMessageId: messageId,
@@ -807,7 +822,16 @@ export const sendMessage = mutation({
       status: "queued",
       stepCount: 0,
       ...(highlight ? { highlight } : {}),
+      // Phase C (W2): what Edit and Regenerate rebuild the prompt from.
+      ...(refineProposal ? { refineProposalId: refineProposal._id } : {}),
+      // A resent stored prompt (an older page's Regenerate) carries server
+      // blocks in its text: it is cut at the first block instead.
+      ...(writerTextOf(args.content, undefined) === args.content
+        ? { writerTextLength: args.content.length }
+        : {}),
     });
+    // Phase C (W2): the turn follows the tip, and becomes it.
+    await appendTurnAtTip(ctx, { _id: turnId, agentThreadId, promptMessageId: messageId });
 
     // Phase B (W3): `allowWeb` is the conversation's setting at send time; the
     // turn runs with the stored setting.
@@ -826,6 +850,145 @@ export const sendMessage = mutation({
     });
 
     return { threadId: agentThreadId, messageId };
+  },
+});
+
+/**
+ * Phase C (W2): the CHAT_TURN_ACTIVE refusal `sendMessage` gives, for the
+ * alternative and switcher mutations: one reply runs at a time per thread.
+ */
+async function refuseWhileReplyRuns(
+  ctx: MutationCtx,
+  agentThreadId: string,
+  userId: Id<"users">
+): Promise<void> {
+  const activeTurn = await otherActiveTurn(ctx, agentThreadId);
+  if (!activeTurn) return;
+  const sender = await turnSenderName(ctx, activeTurn);
+  domainError(
+    "CHAT_TURN_ACTIVE",
+    "A reply is still being written in this chat. Wait for it to finish, or press Stop if it seems stuck, then send again.",
+    sender.name && sender.userId !== userId ? { senderName: sender.name } : undefined
+  );
+}
+
+/**
+ * Chat parity Phase C (2026-10-20), W2: Edit and Regenerate make an
+ * alternative, a sibling of a finished turn on the active path
+ * (`convex/lib/chatPath.ts`). The same access and admission as a send, and
+ * CHAT_TURN_ACTIVE while a reply runs. The prompt is rebuilt here from the
+ * source turn, never from client text: the writer's text (`writerTextLength`,
+ * or for an older turn everything before the first server block; an edit
+ * gives new text, held to the message limit), the highlight from
+ * `turn.highlight`, and the refinement block from `turn.refineProposalId`
+ * with the checks a send makes, dropped when that card is no longer pending.
+ * Pinned files are copied. A new prompt is always saved (a promptMessageId is
+ * never reused), the turn takes the source's parent, becomes the tip, and its
+ * reply is scheduled. Brain is off; web search follows the conversation.
+ */
+export const sendAlternative = mutation({
+  args: {
+    threadId: v.string(),
+    ofPromptMessageId: v.string(),
+    kind: v.union(v.literal("edit"), v.literal("regenerate")),
+    content: v.optional(v.string()),
+  },
+  returns: v.object({ threadId: v.string(), messageId: v.string() }),
+  handler: async (ctx, args) => {
+    const thread = await threadRow(ctx, args.threadId);
+    if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
+    const { user } = await requireInternalProjectAccess(ctx, thread.projectId);
+    const report = await ctx.db.get(thread.reportId);
+    if (!report || report.projectId !== thread.projectId) throw new Error("Report not found");
+    requireAnthropicConfigured("chat");
+    const userId = user._id;
+    if (args.kind === "edit") {
+      if (args.content === undefined) domainError("INVALID_INPUT", "An edit needs the new message.");
+      if (args.content.length > MAX_CHAT_MESSAGE_CHARS) messageTooLong("message", MAX_CHAT_MESSAGE_CHARS);
+    } else if (args.content !== undefined) {
+      domainError("INVALID_INPUT", "Regenerate resends the message as it was.");
+    }
+    await refuseWhileReplyRuns(ctx, args.threadId, userId);
+
+    const path = await readChatPath(ctx, args.threadId, thread.activeTipPromptMessageId);
+    const source = path.path.find((turn) => turn.promptMessageId === args.ofPromptMessageId);
+    if (!source || source.status === "queued" || source.status === "running") {
+      domainError("NOT_FOUND", "That message is no longer in this conversation.");
+    }
+    if (args.kind === "edit" && source.origin === "auto_continue") {
+      domainError("INVALID_INPUT", "An automatic Continue message cannot be edited.");
+    }
+    await assertChatAdmission(ctx, thread.projectId, userId);
+
+    const [stored] = await ctx.runQuery(components.agent.messages.getMessagesByIds, {
+      messageIds: [source.promptMessageId],
+    });
+    const storedText = stored?.threadId === args.threadId ? promptText(stored) : "";
+    const writerText = args.kind === "edit" ? args.content! : writerTextOf(storedText, source.writerTextLength);
+    // An older turn that kept no highlight positions: its excerpt as stored.
+    const legacyExcerpt = !source.highlight && source.writerTextLength === undefined
+      ? /\[Writer highlighted this excerpt from the report\]:\n"""([\s\S]*?)"""/.exec(storedText)?.[1]
+      : undefined;
+    const excerptText = source.highlight?.text ?? legacyExcerpt;
+    if (!writerText.trim() && excerptText === undefined) throw new Error("Message is empty");
+    const candidate = source.refineProposalId ? await ctx.db.get(source.refineProposalId) : null;
+    const refineProposal = refinableProposal(candidate, report) && candidate.state === "pending" ? candidate : null;
+    const content = `${writerText}${excerptText !== undefined ? excerptBlock(excerptText) : ""}${refineProposal ? refinementBlock(refineProposal) : ""}`;
+
+    const { messageId, message } = await saveMessage(ctx, components.agent, {
+      threadId: args.threadId,
+      userId,
+      message: { role: "user", content },
+    });
+    const parentPromptMessageId = source.parentPromptMessageId ?? path.parentOf(source)?.promptMessageId;
+    const pinnedDocumentIds = source.pinnedDocumentIds?.length ? source.pinnedDocumentIds : undefined;
+    await ctx.db.insert("chatTurns", {
+      userId,
+      agentThreadId: args.threadId,
+      promptMessageId: messageId,
+      order: message.order,
+      status: "queued",
+      stepCount: 0,
+      ...(source.highlight ? { highlight: source.highlight } : {}),
+      ...(refineProposal ? { refineProposalId: refineProposal._id } : {}),
+      writerTextLength: writerText.length,
+      ...(pinnedDocumentIds ? { pinnedDocumentIds } : {}),
+      ...(parentPromptMessageId !== undefined ? { parentPromptMessageId } : {}),
+      alternativeOf: source.alternativeOf ?? source.promptMessageId,
+      alternativeKind: args.kind,
+    });
+    await setChatTip(ctx, args.threadId, messageId);
+
+    await ctx.scheduler.runAfter(0, internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: args.threadId,
+      promptMessageId: messageId,
+      reportId: thread.reportId,
+      userId,
+      ...(threadWebSearchOn(thread) ? { allowWeb: true } : {}),
+      ...(pinnedDocumentIds ? { pinnedDocumentIds } : {}),
+    });
+    return { threadId: args.threadId, messageId };
+  },
+});
+
+/**
+ * Phase C (W2): the switcher. Shows another alternative by making the newest
+ * turn under it the tip, for everyone on the conversation. Refused while a
+ * reply runs.
+ */
+export const setActiveAlternative = mutation({
+  args: { threadId: v.string(), promptMessageId: v.string() },
+  returns: v.object({ tipPromptMessageId: v.string() }),
+  handler: async (ctx, args) => {
+    const thread = await threadRow(ctx, args.threadId);
+    if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
+    const { user } = await requireInternalProjectAccess(ctx, thread.projectId);
+    await refuseWhileReplyRuns(ctx, args.threadId, user._id);
+    const path = await readChatPath(ctx, args.threadId, thread.activeTipPromptMessageId);
+    const leaf = path.newestLeafUnder(args.promptMessageId);
+    if (!leaf) domainError("NOT_FOUND", "That response is no longer in this conversation.");
+    await setChatTip(ctx, args.threadId, leaf.promptMessageId);
+    return { tipPromptMessageId: leaf.promptMessageId };
   },
 });
 
@@ -1617,6 +1780,25 @@ export const setTurnHistoryStart = internalMutation({
 });
 
 /**
+ * Phase C (W2): the active path for the model's history, or null when
+ * nothing is hidden (no alternatives): the message orders on the path, and
+ * the order below which everything counts as on it (older than the turns
+ * read, `convex/lib/chatPath.ts`).
+ */
+export const getChatHistoryPath = internalQuery({
+  args: { agentThreadId: v.string() },
+  returns: v.union(v.null(), v.object({ orders: v.array(v.number()), belowOrder: v.number() })),
+  handler: async (ctx, args) => {
+    const path = await loadChatPath(ctx, args.agentThreadId);
+    if (!path || path.linear) return null;
+    return {
+      orders: path.path.map((turn) => turn.order),
+      belowOrder: path.turns[0]?.order ?? Number.MAX_SAFE_INTEGER,
+    };
+  },
+});
+
+/**
  * Phase A (2026-10-19): set by the searchBrain tool before it searches, so
  * the turn's reasoning summaries are withheld from the browser from then on.
  * The tool searches nothing when this returns false.
@@ -1663,13 +1845,11 @@ function promptText(doc: { text?: string; message?: { content?: unknown } } | nu
  */
 async function currentJob(
   ctx: QueryCtx | MutationCtx,
-  agentThreadId: string
+  agentThreadId: string,
+  path?: ChatPath<Doc<"chatTurns">> | null
 ): Promise<{ startOrder: number; orderByPrompt: Map<string, number> } | null> {
-  const turns = await ctx.db
-    .query("chatTurns")
-    .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", agentThreadId))
-    .order("desc")
-    .take(JOB_TURN_SCAN);
+  // Phase C (W2): the active path's turns, walked up from the tip.
+  const turns = await pathTurnsNewestFirst(ctx, agentThreadId, JOB_TURN_SCAN, path);
   if (turns.length === 0) return null;
   const orderByPrompt = new Map(turns.map((turn) => [turn.promptMessageId, turn.order]));
   try {
@@ -1699,8 +1879,12 @@ async function threadCoverageRows(
   agentThreadId: string,
   promptMessageId?: string
 ): Promise<{ rows: ItemCoverageRow[]; promptSavedReport: boolean }> {
+  // Phase C (W2): the active path's cards, plus cards applied on any path
+  // (the report holds them); pending, rejected and stale cards of another
+  // path are left out.
+  const path = await loadChatPath(ctx, agentThreadId);
   // Round 3 (P2-A): the job only scopes cards that recorded no fingerprint.
-  const job = await currentJob(ctx, agentThreadId);
+  const job = await currentJob(ctx, agentThreadId, path);
   const inCurrentJob = (proposalPrompt: string | undefined) => {
     if (!job || proposalPrompt === undefined) return false;
     const order = job.orderByPrompt.get(proposalPrompt);
@@ -1715,6 +1899,7 @@ async function threadCoverageRows(
   let promptSavedReport = false;
   for (const proposal of proposals) {
     if (proposal.kind !== "replacements") continue;
+    if (path && proposal.state !== "applied" && !path.onPathPrompt(proposal.promptMessageId)) continue;
     const items = await ctx.db
       .query("chatProposalItems")
       .withIndex("by_proposalId", (q) => q.eq("proposalId", proposal._id))
@@ -1788,11 +1973,8 @@ export const getThreadCoverageState = internalQuery({
     const { rows } = await threadCoverageRows(ctx, args.agentThreadId);
     const items = itemCoverage(rows);
     const pendingParagraphs = pendingCardParagraphs(rows);
-    const offered = await ctx.db
-      .query("chatTurns")
-      .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", args.agentThreadId))
-      .order("desc")
-      .take(JOB_TURN_SCAN);
+    // Phase C (W2): the newest turn with an offer on the active path.
+    const offered = await pathTurnsNewestFirst(ctx, args.agentThreadId, JOB_TURN_SCAN);
     const stored: WaitingItem[] = offered.find((turn) => turn.continuation)?.continuation?.waiting ?? [];
     const stillOpen = stored.filter(
       (item) => coverageFor(items, { id: item.itemId })?.handled !== true
@@ -2864,7 +3046,11 @@ export const getChatContextV2 = internalQuery({
         // edit decision out of the model's memory. Still bounded and charged.
         .take(24)
     );
+    // Phase C (W2): the active path's cards, plus cards applied on any path.
+    const path = await loadChatPath(ctx, args.agentThreadId);
+    if (path) budget.charge(path.turns);
     const decisions = proposals
+      .filter((p) => !path || p.state === "applied" || path.onPathPrompt(p.promptMessageId))
       // Highlights and record-only revisions (DW-135) carry no edit the writer
       // decided on; listing one as "[Edit N: APPLIED]" with an empty target
       // would hand the model a decision nobody made.

@@ -7,8 +7,10 @@ import {
   createTool,
   stepCountIs,
   saveMessage,
+  docsToModelMessages,
   type ContextOptions,
 } from "@convex-dev/agent";
+import { onHistoryPath } from "../lib/chatPath";
 import type { ModelMessage } from "ai";
 // The report chat assistant calls Anthropic directly with ANTHROPIC_API_KEY,
 // whatever ANTHROPIC_TRANSPORT says (owner decision 30, 2026-09-25: chat
@@ -1062,33 +1064,76 @@ export function chatTurnNote(args: {
     .join("\n");
 }
 
+/**
+ * Phase C (W2): pages of history read, at most, to fill the window with the
+ * active path's rows when other alternatives sit between them.
+ */
+const CHAT_PATH_HISTORY_PAGES = 5;
+
 async function chatContextWindow(
   ctx: ActionCtx,
   args: { agentThreadId: string; promptMessageId: string }
-): Promise<{ options: ContextOptions; historyStartOrder?: number }> {
+): Promise<{ options: ContextOptions; historyStartOrder?: number; pathRecent?: ModelMessage[] }> {
   try {
-    const probe = await ctx.runQuery(components.agent.messages.listMessagesByThreadId, {
-      threadId: args.agentThreadId,
-      excludeToolMessages: CHAT_CONTEXT_OPTIONS.excludeToolMessages,
-      paginationOpts: { numItems: CHAT_HISTORY_PROBE_ROWS, cursor: null },
-      upToAndIncludingMessageId: args.promptMessageId,
-      order: "desc",
-      statuses: ["success"],
-    });
-    const recentMessages = chatHistoryWindowRows(probe.page, {
+    // Phase C (W2): when the conversation has alternatives, the model reads
+    // only the active path. Null (nothing hidden) keeps the plain window.
+    const historyPath: { orders: number[]; belowOrder: number } | null = await ctx.runQuery(
+      internal.chatV2.getChatHistoryPath,
+      { agentThreadId: args.agentThreadId }
+    );
+    const readPage = (cursor: string | null) =>
+      ctx.runQuery(components.agent.messages.listMessagesByThreadId, {
+        threadId: args.agentThreadId,
+        excludeToolMessages: CHAT_CONTEXT_OPTIONS.excludeToolMessages,
+        paginationOpts: { numItems: CHAT_HISTORY_PROBE_ROWS, cursor },
+        upToAndIncludingMessageId: args.promptMessageId,
+        order: "desc",
+        statuses: ["success"],
+      });
+    const probe = await readPage(null);
+    let rows = probe.page;
+    let complete = probe.isDone;
+    let promptOrder: number | undefined;
+    if (historyPath) {
+      promptOrder = probe.page.find((row) => row._id === args.promptMessageId)?.order ?? probe.page[0]?.order;
+      const onPath = onHistoryPath(historyPath, promptOrder);
+      rows = probe.page.filter((row) => onPath(row.order));
+      let cursor = probe.continueCursor;
+      for (let pages = 1; !complete && rows.length < CHAT_HISTORY_PROBE_ROWS && pages < CHAT_PATH_HISTORY_PAGES; pages++) {
+        const next = await readPage(cursor);
+        rows = [...rows, ...next.page.filter((row) => onPath(row.order))];
+        cursor = next.continueCursor;
+        complete = next.isDone;
+      }
+    }
+    const recentMessages = chatHistoryWindowRows(rows, {
       maxRows: CHAT_CONTEXT_OPTIONS.recentMessages,
       chunkTurns: CHAT_HISTORY_CHUNK_TURNS,
-      complete: probe.isDone,
+      complete,
     });
-    const historyStartOrder = chatHistoryStartOrder(probe.page, {
+    const historyStartOrder = chatHistoryStartOrder(rows, {
       recentMessages,
-      complete: probe.isDone,
+      complete,
     });
     const options =
       recentMessages === CHAT_CONTEXT_OPTIONS.recentMessages
         ? CHAT_CONTEXT_OPTIONS
         : { ...CHAT_CONTEXT_OPTIONS, recentMessages };
-    return historyStartOrder === undefined ? { options } : { options, historyStartOrder };
+    // The path's rows before the prompt, oldest first, in place of the
+    // library's `recent` (which reads every alternative by order).
+    const pathRecent = historyPath
+      ? docsToModelMessages(
+          rows
+            .slice(0, recentMessages)
+            .filter((row) => promptOrder === undefined || row.order < promptOrder)
+            .sort((left, right) => left.order - right.order || left.stepOrder - right.stepOrder)
+        )
+      : undefined;
+    return {
+      options,
+      ...(historyStartOrder === undefined ? {} : { historyStartOrder }),
+      ...(pathRecent ? { pathRecent } : {}),
+    };
   } catch (error) {
     // The window only affects caching; the plain bound is always safe. Where
     // it starts is then unknown, so nothing is recorded.
@@ -1778,6 +1823,9 @@ export const streamChatReply = internalAction({
     allowBrain: v.optional(v.boolean()),
     // 2026-10-19: web search for this message, authorized the same way.
     allowWeb: v.optional(v.boolean()),
+    // Chat parity Phase C (W1 contract): files pinned into this message.
+    // W2's `sendAlternative` copies the source turn's pins here.
+    pinnedDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
   },
   handler: async (ctx, args) => {
     const startedAt = Date.now();
@@ -2169,8 +2217,14 @@ export const streamChatReply = internalAction({
               usageHandler: turnModel.usageHandler,
               // Evidence head before the history, per-turn tail after the
               // prompt: see arrangeChatContext for the cache layout.
+              // Phase C (W2): with alternatives, the history is the active
+              // path's rows only (`recent` replaced; prompt and this turn's
+              // replies kept), so no sibling reply reaches the model.
               contextHandler: async (_ctx, parts) =>
-                arrangeChatContext(turn.headCount, parts),
+                arrangeChatContext(
+                  turn.headCount,
+                  history.pathRecent ? { ...parts, recent: history.pathRecent } : parts
+                ),
             }
           );
           await result.consumeStream();
