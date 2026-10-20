@@ -353,7 +353,10 @@ export const viewFileForChat = internalQuery({
       mediaType: media.mediaType,
       storageId: doc.storageId,
       size: stored.size,
-      ...(media.kind === "pdf" && doc.pageCount !== undefined ? { pageCount: doc.pageCount } : {}),
+      // Trusted only for the original it was counted from.
+      ...(media.kind === "pdf" && doc.pageCount !== undefined && doc.pageCountStorageId === doc.storageId
+        ? { pageCount: doc.pageCount }
+        : {}),
       ...(doc.category ? { category: doc.category } : {}),
       ...(doc.uploaderRole ? { uploaderRole: doc.uploaderRole } : {}),
     };
@@ -375,8 +378,9 @@ export const storePdfPageCount = internalMutation({
     const doc = await ctx.db.get(args.documentId);
     if (!doc || doc.storageId !== args.storageId || doc.fileType !== "pdf") return null;
     const pageCount = Math.floor(args.pageCount);
-    if (pageCount < 1 || doc.pageCount === pageCount) return null;
-    await ctx.db.patch(args.documentId, { pageCount });
+    if (pageCount < 1) return null;
+    if (doc.pageCount === pageCount && doc.pageCountStorageId === args.storageId) return null;
+    await ctx.db.patch(args.documentId, { pageCount, pageCountStorageId: args.storageId });
     return null;
   },
 });

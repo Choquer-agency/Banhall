@@ -148,7 +148,12 @@ const paragraph = (text: string) => ({ type: "paragraph", content: [{ type: "tex
 const heading = (text: string) => ({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text }] });
 
 /** Fictional image bytes: a PNG signature, then a sentinel. */
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new TextEncoder().encode("FICTIONAL_FIGURE_PIXELS")]);
+/** A PNG signature and a 640 by 480 IHDR, then a sentinel. */
+const PNG = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52,
+  0, 0, 2, 128, 0, 0, 1, 224, 8, 6, 0, 0, 0, 1, 2, 3, 4,
+  ...new TextEncoder().encode("FICTIONAL_FIGURE_PIXELS"),
+]);
 const PDF = new TextEncoder().encode("%PDF-1.4\nFICTIONAL_SCAN_PAGES\n%%EOF\n");
 const PNG_DATA = toBase64(PNG);
 const PDF_DATA = toBase64(PDF);
@@ -179,12 +184,15 @@ async function setup(options: { visionOff?: boolean } = {}) {
     const figureId = await file("figure.png", {
       fileType: "image", processingStatus: "reference_only", storageId: await store(PNG, "image/png"), mimeType: "image/png",
     });
+    // Stored counts, each taken from the original the row holds.
+    const scanStorage = await store(PDF, "application/pdf");
     const scanId = await file("scan.pdf", {
-      fileType: "pdf", processingStatus: "could_not_read", storageId: await store(PDF, "application/pdf"), pageCount: 2,
+      fileType: "pdf", processingStatus: "could_not_read", storageId: scanStorage, pageCount: 2, pageCountStorageId: scanStorage,
     });
-    await file("long.pdf", { fileType: "pdf", content: "Long text.", storageId: await store(PDF, "application/pdf"), pageCount: 31 });
-    const big = new Uint8Array(5_000_001);
-    big.set(PNG.subarray(0, 8));
+    const longStorage = await store(PDF, "application/pdf");
+    await file("long.pdf", { fileType: "pdf", content: "Long text.", storageId: longStorage, pageCount: 31, pageCountStorageId: longStorage });
+    const big = new Uint8Array(3_750_001);
+    big.set(PNG);
     await file("big.png", { fileType: "image", storageId: await store(big, "image/png") });
     const archivedId = await file("archived.txt", { content: "Archived.", archived: true });
     const otherId = await file("other.txt", { content: "Other." }, otherProjectId);
@@ -302,9 +310,11 @@ describe("viewFile", () => {
     expect(shown).not.toContain("Viewed F");
   });
 
-  test("counts a PDF's pages on its first view and stores the count", async () => {
+  // Review R1 P3-5: a count taken from another original is not trusted.
+  test("counts a PDF's pages on its first view of a new original, ignoring a stale count, and stores it", async () => {
     const f = await setup();
-    // A valid two-page PDF with no stored count (the PDF of chatPdfPages.test.ts).
+    // A valid two-page PDF (the PDF of chatPdfPages.test.ts), put in place of
+    // the original the stored count of 31 pages was taken from.
     const objects = [
       "<< /Type /Catalog /Pages 2 0 R >>",
       "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
@@ -322,7 +332,7 @@ describe("viewFile", () => {
     pdf += `trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
     await f.t.run(async (ctx) => {
       const storageId = await ctx.storage.store(new Blob([new TextEncoder().encode(pdf)], { type: "application/pdf" }));
-      await ctx.db.patch(f.scanId, { storageId, pageCount: undefined });
+      await ctx.db.patch(f.scanId, { storageId, pageCount: 31 });
     });
     const { bodies } = stubAnthropic([
       () => toolAnswer("msg_1", [{ id: "toolu_pdf", tool: "viewFile", input: { file: "scan.pdf" } }]),
@@ -330,7 +340,9 @@ describe("viewFile", () => {
     ]);
     await f.send("How many pages does the scan have?");
     expect(resultText(bodies[1]!, "toolu_pdf")).toMatch(/^Viewed F\d "scan\.pdf", a PDF of 2 page\(s\) \(1 KB\)\./);
-    expect(await f.t.run(async (ctx) => (await ctx.db.get(f.scanId))?.pageCount ?? null)).toBe(2);
+    const stored = await f.t.run(async (ctx) => await ctx.db.get(f.scanId));
+    expect(stored?.pageCount).toBe(2);
+    expect(stored?.pageCountStorageId).toBe(stored?.storageId);
   });
 
   test("gives each cap's fixed text", async () => {
@@ -350,7 +362,7 @@ describe("viewFile", () => {
       const match = new RegExp(`(F\\d+) \\| \\\\"${name.replace(".", "\\.")}\\\\"`).exec(JSON.stringify(bodies[0]!.messages[0]));
       return `${match![1]} "${name}"`;
     };
-    expect(resultText(bodies[1]!, "toolu_big")).toBe(chatViewTooBig(ref("big.png"), "image", 5_000_001));
+    expect(resultText(bodies[1]!, "toolu_big")).toBe(chatViewTooBig(ref("big.png"), "image", 3_750_001));
     expect(resultText(bodies[1]!, "toolu_long")).toBe(chatViewTooManyPages(ref("long.pdf"), 31));
     expect(resultText(bodies[1]!, "toolu_txt")).toBe(
       `${ref("rig-notes.txt")} is not a PDF or an image whose original file is kept, so viewFile cannot show it. Use readDocument for its text.`
@@ -423,7 +435,7 @@ describe("pinned files", () => {
       const bytes = new Uint8Array(8_000_000 - 4);
       bytes.set(new TextEncoder().encode("%PDF-"));
       const storageId = await ctx.storage.store(new Blob([bytes], { type: "application/pdf" }));
-      await ctx.db.patch(f.scanId, { storageId });
+      await ctx.db.patch(f.scanId, { storageId, pageCountStorageId: storageId });
     });
     await f.send("Read the scan and the figure.", [f.scanId]);
     expect(blocks(bodies[0]!).some((block) => block.type === "document")).toBe(true);

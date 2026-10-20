@@ -1578,7 +1578,7 @@
               onclick={() => (pinnedFiles = pinnedFiles.filter((pinned) => pinned.id !== file.id))}
               disabled={sending || isStreaming}
               aria-label={`Remove ${file.name}`}
-              class="flex size-4 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100"
+              class="relative flex size-4 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100 pointer-coarse:before:absolute pointer-coarse:before:-inset-3.5 pointer-coarse:before:content-['']"
             >
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
             </button>
@@ -1658,7 +1658,7 @@
               <DropdownMenu.Item
                 disabled={sending || isStreaming}
                 onSelect={() => { openFilePickerOnClose = true; }}
-                class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50"
+                class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50 pointer-coarse:min-h-11"
                 data-file-picker-trigger
               >
                 <svg class="shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></svg>

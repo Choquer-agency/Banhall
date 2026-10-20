@@ -3,15 +3,19 @@
 // files). Pure functions only, shared by the default runtime (the chat
 // action, its queries and the evidence lists).
 //
-// The limits fit Anthropic's 32 MB request limit and its 10 MB base64 image
-// limit, and the chat action's 64 MiB memory: base64 plus the request body
-// is about 3x the raw size.
+// The limits fit Anthropic's 32 MB request limit and the chat action's
+// 64 MiB memory: base64 plus the request body is about 3x the raw size. An
+// image stays within 5 MB of base64 and 8000 pixels a side, the strictest
+// of Anthropic's direct API, Bedrock and Google Cloud, since the chat can
+// fall back to another route (decision 64).
 
 import type { Doc } from "../_generated/dataModel";
 import { getFileExtension } from "../../shared/documentStatus";
 
-/** One image's original, in bytes. */
-export const CHAT_VIEW_MAX_IMAGE_BYTES = 5_000_000;
+/** One image's original, in bytes: about 5,000,000 characters of base64. */
+export const CHAT_VIEW_MAX_IMAGE_BYTES = 3_750_000;
+/** One image's width and height, in pixels. */
+export const CHAT_VIEW_MAX_IMAGE_SIDE = 8_000;
 /** One PDF's original, in bytes. */
 export const CHAT_VIEW_MAX_PDF_BYTES = 8_000_000;
 /** One PDF's pages. No page ranges: a longer PDF is read as text. */
@@ -104,8 +108,61 @@ export function toBase64(bytes: Uint8Array): string {
   return chunks.join("");
 }
 
-/** A byte size in plain words: "840 KB", "2.4 MB" (decimal, as the limits are). */
+/** A byte size in plain words: "840 KB", "2.4 MB", "3.75 MB" (decimal, as the limits are). */
 export function formatBytes(bytes: number): string {
-  if (bytes >= 1_000_000) return `${(Math.round(bytes / 100_000) / 10).toLocaleString("en-US")} MB`;
+  if (bytes >= 1_000_000) {
+    return `${(Math.round(bytes / 10_000) / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })} MB`;
+  }
   return `${Math.max(1, Math.round(bytes / 1_000)).toLocaleString("en-US")} KB`;
+}
+
+/**
+ * An image's width and height from its header (PNG, JPEG, GIF, WebP), or
+ * null when the header cannot be read.
+ */
+export function imageDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  const at = (index: number) => bytes[index] ?? 0;
+  const be16 = (index: number) => (at(index) << 8) | at(index + 1);
+  const le16 = (index: number) => at(index) | (at(index + 1) << 8);
+  const be32 = (index: number) => ((at(index) << 24) >>> 0) + (at(index + 1) << 16) + (at(index + 2) << 8) + at(index + 3);
+  const le24 = (index: number) => at(index) | (at(index + 1) << 8) | (at(index + 2) << 16);
+  const ascii = (start: number, text: string) =>
+    [...text].every((char, index) => at(start + index) === char.charCodeAt(0));
+  const found = (width: number, height: number) => (width > 0 && height > 0 ? { width, height } : null);
+  const type = sniffChatMedia(bytes);
+  if (type === "image/png") {
+    return bytes.length >= 24 && ascii(12, "IHDR") ? found(be32(16), be32(20)) : null;
+  }
+  if (type === "image/gif") return bytes.length >= 10 ? found(le16(6), le16(8)) : null;
+  if (type === "image/webp") {
+    if (ascii(12, "VP8 ") && bytes.length >= 30) return found(le16(26) & 0x3fff, le16(28) & 0x3fff);
+    if (ascii(12, "VP8L") && bytes.length >= 25) {
+      const bits = at(21) | (at(22) << 8) | (at(23) << 16) | (at(24) << 24);
+      return found((bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1);
+    }
+    if (ascii(12, "VP8X") && bytes.length >= 30) return found(le24(24) + 1, le24(27) + 1);
+    return null;
+  }
+  if (type === "image/jpeg") {
+    // Walk the segments to the first start-of-frame marker.
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (at(offset) !== 0xff) return null;
+      const marker = at(offset + 1);
+      if (marker === 0xff) {
+        offset += 1;
+        continue;
+      }
+      const isFrame = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+      if (isFrame) return found(be16(offset + 7), be16(offset + 5));
+      if (marker === 0xd9 || marker === 0xda) return null;
+      if ((marker >= 0xd0 && marker <= 0xd7) || marker === 0x01) {
+        offset += 2;
+        continue;
+      }
+      offset += 2 + be16(offset + 2);
+    }
+    return null;
+  }
+  return null;
 }

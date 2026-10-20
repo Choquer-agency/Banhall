@@ -61,11 +61,13 @@ import {
 } from "./chatEvidence";
 import {
   CHAT_VIEW_MAX_IMAGE_BYTES,
+  CHAT_VIEW_MAX_IMAGE_SIDE,
   CHAT_VIEW_MAX_IMAGES,
   CHAT_VIEW_MAX_PDF_BYTES,
   CHAT_VIEW_MAX_PDF_PAGES,
   CHAT_VIEW_MAX_TURN_BYTES,
   formatBytes,
+  imageDimensions,
   sniffChatMedia,
   toBase64,
   type ChatImageMediaType,
@@ -166,6 +168,11 @@ export function chatViewTooBig(ref: string, kind: ChatMediaKind, size: number): 
   return kind === "image"
     ? `${ref} is too large to view (${formatBytes(size)}). Images can be at most ${formatBytes(CHAT_VIEW_MAX_IMAGE_BYTES)}.`
     : `${ref} is too large to view (${formatBytes(size)}). PDFs can be at most ${formatBytes(CHAT_VIEW_MAX_PDF_BYTES)}. Use readDocument for its text instead.`;
+}
+
+/** An image wider or taller than CHAT_VIEW_MAX_IMAGE_SIDE pixels. */
+export function chatViewTooWide(ref: string, width: number, height: number): string {
+  return `${ref} is too large to view (${formatCount(width)} by ${formatCount(height)} pixels). Images can be at most ${formatCount(CHAT_VIEW_MAX_IMAGE_SIDE)} pixels on each side.`;
 }
 
 export function chatViewTooManyPages(ref: string, pages: number): string {
@@ -279,18 +286,29 @@ export function releaseReading(turn: DocumentReadTurn, unused: number): void {
 export type MediaGrant = { bytes: number; image: boolean };
 
 /**
- * Take up to `maxBytes` of the turn's media allowance, and one of its images
- * for an image, synchronously, so views running in parallel in one step can
- * never pass it together. Null when nothing is left.
+ * Start a view: take one of the turn's images for an image, synchronously,
+ * before any await, so views running in parallel in one step can never pass
+ * the image count together. The bytes are taken once the size is known
+ * (`addMediaBytes`). Null when no image is left.
  */
-export function reserveMedia(turn: DocumentReadTurn, kind: ChatMediaKind, maxBytes: number): MediaGrant | null {
+export function reserveMedia(turn: DocumentReadTurn, kind: ChatMediaKind): MediaGrant | null {
   const image = kind === "image";
   if (image && turn.media.images >= CHAT_VIEW_MAX_IMAGES) return null;
-  const bytes = Math.max(0, Math.min(maxBytes, CHAT_VIEW_MAX_TURN_BYTES - turn.media.bytes));
-  if (bytes === 0) return null;
-  turn.media.bytes += bytes;
   if (image) turn.media.images += 1;
-  return { bytes, image };
+  return { bytes: 0, image };
+}
+
+/**
+ * Take `bytes` more of the turn's media allowance for a view, checked and
+ * added in one synchronous step (no await between them), so parallel views
+ * hold exactly their own sizes. False, taking nothing, when they would not fit.
+ */
+export function addMediaBytes(turn: DocumentReadTurn, grant: MediaGrant, bytes: number): boolean {
+  const more = Math.max(0, bytes);
+  if (turn.media.bytes + more > CHAT_VIEW_MAX_TURN_BYTES) return false;
+  turn.media.bytes += more;
+  grant.bytes += more;
+  return true;
 }
 
 /** Give back what a view did not send: the unused bytes, and the image when nothing was sent. */
@@ -706,20 +724,23 @@ type MediaLoad =
     }
   | { status: Exclude<ViewFileResult["status"], "ok" | "not_media"> | "not_media" | "unreadable" | "allowance" | "failed" }
   | { status: "too_big"; kind: ChatMediaKind; size: number }
+  | { status: "too_wide"; width: number; height: number }
   | { status: "too_many_pages"; pageCount: number };
 
 /**
  * One file's original as base64, within the per-file caps and the turn's
- * media allowance. The allowance is taken before the first await (call this
- * without awaiting anything first), and what is not sent is given back. A
- * PDF with no stored page count is counted on the server (Node runtime) and
- * the count is stored. The bytes' own signature decides the media type sent.
+ * media allowance. An image's slot is taken before the first await (call
+ * this without awaiting anything first); the bytes are taken, checked and
+ * added with no await between, once the stored size is known; what is not
+ * sent is given back. A PDF with no trusted page count is counted on the
+ * server (Node runtime) and the count is stored. The bytes' own signature
+ * decides the media type sent, and an image's header its size in pixels.
  */
 async function loadMedia(ctx: ViewingToolCtx, file: ChatReadFile, turn: DocumentReadTurn): Promise<MediaLoad> {
   const kind = file.viewable;
   if (!kind || !file.documentId || !ctx.threadId) return { status: "not_media" };
   const cap = kind === "image" ? CHAT_VIEW_MAX_IMAGE_BYTES : CHAT_VIEW_MAX_PDF_BYTES;
-  const grant = reserveMedia(turn, kind, cap);
+  const grant = reserveMedia(turn, kind);
   if (!grant) return { status: "allowance" };
   let kept = 0;
   try {
@@ -742,10 +763,12 @@ async function loadMedia(ctx: ViewingToolCtx, file: ChatReadFile, turn: Document
     if (kind === "pdf" && (pageCount ?? 0) > CHAT_VIEW_MAX_PDF_PAGES) {
       return { status: "too_many_pages", pageCount: pageCount ?? 0 };
     }
-    if (view.size > grant.bytes) return { status: "allowance" };
+    // Checked and added in one synchronous step.
+    if (!addMediaBytes(turn, grant, view.size)) return { status: "allowance" };
     const blob = await ctx.storage.get(view.storageId);
     if (!blob) return { status: "failed" };
-    if (blob.size > grant.bytes) return blob.size > cap ? { status: "too_big", kind, size: blob.size } : { status: "allowance" };
+    if (blob.size > cap) return { status: "too_big", kind, size: blob.size };
+    if (blob.size > grant.bytes && !addMediaBytes(turn, grant, blob.size - grant.bytes)) return { status: "allowance" };
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const sniffed = sniffChatMedia(bytes);
     const mediaType =
@@ -757,6 +780,13 @@ async function loadMedia(ctx: ViewingToolCtx, file: ChatReadFile, turn: Document
           ? sniffed
           : null;
     if (!mediaType) return { status: "unreadable" };
+    if (kind === "image") {
+      const size = imageDimensions(bytes);
+      if (!size) return { status: "unreadable" };
+      if (size.width > CHAT_VIEW_MAX_IMAGE_SIDE || size.height > CHAT_VIEW_MAX_IMAGE_SIDE) {
+        return { status: "too_wide", width: size.width, height: size.height };
+      }
+    }
     const data = toBase64(bytes);
     kept = bytes.length;
     return {
@@ -841,6 +871,8 @@ export async function runViewFile(
       return chatViewNotMedia(ref);
     case "too_big":
       return chatViewTooBig(ref, loaded.kind, loaded.size);
+    case "too_wide":
+      return chatViewTooWide(ref, loaded.width, loaded.height);
     case "too_many_pages":
       return chatViewTooManyPages(ref, loaded.pageCount);
     case "unreadable":
@@ -860,6 +892,8 @@ function pinMediaReason(loaded: MediaLoad): string | null {
   switch (loaded.status) {
     case "too_big":
       return `its original is too large to show (${formatBytes(loaded.size)})`;
+    case "too_wide":
+      return `its image is ${formatCount(loaded.width)} by ${formatCount(loaded.height)} pixels, more than the ${formatCount(CHAT_VIEW_MAX_IMAGE_SIDE)} that can be shown on each side`;
     case "too_many_pages":
       return `it has ${formatCount(loaded.pageCount)} pages, more than the ${CHAT_VIEW_MAX_PDF_PAGES} that can be shown`;
     case "allowance":
@@ -1039,7 +1073,7 @@ export function makeReadTranscriptTool(turn: DocumentReadTurn) {
 /** Phase C (2026-10-20): appended after readTranscript. */
 export function makeViewFileTool(turn: DocumentReadTurn) {
   return createTool({
-    description: `Look at a project PDF's pages or an image itself, when its text is not enough: a scan, a figure, a chart, a form or a table's layout. Name the file by its handle in FILES IN THIS PROJECT, such as F3, or by its exact name. Only files the list marks as ones viewFile can show work. Images can be at most ${formatBytes(CHAT_VIEW_MAX_IMAGE_BYTES)}; PDFs at most ${formatBytes(CHAT_VIEW_MAX_PDF_BYTES)} and ${CHAT_VIEW_MAX_PDF_PAGES} pages; one reply can view at most ${formatBytes(CHAT_VIEW_MAX_TURN_BYTES)} and ${CHAT_VIEW_MAX_IMAGES} images in all. For a file's words, use readDocument instead. What you see is shown to you for this reply only.`,
+    description: `Look at a project PDF's pages or an image itself, when its text is not enough: a scan, a figure, a chart, a form or a table's layout. Name the file by its handle in FILES IN THIS PROJECT, such as F3, or by its exact name. Only files the list marks as ones viewFile can show work. Images can be at most ${formatBytes(CHAT_VIEW_MAX_IMAGE_BYTES)} and ${formatCount(CHAT_VIEW_MAX_IMAGE_SIDE)} pixels on each side; PDFs at most ${formatBytes(CHAT_VIEW_MAX_PDF_BYTES)} and ${CHAT_VIEW_MAX_PDF_PAGES} pages; one reply can view at most ${formatBytes(CHAT_VIEW_MAX_TURN_BYTES)} and ${CHAT_VIEW_MAX_IMAGES} images in all. For a file's words, use readDocument instead. What you see is shown to you for this reply only.`,
     inputSchema: z.object({
       file: z.string().min(1).describe("The file's handle from FILES IN THIS PROJECT, such as F3, or its exact file name."),
     }),

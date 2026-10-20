@@ -149,6 +149,24 @@ describe("Read a file in full", () => {
     await expect.element(page.getByRole("button", { name: "Remove scan.pdf", exact: true })).not.toBeInTheDocument();
   });
 
+  // Review R2 P3-5: 44 px on a coarse pointer for the menu item and each chip's remove button.
+  it("gives its controls a 44 px touch area on a coarse pointer", async () => {
+    await render(AgentChatPanel, { reportId, projectId });
+    await openPicker();
+    const rows = document.querySelectorAll("[data-file-option]");
+    expect(rows.length).toBe(FILES.length);
+    for (const row of rows) expect(row.className).toContain("pointer-coarse:min-h-11");
+    await fileOption("scan.pdf").click();
+    await userEvent.keyboard("{Escape}");
+    const remove = page.getByRole("button", { name: "Remove scan.pdf", exact: true });
+    await expect.element(remove).toBeInTheDocument();
+    expect((remove.element() as HTMLElement).className).toContain("pointer-coarse:before:-inset-3.5");
+    expect((remove.element() as HTMLElement).className).toContain("relative");
+    await options().click();
+    await expect.element(readInFull()).toBeVisible();
+    expect((readInFull().element() as HTMLElement).className).toContain("pointer-coarse:min-h-11");
+  });
+
   it("says when the project has no files", async () => {
     __setQueryData("documents:listDocuments", []);
     await render(AgentChatPanel, { reportId, projectId });

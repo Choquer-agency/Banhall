@@ -11,11 +11,13 @@ import {
   chatViewNotMedia,
   chatViewTooBig,
   chatViewTooManyPages,
+  chatViewTooWide,
   chatViewUnreadable,
   newDocumentReadTurn,
   pinnedFilesMessage,
   releaseMedia,
   reserveMedia,
+  addMediaBytes,
   runReadDocument,
   runViewFile,
   withOpenedText,
@@ -27,6 +29,7 @@ import {
   CHAT_VIEW_MAX_IMAGES,
   CHAT_VIEW_MAX_TURN_BYTES,
   formatBytes,
+  imageDimensions,
   sniffChatMedia,
   toBase64,
 } from "../lib/chatMedia";
@@ -42,8 +45,30 @@ import * as tools from "./chatDocumentTools";
 const docId = (value: string) => value as Id<"projectDocuments">;
 const storageId = (value: string) => value as Id<"_storage">;
 
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
-const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9, 9, 9]);
+const be32 = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+const le16 = (n: number) => [n & 255, (n >>> 8) & 255];
+const le24 = (n: number) => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255];
+const asciiBytes = (text: string) => [...text].map((char) => char.charCodeAt(0));
+
+/** A PNG header: signature and IHDR with the given size. */
+function pngOf(width: number, height: number): Uint8Array<ArrayBuffer> {
+  return new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, ...asciiBytes("IHDR"),
+    ...be32(width), ...be32(height), 8, 6, 0, 0, 0, 1, 2, 3, 4,
+  ]);
+}
+
+/** A JPEG with a JFIF segment, then a baseline frame of the given size. */
+function jpegOf(width: number, height: number): Uint8Array<ArrayBuffer> {
+  return new Uint8Array([
+    0xff, 0xd8, 0xff, 0xe0, 0, 16, ...asciiBytes("JFIF"), 0, 1, 1, 0, 0, 1, 0, 1, 0, 0,
+    0xff, 0xc0, 0, 17, 8, (height >> 8) & 255, height & 255, (width >> 8) & 255, width & 255, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1,
+    0xff, 0xd9,
+  ]);
+}
+
+const PNG = pngOf(640, 480);
+const JPEG = jpegOf(800, 600);
 const PDF = new TextEncoder().encode("%PDF-1.4\nfictional pdf body\n%%EOF\n");
 
 const doc = (fileName: string, over: Partial<ChatEvidenceDoc> = {}): ChatEvidenceDoc => ({
@@ -129,45 +154,97 @@ describe("media helpers", () => {
     expect(sniffChatMedia(new TextEncoder().encode("plain text"))).toBeNull();
   });
 
+  it("read an image's size in pixels from its header", () => {
+    expect(imageDimensions(pngOf(640, 480))).toEqual({ width: 640, height: 480 });
+    expect(imageDimensions(jpegOf(9_001, 20))).toEqual({ width: 9_001, height: 20 });
+    expect(imageDimensions(new Uint8Array([...asciiBytes("GIF89a"), ...le16(300), ...le16(200), 0, 0, 0]))).toEqual({
+      width: 300,
+      height: 200,
+    });
+    const webp = (chunk: string, body: number[]) =>
+      new Uint8Array([...asciiBytes("RIFF"), 0, 0, 0, 0, ...asciiBytes("WEBP"), ...asciiBytes(chunk), 0, 0, 0, 0, ...body]);
+    expect(imageDimensions(webp("VP8X", [0, 0, 0, 0, ...le24(8_999), ...le24(99)]))).toEqual({ width: 9_000, height: 100 });
+    // VP8: a key frame's start code, then 14-bit width and height.
+    expect(imageDimensions(webp("VP8 ", [0, 0, 0, 0x9d, 0x01, 0x2a, ...le16(1_024), ...le16(768)]))).toEqual({
+      width: 1_024,
+      height: 768,
+    });
+    // VP8L: a signature byte, then 14-bit width and height minus one.
+    const bits = (511 & 0x3fff) | ((255 & 0x3fff) << 14);
+    expect(imageDimensions(webp("VP8L", [0x2f, bits & 255, (bits >>> 8) & 255, (bits >>> 16) & 255, (bits >>> 24) & 255]))).toEqual({
+      width: 512,
+      height: 256,
+    });
+    expect(imageDimensions(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]))).toBeNull();
+    expect(imageDimensions(PDF)).toBeNull();
+  });
+
   it("say sizes in plain words", () => {
     expect(formatBytes(840_000)).toBe("840 KB");
     expect(formatBytes(2_400_000)).toBe("2.4 MB");
+    expect(formatBytes(3_750_000)).toBe("3.75 MB");
     expect(formatBytes(8_000_000)).toBe("8 MB");
   });
 });
 
 describe("the turn's media allowance", () => {
-  it("is taken synchronously, so parallel views never pass it together", async () => {
+  // Review R1 P2-2: each view holds only its own size, taken once known.
+  it("lets a PDF and two images in one step all succeed when together they fit", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
-    const turn = turnWith([doc("a.png", { fileType: "image" }), doc("b.png", { fileType: "image" }), doc("c.png", { fileType: "image" })]);
-    turn.media.bytes = CHAT_VIEW_MAX_TURN_BYTES - 30;
+    const turn = turnWith([
+      doc("scan.pdf", { fileType: "pdf" }),
+      doc("a.png", { fileType: "image" }),
+      doc("b.png", { fileType: "image" }),
+    ]);
     const { ctx, queries } = viewingCtx({
-      "doc-a.png": { bytes: PNG, size: 12 },
-      "doc-b.png": { bytes: PNG, size: 12 },
-      "doc-c.png": { bytes: PNG, size: 12 },
+      "doc-scan.pdf": { bytes: PDF, size: PDF.length, pageCount: 3 },
+      "doc-a.png": { bytes: PNG },
+      "doc-b.png": { bytes: PNG },
     });
     const results = await Promise.all(
       ["F1", "F2", "F3"].map((file, index) => runViewFile(ctx, { file }, { toolCallId: `v${index}` }, turn))
     );
-    // 30 bytes left: the first call took all of it before any await, so the
-    // other two were refused at once; the first then gave back what it did
-    // not use.
-    expect(queries).toHaveLength(1);
-    expect(results[0]).toMatch(/^Viewed F1 "a\.png", an image/);
+    expect(queries).toHaveLength(3);
+    expect(results[0]).toMatch(/^Viewed F1 "scan\.pdf", a PDF of 3 page\(s\)/);
+    expect(results[1]).toMatch(/^Viewed F2 "a\.png", an image/);
+    expect(results[2]).toMatch(/^Viewed F3 "b\.png", an image/);
+    expect(turn.media).toEqual({ bytes: PDF.length + 2 * PNG.length, images: 2 });
+  });
+
+  it("refuses the view that would pass the reply's 8 MB, and gives back its image", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const turn = turnWith([doc("scan.pdf", { fileType: "pdf" }), doc("a.png", { fileType: "image" })]);
+    turn.media.bytes = 2_000_000;
+    // 5 MB and 1.5 MB: 8.5 MB with what was used.
+    const bigPdf = new Uint8Array(5_000_000);
+    bigPdf.set(PDF);
+    const bigPng = new Uint8Array(1_500_000);
+    bigPng.set(PNG);
+    const { ctx } = viewingCtx({
+      "doc-scan.pdf": { bytes: bigPdf, pageCount: 3 },
+      "doc-a.png": { bytes: bigPng },
+    });
+    const results = await Promise.all(
+      ["F1", "F2"].map((file, index) => runViewFile(ctx, { file }, { toolCallId: `v${index}` }, turn))
+    );
+    expect(results[0]).toMatch(/^Viewed F1 "scan\.pdf"/);
     expect(results[1]).toBe(CHAT_VIEW_BUDGET_USED);
-    expect(results[2]).toBe(CHAT_VIEW_BUDGET_USED);
-    expect(turn.media.bytes).toBe(CHAT_VIEW_MAX_TURN_BYTES - 30 + PNG.length);
-    expect(turn.media.images).toBe(1);
+    // The refused image took nothing.
+    expect(turn.media).toEqual({ bytes: 7_000_000, images: 0 });
+    expect(turn.opened.has("v1")).toBe(false);
   });
 
   it("counts images apart from bytes, and gives both back when nothing was sent", () => {
     const turn = turnWith([]);
     turn.media.images = CHAT_VIEW_MAX_IMAGES - 1;
-    const grant = reserveMedia(turn, "image", 5_000_000)!;
-    expect(grant).toEqual({ bytes: 5_000_000, image: true });
-    expect(reserveMedia(turn, "image", 10)).toBeNull();
-    // A PDF does not count as an image.
-    expect(reserveMedia(turn, "pdf", 1_000)).toEqual({ bytes: 1_000, image: false });
+    const grant = reserveMedia(turn, "image")!;
+    expect(grant).toEqual({ bytes: 0, image: true });
+    expect(reserveMedia(turn, "image")).toBeNull();
+    expect(addMediaBytes(turn, grant, 3_000_000)).toBe(true);
+    // A PDF does not count as an image, and bytes past 8 MB are refused whole.
+    const pdf = reserveMedia(turn, "pdf")!;
+    expect(addMediaBytes(turn, pdf, CHAT_VIEW_MAX_TURN_BYTES - 3_000_000 + 1)).toBe(false);
+    expect(addMediaBytes(turn, pdf, 1_000)).toBe(true);
     releaseMedia(turn, grant, 0);
     expect(turn.media).toEqual({ bytes: 1_000, images: CHAT_VIEW_MAX_IMAGES - 1 });
   });
@@ -227,14 +304,14 @@ describe("viewFile", () => {
       doc("fake.png", { fileType: "image" }),
     ]);
     const { ctx } = viewingCtx({
-      "doc-big.png": { bytes: PNG, size: 5_000_001 },
+      "doc-big.png": { bytes: PNG, size: 3_750_001 },
       "doc-big.pdf": { bytes: PDF, size: 8_000_001, pageCount: 2 },
       "doc-fake.png": { bytes: new TextEncoder().encode("not an image") },
     });
     expect(await runViewFile(ctx, { file: "big.png" }, { toolCallId: "a" }, turn)).toBe(
-      chatViewTooBig('F1 "big.png"', "image", 5_000_001)
+      chatViewTooBig('F1 "big.png"', "image", 3_750_001)
     );
-    expect(chatViewTooBig('F1 "big.png"', "image", 5_000_001)).toBe('F1 "big.png" is too large to view (5 MB). Images can be at most 5 MB.');
+    expect(chatViewTooBig('F1 "big.png"', "image", 3_750_001)).toBe('F1 "big.png" is too large to view (3.75 MB). Images can be at most 3.75 MB.');
     expect(await runViewFile(ctx, { file: "big.pdf" }, { toolCallId: "b" }, turn)).toBe(
       'F2 "big.pdf" is too large to view (8 MB). PDFs can be at most 8 MB. Use readDocument for its text instead.'
     );
@@ -243,6 +320,23 @@ describe("viewFile", () => {
     expect(await runViewFile(ctx, { file: "fake.png" }, { toolCallId: "e" }, turn)).toBe(chatViewUnreadable('F5 "fake.png"'));
     expect(turn.opened.size).toBe(0);
     expect(turn.media).toEqual({ bytes: 0, images: 0 });
+  });
+
+  // Review R1 P2-3: no image over 8000 pixels on a side, read from its header.
+  it("refuses an image wider or taller than 8,000 pixels", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const turn = turnWith([doc("wide.png", { fileType: "image" }), doc("tall.jpg", { fileType: "image" }), doc("edge.png", { fileType: "image" })]);
+    const { ctx } = viewingCtx({
+      "doc-wide.png": { bytes: pngOf(8_001, 100) },
+      "doc-tall.jpg": { bytes: jpegOf(100, 9_000) },
+      "doc-edge.png": { bytes: pngOf(8_000, 8_000) },
+    });
+    expect(await runViewFile(ctx, { file: "F1" }, { toolCallId: "a" }, turn)).toBe(
+      'F1 "wide.png" is too large to view (8,001 by 100 pixels). Images can be at most 8,000 pixels on each side.'
+    );
+    expect(await runViewFile(ctx, { file: "F2" }, { toolCallId: "b" }, turn)).toBe(chatViewTooWide('F2 "tall.jpg"', 100, 9_000));
+    expect(await runViewFile(ctx, { file: "F3" }, { toolCallId: "c" }, turn)).toMatch(/^Viewed F3 "edge\.png", an image/);
+    expect(turn.media).toEqual({ bytes: PNG.length, images: 1 });
   });
 
   it("stops at the turn's image count", async () => {
@@ -421,6 +515,7 @@ describe("copy", () => {
       chatViewNotMedia("F1"),
       chatViewTooBig("F1", "pdf", 9_000_000),
       chatViewTooManyPages("F1", 40),
+      chatViewTooWide("F1", 9_000, 100),
       chatViewUnreadable("F1"),
       tools.chatViewReceipt("F1", "pdf", 1_000, 2),
       chatReadNoText("F1", "image"),

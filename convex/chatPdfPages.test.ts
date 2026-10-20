@@ -102,6 +102,25 @@ describe("PDF page counts", () => {
     expect(second).toMatchObject({ status: "ok", pageCount: 3 });
   });
 
+  // Review R1 P3-5: a public path (projects.ts, copied originals) can repoint
+  // a row's original without clearing its count.
+  test("are not handed back once the row's original changed, until counted again", async () => {
+    const f = await setup();
+    await f.t.action(countPdfPages, { documentId: f.scanId, storageId: f.pdfStorage });
+    const otherStorage = await f.t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new Blob([emptyPdf(40)], { type: "application/pdf" }));
+      await ctx.db.patch(f.scanId, { storageId });
+      return storageId;
+    });
+    const stale = await f.t.query(viewFileForChat, { agentThreadId: "thread-pages", documentId: f.scanId });
+    expect(stale).toMatchObject({ status: "ok", storageId: otherStorage });
+    expect(stale).not.toHaveProperty("pageCount");
+    expect(await f.t.action(countPdfPages, { documentId: f.scanId, storageId: otherStorage })).toBe(40);
+    expect(await f.t.query(viewFileForChat, { agentThreadId: "thread-pages", documentId: f.scanId })).toMatchObject({
+      pageCount: 40,
+    });
+  });
+
   test("are stored only on the original that was counted", async () => {
     const f = await setup();
     const otherStorage = await f.t.run(async (ctx) => await ctx.storage.store(new Blob([emptyPdf(1)])));

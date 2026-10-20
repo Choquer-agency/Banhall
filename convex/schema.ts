@@ -2149,6 +2149,12 @@ export default defineSchema({
     // Phase C of report chat parity (2026-10-20), widen only: a PDF's page
     // count, worked out on the server the first time the chat views it.
     pageCount: v.optional(v.number()),
+    // The original the count was taken from. The count is trusted only while
+    // it matches `storageId`: a row whose original is repointed (a project
+    // copy, a later original) is counted again. A plain string on purpose: it
+    // only names the counted file and never holds it (the storage sweep
+    // treats `v.id("_storage")` fields as holders).
+    pageCountStorageId: v.optional(v.string()),
     // BNH-24: archived files stay visible to reviewers but are excluded from
     // AI context (generation + chat).
     archived: v.optional(v.boolean()),
