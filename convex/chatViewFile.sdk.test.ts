@@ -398,7 +398,7 @@ describe("pinned files", () => {
     for (const body of bodies) {
       const all = blocks(body);
       const texts = all.map((block) => String(block.text ?? ""));
-      const note = texts.findIndex((text) => text.startsWith("Options for this reply"));
+      const note = texts.findIndex((text) => text.includes("Options for this reply"));
       const intro = texts.findIndex((text) => text.startsWith("The writer pinned these project files to this message"));
       expect(note).toBeGreaterThanOrEqual(0);
       expect(intro).toBeGreaterThan(note);

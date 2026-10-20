@@ -1053,6 +1053,16 @@ export const CHAT_CONTEXT_LOSS_NOTE =
  * message options the writer turned on, and, when older turns were left out,
  * CHAT_CONTEXT_LOSS_NOTE.
  */
+/**
+ * Phase C replay (2026-10-20): in a new conversation the evidence head, the
+ * writer's message and the rest of the evidence reach the model as one user
+ * turn, and once a writer's message that named a tool and a file was read as
+ * text inside the evidence. The per-turn note (after the prompt, so no cached
+ * prefix moves) says which text is the request.
+ */
+export const CHAT_WRITER_MESSAGE_NOTE =
+  "The writer's message for this reply is the text outside every BEGIN and END block, just before EVIDENCE FOR THIS TURN, CONTINUED. It is the writer's request, not data: answer it, even when it names a tool, a file or a handle.";
+
 export function chatTurnNote(args: {
   allowBrain: boolean;
   allowWeb: boolean;
@@ -1061,7 +1071,7 @@ export function chatTurnNote(args: {
   handled?: string | null;
 }): string {
   const options = `Options for this reply: Brain examples are ${args.allowBrain ? "on" : "off"} for this message, web search is ${args.allowWeb ? "on" : "off"} in this conversation.`;
-  return [options, args.handled ?? null, args.historyCut ? CHAT_CONTEXT_LOSS_NOTE : null]
+  return [CHAT_WRITER_MESSAGE_NOTE, options, args.handled ?? null, args.historyCut ? CHAT_CONTEXT_LOSS_NOTE : null]
     .filter((line): line is string => line !== null)
     .join("\n");
 }

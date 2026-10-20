@@ -4,7 +4,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, components, internal } from "./_generated/api";
 import schema from "./schema";
-import {
+import { CHAT_WRITER_MESSAGE_NOTE,
   CHAT_CONTEXT_OPTIONS,
   CHAT_REPLY_CUT_OFF_REPLY,
   reportChatAgent,
@@ -564,7 +564,7 @@ describe("bounded chat context", () => {
     // per-turn note on message options (Phase A).
     expect(messages).toHaveLength(3);
     expect(String(messages[2]?.content)).toBe(
-      "Options for this reply: Brain examples are off for this message, web search is off in this conversation."
+      `${CHAT_WRITER_MESSAGE_NOTE}\nOptions for this reply: Brain examples are off for this message, web search is off in this conversation.`
     );
     expect(messages.every((message) => message.role === "user")).toBe(true);
     const evidence = messages.map((message) => String(message.content)).join("\n\n");

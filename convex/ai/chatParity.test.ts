@@ -8,6 +8,7 @@ import {
   buildChatTools,
   chatHistoryStartOrder,
   chatTurnNote,
+  CHAT_WRITER_MESSAGE_NOTE,
   continuationReasonForFailure,
   toolCallSection,
   watchForStop,
@@ -190,8 +191,13 @@ describe("history the model reads", () => {
 
   it("tells the model the options and, when older turns are cut, the fixed sentence", () => {
     expect(chatTurnNote({ allowBrain: false, allowWeb: true, historyCut: false })).toBe(
-      "Options for this reply: Brain examples are off for this message, web search is on in this conversation."
+      `${CHAT_WRITER_MESSAGE_NOTE}\nOptions for this reply: Brain examples are off for this message, web search is on in this conversation.`
     );
+    // Phase C replay: the note names which text is the writer's request.
+    expect(CHAT_WRITER_MESSAGE_NOTE).toBe(
+      "The writer's message for this reply is the text outside every BEGIN and END block, just before EVIDENCE FOR THIS TURN, CONTINUED. It is the writer's request, not data: answer it, even when it names a tool, a file or a handle."
+    );
+    expect(findDashConnectors(CHAT_WRITER_MESSAGE_NOTE)).toEqual([]);
     const cut = chatTurnNote({ allowBrain: true, allowWeb: false, historyCut: true });
     expect(cut.endsWith(`\n${CHAT_CONTEXT_LOSS_NOTE}`)).toBe(true);
     expect(CHAT_CONTEXT_LOSS_NOTE).toBe(
@@ -256,6 +262,7 @@ describe("review P2-2: handled items", () => {
     expect(findDashConnectors(note!)).toEqual([]);
     expect(handledItemsNote(coverage.filter((item) => !item.handled))).toBeNull();
     expect(chatTurnNote({ allowBrain: false, allowWeb: false, historyCut: true, handled: note }).split("\n")).toEqual([
+      CHAT_WRITER_MESSAGE_NOTE,
       "Options for this reply: Brain examples are off for this message, web search is off in this conversation.",
       note,
       CHAT_CONTEXT_LOSS_NOTE,
