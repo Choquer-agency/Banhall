@@ -38,6 +38,7 @@ import {
   type InventorySection,
   type InventoryItem,
   type InventorySections,
+  type ItemCoverageMark,
   type RulesStatus,
 } from "../lib/deviationInventory";
 import {
@@ -70,7 +71,11 @@ import {
   coverageFor,
   handledItemsNote,
   itemFingerprint,
+  splitWaiting,
+  waitingItemsNote,
   type ItemCoverage,
+  type LineParagraph,
+  type WaitingItem,
 } from "../lib/chatItemCoverage";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
 import { anthropicCacheWrite1hTokens } from "./instrument";
@@ -296,17 +301,35 @@ async function inventoryContext(
  * keyed by item id, so the inventory marks it. An empty map when the read
  * fails: the list is still right, only unmarked.
  */
-async function threadCoverage(ctx: ChatToolCtx): Promise<ItemCoverage[]> {
-  if (!ctx.threadId) return [];
+type ThreadCoverage = {
+  items: ItemCoverage[];
+  /** Phase B round 2: paragraphs a pending card of the current job rewrites. */
+  pendingParagraphs: LineParagraph[];
+  /** Phase B round 2: the job's items waiting on such a card. */
+  waiting: WaitingItem[];
+};
+
+const NO_COVERAGE: ThreadCoverage = { items: [], pendingParagraphs: [], waiting: [] };
+
+async function threadCoverage(ctx: ChatToolCtx): Promise<ThreadCoverage> {
+  if (!ctx.threadId) return NO_COVERAGE;
   try {
-    return await ctx.runQuery(internal.chatV2.getThreadItemCoverage, {
+    return await ctx.runQuery(internal.chatV2.getThreadCoverageState, {
       agentThreadId: ctx.threadId,
     });
   } catch (error) {
     console.error("chat item coverage could not be read", safeErrorDetails(error));
-    return [];
+    return NO_COVERAGE;
   }
 }
+
+/** Phase B round 2: the inventory mark of an item waiting on a pending card. */
+const WAITING_MARK: ItemCoverageMark = {
+  label: "waiting on a pending card",
+  handled: false,
+  waiting: true,
+  reopen: "",
+};
 
 /**
  * Round 3 (P2-A): each listed item's coverage, keyed by its id. A content or
@@ -316,13 +339,24 @@ async function threadCoverage(ctx: ChatToolCtx): Promise<ItemCoverage[]> {
  */
 function coverageMarks(
   items: ReadonlyArray<InventoryItem>,
-  coverage: ReadonlyArray<ItemCoverage>
-): Map<string, ItemCoverage> {
-  const marks = new Map<string, ItemCoverage>();
-  if (coverage.length === 0) return marks;
+  coverage: ThreadCoverage
+): Map<string, ItemCoverageMark> {
+  const marks = new Map<string, ItemCoverageMark>();
+  if (coverage.items.length === 0 && coverage.pendingParagraphs.length === 0) return marks;
   for (const item of items) {
-    const entry = coverageFor(coverage, { id: item.id, fingerprint: itemFingerprint(item) });
-    if (entry) marks.set(item.id, entry);
+    const entry = coverageFor(coverage.items, { id: item.id, fingerprint: itemFingerprint(item) });
+    if (entry?.handled) {
+      marks.set(item.id, entry);
+      continue;
+    }
+    // Phase B round 2: not handled, but its paragraph is already rewritten
+    // by a pending card of this job.
+    const { waiting } = splitWaiting(
+      [{ itemId: item.id, section: item.section, paragraph: item.paragraph }],
+      coverage.pendingParagraphs
+    );
+    if (waiting.length > 0) marks.set(item.id, WAITING_MARK);
+    else if (entry) marks.set(item.id, entry);
   }
   return marks;
 }
@@ -332,7 +366,7 @@ function renderOrExplain(args: {
   contentDeviations?: ChatContentDeviation[];
   referenceSections?: InventorySections | null;
   section?: InventorySection;
-  coverage?: ReadonlyArray<ItemCoverage>;
+  coverage?: ThreadCoverage;
 }): string {
   try {
     const inventory = assembleDeviationInventory({
@@ -342,7 +376,7 @@ function renderOrExplain(args: {
       ...(args.referenceSections ? { referenceSections: args.referenceSections } : {}),
       rulesStatus: args.context.rulesStatus,
     });
-    const marks = coverageMarks(inventory.items, args.coverage ?? []);
+    const marks = coverageMarks(inventory.items, args.coverage ?? NO_COVERAGE);
     return renderInventory(inventory, {
       ...(args.section ? { section: args.section } : {}),
       ...(marks.size > 0 ? { coverage: marks } : {}),
@@ -1555,17 +1589,17 @@ export function watchForStop(options: {
 async function outstandingDeviations(
   ctx: ChatToolCtx,
   listCalls: ReadonlyArray<{ toolName: string; input: unknown }>
-): Promise<Array<{ section: ChatSection; itemId: string; fingerprint?: string }>> {
+): Promise<Array<{ section: ChatSection; itemId: string; fingerprint?: string; paragraph?: number }>> {
   try {
     // Review P3-1: every item kind the turn's own list calls produced (rule,
     // content and reference), rebuilt from their inputs; the stored rule
     // Deviations when the turn made no list call. Round 3 (P2-A): each
     // content or reference item carries its fingerprint.
-    const items = new Map<string, { section: ChatSection; fingerprint?: string }>();
+    const items = new Map<string, { section: ChatSection; fingerprint?: string; paragraph?: number }>();
     const seen = new Set<string>();
     if (listCalls.length === 0) {
       for (const item of await listCallItems(ctx, { toolName: "deviationInventory", input: {} }, { rulesOnly: true })) {
-        items.set(item.id, { section: item.section });
+        items.set(item.id, { section: item.section, ...(item.paragraph > 0 ? { paragraph: item.paragraph } : {}) });
       }
     }
     for (const call of listCalls) {
@@ -1574,7 +1608,7 @@ async function outstandingDeviations(
       seen.add(key);
       for (const item of await listCallItems(ctx, call)) {
         const fingerprint = itemFingerprint(item);
-        items.set(item.id, { section: item.section, ...(fingerprint ? { fingerprint } : {}) });
+        items.set(item.id, { section: item.section, ...(item.paragraph > 0 ? { paragraph: item.paragraph } : {}), ...(fingerprint ? { fingerprint } : {}) });
       }
     }
     return [...items].map(([itemId, item]) => ({ itemId, ...item }));
@@ -1926,7 +1960,10 @@ export const streamChatReply = internalAction({
             allowBrain: args.allowBrain === true,
             allowWeb: args.allowWeb === true,
             historyCut: history.historyStartOrder !== undefined,
-            handled: handledItemsNote(coverage),
+            // Phase B round 2: and the job's items waiting on a pending card.
+            handled: [handledItemsNote(coverage.items), waitingItemsNote(coverage.waiting)]
+              .filter((line): line is string => line !== null)
+              .join("\n") || null,
           }),
         },
       ];

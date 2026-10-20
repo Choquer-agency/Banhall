@@ -40,6 +40,8 @@ export type ItemCoverageRow = {
   fingerprint?: string;
   /** The card belongs to the current job (fallback for cards without a fingerprint). */
   inCurrentJob: boolean;
+  /** The 1-based paragraph of the Line the item sits in, when the card recorded it. */
+  paragraph?: number;
 };
 
 /**
@@ -218,4 +220,89 @@ export function handledItemsNote(coverage: ReadonlyArray<ItemCoverage>): string 
     .filter((line) => counts.has(line))
     .map((line) => `${line === "other" ? "other items" : `Line ${line}`} ${counts.get(line)}`);
   return `Deviations already handled in this conversation (on a pending or applied card, or blocked or conflicting): ${parts.join(", ")}. deviationInventory and compareReferencePd mark each one still in the list; skip them unless the writer's message reopens one.`;
+}
+
+// ─── Items waiting on a pending card (Phase B, W2 round 2) ──────────────────
+
+/**
+ * A paragraph of a Line: `section` and its 1-based `paragraph`, the number
+ * the writer sees (`chatProposalItems.paragraphNumber`).
+ */
+export type LineParagraph = { section: CompletionReportSection; paragraph: number };
+
+/** A Deviation not handled yet that sits in a paragraph a pending card rewrites. */
+export type WaitingItem = LineParagraph & { itemId: string };
+
+function paragraphKey(place: LineParagraph): string {
+  return `${place.section}:${place.paragraph}`;
+}
+
+/**
+ * The paragraphs that a pending card of the current job already rewrites:
+ * each card item row of a pending card of this job that names its Line and
+ * paragraph. A rejected or stale card rewrites nothing, and a pending card
+ * of an earlier job is left out: a new request is the writer's own choice to
+ * work on those paragraphs again, while a job (and its Continue chain) must
+ * not overwrite the card it just made.
+ */
+export function pendingCardParagraphs(rows: ReadonlyArray<ItemCoverageRow>): LineParagraph[] {
+  const places = new Map<string, LineParagraph>();
+  for (const row of rows) {
+    if (row.proposalState !== "pending" || !row.inCurrentJob) continue;
+    if (!row.section || row.paragraph === undefined || row.paragraph < 1) continue;
+    const place = { section: row.section, paragraph: row.paragraph };
+    places.set(paragraphKey(place), place);
+  }
+  return [...places.values()];
+}
+
+/** The 1-based paragraph an inventory id names (`r-242-1-4` is paragraph 1), if any. */
+export function itemIdParagraph(itemId: string): number | undefined {
+  const match = /^[rcx]-(?:242|244|246)-(\d+)-\d+$/.exec(itemId);
+  const paragraph = match ? Number(match[1]) : NaN;
+  return Number.isInteger(paragraph) && paragraph >= 1 ? paragraph : undefined;
+}
+
+/**
+ * Split the items still to do into those waiting on a pending card (their
+ * paragraph is already rewritten by one) and the rest. Waiting items are not
+ * counted in the Continue offer and never decide its next Line.
+ */
+export function splitWaiting<T extends { section: CompletionReportSection; itemId: string; paragraph?: number }>(
+  items: ReadonlyArray<T>,
+  pending: ReadonlyArray<LineParagraph>
+): { open: T[]; waiting: WaitingItem[] } {
+  const covered = new Set(pending.map(paragraphKey));
+  const open: T[] = [];
+  const waiting: WaitingItem[] = [];
+  for (const item of items) {
+    const paragraph = item.paragraph ?? itemIdParagraph(item.itemId);
+    if (paragraph !== undefined && covered.has(paragraphKey({ section: item.section, paragraph }))) {
+      waiting.push({ itemId: item.itemId, section: item.section, paragraph });
+    } else {
+      open.push(item);
+    }
+  }
+  return { open, waiting };
+}
+
+/** The most waiting items one note or offer names. */
+export const MAX_WAITING_ITEMS = 60;
+
+/** The instruction that goes with waiting items, in the per-turn note and in the inventory. */
+export const WAITING_ITEMS_INSTRUCTION =
+  "These items sit in paragraphs a pending card already rewrites, so do not rewrite those paragraphs again. Name them in your closing so the writer can refine that card or ask for them after applying it.";
+
+/**
+ * The per-turn note line for the current job's waiting items (ids and
+ * Line and paragraph only), or null when there are none. Goes in the
+ * per-turn tail, never the cached head.
+ */
+export function waitingItemsNote(waiting: ReadonlyArray<WaitingItem>): string | null {
+  if (waiting.length === 0) return null;
+  const listed = waiting
+    .slice(0, MAX_WAITING_ITEMS)
+    .map((item) => `${item.itemId} (Line ${item.section}, paragraph ${item.paragraph})`);
+  const more = waiting.length > MAX_WAITING_ITEMS ? `, and ${waiting.length - MAX_WAITING_ITEMS} more` : "";
+  return `Deviations waiting on a pending card: ${listed.join(", ")}${more}. ${WAITING_ITEMS_INSTRUCTION}`;
 }

@@ -1072,3 +1072,59 @@ describe("round 4 N1: re-extracted instructions in a Continue chain", () => {
     expect(lineWith(listed, "c-244-1-1")).not.toContain("Handled earlier");
   });
 });
+
+// Phase B (2026-10-20), W2 round 2: the 2026-10-20 replay. A card rewrote a
+// paragraph but missed one of its Deviations; the Continue offer sent the
+// job back to that Line and a second card rewrote the same paragraphs. Now
+// that item waits on the pending card: the offer moves on, the next turn is
+// told, and the inventory marks it.
+describe("items waiting on a pending card", () => {
+  test("do not send the job back to the card's Line, and the next turn is told", async () => {
+    const f = await setup({ notes: [
+      { section: "242", paragraphIndex: 0 }, { section: "242", paragraphIndex: 0 }, { section: "244", paragraphIndex: 0 },
+    ] });
+    let missed = "";
+    const first = stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_inv", "deviationInventory", {}),
+      () => {
+        const listed = JSON.stringify(toolResult(first[1]!, "toolu_inv"));
+        const ids = [...new Set(listed.match(/r-242-1-\d+/g) ?? [])];
+        if (ids.length !== 2) throw new Error(`expected two Line 242 ids, got ${ids.join(", ")}`);
+        missed = ids[1]!;
+        // The card rewrites paragraph 1 for the first item and misses the second.
+        return toolAnswer("msg_2", "toolu_bulk", "proposeBulkEdits", {
+          edits: [{ targetText: P1, newText: "Trial 1 described a pressure operating envelope." }],
+          findings: [{ id: ids[0], section: "242", paragraph: 1, kind: "rule", rule: "Call the range the operating envelope.", status: "resolved", editNumbers: [1] }],
+        });
+      },
+      () => textAnswer("msg_3", "Proposed the Line 242 revision."),
+    ]);
+    await f.run();
+
+    // The offer moves on to Line 244, and the missed item waits on the card.
+    expect((await f.turn()).continuation).toEqual({
+      reason: "lines_left", nextSection: "244", remaining: 1,
+      waiting: [{ itemId: missed, section: "242", paragraph: 1 }],
+    });
+
+    // The writer's Continue (the same offer) reaches the next turn.
+    const second = stubAnthropic([
+      () => toolAnswer("msg_4", "toolu_inv2", "deviationInventory", { section: "242" }),
+      () => textAnswer("msg_5", "Line 242 is on the pending card."),
+    ]);
+    const next = await f.actor.mutation(api.chatV2.sendMessage, {
+      reportId: f.reportId, content: "Continue with Line 244.", threadId: f.threadId,
+    });
+    await f.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: next.threadId, promptMessageId: next.messageId, reportId: f.reportId, userId: f.userId,
+    });
+    const note = `Deviations waiting on a pending card: ${missed} (Line 242, paragraph 1). These items sit in paragraphs a pending card already rewrites, so do not rewrite those paragraphs again. Name them in your closing so the writer can refine that card or ask for them after applying it.`;
+    // In the per-turn tail (the last user message), never in the cached head.
+    expect(lastUserText(second[0]!)).toContain(note);
+    expect(JSON.stringify(second[0]!.system ?? "")).not.toContain("waiting on a pending card");
+    const listed = String(toolResult(second[1]!, "toolu_inv2")?.content).split("\n");
+    expect(listed.find((line) => line.includes(missed))).toContain(
+      "Waiting on a pending card that already rewrites this paragraph: do not rewrite the paragraph again; name this item in your closing so the writer can refine that card or ask for it after applying it."
+    );
+  });
+});

@@ -62,6 +62,7 @@ import {
 import {
   chatAutoContinueSkipValidator,
   chatTurnContinuationReasonValidator,
+  chatTurnContinuationValidator,
   chatTurnProgressValidator,
   type ChatTurnContinuation,
 } from "./lib/chatTurnState";
@@ -77,6 +78,11 @@ import {
   coverageFor,
   isContinuePrompt,
   itemCoverage,
+  MAX_WAITING_ITEMS,
+  pendingCardParagraphs,
+  splitWaiting,
+  type LineParagraph,
+  type WaitingItem,
   type ItemCoverage,
   type ItemCoverageRow,
 } from "./lib/chatItemCoverage";
@@ -1723,6 +1729,7 @@ async function threadCoverageRows(
         createdAt: item.createdAt,
         ...(item.fingerprint ? { fingerprint: item.fingerprint } : {}),
         inCurrentJob: sameJob,
+        ...(item.paragraphNumber !== undefined ? { paragraph: item.paragraphNumber } : {}),
       });
     }
     if (items.length > 0 && promptMessageId !== undefined && proposal.promptMessageId === promptMessageId) {
@@ -1755,6 +1762,46 @@ export const getThreadItemCoverage = internalQuery({
     itemCoverage((await threadCoverageRows(ctx, args.agentThreadId)).rows),
 });
 
+const lineParagraphValidator = v.object({ section: sectionNumberValidator, paragraph: v.number() });
+const waitingItemValidator = v.object({
+  itemId: v.string(),
+  section: sectionNumberValidator,
+  paragraph: v.number(),
+});
+
+/**
+ * Phase B (2026-10-20), W2 round 2: the coverage above, plus the paragraphs
+ * a pending card of the current job already rewrites and the items the job
+ * left waiting on them. `waiting` comes from the newest turn's Continue
+ * offer and is read again against today's cards: an item handled since, or
+ * whose card was applied, rejected or went stale, or that belongs to an
+ * earlier job's card, no longer waits.
+ */
+export const getThreadCoverageState = internalQuery({
+  args: { agentThreadId: v.string() },
+  returns: v.object({
+    items: v.array(itemCoverageValidator),
+    pendingParagraphs: v.array(lineParagraphValidator),
+    waiting: v.array(waitingItemValidator),
+  }),
+  handler: async (ctx, args) => {
+    const { rows } = await threadCoverageRows(ctx, args.agentThreadId);
+    const items = itemCoverage(rows);
+    const pendingParagraphs = pendingCardParagraphs(rows);
+    const offered = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", args.agentThreadId))
+      .order("desc")
+      .take(JOB_TURN_SCAN);
+    const stored: WaitingItem[] = offered.find((turn) => turn.continuation)?.continuation?.waiting ?? [];
+    const stillOpen = stored.filter(
+      (item) => coverageFor(items, { id: item.itemId })?.handled !== true
+    );
+    const { waiting } = splitWaiting(stillOpen, pendingParagraphs);
+    return { items, pendingParagraphs, waiting };
+  },
+});
+
 /**
  * Phase A (2026-10-19): the structured Continue offer a turn ends with.
  * `outstanding` is every inventory item the turn worked on (rule, content or
@@ -1775,38 +1822,40 @@ export const setTurnContinuation = internalMutation({
       section: sectionNumberValidator,
       itemId: v.string(),
       fingerprint: v.optional(v.string()),
+      /** 1-based paragraph; read from the id when absent. */
+      paragraph: v.optional(v.number()),
     })),
   },
-  returns: v.union(
-    v.null(),
-    v.object({
-      reason: chatTurnContinuationReasonValidator,
-      nextSection: v.optional(sectionNumberValidator),
-      remaining: v.optional(v.number()),
-    })
-  ),
+  returns: v.union(v.null(), chatTurnContinuationValidator),
   handler: async (ctx, args): Promise<ChatTurnContinuation | null> => {
     const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
     if (!turn || !turnIsActive(turn)) return null;
 
     let coverage: ItemCoverage[] = [];
+    let pending: LineParagraph[] = [];
     let turnSavedReport = false;
     if (args.outstanding.length > 0 || args.reason === "lines_left") {
       const read = await threadCoverageRows(ctx, args.agentThreadId, args.promptMessageId);
       turnSavedReport = read.promptSavedReport;
       coverage = itemCoverage(read.rows);
+      pending = pendingCardParagraphs(read.rows);
     }
     // Round 3 (P2-A): the same matching as the inventory's marks.
     const left = args.outstanding.filter(
       (item) => coverageFor(coverage, { id: item.itemId, fingerprint: item.fingerprint })?.handled !== true
     );
+    // Phase B round 2: an item in a paragraph a pending card of this job
+    // already rewrites waits on that card. It is not counted and never sends
+    // the job (or its chain) back to that Line.
+    const { open, waiting } = splitWaiting(left, pending);
     const nextSection = INVENTORY_SECTION_ORDER.find((section) =>
-      left.some((item) => item.section === section)
+      open.some((item) => item.section === section)
     );
     if (args.reason === "lines_left" && (!turnSavedReport || !nextSection)) return null;
     const continuation: ChatTurnContinuation = {
       reason: args.reason,
-      ...(nextSection ? { nextSection, remaining: left.length } : {}),
+      ...(nextSection ? { nextSection, remaining: open.length } : {}),
+      ...(waiting.length > 0 ? { waiting: waiting.slice(0, MAX_WAITING_ITEMS) } : {}),
     };
     await ctx.db.patch(turn._id, { continuation });
     return continuation;

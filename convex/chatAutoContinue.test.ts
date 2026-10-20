@@ -8,7 +8,14 @@ import schema from "./schema";
 import { CHAIN_STOP_GRACE_MS } from "./lib/chatChain";
 import { autoContinueMessage, chainLinkMadeProgress } from "./lib/chatTurnState";
 import { continueMessage } from "../src/lib/chat/turnParts";
-import { isContinuePrompt } from "./lib/chatItemCoverage";
+import {
+  isContinuePrompt,
+  itemIdParagraph,
+  pendingCardParagraphs,
+  splitWaiting,
+  waitingItemsNote,
+  type ItemCoverageRow,
+} from "./lib/chatItemCoverage";
 
 /**
  * Report chat parity, Phase B (2026-10-20), W2: a long job carries on by
@@ -471,3 +478,172 @@ describe("reportChatActivity", () => {
   });
 });
 
+
+// ─── Phase B round 2: items waiting on a pending card ───────────────────────
+
+describe("items waiting on a pending card (helpers)", () => {
+  const row = (extra: Partial<ItemCoverageRow>): ItemCoverageRow => ({
+    itemId: "r-242-1-1", section: "242", paragraph: 1, status: "resolved", proposalState: "pending",
+    createdAt: 1, inCurrentJob: true, ...extra,
+  });
+
+  test("a pending card of the current job covers its paragraphs; stale, rejected, applied or older-job cards do not", () => {
+    expect(pendingCardParagraphs([
+      row({}), row({ itemId: "c-242-2-1", paragraph: 2 }), row({ itemId: "r-242-1-2" }),
+      row({ itemId: "r-244-1-1", section: "244", proposalState: "stale" }),
+      row({ itemId: "r-244-2-1", section: "244", paragraph: 2, proposalState: "rejected" }),
+      row({ itemId: "r-246-1-1", section: "246", proposalState: "applied" }),
+      row({ itemId: "r-246-2-1", section: "246", paragraph: 2, inCurrentJob: false }),
+      row({ itemId: "r-246-3-1", section: "246", paragraph: undefined }),
+    ])).toEqual([{ section: "242", paragraph: 1 }, { section: "242", paragraph: 2 }]);
+  });
+
+  test("an item waits when its paragraph is covered, read from the id when not given", () => {
+    expect(itemIdParagraph("r-242-1-4")).toBe(1);
+    expect(itemIdParagraph("c-244-12-2")).toBe(12);
+    expect(itemIdParagraph("r-242-0-1")).toBeUndefined();
+    expect(itemIdParagraph("bogus")).toBeUndefined();
+    const { open, waiting } = splitWaiting(
+      [
+        { itemId: "r-242-1-4", section: "242" as const },
+        { itemId: "r-242-3-1", section: "242" as const },
+        { itemId: "r-244-1-1", section: "244" as const, paragraph: 1 },
+      ],
+      [{ section: "242", paragraph: 1 }]
+    );
+    expect(waiting).toEqual([{ itemId: "r-242-1-4", section: "242", paragraph: 1 }]);
+    expect(open.map((item) => item.itemId)).toEqual(["r-242-3-1", "r-244-1-1"]);
+  });
+
+  test("the note names ids and places only, with one plain instruction", () => {
+    expect(waitingItemsNote([])).toBeNull();
+    expect(waitingItemsNote([
+      { itemId: "r-242-1-4", section: "242", paragraph: 1 },
+      { itemId: "c-242-4-2", section: "242", paragraph: 4 },
+    ])).toBe(
+      "Deviations waiting on a pending card: r-242-1-4 (Line 242, paragraph 1), c-242-4-2 (Line 242, paragraph 4). These items sit in paragraphs a pending card already rewrites, so do not rewrite those paragraphs again. Name them in your closing so the writer can refine that card or ask for them after applying it."
+    );
+  });
+});
+
+describe("items waiting on a pending card (Continue offer)", () => {
+  type Item = { itemId: string; section: "242" | "244" | "246"; paragraph: number; status?: "resolved" | "blocked" };
+  /** A card with Completion Report rows, as proposeBulkEdits saves it. */
+  async function card(
+    f: Awaited<ReturnType<typeof setup>>,
+    promptMessageId: string,
+    items: Item[],
+    state: Doc<"chatProposals">["state"] = "pending"
+  ) {
+    return await f.t.run(async (ctx) => {
+      const proposalId = await ctx.db.insert("chatProposals", {
+        agentThreadId: f.threadId, promptMessageId, projectId: f.projectId, reportId: f.reportId,
+        kind: "replacements", replacements: [], requireUniqueTargets: true, state, createdAt: Date.now(),
+      });
+      for (const item of items) {
+        await ctx.db.insert("chatProposalItems", {
+          proposalId, projectId: f.projectId, itemId: item.itemId, status: item.status ?? "resolved",
+          reason: "Resolved.", section: item.section, paragraphNumber: item.paragraph, createdAt: Date.now(),
+        });
+      }
+      return proposalId;
+    });
+  }
+  // The replay's shape: the card rewrites Line 242 paragraphs 1, 2 and 4 and
+  // misses r-242-1-4; Lines 244 and 246 are still to do.
+  const replayCard: Item[] = [
+    { itemId: "r-242-1-1", section: "242", paragraph: 1 },
+    { itemId: "c-242-2-1", section: "242", paragraph: 2 },
+    { itemId: "r-242-4-1", section: "242", paragraph: 4 },
+  ];
+  const outstanding = [
+    { section: "242" as const, itemId: "r-242-1-1" },
+    { section: "242" as const, itemId: "c-242-2-1" },
+    { section: "242" as const, itemId: "r-242-4-1" },
+    { section: "242" as const, itemId: "r-242-1-4", paragraph: 1 },
+    { section: "244" as const, itemId: "r-244-1-1" },
+    { section: "244" as const, itemId: "r-244-2-1" },
+    { section: "246" as const, itemId: "r-246-1-1" },
+  ];
+  const offer = (f: Awaited<ReturnType<typeof setup>>, promptMessageId: string, items = outstanding) =>
+    f.t.mutation(internal.chatV2.setTurnContinuation, {
+      agentThreadId: f.threadId, promptMessageId, reason: "lines_left", outstanding: items,
+    });
+
+  test("an item in a paragraph this job's pending card rewrites waits, and the offer moves on", async () => {
+    const f = await setup();
+    await card(f, f.promptMessageId, replayCard);
+    expect(await offer(f, f.promptMessageId)).toEqual({
+      reason: "lines_left", nextSection: "244", remaining: 3,
+      waiting: [{ itemId: "r-242-1-4", section: "242", paragraph: 1 }],
+    });
+  });
+
+  test("only waiting items left: no lines_left offer, so automatic work ends", async () => {
+    const f = await setup();
+    await card(f, f.promptMessageId, replayCard);
+    expect(await offer(f, f.promptMessageId, outstanding.slice(0, 4))).toBeNull();
+    expect((await f.turnOf(f.promptMessageId)).continuation).toBeUndefined();
+  });
+
+  test.each(["stale", "rejected"] as const)("a %s card's paragraphs hold nothing waiting", async (state) => {
+    const f = await setup();
+    // This turn's own report (so lines_left may be offered) is for Line 246.
+    await card(f, f.promptMessageId, [{ itemId: "r-246-1-1", section: "246", paragraph: 1 }]);
+    await card(f, f.promptMessageId, replayCard, state);
+    const stored = await offer(f, f.promptMessageId);
+    expect(stored).toMatchObject({ reason: "lines_left", nextSection: "242" });
+    expect(stored).not.toHaveProperty("waiting");
+  });
+
+  // An earlier job's pending card is not this job's: a new request that
+  // reaches those paragraphs is the writer's own choice, so it starts clean
+  // for them (rule items it already handled stay handled by id).
+  test("an earlier job's pending card makes nothing wait in a new job", async () => {
+    const f = await setup();
+    await card(f, f.promptMessageId, replayCard);
+    await f.finish(f.promptMessageId, undefined);
+    const fresh = await f.actor.mutation(api.chatV2.sendMessage, {
+      reportId: f.reportId, threadId: f.threadId, content: "Now fix the remaining deviations.",
+    });
+    await card(f, fresh.messageId, [{ itemId: "r-246-1-1", section: "246", paragraph: 1 }]);
+    const stored = await offer(f, fresh.messageId);
+    expect(stored).toMatchObject({ reason: "lines_left", nextSection: "242" });
+    expect(stored).not.toHaveProperty("waiting");
+  });
+
+  test("a Continue link of the same job still sees the card's items waiting", async () => {
+    const f = await setup();
+    await card(f, f.promptMessageId, replayCard);
+    const first = await offer(f, f.promptMessageId);
+    await f.finish(f.promptMessageId, undefined);
+    expect(first?.nextSection).toBe("244");
+
+    // The chain moves on to Line 244, not back to the card's Line.
+    const link = await f.chain(f.promptMessageId);
+    if (link.kind !== "linked") throw new Error("expected a link");
+    expect((await f.messages()).find((message) => message.id === link.promptMessageId)?.text).toBe("Continue with Line 244.");
+
+    // The link's turn is told what waits, and still offers 246 next, not 242.
+    const state = await f.t.query(internal.chatV2.getThreadCoverageState, { agentThreadId: f.threadId });
+    expect(state.waiting).toEqual([{ itemId: "r-242-1-4", section: "242", paragraph: 1 }]);
+    await card(f, link.promptMessageId, [
+      { itemId: "r-244-1-1", section: "244", paragraph: 1 }, { itemId: "r-244-2-1", section: "244", paragraph: 2 },
+    ]);
+    expect(await offer(f, link.promptMessageId)).toEqual({
+      reason: "lines_left", nextSection: "246", remaining: 1,
+      waiting: [{ itemId: "r-242-1-4", section: "242", paragraph: 1 }],
+    });
+  });
+
+  test("once the card is applied, the item no longer waits", async () => {
+    const f = await setup();
+    const proposalId = await card(f, f.promptMessageId, replayCard);
+    await offer(f, f.promptMessageId);
+    await f.finish(f.promptMessageId, undefined);
+    await f.t.run((ctx) => ctx.db.patch(proposalId, { state: "applied" }));
+    const state = await f.t.query(internal.chatV2.getThreadCoverageState, { agentThreadId: f.threadId });
+    expect(state.waiting).toEqual([]);
+    expect(state.pendingParagraphs).toEqual([]);
+  });
+});

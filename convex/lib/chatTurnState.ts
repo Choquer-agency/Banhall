@@ -52,6 +52,17 @@ export const chatTurnContinuationValidator = v.object({
   reason: chatTurnContinuationReasonValidator,
   nextSection: v.optional(sectionNumberValidator),
   remaining: v.optional(v.number()),
+  /**
+   * Phase B (2026-10-20), W2 round 2: Deviations not handled yet that sit in
+   * a paragraph a pending card of this job already rewrites. They are not in
+   * `remaining` and never decide `nextSection`; the next turn of the job is
+   * told about them. Ids and places only.
+   */
+  waiting: v.optional(v.array(v.object({
+    itemId: v.string(),
+    section: sectionNumberValidator,
+    paragraph: v.number(),
+  }))),
 });
 
 export type ChatTurnContinuation = Infer<typeof chatTurnContinuationValidator>;

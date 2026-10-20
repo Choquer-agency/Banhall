@@ -646,7 +646,16 @@ export interface ItemCoverageMark {
   label: string;
   handled: boolean;
   reopen: string;
+  /**
+   * Phase B (2026-10-20), W2 round 2: not handled, but its paragraph is
+   * already rewritten by a pending card of the current job.
+   */
+  waiting?: boolean;
 }
+
+/** The inventory's mark for an item waiting on a pending card. */
+export const WAITING_ITEM_MARK =
+  " Waiting on a pending card that already rewrites this paragraph: do not rewrite the paragraph again; name this item in your closing so the writer can refine that card or ask for it after applying it.";
 
 export interface RenderInventoryOptions {
   /**
@@ -793,8 +802,9 @@ export function renderInventory(
   }
 
   const handled = items.filter((item) => options.coverage?.get(item.id)?.handled === true).length;
+  const waiting = items.filter((item) => options.coverage?.get(item.id)?.waiting === true).length;
   lines.push(
-    `Item ids are stable: reuse them verbatim as the finding ids of the revision, split into proposeBulkEdits calls as the size rule says, and report each Deviation as resolved, blocked or conflicting. ${items.length} Deviation(s) listed${scope === undefined ? "" : ` in Line ${scope}`}${unverified.length ? `, plus ${unverified.length} not checked` : ""}.${handled ? ` ${handled} of them were handled earlier in this conversation and are marked: skip them by default (leave them out of the edits and the findings) and revise the others, unless the writer's message reopens one (it supplies the missing fact, makes the decision, or asks to refine or redo that card).` : ""}`
+    `Item ids are stable: reuse them verbatim as the finding ids of the revision, split into proposeBulkEdits calls as the size rule says, and report each Deviation as resolved, blocked or conflicting. ${items.length} Deviation(s) listed${scope === undefined ? "" : ` in Line ${scope}`}${unverified.length ? `, plus ${unverified.length} not checked` : ""}.${handled ? ` ${handled} of them were handled earlier in this conversation and are marked: skip them by default (leave them out of the edits and the findings) and revise the others, unless the writer's message reopens one (it supplies the missing fact, makes the decision, or asks to refine or redo that card).` : ""}${waiting ? ` ${waiting} of them wait on a pending card that already rewrites their paragraph and are marked: do not rewrite those paragraphs again; name those items in your closing.` : ""}`
   );
   return lines.join("\n");
 }
@@ -806,6 +816,7 @@ export function renderInventory(
  */
 function coverageMark(coverage: ItemCoverageMark | undefined): string {
   if (!coverage) return "";
+  if (coverage.waiting) return WAITING_ITEM_MARK;
   return coverage.handled
     ? ` Handled earlier in this conversation (${coverage.label}): skip it by default (leave it out of the edits and the findings); ${coverage.reopen}.`
     : ` Earlier in this conversation: ${coverage.label}; ${coverage.reopen}.`;
