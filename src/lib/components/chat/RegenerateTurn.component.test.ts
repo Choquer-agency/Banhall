@@ -27,7 +27,7 @@ function seed(status = "completed", rows = [row("user"), row("assistant")]) {
 }
 const regenerate = () => page.getByRole("button", { name: "Regenerate", exact: true });
 const expectedSend = { reportId, threadId: "thread-1", content: stored };
-beforeEach(() => { __resetConvexStub(); __resetAuthState(); localStorage.clear(); seed(); });
+beforeEach(() => { __resetConvexStub(); __resetAuthState(); localStorage.clear(); sessionStorage.clear(); seed(); });
 
 it.each(["{Enter}", " "])("resends completed prompt through keyboard %s and retains the transcript", async key => {
   await page.viewport(1100, 850);

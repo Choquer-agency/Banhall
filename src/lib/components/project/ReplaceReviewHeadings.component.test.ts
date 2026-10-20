@@ -25,6 +25,8 @@ const content = JSON.stringify(
 function seed(find: string, replaceWith: string) {
   __setQueryData("projects:getProject", { _id: "project-1", title: "Thermal investigation", clientName: "Acme", writer: "Writer", interviewer: "", interviewees: [], tagIds: [], mode: "generate", status: "review", workflowStage: "drafting", createdBy: "user-1", ownerId: "user-1", createdAt: 1, updatedAt: 1 });
   __setQueryData("users:getCurrentUser", { _id: "user-1", role: "writer", firstName: "Writer", email: "writer@example.test" });
+  // Chat parity Phase A: suggestion actions are offered to report editors only.
+  __setQueryData("projects:getProjectEditAccess", { canEditDetails: true });
   __setQueryData("reports:getLatestReport", { _id: "report-1", projectId: "project-1", version: 1, revisionNumber: 1, content, createdAt: 1, updatedAt: 1 });
   for (const name of ["generations:getLatestGeneration", "pdReviews:getLatestPdReview", "reportViews:getViewSummary"]) __setQueryData(name, null);
   for (const name of ["transcripts:listTranscripts", "documents:listDocuments", "tags:listTags", "comments:listComments", "chatV2:listTurns", "research:listSessions", "uploadAttempts:listUploadAttempts"]) __setQueryData(name, []);

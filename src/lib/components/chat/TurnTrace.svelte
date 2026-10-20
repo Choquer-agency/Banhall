@@ -5,6 +5,9 @@
   import { cn } from "$lib/utils";
   import {
     formatTurnSummary,
+    holdLabel,
+    thinkingHint,
+    type HeldLabel,
     type NormalizedTurn,
     type ProposalRenderNode,
     type ReasoningRenderNode,
@@ -23,9 +26,11 @@
     messageStatus?: UIMessage["status"];
     /** Test/story override for the component clock. */
     now?: number;
+    /** Freeze the elapsed timer (the connection is down, Phase A task 10). */
+    paused?: boolean;
   }
 
-  let { nodes, proposalNodes = [], timing, messageStatus, now }: Props = $props();
+  let { nodes, proposalNodes = [], timing, messageStatus, now, paused = false }: Props = $props();
 
   const live = $derived(
     timing?.status === "queued" ||
@@ -39,8 +44,11 @@
   $effect(() => {
     // Only a live turn needs a clock; a terminal summary is frozen, and an idle
     // interval per historical turn would leak across a long transcript.
+    // Offline, the turn's real state is unknown, so the timer stops where it
+    // is instead of counting time the writer cannot act on.
     if (!live || now !== undefined) return;
     tick = Date.now();
+    if (paused) return;
     const id = setInterval(() => {
       tick = Date.now();
     }, 1000);
@@ -68,6 +76,27 @@
   // the ticking timer and step count, which must not be announced every second.
   const head = $derived(summary?.split(" · ")[0] ?? "");
   const tail = $derived(summary?.split(" · ").slice(1).join(" · ") ?? "");
+
+  // Phase A: each live label stays up for at least LABEL_HOLD_MS, so a fast
+  // phase change neither flickers nor floods the live region below. A
+  // terminal summary ("Worked for 12s") shows at once.
+  let held = $state<HeldLabel | null>(null);
+  $effect(() => {
+    const next = head;
+    if (!live) {
+      held = null;
+      return;
+    }
+    const result = holdLabel(untrack(() => held), next, Date.now());
+    held = result.held;
+    if (result.waitMs <= 0) return;
+    const id = setTimeout(() => {
+      held = { shown: next, shownAt: Date.now() };
+    }, result.waitMs);
+    return () => clearTimeout(id);
+  });
+  const shownHead = $derived(live && held ? held.shown : head);
+  const hint = $derived(live ? thinkingHint(timing, clock) : null);
 
   // Initial liveness only: a live turn mounts open, a historical one collapsed.
   let open = $state(untrack(() => live));
@@ -98,7 +127,7 @@
       aria-hidden="true"
     ></span>
   {/if}
-  <span aria-live="polite">{head}</span>
+  <span aria-live="polite" data-turn-status>{shownHead}</span>
   {#if tail}
     <span class="text-data text-ink-muted" aria-hidden="true">{tail}</span>
   {/if}
@@ -168,5 +197,9 @@
          outlived its parts across a reload). A disclosure here would be
          focusable and clickable but open onto nothing. -->
     <div class={rowClass}>{@render summaryRow(false)}</div>
+  {/if}
+  {#if hint}
+    <!-- Quiet, not announced: the live status line already says Thinking. -->
+    <p class="px-2 pb-1 text-xs leading-relaxed text-ink-muted" data-thinking-hint>{hint}</p>
   {/if}
 {/if}

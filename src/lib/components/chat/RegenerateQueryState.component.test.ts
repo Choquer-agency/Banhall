@@ -18,7 +18,7 @@ const rows: UIMessage[] = (["user", "assistant"] as const).map(role => ({
 const regenerate = () => page.getByRole("button", { name: "Regenerate", exact: true });
 
 beforeEach(() => {
-  __resetConvexStub(); __resetAuthState(); localStorage.clear();
+  __resetConvexStub(); __resetAuthState(); localStorage.clear(); sessionStorage.clear();
   __setQueryData("chatV2:listThreads", [{ agentThreadId: "thread-1", title: "Original conversation" }]);
   __setQueryData("chatV2:listMessages", { streams: { kind: "list", messages: [] } });
   __setPaginatedRows("chatV2:listMessages", rows);

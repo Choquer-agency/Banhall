@@ -4,8 +4,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Domain error code (convex/lib/contracts.ts) carried by a ConvexError, if any. */
 export function userErrorCode(error: unknown): string | null {
+  const data = userErrorData(error);
+  return data && typeof data.code === "string" ? data.code : null;
+}
+
+/**
+ * The structured data a domain error carries (`{ code, message, ... }`),
+ * from the ConvexError itself or, when only its text survives, from the
+ * "Uncaught ConvexError: {...}" line the Convex client writes.
+ */
+export function userErrorData(error: unknown): Record<string, unknown> | null {
   if (isRecord(error) && isRecord(error.data) && typeof error.data.code === "string") {
-    return error.data.code;
+    return error.data;
   }
   if (error instanceof Error) {
     const marker = "Uncaught ConvexError: ";
@@ -14,7 +24,7 @@ export function userErrorCode(error: unknown): string | null {
       const payload = error.message.slice(markerIndex + marker.length).split("\n", 1)[0];
       try {
         const parsed: unknown = JSON.parse(payload);
-        if (isRecord(parsed) && typeof parsed.code === "string") return parsed.code;
+        if (isRecord(parsed) && typeof parsed.code === "string") return parsed;
       } catch {
         return null;
       }
@@ -47,6 +57,12 @@ export const HANDLED_REFUSAL_CODES: ReadonlySet<string> = new Set([
   // 2026-10-14 saved clients: a client name that already exists. New client
   // shows the server's message inline next to the name.
   "CLIENT_EXISTS",
+  // Chat parity Phase A (2026-10-19): report chat refusals. The composer
+  // explains each in plain words on the unsent message, with Retry.
+  "CHAT_TURN_ACTIVE",
+  "CHAT_SPEND_BUDGET_EXCEEDED",
+  "CHAT_QUEUE_LIMIT_EXCEEDED",
+  "CHAT_MESSAGE_TOO_LONG",
 ]);
 
 /**

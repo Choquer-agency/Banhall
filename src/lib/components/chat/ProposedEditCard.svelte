@@ -13,6 +13,11 @@
     targetText?: string;
     replacements?: { find: string; replaceWith: string }[];
     state: "pending" | "applied" | "rejected" | "stale";
+    /**
+     * Whether the viewer may apply, dismiss or reword (report edit access).
+     * "loading" hides those actions without a note; "denied" says why.
+     */
+    applyAccess?: "allowed" | "loading" | "denied";
     onReplace: () => Promise<void> | void;
     onReject: () => Promise<void> | void;
     /** Save writer-authored wording while preserving canonical report targets. */
@@ -35,15 +40,20 @@
     targetText,
     replacements,
     state: editState,
+    applyAccess = "allowed",
     onReplace,
     onReject,
-    onEditWording,
+    onEditWording: editWordingHandler,
     onRefine,
     onShowInDoc,
     onReviewOneByOne,
     onPreviewInDoc,
     reviewing,
   }: Props = $props();
+
+  // Only people the server lets apply see Apply, Dismiss and Edit wording.
+  const canAct = $derived(applyAccess === "allowed");
+  const onEditWording = $derived(canAct ? editWordingHandler : undefined);
 
   let busy = $state(false);
   let error = $state<string | null>(null);
@@ -305,7 +315,11 @@
         <Spinner size="sm" class="h-3 w-3 border-navy/30 border-t-navy" />
         Stepping through in the document…
       </span>
-    {:else if editState === "pending"}
+    {:else if editState === "pending" && applyAccess === "denied"}
+      <p class="text-xs leading-[1.125rem] text-ink-muted" data-apply-unavailable>
+        Only people who can edit this report can apply or dismiss suggestions.
+      </p>
+    {:else if editState === "pending" && canAct}
       <ActionButton
         variant="primary"
         class="min-h-0 rounded-md px-3 py-1.5 leading-[1.125rem]"

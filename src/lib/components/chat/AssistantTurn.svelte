@@ -30,6 +30,12 @@
       error?: string;
       onVote: (vote: 1 | -1) => Promise<void>;
     };
+    /** The copy of this answer failed; the button says so instead of a toast. */
+    copyFailed?: boolean;
+    /** Phase A: the turn's structured Continue offer, on the newest turn only. */
+    continuation?: { label: string; disabled: boolean; onContinue: () => Promise<void> | void };
+    /** Freeze the live timer while the connection is down. */
+    paused?: boolean;
     onCopy?: (messageId: string, text: string) => void;
     onRefine: (proposal: Proposal) => void;
     onBeforeApply?: () => Promise<unknown>;
@@ -50,6 +56,9 @@
     proposals = [],
     timing,
     copied = false,
+    copyFailed = false,
+    continuation,
+    paused = false,
     regeneration,
     feedback,
     onCopy,
@@ -67,6 +76,20 @@
   const turn = $derived(normalizeTurnParts(message, proposals));
 
   const failed = $derived(message?.status === "failed" || timing?.status === "failed");
+  const streaming = $derived(message?.status === "streaming" || message?.status === "pending");
+
+  // One click sends one Continue: the guard holds until the send settles,
+  // and the panel removes the offer once the new turn exists.
+  let continuing = $state(false);
+  async function runContinue() {
+    if (!continuation || continuing || continuation.disabled) return;
+    continuing = true;
+    try {
+      await continuation.onContinue();
+    } finally {
+      continuing = false;
+    }
+  }
 
   // Copy offers the answer only — never reasoning, tool payloads, or card text.
   const canCopy = $derived(
@@ -82,14 +105,15 @@
     nodes={turn.traceNodes}
     proposalNodes={turn.proposalNodes}
     {timing}
+    {paused}
     messageStatus={message?.status}
   />
 
   <!-- Board 2.1: the answer introduces its suggested edits, which follow it. -->
   {#if turn.text}
     <!-- Announced once on failure; a live region here would re-announce the
-         answer on every streaming token. -->
-    <div id={answerElementId} role={failed ? "alert" : undefined}>
+         answer on every streaming token. Busy while it streams (Phase A). -->
+    <div id={answerElementId} role={failed ? "alert" : undefined} aria-busy={streaming}>
       <MessageContent markdown text={turn.text} class={failed ? "text-red-500" : undefined} />
     </div>
   {/if}
@@ -106,17 +130,29 @@
     />
   {/each}
 
+  {#if continuation}
+    <!-- Phase A: the server's structured offer to carry on (the next Line, or
+         where a long job stopped). It sends an ordinary writer message. -->
+    <div class="pt-1">
+      <ActionButton variant="secondary" data-continue-offer
+        disabled={continuation.disabled || continuing}
+        loading={continuing} loadingLabel="Sending…"
+        onclick={runContinue}
+        class="pointer-coarse:min-h-11">{continuation.label}</ActionButton>
+    </div>
+  {/if}
+
   {#if canCopy || regeneration}
     <MessageActions>
       {#if canCopy && message}
       {@const id = message.id}
-      <Tooltip text={copied ? "Copied!" : "Copy message"} side="bottom" delayDuration={300}>
+      <Tooltip text={copied ? "Copied!" : copyFailed ? "Couldn't copy. Try again." : "Copy message"} side="bottom" delayDuration={300}>
         {#snippet children({ props })}
           <button
             {...props}
             type="button"
             onclick={() => onCopy?.(id, turn.text)}
-            aria-label={copied ? "Copied" : "Copy message"}
+            aria-label={copied ? "Copied" : copyFailed ? "Couldn't copy. Try again." : "Copy message"}
             class="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
           >
             {#if copied}

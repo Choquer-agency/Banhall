@@ -36,7 +36,7 @@ async function navigate(name: string) {
 }
 async function writeAndSend(text = prompt) { await composer().fill(text); await send().click(); }
 beforeEach(() => {
-  __resetConvexStub(); __resetAuthState(); localStorage.clear();
+  __resetConvexStub(); __resetAuthState(); localStorage.clear(); sessionStorage.clear();
   __setQueryData("chatV2:listThreads", []);
   __setQueryData("chatV2:listMessages", { streams: { kind: "list", messages: [] } });
   __setPaginatedRows("chatV2:listMessages", []);

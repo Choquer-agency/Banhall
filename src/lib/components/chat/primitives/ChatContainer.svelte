@@ -76,8 +76,16 @@
     if (isAtBottom) hasUnseen = false;
   }
 
-  export function scrollToBottom(behavior: ScrollBehavior = "smooth"): void {
+  /** A writer who asks for reduced motion gets a jump, never a smooth scroll. */
+  function prefersReducedMotion(): boolean {
+    return typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  export function scrollToBottom(requested: ScrollBehavior = "smooth"): void {
     if (!viewportEl) return;
+    const behavior: ScrollBehavior = requested === "smooth" && prefersReducedMotion() ? "instant" : requested;
     isAtBottom = true;
     hasUnseen = false;
     animating = behavior === "smooth";
@@ -144,13 +152,15 @@
 </script>
 
 <div class={cn("relative", className)}>
+  <!-- Phase A (task 6): the transcript is not a live region. A polite log
+       read streaming replies token by token; the turn's own status line
+       announces phase changes and the panel announces a finished reply once. -->
   <div
     bind:this={viewportEl}
     onscroll={handleScroll}
     role="log"
     aria-label="Conversation"
-    aria-live="polite"
-    aria-relevant="additions text"
+    aria-live="off"
     class={cn(
       "h-full w-full overflow-y-auto overscroll-y-contain [overflow-anchor:none]",
       viewportClass

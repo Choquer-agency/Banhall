@@ -17,7 +17,11 @@ import ProposalCard from "./ProposalCard.svelte";
  * wording editor, and no mutation is ever sent.
  */
 
-beforeEach(() => __resetConvexStub());
+beforeEach(() => {
+  __resetConvexStub();
+  // Phase A: Apply is offered to people with report edit access only.
+  __setQueryData("projects:getProjectEditAccess", { canEditDetails: true });
+});
 
 const proposalId = "proposal-zero" as Id<"chatProposals">;
 

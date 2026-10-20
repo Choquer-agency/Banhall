@@ -18,7 +18,7 @@ const turns = (start: number) => Array.from({ length: 200 }, (_, i) => ({ _id: `
 const researchDetails = (status: string) => ({ session: { _id: "pending-research", status }, runs: [], claims: [], sources: [], proposal: null });
 const regenerate = () => page.getByRole("button", { name: "Regenerate", exact: true });
 beforeEach(() => {
-  __resetConvexStub(); __resetAuthState(); localStorage.clear();
+  __resetConvexStub(); __resetAuthState(); localStorage.clear(); sessionStorage.clear();
   __setQueryData("chatV2:listThreads", [{ agentThreadId: "thread-1", title: "Conversation" }]);
   __setQueryData("chatV2:listMessages", { streams: { kind: "list", messages: [] } });
   __setPaginatedRows("chatV2:listMessages", rows(1));

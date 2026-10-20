@@ -1283,7 +1283,10 @@
 <svelte:window
   onpopstate={() => (seedSummaryRequested = new URL(window.location.href).searchParams.get("view") === "summary")}
   onkeydown={(e) => {
-    if (e.key === "Escape" && chatOpen && !replaceSession) chatOpen = false;
+    // Chat parity Phase A: an Esc a menu or dialog already handled is theirs,
+    // and the Assistant stays open while its composer holds unsent text.
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    if (chatOpen && !replaceSession && !document.querySelector("[data-assistant-draft]")) chatOpen = false;
   }}
 />
 

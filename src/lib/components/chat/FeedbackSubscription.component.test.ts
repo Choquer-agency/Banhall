@@ -17,7 +17,7 @@ function message(order: number, text: string, status: UIMessage["status"]): UIMe
 beforeEach(() => {
   __resetConvexStub();
   __resetAuthState();
-  localStorage.clear();
+  localStorage.clear(); sessionStorage.clear();
 });
 
 it("retains the real feedback subscription while another answer streams, and cleans it up on unmount", async () => {

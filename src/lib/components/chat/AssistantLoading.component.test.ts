@@ -34,7 +34,7 @@ function watchWelcome() {
 }
 
 beforeEach(() => {
-  __resetConvexStub(); __resetAuthState(); localStorage.clear();
+  __resetConvexStub(); __resetAuthState(); localStorage.clear(); sessionStorage.clear();
   __setQueryData("chatV2:listMessages", { streams: { kind: "list", messages: [] } });
   __setQueryData("chatV2:listTurns", []);
   __setQueryData("chatV2:listProposals", []);

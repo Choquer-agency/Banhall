@@ -27,7 +27,7 @@ function seed(status = "completed") {
   __setQueryData("chatFeedback:getViewerVotes", []);
   __setMutationResult("chatFeedback:submitFeedback", 1);
 }
-beforeEach(() => { __resetConvexStub(); __resetAuthState(); localStorage.clear(); seed(); });
+beforeEach(() => { __resetConvexStub(); __resetAuthState(); localStorage.clear(); sessionStorage.clear(); seed(); });
 
 it("renders the real chat panel", async () => {
   await page.viewport(440, 850);

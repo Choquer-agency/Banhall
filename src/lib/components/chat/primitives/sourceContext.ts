@@ -8,6 +8,24 @@ export interface SourceContext {
   faviconUrl: string;
 }
 
+/**
+ * The favicon service request for a source link. It carries the hostname
+ * only (Phase A, task 3): the full link can hold a path, query or token that
+ * says what the writer was reading, and Google needs none of it. A link that
+ * does not parse gets no favicon.
+ */
+export function faviconUrlFor(href: string): string {
+  let hostname: string;
+  try {
+    const url = new URL(href);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+    hostname = url.hostname;
+  } catch {
+    return "";
+  }
+  return hostname ? `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(hostname)}` : "";
+}
+
 export function setSourceContext(getHref: () => string): SourceContext {
   function domain(): string {
     const href = getHref();
@@ -25,7 +43,7 @@ export function setSourceContext(getHref: () => string): SourceContext {
       return domain();
     },
     get faviconUrl() {
-      return `https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent(getHref())}`;
+      return faviconUrlFor(getHref());
     },
   };
   setContext(SOURCE_CONTEXT, context);

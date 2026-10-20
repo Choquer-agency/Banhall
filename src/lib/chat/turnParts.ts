@@ -16,6 +16,7 @@
 import type { UIMessage } from "@convex-dev/agent";
 import type { Doc } from "../../../convex/_generated/dataModel";
 import { isRecordOnlyProposal, proposalReferences } from "../../../shared/chatProposals";
+import type { TurnPhaseFields, TurnProgress } from "./turnContracts";
 
 export type ToolPartState =
   | "input-streaming"
@@ -83,7 +84,7 @@ export type TurnTiming = {
   startedAt?: number;
   endedAt?: number;
   stepCount: number;
-};
+} & TurnPhaseFields;
 
 export type NormalizedTurn = {
   nodes: TurnRenderNode[];
@@ -757,12 +758,14 @@ export function formatTurnSummary(
   const hasTrace = turn.traceNodes.length > 0 || steps > 0;
 
   if (live) {
-    // One stable verb for the whole live phase. Alternating Working/Thinking as
-    // reasoning and tools interleave makes the header flicker while the writer
-    // is watching it.
+    // Phase A: the server writes the turn's phase (`chatTurns.progress`) from
+    // turn state and fixed tool fields, never model text. Without it, one
+    // stable verb covers the whole live phase. TurnTrace holds each label for
+    // at least LABEL_HOLD_MS so a fast phase change never flickers.
+    const label = progressLabel(timing?.progress);
     const elapsed =
       timing?.startedAt !== undefined ? formatDuration(now - timing.startedAt) : null;
-    return elapsed ? `Working… · ${elapsed}` : "Working…";
+    return elapsed ? `${label} · ${elapsed}` : label;
   }
 
   const duration =
@@ -788,6 +791,116 @@ export function formatTurnSummary(
   }
   if (duration) return `Worked for ${duration}${outcome}`;
   return steps > 0 ? `Worked${outcome}` : null;
+}
+
+// ─── Live progress (Phase A) ────────────────────────────────────────────────
+
+/** The shortest time a live label stays up before the next one replaces it. */
+export const LABEL_HOLD_MS = 1500;
+
+/** One thinking phase this long earns the quiet "ask for one Line" hint. */
+export const THINKING_HINT_AFTER_MS = 60_000;
+
+export const THINKING_HINT =
+  "Big requests can take a few minutes. You can stop and ask for one Line at a time.";
+
+const EDIT_TOOLS = new Set(["proposeEdit", "proposeReplacements", "proposeBulkEdits"]);
+
+/**
+ * The live label for a turn's server-written phase. Built from the phase,
+ * the tool name and the Line only; "Working…" when there is no phase yet.
+ */
+export function progressLabel(progress: TurnProgress | undefined): string {
+  if (!progress) return "Working…";
+  const line = progress.section ? `Line ${progress.section}` : null;
+  switch (progress.phase) {
+    case "reading":
+      return "Reading the report…";
+    case "thinking":
+      return "Thinking…";
+    case "writing":
+      return "Writing the reply…";
+    case "retrying":
+      return "Trying again…";
+    case "tool": {
+      const tool = progress.tool ?? "";
+      if (tool === "deviationInventory") {
+        return line ? `Listing the deviations in ${line}…` : "Listing the deviations…";
+      }
+      if (tool === "compareReferencePd") {
+        return line ? `Comparing ${line} with the reference PD…` : toolCopy(tool).running;
+      }
+      if (EDIT_TOOLS.has(tool) && line) return `Writing suggestions for ${line}…`;
+      return toolCopy(tool).running;
+    }
+  }
+}
+
+/**
+ * The hint under a live turn that has been in one thinking phase for a
+ * minute or more, or null. `since` is server time; a skewed browser clock
+ * only moves the hint by the skew.
+ */
+export function thinkingHint(timing: TurnTiming | undefined, now: number): string | null {
+  const progress = timing?.progress;
+  if (timing?.status !== "running" || progress?.phase !== "thinking") return null;
+  return now - progress.since >= THINKING_HINT_AFTER_MS ? THINKING_HINT : null;
+}
+
+export type HeldLabel = { shown: string; shownAt: number };
+
+/**
+ * Hold a live label for at least `holdMs`. Returns the label to show now and,
+ * when the newest label must wait, how long until it may replace it.
+ */
+export function holdLabel(
+  held: HeldLabel | null,
+  next: string,
+  now: number,
+  holdMs = LABEL_HOLD_MS
+): { held: HeldLabel; waitMs: number } {
+  if (held && held.shown === next) return { held, waitMs: 0 };
+  if (!held || now - held.shownAt >= holdMs) return { held: { shown: next, shownAt: now }, waitMs: 0 };
+  return { held, waitMs: holdMs - (now - held.shownAt) };
+}
+
+/**
+ * Where the context-loss divider goes (Phase A, task 8): the order of the
+ * first loaded message the model still reads, when anything above it is no
+ * longer read; otherwise null. The newest turn that recorded a history start
+ * decides, since the window only moves forward.
+ */
+export function contextBoundaryOrder(
+  turns: readonly ({ order: number } & TurnPhaseFields)[],
+  messageOrders: readonly number[],
+  hasOlderPages: boolean
+): number | null {
+  let newest: ({ order: number } & TurnPhaseFields) | undefined;
+  for (const turn of turns) {
+    if (turn.historyStartOrder === undefined) continue;
+    if (!newest || turn.order > newest.order) newest = turn;
+  }
+  const start = newest?.historyStartOrder;
+  if (start === undefined) return null;
+  const firstRead = messageOrders.filter((order) => order >= start);
+  if (!firstRead.length) return null;
+  const boundary = Math.min(...firstRead);
+  // Something above must be unread: a loaded older message, or (when the
+  // loaded window starts exactly at the boundary) an older page.
+  const hiddenLoaded = messageOrders.some((order) => order < start);
+  return hiddenLoaded || (hasOlderPages && boundary === start) ? boundary : null;
+}
+
+/** The Continue offer's button label: "Continue with Line 244", or "Continue". */
+export function continueLabel(continuation: TurnPhaseFields["continuation"]): string | null {
+  if (!continuation) return null;
+  return continuation.nextSection ? `Continue with Line ${continuation.nextSection}` : "Continue";
+}
+
+/** The writer message the Continue offer sends through the ordinary send path. */
+export function continueMessage(continuation: TurnPhaseFields["continuation"]): string | null {
+  const label = continueLabel(continuation);
+  return label ? `${label}.` : null;
 }
 
 /** Associate loaded rows from one selected thread by exact prompt order only.

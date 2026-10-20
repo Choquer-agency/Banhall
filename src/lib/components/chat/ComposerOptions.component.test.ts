@@ -19,7 +19,7 @@ const composer = () => page.getByRole("textbox", { name: "Message the report ass
 const uploadCalls = () => __callOrder().filter(name => name.startsWith("documents:") || name.startsWith("uploadAttempts:"));
 
 beforeEach(() => {
-  __resetConvexStub(); __resetAuthState(); localStorage.clear();
+  __resetConvexStub(); __resetAuthState(); localStorage.clear(); sessionStorage.clear();
   for (const name of ["chatV2:listThreads", "chatV2:listTurns", "chatV2:listProposals", "research:listSessions"]) __setQueryData(name, []);
   __setQueryData("chatV2:listMessages", { streams: { kind: "list", messages: [] } });
   __setPaginatedRows("chatV2:listMessages", []);

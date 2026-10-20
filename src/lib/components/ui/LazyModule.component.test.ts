@@ -53,7 +53,7 @@ it.each(["highlight", "research"])("delivers pending %s set while the real assis
   release(await import("$lib/components/chat/AgentChatPanel.svelte"));
   const composer = page.getByRole("textbox", { name: "Message the report assistant" });
   await expect.element(composer).toBeVisible();
-  await expect.element(page.getByRole("button", { name: kind === "highlight" ? "Remove pasted text" : "Remove research selection" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: kind === "highlight" ? "Remove selected text" : "Remove research selection" })).toBeVisible();
   await composer.fill("Verify the measurement");
   __setMutationResult("chatV2:sendMessage", { threadId: "thread-1", messageId: "prompt-1" });
   __setMutationResult("research:startResearch", "research-1");

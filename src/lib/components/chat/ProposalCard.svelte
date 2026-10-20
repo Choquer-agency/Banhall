@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { useMutation } from "convex-svelte";
+  import { useMutation, useQuery } from "convex-svelte";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Doc } from "../../../../convex/_generated/dataModel";
   import {
@@ -8,6 +9,7 @@
     proposalReferences,
   } from "../../../../shared/chatProposals";
   import NothingToApplyCard from "./NothingToApplyCard.svelte";
+  import ProposalChecklist from "./ProposalChecklist.svelte";
   import { useProposalSection } from "$lib/chat/proposalSection";
   import ProposedEditCard from "./ProposedEditCard.svelte";
 
@@ -47,6 +49,21 @@
   // DW-135: an all-blocked/conflicting revision has no edits and no action;
   // it renders as a record of its findings, never as a suggestion card.
   const recordOnly = $derived(isRecordOnlyProposal(proposal));
+  // Phase A (task 4): Apply, Dismiss and Edit wording are offered to exactly
+  // the people `applyProposal`, `rejectProposal` and `updateProposalWording`
+  // accept (report edit access), the answer the Files panel and the page
+  // already read. Hidden while it loads, so no one sees a button flash.
+  const auth = useAuth();
+  const editAccessQ = useQuery(api.projects.getProjectEditAccess, () =>
+    auth.isAuthenticated ? { projectId: proposal.projectId } : "skip"
+  );
+  const applyAccess = $derived<"allowed" | "loading" | "denied">(
+    editAccessQ.data === undefined
+      ? editAccessQ.error ? "denied" : "loading"
+      : editAccessQ.data.canEditDetails ? "allowed" : "denied"
+  );
+  // A coordinated revision carries its Completion Report on the card (CAP-13).
+  const bulk = $derived(proposal.kind === "replacements" && proposal.requireUniqueTargets === true);
   const sectionOf = useProposalSection();
   const section = $derived(sectionOf(proposal.targetText ?? proposal.replacements?.[0]?.find));
 </script>
@@ -60,6 +77,7 @@
   targetText={proposal.targetText}
   replacements={proposal.replacements}
   state={proposal.state}
+  {applyAccess}
   onReplace={async () => {
     await onBeforeApply?.();
     const result = await applyProposal({ proposalId: proposal._id });
@@ -99,4 +117,7 @@
     : undefined}
   {reviewing}
 />
+{#if bulk}
+  <ProposalChecklist proposalId={proposal._id} variant="disclosure" />
+{/if}
 {/if}
