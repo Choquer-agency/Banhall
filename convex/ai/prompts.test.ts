@@ -535,9 +535,15 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     expect(prompt).toContain('which sends "Continue with Line N.": read that message as the same request for Line N.');
     // Review P3-1: no rule promises a button that may not appear.
     expect(BULK_EDIT_SIZE_RULE).not.toContain("Continue button");
-    // Review P2-2: the model skips what the inventory marks HANDLED.
-    expect(prompt).toContain("that still has Deviations not marked HANDLED");
-    expect(prompt).toContain("never propose a HANDLED item again and leave it out of the findings, so revise only the unmarked items.");
+    // Review P2-2 and round 2 N1: marked items are skipped by default, and
+    // the writer's message can reopen them; a refine re-proposes the whole set.
+    expect(prompt).toContain("that still has unmarked Deviations");
+    expect(prompt).toContain("Skip marked items by default and revise the unmarked ones.");
+    expect(prompt).toContain(
+      "Revise a marked item when the writer's message reopens it: they supply the missing fact or make the decision it waits on, ask to refine its card, or ask for it to be redone."
+    );
+    expect(prompt).toContain("When refining a pending proposeBulkEdits card, propose its whole set again, marked items included.");
+    expect(prompt).not.toContain("never propose a HANDLED item again");
   });
 
   // Phase A (2026-10-19): both outside-source tools are always offered and

@@ -641,6 +641,13 @@ const RULES_STATUS_LINE: Record<RulesStatus, string> = {
 };
 
 /** Options for `renderInventory`. */
+/** What the conversation did with an item, and what reopens it. */
+export interface ItemCoverageMark {
+  label: string;
+  handled: boolean;
+  reopen: string;
+}
+
 export interface RenderInventoryOptions {
   /**
    * 2026-10-19: list one Line only. Ids are the full inventory's, so a scoped
@@ -653,7 +660,7 @@ export interface RenderInventoryOptions {
    * (`convex/lib/chatItemCoverage.ts`). Each listed item it names is marked,
    * so the model revises only the unmarked ones.
    */
-  coverage?: ReadonlyMap<string, { label: string; handled: boolean }>;
+  coverage?: ReadonlyMap<string, ItemCoverageMark>;
 }
 
 function deviationCount(result: DeviationInventory, section: InventorySection): number {
@@ -787,16 +794,21 @@ export function renderInventory(
 
   const handled = items.filter((item) => options.coverage?.get(item.id)?.handled === true).length;
   lines.push(
-    `Item ids are stable: reuse them verbatim as the finding ids of the revision, split into proposeBulkEdits calls as the size rule says, and report each Deviation as resolved, blocked or conflicting. ${items.length} Deviation(s) listed${scope === undefined ? "" : ` in Line ${scope}`}${unverified.length ? `, plus ${unverified.length} not checked` : ""}.${handled ? ` ${handled} of them are marked HANDLED: this conversation already proposed or recorded them, so leave them out of the revision and revise only the others.` : ""}`
+    `Item ids are stable: reuse them verbatim as the finding ids of the revision, split into proposeBulkEdits calls as the size rule says, and report each Deviation as resolved, blocked or conflicting. ${items.length} Deviation(s) listed${scope === undefined ? "" : ` in Line ${scope}`}${unverified.length ? `, plus ${unverified.length} not checked` : ""}.${handled ? ` ${handled} of them were handled earlier in this conversation and are marked: skip them by default and revise the others, unless the writer's message reopens one (it supplies the missing fact, makes the decision, or asks to refine or redo that card).` : ""}`
   );
   return lines.join("\n");
 }
 
-function coverageMark(coverage: { label: string; handled: boolean } | undefined): string {
+/**
+ * Round 2 (N1): guidance, not a ban. The mark names the status and what
+ * reopens the item, so a supplied fact, a decision, a refine or a redo can
+ * still reach it.
+ */
+function coverageMark(coverage: ItemCoverageMark | undefined): string {
   if (!coverage) return "";
   return coverage.handled
-    ? ` HANDLED in this conversation (${coverage.label}): do not propose it again.`
-    : ` Earlier in this conversation: ${coverage.label}; it may be revised again.`;
+    ? ` Handled earlier in this conversation (${coverage.label}): skip it by default; ${coverage.reopen}.`
+    : ` Earlier in this conversation: ${coverage.label}; ${coverage.reopen}.`;
 }
 
 function renderItem(item: InventoryItem): string {

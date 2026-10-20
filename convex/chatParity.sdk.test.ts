@@ -630,15 +630,16 @@ describe("review P2-1: a Stop caught before a pass's stream exists", () => {
 });
 
 describe("review P2-2: the conversation's record of handled Deviations", () => {
-  async function secondTurn(f: Awaited<ReturnType<typeof setup>>, content: string) {
+  async function nextTurn(f: Awaited<ReturnType<typeof setup>>, content: string) {
     const next = await f.actor.mutation(api.chatV2.sendMessage, { reportId: f.reportId, content, threadId: f.threadId });
     await f.t.action(internal.ai.chatAgentV2.streamChatReply, {
       agentThreadId: next.threadId, promptMessageId: next.messageId, reportId: f.reportId, userId: f.userId,
     });
     return next;
   }
+  const lineOf = (listed: string, id: string) => listed.split("\n").find((line) => line.includes(id));
 
-  test("the next turn's inventory marks the items an earlier card carries, and the note counts them", async () => {
+  test("marks an item on a pending card as handled, with how to refine that card", async () => {
     const f = await setup({ notes: [{ section: "242", paragraphIndex: 0 }, { section: "244", paragraphIndex: 0 }] });
     let ids: { r242: string; r244: string } | undefined;
     const first = stubAnthropic([
@@ -655,32 +656,35 @@ describe("review P2-2: the conversation's record of handled Deviations", () => {
     ]);
     await f.run();
     // Before this turn nothing was handled, so neither the list nor the note marks anything.
-    expect(JSON.stringify(toolResult(first[1]!, "toolu_inv"))).not.toContain("HANDLED");
+    expect(JSON.stringify(toolResult(first[1]!, "toolu_inv"))).not.toContain("Handled earlier");
     expect(lastUserText(first[0]!)).not.toContain("already handled");
 
+    // Round 2 N1: the writer asks to refine that card; the mark guides, it does not forbid.
     const second = stubAnthropic([
       () => toolAnswer("msg_4", "toolu_inv2", "deviationInventory", {}),
-      () => textAnswer("msg_5", "Line 244 is next."),
+      () => textAnswer("msg_5", "Proposed the whole set again with the change."),
     ]);
-    await secondTurn(f, "Continue with Line 244.");
+    await nextTurn(f, "Refine the Line 242 card: say pressure operating envelope in bar.");
     expect(second).toHaveLength(2);
     expect(lastUserText(second[0]!)).toContain(
-      "Deviations already handled in this conversation (on a pending or applied card, or blocked or conflicting): Line 242 1."
+      "Deviations already handled in this conversation (on a pending or applied card, or blocked or conflicting): Line 242 1. deviationInventory and compareReferencePd mark each one; skip them unless the writer's message reopens one."
     );
     const listed = String(toolResult(second[1]!, "toolu_inv2")?.content);
-    const line242 = listed.split("\n").find((line) => line.includes(ids!.r242));
-    const line244 = listed.split("\n").find((line) => line.includes(ids!.r244));
-    expect(line242).toContain("HANDLED in this conversation (already on a pending card): do not propose it again.");
-    expect(line244).not.toContain("HANDLED");
-    expect(listed).toContain("1 of them are marked HANDLED");
+    expect(lineOf(listed, ids!.r242)).toContain(
+      "Handled earlier in this conversation (already on a pending card): skip it by default; revise it if the writer asks to refine or redo that card; to refine a pending proposeBulkEdits card, propose its whole set again, this item included."
+    );
+    expect(lineOf(listed, ids!.r244)).not.toContain("Handled earlier");
+    expect(listed).toContain("1 of them were handled earlier in this conversation and are marked: skip them by default and revise the others, unless the writer's message reopens one");
+    expect(listed).not.toContain("do not propose it again");
   });
 
-  test("after an all-blocked revision the Line is handled, so Continue moves on", async () => {
+  test("a blocked item stays out of Continue but reopens when the writer supplies the fact", async () => {
     const f = await setup({ notes: [{ section: "242", paragraphIndex: 0 }, { section: "244", paragraphIndex: 0 }] });
+    let id = "";
     const first = stubAnthropic([
       () => toolAnswer("msg_1", "toolu_inv", "deviationInventory", { section: "242" }),
       () => {
-        const id = /r-242-\d+-\d+/.exec(JSON.stringify(toolResult(first[1]!, "toolu_inv")))![0];
+        id = /r-242-\d+-\d+/.exec(JSON.stringify(toolResult(first[1]!, "toolu_inv")))![0];
         return toolAnswer("msg_2", "toolu_rec", "proposeBulkEdits", {
           edits: [],
           findings: [{ id, section: "242", paragraph: 1, kind: "rule", rule: "Call the range the operating envelope.", status: "blocked",
@@ -690,16 +694,73 @@ describe("review P2-2: the conversation's record of handled Deviations", () => {
       () => textAnswer("msg_3", "Nothing to apply: Line 242 needs the pressure range."),
     ]);
     await f.run();
+    // The Continue offer moves on to the next Line.
     expect((await f.turn()).continuation).toEqual({ reason: "lines_left", nextSection: "244", remaining: 1 });
 
     const second = stubAnthropic([
       () => toolAnswer("msg_4", "toolu_inv2", "deviationInventory", { section: "242" }),
-      () => textAnswer("msg_5", "Line 242 waits for the writer."),
+      () => toolAnswer("msg_5", "toolu_bulk", "proposeBulkEdits", {
+        edits: [{ targetText: P1, newText: "Trial 1 described a pressure operating envelope of 2 to 5 bar." }],
+        findings: [{ id, section: "242", paragraph: 1, kind: "rule", rule: "Call the range the operating envelope.", status: "resolved", editNumbers: [1] }],
+      }),
+      () => textAnswer("msg_6", "Proposed the Line 242 revision with the range."),
     ]);
-    await secondTurn(f, "continue");
+    await nextTurn(f, "The range is 2 to 5 bar. Fix Line 242.");
     expect(String(toolResult(second[1]!, "toolu_inv2")?.content)).toContain(
-      "HANDLED in this conversation (blocked: needs a missing fact from the writer): do not propose it again."
+      "Handled earlier in this conversation (blocked: needs a missing fact from the writer): skip it by default; revise it once the writer supplies that fact."
     );
+    // The reopened item lands as a card.
+    expect(String(toolResult(second[2]!, "toolu_bulk")?.content)).toContain("Coordinated revision proposed");
+  });
+
+  // Round 2 N2: content (c-) ids are positional, so their marks last only
+  // for the job that produced them.
+  async function contentTurn() {
+    const f = await setup();
+    const named = [{ section: "242", paragraph: 1, instruction: "Call it the operating envelope." }];
+    let id = "";
+    const first = stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_inv", "deviationInventory", { contentDeviations: named }),
+      () => {
+        id = /c-242-\d+-\d+/.exec(JSON.stringify(toolResult(first[1]!, "toolu_inv")))![0];
+        return toolAnswer("msg_2", "toolu_bulk", "proposeBulkEdits", {
+          edits: [{ targetText: P1, newText: "Trial 1 described a pressure operating envelope." }],
+          findings: [{ id, section: "242", paragraph: 1, kind: "content", status: "resolved", editNumbers: [1] }],
+        });
+      },
+      () => textAnswer("msg_3", "Proposed the Line 242 revision."),
+    ]);
+    await f.run();
+    return { f, id };
+  }
+
+  test("a fresh request naming the same paragraph starts clean", async () => {
+    const { f, id } = await contentTurn();
+    const second = stubAnthropic([
+      () => toolAnswer("msg_4", "toolu_inv2", "deviationInventory", {
+        contentDeviations: [{ section: "242", paragraph: 1, instruction: "Name the supplier of the sensor." }],
+      }),
+      () => textAnswer("msg_5", "Line 242 paragraph 1 has one item."),
+    ]);
+    await nextTurn(f, "In Line 242 paragraph 1, name the supplier of the sensor.");
+    const listed = String(toolResult(second[1]!, "toolu_inv2")?.content);
+    expect(lineOf(listed, id)).toContain("Name the supplier of the sensor.");
+    expect(lineOf(listed, id)).not.toContain("Handled earlier");
+    expect(lastUserText(second[0]!)).not.toContain("already handled");
+  });
+
+  test("a Continue chain still skips the items its own request handled", async () => {
+    const { f, id } = await contentTurn();
+    const second = stubAnthropic([
+      () => toolAnswer("msg_4", "toolu_inv2", "deviationInventory", {
+        contentDeviations: [{ section: "242", paragraph: 1, instruction: "Call it the operating envelope." }],
+      }),
+      () => textAnswer("msg_5", "Line 242 is done."),
+    ]);
+    await nextTurn(f, "Continue with Line 244.");
+    const listed = String(toolResult(second[1]!, "toolu_inv2")?.content);
+    expect(lineOf(listed, id)).toContain("Handled earlier in this conversation (already on a pending card)");
+    expect(lastUserText(second[0]!)).toContain("Line 242 1.");
   });
 });
 

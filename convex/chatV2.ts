@@ -67,6 +67,8 @@ import {
 import { sectionNumberValidator } from "./lib/orderedChain";
 import { INVENTORY_SECTION_ORDER } from "./lib/deviationInventory";
 import {
+  coverageLastsWholeConversation,
+  isContinuePrompt,
   itemCoverage,
   type ItemCoverage,
   type ItemCoverageRow,
@@ -1419,17 +1421,72 @@ export const markTurnBrainSearched = internalMutation({
 /** Newest proposals of a thread read to find the Deviations already handled. */
 const COVERAGE_PROPOSAL_SCAN = 100;
 
+/** Newest turns read to find where the current job began. */
+const JOB_TURN_SCAN = 50;
+
+function promptText(doc: { text?: string; message?: { content?: unknown } } | null): string {
+  if (!doc) return "";
+  if (typeof doc.text === "string") return doc.text;
+  const content = doc.message?.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .flatMap((part: unknown) =>
+      part && typeof part === "object" && "type" in part && part.type === "text" &&
+      "text" in part && typeof part.text === "string" ? [part.text] : [])
+    .join("\n");
+}
+
+/**
+ * Round 2 (N2): where the current job began. The newest turn whose writer
+ * message is not a Continue prompt starts it, so a Continue chain belongs to
+ * the request it carries on. Returns the turn orders by prompt for the turns
+ * read. When the prompts cannot be read, the job is the newest turn alone.
+ */
+async function currentJob(
+  ctx: QueryCtx | MutationCtx,
+  agentThreadId: string
+): Promise<{ startOrder: number; orderByPrompt: Map<string, number> } | null> {
+  const turns = await ctx.db
+    .query("chatTurns")
+    .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", agentThreadId))
+    .order("desc")
+    .take(JOB_TURN_SCAN);
+  if (turns.length === 0) return null;
+  const orderByPrompt = new Map(turns.map((turn) => [turn.promptMessageId, turn.order]));
+  try {
+    const docs = await ctx.runQuery(components.agent.messages.getMessagesByIds, {
+      messageIds: turns.map((turn) => turn.promptMessageId),
+    });
+    const textById = new Map<string, string>();
+    for (const doc of docs) if (doc) textById.set(doc._id, promptText(doc));
+    const start = turns.find((turn) => !isContinuePrompt(textById.get(turn.promptMessageId) ?? ""));
+    return { startOrder: (start ?? turns[turns.length - 1]!).order, orderByPrompt };
+  } catch (error) {
+    console.error("chat job prompts could not be read", safeErrorDetails(error));
+    return { startOrder: turns[0]!.order, orderByPrompt };
+  }
+}
+
 /**
  * Phase A review P2-2: the Completion Report rows of the thread's newest
  * proposals with the state of each card, and whether any of them belongs to
  * `promptMessageId`. Bounded: COVERAGE_PROPOSAL_SCAN proposals, each read up
- * to the tool's own findings cap.
+ * to the tool's own findings cap, and JOB_TURN_SCAN turns. Round 2 (N2): a
+ * rule item counts from any card of the conversation; a content or
+ * reference item only from a card of the current job (`currentJob`).
  */
 async function threadCoverageRows(
   ctx: QueryCtx | MutationCtx,
   agentThreadId: string,
   promptMessageId?: string
 ): Promise<{ rows: ItemCoverageRow[]; promptSavedReport: boolean }> {
+  const job = await currentJob(ctx, agentThreadId);
+  const inCurrentJob = (proposalPrompt: string | undefined) => {
+    if (!job || proposalPrompt === undefined) return false;
+    const order = job.orderByPrompt.get(proposalPrompt);
+    return order !== undefined && order >= job.startOrder;
+  };
   const proposals = await ctx.db
     .query("chatProposals")
     .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", agentThreadId))
@@ -1443,7 +1500,9 @@ async function threadCoverageRows(
       .query("chatProposalItems")
       .withIndex("by_proposalId", (q) => q.eq("proposalId", proposal._id))
       .take(MAX_COMPLETION_REPORT_FINDINGS);
+    const sameJob = inCurrentJob(proposal.promptMessageId);
     for (const item of items) {
+      if (!sameJob && !coverageLastsWholeConversation(item.itemId)) continue;
       rows.push({
         itemId: item.itemId,
         ...(item.section ? { section: item.section } : {}),
@@ -1464,6 +1523,7 @@ const itemCoverageValidator = v.object({
   section: v.optional(sectionNumberValidator),
   label: v.string(),
   handled: v.boolean(),
+  reopen: v.string(),
 });
 
 /**

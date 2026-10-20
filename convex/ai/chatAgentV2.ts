@@ -1716,7 +1716,24 @@ export const streamChatReply = internalAction({
           if (!turnAbort.signal.aborted) turnAbort.abort("Writer pressed stop");
         },
       });
-      const history = await chatContextWindow(ctx, args);
+      // Round 2 (N3): the setup reads run together, so the coverage read adds
+      // no serial round trip before the first token. Each keeps its own
+      // fail-safe (the plain history bound, an empty coverage map).
+      // Review P2-2: the replies no longer carry item ids and statuses (the
+      // card shows them) and the history leaves tool rows out, so the model
+      // is told how many Deviations each Line already had handled.
+      // Model catalog: the chat role's current model (direct Anthropic only;
+      // the role never resolves to another gateway). A turn keeps the model
+      // it started with; the next turn picks up a switch.
+      const [history, coverage, { entry: chatModel }] = await Promise.all([
+        chatContextWindow(ctx, args),
+        threadCoverage({
+          threadId: args.agentThreadId,
+          runQuery: ctx.runQuery,
+          runMutation: ctx.runMutation,
+        }),
+        ctx.runQuery(roleModelEntryRef, { role: "chat" }),
+      ]);
       const contextOptions = history.options;
       // Phase A: the browser draws its divider from this, and the model is
       // told that older turns are out of its view (in the per-turn note after
@@ -1727,14 +1744,6 @@ export const streamChatReply = internalAction({
           historyStartOrder: history.historyStartOrder,
         });
       }
-      // Review P2-2: the replies no longer carry item ids and statuses (the
-      // card shows them) and the history leaves tool rows out, so the model
-      // is told how many Deviations each Line already had handled.
-      const coverage = await threadCoverage({
-        threadId: args.agentThreadId,
-        runQuery: ctx.runQuery,
-        runMutation: ctx.runMutation,
-      });
       const turnMessages: ModelMessage[] = [
         ...turn.messages,
         {
@@ -1747,10 +1756,6 @@ export const streamChatReply = internalAction({
           }),
         },
       ];
-      // Model catalog: the chat role's current model (direct Anthropic only;
-      // the role never resolves to another gateway). A turn keeps the model
-      // it started with; the next turn picks up a switch.
-      const { entry: chatModel } = await ctx.runQuery(roleModelEntryRef, { role: "chat" });
       // Ends the reply inside the Convex action limit, so a stalled stream
       // fails its turn here instead of waiting for the reaper.
       timeoutSignal = AbortSignal.timeout(chatStreamTimeoutMs(startedAt, Date.now()));

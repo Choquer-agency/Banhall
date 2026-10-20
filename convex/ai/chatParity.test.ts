@@ -13,7 +13,12 @@ import {
   watchForStop,
 } from "./chatAgentV2";
 import { CHAT_WEB_SEARCH_OFF, newWebSearchTurn, runSearchWeb } from "./chatWebSearch";
-import { handledItemsNote, itemCoverage } from "../lib/chatItemCoverage";
+import {
+  coverageLastsWholeConversation,
+  handledItemsNote,
+  isContinuePrompt,
+  itemCoverage,
+} from "../lib/chatItemCoverage";
 import { completionReportCounts } from "../lib/completionReport";
 import { findDashConnectors } from "../../shared/humanProse";
 
@@ -243,7 +248,7 @@ describe("review P2-2: handled items", () => {
 
     const note = handledItemsNote(coverage);
     expect(note).toBe(
-      "Deviations already handled in this conversation (on a pending or applied card, or blocked or conflicting): Line 242 3, Line 244 1, Line 246 1. deviationInventory and compareReferencePd mark each one; revise only the unmarked items."
+      "Deviations already handled in this conversation (on a pending or applied card, or blocked or conflicting): Line 242 3, Line 244 1, Line 246 1. deviationInventory and compareReferencePd mark each one; skip them unless the writer's message reopens one."
     );
     expect(findDashConnectors(note!)).toEqual([]);
     expect(handledItemsNote(coverage.filter((item) => !item.handled))).toBeNull();
@@ -269,5 +274,37 @@ describe("review P3-7: web search fails closed", () => {
     expect(ctx.runQuery).not.toHaveBeenCalled();
     expect(ctx.runAction).not.toHaveBeenCalled();
     expect(newWebSearchTurn({ allowed: true }).allowed).toBe(true);
+  });
+});
+
+describe("round 2 N1 and N2: reopening and job scope", () => {
+  it("says what reopens each handled item", () => {
+    const [blocked, conflicting, pending, applied] = itemCoverage([
+      { itemId: "r-242-1-1", status: "blocked", proposalState: "applied", createdAt: 1 },
+      { itemId: "r-242-2-1", status: "conflicting", proposalState: "pending", createdAt: 1 },
+      { itemId: "r-242-3-1", status: "resolved", proposalState: "pending", createdAt: 1 },
+      { itemId: "r-242-4-1", status: "resolved", proposalState: "applied", createdAt: 1 },
+    ]);
+    expect(blocked?.reopen).toBe("revise it once the writer supplies that fact");
+    expect(conflicting?.reopen).toBe("revise it once the writer decides");
+    expect(pending?.reopen).toBe(
+      "revise it if the writer asks to refine or redo that card; to refine a pending proposeBulkEdits card, propose its whole set again, this item included"
+    );
+    expect(applied?.reopen).toBe("revise it if the writer asks for it to be redone");
+  });
+
+  it("keeps rule items for the conversation and content or reference items for the job", () => {
+    expect(coverageLastsWholeConversation("r-242-1-1")).toBe(true);
+    expect(coverageLastsWholeConversation("c-242-1-1")).toBe(false);
+    expect(coverageLastsWholeConversation("x-246-2-1")).toBe(false);
+  });
+
+  it("knows a Continue prompt from a fresh request", () => {
+    for (const text of ["Continue with Line 244.", "Continue.", "continue", " Continue with line 246 "]) {
+      expect(isContinuePrompt(text), text).toBe(true);
+    }
+    for (const text of ["Continue with Line 244 but shorter.", "Fix Line 244.", "The range is 2 to 5 bar. Continue.", ""]) {
+      expect(isContinuePrompt(text), text).toBe(false);
+    }
   });
 });
