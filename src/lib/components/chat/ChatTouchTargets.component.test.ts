@@ -138,6 +138,13 @@ describe(`report chat touch targets (${pointer} pointer)`, () => {
     await page.getByRole("checkbox", { name: "rig-notes.txt", exact: true }).click();
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => document.body.style.pointerEvents).not.toBe("none");
+    // Closing the picker hands keyboard focus back to Message options, whose
+    // tooltip then opens above it and covers the pinned chips row. A second
+    // Escape closes the tooltip, so the tap below reaches the chip.
+    await expect.element(page.getByRole("button", { name: "Message options", exact: true })).toHaveFocus();
+    await expect.poll(() => document.querySelector("[data-tooltip-content]")).not.toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector("[data-tooltip-content]")).toBeNull();
     const remove = button("Remove rig-notes.txt");
     expect(readHeight).toBeGreaterThanOrEqual(TOUCH);
     expect(hitAt(remove, 18)).toBe(true);
