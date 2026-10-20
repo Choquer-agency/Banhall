@@ -105,11 +105,15 @@ describe("the Continue message", () => {
     expect(chainLinkMadeProgress([linesLeft], linesLeft)).toBe(false);
     expect(chainLinkMadeProgress([linesLeft], { ...linesLeft, remaining: 4 })).toBe(false);
     expect(chainLinkMadeProgress([{ reason: "step_limit" }], { reason: "step_limit" })).toBe(false);
-    expect(chainLinkMadeProgress([undefined], linesLeft)).toBe(false);
-    expect(chainLinkMadeProgress([], linesLeft)).toBe(false);
-    // Review R1 P3-2: a count or Line that appears or disappears is not progress.
+    // Review round 2 N1: a chain that never had a count or Line makes
+    // progress when its first count or Line appears.
+    expect(chainLinkMadeProgress([undefined], linesLeft)).toBe(true);
+    expect(chainLinkMadeProgress([], linesLeft)).toBe(true);
+    expect(chainLinkMadeProgress([{ reason: "step_limit" }], linesLeft)).toBe(true);
+    expect(chainLinkMadeProgress([{ reason: "step_limit" }], { reason: "step_limit" })).toBe(false);
+    // Review R1 P3-2: once the chain has counts, one that disappears is not progress.
     expect(chainLinkMadeProgress([linesLeft], { reason: "step_limit" })).toBe(false);
-    expect(chainLinkMadeProgress([{ reason: "step_limit" }], linesLeft)).toBe(false);
+    expect(chainLinkMadeProgress([{ reason: "step_limit" }, linesLeft], { reason: "step_limit" })).toBe(false);
     // The flip-flop: back to a count the chain already had.
     expect(chainLinkMadeProgress([{ reason: "step_limit" }, linesLeft], linesLeft)).toBe(false);
     // Measured against the lowest count and the furthest Line of the chain.

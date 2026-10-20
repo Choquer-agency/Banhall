@@ -419,6 +419,25 @@ describe("search records (chatWebSearches)", () => {
     expect(await f.records()).toEqual([]);
   });
 
+  // Review round 2 N4: with no OpenRouter key nothing can be sent, so the
+  // node action throws instead of answering "failed" (which would be recorded).
+  test("the search action throws, not fails, when OpenRouter has no key", async () => {
+    const f = await setup();
+    await f.send(true);
+    const sent = stubOpenRouter();
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    const projectId = await f.t.run(async (ctx) => (await ctx.db.query("projects").first())!._id);
+    await expect(
+      f.t.action(internal.ai.chatWebSearchNode.searchWebForChat, {
+        query: "Coriolis meter drift",
+        projectId,
+        userId: f.userId,
+        timeoutMs: 60_000,
+      })
+    ).rejects.toThrow();
+    expect(sent).toEqual([]);
+  });
+
   // Review R2 P3-3: past the read bound, the oldest searches drop, never the newest.
   test("lists a long conversation's newest searches, oldest first", async () => {
     const f = await setup();

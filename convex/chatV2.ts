@@ -1289,7 +1289,7 @@ export const PROPOSAL_UNDO_CONFLICT_MESSAGE =
 const REPORT_CONTENT_MAX_CHARS = 1_000_000;
 /** Review R2 P3-5: Undo would make the report longer than it may be. */
 export const PROPOSAL_UNDO_TOO_LONG_MESSAGE =
-  "Undoing this would make the report longer than 1,000,000 characters, so it can't be undone here. Use Version history to go back.";
+  "Undoing this would make the report too long to save, so it can't be undone here. Use Version history to go back.";
 
 /**
  * Chat parity Phase B (W3): Undo an applied chat card. The only new card
@@ -1321,9 +1321,16 @@ export const undoProposal = mutation({
     if (!undone.ok) domainError("PROPOSAL_UNDO_CONFLICT", PROPOSAL_UNDO_CONFLICT_MESSAGE);
 
     const content = JSON.stringify(undone.doc);
-    // Review R2 P3-5: the editor's size limit, and the document limit, which
-    // counts bytes: refused here rather than failing the write.
-    if (content.length > REPORT_CONTENT_MAX_CHARS || new TextEncoder().encode(content).length > REPORT_CONTENT_MAX_CHARS) {
+    // Review R2 P3-5: the editor's size limit in characters, refused here
+    // rather than failing the write. Round 2 N3: the byte count guards the
+    // document limit, so it refuses only an Undo that makes the report bigger
+    // than it is now; an Undo that shortens a report is always allowed.
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(content).length;
+    if (
+      content.length > REPORT_CONTENT_MAX_CHARS ||
+      (bytes > REPORT_CONTENT_MAX_CHARS && bytes > encoder.encode(report.content).length)
+    ) {
       domainError("INVALID_INPUT", PROPOSAL_UNDO_TOO_LONG_MESSAGE);
     }
     const revisionNumber = report.revisionNumber ?? 0;

@@ -792,6 +792,13 @@ export const CHAT_THINKING_CUT_OFF_REPLY =
 export const CHAT_THINKING_CUT_OFF_PARTIAL_REPLY =
   "I proposed part of this above, then ran out of room before the rest. Review the cards, then ask me to continue.";
 
+/**
+ * Review round 2 N2: a reply that ran out of time after it saved a card. It
+ * offers Continue (`cut_off`), so it must not say "Try again".
+ */
+export const CHAT_TIMED_OUT_PARTIAL_REPLY =
+  "I proposed part of this above, then ran out of time before the rest. Review the cards; the rest can continue from here.";
+
 /** What the writer reads when the closing text itself hit the limit. */
 export const CHAT_REPLY_CUT_OFF_REPLY =
   "My reply hit the length limit before it finished. Ask me to continue, or ask for one part at a time.";
@@ -2280,12 +2287,16 @@ export const streamChatReply = internalAction({
           : caught;
       // Phase A: a reply cut off offers Continue; a stopped one offers nothing.
       let continuation = stopped ? null : continuationReasonForFailure(error);
+      let timedOutAfterCard = false;
       // Review R1 P2-1: a turn that ran out of time after it saved a card
       // offers Continue too, so its job (and its chain) can go on.
       if (!stopped && !continuation && timedOut(error)) {
         try {
           const savedCard: boolean = await ctx.runQuery(internal.chatV2.turnSavedAnyProposal, turnKey);
-          if (savedCard) continuation = "cut_off";
+          if (savedCard) {
+            continuation = "cut_off";
+            timedOutAfterCard = true;
+          }
         } catch (readError) {
           console.error("chat timed-out turn could not read its cards", safeErrorDetails(readError));
         }
@@ -2323,7 +2334,10 @@ export const streamChatReply = internalAction({
         agentName: "report-editor",
         // Shares the prompt's order so the failed turn's trace attaches to it.
         promptMessageId: args.promptMessageId,
-        message: { role: "assistant", content: chatFailureReply(error) },
+        message: {
+          role: "assistant",
+          content: timedOutAfterCard ? CHAT_TIMED_OUT_PARTIAL_REPLY : chatFailureReply(error),
+        },
       });
     } finally {
       endStopWatch?.();

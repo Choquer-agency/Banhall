@@ -10,6 +10,7 @@
 import { internalAction } from "../_generated/server";
 import { v } from "convex/values";
 import { openRouterChatCompletion } from "./openrouter";
+import { requireOpenRouterConfigured } from "../lib/providerConfig";
 import { parseOpenRouterResearchResponse } from "./research/core";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
 import {
@@ -49,6 +50,9 @@ export const searchWebForChat = internalAction({
     if (!query || query.length > CHAT_WEB_SEARCH_MAX_QUERY_CHARS) {
       throw new Error("Web search query is empty or too long");
     }
+    // Review round 2 N4: a missing key means nothing can be sent, so it throws
+    // (no record) instead of reading as a failed search.
+    requireOpenRouterConfigured();
     try {
       const body = await openRouterChatCompletion(ctx, {
         body: buildChatWebSearchRequest(query, new Date().toISOString().slice(0, 10)),

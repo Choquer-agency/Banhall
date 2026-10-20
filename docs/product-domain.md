@@ -3597,7 +3597,7 @@ The lead decisions in the spec (web search on by default, Undo back to pending, 
   - the turn made progress;
   - the project's rolling 24-hour chat spend is within its budget;
   - the sender still has access to the project.
-- **Progress.** A turn made progress when its offer is `lines_left` or it saved a card. A link counts only when the Deviations left fall below the lowest count seen in the chain so far, or the next Line moves forward in build order past the furthest one seen. A chain that cannot measure progress stops.
+- **Progress.** A turn made progress when its offer is `lines_left` or it saved a card. A link counts only when the Deviations left fall below the lowest count seen in the chain so far, or the next Line moves forward in build order past the furthest one seen. When the chain had no count or Line yet (its first turn ended before any list call), the first one to appear counts as progress. A chain that cannot measure progress stops. A sender who lost access starts no link, and nothing is recorded.
 - **What a link is.** It saves the same writer message the Continue button sends ("Continue with Line 244." or "Continue.") under the job's original sender, queues a turn with `chatTurns.origin: "auto_continue"`, and schedules its reply. Brain is off for the link, and web search follows the conversation's setting.
 - **Limits.** Links do not count toward the queue limit. Usage is logged by a scheduled job, so the budget check can be one link behind: a chain can run at most one link past the budget.
 - **Why a chain stopped.** A chain that stops for the budget, for no progress or because the setting is off records `chatTurns.autoContinueSkipped`, and the Continue button says why for the first two.
@@ -3607,7 +3607,7 @@ The lead decisions in the spec (web search on by default, Undo back to pending, 
 **Steps and time (amends "Not changed" in 2026-10-19 first)**
 - **Step limit.** A reply pass may take 8 steps (`CHAT_MAX_STEPS`, was 5), because opening files takes steps. The recovery pass keeps 5, so a recovered turn makes at most 13 model requests.
 - **Time stop.** A new step does not start with less than 150 seconds left in the action window (`CHAT_MIN_STEP_REMAINING_MS`). A pass stopped for time ends like the step limit, with the closing note and a `step_limit` Continue offer.
-- **Timed out after saving cards.** A turn that times out after it saved a card gets a `cut_off` Continue offer, so the chain can carry on.
+- **Timed out after saving cards.** A turn that times out after it saved a card gets a `cut_off` Continue offer, so the chain can carry on, and says "I proposed part of this above, then ran out of time before the rest. Review the cards; the rest can continue from here." instead of "Try again".
 - **Timing report.** `aiUsage.chatTimingReport` is admin only and gives numbers only: step duration and time to first token by effort, stop reasons and steps per turn.
 
 **Web search per conversation, with sources (amends 2026-10-19 sixth)**
@@ -3636,7 +3636,7 @@ The lead decisions in the spec (web search on by default, Undo back to pending, 
   - recomputes the deterministic findings;
   - returns the card to `pending` (`undoneAt`, `undoneBy`).
 - **After Undo.** The card can be applied again or dismissed.
-- **When Undo refuses.** If the passage changed since, it says so and points to Version history (`PROPOSAL_UNDO_CONFLICT`). It also refuses, with a plain message, when the result would pass the report size limit of 1,000,000 characters.
+- **When Undo refuses.** If the passage changed since, it says so and points to Version history (`PROPOSAL_UNDO_CONFLICT`). It also refuses, with a plain message, when the result would pass the report size limit (1,000,000 characters, or 1,000,000 bytes when the Undo makes the report bigger).
 - **No Undo.** Record-only cards, highlights, research cards and cards applied before this change have no Undo. Cards that went stale because of the apply stay stale.
 - **Writer lists.** `undoProposal` is the eighth revision writer (AD-3) and the only `applied -> pending` path (AD-4). It is added to the report prose writer list above and to `convex/reportAuthz.test.ts`.
 - **Coverage.** A pending card counts as handled, so handled-item coverage is unchanged.

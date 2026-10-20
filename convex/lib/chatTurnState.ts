@@ -96,7 +96,10 @@ const LINE_RANK: Readonly<Record<string, number>> = { "242": 0, "244": 1, "246":
  * in build order than any the chain has reached. A count or Line that
  * appears or disappears is not progress, so a chain can never loop by
  * flipping between offers (244 with 5 left, then no counts, then 244 with 5
- * left again), and two links with no counts at all stop it.
+ * left again), and two links with no counts at all stop it. Review round 2
+ * N1: when the chain has never had a count or a Line (its first turn ended
+ * on the step limit before any list call), the first count or Line to appear
+ * is progress. It cannot loop: from then on the chain's history holds counts.
  */
 export function chainLinkMadeProgress(
   earlier: ReadonlyArray<ChatTurnContinuation | undefined>,
@@ -109,7 +112,10 @@ export function chainLinkMadeProgress(
     const rank = offer?.nextSection !== undefined ? LINE_RANK[offer.nextSection] : undefined;
     if (rank !== undefined) furthest = Math.max(furthest ?? rank, rank);
   }
+  const currentRank = current.nextSection !== undefined ? LINE_RANK[current.nextSection] : undefined;
+  if (lowest === undefined && furthest === undefined) {
+    return current.remaining !== undefined || currentRank !== undefined;
+  }
   if (current.remaining !== undefined && lowest !== undefined && current.remaining < lowest) return true;
-  const rank = current.nextSection !== undefined ? LINE_RANK[current.nextSection] : undefined;
-  return rank !== undefined && furthest !== undefined && rank > furthest;
+  return currentRank !== undefined && furthest !== undefined && currentRank > furthest;
 }

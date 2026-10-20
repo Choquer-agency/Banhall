@@ -12,6 +12,7 @@ import {
   CHAT_REPLY_CUT_OFF_REPLY,
   CHAT_STEP_LIMIT_REPLY,
   chatFailureReply,
+  CHAT_TIMED_OUT_PARTIAL_REPLY,
 } from "./ai/chatAgentV2";
 
 /**
@@ -250,7 +251,9 @@ describe("review R1 P2-1: a turn that runs out of time", () => {
     const [first, link] = await f.turns();
     expect(first).toMatchObject({ status: "failed", continuation: { reason: "cut_off" } });
     const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
-    expect(texts).toContain(chatFailureReply(new Error("CHAT_TIMED_OUT")));
+    // Review round 2 N2: it says what happened, never "Try again".
+    expect(texts).toContain(CHAT_TIMED_OUT_PARTIAL_REPLY);
+    expect(texts).not.toContain(chatFailureReply(new Error("CHAT_TIMED_OUT")));
     expect(link).toMatchObject({ status: "queued", origin: "auto_continue" });
   });
 
@@ -265,5 +268,7 @@ describe("review R1 P2-1: a turn that runs out of time", () => {
     expect(turns).toHaveLength(1);
     expect(turns[0]).toMatchObject({ status: "failed" });
     expect(turns[0]!.continuation).toBeUndefined();
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts).toContain(chatFailureReply(new Error("CHAT_TIMED_OUT")));
   });
 });

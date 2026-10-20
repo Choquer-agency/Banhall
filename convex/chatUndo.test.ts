@@ -298,6 +298,27 @@ describe("undoProposal", () => {
     expect((await f.proposal(id)).state).toBe("applied");
   });
 
+  it("allows an Undo that shortens a report already over the byte limit (round 2 N3)", async () => {
+    const f = await setup();
+    const id = await f.propose("edit", [{ find: TARGET, replaceWith: REWRITE }]);
+    await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id });
+    // Accented text: about 520,000 characters but over 1,000,000 bytes. The
+    // Undo puts back a shorter passage, so the report gets smaller.
+    await f.t.run(async (ctx) => {
+      const card = (await ctx.db.get(id))!;
+      const hunk = card.appliedChange!.hunks[0]!;
+      const small = JSON.stringify([paragraph(text("Short."))]);
+      await ctx.db.patch(id, { appliedChange: { ...card.appliedChange!, hunks: [{ before: small, after: hunk.after }] } });
+      const report = (await ctx.db.get(f.reportId))!;
+      const doc = JSON.parse(report.content);
+      doc.content.push(paragraph(text("é".repeat(520_000))));
+      await ctx.db.patch(f.reportId, { content: JSON.stringify(doc) });
+    });
+    expect(new TextEncoder().encode((await f.report())!.content).length).toBeGreaterThan(1_000_000);
+    await f.owner.mutation(api.chatV2.undoProposal, { proposalId: id });
+    expect((await f.proposal(id)).state).toBe("pending");
+  });
+
   it("lets an undone card be applied again, and undone again", async () => {
     const f = await setup();
     const id = await f.propose("edit", [{ find: TARGET, replaceWith: REWRITE }]);
