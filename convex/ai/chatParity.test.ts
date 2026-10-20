@@ -222,7 +222,7 @@ describe("Continue and the Completion Report", () => {
 
 describe("review P2-2: handled items", () => {
   const row = (itemId: string, status: "resolved" | "blocked" | "conflicting", proposalState: "pending" | "applied" | "rejected" | "stale", createdAt: number, section?: "242" | "244" | "246") =>
-    ({ itemId, status, proposalState, createdAt, ...(section ? { section } : {}) });
+    ({ itemId, status, proposalState, createdAt, inCurrentJob: true, ...(section ? { section } : {}) });
 
   it("labels each item by its newest row and leaves rejected and stale ones to revise", () => {
     const coverage = itemCoverage([
@@ -248,7 +248,7 @@ describe("review P2-2: handled items", () => {
 
     const note = handledItemsNote(coverage);
     expect(note).toBe(
-      "Deviations already handled in this conversation (on a pending or applied card, or blocked or conflicting): Line 242 3, Line 244 1, Line 246 1. deviationInventory and compareReferencePd mark each one; skip them unless the writer's message reopens one."
+      "Deviations already handled in this conversation (on a pending or applied card, or blocked or conflicting): Line 242 3, Line 244 1, Line 246 1. deviationInventory and compareReferencePd mark each one still in the list; skip them unless the writer's message reopens one."
     );
     expect(findDashConnectors(note!)).toEqual([]);
     expect(handledItemsNote(coverage.filter((item) => !item.handled))).toBeNull();
@@ -280,10 +280,10 @@ describe("review P3-7: web search fails closed", () => {
 describe("round 2 N1 and N2: reopening and job scope", () => {
   it("says what reopens each handled item", () => {
     const [blocked, conflicting, pending, applied] = itemCoverage([
-      { itemId: "r-242-1-1", status: "blocked", proposalState: "applied", createdAt: 1 },
-      { itemId: "r-242-2-1", status: "conflicting", proposalState: "pending", createdAt: 1 },
-      { itemId: "r-242-3-1", status: "resolved", proposalState: "pending", createdAt: 1 },
-      { itemId: "r-242-4-1", status: "resolved", proposalState: "applied", createdAt: 1 },
+      { itemId: "r-242-1-1", status: "blocked", proposalState: "applied", createdAt: 1, inCurrentJob: true },
+      { itemId: "r-242-2-1", status: "conflicting", proposalState: "pending", createdAt: 1, inCurrentJob: true },
+      { itemId: "r-242-3-1", status: "resolved", proposalState: "pending", createdAt: 1, inCurrentJob: true },
+      { itemId: "r-242-4-1", status: "resolved", proposalState: "applied", createdAt: 1, inCurrentJob: true },
     ]);
     expect(blocked?.reopen).toBe("revise it once the writer supplies that fact");
     expect(conflicting?.reopen).toBe("revise it once the writer decides");

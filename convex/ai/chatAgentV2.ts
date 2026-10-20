@@ -36,6 +36,7 @@ import {
   renderInventory,
   type InventoryNote,
   type InventorySection,
+  type InventoryItem,
   type InventorySections,
   type RulesStatus,
 } from "../lib/deviationInventory";
@@ -57,7 +58,12 @@ import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
 import { makeSearchWebTool, newWebSearchTurn, type WebSearchTurn } from "./chatWebSearch";
 import type { ChatTurnContinuationReason, ChatTurnProgress } from "../lib/chatTurnState";
-import { handledItemsNote, type ItemCoverage } from "../lib/chatItemCoverage";
+import {
+  coverageFor,
+  handledItemsNote,
+  itemFingerprint,
+  type ItemCoverage,
+} from "../lib/chatItemCoverage";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
 import { anthropicCacheWrite1hTokens } from "./instrument";
 import { ACTION_REQUEST_WINDOW_MS } from "./actionDeadline";
@@ -162,6 +168,7 @@ const makeProposeBulkEdits = (bannedWordsWaived: boolean) => createTool({
     await runProposeBulkEdits(ctx, input, {
       toolCallId: options.toolCallId,
       bannedWordsWaived,
+      messages: options.messages,
     }),
 });
 
@@ -281,17 +288,35 @@ async function inventoryContext(
  * keyed by item id, so the inventory marks it. An empty map when the read
  * fails: the list is still right, only unmarked.
  */
-async function threadCoverage(ctx: ChatToolCtx): Promise<Map<string, ItemCoverage>> {
-  if (!ctx.threadId) return new Map();
+async function threadCoverage(ctx: ChatToolCtx): Promise<ItemCoverage[]> {
+  if (!ctx.threadId) return [];
   try {
-    const coverage: ItemCoverage[] = await ctx.runQuery(internal.chatV2.getThreadItemCoverage, {
+    return await ctx.runQuery(internal.chatV2.getThreadItemCoverage, {
       agentThreadId: ctx.threadId,
     });
-    return new Map(coverage.map((item) => [item.itemId, item]));
   } catch (error) {
     console.error("chat item coverage could not be read", safeErrorDetails(error));
-    return new Map();
+    return [];
   }
+}
+
+/**
+ * Round 3 (P2-A): each listed item's coverage, keyed by its id. A content or
+ * reference item matches a card only by the same id and the same fingerprint
+ * (`coverageFor`), so a different instruction at the same position starts
+ * clean, whatever the writer said in between.
+ */
+function coverageMarks(
+  items: ReadonlyArray<InventoryItem>,
+  coverage: ReadonlyArray<ItemCoverage>
+): Map<string, ItemCoverage> {
+  const marks = new Map<string, ItemCoverage>();
+  if (coverage.length === 0) return marks;
+  for (const item of items) {
+    const entry = coverageFor(coverage, { id: item.id, fingerprint: itemFingerprint(item) });
+    if (entry) marks.set(item.id, entry);
+  }
+  return marks;
 }
 
 function renderOrExplain(args: {
@@ -299,22 +324,21 @@ function renderOrExplain(args: {
   contentDeviations?: ChatContentDeviation[];
   referenceSections?: InventorySections | null;
   section?: InventorySection;
-  coverage?: ReadonlyMap<string, ItemCoverage>;
+  coverage?: ReadonlyArray<ItemCoverage>;
 }): string {
   try {
-    return renderInventory(
-      assembleDeviationInventory({
-        sections: args.context.sections,
-        notes: args.context.notes,
-        ...(args.contentDeviations ? { contentDeviations: args.contentDeviations } : {}),
-        ...(args.referenceSections ? { referenceSections: args.referenceSections } : {}),
-        rulesStatus: args.context.rulesStatus,
-      }),
-      {
-        ...(args.section ? { section: args.section } : {}),
-        ...(args.coverage && args.coverage.size > 0 ? { coverage: args.coverage } : {}),
-      }
-    );
+    const inventory = assembleDeviationInventory({
+      sections: args.context.sections,
+      notes: args.context.notes,
+      ...(args.contentDeviations ? { contentDeviations: args.contentDeviations } : {}),
+      ...(args.referenceSections ? { referenceSections: args.referenceSections } : {}),
+      rulesStatus: args.context.rulesStatus,
+    });
+    const marks = coverageMarks(inventory.items, args.coverage ?? []);
+    return renderInventory(inventory, {
+      ...(args.section ? { section: args.section } : {}),
+      ...(marks.size > 0 ? { coverage: marks } : {}),
+    });
   } catch (error) {
     // A writer-named paragraph outside the report: hand back the valid range so
     // the model can re-anchor rather than guess. Never throw out of a tool: an
@@ -411,9 +435,19 @@ export async function runCompareReferencePd(
 export async function runProposeBulkEdits(
   ctx: ChatToolCtx,
   input: BulkEditInput,
-  options: { toolCallId: string; bannedWordsWaived: boolean }
+  options: {
+    toolCallId: string;
+    bannedWordsWaived: boolean;
+    /**
+     * Round 3 (P2-A): the step's input messages (the AI SDK passes them to
+     * every tool), whose latest list call says what each content or
+     * reference id stands for.
+     */
+    messages?: ReadonlyArray<ModelMessage>;
+  }
 ): Promise<string> {
   if (!ctx.threadId) throw new Error("No thread in tool context");
+  const fingerprints = await listedFingerprints(ctx, options.messages ?? []);
   const result = await ctx.runMutation(internal.chatV2.saveProposal, {
     agentThreadId: ctx.threadId,
     toolCallId: options.toolCallId,
@@ -427,7 +461,10 @@ export async function runProposeBulkEdits(
         options.bannedWordsWaived
       ),
     })),
-    items: completionReportItems(input.findings),
+    items: completionReportItems(input.findings).map((item) => {
+      const fingerprint = fingerprints.get(item.itemId);
+      return fingerprint ? { ...item, fingerprint } : item;
+    }),
   });
   if (!result.ok) {
     return result.stopped
@@ -1454,46 +1491,108 @@ export function watchForStop(options: {
 async function outstandingDeviations(
   ctx: ChatToolCtx,
   listCalls: ReadonlyArray<{ toolName: string; input: unknown }>
-): Promise<Array<{ section: ChatSection; itemId: string }>> {
+): Promise<Array<{ section: ChatSection; itemId: string; fingerprint?: string }>> {
   try {
     // Review P3-1: every item kind the turn's own list calls produced (rule,
     // content and reference), rebuilt from their inputs; the stored rule
-    // Deviations when the turn made no list call.
-    const calls = listCalls.length > 0 ? listCalls : [{ toolName: "deviationInventory", input: {} }];
-    const items = new Map<string, ChatSection>();
+    // Deviations when the turn made no list call. Round 3 (P2-A): each
+    // content or reference item carries its fingerprint.
+    const items = new Map<string, { section: ChatSection; fingerprint?: string }>();
     const seen = new Set<string>();
-    for (const call of calls) {
+    if (listCalls.length === 0) {
+      for (const item of await listCallItems(ctx, { toolName: "deviationInventory", input: {} }, { rulesOnly: true })) {
+        items.set(item.id, { section: item.section });
+      }
+    }
+    for (const call of listCalls) {
       const key = JSON.stringify([call.toolName, call.input]);
       if (seen.has(key)) continue;
       seen.add(key);
-      const input = (call.input && typeof call.input === "object" ? call.input : {}) as Record<string, unknown>;
-      const content = contentDeviationsSchema.safeParse(input.contentDeviations);
-      const contentDeviations = content.success ? content.data : undefined;
-      const compare = call.toolName === "compareReferencePd";
-      const fileName = compare && typeof input.fileName === "string" ? input.fileName : undefined;
-      const context = await inventoryContext(ctx, fileName);
-      if (!context.found) continue;
-      if (listCalls.length === 0 && !context.rulesAvailable) continue;
-      const referenceSections =
-        compare && context.referenceStatus === "resolved" && context.reference ? context.reference.sections : null;
-      try {
-        const inventory = assembleDeviationInventory({
-          sections: context.sections,
-          notes: context.notes,
-          ...(contentDeviations ? { contentDeviations } : {}),
-          ...(referenceSections ? { referenceSections } : {}),
-          rulesStatus: context.rulesStatus,
-        });
-        for (const item of inventory.items) items.set(item.id, item.section);
-      } catch (error) {
-        if (!(error instanceof InventoryAnchorError)) throw error;
+      for (const item of await listCallItems(ctx, call)) {
+        const fingerprint = itemFingerprint(item);
+        items.set(item.id, { section: item.section, ...(fingerprint ? { fingerprint } : {}) });
       }
     }
-    return [...items].map(([itemId, section]) => ({ section, itemId }));
+    return [...items].map(([itemId, item]) => ({ itemId, ...item }));
   } catch (error) {
     console.error("chat continuation inventory failed", safeErrorDetails(error));
     return [];
   }
+}
+
+/**
+ * The items one deviationInventory or compareReferencePd call lists, rebuilt
+ * from its input the way the tool builds them. Empty when the report cannot
+ * be read or a writer-named paragraph is out of range.
+ */
+async function listCallItems(
+  ctx: ChatToolCtx,
+  call: { toolName: string; input: unknown },
+  options: { rulesOnly?: boolean } = {}
+): Promise<InventoryItem[]> {
+  const input = (call.input && typeof call.input === "object" ? call.input : {}) as Record<string, unknown>;
+  const content = contentDeviationsSchema.safeParse(input.contentDeviations);
+  const contentDeviations = content.success ? content.data : undefined;
+  const compare = call.toolName === "compareReferencePd";
+  const fileName = compare && typeof input.fileName === "string" ? input.fileName : undefined;
+  const context = await inventoryContext(ctx, fileName);
+  if (!context.found) return [];
+  if (options.rulesOnly && !context.rulesAvailable) return [];
+  const referenceSections =
+    compare && context.referenceStatus === "resolved" && context.reference ? context.reference.sections : null;
+  try {
+    return assembleDeviationInventory({
+      sections: context.sections,
+      notes: context.notes,
+      ...(contentDeviations ? { contentDeviations } : {}),
+      ...(referenceSections ? { referenceSections } : {}),
+      rulesStatus: context.rulesStatus,
+    }).items;
+  } catch (error) {
+    if (error instanceof InventoryAnchorError) return [];
+    throw error;
+  }
+}
+
+/** The newest deviationInventory or compareReferencePd call in the step's input messages. */
+export function latestListCall(
+  messages: ReadonlyArray<ModelMessage>
+): { toolName: string; input: unknown } | undefined {
+  for (let m = messages.length - 1; m >= 0; m -= 1) {
+    const message = messages[m]!;
+    if (message.role !== "assistant" || typeof message.content === "string") continue;
+    for (let p = message.content.length - 1; p >= 0; p -= 1) {
+      const part = message.content[p]!;
+      if (part.type === "tool-call" && LIST_TOOLS.has(part.toolName)) {
+        return { toolName: part.toolName, input: part.input };
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Round 3 (P2-A): the fingerprint of every content or reference item the
+ * turn's latest list call produced, by id. Empty when the step has no list
+ * call before it, or the list cannot be rebuilt: that card then records no
+ * fingerprint and falls back to its id within the current job.
+ */
+async function listedFingerprints(
+  ctx: ChatToolCtx,
+  messages: ReadonlyArray<ModelMessage>
+): Promise<Map<string, string>> {
+  const fingerprints = new Map<string, string>();
+  const call = latestListCall(messages);
+  if (!call) return fingerprints;
+  try {
+    for (const item of await listCallItems(ctx, call)) {
+      const fingerprint = itemFingerprint(item);
+      if (fingerprint) fingerprints.set(item.id, fingerprint);
+    }
+  } catch (error) {
+    console.error("chat item fingerprints could not be built", safeErrorDetails(error));
+  }
+  return fingerprints;
 }
 
 /** The read-only and bulk tools of a deviation list request. */
@@ -1752,7 +1851,7 @@ export const streamChatReply = internalAction({
             allowBrain: args.allowBrain === true,
             allowWeb: args.allowWeb === true,
             historyCut: history.historyStartOrder !== undefined,
-            handled: handledItemsNote([...coverage.values()]),
+            handled: handledItemsNote(coverage),
           }),
         },
       ];

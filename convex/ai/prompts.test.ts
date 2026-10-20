@@ -538,7 +538,12 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     // Review P2-2 and round 2 N1: marked items are skipped by default, and
     // the writer's message can reopen them; a refine re-proposes the whole set.
     expect(prompt).toContain("that still has unmarked Deviations");
-    expect(prompt).toContain("Skip marked items by default and revise the unmarked ones.");
+    // Round 3 P3-B and P3-C: skipping means out of the edits and the
+    // findings, and a reopened item's Line goes first.
+    expect(prompt).toContain(
+      "Skip marked items by default: leave them out of the edits and the findings, unless the writer's message reopens one, and revise the unmarked ones."
+    );
+    expect(prompt).toContain("A reopened item's Line comes first.");
     expect(prompt).toContain(
       "Revise a marked item when the writer's message reopens it: they supply the missing fact or make the decision it waits on, ask to refine its card, or ask for it to be redone."
     );

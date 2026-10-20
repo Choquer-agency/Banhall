@@ -1958,6 +1958,11 @@ export default defineSchema({
       v.union(v.literal("rule"), v.literal("content"), v.literal("reference"))
     ),
     rule: v.optional(v.string()),
+    // 2026-10-19 widen (chat parity Phase A, round 3): a content or reference
+    // item's fingerprint (kind, Line, paragraph and its normalized
+    // instruction), written once at insert. Absent on rule items, on cards
+    // saved without a list call in their turn, and on older rows.
+    fingerprint: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_proposalId", ["proposalId"])

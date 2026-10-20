@@ -11,6 +11,15 @@ import type { CompletionReportSection } from "./completionReport";
  * what reopens it, because the writer may supply the missing fact, decide a
  * conflict, refine a pending card or ask for a redo, and the inventory is the
  * model's only source of the ids.
+ *
+ * Round 3 (P2-A): item ids are positional (kind, section, paragraph,
+ * position). A rule Deviation (`r-`) comes from the stored Compliance Notes,
+ * so its id names the same Deviation for the whole conversation. A content
+ * (`c-`) or reference (`x-`) id names whatever the writer, or the Reference
+ * PD, put at that position in one request, so a card records a fingerprint of
+ * what the item is (`itemFingerprint`) and a mark needs the same id and the
+ * same fingerprint. A card saved without one (no list call in its turn) falls
+ * back to the id within the current job.
  */
 
 /** One `chatProposalItems` row with the state of the card that carries it. */
@@ -20,6 +29,10 @@ export type ItemCoverageRow = {
   status: "resolved" | "blocked" | "conflicting";
   proposalState: "pending" | "applied" | "rejected" | "stale";
   createdAt: number;
+  /** What a content or reference item was, when its card recorded it. */
+  fingerprint?: string;
+  /** The card belongs to the current job (fallback for cards without a fingerprint). */
+  inCurrentJob: boolean;
 };
 
 /**
@@ -34,10 +47,67 @@ export type ItemCoverage = {
   label: string;
   handled: boolean;
   reopen: string;
+  fingerprint?: string;
+  inCurrentJob: boolean;
+  createdAt: number;
 };
 
+/** The item fields a fingerprint is made of. */
+export type FingerprintedItem = {
+  kind: "rule" | "content" | "reference";
+  section: CompletionReportSection;
+  paragraph: number;
+  instruction: string;
+};
+
+function normalizedInstruction(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim().replace(/[\s.!?;:,]+$/, "");
+}
+
+/** FNV-1a, 32 bits, as eight hex digits. */
+function fnv1a(text: string, seed: number): string {
+  let hash = seed >>> 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+/**
+ * What a content or reference item is: its kind, Line, paragraph and
+ * instruction (the writer's correction verbatim, or the structural
+ * difference), normalized and hashed. Undefined for a rule item, whose id is
+ * already stable.
+ */
+export function itemFingerprint(item: FingerprintedItem): string | undefined {
+  if (item.kind === "rule") return undefined;
+  const text = `${item.kind}|${item.section}|${item.paragraph}|${normalizedInstruction(item.instruction)}`;
+  return `${fnv1a(text, 0x811c9dc5)}${fnv1a(text, 0x01234567)}`;
+}
+
+/** A rule item's coverage lasts the whole conversation, keyed by its id. */
+export function coverageLastsWholeConversation(itemId: string): boolean {
+  return itemId.startsWith("r-");
+}
+
+/**
+ * A writer message that carries on the job before it rather than starting a
+ * new one: the Continue button's "Continue with Line N." and "Continue.", or
+ * the same typed by hand. Used only for cards saved without a fingerprint.
+ */
+export function isContinuePrompt(text: string): boolean {
+  return /^\s*continue(\s+with\s+line\s+(242|244|246))?\s*[.!]?\s*$/i.test(text);
+}
+
 function coverageOf(row: ItemCoverageRow): ItemCoverage {
-  const base = { itemId: row.itemId, ...(row.section ? { section: row.section } : {}) };
+  const base = {
+    itemId: row.itemId,
+    ...(row.section ? { section: row.section } : {}),
+    ...(row.fingerprint ? { fingerprint: row.fingerprint } : {}),
+    inCurrentJob: row.inCurrentJob,
+    createdAt: row.createdAt,
+  };
   if (row.status === "blocked") {
     return {
       ...base,
@@ -73,37 +143,42 @@ function coverageOf(row: ItemCoverageRow): ItemCoverage {
 }
 
 /**
- * One entry per item id: the newest row decides. `rows` come newest card
- * first, so on equal times the row seen first wins.
+ * One entry per item id and fingerprint (and, for a card without one, per
+ * job): the newest row decides. `rows` come newest card first, so on equal
+ * times the row seen first wins.
  */
 export function itemCoverage(rows: ReadonlyArray<ItemCoverageRow>): ItemCoverage[] {
   const newest = new Map<string, ItemCoverageRow>();
   for (const row of rows) {
-    const seen = newest.get(row.itemId);
-    if (!seen || row.createdAt > seen.createdAt) newest.set(row.itemId, row);
+    const key = coverageLastsWholeConversation(row.itemId)
+      ? row.itemId
+      : `${row.itemId}|${row.fingerprint ?? `nofp:${row.inCurrentJob}`}`;
+    const seen = newest.get(key);
+    if (!seen || row.createdAt > seen.createdAt) newest.set(key, row);
   }
   return [...newest.values()].map(coverageOf);
 }
 
 /**
- * Round 2 (N2): item ids are positional (kind, section, paragraph, position).
- * A rule Deviation (`r-`) comes from the stored Compliance Notes, so its id
- * names the same Deviation for the whole conversation. A content (`c-`) or
- * reference (`x-`) id names whatever the writer, or the Reference PD, put at
- * that position in one request, so its coverage holds only for the current
- * job.
+ * The coverage that applies to one current item: a rule item by its id; a
+ * content or reference item by its id and fingerprint, or by its id alone for
+ * a card of the current job that recorded no fingerprint. The newest wins.
  */
-export function coverageLastsWholeConversation(itemId: string): boolean {
-  return itemId.startsWith("r-");
-}
-
-/**
- * A writer message that carries on the job before it rather than starting a
- * new one: the Continue button's "Continue with Line N." and "Continue.", or
- * the same typed by hand.
- */
-export function isContinuePrompt(text: string): boolean {
-  return /^\s*continue(\s+with\s+line\s+(242|244|246))?\s*[.!]?\s*$/i.test(text);
+export function coverageFor(
+  coverage: ReadonlyArray<ItemCoverage>,
+  item: { id: string; fingerprint?: string | undefined }
+): ItemCoverage | undefined {
+  let best: ItemCoverage | undefined;
+  for (const entry of coverage) {
+    if (entry.itemId !== item.id) continue;
+    const applies = coverageLastsWholeConversation(item.id)
+      ? true
+      : entry.fingerprint !== undefined
+        ? entry.fingerprint === item.fingerprint
+        : entry.inCurrentJob;
+    if (applies && (!best || entry.createdAt > best.createdAt)) best = entry;
+  }
+  return best;
 }
 
 /** The per-turn note line: handled items per Line, or null when there are none. */
@@ -111,6 +186,8 @@ export function handledItemsNote(coverage: ReadonlyArray<ItemCoverage>): string 
   const counts = new Map<string, number>();
   for (const item of coverage) {
     if (!item.handled) continue;
+    // A card without a fingerprint counts only within its job.
+    if (!coverageLastsWholeConversation(item.itemId) && item.fingerprint === undefined && !item.inCurrentJob) continue;
     const line = item.section ?? "other";
     counts.set(line, (counts.get(line) ?? 0) + 1);
   }
@@ -118,5 +195,5 @@ export function handledItemsNote(coverage: ReadonlyArray<ItemCoverage>): string 
   const parts = (["242", "244", "246", "other"] as const)
     .filter((line) => counts.has(line))
     .map((line) => `${line === "other" ? "other items" : `Line ${line}`} ${counts.get(line)}`);
-  return `Deviations already handled in this conversation (on a pending or applied card, or blocked or conflicting): ${parts.join(", ")}. deviationInventory and compareReferencePd mark each one; skip them unless the writer's message reopens one.`;
+  return `Deviations already handled in this conversation (on a pending or applied card, or blocked or conflicting): ${parts.join(", ")}. deviationInventory and compareReferencePd mark each one still in the list; skip them unless the writer's message reopens one.`;
 }

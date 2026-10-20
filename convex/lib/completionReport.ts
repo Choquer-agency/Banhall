@@ -322,6 +322,10 @@ export const completionReportItemValidator = v.object({
   paragraphNumber: v.optional(v.number()),
   kind: v.optional(completionReportKindValidator),
   rule: v.optional(v.string()),
+  // Chat parity Phase A, round 3 (P2-A): what a content or reference item
+  // was (convex/lib/chatItemCoverage.ts, itemFingerprint), so a later list
+  // marks it only when the same item comes back at the same id.
+  fingerprint: v.optional(v.string()),
 });
 export type CompletionReportItem = Infer<typeof completionReportItemValidator>;
 

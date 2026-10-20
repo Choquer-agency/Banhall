@@ -67,7 +67,7 @@ import {
 import { sectionNumberValidator } from "./lib/orderedChain";
 import { INVENTORY_SECTION_ORDER } from "./lib/deviationInventory";
 import {
-  coverageLastsWholeConversation,
+  coverageFor,
   isContinuePrompt,
   itemCoverage,
   type ItemCoverage,
@@ -1442,6 +1442,8 @@ function promptText(doc: { text?: string; message?: { content?: unknown } } | nu
  * message is not a Continue prompt starts it, so a Continue chain belongs to
  * the request it carries on. Returns the turn orders by prompt for the turns
  * read. When the prompts cannot be read, the job is the newest turn alone.
+ * Round 3 (P2-A): only a card that recorded no fingerprint is scoped this
+ * way; every other content or reference card matches by what the item is.
  */
 async function currentJob(
   ctx: QueryCtx | MutationCtx,
@@ -1481,6 +1483,7 @@ async function threadCoverageRows(
   agentThreadId: string,
   promptMessageId?: string
 ): Promise<{ rows: ItemCoverageRow[]; promptSavedReport: boolean }> {
+  // Round 3 (P2-A): the job only scopes cards that recorded no fingerprint.
   const job = await currentJob(ctx, agentThreadId);
   const inCurrentJob = (proposalPrompt: string | undefined) => {
     if (!job || proposalPrompt === undefined) return false;
@@ -1502,13 +1505,14 @@ async function threadCoverageRows(
       .take(MAX_COMPLETION_REPORT_FINDINGS);
     const sameJob = inCurrentJob(proposal.promptMessageId);
     for (const item of items) {
-      if (!sameJob && !coverageLastsWholeConversation(item.itemId)) continue;
       rows.push({
         itemId: item.itemId,
         ...(item.section ? { section: item.section } : {}),
         status: item.status,
         proposalState: proposal.state,
         createdAt: item.createdAt,
+        ...(item.fingerprint ? { fingerprint: item.fingerprint } : {}),
+        inCurrentJob: sameJob,
       });
     }
     if (items.length > 0 && promptMessageId !== undefined && proposal.promptMessageId === promptMessageId) {
@@ -1524,6 +1528,9 @@ const itemCoverageValidator = v.object({
   label: v.string(),
   handled: v.boolean(),
   reopen: v.string(),
+  fingerprint: v.optional(v.string()),
+  inCurrentJob: v.boolean(),
+  createdAt: v.number(),
 });
 
 /**
@@ -1554,7 +1561,11 @@ export const setTurnContinuation = internalMutation({
     agentThreadId: v.string(),
     promptMessageId: v.string(),
     reason: chatTurnContinuationReasonValidator,
-    outstanding: v.array(v.object({ section: sectionNumberValidator, itemId: v.string() })),
+    outstanding: v.array(v.object({
+      section: sectionNumberValidator,
+      itemId: v.string(),
+      fingerprint: v.optional(v.string()),
+    })),
   },
   returns: v.union(
     v.null(),
@@ -1568,16 +1579,17 @@ export const setTurnContinuation = internalMutation({
     const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
     if (!turn || !turnIsActive(turn)) return null;
 
-    const handled = new Set<string>();
+    let coverage: ItemCoverage[] = [];
     let turnSavedReport = false;
     if (args.outstanding.length > 0 || args.reason === "lines_left") {
       const read = await threadCoverageRows(ctx, args.agentThreadId, args.promptMessageId);
       turnSavedReport = read.promptSavedReport;
-      for (const item of itemCoverage(read.rows)) {
-        if (item.handled) handled.add(item.itemId);
-      }
+      coverage = itemCoverage(read.rows);
     }
-    const left = args.outstanding.filter((item) => !handled.has(item.itemId));
+    // Round 3 (P2-A): the same matching as the inventory's marks.
+    const left = args.outstanding.filter(
+      (item) => coverageFor(coverage, { id: item.itemId, fingerprint: item.fingerprint })?.handled !== true
+    );
     const nextSection = INVENTORY_SECTION_ORDER.find((section) =>
       left.some((item) => item.section === section)
     );
