@@ -76,6 +76,15 @@ export const CHAT_WEB_SEARCH_NO_TIME =
 export const CHAT_WEB_SEARCH_FAILED =
   "The web search hit a technical error just now. This is a temporary problem, not missing information. Answer without web results and tell the writer they can try again shortly.";
 
+/**
+ * Phase A (2026-10-19): searchWeb is offered on every turn so the tool list,
+ * and the prompt cache with it, stays the same whatever the writer picks.
+ * Without "Search the web" for the message the tool searches nothing and
+ * returns this.
+ */
+export const CHAT_WEB_SEARCH_OFF =
+  'Nothing was searched. Web search is off for this message. Answer without web results. If the writer wants web results, tell them they can turn on "Search the web" in Message options and send again.';
+
 export const CHAT_WEB_SEARCH_UNAVAILABLE =
   "Web search is not set up on this server, so nothing was searched. Answer without web results and tell the writer web search is not available right now.";
 
@@ -556,10 +565,13 @@ export function formatWebSearchResult(input: {
 // ─── The tool ────────────────────────────────────────────────────────────────
 
 /**
- * One turn's web search state, shared by every pass of the turn. Created
- * only when the authenticated send allowed web search for the message.
+ * One turn's web search state, shared by every pass of the turn. Created for
+ * every turn (Phase A, 2026-10-19); `allowed` says whether the authenticated
+ * send turned web search on for the message.
  */
 export type WebSearchTurn = {
+  /** The writer turned on web search for this message. */
+  allowed: boolean;
   /** Searches sent so far in this turn. */
   sent: number;
   /** The turn's sender, whose hourly web search bucket each search spends. */
@@ -568,8 +580,14 @@ export type WebSearchTurn = {
   deadline?: number;
 };
 
-export function newWebSearchTurn(input: { userId?: Id<"users">; deadline?: number }): WebSearchTurn {
+export function newWebSearchTurn(input: {
+  userId?: Id<"users">;
+  deadline?: number;
+  /** Defaults to true; the chat action passes the send's choice. */
+  allowed?: boolean;
+}): WebSearchTurn {
   return {
+    allowed: input.allowed ?? true,
     sent: 0,
     ...(input.userId ? { userId: input.userId } : {}),
     ...(input.deadline !== undefined ? { deadline: input.deadline } : {}),
@@ -627,6 +645,8 @@ export async function runSearchWeb(
   turn: WebSearchTurn
 ): Promise<string> {
   try {
+    // The permission comes first: an off turn reads and spends nothing.
+    if (!turn.allowed) return CHAT_WEB_SEARCH_OFF;
     if (!ctx.threadId) return CHAT_WEB_SEARCH_FAILED;
     if (turn.sent >= MAX_WEB_SEARCHES_PER_TURN) return CHAT_WEB_SEARCH_LIMIT;
     if (openRouterConfiguration().state !== "configured") return CHAT_WEB_SEARCH_UNAVAILABLE;
@@ -674,7 +694,7 @@ export async function runSearchWeb(
 export function makeSearchWebTool(turn: WebSearchTurn) {
   return createTool({
     description:
-      "Search the public web for general background: what a technology, method or term means, or CRA SR&ED guidance and wording. Available only when the writer turned on web search for this message. Never put the client, a person, the project or identifying details in the query; names are removed before it is sent. Returns a short answer with sources: background with the lowest trust, never a fact about this project.",
+      "Search the public web for general background: what a technology, method or term means, or CRA SR&ED guidance and wording. It searches only when the writer turned on web search for this message; otherwise it searches nothing and says so. Never put the client, a person, the project or identifying details in the query; names are removed before it is sent. Returns a short answer with sources: background with the lowest trust, never a fact about this project.",
     inputSchema: z.object({
       query: z
         .string()

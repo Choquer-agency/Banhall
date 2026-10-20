@@ -25,7 +25,7 @@ import {
   BULK_EDIT_REFINE_RULE,
   BULK_EDIT_SIZE_RULE,
   bulkEditInputSchema,
-  completionReportChecklist,
+  completionReportCounts,
   completionReportItems,
   nothingToApply,
   type BulkEditInput,
@@ -56,6 +56,7 @@ import { describeContextCuts } from "./trustedContext";
 import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
 import { makeSearchWebTool, newWebSearchTurn, type WebSearchTurn } from "./chatWebSearch";
+import type { ChatTurnContinuationReason, ChatTurnProgress } from "../lib/chatTurnState";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
 import { anthropicCacheWrite1hTokens } from "./instrument";
 import { ACTION_REQUEST_WINDOW_MS } from "./actionDeadline";
@@ -411,10 +412,12 @@ export async function runProposeBulkEdits(
   // DW-135: every item blocked or conflicting. The findings are recorded; the
   // report is unchanged and there is no card to apply, so the reply must not
   // open with "Proposed".
+  // Phase A (2026-10-19, CAP-13 change): the card shows the checklist, so the
+  // model gets counts and the ids that need the writer, not a list to retype.
   if (nothingToApply(input)) {
-    return `Nothing to apply: every item is blocked or conflicting, so no revision was proposed and the report is unchanged. The findings were recorded for the writer's decision. Report this Completion Report checklist, retaining the item IDs:\n${completionReportChecklist(input.findings)}`;
+    return `Nothing to apply: every item is blocked or conflicting, so no revision was proposed and the report is unchanged. The findings were recorded for the writer's decision, and the card shows them as a Completion Report checklist: ${completionReportCounts(input.findings)}. Do not repeat the checklist; name the decisions or missing facts the writer needs.`;
   }
-  return `Coordinated revision proposed for writer review, not applied. Report this Completion Report checklist, retaining the item IDs:\n${completionReportChecklist(input.findings)}`;
+  return `Coordinated revision proposed for writer review, not applied. The card shows the writer its Completion Report checklist with every item's id, status and reason: ${completionReportCounts(input.findings)}. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision.`;
 }
 
 const deviationInventory = createTool({
@@ -474,9 +477,25 @@ const highlightPassages = createTool({
   },
 });
 
-const searchBrain = createTool({
+/**
+ * Phase A (2026-10-19): searchBrain is offered on every turn so the tool
+ * list, and the prompt cache with it, stays the same whatever the writer
+ * picks. Without "Use Brain examples for this message" the tool searches
+ * nothing and returns this (the September 8 rule, enforced in the body).
+ */
+export const CHAT_BRAIN_OFF =
+  'Nothing was searched. Brain examples are off for this message. Answer without past examples. If the writer wants them, tell them they can turn on "Use Brain examples for this message" in Message options and send again.';
+
+/** The search could not be recorded on the turn, so it did not run. */
+export const CHAT_BRAIN_NOT_STARTED =
+  "Nothing was searched. The Brain search could not start for this reply. Answer without past examples.";
+
+const BRAIN_SEARCH_FAILED =
+  "The Brain search hit a technical error just now. This is an infrastructure issue, not missing knowledge. Tell the writer to try again shortly.";
+
+const makeSearchBrain = (allowBrain: boolean) => createTool({
   description:
-    "Search The Brain (approved past SR&ED reports in this project's industry) for reference patterns. ONLY when the writer explicitly asks to draw on past projects/reports. Returns structure/voice/phrasing exemplars, never facts for this report.",
+    "Search The Brain (approved past SR&ED reports in this project's industry) for reference patterns. ONLY when the writer explicitly asks to draw on past projects/reports. It searches only when the writer turned on Brain examples for this message; otherwise it searches nothing and says so. Returns structure/voice/phrasing exemplars, never facts for this report.",
   inputSchema: z.object({
     query: z
       .string()
@@ -484,7 +503,19 @@ const searchBrain = createTool({
       .describe("What to look for, e.g. 'how uncertainty is framed for firmware projects'."),
   }),
   execute: async (ctx, input): Promise<string> => {
+    // The permission comes first: an off turn reads nothing.
+    if (!allowBrain) return CHAT_BRAIN_OFF;
     if (!ctx.threadId) throw new Error("No thread in tool context");
+    // Recorded before the search, so the browser never receives a reasoning
+    // summary written after Brain material reached the model.
+    const promptMessageId = proposalPromptMessageId(ctx);
+    const marked: boolean = promptMessageId
+      ? await ctx.runMutation(internal.chatV2.markTurnBrainSearched, {
+          agentThreadId: ctx.threadId,
+          promptMessageId,
+        })
+      : false;
+    if (!marked) return CHAT_BRAIN_NOT_STARTED;
     // The project code is normalized by getThreadBrainContext. Retrieval uses
     // it as structured metadata routing, with cross-code/legacy fallback.
     const brainContext: { industry: string | null; scienceCode: string | null } =
@@ -504,9 +535,7 @@ const searchBrain = createTool({
       // `degraded` = the search infrastructure failed (searchBrainExemplars
       // never throws) — saying "no knowledge" during a Voyage outage would
       // be a lie the writer can't distinguish from an empty corpus.
-      if (degraded) {
-        return "The Brain search hit a technical error just now. This is an infrastructure issue, not missing knowledge. Tell the writer to try again shortly.";
-      }
+      if (degraded) return BRAIN_SEARCH_FAILED;
       if (exemplars.length === 0) {
         return brainContext.industry
           ? `The Brain has no approved knowledge matching that in the “${brainContext.industry}” industry yet.`
@@ -515,7 +544,7 @@ const searchBrain = createTool({
       return formatBrainExemplars(exemplars);
     } catch (err) {
       console.error("searchBrain tool failed", safeErrorDetails(err));
-      return "The Brain search hit a technical error just now. This is an infrastructure issue, not missing knowledge. Tell the writer to try again shortly.";
+      return BRAIN_SEARCH_FAILED;
     }
   },
 });
@@ -525,11 +554,15 @@ const searchBrain = createTool({
  * here as the same model would on claude.ai — a writer shouldn't get shallower
  * answers because they asked inside Banhall.
  *
- * Adaptive thinking stays enabled, but its text is private. The browser gets
- * the answer and proposal cards, not a reasoning transcript.
+ * Owner decision 2026-10-19 (chat parity Phase A): Anthropic returns a
+ * summary of the thinking (`display: "summarized"`), and the browser may read
+ * that summary, capped, and never after a searchBrain call in the same turn
+ * (convex/lib/chatPublicOutput.ts). The full thinking stays with Anthropic.
+ * The summary block carries the same signature, so `preserveReasoningSignature`
+ * and the thinking-only rules work as before.
  */
 export const CHAT_THINKING = {
-  thinking: { type: "adaptive" as const, display: "omitted" as const },
+  thinking: { type: "adaptive" as const, display: "summarized" as const },
 };
 
 /**
@@ -843,10 +876,43 @@ export function chatHistoryWindowRows(
   return options.maxRows;
 }
 
-async function chatContextOptions(
+/**
+ * Phase A (2026-10-19): the oldest message `order` the model reads when the
+ * window of `recentMessages` rows (newest first, up to and including the
+ * prompt) leaves older rows out, or undefined when it reads the whole thread.
+ */
+export function chatHistoryStartOrder(
+  rows: ReadonlyArray<{ order: number }>,
+  options: { recentMessages: number; complete: boolean }
+): number | undefined {
+  if (options.complete && rows.length <= options.recentMessages) return undefined;
+  const read = rows.slice(0, options.recentMessages);
+  if (read.length === 0) return undefined;
+  return Math.min(...read.map((row) => row.order));
+}
+
+/** What the model is told when older turns were left out of its history. */
+export const CHAT_CONTEXT_LOSS_NOTE =
+  "Earlier turns of this conversation are not shown to you; if the writer refers to them, say so and ask them to restate what matters.";
+
+/**
+ * The per-turn note after the evidence tail (never in the cached head): which
+ * message options the writer turned on, and, when older turns were left out,
+ * CHAT_CONTEXT_LOSS_NOTE.
+ */
+export function chatTurnNote(args: {
+  allowBrain: boolean;
+  allowWeb: boolean;
+  historyCut: boolean;
+}): string {
+  const options = `Message options for this message: Brain examples are ${args.allowBrain ? "on" : "off"}, web search is ${args.allowWeb ? "on" : "off"}.`;
+  return args.historyCut ? `${options}\n${CHAT_CONTEXT_LOSS_NOTE}` : options;
+}
+
+async function chatContextWindow(
   ctx: ActionCtx,
   args: { agentThreadId: string; promptMessageId: string }
-): Promise<ContextOptions> {
+): Promise<{ options: ContextOptions; historyStartOrder?: number }> {
   try {
     const probe = await ctx.runQuery(components.agent.messages.listMessagesByThreadId, {
       threadId: args.agentThreadId,
@@ -861,20 +927,31 @@ async function chatContextOptions(
       chunkTurns: CHAT_HISTORY_CHUNK_TURNS,
       complete: probe.isDone,
     });
-    return recentMessages === CHAT_CONTEXT_OPTIONS.recentMessages
-      ? CHAT_CONTEXT_OPTIONS
-      : { ...CHAT_CONTEXT_OPTIONS, recentMessages };
+    const historyStartOrder = chatHistoryStartOrder(probe.page, {
+      recentMessages,
+      complete: probe.isDone,
+    });
+    const options =
+      recentMessages === CHAT_CONTEXT_OPTIONS.recentMessages
+        ? CHAT_CONTEXT_OPTIONS
+        : { ...CHAT_CONTEXT_OPTIONS, recentMessages };
+    return historyStartOrder === undefined ? { options } : { options, historyStartOrder };
   } catch (error) {
-    // The window only affects caching; the plain bound is always safe.
+    // The window only affects caching; the plain bound is always safe. Where
+    // it starts is then unknown, so nothing is recorded.
     console.error("chat history window probe failed", safeErrorDetails(error));
-    return CHAT_CONTEXT_OPTIONS;
+    return { options: CHAT_CONTEXT_OPTIONS };
   }
 }
 
 /**
- * The tools for one model pass. `webSearch` is the turn's web search state
- * (2026-10-19): searchWeb is offered only when the authenticated send allowed
- * it for the message, and its per-turn count is shared by every pass.
+ * The tools for one model pass. Phase A (2026-10-19): every tool is offered on
+ * every turn, in the same order with the same descriptions, so turning Brain
+ * examples or web search on for one message no longer changes the tool list
+ * and rewrites the prompt cache. The per-message permission is enforced
+ * inside each tool body (`CHAT_BRAIN_OFF`, `CHAT_WEB_SEARCH_OFF`). `webSearch`
+ * is the turn's web search state, its count shared by every pass; without
+ * one, searchWeb searches nothing.
  */
 export const buildChatTools = (
   bannedWordsWaived: boolean,
@@ -887,11 +964,14 @@ export const buildChatTools = (
   deviationInventory,
   compareReferencePd,
   highlightPassages,
-  ...(allowBrain ? { searchBrain } : {}),
-  ...(webSearch ? { searchWeb: makeSearchWebTool(webSearch) } : {}),
+  searchBrain: makeSearchBrain(allowBrain),
+  searchWeb: makeSearchWebTool(webSearch ?? newWebSearchTurn({ allowed: false })),
 });
 
 const CHAT_TOOLS = buildChatTools(false);
+
+/** Every chat tool name: progress labels never carry a name the model made up. */
+export const CHAT_TOOL_NAMES: ReadonlySet<string> = new Set(Object.keys(CHAT_TOOLS));
 
 export const reportChatAgent = new Agent(components.agent, {
   name: "report-editor",
@@ -904,80 +984,458 @@ export const reportChatAgent = new Agent(components.agent, {
   stopWhen: stepCountIs(CHAT_MAX_STEPS),
 });
 
+// ─── Measurement and progress (chat parity Phase A, 2026-10-19) ─────────────
+
+/** Anthropic's `message_start` usage, as the raw stream event carries it. */
+type AnthropicStartUsage = {
+  input_tokens?: unknown;
+  output_tokens?: unknown;
+  cache_read_input_tokens?: unknown;
+  cache_creation_input_tokens?: unknown;
+  cache_creation?: unknown;
+};
+
+/**
+ * One model request of a chat turn, measured from the provider's raw stream
+ * events (`includeRawChunks`): numbers and fixed provider fields only, never
+ * text.
+ */
+export type ChatStepMetrics = {
+  /** 1-based model request of the turn. */
+  step: number;
+  /** The effort the step was sent with; "default" when none was set. */
+  effort: string;
+  startedAt: number;
+  /** When the first output block (thinking, text or tool call) began. */
+  firstTokenAt?: number;
+  /** When the provider ended the message. */
+  endedAt?: number;
+  /** Anthropic's `stop_reason`. */
+  stopReason?: string;
+  /** Characters of thinking summary, text and tool input received. */
+  receivedChars: number;
+  startUsage?: AnthropicStartUsage;
+  /** The output token count of the provider's last `message_delta`. */
+  outputTokens?: number;
+  /** The AI SDK finished the step, so its usage is logged with it. */
+  stepFinished: boolean;
+  /** A stopped request's partial usage row was queued. */
+  partialLogged: boolean;
+};
+
+type ChatSection = "242" | "244" | "246";
+
+function isChatSection(value: unknown): value is ChatSection {
+  return value === "242" || value === "244" || value === "246";
+}
+
+/**
+ * The Line a tool call names, from its fixed input fields only: `section`
+ * (deviationInventory, compareReferencePd), or the one section every finding
+ * of a proposeBulkEdits call shares.
+ */
+export function toolCallSection(input: unknown): ChatSection | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const record = input as Record<string, unknown>;
+  if (isChatSection(record.section)) return record.section;
+  if (!Array.isArray(record.findings)) return undefined;
+  const sections = new Set<ChatSection>();
+  for (const finding of record.findings) {
+    if (finding && typeof finding === "object" && isChatSection((finding as Record<string, unknown>).section)) {
+      sections.add((finding as { section: ChatSection }).section);
+    }
+  }
+  return sections.size === 1 ? [...sections][0] : undefined;
+}
+
+type ProgressUpdate = Omit<ChatTurnProgress, "since">;
+
+/**
+ * Writes `chatTurns.progress` without holding up the stream. The AI SDK
+ * awaits `onChunk`, so a phase change only records the latest wanted state
+ * and one write runs at a time; a change that arrives while a write is in
+ * flight replaces any older one still waiting. `flush` waits for the queue.
+ */
+export class TurnProgressWriter {
+  private lastKey: string | undefined;
+  private pending: ChatTurnProgress | undefined;
+  private running: Promise<void> | undefined;
+
+  constructor(
+    private readonly write: (progress: ChatTurnProgress) => Promise<unknown>,
+    private readonly now: () => number = Date.now
+  ) {}
+
+  set(update: ProgressUpdate): void {
+    const key = JSON.stringify([update.phase, update.tool ?? null, update.section ?? null, update.step]);
+    if (key === this.lastKey) return;
+    this.lastKey = key;
+    this.pending = {
+      phase: update.phase,
+      ...(update.tool !== undefined ? { tool: update.tool } : {}),
+      ...(update.section !== undefined ? { section: update.section } : {}),
+      step: update.step,
+      since: this.now(),
+    };
+    if (!this.running) this.running = this.drain();
+  }
+
+  private async drain(): Promise<void> {
+    while (this.pending) {
+      const next = this.pending;
+      this.pending = undefined;
+      try {
+        await this.write(next);
+      } catch (error) {
+        console.error("chat progress could not be written", safeErrorDetails(error));
+      }
+    }
+    this.running = undefined;
+  }
+
+  async flush(): Promise<void> {
+    while (this.running) await this.running;
+  }
+}
+
+/** Raw Anthropic stream event fields the meter reads. */
+type RawStreamEvent = {
+  type?: unknown;
+  message?: { usage?: AnthropicStartUsage };
+  content_block?: { type?: unknown; name?: unknown };
+  delta?: { type?: unknown; text?: unknown; thinking?: unknown; partial_json?: unknown; stop_reason?: unknown };
+  usage?: { output_tokens?: unknown };
+};
+
+/**
+ * Measures each model request of one turn and derives its progress phases
+ * from the raw stream events: a thinking block means "thinking", a text
+ * block "writing", a tool call block "tool" with the tool's name.
+ */
+export class ChatTurnMeter {
+  /** Model requests begun in this turn, across passes. */
+  step = 0;
+  current: ChatStepMetrics | undefined;
+  /** The chat tools the model called in this turn. */
+  readonly toolNames = new Set<string>();
+
+  constructor(
+    private readonly progress: (update: ProgressUpdate) => void = () => {},
+    private readonly now: () => number = Date.now
+  ) {}
+
+  beginStep(effort: string): void {
+    this.step += 1;
+    this.current = {
+      step: this.step,
+      effort,
+      startedAt: this.now(),
+      receivedChars: 0,
+      stepFinished: false,
+      partialLogged: false,
+    };
+  }
+
+  onRaw(raw: unknown): void {
+    const step = this.current;
+    if (!step || !raw || typeof raw !== "object") return;
+    const event = raw as RawStreamEvent;
+    switch (event.type) {
+      case "message_start":
+        if (event.message?.usage && typeof event.message.usage === "object") {
+          step.startUsage = event.message.usage;
+        }
+        return;
+      case "content_block_start": {
+        step.firstTokenAt ??= this.now();
+        const block = event.content_block?.type;
+        if (block === "thinking" || block === "redacted_thinking") {
+          this.progress({ phase: "thinking", step: step.step });
+        } else if (block === "text") {
+          this.progress({ phase: "writing", step: step.step });
+        } else if (block === "tool_use") {
+          const name = event.content_block?.name;
+          if (typeof name === "string" && CHAT_TOOL_NAMES.has(name)) {
+            this.toolNames.add(name);
+            this.progress({ phase: "tool", tool: name, step: step.step });
+          }
+        }
+        return;
+      }
+      case "content_block_delta": {
+        const delta = event.delta;
+        for (const value of [delta?.text, delta?.thinking, delta?.partial_json]) {
+          if (typeof value === "string") step.receivedChars += value.length;
+        }
+        return;
+      }
+      case "message_delta":
+        if (typeof event.delta?.stop_reason === "string") step.stopReason = event.delta.stop_reason;
+        if (typeof event.usage?.output_tokens === "number") step.outputTokens = event.usage.output_tokens;
+        return;
+      case "message_stop":
+        step.endedAt = this.now();
+        return;
+      default:
+        return;
+    }
+  }
+
+  /** A whole tool call arrived: name the Line it concerns, when it names one. */
+  onToolCall(toolName: string, input: unknown): void {
+    if (!this.current || !CHAT_TOOL_NAMES.has(toolName)) return;
+    this.toolNames.add(toolName);
+    const section = toolCallSection(input);
+    this.progress({ phase: "tool", tool: toolName, ...(section ? { section } : {}), step: this.current.step });
+  }
+
+  finishStep(): ChatStepMetrics | undefined {
+    if (this.current) this.current.stepFinished = true;
+    return this.current;
+  }
+}
+
+/** The numbers a usage row carries for one measured step. */
+function stepUsageFields(metrics: ChatStepMetrics | undefined, now: number) {
+  if (!metrics) return {};
+  return {
+    durationMs: Math.max(0, (metrics.endedAt ?? now) - metrics.startedAt),
+    effort: metrics.effort,
+    ...(metrics.firstTokenAt !== undefined ? { firstTokenMs: Math.max(0, metrics.firstTokenAt - metrics.startedAt) } : {}),
+    ...(metrics.stopReason ? { stopReason: metrics.stopReason } : {}),
+  };
+}
+
 /**
  * The chat usage row for one model step. `served` says where the step's
  * request went (decision 64): a step answered through OpenRouter records
  * the transport, the provider OpenRouter reports and OpenRouter's exact
  * charge when its usage carries one (the AI SDK passes Anthropic's raw
  * usage through, unknown fields included), otherwise the price-table
- * estimate.
+ * estimate. `metrics` (Phase A) adds the step's duration, stop reason,
+ * effort and time to first token.
  */
-function chatUsageHandler(served: Readonly<ChatServedState>): UsageHandler {
-  return async (ctx, { threadId, userId, model, usage, providerMetadata }) => {
-    const cacheCreationInputTokens =
-      usage.inputTokenDetails.cacheWriteTokens ?? 0;
-    // The AI SDK passes Anthropic's raw usage through; its cache_creation
-    // breakdown says how much of the write used the 1-hour TTL (2x input).
-    const cacheCreation1hInputTokens = Math.min(
-      anthropicCacheWrite1hTokens(providerMetadata?.anthropic?.usage) ?? 0,
-      cacheCreationInputTokens
+async function logChatUsage(
+  ctx: Pick<ActionCtx, "runMutation">,
+  served: Readonly<ChatServedState>,
+  { threadId, userId, model, usage, providerMetadata }: Parameters<UsageHandler>[1],
+  metrics: ChatStepMetrics | undefined
+): Promise<void> {
+  const cacheCreationInputTokens =
+    usage.inputTokenDetails.cacheWriteTokens ?? 0;
+  // The AI SDK passes Anthropic's raw usage through; its cache_creation
+  // breakdown says how much of the write used the 1-hour TTL (2x input).
+  const cacheCreation1hInputTokens = Math.min(
+    anthropicCacheWrite1hTokens(providerMetadata?.anthropic?.usage) ?? 0,
+    cacheCreationInputTokens
+  );
+  const cacheReadInputTokens =
+    usage.inputTokenDetails.cacheReadTokens ?? 0;
+  const totalInputTokens = usage.inputTokens ?? 0;
+  const inputTokens =
+    usage.inputTokenDetails.noCacheTokens ??
+    Math.max(
+      0,
+      totalInputTokens -
+        cacheCreationInputTokens -
+        cacheReadInputTokens
     );
-    const cacheReadInputTokens =
-      usage.inputTokenDetails.cacheReadTokens ?? 0;
-    const totalInputTokens = usage.inputTokens ?? 0;
-    const inputTokens =
-      usage.inputTokenDetails.noCacheTokens ??
-      Math.max(
-        0,
-        totalInputTokens -
-          cacheCreationInputTokens -
-          cacheReadInputTokens
-      );
-    const viaOpenRouter = served.transport === "openrouter";
-    const charge = viaOpenRouter ? openRouterAnthropicCharge({ usage: providerMetadata?.anthropic?.usage }) : {};
-    try {
-      await ctx.runMutation(internal.aiUsage.queueUsage, {
-        ...(threadId ? { agentThreadId: threadId } : {}),
-        ...(userId ? { userId } : {}),
-        callSite: "chat_v2",
-        model,
-        inputTokens,
-        outputTokens: usage.outputTokens ?? 0,
-        // Always recorded, zero included, so a row with no cache activity
-        // is distinguishable from a row written before caching was tracked.
-        cacheCreationInputTokens,
-        cacheReadInputTokens,
-        ...(cacheCreation1hInputTokens
-          ? { cacheCreation1hInputTokens }
-          : {}),
-        ...(viaOpenRouter ? { transport: "openrouter" as const } : {}),
-        ...(charge.costUsd !== undefined ? { costUsd: charge.costUsd } : {}),
-        ...(viaOpenRouter && served.servedProvider ? { servedProvider: served.servedProvider } : {}),
-        createdAt: Date.now(),
-      });
-    } catch (error) {
-      console.error("chat usage could not be queued", safeErrorDetails(error));
-    }
-  };
+  const viaOpenRouter = served.transport === "openrouter";
+  const charge = viaOpenRouter ? openRouterAnthropicCharge({ usage: providerMetadata?.anthropic?.usage }) : {};
+  try {
+    await ctx.runMutation(internal.aiUsage.queueUsage, {
+      ...(threadId ? { agentThreadId: threadId } : {}),
+      ...(userId ? { userId } : {}),
+      callSite: "chat_v2",
+      model,
+      inputTokens,
+      outputTokens: usage.outputTokens ?? 0,
+      // Always recorded, zero included, so a row with no cache activity
+      // is distinguishable from a row written before caching was tracked.
+      cacheCreationInputTokens,
+      cacheReadInputTokens,
+      ...(cacheCreation1hInputTokens
+        ? { cacheCreation1hInputTokens }
+        : {}),
+      ...(viaOpenRouter ? { transport: "openrouter" as const } : {}),
+      ...(charge.costUsd !== undefined ? { costUsd: charge.costUsd } : {}),
+      ...(viaOpenRouter && served.servedProvider ? { servedProvider: served.servedProvider } : {}),
+      ...stepUsageFields(metrics, Date.now()),
+      createdAt: Date.now(),
+    });
+  } catch (error) {
+    console.error("chat usage could not be queued", safeErrorDetails(error));
+  }
+}
+
+function tokenNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+/**
+ * Phase A: a request stopped part way (Stop or the time limit) never reaches
+ * the AI SDK's step end, so neither the agent nor the app logged it, although
+ * Anthropic bills it. One row, marked partial with stop reason "aborted": its
+ * input as `message_start` reported it, its output the larger of the last
+ * reported count and an estimate from the characters received (as
+ * convex/ai/instrument.ts estimates a stopped call). A request stopped before
+ * `message_start` has no usage to record.
+ */
+async function logStoppedRequestUsage(
+  ctx: Pick<ActionCtx, "runMutation">,
+  served: Readonly<ChatServedState>,
+  args: { threadId: string; userId?: string; model: string },
+  metrics: ChatStepMetrics
+): Promise<boolean> {
+  const start = metrics.startUsage;
+  if (!start || metrics.stepFinished || metrics.partialLogged) return false;
+  metrics.partialLogged = true;
+  const cacheCreationInputTokens = tokenNumber(start.cache_creation_input_tokens);
+  const cacheCreation1hInputTokens = Math.min(
+    anthropicCacheWrite1hTokens(start) ?? 0,
+    cacheCreationInputTokens
+  );
+  const outputTokens = Math.max(
+    tokenNumber(metrics.outputTokens ?? start.output_tokens),
+    Math.ceil(metrics.receivedChars / 3)
+  );
+  try {
+    await ctx.runMutation(internal.aiUsage.queueUsage, {
+      agentThreadId: args.threadId,
+      ...(args.userId ? { userId: args.userId } : {}),
+      callSite: "chat_v2",
+      model: args.model,
+      inputTokens: tokenNumber(start.input_tokens),
+      outputTokens,
+      cacheCreationInputTokens,
+      cacheReadInputTokens: tokenNumber(start.cache_read_input_tokens),
+      ...(cacheCreation1hInputTokens ? { cacheCreation1hInputTokens } : {}),
+      ...(served.transport === "openrouter" ? { transport: "openrouter" as const } : {}),
+      ...(served.transport === "openrouter" && served.servedProvider ? { servedProvider: served.servedProvider } : {}),
+      ...stepUsageFields(metrics, Date.now()),
+      stopReason: "aborted",
+      partial: true,
+      createdAt: Date.now(),
+    });
+  } catch (error) {
+    console.error("chat usage could not be queued", safeErrorDetails(error));
+  }
+  return true;
+}
+
+function chatUsageHandler(
+  served: Readonly<ChatServedState>,
+  meter?: ChatTurnMeter
+): UsageHandler {
+  // The agent logs a step from inside its step end, before the next request
+  // begins, so the meter's current step is the step being logged.
+  return async (ctx, payload) => await logChatUsage(ctx, served, payload, meter?.current);
 }
 
 /**
  * The chat model for one turn, its usage handler and where its requests
  * went. With an OpenRouter key and a model OpenRouter lists, the model's
  * HTTP transport carries the billing fallback (decision 64). Otherwise it
- * is exactly the provider chat always used.
+ * is exactly the provider chat always used. `meter` adds each step's
+ * measurements to its usage row.
  */
 export function chatTurnModel(
   ctx: Pick<ActionCtx, "runQuery" | "runMutation">,
-  modelId: string
+  modelId: string,
+  meter?: ChatTurnMeter
 ): { model: ReturnType<typeof anthropic>; usageHandler: UsageHandler; served: Readonly<ChatServedState> } {
   const served: ChatServedState = { transport: "direct" };
   const authToken = openRouterCreditFallbackKey();
   if (!authToken || !openRouterAnthropicRequestId(modelId)) {
-    return { model: anthropic(modelId), usageHandler: chatUsageHandler(served), served };
+    return { model: anthropic(modelId), usageHandler: chatUsageHandler(served, meter), served };
   }
   const provider = createAnthropic({ fetch: creditFallbackFetch(ctx, authToken, served) });
-  return { model: provider(modelId), usageHandler: chatUsageHandler(served), served };
+  return { model: provider(modelId), usageHandler: chatUsageHandler(served, meter), served };
+}
+
+/**
+ * Phase A: how often a running reply checks for Stop. The agent notices Stop
+ * only when it writes its next stream delta, and a step that thinks writes
+ * none for minutes, so the action polls the turn and aborts the request.
+ */
+export const CHAT_STOP_POLL_MS = 2_000;
+
+/**
+ * Polls `isActive` every `intervalMs` (one check at a time) and calls
+ * `onStop` once when it answers false. A failed check is logged and tried
+ * again at the next tick. Returns the function that ends the watch.
+ */
+export function watchForStop(options: {
+  intervalMs: number;
+  isActive: () => Promise<boolean>;
+  onStop: () => void;
+}): () => void {
+  let ended = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const schedule = () => {
+    if (!ended) timer = setTimeout(tick, options.intervalMs);
+  };
+  const tick = async () => {
+    timer = undefined;
+    if (ended) return;
+    let active = true;
+    try {
+      active = await options.isActive();
+    } catch (error) {
+      console.error("chat stop check failed", safeErrorDetails(error));
+    }
+    if (ended) return;
+    if (!active) {
+      ended = true;
+      options.onStop();
+      return;
+    }
+    schedule();
+  };
+  schedule();
+  return () => {
+    ended = true;
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+  };
+}
+
+/**
+ * The stored Deviation Inventory's items, by Line, for the Continue offer:
+ * the rule Deviations the report's notes record now. Empty when the report
+ * or the notes cannot be read.
+ */
+async function outstandingDeviations(
+  ctx: ChatToolCtx
+): Promise<Array<{ section: ChatSection; itemId: string }>> {
+  try {
+    const context = await inventoryContext(ctx);
+    if (!context.found || !context.rulesAvailable) return [];
+    const inventory = assembleDeviationInventory({
+      sections: context.sections,
+      notes: context.notes,
+      rulesStatus: context.rulesStatus,
+    });
+    return inventory.items.map((item) => ({ section: item.section, itemId: item.id }));
+  } catch (error) {
+    console.error("chat continuation inventory failed", safeErrorDetails(error));
+    return [];
+  }
+}
+
+/** The read-only and bulk tools of a deviation list request. */
+const DEVIATION_TOOLS: ReadonlySet<string> = new Set(["deviationInventory", "compareReferencePd", "proposeBulkEdits"]);
+
+/** Which turn failures offer Continue (each tells the writer to continue or go smaller). */
+const CUT_OFF_FAILURES: ReadonlySet<string> = new Set([
+  "CHAT_CUT_OFF_TOOL_CALL",
+  "CHAT_THINKING_CUT_OFF",
+  "CHAT_THINKING_CUT_OFF_PARTIAL",
+  "CHAT_REPLY_CUT_OFF",
+]);
+
+export function continuationReasonForFailure(error: unknown): ChatTurnContinuationReason | null {
+  return error instanceof Error && CUT_OFF_FAILURES.has(error.message) ? "cut_off" : null;
 }
 
 /**
@@ -1005,6 +1463,11 @@ async function threadUserId(ctx: ActionCtx, threadId: string): Promise<string | 
     console.error("chat thread owner lookup failed", safeErrorDetails(error));
     return undefined;
   }
+}
+
+async function threadUserIdField(ctx: ActionCtx, threadId: string): Promise<{ userId?: string }> {
+  const userId = await threadUserId(ctx, threadId);
+  return userId ? { userId } : {};
 }
 
 /** The assistant message a failed turn leaves in the thread. */
@@ -1053,6 +1516,7 @@ export const streamChatReply = internalAction({
     });
     if (!start.shouldRun) return;
 
+    const turnKey = { agentThreadId: args.agentThreadId, promptMessageId: args.promptMessageId };
     const toolCallIds = new Set<string>();
     // 2026-10-01 (first): whether the turn's last step was cut off at the
     // output limit while it was writing a tool call. `sawToolInput` covers a
@@ -1064,12 +1528,46 @@ export const streamChatReply = internalAction({
     let lastStepThinkingOnly = false;
     const finishedSteps: CutOffStep[] = [];
     // Review P2-1: a step the agent held back, logged once a later step
-    // finishes (see stepHeldBackByAgent).
+    // finishes (see stepHeldBackByAgent), with the measurements it finished
+    // with.
     let heldBackStep: UsageStep | undefined;
+    let heldBackMetrics: ChatStepMetrics | undefined;
     // After a held-back step the agent no longer sees a Stop (review P3).
     let agentStreamBlind = false;
     // Where the turn's latest model request went, for the failure log.
     let served: Readonly<ChatServedState> | undefined;
+
+    // Phase A (2026-10-19): the turn's phases for the writer, each step's
+    // measurements for its usage row, and a Stop that works while the model
+    // thinks. The model request is aborted through `turnAbort`, chained by
+    // hand to the time limit (`AbortSignal.any` is not in every runtime).
+    const progress = new TurnProgressWriter((next) =>
+      ctx.runMutation(internal.chatV2.markTurnProgress, { ...turnKey, progress: next })
+    );
+    const meter = new ChatTurnMeter((update) => progress.set(update));
+    const turnAbort = new AbortController();
+    let stoppedByWriter = false;
+    let endStopWatch: (() => void) | undefined;
+    let timeoutSignal: AbortSignal | undefined;
+    const onTimeout = () => {
+      if (!turnAbort.signal.aborted) turnAbort.abort(timeoutSignal?.reason);
+    };
+
+    /**
+     * The structured Continue offer, set while the turn still runs. The
+     * stored inventory is read only when the turn worked on a deviation list.
+     */
+    const offerContinuation = async (reason: ChatTurnContinuationReason) => {
+      try {
+        const workedOnList = [...meter.toolNames].some((name) => DEVIATION_TOOLS.has(name));
+        const outstanding = workedOnList
+          ? await outstandingDeviations({ threadId: args.agentThreadId, runQuery: ctx.runQuery, runMutation: ctx.runMutation })
+          : [];
+        await ctx.runMutation(internal.chatV2.setTurnContinuation, { ...turnKey, reason, outstanding });
+      } catch (error) {
+        console.error("chat continuation could not be saved", safeErrorDetails(error));
+      }
+    };
 
     try {
       // Explicit annotations break api-graph type circularity (TS7006 cascade).
@@ -1131,20 +1629,50 @@ export const streamChatReply = internalAction({
       // Second cancellation fence: context loading above is slow enough that
       // the writer can press stop during it. Without this, an aborted turn
       // would still generate text and create proposal cards.
-      const stillActive: boolean = await ctx.runQuery(internal.chatV2.isTurnActive, {
-        agentThreadId: args.agentThreadId,
-        promptMessageId: args.promptMessageId,
-      });
+      const stillActive: boolean = await ctx.runQuery(internal.chatV2.isTurnActive, turnKey);
       if (!stillActive) return;
-      const contextOptions = await chatContextOptions(ctx, args);
+      // Phase A: from here on, Stop is checked every CHAT_STOP_POLL_MS.
+      endStopWatch = watchForStop({
+        intervalMs: CHAT_STOP_POLL_MS,
+        isActive: () => ctx.runQuery(internal.chatV2.isTurnActive, turnKey),
+        onStop: () => {
+          stoppedByWriter = true;
+          if (!turnAbort.signal.aborted) turnAbort.abort("Writer pressed stop");
+        },
+      });
+      const history = await chatContextWindow(ctx, args);
+      const contextOptions = history.options;
+      // Phase A: the browser draws its divider from this, and the model is
+      // told that older turns are out of its view (in the per-turn note after
+      // the evidence tail, never in the cached head).
+      if (history.historyStartOrder !== undefined) {
+        await ctx.runMutation(internal.chatV2.setTurnHistoryStart, {
+          ...turnKey,
+          historyStartOrder: history.historyStartOrder,
+        });
+      }
+      const turnMessages: ModelMessage[] = [
+        ...turn.messages,
+        {
+          role: "user",
+          content: chatTurnNote({
+            allowBrain: args.allowBrain === true,
+            allowWeb: args.allowWeb === true,
+            historyCut: history.historyStartOrder !== undefined,
+          }),
+        },
+      ];
       // Model catalog: the chat role's current model (direct Anthropic only;
       // the role never resolves to another gateway). A turn keeps the model
       // it started with; the next turn picks up a switch.
       const { entry: chatModel } = await ctx.runQuery(roleModelEntryRef, { role: "chat" });
       // Ends the reply inside the Convex action limit, so a stalled stream
       // fails its turn here instead of waiting for the reaper.
-      const abortSignal = AbortSignal.timeout(chatStreamTimeoutMs(startedAt, Date.now()));
-      const turnModel = chatTurnModel(ctx, chatModel.gateway === "anthropic" ? chatModel.id : MODEL);
+      timeoutSignal = AbortSignal.timeout(chatStreamTimeoutMs(startedAt, Date.now()));
+      if (timeoutSignal.aborted) onTimeout();
+      else timeoutSignal.addEventListener("abort", onTimeout, { once: true });
+      const abortSignal = turnAbort.signal;
+      const turnModel = chatTurnModel(ctx, chatModel.gateway === "anthropic" ? chatModel.id : MODEL, meter);
       served = turnModel.served;
 
       // One model pass over this turn. The turn makes a second pass only to
@@ -1152,18 +1680,20 @@ export const streamChatReply = internalAction({
       // per-pass state below starts fresh each time; `toolCallIds` counts the
       // whole turn.
       // Created once, so the recovery pass shares the turn's search count.
-      const webSearch =
-        args.allowWeb === true
-          ? newWebSearchTurn({
-              ...(args.userId ? { userId: args.userId } : {}),
-              deadline: startedAt + ACTION_REQUEST_WINDOW_MS,
-            })
-          : null;
+      // Phase A: created for every turn; its tool searches only when the
+      // authenticated send turned web search on.
+      const webSearch = newWebSearchTurn({
+        allowed: args.allowWeb === true,
+        ...(args.userId ? { userId: args.userId } : {}),
+        deadline: startedAt + ACTION_REQUEST_WINDOW_MS,
+      });
 
       const runPass = async (pass: {
         messages: ModelMessage[];
         providerOptions: typeof CHAT_PROVIDER_OPTIONS;
         listStepProviderOptions: typeof CHAT_LIST_STEP_PROVIDER_OPTIONS | undefined;
+        /** The effort the pass's steps are sent with, for the usage rows. */
+        effort: string;
         contextOptions?: ContextOptions;
       }) => {
         sawToolInput = false;
@@ -1171,127 +1701,185 @@ export const streamChatReply = internalAction({
         lastStepThinkingOnly = false;
         finishedSteps.length = 0;
         heldBackStep = undefined;
+        heldBackMetrics = undefined;
         agentStreamBlind = false;
-        const result = await reportChatAgent.streamText(
-          ctx,
-          { threadId: args.agentThreadId },
-          {
-            promptMessageId: args.promptMessageId,
-            model: turnModel.model,
-            system: turn.system,
-            // Ephemeral: with `promptMessageId` set the agent library saves no
-            // input messages, so the evidence never enters thread history.
-            // The context handler below places them around the history.
-            messages: pass.messages,
-            tools: buildChatTools(styleOverrides.bannedWords, args.allowBrain === true, webSearch),
-            providerOptions: pass.providerOptions,
-            maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
-            abortSignal,
-            // Must run upstream of the agent's smoothStream — see the module
-            // comment. Without it, multi-step tool turns lose the thinking
-            // signature and the model's reasoning is dropped between steps.
-            experimental_transform: preserveReasoningSignature<typeof CHAT_TOOLS>(),
-            // 2026-10-01 (first): a call cut off at the output limit gets its
-            // tool's fixed instruction instead of its parse error, and a second
-            // cut-off ends the turn. A turn that is never cut off sends exactly
-            // the requests it sent before (the same messages array).
-            stopWhen: [stepCountIs(CHAT_MAX_STEPS), stopAfterSecondCutOff],
-            prepareStep: async ({ steps, messages }) => {
-              // PR #24 review P3: once the agent stopped streaming, check the
-              // writer did not press Stop before paying for another step.
-              if (agentStreamBlind) {
-                const active: boolean = await ctx.runQuery(internal.chatV2.isTurnActive, {
-                  agentThreadId: args.agentThreadId,
-                  promptMessageId: args.promptMessageId,
-                });
-                if (!active) throw new Error("CHAT_STOPPED_AFTER_CUT_OFF");
-              }
-              const next = withCutOffInstruction(messages, steps);
-              // 2026-10-19: a step that plans over a list result thinks at
-              // medium effort.
-              const listStep =
-                pass.listStepProviderOptions !== undefined && followsListResult(steps);
-              if (next === messages && !listStep) return undefined;
-              return {
-                ...(next === messages ? {} : { messages: next }),
-                ...(listStep ? { providerOptions: pass.listStepProviderOptions } : {}),
-              };
+        let passAborted = false;
+        try {
+          const result = await reportChatAgent.streamText(
+            ctx,
+            { threadId: args.agentThreadId },
+            {
+              promptMessageId: args.promptMessageId,
+              model: turnModel.model,
+              system: turn.system,
+              // Ephemeral: with `promptMessageId` set the agent library saves no
+              // input messages, so the evidence never enters thread history.
+              // The context handler below places them around the history.
+              messages: pass.messages,
+              tools: buildChatTools(styleOverrides.bannedWords, args.allowBrain === true, webSearch),
+              providerOptions: pass.providerOptions,
+              maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
+              abortSignal,
+              // Phase A: the provider's raw stream events reach `onChunk` only
+              // (the browser stream drops them), for the step's measurements
+              // and progress phases.
+              includeRawChunks: true,
+              onAbort: () => {
+                passAborted = true;
+              },
+              // Must run upstream of the agent's smoothStream; see the module
+              // comment. Without it, multi-step tool turns lose the thinking
+              // signature and the model's reasoning is dropped between steps.
+              experimental_transform: preserveReasoningSignature<typeof CHAT_TOOLS>(),
+              // 2026-10-01 (first): a call cut off at the output limit gets its
+              // tool's fixed instruction instead of its parse error, and a second
+              // cut-off ends the turn. A turn that is never cut off sends exactly
+              // the requests it sent before (the same messages array).
+              stopWhen: [stepCountIs(CHAT_MAX_STEPS), stopAfterSecondCutOff],
+              prepareStep: async ({ steps, messages }) => {
+                // PR #24 review P3: once the agent stopped streaming, check the
+                // writer did not press Stop before paying for another step.
+                if (agentStreamBlind) {
+                  const active: boolean = await ctx.runQuery(internal.chatV2.isTurnActive, turnKey);
+                  if (!active) throw new Error("CHAT_STOPPED_AFTER_CUT_OFF");
+                }
+                const next = withCutOffInstruction(messages, steps);
+                // 2026-10-19: a step that plans over a list result thinks at
+                // medium effort.
+                const listStep =
+                  pass.listStepProviderOptions !== undefined && followsListResult(steps);
+                meter.beginStep(listStep ? CHAT_LIST_STEP_EFFORT : pass.effort);
+                if (next === messages && !listStep) return undefined;
+                return {
+                  ...(next === messages ? {} : { messages: next }),
+                  ...(listStep ? { providerOptions: pass.listStepProviderOptions } : {}),
+                };
+              },
+              onChunk: ({ chunk }) => {
+                if (chunk.type === "raw") {
+                  meter.onRaw(chunk.rawValue);
+                  return;
+                }
+                if (chunk.type === "tool-input-start") sawToolInput = true;
+                if (chunk.type === "tool-call") meter.onToolCall(chunk.toolName, chunk.input);
+              },
+              onStepFinish: async (step) => {
+                const metrics = meter.finishStep();
+                for (const toolCall of step.toolCalls) {
+                  if (toolCall) toolCallIds.add(toolCall.toolCallId);
+                }
+                finishedSteps.push(step);
+                lastStepCutToolCall =
+                  step.finishReason === "length" &&
+                  (sawToolInput || step.toolCalls.length > 0);
+                lastStepThinkingOnly = thinkingOnlyCutOff(step, sawToolInput);
+                sawToolInput = false;
+                // Phase A: numbers only, never text.
+                if (metrics) {
+                  console.info("chat step timing", {
+                    threadId: args.agentThreadId,
+                    step: metrics.step,
+                    durationMs: Math.max(0, (metrics.endedAt ?? Date.now()) - metrics.startedAt),
+                    firstTokenMs:
+                      metrics.firstTokenAt === undefined ? null : Math.max(0, metrics.firstTokenAt - metrics.startedAt),
+                    inputTokens: step.usage.inputTokens ?? null,
+                    outputTokens: step.usage.outputTokens ?? null,
+                    reasoningTokens: step.usage.outputTokenDetails?.reasoningTokens ?? null,
+                  });
+                }
+                // Sizes only, never report text: to tune the per-call bound.
+                for (const call of cutOffToolCalls(step)) {
+                  console.warn("chat tool call cut off at the output limit", {
+                    threadId: args.agentThreadId,
+                    toolName: call.toolName,
+                    inputChars:
+                      typeof call.input === "string"
+                        ? call.input.length
+                        : JSON.stringify(call.input ?? null).length,
+                    outputTokens: step.usage.outputTokens ?? null,
+                  });
+                }
+                if (lastStepThinkingOnly) {
+                  console.warn("chat step thought to the output limit", {
+                    threadId: args.agentThreadId,
+                    stepNumber: finishedSteps.length,
+                    outputTokens: step.usage.outputTokens ?? null,
+                  });
+                }
+                // Review P2-1: a later step finished, so the agent replaced the
+                // step it held back and will never log that step's usage.
+                const replaced = heldBackStep;
+                const replacedMetrics = heldBackMetrics;
+                heldBackStep = undefined;
+                heldBackMetrics = undefined;
+                if (replaced) {
+                  await logChatUsage(
+                    ctx,
+                    turnModel.served,
+                    {
+                      userId: await threadUserId(ctx, args.agentThreadId),
+                      threadId: args.agentThreadId,
+                      agentName: "report-editor",
+                      model: turnModel.model.modelId,
+                      provider: turnModel.model.provider,
+                      usage: replaced.usage,
+                      providerMetadata: replaced.providerMetadata,
+                    },
+                    replacedMetrics
+                  );
+                }
+                if (stepHeldBackByAgent(step, finishedSteps)) {
+                  heldBackStep = step;
+                  heldBackMetrics = metrics;
+                  agentStreamBlind = true;
+                }
+              },
             },
-            onChunk: ({ chunk }) => {
-              if (chunk.type === "tool-input-start") sawToolInput = true;
-            },
-            onStepFinish: async (step) => {
-              for (const toolCall of step.toolCalls) {
-                if (toolCall) toolCallIds.add(toolCall.toolCallId);
-              }
-              finishedSteps.push(step);
-              lastStepCutToolCall =
-                step.finishReason === "length" &&
-                (sawToolInput || step.toolCalls.length > 0);
-              lastStepThinkingOnly = thinkingOnlyCutOff(step, sawToolInput);
-              sawToolInput = false;
-              // Sizes only, never report text: to tune the per-call bound.
-              for (const call of cutOffToolCalls(step)) {
-                console.warn("chat tool call cut off at the output limit", {
-                  threadId: args.agentThreadId,
-                  toolName: call.toolName,
-                  inputChars:
-                    typeof call.input === "string"
-                      ? call.input.length
-                      : JSON.stringify(call.input ?? null).length,
-                  outputTokens: step.usage.outputTokens ?? null,
-                });
-              }
-              if (lastStepThinkingOnly) {
-                console.warn("chat step thought to the output limit", {
-                  threadId: args.agentThreadId,
-                  stepNumber: finishedSteps.length,
-                  outputTokens: step.usage.outputTokens ?? null,
-                });
-              }
-              // Review P2-1: a later step finished, so the agent replaced the
-              // step it held back and will never log that step's usage.
-              const replaced = heldBackStep;
-              heldBackStep = undefined;
-              if (replaced) {
-                await turnModel.usageHandler(ctx, {
-                  userId: await threadUserId(ctx, args.agentThreadId),
-                  threadId: args.agentThreadId,
-                  agentName: "report-editor",
-                  model: turnModel.model.modelId,
-                  provider: turnModel.model.provider,
-                  usage: replaced.usage,
-                  providerMetadata: replaced.providerMetadata,
-                });
-              }
-              if (stepHeldBackByAgent(step, finishedSteps)) {
-                heldBackStep = step;
-                agentStreamBlind = true;
-              }
-            },
-          },
-          {
-            saveStreamDeltas: true,
-            contextOptions: pass.contextOptions ?? contextOptions,
-            usageHandler: turnModel.usageHandler,
-            // Evidence head before the history, per-turn tail after the
-            // prompt: see arrangeChatContext for the cache layout.
-            contextHandler: async (_ctx, parts) =>
-              arrangeChatContext(turn.headCount, parts),
+            {
+              saveStreamDeltas: true,
+              contextOptions: pass.contextOptions ?? contextOptions,
+              usageHandler: turnModel.usageHandler,
+              // Evidence head before the history, per-turn tail after the
+              // prompt: see arrangeChatContext for the cache layout.
+              contextHandler: async (_ctx, parts) =>
+                arrangeChatContext(turn.headCount, parts),
+            }
+          );
+          await result.consumeStream();
+          return await result.finishReason;
+        } finally {
+          // Phase A: a request stopped part way (Stop, the time limit, or the
+          // agent's own stream abort) is still billed; log it once.
+          const current = meter.current;
+          if (
+            (passAborted || abortSignal.aborted) &&
+            current?.startUsage &&
+            !current.stepFinished &&
+            !current.partialLogged
+          ) {
+            await logStoppedRequestUsage(
+              ctx,
+              turnModel.served,
+              {
+                threadId: args.agentThreadId,
+                model: turnModel.model.modelId,
+                ...(await threadUserIdField(ctx, args.agentThreadId)),
+              },
+              current
+            );
           }
-        );
-        await result.consumeStream();
-        return await result.finishReason;
+        }
       };
 
       let finishReason = await runPass({
-        messages: turn.messages,
+        messages: turnMessages,
         providerOptions: CHAT_PROVIDER_OPTIONS,
         listStepProviderOptions: CHAT_LIST_STEP_PROVIDER_OPTIONS,
+        effort: "default",
       });
       // A timer that fires after a tool step leaves the last step's finish
       // reason in place, so the reply would read as complete (review r2 P3).
-      if (abortSignal.aborted) throw new Error("CHAT_TIMED_OUT");
+      if (abortSignal.aborted) throw new Error(stoppedByWriter ? "CHAT_STOPPED" : "CHAT_TIMED_OUT");
       // 2026-10-19: the last step thought to the output limit and wrote
       // nothing. One recovery pass, at low effort and told to do the first
       // part only, when this turn saved no edit yet (the pass would not see
@@ -1299,30 +1887,26 @@ export const streamChatReply = internalAction({
       // and the writer has not pressed Stop.
       if (finishReason === "length" && lastStepThinkingOnly) {
         // Review P3-4: any card, a record-only revision or a highlight too.
-        const savedCard: boolean = await ctx.runQuery(internal.chatV2.turnSavedAnyProposal, {
-          agentThreadId: args.agentThreadId,
-          promptMessageId: args.promptMessageId,
-        });
+        const savedCard: boolean = await ctx.runQuery(internal.chatV2.turnSavedAnyProposal, turnKey);
         if (savedCard) throw new Error("CHAT_THINKING_CUT_OFF_PARTIAL");
         const timeLeft = startedAt + ACTION_REQUEST_WINDOW_MS - Date.now();
         const active: boolean =
           timeLeft >= CHAT_RECOVERY_MIN_REMAINING_MS &&
-          (await ctx.runQuery(internal.chatV2.isTurnActive, {
-            agentThreadId: args.agentThreadId,
-            promptMessageId: args.promptMessageId,
-          }));
+          (await ctx.runQuery(internal.chatV2.isTurnActive, turnKey));
         if (!active) throw new Error("CHAT_THINKING_CUT_OFF");
         console.info("chat recovery pass after a step thought to the limit", {
           threadId: args.agentThreadId,
           timeLeftMs: timeLeft,
         });
+        progress.set({ phase: "retrying", step: meter.step });
         finishReason = await runPass({
           messages: [
-            ...turn.messages,
+            ...turnMessages,
             { role: "user", content: CHAT_THINKING_RECOVERY_INSTRUCTION },
           ],
           providerOptions: CHAT_RECOVERY_PROVIDER_OPTIONS,
           listStepProviderOptions: undefined,
+          effort: CHAT_RECOVERY_PROVIDER_OPTIONS.anthropic.effort,
           // Review P3-3: the first pass stored one thinking-only row on the
           // prompt's order. It fills a history slot before
           // `withoutThinkingOnlyReplies` drops it, so the window gets one
@@ -1333,7 +1917,7 @@ export const streamChatReply = internalAction({
               (contextOptions.recentMessages ?? CHAT_CONTEXT_OPTIONS.recentMessages) + 1,
           },
         });
-        if (abortSignal.aborted) throw new Error("CHAT_TIMED_OUT");
+        if (abortSignal.aborted) throw new Error(stoppedByWriter ? "CHAT_STOPPED" : "CHAT_TIMED_OUT");
       }
       // A turn whose last step was cut off while writing a tool call could
       // not go on (the second cut-off, or the step limit): say what to do.
@@ -1341,38 +1925,38 @@ export const streamChatReply = internalAction({
         throw new Error("CHAT_CUT_OFF_TOOL_CALL");
       }
       if (finishReason === "length" && lastStepThinkingOnly) {
-        const savedCard: boolean = await ctx.runQuery(internal.chatV2.turnSavedAnyProposal, {
-          agentThreadId: args.agentThreadId,
-          promptMessageId: args.promptMessageId,
-        });
+        const savedCard: boolean = await ctx.runQuery(internal.chatV2.turnSavedAnyProposal, turnKey);
         throw new Error(savedCard ? "CHAT_THINKING_CUT_OFF_PARTIAL" : "CHAT_THINKING_CUT_OFF");
       }
       if (finishReason === "length") throw new Error("CHAT_REPLY_CUT_OFF");
       if (finishReason === "content-filter") {
         throw new Error("CHAT_INCOMPLETE_RESPONSE");
       }
+      // Review P2-2: the step limit ended the turn on a tool call, so the
+      // model never wrote its closing text.
+      const endedOnStepLimit =
+        finishReason === "tool-calls" && finishedSteps.length >= CHAT_MAX_STEPS;
+      // Phase A: the Continue offer, while the turn still runs. A reply that
+      // finished its Line offers the next one only when it saved a
+      // Completion Report (setTurnContinuation checks).
+      if (endedOnStepLimit) await offerContinuation("step_limit");
+      else if ([...meter.toolNames].some((name) => DEVIATION_TOOLS.has(name))) {
+        await offerContinuation("lines_left");
+      }
+      await progress.flush();
       const finished: {
         status: "queued" | "running" | "completed" | "failed" | "aborted";
       } = await ctx.runMutation(internal.chatV2.finishTurn, {
-        agentThreadId: args.agentThreadId,
-        promptMessageId: args.promptMessageId,
+        ...turnKey,
         requestedStatus: "completed",
         endedAt: Date.now(),
         stepCount: toolCallIds.size,
       });
-      // Review P2-2: the step limit ended the turn on a tool call, so the
-      // model never wrote its closing text. Say what is left.
-      if (
-        finishReason === "tool-calls" &&
-        finishedSteps.length >= CHAT_MAX_STEPS &&
-        finished.status === "completed"
-      ) {
+      // Say what is left.
+      if (endedOnStepLimit && finished.status === "completed") {
         // PR #24 round 2: only a saved proposal means there are cards to
         // review; a failed edit call saves nothing.
-        const savedEdit: boolean = await ctx.runQuery(internal.chatV2.turnSavedEditProposal, {
-          agentThreadId: args.agentThreadId,
-          promptMessageId: args.promptMessageId,
-        });
+        const savedEdit: boolean = await ctx.runQuery(internal.chatV2.turnSavedEditProposal, turnKey);
         await saveMessage(ctx, components.agent, {
           threadId: args.agentThreadId,
           agentName: "report-editor",
@@ -1383,16 +1967,36 @@ export const streamChatReply = internalAction({
           },
         });
       }
-    } catch (error) {
+    } catch (caught) {
+      // The time limit can surface as the SDK's own abort error when it fell
+      // in the first step; the writer still reads "took too long".
+      const error =
+        !stoppedByWriter &&
+        turnAbort.signal.aborted &&
+        !(caught instanceof Error && caught.message.startsWith("CHAT_"))
+          ? new Error("CHAT_TIMED_OUT")
+          : caught;
+      // Phase A: a reply cut off offers Continue; a stopped one offers nothing.
+      const continuation = stoppedByWriter ? null : continuationReasonForFailure(error);
+      if (continuation) await offerContinuation(continuation);
+      await progress.flush();
       const finish: {
         status: "queued" | "running" | "completed" | "failed" | "aborted";
       } = await ctx.runMutation(internal.chatV2.finishTurn, {
-        agentThreadId: args.agentThreadId,
-        promptMessageId: args.promptMessageId,
+        ...turnKey,
         requestedStatus: "failed",
         endedAt: Date.now(),
         stepCount: toolCallIds.size,
       });
+      // A Stop is the writer's choice, not a failure: no error log and no
+      // failure message.
+      if (stoppedByWriter || finish.status === "aborted") {
+        console.info("chat turn stopped by the writer", {
+          threadId: args.agentThreadId,
+          step: meter.step,
+        });
+        return;
+      }
       console.error("report chat response failed", {
         threadId: args.agentThreadId,
         // Decision 64: a turn the billing fallback sent to OpenRouter says so.
@@ -1408,6 +2012,10 @@ export const streamChatReply = internalAction({
         promptMessageId: args.promptMessageId,
         message: { role: "assistant", content: chatFailureReply(error) },
       });
+    } finally {
+      endStopWatch?.();
+      timeoutSignal?.removeEventListener("abort", onTimeout);
+      await progress.flush();
     }
   },
 });

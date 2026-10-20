@@ -53,7 +53,19 @@ import type {
   InventoryNote,
   InventorySections,
 } from "./lib/deviationInventory";
-import { publicChatDelta, publicChatMessage } from "./lib/chatPublicOutput";
+import {
+  deltaHasReasoning,
+  messageHasReasoning,
+  publicChatDelta,
+  publicChatMessage,
+} from "./lib/chatPublicOutput";
+import {
+  chatTurnContinuationReasonValidator,
+  chatTurnProgressValidator,
+  type ChatTurnContinuation,
+} from "./lib/chatTurnState";
+import { sectionNumberValidator } from "./lib/orderedChain";
+import { INVENTORY_SECTION_ORDER } from "./lib/deviationInventory";
 import { safeErrorDetails } from "./lib/safeErrorDetails";
 import { domainError, sha256 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
@@ -144,6 +156,28 @@ async function threadRow(ctx: QueryCtx | MutationCtx, agentThreadId: string) {
     .unique();
 }
 
+/**
+ * The turn orders, among `orders`, whose searchBrain tool ran a search
+ * (`chatTurns.brainSearchedAt`). One indexed read per distinct order.
+ */
+async function brainSearchedOrders(
+  ctx: QueryCtx,
+  agentThreadId: string,
+  orders: number[]
+): Promise<Set<number>> {
+  const flagged = new Set<number>();
+  for (const order of new Set(orders)) {
+    const turn = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_order", (q) =>
+        q.eq("agentThreadId", agentThreadId).eq("order", order)
+      )
+      .first();
+    if (turn?.brainSearchedAt !== undefined) flagged.add(order);
+  }
+  return flagged;
+}
+
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
 /** The conversation menu lists at most this many, newest first. */
@@ -191,12 +225,15 @@ export const listMessages = query({
       paginationOpts: args.paginationOpts,
     });
     let streamArgs = args.streamArgs;
+    // The thread's streams with their orders; read only for a deltas request.
+    const streamOrders = new Map<string, number>();
     if (streamArgs?.kind === "deltas") {
       // The pinned agent component does not verify cursor ownership itself.
       // Include retained finished streams so their final delta can still drain.
       const ownedStreams = await ctx.runQuery(components.agent.streams.list, {
         threadId: args.threadId, statuses: ["streaming", "finished", "aborted"],
       });
+      for (const stream of ownedStreams) streamOrders.set(stream.streamId, stream.order);
       const ownedIds = new Set(ownedStreams.map(stream => stream.streamId));
       streamArgs = { ...streamArgs, cursors: streamArgs.cursors.filter(cursor => ownedIds.has(cursor.streamId)) };
     }
@@ -204,9 +241,27 @@ export const listMessages = query({
       threadId: args.threadId,
       streamArgs,
     });
-    return { ...paginated, page: paginated.page.map(publicChatMessage),
+    // Phase A (2026-10-19): reasoning summaries reach the browser, except for
+    // a turn that ran a Brain search. Looked up only for the orders that
+    // actually carry reasoning.
+    const reasoningStreamOrders = streams?.kind === "deltas"
+      ? streams.deltas.filter(deltaHasReasoning).flatMap((delta) => {
+        const order = streamOrders.get(delta.streamId);
+        return order === undefined ? [] : [order];
+      })
+      : [];
+    const brainOrders = await brainSearchedOrders(ctx, args.threadId, [
+      ...paginated.page.filter(messageHasReasoning).map((message) => message.order),
+      ...reasoningStreamOrders,
+    ]);
+    return { ...paginated,
+      page: paginated.page.map((message) =>
+        publicChatMessage(message, { brainSearched: brainOrders.has(message.order) })),
       streams: streams?.kind === "deltas"
-        ? { ...streams, deltas: streams.deltas.map(publicChatDelta) }
+        ? { ...streams, deltas: streams.deltas.map((delta) => {
+          const order = streamOrders.get(delta.streamId);
+          return publicChatDelta(delta, { brainSearched: order !== undefined && brainOrders.has(order) });
+        }) }
         : streams?.kind === "list"
           ? { ...streams, messages: streams.messages.map(({ streamId, status, format, order, stepOrder }) =>
             ({ streamId, status, format, order, stepOrder })) }
@@ -312,10 +367,14 @@ export const listTurns = query({
     if (!thread) return [];
     if (!(await getInternalProjectAccessOrNull(ctx, thread.projectId))) return [];
 
-    return await loadNewestTurns(ctx, {
+    const turns = await loadNewestTurns(ctx, {
       agentThreadId: args.threadId,
       ...window,
     });
+    // Phase A (2026-10-19): each turn carries `progress`, `continuation` and
+    // `historyStartOrder` when it has them. `brainSearchedAt` stays on the
+    // server: it only steers the reasoning filter.
+    return turns.map(({ brainSearchedAt: _serverOnly, ...turn }) => turn);
   },
 });
 
@@ -1059,6 +1118,8 @@ export const markTurnStarted = internalMutation({
       await ctx.db.patch(turn._id, {
         status: "running",
         ...(turn.startedAt === undefined ? { startedAt: args.startedAt } : {}),
+        // Phase A: the reply starts by reading the report and evidence.
+        progress: { phase: "reading", step: 0, since: args.startedAt },
       });
       return { shouldRun: true, status: "running" as const };
     }
@@ -1110,6 +1171,146 @@ export const finishTurn = internalMutation({
       return { status: "aborted" as const };
     }
     return { status: turn.status };
+  },
+});
+
+async function turnByPrompt(
+  ctx: QueryCtx | MutationCtx,
+  agentThreadId: string,
+  promptMessageId: string
+) {
+  return await ctx.db
+    .query("chatTurns")
+    .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+      q.eq("agentThreadId", agentThreadId).eq("promptMessageId", promptMessageId)
+    )
+    .unique();
+}
+
+function turnIsActive(turn: Doc<"chatTurns">): boolean {
+  return turn.status === "queued" || turn.status === "running";
+}
+
+/**
+ * Phase A (2026-10-19): the reply's current phase, written by the chat action
+ * on each phase change. Only while the turn runs: a write that arrives after
+ * Stop or after the turn finished is ignored. Returns whether it was written.
+ */
+export const markTurnProgress = internalMutation({
+  args: {
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    progress: chatTurnProgressValidator,
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
+    if (!turn || !turnIsActive(turn)) return false;
+    await ctx.db.patch(turn._id, { progress: args.progress });
+    return true;
+  },
+});
+
+/**
+ * Phase A (2026-10-19): the oldest message `order` the model reads for this
+ * turn, recorded only when older turns were left out of its history.
+ */
+export const setTurnHistoryStart = internalMutation({
+  args: {
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    historyStartOrder: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
+    if (!turn || !turnIsActive(turn)) return false;
+    await ctx.db.patch(turn._id, { historyStartOrder: args.historyStartOrder });
+    return true;
+  },
+});
+
+/**
+ * Phase A (2026-10-19): set by the searchBrain tool before it searches, so
+ * the turn's reasoning summaries are withheld from the browser from then on.
+ * The tool searches nothing when this returns false.
+ */
+export const markTurnBrainSearched = internalMutation({
+  args: { agentThreadId: v.string(), promptMessageId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
+    if (!turn || !turnIsActive(turn)) return false;
+    if (turn.brainSearchedAt === undefined) {
+      await ctx.db.patch(turn._id, { brainSearchedAt: Date.now() });
+    }
+    return true;
+  },
+});
+
+/** Newest proposals of a thread read to find the Deviations already revised. */
+const CONTINUATION_PROPOSAL_SCAN = 100;
+
+/**
+ * Phase A (2026-10-19): the structured Continue offer a turn ends with.
+ * `outstanding` is the stored Deviation Inventory's items at the end of the
+ * turn; the ones any proposal in this conversation already carries (applied,
+ * pending or not) are left out, so Continue moves on to the next Line instead
+ * of returning to one already revised. "lines_left" is set only when this
+ * turn saved a Completion Report and Deviations remain; "step_limit" and
+ * "cut_off" are always set. Only while the turn runs: a stopped turn offers
+ * nothing. Returns what was stored, or null.
+ */
+export const setTurnContinuation = internalMutation({
+  args: {
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    reason: chatTurnContinuationReasonValidator,
+    outstanding: v.array(v.object({ section: sectionNumberValidator, itemId: v.string() })),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      reason: chatTurnContinuationReasonValidator,
+      nextSection: v.optional(sectionNumberValidator),
+      remaining: v.optional(v.number()),
+    })
+  ),
+  handler: async (ctx, args): Promise<ChatTurnContinuation | null> => {
+    const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
+    if (!turn || !turnIsActive(turn)) return null;
+
+    const covered = new Set<string>();
+    let turnSavedReport = false;
+    if (args.outstanding.length > 0 || args.reason === "lines_left") {
+      const proposals = await ctx.db
+        .query("chatProposals")
+        .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", args.agentThreadId))
+        .order("desc")
+        .take(CONTINUATION_PROPOSAL_SCAN);
+      for (const proposal of proposals) {
+        if (proposal.kind !== "replacements") continue;
+        const items = await ctx.db
+          .query("chatProposalItems")
+          .withIndex("by_proposalId", (q) => q.eq("proposalId", proposal._id))
+          .take(MAX_COMPLETION_REPORT_FINDINGS);
+        for (const item of items) covered.add(item.itemId);
+        if (items.length > 0 && proposal.promptMessageId === args.promptMessageId) {
+          turnSavedReport = true;
+        }
+      }
+    }
+    const left = args.outstanding.filter((item) => !covered.has(item.itemId));
+    const nextSection = INVENTORY_SECTION_ORDER.find((section) =>
+      left.some((item) => item.section === section)
+    );
+    if (args.reason === "lines_left" && (!turnSavedReport || !nextSection)) return null;
+    const continuation: ChatTurnContinuation = {
+      reason: args.reason,
+      ...(nextSection ? { nextSection, remaining: left.length } : {}),
+    };
+    await ctx.db.patch(turn._id, { continuation });
+    return continuation;
   },
 });
 

@@ -61,7 +61,7 @@ export const BULK_EDIT_NEW_WORDS_PER_CALL = 600;
 export const BULK_EDIT_CALLS_PER_REPLY = 3;
 
 /** The size rule, stated once for the tool description and the chat prompt. */
-export const BULK_EDIT_SIZE_RULE = `Keep each call small enough to finish: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text across its edits, about four rewritten paragraphs. For a larger revision, make several proposeBulkEdits calls one at a time, one per Line or per few paragraphs, and wait for each result before the next call. Each call lands as its own card. Put every blocked and conflicting item in the first call; each call's findings also cover the items its own edits resolve, so the calls together account for every item exactly once. Make at most ${BULK_EDIT_CALLS_PER_REPLY} proposeBulkEdits calls in one reply. If items are still left after that, name their ids in your closing text and ask the writer to tell you to continue.`;
+export const BULK_EDIT_SIZE_RULE = `Keep each call small enough to finish: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text across its edits, about four rewritten paragraphs. For a larger revision, make several proposeBulkEdits calls one at a time, one per Line or per few paragraphs, and wait for each result before the next call. Each call lands as its own card. Put every blocked and conflicting item in the first call; each call's findings also cover the items its own edits resolve, so the calls together account for every item exactly once. Make at most ${BULK_EDIT_CALLS_PER_REPLY} proposeBulkEdits calls in one reply. If items are still left after that, say in one sentence how many are left and in which Lines, then stop: the writer gets a Continue button under your reply.`;
 
 /**
  * PR #24 round 2 (lead decision): a bulk card applies as a whole, so a later
@@ -433,6 +433,24 @@ export function completionReportChecklist(
   findings: CompletionReportFinding[]
 ): string {
   return findings.map(completionReportLine).join("\n");
+}
+
+/**
+ * Phase A (2026-10-19, CAP-13 change): the card shows the checklist, so the
+ * tool result gives the model only the counts per status, with the ids of
+ * the items that need the writer, in place of the checklist to retype.
+ */
+export function completionReportCounts(
+  findings: ReadonlyArray<Pick<CompletionReportFinding, "id" | "status">>
+): string {
+  return (["resolved", "blocked", "conflicting"] as const)
+    .map((status) => {
+      const ids = findings.filter((finding) => finding.status === status).map((finding) => finding.id);
+      return status !== "resolved" && ids.length > 0
+        ? `${ids.length} ${status} (${ids.join(", ")})`
+        : `${ids.length} ${status}`;
+    })
+    .join(", ");
 }
 
 // ─── Anchor validation against the current report ───────────────────────────

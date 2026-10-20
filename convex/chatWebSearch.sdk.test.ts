@@ -15,6 +15,7 @@ import {
   CHAT_WEB_SEARCH_MODEL,
   CHAT_WEB_SEARCH_NAMES_REMOVED,
   CHAT_WEB_SEARCH_NO_TIME,
+  CHAT_WEB_SEARCH_OFF,
   CHAT_WEB_SEARCH_REFUSED,
   CHAT_WEB_SEARCH_RESULT_LABEL,
   CHAT_WEB_SEARCH_UNAVAILABLE,
@@ -285,7 +286,9 @@ describe("wiring: sendMessage, streamChatReply and the tool list", () => {
     else expect(args).not.toHaveProperty("allowWeb");
   });
 
-  test.each([false, true])("streamChatReply offers searchWeb only with allowWeb=%s", async (allowWeb) => {
+  // Phase A (2026-10-19): searchWeb and searchBrain are offered on every turn,
+  // so the tool list stays the same; the choice reaches the tool body.
+  test.each([false, true])("streamChatReply offers the same tools with allowWeb=%s", async (allowWeb) => {
     const f = await setup();
     const sent = await f.send(allowWeb);
     const stream = vi.spyOn(reportChatAgent, "streamText").mockResolvedValue({
@@ -301,8 +304,10 @@ describe("wiring: sendMessage, streamChatReply and the tool list", () => {
     });
     const tools = stream.mock.calls[0]?.[2].tools;
     expect(tools).toHaveProperty("proposeEdit");
-    expect(tools && "searchWeb" in tools).toBe(allowWeb);
-    expect(tools && "searchBrain" in tools).toBe(false);
+    expect(tools && "searchWeb" in tools).toBe(true);
+    expect(tools && "searchBrain" in tools).toBe(true);
+    const sentMessages = (stream.mock.calls[0]?.[2].messages ?? []) as Array<{ content: unknown }>;
+    expect(String(sentMessages.at(-1)?.content)).toContain(`web search is ${allowWeb ? "on" : "off"}`);
   });
 });
 
@@ -405,15 +410,22 @@ describe("a chat turn with web search on, at the request/response boundary", () 
     expect(turn.status).toBe("completed");
   });
 
-  test("without web search the model is offered no searchWeb tool", async () => {
+  // Phase A (2026-10-19): the tool is offered, and its body searches nothing.
+  test("without web search the searchWeb call searches nothing and says how to turn it on", async () => {
     const f = await setup();
     const sent = await f.send();
     const anthropic: AnthropicBody[] = [];
+    const answers = [
+      () => searchCall("msg_1", "toolu_web_off", "Coriolis meter low flow drift"),
+      () => textAnswer("msg_2", "Web search is off for this message."),
+    ];
     vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       if (request.url !== ANTHROPIC_URL) throw new Error(`Unexpected URL ${request.url}`);
       anthropic.push(JSON.parse(await request.text()) as AnthropicBody);
-      return textAnswer("msg_1", "A Coriolis meter measures mass flow.");
+      const answer = answers[anthropic.length - 1];
+      if (!answer) throw new Error(`Unexpected request ${anthropic.length}`);
+      return answer();
     }));
     await f.t.action(internal.ai.chatAgentV2.streamChatReply, {
       agentThreadId: sent.threadId,
@@ -421,8 +433,14 @@ describe("a chat turn with web search on, at the request/response boundary", () 
       reportId: f.reportId,
       userId: f.userId,
     });
-    expect(anthropic).toHaveLength(1);
-    expect(anthropic[0]!.tools?.map((tool) => tool.name)).not.toContain("searchWeb");
+    expect(anthropic).toHaveLength(2);
+    expect(anthropic[0]!.tools?.map((tool) => tool.name)).toContain("searchWeb");
+    const toolResult = anthropic[1]!.messages
+      .flatMap((message) => (Array.isArray(message.content) ? (message.content as Array<Record<string, unknown>>) : []))
+      .find((block) => block.type === "tool_result" && block.tool_use_id === "toolu_web_off");
+    expect(toolResult?.content).toBe(CHAT_WEB_SEARCH_OFF);
+    // No OpenRouter request and no hourly token spent.
+    expect(await remaining(f.t, "webSearchPerUser", f.userId)).toBe(AI_RATE_LIMITS.webSearchPerUser.rate);
   });
 });
 

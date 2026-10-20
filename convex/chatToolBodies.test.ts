@@ -496,15 +496,19 @@ describe("runProposeBulkEdits", () => {
     findings,
   };
 
-  test("persists the Completion Report and echoes the checklist", async () => {
+  // Phase A (2026-10-19, CAP-13 change): the card shows the checklist, so the
+  // result gives counts and the ids that need the writer, never the checklist.
+  test("persists the Completion Report and leaves the checklist to the card", async () => {
     const f = await setup();
     const reply = await runProposeBulkEdits(f.ctx, input, {
       toolCallId: "call-bulk",
       bannedWordsWaived: false,
     });
-    expect(reply).toContain("Coordinated revision proposed for writer review, not applied.");
-    expect(reply).toContain("r-242-1-1: resolved: Line 242 paragraph 1, edit 1.");
-    expect(reply).toContain("c-242-2-1: blocked:");
+    expect(reply).toBe(
+      "Coordinated revision proposed for writer review, not applied. The card shows the writer its Completion Report checklist with every item's id, status and reason: 1 resolved, 1 blocked (c-242-2-1), 0 conflicting. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision."
+    );
+    expect(reply).not.toContain("Report this Completion Report checklist");
+    expect(reply).not.toContain("r-242-1-1: resolved:");
 
     // Dropping `items:` from the tool leaves zero rows here.
     const state = await itemRows(f);
@@ -573,8 +577,9 @@ describe("runProposeBulkEdits", () => {
     );
     expect(reply).toMatch(/^Nothing to apply/);
     expect(reply).not.toContain("Coordinated revision proposed");
-    expect(reply).toContain("c-242-2-1: blocked:");
-    expect(reply).toContain("x-242-3-1: conflicting:");
+    expect(reply).toContain("0 resolved, 1 blocked (c-242-2-1), 1 conflicting (x-242-3-1)");
+    expect(reply).toContain("Do not repeat the checklist; name the decisions or missing facts the writer needs.");
+    expect(reply).not.toContain("c-242-2-1: blocked:");
 
     const state = await itemRows(f);
     expect(state.proposals).toHaveLength(1);

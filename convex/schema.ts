@@ -16,6 +16,10 @@ import {
   workItemStatusValidator,
 } from "./lib/contracts";
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
+import {
+  chatTurnContinuationValidator,
+  chatTurnProgressValidator,
+} from "./lib/chatTurnState";
 import { styleOverridesValidator } from "./lib/styleOverrides";
 import { writerCoverageValidator } from "./lib/writerCoverage";
 import { brainProvenanceEntryValidator } from "./lib/generationOutputs";
@@ -702,6 +706,11 @@ export default defineSchema({
     // estimated from the characters already received, so the cost is not
     // understated.
     partial: v.optional(v.boolean()),
+    // 2026-10-19 widen (chat parity Phase A): report chat steps record the
+    // effort the step was sent with ("default" when none was set) and the
+    // time from the request to the first output block. Absent elsewhere.
+    effort: v.optional(v.string()),
+    firstTokenMs: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])
@@ -1797,6 +1806,19 @@ export default defineSchema({
     // positions. Proposals from the turn that target it are judged by where
     // it sits: a Section heading or the title is never edited.
     highlight: v.optional(v.object({ text: v.string(), from: v.number(), to: v.number() })),
+    // Phase A of report chat parity (2026-10-19), widen only. What the reply
+    // is doing now, written by the chat action on each phase change while the
+    // turn runs (convex/lib/chatTurnState.ts). Absent on older rows.
+    progress: v.optional(chatTurnProgressValidator),
+    // The structured Continue offer the turn ended with, if any.
+    continuation: v.optional(chatTurnContinuationValidator),
+    // The oldest message `order` the model read for this turn. Absent means
+    // it read the whole thread.
+    historyStartOrder: v.optional(v.number()),
+    // Server only, never sent to the browser: when the turn's searchBrain
+    // tool first ran a search. Reasoning summaries of such a turn are not
+    // shown (convex/lib/chatPublicOutput.ts).
+    brainSearchedAt: v.optional(v.number()),
   })
     .index("by_agentThreadId_and_promptMessageId", [
       "agentThreadId",

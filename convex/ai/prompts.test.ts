@@ -448,9 +448,12 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     expect(BULK_EDIT_SIZE_RULE).toContain("at most about 600 words of new text across its edits");
     expect(BULK_EDIT_SIZE_RULE).toContain("Put every blocked and conflicting item in the first call");
     expect(BULK_EDIT_SIZE_RULE).toContain("Make at most 3 proposeBulkEdits calls in one reply.");
+    // Phase A (2026-10-19): the writer continues from a button, and the
+    // reply does not retype the ids the card already shows.
     expect(BULK_EDIT_SIZE_RULE).toContain(
-      "If items are still left after that, name their ids in your closing text and ask the writer to tell you to continue."
+      "If items are still left after that, say in one sentence how many are left and in which Lines, then stop: the writer gets a Continue button under your reply."
     );
+    expect(BULK_EDIT_SIZE_RULE).not.toContain("name their ids");
     expect(prompt).toContain(`when they fit in one call. ${BULK_EDIT_SIZE_RULE} ${BULK_EDIT_REFINE_RULE}`);
     // PR #24 round 2: a bulk card applies as a whole, so a refinement
     // re-proposes the whole set.
@@ -517,7 +520,33 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
   it("tells the model to reuse the inventory ids verbatim", () => {
     expect(prompt).toContain("Use its ids verbatim as the finding ids");
     expect(prompt).toContain("never renumber them");
-    expect(prompt).toContain("with every item's original ID and its status");
+  });
+
+  // Phase A (2026-10-19, CAP-13 change): the card shows the Completion
+  // Report checklist, so the reply summarizes instead of retyping it.
+  it("leaves the Completion Report checklist to the card", () => {
+    expect(prompt).toContain(
+      "For a bulk revision, the card also shows the writer its Completion Report checklist, every item's original ID with its status and reason, so do not repeat the checklist: say in a sentence or two what the proposal covers and which items need the writer's decision."
+    );
+    expect(prompt).toContain("leave the checklist to the card");
+    expect(prompt).not.toContain("include the Completion Report checklist returned by each proposeBulkEdits call verbatim");
+    expect(prompt).not.toContain("keep the checklist");
+    expect(prompt).not.toContain("ask the writer to say continue");
+    expect(prompt).toContain('which sends "Continue with Line N." for the next Line: read that message as the same request for Line N.');
+  });
+
+  // Phase A (2026-10-19): both outside-source tools are always offered and
+  // enforce the per-message option in their bodies.
+  it("says searchBrain and searchWeb search nothing when their option is off", () => {
+    expect(prompt).toContain(
+      "searchBrain searches only when the writer turned on Brain examples for this message; otherwise it searches nothing and says so."
+    );
+    expect(prompt).toContain(
+      "searchWeb searches only when the writer turned on web search for this message; otherwise it searches nothing and says so."
+    );
+    expect(prompt).toContain('they can turn on "Use Brain examples for this message" in Message options');
+    expect(prompt).not.toContain("searchBrain is available only when");
+    expect(prompt).not.toContain("searchWeb is available only when");
   });
 });
 

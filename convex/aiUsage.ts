@@ -118,6 +118,10 @@ const usageArgs = {
   preparationAttemptId: v.optional(v.string()),
   // 2026-09-27 (second): a call stopped part way; see the schema.
   partial: v.optional(v.boolean()),
+  // 2026-10-19 (chat parity Phase A): a chat step's effort and time to its
+  // first output block; see the schema.
+  effort: v.optional(v.string()),
+  firstTokenMs: v.optional(v.number()),
   createdAt: v.optional(v.number()),
 };
 
@@ -230,6 +234,12 @@ export const logUsage = internalMutation({
       ...(args.briefPreparationId ? { briefPreparationId: args.briefPreparationId } : {}),
       ...(args.preparationAttemptId ? { preparationAttemptId: args.preparationAttemptId } : {}),
       ...(args.partial ? { partial: true } : {}),
+      ...(args.effort ? { effort: args.effort } : {}),
+      ...(args.firstTokenMs !== undefined &&
+      Number.isFinite(args.firstTokenMs) &&
+      args.firstTokenMs >= 0
+        ? { firstTokenMs: args.firstTokenMs }
+        : {}),
       createdAt: args.createdAt ?? Date.now(),
     });
     // Decision 65: the preparation's spend settles from its usage rows, in
