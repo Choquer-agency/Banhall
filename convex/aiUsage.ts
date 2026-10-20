@@ -462,6 +462,8 @@ export const CHAT_TIMING_MAX_ROWS = 2_000;
 const CHAT_TIMING_MAX_THREADS = 200;
 /** Turns read per thread, at most. */
 const CHAT_TIMING_TURNS_PER_THREAD = 200;
+/** Turns read in all, at most, so rows and turns stay well under a query's read limits. */
+export const CHAT_TIMING_MAX_TURNS = 4_000;
 /** A turn may have started this long before the window and still count. */
 const CHAT_TIMING_TURN_LEAD_MS = 15 * 60 * 1000;
 
@@ -517,17 +519,29 @@ export const chatTimingReport = query({
     }
 
     // Steps per turn: each row goes to the newest turn of its thread that
-    // started at or before it. Bounded per thread and in threads.
+    // started at or before it. Bounded per thread, in threads and in turns
+    // read in all, so the query stays within its read limits and says it
+    // was cut instead (review P3-9).
     const stepsPerTurn = new Map<number, number>();
     let turnsCounted = 0;
+    let turnsLeft = CHAT_TIMING_MAX_TURNS;
+    let turnsCut = false;
     const threads = [...byThread.entries()].slice(0, CHAT_TIMING_MAX_THREADS);
     for (const [agentThreadId, times] of threads) {
+      if (turnsLeft <= 0) {
+        turnsCut = true;
+        break;
+      }
+      const allowed = Math.min(CHAT_TIMING_TURNS_PER_THREAD, turnsLeft);
       const turns = await ctx.db
         .query("chatTurns")
         .withIndex("by_agentThreadId_and_startedAt", (q) =>
           q.eq("agentThreadId", agentThreadId).gte("startedAt", since - CHAT_TIMING_TURN_LEAD_MS)
         )
-        .take(CHAT_TIMING_TURNS_PER_THREAD);
+        .take(allowed);
+      turnsLeft -= turns.length;
+      // The total cap, not the thread, ended this read: it may be cut.
+      if (allowed < CHAT_TIMING_TURNS_PER_THREAD && turns.length === allowed) turnsCut = true;
       const starts = turns
         .map((turn) => turn.startedAt)
         .filter((start): start is number => typeof start === "number")
@@ -551,7 +565,7 @@ export const chatTimingReport = query({
       since,
       steps: rows.length,
       /** The window holds more rows or threads than the report reads. */
-      truncated: read.length > CHAT_TIMING_MAX_ROWS || byThread.size > CHAT_TIMING_MAX_THREADS,
+      truncated: read.length > CHAT_TIMING_MAX_ROWS || byThread.size > CHAT_TIMING_MAX_THREADS || turnsCut,
       byEffort: [...byEffort.entries()]
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
         .map(([effort, entry]) => ({

@@ -224,8 +224,11 @@ function nameKey(name: string): string {
 type Resolved<T> = { kind: "one"; entry: T } | { kind: "none" } | { kind: "many"; handles: string[] };
 
 /**
- * A handle (`F3`, `t1`, also at the start of `F3 "notes.txt"`) or an exact
- * name, case-insensitive. A name two entries share asks for the handle.
+ * An exact name first, case-insensitive, so a file named `F2.pdf` or
+ * `F1 budget.xlsx` is that file. Otherwise a handle, only when the input is
+ * wholly a handle (`F3`, `t1`), optionally followed by the quoted name the
+ * lists and receipts write after it (`F3 "notes.txt"`). A name two entries
+ * share asks for the handle.
  */
 function resolveEntry<T extends { handle: string | null }>(
   entries: readonly T[],
@@ -233,17 +236,17 @@ function resolveEntry<T extends { handle: string | null }>(
   given: string,
   nameOf: (entry: T) => string
 ): Resolved<T> {
-  const handle = new RegExp(`^\\s*${prefix}\\s*(\\d+)(?![\\p{L}\\p{N}])`, "iu").exec(given);
-  if (handle) {
-    const wanted = `${prefix}${Number(handle[1])}`;
-    const entry = entries.find((candidate) => candidate.handle === wanted);
-    return entry ? { kind: "one", entry } : { kind: "none" };
-  }
   const key = nameKey(given);
   const matches = entries.filter((entry) => nameKey(nameOf(entry)) === key);
   if (matches.length === 1) return { kind: "one", entry: matches[0]! };
-  if (matches.length === 0) return { kind: "none" };
-  return { kind: "many", handles: matches.map((entry) => entry.handle).filter((h): h is string => h !== null) };
+  if (matches.length > 1) {
+    return { kind: "many", handles: matches.map((entry) => entry.handle).filter((h): h is string => h !== null) };
+  }
+  const handle = new RegExp(`^\\s*${prefix}\\s*(\\d+)(?:\\s+(["'“‘]).*["'”’])?\\s*$`, "iu").exec(given);
+  if (!handle) return { kind: "none" };
+  const wanted = `${prefix}${Number(handle[1])}`;
+  const entry = entries.find((candidate) => candidate.handle === wanted);
+  return entry ? { kind: "one", entry } : { kind: "none" };
 }
 
 function manyText(kind: "file" | "transcript", handles: string[]): string {
@@ -572,7 +575,7 @@ export function makeReadDocumentTool(turn: DocumentReadTurn) {
 
 export function makeSearchDocumentsTool(turn: DocumentReadTurn) {
   return createTool({
-    description: `Search the text of this project's files and transcripts for words, and get up to ${CHAT_SEARCH_MAX_EXCERPTS} short excerpts, each with its place, such as F3 part 2 or T1 turns 40-46. Use it to find where something is mentioned, then open the file or transcript to read more. Accents do not need to match.`,
+    description: `Search the text of this project's files and transcripts for words, and get up to ${CHAT_SEARCH_MAX_EXCERPTS} short excerpts, each with its place, such as F3 part 2 or T1 turns 40-46. Use it to find where something is mentioned, then open the file or transcript to read more. Write words as they appear in the files; in transcripts, accents do not need to match.`,
     inputSchema: z.object({
       query: z
         .string()

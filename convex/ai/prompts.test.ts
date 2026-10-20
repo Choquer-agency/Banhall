@@ -457,8 +457,30 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     expect(prompt).toContain("work one Line per reply whenever the list holds more than 8 Deviations or spans more than one Line");
     expect(prompt).toContain("call deviationInventory with section set to the first Line");
     expect(prompt).toContain("are unverified, not Deviations");
-    expect(CHAT_EVIDENCE_GUIDANCE).toContain("Never say you checked, read or compared a file you cannot see");
-    expect(CHAT_EVIDENCE_GUIDANCE).toContain("Files cannot be attached to a chat message");
+    // Rule 8 as Phase B (2026-10-20) rewrote it, whole sentences only.
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain(
+      "You can see only what is inside these blocks and what you open in this reply."
+    );
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain(
+      "Never say you checked, read or compared a file you cannot see or did not open in this reply,"
+    );
+    expect(CHAT_EVIDENCE_GUIDANCE).not.toContain("Never say you checked, read or compared a file you cannot see, and");
+  });
+
+  // Phase B (2026-10-20) and review R1 P3-3 and its test gap: the reading
+  // guidance, and the analysis bullet that no longer contradicts it.
+  it("lets a client turn opened in this reply back a claim, and says what is not kept", () => {
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain(
+      "Do not exceed it, with one exception: a client's own words in a transcript turn you opened in this reply also back a claim. Where neither supports a claim, write a clearly marked [GAP: what is needed] instead of inventing."
+    );
+    expect(CHAT_EVIDENCE_GUIDANCE).not.toContain("Do not exceed it. Where it does not support a claim");
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain("Only the client's words back a claim about the company's work.");
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain(
+      "It stays with you for this reply only: text opened in an earlier reply is not kept, so open it again when you need it."
+    );
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain("Images, scans and other files with no text cannot be opened yet.");
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain("Quote sparingly: a short phrase that settles a point, never long passages.");
+    expect(findDashConnectors(CHAT_EVIDENCE_GUIDANCE)).toEqual([]);
   });
 
   // 2026-10-01 (first) and its review P2-2: a large revision is split into

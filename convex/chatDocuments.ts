@@ -15,7 +15,7 @@ import { getConvexSize, v, type Value } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { chatDocumentToolsEnabled } from "./appSettings";
-import { listActiveTranscriptRows, projectTranscriptsFrom, transcriptLabel } from "./lib/transcripts";
+import { MAX_ACTIVE_TRANSCRIPT_ROWS_READ, projectTranscriptsFrom, transcriptLabel } from "./lib/transcripts";
 import { evidenceRole, listSpeakerRows } from "./lib/transcriptStructure";
 import { formatTimestamp } from "../shared/transcriptParse";
 import { STOP_WORDS, chunkScore } from "./ai/research/core";
@@ -61,11 +61,39 @@ const ROW_OVERHEAD = 256;
  */
 export interface ChatReadBudget {
   read<T>(fn: () => Promise<T>, extraBytes?: number): Promise<{ ok: true; value: T } | { ok: false }>;
+  /** Walk an index range one row at a time, reserving before each row. */
+  list<T extends Value>(source: AsyncIterable<T>, cap: number): Promise<{ rows: T[]; complete: boolean }>;
 }
 
-function documentReadBudget() {
+/**
+ * The project's transcripts (`projectTranscriptsFrom`) out of its active
+ * rows, read one row at a time within `budget`: a transcript row can be
+ * close to 1 MiB, so each row is reserved on its own. `complete` is false
+ * when the budget ran out before the rows did; reaching the
+ * `MAX_ACTIVE_TRANSCRIPT_ROWS_READ` cap is not a cut, as in
+ * `listActiveTranscriptRows`.
+ */
+export async function activeTranscriptsWithin(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  budget: Pick<ChatReadBudget, "list">
+): Promise<{ rows: Doc<"transcripts">[]; complete: boolean }> {
+  const read = await budget.list(
+    ctx.db
+      .query("transcripts")
+      .withIndex("by_projectId_and_archivedAt", (q) => q.eq("projectId", projectId).eq("archivedAt", undefined)),
+    MAX_ACTIVE_TRANSCRIPT_ROWS_READ
+  );
+  return {
+    rows: projectTranscriptsFrom(read.rows),
+    complete: read.complete || read.rows.length >= MAX_ACTIVE_TRANSCRIPT_ROWS_READ,
+  };
+}
+
+/** `limitBytes` is the transaction's share; tests pass a small one. */
+export function documentReadBudget(limitBytes = CHAT_DOCUMENT_READ_BYTES) {
   let used = 0;
-  const reserve = () => used + ROW_HEADROOM <= CHAT_DOCUMENT_READ_BYTES;
+  const reserve = () => used + ROW_HEADROOM <= limitBytes;
   const account = (value: unknown) => {
     used += getConvexSize(value as Value) + ROW_OVERHEAD;
   };
@@ -191,9 +219,8 @@ export async function chatTranscriptSummaries(
   projectId: Id<"projects">,
   budget: ChatReadBudget
 ): Promise<{ transcripts: ChatEvidenceTranscript[]; complete: boolean }> {
-  const read = await budget.read(() => listActiveTranscriptRows(ctx, projectId));
-  if (!read.ok) return { transcripts: [], complete: false };
-  const rows = projectTranscriptsFrom(read.value);
+  const { rows, complete } = await activeTranscriptsWithin(ctx, projectId, budget);
+  if (!complete) return { transcripts: [], complete: false };
   const transcripts: ChatEvidenceTranscript[] = [];
   for (const row of rows) {
     const speakers = await budget.read(() => listSpeakerRows(ctx, row._id));
@@ -402,9 +429,13 @@ const EXTRA_STOP_WORDS: ReadonlySet<string> = new Set([
 /**
  * Query terms for the chat's search. Unlike Contextual Research's
  * `queryTerms` (ASCII only, which drops accented letters), any letter or
- * digit counts, so "étalonnage" and "contrôle" are terms; matching is done
- * on accent-folded text, so "etalonnage" finds "étalonnage" too. `index` is
- * what the full text index is asked: each term as written and folded.
+ * digit counts, so "étalonnage" and "contrôle" are terms. Transcripts are
+ * matched on accent-folded text, so "etalonnage" finds "étalonnage" there.
+ * Files are first picked by the full text index, which does not fold
+ * accents: `index` asks it for each term as written and folded, so a file
+ * is found when its words are written as the query writes them (another
+ * term of the query can also bring it in, and its excerpts are then ranked
+ * on folded text).
  */
 export function chatSearchTerms(query: string): { terms: string[]; index: string } {
   const words = query.normalize("NFC").toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}-]*/gu) ?? [];
@@ -591,9 +622,9 @@ export const searchForChat = internalQuery({
 
     // Active transcripts, in memory: by groups of whole turns where the
     // turn build stored them, by characters otherwise.
-    const rows = await budget.read(() => listActiveTranscriptRows(ctx, scope.projectId));
-    if (!rows.ok) complete = false;
-    for (const transcript of rows.ok ? projectTranscriptsFrom(rows.value) : []) {
+    const active = await activeTranscriptsWithin(ctx, scope.projectId, budget);
+    if (!active.complete) complete = false;
+    for (const transcript of active.rows) {
       const label = transcriptLabel(transcript);
       const turns = await budget.list(
         ctx.db

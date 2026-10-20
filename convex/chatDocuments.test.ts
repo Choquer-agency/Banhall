@@ -6,9 +6,11 @@ import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import {
   CHAT_READ_PART_CHARS,
+  activeTranscriptsWithin,
   chatSearchTerms,
   chatTranscriptSummaries,
   chunkSpans,
+  documentReadBudget,
   safeRange,
   transcriptTurnLine,
   type ReadDocumentResult,
@@ -209,11 +211,7 @@ describe("searchForChat", () => {
 describe("chatTranscriptSummaries", () => {
   test("lists active transcripts in order with turns, size and evidence roles", async () => {
     const f = await setup();
-    const result = await f.t.run(async (ctx) =>
-      chatTranscriptSummaries(ctx, f.projectId, {
-        read: async (fn) => ({ ok: true as const, value: await fn() }),
-      })
-    );
+    const result = await f.t.run(async (ctx) => chatTranscriptSummaries(ctx, f.projectId, documentReadBudget()));
     expect(result).toEqual({
       complete: true,
       transcripts: [
@@ -225,9 +223,36 @@ describe("chatTranscriptSummaries", () => {
       ],
     });
     const refused = await f.t.run(async (ctx) =>
-      chatTranscriptSummaries(ctx, f.projectId, { read: async () => ({ ok: false as const }) })
+      chatTranscriptSummaries(ctx, f.projectId, {
+        read: async () => ({ ok: false as const }),
+        list: async () => ({ rows: [], complete: false }),
+      })
     );
     expect(refused).toEqual({ transcripts: [], complete: false });
+  });
+
+  // Review P3-6: rows near 1 MiB each are reserved one at a time, so a
+  // budget that runs out mid-list reports the list incomplete instead of
+  // reading past the transaction's limit.
+  test("reads transcript rows one at a time and says incomplete when the budget runs out", async () => {
+    const f = await setup();
+    await f.t.run(async (ctx) => {
+      for (let i = 0; i < 3; i += 1) {
+        await ctx.db.insert("transcripts", {
+          projectId: f.projectId, label: `Long ${i}`, content: `${i}`.repeat(600_000), position: 10 + i, createdAt: Date.now(),
+        });
+      }
+    });
+    const small = await f.t.run(async (ctx) =>
+      chatTranscriptSummaries(ctx, f.projectId, documentReadBudget(2 * 1024 * 1024))
+    );
+    expect(small).toEqual({ transcripts: [], complete: false });
+    const rows = await f.t.run(async (ctx) => activeTranscriptsWithin(ctx, f.projectId, documentReadBudget(2 * 1024 * 1024)));
+    expect(rows.complete).toBe(false);
+    expect(rows.rows.map((row) => row.label)).toEqual(["Kickoff", "Notes call", "Long 0", "Long 1"]);
+    const full = await f.t.run(async (ctx) => chatTranscriptSummaries(ctx, f.projectId, documentReadBudget()));
+    expect(full.complete).toBe(true);
+    expect(full.transcripts.map((transcript) => transcript.label)).toEqual(["Kickoff", "Notes call", "Long 0", "Long 1", "Long 2"]);
   });
 });
 

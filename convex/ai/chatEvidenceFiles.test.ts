@@ -212,9 +212,14 @@ describe("FILES IN THIS PROJECT", () => {
     expect(CHAT_EVIDENCE_GUIDANCE).toContain(
       `up to ${MAX_INSTRUCTIONS_CHARS.toLocaleString("en-US")} characters`
     );
-    // 2026-10-19 (first) Rule 8 sentences are kept.
-    expect(CHAT_EVIDENCE_GUIDANCE).toContain("Never say you checked, read or compared a file you cannot see");
-    expect(CHAT_EVIDENCE_GUIDANCE).toContain("Files cannot be attached to a chat message");
+    // 2026-10-19 (first) Rule 8, as Phase B (2026-10-20) rewrote it: whole
+    // sentences, so no test passes on a fragment of the old wording.
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain(
+      "Never say you checked, read or compared a file you cannot see or did not open in this reply, and never claim to have used \"all the evidence\" when you have not opened everything the question needs."
+    );
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain(
+      "Files cannot be attached to a chat message; the assistant reads the text documents saved in the project's files panel and the project's transcripts."
+    );
     expect(findDashConnectors(CHAT_EVIDENCE_GUIDANCE)).toEqual([]);
     expect(CHAT_EVIDENCE_GUIDANCE).not.toMatch(/[\u2013\u2014]/);
   });

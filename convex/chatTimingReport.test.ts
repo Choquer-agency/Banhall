@@ -3,7 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
-import { percentiles } from "./aiUsage";
+import { CHAT_TIMING_MAX_TURNS, percentiles } from "./aiUsage";
 
 /**
  * Chat parity Phase B (2026-10-20): the admin chat timing report. Numbers
@@ -69,6 +69,31 @@ describe("chatTimingReport", () => {
       ],
       turnsCounted: 3,
     });
+  });
+
+  // Review P3-9: one total cap on the turns read keeps the query within its
+  // read limits; past it the report says it was cut instead of throwing.
+  test("stops reading turns at the total cap and says the report is truncated", async () => {
+    const { t, since } = await setup();
+    const threads = Math.ceil(CHAT_TIMING_MAX_TURNS / 200) + 1;
+    await t.run(async (ctx) => {
+      for (let thread = 0; thread < threads; thread += 1) {
+        const agentThreadId = `busy-${thread}`;
+        for (let order = 0; order < 200; order += 1) {
+          await ctx.db.insert("chatTurns", {
+            agentThreadId, promptMessageId: `p-${thread}-${order}`, order, status: "completed",
+            startedAt: since + order, stepCount: 1,
+          } as never);
+        }
+        await ctx.db.insert("aiUsage", {
+          agentThreadId, callSite: "chat_v2", model: "claude-sonnet-5", inputTokens: 1, outputTokens: 1,
+          costUsd: 0, effort: "default", durationMs: 10, createdAt: since + 500,
+        });
+      }
+    });
+    const report = await t.withIdentity({ subject: "auth-admin" }).query(api.aiUsage.chatTimingReport, { sinceMs: since });
+    expect(report.truncated).toBe(true);
+    expect(report.steps).toBe(5 + threads);
   });
 
   test("is for admins only", async () => {

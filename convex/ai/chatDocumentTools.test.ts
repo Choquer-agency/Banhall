@@ -140,6 +140,48 @@ describe("readDocument", () => {
     expect(calls).toHaveLength(2);
   });
 
+  // Review P3-4: a file whose name starts like a handle is that file, and a
+  // handle counts only when it is the whole input (or the receipt form).
+  it("prefers an exact name over a handle-like prefix, for files and transcripts", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const turn = newDocumentReadTurn({
+      documents: [
+        doc("notes.txt", "A."),
+        doc("F2.pdf", "B."),
+        doc("F1 budget.xlsx", "C."),
+        doc("F3", "D."),
+      ],
+      transcripts: [
+        { transcriptId: id<"transcripts">("tr-1"), label: "Kickoff", turnCount: 1, chars: 10, speakers: [] },
+        { transcriptId: id<"transcripts">("tr-2"), label: "T1 follow-up", turnCount: 1, chars: 10, speakers: [] },
+      ],
+    });
+    // List order: F1 notes.txt, F2 F2.pdf, F3 F1 budget.xlsx, F4 F3.
+    expect(turn.files.map((file) => `${file.handle} ${file.fileName}`)).toEqual([
+      "F1 notes.txt", "F2 F2.pdf", "F3 F1 budget.xlsx", "F4 F3",
+    ]);
+    const { ctx, calls } = ctxAnswering(okRead);
+    for (const file of ["F2.pdf", "f1 budget.xlsx", "F3", 'F2 "F2.pdf"', "F1", "  f 1  "]) {
+      await runReadDocument(ctx, { file }, { toolCallId: file }, turn);
+    }
+    expect(calls.map((call) => call.documentId)).toEqual([
+      "doc-F2.pdf", "doc-F1 budget.xlsx", "doc-F3", "doc-F2.pdf", "doc-notes.txt", "doc-notes.txt",
+    ]);
+    // A handle-like prefix of no file is not a handle.
+    expect(await runReadDocument(ctx, { file: "F1 report.docx" }, { toolCallId: "x" }, turn)).toBe(CHAT_READ_NO_FILE);
+    expect(calls).toHaveLength(6);
+
+    turn.used = 0;
+    const reads = ctxAnswering(() => ({ status: "past_end", label: "x", totalTurns: 1, totalChars: 10 }));
+    for (const transcript of ["T1 follow-up", "T1", 'T2 "T1 follow-up"']) {
+      await runReadTranscript(reads.ctx, { transcript }, { toolCallId: transcript }, turn);
+    }
+    expect(reads.calls.map((call) => call.transcriptId)).toEqual(["tr-2", "tr-1", "tr-2"]);
+    expect(await runReadTranscript(reads.ctx, { transcript: "T1 notes" }, { toolCallId: "y" }, turn)).toBe(
+      CHAT_READ_NO_TRANSCRIPT
+    );
+  });
+
   it("refuses a file with no text without reading it", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const turn = turnWith([doc("scan.pdf", "", { fileType: "pdf", processingStatus: "could_not_read" })]);
@@ -217,6 +259,18 @@ describe("withOpenedText", () => {
     const untouched = messages("Other.");
     untouched[2] = { role: "tool", content: [{ type: "tool-result", toolCallId: "call-2", toolName: "readDocument", output: { type: "text", value: "Other." } }] };
     expect(withOpenedText(untouched, turn, [{}])).toBe(untouched);
+  });
+
+  // Review test gap: a new pass that reuses a tool call id must not get the
+  // earlier pass's text. Fails without the clear on the pass's first step.
+  it("does not put an earlier pass's text into a later pass that reuses the call id", () => {
+    const turn = turnWith();
+    turn.opened.set("call-1", "Receipt.\n\nFIRST_PASS_TEXT");
+    withOpenedText([{ role: "user", content: "Question." }], turn, []);
+    const laterStep = messages("Receipt.");
+    const next = withOpenedText(laterStep, turn, [{}]);
+    expect(next).toBe(laterStep);
+    expect(JSON.stringify(next)).not.toContain("FIRST_PASS_TEXT");
   });
 
   it("starts each pass clean", () => {
