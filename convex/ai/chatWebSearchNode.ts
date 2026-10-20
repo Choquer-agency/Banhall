@@ -19,6 +19,7 @@ import {
   CHAT_WEB_SEARCH_TIMEOUT_MS,
   MAX_WEB_SEARCH_SOURCES,
   buildChatWebSearchRequest,
+  cleanWebSource,
 } from "./chatWebSearch";
 
 export const searchWebForChat = internalAction({
@@ -31,7 +32,9 @@ export const searchWebForChat = internalAction({
   },
   returns: v.object({
     answer: v.string(),
-    sources: v.array(v.object({ url: v.string(), title: v.string() })),
+    // Phase B: only http and https links, credentials removed, a plain
+    // title and the link's host (`cleanWebSource`).
+    sources: v.array(v.object({ url: v.string(), title: v.string(), domain: v.string() })),
   }),
   handler: async (ctx, args) => {
     const query = args.query.trim();
@@ -55,8 +58,8 @@ export const searchWebForChat = internalAction({
     return {
       answer: parsed.text,
       sources: parsed.citations
-        .slice(0, MAX_WEB_SEARCH_SOURCES)
-        .map((citation) => ({ url: citation.url, title: citation.title })),
+        .flatMap((citation) => cleanWebSource({ url: citation.url, title: citation.title }) ?? [])
+        .slice(0, MAX_WEB_SEARCH_SOURCES),
     };
   },
 });

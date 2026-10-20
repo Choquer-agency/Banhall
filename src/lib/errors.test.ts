@@ -49,6 +49,11 @@ describe("isHandledRefusalLog", () => {
     expect(isHandledRefusalLog(convexLog("chatV2:abortStreaming", { code: "NOT_AUTHORIZED", message: "x" }))).toBe(true);
     expect(isHandledRefusalLog(convexLog("chatV2:abortStreaming", null))).toBe(false);
     expect(isHandledRefusalLog(convexLog("chatV2:applyProposal", { code: "NOT_AUTHORIZED", message: "x" }))).toBe(false);
+    // Phase B: Undo explains its refusals on the card; the web switch says so in the panel.
+    expect(isHandledRefusalLog(convexLog("chatV2:undoProposal", { code: "PROPOSAL_UNDO_CONFLICT", message: "x" }))).toBe(true);
+    expect(isHandledRefusalLog(convexLog("chatV2:undoProposal", { code: "NOT_AUTHORIZED", message: "x" }))).toBe(true);
+    expect(isHandledRefusalLog(convexLog("chatV2:setThreadWebSearch", { code: "NOT_FOUND", message: "x" }))).toBe(true);
+    expect(isHandledRefusalLog(convexLog("chatV2:undoProposal", null))).toBe(false);
     // NOT_FOUND itself stays a crash signal.
     expect(isHandledRefusalLog(convexLog("intakeDrafts:saveIntakeSource", { code: "NOT_FOUND", message: "x" }))).toBe(false);
   });

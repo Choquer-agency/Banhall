@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { ConvexError } from "convex/values";
-import { chatSendErrorMessage, chatStopErrorMessage, SEND_FAILED_FALLBACK } from "./chatRefusals";
+import {
+  chatSendErrorMessage,
+  chatStopErrorMessage,
+  PROPOSAL_UNDO_CONFLICT_TEXT,
+  proposalUndoErrorMessage,
+  SEND_FAILED_FALLBACK,
+} from "./chatRefusals";
 
 /** The error the Convex client throws for a refused mutation: prefixed text plus data. */
 function clientError(data: Record<string, string | number>) {
@@ -57,6 +63,21 @@ describe("chatSendErrorMessage", () => {
     expect(chatSendErrorMessage(raw)).toBe(SEND_FAILED_FALLBACK);
     expect(chatSendErrorMessage(new Error(" \n\t "))).toBe(SEND_FAILED_FALLBACK);
     expect(chatSendErrorMessage(new Error("Connection unavailable"))).toBe("Connection unavailable");
+  });
+});
+
+describe("proposalUndoErrorMessage", () => {
+  it("gives the fixed conflict words and plain words for any other failure", () => {
+    expect(proposalUndoErrorMessage(clientError({ code: "PROPOSAL_UNDO_CONFLICT", message: "anything" }))).toBe(
+      PROPOSAL_UNDO_CONFLICT_TEXT
+    );
+    expect(PROPOSAL_UNDO_CONFLICT_TEXT).toBe(
+      "This passage changed after it was applied, so it can't be undone here. Use Version history to go back."
+    );
+    expect(proposalUndoErrorMessage(clientError({ code: "NOT_AUTHORIZED", message: "Only the project owner can edit this report" })))
+      .toBe("Only the project owner can edit this report");
+    expect(proposalUndoErrorMessage(new Error("[CONVEX M(chatV2:undoProposal)] [Request ID: 1] Server Error")))
+      .toBe("This suggestion could not be undone. Try again.");
   });
 });
 

@@ -18,6 +18,7 @@
     type TurnTiming,
   } from "$lib/chat/turnParts";
   import { turnPhaseFields } from "$lib/chat/turnContracts";
+  import { webSearchesByOrder } from "$lib/chat/webSources";
   import { chatSendErrorMessage, chatStopErrorMessage } from "$lib/chat/chatRefusals";
   import { NEW_CONVERSATION, clearDraft, draftKey, readDraft, readLastThread, writeDraft, writeLastThread } from "$lib/chat/chatDrafts";
   import { OFFLINE_MESSAGE, useChatConnection } from "$lib/chat/connectionState.svelte";
@@ -195,6 +196,7 @@
 
   function startNewThread() {
     startingNewChat = true;
+    draftWebSearch = true;
     draftConversationId = createRequestId();
     selectedThreadId = null;
     refiningProposal = null;
@@ -315,9 +317,46 @@
   const connection = useChatConnection();
   let allowBrain = $state(false);
   $effect(() => { conversationScope; allowBrain = false; });
-  // 2026-10-19: per-message web search (terms and CRA only), like Brain.
-  let allowWeb = $state(false);
-  $effect(() => { conversationScope; allowWeb = false; });
+  // Phase B (W3): web search (terms and CRA only) is a setting of the
+  // conversation, on unless turned off, and stays as set across sends. An
+  // unsaved new conversation keeps it here until its first send writes it.
+  // A switch on a saved conversation shows at once and is cleared when the
+  // conversation list carries the new value.
+  const setThreadWebSearch = useMutation(api.chatV2.setThreadWebSearch);
+  let draftWebSearch = $state(true);
+  const webSearchPending = new SvelteMap<string, boolean>();
+  let webSearchError = $state<string | null>(null);
+  const selectedThreadWebSearch = $derived(
+    threadsQ.data?.find((thread) => thread.agentThreadId === selectedThreadId)?.webSearch
+  );
+  const webSearchOn = $derived(
+    selectedThreadId
+      ? (webSearchPending.get(selectedThreadId) ?? selectedThreadWebSearch ?? true)
+      : draftWebSearch
+  );
+  $effect(() => {
+    for (const thread of threadsQ.data ?? []) {
+      if (untrack(() => webSearchPending.get(thread.agentThreadId)) === thread.webSearch) {
+        webSearchPending.delete(thread.agentThreadId);
+      }
+    }
+  });
+  $effect(() => { conversationScope; webSearchError = null; });
+  async function setWebSearch(on: boolean) {
+    webSearchError = null;
+    const threadId = selectedThreadId;
+    if (!threadId) {
+      draftWebSearch = on;
+      return;
+    }
+    webSearchPending.set(threadId, on);
+    try {
+      await setThreadWebSearch({ threadId, enabled: on });
+    } catch (e) {
+      webSearchPending.delete(threadId);
+      webSearchError = userErrorMessage(e, "Web search could not be changed. Try again.");
+    }
+  }
   let sending = $state(false);
   let researchStarting = $state(false);
   let researchError = $state<string | null>(null);
@@ -509,6 +548,13 @@
     }
     return map;
   });
+
+  // Phase B (W3): each reply's web searches (query as sent, numbered
+  // sources), joined to the reply through its turn's prompt.
+  const webSourcesQ = useQuery(api.chatV2.listTurnWebSources, () =>
+    selectedThreadId ? { threadId: selectedThreadId } : "skip"
+  );
+  const webSearchesByTurn = $derived(webSearchesByOrder(webSourcesQ.data ?? [], turnsQ.data ?? []));
 
   const turnPrompts = $derived(associateTurnPrompts(messages));
   // The last assistant row of each turn carries the turn's Continue offer.
@@ -835,7 +881,11 @@
       reportId,
       content: trimmed,
       ...(!historical && allowBrain ? { allowBrain: true } : {}),
-      ...(!historical && allowWeb ? { allowWeb: true } : {}),
+      // Phase B: a saved conversation's web setting is already stored (the
+      // switch saves it, and this client's mutations run in order), so a send
+      // names it only to seed a new conversation that starts with it off.
+      // Regenerate and Continue never do; they use the stored setting.
+      ...(!historical && !selectedThreadId && !webSearchOn ? { allowWeb: false } : {}),
       ...(intent.kind !== "composer" ? { threadId: intent.threadId } : {
         ...(selectedThreadId ? { threadId: selectedThreadId } : {}),
         ...(pendingHighlight ? { highlight: { ...pendingHighlight } } : {}),
@@ -860,7 +910,6 @@
       input = "";
       refiningProposal = null;
       allowBrain = false;
-      allowWeb = false;
       onClearHighlight?.();
     }
     dismissHint();
@@ -892,6 +941,11 @@
         ...candidate, scope: `thread:${res.threadId}`,
         state: { kind: "published", threadId: res.threadId, messageId: res.messageId },
       } : candidate);
+      // Phase B: a new conversation keeps the web setting it was sent with
+      // until the conversation list carries it.
+      if (request.intent.kind === "composer" && request.args.allowWeb !== undefined && request.args.threadId === undefined) {
+        webSearchPending.set(res.threadId, request.args.allowWeb);
+      }
       if (isOriginVisible && request.intent.kind === "composer") {
         // The new conversation got its thread: whatever the writer typed
         // since the send stays in the composer.
@@ -1118,6 +1172,10 @@
     <p class="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600" role="alert" data-stop-error>{stopError}</p>
   {/if}
 
+  {#if webSearchError}
+    <p class="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600" role="alert" data-web-search-error>{webSearchError}</p>
+  {/if}
+
   {#if highlightTooLong && pendingHighlight}
     <p class="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600" role="alert" data-highlight-too-long>
       The selected text is {pendingHighlight.text.length.toLocaleString("en-US")} characters. Select up to {MAX_CHAT_HIGHLIGHT_CHARS.toLocaleString("en-US")} characters to send it.
@@ -1262,20 +1320,21 @@
                   Use Brain examples for this message
                 {/snippet}
               </DropdownMenu.CheckboxItem>
+              <!-- Phase B: a setting of the conversation, shown as a switch. -->
               <DropdownMenu.CheckboxItem
-                bind:checked={allowWeb}
-                disabled={sending || isStreaming}
+                checked={webSearchOn}
+                onCheckedChange={(on) => void setWebSearch(on)}
+                disabled={sending}
                 closeOnSelect={false}
-                title="Allow a web search for what a term or method means, or for CRA guidance. Names are removed before anything is searched."
+                title="Allow web searches for what a term or method means, or for CRA guidance. Names are removed before anything is searched."
                 class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50"
+                data-web-switch
               >
                 {#snippet children({ checked })}
-                  <span class={`flex size-4 shrink-0 items-center justify-center rounded border ${checked ? "border-primary-selected bg-primary-selected text-white" : "border-line"}`} aria-hidden="true">
-                    {#if checked}
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7" /></svg>
-                    {/if}
+                  <span class={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors motion-reduce:transition-none ${checked ? "bg-primary-selected" : "bg-gray-300"}`} aria-hidden="true">
+                    <span class={`inline-block size-3 rounded-full bg-white transition-transform motion-reduce:transition-none ${checked ? "translate-x-3.5" : "translate-x-0.5"}`}></span>
                   </span>
-                  Search the web for this message
+                  Search the web in this conversation
                 {/snippet}
               </DropdownMenu.CheckboxItem>
             </DropdownMenu.Content>
@@ -1297,15 +1356,15 @@
           </button>
         </span>
       {/if}
-      {#if allowWeb && !pendingResearch}
-        <!-- The per-message web search choice stays visible while it is on. -->
+      {#if webSearchOn && !pendingResearch}
+        <!-- Phase B: the conversation's web search stays visible while it is on. -->
         <span data-web-chip class="inline-flex h-[1.375rem] min-w-0 items-center gap-1 rounded-full bg-primary-wash pr-1 pl-2 text-[0.6875rem] text-primary-selected">
-          <span class="truncate">Web search</span>
+          <span class="truncate">Web search on</span>
           <button
             type="button"
-            onclick={() => (allowWeb = false)}
-            disabled={sending || isStreaming}
-            aria-label="Stop searching the web for this message"
+            onclick={() => void setWebSearch(false)}
+            disabled={sending}
+            aria-label="Turn off web search in this conversation"
             class="flex size-4 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100"
           >
             <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
@@ -1592,6 +1651,8 @@
             proposals={grouped.byMessageId.get(m.id) ?? []}
             timing={timingByOrder.get(m.order)}
             paused={connection.offline}
+            webSearches={webSearchesByTurn.get(m.order)}
+            showSources={finalAssistantIds.has(m.id)}
             continuation={finalAssistantIds.has(m.id) ? continueOffer(m.order, timingByOrder.get(m.order)) : undefined}
             copied={copiedId === m.id}
             copyFailed={copyFailedId === m.id}

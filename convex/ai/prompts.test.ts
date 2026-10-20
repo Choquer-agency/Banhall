@@ -579,7 +579,7 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
       "searchBrain searches only when the writer turned on Brain examples for this message; otherwise it searches nothing and says so."
     );
     expect(prompt).toContain(
-      "searchWeb searches only when the writer turned on web search for this message; otherwise it searches nothing and says so."
+      "searchWeb searches only when web search is on in this conversation; otherwise it searches nothing and says so."
     );
     expect(prompt).toContain('they can turn on "Use Brain examples for this message" in Message options');
     expect(prompt).not.toContain("searchBrain is available only when");

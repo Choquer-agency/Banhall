@@ -13,7 +13,9 @@
   import { useProposalSection } from "$lib/chat/proposalSection";
   import ProposedEditCard from "./ProposedEditCard.svelte";
 
-  type Proposal = Doc<"chatProposals">;
+  // Phase B: `chatV2.listProposals` adds `undoable` (and never sends the
+  // recorded change itself); other feeds do not, and offer no Undo.
+  type Proposal = Doc<"chatProposals"> & { undoable?: boolean };
 
   interface Props {
     proposal: Proposal;
@@ -43,6 +45,7 @@
 
   const applyProposal = useMutation(api.chatV2.applyProposal);
   const rejectProposal = useMutation(api.chatV2.rejectProposal);
+  const undoProposal = useMutation(api.chatV2.undoProposal);
   const updateProposalWording = useMutation(api.chatV2.updateProposalWording);
   const pairs = $derived(proposalPairs(proposal));
   const references = $derived(proposalReferences(proposal));
@@ -88,6 +91,13 @@
   onReject={async () => {
     await rejectProposal({ proposalId: proposal._id });
   }}
+  onUndo={proposal.state === "applied" && proposal.undoable === true
+    ? async () => {
+        // Like Apply: the editor's unsaved text is saved first.
+        await onBeforeApply?.();
+        await undoProposal({ proposalId: proposal._id });
+      }
+    : undefined}
   onEditWording={async (wording) => {
     if (proposal.kind === "edit") {
       await updateProposalWording({

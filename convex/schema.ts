@@ -1785,6 +1785,10 @@ export default defineSchema({
     // Phase B (2026-10-20), widen only: who started the conversation, set
     // when the row is created. Older rows fall back to the first turn's sender.
     createdBy: v.optional(v.id("users")),
+    // Chat parity Phase B (W3): the conversation's web search setting.
+    // Absent means on; `chatV2.setThreadWebSearch` and a send's `allowWeb`
+    // write it.
+    webSearch: v.optional(v.boolean()),
   })
     .index("by_reportId", ["reportId"])
     .index("by_agentThreadId", ["agentThreadId"])
@@ -1913,6 +1917,21 @@ export default defineSchema({
       v.literal("stale")
     ),
     createdAt: v.number(),
+    // Chat parity Phase B (W3): what an apply changed, so a human can undo it
+    // (`chatV2.undoProposal`). Runs of top-level Tiptap blocks as JSON
+    // strings, before and after the apply. Absent on cards applied before
+    // this field existed and on changes too large to keep; such cards offer
+    // no Undo. Cleared by Undo. Never sent to the browser.
+    appliedChange: v.optional(
+      v.object({
+        revisionNumber: v.number(),
+        appliedAt: v.number(),
+        appliedBy: v.id("users"),
+        hunks: v.array(v.object({ before: v.string(), after: v.string() })),
+      })
+    ),
+    undoneAt: v.optional(v.number()),
+    undoneBy: v.optional(v.id("users")),
   })
     .index("by_agentThreadId", ["agentThreadId"])
     // Exact per-turn proposal reads for chatV2.listProposals, which joins
@@ -1980,6 +1999,27 @@ export default defineSchema({
     .index("by_proposalId", ["proposalId"])
     // Enumerating a project's items without a table scan: the AD-19 cascade
     // when it lands, and any later reader of the Completion Report.
+    .index("by_projectId", ["projectId"]),
+
+  // Chat parity Phase B (W3): one row per web search the report chat actually
+  // sent (a search refused for names, turned off or over its limit writes
+  // nothing). Holds the query as sent, after names were removed, and the
+  // numbered sources the reply may cite. The answer text is never stored.
+  chatWebSearches: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    // The tool call that ran it, so the trace can name its query.
+    toolCallId: v.optional(v.string()),
+    query: v.string(),
+    status: v.union(v.literal("ok"), v.literal("failed")),
+    sources: v.array(
+      v.object({ n: v.number(), url: v.string(), title: v.string(), domain: v.string() })
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_agentThreadId_and_promptMessageId", ["agentThreadId", "promptMessageId"])
     .index("by_projectId", ["projectId"]),
 
   chatMessages: defineTable({
@@ -2347,6 +2387,9 @@ export default defineSchema({
     content: v.string(),
     reason: v.union(
       v.literal("pre_chat_edit"),
+      // Chat parity Phase B (W3): taken in the same transaction as
+      // chatV2.undoProposal, before an applied card is undone.
+      v.literal("pre_chat_undo"),
       // Sprint 1 story 4 (CAP-4a): taken in the same transaction as
       // comments.acceptEdit, so accepting a client's suggested edit is
       // restorable to the exact pre-accept text.

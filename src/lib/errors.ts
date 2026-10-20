@@ -63,6 +63,9 @@ export const HANDLED_REFUSAL_CODES: ReadonlySet<string> = new Set([
   "CHAT_SPEND_BUDGET_EXCEEDED",
   "CHAT_QUEUE_LIMIT_EXCEEDED",
   "CHAT_MESSAGE_TOO_LONG",
+  // Chat parity Phase B: an Undo whose passage changed after the apply. The
+  // card says so in its own error slot and points to Version history.
+  "PROPOSAL_UNDO_CONFLICT",
 ]);
 
 /**
@@ -89,6 +92,10 @@ export function isHandledRefusalLog(line: string): boolean {
  */
 export const HANDLED_REFUSAL_FUNCTIONS: ReadonlySet<string> = new Set([
   "chatV2:abortStreaming",
+  // Chat parity Phase B: Undo on a card and the web search switch say what
+  // went wrong where it happened.
+  "chatV2:undoProposal",
+  "chatV2:setThreadWebSearch",
 ]);
 
 /** The `reason` detail a domain error carries (for example "DRAFT_COMPLETE"), if any. */

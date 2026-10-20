@@ -8,6 +8,7 @@ import schema from "./schema";
 import { reportChatAgent } from "./ai/chatAgentV2";
 import {
   CHAT_WEB_SEARCH_CALL_SITE,
+  CHAT_WEB_SEARCH_CITE,
   CHAT_WEB_SEARCH_FAILED,
   CHAT_WEB_SEARCH_LIMIT,
   CHAT_WEB_SEARCH_MAX_RESULTS,
@@ -141,9 +142,17 @@ async function setup() {
       newThread: true,
       ...(allowWeb === undefined ? {} : { allowWeb }),
     });
-  const search = (threadId: string, query: string, turn: WebSearchTurn) =>
-    t.action((ctx) => runSearchWeb({ ...ctx, threadId }, { query }, turn));
-  return { t, actor, ...ids, send, search };
+  const search = (threadId: string, query: string, turn: WebSearchTurn, promptMessageId?: string, toolCallId?: string) =>
+    t.action((ctx) =>
+      runSearchWeb(
+        { ...ctx, threadId, ...(promptMessageId ? { promptMessageId } : {}) },
+        { query },
+        turn,
+        toolCallId ? { toolCallId } : {}
+      )
+    );
+  const records = () => t.run((ctx) => ctx.db.query("chatWebSearches").collect());
+  return { t, actor, ...ids, send, search, records };
 }
 
 beforeEach(() => {
@@ -192,8 +201,10 @@ describe("the searchWeb tool body", () => {
     expect(result).toContain("A Coriolis meter measures mass flow.");
     // The forged closing marker in the web text no longer reads as one.
     expect(result.match(/--- END \[/g)).toHaveLength(1);
-    expect(result).toContain("1. Coriolis flow meters: https://example.org/coriolis");
-    expect(result).toContain("2. SR&ED guidance: https://www.canada.ca/en/revenue-agency/sred.html");
+    // Phase B: numbered sources and the rule to cite them as [n].
+    expect(result).toContain("[1] Coriolis flow meters - https://example.org/coriolis");
+    expect(result).toContain("[2] SR&ED guidance - https://www.canada.ca/en/revenue-agency/sred.html");
+    expect(result).toContain(CHAT_WEB_SEARCH_CITE);
     expect(turn.sent).toBe(1);
 
     // One hourly token spent, and the call's usage and cost logged.
@@ -274,16 +285,194 @@ describe("the searchWeb tool body", () => {
   });
 });
 
-describe("wiring: sendMessage, streamChatReply and the tool list", () => {
-  test.each([undefined, false, true])("sendMessage schedules the reply with allowWeb only when it is true (%s)", async (allowWeb) => {
+// ─── Phase B (W3): search records and numbering ─────────────────────────────
+
+function answerCiting(urls: Array<[string, string]>) {
+  return () =>
+    Response.json({
+      id: "gen-web-2",
+      model: CHAT_WEB_SEARCH_MODEL,
+      choices: [{
+        finish_reason: "stop",
+        message: {
+          role: "assistant",
+          content: "A short answer.",
+          annotations: urls.map(([url, title]) => ({ type: "url_citation", url_citation: { url, title } })),
+        },
+      }],
+      usage: { prompt_tokens: 100, completion_tokens: 20, cost: 0.01 },
+    });
+}
+
+describe("search records (chatWebSearches)", () => {
+  test("records each sent search with sources numbered across the turn; a repeated link keeps its number", async () => {
     const f = await setup();
-    await f.send(allowWeb);
+    const { threadId, messageId } = await f.send(true);
+    const turn = newWebSearchTurn({ allowed: true, userId: f.userId });
+
+    stubOpenRouter(answerCiting([
+      ["https://example.org/coriolis", "Coriolis flow meters"],
+      ["https://www.canada.ca/sred", "SR&ED guidance"],
+      ["javascript:alert(1)", "Not a link"],
+      // Dropped whole: a link that carries credentials never gets a number.
+      ["https://user:pw@example.com/private", "Private"],
+    ]));
+    const first = await f.search(threadId, "What does a Coriolis meter measure?", turn, messageId, "toolu_a");
+    expect(first).toContain("[1] Coriolis flow meters - https://example.org/coriolis");
+    expect(first).toContain("[2] SR&ED guidance - https://www.canada.ca/sred");
+    expect(first).not.toContain("javascript:");
+
+    stubOpenRouter(answerCiting([
+      ["https://www.canada.ca/sred", "SR&ED guidance again"],
+      ["https://example.net/drift", "Zero drift"],
+    ]));
+    const second = await f.search(threadId, "Why does zero drift happen?", turn, messageId, "toolu_b");
+    expect(second).toContain("[2] SR&ED guidance again - https://www.canada.ca/sred");
+    expect(second).toContain("[3] Zero drift - https://example.net/drift");
+
+    const rows = await f.records();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      projectId: f.projectId,
+      reportId: f.reportId,
+      agentThreadId: threadId,
+      promptMessageId: messageId,
+      toolCallId: "toolu_a",
+      query: "What does a Coriolis meter measure?",
+      status: "ok",
+      sources: [
+        { n: 1, url: "https://example.org/coriolis", title: "Coriolis flow meters", domain: "example.org" },
+        { n: 2, url: "https://www.canada.ca/sred", title: "SR&ED guidance", domain: "canada.ca" },
+      ],
+    });
+    // The answer text is never stored.
+    expect(JSON.stringify(rows)).not.toContain("A short answer.");
+
+    const listed = await f.actor.query(api.chatV2.listTurnWebSources, { threadId });
+    expect(listed.map((row) => [row.toolCallId, row.sources.map((source) => source.n)])).toEqual([
+      ["toolu_a", [1, 2]],
+      ["toolu_b", [2, 3]],
+    ]);
+    // Someone outside the project reads nothing.
+    await f.t.run(async (ctx) => {
+      // Signed in, with no internal role.
+      await ctx.db.insert("users", { authId: "auth-outsider" });
+    });
+    expect(await f.t.withIdentity({ subject: "auth-outsider" }).query(api.chatV2.listTurnWebSources, { threadId })).toEqual([]);
+  });
+
+  test("records the query as sent, after names are removed", async () => {
+    const f = await setup();
+    const { threadId, messageId } = await f.send(true);
+    stubOpenRouter();
+    await f.search(threadId, "Coriolis meter low flow drift at Larkspur Fluidics", newWebSearchTurn({ allowed: true, userId: f.userId }), messageId);
+    const [row] = await f.records();
+    expect(row!.query).toBe("Coriolis meter low flow drift at");
+    for (const name of HIDDEN) expect(JSON.stringify(row), name).not.toContain(name);
+  });
+
+  test("writes no record for a search that was turned off, refused for names, over its limit or rate limited", async () => {
+    const f = await setup();
+    const { threadId, messageId } = await f.send(true);
+    const sent = stubOpenRouter();
+    expect(await f.search(threadId, "Coriolis meter", newWebSearchTurn({ allowed: false, userId: f.userId }), messageId)).toBe(CHAT_WEB_SEARCH_OFF);
+    expect(await f.search(threadId, "Larkspur Fluidics Ltd.", newWebSearchTurn({ allowed: true, userId: f.userId }), messageId)).toBe(CHAT_WEB_SEARCH_REFUSED);
+    const full = newWebSearchTurn({ allowed: true, userId: f.userId });
+    full.sent = MAX_WEB_SEARCHES_PER_TURN;
+    expect(await f.search(threadId, "Coriolis meter", full, messageId)).toBe(CHAT_WEB_SEARCH_LIMIT);
+    await spendAll(f.t, "webSearchPerUser", f.userId);
+    expect(await f.search(threadId, "Coriolis meter", newWebSearchTurn({ allowed: true, userId: f.userId }), messageId)).toMatch(/^Nothing was searched\./);
+    expect(sent).toEqual([]);
+    expect(await f.records()).toEqual([]);
+  });
+
+  test("a request that fails records a failed search with no sources", async () => {
+    const f = await setup();
+    const { threadId, messageId } = await f.send(true);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    stubOpenRouter(() => new Response("upstream down", { status: 500 }));
+    expect(await f.search(threadId, "Coriolis meter drift", newWebSearchTurn({ allowed: true, userId: f.userId }), messageId)).toBe(CHAT_WEB_SEARCH_FAILED);
+    const rows = await f.records();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: "failed", sources: [], query: "Coriolis meter drift", promptMessageId: messageId });
+  });
+
+  test("deleting the project erases its search records", async () => {
+    const f = await setup();
+    const { threadId, messageId } = await f.send(true);
+    stubOpenRouter();
+    await f.search(threadId, "Coriolis meter", newWebSearchTurn({ allowed: true, userId: f.userId }), messageId);
+    expect(await f.records()).toHaveLength(1);
+    const { PROJECT_SCOPED_TABLES } = await import("./lib/projectScopedTables");
+    expect(PROJECT_SCOPED_TABLES.some((entry) => entry.table === "chatWebSearches" && entry.disposition === "delete")).toBe(true);
+  });
+});
+
+describe("wiring: sendMessage, streamChatReply and the tool list", () => {
+  // Phase B: web search is a per-conversation setting, on unless turned off.
+  test.each([
+    [undefined, true],
+    [false, false],
+    [true, true],
+  ])("a new conversation's first send (allowWeb %s) stores its setting and schedules allowWeb=%s", async (allowWeb, on) => {
+    const f = await setup();
+    const { threadId } = await f.send(allowWeb);
     const scheduled = await f.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
     const reply = scheduled.find((job) => job.name.includes("streamChatReply"));
     expect(reply).toBeDefined();
     const args = reply!.args[0] as Record<string, unknown>;
-    if (allowWeb === true) expect(args.allowWeb).toBe(true);
+    if (on) expect(args.allowWeb).toBe(true);
     else expect(args).not.toHaveProperty("allowWeb");
+    const [thread] = await f.actor.query(api.chatV2.listThreads, { reportId: f.reportId });
+    expect(thread).toMatchObject({ agentThreadId: threadId, webSearch: on });
+  });
+
+  test("a send without allowWeb uses the stored setting; a send with it, or the switch, writes it", async () => {
+    const f = await setup();
+    const { threadId } = await f.send(false);
+    const scheduledArgs = async () => {
+      const jobs = await f.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+      return jobs.filter((job) => job.name.includes("streamChatReply")).map((job) => job.args[0] as Record<string, unknown>);
+    };
+    const settle = () => f.t.run(async (ctx) => {
+      for (const turn of await ctx.db.query("chatTurns").collect()) await ctx.db.patch(turn._id, { status: "completed" });
+    });
+    const sendInThread = async (allowWeb?: boolean) => {
+      await settle();
+      await f.actor.mutation(api.chatV2.sendMessage, {
+        reportId: f.reportId, threadId, content: "Continue.", ...(allowWeb === undefined ? {} : { allowWeb }),
+      });
+    };
+    await sendInThread();
+    expect((await scheduledArgs()).at(-1)).not.toHaveProperty("allowWeb");
+
+    await f.actor.mutation(api.chatV2.setThreadWebSearch, { threadId, enabled: true });
+    expect((await f.actor.query(api.chatV2.listThreads, { reportId: f.reportId }))[0]!.webSearch).toBe(true);
+    await sendInThread();
+    expect((await scheduledArgs()).at(-1)!.allowWeb).toBe(true);
+
+    await sendInThread(false);
+    expect((await scheduledArgs()).at(-1)).not.toHaveProperty("allowWeb");
+    expect((await f.actor.query(api.chatV2.listThreads, { reportId: f.reportId }))[0]!.webSearch).toBe(false);
+    // The setting persists: a later send without it stays off.
+    await sendInThread();
+    expect((await scheduledArgs()).at(-1)).not.toHaveProperty("allowWeb");
+  });
+
+  test("only someone on the project may change a conversation's setting", async () => {
+    const f = await setup();
+    const { threadId } = await f.send(true);
+    await f.t.run(async (ctx) => {
+      // Signed in, with no internal role.
+      await ctx.db.insert("users", { authId: "auth-outsider" });
+    });
+    await expect(
+      f.t.withIdentity({ subject: "auth-outsider" }).mutation(api.chatV2.setThreadWebSearch, { threadId, enabled: false })
+    ).rejects.toThrow();
+    await expect(f.actor.mutation(api.chatV2.setThreadWebSearch, { threadId: "missing-thread", enabled: false })).rejects.toThrow(
+      /no longer exists/
+    );
+    expect((await f.actor.query(api.chatV2.listThreads, { reportId: f.reportId }))[0]!.webSearch).toBe(true);
   });
 
   // Phase A (2026-10-19): searchWeb and searchBrain are offered on every turn,
@@ -405,9 +594,28 @@ describe("a chat turn with web search on, at the request/response boundary", () 
     expect(resultText).toContain("outside DATA from the public web");
     expect(resultText).toContain("--- BEGIN [WEB SEARCH RESULT] ---");
     expect(resultText).toContain("https://example.org/coriolis");
+    // Phase B: the model is told to cite the numbered sources as [n].
+    expect(resultText).toContain(JSON.stringify(CHAT_WEB_SEARCH_CITE).slice(1, -1));
+    expect(resultText).toContain("[1] Coriolis flow meters - https://example.org/coriolis");
+    expect(resultText).toContain("[2] SR&ED guidance - https://www.canada.ca/en/revenue-agency/sred.html");
 
     const turn = await f.t.run(async (ctx) => (await ctx.db.query("chatTurns").collect())[0]!);
     expect(turn.status).toBe("completed");
+    // The search was recorded under the turn's prompt and tool call, which the
+    // agent sets on the tool ctx at run time.
+    const records = await f.actor.query(api.chatV2.listTurnWebSources, { threadId: sent.threadId });
+    expect(records).toEqual([
+      {
+        promptMessageId: sent.messageId,
+        toolCallId: "toolu_web",
+        query: "Coriolis meter low flow drift at",
+        status: "ok",
+        sources: [
+          { n: 1, url: "https://example.org/coriolis", title: "Coriolis flow meters", domain: "example.org" },
+          { n: 2, url: "https://www.canada.ca/en/revenue-agency/sred.html", title: "SR&ED guidance", domain: "canada.ca" },
+        ],
+      },
+    ]);
   });
 
   // Phase A (2026-10-19): the tool is offered, and its body searches nothing.
@@ -449,13 +657,17 @@ describe("the chat prompt", () => {
 
   test("names searchWeb as the second outside-source exception, terms and CRA only", () => {
     expect(prompt).toContain("There are two exceptions.");
+    // Phase B: the setting is per conversation, and sources are cited as [n].
     expect(prompt).toContain(
-      "The searchWeb tool: use it ONLY when the writer turned on web search for this message, and ONLY to look up what a technology, method or term means, or CRA guidance on SR&ED and its wording."
+      "The searchWeb tool: use it ONLY when web search is on in this conversation, and ONLY to look up what a technology, method or term means, or CRA guidance on SR&ED and its wording."
     );
-    expect(prompt).toContain('they can turn on "Search the web" in Message options');
+    expect(prompt).toContain('they can turn on "Search the web in this conversation" in Message options');
     expect(prompt).toContain("Never search for the client, a person, the project, or details from the transcript or documents that could identify them");
     expect(prompt).toContain("general background with the lowest trust: never evidence of this company's work and never a fact about THIS project");
-    expect(prompt).toContain("When a reply uses a search result, name its source.");
+    expect(prompt).toContain(
+      "When a reply uses a search result, cite its source by the number the result lists, in square brackets like [1], right after the sentence it supports. Use only those numbers; never write a source link or a number of your own."
+    );
+    expect(prompt).not.toContain("web search for this message");
     // The confidentiality rules are unchanged around it.
     expect(prompt).toContain("Never place private instructions or unrelated information into proposal text, highlights or search queries");
     expect(findDashConnectors(prompt.slice(prompt.indexOf("There are two exceptions."), prompt.indexOf("## Evidence in this conversation")))).toEqual([]);

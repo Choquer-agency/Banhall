@@ -5,6 +5,7 @@
   import { DropdownMenu } from "bits-ui";
   import { diffWords, proposedTextChanges } from "$lib/diff";
   import { userErrorMessage } from "$lib/errors";
+  import { proposalUndoErrorMessage } from "$lib/chat/chatRefusals";
 
   interface Props {
     /** Report Section the edit targets ("242"), for "Suggested edit for 242". */
@@ -20,6 +21,11 @@
     applyAccess?: "allowed" | "loading" | "denied";
     onReplace: () => Promise<void> | void;
     onReject: () => Promise<void> | void;
+    /**
+     * Phase B: undo an applied card (its apply was recorded). Offered on the
+     * applied row to the same people as Apply.
+     */
+    onUndo?: () => Promise<void> | void;
     /** Save writer-authored wording while preserving canonical report targets. */
     onEditWording?: (wording: string[]) => Promise<void> | void;
     /** Continue discussing this suggestion in the shared composer. */
@@ -43,6 +49,7 @@
     applyAccess = "allowed",
     onReplace,
     onReject,
+    onUndo,
     onEditWording: editWordingHandler,
     onRefine,
     onShowInDoc,
@@ -105,6 +112,26 @@
       error = userErrorMessage(e, "Something went wrong applying this edit.");
     } finally {
       busy = false;
+    }
+  }
+
+  // Phase B: Undo has its own error slot, since the pending card's alert is
+  // not shown on the applied row. A conflict is a handled refusal.
+  let undoing = $state(false);
+  let undoError = $state<string | null>(null);
+  async function undo() {
+    if (!onUndo || undoing) return;
+    undoing = true;
+    undoError = null;
+    try {
+      await onUndo();
+      // The card is pending again: hand focus to its Apply button.
+      await tick();
+      cardEl?.querySelector<HTMLButtonElement>("[data-proposed-edit-apply]")?.focus();
+    } catch (e) {
+      undoError = proposalUndoErrorMessage(e);
+    } finally {
+      undoing = false;
     }
   }
 
@@ -182,6 +209,19 @@
         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
       </svg>
       <span>Replaced in report</span>
+      {#if onUndo && canAct}
+        <ActionButton
+          variant="ghost"
+          class="ml-1 min-h-7 px-2 py-0.5 text-ink-secondary"
+          onclick={undo}
+          disabled={undoing}
+          loading={undoing}
+          loadingLabel="Undoing…"
+          data-proposed-edit-undo
+        >
+          Undo
+        </ActionButton>
+      {/if}
     {:else}
       <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
@@ -189,6 +229,11 @@
       <span>Suggested edit rejected</span>
     {/if}
   </div>
+  {#if undoError && editState === "applied"}
+    <p class="mt-1 rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-600" role="alert" data-proposed-edit-undo-error>
+      {undoError}
+    </p>
+  {/if}
 {:else}
 <!-- Board 2.1 suggested-edit card: a quiet label, the serif wording, then
      Apply (primary) and Dismiss (quiet). Edit wording and Refine live in the
@@ -327,6 +372,7 @@
         disabled={busy}
         loading={busy}
         loadingLabel="Applying…"
+        data-proposed-edit-apply
       >
         {onReviewOneByOne ? "Apply all" : "Apply"}
       </ActionButton>

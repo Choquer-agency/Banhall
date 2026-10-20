@@ -52,6 +52,17 @@ export function chatSendErrorMessage(error: unknown, options: { resend?: boolean
   }
 }
 
+/** Phase B (W3): the fixed words for an Undo whose passage changed since. */
+export const PROPOSAL_UNDO_CONFLICT_TEXT =
+  "This passage changed after it was applied, so it can't be undone here. Use Version history to go back.";
+const UNDO_FAILED_FALLBACK = "This suggestion could not be undone. Try again.";
+
+/** Plain words for an Undo the server refused or that never reached it. */
+export function proposalUndoErrorMessage(error: unknown): string {
+  if (userErrorData(error)?.code === "PROPOSAL_UNDO_CONFLICT") return PROPOSAL_UNDO_CONFLICT_TEXT;
+  return userErrorMessage(error, UNDO_FAILED_FALLBACK).trim() || UNDO_FAILED_FALLBACK;
+}
+
 const STOP_FAILED_FALLBACK = "The reply could not be stopped. Try again.";
 
 /** Plain words for a Stop the server refused or that never reached it. */

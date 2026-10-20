@@ -11,6 +11,7 @@ import {
   type ChatAutoContinueSkip,
 } from "./chatTurnState";
 import { turnSenders } from "./chatAuthors";
+import { threadWebSearchOn } from "./chatWebSearches";
 
 /**
  * Report chat parity, Phase B (2026-10-20), W2: a long job carries on by
@@ -90,14 +91,6 @@ async function withinBudget(ctx: QueryCtx, projectId: Id<"projects">): Promise<b
   const limits = await chatAdmissionLimits(ctx);
   const spent = await projectRollingCostUsdUnits(ctx, { projectId, now: Date.now() });
   return spent <= usdDecimalUnits(limits.dailyBudgetUsd);
-}
-
-/**
- * The thread's web search setting (W3 adds `agentChatThreads.webSearch`;
- * absent means on). Read loosely so this module does not depend on the field.
- */
-function threadWebSearchOn(thread: Doc<"agentChatThreads">): boolean {
-  return (thread as { webSearch?: boolean }).webSearch !== false;
 }
 
 /** Whether a turn's ending offers Continue: completed, or cut off. */

@@ -6,6 +6,8 @@
   import { Message, MessageContent, MessageActions, FeedbackBar, ActionButton } from "./primitives";
   import TurnTrace from "./TurnTrace.svelte";
   import ChatProposalArtifact from "./ChatProposalArtifact.svelte";
+  import WebSourcesRow from "./WebSourcesRow.svelte";
+  import { turnWebSources, withWebSearchLabels, type TurnWebSearch } from "$lib/chat/webSources";
 
   type Proposal = Doc<"chatProposals">;
 
@@ -42,6 +44,10 @@
     };
     /** Freeze the live timer while the connection is down. */
     paused?: boolean;
+    /** Phase B: the web searches this turn sent, for citations and the trace. */
+    webSearches?: TurnWebSearch[];
+    /** Phase B: show the Sources row (the turn's last assistant row only). */
+    showSources?: boolean;
     onCopy?: (messageId: string, text: string) => void;
     onRefine: (proposal: Proposal) => void;
     onBeforeApply?: () => Promise<unknown>;
@@ -65,6 +71,8 @@
     copyFailed = false,
     continuation,
     paused = false,
+    webSearches = [],
+    showSources = false,
     regeneration,
     feedback,
     onCopy,
@@ -80,6 +88,10 @@
   const answerElementId = `${componentId}-answer`;
   const regenerationDescriptionId = `${componentId}-regeneration-description`;
   const turn = $derived(normalizeTurnParts(message, proposals));
+  // Phase B: each search is named in the trace, and its numbered sources
+  // back the reply's citations and the Sources row.
+  const traceNodes = $derived(withWebSearchLabels(turn.traceNodes, webSearches));
+  const webSources = $derived(turnWebSources(webSearches));
 
   const failed = $derived(message?.status === "failed" || timing?.status === "failed");
   const streaming = $derived(message?.status === "streaming" || message?.status === "pending");
@@ -108,7 +120,7 @@
 
 <Message role="assistant" class="group">
   <TurnTrace
-    nodes={turn.traceNodes}
+    nodes={traceNodes}
     proposalNodes={turn.proposalNodes}
     {timing}
     {paused}
@@ -120,8 +132,11 @@
     <!-- Announced once on failure; a live region here would re-announce the
          answer on every streaming token. Busy while it streams (Phase A). -->
     <div id={answerElementId} role={failed ? "alert" : undefined} aria-busy={streaming}>
-      <MessageContent markdown text={turn.text} class={failed ? "text-red-500" : undefined} />
+      <MessageContent markdown text={turn.text} citations={webSources} class={failed ? "text-red-500" : undefined} />
     </div>
+  {/if}
+  {#if showSources}
+    <WebSourcesRow sources={webSources} />
   {/if}
 
   {#each turn.proposalNodes as node (node.key)}

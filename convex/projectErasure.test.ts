@@ -357,6 +357,10 @@ async function seedProjectRows(
       promptText: "q", answerText: "a", vote: 1, createdAt: now,
     });
     await ctx.db.insert("proposalWordingEditEvents", { projectId, reportId, proposalId, userId, originalText: "o", editedText: "e", createdAt: now });
+    await ctx.db.insert("chatWebSearches", {
+      projectId, reportId, agentThreadId, promptMessageId: "p1", query: "q", status: "ok",
+      sources: [{ n: 1, url: "https://example.org/", title: "t", domain: "example.org" }], createdAt: now,
+    });
     const documentId = await ctx.db.insert("projectDocuments", {
       projectId, fileName: "doc.txt", fileType: "txt", content: "doc", storageId, source: "upload", uploadedBy: "u", createdAt: now,
     });

@@ -13,8 +13,8 @@ const projectId = "project-1" as Id<"projects">;
 const options = () => page.getByRole("button", { name: "Message options", exact: true });
 const brain = () => page.getByRole("menuitemcheckbox", { name: "Use Brain examples for this message" });
 const brainChip = () => page.getByText("Brain examples", { exact: true });
-const web = () => page.getByRole("menuitemcheckbox", { name: "Search the web for this message" });
-const webChip = () => page.getByText("Web search", { exact: true });
+const web = () => page.getByRole("menuitemcheckbox", { name: "Search the web in this conversation" });
+const webChip = () => page.getByText("Web search on", { exact: true });
 const composer = () => page.getByRole("textbox", { name: "Message the report assistant" });
 const uploadCalls = () => __callOrder().filter(name => name.startsWith("documents:") || name.startsWith("uploadAttempts:"));
 
@@ -84,35 +84,40 @@ it("keeps the Brain choice working from the keyboard", async () => {
   expect(uploadCalls()).toEqual([]);
 });
 
-// 2026-10-19: "Search the web" (terms and CRA only) mirrors the Brain choice.
-it("offers web search for one message, shows its chip, and sends allowWeb only while on", async () => {
+// 2026-10-19: web search (terms and CRA only). Phase B: a setting of the
+// conversation, on by default, kept after a send (unlike the Brain choice).
+it("offers web search for the conversation, shows its chip, and keeps it after a send", async () => {
   __setMutationResult("chatV2:sendMessage", { threadId: "thread-1", messageId: "prompt-1" });
   await render(AgentChatPanel, { reportId, projectId });
+  await expect.element(webChip()).toBeVisible();
   await options().click();
-  await expect.element(web()).toHaveAttribute("aria-checked", "false");
+  await expect.element(web()).toHaveAttribute("aria-checked", "true");
   await web().click();
   // The menu stays open so the writer sees the choice take effect.
-  await expect.element(web()).toHaveAttribute("aria-checked", "true");
+  await expect.element(web()).toHaveAttribute("aria-checked", "false");
   await expect.element(brain()).toHaveAttribute("aria-checked", "false");
   await userEvent.keyboard("{Escape}");
-  await expect.element(webChip()).toBeVisible();
-  expect(brainChip().elements()).toHaveLength(0);
-  await page.getByRole("button", { name: "Stop searching the web for this message", exact: true }).click();
   expect(webChip().elements()).toHaveLength(0);
+  expect(brainChip().elements()).toHaveLength(0);
   await options().click();
-  await expect.element(web()).toHaveAttribute("aria-checked", "false");
   await web().click();
   await userEvent.keyboard("{Escape}");
+  await expect.element(webChip()).toBeVisible();
   await composer().fill("What does CRA mean by technological uncertainty?");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect.poll(() => __mutationCalls("chatV2:sendMessage").length).toBe(1);
   const sent = __mutationCalls("chatV2:sendMessage")[0] as Record<string, unknown>;
-  expect(sent).toMatchObject({ allowWeb: true });
+  // On is the default a new conversation starts with, so nothing is named.
+  expect(sent).toMatchObject({ newThread: true });
+  expect(sent).not.toHaveProperty("allowWeb");
   expect(sent).not.toHaveProperty("allowBrain");
-  // Cleared after the send, like the Brain choice.
-  expect(webChip().elements()).toHaveLength(0);
+  // Kept after the send: it belongs to the conversation.
+  await expect.element(webChip()).toBeVisible();
   await options().click();
-  await expect.element(web()).toHaveAttribute("aria-checked", "false");
+  await expect.element(web()).toHaveAttribute("aria-checked", "true");
+  await userEvent.keyboard("{Escape}");
+  await page.getByRole("button", { name: "Turn off web search in this conversation", exact: true }).click();
+  expect(webChip().elements()).toHaveLength(0);
   expect(uploadCalls()).toEqual([]);
 });
 

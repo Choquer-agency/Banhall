@@ -21,6 +21,9 @@ export const domainErrorCodes = [
   // limit (carries `maxChars`).
   "CHAT_TURN_ACTIVE",
   "CHAT_MESSAGE_TOO_LONG",
+  // Chat parity Phase B: an applied card's passage changed after it was
+  // applied, so `chatV2.undoProposal` cannot put the old text back.
+  "PROPOSAL_UNDO_CONFLICT",
   "TRANSCRIPT_PROJECT_MISMATCH",
   "STALE_REVISION",
   "INVALID_TRANSITION",

@@ -102,10 +102,20 @@ import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { chatDocumentToolsEnabled } from "./appSettings";
 import { chatTranscriptSummaries } from "./chatDocuments";
 import {
+  CHAT_WEB_SEARCH_MAX_QUERY_CHARS,
+  MAX_WEB_SEARCH_SOURCES,
   prepareWebSearchQuery,
   webSearchKnownNames,
   type PreparedChatWebSearch,
 } from "./ai/chatWebSearch";
+import {
+  listThreadWebSources,
+  resolveThreadWebSearch,
+  threadWebSearchOn,
+  turnWebSourcesValidator,
+  webSourceValidator,
+} from "./lib/chatWebSearches";
+import { appliedChangeFor, parseReportDocument, undoAppliedHunks } from "./lib/appliedChange";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -215,6 +225,7 @@ export const listThreads = query({
       .order("desc")
       .take(THREAD_LIST_LIMIT);
     // Phase B (2026-10-20), W2: who started each conversation, by name only.
+    // W3: each conversation's web search setting, on unless turned off.
     const starters = await Promise.all(threads.map((thread) => threadStarter(ctx, thread)));
     const names = await userNames(ctx, starters);
     return threads.map((thread, index) => {
@@ -224,6 +235,7 @@ export const listThreads = query({
         ...thread,
         ...(createdByName ? { createdByName } : {}),
         startedByCurrentUser: starter === access.user._id,
+        webSearch: threadWebSearchOn(thread),
       };
     });
   },
@@ -371,12 +383,19 @@ export const listProposals = query({
 
     // Same order the by_agentThreadId index yields: creation time, then id.
     // Plain code-point comparison keeps the tie-break locale-independent.
-    return [...proposalsByTurn.flat(), ...placed].sort((left, right) => {
-      const creationTimeDifference = left._creationTime - right._creationTime;
-      if (creationTimeDifference !== 0) return creationTimeDifference;
-      if (left._id === right._id) return 0;
-      return left._id < right._id ? -1 : 1;
-    });
+    // Phase B (W3): the applied change stays on the server; the card only
+    // learns whether it can be undone.
+    return [...proposalsByTurn.flat(), ...placed]
+      .sort((left, right) => {
+        const creationTimeDifference = left._creationTime - right._creationTime;
+        if (creationTimeDifference !== 0) return creationTimeDifference;
+        if (left._id === right._id) return 0;
+        return left._id < right._id ? -1 : 1;
+      })
+      .map(({ appliedChange, ...proposal }) => ({
+        ...proposal,
+        undoable: proposal.state === "applied" && appliedChange !== undefined,
+      }));
   },
 });
 
@@ -657,7 +676,10 @@ export const sendMessage = mutation({
     /** Force a fresh thread even when the report already has one ("New chat"). */
     newThread: v.optional(v.boolean()),
     allowBrain: v.optional(v.boolean()),
-    /** 2026-10-19: "Search the web" for this message (terms and CRA only). */
+    /**
+     * 2026-10-19: web search (terms and CRA only). Phase B: the conversation's
+     * setting at send time, written to the conversation when given.
+     */
     allowWeb: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -781,6 +803,10 @@ export const sendMessage = mutation({
       ...(highlight ? { highlight } : {}),
     });
 
+    // Phase B (W3): `allowWeb` is the conversation's setting at send time; the
+    // turn runs with the stored setting.
+    const allowWeb = await resolveThreadWebSearch(ctx, agentThreadId, args.allowWeb);
+
     await ctx.scheduler.runAfter(0, internal.ai.chatAgentV2.streamChatReply, {
       agentThreadId,
       promptMessageId: messageId,
@@ -790,7 +816,7 @@ export const sendMessage = mutation({
       // creator) is the wrong writer for later participants.
       userId,
       ...(args.allowBrain === true ? { allowBrain: true } : {}),
-      ...(args.allowWeb === true ? { allowWeb: true } : {}),
+      ...(allowWeb ? { allowWeb: true } : {}),
     });
 
     return { threadId: agentThreadId, messageId };
@@ -1009,7 +1035,18 @@ export const applyProposal = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
-    await ctx.db.patch(args.proposalId, { state: "applied" });
+    // Phase B (W3): what changed, so a human can undo it (chat cards only;
+    // a research card's row reaches the browser whole through research).
+    const appliedChange = isResearchProposal(proposal)
+      ? undefined
+      : appliedChangeFor({
+          before: parsed,
+          after: updated,
+          revisionNumber: revisionNumber + 1,
+          appliedAt: now,
+          appliedBy: applier._id,
+        });
+    await ctx.db.patch(args.proposalId, { state: "applied", ...(appliedChange ? { appliedChange } : {}) });
     await pruneSnapshots(ctx, report._id);
 
     return { applied: true, count };
@@ -1122,7 +1159,17 @@ export const markProposalApplied = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
-    await ctx.db.patch(args.proposalId, { state: "applied" });
+    // Phase B (W3): what the stepped document changed, for Undo.
+    const appliedChange = isResearchProposal(proposal)
+      ? undefined
+      : appliedChangeFor({
+          before: parseReportDocument(report.content),
+          after: parseReportDocument(args.content),
+          revisionNumber: revisionNumber + 1,
+          appliedAt: now,
+          appliedBy: user._id,
+        });
+    await ctx.db.patch(args.proposalId, { state: "applied", ...(appliedChange ? { appliedChange } : {}) });
     await pruneSnapshots(ctx, report._id);
 
     return {
@@ -1230,6 +1277,100 @@ export const rejectProposal = mutation({
     if (proposal.state !== "rejected") {
       await ctx.db.patch(args.proposalId, { state: "rejected" });
     }
+  },
+});
+
+/** Phase B (W3): the Undo refusal when the applied passage changed since. */
+export const PROPOSAL_UNDO_CONFLICT_MESSAGE =
+  "This passage changed after it was applied, so it can't be undone here. Use Version history to go back.";
+
+/**
+ * Chat parity Phase B (W3): Undo an applied chat card. The only new card
+ * transition, `applied -> pending`, by a person with report edit access.
+ * Each recorded run (`appliedChange.hunks`) must still stand exactly once in
+ * the report; then the old blocks go back, all or nothing, with the same
+ * transaction shape as an apply: a `pre_chat_undo` snapshot, the content
+ * with its hash, the revision bump and its claim record, the deterministic
+ * findings, and the card back to `pending` so it can be applied again or
+ * dismissed. A card applied before the change was recorded has no Undo.
+ */
+export const undoProposal = mutation({
+  args: { proposalId: v.id("chatProposals") },
+  handler: async (ctx, args) => {
+    const proposal = await ctx.db.get(args.proposalId);
+    if (!proposal) domainError("NOT_FOUND", "Suggestion not found");
+    // report.editProse: undoing writes report prose.
+    const { user } = await requireReportEditAccess(ctx, proposal.projectId);
+    if (proposal.state !== "applied" || !proposal.appliedChange) {
+      domainError("INVALID_STATE", "Only an applied suggestion with a recorded change can be undone.");
+    }
+    const report = await ctx.db.get(proposal.reportId);
+    if (!report || report.projectId !== proposal.projectId) {
+      domainError("NOT_FOUND", "Report not found");
+    }
+    const current = parseReportDocument(report.content);
+    if (!current) domainError("INVALID_INPUT", "The report content is not valid editor JSON");
+    const undone = undoAppliedHunks(current, proposal.appliedChange.hunks);
+    if (!undone.ok) domainError("PROPOSAL_UNDO_CONFLICT", PROPOSAL_UNDO_CONFLICT_MESSAGE);
+
+    const content = JSON.stringify(undone.doc);
+    const revisionNumber = report.revisionNumber ?? 0;
+    const now = Date.now();
+    await writePreEditSnapshot(ctx, report, "pre_chat_undo", { createdAt: now });
+    await ctx.db.patch(report._id, {
+      content,
+      contentHash: await sha256(content),
+      revisionNumber: revisionNumber + 1,
+      provenanceId: await provenanceForEdit(ctx, report, content, {
+        actorId: user._id,
+        nextRevisionNumber: revisionNumber + 1,
+        now,
+      }),
+      updatedAt: now,
+    });
+    await persistDeterministicFindings(ctx, report._id);
+    await ctx.db.patch(proposal._id, {
+      state: "pending",
+      appliedChange: undefined,
+      undoneAt: now,
+      undoneBy: user._id,
+    });
+    await pruneSnapshots(ctx, report._id);
+    return { undone: true as const, revisionNumber: revisionNumber + 1 };
+  },
+});
+
+/**
+ * Phase B (W3): turn web search on or off for one conversation. Anyone who
+ * may send in it may change it, like `sendMessage`.
+ */
+export const setThreadWebSearch = mutation({
+  args: { threadId: v.string(), enabled: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const thread = await threadRow(ctx, args.threadId);
+    if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
+    await requireInternalProjectAccess(ctx, thread.projectId);
+    if (threadWebSearchOn(thread) !== args.enabled) {
+      await ctx.db.patch(thread._id, { webSearch: args.enabled });
+    }
+    return null;
+  },
+});
+
+/**
+ * Phase B (W3): each web search a conversation's replies sent, in creation
+ * order: the query as sent (names removed) and its numbered sources. Empty
+ * for a conversation the caller may not read, like `listTurns`.
+ */
+export const listTurnWebSources = query({
+  args: { threadId: v.string() },
+  returns: v.array(turnWebSourcesValidator),
+  handler: async (ctx, args) => {
+    const thread = await threadRow(ctx, args.threadId);
+    if (!thread) return [];
+    if (!(await getInternalProjectAccessOrNull(ctx, thread.projectId))) return [];
+    return await listThreadWebSources(ctx, args.threadId);
   },
 });
 
@@ -2128,6 +2269,40 @@ export const prepareChatWebSearch = internalQuery({
         knownNames: webSearchKnownNames(project, placeholders),
       }),
     };
+  },
+});
+
+/**
+ * Phase B (W3): the searchWeb tool records one search it sent. The project
+ * and report come from the conversation, never from the caller; a deleted
+ * or deleting project records nothing. At most MAX_WEB_SEARCH_SOURCES
+ * sources, already cleaned by `cleanWebSource`; no answer text.
+ */
+export const recordChatWebSearch = internalMutation({
+  args: {
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    toolCallId: v.optional(v.string()),
+    query: v.string(),
+    status: v.union(v.literal("ok"), v.literal("failed")),
+    sources: v.array(webSourceValidator),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const thread = await threadRow(ctx, args.agentThreadId);
+    if (!thread || (await isProjectDeleting(ctx, thread.projectId))) return null;
+    await ctx.db.insert("chatWebSearches", {
+      projectId: thread.projectId,
+      reportId: thread.reportId,
+      agentThreadId: args.agentThreadId,
+      promptMessageId: args.promptMessageId,
+      ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
+      query: args.query.slice(0, CHAT_WEB_SEARCH_MAX_QUERY_CHARS),
+      status: args.status,
+      sources: args.sources.slice(0, MAX_WEB_SEARCH_SOURCES),
+      createdAt: Date.now(),
+    });
+    return null;
   },
 });
 
