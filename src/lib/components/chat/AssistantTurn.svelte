@@ -8,6 +8,7 @@
   import ChatProposalArtifact from "./ChatProposalArtifact.svelte";
   import WebSourcesRow from "./WebSourcesRow.svelte";
   import { turnWebSources, withWebSearchLabels, type TurnWebSearch } from "$lib/chat/webSources";
+  import { CHAT_FEEDBACK_REASONS, MAX_CHAT_FEEDBACK_REASON_CHARS, type ChatFeedbackReasonCode } from "../../../../shared/chatFeedback";
 
   type Proposal = Doc<"chatProposals">;
 
@@ -31,6 +32,10 @@
       disabled: boolean;
       error?: string;
       onVote: (vote: 1 | -1) => Promise<void>;
+      /** Phase C (W3): the thumbs down's saved reason, and how to change it. */
+      reasonCode?: ChatFeedbackReasonCode | null;
+      reasonText?: string | null;
+      onReason?: (code: ChatFeedbackReasonCode, text: string) => Promise<void>;
     };
     /** The copy of this answer failed; the button says so instead of a toast. */
     copyFailed?: boolean;
@@ -48,7 +53,8 @@
     webSearches?: TurnWebSearch[];
     /** Phase B: show the Sources row (the turn's last assistant row only). */
     showSources?: boolean;
-    onCopy?: (messageId: string, text: string) => void;
+    /** Phase C (W3): `answer` is the rendered answer, copied as shown. */
+    onCopy?: (messageId: string, text: string, answer: HTMLElement | null) => void;
     onRefine: (proposal: Proposal) => void;
     onBeforeApply?: () => Promise<unknown>;
     onReferenceText?: (texts: string[], scrollTo?: string) => void;
@@ -170,14 +176,16 @@
     <MessageActions>
       {#if canCopy && message}
       {@const id = message.id}
-      <Tooltip text={copied ? "Copied!" : copyFailed ? "Couldn't copy. Try again." : "Copy message"} side="bottom" delayDuration={300}>
+      <!-- Phase C (W3): copies the answer as shown, and says so. -->
+      <span class="sr-only" aria-live="polite" aria-atomic="true" data-copy-announcement>{copied ? "Copied" : ""}</span>
+      <Tooltip text={copied ? "Copied" : copyFailed ? "Couldn't copy. Try again." : "Copy"} side="bottom" delayDuration={300}>
         {#snippet children({ props })}
           <button
             {...props}
             type="button"
-            onclick={() => onCopy?.(id, turn.text)}
-            aria-label={copied ? "Copied" : copyFailed ? "Couldn't copy. Try again." : "Copy message"}
-            class="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
+            onclick={() => onCopy?.(id, turn.text, document.getElementById(answerElementId))}
+            aria-label={copied ? "Copied" : copyFailed ? "Couldn't copy. Try again." : "Copy"}
+            class="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy pointer-coarse:size-11"
           >
             {#if copied}
               <svg class="h-3.5 w-3.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -207,7 +215,13 @@
     <div role="group" aria-labelledby={answerElementId}>
     <FeedbackBar title="Was this answer helpful?" value={feedback.value}
       disabled={feedback.disabled} onHelpful={() => feedback?.onVote(1)}
-      onNotHelpful={() => feedback?.onVote(-1)} />
+      onNotHelpful={() => feedback?.onVote(-1)}
+      changeable
+      reasons={feedback.onReason ? CHAT_FEEDBACK_REASONS : undefined}
+      reasonCode={feedback.reasonCode ?? null}
+      reasonText={feedback.reasonText ?? null}
+      reasonTextMax={MAX_CHAT_FEEDBACK_REASON_CHARS}
+      onReason={feedback.onReason ? (code, text) => feedback?.onReason?.(code as ChatFeedbackReasonCode, text) : undefined} />
     {#if feedback.error}<p role="alert" class="text-xs text-red-600">{feedback.error}</p>{/if}
     </div>
   {/if}

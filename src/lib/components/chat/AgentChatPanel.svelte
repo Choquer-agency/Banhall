@@ -30,6 +30,10 @@
   import MessageEditor from "./MessageEditor.svelte";
   import WriterMessageFooter from "./WriterMessageFooter.svelte";
   import { alternativeAuthorLine, alternativeSwitchErrorMessage, canEditTurn } from "$lib/chat/alternatives";
+  import DeleteConversationDialog from "./DeleteConversationDialog.svelte";
+  import Input from "$lib/components/ui/Input.svelte";
+  import { copyRenderedAnswer } from "$lib/chat/richCopy";
+  import type { ChatFeedbackReasonCode } from "../../../../shared/chatFeedback";
   import { notificationsSupported, notifyRepliesEnabled, setNotifyReplies } from "$lib/chat/replySignal.svelte";
   import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
@@ -144,13 +148,25 @@
     return index === -1 ? text : text.slice(0, index);
   }
 
-  /** SR&ED-relevant conversation starters for the empty state. */
+  /**
+   * SR&ED-relevant conversation starters for the empty state. Phase C (W3):
+   * a starter fills the empty composer and focuses it; the writer sends it.
+   */
   const STARTERS = [
-    "Tighten section 242's uncertainty framing",
+    "Tighten the uncertainty framing in Line 242",
     "Find every mention of the prototype",
     "Check this report for banned words",
-    "Make the work-performed section more chronological",
+    "Make Line 244 (work performed) more chronological",
   ];
+
+  function useStarter(starter: string) {
+    if (input.trim()) return;
+    input = starter;
+    void tick().then(() => {
+      textareaEl?.focus();
+      textareaEl?.setSelectionRange(starter.length, starter.length);
+    });
+  }
 
   const HINT_KEY = "banhall.chat.hintSeen";
 
@@ -215,6 +231,110 @@
     startingNewChat = false;
     selectedThreadId = threadId;
     refiningProposal = null;
+  }
+
+  // Phase C (W3): rename, archive and restore for anyone on the report, and
+  // an admin's permanent delete. Archived conversations leave the menu for
+  // their own list and stay readable; a send in one restores it.
+  type ThreadSummary = { agentThreadId: string; title: string };
+  const archivedThreadsQ = useQuery(api.chatV2.listArchivedThreads, () => ({ reportId }));
+  const archivedThreads = $derived(archivedThreadsQ.data ?? []);
+  const selectedArchivedThread = $derived(
+    selectedThreadId ? archivedThreads.find((thread) => thread.agentThreadId === selectedThreadId) : undefined
+  );
+  const renameThreadMutation = useMutation(api.chatV2.renameThread);
+  const archiveThreadMutation = useMutation(api.chatV2.archiveThread);
+  const restoreThreadMutation = useMutation(api.chatV2.restoreThread);
+  const deleteThreadMutation = useMutation(api.chatV2.deleteThread);
+  let conversationError = $state<string | null>(null);
+  let renaming = $state<{ threadId: string; title: string } | null>(null);
+  let renameDraft = $state("");
+  let renameSaving = $state(false);
+  let renameField: HTMLDivElement | null = $state(null);
+  let deleteTarget = $state<ThreadSummary | null>(null);
+  let deleteOpen = $state(false);
+  // Set by a menu action that places focus itself (Rename): the menu must
+  // not hand focus back to its trigger.
+  let conversationMenuFocus: (() => void) | null = null;
+
+  /** Leave a conversation that left the menu: the next open one, or a new one. */
+  function leaveConversation(threadId: string) {
+    if (selectedThreadId !== threadId) return;
+    const next = threadsQ.data?.find((thread) => thread.agentThreadId !== threadId);
+    if (next) selectThread(next.agentThreadId);
+    else startNewThread();
+  }
+
+  function beginRename(thread: ThreadSummary) {
+    conversationError = null;
+    renaming = { threadId: thread.agentThreadId, title: thread.title };
+    renameDraft = thread.title;
+    conversationMenuFocus = () => {
+      const field = renameField?.querySelector("input");
+      field?.focus();
+      field?.select();
+    };
+  }
+
+  function cancelRename() {
+    renaming = null;
+    renameDraft = "";
+  }
+
+  async function saveRename() {
+    if (!renaming || renameSaving) return;
+    const title = renameDraft.replace(/\s+/g, " ").trim();
+    if (!title || title === renaming.title) {
+      cancelRename();
+      return;
+    }
+    renameSaving = true;
+    conversationError = null;
+    try {
+      await renameThreadMutation({ threadId: renaming.threadId, title });
+      cancelRename();
+    } catch (e) {
+      conversationError = userErrorMessage(e, "The conversation could not be renamed. Try again.");
+    } finally {
+      renameSaving = false;
+    }
+  }
+
+  async function archiveConversation(thread: ThreadSummary) {
+    conversationError = null;
+    try {
+      await archiveThreadMutation({ threadId: thread.agentThreadId });
+      leaveConversation(thread.agentThreadId);
+    } catch (e) {
+      conversationError = userErrorMessage(e, "The conversation could not be archived. Try again.");
+    }
+  }
+
+  async function restoreConversation(thread: ThreadSummary) {
+    conversationError = null;
+    try {
+      await restoreThreadMutation({ threadId: thread.agentThreadId });
+    } catch (e) {
+      conversationError = userErrorMessage(e, "The conversation could not be restored. Try again.");
+    }
+  }
+
+  function askDelete(thread: ThreadSummary) {
+    conversationError = null;
+    deleteTarget = thread;
+    deleteOpen = true;
+  }
+
+  async function confirmDelete() {
+    const thread = deleteTarget;
+    deleteTarget = null;
+    if (!thread) return;
+    try {
+      await deleteThreadMutation({ threadId: thread.agentThreadId });
+      leaveConversation(thread.agentThreadId);
+    } catch (e) {
+      conversationError = userErrorMessage(e, "The conversation could not be deleted. Try again.");
+    }
   }
 
   const ui = createUIMessages(
@@ -383,7 +503,7 @@
   const webSearchPending = new SvelteMap<string, boolean>();
   let webSearchError = $state<string | null>(null);
   const selectedThreadWebSearch = $derived(
-    threadsQ.data?.find((thread) => thread.agentThreadId === selectedThreadId)?.webSearch
+    (threadsQ.data?.find((thread) => thread.agentThreadId === selectedThreadId) ?? selectedArchivedThread)?.webSearch
   );
   // Review R2 P3-6: null while a saved conversation's setting is unknown (the
   // list is loading, or no longer holds it): no chip, and the switch waits.
@@ -513,10 +633,12 @@
     chatContainer?.scrollToBottom("smooth");
   }
 
-  async function copyMessage(id: string, text: string) {
+  async function copyMessage(id: string, text: string, answer: HTMLElement | null = null) {
     clearTimeout(copyTimer);
     try {
-      await navigator.clipboard.writeText(text);
+      // Phase C (W3): the answer as shown (HTML and plain text, citations
+      // as "[n]"), else its text.
+      await copyRenderedAnswer(answer, text);
       copiedId = id;
       copyFailedId = null;
       copyTimer = setTimeout(() => (copiedId = null), 1600);
@@ -868,20 +990,36 @@
       : "skip"
   );
   const submitAnswerFeedback = useMutation(api.chatFeedback.submitFeedback);
-  const savedVotes = new SvelteMap<string, 1 | -1>();
+  type SavedFeedback = { vote: 1 | -1; reasonCode?: ChatFeedbackReasonCode; reasonText?: string };
+  const savedVotes = new SvelteMap<string, SavedFeedback>();
   const feedbackBusy = new SvelteSet<string>();
   const feedbackErrors = new SvelteMap<string, string>();
   function feedbackKey(turnId: Id<"chatTurns">) {
     return `${currentUserQ.data?._id ?? ""}:${turnId}`;
   }
-  async function rateAnswer(turnId: Id<"chatTurns">, vote: 1 | -1) {
+  function currentFeedback(turnId: Id<"chatTurns">): SavedFeedback | undefined {
+    return savedVotes.get(feedbackKey(turnId)) ?? feedbackQ.data?.find((row) => row.turnId === turnId);
+  }
+  // Phase C (W3): a vote can be changed, and a thumbs down can carry a
+  // reason. The same thumbs down again keeps its reason.
+  async function rateAnswer(turnId: Id<"chatTurns">, vote: 1 | -1, reason?: { code: ChatFeedbackReasonCode; text: string }) {
     const key = feedbackKey(turnId);
-    if (feedbackBusy.has(key) || savedVotes.has(key) || feedbackQ.data?.some(row => row.turnId === turnId) || feedbackQ.isLoading || feedbackQ.error || !eligibleFeedbackViewer) return;
+    if (feedbackBusy.has(key) || feedbackQ.isLoading || feedbackQ.error || !eligibleFeedbackViewer) return;
+    const previous = currentFeedback(turnId);
+    if (previous?.vote === vote && !reason) return;
     feedbackBusy.add(key);
     feedbackErrors.delete(key);
     try {
-      const recordedVote = await submitAnswerFeedback({ turnId, vote });
-      savedVotes.set(key, recordedVote);
+      const recordedVote = await submitAnswerFeedback({
+        turnId,
+        vote,
+        ...(reason ? { reasonCode: reason.code, ...(reason.text ? { reasonText: reason.text } : {}) } : {}),
+      });
+      const kept = recordedVote === -1
+        ? (reason ? { reasonCode: reason.code, ...(reason.text ? { reasonText: reason.text } : {}) }
+          : previous?.vote === -1 ? { reasonCode: previous.reasonCode, reasonText: previous.reasonText } : {})
+        : {};
+      savedVotes.set(key, { vote: recordedVote, ...kept });
     } catch {
       feedbackErrors.set(key, "Could not save feedback. Please try again.");
     } finally {
@@ -892,11 +1030,15 @@
     const turnId = feedbackTurnByMessage.get(messageId);
     if (!turnId || !eligibleFeedbackViewer) return undefined;
     const key = feedbackKey(turnId);
+    const current = currentFeedback(turnId);
     return {
-      value: savedVotes.get(key) ?? feedbackQ.data?.find((row) => row.turnId === turnId)?.vote ?? null,
+      value: current?.vote ?? null,
+      reasonCode: current?.reasonCode ?? null,
+      reasonText: current?.reasonText ?? null,
       disabled: feedbackQ.isLoading || !!feedbackQ.error || !currentUserQ.data || feedbackBusy.has(key),
       error: feedbackQ.error ? "Feedback is unavailable. Please refresh this page to try again." : feedbackErrors.get(key),
       onVote: (vote: 1 | -1) => rateAnswer(turnId, vote),
+      onReason: (code: ChatFeedbackReasonCode, text: string) => rateAnswer(turnId, -1, { code, text }),
     };
   }
 
@@ -966,6 +1108,9 @@
           selectionTo: pendingResearch.to,
           surroundingContext: pendingResearch.context,
           instruction: trimmed,
+          // Phase C (W3): the server builds Vet's instruction; the text is
+          // only the writer's optional note.
+          ...(pendingResearch.preset ? { preset: pendingResearch.preset } : {}),
         });
         pendingResearchId = sessionId;
         input = "";
@@ -1249,7 +1394,7 @@
             <span class="text-ink-muted" role="status">{request.state.kind === "published" ? "Sent" : "Sending…"}</span>
           {/if}
           {#if request.state.kind === "failed" || request.retried}
-            <ActionButton variant="danger" class="min-h-7 px-2 font-medium aria-disabled:opacity-50"
+            <ActionButton variant="danger" class="min-h-7 px-2 font-medium aria-disabled:opacity-50 pointer-coarse:min-h-11"
               aria-label="Retry"
               aria-describedby={`local-send-content-${request.key}`}
               aria-disabled={request.state.kind !== "failed"}
@@ -1257,7 +1402,7 @@
               onclick={(event) => retryRequest(request.key, event.currentTarget)}>Retry</ActionButton>
           {/if}
           {#if request.state.kind === "failed"}
-            <ActionButton variant="danger" class="min-h-7 px-2 font-medium" aria-label="Dismiss send error"
+            <ActionButton variant="danger" class="min-h-7 px-2 font-medium pointer-coarse:min-h-11" aria-label="Dismiss send error"
               aria-describedby={`local-send-content-${request.key}`}
               onclick={(event) => dismissRequest(request.key, event.currentTarget)}>Dismiss</ActionButton>
           {/if}
@@ -1294,9 +1439,18 @@
     <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-chrome px-3 py-2 text-xs text-ink-secondary" data-context-notice>
       <span class="min-w-0 flex-1">This conversation is long, so the assistant now reads only its newest messages. A new conversation gives it a clean start.</span>
       <span class="flex items-center gap-1">
-        <ActionButton variant="ghost" class="min-h-7 px-2" onclick={() => { dismissContextNotice(); startNewThread(); }}>New conversation</ActionButton>
-        <ActionButton variant="ghost" class="min-h-7 px-2" aria-label="Dismiss this notice" onclick={dismissContextNotice}>Dismiss</ActionButton>
+        <ActionButton variant="ghost" class="min-h-7 px-2 pointer-coarse:min-h-11" onclick={() => { dismissContextNotice(); startNewThread(); }}>New conversation</ActionButton>
+        <ActionButton variant="ghost" class="min-h-7 px-2 pointer-coarse:min-h-11" aria-label="Dismiss this notice" onclick={dismissContextNotice}>Dismiss</ActionButton>
       </span>
+    </div>
+  {/if}
+
+  {#if selectedArchivedThread}
+    <!-- Phase C (W3): an archived conversation stays readable; a send restores it. -->
+    <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-chrome px-3 py-2 text-xs text-ink-secondary" data-archived-notice>
+      <span class="min-w-0 flex-1">This conversation is archived. Sending a message restores it.</span>
+      <ActionButton variant="ghost" class="min-h-7 px-2 pointer-coarse:min-h-11"
+        onclick={() => selectedArchivedThread && void restoreConversation(selectedArchivedThread)}>Restore</ActionButton>
     </div>
   {/if}
 
@@ -1340,7 +1494,9 @@
       class="min-h-[1.125rem] px-0 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint md:text-[0.8125rem]"
       aria-label="Message the report assistant"
       textIndent={composerContextActive ? pillWidth : undefined}
-      placeholder={pendingResearch
+      placeholder={pendingResearch?.preset === "vet"
+        ? "Anything to focus on? (optional)"
+        : pendingResearch
         ? "What should the research verify?"
         : refiningProposal
           ? "How should I revise this suggestion?"
@@ -1387,7 +1543,7 @@
             </svg>
             <span class="truncate">
               <!-- Phase A (task 11): a report selection, not something pasted. -->
-              {pendingResearch ? `Research: ${composerSelection.text.replace(/\s+/g, " ").trim()}` : "Selected text"}
+              {pendingResearch ? `${pendingResearch.preset === "vet" ? "Vet" : "Research"}: ${composerSelection.text.replace(/\s+/g, " ").trim()}` : "Selected text"}
             </span>
             {#if highlightLineCount > 1}
               <span class="shrink-0">+{highlightLineCount} lines</span>
@@ -1469,7 +1625,7 @@
                 disabled={sending || isStreaming}
                 closeOnSelect={false}
                 title="Allow a new search of approved past reports. Previous conversation remains available."
-                class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50"
+                class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50 pointer-coarse:min-h-11"
               >
                 {#snippet children({ checked })}
                   <span class={`flex size-4 shrink-0 items-center justify-center rounded border ${checked ? "border-primary-selected bg-primary-selected text-white" : "border-line"}`} aria-hidden="true">
@@ -1487,7 +1643,7 @@
                 disabled={sending || webSearchSetting === null}
                 closeOnSelect={false}
                 title="Allow web searches for what a term or method means, or for CRA guidance. Names are removed before anything is searched."
-                class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50"
+                class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50 pointer-coarse:min-h-11"
                 data-web-switch
               >
                 {#snippet children({ checked })}
@@ -1577,7 +1733,7 @@
             onclick={() => (allowBrain = false)}
             disabled={sending || isStreaming}
             aria-label="Stop using Brain examples for this message"
-            class="flex size-4 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100"
+            class="relative flex size-4 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100 pointer-coarse:before:absolute pointer-coarse:before:-inset-3.5 pointer-coarse:before:content-['']"
           >
             <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
           </button>
@@ -1592,7 +1748,7 @@
             onclick={() => void setWebSearch(false)}
             disabled={sending}
             aria-label="Turn off web search in this conversation"
-            class="flex size-4 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100"
+            class="relative flex size-4 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100 pointer-coarse:before:absolute pointer-coarse:before:-inset-3.5 pointer-coarse:before:content-['']"
           >
             <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
           </button>
@@ -1624,7 +1780,7 @@
           onclick={() => sendText(input)}
           disabled={sending || researchStarting || publicationPending || composerChatBlocked || threadsLoading || threadsUnreadable || conversationUnreadable || (!input.trim() && !pendingHighlight && !pendingResearch) || (!pendingResearch && (messageTooLong || highlightTooLong))}
           class="group flex size-[1.625rem] shrink-0 items-center justify-center rounded-full bg-primary-selected text-white transition-[background-color,opacity,transform] hover:bg-primary-dark active:translate-y-px disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11"
-          title={pendingResearch ? "Start research" : "Send"}
+          title={pendingResearch?.preset === "vet" ? "Vet against public sources" : pendingResearch ? "Start research" : "Send"}
           aria-label="Send message"
         >
           <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
@@ -1671,11 +1827,18 @@
           side="bottom"
           align="end"
           sideOffset={8}
+          onCloseAutoFocus={(event) => {
+            const focus = conversationMenuFocus;
+            conversationMenuFocus = null;
+            if (!focus) return;
+            event.preventDefault();
+            void tick().then(focus);
+          }}
           class="z-[100] max-h-80 w-72 overflow-y-auto rounded-xl border border-line bg-white p-1 shadow-lg"
         >
           <DropdownMenu.Item
             onSelect={startNewThread}
-            class="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-sm font-medium text-ink outline-none hover:bg-chrome/60 focus:bg-chrome/60"
+            class="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-sm font-medium text-ink outline-none hover:bg-chrome/60 focus:bg-chrome/60 pointer-coarse:h-11"
           >
             <svg class="h-4 w-4 shrink-0 text-primary-selected" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path stroke-linecap="round" d="M12 5v14M5 12h14" />
@@ -1684,30 +1847,80 @@
           </DropdownMenu.Item>
           {#each unsavedConversations as request (request.scope)}
             <DropdownMenu.Item onSelect={() => returnToRequest(request)}
-              class="flex min-h-8 w-full items-center rounded-md px-2 text-sm font-medium text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
+              class="flex min-h-8 w-full items-center rounded-md px-2 text-sm font-medium text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">
               <span class="min-w-0 truncate">{unsentConversationLabel(request)}</span>
             </DropdownMenu.Item>
           {/each}
           {#if (threadsQ.data?.length ?? 0) > 0}
             <div class="my-1 border-t border-line-soft"></div>
             {#each threadsQ.data ?? [] as thread (thread._id)}
-              <DropdownMenu.Item
-                onSelect={() => selectThread(thread.agentThreadId)}
-                class={`flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm outline-none hover:bg-chrome/60 focus:bg-chrome/60 ${thread.agentThreadId === selectedThreadId ? "bg-chrome" : ""}`}
-              >
-                <span class="size-2 shrink-0 rounded-full bg-primary-selected" aria-hidden="true"></span>
-                <span class="flex min-w-0 flex-1 flex-col">
-                  <span class="truncate text-sm font-medium text-ink">{thread.title}</span>
-                  {#if !thread.startedByCurrentUser && thread.createdByName}
-                    <!-- Phase B: a conversation someone else started says who. -->
-                    <span class="truncate text-xs text-ink-muted" data-thread-starter>Started by {thread.createdByName}</span>
-                  {/if}
-                </span>
-                <span class="shrink-0 text-xs text-ink-faint">
-                  {new Date(thread.createdAt).toLocaleDateString()}
-                </span>
-              </DropdownMenu.Item>
+              <!-- Phase C (W3): each conversation has its own actions. -->
+              <div class="flex items-center gap-0.5" data-thread-row>
+                <DropdownMenu.Item
+                  onSelect={() => selectThread(thread.agentThreadId)}
+                  class={`flex min-h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-sm outline-none hover:bg-chrome/60 focus:bg-chrome/60 pointer-coarse:min-h-11 ${thread.agentThreadId === selectedThreadId ? "bg-chrome" : ""}`}
+                >
+                  <span class="size-2 shrink-0 rounded-full bg-primary-selected" aria-hidden="true"></span>
+                  <span class="flex min-w-0 flex-1 flex-col">
+                    <span id={`thread-title-${thread._id}`} class="truncate text-sm font-medium text-ink">{thread.title}</span>
+                    {#if !thread.startedByCurrentUser && thread.createdByName}
+                      <!-- Phase B: a conversation someone else started says who. -->
+                      <span class="truncate text-xs text-ink-muted" data-thread-starter>Started by {thread.createdByName}</span>
+                    {/if}
+                  </span>
+                  <span class="shrink-0 text-xs text-ink-faint">
+                    {new Date(thread.lastActivityAt ?? thread.createdAt).toLocaleDateString()}
+                  </span>
+                </DropdownMenu.Item>
+                <DropdownMenu.Sub>
+                  <DropdownMenu.SubTrigger
+                    aria-label="Conversation actions"
+                    aria-describedby={`thread-title-${thread._id}`}
+                    data-thread-actions
+                    class="flex size-8 shrink-0 items-center justify-center rounded-md text-ink-muted outline-none hover:bg-chrome/60 focus:bg-chrome/60 data-[state=open]:bg-chrome/60 pointer-coarse:size-11"
+                  >
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <circle cx="5" cy="12" r="1.75" /><circle cx="12" cy="12" r="1.75" /><circle cx="19" cy="12" r="1.75" />
+                    </svg>
+                  </DropdownMenu.SubTrigger>
+                  <DropdownMenu.SubContent sideOffset={4} class="z-[110] w-48 rounded-xl border border-line bg-white p-1 shadow-lg">
+                    <DropdownMenu.Item onSelect={() => beginRename(thread)}
+                      class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">Rename</DropdownMenu.Item>
+                    <DropdownMenu.Item onSelect={() => void archiveConversation(thread)}
+                      class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">Archive</DropdownMenu.Item>
+                    {#if currentUserQ.data?.role === "admin"}
+                      <DropdownMenu.Item onSelect={() => askDelete(thread)} data-delete-conversation
+                        class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-red-600 outline-none hover:bg-red-50 focus:bg-red-50 pointer-coarse:min-h-11">Delete permanently</DropdownMenu.Item>
+                    {/if}
+                  </DropdownMenu.SubContent>
+                </DropdownMenu.Sub>
+              </div>
             {/each}
+          {/if}
+          {#if archivedThreads.length > 0}
+            <div class="my-1 border-t border-line-soft"></div>
+            <DropdownMenu.Sub>
+              <DropdownMenu.SubTrigger data-archived-conversations
+                class="flex min-h-8 w-full items-center justify-between gap-1.5 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-chrome/60 focus:bg-chrome/60 data-[state=open]:bg-chrome/60 pointer-coarse:min-h-11">
+                Archived conversations
+                <svg class="size-3 shrink-0 text-ink-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </DropdownMenu.SubTrigger>
+              <DropdownMenu.SubContent sideOffset={4} class="z-[110] max-h-80 w-72 overflow-y-auto rounded-xl border border-line bg-white p-1 shadow-lg">
+                {#each archivedThreads as thread (thread._id)}
+                  <div class="flex items-center gap-0.5" data-archived-row>
+                    <DropdownMenu.Item onSelect={() => selectThread(thread.agentThreadId)}
+                      class={`flex min-h-8 min-w-0 flex-1 items-center rounded-md px-2 py-1 text-sm outline-none hover:bg-chrome/60 focus:bg-chrome/60 pointer-coarse:min-h-11 ${thread.agentThreadId === selectedThreadId ? "bg-chrome" : ""}`}>
+                      <span id={`archived-title-${thread._id}`} class="truncate text-ink">{thread.title}</span>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item onSelect={() => void restoreConversation(thread)}
+                      aria-describedby={`archived-title-${thread._id}`}
+                      class="flex min-h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-primary-selected outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">Restore</DropdownMenu.Item>
+                  </div>
+                {/each}
+              </DropdownMenu.SubContent>
+            </DropdownMenu.Sub>
           {/if}
           {#if canNotify}
             <div class="my-1 border-t border-line-soft"></div>
@@ -1716,7 +1929,7 @@
               onCheckedChange={(on) => void toggleNotifyReplies(on)}
               closeOnSelect={false}
               data-notify-replies
-              class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash"
+              class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11"
             >
               {#snippet children({ checked })}
                 <span class={`flex size-4 shrink-0 items-center justify-center rounded border ${checked ? "border-primary-selected bg-primary-selected text-white" : "border-line"}`} aria-hidden="true">
@@ -1753,6 +1966,42 @@
   </div>
 
 
+  {#if renaming}
+    <!-- Phase C (W3): rename in place. Enter saves, Escape cancels. -->
+    <form
+      class={`flex shrink-0 items-center gap-2 pb-2 ${isFull ? "px-6 lg:px-0" : "px-6"}`}
+      data-rename-conversation
+      onsubmit={(event) => {
+        event.preventDefault();
+        void saveRename();
+      }}
+    >
+      <div class="min-w-0 flex-1" bind:this={renameField}>
+        <Input
+          bind:value={renameDraft}
+          aria-label="Conversation name"
+          maxlength={80}
+          disabled={renameSaving}
+          onkeydown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              cancelRename();
+            }
+          }}
+          class="h-8 w-full px-2.5 py-1 text-[0.8125rem] pointer-coarse:h-11"
+        />
+      </div>
+      <ActionButton variant="primary" type="submit" class="min-h-8 pointer-coarse:min-h-11" disabled={renameSaving || !renameDraft.trim()}>Save</ActionButton>
+      <ActionButton variant="ghost" class="min-h-8 pointer-coarse:min-h-11" onclick={cancelRename}>Cancel</ActionButton>
+    </form>
+  {/if}
+  {#if conversationError}
+    <div class={`shrink-0 pb-2 ${isFull ? "px-6 lg:px-0" : "px-6"}`}>
+      <p class="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600" role="alert" data-conversation-error>{conversationError}</p>
+    </div>
+  {/if}
+
   {#if !transcriptReady && visibleLocalSends.length === 0 && !pendingResearch}
     <AssistantPanelSkeleton part="body" {isFull} />
   {:else if threadsUnreadable && visibleLocalSends.length === 0}
@@ -1781,17 +2030,18 @@
         I can tighten language, find passages, check compliance and propose
         edits, grounded in this report and its source documents.
       </p>
-      <div class="mt-5 flex w-full max-w-[20rem] flex-col gap-1.5">
+      {#if !input.trim()}
+      <div class="mt-5 flex w-full max-w-[20rem] flex-col gap-1.5" data-starters>
         {#each STARTERS as starter (starter)}
           <Suggestion
-            class="w-full justify-start rounded-lg px-3 py-1.5 text-left text-[0.8125rem]"
-            disabled={sending || researchStarting || publicationPending || composerChatBlocked || isStreaming}
-            onclick={() => sendText(starter)}
+            class="w-full justify-start rounded-lg px-3 py-1.5 text-left text-[0.8125rem] pointer-coarse:min-h-11"
+            onclick={() => useStarter(starter)}
           >
             {starter}
           </Suggestion>
         {/each}
       </div>
+      {/if}
     </div>
   {:else}
     <ChatContainer
@@ -1935,4 +2185,5 @@
   <!-- Preserve the composer and keyboard focus across the first local row. -->
   <div bind:offsetHeight={composerHeight} class={`shrink-0 pt-2 pb-6 ${isFull ? "px-6 lg:px-0" : "px-6"}`}>{@render composer()}</div>
   <StopReplyDialog bind:open={stopConfirmOpen} name={stopConfirmName} onConfirm={() => void stopGeneration()} />
+  <DeleteConversationDialog bind:open={deleteOpen} title={deleteTarget?.title} onConfirm={() => void confirmDelete()} />
 </div>

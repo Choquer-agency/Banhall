@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api, components, internal } from "./_generated/api";
 import schema from "./schema";
 import { reportChatAgent } from "./ai/chatAgentV2";
@@ -34,15 +34,19 @@ async function setup() {
 }
 
 describe("completed chat answer feedback", () => {
-  test.each([1, -1] as const)("persists vote %s with server context, first vote wins under races and reads", async vote => {
+  test.each([1, -1] as const)("persists vote %s with server context, one row per voter, and a later vote changes it", async vote => {
     const s = await setup();
     expect(await s.actor.query(api.chatFeedback.getViewerVotes, s.args)).toEqual([]);
     expect(await s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote })).toBe(vote);
-    await Promise.all([1, 2].map(() => s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: vote === 1 ? -1 : 1 })));
+    // Phase C (W3): the voter may change their vote; it stays one row.
+    const flipped = vote === 1 ? -1 : 1;
+    await Promise.all([1, 2].map(() => s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: flipped })));
+    expect(await s.actor.query(api.chatFeedback.getViewerVotes, s.args)).toEqual([{ turnId: s.turnId, vote: flipped }]);
+    await s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote });
     expect(await s.actor.query(api.chatFeedback.getViewerVotes, s.args)).toEqual([{ turnId: s.turnId, vote }]);
     const rows = await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").collect());
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ userId: s.userId, projectId: s.projectId, reportId: s.reportId, answerMessageId: s.answer?._id, vote });
+    expect(rows[0]).toMatchObject({ userId: s.userId, projectId: s.projectId, reportId: s.reportId, answerMessageId: s.answer?._id, vote, changeCount: 2 });
     expect(rows[0].answerText).toContain("Acme Farms");
     expect(rows[0].answerText).not.toContain("PRIVATE REASONING");
     expect(rows[0].answerText).not.toContain("Early answer");
@@ -93,14 +97,15 @@ describe("completed chat answer feedback", () => {
     await expect(s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: 1 })).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
     expect(await s.actor.query(api.chatFeedback.getViewerVotes, s.args)).toEqual([]);
   });
-  test("racing first votes create one row and return the same winning vote", async () => {
+  test("racing first votes create one row holding the last vote", async () => {
     const s = await setup();
     const results = await Promise.all([
       s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: 1 }),
       s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: -1 }),
     ]);
-    expect(results[0]).toBe(results[1]);
-    expect(await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").collect())).toHaveLength(1);
+    const rows = await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").collect());
+    expect(rows).toHaveLength(1);
+    expect(results).toContain(rows[0].vote);
   });
   test("rejects orphan answers, foreign prompts, missing turns and inconsistent project mapping", async () => {
     const s = await setup();
@@ -174,4 +179,99 @@ test("preserves complete Unicode characters at raw and sanitized snapshot bounda
   const row = await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").first());
   expect(row?.answerText).toBe("x".repeat(3999) + "🧪");
   expect(row?.learningSnapshot?.answerText).toBe(row?.answerText);
+});
+
+describe("Phase C: changeable votes and reasons", () => {
+  test("offers a reason on thumbs down only, bounded, and clears it when the vote flips", async () => {
+    const s = await setup();
+    const vote = (args: Record<string, unknown>) => s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: -1, ...args });
+    await expect(s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: 1, reasonCode: "wrong" })).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    await expect(s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: 1, reasonText: "Bad" })).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    await expect(vote({ reasonCode: "other", reasonText: "x".repeat(501) })).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    await expect(vote({ reasonCode: "nonsense" })).rejects.toThrow();
+    expect(await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").collect())).toEqual([]);
+
+    expect(await vote({})).toBe(-1);
+    let row = await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").first());
+    expect(row).toMatchObject({ vote: -1, learningSnapshot: { version: 2 } });
+    expect(row).not.toHaveProperty("reasonCode");
+    expect(row).not.toHaveProperty("updatedAt");
+
+    await vote({ reasonCode: "made_up", reasonText: `  ${"y".repeat(500)}  ` });
+    row = await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").first());
+    expect(row).toMatchObject({ vote: -1, reasonCode: "made_up", reasonText: "y".repeat(500), changeCount: 1 });
+    expect(await s.actor.query(api.chatFeedback.getViewerVotes, s.args)).toEqual([{ turnId: s.turnId, vote: -1, reasonCode: "made_up", reasonText: "y".repeat(500) }]);
+
+    // The same thumbs down again keeps the reason and changes nothing.
+    await vote({});
+    expect(await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").first())).toMatchObject({ reasonCode: "made_up", changeCount: 1 });
+    // Text alone counts as "Other".
+    await vote({ reasonText: "Missed the point" });
+    expect(await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").first())).toMatchObject({ reasonCode: "other", reasonText: "Missed the point", changeCount: 2 });
+
+    await s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: 1 });
+    row = await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").first());
+    expect(row).toMatchObject({ vote: 1, changeCount: 3 });
+    expect(row).not.toHaveProperty("reasonCode");
+    expect(row).not.toHaveProperty("reasonText");
+    expect(row?.learningSnapshot).not.toHaveProperty("reasonCode");
+    expect(row?.learningSnapshot).not.toHaveProperty("reasonText");
+  });
+
+  test("the learning snapshot carries the reason de-identified, and the digest reads a changed vote as a new signal", async () => {
+    const s = await setup();
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      await s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: 1 });
+      // A newer vote by someone else, so the changed vote must rise above it.
+      const other = s.t.withIdentity({ subject: "second" });
+      vi.setSystemTime(2_000);
+      await other.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: 1 });
+      let signals = await s.t.query(internal.chatFeedback.getFeedbackForDigest, { limit: 1 });
+      expect(signals).toHaveLength(1);
+      expect(signals[0]).toMatchObject({ updatedAt: 2_000, payload: { vote: 1 } });
+
+      vi.setSystemTime(3_000);
+      await s.actor.mutation(api.chatFeedback.submitFeedback, {
+        turnId: s.turnId, vote: -1, reasonCode: "wrong",
+        reasonText: "Acme Farms never ran Secret trial; ask Johnny Test at writer@example.com",
+      });
+      signals = await s.t.query(internal.chatFeedback.getFeedbackForDigest, { limit: 1 });
+      expect(signals).toHaveLength(1);
+      expect(signals[0]).toMatchObject({ producerId: s.userId, updatedAt: 3_000, payload: { vote: -1, reason: { code: "wrong" } } });
+      const sanitized = JSON.stringify(signals);
+      for (const secret of ["Acme Farms", "Johnny Test", "Secret trial", "writer@example.com"]) expect(sanitized).not.toContain(secret);
+      expect(sanitized).toContain("never ran");
+      const row = await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").withIndex("by_turnId_and_userId", q => q.eq("turnId", s.turnId).eq("userId", s.userId)).unique());
+      expect(row).toMatchObject({ reasonText: expect.stringContaining("Acme Farms"), learningSnapshot: { version: 2, reasonCode: "wrong" } });
+      expect(row?.learningSnapshot?.reasonText).not.toContain("Acme Farms");
+
+      // Both votes, newest signal first, each once.
+      signals = await s.t.query(internal.chatFeedback.getFeedbackForDigest, { limit: 20 });
+      expect(signals.map(signal => signal.updatedAt)).toEqual([3_000, 2_000]);
+      // A flip back to thumbs up drops the reason from the signal.
+      vi.setSystemTime(4_000);
+      await s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: 1 });
+      signals = await s.t.query(internal.chatFeedback.getFeedbackForDigest, { limit: 20 });
+      expect(signals[0]).toMatchObject({ updatedAt: 4_000, payload: { vote: 1 } });
+      expect(signals[0].payload).not.toHaveProperty("reason");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a version 1 snapshot is upgraded on change and keeps its de-identified text", async () => {
+    const s = await setup();
+    await s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: 1 });
+    await s.t.run(async ctx => {
+      const row = await ctx.db.query("chatAnswerFeedback").first();
+      if (!row?.learningSnapshot) throw new Error("Missing vote");
+      await ctx.db.patch(row._id, { learningSnapshot: { version: 1, promptText: row.learningSnapshot.promptText, answerText: row.learningSnapshot.answerText } });
+    });
+    await s.actor.mutation(api.chatFeedback.submitFeedback, { turnId: s.turnId, vote: -1, reasonCode: "too_long" });
+    const row = await s.t.run(ctx => ctx.db.query("chatAnswerFeedback").first());
+    expect(row?.learningSnapshot).toMatchObject({ version: 2, reasonCode: "too_long" });
+    expect(row?.learningSnapshot?.answerText).not.toContain("Acme Farms");
+  });
 });

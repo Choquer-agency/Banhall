@@ -33,6 +33,12 @@ import {
   projectEvidenceSearchQuery,
   selectProjectEvidence,
 } from "./ai/research/core";
+import {
+  VET_INSTRUCTION,
+  VET_NOTE_SEPARATOR,
+  vetInstruction,
+  vetWriterNote,
+} from "../shared/researchPresets";
 
 const ACTIVE_STATUSES = new Set(["queued", "researching", "reviewing"]);
 
@@ -83,6 +89,12 @@ export const startResearch = mutation({
     selectionTo: v.number(),
     surroundingContext: v.string(),
     instruction: v.string(),
+    /**
+     * Phase C (W3): "Vet against public sources". The instruction is then
+     * built here from a fixed text; `instruction` is only the writer's own
+     * optional words, added after it and redacted like any instruction.
+     */
+    preset: v.optional(v.literal("vet")),
   },
   returns: v.id("researchSessions"),
   handler: async (ctx, args): Promise<Id<"researchSessions">> => {
@@ -106,7 +118,16 @@ export const startResearch = mutation({
       MAX_CONTEXT_TEXT,
       "Surrounding context"
     );
-    const instruction = bounded(args.instruction, MAX_INSTRUCTION, "Research instruction");
+    const instruction =
+      args.preset === "vet"
+        ? vetInstruction(
+            bounded(
+              args.instruction,
+              MAX_INSTRUCTION - VET_INSTRUCTION.length - VET_NOTE_SEPARATOR.length,
+              "Research instruction"
+            )
+          )
+        : bounded(args.instruction, MAX_INSTRUCTION, "Research instruction");
 
     // One active run per writer/report prevents double-clicks from creating two
     // expensive sets of provider calls.
@@ -164,6 +185,7 @@ export const startResearch = mutation({
       surroundingContext,
       instruction,
       externalBrief,
+      ...(args.preset ? { preset: args.preset } : {}),
       ...(placeholders.length > 0 ? { placeholders } : {}),
       reportRevisionNumber: report.revisionNumber ?? 0,
       status: "queued",
@@ -205,7 +227,10 @@ export const listSessions = query({
         session.selectedText.length > 240
           ? `${session.selectedText.slice(0, 239)}…`
           : session.selectedText,
-      instruction: session.instruction,
+      // Phase C (W3): a vet session shows its label and only the writer's
+      // own words, never the fixed instruction.
+      instruction: session.preset === "vet" ? vetWriterNote(session.instruction) : session.instruction,
+      ...(session.preset ? { preset: session.preset } : {}),
       status: session.status,
       createdAt: session.createdAt,
     }));

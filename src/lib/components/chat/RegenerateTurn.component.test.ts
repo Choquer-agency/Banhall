@@ -301,6 +301,8 @@ it.each(["queued", "running"])("blocks a historical completed action solely on a
 });
 
 it("preserves Copy, proposal contents, Brain sources and feedback after regeneration", async () => {
+  // Phase C (W3): a refused rich copy falls back to the rendered plain text.
+  vi.spyOn(navigator.clipboard, "write").mockRejectedValue(new Error("No rich clipboard"));
   const writeClipboard = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
   const sourceOutput = 'BRAIN_SOURCES_V1:[{"title":"Approved control pattern","scienceCode":"CRA 2.02.01 Software engineering"}]\n--- REFERENCE PATTERN 1 ---\nPrivate exemplar';
   __setPaginatedRows("chatV2:listMessages", [row("user"), row("assistant", { parts: [
@@ -312,7 +314,7 @@ it("preserves Copy, proposal contents, Brain sources and feedback after regenera
   await render(AgentChatPanel, { reportId, projectId });
   await regenerate().click();
   expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
-  await page.getByRole("button", { name: "Copy message", exact: true }).click();
+  await page.getByRole("button", { name: "Copy", exact: true }).click();
   expect(writeClipboard).toHaveBeenCalledExactlyOnceWith("Original answer remains.");
   await expect.element(page.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
   await expect.element(page.getByText("Candidate wording", { exact: true })).toBeVisible();

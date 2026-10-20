@@ -17,6 +17,7 @@
     SourceTrigger,
   } from "$lib/components/chat/primitives";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import { VET_LABEL } from "../../../../shared/researchPresets";
 
   interface Props {
     reportId: Id<"reports">;
@@ -215,7 +216,9 @@
   <div class="space-y-3" aria-label="Contextual research">
     <Message role="user">
       <MessageContent>
-        <p class="font-medium">Research this passage</p>
+        <!-- Chat parity Phase C: a vet session says so; its instruction is
+             only the writer's own note. -->
+        <p class="font-medium">{selectedSummary.preset === "vet" ? VET_LABEL : "Research this passage"}</p>
         <p class="mt-1 border-t border-white/40 pt-1.5 font-serif text-xs italic text-navy/80">
           “{truncate(selectedSummary.selectedText, 220)}”
         </p>

@@ -160,7 +160,8 @@ it("keeps distinct persisted votes attached to their answers with an unrated thi
     if (!labelledBy) throw new Error("Feedback group lacks an answer association");
     answerIds.add(labelledBy);
     expect(document.getElementById(labelledBy)?.textContent).toContain(`Distinct answer ${i}.`);
-    expect(group.element().querySelectorAll('button[aria-pressed]')).toHaveLength(2);
+    // Two vote buttons per answer (a thumbs down also offers its reasons).
+    expect(group.element().querySelectorAll('button[aria-pressed][aria-label^="Mark response"]')).toHaveLength(2);
   }
   expect(answerIds.size).toBe(3);
 });

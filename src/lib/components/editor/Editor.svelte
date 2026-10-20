@@ -1003,7 +1003,7 @@
     onAskAI({ from, to, text: text.trim() });
   }
 
-  function handleResearch() {
+  function handleResearch(preset?: "vet") {
     if (!editor || !onResearch) return;
     const { from, to } = editor.state.selection;
     if (from === to) return;
@@ -1026,6 +1026,7 @@
       ]
         .filter(Boolean)
         .join("\n\n"),
+      ...(preset ? { preset } : {}),
     });
   }
 
@@ -1250,7 +1251,8 @@
         {editor}
         onComment={handleComment}
         onAskAI={onAskAI ? handleAskAI : undefined}
-        onResearch={onResearch ? handleResearch : undefined}
+        onResearch={onResearch ? () => handleResearch() : undefined}
+        onVet={onResearch ? () => handleResearch("vet") : undefined}
       />
     {/if}
 

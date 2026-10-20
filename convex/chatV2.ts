@@ -21,6 +21,7 @@ import {
 import {
   getInternalProjectAccessOrNull,
   requireInternalProjectAccess,
+  requireRole,
 } from "./lib/auth";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
@@ -136,6 +137,15 @@ import {
   writerTextOf,
   type ChatPath,
 } from "./lib/chatPath";
+import {
+  listArchivedThreadRows,
+  listOpenThreads,
+  newestOpenThread,
+  noteThreadSend,
+  renamedThreadTitle,
+  threadTitleFrom,
+} from "./lib/chatThreads";
+import { purgeStepValidator, purgeThreadRows } from "./lib/chatThreadPurge";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -228,9 +238,6 @@ async function brainSearchedOrders(
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
-/** The conversation menu lists at most this many, newest first. */
-const THREAD_LIST_LIMIT = 50;
-
 export const listThreads = query({
   args: { reportId: v.id("reports") },
   handler: async (ctx, args) => {
@@ -239,11 +246,8 @@ export const listThreads = query({
     const access = await getInternalProjectAccessOrNull(ctx, report.projectId);
     if (!access) return [];
 
-    const threads = await ctx.db
-      .query("agentChatThreads")
-      .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
-      .order("desc")
-      .take(THREAD_LIST_LIMIT);
+    // Phase C (W3): open conversations only, by last activity, newest first.
+    const threads = await listOpenThreads(ctx, args.reportId);
     // Phase B (2026-10-20), W2: who started each conversation, by name only.
     // W3: each conversation's web search setting, on unless turned off.
     const starters = await Promise.all(threads.map((thread) => threadStarter(ctx, thread)));
@@ -755,13 +759,8 @@ export const sendMessage = mutation({
         throw new Error("Thread not found");
       }
     } else {
-      const latest = args.newThread
-        ? null
-        : await ctx.db
-            .query("agentChatThreads")
-            .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
-            .order("desc")
-            .first();
+      // Phase C (W3): never an archived conversation.
+      const latest = args.newThread ? null : await newestOpenThread(ctx, args.reportId);
       agentThreadId = latest?.agentThreadId;
     }
 
@@ -785,7 +784,7 @@ export const sendMessage = mutation({
     }
 
     if (!agentThreadId) {
-      const title = args.content.trim().slice(0, 60) || "New chat";
+      const title = threadTitleFrom(args.content);
       agentThreadId = await createThread(ctx, components.agent, { userId, title });
       await ctx.db.insert("agentChatThreads", {
         projectId: report.projectId,
@@ -841,6 +840,8 @@ export const sendMessage = mutation({
     });
     // Phase C (W2): the turn follows the tip, and becomes it.
     await appendTurnAtTip(ctx, { _id: turnId, agentThreadId, promptMessageId: messageId });
+    // Phase C (W3): activity time, and a send restores an archived conversation.
+    await noteThreadSend(ctx, agentThreadId);
 
     // Phase B (W3): `allowWeb` is the conversation's setting at send time; the
     // turn runs with the stored setting.
@@ -968,6 +969,9 @@ export const sendAlternative = mutation({
       alternativeKind: args.kind,
     });
     await setChatTip(ctx, args.threadId, messageId);
+    // Phase C (W3): an alternative is activity, and restores an archived
+    // conversation like a send.
+    await noteThreadSend(ctx, args.threadId);
 
     await ctx.scheduler.runAfter(0, internal.ai.chatAgentV2.streamChatReply, {
       agentThreadId: args.threadId,
@@ -3131,5 +3135,117 @@ export const getChatContextV2 = internalQuery({
       documentTools: documentToolsRead.ok ? documentToolsRead.value : true,
       chatVision: chatVisionRead.ok ? chatVisionRead.value : true,
     };
+  },
+});
+
+// ─── Conversation management (chat parity Phase C, W3, 2026-10-20) ──────────
+// Rename, archive and restore are open to anyone with project access; an
+// admin may delete a conversation for everyone. Archiving is reversible and
+// keeps the conversation readable; deletion is permanent (lib/chatThreads.ts).
+
+/** The conversation, checked against the caller's project access. */
+async function managedThread(ctx: MutationCtx, agentThreadId: string) {
+  const thread = await threadRow(ctx, agentThreadId);
+  if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
+  const access = await requireInternalProjectAccess(ctx, thread.projectId);
+  return { thread, user: access.user };
+}
+
+export const renameThread = mutation({
+  args: { threadId: v.string(), title: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { thread } = await managedThread(ctx, args.threadId);
+    await ctx.db.patch(thread._id, { title: renamedThreadTitle(args.title) });
+    return null;
+  },
+});
+
+export const archiveThread = mutation({
+  args: { threadId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { thread, user } = await managedThread(ctx, args.threadId);
+    if (thread.archivedAt !== undefined) return null;
+    await ctx.db.patch(thread._id, { archivedAt: Date.now(), archivedBy: user._id });
+    return null;
+  },
+});
+
+export const restoreThread = mutation({
+  args: { threadId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { thread } = await managedThread(ctx, args.threadId);
+    if (thread.archivedAt === undefined) return null;
+    await ctx.db.patch(thread._id, { archivedAt: undefined, archivedBy: undefined });
+    return null;
+  },
+});
+
+export const listArchivedThreads = query({
+  args: { reportId: v.id("reports") },
+  handler: async (ctx, args) => {
+    const report = await ctx.db.get(args.reportId);
+    if (!report) return [];
+    const access = await getInternalProjectAccessOrNull(ctx, report.projectId);
+    if (!access) return [];
+    const threads = await listArchivedThreadRows(ctx, args.reportId);
+    return threads.map((thread) => ({
+      _id: thread._id,
+      agentThreadId: thread.agentThreadId,
+      title: thread.title,
+      createdAt: thread.createdAt,
+      ...(thread.lastActivityAt !== undefined ? { lastActivityAt: thread.lastActivityAt } : {}),
+      archivedAt: thread.archivedAt ?? thread.createdAt,
+      webSearch: threadWebSearchOn(thread),
+    }));
+  },
+});
+
+/**
+ * Admin only, and never while a reply runs. The row goes now, so the
+ * conversation leaves every menu at once; `chatThreadPurge.purgeThread`
+ * deletes the rest in pages.
+ */
+export const deleteThread = mutation({
+  args: { threadId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["admin"]);
+    const { thread } = await managedThread(ctx, args.threadId);
+    if (await otherActiveTurn(ctx, thread.agentThreadId)) {
+      domainError(
+        "CHAT_TURN_ACTIVE",
+        "A reply is still being written in this conversation. Wait for it to finish, or press Stop, then delete it."
+      );
+    }
+    await ctx.db.delete(thread._id);
+    await ctx.scheduler.runAfter(0, internal.chatV2.purgeThread, {
+      agentThreadId: thread.agentThreadId,
+    });
+    return null;
+  },
+});
+
+/** One page of a deleted conversation's rows (lib/chatThreadPurge.ts). */
+export const purgeThread = internalMutation({
+  args: { agentThreadId: v.string(), step: v.optional(purgeStepValidator) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const next = await purgeThreadRows(ctx, args.agentThreadId, args.step);
+    if (next) {
+      await ctx.scheduler.runAfter(0, internal.chatV2.purgeThread, {
+        agentThreadId: args.agentThreadId,
+        step: next,
+      });
+      return null;
+    }
+    // Last: the component deletes its thread, messages and streams in its
+    // own pages (the same call as project erasure).
+    await ctx.scheduler.runAfter(0, internal.projects.deleteAgentChatThread, {
+      agentThreadId: args.agentThreadId,
+    });
+    return null;
   },
 });

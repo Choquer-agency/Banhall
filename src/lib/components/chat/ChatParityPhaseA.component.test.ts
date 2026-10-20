@@ -175,9 +175,10 @@ describe("task 1: refusals", () => {
       row("q", "Summarize Line 242.", 1, "user"), row("a", "Line 242 states the uncertainty.", 1, "assistant"),
     ]);
     __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "q", order: 1, status: "completed", startedAt: 1, endedAt: 2, stepCount: 0 }]);
+    vi.spyOn(navigator.clipboard, "write").mockRejectedValue(new Error("Write permission denied."));
     vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("Write permission denied."));
     await render(AgentChatPanel, { reportId, projectId });
-    await page.getByRole("button", { name: "Copy message", exact: true }).click();
+    await page.getByRole("button", { name: "Copy", exact: true }).click();
     await expect.element(page.getByRole("button", { name: "Couldn't copy. Try again.", exact: true })).toBeVisible();
     expect(quiet).not.toHaveBeenCalled();
     expect(crashToasts()).toHaveLength(0);

@@ -57,12 +57,15 @@
     onComment,
     onAskAI,
     onResearch,
+    onVet,
     commentOnly = false,
   }: {
     editor: Editor;
     onComment?: () => void;
     onAskAI?: () => void;
     onResearch?: () => void;
+    /** Chat parity Phase C: "Vet against public sources" for the selection. */
+    onVet?: () => void;
     commentOnly?: boolean;
   } = $props();
 
@@ -351,7 +354,7 @@
         </button>
       {/if}
 
-      {#if !commentOnly || onComment || onResearch}
+      {#if !commentOnly || onComment || onResearch || onVet}
         {#if !commentOnly}
           <div class="h-4 w-px shrink-0 bg-line" aria-hidden="true"></div>
           <!-- Kept from the old toolbar (decision 19); quiet, after the board's set. -->
@@ -379,6 +382,14 @@
             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
               <circle cx="11" cy="11" r="7" />
               <path stroke-linecap="round" d="m20 20-3.4-3.4M11 8v6M8 11h6" />
+            </svg>
+          </ToolbarButton>
+        {/if}
+        {#if onVet}
+          <ToolbarButton active={false} onclick={onVet} title="Vet against public sources">
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6l-7-3Z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="m9 12 2 2 4-4" />
             </svg>
           </ToolbarButton>
         {/if}

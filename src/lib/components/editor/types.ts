@@ -33,6 +33,8 @@ export interface ResearchSelection {
   to: number;
   text: string;
   context: string;
+  /** Chat parity Phase C: "Vet against public sources" (fixed instruction). */
+  preset?: "vet";
 }
 
 /** Full writer editor handle (Editor.svelte's exported functions). */

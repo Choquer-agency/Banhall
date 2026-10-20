@@ -43,7 +43,7 @@
         <AlertDialog.Cancel
           bind:ref={keepButton}
           data-keep-reply
-          class="h-9 rounded-lg bg-chrome px-3.5 text-sm leading-5 font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          class="h-9 rounded-lg bg-chrome px-3.5 pointer-coarse:h-11 text-sm leading-5 font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >Keep going</AlertDialog.Cancel>
         <AlertDialog.Action
           data-confirm-stop-reply
@@ -51,7 +51,7 @@
             open = false;
             onConfirm();
           }}
-          class="h-9 rounded-lg bg-danger-action px-4 text-sm leading-5 font-medium text-white hover:bg-danger-action-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2"
+          class="h-9 rounded-lg bg-danger-action px-4 pointer-coarse:h-11 text-sm leading-5 font-medium text-white hover:bg-danger-action-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2"
         >Stop reply</AlertDialog.Action>
       </div>
     </AlertDialog.Content>

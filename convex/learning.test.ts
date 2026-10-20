@@ -1721,6 +1721,33 @@ describe("CAP-7 independently admitted chat answer usefulness", () => {
     expect(candidate?.admission?.streams.find(s => s.stream === "chatAnswerFeedback")).toMatchObject({ admittedCount: 5, excludedCount: 0, signalIds: [...ids].reverse(), writerCount: 2, projectCount: 2 });
     expect(await t.run(ctx => ctx.db.query("chatAnswerFeedback").collect())).toHaveLength(5);
   });
+  test("Phase C: a changed vote is a new signal, and a stated reason reaches the prompt", async () => {
+    const { t } = await setup();
+    const fixture = await seedAdmissionFixture(t);
+    const ids = await addChatVotes(t, fixture, 5);
+    const { requests } = mockDigestProvider();
+    await runDigest(t, "draft_style");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toContain("treat that reason as the criticism");
+    expect(requests[0]).not.toContain("Never infer which detail");
+    // Unchanged votes do not distil again.
+    await runDigest(t, "draft_style");
+    expect(requests).toHaveLength(1);
+    await t.run(async ctx => {
+      const row = await ctx.db.get(ids[0]);
+      if (!row?.learningSnapshot) throw new Error("Missing vote");
+      await ctx.db.patch(ids[0], {
+        vote: -1, reasonCode: "too_long", reasonText: "Far too wordy", updatedAt: 500, changeCount: 1,
+        learningSnapshot: { ...row.learningSnapshot, version: 2, reasonCode: "too_long", reasonText: "Far too wordy" },
+      });
+    });
+    await runDigest(t, "draft_style");
+    expect(requests).toHaveLength(2);
+    const content = JSON.parse(requests[1]).messages[0].content as string;
+    expect(content).toContain(`"reason": ${JSON.stringify({ code: "too_long", text: "Far too wordy" }, null, 2).replace(/\n/g, "\n    ")}`);
+    const candidate = await t.query(internal.learning.getLatestGeneratedDigest, { kind: "draft_style" });
+    expect(candidate).toMatchObject({ feedbackCutoff: 500 });
+  });
   test("bounds the newest Unicode-rich chat window and derives exact provenance only from that window", async () => {
     const { t, admin } = await setup();
     const fixture = await seedAdmissionFixture(t);

@@ -13,6 +13,7 @@ import {
 import { turnSenders } from "./chatAuthors";
 import { threadWebSearchOn } from "./chatWebSearches";
 import { appendTurnAtTip, chatTipTurn, loadChatPath } from "./chatPath";
+import { noteThreadActivity } from "./chatThreads";
 
 /**
  * Report chat parity, Phase B (2026-10-20), W2: a long job carries on by
@@ -214,6 +215,8 @@ export async function continueChain(ctx: MutationCtx, key: ChainTurnKey): Promis
   });
   // Phase C (W2): a link's parent is the turn it continues; it becomes the tip.
   await appendTurnAtTip(ctx, { _id: linkId, agentThreadId: key.agentThreadId, promptMessageId: messageId }, turn.promptMessageId);
+  // Phase C (W3): a link is activity; it never restores an archived conversation.
+  await noteThreadActivity(ctx, thread);
   // Brain off; web search from the conversation's own setting.
   await ctx.scheduler.runAfter(0, internal.ai.chatAgentV2.streamChatReply, {
     agentThreadId: key.agentThreadId,

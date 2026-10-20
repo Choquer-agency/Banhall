@@ -16,6 +16,7 @@ import {
   workItemStatusValidator,
 } from "./lib/contracts";
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
+import { chatFeedbackReasonValidator } from "./lib/chatFeedbackReasons";
 import {
   chatAutoContinueSkipValidator,
   chatTurnContinuationValidator,
@@ -1793,10 +1794,20 @@ export default defineSchema({
     // conversation shows and the model reads (one shared path per
     // conversation). Absent means the newest turn (convex/lib/chatPath.ts).
     activeTipPromptMessageId: v.optional(v.string()),
+    // Chat parity Phase C (W3), widen only. When the conversation last had a
+    // message (a send or an automatic link); the menu sorts by it, falling
+    // back to `createdAt`. Archiving is reversible: an archived conversation
+    // leaves the menu, stays readable, and a send restores it.
+    lastActivityAt: v.optional(v.number()),
+    archivedAt: v.optional(v.number()),
+    archivedBy: v.optional(v.id("users")),
   })
     .index("by_reportId", ["reportId"])
     .index("by_agentThreadId", ["agentThreadId"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    // Phase C (W3): open conversations (`archivedAt` absent) and archived
+    // ones, newest first, without reading the other kind.
+    .index("by_reportId_and_archivedAt", ["reportId", "archivedAt"]),
 
   // The agent UIMessage cannot durably express turn start/end, so app-owned
   // timing keeps queued and terminal states stable across reloads and races.
@@ -1872,7 +1883,8 @@ export default defineSchema({
     // Stale-turn reaper: sweep queued/running rows regardless of thread.
     .index("by_status", ["status"]),
 
-  // Immutable first vote per viewer and durable completed answer.
+  // One vote per viewer and durable completed answer. Phase C (W3): the voter
+  // may change it; a thumbs down may carry a reason.
   chatAnswerFeedback: defineTable({
     turnId: v.id("chatTurns"),
     userId: v.id("users"),
@@ -1884,15 +1896,28 @@ export default defineSchema({
     promptText: v.string(),
     answerText: v.string(),
     learningSnapshot: v.optional(v.object({
-      version: v.literal(1),
+      // Phase C (W3): version 2 may carry the de-identified reason.
+      version: v.union(v.literal(1), v.literal(2)),
       promptText: v.string(),
       answerText: v.string(),
+      reasonCode: v.optional(chatFeedbackReasonValidator),
+      reasonText: v.optional(v.string()),
     })),
     vote: v.union(v.literal(1), v.literal(-1)),
     createdAt: v.number(),
+    // Phase C (W3), widen only. When the vote or its reason last changed,
+    // and how many times; the learning digest reads a change as a new signal.
+    updatedAt: v.optional(v.number()),
+    changeCount: v.optional(v.number()),
+    // Thumbs down only; cleared when the vote flips to thumbs up.
+    reasonCode: v.optional(chatFeedbackReasonValidator),
+    reasonText: v.optional(v.string()), // at most 500 characters
   })
     .index("by_turnId_and_userId", ["turnId", "userId"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    // Phase C (W3): deleting a conversation, and changed votes for the digest.
+    .index("by_agentThreadId", ["agentThreadId"])
+    .index("by_updatedAt", ["updatedAt"]),
 
   // One row per tool call the assistant makes (proposeEdit / proposeReplacements
   // / highlightPassages). Same lifecycle semantics as chatMessages.proposedEdit.
@@ -2248,6 +2273,9 @@ export default defineSchema({
       placeholderMapValidator
     ),
     reportRevisionNumber: v.number(),
+    // Phase C (W3): "vet" when the session is "Vet against public sources";
+    // its instruction was built on the server from a fixed text.
+    preset: v.optional(v.literal("vet")),
     status: v.union(
       v.literal("queued"),
       v.literal("researching"),
@@ -3111,7 +3139,9 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_projectId", ["projectId"])
-    .index("by_userId", ["userId"]),
+    .index("by_userId", ["userId"])
+    // Phase C (W3): deleting a conversation deletes its cards' edit events.
+    .index("by_proposalId", ["proposalId"]),
 
   sectionEditEvents: defineTable({
     projectId: v.id("projects"),

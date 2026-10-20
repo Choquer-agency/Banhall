@@ -1533,9 +1533,14 @@ only; no React). Specimens on `/styleguide`; composed in `AgentChatPanel`.
   favicon plus title/excerpt detail on hover or keyboard focus. Only external
   citations render here; private project documents and Brain writing patterns
   stay out of the web-source row.
-- `FeedbackBar` — helpful/not-helpful response feedback. Research responses send
+- `FeedbackBar`: helpful/not-helpful response feedback. Research responses send
   this signal through the existing admin-reviewed Brain feedback queue; feedback
-  is never learned automatically.
+  is never learned automatically. In the report chat (`changeable`, Phase C,
+  2026-10-20) a vote stays open to change and the bar says "Feedback recorded.
+  You can change it."; a thumbs down offers reason chips from a fixed list
+  (Wrong, Didn't follow my request, Made something up, Too long, Other) and an
+  optional text field, "What went wrong? (optional)", sent with Send. The vote
+  buttons, chips, field and Send each keep a 44px `pointer-coarse:` floor.
 
 ## Cursor contract (2026-08-23)
 

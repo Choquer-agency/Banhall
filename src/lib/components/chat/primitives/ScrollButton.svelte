@@ -27,8 +27,8 @@
   tabindex={visible ? 0 : -1}
   onclick={() => container?.scrollToBottom(behavior)}
   class={cn(
-    "absolute bottom-3 left-1/2 z-10 flex h-8 -translate-x-1/2 items-center justify-center gap-1.5 rounded-full border border-line bg-white text-navy shadow-md transition hover:bg-primary-wash motion-reduce:transition-none",
-    showLabel ? "px-3" : "w-8",
+    "absolute bottom-3 left-1/2 z-10 flex h-8 -translate-x-1/2 pointer-coarse:h-11 items-center justify-center gap-1.5 rounded-full border border-line bg-white text-navy shadow-md transition hover:bg-primary-wash motion-reduce:transition-none",
+    showLabel ? "px-3" : "w-8 pointer-coarse:w-11",
     !visible && "pointer-events-none translate-y-2 opacity-0",
     className
   )}
