@@ -725,7 +725,9 @@ export const abortStreaming = mutation({
   args: { threadId: v.string(), order: v.number() },
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.threadId);
-    if (!thread) throw new Error("Thread not found");
+    // 2026-10-19 (Phase A): a domain refusal, so the panel explains it and
+    // the crash toast stays quiet.
+    if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
     await requireInternalProjectAccess(ctx, thread.projectId);
 
     const turn = await ctx.db

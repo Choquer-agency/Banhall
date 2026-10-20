@@ -896,6 +896,14 @@ describe("chat turn lifecycle", () => {
     });
   });
 
+  // 2026-10-19 (Phase A): a domain refusal, so the panel shows it plainly.
+  test("stopping a conversation that no longer exists is a NOT_FOUND refusal", async () => {
+    const setupResult = await setup();
+    await expect(
+      setupResult.actor.mutation(api.chatV2.abortStreaming, { threadId: "missing-thread", order: 0 })
+    ).rejects.toMatchObject({ data: expect.objectContaining({ code: "NOT_FOUND" }) });
+  });
+
   test("an abort before start fences the scheduled action", async () => {
     const setupResult = await setup();
     const { result, turn } = await sendQueuedTurn(setupResult);
