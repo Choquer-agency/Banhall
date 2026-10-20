@@ -190,7 +190,7 @@ describe("history the model reads", () => {
 
   it("tells the model the options and, when older turns are cut, the fixed sentence", () => {
     expect(chatTurnNote({ allowBrain: false, allowWeb: true, historyCut: false })).toBe(
-      "Message options for this message: Brain examples are off, web search is on."
+      "Options for this reply: Brain examples are off for this message, web search is on in this conversation."
     );
     const cut = chatTurnNote({ allowBrain: true, allowWeb: false, historyCut: true });
     expect(cut.endsWith(`\n${CHAT_CONTEXT_LOSS_NOTE}`)).toBe(true);
@@ -256,7 +256,7 @@ describe("review P2-2: handled items", () => {
     expect(findDashConnectors(note!)).toEqual([]);
     expect(handledItemsNote(coverage.filter((item) => !item.handled))).toBeNull();
     expect(chatTurnNote({ allowBrain: false, allowWeb: false, historyCut: true, handled: note }).split("\n")).toEqual([
-      "Message options for this message: Brain examples are off, web search is off.",
+      "Options for this reply: Brain examples are off for this message, web search is off in this conversation.",
       note,
       CHAT_CONTEXT_LOSS_NOTE,
     ]);

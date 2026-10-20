@@ -54,9 +54,10 @@ export const COMPLETION_REPORT_TARGET_ITEMS = 30;
 export const BULK_EDIT_NEW_WORDS_PER_CALL = 600;
 
 /**
- * Review P2-2: a turn has 5 steps (`CHAT_MAX_STEPS`). The Deviation Inventory,
- * three bulk calls and the closing reply fill them, so a reply makes at most
- * this many bulk calls and names what is left for the next message.
+ * Review P2-2: set when a pass had 5 steps. The Deviation Inventory, three
+ * bulk calls and the closing reply filled them. Phase B (2026-10-20) raised
+ * `CHAT_MAX_STEPS` to 8 for the reading tools; the cap stays 3, so a reply
+ * still revises about one Line and names what is left for the next link.
  */
 export const BULK_EDIT_CALLS_PER_REPLY = 3;
 

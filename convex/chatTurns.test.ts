@@ -564,7 +564,7 @@ describe("bounded chat context", () => {
     // per-turn note on message options (Phase A).
     expect(messages).toHaveLength(3);
     expect(String(messages[2]?.content)).toBe(
-      "Message options for this message: Brain examples are off, web search is off."
+      "Options for this reply: Brain examples are off for this message, web search is off in this conversation."
     );
     expect(messages.every((message) => message.role === "user")).toBe(true);
     const evidence = messages.map((message) => String(message.content)).join("\n\n");

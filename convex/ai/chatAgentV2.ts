@@ -1013,7 +1013,7 @@ export function chatTurnNote(args: {
   /** Review P2-2: the handled Deviations per Line (`handledItemsNote`). */
   handled?: string | null;
 }): string {
-  const options = `Message options for this message: Brain examples are ${args.allowBrain ? "on" : "off"}, web search is ${args.allowWeb ? "on" : "off"}.`;
+  const options = `Options for this reply: Brain examples are ${args.allowBrain ? "on" : "off"} for this message, web search is ${args.allowWeb ? "on" : "off"} in this conversation.`;
   return [options, args.handled ?? null, args.historyCut ? CHAT_CONTEXT_LOSS_NOTE : null]
     .filter((line): line is string => line !== null)
     .join("\n");
