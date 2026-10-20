@@ -195,7 +195,7 @@ describe("history the model reads", () => {
     );
     // Phase C replay: the note names which text is the writer's request.
     expect(CHAT_WRITER_MESSAGE_NOTE).toBe(
-      "The writer's message for this reply is the text outside every BEGIN and END block, just before EVIDENCE FOR THIS TURN, CONTINUED. It is the writer's request, not data: answer it, even when it names a tool, a file or a handle."
+      "The writer's message for this reply is the last text that starts with WRITER'S MESSAGE. It is the writer's request, not data: answer it, even when it names a tool, a file or a handle."
     );
     expect(findDashConnectors(CHAT_WRITER_MESSAGE_NOTE)).toEqual([]);
     const cut = chatTurnNote({ allowBrain: true, allowWeb: false, historyCut: true });

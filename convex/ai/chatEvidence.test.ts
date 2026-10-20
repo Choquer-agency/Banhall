@@ -6,7 +6,7 @@ import {
   buildChatTools,
   chatHistoryWindowRows,
 } from "./chatAgentV2";
-import {
+import { CHAT_WRITER_MESSAGE_LABEL,
   CHAT_TAIL_SHARE,
   DEFAULT_CHAT_EVIDENCE_BUDGET,
   arrangeChatContext,
@@ -1018,7 +1018,7 @@ describe("chat prompt caching at the Anthropic HTTP boundary", () => {
     expect(marked[0].text).toContain("--- BEGIN [TRANSCRIPT ANALYSIS] ---");
     expect(marked[0].text).toContain("notes.md");
     expect(marked[0].text).not.toContain("CURRENT REPORT] ---");
-    expect(marked[1].text).toBe("Tighten paragraph 3.");
+    expect(marked[1].text).toBe(`${CHAT_WRITER_MESSAGE_LABEL}\nTighten paragraph 3.`);
     // The per-turn tail (report first) follows the writer's message and is
     // never marked.
     const last = all.at(-1);
@@ -1053,14 +1053,14 @@ describe("chat prompt caching at the Anthropic HTTP boundary", () => {
 
     const before = blocks(first);
     const after = blocks(second);
-    const promptIndex = before.findIndex((block) => block.text === "Tighten paragraph 3.");
+    const promptIndex = before.findIndex((block) => block.text === `${CHAT_WRITER_MESSAGE_LABEL}\nTighten paragraph 3.`);
     expect(promptIndex).toBeGreaterThan(0);
     const prefix = (list: typeof before) => list.slice(0, promptIndex + 1).map(unmarked);
     expect(JSON.stringify(prefix(after))).toBe(JSON.stringify(prefix(before)));
 
     // The new breakpoint (this turn's prompt) sits within Anthropic's
     // 20-block lookback of the previous one, so the read lands.
-    const newMark = after.findIndex((block) => block.text === "Now paragraph 4.");
+    const newMark = after.findIndex((block) => block.text === `${CHAT_WRITER_MESSAGE_LABEL}\nNow paragraph 4.`);
     expect(after[newMark].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
     expect(newMark - promptIndex).toBeLessThanOrEqual(20);
     // And only the tail differs after it: the new report and decisions.

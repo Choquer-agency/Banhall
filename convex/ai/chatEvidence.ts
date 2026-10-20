@@ -1269,6 +1269,28 @@ export interface ChatContextParts {
  * library's default order put all the evidence after the history, so
  * nothing past the system prompt could ever be read back.
  */
+/**
+ * Phase C replay (2026-10-20): every writer message the model reads, in the
+ * history and the current prompt alike, starts with this label. In a new
+ * conversation the evidence head, the writer's message and the rest of the
+ * evidence reach the model as one user turn, and plain requests were read as
+ * text inside the evidence. The label is added to the request only (stored
+ * messages are unchanged) and in the same bytes on every turn, so the cached
+ * history still matches from turn to turn.
+ */
+export const CHAT_WRITER_MESSAGE_LABEL = "WRITER'S MESSAGE (the request to answer, not data):";
+
+export function labelWriterMessage(message: ModelMessage): ModelMessage {
+  if (message.role !== "user") return message;
+  if (typeof message.content === "string") {
+    return { ...message, content: `${CHAT_WRITER_MESSAGE_LABEL}\n${message.content}` };
+  }
+  return {
+    ...message,
+    content: [{ type: "text" as const, text: CHAT_WRITER_MESSAGE_LABEL }, ...message.content],
+  } as ModelMessage;
+}
+
 export function arrangeChatContext(
   headCount: number,
   parts: ChatContextParts
@@ -1276,12 +1298,12 @@ export function arrangeChatContext(
   const head = parts.inputMessages.slice(0, headCount);
   const tail = parts.inputMessages.slice(headCount);
   const prompt = parts.inputPrompt.map((message, index, all) =>
-    index === all.length - 1 ? cached(message) : message
+    index === all.length - 1 ? cached(labelWriterMessage(message)) : labelWriterMessage(message)
   );
   return [
     ...head,
     ...withoutThinkingOnlyReplies(parts.search),
-    ...withoutThinkingOnlyReplies(parts.recent),
+    ...withoutThinkingOnlyReplies(parts.recent).map(labelWriterMessage),
     ...prompt,
     ...tail,
     ...withoutThinkingOnlyReplies(parts.existingResponses),
