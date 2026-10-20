@@ -19,8 +19,11 @@ afterEach(() => { vi.restoreAllMocks(); });
 
 it("advances past a fully redacted chunk and renders the next visible answer", async () => {
   list("one", [stream("a")]);
+  // 2026-10-19 (Phase A): reasoning summaries now reach the browser, except
+  // once Brain material reached the model in the turn. That case still
+  // redacts the whole chunk, so it is the one the cursor must move past.
   deltas("one", [{ streamId: "a", cursor: 0 }], [publicChatDelta({ streamId: "a", start: 0, end: 1,
-    parts: [{ type: "reasoning-delta", id: "r", delta: "PRIVATE_CANARY" }] })]);
+    parts: [{ type: "reasoning-delta", id: "r", delta: "PRIVATE_CANARY" }] }, { brainSearched: true })]);
   await render(UIMessagesHarness, { threadId: "one" });
   await expect.poll(() => __activeQueryArgs(query)).toContainEqual(expect.objectContaining({
     streamArgs: { kind: "deltas", cursors: [{ streamId: "a", cursor: 1 }] },
@@ -29,6 +32,25 @@ it("advances past a fully redacted chunk and renders the next visible answer", a
     parts: [{ type: "text-start", id: "t" }, { type: "text-delta", id: "t", delta: "Visible answer" }] }]);
   await expect.element(output()).toHaveTextContent("Visible answer");
   await expect.element(output()).not.toHaveTextContent("PRIVATE_CANARY");
+});
+
+// 2026-10-19 (Phase A): a reasoning summary streams as its own block and the
+// answer that follows it still renders.
+it("streams a reasoning summary block and then the visible answer", async () => {
+  list("one", [stream("a")]);
+  deltas("one", [{ streamId: "a", cursor: 0 }], [publicChatDelta({ streamId: "a", start: 0, end: 3,
+    parts: [
+      { type: "reasoning-start", id: "r" },
+      { type: "reasoning-delta", id: "r", delta: "Checking Line 244 first." },
+      { type: "reasoning-end", id: "r" },
+    ] })]);
+  await render(UIMessagesHarness, { threadId: "one" });
+  await expect.poll(() => __activeQueryArgs(query)).toContainEqual(expect.objectContaining({
+    streamArgs: { kind: "deltas", cursors: [{ streamId: "a", cursor: 3 }] },
+  }));
+  deltas("one", [{ streamId: "a", cursor: 3 }], [{ streamId: "a", start: 3, end: 5,
+    parts: [{ type: "text-start", id: "t" }, { type: "text-delta", id: "t", delta: "Visible answer" }] }]);
+  await expect.element(output()).toHaveTextContent("Visible answer");
 });
 
 it("accepts contiguous batches once, waits for gaps, handles interleaving/status/removal and persisted authority", async () => {
