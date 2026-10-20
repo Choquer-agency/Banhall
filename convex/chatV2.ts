@@ -127,7 +127,9 @@ import { appliedChangeFor, parseReportDocument, undoAppliedHunks } from "./lib/a
 // Chat parity Phase C (W2): alternatives and the active path.
 import {
   appendTurnAtTip,
+  CHAT_PATH_TURN_SCAN,
   excerptBlock,
+  legacyRefineProposalId,
   loadChatPath,
   pathTurnsNewestFirst,
   readChatPath,
@@ -204,6 +206,27 @@ async function loadNewestTurns(
     .order("desc")
     .take(TURN_WINDOW_LIMIT);
   return turns.reverse();
+}
+
+/**
+ * Phase C review P3-6: the window's turns, from the path's own read when it
+ * already holds them. The path reads the thread's newest
+ * CHAT_PATH_TURN_SCAN (= TURN_WINDOW_LIMIT) turns, so a window that reaches
+ * the newest turn is exactly those at or after its start: one read, not two.
+ */
+async function windowTurns(
+  ctx: QueryCtx,
+  args: { agentThreadId: string; startOrder: number; endOrder: number },
+  path: ChatPath<Doc<"chatTurns">> | null
+) {
+  const newest = path?.turns.at(-1);
+  // The path read every turn (fewer than its scan), or exactly the window's newest.
+  const sameRead = path !== null &&
+    (path.turns.length < CHAT_PATH_TURN_SCAN || CHAT_PATH_TURN_SCAN === TURN_WINDOW_LIMIT);
+  if (path && newest && sameRead && args.endOrder >= newest.order) {
+    return path.turns.filter((turn) => turn.order >= args.startOrder);
+  }
+  return await loadNewestTurns(ctx, args);
 }
 
 /** Resolve a component thread id to our mapping row (or null). */
@@ -375,13 +398,10 @@ export const listProposals = query({
     const window = resolveTurnWindow(args);
     if (window.startOrder > window.endOrder) return [];
 
-    const turns = await loadNewestTurns(ctx, {
-      agentThreadId: args.threadId,
-      ...window,
-    });
     // Phase C (W2): only the active path's cards. A card applied on another
     // path stays there, and a pending one keeps its state, hidden.
     const path = await loadChatPath(ctx, args.threadId, thread);
+    const turns = await windowTurns(ctx, { agentThreadId: args.threadId, ...window }, path);
     const onPath = (promptMessageId: string | undefined) => !path || path.onPathPrompt(promptMessageId);
     const promptMessageIds = [
       ...new Set(turns.filter((turn) => onPath(turn.promptMessageId)).map((turn) => turn.promptMessageId)),
@@ -454,10 +474,8 @@ export const listTurns = query({
     // Phase C (W2): only the active path's turns, each with its place among
     // its alternatives (`alternatives`, when there is more than one).
     const path = await loadChatPath(ctx, args.threadId, thread);
-    const turns = (await loadNewestTurns(ctx, {
-      agentThreadId: args.threadId,
-      ...window,
-    })).filter((turn) => !path || path.onPathPrompt(turn.promptMessageId));
+    const turns = (await windowTurns(ctx, { agentThreadId: args.threadId, ...window }, path))
+      .filter((turn) => !path || path.onPathPrompt(turn.promptMessageId));
     // Phase B (2026-10-20), W2: each turn's sender by name (never an email)
     // and whether it is the viewer, for author labels and the Stop check.
     const senders = await turnSenders(ctx, turns);
@@ -942,7 +960,14 @@ export const sendAlternative = mutation({
       : undefined;
     const excerptText = source.highlight?.text ?? legacyExcerpt;
     if (!writerText.trim() && excerptText === undefined) throw new Error("Message is empty");
-    const candidate = source.refineProposalId ? await ctx.db.get(source.refineProposalId) : null;
+    // Review P3-2: an older turn that kept no card id names it in the
+    // server's own refinement block; it gets the same checks as a send.
+    const legacyRefineId = source.refineProposalId === undefined && source.writerTextLength === undefined
+      ? legacyRefineProposalId(storedText)
+      : undefined;
+    const refineId = source.refineProposalId ??
+      (legacyRefineId !== undefined ? ctx.db.normalizeId("chatProposals", legacyRefineId) ?? undefined : undefined);
+    const candidate = refineId ? await ctx.db.get(refineId) : null;
     const refineProposal = refinableProposal(candidate, report) && candidate.state === "pending" ? candidate : null;
     const content = `${writerText}${excerptText !== undefined ? excerptBlock(excerptText) : ""}${refineProposal ? refinementBlock(refineProposal) : ""}`;
 
@@ -967,6 +992,9 @@ export const sendAlternative = mutation({
       ...(parentPromptMessageId !== undefined ? { parentPromptMessageId } : {}),
       alternativeOf: source.alternativeOf ?? source.promptMessageId,
       alternativeKind: args.kind,
+      // Review P3-1: a regenerated automatic link is still a link (Edit of
+      // one is refused above): it shows as a link and stays in its chain.
+      ...(source.origin === "auto_continue" ? { origin: "auto_continue" as const } : {}),
     });
     await setChatTip(ctx, args.threadId, messageId);
     // Phase C (W3): an alternative is activity, and restores an archived

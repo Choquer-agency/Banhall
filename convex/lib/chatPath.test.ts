@@ -5,6 +5,7 @@ import {
   SERVER_PROMPT_MARKERS,
   writerTextOf,
   excerptBlock,
+  legacyRefineProposalId,
   type PathTurn,
 } from "./chatPath";
 
@@ -86,10 +87,16 @@ describe("buildChatPath", () => {
     });
     expect(path.group(turns[3]!)).toEqual({ index: 3, count: 3, previousPromptMessageId: "b2" });
     // The group's first turn is older than the turns read: it still counts.
+    // Review P3-3: counted, but never offered as a switch target, since the
+    // switcher reads the same turns and could not find it.
     const partial = buildChatPath(turns.slice(2), "b2");
-    expect(partial.group(turns[2]!)).toEqual({
-      index: 2, count: 3, previousPromptMessageId: "b", nextPromptMessageId: "b3",
-    });
+    expect(partial.group(turns[2]!)).toEqual({ index: 2, count: 3, nextPromptMessageId: "b3" });
+  });
+
+  test("reads the card id only from the server's own refinement block", () => {
+    const stored = `Refine it.\n\n[Writer is refining suggestion kd7abc123. Keep this exact canonical report target:]\n"""Old."""`;
+    expect(legacyRefineProposalId(stored)).toBe("kd7abc123");
+    expect(legacyRefineProposalId("Writer is refining suggestion kd7abc123. Keep this exact")).toBeUndefined();
   });
 
   test("the newest leaf under an alternative is where the switcher lands", () => {

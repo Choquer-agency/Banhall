@@ -888,9 +888,17 @@
     const turn = turnByOrder.get(order);
     const threadId = selectedThreadId;
     editingOrder = null;
+    // Review R2 P3-3: focus goes where a normal send leaves it, the composer.
+    textareaEl?.focus();
     if (!turn || !threadId) return;
     await sendText(text, { kind: "edit", threadId },
       { kind: "edit", ofPromptMessageId: turn.promptMessageId, content: text });
+  }
+  /** Review R2 P3-3: Cancel hands focus back to the message's Edit button. */
+  async function cancelEdit(order: number) {
+    editingOrder = null;
+    await tick();
+    document.querySelector<HTMLButtonElement>(`[data-writer-order="${order}"] [data-edit-message]`)?.focus();
   }
   async function switchAlternative(order: number, promptMessageId: string) {
     const threadId = selectedThreadId;
@@ -2098,7 +2106,7 @@
             </div>
           {:else}
             {@const footer = writerFooter(m.order)}
-            <div class="group flex flex-col gap-1">
+            <div class="group flex flex-col gap-1" data-writer-order={m.order}>
               {#if author}
                 <!-- Phase B: who wrote it, when more than one person wrote here. -->
                 <p class="text-right text-[0.6875rem] leading-4 text-ink-muted" data-message-author>{author}</p>
@@ -2106,7 +2114,7 @@
               {#if editingOrder === m.order}
                 <!-- Phase C (W2): Enter sends an alternative, Escape cancels. -->
                 <MessageEditor initial={split.content.trim()} disabled={regenerationBusy}
-                  onSend={(text) => sendEdit(m.order, text)} onCancel={() => (editingOrder = null)} />
+                  onSend={(text) => sendEdit(m.order, text)} onCancel={() => void cancelEdit(m.order)} />
               {:else}
                 <Message role="user">
                   <MessageContent class="min-w-0 [overflow-wrap:anywhere]">

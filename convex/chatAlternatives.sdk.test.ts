@@ -13,6 +13,24 @@ import schema from "./schema";
  * `fetch` is stubbed with Anthropic's server-sent events. Fictional data only.
  */
 
+// Review P2-1: a switch that makes the history path read, or the reading of
+// its rows, fail for one reply.
+const failures = vi.hoisted(() => ({ pathRead: false, pathRows: false }));
+vi.mock("./lib/chatPath", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./lib/chatPath")>();
+  return {
+    ...actual,
+    loadChatPath: (...args: Parameters<typeof actual.loadChatPath>) => {
+      if (failures.pathRead) throw new Error("synthetic path read failure");
+      return actual.loadChatPath(...args);
+    },
+    onHistoryPath: (...args: Parameters<typeof actual.onHistoryPath>) => {
+      if (failures.pathRows) throw new Error("synthetic history read failure");
+      return actual.onHistoryPath(...args);
+    },
+  };
+});
+
 const modules = import.meta.glob("./**/*.ts");
 const authId = "auth-chat-alternatives-sdk";
 const DIRECT_URL = "https://api.anthropic.com/v1/messages";
@@ -106,6 +124,8 @@ beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-anthropic-key");
 });
 afterEach(() => {
+  failures.pathRead = false;
+  failures.pathRows = false;
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -169,5 +189,37 @@ describe("the model reads only the active path", () => {
     expect(request).toContain("Old reply BRAVO.");
     expect(request).not.toContain("New reply CHARLIE.");
     expect(count(request, "Second question ROMEO.")).toBe(1);
+  });
+});
+
+describe("review P2-1: the history fails closed", () => {
+  async function regeneratedWith(failure: keyof typeof failures) {
+    const f = await setup();
+    const sent = stubAnthropic(["First reply ALPHA.", "Sibling reply BRAVO.", "Fresh reply CHARLIE."]);
+    await f.run(f.firstPrompt);
+    const second = await f.send("Second question ROMEO.");
+    await f.run(second);
+    const regenerated = await f.alternative(second, "regenerate");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    failures[failure] = true;
+    await f.run(regenerated);
+    failures[failure] = false;
+    return sent;
+  }
+
+  test("when the history rows cannot be read, the model reads no history, never a sibling's reply, and is told", async () => {
+    const sent = await regeneratedWith("pathRows");
+    const request = conversation(sent[2]!);
+    expect(request).not.toContain("Sibling reply BRAVO.");
+    expect(request).not.toContain("First reply ALPHA.");
+    expect(count(request, "Second question ROMEO.")).toBe(1);
+    expect(request).toContain("Earlier turns of this conversation are not shown to you");
+  });
+
+  test("when the path cannot be read at all, no request carries a sibling's reply", async () => {
+    // The turn's other path reads (cards, coverage) fail too, so the reply
+    // may not run; whatever is sent holds no hidden alternative.
+    const sent = await regeneratedWith("pathRead");
+    for (const body of sent.slice(2)) expect(conversation(body)).not.toContain("Sibling reply BRAVO.");
   });
 });

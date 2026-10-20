@@ -149,11 +149,16 @@ export function buildChatPath<T extends PathTurn>(
       if (ids.length < 2) return undefined;
       const position = ids.indexOf(turn.promptMessageId);
       if (position === -1) return undefined;
+      // Review P3-3: it is counted, but never offered as a place to switch
+      // to: `setActiveAlternative` reads the same turns and could not find it.
+      const reachable = (id: string | undefined) => (id !== undefined && byPrompt.has(id) ? id : undefined);
+      const previous = reachable(ids[position - 1]);
+      const next = reachable(ids[position + 1]);
       return {
         index: position + 1,
         count: ids.length,
-        ...(position > 0 ? { previousPromptMessageId: ids[position - 1]! } : {}),
-        ...(position < ids.length - 1 ? { nextPromptMessageId: ids[position + 1]! } : {}),
+        ...(previous ? { previousPromptMessageId: previous } : {}),
+        ...(next ? { nextPromptMessageId: next } : {}),
       };
     },
     newestLeafUnder(promptMessageId) {
@@ -330,6 +335,15 @@ export function writerTextOf(stored: string, writerTextLength: number | undefine
     if (at !== -1 && at < end) end = at;
   }
   return stored.slice(0, end);
+}
+
+/**
+ * Review P3-2: the card a stored prompt's refinement block names, for a turn
+ * saved before `refineProposalId` was recorded. Read only from the server's
+ * own block format.
+ */
+export function legacyRefineProposalId(stored: string): string | undefined {
+  return /\n\n\[Writer is refining suggestion ([^\s.\]]+)\. Keep this exact canonical report target:\]\n"""/.exec(stored)?.[1];
 }
 
 /** The highlight block `sendMessage` appends after the writer's text. */

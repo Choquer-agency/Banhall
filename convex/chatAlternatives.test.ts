@@ -227,6 +227,43 @@ describe("sendAlternative", () => {
       threadId: f.threadId, ofPromptMessageId: link, kind: "regenerate",
     });
     expect(await f.storedPrompt(again.messageId)).toBe("Continue with Line 244.");
+    // Review P3-1: it is still a link: shown as one, not editable, and in its chain.
+    expect(await f.turnOf(again.messageId)).toMatchObject({
+      origin: "auto_continue", alternativeKind: "regenerate", alternativeOf: link,
+    });
+    expect((await f.listTurns()).at(-1)).toMatchObject({ promptMessageId: again.messageId, origin: "auto_continue" });
+  });
+
+  test("an older turn's refinement block is rebuilt from the card it names, while that card is pending", async () => {
+    const f = await setup();
+    await f.reply(f.firstPrompt, "First reply.");
+    const card = await f.t.run((ctx) => ctx.db.insert("chatProposals", {
+      agentThreadId: f.threadId, promptMessageId: f.firstPrompt, projectId: f.projectId, reportId: f.reportId,
+      kind: "edit", targetText: "Old sentence.", newText: "New sentence.", state: "pending", createdAt: Date.now(),
+    }));
+    const refining = (await f.actor.mutation(api.chatV2.sendMessage, {
+      reportId: f.reportId, threadId: f.threadId, content: "Make it plainer.", refineProposalId: card,
+    })).messageId;
+    const original = await f.storedPrompt(refining);
+    // As saved before `refineProposalId` and `writerTextLength` were recorded.
+    await f.t.run(async (ctx) => {
+      const turn = (await ctx.db.query("chatTurns").collect()).find((row) => row.promptMessageId === refining)!;
+      await ctx.db.patch(turn._id, { refineProposalId: undefined, writerTextLength: undefined });
+    });
+    await f.reply(refining, "Plainer.");
+    const again = await f.actor.mutation(api.chatV2.sendAlternative, {
+      threadId: f.threadId, ofPromptMessageId: refining, kind: "regenerate",
+    });
+    expect(await f.storedPrompt(again.messageId)).toBe(original);
+    expect(await f.turnOf(again.messageId)).toMatchObject({ refineProposalId: card });
+
+    // Once the card is decided, the block is dropped.
+    await f.reply(again.messageId, "Plainer again.");
+    await f.t.run((ctx) => ctx.db.patch(card, { state: "applied" }));
+    const third = await f.actor.mutation(api.chatV2.sendAlternative, {
+      threadId: f.threadId, ofPromptMessageId: again.messageId, kind: "regenerate",
+    });
+    expect(await f.storedPrompt(third.messageId)).toBe("Make it plainer.");
   });
 });
 

@@ -72,6 +72,8 @@ describe("Edit", () => {
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => page.getByRole("textbox", { name: "Edit your message" }).elements().length).toBe(0);
     expect(__mutationCalls("chatV2:sendAlternative")).toHaveLength(0);
+    // Review R2 P3-3: focus returns to that message's Edit button.
+    await expect.element(editButtons().nth(1)).toHaveFocus();
     // The report page's Escape handler skips an event already handled.
     expect(outside.mock.calls.every(([event]) => (event as KeyboardEvent).key !== "Escape" || (event as KeyboardEvent).defaultPrevented)).toBe(true);
     await expect.element(page.getByText("Now make it shorter.", { exact: true })).toBeVisible();
@@ -89,6 +91,8 @@ describe("Edit", () => {
     }]);
     expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
     await expect.poll(() => page.getByRole("textbox", { name: "Edit your message" }).elements().length).toBe(0);
+    // Review R2 P3-3: focus goes where a normal send leaves it, the composer.
+    await expect.element(page.getByRole("textbox", { name: "Message the report assistant" })).toHaveFocus();
   });
 
   it("is not offered on an automatic Continue link or a turn still running", async () => {

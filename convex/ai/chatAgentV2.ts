@@ -1075,14 +1075,28 @@ const CHAT_PATH_HISTORY_PAGES = 5;
 async function chatContextWindow(
   ctx: ActionCtx,
   args: { agentThreadId: string; promptMessageId: string }
-): Promise<{ options: ContextOptions; historyStartOrder?: number; pathRecent?: ModelMessage[] }> {
+): Promise<{
+  options: ContextOptions;
+  historyStartOrder?: number;
+  pathRecent?: ModelMessage[];
+  /** Phase C review P2-1: the history was left out, so the model is told. */
+  historyCut?: boolean;
+}> {
+  // Phase C (W2): when the conversation has alternatives, the model reads
+  // only the active path. Null (nothing hidden) keeps the plain window.
+  // Review P2-1: fail closed. When the path cannot be read, or its rows
+  // cannot be built, the conversation may have alternatives, and the
+  // library's own history (read by order) would carry a hidden sibling's
+  // reply. The model then reads no history and is told so.
+  const noHistory = { options: CHAT_CONTEXT_OPTIONS, pathRecent: [], historyCut: true };
+  let historyPath: { orders: number[]; belowOrder: number } | null;
   try {
-    // Phase C (W2): when the conversation has alternatives, the model reads
-    // only the active path. Null (nothing hidden) keeps the plain window.
-    const historyPath: { orders: number[]; belowOrder: number } | null = await ctx.runQuery(
-      internal.chatV2.getChatHistoryPath,
-      { agentThreadId: args.agentThreadId }
-    );
+    historyPath = await ctx.runQuery(internal.chatV2.getChatHistoryPath, { agentThreadId: args.agentThreadId });
+  } catch (error) {
+    console.error("chat history path could not be read", safeErrorDetails(error));
+    return noHistory;
+  }
+  try {
     const readPage = (cursor: string | null) =>
       ctx.runQuery(components.agent.messages.listMessagesByThreadId, {
         threadId: args.agentThreadId,
@@ -1137,10 +1151,11 @@ async function chatContextWindow(
       ...(pathRecent ? { pathRecent } : {}),
     };
   } catch (error) {
-    // The window only affects caching; the plain bound is always safe. Where
-    // it starts is then unknown, so nothing is recorded.
     console.error("chat history window probe failed", safeErrorDetails(error));
-    return { options: CHAT_CONTEXT_OPTIONS };
+    // Without alternatives the window only affects caching, and the plain
+    // bound is safe; where it starts is then unknown, so nothing is
+    // recorded. With alternatives, no history rather than the wrong one.
+    return historyPath ? noHistory : { options: CHAT_CONTEXT_OPTIONS };
   }
 }
 
@@ -2011,7 +2026,7 @@ export const streamChatReply = internalAction({
           content: chatTurnNote({
             allowBrain: args.allowBrain === true,
             allowWeb: args.allowWeb === true,
-            historyCut: history.historyStartOrder !== undefined,
+            historyCut: history.historyStartOrder !== undefined || history.historyCut === true,
             // Phase B round 2: and the job's items waiting on a pending card.
             handled: [handledItemsNote(coverage.items), waitingItemsNote(coverage.waiting)]
               .filter((line): line is string => line !== null)
