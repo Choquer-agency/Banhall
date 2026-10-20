@@ -2,8 +2,8 @@
 title: 'Report chat parity, Phase B: reading files, continuing on its own, web sources, Undo'
 type: 'feature'
 created: '2026-10-20'
-status: 'in-progress'
-review_loop_iteration: 2
+status: 'done'
+review_loop_iteration: 3
 baseline_commit: 'ca427fb4'
 context:
   - '{project-root}/_bmad-output/planning-artifacts/research/chat-parity-plan-2026-10-19.md'
@@ -397,3 +397,35 @@ Also add convex-test coverage for `chatDocuments.ts` and update the evidence and
   - 2026-10-19 (sixth): the option becomes per conversation, and sources are shown;
   - Rule 6 and the Continue rules of 2026-10-19 (seventh): automatic links;
   - the card transitions (Undo) in AD-4.
+
+## Verification record (2026-10-20)
+- **Reviews.** Three rounds, all by Claude Opus 5.5 at high effort:
+  - **Round 1** used two reviewers, one for the engine and reading tools, one for Undo, web and the screens.
+    - P2: the 90 s time stop was shorter than one step, so a timed-out turn lost its chain.
+    - P2: Undo could report success and leave a duplicated paragraph when touching runs were not merged (a fuzz test found it).
+    - Fourteen P3s, all fixed.
+  - **Round 2:** all round 1 findings fixed. Four new P3s (first counts as progress, a timed-out partial reply, the Undo byte check, no record without a key), all fixed.
+  - **Round 3:** reviewed the round 2 fixes and the waiting rule. Approved with three P3s: blocked rows now count for nothing; whole-Line items, paraphrased continues and the note gap are recorded as known limitations.
+- **Real replay** on an isolated local backend with a dev snapshot of a senior writer's PD13 c project and his own prompts:
+  - **Run 1:** the job continued on its own. The head turn plus three automatic links, 421 s, no failures. It found the waiting-card defect: one link rewrote Line 242 again, giving 6 duplicate items. Fixed with "waiting on a pending card".
+  - **Runs 2 and 3, after the fix:**
+    - Run 2 did all three Lines in one reply of 6 steps.
+    - Run 3 was the head turn plus two automatic links.
+    - Both ended with 18 distinct items (17 resolved, 1 blocked) and no duplicates.
+  - **Stop on a running link:** the link ended as stopped, with no offer and no further link.
+  - **Reading:**
+    - readTranscript opened 41 speaker turns.
+    - searchDocuments ran 4 calls in parallel.
+    - Replies cited turn numbers and parts.
+    - Stored tool results were receipts of 130 to 218 characters.
+    - No 160-character window of transcript or file text was found in tool rows, stored replies or 58 stream deltas.
+  - **Undo on a real card:** the report came back byte for byte (same hash). The card returned to pending, a `pre_chat_undo` snapshot was taken, and `appliedChange` never reached the browser.
+  - **No failures anywhere:** no failed replies, no recovery passes, no thinking-only cut-offs.
+  - **Not run:** web search, because the OpenRouter key was not copied to the local backend (it needs owner approval). The SDK and component tests cover it.
+  - **Clean-up:** the snapshot, the local database, the replay worktree and the scripts were deleted afterwards.
+- **Contract changes after review:**
+  - `CHAT_MIN_STEP_REMAINING_MS` is 150_000, not 90_000 (round 1 P2).
+  - `chatWebSearches` gains `toolCallId` and the `by_agentThreadId` index.
+  - `chatTurns.continuation` gains an optional `waiting` list.
+- **Gate.** `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` on 3dcc63d6 passed all 10 steps (6,873 unit tests, 1,879 component tests); the final run on e3bc23a5 is recorded in the handoff.
+
