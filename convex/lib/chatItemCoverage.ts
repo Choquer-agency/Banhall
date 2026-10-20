@@ -17,9 +17,16 @@ import type { CompletionReportSection } from "./completionReport";
  * so its id names the same Deviation for the whole conversation. A content
  * (`c-`) or reference (`x-`) id names whatever the writer, or the Reference
  * PD, put at that position in one request, so a card records a fingerprint of
- * what the item is (`itemFingerprint`) and a mark needs the same id and the
- * same fingerprint. A card saved without one (no list call in its turn) falls
- * back to the id within the current job.
+ * what the item is (`itemFingerprint`).
+ *
+ * Round 4 (N1): a card covers a content or reference item when EITHER its
+ * fingerprint equals the item's (whatever the positional id, whatever the
+ * job), OR it belongs to the current job and has the same id (with or
+ * without a fingerprint). The first carries marks across a refine, a
+ * question or a typed continue; the second keeps a Continue chain stable when
+ * the model re-extracts the writer's instructions with other wording or in
+ * another order. A fresh request with a different instruction at the same
+ * position matches neither, so it starts clean.
  */
 
 /** One `chatProposalItems` row with the state of the card that carries it. */
@@ -159,10 +166,23 @@ export function itemCoverage(rows: ReadonlyArray<ItemCoverageRow>): ItemCoverage
   return [...newest.values()].map(coverageOf);
 }
 
+/** Whether one card entry covers one current item (the rule above). */
+export function entryCovers(
+  entry: ItemCoverage,
+  item: { id: string; fingerprint?: string | undefined }
+): boolean {
+  if (coverageLastsWholeConversation(item.id)) return entry.itemId === item.id;
+  if (coverageLastsWholeConversation(entry.itemId)) return false;
+  if (entry.fingerprint !== undefined && item.fingerprint !== undefined && entry.fingerprint === item.fingerprint) {
+    return true;
+  }
+  return entry.inCurrentJob && entry.itemId === item.id;
+}
+
 /**
  * The coverage that applies to one current item: a rule item by its id; a
- * content or reference item by its id and fingerprint, or by its id alone for
- * a card of the current job that recorded no fingerprint. The newest wins.
+ * content or reference item by its fingerprint, or by its id within the
+ * current job (`entryCovers`). The newest wins.
  */
 export function coverageFor(
   coverage: ReadonlyArray<ItemCoverage>,
@@ -170,24 +190,26 @@ export function coverageFor(
 ): ItemCoverage | undefined {
   let best: ItemCoverage | undefined;
   for (const entry of coverage) {
-    if (entry.itemId !== item.id) continue;
-    const applies = coverageLastsWholeConversation(item.id)
-      ? true
-      : entry.fingerprint !== undefined
-        ? entry.fingerprint === item.fingerprint
-        : entry.inCurrentJob;
-    if (applies && (!best || entry.createdAt > best.createdAt)) best = entry;
+    if (entryCovers(entry, item) && (!best || entry.createdAt > best.createdAt)) best = entry;
   }
   return best;
 }
 
-/** The per-turn note line: handled items per Line, or null when there are none. */
+/**
+ * The per-turn note line: handled items per Line, or null when there are none.
+ * Round 4 (N3): counted before the turn's list exists, so only what the list
+ * is sure to mark: rule items, and content or reference items of the current
+ * job. An earlier job's item still gets its mark if it comes back with the
+ * same fingerprint; the note leaves it out rather than count it unseen.
+ */
 export function handledItemsNote(coverage: ReadonlyArray<ItemCoverage>): string | null {
   const counts = new Map<string, number>();
+  const seen = new Set<string>();
   for (const item of coverage) {
     if (!item.handled) continue;
-    // A card without a fingerprint counts only within its job.
-    if (!coverageLastsWholeConversation(item.itemId) && item.fingerprint === undefined && !item.inCurrentJob) continue;
+    if (!coverageLastsWholeConversation(item.itemId) && !item.inCurrentJob) continue;
+    if (seen.has(item.itemId)) continue;
+    seen.add(item.itemId);
     const line = item.section ?? "other";
     counts.set(line, (counts.get(line) ?? 0) + 1);
   }

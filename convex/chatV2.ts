@@ -1992,10 +1992,13 @@ export const listProposalItems = query({
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) return [];
     await requireInternalProjectAccess(ctx, proposal.projectId);
-    return await ctx.db
+    const rows = await ctx.db
       .query("chatProposalItems")
       .withIndex("by_proposalId", (q) => q.eq("proposalId", args.proposalId))
       .take(MAX_COMPLETION_REPORT_FINDINGS);
+    // Phase A round 4 (N2): the item fingerprint only steers the server's
+    // marks; it never reaches the browser.
+    return rows.map(({ fingerprint: _serverOnly, ...row }) => row);
   },
 });
 

@@ -14,8 +14,11 @@ import {
 } from "./chatAgentV2";
 import { CHAT_WEB_SEARCH_OFF, newWebSearchTurn, runSearchWeb } from "./chatWebSearch";
 import {
+  coverageFor,
   coverageLastsWholeConversation,
+  entryCovers,
   handledItemsNote,
+  itemFingerprint,
   isContinuePrompt,
   itemCoverage,
 } from "../lib/chatItemCoverage";
@@ -306,5 +309,43 @@ describe("round 2 N1 and N2: reopening and job scope", () => {
     for (const text of ["Continue with Line 244 but shorter.", "Fix Line 244.", "The range is 2 to 5 bar. Continue.", ""]) {
       expect(isContinuePrompt(text), text).toBe(false);
     }
+  });
+});
+
+describe("round 4 N1 and N3: which card entry covers an item", () => {
+  const entry = (itemId: string, extra: { fingerprint?: string; inCurrentJob: boolean; createdAt?: number }) => ({
+    itemId, label: "already on a pending card", handled: true, reopen: "x", createdAt: extra.createdAt ?? 1,
+    inCurrentJob: extra.inCurrentJob, ...(extra.fingerprint ? { fingerprint: extra.fingerprint } : {}), section: "242" as const,
+  });
+  const fp = (instruction: string, paragraph = 1) => itemFingerprint({ kind: "content", section: "242", paragraph, instruction })!;
+
+  it("matches by fingerprint across ids and jobs, or by id within the job", () => {
+    const op = fp("Call it the operating envelope.");
+    // Same fingerprint, another id, another job.
+    expect(entryCovers(entry("c-242-1-2", { fingerprint: op, inCurrentJob: false }), { id: "c-242-1-1", fingerprint: op })).toBe(true);
+    // Same id within the job, wording changed.
+    expect(entryCovers(entry("c-242-1-1", { fingerprint: op, inCurrentJob: true }), { id: "c-242-1-1", fingerprint: fp('Call it the "operating envelope" please.') })).toBe(true);
+    // Same id from an earlier job, a different instruction: a fresh request.
+    expect(entryCovers(entry("c-242-1-1", { fingerprint: op, inCurrentJob: false }), { id: "c-242-1-1", fingerprint: fp("Name the supplier.") })).toBe(false);
+    // Rule items by id only; a rule entry never covers a content item.
+    expect(entryCovers(entry("r-242-1-1", { inCurrentJob: false }), { id: "r-242-1-1" })).toBe(true);
+    expect(entryCovers(entry("r-242-1-1", { inCurrentJob: true }), { id: "c-242-1-1", fingerprint: op })).toBe(false);
+    // The newest covering entry wins.
+    const newer = { ...entry("c-242-1-1", { inCurrentJob: true, createdAt: 5 }), label: "applied" };
+    expect(coverageFor([entry("c-242-1-1", { fingerprint: op, inCurrentJob: false }), newer], { id: "c-242-1-1", fingerprint: op })?.label).toBe("applied");
+    // Fingerprints normalize case, spacing and closing punctuation.
+    expect(fp("Call it the operating envelope.")).toBe(fp("  call it the   OPERATING envelope "));
+  });
+
+  it("the note counts only what the list is sure to mark", () => {
+    const note = handledItemsNote([
+      entry("r-242-1-1", { inCurrentJob: false }),
+      entry("c-242-1-1", { fingerprint: "a", inCurrentJob: true }),
+      // An earlier job's content item: marked only if it comes back, so not counted.
+      entry("c-242-2-1", { fingerprint: "b", inCurrentJob: false }),
+      // Two entries for one id count once.
+      entry("c-242-1-1", { inCurrentJob: true }),
+    ]);
+    expect(note).toContain("Line 242 2.");
   });
 });

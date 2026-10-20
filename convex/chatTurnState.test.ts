@@ -181,6 +181,22 @@ describe("getThreadItemCoverage (review P2-2)", () => {
   });
 });
 
+describe("listProposalItems (round 4 N2)", () => {
+  test("never sends an item's fingerprint to the browser", async () => {
+    const f = await setup();
+    const proposalId = await f.proposal("p0", ["c-242-1-1"]);
+    await f.t.run(async (ctx) => {
+      const [row] = await ctx.db.query("chatProposalItems").collect();
+      await ctx.db.patch(row!._id, { fingerprint: "0123456789abcdef" });
+    });
+    const items = await f.t.withIdentity({ subject: AUTH }).query(api.chatV2.listProposalItems, { proposalId });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ itemId: "c-242-1-1", status: "resolved" });
+    expect(items[0]).not.toHaveProperty("fingerprint");
+    expect(JSON.stringify(items)).not.toContain("0123456789abcdef");
+  });
+});
+
 describe("listTurns", () => {
   test("returns progress, continuation and historyStartOrder, never the Brain flag", async () => {
     const f = await setup();

@@ -265,6 +265,27 @@ describe("runCompareReferencePd", () => {
     expect(reply).toContain("Never answer with a similarity score.");
   });
 
+  // Chat parity round 3 and 4: a reference (x-) item on a card records what
+  // it is, from the turn's latest compareReferencePd call.
+  test("a card records a fingerprint for each reference item the comparison listed", async () => {
+    const f = await setup({
+      documents: [{ fileName: "last-year-pd.docx", content: REFERENCE }],
+    });
+    const messages = [
+      { role: "assistant" as const, content: [{ type: "tool-call" as const, toolCallId: "cmp", toolName: "compareReferencePd", input: {} }] },
+    ];
+    const finding = {
+      id: "x-242-3-1", section: "242" as const, paragraph: 3, kind: "reference" as const, status: "conflicting" as const,
+      reason: "The Reference PD has one fewer trial.", lockedRule: "Line 242 line cap.", alternative: "Keep three trials.",
+    };
+    await runProposeBulkEdits(f.ctx, { edits: [], findings: [finding] }, { toolCallId: "with-list", bannedWordsWaived: false, messages });
+    await runProposeBulkEdits(f.ctx, { edits: [], findings: [finding] }, { toolCallId: "no-list", bannedWordsWaived: false });
+    const rows = await f.t.run((ctx) => ctx.db.query("chatProposalItems").collect());
+    expect(rows.map((row) => row.itemId)).toEqual(["x-242-3-1", "x-242-3-1"]);
+    expect(rows[0]?.fingerprint).toMatch(/^[0-9a-f]{16}$/);
+    expect(rows[1]?.fingerprint).toBeUndefined();
+  });
+
   test("forwards contentDeviations alongside the comparison", async () => {
     const f = await setup({
       documents: [{ fileName: "last-year-pd.docx", content: REFERENCE }],

@@ -949,3 +949,121 @@ describe("round 3 P2-A: content and reference marks keyed on what the item is", 
     expect(listed.split("\n").find((line) => line.includes("c-242-1-1"))).toContain("Handled earlier");
   });
 });
+
+// ─── Round 4 (N1): a Continue chain survives re-extracted instructions ─────
+
+describe("round 4 N1: re-extracted instructions in a Continue chain", () => {
+  async function send(f: Awaited<ReturnType<typeof setup>>, content: string) {
+    const next = await f.actor.mutation(api.chatV2.sendMessage, { reportId: f.reportId, content, threadId: f.threadId });
+    await f.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: next.threadId, promptMessageId: next.messageId, reportId: f.reportId, userId: f.userId,
+    });
+    return await f.t.run(async (ctx) => (await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+        q.eq("agentThreadId", next.threadId).eq("promptMessageId", next.messageId))
+      .unique())!);
+  }
+  const card = (id: string, toolUseId: string, ids: Array<{ id: string; section: "242" | "244" }>, targetText: string, newText: string) =>
+    toolAnswer(id, toolUseId, "proposeBulkEdits", {
+      edits: [{ targetText, newText }],
+      findings: ids.map((x) => ({ id: x.id, section: x.section, paragraph: 1, kind: "content", status: "resolved", editNumbers: [1] })),
+    });
+  type Named = Array<{ section: string; paragraph: number; instruction: string }>;
+
+  /** The reviewer's probe: T1 revises 242, T2 (a Continue) lists again with `t2Named` and revises 244. */
+  async function chain(t1Named: Named, t2Named: Named) {
+    const f = await setup();
+    stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_inv1", "deviationInventory", { contentDeviations: t1Named, section: "242" }),
+      () => card("msg_2", "toolu_a", t1Named.filter((n) => n.section === "242").map((_, i) => ({ id: `c-242-1-${i + 1}`, section: "242" as const })), P1, "Trial 1 described a pressure operating envelope."),
+      () => textAnswer("msg_3", "Proposed the Line 242 revision."),
+    ]);
+    await f.run();
+    const t2 = stubAnthropic([
+      () => toolAnswer("msg_4", "toolu_inv2", "deviationInventory", { contentDeviations: t2Named }),
+      () => card("msg_5", "toolu_b", [{ id: "c-244-1-1", section: "244" }], P244, "The team rebuilt the rig in March 2025."),
+      () => textAnswer("msg_6", "Proposed the Line 244 revision."),
+    ]);
+    const second = await send(f, "Continue with Line 244.");
+    const listed = String(toolResult(t2[1]!, "toolu_inv2")?.content).split("\n");
+    return { second, listed, note: lastUserText(t2[0]!) };
+  }
+  const lineWith = (listed: string[], id: string) => listed.find((line) => line.startsWith(`- ${id} `));
+
+  test("drift: a quoted or rephrased instruction still counts as handled within the chain", async () => {
+    const { second, listed, note } = await chain(
+      [
+        { section: "242", paragraph: 1, instruction: "Call it the operating envelope." },
+        { section: "244", paragraph: 1, instruction: "Name the month the rig was rebuilt." },
+      ],
+      [
+        { section: "242", paragraph: 1, instruction: 'Call it the "operating envelope".' },
+        { section: "244", paragraph: 1, instruction: "Name the month the rig was rebuilt." },
+      ]
+    );
+    expect(lineWith(listed, "c-242-1-1")).toContain("Handled earlier in this conversation (already on a pending card)");
+    expect(second.continuation).toBeUndefined();
+    expect(note).toContain("Line 242 1.");
+  });
+
+  test("reorder: two instructions on one paragraph listed in the other order both stay handled", async () => {
+    const { second, listed, note } = await chain(
+      [
+        { section: "242", paragraph: 1, instruction: "Call it the operating envelope." },
+        { section: "242", paragraph: 1, instruction: "Give the range in bar." },
+        { section: "244", paragraph: 1, instruction: "Name the month the rig was rebuilt." },
+      ],
+      [
+        { section: "242", paragraph: 1, instruction: "Give the range in bar." },
+        { section: "242", paragraph: 1, instruction: "Call it the operating envelope." },
+        { section: "244", paragraph: 1, instruction: "Name the month the rig was rebuilt." },
+      ]
+    );
+    expect(lineWith(listed, "c-242-1-1")).toContain("Handled earlier");
+    expect(lineWith(listed, "c-242-1-2")).toContain("Handled earlier");
+    expect(second.continuation).toBeUndefined();
+    expect(note).toContain("Line 242 2.");
+  });
+
+  test("control: identical re-extraction", async () => {
+    const named = [
+      { section: "242", paragraph: 1, instruction: "Call it the operating envelope." },
+      { section: "244", paragraph: 1, instruction: "Name the month the rig was rebuilt." },
+    ];
+    const { second, listed } = await chain(named, named);
+    expect(lineWith(listed, "c-242-1-1")).toContain("Handled earlier");
+    expect(second.continuation).toBeUndefined();
+  });
+
+  test("a card from a recovery pass records no fingerprint and is matched by id within the job", async () => {
+    const f = await setup();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const named = [
+      { section: "242", paragraph: 1, instruction: "Call it the operating envelope." },
+      { section: "244", paragraph: 1, instruction: "Name the month the rig was rebuilt." },
+    ];
+    // Pass 1 lists, then thinks to the limit; the recovery pass cannot see
+    // that list, so its card has nothing to fingerprint against.
+    stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_inv1", "deviationInventory", { contentDeviations: named }),
+      () => thinkingOnlyAnswer("msg_2"),
+      () => card("msg_3", "toolu_a", [{ id: "c-242-1-1", section: "242" }], P1, "Trial 1 described a pressure operating envelope."),
+      () => textAnswer("msg_4", "Proposed the Line 242 revision."),
+    ]);
+    await f.run();
+    const [row] = await f.t.run((ctx) => ctx.db.query("chatProposalItems").collect());
+    expect(row).toMatchObject({ itemId: "c-242-1-1" });
+    expect(row?.fingerprint).toBeUndefined();
+
+    const t2 = stubAnthropic([
+      () => toolAnswer("msg_5", "toolu_inv2", "deviationInventory", { contentDeviations: named }),
+      () => textAnswer("msg_6", "Line 244 is next."),
+    ]);
+    await send(f, "Continue with Line 244.");
+    const listed = String(toolResult(t2[1]!, "toolu_inv2")?.content).split("\n");
+    expect(lineWith(listed, "c-242-1-1")).toContain("Handled earlier");
+    expect(lineWith(listed, "c-244-1-1")).not.toContain("Handled earlier");
+  });
+});
