@@ -614,7 +614,8 @@ describe("step limit and time stop", () => {
   test("a pass makes at most 8 requests; the recovery pass keeps 5", () => {
     expect(CHAT_MAX_STEPS).toBe(8);
     expect(CHAT_RECOVERY_MAX_STEPS).toBe(5);
-    expect(CHAT_MIN_STEP_REMAINING_MS).toBe(90_000);
+    // Review R1 P2-1: as much as the recovery pass needs.
+    expect(CHAT_MIN_STEP_REMAINING_MS).toBe(150_000);
   });
 
   test("a pass stopped for time ends exactly like the step limit", async () => {

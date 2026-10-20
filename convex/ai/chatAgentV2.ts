@@ -672,9 +672,11 @@ export const CHAT_RECOVERY_MAX_STEPS = 5;
 /**
  * Phase B (2026-10-20): a new step does not start with less than this left
  * in the action window. A pass stopped for time ends exactly like the step
- * limit: the closing note and a `step_limit` Continue offer.
+ * limit: the closing note and a `step_limit` Continue offer. Review R1 P2-1:
+ * 150 seconds, the same as `CHAT_RECOVERY_MIN_REMAINING_MS`, because a step
+ * that thinks to the output limit took 140 to 168 seconds.
  */
-export const CHAT_MIN_STEP_REMAINING_MS = 90_000;
+export const CHAT_MIN_STEP_REMAINING_MS = 150_000;
 
 /**
  * The stop condition for time: true once less than CHAT_MIN_STEP_REMAINING_MS
@@ -1661,6 +1663,11 @@ const CUT_OFF_FAILURES: ReadonlySet<string> = new Set([
   "CHAT_REPLY_CUT_OFF",
 ]);
 
+/** The turn ran out of its action window. */
+function timedOut(error: unknown): boolean {
+  return error instanceof Error && error.message === "CHAT_TIMED_OUT";
+}
+
 export function continuationReasonForFailure(error: unknown): ChatTurnContinuationReason | null {
   return error instanceof Error && CUT_OFF_FAILURES.has(error.message) ? "cut_off" : null;
 }
@@ -2272,7 +2279,17 @@ export const streamChatReply = internalAction({
           ? new Error("CHAT_TIMED_OUT")
           : caught;
       // Phase A: a reply cut off offers Continue; a stopped one offers nothing.
-      const continuation = stopped ? null : continuationReasonForFailure(error);
+      let continuation = stopped ? null : continuationReasonForFailure(error);
+      // Review R1 P2-1: a turn that ran out of time after it saved a card
+      // offers Continue too, so its job (and its chain) can go on.
+      if (!stopped && !continuation && timedOut(error)) {
+        try {
+          const savedCard: boolean = await ctx.runQuery(internal.chatV2.turnSavedAnyProposal, turnKey);
+          if (savedCard) continuation = "cut_off";
+        } catch (readError) {
+          console.error("chat timed-out turn could not read its cards", safeErrorDetails(readError));
+        }
+      }
       if (continuation) await offerContinuation(continuation);
       await progress.flush();
       const finish: {

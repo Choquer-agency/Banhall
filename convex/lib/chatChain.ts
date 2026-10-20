@@ -93,6 +93,41 @@ async function withinBudget(ctx: QueryCtx, projectId: Id<"projects">): Promise<b
   return spent <= usdDecimalUnits(limits.dailyBudgetUsd);
 }
 
+/** How far back a link's progress check reads its chain. */
+export const CHAIN_HISTORY_LIMIT = 50;
+
+/**
+ * The Continue offers of the chain before `order`: the automatic links
+ * before it, newest first, and the turn that started the job (the first one
+ * a person sent), bounded to CHAIN_HISTORY_LIMIT turns.
+ */
+async function chainBefore(ctx: QueryCtx, agentThreadId: string, order: number) {
+  const turns = await ctx.db
+    .query("chatTurns")
+    .withIndex("by_agentThreadId_and_order", (q) =>
+      q.eq("agentThreadId", agentThreadId).lt("order", order)
+    )
+    .order("desc")
+    .take(CHAIN_HISTORY_LIMIT);
+  const offers: Array<Doc<"chatTurns">["continuation"]> = [];
+  for (const turn of turns) {
+    offers.push(turn.continuation);
+    if (turn.origin !== "auto_continue") break;
+  }
+  return offers;
+}
+
+/**
+ * The sender may still use the report chat: the same actor rule as
+ * `getInternalProjectAccessOrNull` (a non-anonymous user with a role), read
+ * for a stored user rather than the caller. The project itself is checked
+ * above (not being deleted).
+ */
+async function senderMayChat(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
+  const user = await ctx.db.get(userId);
+  return !!user && user.isAnonymous !== true && !!user.role;
+}
+
 /** Whether a turn's ending offers Continue: completed, or cut off. */
 function endedWithOffer(turn: Doc<"chatTurns">): boolean {
   if (!turn.continuation) return false;
@@ -138,21 +173,17 @@ export async function continueChain(ctx: MutationCtx, key: ChainTurnKey): Promis
   const progressed = continuation.reason === "lines_left" || (await turnSavedAnyProposal(ctx, key));
   if (!progressed) return await skip("no_progress");
   if (turn.origin === "auto_continue") {
-    const previous = await ctx.db
-      .query("chatTurns")
-      .withIndex("by_agentThreadId_and_order", (q) =>
-        q.eq("agentThreadId", key.agentThreadId).lt("order", turn.order)
-      )
-      .order("desc")
-      .first();
-    if (!chainLinkMadeProgress(previous?.continuation, continuation)) return await skip("no_progress");
+    const earlier = await chainBefore(ctx, key.agentThreadId, turn.order);
+    if (!chainLinkMadeProgress(earlier, continuation)) return await skip("no_progress");
   }
 
   if (!(await withinBudget(ctx, thread.projectId))) return await skip("budget");
 
-  // The link speaks for the person whose job it carries on.
+  // The link speaks for the person whose job it carries on. Review R1 P3-8:
+  // a sender who no longer has access starts nothing, and nothing is
+  // recorded (the Continue button stays for anyone who still may use it).
   const userId = (await turnSenders(ctx, [turn])).get(turn._id) ?? null;
-  if (!userId) return { kind: "none" };
+  if (!userId || !(await senderMayChat(ctx, userId))) return { kind: "none" };
 
   const { messageId, message } = await saveMessage(ctx, components.agent, {
     threadId: key.agentThreadId,

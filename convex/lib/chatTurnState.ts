@@ -85,22 +85,31 @@ export function autoContinueMessage(continuation: ChatTurnContinuation): string 
   return continuation.nextSection ? `Continue with Line ${continuation.nextSection}.` : "Continue.";
 }
 
+/** Build order of the Lines, for "moved forward" (242, then 244, then 246). */
+const LINE_RANK: Readonly<Record<string, number>> = { "242": 0, "244": 1, "246": 2 };
+
 /**
  * Whether an automatic link that just finished moved the job on, compared
- * with the turn before it: fewer Deviations left, or a different next Line.
- * Two links with no list counts to compare (a step-limit stop outside a
- * deviation list) count as no progress, so a chain can never loop on a job
- * it cannot measure.
+ * with every earlier turn of its chain (the links before it and the job's
+ * own first turn, `earlier`). Review R1 P3-2: progress is fewer Deviations
+ * left than the lowest count the chain has seen, or a next Line further on
+ * in build order than any the chain has reached. A count or Line that
+ * appears or disappears is not progress, so a chain can never loop by
+ * flipping between offers (244 with 5 left, then no counts, then 244 with 5
+ * left again), and two links with no counts at all stop it.
  */
 export function chainLinkMadeProgress(
-  previous: ChatTurnContinuation | undefined,
+  earlier: ReadonlyArray<ChatTurnContinuation | undefined>,
   current: ChatTurnContinuation
 ): boolean {
-  if (!previous) return false;
-  if (current.nextSection !== previous.nextSection) return true;
-  return (
-    current.remaining !== undefined &&
-    previous.remaining !== undefined &&
-    current.remaining < previous.remaining
-  );
+  let lowest: number | undefined;
+  let furthest: number | undefined;
+  for (const offer of earlier) {
+    if (offer?.remaining !== undefined) lowest = Math.min(lowest ?? offer.remaining, offer.remaining);
+    const rank = offer?.nextSection !== undefined ? LINE_RANK[offer.nextSection] : undefined;
+    if (rank !== undefined) furthest = Math.max(furthest ?? rank, rank);
+  }
+  if (current.remaining !== undefined && lowest !== undefined && current.remaining < lowest) return true;
+  const rank = current.nextSection !== undefined ? LINE_RANK[current.nextSection] : undefined;
+  return rank !== undefined && furthest !== undefined && rank > furthest;
 }

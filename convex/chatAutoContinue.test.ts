@@ -99,13 +99,25 @@ describe("the Continue message", () => {
     expect(autoContinueMessage({ reason: "step_limit" })).toBe("Continue.");
   });
 
-  test("a link made progress only when fewer items are left or the next Line changed", () => {
-    expect(chainLinkMadeProgress(linesLeft, { ...linesLeft, remaining: 2 })).toBe(true);
-    expect(chainLinkMadeProgress(linesLeft, { ...linesLeft, nextSection: "246" })).toBe(true);
-    expect(chainLinkMadeProgress(linesLeft, linesLeft)).toBe(false);
-    expect(chainLinkMadeProgress(linesLeft, { ...linesLeft, remaining: 4 })).toBe(false);
-    expect(chainLinkMadeProgress({ reason: "step_limit" }, { reason: "step_limit" })).toBe(false);
-    expect(chainLinkMadeProgress(undefined, linesLeft)).toBe(false);
+  test("a link made progress only below the chain's lowest count or past its furthest Line", () => {
+    expect(chainLinkMadeProgress([linesLeft], { ...linesLeft, remaining: 2 })).toBe(true);
+    expect(chainLinkMadeProgress([linesLeft], { ...linesLeft, nextSection: "246" })).toBe(true);
+    expect(chainLinkMadeProgress([linesLeft], linesLeft)).toBe(false);
+    expect(chainLinkMadeProgress([linesLeft], { ...linesLeft, remaining: 4 })).toBe(false);
+    expect(chainLinkMadeProgress([{ reason: "step_limit" }], { reason: "step_limit" })).toBe(false);
+    expect(chainLinkMadeProgress([undefined], linesLeft)).toBe(false);
+    expect(chainLinkMadeProgress([], linesLeft)).toBe(false);
+    // Review R1 P3-2: a count or Line that appears or disappears is not progress.
+    expect(chainLinkMadeProgress([linesLeft], { reason: "step_limit" })).toBe(false);
+    expect(chainLinkMadeProgress([{ reason: "step_limit" }], linesLeft)).toBe(false);
+    // The flip-flop: back to a count the chain already had.
+    expect(chainLinkMadeProgress([{ reason: "step_limit" }, linesLeft], linesLeft)).toBe(false);
+    // Measured against the lowest count and the furthest Line of the chain.
+    const reached = { reason: "lines_left" as const, nextSection: "246" as const, remaining: 2 };
+    expect(chainLinkMadeProgress([reached, linesLeft], { ...linesLeft, remaining: 2 })).toBe(false);
+    expect(chainLinkMadeProgress([reached, linesLeft], { ...linesLeft, remaining: 1 })).toBe(true);
+    // Back to an earlier Line is not forward.
+    expect(chainLinkMadeProgress([linesLeft], { ...linesLeft, nextSection: "242" })).toBe(false);
   });
 });
 
@@ -208,6 +220,47 @@ describe("skips", () => {
     if (link.kind !== "linked") throw new Error("expected a link");
     await g.finish(link.promptMessageId, { ...linesLeft, nextSection: "246", remaining: 1 });
     expect((await g.chain(link.promptMessageId)).kind).toBe("linked");
+  });
+
+  test("no progress: a chain cannot loop by flipping back to a count it already had", async () => {
+    const f = await setup();
+    await f.finish(f.promptMessageId, { ...linesLeft, remaining: 5 });
+    const first = await f.chain(f.promptMessageId);
+    if (first.kind !== "linked") throw new Error("expected a link");
+    // Link 1 made real progress: 4 left.
+    await f.finish(first.promptMessageId, { ...linesLeft, remaining: 4 });
+    const second = await f.chain(first.promptMessageId);
+    if (second.kind !== "linked") throw new Error("expected a second link");
+    // Link 2 lost its counts (a step-limit stop that saved a card).
+    await f.saveCard(second.promptMessageId);
+    await f.finish(second.promptMessageId, { reason: "step_limit" });
+    expect(await f.chain(second.promptMessageId)).toEqual({ kind: "skipped", reason: "no_progress" });
+
+    // Same chain shape, but link 2 is back at the head's count: no progress
+    // against the lowest count the chain reached (4).
+    const g = await setup();
+    await g.finish(g.promptMessageId, { ...linesLeft, remaining: 5 });
+    const a = await g.chain(g.promptMessageId);
+    if (a.kind !== "linked") throw new Error("expected a link");
+    await g.finish(a.promptMessageId, { ...linesLeft, remaining: 4 });
+    const b = await g.chain(a.promptMessageId);
+    if (b.kind !== "linked") throw new Error("expected a second link");
+    await g.finish(b.promptMessageId, { ...linesLeft, remaining: 5 });
+    expect(await g.chain(b.promptMessageId)).toEqual({ kind: "skipped", reason: "no_progress" });
+  });
+
+  test("a sender who lost access starts no link, and nothing is recorded", async () => {
+    const f = await setup();
+    await f.finish(f.promptMessageId, linesLeft);
+    await f.t.run((ctx) => ctx.db.patch(f.userId, { role: undefined }));
+    expect(await f.chain(f.promptMessageId)).toEqual({ kind: "none" });
+    expect(await f.turns()).toHaveLength(1);
+    expect((await f.turnOf(f.promptMessageId)).autoContinueSkipped).toBeUndefined();
+
+    const g = await setup();
+    await g.finish(g.promptMessageId, linesLeft);
+    await g.t.run((ctx) => ctx.db.patch(g.userId, { isAnonymous: true }));
+    expect(await g.chain(g.promptMessageId)).toEqual({ kind: "none" });
   });
 
   test("off: an admin turned automatic continuing off", async () => {

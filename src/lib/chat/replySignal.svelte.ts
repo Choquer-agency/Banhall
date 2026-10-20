@@ -128,40 +128,65 @@ export function useReplySignal(read: () => { reportId: Id<"reports"> | null | un
     const { reportId } = read();
     return reportId ? { reportId } : "skip";
   });
+  // Review R2 P3-7a: everything below belongs to one report. When the page
+  // shows another report, `seen`, the last finish this page watched and a
+  // pending title timer all start over, so one report's timestamps never
+  // signal on another.
   let seen = $state<number | null>(null);
-  let seenFor: string | null = null;
+  let seenFor = $state<string | null>(null);
+  let lastFinished: number | null | undefined;
+  let watchedFor: string | null = null;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** The activity, only once it is the current report's own answer. */
+  const current = () => {
+    const { reportId } = read();
+    const data = activityQ.data;
+    return reportId && data && !activityQ.isStale ? { reportId, data } : null;
+  };
 
   // Load what was seen for this report; with nothing stored, today's newest
   // reply counts as seen, so an old reply never shows a dot.
   $effect(() => {
     const { reportId, panelOpen } = read();
-    const finished = activityQ.data?.mineLastFinishedAt ?? null;
-    if (!reportId || activityQ.data === undefined) return;
-    if (seenFor !== reportId) {
-      seenFor = reportId;
-      const stored = readSeen(reportId);
-      seen = stored ?? finished ?? 0;
-      if (stored === null) writeSeen(reportId, seen);
+    if (seenFor !== (reportId ?? null)) {
+      seenFor = reportId ?? null;
+      seen = null;
     }
-    if (panelOpen && finished !== null && (seen === null || finished > seen)) {
+    const now = current();
+    if (!now) return;
+    const finished = now.data.mineLastFinishedAt;
+    if (seen === null) {
+      const stored = readSeen(now.reportId);
+      seen = stored ?? finished ?? 0;
+      if (stored === null) writeSeen(now.reportId, seen);
+    }
+    if (panelOpen && finished !== null && finished > seen) {
       seen = finished;
-      writeSeen(reportId, finished);
+      writeSeen(now.reportId, finished);
     }
   });
 
   // The tab title and the notification: only for a reply that finished while
-  // this page watched, and only once none of yours is still running.
-  let lastFinished: number | null | undefined;
-  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  // this page watched this report, and only once none of yours still runs.
   $effect(() => {
-    const finished = activityQ.data?.mineLastFinishedAt;
-    if (finished === undefined) return;
+    const reportId = read().reportId ?? null;
+    if (watchedFor !== reportId) {
+      watchedFor = reportId;
+      lastFinished = undefined;
+      clearTimeout(settleTimer);
+    }
+    const now = current();
+    if (!now) return;
+    const finished = now.data.mineLastFinishedAt;
     const previous = lastFinished;
     lastFinished = finished;
     if (previous === undefined || finished === null || (previous !== null && finished <= previous)) return;
     clearTimeout(settleTimer);
+    const firedFor = now.reportId;
     settleTimer = setTimeout(() => {
-      if (activityQ.data?.mineActive) return;
+      const later = current();
+      if (!later || later.reportId !== firedFor || later.data.mineActive) return;
       if (typeof document === "undefined" || document.visibilityState !== "hidden") return;
       addTitlePrefix();
       if (notifyRepliesEnabled()) {
@@ -191,9 +216,9 @@ export function useReplySignal(read: () => { reportId: Id<"reports"> | null | un
 
   return {
     get signal(): AssistantSignal {
-      const data = activityQ.data;
-      if (!data) return null;
-      return assistantSignal({ ...data, seen, panelOpen: read().panelOpen });
+      const now = current();
+      if (!now || seenFor !== now.reportId) return null;
+      return assistantSignal({ ...now.data, seen, panelOpen: read().panelOpen });
     },
   };
 }

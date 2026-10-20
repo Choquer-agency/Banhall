@@ -17,6 +17,7 @@ import {
   __setMutationResult,
   __setPaginatedRows,
   __setQueryData,
+  __setQueryDataForArgs,
 } from "$lib/test/convex-svelte-stub.svelte";
 import {
   NOTIFY_REPLIES_KEY,
@@ -335,6 +336,29 @@ describe("reply signal", () => {
     visibility = "visible";
     document.dispatchEvent(new Event("visibilitychange"));
     await expect.poll(() => document.title).toBe("Banhall");
+  });
+
+  // Review R2 P3-7a: a page that moves to another report starts over.
+  it("never signals one report's reply on another report", async () => {
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => "hidden");
+    document.title = "Banhall";
+    const other = "report-2" as Id<"reports">;
+    __setQueryDataForArgs("chatV2:reportChatActivity", { reportId }, { active: false, mineActive: false, mineLastFinishedAt: 100 });
+    __setQueryDataForArgs("chatV2:reportChatActivity", { reportId: other }, { active: false, mineActive: false, mineLastFinishedAt: 500 });
+    const screen = await render(ReplySignalFixture, { reportId });
+    await expect.poll(() => localStorage.getItem(seenKey(reportId))).toBe("100");
+
+    // The first report's reply finishes, and the page moves on before the
+    // title would change.
+    __setQueryDataForArgs("chatV2:reportChatActivity", { reportId }, { active: false, mineActive: false, mineLastFinishedAt: 200 });
+    await screen.rerender({ reportId: other });
+    // The other report's newer reply was never watched finishing here.
+    await expect.poll(() => localStorage.getItem(seenKey(other))).toBe("500");
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    expect(document.title).toBe("Banhall");
+    expect(screen.container.querySelector("[data-assistant-ready-dot]")).toBeNull();
+    // The first report keeps its own seen time.
+    expect(localStorage.getItem(seenKey(reportId))).toBe("100");
   });
 
   it("leaves the title alone while the tab is visible, and while a next link runs", async () => {
