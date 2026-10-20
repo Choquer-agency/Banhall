@@ -30,7 +30,19 @@ describe("chatSendErrorMessage", () => {
     expect(chatSendErrorMessage(clientError({ code: "CHAT_QUEUE_LIMIT_EXCEEDED", message: "x" })))
       .toBe("You have too many messages waiting for a reply. Wait for one to finish, then send again.");
     expect(chatSendErrorMessage(clientError({ code: "CHAT_MESSAGE_TOO_LONG", message: "x", maxChars: 20_000 })))
-      .toBe("This message is too long to send. Keep it under 20,000 characters.");
+      .toBe("This message is too long to send. It can be up to 20,000 characters.");
+    expect(chatSendErrorMessage(clientError({ code: "CHAT_MESSAGE_TOO_LONG", message: "x", maxChars: 12_000 })))
+      .toBe("The selected text is too long to send. Select up to 12,000 characters.");
+  });
+
+  it("does not ask the writer to shorten a message they are resending", () => {
+    for (const maxChars of [20_000, 12_000, 128_000]) {
+      expect(chatSendErrorMessage(clientError({ code: "CHAT_MESSAGE_TOO_LONG", message: "x", maxChars }), { resend: true }))
+        .toBe("The original message is too long to send again. Write a new, shorter message instead.");
+    }
+    // Other refusals read the same on a resend.
+    expect(chatSendErrorMessage(clientError({ code: "CHAT_QUEUE_LIMIT_EXCEEDED", message: "x" }), { resend: true }))
+      .toContain("too many messages waiting");
   });
 
   it("reads the code from the client's log text when the data is gone", () => {

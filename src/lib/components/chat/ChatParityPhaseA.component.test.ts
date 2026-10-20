@@ -20,6 +20,7 @@ import {
   __setMutationResult,
   __setPaginatedRows,
   __setQueryData,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 import ErrorMonitor from "$lib/components/errors/ErrorMonitor.svelte";
 import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
@@ -70,12 +71,16 @@ function convexLog(path: string, data: Record<string, unknown>) {
   return `[CONVEX M(${path})] [Request ID: 7c1e] Server Error\nUncaught ConvexError: ${JSON.stringify(data)}\n    at handler (../convex/chatV2.ts:455:7)`;
 }
 
-/** A refused send as the real client delivers it: logged, then thrown with data. */
-function refusedSend(data: Record<string, string | number>) {
+/**
+ * A refused call as the real client delivers it: logged through console.error
+ * (request_manager's logForFunction), then thrown with data.
+ */
+function refusedCall(path: string, data: Record<string, string | number>) {
   const error = new ConvexError(data);
-  error.message = convexLog(sendName, data);
+  error.message = convexLog(path, data);
   return { then(_resolve: unknown, reject: (reason: unknown) => void) { console.error(error.message); reject(error); } };
 }
+const refusedSend = (data: Record<string, string | number>) => refusedCall(sendName, data);
 
 let quiet: ReturnType<typeof vi.spyOn>;
 
@@ -110,7 +115,9 @@ describe("task 1: refusals", () => {
     [{ code: "CHAT_QUEUE_LIMIT_EXCEEDED", message: "Your queued chat turn limit has been reached" },
       "You have too many messages waiting for a reply. Wait for one to finish, then send again."],
     [{ code: "CHAT_MESSAGE_TOO_LONG", message: "Message too long", maxChars: 20_000 },
-      "This message is too long to send. Keep it under 20,000 characters."],
+      "This message is too long to send. It can be up to 20,000 characters."],
+    [{ code: "CHAT_MESSAGE_TOO_LONG", message: "Highlight too long", maxChars: 12_000 },
+      "The selected text is too long to send. Select up to 12,000 characters."],
   ])("explains %o in plain words, with no crash toast", async (data, copy) => {
     const monitor = await render(ErrorMonitor);
     __setMutationResult(sendName, refusedSend(data));
@@ -130,7 +137,24 @@ describe("task 1: refusals", () => {
     monitor.unmount();
   });
 
-  it("says a failed Stop in the panel, never through console.error", async () => {
+  it("says a refused Stop in the panel, with no crash toast from the client's log line", async () => {
+    const monitor = await render(ErrorMonitor);
+    seedThreads();
+    __setPaginatedRows("chatV2:listMessages", [row("q", "List the deviations in Line 244.", 1, "user")]);
+    __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "q", order: 1, status: "running", startedAt: Date.now(), stepCount: 0 }]);
+    __setMutationResult("chatV2:abortStreaming", refusedCall("chatV2:abortStreaming", {
+      code: "NOT_AUTHORIZED", message: "You no longer have access to this project.",
+    }));
+    await render(AgentChatPanel, { reportId, projectId });
+    await page.getByRole("button", { name: "Stop generating", exact: true }).click();
+    await expect.element(page.getByRole("alert")).toHaveTextContent("You no longer have access to this project.");
+    // Only the client's own log line; the panel adds none.
+    expect(quiet).toHaveBeenCalledTimes(1);
+    expect(crashToasts()).toHaveLength(0);
+    monitor.unmount();
+  });
+
+  it("says a Stop that never reached the server in the panel", async () => {
     const monitor = await render(ErrorMonitor);
     seedThreads();
     __setPaginatedRows("chatV2:listMessages", [row("q", "List the deviations in Line 244.", 1, "user")]);
@@ -209,6 +233,18 @@ describe("task 4: Apply gating", () => {
     await expect.element(page.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible();
     unmount();
   });
+
+  it("treats a failed access read as unknown, never as a refusal", async () => {
+    __setQueryError("projects:getProjectEditAccess", new Error("[CONVEX Q(projects:getProjectEditAccess)] Server Error"));
+    await render(ProposalCard, { proposal: proposal(), onRefine: vi.fn() });
+    await expect.element(page.getByText("Clearer wording", { exact: true })).toBeVisible();
+    for (const name of ["Apply", "Dismiss"]) {
+      expect(page.getByRole("button", { name, exact: true }).elements(), name).toHaveLength(0);
+    }
+    expect(page.getByText("Only people who can edit", { exact: false }).elements()).toHaveLength(0);
+    __setQueryData("projects:getProjectEditAccess", { canEditDetails: true });
+    await expect.element(page.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
+  });
 });
 
 describe("task 5: live progress", () => {
@@ -223,12 +259,34 @@ describe("task 5: live progress", () => {
     expect(status()).toBe("Thinking…");
     expect(container.textContent).toContain("30s");
     expect(container.querySelector("[data-thinking-hint]")).toBeNull();
-    await rerender({ now: now + 31_000 });
+    // The minute counts from when the browser first saw this phase.
+    await rerender({ now: now + 59_000 });
+    expect(container.querySelector("[data-thinking-hint]")).toBeNull();
+    await rerender({ now: now + 60_000 });
     await expect.poll(() => container.querySelector("[data-thinking-hint]")?.textContent)
       .toBe("Big requests can take a few minutes. You can stop and ask for one Line at a time.");
     // The hint is quiet: it is not inside the announced status line.
     expect(container.querySelector("[aria-live] [data-thinking-hint]")).toBeNull();
     await page.screenshot({ path: `${CAPTURES}/thinking-hint.png` });
+    // A new thinking phase starts the minute again.
+    await rerender({ timing: { status: "running", startedAt: now - 30_000, stepCount: 2, progress: { phase: "thinking", step: 2, since: now + 50_000 } } });
+    await expect.poll(() => container.querySelector("[data-thinking-hint]")).toBeNull();
+  });
+
+  it.each([
+    ["ten minutes ahead of", 600_000],
+    ["an hour behind", -3_600_000],
+  ])("times the hint on the browser clock when the server's clock runs %s it", async (_label, skew) => {
+    const now = 5_000_000;
+    const { container, rerender } = await render(TurnTrace, {
+      nodes: [], now,
+      timing: { status: "running", startedAt: now + skew, stepCount: 1, progress: { phase: "thinking", step: 1, since: now + skew } },
+    });
+    expect(container.querySelector("[data-thinking-hint]")).toBeNull();
+    await rerender({ now: now + 30_000 });
+    expect(container.querySelector("[data-thinking-hint]")).toBeNull();
+    await rerender({ now: now + 60_000 });
+    await expect.poll(() => container.querySelector("[data-thinking-hint]")).not.toBeNull();
   });
 
   it("holds each label at least 1.5 seconds", async () => {
@@ -323,7 +381,7 @@ describe("task 6: reasoning summaries and announcements", () => {
 });
 
 describe("task 7: Continue offer", () => {
-  function seedFinishedTurn(continuation: Record<string, unknown> | undefined) {
+  function seedFinishedTurn(continuation: Record<string, unknown> | undefined, status = "completed") {
     seedThreads();
     __setPaginatedRows("chatV2:listMessages", [
       row("q0", "Fix the deviations.", 0, "user"), row("a0", "Done with Line 242.", 0, "assistant"),
@@ -332,7 +390,7 @@ describe("task 7: Continue offer", () => {
     __setQueryData("chatV2:listTurns", [
       { _id: "turn-0", promptMessageId: "q0", order: 0, status: "completed", startedAt: 1, endedAt: 2, stepCount: 2,
         continuation: { reason: "lines_left", nextSection: "242" } },
-      { _id: "turn-1", promptMessageId: "q1", order: 1, status: "completed", startedAt: 3, endedAt: 4, stepCount: 2,
+      { _id: "turn-1", promptMessageId: "q1", order: 1, status, startedAt: 3, endedAt: 4, stepCount: 2,
         ...(continuation ? { continuation } : {}) },
     ]);
   }
@@ -362,15 +420,57 @@ describe("task 7: Continue offer", () => {
     expect(__mutationCalls(sendName)).toHaveLength(1);
   });
 
-  it("says Continue when there is no next Line, and nothing without an offer", async () => {
-    seedFinishedTurn({ reason: "cut_off" });
+  it("offers Continue on a reply cut off (a failed turn), and nothing after a Stop or without an offer", async () => {
+    // The engine ends a cut-off reply "failed" with continuation { reason: "cut_off" }.
+    seedFinishedTurn({ reason: "cut_off" }, "failed");
     const view = await render(AgentChatPanel, { reportId, projectId });
     await expect.element(page.getByRole("button", { name: "Continue", exact: true })).toBeVisible();
     view.unmount();
+    seedFinishedTurn({ reason: "cut_off" }, "aborted");
+    const stopped = await render(AgentChatPanel, { reportId, projectId });
+    await expect.element(page.getByText("Line 242 is revised.", { exact: false })).toBeVisible();
+    expect(document.querySelectorAll("[data-continue-offer]")).toHaveLength(0);
+    stopped.unmount();
     seedFinishedTurn(undefined);
     await render(AgentChatPanel, { reportId, projectId });
     await expect.element(page.getByText("Line 242 is revised.", { exact: false })).toBeVisible();
     expect(document.querySelectorAll("[data-continue-offer]")).toHaveLength(0);
+  });
+});
+
+describe("task 7: Continue offer after a failed send", () => {
+  it("keeps the offer when its send fails, so the writer can try again", async () => {
+    seedThreads();
+    __setPaginatedRows("chatV2:listMessages", [
+      row("q1", "Fix the deviations.", 1, "user"), row("a1", "Line 242 is revised.", 1, "assistant"),
+    ]);
+    __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "q1", order: 1, status: "completed",
+      startedAt: 3, endedAt: 4, stepCount: 2, continuation: { reason: "lines_left", nextSection: "244" } }]);
+    __setMutationError(sendName, new Error("Connection unavailable"));
+    await render(AgentChatPanel, { reportId, projectId });
+    const offer = page.getByRole("button", { name: "Continue with Line 244", exact: true });
+    await offer.click();
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Connection unavailable");
+    // The unsent message offers Retry; the offer waits behind it.
+    expect(document.querySelectorAll("[data-continue-offer]")).toHaveLength(0);
+    await page.getByRole("button", { name: "Dismiss send error", exact: true }).click();
+    await expect.element(offer).toBeVisible();
+    __setMutationResult(sendName, { threadId: "thread-1", messageId: "q2" });
+    await offer.click();
+    expect(__mutationCalls(sendName)).toHaveLength(2);
+  });
+
+  it("says an old message cannot be resent when it is now too long", async () => {
+    seedThreads();
+    __setPaginatedRows("chatV2:listMessages", [
+      row("q1", "A very long old prompt.", 1, "user"), row("a1", "An answer.", 1, "assistant"),
+    ]);
+    __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "q1", order: 1, status: "completed", startedAt: 3, endedAt: 4, stepCount: 0 }]);
+    __setMutationResult(sendName, refusedSend({ code: "CHAT_MESSAGE_TOO_LONG", message: "x", maxChars: 128_000 }));
+    await render(AgentChatPanel, { reportId, projectId });
+    await page.getByRole("button", { name: "Regenerate", exact: true }).click();
+    await expect.element(page.getByRole("alert"))
+      .toHaveTextContent("The original message is too long to send again. Write a new, shorter message instead.");
   });
 });
 
@@ -460,6 +560,41 @@ describe("task 9: drafts", () => {
     third.unmount();
   });
 
+  it("keeps a new conversation's draft across a reload before its first send, and clears it on send", async () => {
+    // No conversation yet: the panel is a new conversation from the start.
+    const first = await render(AgentChatPanel, { reportId, projectId });
+    await composer().fill("First question for this report");
+    first.unmount();
+    const second = await render(AgentChatPanel, { reportId, projectId });
+    await expect.element(composer()).toHaveValue("First question for this report");
+    // One stable key per report, never a fresh random one per mount.
+    expect(Object.keys(sessionStorage).filter((key) => key.startsWith("banhall.chat.draft."))).toEqual(["banhall.chat.draft.report-1.new"]);
+    __setMutationResult(sendName, { threadId: "thread-new", messageId: "first" });
+    await send().click();
+    expect(__mutationCalls(sendName)[0]).toMatchObject({ content: "First question for this report", newThread: true });
+    await expect.element(composer()).toHaveValue("");
+    expect(Object.keys(sessionStorage).filter((key) => key.startsWith("banhall.chat.draft."))).toEqual([]);
+    second.unmount();
+  });
+
+  it("keeps a draft typed after New conversation, and reopens that conversation on reload", async () => {
+    seedThreads(threads);
+    const first = await render(AgentChatPanel, { reportId, projectId });
+    await composer().fill("Draft for the original conversation");
+    await navigate("New conversation");
+    await expect.element(composer()).toHaveValue("");
+    await composer().fill("A fresh question");
+    first.unmount();
+    const second = await render(AgentChatPanel, { reportId, projectId });
+    await expect.element(composer()).toHaveValue("A fresh question");
+    expect(__mutationCalls(sendName)).toHaveLength(0);
+    await navigate("Original conversation");
+    await expect.element(composer()).toHaveValue("Draft for the original conversation");
+    await navigate("New conversation");
+    await expect.element(composer()).toHaveValue("A fresh question");
+    second.unmount();
+  });
+
   it("keeps the Assistant's draft per report", async () => {
     seedThreads(threads);
     const first = await render(AgentChatPanel, { reportId, projectId });
@@ -503,6 +638,10 @@ describe("task 11: composer limits and labels", () => {
     await expect.poll(() => document.querySelector("[data-composer-counter]")?.textContent?.replace(/\s+/g, " ").trim())
       .toBe("16,000 / 20,000 characters");
     await expect.element(send()).toBeEnabled();
+    // The composer sends trimmed text, so spaces around it are not counted.
+    await composer().fill(`   ${"a".repeat(20_000)}\n\n  `);
+    await expect.poll(() => document.querySelector("[data-composer-counter]")?.textContent).toContain("20,000 / 20,000");
+    await expect.element(send()).toBeEnabled();
     await composer().fill("a".repeat(20_001));
     const counter = document.querySelector("[data-composer-counter]")!;
     await expect.poll(() => counter.textContent).toContain("20,001 / 20,000");
@@ -519,7 +658,7 @@ describe("task 11: composer limits and labels", () => {
     await expect.element(page.getByRole("button", { name: "Remove selected text", exact: true })).toBeVisible();
     expect(page.getByText("Pasted text", { exact: false }).elements()).toHaveLength(0);
     await view.rerender({ pendingHighlight: { from: 1, to: 12_002, text: "b".repeat(12_001) } });
-    await expect.element(page.getByText("The selected text is 12,001 characters. Select less than 12,000 characters to send it.")).toBeVisible();
+    await expect.element(page.getByText("The selected text is 12,001 characters. Select up to 12,000 characters to send it.")).toBeVisible();
     await expect.element(send()).toBeDisabled();
   });
 });

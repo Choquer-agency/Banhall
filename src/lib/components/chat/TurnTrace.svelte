@@ -96,7 +96,21 @@
     return () => clearTimeout(id);
   });
   const shownHead = $derived(live && held ? held.shown : head);
-  const hint = $derived(live ? thinkingHint(timing, clock) : null);
+  // The hint's minute is counted on the browser clock from when this
+  // thinking phase was first seen, never against the server's `since`.
+  let thinkingSeen = $state<{ since: number; at: number } | null>(null);
+  $effect(() => {
+    const progress = timing?.progress;
+    const since = live && progress?.phase === "thinking" ? progress.since : null;
+    if (since === null) {
+      thinkingSeen = null;
+      return;
+    }
+    if (untrack(() => thinkingSeen?.since) !== since) {
+      thinkingSeen = { since, at: untrack(() => now) ?? Date.now() };
+    }
+  });
+  const hint = $derived(live ? thinkingHint(timing, clock, thinkingSeen?.at) : null);
 
   // Initial liveness only: a live turn mounts open, a historical one collapsed.
   let open = $state(untrack(() => live));

@@ -54,17 +54,24 @@ describe("thinkingHint", () => {
     status: "running", startedAt: 0, stepCount: 1, progress: { phase: "thinking", step: 1, since },
   });
 
-  it("appears after a minute in one thinking phase", () => {
-    expect(thinkingHint(thinking(0), 59_999)).toBeNull();
-    expect(thinkingHint(thinking(0), 60_000)).toBe(THINKING_HINT);
+  it("appears a minute after the browser first saw the thinking phase", () => {
+    expect(thinkingHint(thinking(0), 59_999, 0)).toBeNull();
+    expect(thinkingHint(thinking(0), 60_000, 0)).toBe(THINKING_HINT);
     expect(THINKING_HINT).toBe("Big requests can take a few minutes. You can stop and ask for one Line at a time.");
   });
 
-  it("restarts with each new thinking phase and stays away otherwise", () => {
-    expect(thinkingHint(thinking(30_000), 70_000)).toBeNull();
-    expect(thinkingHint({ ...thinking(0), progress: { phase: "tool", tool: "deviationInventory", step: 1, since: 0 } }, 90_000)).toBeNull();
-    expect(thinkingHint({ ...thinking(0), status: "completed" }, 90_000)).toBeNull();
-    expect(thinkingHint(undefined, 90_000)).toBeNull();
+  it("ignores the server clock, however far it is skewed", () => {
+    // Server ten minutes ahead, or an hour behind: only the browser's minute counts.
+    expect(thinkingHint(thinking(10 * 60_000), 30_000, 0)).toBeNull();
+    expect(thinkingHint(thinking(10 * 60_000), 60_000, 0)).toBe(THINKING_HINT);
+    expect(thinkingHint(thinking(-3_600_000), 30_000, 0)).toBeNull();
+  });
+
+  it("stays away outside a running thinking phase, or before the phase was seen", () => {
+    expect(thinkingHint(thinking(0), 90_000, undefined)).toBeNull();
+    expect(thinkingHint({ ...thinking(0), progress: { phase: "tool", tool: "deviationInventory", step: 1, since: 0 } }, 90_000, 0)).toBeNull();
+    expect(thinkingHint({ ...thinking(0), status: "completed" }, 90_000, 0)).toBeNull();
+    expect(thinkingHint(undefined, 90_000, 0)).toBeNull();
   });
 });
 

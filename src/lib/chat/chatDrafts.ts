@@ -18,7 +18,10 @@ function sessionStore(): Storage | null {
   }
 }
 
-/** Storage key for one report's conversation ("thread:<id>" or "draft:<id>"). */
+/** The scope of a report's unsaved new conversation, for its draft and as the last one used. */
+export const NEW_CONVERSATION = "new";
+
+/** Storage key for one report's conversation ("thread:<id>", or NEW_CONVERSATION). */
 export function draftKey(reportId: string, scope: string): string {
   return `${DRAFT_PREFIX}${reportId}.${scope}`;
 }

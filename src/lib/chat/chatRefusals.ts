@@ -1,4 +1,5 @@
 import { userErrorData, userErrorMessage } from "$lib/errors";
+import { MAX_CHAT_HIGHLIGHT_CHARS } from "../../../shared/chatLimits";
 
 /**
  * Plain words for a message the report chat could not send (Phase A, task 1).
@@ -15,7 +16,11 @@ function formatWait(ms: number): string {
   return `${hours} ${hours === 1 ? "hour" : "hours"}`;
 }
 
-export function chatSendErrorMessage(error: unknown): string {
+/**
+ * `resend` marks a message the writer did not type just now (Regenerate or
+ * Continue): they cannot shorten it, so a size refusal says so.
+ */
+export function chatSendErrorMessage(error: unknown, options: { resend?: boolean } = {}): string {
   const data = userErrorData(error);
   switch (data?.code) {
     case "CHAT_TURN_ACTIVE": {
@@ -32,10 +37,15 @@ export function chatSendErrorMessage(error: unknown): string {
     case "CHAT_QUEUE_LIMIT_EXCEEDED":
       return "You have too many messages waiting for a reply. Wait for one to finish, then send again.";
     case "CHAT_MESSAGE_TOO_LONG": {
+      if (options.resend) {
+        return "The original message is too long to send again. Write a new, shorter message instead.";
+      }
       const max = typeof data.maxChars === "number" && data.maxChars > 0 ? data.maxChars : null;
-      return max === null
-        ? "This message is too long to send. Shorten it, then send again."
-        : `This message is too long to send. Keep it under ${max.toLocaleString("en-US")} characters.`;
+      if (max === null) return "This message is too long to send. Shorten it, then send again.";
+      const limit = max.toLocaleString("en-US");
+      return max === MAX_CHAT_HIGHLIGHT_CHARS
+        ? `The selected text is too long to send. Select up to ${limit} characters.`
+        : `This message is too long to send. It can be up to ${limit} characters.`;
     }
     default:
       return userErrorMessage(error, SEND_FAILED_FALLBACK).trim() || SEND_FAILED_FALLBACK;

@@ -19,7 +19,7 @@
   } from "$lib/chat/turnParts";
   import { turnPhaseFields } from "$lib/chat/turnContracts";
   import { chatSendErrorMessage, chatStopErrorMessage } from "$lib/chat/chatRefusals";
-  import { clearDraft, draftKey, readDraft, readLastThread, writeDraft, writeLastThread } from "$lib/chat/chatDrafts";
+  import { NEW_CONVERSATION, clearDraft, draftKey, readDraft, readLastThread, writeDraft, writeLastThread } from "$lib/chat/chatDrafts";
   import { OFFLINE_MESSAGE, useChatConnection } from "$lib/chat/connectionState.svelte";
   import { MAX_CHAT_HIGHLIGHT_CHARS, MAX_CHAT_MESSAGE_CHARS } from "../../../../shared/chatLimits";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
@@ -174,13 +174,21 @@
       threads.length > 0
     ) {
       const last = untrack(() => readLastThread(reportId));
+      // The writer was last in an unsaved new conversation: reopen it, with
+      // its draft (review P2).
+      if (last === NEW_CONVERSATION) {
+        startingNewChat = true;
+        return;
+      }
       carryDraftOnScopeChange = true;
       selectedThreadId = threads.find((thread) => thread.agentThreadId === last)?.agentThreadId ??
         threads[0].agentThreadId;
     }
   });
   $effect(() => {
-    if (selectedThreadId) writeLastThread(untrack(() => reportId), selectedThreadId);
+    const report = untrack(() => reportId);
+    if (selectedThreadId) writeLastThread(report, selectedThreadId);
+    else if (startingNewChat) writeLastThread(report, NEW_CONVERSATION);
   });
 
   function startNewThread() {
@@ -259,12 +267,24 @@
   // sessionStorage. A writer's switch restores the draft of the conversation
   // they chose; the panel's own switches (opening the remembered conversation,
   // a new conversation getting its thread on first send) carry the text along.
-  const draftStorageKey = $derived(draftKey(reportId, conversationScope));
+  // An unsaved new conversation has one stable key per report ("new"), so its
+  // draft survives a reload (review P2). While the conversation list is still
+  // deciding which conversation opens, there is no key: text typed meanwhile
+  // goes to the conversation that opens, unless that one has its own draft.
+  const draftScope = $derived(
+    selectedThreadId
+      ? `thread:${selectedThreadId}`
+      : startingNewChat || !!threadsQ.error || threadsQ.data?.length === 0
+        ? NEW_CONVERSATION
+        : null
+  );
+  const draftStorageKey = $derived(draftScope ? draftKey(reportId, draftScope) : null);
   let loadedDraftKey: string | null = null;
   let carryDraftOnScopeChange = false;
   $effect(() => {
     const key = draftStorageKey;
     const value = input;
+    if (key === null) return;
     if (key === loadedDraftKey) {
       writeDraft(key, value);
       return;
@@ -272,7 +292,7 @@
     const previous = loadedDraftKey;
     loadedDraftKey = key;
     const saved = readDraft(key);
-    if (carryDraftOnScopeChange && !saved) {
+    if ((carryDraftOnScopeChange || previous === null) && !saved) {
       carryDraftOnScopeChange = false;
       if (previous) clearDraft(previous);
       writeDraft(key, value);
@@ -282,10 +302,12 @@
     input = saved;
   });
 
-  // Phase A (task 11): the server's limits, mirrored before a send.
-  const messageTooLong = $derived(input.length > MAX_CHAT_MESSAGE_CHARS);
+  // Phase A (task 11): the server's limits, mirrored before a send. The
+  // composer sends trimmed text, so the trimmed length is what counts.
+  const composedLength = $derived(input.trim().length);
+  const messageTooLong = $derived(composedLength > MAX_CHAT_MESSAGE_CHARS);
   const highlightTooLong = $derived((pendingHighlight?.text.length ?? 0) > MAX_CHAT_HIGHLIGHT_CHARS);
-  const showCounter = $derived(input.length >= MAX_CHAT_MESSAGE_CHARS * 0.8);
+  const showCounter = $derived(composedLength >= MAX_CHAT_MESSAGE_CHARS * 0.8);
 
   // Phase A (task 10): Convex connection state.
   const connection = useChatConnection();
@@ -561,24 +583,23 @@
     };
   }
 
-  // Phase A (task 7): the newest finished turn's structured Continue offer.
-  // Each offer sends once; it goes away when the next message exists.
-  const usedContinueOffers = new SvelteSet<string>();
+  // Phase A (task 7): the newest ended turn's structured Continue offer. A
+  // reply cut off ends "failed" with continuation { reason: "cut_off" }, so
+  // any ended turn but a stopped one may carry it (review P1). The offer
+  // hides while its message is on the way (the local send row), comes back
+  // if that send fails and is dismissed, and goes once the next message is
+  // saved; AssistantTurn guards a double click.
   function continueOffer(order: number, timing: TurnTiming | undefined) {
     const threadId = selectedThreadId;
-    if (!threadId || order !== endOrder || timing?.status !== "completed") return undefined;
+    if (!threadId || order !== endOrder || !timing) return undefined;
+    if (timing.status !== "completed" && timing.status !== "failed") return undefined;
     const label = continueLabel(timing.continuation);
     const text = continueMessage(timing.continuation);
-    const key = `${threadId}:${order}`;
-    if (!label || !text || usedContinueOffers.has(key) || visibleLocalSends.length > 0) return undefined;
+    if (!label || !text || visibleLocalSends.length > 0) return undefined;
     return {
       label,
       disabled: regenerationBusy,
-      onContinue: async () => {
-        if (usedContinueOffers.has(key)) return;
-        usedContinueOffers.add(key);
-        await sendText(text, { kind: "continue", threadId });
-      },
+      onContinue: () => sendText(text, { kind: "continue", threadId }),
     };
   }
 
@@ -794,7 +815,7 @@
     // are never cleared by mutation completion or retry.
     if (!historical) {
       if (!selectedThreadId) startingNewChat = true;
-      clearDraft(draftStorageKey);
+      if (draftStorageKey) clearDraft(draftStorageKey);
       input = "";
       refiningProposal = null;
       allowBrain = false;
@@ -842,7 +863,7 @@
       // Phase A (task 1): plain words for a refusal, never the Convex
       // client's raw "[CONVEX M(...)] [Request ID: ...]" text.
       localSends = localSends.map(candidate => candidate.key === request.key ? {
-        ...candidate, state: { kind: "failed", error: chatSendErrorMessage(e) },
+        ...candidate, state: { kind: "failed", error: chatSendErrorMessage(e, { resend: request.intent.kind !== "composer" }) },
       } : candidate);
     } finally {
       sending = false;
@@ -1030,7 +1051,7 @@
 
   {#if highlightTooLong && pendingHighlight}
     <p class="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600" role="alert" data-highlight-too-long>
-      The selected text is {pendingHighlight.text.length.toLocaleString("en-US")} characters. Select less than {MAX_CHAT_HIGHLIGHT_CHARS.toLocaleString("en-US")} characters to send it.
+      The selected text is {pendingHighlight.text.length.toLocaleString("en-US")} characters. Select up to {MAX_CHAT_HIGHLIGHT_CHARS.toLocaleString("en-US")} characters to send it.
     </p>
   {/if}
 
@@ -1227,7 +1248,7 @@
       {#if showCounter && !pendingResearch}
         <!-- Phase A (task 11): the server's message limit, shown near it. -->
         <span class={`text-data ${messageTooLong ? "text-red-600" : "text-ink-muted"}`} data-composer-counter>
-          {input.length.toLocaleString("en-US")} / {MAX_CHAT_MESSAGE_CHARS.toLocaleString("en-US")}
+          {composedLength.toLocaleString("en-US")} / {MAX_CHAT_MESSAGE_CHARS.toLocaleString("en-US")}
           {#if messageTooLong}<span class="sr-only">characters. This message is too long to send.</span>{:else}<span class="sr-only">characters</span>{/if}
         </span>
       {/if}

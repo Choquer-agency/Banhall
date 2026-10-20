@@ -45,6 +45,10 @@ describe("isHandledRefusalLog", () => {
     for (const code of ["CHAT_TURN_ACTIVE", "CHAT_SPEND_BUDGET_EXCEEDED", "CHAT_QUEUE_LIMIT_EXCEEDED", "CHAT_MESSAGE_TOO_LONG"]) {
       expect(isHandledRefusalLog(convexLog("chatV2:sendMessage", { code, message: "x" })), code).toBe(true);
     }
+    // Phase A review: every domain refusal of Stop is explained in the chat panel.
+    expect(isHandledRefusalLog(convexLog("chatV2:abortStreaming", { code: "NOT_AUTHORIZED", message: "x" }))).toBe(true);
+    expect(isHandledRefusalLog(convexLog("chatV2:abortStreaming", null))).toBe(false);
+    expect(isHandledRefusalLog(convexLog("chatV2:applyProposal", { code: "NOT_AUTHORIZED", message: "x" }))).toBe(false);
     // NOT_FOUND itself stays a crash signal.
     expect(isHandledRefusalLog(convexLog("intakeDrafts:saveIntakeSource", { code: "NOT_FOUND", message: "x" }))).toBe(false);
   });

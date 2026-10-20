@@ -57,9 +57,11 @@
   const editAccessQ = useQuery(api.projects.getProjectEditAccess, () =>
     auth.isAuthenticated ? { projectId: proposal.projectId } : "skip"
   );
+  // A failed read is unknown, not a refusal: the actions stay hidden without
+  // telling an editor they cannot edit (review P3). The subscription retries.
   const applyAccess = $derived<"allowed" | "loading" | "denied">(
-    editAccessQ.data === undefined
-      ? editAccessQ.error ? "denied" : "loading"
+    editAccessQ.data === undefined || editAccessQ.error
+      ? "loading"
       : editAccessQ.data.canEditDetails ? "allowed" : "denied"
   );
   // A coordinated revision carries its Completion Report on the card (CAP-13).

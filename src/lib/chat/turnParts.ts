@@ -838,13 +838,15 @@ export function progressLabel(progress: TurnProgress | undefined): string {
 
 /**
  * The hint under a live turn that has been in one thinking phase for a
- * minute or more, or null. `since` is server time; a skewed browser clock
- * only moves the hint by the skew.
+ * minute or more, or null. `seenAt` is the browser time when this phase
+ * (its `progress.since`) was first seen: `since` is server time, and a
+ * browser clock that runs ahead or behind must not move the hint (review P3).
+ * Without `seenAt` there is no hint.
  */
-export function thinkingHint(timing: TurnTiming | undefined, now: number): string | null {
+export function thinkingHint(timing: TurnTiming | undefined, now: number, seenAt: number | undefined): string | null {
   const progress = timing?.progress;
-  if (timing?.status !== "running" || progress?.phase !== "thinking") return null;
-  return now - progress.since >= THINKING_HINT_AFTER_MS ? THINKING_HINT : null;
+  if (timing?.status !== "running" || progress?.phase !== "thinking" || seenAt === undefined) return null;
+  return now - seenAt >= THINKING_HINT_AFTER_MS ? THINKING_HINT : null;
 }
 
 export type HeldLabel = { shown: string; shownAt: number };

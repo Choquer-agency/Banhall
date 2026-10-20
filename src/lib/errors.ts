@@ -74,10 +74,22 @@ export const HANDLED_REFUSAL_CODES: ReadonlySet<string> = new Set([
  * including a refusal with another code, is not one.
  */
 export function isHandledRefusalLog(line: string): boolean {
-  if (!/^\[CONVEX [QMA?]\(/.test(line)) return false;
+  const call = /^\[CONVEX [QMA?]\(([^)]*)\)\]/.exec(line);
+  if (!call) return false;
   const code = userErrorCode(new Error(line));
-  return code !== null && HANDLED_REFUSAL_CODES.has(code);
+  if (code === null) return false;
+  return HANDLED_REFUSAL_CODES.has(code) || HANDLED_REFUSAL_FUNCTIONS.has(call[1]);
 }
+
+/**
+ * Functions whose every domain refusal (any `code`) the caller explains in
+ * its own UI. Chat parity Phase A: Stop (`chatV2.abortStreaming`) says
+ * "The reply could not be stopped" in the panel, so a refused Stop is not a
+ * crash. A failure with no domain code still raises the toast.
+ */
+export const HANDLED_REFUSAL_FUNCTIONS: ReadonlySet<string> = new Set([
+  "chatV2:abortStreaming",
+]);
 
 /** The `reason` detail a domain error carries (for example "DRAFT_COMPLETE"), if any. */
 export function userErrorReason(error: unknown): string | null {
