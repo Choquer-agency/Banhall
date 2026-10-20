@@ -498,6 +498,14 @@ describe("items waiting on a pending card (helpers)", () => {
     ])).toEqual([{ section: "242", paragraph: 1 }, { section: "242", paragraph: 2 }]);
   });
 
+  test("a blocked or conflicting row rewrites nothing (review round 3 F1)", () => {
+    expect(pendingCardParagraphs([
+      row({ itemId: "r-242-3-1", paragraph: 3, status: "blocked" }),
+      row({ itemId: "c-242-4-1", paragraph: 4, status: "conflicting" }),
+      row({ itemId: "r-242-5-1", paragraph: 5 }),
+    ])).toEqual([{ section: "242", paragraph: 5 }]);
+  });
+
   test("an item waits when its paragraph is covered, read from the id when not given", () => {
     expect(itemIdParagraph("r-242-1-4")).toBe(1);
     expect(itemIdParagraph("c-244-12-2")).toBe(12);

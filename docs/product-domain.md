@@ -3598,6 +3598,7 @@ The lead decisions in the spec (web search on by default, Undo back to pending, 
   - the project's rolling 24-hour chat spend is within its budget;
   - the sender still has access to the project.
 - **Progress.** A turn made progress when its offer is `lines_left` or it saved a card. A link counts only when the Deviations left fall below the lowest count seen in the chain so far, or the next Line moves forward in build order past the furthest one seen. When the chain had no count or Line yet (its first turn ended before any list call), the first one to appear counts as progress. A chain that cannot measure progress stops. A sender who lost access starts no link, and nothing is recorded.
+- **Waiting on a pending card.** A Deviation that is not handled yet but sits in a paragraph a pending card of the same job already rewrites (the card resolved an item there) is waiting on that card. It does not count as left, and the offer points to the next Line with other open items; when only waiting items are left, there is no `lines_left` offer. The offer stores them (`chatTurns.continuation.waiting`: ids, Line and paragraph). The next turn's note lists them and tells the model not to rewrite those paragraphs again and to name them in its closing, and the inventory marks them. A card applied, rejected or gone stale since makes nothing wait, and neither does a card from an earlier job. Origin: in the replay, an automatic link went back to a Line whose first card had missed one item and rewrote the whole Line again, leaving two overlapping cards. This rule also applies to the writer's own Continue button.
 - **What a link is.** It saves the same writer message the Continue button sends ("Continue with Line 244." or "Continue.") under the job's original sender, queues a turn with `chatTurns.origin: "auto_continue"`, and schedules its reply. Brain is off for the link, and web search follows the conversation's setting.
 - **Limits.** Links do not count toward the queue limit. Usage is logged by a scheduled job, so the budget check can be one link behind: a chain can run at most one link past the budget.
 - **Why a chain stopped.** A chain that stops for the budget, for no progress or because the setting is off records `chatTurns.autoContinueSkipped`, and the Continue button says why for the first two.
@@ -3647,7 +3648,7 @@ The lead decisions in the spec (web search on by default, Undo back to pending, 
 - **Reply ready.** A page-level query (`chatV2.reportChatActivity`) drives a working ring on the Assistant button while any reply on the report runs. A dot appears when one of your replies finished after you last had the panel open (remembered per report in this browser). While the tab is hidden, its title starts with "Reply ready - ". An optional browser notification ("Notify me when a reply is ready") asks for permission when turned on, shows only while the tab is hidden, and says only "Your reply is ready."
 
 **Migration and compatibility.** Widen only, with no backfill:
-- `chatTurns.origin`, `autoContinueSkipped` and `chainStoppedAt`;
+- `chatTurns.origin`, `autoContinueSkipped` and `chainStoppedAt`, and the optional `waiting` list inside `chatTurns.continuation`;
 - `agentChatThreads.createdBy` and `webSearch`;
 - `chatProposals.appliedChange`, `undoneAt` and `undoneBy`;
 - the `pre_chat_undo` snapshot reason;
@@ -3693,6 +3694,10 @@ The evidence head gains handles and the transcripts block, so the first turn of 
 - Undo of a card applied one change at a time (`markProposalApplied`) also reverts what the writer typed during that session inside, or right next to, the paragraphs the card changed.
 - Citation popover links are easier to reach from the Sources row than by keyboard inside the reply.
 - The budget check can run one link late.
+- Waiting on a pending card has three known gaps.
+  - A whole-Line item is anchored on paragraph 1, so a card that resolves one makes other open paragraph 1 items wait.
+  - A typed continue in other words ("keep going") starts a new job, which does not see the earlier job's pending card.
+  - When a turn ends with only waiting items, the next turn's note can miss them; the inventory still marks them.
 
 **Approval.** Product owner, 2026-10-19 (decisions) and 2026-10-20 ("can we do it").
 

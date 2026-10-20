@@ -239,8 +239,8 @@ function paragraphKey(place: LineParagraph): string {
 
 /**
  * The paragraphs that a pending card of the current job already rewrites:
- * each card item row of a pending card of this job that names its Line and
- * paragraph. A rejected or stale card rewrites nothing, and a pending card
+ * each resolved card item row of a pending card of this job that names its
+ * Line and paragraph. A rejected or stale card rewrites nothing, and a pending card
  * of an earlier job is left out: a new request is the writer's own choice to
  * work on those paragraphs again, while a job (and its Continue chain) must
  * not overwrite the card it just made.
@@ -249,6 +249,9 @@ export function pendingCardParagraphs(rows: ReadonlyArray<ItemCoverageRow>): Lin
   const places = new Map<string, LineParagraph>();
   for (const row of rows) {
     if (row.proposalState !== "pending" || !row.inCurrentJob) continue;
+    // Review round 3 F1: only a row the card resolved stands for an edit; a
+    // blocked or conflicting row rewrites nothing.
+    if (row.status !== "resolved") continue;
     if (!row.section || row.paragraph === undefined || row.paragraph < 1) continue;
     const place = { section: row.section, paragraph: row.paragraph };
     places.set(paragraphKey(place), place);
