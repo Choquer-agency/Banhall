@@ -1851,7 +1851,9 @@ export default defineSchema({
     refineProposalId: v.optional(v.id("chatProposals")),
     // The writer's own text length at the start of the stored prompt.
     writerTextLength: v.optional(v.number()),
-    // Chat parity Phase C (W1 contract): project files pinned into this message.
+    // Phase C (2026-10-20), W1, widen only. The project files the writer
+    // pinned to this message (at most 5, same project, not archived when
+    // sent). The reply reads them in full; their content is never stored.
     pinnedDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
   })
     .index("by_agentThreadId_and_promptMessageId", [
@@ -2119,6 +2121,9 @@ export default defineSchema({
     // Original file bytes in Convex storage (for preview/download).
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),
+    // Phase C of report chat parity (2026-10-20), widen only: a PDF's page
+    // count, worked out on the server the first time the chat views it.
+    pageCount: v.optional(v.number()),
     // BNH-24: archived files stay visible to reviewers but are excluded from
     // AI context (generation + chat).
     archived: v.optional(v.boolean()),

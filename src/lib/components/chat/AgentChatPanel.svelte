@@ -22,7 +22,7 @@
   import { chatSendErrorMessage, chatStopErrorMessage } from "$lib/chat/chatRefusals";
   import { NEW_CONVERSATION, clearDraft, draftKey, readDraft, readLastThread, writeDraft, writeLastThread } from "$lib/chat/chatDrafts";
   import { OFFLINE_MESSAGE, useChatConnection } from "$lib/chat/connectionState.svelte";
-  import { MAX_CHAT_HIGHLIGHT_CHARS, MAX_CHAT_MESSAGE_CHARS } from "../../../../shared/chatLimits";
+  import { CHAT_MAX_PINNED_FILES, MAX_CHAT_HIGHLIGHT_CHARS, MAX_CHAT_MESSAGE_CHARS } from "../../../../shared/chatLimits";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import AssistantPanelSkeleton from "./AssistantPanelSkeleton.svelte";
   import StopReplyDialog from "./StopReplyDialog.svelte";
@@ -33,7 +33,7 @@
   import { notificationsSupported, notifyRepliesEnabled, setNotifyReplies } from "$lib/chat/replySignal.svelte";
   import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
-  import { DropdownMenu, Checkbox } from "bits-ui";
+  import { DropdownMenu, Checkbox, Popover } from "bits-ui";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import { fade } from "svelte/transition";
@@ -62,8 +62,8 @@
   type Proposal = Doc<"chatProposals">;
 
   interface Props {
-    /** Hosts still pass it; the panel reads everything through the report
-     * since chat uploads were removed (2026-10-19). */
+    /** Phase C (2026-10-20): the project whose files the writer can pin to a
+     * message ("Read a file in full"). Nothing is uploaded from the chat. */
     projectId: Id<"projects">;
     reportId: Id<"reports">;
     pendingHighlight?: { from: number; to: number; text: string } | null;
@@ -92,6 +92,7 @@
   }
 
   let {
+    projectId,
     reportId,
     pendingHighlight,
     onClearHighlight,
@@ -343,6 +344,35 @@
   const connection = useChatConnection();
   let allowBrain = $state(false);
   $effect(() => { conversationScope; allowBrain = false; });
+  // Phase C (W1): project files pinned to the next message, read in full
+  // with it. Picked from the project's files (never uploaded here), cleared
+  // after a send like a per-message option. The file list is subscribed
+  // once Message options has been opened.
+  type PinnedFile = { id: Id<"projectDocuments">; name: string };
+  let pinnedFiles = $state<PinnedFile[]>([]);
+  let filePickerWanted = $state(false);
+  let filePickerOpen = $state(false);
+  let openFilePickerOnClose = false;
+  let messageOptionsButton = $state<HTMLElement | null>(null);
+  $effect(() => { conversationScope; pinnedFiles = []; filePickerOpen = false; });
+  const projectFilesQ = useQuery(api.documents.listDocuments, () => (filePickerWanted ? { projectId } : "skip"));
+  const pinnableFiles = $derived((projectFilesQ.data ?? []).filter((file) => !file.archived));
+  // A pinned file archived or removed meanwhile is dropped before a send.
+  $effect(() => {
+    const files = projectFilesQ.data;
+    if (!files) return;
+    const live = new Set(files.filter((file) => !file.archived).map((file) => file._id));
+    if (untrack(() => pinnedFiles).some((file) => !live.has(file.id))) {
+      pinnedFiles = untrack(() => pinnedFiles).filter((file) => live.has(file.id));
+    }
+  });
+  function setPinned(file: { _id: Id<"projectDocuments">; fileName: string }, on: boolean) {
+    if (!on) {
+      pinnedFiles = pinnedFiles.filter((pinned) => pinned.id !== file._id);
+    } else if (!pinnedFiles.some((pinned) => pinned.id === file._id) && pinnedFiles.length < CHAT_MAX_PINNED_FILES) {
+      pinnedFiles = [...pinnedFiles, { id: file._id, name: file.fileName }];
+    }
+  }
   // Phase B (W3): web search (terms and CRA only) is a setting of the
   // conversation, on unless turned off, and stays as set across sends. An
   // unsaved new conversation keeps it here until its first send writes it.
@@ -401,7 +431,7 @@
     intent: SendIntent;
     args: Parameters<typeof sendMessage>[0];
     alternative?: AlternativeSend;
-    display: { content: string; highlight?: string };
+    display: { content: string; highlight?: string; pinned?: string[] };
     startOrder: number;
     afterOrder: number;
     conversationNumber: number;
@@ -956,6 +986,9 @@
       reportId,
       content: trimmed,
       ...(!historical && allowBrain ? { allowBrain: true } : {}),
+      // Phase C (W1): the files pinned to this message. Regenerate and
+      // Continue carry none.
+      ...(!historical && pinnedFiles.length ? { pinnedDocumentIds: pinnedFiles.map((file) => file.id) } : {}),
       // Phase B: a saved conversation's web setting is already stored (the
       // switch saves it, and this client's mutations run in order), so a send
       // names it only to seed a new conversation that starts with it off.
@@ -973,6 +1006,7 @@
       ...(alternative ? { alternative } : {}),
       display: alternative?.kind === "edit" ? { content: trimmed } : historical ? splitWriterMessage(visibleWriterMessage(trimmed)) : {
         content: trimmed, ...(args.highlight ? { highlight: args.highlight.text } : {}),
+        ...(args.pinnedDocumentIds ? { pinned: pinnedFiles.map((file) => file.name) } : {}),
       },
       startOrder: Math.max(0, endOrder), afterOrder: endOrder,
       conversationNumber: nextConversationNumber++, retried: false, state: { kind: "sending" },
@@ -986,6 +1020,7 @@
       input = "";
       refiningProposal = null;
       allowBrain = false;
+      pinnedFiles = [];
       onClearHighlight?.();
     }
     dismissHint();
@@ -1182,12 +1217,23 @@
   }
 </script>
 
-{#snippet writerContent(split: { content: string; highlight?: string })}
+{#snippet writerContent(split: { content: string; highlight?: string; pinned?: string[] })}
   {#if split.highlight}
     <p class="mb-2 italic text-navy/80">&ldquo;{split.highlight}&rdquo;</p>
   {/if}
   {#if split.content.trim()}
     <p class="whitespace-pre-wrap">{split.content.trim()}</p>
+  {/if}
+  {#if split.pinned?.length}
+    <!-- Phase C (W1): the project files this message asked the assistant to read in full. -->
+    <ul class="mt-2 flex flex-wrap gap-1" aria-label="Files read in full with this message" data-pinned-files>
+      {#each split.pinned as name, index (index)}
+        <li class="inline-flex h-[1.375rem] max-w-full min-w-0 items-center gap-1 rounded-full border border-line bg-white px-2 text-[0.6875rem] text-ink-secondary">
+          <svg class="shrink-0" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z" /><path d="M14 3v5h5" /></svg>
+          <span class="truncate">{name}</span>
+        </li>
+      {/each}
+    </ul>
   {/if}
 {/snippet}
 
@@ -1361,17 +1407,38 @@
       {/snippet}
     </PromptInputTextarea>
     </div>
-    <!-- Board 2.1 anatomy: message options at the left (Brain examples, web search),
-         send at the right. The chat reads only typed text, so the composer
-         offers no way to add files (owner, 2026-10-19). -->
+    <!-- Board 2.1 anatomy: message options at the left (Brain examples, web search,
+         files read in full), send at the right. The composer uploads nothing:
+         "Read a file in full" pins files already in the project's Files panel
+         (owner, 2026-10-19; Phase C, 2026-10-20). No drop, paste or file input. -->
+    {#if pinnedFiles.length && !pendingResearch}
+      <!-- Phase C (W1): the files pinned to this message stay visible until it is sent. -->
+      <div class="mb-1.5 flex flex-wrap items-center gap-1.5" data-pinned-chips>
+        {#each pinnedFiles as file (file.id)}
+          <span data-pinned-chip class="inline-flex h-[1.375rem] max-w-56 min-w-0 items-center gap-1 rounded-full bg-primary-wash pr-1 pl-2 text-[0.6875rem] text-primary-selected">
+            <span class="truncate">{file.name}</span>
+            <button
+              type="button"
+              onclick={() => (pinnedFiles = pinnedFiles.filter((pinned) => pinned.id !== file.id))}
+              disabled={sending || isStreaming}
+              aria-label={`Remove ${file.name}`}
+              class="flex size-4 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100"
+            >
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            </button>
+          </span>
+        {/each}
+      </div>
+    {/if}
     <div class="flex items-center justify-between gap-2">
     <PromptInputActions class="min-w-0 items-center gap-1.5">
       {#if !pendingResearch}
-        <DropdownMenu.Root>
+        <DropdownMenu.Root onOpenChange={(open) => { if (open) filePickerWanted = true; }}>
           <Tooltip text="Message options">
             {#snippet children({ props: tooltipProps })}
               <DropdownMenu.Trigger
                 {...tooltipProps}
+                bind:ref={messageOptionsButton}
                 aria-label="Message options"
                 class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-full border border-line text-ink transition-colors hover:bg-primary-wash data-[state=open]:bg-primary-wash motion-reduce:transition-none pointer-coarse:size-11"
               >
@@ -1389,6 +1456,13 @@
               align="start"
               sideOffset={8}
               class="z-[100] w-72 rounded-xl border border-line bg-white p-1 shadow-lg"
+              onCloseAutoFocus={(event) => {
+                // Phase C (W1): "Read a file in full" hands focus to its picker.
+                if (!openFilePickerOnClose) return;
+                event.preventDefault();
+                openFilePickerOnClose = false;
+                filePickerOpen = true;
+              }}
             >
               <DropdownMenu.CheckboxItem
                 bind:checked={allowBrain}
@@ -1423,9 +1497,76 @@
                   Search the web in this conversation
                 {/snippet}
               </DropdownMenu.CheckboxItem>
+              <!-- Phase C (W1): pick project files to read in full with this message.
+                   It opens its own picker above the composer, so it fits a narrow panel. -->
+              <DropdownMenu.Item
+                disabled={sending || isStreaming}
+                onSelect={() => { openFilePickerOnClose = true; }}
+                class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash data-[disabled]:opacity-50"
+                data-file-picker-trigger
+              >
+                <svg class="shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></svg>
+                <span class="min-w-0 flex-1 truncate">Read a file in full</span>
+                {#if pinnedFiles.length}
+                  <span class="text-data text-ink-muted" aria-hidden="true">{pinnedFiles.length}/{CHAT_MAX_PINNED_FILES}</span>
+                {/if}
+              </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
+        <!-- Phase C (W1): the file picker. It lists the project's files that are
+             not archived and uploads nothing. -->
+        <Popover.Root bind:open={filePickerOpen}>
+          <Popover.Portal>
+            <Popover.Content
+              customAnchor={messageOptionsButton}
+              side="top"
+              align="start"
+              sideOffset={8}
+              collisionPadding={8}
+              aria-labelledby="chat-file-picker-heading"
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                messageOptionsButton?.focus();
+              }}
+              class="z-[100] flex max-h-96 w-72 max-w-[calc(100vw-1rem)] flex-col rounded-xl border border-line bg-white p-1 shadow-lg"
+              data-file-picker
+            >
+              <p id="chat-file-picker-heading" class="px-2 pt-1.5 pb-1 text-xs text-ink-muted">
+                Choose up to {CHAT_MAX_PINNED_FILES} project files to read with this message
+              </p>
+              {#if projectFilesQ.data === undefined}
+                <p class="px-2 py-1.5 text-[0.8125rem] text-ink-muted" role="status">{projectFilesQ.error ? "The project's files could not be loaded." : "Loading files…"}</p>
+              {:else if pinnableFiles.length === 0}
+                <p class="px-2 py-1.5 text-[0.8125rem] text-ink-muted">No files in this project yet. Add them in the Files panel.</p>
+              {:else}
+                <ul class="min-h-0 overflow-y-auto" aria-labelledby="chat-file-picker-heading">
+                  {#each pinnableFiles as file (file._id)}
+                    {@const isPinned = pinnedFiles.some((pinned) => pinned.id === file._id)}
+                    {@const blocked = sending || isStreaming || (!isPinned && pinnedFiles.length >= CHAT_MAX_PINNED_FILES)}
+                    <li>
+                      <label class={`flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink hover:bg-primary-wash has-[:focus-visible]:bg-primary-wash pointer-coarse:min-h-11 ${blocked ? "opacity-50" : ""}`} data-file-option>
+                        <Checkbox.Root
+                          checked={isPinned}
+                          onCheckedChange={(on) => setPinned(file, on)}
+                          disabled={blocked}
+                          class="flex size-4 shrink-0 items-center justify-center rounded border border-line outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[state=checked]:border-primary-selected data-[state=checked]:bg-primary-selected data-[state=checked]:text-white"
+                        >
+                          {#snippet children({ checked })}
+                            {#if checked}
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7" /></svg>
+                            {/if}
+                          {/snippet}
+                        </Checkbox.Root>
+                        <span class="min-w-0 flex-1 truncate">{file.fileName}</span>
+                      </label>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
       {/if}
       {#if allowBrain && !pendingResearch}
         <!-- The per-message Brain choice stays visible while it is on. -->
@@ -1695,7 +1836,8 @@
           </div>
         {/if}
         {#if m.role === "user"}
-          {@const split = splitWriterMessage(visibleWriterMessage(text))}
+          {@const pinnedNames = turnByOrder.get(m.order)?.pinnedFiles?.map((file) => file.name)}
+          {@const split = { ...splitWriterMessage(visibleWriterMessage(text)), ...(pinnedNames?.length ? { pinned: pinnedNames } : {}) }}
           {@const chip = autoContinueChip(m.order, text)}
           {@const author = chip ? null : authorLabel(m.order)}
           {#if chip}

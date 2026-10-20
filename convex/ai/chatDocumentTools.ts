@@ -12,14 +12,28 @@
 // back on every step, with the same bytes each time, which keeps the step
 // prefix cacheable. A new pass (the recovery pass) starts clean; the turn's
 // character allowance is shared by every pass.
+//
+// Phase C (2026-10-20): viewFile sends a stored PDF's pages or an image to
+// the model inline, the same way: the saved result is a receipt, and the
+// receipt plus the media (`image-data`, or `file-data` for a PDF) wait in
+// `opened` for `withOpenedText`. Files a writer pinned to the message reach
+// the model in one ephemeral user message after the options note
+// (`pinnedFilesMessage`), never saved. Both share the turn's media allowance
+// (bytes and images) and the pins share its character allowance.
 
 import { createTool } from "@convex-dev/agent";
 import { z } from "zod";
-import type { ModelMessage } from "ai";
-import { makeFunctionReference, type FunctionReference, type RegisteredQuery } from "convex/server";
+import type { FilePart, ModelMessage, TextPart } from "ai";
+import {
+  makeFunctionReference,
+  type FunctionReference,
+  type RegisteredAction,
+  type RegisteredQuery,
+} from "convex/server";
 import type { ActionCtx } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type * as chatDocuments from "../chatDocuments";
+import type * as chatPdfPages from "./chatPdfPages";
 import {
   CHAT_READ_MAX_CALL_CHARS,
   CHAT_READ_MAX_PARTS,
@@ -28,18 +42,37 @@ import {
   CHAT_SEARCH_EXCERPT_CHARS,
   CHAT_SEARCH_MAX_EXCERPTS,
   CHAT_TRANSCRIPT_READ_CHARS,
+  safeRange,
   type ReadDocumentResult,
   type ReadTranscriptResult,
   type SearchDocumentsResult,
   type SearchExcerpt,
+  type ViewFileResult,
 } from "../chatDocuments";
 import {
   chatFileOrder,
   chatTranscriptHandle,
+  chatViewableKind,
   openedDocumentBlock,
+  openedMediaMarkers,
   openedTranscriptBlock,
+  type ChatEvidenceDoc,
   type ChatTurnContext,
 } from "./chatEvidence";
+import {
+  CHAT_VIEW_MAX_IMAGE_BYTES,
+  CHAT_VIEW_MAX_IMAGES,
+  CHAT_VIEW_MAX_PDF_BYTES,
+  CHAT_VIEW_MAX_PDF_PAGES,
+  CHAT_VIEW_MAX_TURN_BYTES,
+  formatBytes,
+  sniffChatMedia,
+  toBase64,
+  type ChatImageMediaType,
+  type ChatMediaKind,
+  type ChatMediaType,
+} from "../lib/chatMedia";
+import { CHAT_MAX_PINNED_FILES } from "../../shared/chatLimits";
 import { formatCount, neutralizeMarkers, sanitizeFileName } from "./trustedContext";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
 
@@ -69,9 +102,21 @@ function queryRef<Export>(name: string): QueryRef<Export> {
   return makeFunctionReference(name) as unknown as QueryRef<Export>;
 }
 
+type ActionRef<Export> =
+  Export extends RegisteredAction<infer Visibility, infer Args, infer Return>
+    ? FunctionReference<"action", Visibility, Args, Awaited<Return>>
+    : never;
+
+/** The same for the Phase C page count action (convex/ai/chatPdfPages.ts). */
+function actionRef<Export>(name: string): ActionRef<Export> {
+  return makeFunctionReference(name) as unknown as ActionRef<Export>;
+}
+
 const readDocumentRef = queryRef<typeof chatDocuments.readDocumentForChat>("chatDocuments:readDocumentForChat");
 const readTranscriptRef = queryRef<typeof chatDocuments.readTranscriptForChat>("chatDocuments:readTranscriptForChat");
 const searchRef = queryRef<typeof chatDocuments.searchForChat>("chatDocuments:searchForChat");
+const viewFileRef = queryRef<typeof chatDocuments.viewFileForChat>("chatDocuments:viewFileForChat");
+const countPdfPagesRef = actionRef<typeof chatPdfPages.countPdfPages>("ai/chatPdfPages:countPdfPages");
 
 // ─── Fixed texts ─────────────────────────────────────────────────────────────
 
@@ -94,9 +139,49 @@ export const CHAT_SEARCH_NO_TERMS =
 export const CHAT_SEARCH_NOTHING_FOUND =
   "Found nothing in this project's files or transcripts for those words. Try other words, or open a file with readDocument.";
 
-/** A file with no text: an image, a scan, a failed extraction. */
-export function chatReadNoText(ref: string): string {
-  return `${ref} has no text that can be read (for example an image or a scan), so it cannot be opened. Images and scans cannot be opened yet.`;
+/**
+ * A file with no text: an image, a scan, a failed extraction. Phase C: one
+ * viewFile can show says so.
+ */
+export function chatReadNoText(ref: string, viewable: ChatMediaKind | null = null): string {
+  const base = `${ref} has no text that can be read (for example an image or a scan), so readDocument cannot open it.`;
+  if (viewable === "pdf") return `${base} viewFile can show you its pages.`;
+  if (viewable === "image") return `${base} viewFile can show you the image.`;
+  return base;
+}
+
+// Phase C (2026-10-20): viewFile's fixed texts.
+
+/** The admin setting `ai.chatVision` is off. */
+export const CHAT_VIEW_OFF = "Viewing PDFs and images is turned off for this workspace. Use readDocument for a file's text.";
+
+export const CHAT_VIEW_BUDGET_USED = `Nothing was shown. This reply has used its viewing allowance of ${formatBytes(CHAT_VIEW_MAX_TURN_BYTES)} and ${CHAT_VIEW_MAX_IMAGES} images. Answer with what you have seen, and tell the writer what is left to look at so they can ask again.`;
+
+/** Not a PDF or one of the four image types, or no original is kept. */
+export function chatViewNotMedia(ref: string): string {
+  return `${ref} is not a PDF or an image whose original file is kept, so viewFile cannot show it. Use readDocument for its text.`;
+}
+
+export function chatViewTooBig(ref: string, kind: ChatMediaKind, size: number): string {
+  return kind === "image"
+    ? `${ref} is too large to view (${formatBytes(size)}). Images can be at most ${formatBytes(CHAT_VIEW_MAX_IMAGE_BYTES)}.`
+    : `${ref} is too large to view (${formatBytes(size)}). PDFs can be at most ${formatBytes(CHAT_VIEW_MAX_PDF_BYTES)}. Use readDocument for its text instead.`;
+}
+
+export function chatViewTooManyPages(ref: string, pages: number): string {
+  return `${ref} has ${formatCount(pages)} pages, and viewFile shows PDFs of at most ${CHAT_VIEW_MAX_PDF_PAGES} pages. Use readDocument for its text instead.`;
+}
+
+/** The bytes are not the PDF or image the file says it is, or pdf.js could not open it. */
+export function chatViewUnreadable(ref: string): string {
+  return `${ref} could not be opened as a PDF or an image. Use readDocument for its text instead.`;
+}
+
+/** viewFile's receipt: the only thing the saved tool row holds. */
+export function chatViewReceipt(ref: string, kind: ChatMediaKind, size: number, pages?: number): string {
+  return kind === "pdf"
+    ? `Viewed ${ref}, a PDF of ${formatCount(pages ?? 0)} page(s) (${formatBytes(size)}). Its pages are shown to you for this reply only.`
+    : `Viewed ${ref}, an image (${formatBytes(size)}). It is shown to you for this reply only.`;
 }
 
 // ─── The turn's reading state ────────────────────────────────────────────────
@@ -106,6 +191,8 @@ export type ChatReadFile = {
   fileName: string;
   handle: string | null;
   hasText: boolean;
+  /** Phase C: what viewFile can show of it (`chatViewableKind`), or null. */
+  viewable: ChatMediaKind | null;
 };
 
 export type ChatReadTranscript = {
@@ -114,18 +201,31 @@ export type ChatReadTranscript = {
   handle: string;
 };
 
+/** Phase C: one part of what viewFile puts back into its tool result. */
+export type OpenedMediaPart =
+  | { type: "text"; text: string }
+  | { type: "image-data"; data: string; mediaType: ChatImageMediaType }
+  | { type: "file-data"; data: string; mediaType: "application/pdf" };
+
+/** Text a reading tool opened, or (Phase C) the receipt and media viewFile showed. */
+export type OpenedContent = string | OpenedMediaPart[];
+
 /**
  * One turn's reading state, created once per turn next to the web search
  * state and shared by every pass. `used` counts the characters granted to
  * calls (the turn allowance); `opened` holds, per tool call of the current
- * pass, the text `withOpenedText` puts back into the step's input.
+ * pass, the text `withOpenedText` puts back into the step's input. Phase C:
+ * `vision` is `ai.chatVision`, and `media` counts the original bytes and
+ * images granted to viewFile and pinned files (the turn's media allowance).
  */
 export type DocumentReadTurn = {
   enabled: boolean;
+  vision: boolean;
   used: number;
+  media: { bytes: number; images: number };
   files: ChatReadFile[];
   transcripts: ChatReadTranscript[];
-  opened: Map<string, string>;
+  opened: Map<string, OpenedContent>;
 };
 
 /**
@@ -135,16 +235,20 @@ export type DocumentReadTurn = {
  * every tool says reading is off: it fails closed.
  */
 export function newDocumentReadTurn(
-  context?: Pick<ChatTurnContext, "documents" | "transcripts" | "documentTools">
+  context?: Pick<ChatTurnContext, "documents" | "transcripts" | "documentTools" | "chatVision">
 ): DocumentReadTurn {
+  const enabled = context !== undefined && context.documentTools !== false;
   return {
-    enabled: context !== undefined && context.documentTools !== false,
+    enabled,
+    vision: enabled && context?.chatVision !== false,
     used: 0,
+    media: { bytes: 0, images: 0 },
     files: chatFileOrder(context?.documents ?? []).map(({ doc, handle }) => ({
       ...(doc.documentId ? { documentId: doc.documentId } : {}),
       fileName: doc.fileName,
       handle,
       hasText: (doc.textLength ?? doc.content.length) > 0,
+      viewable: chatViewableKind(doc),
     })),
     transcripts: (context?.transcripts ?? []).map((transcript, index) => ({
       ...(transcript.transcriptId ? { transcriptId: transcript.transcriptId } : {}),
@@ -171,12 +275,38 @@ export function releaseReading(turn: DocumentReadTurn, unused: number): void {
   turn.used = Math.max(0, turn.used - Math.max(0, unused));
 }
 
+/** Phase C: what one view or pin holds of the turn's media allowance. */
+export type MediaGrant = { bytes: number; image: boolean };
+
+/**
+ * Take up to `maxBytes` of the turn's media allowance, and one of its images
+ * for an image, synchronously, so views running in parallel in one step can
+ * never pass it together. Null when nothing is left.
+ */
+export function reserveMedia(turn: DocumentReadTurn, kind: ChatMediaKind, maxBytes: number): MediaGrant | null {
+  const image = kind === "image";
+  if (image && turn.media.images >= CHAT_VIEW_MAX_IMAGES) return null;
+  const bytes = Math.max(0, Math.min(maxBytes, CHAT_VIEW_MAX_TURN_BYTES - turn.media.bytes));
+  if (bytes === 0) return null;
+  turn.media.bytes += bytes;
+  if (image) turn.media.images += 1;
+  return { bytes, image };
+}
+
+/** Give back what a view did not send: the unused bytes, and the image when nothing was sent. */
+export function releaseMedia(turn: DocumentReadTurn, grant: MediaGrant, keptBytes: number): void {
+  const kept = Math.max(0, Math.min(grant.bytes, keptBytes));
+  turn.media.bytes = Math.max(0, turn.media.bytes - (grant.bytes - kept));
+  if (grant.image && kept === 0) turn.media.images = Math.max(0, turn.media.images - 1);
+}
+
 /**
  * The step's input with each reading call's receipt replaced by the receipt
  * plus the text it opened, by tool call id, in the same bytes on every step.
- * The first step of a pass (no steps yet) clears what an earlier pass opened:
- * the recovery pass starts clean. Returns the same array when nothing
- * changes.
+ * Phase C: a viewFile call's result becomes its receipt and media parts (the
+ * same base64 string each time). The first step of a pass (no steps yet)
+ * clears what an earlier pass opened: the recovery pass starts clean.
+ * Returns the same array when nothing changes.
  */
 export function withOpenedText(
   messages: ModelMessage[],
@@ -194,10 +324,12 @@ export function withOpenedText(
     let touched = false;
     const content = message.content.map((part) => {
       if (part.type !== "tool-result") return part;
-      const text = turn.opened.get(part.toolCallId);
-      if (text === undefined) return part;
+      const opened = turn.opened.get(part.toolCallId);
+      if (opened === undefined) return part;
       touched = true;
-      return { ...part, output: { type: "text" as const, value: text } };
+      return typeof opened === "string"
+        ? { ...part, output: { type: "text" as const, value: opened } }
+        : { ...part, output: { type: "content" as const, value: opened } };
     });
     if (!touched) return message;
     changed = true;
@@ -249,8 +381,7 @@ function resolveEntry<T extends { handle: string | null }>(
   return entry ? { kind: "one", entry } : { kind: "none" };
 }
 
-function manyText(kind: "file" | "transcript", handles: string[]): string {
-  const tool = kind === "file" ? "readDocument" : "readTranscript";
+function manyText(kind: "file" | "transcript", handles: string[], tool = kind === "file" ? "readDocument" : "readTranscript"): string {
   return handles.length
     ? `More than one ${kind} in this project has that name: ${handles.join(", ")}. Call ${tool} again with one handle.`
     : `More than one ${kind} in this project has that name. Ask the writer which one they mean.`;
@@ -298,7 +429,7 @@ export async function runReadDocument(
   const ref = file.handle ? `${file.handle} ${quoted(file.fileName)}` : quoted(file.fileName);
   if (!file.hasText) {
     logRead("readDocument", 0, 0);
-    return chatReadNoText(ref);
+    return chatReadNoText(ref, turn.vision ? file.viewable : null);
   }
   const part = Math.max(1, Math.floor(input.part ?? 1));
   const parts = Math.min(CHAT_READ_MAX_PARTS, Math.max(1, Math.floor(input.parts ?? 1)));
@@ -325,7 +456,7 @@ export async function runReadDocument(
       case "not_found":
         return CHAT_READ_NO_FILE;
       case "no_text":
-        return chatReadNoText(ref);
+        return chatReadNoText(ref, turn.vision ? file.viewable : null);
       case "past_end": {
         const count = totalParts(result.totalChars);
         return `${ref} has ${count} part(s) (${formatCount(result.totalChars)} characters). Call readDocument with a part from 1 to ${count}.`;
@@ -547,6 +678,310 @@ export async function runReadTranscript(
   }
 }
 
+// ─── viewFile (Phase C, 2026-10-20) ──────────────────────────────────────────
+
+/** What viewFile and pinned files need from the agent's tool context. */
+export type ViewingToolCtx = ReadingToolCtx & {
+  runAction: ActionCtx["runAction"];
+  storage: Pick<ActionCtx["storage"], "get">;
+};
+
+/** One "chat file view" log line per view or pin: numbers only, no names, no bytes. */
+function logView(tool: string, kind: ChatMediaKind | null, bytes: number, pages: number): void {
+  console.info("chat file view", { tool, kind, bytes, pages });
+}
+
+type MediaLoad =
+  | {
+      status: "ok";
+      kind: ChatMediaKind;
+      mediaType: ChatMediaType;
+      /** Base64 of the original, encoded once. */
+      data: string;
+      size: number;
+      pageCount?: number;
+      fileName: string;
+      category?: Doc<"projectDocuments">["category"];
+      uploaderRole?: string;
+    }
+  | { status: Exclude<ViewFileResult["status"], "ok" | "not_media"> | "not_media" | "unreadable" | "allowance" | "failed" }
+  | { status: "too_big"; kind: ChatMediaKind; size: number }
+  | { status: "too_many_pages"; pageCount: number };
+
+/**
+ * One file's original as base64, within the per-file caps and the turn's
+ * media allowance. The allowance is taken before the first await (call this
+ * without awaiting anything first), and what is not sent is given back. A
+ * PDF with no stored page count is counted on the server (Node runtime) and
+ * the count is stored. The bytes' own signature decides the media type sent.
+ */
+async function loadMedia(ctx: ViewingToolCtx, file: ChatReadFile, turn: DocumentReadTurn): Promise<MediaLoad> {
+  const kind = file.viewable;
+  if (!kind || !file.documentId || !ctx.threadId) return { status: "not_media" };
+  const cap = kind === "image" ? CHAT_VIEW_MAX_IMAGE_BYTES : CHAT_VIEW_MAX_PDF_BYTES;
+  const grant = reserveMedia(turn, kind, cap);
+  if (!grant) return { status: "allowance" };
+  let kept = 0;
+  try {
+    const view: ViewFileResult = await ctx.runQuery(viewFileRef, {
+      agentThreadId: ctx.threadId,
+      documentId: file.documentId,
+    });
+    if (view.status !== "ok") return { status: view.status };
+    if (view.kind !== kind) return { status: "not_media" };
+    if (view.size > cap) return { status: "too_big", kind, size: view.size };
+    let pageCount = view.pageCount;
+    if (kind === "pdf" && pageCount === undefined) {
+      const counted: number | null = await ctx.runAction(countPdfPagesRef, {
+        documentId: file.documentId,
+        storageId: view.storageId,
+      });
+      if (counted === null) return { status: "unreadable" };
+      pageCount = counted;
+    }
+    if (kind === "pdf" && (pageCount ?? 0) > CHAT_VIEW_MAX_PDF_PAGES) {
+      return { status: "too_many_pages", pageCount: pageCount ?? 0 };
+    }
+    if (view.size > grant.bytes) return { status: "allowance" };
+    const blob = await ctx.storage.get(view.storageId);
+    if (!blob) return { status: "failed" };
+    if (blob.size > grant.bytes) return blob.size > cap ? { status: "too_big", kind, size: blob.size } : { status: "allowance" };
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const sniffed = sniffChatMedia(bytes);
+    const mediaType =
+      kind === "pdf"
+        ? sniffed === "application/pdf"
+          ? sniffed
+          : null
+        : sniffed !== null && sniffed !== "application/pdf"
+          ? sniffed
+          : null;
+    if (!mediaType) return { status: "unreadable" };
+    const data = toBase64(bytes);
+    kept = bytes.length;
+    return {
+      status: "ok",
+      kind,
+      mediaType,
+      data,
+      size: bytes.length,
+      ...(pageCount !== undefined ? { pageCount } : {}),
+      fileName: view.fileName,
+      ...(view.category ? { category: view.category } : {}),
+      ...(view.uploaderRole ? { uploaderRole: view.uploaderRole } : {}),
+    };
+  } catch (error) {
+    console.error("chat file view failed", safeErrorDetails(error));
+    return { status: "failed" };
+  } finally {
+    releaseMedia(turn, grant, kept);
+  }
+}
+
+/** The media part a tool result carries for a loaded original. */
+function toolMediaPart(loaded: Extract<MediaLoad, { status: "ok" }>): OpenedMediaPart {
+  return loaded.mediaType === "application/pdf"
+    ? { type: "file-data", data: loaded.data, mediaType: "application/pdf" }
+    : { type: "image-data", data: loaded.data, mediaType: loaded.mediaType };
+}
+
+export async function runViewFile(
+  ctx: ViewingToolCtx,
+  input: { file: string },
+  options: { toolCallId: string },
+  turn: DocumentReadTurn
+): Promise<string> {
+  if (!turn.enabled) {
+    logView("viewFile", null, 0, 0);
+    return CHAT_READING_OFF;
+  }
+  if (!turn.vision) {
+    logView("viewFile", null, 0, 0);
+    return CHAT_VIEW_OFF;
+  }
+  const resolved = resolveEntry(turn.files, "F", input.file, (entry) => entry.fileName);
+  if (resolved.kind !== "one" || !resolved.entry.documentId || !ctx.threadId) {
+    logView("viewFile", null, 0, 0);
+    return resolved.kind === "many" ? manyText("file", resolved.handles, "viewFile") : CHAT_READ_NO_FILE;
+  }
+  const file = resolved.entry;
+  const ref = file.handle ? `${file.handle} ${quoted(file.fileName)}` : quoted(file.fileName);
+  if (!file.viewable) {
+    logView("viewFile", null, 0, 0);
+    return chatViewNotMedia(ref);
+  }
+  // No await before this call: the allowance is taken synchronously inside.
+  const loaded = await loadMedia(ctx, file, turn);
+  switch (loaded.status) {
+    case "ok": {
+      const receipt = chatViewReceipt(ref, loaded.kind, loaded.size, loaded.pageCount);
+      const markers = openedMediaMarkers(
+        {
+          fileName: loaded.fileName,
+          ...(loaded.category ? { category: loaded.category } : {}),
+          ...(loaded.uploaderRole ? { uploaderRole: loaded.uploaderRole } : {}),
+        },
+        file.handle ?? "file"
+      );
+      turn.opened.set(options.toolCallId, [
+        { type: "text", text: `${receipt}\n\n${markers.begin}` },
+        toolMediaPart(loaded),
+        { type: "text", text: markers.end },
+      ]);
+      logView("viewFile", loaded.kind, loaded.size, loaded.pageCount ?? 0);
+      return receipt;
+    }
+    case "off":
+      return CHAT_READING_OFF;
+    case "vision_off":
+      return CHAT_VIEW_OFF;
+    case "not_found":
+      return CHAT_READ_NO_FILE;
+    case "not_media":
+      return chatViewNotMedia(ref);
+    case "too_big":
+      return chatViewTooBig(ref, loaded.kind, loaded.size);
+    case "too_many_pages":
+      return chatViewTooManyPages(ref, loaded.pageCount);
+    case "unreadable":
+      return chatViewUnreadable(ref);
+    case "allowance":
+      return CHAT_VIEW_BUDGET_USED;
+    case "unavailable":
+    case "failed":
+      return CHAT_READ_FAILED;
+  }
+}
+
+// ─── Pinned files (Phase C, 2026-10-20) ──────────────────────────────────────
+
+/** Why a pinned PDF or image went as its text, or not at all. */
+function pinMediaReason(loaded: MediaLoad): string | null {
+  switch (loaded.status) {
+    case "too_big":
+      return `its original is too large to show (${formatBytes(loaded.size)})`;
+    case "too_many_pages":
+      return `it has ${formatCount(loaded.pageCount)} pages, more than the ${CHAT_VIEW_MAX_PDF_PAGES} that can be shown`;
+    case "allowance":
+      return "this reply's viewing allowance was used up";
+    case "vision_off":
+      return "viewing PDFs and images is turned off";
+    case "unreadable":
+      return "its original could not be opened";
+    default:
+      return loaded.status === "ok" ? null : "its original could not be read just now";
+  }
+}
+
+/**
+ * Phase C: the ephemeral user message that puts the files the writer pinned
+ * to this message in front of the model, after the options note. PDFs and
+ * images whose original can be viewed go as files, under the turn's media
+ * allowance; every other file (and a PDF that cannot be shown) goes as its
+ * text in an opened block, under the turn's reading allowance, cut with a
+ * notice. Pinned files that are gone or unreadable are named in a notice.
+ * Built once per turn and never saved; the recovery pass sends it again.
+ * Null without pins.
+ */
+export async function pinnedFilesMessage(
+  actionCtx: Pick<ActionCtx, "runQuery" | "runAction"> & { storage: Pick<ActionCtx["storage"], "get"> },
+  agentThreadId: string,
+  pinned: readonly Id<"projectDocuments">[],
+  turn: DocumentReadTurn,
+  documents: readonly ChatEvidenceDoc[]
+): Promise<ModelMessage | null> {
+  const ids = [...new Set(pinned)].slice(0, CHAT_MAX_PINNED_FILES);
+  if (ids.length === 0) return null;
+  // The reads are scoped through the thread, as the tools' are.
+  const ctx: ViewingToolCtx = {
+    threadId: agentThreadId,
+    runQuery: actionCtx.runQuery,
+    runAction: actionCtx.runAction,
+    storage: actionCtx.storage,
+  };
+  if (!turn.enabled) {
+    return {
+      role: "user",
+      content: `The writer pinned ${ids.length} project file(s) to this message, but opening files is turned off for this workspace, so they are not shown. Tell the writer you could not read them.`,
+    };
+  }
+  const parts: Array<TextPart | FilePart> = [];
+  const shown: string[] = [];
+  const notices: string[] = [];
+  let chars = 0;
+  let bytes = 0;
+  for (const documentId of ids) {
+    const file = turn.files.find((entry) => entry.documentId === documentId);
+    const doc = documents.find((entry) => entry.documentId === documentId);
+    if (!file || !doc) {
+      notices.push("One pinned file is no longer in this project's files, so it is not shown.");
+      continue;
+    }
+    const ref = file.handle ? `${file.handle} ${quoted(file.fileName)}` : quoted(file.fileName);
+    const place = file.handle ?? "pinned file";
+    const meta = {
+      fileName: doc.fileName,
+      ...(doc.category ? { category: doc.category } : {}),
+      ...(doc.uploaderRole ? { uploaderRole: doc.uploaderRole } : {}),
+    };
+    let reason: string | null = null;
+    if (file.viewable) {
+      if (turn.vision) {
+        const loaded = await loadMedia(ctx, file, turn);
+        if (loaded.status === "ok") {
+          const markers = openedMediaMarkers(meta, place);
+          parts.push(
+            { type: "text", text: markers.begin },
+            { type: "file", data: loaded.data, mediaType: loaded.mediaType },
+            { type: "text", text: markers.end }
+          );
+          shown.push(
+            loaded.kind === "pdf" ? `${ref} (a PDF of ${formatCount(loaded.pageCount ?? 0)} page(s))` : `${ref} (an image)`
+          );
+          bytes += loaded.size;
+          continue;
+        }
+        reason = pinMediaReason(loaded);
+      } else {
+        reason = "viewing PDFs and images is turned off";
+      }
+    }
+    if (!file.hasText) {
+      notices.push(`${ref} has no text${reason ? `, and ${reason}` : ""}, so it is not shown.`);
+      continue;
+    }
+    const content = doc.content;
+    const granted = reserveReading(turn, content.length);
+    if (granted === 0) {
+      notices.push(`${ref} is not shown: this reply's reading allowance of ${formatCount(CHAT_READ_MAX_TURN_CHARS)} characters is used up.`);
+      continue;
+    }
+    const end = safeRange(content, 0, granted).end;
+    releaseReading(turn, granted - end);
+    chars += end;
+    parts.push({ type: "text", text: openedDocumentBlock(meta, `${place}, pinned`, content.slice(0, end)) });
+    shown.push(`${ref} (text${reason ? `, because ${reason}` : ""})`);
+    if (end < content.length) {
+      notices.push(
+        `${ref} is cut at ${formatCount(end)} of ${formatCount(content.length)} characters because this reply's reading allowance ran out. To read on, call readDocument with part ${partAt(end)}.`
+      );
+    }
+  }
+  const intro = shown.length
+    ? `The writer pinned these project files to this message so you read them in full. They are below, for this reply only, and you do not need to open them: ${shown.join("; ")}.`
+    : "The writer pinned project files to this message, but none of them could be shown.";
+  logView("pinned", null, bytes, 0);
+  logRead("pinned", chars, chars > 0 ? Math.ceil(chars / CHAT_READ_PART_CHARS) : 0);
+  return {
+    role: "user",
+    content: [
+      { type: "text", text: intro },
+      ...parts,
+      ...(notices.length ? [{ type: "text" as const, text: notices.join("\n") }] : []),
+    ],
+  };
+}
+
 // ─── The tools ───────────────────────────────────────────────────────────────
 
 export function makeReadDocumentTool(turn: DocumentReadTurn) {
@@ -598,5 +1033,17 @@ export function makeReadTranscriptTool(turn: DocumentReadTurn) {
     }),
     execute: async (ctx, input, options): Promise<string> =>
       await runReadTranscript(ctx, input, { toolCallId: options.toolCallId }, turn),
+  });
+}
+
+/** Phase C (2026-10-20): appended after readTranscript. */
+export function makeViewFileTool(turn: DocumentReadTurn) {
+  return createTool({
+    description: `Look at a project PDF's pages or an image itself, when its text is not enough: a scan, a figure, a chart, a form or a table's layout. Name the file by its handle in FILES IN THIS PROJECT, such as F3, or by its exact name. Only files the list marks as ones viewFile can show work. Images can be at most ${formatBytes(CHAT_VIEW_MAX_IMAGE_BYTES)}; PDFs at most ${formatBytes(CHAT_VIEW_MAX_PDF_BYTES)} and ${CHAT_VIEW_MAX_PDF_PAGES} pages; one reply can view at most ${formatBytes(CHAT_VIEW_MAX_TURN_BYTES)} and ${CHAT_VIEW_MAX_IMAGES} images in all. For a file's words, use readDocument instead. What you see is shown to you for this reply only.`,
+    inputSchema: z.object({
+      file: z.string().min(1).describe("The file's handle from FILES IN THIS PROJECT, such as F3, or its exact file name."),
+    }),
+    execute: async (ctx, input, options): Promise<string> =>
+      await runViewFile(ctx, input, { toolCallId: options.toolCallId }, turn),
   });
 }

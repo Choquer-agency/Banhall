@@ -118,7 +118,7 @@ describe("readDocument", () => {
       'Opened F1 "notes.txt", parts 2-3 of 8 (80,000 of 300,000 characters). To read on, call readDocument with part 4.'
     );
     expect(receipt).not.toContain("nnnn");
-    const kept = turn.opened.get("call-1")!;
+    const kept = turn.opened.get("call-1") as string;
     expect(kept.startsWith(`${receipt}\n\n--- BEGIN [OTHER SUPPORTING MATERIAL] F1 parts 2-3, notes.txt ---\n`)).toBe(true);
     expect(kept).toContain("n".repeat(80_000));
     // One log line per call: the tool, characters and parts, never a name.
@@ -187,7 +187,7 @@ describe("readDocument", () => {
     const turn = turnWith([doc("scan.pdf", "", { fileType: "pdf", processingStatus: "could_not_read" })]);
     const { ctx, calls } = ctxAnswering(okRead);
     expect(await runReadDocument(ctx, { file: "F1" }, { toolCallId: "a" }, turn)).toBe(
-      'F1 "scan.pdf" has no text that can be read (for example an image or a scan), so it cannot be opened. Images and scans cannot be opened yet.'
+      'F1 "scan.pdf" has no text that can be read (for example an image or a scan), so readDocument cannot open it.'
     );
     expect(calls).toHaveLength(0);
   });

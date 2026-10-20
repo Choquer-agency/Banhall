@@ -64,7 +64,9 @@ import {
   makeReadDocumentTool,
   makeReadTranscriptTool,
   makeSearchDocumentsTool,
+  makeViewFileTool,
   newDocumentReadTurn,
+  pinnedFilesMessage,
   withOpenedText,
   type DocumentReadTurn,
 } from "./chatDocumentTools";
@@ -1170,11 +1172,12 @@ export const buildChatTools = (
   ...readingTools(documentReads ?? newDocumentReadTurn()),
 });
 
-/** Phase B: the reading tools, appended in this fixed order. */
+/** Phase B: the reading tools, appended in this fixed order; Phase C adds viewFile last. */
 const readingTools = (turn: DocumentReadTurn) => ({
   readDocument: makeReadDocumentTool(turn),
   searchDocuments: makeSearchDocumentsTool(turn),
   readTranscript: makeReadTranscriptTool(turn),
+  viewFile: makeViewFileTool(turn),
 });
 
 const CHAT_TOOLS = buildChatTools(false);
@@ -1823,7 +1826,8 @@ export const streamChatReply = internalAction({
     allowBrain: v.optional(v.boolean()),
     // 2026-10-19: web search for this message, authorized the same way.
     allowWeb: v.optional(v.boolean()),
-    // Chat parity Phase C (W1 contract): files pinned into this message.
+    // Phase C (W1): the project files the sender pinned to this message,
+    // checked by the send. Automatic links carry none.
     // W2's `sendAlternative` copies the source turn's pins here.
     pinnedDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
   },
@@ -2039,6 +2043,10 @@ export const streamChatReply = internalAction({
       // Phase B: the turn's reading state (handles from this turn's
       // evidence, the shared character allowance), created once per turn.
       const documentReads = newDocumentReadTurn(context);
+      // Phase C (W1): the pinned files, one ephemeral user message after the
+      // options note. Never saved; the recovery pass repeats `turnMessages`.
+      const pinned = await pinnedFilesMessage(ctx, args.agentThreadId, args.pinnedDocumentIds ?? [], documentReads, context.documents);
+      if (pinned) turnMessages.push(pinned);
 
       const runPass = async (pass: {
         messages: ModelMessage[];

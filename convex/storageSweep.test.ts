@@ -224,11 +224,18 @@ describe("where stored files come from", () => {
   it("never stores files through the chat agent component, whose file table the sweep cannot see", () => {
     // @convex-dev/agent keeps app storage ids as strings in its own `files`
     // table: through storeFile, and on its own for image or file message
-    // parts over 64 KB. The app only ever sends it text.
+    // parts over 64 KB. The app only ever saves text through it.
+    // Phase C (2026-10-20): pinned PDFs and images go to the model as base64
+    // file parts in one ephemeral input message of a turn with a
+    // `promptMessageId`, which the agent never saves (and a base64 string is
+    // never stored as a file); convex/chatViewFile.sdk.test.ts checks that no
+    // saved row carries a file part or a file id.
+    const EPHEMERAL_FILE_PARTS = new Set(["./ai/chatDocumentTools.ts"]);
     const agentFiles = Object.entries(convexSources)
-      .filter(([, source]) =>
-        /\bstoreFile\(|components\.agent\.files|type:\s*"(image|file)"/.test(source)
-      )
+      .filter(([path, source]) => {
+        if (/\bstoreFile\(|components\.agent\.files/.test(source)) return true;
+        return /type:\s*"(image|file)"/.test(source) && !EPHEMERAL_FILE_PARTS.has(path);
+      })
       .map(([path]) => path);
     expect(agentFiles).toEqual([]);
   });

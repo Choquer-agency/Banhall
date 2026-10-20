@@ -9,12 +9,18 @@
 // What these queries return reaches the model for the current turn only. The
 // tool stores a receipt, never this text (see chatDocumentTools.ts), and
 // nothing here logs, stores or returns text anywhere else.
+//
+// Phase C (2026-10-20): viewFileForChat hands the chat a PDF's or image's
+// storage id and size (the chat action reads the bytes itself), and one
+// internal mutation, storePdfPageCount, keeps a PDF's page count once the
+// server has counted it.
 
-import { internalQuery, type QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import { getConvexSize, v, type Value } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { isProjectDeleting } from "./lib/projectDeletion";
-import { chatDocumentToolsEnabled } from "./appSettings";
+import { chatDocumentToolsEnabled, chatVisionEnabled } from "./appSettings";
+import { chatViewMedia, type ChatMediaKind, type ChatMediaType } from "./lib/chatMedia";
 import { MAX_ACTIVE_TRANSCRIPT_ROWS_READ, projectTranscriptsFrom, transcriptLabel } from "./lib/transcripts";
 import { evidenceRole, listSpeakerRows } from "./lib/transcriptStructure";
 import { formatTimestamp } from "../shared/transcriptParse";
@@ -295,6 +301,83 @@ export const readDocumentForChat = internalQuery({
       end: range.end,
       text: content.slice(range.start, range.end),
     };
+  },
+});
+
+// ─── viewFile (Phase C, 2026-10-20) ──────────────────────────────────────────
+
+export type ViewFileResult =
+  | { status: "off" }
+  | { status: "vision_off" }
+  | { status: "unavailable" }
+  | { status: "not_found" }
+  | { status: "not_media"; fileName: string }
+  | {
+      status: "ok";
+      fileName: string;
+      kind: ChatMediaKind;
+      /** From the stored file type and the name's extension, never `mimeType`. */
+      mediaType: ChatMediaType;
+      storageId: Id<"_storage">;
+      /** The original's size in bytes, from the `_storage` system table. */
+      size: number;
+      /** A PDF's stored page count; absent until the chat first counts it. */
+      pageCount?: number;
+      category?: Doc<"projectDocuments">["category"];
+      uploaderRole?: string;
+    };
+
+/**
+ * What the chat needs to send one project file's original to the model: its
+ * storage id, size and media type. The file must be the thread's project's,
+ * not archived, a PDF or one of the four image types, and its original must
+ * still be stored. The bytes are read by the caller, in its own action.
+ */
+export const viewFileForChat = internalQuery({
+  args: { agentThreadId: v.string(), documentId: v.id("projectDocuments") },
+  handler: async (ctx, args): Promise<ViewFileResult> => {
+    if (!(await chatDocumentToolsEnabled(ctx))) return { status: "off" };
+    if (!(await chatVisionEnabled(ctx))) return { status: "vision_off" };
+    const scope = await chatScope(ctx, args.agentThreadId);
+    if (!scope) return { status: "unavailable" };
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc || doc.projectId !== scope.projectId || doc.archived) return { status: "not_found" };
+    const media = chatViewMedia(doc.fileName, doc.fileType);
+    if (!media || !doc.storageId) return { status: "not_media", fileName: doc.fileName };
+    const stored = await ctx.db.system.get("_storage", doc.storageId);
+    if (!stored) return { status: "not_media", fileName: doc.fileName };
+    return {
+      status: "ok",
+      fileName: doc.fileName,
+      kind: media.kind,
+      mediaType: media.mediaType,
+      storageId: doc.storageId,
+      size: stored.size,
+      ...(media.kind === "pdf" && doc.pageCount !== undefined ? { pageCount: doc.pageCount } : {}),
+      ...(doc.category ? { category: doc.category } : {}),
+      ...(doc.uploaderRole ? { uploaderRole: doc.uploaderRole } : {}),
+    };
+  },
+});
+
+/**
+ * Store a PDF's page count (convex/ai/chatPdfPages.ts counts it). Only while
+ * the row still holds the original that was counted, so a count never lands
+ * on other bytes.
+ */
+export const storePdfPageCount = internalMutation({
+  args: {
+    documentId: v.id("projectDocuments"),
+    storageId: v.id("_storage"),
+    pageCount: v.number(),
+  },
+  handler: async (ctx, args): Promise<null> => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc || doc.storageId !== args.storageId || doc.fileType !== "pdf") return null;
+    const pageCount = Math.floor(args.pageCount);
+    if (pageCount < 1 || doc.pageCount === pageCount) return null;
+    await ctx.db.patch(args.documentId, { pageCount });
+    return null;
   },
 });
 

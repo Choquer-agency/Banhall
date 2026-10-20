@@ -459,7 +459,7 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     expect(prompt).toContain("are unverified, not Deviations");
     // Rule 8 as Phase B (2026-10-20) rewrote it, whole sentences only.
     expect(CHAT_EVIDENCE_GUIDANCE).toContain(
-      "You can see only what is inside these blocks and what you open in this reply."
+      "You can see only what is inside these blocks, what you open in this reply and the files the writer pinned to this message."
     );
     expect(CHAT_EVIDENCE_GUIDANCE).toContain(
       "Never say you checked, read or compared a file you cannot see or did not open in this reply,"
@@ -478,7 +478,7 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     expect(CHAT_EVIDENCE_GUIDANCE).toContain(
       "It stays with you for this reply only: text opened in an earlier reply is not kept, so open it again when you need it."
     );
-    expect(CHAT_EVIDENCE_GUIDANCE).toContain("Images, scans and other files with no text cannot be opened yet.");
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain("A file with no text can be seen only with viewFile, when the files list says viewFile can show it.");
     expect(CHAT_EVIDENCE_GUIDANCE).toContain("Quote sparingly: a short phrase that settles a point, never long passages.");
     expect(findDashConnectors(CHAT_EVIDENCE_GUIDANCE)).toEqual([]);
   });

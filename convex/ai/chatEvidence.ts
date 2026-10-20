@@ -52,6 +52,7 @@ import {
   settingsDocumentText,
 } from "../lib/settingsDocument";
 import type { Doc } from "../_generated/dataModel";
+import { chatViewMedia, type ChatMediaKind } from "../lib/chatMedia";
 import {
   NO_STYLE_OVERRIDES,
   type StyleOverrides,
@@ -231,6 +232,11 @@ export interface ChatEvidenceInput {
    * do not offer readDocument. Absent means on.
    */
   readingToolsOff?: boolean;
+  /**
+   * Phase C (2026-10-20): `ai.chatVision` or the reading tools are off, so
+   * the files list and notices do not offer viewFile. Absent means on.
+   */
+  viewingOff?: boolean;
 }
 
 /** The raw grounding row `chatV2.getChatContextV2` returns. */
@@ -248,6 +254,8 @@ export interface ChatTurnContext {
   transcriptsIncomplete?: boolean;
   /** Phase B: `ai.chatDocumentTools`; absent means on. */
   documentTools?: boolean;
+  /** Phase C: `ai.chatVision`; absent means on. */
+  chatVision?: boolean;
 }
 
 const D = CONTEXT_SCAFFOLDS.documentDelimiters;
@@ -344,6 +352,23 @@ function fileStatus(doc: ChatEvidenceDoc): string {
 }
 
 /**
+ * Chat parity Phase C (2026-10-20): what viewFile can show of a file, from
+ * stored facts only: a PDF or one of the four image types whose original is
+ * kept. Null for every other file.
+ */
+export function chatViewableKind(
+  doc: Pick<ChatEvidenceDoc, "fileName" | "fileType" | "hasOriginal">
+): ChatMediaKind | null {
+  return doc.hasOriginal ? (chatViewMedia(doc.fileName, doc.fileType)?.kind ?? null) : null;
+}
+
+/** The files list's mark for a file viewFile can show. */
+export const VIEWABLE_ROW_MARKS: Readonly<Record<ChatMediaKind, string>> = {
+  pdf: "original PDF kept, viewFile can show its pages",
+  image: "original image kept, viewFile can show it",
+};
+
+/**
  * Chat parity Phase B (2026-10-20): the handle of the file at `position` in
  * the FILES IN THIS PROJECT list (`F1` to `F60`), or null past the rows the
  * list shows. readDocument takes it.
@@ -406,17 +431,23 @@ export const SETTINGS_ROW_MARKS = {
   in_preferences: "writer settings document, same text as the writer's personal style preferences",
 } as const;
 
-function filesListText(rows: ReadonlyArray<{ doc: ChatEvidenceDoc; settings: SettingsMark }>): string {
-  const lines = rows.slice(0, MAX_CHAT_FILE_LIST_ROWS).map(({ doc, settings }, index) =>
-    [
+function filesListText(
+  rows: ReadonlyArray<{ doc: ChatEvidenceDoc; settings: SettingsMark }>,
+  viewing: boolean
+): string {
+  const lines = rows.slice(0, MAX_CHAT_FILE_LIST_ROWS).map(({ doc, settings }, index) => {
+    // Phase C: marked only while viewing is on, so the list never offers it otherwise.
+    const viewable = viewing ? chatViewableKind(doc) : null;
+    return [
       chatFileHandle(index) ?? "",
       quotedFileName(doc.fileName),
       ANALYZER_CATEGORY_LABELS[docCategory(doc)],
       fileStatus(doc),
       `${formatCount(textLengthOf(doc))} characters`,
       ...(settings ? [SETTINGS_ROW_MARKS[settings]] : []),
-    ].join(" | ")
-  );
+      ...(viewable ? [VIEWABLE_ROW_MARKS[viewable]] : []),
+    ].join(" | ");
+  });
   const more = rows.length - lines.length;
   return [
     `${formatCount(rows.length)} file(s) in this project's files panel, archived files not counted. Each line: handle | name | category | status | text size.`,
@@ -494,6 +525,21 @@ export function openedDocumentBlock(
     { ...doc, content: "", fileName: `${place}, ${doc.fileName}` },
     neutralizeMarkers(text)
   );
+}
+
+/**
+ * Phase C (2026-10-20): the marker lines around a PDF's pages or an image
+ * the chat views or a writer pinned, so the media sits inside the same data
+ * markers and category (trust) label as a document's text. The marker line
+ * names the place first (`F3`, `pinned file`), then the file.
+ */
+export function openedMediaMarkers(
+  doc: Pick<ChatEvidenceDoc, "fileName" | "category" | "uploaderRole">,
+  place: string
+): { begin: string; end: string } {
+  const label = ANALYZER_CATEGORY_LABELS[docCategory({ ...doc, content: "" })];
+  const line = `${label}${D.categoryToFile}${sanitizeFileName(`${place}, ${doc.fileName}`)}${D.lineSuffix}`;
+  return { begin: `${D.beginPrefix}${line}`, end: `${D.endPrefix}${line}` };
 }
 
 /** The same for opened transcript text, under the transcript's own label. */
@@ -746,6 +792,8 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   const documents = input.documents ?? [];
   const decisions = input.decisions ?? [];
   const openQuestions = input.openQuestions ?? [];
+  // Phase C (2026-10-20): viewFile is offered only while reading and viewing are on.
+  const viewing = input.readingToolsOff !== true && input.viewingOff !== true;
   const sources: TrustedContextSource[] = [];
   const chars = (tokens: number) => Math.max(0, tokens) * CHARS_PER_TOKEN;
 
@@ -880,7 +928,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
               ? [{ doc: settingsEntry.doc, settings: settingsInPreferences ? ("in_preferences" as const) : ("sent" as const) }]
               : []),
             ...others.map(({ doc }) => ({ doc, settings: null })),
-          ]),
+          ], viewing),
           totalChars,
           headRemaining
         )
@@ -936,8 +984,11 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   // to read; on one live project seven images took seven of the twelve slots
   // and pushed the writer's glossary and settings document out of the turn.
   let readableRank = 0;
+  // Phase C: the sources whose file viewFile can show.
+  const viewableSources = new Set<TrustedContextSource>();
   others.forEach(({ doc, handle }) => {
     const extra = { category: docCategory(doc) };
+    const viewable = viewing && chatViewableKind(doc) !== null;
     if (doc.content.length > 0 && readableRank++ >= budget.maxDocuments) {
       const source: TrustedContextSource = {
         kind: "document",
@@ -951,6 +1002,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
       };
       sources.push(source);
       handleOfSource.set(source, handle);
+      if (viewable) viewableSources.add(source);
       return;
     }
     // Documents get no per-document omission notice: with a dozen of them
@@ -968,6 +1020,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
       )
     );
     handleOfSource.set(source, handle);
+    if (viewable) viewableSources.add(source);
     if (body !== null) documentBlocks.push(documentBlock(doc, body));
   });
 
@@ -981,10 +1034,11 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
     .filter((source) => source.kind === "document" && !source.included && source.originalLength > 0)
     .map(fileRef);
   const droppedDocuments = droppedNames.length;
-  // Documents with no text at all (see `readableRank`).
-  const unreadableNames = sources
-    .filter((source) => source.kind === "document" && source.originalLength === 0)
-    .map(fileRef);
+  // Documents with no text at all (see `readableRank`). Phase C: those
+  // viewFile can show are named apart.
+  const noTextSources = sources.filter((source) => source.kind === "document" && source.originalLength === 0);
+  const unreadableNames = noTextSources.filter((source) => !viewableSources.has(source)).map(fileRef);
+  const viewableNoTextNames = noTextSources.filter((source) => viewableSources.has(source)).map(fileRef);
 
   /**
    * Some documents rendered and others did not. The guidance says an absent
@@ -1007,9 +1061,15 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
     readingOn
       ? `[${names.length} attached file(s) carry no text you can read (for example images or scans), so you cannot see them and readDocument cannot open them: ${fileRefList(names)}.]`
       : `[${names.length} attached file(s) carry no text you can read (for example images or scans), so you cannot see them: ${fileRefList(names)}.]`;
+  const viewableNotice = (names: FileRef[]): string =>
+    `[${names.length} attached file(s) carry no text, but viewFile can show you their pages or image: ${fileRefList(names)}.]`;
+  const noTextNotices = [
+    ...(unreadableNames.length ? [unreadableNotice(unreadableNames)] : []),
+    ...(viewableNoTextNames.length ? [viewableNotice(viewableNoTextNames)] : []),
+  ];
   const documentNotices = [
     ...(droppedDocuments && documentBlocks.length ? [furtherOmittedNotice(droppedNames)] : []),
-    ...(unreadableNames.length ? [unreadableNotice(unreadableNames)] : []),
+    ...noTextNotices,
   ];
 
   // ── Assembly ──────────────────────────────────────────────────────────────
@@ -1045,8 +1105,8 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
     stableParts.push(
       `${EVIDENCE_LABELS.documentsHeading}\n${omittedMaterialsNotice(droppedDocuments)}\n${furtherOmittedNotice(droppedNames).replace(" further ", " ")}${notices}`
     );
-  } else if (unreadableNames.length) {
-    stableParts.push(`${EVIDENCE_LABELS.documentsHeading}\n${unreadableNotice(unreadableNames)}`);
+  } else if (noTextNotices.length) {
+    stableParts.push(`${EVIDENCE_LABELS.documentsHeading}\n${noTextNotices.join("\n")}`);
   }
   const tailParts: string[] = [];
   if (reportBody !== null) {
@@ -1172,6 +1232,7 @@ export function buildChatTurnRequest(args: {
     ...(args.context.transcripts?.length ? { transcripts: args.context.transcripts } : {}),
     ...(args.context.transcriptsIncomplete ? { transcriptsIncomplete: true } : {}),
     ...(args.context.documentTools === false ? { readingToolsOff: true } : {}),
+    ...(args.context.chatVision === false ? { viewingOff: true } : {}),
   });
   return {
     system: buildChatSystem(styleOverrides, args.customInstructions),

@@ -167,6 +167,12 @@ const TOOL_COPY: Record<string, ToolCopy> = {
     done: "Read a transcript",
     error: "Couldn’t read that transcript",
   },
+  // Phase C (2026-10-20): viewFile looks at a PDF's pages or an image.
+  viewFile: {
+    running: "Looking at a project file…",
+    done: "Looked at a project file",
+    error: "Couldn’t show that file",
+  },
 };
 
 // A tool we have no copy for is described generically. Pasting a camelCase

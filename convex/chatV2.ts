@@ -105,8 +105,9 @@ import { matchProposalTurn } from "./lib/chatProposalTurns";
 import { listProjectTranscripts } from "./lib/transcripts";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 // Chat parity Phase B (W1): the reading tools' setting and transcript list.
-import { chatDocumentToolsEnabled } from "./appSettings";
+import { chatDocumentToolsEnabled, chatVisionEnabled } from "./appSettings";
 import { chatTranscriptSummaries } from "./chatDocuments";
+import { checkedPinnedDocumentIds, pinnedFilesByTurn } from "./lib/chatPins";
 import {
   CHAT_WEB_SEARCH_MAX_QUERY_CHARS,
   MAX_WEB_SEARCH_SOURCES,
@@ -457,6 +458,8 @@ export const listTurns = query({
     // and whether it is the viewer, for author labels and the Stop check.
     const senders = await turnSenders(ctx, turns);
     const names = await userNames(ctx, senders.values());
+    // Phase C (W1): the names of the files pinned to each writer message.
+    const pinned = await pinnedFilesByTurn(ctx, turns);
     // Phase A (2026-10-19): each turn carries `progress`, `continuation` and
     // `historyStartOrder` when it has them. `brainSearchedAt` and
     // `chainStoppedAt` stay on the server.
@@ -464,12 +467,14 @@ export const listTurns = query({
       const sender = senders.get(turn._id) ?? null;
       const senderName = sender ? names.get(sender) : undefined;
       const alternatives = path?.group(turn);
+      const pinnedFiles = pinned.get(turn._id);
       return {
         ...turn,
         ...(senderName ? { senderName } : {}),
         fromCurrentUser: sender === access.user._id,
         ...(alternatives ? { alternatives } : {}),
         ...(turn.alternativeKind && senderName ? { alternativeAuthorName: senderName } : {}),
+        ...(pinnedFiles ? { pinnedFiles } : {}),
       };
     });
   },
@@ -715,12 +720,15 @@ export const sendMessage = mutation({
      * setting at send time, written to the conversation when given.
      */
     allowWeb: v.optional(v.boolean()),
+    /** Phase C (W1): project files read in full with this message (at most 5). */
+    pinnedDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
   },
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) throw new Error("Report not found");
     const { user } = await requireInternalProjectAccess(ctx, report.projectId);
     requireAnthropicConfigured("chat");
+    const pinnedDocumentIds = await checkedPinnedDocumentIds(ctx, report.projectId, args.pinnedDocumentIds);
     if (!args.content.trim() && !args.highlight) {
       throw new Error("Message is empty");
     }
@@ -829,6 +837,7 @@ export const sendMessage = mutation({
       ...(writerTextOf(args.content, undefined) === args.content
         ? { writerTextLength: args.content.length }
         : {}),
+      ...(pinnedDocumentIds.length ? { pinnedDocumentIds } : {}),
     });
     // Phase C (W2): the turn follows the tip, and becomes it.
     await appendTurnAtTip(ctx, { _id: turnId, agentThreadId, promptMessageId: messageId });
@@ -847,6 +856,7 @@ export const sendMessage = mutation({
       userId,
       ...(args.allowBrain === true ? { allowBrain: true } : {}),
       ...(allowWeb ? { allowWeb: true } : {}),
+      ...(pinnedDocumentIds.length ? { pinnedDocumentIds } : {}),
     });
 
     return { threadId: agentThreadId, messageId };
@@ -3075,6 +3085,8 @@ export const getChatContextV2 = internalQuery({
     // the budget they had.
     const transcriptList = await chatTranscriptSummaries(ctx, report.projectId, budget);
     const documentToolsRead = await budget.read(() => chatDocumentToolsEnabled(ctx), 1024);
+    // Phase C (W1): whether the chat may see PDFs and images.
+    const chatVisionRead = await budget.read(() => chatVisionEnabled(ctx), 1024);
 
     return {
       reportContent: report.content ?? null,
@@ -3117,6 +3129,7 @@ export const getChatContextV2 = internalQuery({
       ...(transcriptList.complete ? {} : { transcriptsIncomplete: true }),
       // A setting the budget could not read stays on, as the setting does.
       documentTools: documentToolsRead.ok ? documentToolsRead.value : true,
+      chatVision: chatVisionRead.ok ? chatVisionRead.value : true,
     };
   },
 });

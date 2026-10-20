@@ -317,6 +317,23 @@ export async function chatDocumentToolsEnabled(ctx: QueryCtx | MutationCtx): Pro
   return row?.value.trim() !== "off";
 }
 
+/** Chat parity Phase C (2026-10-20): the report chat sees PDFs and images. */
+export const CHAT_VISION_KEY = "ai.chatVision";
+
+/**
+ * Kill switch for viewFile and for pinned PDFs and images going to the model
+ * as files. Anything but "off" means on. Off keeps viewFile registered; it
+ * then says viewing is turned off, and a pinned PDF or image is sent as its
+ * text when it has some.
+ */
+export async function chatVisionEnabled(ctx: QueryCtx | MutationCtx): Promise<boolean> {
+  const row = await ctx.db
+    .query("appSettings")
+    .withIndex("by_key", (q) => q.eq("key", CHAT_VISION_KEY))
+    .unique();
+  return row?.value.trim() !== "off";
+}
+
 async function writeTranscriptMethod(
   ctx: MutationCtx,
   args: { factsMode?: TranscriptFactsMode; placeholders?: boolean },

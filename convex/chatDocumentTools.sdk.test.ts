@@ -318,7 +318,8 @@ describe("readDocument", () => {
     ]);
     await f.send("Open the rig notes.");
     const names = (sent[0]!.tools as Array<{ name: string }>).map((tool) => tool.name);
-    expect(names.slice(-3)).toEqual(["readDocument", "searchDocuments", "readTranscript"]);
+    // Phase C appends viewFile after them.
+    expect(names.slice(-4)).toEqual(["readDocument", "searchDocuments", "readTranscript", "viewFile"]);
     for (const id of ["toolu_r", "toolu_s", "toolu_t"]) expect(resultText(sent[1]!, id)).toBe(CHAT_READING_OFF);
     // The notice no longer offers readDocument while the setting is off.
     expect(JSON.stringify(sent[0]!.messages[0])).not.toContain("open one with readDocument");

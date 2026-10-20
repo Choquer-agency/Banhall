@@ -10,3 +10,9 @@ export const MAX_CHAT_MESSAGE_CHARS = 20_000;
 
 /** The report text a writer highlights and sends with a message. */
 export const MAX_CHAT_HIGHLIGHT_CHARS = 12_000;
+
+/**
+ * Phase C (2026-10-20): project files a writer may pin to one message, so
+ * the reply reads them in full. The picker and `chatV2.sendMessage` share it.
+ */
+export const CHAT_MAX_PINNED_FILES = 5;

@@ -218,7 +218,7 @@ describe("FILES IN THIS PROJECT", () => {
       "Never say you checked, read or compared a file you cannot see or did not open in this reply, and never claim to have used \"all the evidence\" when you have not opened everything the question needs."
     );
     expect(CHAT_EVIDENCE_GUIDANCE).toContain(
-      "Files cannot be attached to a chat message; the assistant reads the text documents saved in the project's files panel and the project's transcripts."
+      "The writer can pin up to 5 of the project's files to a message. Pinned files come right after the writer's message, in full and in the same marked blocks, so you do not need to open them again in that reply. Files cannot be uploaded in the chat; the assistant reads the files saved in the project's files panel and the project's transcripts."
     );
     expect(findDashConnectors(CHAT_EVIDENCE_GUIDANCE)).toEqual([]);
     expect(CHAT_EVIDENCE_GUIDANCE).not.toMatch(/[\u2013\u2014]/);
@@ -533,7 +533,9 @@ describe("Phase B evidence guidance", () => {
     expect(CHAT_EVIDENCE_GUIDANCE).toContain("When these blocks do not hold what you need, open it.");
     expect(CHAT_EVIDENCE_GUIDANCE).toContain("text opened in an earlier reply is not kept, so open it again when you need it");
     expect(CHAT_EVIDENCE_GUIDANCE).toContain("Never say you checked, read or compared a file you cannot see or did not open in this reply");
-    expect(CHAT_EVIDENCE_GUIDANCE).toContain("Images, scans and other files with no text cannot be opened yet.");
+    // Phase C (2026-10-20): viewFile shows what has no text.
+    expect(CHAT_EVIDENCE_GUIDANCE).toContain("A file with no text can be seen only with viewFile, when the files list says viewFile can show it.");
+    expect(CHAT_EVIDENCE_GUIDANCE).not.toContain("cannot be opened yet");
     expect(CHAT_EVIDENCE_GUIDANCE).toContain("Quote sparingly");
     expect(CHAT_EVIDENCE_GUIDANCE).not.toContain("You never see the raw interview transcripts");
     expect(CHAT_EVIDENCE_GUIDANCE).not.toMatch(/[\u2010-\u2015\u2212]/);

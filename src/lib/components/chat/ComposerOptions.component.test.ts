@@ -32,9 +32,11 @@ it("has no file input and no way to add a document", async () => {
   expect(page.getByRole("button", { name: "Add to message", exact: true }).elements()).toHaveLength(0);
   await options().click();
   await expect.element(brain()).toBeVisible();
-  // The Brain and web search choices are the menu's only entries.
+  // The Brain and web search choices, and (Phase C) "Read a file in full",
+  // which picks files already in the project and uploads nothing.
   await expect.element(web()).toBeVisible();
-  expect(page.getByRole("menuitem").elements()).toHaveLength(0);
+  expect(page.getByRole("menuitem").elements()).toHaveLength(1);
+  await expect.element(page.getByRole("menuitem", { name: "Read a file in full" })).toBeVisible();
   expect(page.getByRole("menuitemcheckbox").elements()).toHaveLength(2);
   expect(page.getByText("Add a document", { exact: false }).elements()).toHaveLength(0);
   expect(page.getByText("Project context", { exact: true }).elements()).toHaveLength(0);
