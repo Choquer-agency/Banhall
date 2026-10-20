@@ -66,6 +66,26 @@ beforeEach(() => {
   __setQueryData("documents:listDocuments", [...FILES, projectFile("old-notes.txt", { archived: true })]);
 });
 
+const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+/**
+ * Waits until `target` has focus and keeps it across three animation frames.
+ * bits-ui's DropdownMenu moves focus to its first item twice as it opens, a
+ * frame apart (its focus scope mounts, then mounts again), so a key pressed
+ * between the two passes is undone. Waiting for focus to hold, not just to
+ * arrive, makes the next key land on a settled menu.
+ */
+async function focusSettlesOn(target: ReturnType<typeof page.getByRole>) {
+  await expect
+    .poll(async () => {
+      const element = target.query();
+      if (!element || document.activeElement !== element) return false;
+      for (let frame = 0; frame < 3; frame += 1) await nextFrame();
+      return document.activeElement === element;
+    })
+    .toBe(true);
+}
+
 async function openPicker() {
   await options().click();
   await readInFull().click();
@@ -122,8 +142,14 @@ describe("Read a file in full", () => {
   it("works from the keyboard", async () => {
     await render(AgentChatPanel, { reportId, projectId });
     (options().element() as HTMLElement).focus();
+    await expect.element(options()).toHaveFocus();
+    // The menu focuses its first item twice as it opens (see focusSettlesOn);
+    // an arrow pressed in between was lost, which made this test flaky.
     await userEvent.keyboard("{Enter}");
-    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    await focusSettlesOn(page.getByRole("menuitemcheckbox", { name: "Use Brain examples for this message" }));
+    await userEvent.keyboard("{ArrowDown}");
+    await expect.element(page.getByRole("menuitemcheckbox", { name: "Search the web in this conversation" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
     await expect.element(readInFull()).toHaveFocus();
     await userEvent.keyboard("{Enter}");
     await expect.element(heading()).toBeVisible();
