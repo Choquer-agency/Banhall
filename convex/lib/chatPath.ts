@@ -219,6 +219,23 @@ export async function loadChatPath(
 }
 
 /**
+ * What the model's history needs (`chatV2.getChatHistoryPath`): the message
+ * orders on the active path, and the order below which everything counts as
+ * on it. Null when nothing is hidden.
+ */
+export async function loadHistoryPath(
+  ctx: ReadCtx,
+  agentThreadId: string
+): Promise<{ orders: number[]; belowOrder: number } | null> {
+  const path = await loadChatPath(ctx, agentThreadId);
+  if (!path || path.linear) return null;
+  return {
+    orders: path.path.map((turn) => turn.order),
+    belowOrder: path.turns[0]?.order ?? Number.MAX_SAFE_INTEGER,
+  };
+}
+
+/**
  * The thread's turns on the active path, newest first, at most `limit`.
  * Without alternatives, the newest turns by order (the reads callers made
  * before alternatives existed).

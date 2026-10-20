@@ -13,16 +13,17 @@ import schema from "./schema";
  * `fetch` is stubbed with Anthropic's server-sent events. Fictional data only.
  */
 
-// Review P2-1: a switch that makes the history path read, or the reading of
-// its rows, fail for one reply.
+// Review P2-1: a switch that makes the history path read
+// (`chatV2.getChatHistoryPath` only; the cards and coverage still read the
+// path), or the reading of its rows, fail for one reply.
 const failures = vi.hoisted(() => ({ pathRead: false, pathRows: false }));
 vi.mock("./lib/chatPath", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/chatPath")>();
   return {
     ...actual,
-    loadChatPath: (...args: Parameters<typeof actual.loadChatPath>) => {
-      if (failures.pathRead) throw new Error("synthetic path read failure");
-      return actual.loadChatPath(...args);
+    loadHistoryPath: (...args: Parameters<typeof actual.loadHistoryPath>) => {
+      if (failures.pathRead) throw new Error("synthetic history path read failure");
+      return actual.loadHistoryPath(...args);
     },
     onHistoryPath: (...args: Parameters<typeof actual.onHistoryPath>) => {
       if (failures.pathRows) throw new Error("synthetic history read failure");
@@ -207,19 +208,17 @@ describe("review P2-1: the history fails closed", () => {
     return sent;
   }
 
-  test("when the history rows cannot be read, the model reads no history, never a sibling's reply, and is told", async () => {
-    const sent = await regeneratedWith("pathRows");
+  test.each([
+    ["the history rows cannot be read", "pathRows"],
+    ["the history path cannot be read", "pathRead"],
+  ] as const)("when %s, the reply runs with no history, never a sibling's reply, and the model is told", async (_label, failure) => {
+    const sent = await regeneratedWith(failure);
+    // The reply ran: one request for it, with the prompt once.
+    expect(sent).toHaveLength(3);
     const request = conversation(sent[2]!);
     expect(request).not.toContain("Sibling reply BRAVO.");
     expect(request).not.toContain("First reply ALPHA.");
     expect(count(request, "Second question ROMEO.")).toBe(1);
     expect(request).toContain("Earlier turns of this conversation are not shown to you");
-  });
-
-  test("when the path cannot be read at all, no request carries a sibling's reply", async () => {
-    // The turn's other path reads (cards, coverage) fail too, so the reply
-    // may not run; whatever is sent holds no hidden alternative.
-    const sent = await regeneratedWith("pathRead");
-    for (const body of sent.slice(2)) expect(conversation(body)).not.toContain("Sibling reply BRAVO.");
   });
 });

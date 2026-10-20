@@ -131,6 +131,7 @@ import {
   excerptBlock,
   legacyRefineProposalId,
   loadChatPath,
+  loadHistoryPath,
   pathTurnsNewestFirst,
   readChatPath,
   refinableProposal,
@@ -1841,14 +1842,7 @@ export const setTurnHistoryStart = internalMutation({
 export const getChatHistoryPath = internalQuery({
   args: { agentThreadId: v.string() },
   returns: v.union(v.null(), v.object({ orders: v.array(v.number()), belowOrder: v.number() })),
-  handler: async (ctx, args) => {
-    const path = await loadChatPath(ctx, args.agentThreadId);
-    if (!path || path.linear) return null;
-    return {
-      orders: path.path.map((turn) => turn.order),
-      belowOrder: path.turns[0]?.order ?? Number.MAX_SAFE_INTEGER,
-    };
-  },
+  handler: async (ctx, args) => await loadHistoryPath(ctx, args.agentThreadId),
 });
 
 /**
