@@ -3482,6 +3482,69 @@ Origin: in the 2026-10-16 client meeting the firm's operations lead said the too
 - **Not built.** Looking up the client company by name (owner chose terms and CRA only), web search in generation and Step-by-step, and a "vet this against public sources" button.
 - **Approval.** Product owner, 2026-10-19 ("Terms and CRA only").
 
+### 2026-10-19 (seventh): Report chat parity, Phase A: Stop during thinking, plain refusals, progress and reasoning summaries, Continue, files list and drafts (owner)
+
+Origin: the owner asked on 2026-10-19 how to close the gaps between the report chat and ChatGPT or Claude. Five read-only research reports (summarized in `_bmad-output/planning-artifacts/research/chat-parity-plan-2026-10-19.md`) found defects and missing basics. Phase A fixes the defects and adds quick wins; spec: `_bmad-output/implementation-artifacts/spec-chat-parity-phase-a.md`. Owner decisions, 2026-10-19: show Anthropic's reasoning summaries; move the Completion Report onto the card; keep Stop open to anyone on the report.
+
+**Engine**
+- **Stop during thinking.** Stop takes effect within about 2 seconds, even while the model is thinking: the reply checks the turn every 2 seconds and cancels the model request (`CHAT_STOP_POLL_MS`). Before, the agent noticed Stop only on its next stream chunk, so a step that only thought ran to its end and was billed. Stop is honoured even when it lands before a reply pass has started (each pass and each step check it first). A stopped turn shows no failure message and saves one usage row for the cancelled request, marked partial with stop reason "aborted"; each usage row carries its own step's measurements.
+- **Same tools every turn.** The report chat offers the same tools on every turn, so turning on "Use Brain examples" or "Search the web" no longer rewrites the prompt cache. Both stay per message: when one is off, its tool searches nothing and returns a fixed text. Web search is off unless the authenticated send turned it on for the message (it fails closed). A note after the evidence tells the model which options are on.
+- **Reasoning summaries (changes the September 8 rule for summaries only).** Thinking uses `display: "summarized"`, and the browser may show Anthropic's thinking summaries, capped at 4,000 characters per part (per chunk on the live stream). They are never shown for a turn once Brain material reached the model (`chatTurns.brainSearchedAt`, server only). No signature, raw thinking, tool argument, tool result or unknown part type reaches the browser: both filters deny by default. Summaries never enter feedback snapshots or learning digests.
+- **Progress.** Each running turn records its phase in `chatTurns.progress` (reading, thinking, tool with its name and Line, writing, retrying), built by the server from turn state and fixed tool fields only, never from model text. Writes are queued so the stream never waits on them.
+- **Continue offer.** A finished turn may record `chatTurns.continuation`:
+  - "lines_left", when it saved a Completion Report and items of any kind (rule, content, reference) remain that are not handled, matched the same way as the marks;
+  - "step_limit", when it ran out of steps;
+  - "cut_off", when it was cut off.
+
+  A stopped turn offers nothing. The reply shows a Continue button (see Screens). The size rule asks the model to say what is left; it does not promise a button. This replaces "ask the writer to say continue" in Rule 6 of 2026-10-19 (first).
+- **Context loss made visible.** When older turns fall outside the model's history, the turn records the oldest message order it read (`chatTurns.historyStartOrder`). The model is told, in the per-turn tail: "Earlier turns of this conversation are not shown to you; if the writer refers to them, say so and ask them to restate what matters."
+- **Handled Deviations.** Because the Completion Report is on the card, replies do not repeat item ids. The Deviation Inventory and the Reference PD comparison therefore mark each item this conversation already handled: on a pending or applied card, blocked (needs a missing fact from the writer), or conflicting (needs the writer's decision). Coverage is read from `chatProposalItems` (`convex/lib/chatItemCoverage.ts`, `chatV2.getThreadItemCoverage`). The read runs in parallel with the other setup reads and fails safe to "nothing handled".
+  - Each mark says what reopens the item. The model skips marked items by default, leaving them out of the edits and the findings. It revises one when the writer supplies the fact, makes the decision, asks to refine its card or asks for a redo, and a reopened item's Line comes first. Refining a pending bulk card proposes its whole set again (`BULK_EDIT_REFINE_RULE`).
+  - An item whose card was rejected or went stale may be revised again.
+  - A rule item is matched by its id for the whole conversation.
+  - A content or reference item is matched by what it is or by where it sits:
+    - Each card item records, once at insert, a fingerprint of the item's kind, Line, paragraph and normalized instruction or difference text (`chatProposalItems.fingerprint`, a hash that stays on the server). An item with the same fingerprint is marked whatever its id.
+    - Within the current request and its Continue messages, an item with the same id is also marked, so a Continue turn that rewords or reorders the writer's instructions stays on track.
+    - A fresh request with a different instruction at the same position starts clean.
+  - Each turn tells the model how many items each Line already had handled, counting only items it is sure to see marked.
+- **Completion Report on the card (CAP-13 change).** The card shows the Completion Report checklist from `chatProposalItems`. The proposeBulkEdits result gives the model only counts and the ids that need the writer, and the reply summarizes instead of retyping the checklist. `BULK_EDIT_SIZE_RULE` is reworded to match.
+- **Measurement.** Chat usage rows record each step's duration, stop reason, effort and time to first token (`aiUsage.effort`, `aiUsage.firstTokenMs`). Each step logs "chat step timing" with numbers only.
+
+**Evidence and limits**
+- **Files list.** The chat's cached evidence opens its documents with a "FILES IN THIS PROJECT" block: every non-archived project file with its category, its status ("text read", "image, no text", "could not be read, no text" and so on) and its text size in characters. At most 60 rows, the rest counted. Names are sanitized like marker lines. The guidance says the list shows which files exist, not what they say.
+- **Settings document allowance.** The writer settings document, found with the rule generation uses (`chooseSettingsSource`), is sent up to 75,000 characters (`MAX_INSTRUCTIONS_CHARS`). It sits outside the 12 document slots and the 5,000-token per-document cap, inside the cached head's share of the budget. It is charged before other documents, rendered once and marked in the list. When the detected document has the same text as the sender's saved Writer Profile (generation's `matchesProfile` rule), it is already in the system prompt as the writer's personal style preferences: it is listed and marked as such, and not sent again. Rule 8 of 2026-10-19 (first) is unchanged.
+- **Refusals.** `sendMessage` refuses a send while the thread's reply is queued or running with `CHAT_TURN_ACTIVE`, naming the other sender (`senderName`); the writer's own turn and senders with no name on record are not named. `CHAT_SPEND_BUDGET_EXCEEDED` carries `retryAfterMs`: when the rolling 24 hours bring the project's spend back within budget if nothing new is spent. `CHAT_QUEUE_LIMIT_EXCEEDED` is unchanged.
+- **Message limits.** A message's own text is limited to 20,000 characters (`MAX_CHAT_MESSAGE_CHARS`) and a highlight to 12,000 (`MAX_CHAT_HIGHLIGHT_CHARS`), from `shared/chatLimits.ts`. Over-limit sends are refused with `CHAT_MESSAGE_TOO_LONG` and `maxChars`, and nothing is written. Limits read the writer's text and the highlight from the message's structured fields. Content over 20,000 characters is accepted only when it is exactly a prompt stored in the same thread (Regenerate), checked against the thread's 50 newest turns. This keeps prompts stored before the limit, and text plus highlight sent together, working; text that imitates a server block counts in full.
+- **Migration.** No schema or index change. One extra cache write per thread on the first turn after deploy, because the head gains the files list.
+- **Tests.** `convex/ai/chatEvidenceFiles.test.ts`, `convex/chatSendLimits.test.ts`, `convex/chatContext.test.ts`, `convex/ai/chatEvidence.test.ts`, `convex/chatTurns.test.ts`.
+
+**Screens**
+- **Handled refusals.** Report chat refusals `CHAT_TURN_ACTIVE`, `CHAT_SPEND_BUDGET_EXCEEDED`, `CHAT_QUEUE_LIMIT_EXCEEDED` and `CHAT_MESSAGE_TOO_LONG` are handled refusals: the unsent message explains them in plain words, with Retry, and the crash toast does not show. A failed Copy or Stop is reported where it happened, never through `console.error`. Every domain refusal of Stop (`chatV2.abortStreaming`, including a conversation that no longer exists, now `NOT_FOUND`) is explained in the panel and does not raise the crash toast.
+- **Esc.** Esc on the report page closes the Assistant only when no menu or dialog has already handled it and the composer holds no unsent text.
+- **Favicons.** Source favicons are requested by hostname only.
+- **Card actions.** Apply, Dismiss and Edit wording on chat and research suggestion cards are offered only to people with report edit access (`projects.getProjectEditAccess`); others see a note. If edit access cannot be read, the actions stay hidden with no denial note. Refine with AI stays open to anyone on the project.
+- **Progress and reasoning.** The live turn label comes from the server-written `chatTurns.progress`, held for at least 1.5 seconds. 60 seconds (on the browser clock) after a thinking phase is first seen, a quiet hint suggests asking for one Line at a time. Anthropic's reasoning summaries show in the trace as plain text.
+- **Accessibility.** The transcript is not a live region: a streaming answer is marked busy, phase changes are announced from the status line, and a finished reply is announced once. Reduced motion turns off smooth scrolling.
+- **Continue.** A turn that ended with a `continuation` (completed, or failed with `cut_off`; never a stopped one) shows one "Continue with Line N" (or "Continue") button on the newest turn. It sends "Continue with Line N." through the ordinary send path. The offer hides while that message is being sent and returns if the send fails and is dismissed.
+- **Context-loss divider.** When the newest turn records `historyStartOrder`, a divider reads "The assistant no longer reads messages above this line." A one-time notice per conversation suggests starting a new one.
+- **Drafts.** Unsent drafts are kept per report and conversation in the tab's sessionStorage, with one stable draft for the report's unsaved new conversation, and cleared on send. The panel reopens the conversation last used in the tab, including an unsaved new one.
+- **Offline.** While the Convex connection is down after first connecting, the panel says "Connection lost. Your message will send when you're back online." and pauses elapsed timers.
+- **Composer limits.** The composer counts the trimmed message from 16,000 characters and refuses messages over 20,000 characters and highlights over 12,000 ("up to 20,000" and "up to 12,000" in the copy; `shared/chatLimits.ts`). A too-long Regenerate or Continue asks for a new, shorter message. A report selection is labelled "Selected text".
+- **Completion Report on bulk cards.** Bulk (coordinated revision) cards show their Completion Report from `chatProposalItems` behind a disclosure with status counts.
+
+- **Migration and compatibility.** Widen only. New optional fields: `chatTurns.progress`, `continuation`, `historyStartOrder` and `brainSearchedAt`; `aiUsage.effort` and `firstTokenMs`; `chatProposalItems.fingerprint`, also accepted by the `saveProposal` items validator. `fingerprint` is written once at insert, so `chatProposalItems` rows stay immutable. No index change and no backfill. There is one extra cache write per thread on the first turn after deploy, because the head gains the files list.
+- **Authorization.** Card actions now show only to people who may apply them; the server rules are unchanged. Stop stays open to anyone on the report (owner, 2026-10-19).
+- **Tests.**
+  - Engine: `convex/chatParity.sdk.test.ts`, `convex/chatTurnState.test.ts`, `convex/ai/chatParity.test.ts`.
+  - Evidence and limits: `convex/ai/chatEvidenceFiles.test.ts`, `convex/chatSendLimits.test.ts`.
+  - Screens: `src/lib/components/chat/ChatParityPhaseA.component.test.ts`, `src/lib/components/project/AssistantEscape.component.test.ts`, and unit tests in `src/lib/chat/*`.
+  - Updated: the chat, prompt, public-output and web search suites.
+- **Known limitations.**
+  - A reasoning block can stay open in the browser until the saved message replaces it, if its end arrives after the Brain flag. It is cosmetic and nothing leaks.
+  - The P3-5 race (a late Stop tick hiding a real failure message) is fixed by reading the code but has no test, because convex-test cannot reproduce the promise ordering.
+  - The screens were verified with browser component tests and screenshots, not in a live session against a backend; the engine was verified in a real replay on a local copy.
+- **Approval.** Product owner, 2026-10-19 (Phase A scope and the decisions above).
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:
