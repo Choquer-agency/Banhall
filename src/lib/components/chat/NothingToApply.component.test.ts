@@ -101,10 +101,11 @@ describe("zero-edit proposal card (DW-135)", () => {
       .element(page.getByText("These findings need a writer's decision.", { exact: false }))
       .toBeVisible();
 
-    // Every finding, its kind and place, its status and its evidence. The id
-    // is internal (owner direction 2026-10-21): only the test hook keeps it.
-    await expect.element(page.getByText("Your request", { exact: true })).toBeVisible();
-    await expect.element(page.getByText("Reference PD", { exact: true })).toBeVisible();
+    // Every finding, its place, its status and its evidence. The id is
+    // internal (owner direction 2026-10-21): only the test hook keeps it.
+    await expect.element(page.getByText("Line 246, paragraph 3", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Line 246, paragraph 4", { exact: true })).toBeVisible();
+    expect(page.getByText("Your request", { exact: true }).elements()).toHaveLength(0);
     expect(container.textContent).not.toContain("c-246-3-1");
     expect(container.textContent).not.toContain("x-246-4-1");
     expect(container.querySelector('[data-checklist-item="c-246-3-1"]')).not.toBeNull();
@@ -180,10 +181,10 @@ describe("zero-edit proposal card (DW-135)", () => {
 
 /**
  * Owner direction 2026-10-21: a writer asked what "r-244-4-2" was. Item ids
- * are internal, so a checklist line shows a plain kind ("Rule", "Your
- * request", "Reference PD") next to its Line and paragraph instead.
+ * are internal, so a checklist line says only where the item is: "Line 244,
+ * paragraph 4".
  */
-describe("Completion Report items name their kind and place, never their id", () => {
+describe("Completion Report items name their place, never their id", () => {
   const item = (overrides: Partial<Doc<"chatProposalItems">>): Doc<"chatProposalItems"> => ({
     _id: "item-x" as Id<"chatProposalItems">,
     _creationTime: 1,
@@ -198,20 +199,20 @@ describe("Completion Report items name their kind and place, never their id", ()
     ...overrides,
   });
 
-  it("shows Rule and Line 244, paragraph 4, and not the id text", async () => {
+  it("shows Line 244, paragraph 4, and not the id text or a kind", async () => {
     __setQueryData("chatV2:listProposalItems", [
       item({ _id: "item-r" as Id<"chatProposalItems">, section: "244", paragraphNumber: 4, kind: "rule" }),
     ]);
     const { container } = await render(ProposalCard, { proposal: zeroEditProposal });
-    await expect.element(page.getByText("Rule", { exact: true })).toBeVisible();
     await expect.element(page.getByText("Line 244, paragraph 4", { exact: true })).toBeVisible();
+    expect(page.getByText("Rule", { exact: true }).elements()).toHaveLength(0);
     expect(container.textContent).not.toContain("r-244-4-2");
     expect(container.querySelector('[data-checklist-item="r-244-4-2"]')).not.toBeNull();
   });
 
   // Fable 5.1 review P3-3: an older row that kept only its id still says
   // where it is, from the Line and paragraph the id names.
-  it("names the place an older row's id holds, and no label for an unknown prefix", async () => {
+  it("names the place an older row's id holds", async () => {
     __setQueryData("chatV2:listProposalItems", [
       item({ _id: "item-c" as Id<"chatProposalItems">, itemId: "c-246-2-1" }),
       item({ _id: "item-u" as Id<"chatProposalItems">, itemId: "c-244-0-1", reason: "A fictional unanchored item." }),
@@ -220,20 +221,16 @@ describe("Completion Report items name their kind and place, never their id", ()
     ]);
     const { container } = await render(ProposalCard, { proposal: zeroEditProposal });
     await expect.element(page.getByText("Line 246, paragraph 2", { exact: true })).toBeVisible();
-    expect(page.getByText("Your request", { exact: true }).elements()).toHaveLength(2);
     // Paragraph 0 is unanchored: the Line alone.
     expect(container.querySelector('[data-checklist-item="c-244-0-1"]')?.textContent).toContain("Line 244");
     expect(container.querySelector('[data-checklist-item="c-244-0-1"]')?.textContent).not.toContain("paragraph");
     const unknown = container.querySelector('[data-checklist-item="q-242-3-1"]');
     expect(unknown).not.toBeNull();
-    for (const label of ["Rule", "Your request", "Reference PD"]) {
-      expect(unknown?.textContent).not.toContain(label);
-    }
     expect(unknown?.textContent).toContain("Line 242, paragraph 3");
     expect(unknown?.textContent).toContain("Blocked");
-    // The kind alone when the id names no place.
+    // An id that names no place shows the status and the reason only.
     const free = container.querySelector('[data-checklist-item="x-free"]');
-    expect(free?.textContent).toContain("Reference PD");
+    expect(free?.textContent).toContain("Blocked");
     expect(free?.textContent).not.toContain("Line");
     for (const id of ["c-246-2-1", "c-244-0-1", "q-242-3-1", "x-free"]) expect(container.textContent).not.toContain(id);
   });

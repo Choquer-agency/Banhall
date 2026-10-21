@@ -29,19 +29,9 @@
 
   /**
    * Owner direction 2026-10-21: item ids (r-244-4-2) are internal and never
-   * shown. The id's prefix gives the kind the writer reads instead; the id
-   * stays only on `data-checklist-item` for tests.
+   * shown; a line says only where the item is ("Line 244, paragraph 4"). The
+   * id stays only on `data-checklist-item` for tests.
    */
-  const KIND_LABEL: Record<string, string> = {
-    r: "Rule",
-    c: "Your request",
-    x: "Reference PD",
-  };
-
-  function kindLabel(itemId: string): string | null {
-    return KIND_LABEL[itemId.split("-", 1)[0] ?? ""] ?? null;
-  }
-
   /**
    * Where the item is: the stored Line and paragraph, or, for an older row
    * that kept only its id, the Line and paragraph the id names
@@ -75,15 +65,11 @@
   {:else}
     <ul class="mt-2.5 flex flex-col gap-2.5" aria-label="Findings">
       {#each items as item (item._id)}
-        {@const kind = kindLabel(item.itemId)}
         {@const where = place(item)}
         <li class="border-l-2 border-line pl-2.5" data-checklist-item={item.itemId}>
           <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            {#if kind}
-              <span class="text-xs font-medium text-ink">{kind}</span>
-            {/if}
             {#if where}
-              <span class="text-xs text-ink-muted">{where}</span>
+              <span class="text-xs font-medium text-ink">{where}</span>
             {/if}
             <span class="rounded-full bg-chrome px-1.5 py-0.5 text-xs font-medium text-ink-secondary">
               {STATUS_LABEL[item.status]}
