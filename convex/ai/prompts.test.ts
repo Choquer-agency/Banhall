@@ -579,6 +579,7 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     expect(prompt).toContain("add no closing line about reviewing or applying");
     expect(prompt).toContain('call a [GAP: ...] placeholder a "gap note" and never type the bracketed token itself');
     expect(prompt).toContain("## Your thinking\nKeep your thinking short.");
+    expect(prompt).toContain("call the edit tool first and write nothing before it");
     expect(prompt).not.toContain("every item's original ID");
     expect(prompt).toContain("leave the checklist to the card");
     expect(prompt).not.toContain("include the Completion Report checklist returned by each proposeBulkEdits call verbatim");
