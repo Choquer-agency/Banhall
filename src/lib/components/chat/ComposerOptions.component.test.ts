@@ -88,10 +88,13 @@ it("keeps the Brain choice working from the keyboard", async () => {
 
 // 2026-10-19: web search (terms and CRA only). Phase B: a setting of the
 // conversation, on by default, kept after a send (unlike the Brain choice).
-it("offers web search for the conversation, shows its chip, and keeps it after a send", async () => {
+// Owner, 2026-10-21: no "Web search on" label in the chat; Message options
+// shows the setting and turns it off or on.
+it("offers web search for the conversation, on by default with no label, and keeps it after a send", async () => {
   __setMutationResult("chatV2:sendMessage", { threadId: "thread-1", messageId: "prompt-1" });
   await render(AgentChatPanel, { reportId, projectId });
-  await expect.element(webChip()).toBeVisible();
+  await expect.element(composer()).toBeVisible();
+  expect(webChip().elements()).toHaveLength(0);
   await options().click();
   await expect.element(web()).toHaveAttribute("aria-checked", "true");
   await web().click();
@@ -103,8 +106,9 @@ it("offers web search for the conversation, shows its chip, and keeps it after a
   expect(brainChip().elements()).toHaveLength(0);
   await options().click();
   await web().click();
+  await expect.element(web()).toHaveAttribute("aria-checked", "true");
   await userEvent.keyboard("{Escape}");
-  await expect.element(webChip()).toBeVisible();
+  expect(webChip().elements()).toHaveLength(0);
   await composer().fill("What does CRA mean by technological uncertainty?");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect.poll(() => __mutationCalls("chatV2:sendMessage").length).toBe(1);
@@ -114,11 +118,9 @@ it("offers web search for the conversation, shows its chip, and keeps it after a
   expect(sent).not.toHaveProperty("allowWeb");
   expect(sent).not.toHaveProperty("allowBrain");
   // Kept after the send: it belongs to the conversation.
-  await expect.element(webChip()).toBeVisible();
   await options().click();
   await expect.element(web()).toHaveAttribute("aria-checked", "true");
   await userEvent.keyboard("{Escape}");
-  await page.getByRole("button", { name: "Turn off web search in this conversation", exact: true }).click();
   expect(webChip().elements()).toHaveLength(0);
   expect(uploadCalls()).toEqual([]);
 });

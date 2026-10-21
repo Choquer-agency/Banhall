@@ -1831,21 +1831,6 @@
           </button>
         </span>
       {/if}
-      {#if webSearchOn && !pendingResearch}
-        <!-- Phase B: the conversation's web search stays visible while it is on. -->
-        <span data-web-chip class="inline-flex h-[1.375rem] min-w-0 items-center gap-1 rounded-full bg-primary-wash pr-1 pl-2 text-[0.6875rem] text-primary-selected">
-          <span class="truncate">Web search on</span>
-          <button
-            type="button"
-            onclick={() => void setWebSearch(false)}
-            disabled={sending}
-            aria-label="Turn off web search in this conversation"
-            class="relative flex size-4 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100 pointer-coarse:before:absolute pointer-coarse:before:-inset-3.5 pointer-coarse:before:content-['']"
-          >
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
-          </button>
-        </span>
-      {/if}
     </PromptInputActions>
     <PromptInputActions class="items-center gap-2">
       {#if showVetCounter}
@@ -1984,16 +1969,20 @@
                       <circle cx="5" cy="12" r="1.75" /><circle cx="12" cy="12" r="1.75" /><circle cx="19" cy="12" r="1.75" />
                     </svg>
                   </DropdownMenu.SubTrigger>
-                  <DropdownMenu.SubContent sideOffset={4} class="z-[110] w-48 rounded-xl border border-line bg-white p-1 shadow-lg">
-                    <DropdownMenu.Item onSelect={() => beginRename(thread)}
-                      class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">Rename</DropdownMenu.Item>
-                    <DropdownMenu.Item onSelect={() => void archiveConversation(thread)}
-                      class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">Archive</DropdownMenu.Item>
-                    {#if currentUserQ.data?.role === "admin"}
-                      <DropdownMenu.Item onSelect={() => askDelete(thread)} data-delete-conversation
-                        class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-red-600 outline-none hover:bg-red-50 focus:bg-red-50 pointer-coarse:min-h-11">Delete permanently</DropdownMenu.Item>
-                    {/if}
-                  </DropdownMenu.SubContent>
+                  <!-- The conversation menu scrolls, which clips anything drawn
+                       inside it, so its submenus render outside it. -->
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.SubContent sideOffset={4} class="z-[110] w-48 rounded-xl border border-line bg-white p-1 shadow-lg">
+                      <DropdownMenu.Item onSelect={() => beginRename(thread)}
+                        class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">Rename</DropdownMenu.Item>
+                      <DropdownMenu.Item onSelect={() => void archiveConversation(thread)}
+                        class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">Archive</DropdownMenu.Item>
+                      {#if currentUserQ.data?.role === "admin"}
+                        <DropdownMenu.Item onSelect={() => askDelete(thread)} data-delete-conversation
+                          class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-red-600 outline-none hover:bg-red-50 focus:bg-red-50 pointer-coarse:min-h-11">Delete permanently</DropdownMenu.Item>
+                      {/if}
+                    </DropdownMenu.SubContent>
+                  </DropdownMenu.Portal>
                 </DropdownMenu.Sub>
               </div>
             {/each}
@@ -2008,19 +1997,21 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
               </DropdownMenu.SubTrigger>
-              <DropdownMenu.SubContent sideOffset={4} class="z-[110] max-h-80 w-72 overflow-y-auto rounded-xl border border-line bg-white p-1 shadow-lg">
-                {#each archivedThreads as thread (thread._id)}
-                  <div class="flex items-center gap-0.5" data-archived-row>
-                    <DropdownMenu.Item onSelect={() => selectThread(thread.agentThreadId)}
-                      class={`flex min-h-8 min-w-0 flex-1 items-center rounded-md px-2 py-1 text-sm outline-none hover:bg-chrome/60 focus:bg-chrome/60 pointer-coarse:min-h-11 ${thread.agentThreadId === selectedThreadId ? "bg-chrome" : ""}`}>
-                      <span id={`archived-title-${thread._id}`} class="truncate text-ink">{thread.title}</span>
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item onSelect={() => void restoreConversation(thread)}
-                      aria-describedby={`archived-title-${thread._id}`}
-                      class="flex min-h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-primary-selected outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">Restore</DropdownMenu.Item>
-                  </div>
-                {/each}
-              </DropdownMenu.SubContent>
+              <DropdownMenu.Portal>
+                <DropdownMenu.SubContent sideOffset={4} class="z-[110] max-h-80 w-72 overflow-y-auto rounded-xl border border-line bg-white p-1 shadow-lg">
+                  {#each archivedThreads as thread (thread._id)}
+                    <div class="flex items-center gap-0.5" data-archived-row>
+                      <DropdownMenu.Item onSelect={() => selectThread(thread.agentThreadId)}
+                        class={`flex min-h-8 min-w-0 flex-1 items-center rounded-md px-2 py-1 text-sm outline-none hover:bg-chrome/60 focus:bg-chrome/60 pointer-coarse:min-h-11 ${thread.agentThreadId === selectedThreadId ? "bg-chrome" : ""}`}>
+                        <span id={`archived-title-${thread._id}`} class="truncate text-ink">{thread.title}</span>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item onSelect={() => void restoreConversation(thread)}
+                        aria-describedby={`archived-title-${thread._id}`}
+                        class="flex min-h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-primary-selected outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">Restore</DropdownMenu.Item>
+                    </div>
+                  {/each}
+                </DropdownMenu.SubContent>
+              </DropdownMenu.Portal>
             </DropdownMenu.Sub>
           {/if}
           {#if canNotify}

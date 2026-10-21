@@ -55,6 +55,18 @@ function expect(condition, reason) {
   if (!condition) throw new Error(reason);
 }
 
+// Automation scrolls a clipped item into view before it clicks; a person
+// cannot. A menu item must be on top at its own centre, as drawn.
+async function expectClickable(locator, what) {
+  await locator.waitFor({ timeout: 10_000 });
+  const onTop = await locator.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return Boolean(hit && el.contains(hit));
+  });
+  expect(onTop, `${what} is hidden from a person (clipped or covered)`);
+}
+
 const SCENARIOS = [
   {
     name: "panel-basics",
@@ -74,8 +86,10 @@ const SCENARIOS = [
       await page.keyboard.press("Escape");
       expect(items.includes("false|Use Brain examples for this message"), "Brain option missing or on");
       expect(items.includes("true|Search the web in this conversation"), "web search is not on by default");
+      // Owner, 2026-10-21: no "Web search on" label in the chat.
+      expect((await page.getByText("Web search on", { exact: true }).count()) === 0, "the chat shows a web search label");
       expect(items.some((i) => i.endsWith("|Read a file in full")), "no Read a file in full");
-      return "starters fill the composer; Brain off, web on, Read a file in full";
+      return "starters fill the composer; Brain off, web on with no label, Read a file in full";
     },
   },
   {
@@ -254,6 +268,7 @@ const SCENARIOS = [
       const thread = currentThread(ctx);
       await page.getByRole("button", { name: /Conversation menu/i }).first().click();
       await page.getByRole("menuitem", { name: /Conversation actions/i }).first().hover();
+      await expectClickable(page.getByRole("menuitem", { name: "Rename", exact: true }).first(), "Rename");
       await page.getByRole("menuitem", { name: "Rename", exact: true }).first().click();
       const field = page.getByRole("textbox", { name: "Conversation name" });
       await field.fill("Live test conversation");
@@ -262,6 +277,7 @@ const SCENARIOS = [
       expect(currentThread(ctx).title === "Live test conversation", "rename did not save");
       await page.getByRole("button", { name: /Conversation menu/i }).first().click();
       await page.getByRole("menuitem", { name: /Conversation actions/i }).first().hover();
+      await expectClickable(page.getByRole("menuitem", { name: "Archive", exact: true }).first(), "Archive");
       await page.getByRole("menuitem", { name: "Archive", exact: true }).first().click();
       await page.waitForTimeout(1500);
       expect(ctx.run("chatV2:threadStatus", { threadId: thread.agentThreadId }, ctx.me.authId) === "archived", "archive did not take");
@@ -388,6 +404,7 @@ const SCENARIOS = [
       await openPanel(page, ctx);
       await page.getByRole("button", { name: /Conversation menu/i }).first().click();
       await page.getByRole("menuitem", { name: /Conversation actions/i }).first().hover();
+      await expectClickable(page.getByRole("menuitem", { name: "Delete permanently" }).first(), "Delete permanently");
       await page.getByRole("menuitem", { name: "Delete permanently" }).first().click();
       const dialog = page.getByRole("alertdialog");
       const text = await dialog.innerText();

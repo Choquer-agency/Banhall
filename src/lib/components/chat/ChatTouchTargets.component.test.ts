@@ -102,7 +102,8 @@ describe(`report chat touch targets (${pointer} pointer)`, () => {
     await userEvent.keyboard("{Escape}");
     // The closed menu stops blocking the page's pointer events.
     await expect.poll(() => document.body.style.pointerEvents).not.toBe("none");
-    for (const name of ["Stop using Brain examples for this message", "Turn off web search in this conversation"]) {
+    // Owner, 2026-10-21: web search has no chip, so Brain's is the only one.
+    for (const name of ["Stop using Brain examples for this message"]) {
       const remover = button(name);
       expect(Math.round(box(remover).width), name).toBe(16);
       // 18 px from the centre: outside the icon, inside a 44 px hit area.

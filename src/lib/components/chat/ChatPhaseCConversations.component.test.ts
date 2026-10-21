@@ -124,6 +124,28 @@ describe("conversation menu", () => {
     await expect.element(menu()).toHaveFocus();
   });
 
+  // Owner hand test 2026-10-21: the actions submenu was drawn inside the
+  // scrolling conversation menu, which clipped it out of sight. Automation
+  // scrolls a clipped item into view before it clicks, so this checks what a
+  // person sees: each item on top at its own centre, nothing scrolled.
+  it("shows a conversation's actions where a person can click them", async () => {
+    await page.viewport(1024, 760);
+    seedConversation();
+    await render(AgentChatPanel, { reportId, projectId });
+    await menu().click();
+    await userEvent.hover(page.getByRole("menuitem", { name: "Conversation actions", exact: true }).first());
+    const onTop = (name: string) => {
+      const item = [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((el) => el.textContent?.trim() === name);
+      if (!item) return false;
+      const box = item.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      return Boolean(hit && item.contains(hit));
+    };
+    await expect.poll(() => onTop("Rename"), { timeout: 5000 }).toBe(true);
+    expect(onTop("Archive")).toBe(true);
+    for (const scroller of document.querySelectorAll<HTMLElement>("[role=menu]")) expect(scroller.scrollLeft).toBe(0);
+  });
+
   // Fable 5.1 review P3-1: the row stayed open, naming the conversation left behind.
   it("closes the rename row when the writer moves to another conversation", async () => {
     seedConversation();

@@ -198,23 +198,32 @@ describe("citations and sources", () => {
   });
 });
 
+// Owner, 2026-10-21: no "Web search on" label in the chat; Message options
+// shows the setting and switches it.
 describe("the web search switch", () => {
   const options = () => page.getByRole("button", { name: "Message options", exact: true });
   const web = () => page.getByRole("menuitemcheckbox", { name: "Search the web in this conversation" });
-  const chip = () => page.getByText("Web search on", { exact: true });
+  const label = () => page.getByText("Web search on", { exact: true });
+  /** Message options says whether web search is on; the menu is closed again after. */
+  async function shownAs(checked: "true" | "false") {
+    await options().click();
+    await expect.element(web()).toHaveAttribute("aria-checked", checked);
+    await userEvent.keyboard("{Escape}");
+    await expect.element(web()).not.toBeInTheDocument();
+  }
   const composer = () => page.getByRole("textbox", { name: "Message the report assistant" });
   const send = () => page.getByRole("button", { name: "Send message", exact: true });
 
   it("is on for a new conversation, stays as set after a send, and seeds the conversation", async () => {
     __setMutationResult("chatV2:sendMessage", { threadId: "thread-new", messageId: "prompt-1" });
     await render(AgentChatPanel, { reportId, projectId });
-    await expect.element(chip()).toBeVisible();
+    await expect.element(composer()).toBeVisible();
+    expect(label().elements()).toHaveLength(0);
     await options().click();
     await expect.element(web()).toHaveAttribute("aria-checked", "true");
     await web().click();
     await expect.element(web()).toHaveAttribute("aria-checked", "false");
     await userEvent.keyboard("{Escape}");
-    expect(chip().elements()).toHaveLength(0);
     // An unsaved conversation keeps it locally.
     expect(__mutationCalls("chatV2:setThreadWebSearch")).toEqual([]);
     await composer().fill("Explain the uncertainty in Line 242.");
@@ -235,21 +244,20 @@ describe("the web search switch", () => {
     __setMutationResult("chatV2:sendMessage", { threadId: "thread-1", messageId: "prompt-1" });
     await render(AgentChatPanel, { reportId, projectId });
     await expect.element(composer()).toBeVisible();
-    expect(chip().elements()).toHaveLength(0);
+    await shownAs("false");
 
     await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
     await page.getByRole("menuitem", { name: "On conversation", exact: false }).click();
-    await expect.element(chip()).toBeVisible();
+    await shownAs("true");
 
     await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
     await page.getByRole("menuitem", { name: "Off conversation", exact: false }).click();
-    await expect.poll(() => chip().elements().length).toBe(0);
+    await shownAs("false");
     await options().click();
     await web().click();
     await expect.element(web()).toHaveAttribute("aria-checked", "true");
     expect(__mutationCalls("chatV2:setThreadWebSearch")).toEqual([{ threadId: "thread-1", enabled: true }]);
     await userEvent.keyboard("{Escape}");
-    await expect.element(chip()).toBeVisible();
     await composer().fill("What does CRA mean by uncertainty?");
     await send().click();
     await expect.poll(() => __mutationCalls("chatV2:sendMessage").length).toBe(1);
@@ -260,16 +268,18 @@ describe("the web search switch", () => {
       "chatV2:setThreadWebSearch",
       "chatV2:sendMessage",
     ]);
-    await expect.element(chip()).toBeVisible();
+    await shownAs("true");
 
-    // The chip turns it off for the conversation.
-    await page.getByRole("button", { name: "Turn off web search in this conversation", exact: true }).click();
+    // Message options turns it off for the conversation.
+    await options().click();
+    await web().click();
+    await expect.element(web()).toHaveAttribute("aria-checked", "false");
     expect(__mutationCalls("chatV2:setThreadWebSearch").at(-1)).toEqual({ threadId: "thread-1", enabled: false });
-    expect(chip().elements()).toHaveLength(0);
+    expect(label().elements()).toHaveLength(0);
   });
 
   // Review R2 P3-6: an unknown setting is never shown as on.
-  it("shows no chip and waits while the conversation's setting is unknown", async () => {
+  it("shows it off and waits while the conversation's setting is unknown", async () => {
     __setQueryData("chatV2:listThreads", [{ _id: "mapping-1", agentThreadId: "thread-1", title: "Off conversation", webSearch: false, createdAt: 1 }]);
     await render(AgentChatPanel, { reportId, projectId });
     await expect.element(composer()).toBeVisible();
@@ -280,7 +290,6 @@ describe("the web search switch", () => {
     // The list no longer holds the open conversation (51 newer ones, say).
     __setQueryData("chatV2:listThreads", [{ _id: "mapping-2", agentThreadId: "thread-2", title: "Newer", webSearch: true, createdAt: 2 }]);
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(chip().elements()).toHaveLength(0);
     await options().click();
     await expect.element(web()).toHaveAttribute("aria-checked", "false");
     await expect.element(web()).toHaveAttribute("data-disabled");
@@ -295,10 +304,12 @@ describe("the web search switch", () => {
     error.message = `[CONVEX M(chatV2:setThreadWebSearch)] [Request ID: 1] Server Error\nUncaught ConvexError: ${JSON.stringify(data)}`;
     __setMutationResult("chatV2:setThreadWebSearch", { then(_resolve: unknown, reject: (reason: unknown) => void) { console.error(error.message); reject(error); } });
     await render(AgentChatPanel, { reportId, projectId });
-    await expect.element(chip()).toBeVisible();
-    await page.getByRole("button", { name: "Turn off web search in this conversation", exact: true }).click();
+    await expect.element(composer()).toBeVisible();
+    await options().click();
+    await expect.element(web()).toHaveAttribute("aria-checked", "true");
+    await web().click();
     await expect.element(page.getByRole("alert")).toHaveTextContent("This conversation no longer exists");
-    await expect.element(chip()).toBeVisible();
+    await expect.element(web()).toHaveAttribute("aria-checked", "true");
     expect(crashToasts()).toHaveLength(0);
     monitor.unmount();
   });
