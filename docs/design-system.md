@@ -1211,6 +1211,12 @@ sizes below are at the 16px root; a laptop renders them at 0.9375x.
   (`src/lib/components/ui/readingColumn.ts`): the report, Sources, Summary
   review, the drafting view, generation progress, intake and the
   full-screen Assistant. Sources also follows Full width.
+- **Section headings (2026-10-21).** In the report, and in the drafting
+  view that becomes it, each Section shows one sans label, all caps, 13px,
+  weight 500, letter-spaced: "242 TECHNOLOGICAL UNCERTAINTY". Its grey is
+  halfway between ink-muted and ink-faint, the lightest that keeps 3:1 on
+  white. The CRA question no longer shows under it. The label is the
+  Section's h3, and the limit meter sits at its right.
 - **Default view (2026-10-06).** A project opens on the report alone, in
   the reading column, with the Assistant and QA closed. Their open state
   and Full width are not remembered between visits; the side panel width

@@ -190,17 +190,16 @@
         data-section-status={section.status}
         aria-busy={section.status === "writing" || queued ? "true" : undefined}
       >
-        <header class="flex flex-col gap-1">
-          <p class="flex items-center gap-2 text-xs leading-4 text-ink-muted">
-            <span>{section.number} {section.title}</span>
-            {#if section.status === "not_drafted"}
-              <span
-                data-not-drafted-marker
-                class="rounded-full border border-dashed border-line px-2 py-px text-[0.6875rem] leading-4 text-ink-muted"
-              >Not drafted</span>
-            {/if}
-          </p>
-          <h3 class="font-serif text-xl font-normal leading-[1.625rem] text-ink">{section.question}</h3>
+        <!-- Owner, 2026-10-21: the same one-line all-caps label as the
+             finished report (report-section-heading__title), no CRA question. -->
+        <header class="flex items-center gap-2">
+          <h3 class="font-sans text-[0.8125rem] font-medium uppercase leading-[1.125rem] tracking-[0.04em] text-[color-mix(in_srgb,var(--color-ink-muted),var(--color-ink-faint))]">{section.number} {section.title}</h3>
+          {#if section.status === "not_drafted"}
+            <span
+              data-not-drafted-marker
+              class="rounded-full border border-dashed border-line px-2 py-px text-[0.6875rem] leading-4 text-ink-muted"
+            >Not drafted</span>
+          {/if}
         </header>
 
         {#if section.status === "done"}

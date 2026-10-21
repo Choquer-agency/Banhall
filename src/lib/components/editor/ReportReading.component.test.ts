@@ -49,7 +49,7 @@ async function mountReading(content = reportContent()) {
 }
 
 describe("Report reading presentation", () => {
-  it("shows each Section as a small label over its CRA question", async () => {
+  it("shows each Section as one small all-caps label, with no CRA question", async () => {
     const { container } = await mountReading();
     const headings = [...container.querySelectorAll<HTMLElement>("[data-report-section-heading]")];
     expect(headings.map((h) => h.dataset.reportSectionHeading)).toEqual(["242", "244", "246"]);
@@ -60,11 +60,14 @@ describe("Report reading presentation", () => {
       "244 Work performed",
       "246 Technological advancement",
     ]);
+    // Owner, 2026-10-21: the label is the Section's heading; the CRA
+    // question no longer shows.
     expect(headings.map((h) => h.querySelector("h3")?.textContent)).toEqual([
-      "What scientific or technological uncertainties did you attempt to overcome?",
-      "What work did you perform to overcome these uncertainties?",
-      "What scientific or technological advancements did you achieve?",
+      "242 Technological uncertainty",
+      "244 Work performed",
+      "246 Technological advancement",
     ]);
+    expect(container.textContent).not.toContain("What scientific or technological");
     // The stored heading wording never shows, and neither does the end-of-Section pill.
     expect(container.textContent).not.toContain("Line 242");
     expect(container.querySelectorAll(".cra-section-end")).toHaveLength(0);
@@ -72,7 +75,15 @@ describe("Report reading presentation", () => {
     const editor = container.querySelector(".tiptap-editor") as HTMLElement;
     expect(getComputedStyle(editor).fontSize).toBe("15px");
     expect(getComputedStyle(editor).lineHeight).toBe("25px");
-    expect(getComputedStyle(headings[0].querySelector("h3")!).fontSize).toBe("18px");
+    const title = getComputedStyle(headings[0].querySelector("h3")!);
+    expect(title.fontSize).toBe("13px");
+    expect(title.textTransform).toBe("uppercase");
+    expect(title.fontWeight).toBe("500");
+    expect(title.fontFamily).not.toContain("Georgia");
+    // Halfway between ink-muted (107, 127, 123) and ink-faint (147, 165, 161).
+    const channels = (title.color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+    const rgb = channels.every((c) => c <= 1) ? channels.map((c) => Math.round(c * 255)) : channels;
+    expect(rgb).toEqual([127, 146, 142]);
   });
 
   it("shows the limit meter only on a Section near a CRA limit", async () => {
