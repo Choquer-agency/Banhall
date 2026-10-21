@@ -704,10 +704,11 @@ describe("formatTurnSummary", () => {
     ).toBe("Starting…");
   });
 
-  it("ticks while running", () => {
+  // Owner, 2026-10-21: no timer while running.
+  it("shows the live label with no timer", () => {
     expect(
       formatTurnSummary(withTools, timing({ status: "running", endedAt: undefined }), "streaming", 6_000)
-    ).toBe("Working… · 5s");
+    ).toBe("Working…");
   });
 
   it("keeps one stable verb while live, even as reasoning streams", () => {
@@ -722,15 +723,15 @@ describe("formatTurnSummary", () => {
         "streaming",
         4_000
       )
-    ).toBe("Working… · 3s");
+    ).toBe("Working…");
   });
 
   it("reports the outcome, not an internal step count", () => {
     expect(formatTurnSummary(withSuggestions, timing({ stepCount: 1 }), "success", 0)).toBe(
-      "Worked for 12s · 1 suggestion"
+      "Worked through 1 step · 1 suggestion"
     );
     expect(formatTurnSummary(withTools, timing({}), "success", 0)).toBe(
-      "Worked for 12s · checked The Brain"
+      "Worked through 2 steps · checked The Brain"
     );
   });
 
@@ -743,7 +744,7 @@ describe("formatTurnSummary", () => {
       [proposal({ _id: "p1", toolCallId: "e1" }), proposal({ _id: "p2", toolCallId: "e2" })]
     );
     expect(formatTurnSummary(two, timing({ stepCount: 2 }), "success", 0)).toBe(
-      "Worked for 12s · 2 suggestions"
+      "Worked through 2 steps · 2 suggestions"
     );
   });
 
@@ -761,7 +762,7 @@ describe("formatTurnSummary", () => {
       ]
     );
     expect(formatTurnSummary(recorded, timing({ stepCount: 1 }), "success", 0)).toBe(
-      "Worked for 12s · findings recorded"
+      "Worked through 1 step · findings recorded"
     );
   });
 
@@ -771,7 +772,7 @@ describe("formatTurnSummary", () => {
       [proposal({ kind: "references", references: ["a"], toolCallId: "h1" })]
     );
     expect(formatTurnSummary(refs, timing({ stepCount: 1 }), "success", 0)).toBe(
-      "Worked for 12s · found passages"
+      "Worked through 1 step · found passages"
     );
   });
 
@@ -781,19 +782,19 @@ describe("formatTurnSummary", () => {
     );
     expect(
       formatTurnSummary(thought, timing({ stepCount: 0, endedAt: 6_000 }), "success", 0)
-    ).toBe("Thought for 5s");
+    ).toBe("Thought");
   });
 
-  it("never claims a sub-second turn took 0s", () => {
-    expect(
-      formatTurnSummary(withTools, timing({ startedAt: 1_000, endedAt: 1_200 }), "success", 0)
-    ).toBe("Worked for 1s · checked The Brain");
+  it("never shows a duration, however long the turn took", () => {
+    for (const endedAt of [1_200, 13_000, 3_601_000]) {
+      expect(formatTurnSummary(withTools, timing({ endedAt }), "success", 0)).not.toMatch(/\d+\s*(s|m)\b/);
+    }
   });
 
   it("formats stopped turns", () => {
     expect(
       formatTurnSummary(withTools, timing({ status: "aborted", endedAt: 9_000 }), "success", 0)
-    ).toBe("Stopped after 8s");
+    ).toBe("Stopped");
     expect(
       formatTurnSummary(
         withTools,
@@ -806,7 +807,7 @@ describe("formatTurnSummary", () => {
 
   it("states a failure factually, leaving the apology to the answer", () => {
     expect(formatTurnSummary(withTools, timing({ status: "failed" }), "failed", 0)).toBe(
-      "Stopped after 12s"
+      "Stopped"
     );
     expect(
       formatTurnSummary(
@@ -820,7 +821,7 @@ describe("formatTurnSummary", () => {
 
   it("degrades gracefully when timing metadata is missing", () => {
     expect(formatTurnSummary(withTools, undefined, "success", 0)).toBe(
-      "Worked · checked The Brain"
+      "Worked through 2 steps · checked The Brain"
     );
     expect(formatTurnSummary(plain, undefined, "success", 0)).toBeNull();
   });

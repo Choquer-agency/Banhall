@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, type Snippet } from "svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import { cn } from "$lib/utils";
@@ -24,6 +24,14 @@
     onHelpful?: () => void | Promise<void>;
     onNotHelpful?: () => void | Promise<void>;
     onClose?: () => void;
+    /**
+     * Owner, 2026-10-21 (the report chat, as Claude and ChatGPT do): icons
+     * only. The question and "Feedback recorded" stay for screen readers.
+     */
+    quiet?: boolean;
+    /** More icon buttons in the same row, before and after the thumbs. */
+    leading?: Snippet;
+    trailing?: Snippet;
     class?: string;
   }
 
@@ -40,6 +48,9 @@
     onHelpful,
     onNotHelpful,
     onClose,
+    quiet = false,
+    leading,
+    trailing,
     class: className,
   }: Props = $props();
 
@@ -98,8 +109,9 @@
 </script>
 
 <div class={cn("flex flex-col gap-1.5 py-1 text-xs text-ink-muted", className)}>
-  <div class="flex items-center gap-1.5">
-    <span class="mr-1" data-feedback-status>{value ? recordedText : title}</span>
+  <div class={cn("flex items-center", quiet ? "-ml-1 gap-0.5" : "gap-1.5")}>
+    <span class={quiet ? "sr-only" : "mr-1"} data-feedback-status>{value ? recordedText : title}</span>
+    {@render leading?.()}
     <!-- Review R2 P3-4, round 2 N1: a vote made here is announced politely. -->
     <span class="sr-only" aria-live="polite" aria-atomic="true" data-feedback-announcement>{announcement}</span>
 
@@ -150,6 +162,8 @@
         </button>
       {/snippet}
     </Tooltip>
+
+    {@render trailing?.()}
 
     {#if onClose}
       <Tooltip text="Dismiss" side="bottom" delayDuration={300}>

@@ -14,7 +14,6 @@
     type ToolRenderNode,
     type TurnTiming,
   } from "$lib/chat/turnParts";
-  import { ChainOfThought } from "./primitives";
   import ReasoningTraceStep from "./ReasoningTraceStep.svelte";
   import ToolTraceStep from "./ToolTraceStep.svelte";
 
@@ -26,7 +25,7 @@
     messageStatus?: UIMessage["status"];
     /** Test/story override for the component clock. */
     now?: number;
-    /** Freeze the elapsed timer (the connection is down, Phase A task 10). */
+    /** Freeze the clock behind the thinking hint (the connection is down). */
     paused?: boolean;
   }
 
@@ -42,10 +41,10 @@
   const clock = $derived(now ?? tick);
 
   $effect(() => {
-    // Only a live turn needs a clock; a terminal summary is frozen, and an idle
+    // Owner, 2026-10-21: no timer is shown. The clock only times the quiet
+    // hint under a long thinking phase. Only a live turn needs it; an idle
     // interval per historical turn would leak across a long transcript.
-    // Offline, the turn's real state is unknown, so the timer stops where it
-    // is instead of counting time the writer cannot act on.
+    // Offline, the turn's real state is unknown, so the clock stops.
     if (!live || now !== undefined) return;
     tick = Date.now();
     if (paused) return;
@@ -70,12 +69,8 @@
     hasReasoning: nodes.some((node) => node.kind === "reasoning"),
   });
 
-  const summary = $derived(formatTurnSummary(turn, timing, messageStatus, clock));
-
-  // The head is the state label ("Working…", "Worked for 12s"); the tail holds
-  // the ticking timer and step count, which must not be announced every second.
-  const head = $derived(summary?.split(" · ")[0] ?? "");
-  const tail = $derived(summary?.split(" · ").slice(1).join(" · ") ?? "");
+  const summary = $derived(formatTurnSummary(turn, timing, messageStatus));
+  const head = $derived(summary ?? "");
 
   // Phase A: each live label stays up for at least LABEL_HOLD_MS, so a fast
   // phase change neither flickers nor floods the live region below. A
@@ -112,8 +107,10 @@
   });
   const hint = $derived(live ? thinkingHint(timing, clock, thinkingSeen?.at) : null);
 
-  // Initial liveness only: a live turn mounts open, a historical one collapsed.
-  let open = $state(untrack(() => live));
+  // Owner, 2026-10-21 (as Claude and ChatGPT do): the steps stay folded, live
+  // or not. The one status line is the progress signal; the writer opens the
+  // steps when they want them.
+  let open = $state(false);
   let wasLive = $state(untrack(() => live));
 
   $effect(() => {
@@ -135,20 +132,13 @@
 </script>
 
 {#snippet summaryRow(interactive: boolean)}
-  {#if live}
-    <span
-      class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary animate-pulse motion-reduce:animate-none"
-      aria-hidden="true"
-    ></span>
-  {/if}
-  <span aria-live="polite" data-turn-status>{shownHead}</span>
-  {#if tail}
-    <span class="text-data text-ink-muted" aria-hidden="true">{tail}</span>
-  {/if}
+  <!-- The live label shimmers instead of counting time (owner, 2026-10-21). -->
+  <span aria-live="polite" data-turn-status class={live ? "text-shimmer" : undefined}>{shownHead}</span>
   {#if interactive}
+    <!-- Rule 7: the chevron ends the row, which is only as wide as its label. -->
     <svg
       class={cn(
-        "ml-auto h-3.5 w-3.5 shrink-0 transition-transform motion-reduce:transition-none",
+        "h-3 w-3 shrink-0 transition-transform motion-reduce:transition-none",
         open ? "rotate-180 text-primary" : "text-ink-faint"
       )}
       fill="none"
@@ -164,11 +154,10 @@
 
 {#if summary}
   {@const rowClass = cn(
-    "flex w-full list-none items-center gap-2 rounded-lg px-2 text-xs font-medium transition-colors [&::-webkit-details-marker]:hidden",
-    // A live turn is a real target the writer reaches for; a finished one is a
-    // quiet footnote they scroll past, so it shouldn't cost 44px in every past
-    // turn of a long transcript.
-    live ? "min-h-11" : "min-h-8",
+    // As wide as its label, like Claude's and ChatGPT's status line: a quiet
+    // line of text, not a full-width bar.
+    "-ml-2 flex w-fit max-w-full list-none items-center gap-1.5 rounded-lg px-2 text-[0.8125rem] leading-5 transition-colors [&::-webkit-details-marker]:hidden",
+    "min-h-8 pointer-coarse:min-h-11",
     open ? "text-ink-secondary" : "text-ink-muted"
   )}
   {#if nodes.length}
@@ -182,29 +171,27 @@
         {@render summaryRow(true)}
       </summary>
 
-      <div class="pt-1 pl-2">
-        <ChainOfThought>
-          {#each nodes as node (node.key)}
-            {#if node.kind === "reasoning"}
-              <ReasoningTraceStep
-                {node}
-                bind:open={
-                  () => stepOpen(node.key),
-                  (value) => toggled.set(node.key, value)
-                }
-              />
-            {:else}
-              <ToolTraceStep
-                {node}
-                bind:open={
-                  () => stepOpen(node.key),
-                  (value) => toggled.set(node.key, value)
-                }
-              />
-            {/if}
-          {/each}
-        </ChainOfThought>
-      </div>
+      <ol class="pt-0.5 pb-1" aria-label="Steps">
+        {#each nodes as node (node.key)}
+          {#if node.kind === "reasoning"}
+            <ReasoningTraceStep
+              {node}
+              bind:open={
+                () => stepOpen(node.key),
+                (value) => toggled.set(node.key, value)
+              }
+            />
+          {:else}
+            <ToolTraceStep
+              {node}
+              bind:open={
+                () => stepOpen(node.key),
+                (value) => toggled.set(node.key, value)
+              }
+            />
+          {/if}
+        {/each}
+      </ol>
     </details>
   {:else}
     <!-- Nothing behind the summary (a queued turn, or a step count that

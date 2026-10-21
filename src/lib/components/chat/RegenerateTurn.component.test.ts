@@ -320,7 +320,7 @@ it("preserves Copy, proposal contents, Brain sources and feedback after regenera
   await expect.element(page.getByText("Candidate wording", { exact: true })).toBeVisible();
   await expect.element(page.getByRole("button", { name: "More actions for this suggestion", exact: true })).toBeEnabled();
   await expect.element(page.getByRole("button", { name: "Mark response helpful", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await page.getByText("Worked", { exact: true }).click();
+  await page.getByText(/^Worked through/).click();
   await page.getByText("Searched The Brain for “controls”", { exact: true }).click();
   await expect.element(page.getByText("Approved control pattern", { exact: true })).toBeVisible();
   expect(document.body.textContent).not.toContain("Private exemplar");

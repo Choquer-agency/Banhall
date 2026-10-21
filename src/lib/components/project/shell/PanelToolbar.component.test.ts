@@ -76,7 +76,9 @@ describe("PanelToolbar", () => {
     });
     const details = document.querySelector<HTMLElement>('[data-panel-toggle="details"]')!;
     expect(details.getAttribute("aria-pressed")).toBe("true");
-    expect(details.className).toContain("bg-workspace-rail-selected");
+    // Owner, 2026-10-21: the active fill is the page icon green.
+    expect(details.className).toContain("bg-workspace-page-icon");
+    expect(getComputedStyle(details).backgroundColor).toBe("rgb(227, 244, 241)");
     expect(details.className).toContain("text-fir");
     expect(details.getBoundingClientRect().height).toBe(board(26));
     expect(document.querySelector('[data-panel-toggle="full-width"]')).toBeNull();

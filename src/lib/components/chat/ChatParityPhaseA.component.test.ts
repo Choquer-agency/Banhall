@@ -249,7 +249,8 @@ describe("task 4: Apply gating", () => {
 });
 
 describe("task 5: live progress", () => {
-  it("reads the label from the turn's progress, with elapsed time and the thinking hint", async () => {
+  // Owner, 2026-10-21: no timer; the label and the quiet hint stay.
+  it("reads the label from the turn's progress, with no timer, and the thinking hint", async () => {
     const now = 1_000_000;
     await page.viewport(480, 300);
     const { container, rerender } = await render(TurnTrace, {
@@ -258,7 +259,8 @@ describe("task 5: live progress", () => {
     });
     const status = () => container.querySelector("[data-turn-status]")?.textContent;
     expect(status()).toBe("Thinking…");
-    expect(container.textContent).toContain("30s");
+    expect(container.textContent).not.toMatch(/\d+\s*s\b/);
+    expect(container.querySelector("[data-turn-status]")?.className).toContain("text-shimmer");
     expect(container.querySelector("[data-thinking-hint]")).toBeNull();
     // The minute counts from when the browser first saw this phase.
     await rerender({ now: now + 59_000 });
@@ -334,7 +336,11 @@ describe("task 6: reasoning summaries and announcements", () => {
       timing: { status: "running", startedAt: Date.now(), stepCount: 1 },
       onRefine: vi.fn(),
     });
+    // Owner, 2026-10-21: a live turn's steps stay folded under its status
+    // line until the writer opens them.
     const step = page.getByText("Thinking…", { exact: true }).last();
+    await expect.element(step).not.toBeVisible();
+    await page.getByText("Working…", { exact: true }).click();
     await expect.element(step).toBeVisible();
     await step.click();
     const summary = container.querySelector("[data-reasoning-summary]")!;
@@ -608,7 +614,8 @@ describe("task 9: drafts", () => {
 });
 
 describe("task 10: connection state", () => {
-  it("says the connection is lost and pauses the timer until it is back", async () => {
+  // Owner, 2026-10-21: the status line shows no timer, offline or not.
+  it("says the connection is lost until it is back, with no timer", async () => {
     seedThreads();
     __setPaginatedRows("chatV2:listMessages", [row("q", "List the deviations in Line 244.", 1, "user")]);
     __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "q", order: 1, status: "running", startedAt: Date.now() - 4000, stepCount: 0 }]);
@@ -616,17 +623,16 @@ describe("task 10: connection state", () => {
     const { container } = await render(AgentChatPanel, { reportId, projectId });
     const banner = page.getByText("Connection lost. Your message will send when you're back online.", { exact: true });
     expect(banner.elements()).toHaveLength(0);
-    const elapsed = () => container.querySelector("[data-turn-status] + .text-data")?.textContent;
-    await expect.poll(elapsed).toMatch(/^\d+s$/);
+    const status = () => container.querySelector("[data-turn-status]")?.textContent;
+    await expect.poll(status).toBe("Working…");
     connection.offline!.value = true;
     await expect.element(banner).toBeVisible();
     await page.screenshot({ path: `${CAPTURES}/offline-banner.png` });
-    const frozen = elapsed();
-    await new Promise((resolve) => setTimeout(resolve, 2200));
-    expect(elapsed()).toBe(frozen);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(status()).toBe("Working…");
+    expect(container.querySelector("[data-turn-status]")?.parentElement?.textContent).not.toMatch(/\d+\s*s\b/);
     connection.offline!.value = false;
     await expect.poll(() => banner.elements().length).toBe(0);
-    await expect.poll(elapsed, { timeout: 3000 }).not.toBe(frozen);
   });
 });
 

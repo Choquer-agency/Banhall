@@ -115,6 +115,11 @@
     }
   }
 
+  // The thumbs show on a finished answer only; they share the action row.
+  const showFeedback = $derived(
+    !!turn.text && message?.status === "success" && timing?.status === "completed"
+  );
+
   // Copy offers the answer only — never reasoning, tool payloads, or card text.
   const canCopy = $derived(
     !!message &&
@@ -123,6 +128,64 @@
       message.status !== "pending"
   );
 </script>
+
+{#snippet copyButton()}
+  {#if message}
+    {@const id = message.id}
+    <!-- Phase C (W3): copies the answer as shown, and says so. -->
+    <span class="sr-only" aria-live="polite" aria-atomic="true" data-copy-announcement>{copied ? "Copied" : ""}</span>
+    <Tooltip text={copied ? "Copied" : copyFailed ? "Couldn't copy. Try again." : "Copy"} side="bottom" delayDuration={300}>
+      {#snippet children({ props })}
+        <button
+          {...props}
+          type="button"
+          onclick={() => onCopy?.(id, turn.text, document.getElementById(answerElementId))}
+          aria-label={copied ? "Copied" : copyFailed ? "Couldn't copy. Try again." : "Copy"}
+          class="flex h-7 w-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 pointer-coarse:size-11"
+        >
+          {#if copied}
+            <svg class="h-3.5 w-3.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          {:else}
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <rect x="9" y="9" width="13" height="13" rx="2" />
+              <path stroke-linecap="round" d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+            </svg>
+          {/if}
+        </button>
+      {/snippet}
+    </Tooltip>
+  {/if}
+{/snippet}
+
+{#snippet regenerateButton()}
+  {#if regeneration}
+    {#if regeneration.description}
+      <span id={regenerationDescriptionId} class="sr-only">{regeneration.description}</span>
+    {/if}
+    <!-- Owner, 2026-10-21: an icon in the answer's action row, as Claude
+         and ChatGPT show retry. -->
+    <Tooltip text="Regenerate" side="bottom" delayDuration={300}>
+      {#snippet children({ props })}
+        <button
+          {...props}
+          type="button"
+          aria-label="Regenerate"
+          aria-describedby={regeneration.description ? regenerationDescriptionId : undefined}
+          disabled={regeneration.disabled}
+          onclick={regeneration.onRegenerate}
+          class="flex h-7 w-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-navy disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 pointer-coarse:size-11"
+        >
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+            <path d="M20 4v7h-7" />
+          </svg>
+        </button>
+      {/snippet}
+    </Tooltip>
+  {/if}
+{/snippet}
 
 <Message role="assistant" class="group">
   <TurnTrace
@@ -172,48 +235,11 @@
     </div>
   {/if}
 
-  {#if canCopy || regeneration}
-    <MessageActions>
-      {#if canCopy && message}
-      {@const id = message.id}
-      <!-- Phase C (W3): copies the answer as shown, and says so. -->
-      <span class="sr-only" aria-live="polite" aria-atomic="true" data-copy-announcement>{copied ? "Copied" : ""}</span>
-      <Tooltip text={copied ? "Copied" : copyFailed ? "Couldn't copy. Try again." : "Copy"} side="bottom" delayDuration={300}>
-        {#snippet children({ props })}
-          <button
-            {...props}
-            type="button"
-            onclick={() => onCopy?.(id, turn.text, document.getElementById(answerElementId))}
-            aria-label={copied ? "Copied" : copyFailed ? "Couldn't copy. Try again." : "Copy"}
-            class="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy pointer-coarse:size-11"
-          >
-            {#if copied}
-              <svg class="h-3.5 w-3.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            {:else}
-              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <rect x="9" y="9" width="13" height="13" rx="2" />
-                <path stroke-linecap="round" d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-              </svg>
-            {/if}
-          </button>
-        {/snippet}
-      </Tooltip>
-      {/if}
-      {#if regeneration}
-        {#if regeneration.description}
-          <span id={regenerationDescriptionId} class="sr-only">{regeneration.description}</span>
-        {/if}
-        <ActionButton disabled={regeneration.disabled} onclick={regeneration.onRegenerate}
-          aria-describedby={regeneration.description ? regenerationDescriptionId : undefined}
-          class="min-h-9 px-2 pointer-coarse:min-h-11">Regenerate</ActionButton>
-      {/if}
-    </MessageActions>
-  {/if}
-  {#if feedback && turn.text && message?.status === "success" && timing?.status === "completed"}
+  {#if feedback && showFeedback}
+    <!-- Owner, 2026-10-21: one quiet row of icons under the answer: Copy,
+         the thumbs and Regenerate, with no "Was this answer helpful?" text. -->
     <div role="group" aria-labelledby={answerElementId}>
-    <FeedbackBar title="Was this answer helpful?" value={feedback.value}
+    <FeedbackBar title="Was this answer helpful?" quiet value={feedback.value}
       disabled={feedback.disabled} onHelpful={() => feedback?.onVote(1)}
       onNotHelpful={() => feedback?.onVote(-1)}
       changeable
@@ -221,8 +247,15 @@
       reasonCode={feedback.reasonCode ?? null}
       reasonText={feedback.reasonText ?? null}
       reasonTextMax={MAX_CHAT_FEEDBACK_REASON_CHARS}
-      onReason={feedback.onReason ? (code, text) => feedback?.onReason?.(code as ChatFeedbackReasonCode, text) : undefined} />
+      onReason={feedback.onReason ? (code, text) => feedback?.onReason?.(code as ChatFeedbackReasonCode, text) : undefined}
+      leading={canCopy ? copyButton : undefined}
+      trailing={regeneration ? regenerateButton : undefined} />
     {#if feedback.error}<p role="alert" class="text-xs text-red-600">{feedback.error}</p>{/if}
     </div>
+  {:else if canCopy || regeneration}
+    <MessageActions>
+      {#if canCopy}{@render copyButton()}{/if}
+      {@render regenerateButton()}
+    </MessageActions>
   {/if}
 </Message>

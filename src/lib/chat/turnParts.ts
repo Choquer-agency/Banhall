@@ -757,16 +757,18 @@ function resolveStepCount(turn: NormalizedTurn, timing: TurnTiming | undefined, 
 }
 
 /**
- * The single line a finished turn collapses to ("Worked for 12s · 2
+ * The single line a finished turn collapses to ("Worked through 3 steps · 2
  * suggestions"), or the live status while it runs. Returns null when there is
- * nothing worth showing — a plain answer with no tools and no reasoning gets
- * no trace row at all.
+ * nothing worth showing: a plain answer with no tools and no reasoning gets
+ * no trace row at all. Owner, 2026-10-21: no timer and no durations; the
+ * live label alone says what is happening, as Claude and ChatGPT do.
  */
 export function formatTurnSummary(
   turn: NormalizedTurn,
   timing: TurnTiming | undefined,
   messageStatus: UIMessage["status"] | undefined,
-  now: number
+  // Unused since the summary shows no time; kept so older callers still fit.
+  _now?: number
 ): string | null {
   const status = timing?.status;
   const live =
@@ -785,35 +787,22 @@ export function formatTurnSummary(
     // turn state and fixed tool fields, never model text. Without it, one
     // stable verb covers the whole live phase. TurnTrace holds each label for
     // at least LABEL_HOLD_MS so a fast phase change never flickers.
-    const label = progressLabel(timing?.progress);
-    const elapsed =
-      timing?.startedAt !== undefined ? formatDuration(now - timing.startedAt) : null;
-    return elapsed ? `${label} · ${elapsed}` : label;
+    return progressLabel(timing?.progress);
   }
-
-  const duration =
-    timing?.startedAt !== undefined && timing?.endedAt !== undefined
-      ? formatDuration(Math.max(1000, timing.endedAt - timing.startedAt))
-      : null;
 
   const outcome = outcomeSuffix(turn);
 
-  if (status === "aborted") {
-    return duration ? `Stopped after ${duration}` : "Stopped";
-  }
+  if (status === "aborted") return "Stopped";
   if (status === "failed" || messageStatus === "failed") {
     // The answer already carries the apology; the trace stays factual so the
     // failure isn't announced twice.
-    return duration ? `Stopped after ${duration}` : "Didn’t start";
+    return timing?.startedAt !== undefined ? "Stopped" : "Didn’t start";
   }
   if (!hasTrace) return null;
 
   // Reasoning with no tool work reads as thought, not work.
-  if (steps === 0 && turn.hasReasoning) {
-    return duration ? `Thought for ${duration}` : "Thought";
-  }
-  if (duration) return `Worked for ${duration}${outcome}`;
-  return steps > 0 ? `Worked${outcome}` : null;
+  if (steps === 0 && turn.hasReasoning) return "Thought";
+  return steps > 0 ? `Worked through ${steps} ${steps === 1 ? "step" : "steps"}${outcome}` : null;
 }
 
 // ─── Live progress (Phase A) ────────────────────────────────────────────────

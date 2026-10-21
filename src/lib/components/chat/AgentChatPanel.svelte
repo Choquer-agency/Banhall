@@ -2266,7 +2266,9 @@
         onRefineProposal={refineProposal}
       />
 
-      {#if awaitingReply && !pendingTiming}
+      <!-- Only until the reply's own status line exists: once the assistant
+           has started, its turn says what it is doing (owner, 2026-10-21). -->
+      {#if awaitingReply && !pendingTiming && lastMessage?.role === "user"}
         <Loader class="py-1" />
       {/if}
 

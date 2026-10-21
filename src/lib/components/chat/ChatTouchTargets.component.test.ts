@@ -85,7 +85,7 @@ describe(`report chat touch targets (${pointer} pointer)`, () => {
     const square = ["Copy", "Mark response helpful", "Mark response not helpful", "More actions for this suggestion"];
     const tall = ["Regenerate", "Apply", "Dismiss"];
     await expect.poll(() => square.map((name) => Math.round(box(button(name)).height)))
-      .toEqual(coarse ? square.map(() => TOUCH) : [24, 28, 28, 28]);
+      .toEqual(coarse ? square.map(() => TOUCH) : [28, 28, 28, 28]);
     for (const name of square) expect(Math.round(box(button(name)).width), name).toBe(coarse ? TOUCH : Math.round(box(button(name)).height));
     for (const name of tall) {
       const height = box(button(name)).height;

@@ -1298,7 +1298,8 @@ describe("Seed project hosts", () => {
     expect(browserPage.getByRole("tab").elements()).toHaveLength(0);
     const panel = document.querySelector<HTMLElement>("[data-project-card]")!;
     expect(panel.hasAttribute("data-work-panel")).toBe(true);
-    expect(document.querySelector("[data-page-icon-tile]")).not.toBeNull();
+    // Owner, 2026-10-21: project pages have no page icon tile.
+    expect(document.querySelector("[data-page-icon-tile]")).toBeNull();
     const cancel = document.querySelector<HTMLButtonElement>("[data-top-bar-cancel-generation]")!;
     // F2: 36px, 14px sides, radius 8, 14px 500 in the destructive red.
     const cancelStyle = getComputedStyle(cancel);

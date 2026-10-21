@@ -27,8 +27,7 @@
   import type { Snippet } from "svelte";
   import { DropdownMenu } from "bits-ui";
   import { TrashIcon } from "phosphor-svelte";
-  import { IconArrowLeft, IconBell, IconDocument, IconMore } from "$lib/components/icons";
-  import PageIconTile from "$lib/components/shell/PageIconTile.svelte";
+  import { IconArrowLeft, IconBell, IconMore } from "$lib/components/icons";
   import { resolve } from "$app/paths";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -150,8 +149,6 @@
   </div>
   {@render leading?.()}
   <div class="flex min-w-0 flex-1 items-center gap-2.5 text-sm leading-5">
-    <!-- Round 2 top bars: the document icon on the 26px page tile. -->
-    <PageIconTile icon={IconDocument} class={`max-sm:hidden ${flush ? "max-xl:hidden" : ""}`} />
     <span class="shrink-0 text-ink-muted max-sm:hidden" data-top-bar-breadcrumb>
       <a href={projectsHref} class="rounded-sm transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir">Projects</a>
       <span aria-hidden="true">/</span>

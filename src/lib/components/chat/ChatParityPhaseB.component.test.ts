@@ -27,6 +27,7 @@ import {
 } from "$lib/chat/replySignal.svelte";
 import AgentChatPanel from "./AgentChatPanel.svelte";
 import ReplySignalFixture from "./ReplySignalFixture.svelte";
+import PanelToolbar from "$lib/components/project/shell/PanelToolbar.svelte";
 
 const sonner = vi.hoisted(() => ({
   error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn(), dismiss: vi.fn(),
@@ -291,6 +292,16 @@ describe("reply signal", () => {
     await expect.element(page.getByRole("button", { name: "Assistant, writing a reply" })).toBeVisible();
     expect(container.querySelector("[data-assistant-working]")).not.toBeNull();
     await page.screenshot({ path: `${CAPTURES}/assistant-working.png` });
+  });
+
+  // Owner, 2026-10-21: with the panel open the reply is on screen, so the
+  // pressed toggle shows no working ring on top of its fill.
+  it("shows no working ring while the Assistant panel is open", async () => {
+    const { container } = await render(PanelToolbar, {
+      tabs: [], activeTab: null, onSelectTab: () => {}, showAssistant: true, assistantActive: true, assistantSignal: "working",
+    });
+    await expect.element(page.getByRole("button", { name: "Assistant, writing a reply" })).toBeVisible();
+    expect(container.querySelector("[data-assistant-working]")).toBeNull();
   });
 
   it("shows a dot for your reply that finished while the panel was closed, until you open it", async () => {

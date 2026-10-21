@@ -94,7 +94,7 @@
   const toggleBase =
     "flex size-[1.625rem] shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir pointer-coarse:size-11";
   const toggleClass = (active: boolean) =>
-    `${toggleBase} ${active ? "bg-workspace-rail-selected text-fir" : "text-ink-muted hover:bg-primary-wash hover:text-ink"}`;
+    `${toggleBase} ${active ? "bg-workspace-page-icon text-fir" : "text-ink-muted hover:bg-primary-wash hover:text-ink"}`;
 </script>
 
 <div
@@ -189,7 +189,8 @@
             class={`relative ${toggleClass(assistantActive)}`}
           >
             <AuroraMark size={18} />
-            {#if assistantSignal === "working"}
+            <!-- The working ring is for a closed panel: an open one shows the reply. -->
+            {#if assistantSignal === "working" && !assistantActive}
               <span data-assistant-working aria-hidden="true" class="pointer-events-none absolute inset-0 animate-pulse rounded-md ring-2 ring-primary-selected/50 motion-reduce:animate-none"></span>
             {:else if assistantSignal === "ready"}
               <span data-assistant-ready-dot aria-hidden="true" class="absolute -right-0.5 -top-0.5 size-2 rounded-full border-2 border-surface bg-primary-selected"></span>
