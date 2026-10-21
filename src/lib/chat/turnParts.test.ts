@@ -788,6 +788,14 @@ describe("humanizeItemIds", () => {
 // Owner, 2026-10-21: the thought block's second line, beside a clock.
 // Owner, 2026-10-21: the thinking follows the same dash rule as everything
 // on screen, and the thought block does not repeat a step whose card shows.
+describe("humanizeItemIds and the bare [GAP] token", () => {
+  it("reads a bare [GAP] as gap and leaves a real placeholder alone", () => {
+    expect(humanizeItemIds("Proposed dropping the [GAP] note on Line 246.")).toBe("Proposed dropping the gap note on Line 246.");
+    expect(humanizeItemIds("Two [GAP] notes remain.")).toBe("Two gap notes remain.");
+    expect(humanizeItemIds("It reads [GAP: the measured load] here.")).toBe("It reads [GAP: the measured load] here.");
+  });
+});
+
 describe("plainReasoningDashes", () => {
   it("reads a dash used as a pause as a comma, and keeps ranges and compounds", () => {
     expect(plainReasoningDashes("I'm checking the structure - it covers the hinge")).toBe("I'm checking the structure, it covers the hinge");

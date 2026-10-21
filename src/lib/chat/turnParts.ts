@@ -785,9 +785,14 @@ export function formatTurnSummary(
  * paragraph 0 is unanchored, so the Line alone).
  */
 export function humanizeItemIds(text: string): string {
-  return text.replace(/\b[rcx]-(242|244|246)-(\d+)-\d+\b/g, (_match, section: string, paragraph: string) =>
-    Number(paragraph) > 0 ? `Line ${section}, paragraph ${Number(paragraph)}` : `Line ${section}`
-  );
+  return text
+    .replace(/\b[rcx]-(242|244|246)-(\d+)-\d+\b/g, (_match, section: string, paragraph: string) =>
+      Number(paragraph) > 0 ? `Line ${section}, paragraph ${Number(paragraph)}` : `Line ${section}`
+    )
+    // Owner, 2026-10-21: the bare token "[GAP]" (no colon, no text) is the
+    // model talking about gap notes, never a placeholder ("[GAP: ...]"),
+    // which keeps its brackets; it reads as "gap" ("the gap note").
+    .replace(/\[GAP\](?!:)/g, "gap");
 }
 
 /**
