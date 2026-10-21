@@ -445,3 +445,21 @@ All three start from `0aff7cf3`. Shared hot files are `convex/schema.ts`, `conve
 - **Automated live run.** `node scripts/chat-live/run.mjs --project <id> --base ca427fb4` on `bea99ae2`: all 17 scenarios passed in one run (deviation job with 3 cards and 2 automatic links in 270 s, Apply and Undo, feedback, Copy, edit and alternatives, pinned file, image view, web search with sources, conversation actions, Stop for someone else's reply, Regenerate after Stop, reply ready, Vet, Esc, admin delete). Web search worked on the first try. Cleanup removed the worktree, snapshot, account and screenshots.
 - **Harness fixes found on the way:** scenarios that wait on a reply now use their own conversation (a shared one made later scenarios wait on earlier replies); the open check reads the Assistant dialog's `inert` state (the panel stays mounted when closed); the inline editor's Send is found by `data-message-editor` (it is not a form); the dev server is warmed before scenarios (its first rebundle answers 504 "Outdated Optimize Dep"); and the favicon service's 404 for a site with no icon is ignored (it still serves its default globe image).
 - **Reviewer.** Claude Fable 5.1 at default effort reviewed the follow-up fixes and the harness; its P1 (a key could appear in an error message) and P2 (no cleanup on Ctrl-C) are fixed.
+
+## Second review round and the owner's hand test (2026-10-21, owner request "review with 5.1 ... I want to check it out myself")
+- **Reviewers.** Claude Fable 5.1 at default effort, two reviewers: one on the product code of `14aa81e7..eabcd77c`, one on `186d04e8`, `bea99ae2` and `eabcd77c`. A third Fable 5.1 pass at default effort checked the fixes in `3bbc5813`.
+- **Product code:** no P1 or P2. Fixed P3s, each with a test that fails without the fix:
+  - moving to another conversation closes an open rename row;
+  - a file picker with nothing to choose takes focus itself.
+
+  Not changed: a card whose Undo pointer has no record would show Undo and then refuse it. No path creates that state (purge and erasure remove the card with its record), and a throwing mutation cannot clear the pointer, so a fix would need a different Undo result or a record read in the card list.
+- **Live test (P1, P2 and P3s), all fixed:**
+  - **P1:** a signal and the main flow now share one cleanup, Playwright no longer exits the process first, and a crash cleans up too.
+  - **P2:** every Convex command runs without deployment values exported in the shell, and a local backend whose data is outside the worktree is refused.
+  - **P3s:**
+    - every scenario that waits on a reply has its own conversation;
+    - the deviation job is judged from the server's turn records;
+    - the edit check reads the reply from the end of the question, which the reply may repeat. Checked against the run's real edit conversation: the old check read 35 characters of footer and the new one reads the 501-character reply;
+    - a failed backend start shows the log's tail.
+- **Serve mode.** `--serve` keeps the app up after the scenarios; the test login goes to a 0600 file in the private folder; Ctrl-C, a SIGTERM or `--serve-hours` ends it and cleans up.
+- **Run.** `node scripts/chat-live/run.mjs --project <id> --base ca427fb4 --serve --serve-hours 8` on `3bbc5813`: all 17 scenarios passed, including the deviation job (3 cards, 2 automatic turns, 2 links shown, 232 s) and web search (2 source links). The app was then left up on localhost:5180 for the owner.

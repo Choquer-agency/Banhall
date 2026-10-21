@@ -3785,6 +3785,7 @@ The lead decisions are reported to the owner and can be reversed:
 - It sets the provider keys and local auth values, then restarts the local backend. A local backend's Node actions (web search, PDF page counts) only see environment values set before they first ran.
 - It checks web search through the Node action before any scenario, and deletes every copy of the snapshot, the throwaway account and the screenshots at the end.
 - Result 2026-10-21 on `bea99ae2`: all 17 scenarios pass in one run, with web search working on the first try after the restart. Scenarios that wait on a reply use their own conversation. Google's favicon service answers 404, with its default globe image, for a cited site that has no icon; the test ignores that console line only.
+- Result 2026-10-21 on `3bbc5813`, after a second Claude Fable 5.1 review: all 17 scenarios pass again. An interrupted or crashed run finishes deleting before it exits. Every Convex command ignores deployment values exported in the shell, so the snapshot comes from the deployment the checkout's `.env.local` names and the worktree reaches only its local one. With `--serve` the app stays up after the scenarios for a person to try; the test login goes to a private file, and the run cleans up when stopped or after `--serve-hours`.
 
 **Migration and compatibility.** Widen only, with no backfill:
 - `projectDocuments.pageCount` and `pageCountStorageId` (the count is trusted only while that file is still the document's original);

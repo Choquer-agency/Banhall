@@ -37,24 +37,11 @@ const base = option("--base")
   ? git("rev-parse", "--short", option("--base"))
   : git("merge-base", target, "origin/main").slice(0, 8);
 
-const sourceDeployment = (fs.readFileSync(path.join(repo, ".env.local"), "utf8").match(/^CONVEX_DEPLOYMENT=([^\s#]+)/m) ?? [])[1] ?? "";
-if (!sourceDeployment) throw new Error("This checkout has no CONVEX_DEPLOYMENT in .env.local to read the snapshot from.");
-if (sourceDeployment.startsWith("prod:") && !flag("--allow-prod-source")) {
-  throw new Error("The source is a production deployment; pass --allow-prod-source to read from it.");
-}
-
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "banhall-chat-live-"));
-fs.chmodSync(work, 0o700);
-const tree = path.join(work, "tree");
-const shots = path.join(work, "shots");
-fs.mkdirSync(shots);
-const log = (...a) => console.log(`[chat-live] ${a.join(" ")}`);
-const children = [];
-const browsers = [];
-
-// The Convex CLI and the app read the shell's environment before the
-// worktree's .env.local, so a deployment exported in the shell would win over
-// the local one. Every command in the worktree runs without those values.
+// The Convex CLI and the app read the shell's environment before a
+// checkout's .env.local, so a deployment exported in the shell would win over
+// it. Every command runs without those values: the snapshot and the keys come
+// from the deployment this checkout's .env.local names (checked below), and
+// the worktree reaches only its local one.
 const localEnv = { ...process.env };
 for (const name of [
   "CONVEX_DEPLOYMENT",
@@ -69,6 +56,21 @@ for (const name of [
 ]) {
   delete localEnv[name];
 }
+
+const sourceDeployment = (fs.readFileSync(path.join(repo, ".env.local"), "utf8").match(/^CONVEX_DEPLOYMENT=([^\s#]+)/m) ?? [])[1] ?? "";
+if (!sourceDeployment) throw new Error("This checkout has no CONVEX_DEPLOYMENT in .env.local to read the snapshot from.");
+if (sourceDeployment.startsWith("prod:") && !flag("--allow-prod-source")) {
+  throw new Error("The source is a production deployment; pass --allow-prod-source to read from it.");
+}
+
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "banhall-chat-live-"));
+fs.chmodSync(work, 0o700);
+const tree = path.join(work, "tree");
+const shots = path.join(work, "shots");
+fs.mkdirSync(shots);
+const log = (...a) => console.log(`[chat-live] ${a.join(" ")}`);
+const children = [];
+const browsers = [];
 
 /** A command in the temporary worktree, which talks to the local backend only. */
 function local(cmd, cmdArgs, opts = {}) {
@@ -212,6 +214,13 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     cleanup().finally(() => process.exit(130));
   });
 }
+// A crash, during the scenarios or while serving, cleans up as well.
+for (const event of ["uncaughtException", "unhandledRejection"]) {
+  process.on(event, (error) => {
+    console.error(`[chat-live] ${event}: ${error instanceof Error ? error.message : String(error)}; cleaning up`);
+    cleanup().finally(() => process.exit(1));
+  });
+}
 
 try {
   log(`target ${target}, base ${base}, source ${sourceDeployment.split(":")[0]}, work dir ${work}`);
@@ -220,7 +229,7 @@ try {
   const snapshot = option("--snapshot") ?? path.join(work, "snapshot.zip");
   if (!option("--snapshot")) {
     log("exporting a snapshot from the source deployment (read-only)");
-    execFileSync("npx", ["convex", "export", "--path", snapshot], { cwd: repo, stdio: "ignore" });
+    execFileSync("npx", ["convex", "export", "--path", snapshot], { cwd: repo, stdio: "ignore", env: localEnv });
   }
 
   // 2. Worktree on the base commit.
@@ -261,7 +270,7 @@ try {
   for (const key of ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"]) {
     let value = "";
     try {
-      value = execFileSync("npx", ["convex", "env", "get", key], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      value = execFileSync("npx", ["convex", "env", "get", key], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: localEnv }).trim();
     } catch {
       throw new Error(`Reading ${key} from the source deployment failed.`);
     }

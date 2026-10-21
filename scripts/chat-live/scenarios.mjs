@@ -182,7 +182,11 @@ const SCENARIOS = [
       expect(counts.includes("2 / 2"), `no 2 / 2 switcher (${counts.join(", ")})`);
       expect(await page.getByText("Edited by you").count(), "no author line on the edit");
       // The first question is not on this path, so the reply has no reason to name its Line.
-      const reply = (await transcript(page)).split("earlier in this conversation.").at(-1);
+      // Read from the end of the question: a reply may repeat its last words.
+      const marker = "earlier in this conversation.";
+      const shown = await transcript(page);
+      expect(shown.includes(marker), "the edited question is not shown");
+      const reply = shown.slice(shown.indexOf(marker) + marker.length);
       expect(!/\b242\b/.test(reply), "the edited reply still saw the original question");
       await page.getByRole("button", { name: "Previous response" }).first().click();
       await page.waitForTimeout(3000);
