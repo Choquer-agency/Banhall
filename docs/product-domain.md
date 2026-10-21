@@ -3528,7 +3528,7 @@ Origin: the owner asked on 2026-10-19 how to close the gaps between the report c
 - **Continue.** A turn that ended with a `continuation` (completed, or failed with `cut_off`; never a stopped one) shows one "Continue with Line N" (or "Continue") button on the newest turn. It sends "Continue with Line N." through the ordinary send path. The offer hides while that message is being sent and returns if the send fails and is dismissed.
 - **Context-loss divider.** When the newest turn records `historyStartOrder`, a divider reads "The assistant no longer reads messages above this line." A one-time notice per conversation suggests starting a new one.
 - **Drafts.** Unsent drafts are kept per report and conversation in the tab's sessionStorage, with one stable draft for the report's unsaved new conversation, and cleared on send. The panel reopens the conversation last used in the tab, including an unsaved new one.
-- **Offline.** While the Convex connection is down after first connecting, the panel says "Connection lost. Your message will send when you're back online." and pauses elapsed timers.
+- **Offline.** While the Convex connection is down after first connecting, the panel says "Connection lost. Your message will send when you're back online." and pauses elapsed timers. (Owner direction 2026-10-21: no timers are shown any more; see "the Assistant's look" in 2026-10-20 (second).)
 - **Composer limits.** The composer counts the trimmed message from 16,000 characters and refuses messages over 20,000 characters and highlights over 12,000 ("up to 20,000" and "up to 12,000" in the copy; `shared/chatLimits.ts`). A too-long Regenerate or Continue asks for a new, shorter message. A report selection is labelled "Selected text".
 - **Completion Report on bulk cards.** Bulk (coordinated revision) cards show their Completion Report from `chatProposalItems` behind a disclosure with status counts.
 
@@ -3794,6 +3794,13 @@ The lead decisions are reported to the owner and can be reversed:
 - The chat prompt says ids stay in tool calls only. A reply names an item by its Line and paragraph and briefly what it is about.
 - The reply never asks the writer to say "continue" or explains how to move on. The app starts the next Line by itself, or shows a Continue button when it cannot. The reply may say what comes next ("Line 244 is next.").
 - Only what the model is told changes. Auto-continue itself is unchanged.
+
+**Owner direction 2026-10-21 (the Assistant's look).** The owner found the live turn hard to read (a ticking timer, timeline dots and lines, and a second set of bouncing dots) and asked for a chat closer to Claude's and ChatGPT's. Presentation only: what is shown, and when, is unchanged.
+- **Status line.** A turn shows one quiet line, the label from `chatTurns.progress` ("Thinking…", "Listing the deviations in Line 244…"), with a soft shimmer instead of a timer. No elapsed time or duration is shown, live or finished. A finished turn reads "Worked through N steps", with its outcome after a dot ("1 suggestion"), or "Thought", "Stopped" or "Didn't start". The quiet hint after a minute of thinking stays. This replaces the elapsed timer of 2026-10-19 (seventh), and Offline no longer pauses a timer.
+- **Steps.** The steps stay folded, live or finished, until the writer opens them. They are plain rows with a small status icon and no timeline dots or connector lines. A reasoning summary reads as plain text beside a hairline.
+- **Before the turn exists.** Until the reply's own status line exists, the panel shows the same shimmering "Thinking…" line instead of bouncing dots. Once the assistant has started, only its turn shows progress.
+- **Answer actions.** Copy, the thumbs and Regenerate share one row of icons under the answer, each with a tooltip and a keyboard focus ring. "Was this answer helpful?" and "Feedback recorded" stay for screen readers only.
+- **Top bar.** The panel toggles (full width, Details, Assistant, QA) use the page icon green (`workspace-page-icon`) as their active fill. The Assistant's working ring shows only while its panel is closed, since an open panel shows the reply. Project pages show no page icon tile.
 
 **Migration and compatibility.** Widen only, with no backfill:
 - `projectDocuments.pageCount` and `pageCountStorageId` (the count is trusted only while that file is still the document's original);

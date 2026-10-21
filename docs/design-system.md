@@ -1064,7 +1064,10 @@ Boards A1 to A5, B1 to B3, D1 to D5, I1, I1b, I3 to I5; decision 53. Live at
   Enter, Space, click). Expanded, Admin is a group with a chevron (down
   closed, up open) and eight 28px rows under a left rule; it opens by itself
   on admin pages and otherwise keeps the last choice (`railPreferences`).
-- **Top bar and panel.** `shell/PageTopBar` is the 56px bar: shell controls,
+- **Top bar and panel.** (Owner, 2026-10-21: project pages show no page icon
+  tile, and `workspace-page-icon` is also the active fill of the project
+  panel toggles: full width, Details, Assistant and QA.)
+  `shell/PageTopBar` is the 56px bar: shell controls,
   `PageIconTile` (26px, `workspace-page-icon`, primary icon), title with a
   muted subtitle or an "Admin / Page" breadcrumb, then status, bell and
   actions. `WorkspaceChrome` insets the white work panel 12px on the shell
@@ -1419,7 +1422,10 @@ attach left and the round navy send right — pinned to the pane bottom in
 every state including the empty thread. Since 2026-10-19 the left control is
 a "Message options" menu, not attach. It holds the per-message options:
 Brain examples, shown as a removable chip while on, and web search, on by
-default with no chip (owner, 2026-10-21). The
+default with no chip (owner, 2026-10-21). A reply in progress shows one
+quiet status line with a shimmer (`text-shimmer` in `layout.css`) and no
+timer; its steps stay folded as plain rows with a small status icon; the
+answer's Copy, thumbs and Regenerate are one row of icons. The
 chat reads only typed text, so the composer must not offer or hint at file
 uploads. The chat header, empty state, and starter suggestions are compact
 (13px scale, medium weights). The right pane's project metadata heading is
