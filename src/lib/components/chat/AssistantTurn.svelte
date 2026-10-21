@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { UIMessage } from "@convex-dev/agent";
   import type { Doc } from "../../../../convex/_generated/dataModel";
-  import { humanizeItemIds, normalizeTurnParts, type TurnTiming } from "$lib/chat/turnParts";
+  import { humanizeItemIds, normalizeTurnParts, thoughtTraceNodes, type TurnTiming } from "$lib/chat/turnParts";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import { Message, MessageContent, MessageActions, FeedbackBar, ActionButton } from "./primitives";
   import TurnTrace from "./TurnTrace.svelte";
@@ -96,7 +96,9 @@
   const turn = $derived(normalizeTurnParts(message, proposals));
   // Phase B: each search is named in the trace, and its numbered sources
   // back the reply's citations and the Sources row.
-  const traceNodes = $derived(withWebSearchLabels(turn.traceNodes, webSearches));
+  // The thought block leaves out steps whose card is already under the
+  // reply (owner, 2026-10-21).
+  const traceNodes = $derived(thoughtTraceNodes(withWebSearchLabels(turn.traceNodes, webSearches)));
   const webSources = $derived(turnWebSources(webSearches));
 
   const failed = $derived(message?.status === "failed" || timing?.status === "failed");

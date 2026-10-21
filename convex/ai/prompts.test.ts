@@ -570,9 +570,15 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
   // Phase A (2026-10-19, CAP-13 change): the card shows the Completion
   // Report checklist, so the reply summarizes instead of retyping it.
   it("leaves the Completion Report checklist to the card", () => {
+    // Owner, 2026-10-21: an edit reply is one or two short sentences.
     expect(prompt).toContain(
-      "For a bulk revision, the card also shows the writer its Completion Report checklist, which names each item by its Line and paragraph with its status and reason, so do not repeat the checklist: say in a sentence or two what the proposal covers and which items need the writer's decision."
+      "For a bulk revision, the card also shows its Completion Report checklist, which names each item by its Line and paragraph with its status and reason, so do not repeat the checklist: add only which items need the writer's decision."
     );
+    expect(prompt).toContain("in one or two short sentences: what the card changes and, if it is not obvious, why.");
+    expect(prompt).not.toContain("Review and apply the proposal when ready.");
+    expect(prompt).toContain("add no closing line about reviewing or applying");
+    expect(prompt).toContain('call a [GAP: ...] placeholder a "gap note" and never type the bracketed token itself');
+    expect(prompt).toContain("## Your thinking\nKeep your thinking short.");
     expect(prompt).not.toContain("every item's original ID");
     expect(prompt).toContain("leave the checklist to the card");
     expect(prompt).not.toContain("include the Completion Report checklist returned by each proposeBulkEdits call verbatim");

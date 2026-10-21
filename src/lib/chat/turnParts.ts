@@ -790,6 +790,34 @@ export function humanizeItemIds(text: string): string {
   );
 }
 
+/**
+ * The thinking shown in the thought block is Anthropic's summary, which the
+ * chat's prose rules cannot reach. Owner, 2026-10-21: it follows the same
+ * dash rule as everything else on screen, so a dash used as a pause (an em
+ * or en dash, a bar, a double hyphen or a hyphen with spaces round it) reads
+ * as a comma. Ranges and compounds (10-20, wall-to-batch) keep their hyphen.
+ */
+export function plainReasoningDashes(text: string): string {
+  return text
+    .replace(/\s*[\u2014\u2013\u2015]\s*/g, ", ")
+    .replace(/\s+-{1,2}\s+/g, ", ")
+    .replace(/,\s*,/g, ",");
+}
+
+/**
+ * Tool steps whose result is a card under the reply (owner, 2026-10-21): the
+ * card already shows the edit, so a "Suggested an edit" row in the thought
+ * block only repeats it. A failed one stays, since it has no card.
+ */
+const CARD_TOOLS = new Set(["proposeEdit", "proposeReplacements", "proposeBulkEdits"]);
+
+/** The steps a thought block shows: its reasoning and every step without a card. */
+export function thoughtTraceNodes<T extends TraceRenderNode>(nodes: readonly T[]): T[] {
+  return nodes.filter(
+    (node) => !(node.kind === "tool" && CARD_TOOLS.has(node.toolName) && node.state !== "output-error")
+  );
+}
+
 /** The longest second line of a thought block, in characters. */
 const HEADLINE_MAX_CHARS = 64;
 
@@ -833,9 +861,9 @@ export function turnHeadline(nodes: readonly (ReasoningRenderNode | ToolRenderNo
     if (opening) headings.push(opening[1].trim());
     const plain = node.text.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/\*\*/g, "").trim();
     const heading = headings.at(-1);
-    if (heading) return shortHeadline(humanizeItemIds(heading));
+    if (heading) return shortHeadline(plainReasoningDashes(humanizeItemIds(heading)));
     const sentence = plain.split(/(?<=[.!?])\s|\n/)[0]?.trim() || plain;
-    return shortHeadline(humanizeItemIds(sentence));
+    return shortHeadline(plainReasoningDashes(humanizeItemIds(sentence)));
   }
   const lastTool = [...nodes].reverse().find((node) => node.kind === "tool");
   return lastTool ? lastTool.label : null;

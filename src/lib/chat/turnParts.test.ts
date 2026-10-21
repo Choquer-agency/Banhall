@@ -10,6 +10,8 @@ import {
   formatTurnSummary,
   humanizeItemIds,
   turnHeadline,
+  plainReasoningDashes,
+  thoughtTraceNodes,
   normalizeTurnParts,
   toolLabel,
   type TurnTiming,
@@ -784,6 +786,33 @@ describe("humanizeItemIds", () => {
 });
 
 // Owner, 2026-10-21: the thought block's second line, beside a clock.
+// Owner, 2026-10-21: the thinking follows the same dash rule as everything
+// on screen, and the thought block does not repeat a step whose card shows.
+describe("plainReasoningDashes", () => {
+  it("reads a dash used as a pause as a comma, and keeps ranges and compounds", () => {
+    expect(plainReasoningDashes("I'm checking the structure - it covers the hinge")).toBe("I'm checking the structure, it covers the hinge");
+    expect(plainReasoningDashes("one goal \u2014 to win")).toBe("one goal, to win");
+    expect(plainReasoningDashes("the plan\u2013which failed\u2013was dropped")).toBe("the plan, which failed, was dropped");
+    expect(plainReasoningDashes("a -- b")).toBe("a, b");
+    expect(plainReasoningDashes("10-20 trials of wall-to-batch transfer in 2019-2024")).toBe("10-20 trials of wall-to-batch transfer in 2019-2024");
+  });
+});
+
+describe("thoughtTraceNodes", () => {
+  const tool = (toolName: string, state: string, key = toolName) =>
+    ({ kind: "tool" as const, key, toolName, toolCallId: key, state, label: toolName, accessibleStatus: "done" }) as never;
+  it("leaves out an edit step whose card shows, and keeps reading steps and failed edits", () => {
+    const nodes = [
+      { kind: "reasoning" as const, key: "r", text: "Thinking.", state: "done" as const },
+      tool("readDocument", "output-available"),
+      tool("proposeEdit", "output-available"),
+      tool("proposeBulkEdits", "output-available"),
+      tool("proposeReplacements", "output-error", "failed"),
+    ];
+    expect(thoughtTraceNodes(nodes).map((node: { key: string }) => node.key)).toEqual(["r", "readDocument", "failed"]);
+  });
+});
+
 describe("turnHeadline", () => {
   const reasoning = (text: string, key = "r") => ({ kind: "reasoning" as const, key, text, state: "done" as const });
   const tool = (label: string, key = "t") =>

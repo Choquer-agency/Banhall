@@ -465,6 +465,33 @@ describe("task 6: reasoning summaries and announcements", () => {
     expect(Number(getComputedStyle(details, "::details-content").opacity)).toBe(1);
   });
 
+  // Owner, 2026-10-21: the thought block leaves out the step whose card is
+  // under the reply, and its thinking follows the dash rule.
+  it("leaves the edit step out of the thought block and reads a dash pause as a comma", async () => {
+    const message = {
+      ...row("a", "Proposed dropping the gap note.", 1, "assistant"),
+      parts: [
+        { type: "reasoning", text: "I'm checking the paragraph - it covers the hinge.", state: "done" },
+        { type: "tool-readDocument", toolCallId: "read-1", state: "output-available", input: {}, output: "Step completed." },
+        { type: "tool-proposeEdit", toolCallId: "edit-1", state: "output-available", input: {}, output: "Proposal created." },
+        { type: "text", text: "Proposed dropping the gap note.", state: "done" },
+      ],
+    } as UIMessage;
+    const { container } = await render(AssistantTurn, {
+      message, timing: { status: "completed", startedAt: 1_000, endedAt: 5_000, stepCount: 2 }, onRefine: vi.fn(),
+    });
+    const bar = container.querySelector<HTMLElement>("[data-turn-status]")!;
+    await expect.element(page.elementLocator(bar)).toBeVisible();
+    bar.click();
+    const reasoning = container.querySelector<HTMLElement>("[data-reasoning-summary]")!;
+    await expect.element(page.elementLocator(reasoning)).toBeVisible();
+    expect(reasoning.textContent?.trim()).toBe("I'm checking the paragraph, it covers the hinge.");
+    expect(container.querySelector("[data-turn-headline]")?.textContent?.trim()).toBe("I'm checking the paragraph, it covers the hinge.");
+    const trace = container.querySelector('[aria-label="Thought process"]')!;
+    expect(trace.textContent).not.toContain("Suggested an edit");
+    expect(trace.querySelectorAll("[data-trace-step]")).toHaveLength(1);
+  });
+
   it("shows the summary under Thinking while it streams, and marks the answer busy", async () => {
     await page.viewport(480, 520);
     const { container, rerender } = await render(AssistantTurn, {
