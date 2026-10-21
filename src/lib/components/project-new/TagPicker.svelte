@@ -3,9 +3,14 @@
   label; a "+" button opens a searchable dropdown of the full tag taxonomy.
   `variant="field"` is New project's Tags field (board E1): a 36px field
   with 24px chrome chips; the caller renders the label above it.
+
+  The dropdown is a bits-ui Popover rendered through a portal (2026-10-21),
+  like the date and science code pickers: inside a scrolling container (the
+  Edit details dialog body) an inline list was cut off below the fold. The
+  popover also brings their outside click, Escape and collision handling.
 -->
 <script lang="ts">
-  import { popoverPop } from "$lib/motion";
+  import { Popover } from "bits-ui";
   import { IconClose, IconPlus } from "$lib/components/icons";
 
   type Tag = { _id: string; name: string; parentId?: string | null };
@@ -38,7 +43,6 @@
 
   let open = $state(false);
   let search = $state("");
-  let root: HTMLDivElement | null = $state(null);
   let searchInput: HTMLInputElement | null = $state(null);
 
   const selectedTags = $derived(allTags.filter((t) => selectedTagIds.includes(t._id)));
@@ -66,36 +70,30 @@
     onChange?.(selectedTagIds);
   }
 
-  function openPicker() {
-    if (readonly) return;
-    open = !open;
-    search = "";
-    if (open) setTimeout(() => searchInput?.focus(), 0);
-  }
-
-  function onWindowClick(e: MouseEvent) {
-    if (open && root && !root.contains(e.target as Node)) open = false;
-  }
+  // Each opening starts from an empty search.
+  $effect(() => {
+    if (open) search = "";
+  });
 </script>
 
-<!-- Capture phase: an open dropdown takes Escape for itself, so a dialog
-     around the picker stays open. -->
-<svelte:window
-  onclick={onWindowClick}
-  onkeydowncapture={(e) => {
-    if (e.key !== "Escape" || !open) return;
-    e.stopPropagation();
-    open = false;
-  }}
-/>
-
 {#snippet dropdown()}
-  {#if open && !readonly}
+  {#if !readonly}
+    <Popover.Portal>
+      <!-- Mounted like the science code picker's, so it is measured once it
+           has its height and flips above the field near the window's foot. -->
+      <Popover.Content
+        side="bottom"
+        align="start"
+        sideOffset={6}
+        collisionPadding={12}
+        data-tag-dropdown
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          searchInput?.focus();
+        }}
+        class="z-[120] w-56 overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg outline-none"
+      >
     <!-- Compact dropdown is the one true size, the same on every surface. -->
-    <div
-      transition:popoverPop
-      class="absolute left-0 top-full z-50 mt-1.5 w-56 origin-top-left overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg"
-    >
       <input
         bind:this={searchInput}
         type="text"
@@ -126,14 +124,16 @@
           <p class="px-3 py-2 text-xs text-gray-400">No matching tags.</p>
         {/each}
       </div>
-    </div>
+      </Popover.Content>
+    </Popover.Portal>
   {/if}
 {/snippet}
+
+<Popover.Root bind:open>
 
 {#if variant === "field"}
 <div
   class="relative flex min-h-9 flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 pointer-coarse:min-h-11"
-  bind:this={root}
   data-tag-field
 >
   {#each selectedTags as tag (tag._id)}
@@ -152,22 +152,19 @@
     </span>
   {/each}
   {#if !readonly}
-    <button
-      type="button"
+    <Popover.Trigger
       aria-label="Add tags"
-      aria-expanded={open}
-      onclick={openPicker}
       class={`flex h-6 items-center gap-1.5 rounded-md text-sm leading-5 text-ink-faint transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir ${
         selectedTags.length ? "w-6 justify-center hover:bg-primary-wash" : "flex-1"
       }`}
     >
       {#if selectedTags.length}<IconPlus size={12} strokeWidth={2} />{:else}Add tags{/if}
-    </button>
+    </Popover.Trigger>
   {/if}
   {@render dropdown()}
 </div>
 {:else}
-<div class="relative flex flex-wrap items-center gap-1.5" bind:this={root}>
+<div class="relative flex flex-wrap items-center gap-1.5">
   {#if label !== null}
     <span class={size === "sm" ? "text-xs text-gray-400" : "text-sm font-medium text-gray-700"}>{label}</span>
   {/if}
@@ -197,19 +194,17 @@
   {/each}
 
   {#if !readonly}
-  <button
-    type="button"
+  <Popover.Trigger
     aria-label="Add tags"
-    aria-expanded={open}
-    onclick={openPicker}
     class={`flex items-center justify-center rounded-full bg-chrome font-medium text-gray-500 transition-colors hover:bg-navy hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
       size === "sm" ? "h-5 w-5 text-xs" : "h-6 w-6 text-sm"
     }`}
   >
     +
-  </button>
+  </Popover.Trigger>
   {/if}
 
   {@render dropdown()}
 </div>
 {/if}
+</Popover.Root>

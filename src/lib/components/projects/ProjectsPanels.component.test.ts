@@ -452,6 +452,27 @@ describe("Edit details dialog (Z7o)", () => {
     await expect.poll(() => editPanel()).toBeNull();
   });
 
+  it("opens the tag list where a person can see and click it, even as the last field of the dialog", async () => {
+    await mount();
+    await openEdit();
+    await expect.poll(() => field("title")?.value).toBe("High-efficiency pump control");
+    await userEvent.click(editPanel()!.querySelector<HTMLElement>('[data-edit-field="tagIds"] [aria-label="Add tags"]')!);
+    await expect.poll(() => document.querySelector("[data-tag-dropdown]")).not.toBeNull();
+    const list = document.querySelector<HTMLElement>("[data-tag-dropdown]")!;
+    await expect.poll(() => list.getAnimations().length).toBe(0);
+    // Rendered through a portal, so the dialog's scrolling body cannot clip it.
+    expect(editPanel()!.contains(list)).toBe(false);
+    const box = list.getBoundingClientRect();
+    expect(box.bottom).toBeLessThanOrEqual(window.innerHeight);
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    expect(hit && list.contains(hit)).toBe(true);
+    expect(document.activeElement?.closest("[data-tag-dropdown]")).not.toBeNull();
+    // Escape closes only the list; the dialog stays.
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector("[data-tag-dropdown]")).toBeNull();
+    expect(editPanel()).not.toBeNull();
+  });
+
   it("closes on Escape and returns focus to the card menu trigger", async () => {
     await mount();
     await openEdit();
