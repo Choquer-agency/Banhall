@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { humanizeItemIds, plainReasoningDashes, type ReasoningRenderNode } from "$lib/chat/turnParts";
+  import { readableReasoning, type ReasoningRenderNode } from "$lib/chat/turnParts";
 
   interface Props {
     node: ReasoningRenderNode;
@@ -17,7 +17,7 @@
    * dropped so no asterisks show.
    */
   const lines = $derived(
-    plainReasoningDashes(humanizeItemIds(node.text))
+    readableReasoning(node.text)
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean)
@@ -29,14 +29,34 @@
           : { heading: false, text: line.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/\*\*/g, "") };
       })
   );
+
+  /**
+   * Owner, 2026-10-21: a long summary (a real editing task can run to a
+   * dozen paragraphs) shows one paragraph until the writer asks for all of
+   * it: the first finished one, or, while it streams, the newest.
+   */
+  let showAll = $state(false);
+  const paragraphs = $derived(lines.filter((line) => !line.heading));
+  const shortLine = $derived(streaming ? lines.at(-1) : (paragraphs[0] ?? lines[0]));
+  const shown = $derived(showAll || lines.length <= 1 || !shortLine ? lines : [shortLine]);
+  const hiddenCount = $derived(lines.length - shown.length);
 </script>
 
 <!-- Reasoning is plain text, never markdown: model scratchpad output is not
      authored prose and stray syntax must not become formatting. -->
 <li class="list-none" data-reasoning-summary aria-busy={streaming}>
   <div class="flex flex-col gap-1 text-[0.8125rem] leading-relaxed break-words text-ink-muted">
-    {#each lines as line, index (index)}
+    {#each shown as line, index (index)}
       <p class={line.heading ? "font-medium text-ink-secondary" : undefined}>{line.text}</p>
     {/each}
+    {#if hiddenCount > 0 || (showAll && lines.length > 1)}
+      <button
+        type="button"
+        data-reasoning-show-all
+        aria-expanded={showAll}
+        onclick={() => (showAll = !showAll)}
+        class="-mx-1 w-fit rounded px-1 text-xs leading-5 text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none"
+      >{showAll ? "Show less" : "Show all thinking"}</button>
+    {/if}
   </div>
 </li>

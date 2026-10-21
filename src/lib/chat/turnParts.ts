@@ -809,6 +809,42 @@ export function plainReasoningDashes(text: string): string {
     .replace(/,\s*,/g, ",");
 }
 
+/** Tool names as the writer would say them, singular and plural. */
+const TOOL_WORDS: Record<string, [string, string]> = {
+  proposeEdit: ["edit", "edits"],
+  proposeBulkEdits: ["coordinated edit", "coordinated edits"],
+  proposeReplacements: ["replacement", "replacements"],
+  highlightPassages: ["highlight", "highlights"],
+  deviationInventory: ["deviation list", "deviation lists"],
+  compareReferencePd: ["comparison with the reference PD", "comparisons with the reference PD"],
+  searchBrain: ["Brain search", "Brain searches"],
+  searchWeb: ["web search", "web searches"],
+  readDocument: ["file reading", "file readings"],
+  searchDocuments: ["file search", "file searches"],
+  readTranscript: ["transcript reading", "transcript readings"],
+  viewFile: ["file view", "file views"],
+};
+const TOOL_NAME_RE = new RegExp(`\\b(${Object.keys(TOOL_WORDS).join("|")})\\b(\\s+(calls?|tools?))?`, "g");
+
+/**
+ * Owner, 2026-10-21: the thinking names its tools ("I'll prepare the
+ * proposeEdit calls"); on screen they read as plain words ("the edits").
+ */
+export function plainToolNames(text: string): string {
+  return text.replace(TOOL_NAME_RE, (_match, tool: string, _suffix: string | undefined, noun: string | undefined) => {
+    const [one, many] = TOOL_WORDS[tool];
+    return noun === "calls" || noun === "tools" ? many : one;
+  });
+}
+
+/**
+ * The thinking as the open thought block reads it: item ids as places, tool
+ * names as words, and a dash pause as a comma.
+ */
+export function readableReasoning(text: string): string {
+  return plainReasoningDashes(plainToolNames(humanizeItemIds(text)));
+}
+
 /**
  * Tool steps whose result is a card under the reply (owner, 2026-10-21): the
  * card already shows the edit, so a "Suggested an edit" row in the thought
@@ -849,12 +885,12 @@ function shortHeadline(sentence: string): string {
 }
 
 /**
- * The second line of a turn's thought block, beside a clock, as Claude shows
- * it (owner, 2026-10-21): the newest heading of the model's reasoning summary
- * ("Drafting the Line 244 revision"), else a short form of its first sentence
- * (its first clause, at most 64 characters), else the label of the newest
- * step. The full reasoning shows when the block is opened (2026-10-19,
- * seventh), so this shows nothing new.
+ * The line beside a clock at the top of an open thought block, as Claude
+ * shows it (owner, 2026-10-21): the newest heading of the model's reasoning
+ * summary ("Drafting the Line 244 revision"), at most 64 characters, or,
+ * with no reasoning, the label of the newest step. A summary with no heading
+ * gives no line: its first sentence already opens the reasoning below it,
+ * and repeating it was noise (owner, 2026-10-21).
  */
 export function turnHeadline(nodes: readonly (ReasoningRenderNode | ToolRenderNode)[]): string | null {
   for (let index = nodes.length - 1; index >= 0; index -= 1) {
@@ -864,11 +900,8 @@ export function turnHeadline(nodes: readonly (ReasoningRenderNode | ToolRenderNo
     // A heading still streaming in ("**Planning the ed") counts as the newest.
     const opening = /^\*\*([^*\n]+)$/.exec(node.text.split("\n").at(-1)?.trim() ?? "");
     if (opening) headings.push(opening[1].trim());
-    const plain = node.text.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/\*\*/g, "").trim();
     const heading = headings.at(-1);
-    if (heading) return shortHeadline(plainReasoningDashes(humanizeItemIds(heading)));
-    const sentence = plain.split(/(?<=[.!?])\s|\n/)[0]?.trim() || plain;
-    return shortHeadline(plainReasoningDashes(humanizeItemIds(sentence)));
+    return heading ? shortHeadline(readableReasoning(heading)) : null;
   }
   const lastTool = [...nodes].reverse().find((node) => node.kind === "tool");
   return lastTool ? lastTool.label : null;

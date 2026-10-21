@@ -11,6 +11,7 @@ import {
   humanizeItemIds,
   turnHeadline,
   plainReasoningDashes,
+  readableReasoning,
   thoughtTraceNodes,
   normalizeTurnParts,
   toolLabel,
@@ -806,6 +807,17 @@ describe("plainReasoningDashes", () => {
   });
 });
 
+describe("readableReasoning", () => {
+  it("names tools in plain words, item ids as places, and dash pauses as commas", () => {
+    expect(readableReasoning("Now I'll prepare the proposeEdit calls - two of them for r-242-3-1.")).toBe(
+      "Now I'll prepare the edits, two of them for Line 242, paragraph 3."
+    );
+    expect(readableReasoning("I'll use proposeEdit for this one, after deviationInventory.")).toBe(
+      "I'll use edit for this one, after deviation list."
+    );
+  });
+});
+
 describe("thoughtTraceNodes", () => {
   const tool = (toolName: string, state: string, key = toolName) =>
     ({ kind: "tool" as const, key, toolName, toolCallId: key, state, label: toolName, accessibleStatus: "done" }) as never;
@@ -838,28 +850,16 @@ describe("turnHeadline", () => {
     expect(turnHeadline([{ ...reasoning("**Planning the edits**\nFirst I list them.\n**Drafting the Li"), state: "streaming" as const }])).toBe("Drafting the Li");
   });
 
-  it("falls back to the first sentence when the summary has no heading", () => {
-    expect(turnHeadline([reasoning("The draft repeats itself. Line 246 needs a cut.")])).toBe("The draft repeats itself.");
+  // Owner, 2026-10-21: a summary with no heading gives no line; its first
+  // sentence already opens the reasoning, and repeating it was noise.
+  it("gives no line for a summary with no heading", () => {
+    expect(turnHeadline([reasoning("The draft repeats itself. Line 246 needs a cut.")])).toBeNull();
   });
 
-  it("keeps a long line short", () => {
-    const line = turnHeadline([reasoning("a".repeat(300))]);
-    expect(line?.length).toBe(64);
+  it("keeps a long heading short, cut at a word", () => {
+    const line = turnHeadline([reasoning(`**${"Checking the anchor platform load path under localized airbag support in every case"}**\nText.`)]);
+    expect(line?.length).toBeLessThanOrEqual(64);
     expect(line?.endsWith("…")).toBe(true);
-  });
-
-  // Owner, 2026-10-21: the closed block carries a short headline; opening it
-  // shows the reasoning in full.
-  it("shortens a long first sentence to its first clause", () => {
-    expect(turnHeadline([reasoning(
-      "All three Lines have been applied, but one item (Line 244, paragraph 4, the access-platform configuration conflict) remains blocked since the evidence doesn't support resolving it, so that needs client follow-up. The writer's question is a status check."
-    )])).toBe("All three Lines have been applied");
-    expect(turnHeadline([reasoning("Checking Line 244: the hypothesis is thin.")])).toBe("Checking Line 244");
-  });
-
-  it("keeps a clause too short to say anything on its own, and cuts at a word", () => {
-    expect(turnHeadline([reasoning("Done, but the second Line still needs the client's dates before it can be drafted in full detail.")]))
-      .toBe("Done, but the second Line still needs the client's dates…");
   });
 
   it("names the newest step when there is no reasoning, and nothing when empty", () => {

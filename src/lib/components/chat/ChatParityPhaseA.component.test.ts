@@ -346,7 +346,8 @@ describe("task 6: reasoning summaries and announcements", () => {
     await expect.element(page.getByText("One item stays blocked: Line 244, paragraph 4, the test count.")).toBeVisible();
     expect(container.querySelector("[data-turn-status]")?.textContent).toBe("Thought for 4s");
     await page.getByText("Thought for 4s", { exact: true }).click();
-    expect(container.querySelector("[data-turn-headline]")?.textContent?.trim()).toBe("For Line 242, paragraph 4, I am rewriting the first sentence.");
+    // No heading in the summary, so no line repeats its first sentence.
+    expect(container.querySelector("[data-turn-headline]")).toBeNull();
     expect(container.querySelector("[data-reasoning-summary]")?.textContent).toContain("For Line 242, paragraph 4, I am rewriting");
     expect(container.textContent).not.toMatch(/\b[rcx]-\d{3}-\d+-\d+\b/);
   });
@@ -367,22 +368,18 @@ describe("task 6: reasoning summaries and announcements", () => {
       message, timing: { status: "completed", startedAt: 1_000, endedAt: 13_000, stepCount: 0 }, onRefine: vi.fn(),
     });
     await expect.element(page.getByText("Thought for 12s", { exact: true })).toBeVisible();
-    // Closed, only the first line shows; the headline belongs to the open block.
-    const headline = container.querySelector<HTMLElement>("[data-turn-headline]")!;
-    await expect.element(page.elementLocator(headline)).not.toBeVisible();
-    expect(headline.textContent?.trim()).toBe("All three Lines have been applied");
     const status = container.querySelector<HTMLElement>("[data-turn-status]")!;
     const chevron = container.querySelector<SVGElement>("[data-turn-chevron]")!;
     const summaryEl = container.querySelector<HTMLElement>("summary")!;
     expect(getComputedStyle(chevron).opacity).toBe("0");
+    expect(container.querySelector("[data-turn-headline]")).toBeNull();
     expect(Number(getComputedStyle(status).opacity)).toBeCloseTo(0.65, 2);
     await userEvent.hover(status);
     await expect.poll(() => getComputedStyle(chevron).opacity).toBe("1");
     await expect.poll(() => getComputedStyle(status).opacity).toBe("1");
     expect(getComputedStyle(summaryEl).backgroundColor).toBe("rgba(0, 0, 0, 0)");
     await page.getByText("Thought for 12s", { exact: true }).click();
-    await expect.element(page.elementLocator(headline)).toBeVisible();
-    expect(container.querySelector("[data-reasoning-summary]")?.textContent?.trim()).toBe(long);
+    expect(container.querySelector("[data-reasoning-summary] p")?.textContent?.trim()).toBe(long);
   });
 
   // Owner, 2026-10-21: opening the thought block opens it from where it is;
@@ -486,10 +483,43 @@ describe("task 6: reasoning summaries and announcements", () => {
     const reasoning = container.querySelector<HTMLElement>("[data-reasoning-summary]")!;
     await expect.element(page.elementLocator(reasoning)).toBeVisible();
     expect(reasoning.textContent?.trim()).toBe("I'm checking the paragraph, it covers the hinge.");
-    expect(container.querySelector("[data-turn-headline]")?.textContent?.trim()).toBe("I'm checking the paragraph, it covers the hinge.");
+    expect(container.querySelector("[data-turn-headline]")).toBeNull();
     const trace = container.querySelector('[aria-label="Thought process"]')!;
     expect(trace.textContent).not.toContain("Suggested an edit");
     expect(trace.querySelectorAll("[data-trace-step]")).toHaveLength(1);
+  });
+
+  // Owner, 2026-10-21: a long thinking summary shows one paragraph, with
+  // the rest one click away, and names its tools in plain words.
+  it("shows one paragraph of a long thinking summary until Show all thinking", async () => {
+    const paragraphs = [
+      "I need to trim this paragraph by 23 words while keeping the required parts.",
+      "The objective paragraph repeats the gap clauses on purpose, so I keep them.",
+      "Now I'll prepare the proposeEdit calls - two separate edits.",
+    ];
+    const message = {
+      ...row("a", "Proposed two trims in Line 242.", 1, "assistant"),
+      parts: [
+        { type: "reasoning", text: paragraphs.join("\n\n"), state: "done" },
+        { type: "text", text: "Proposed two trims in Line 242.", state: "done" },
+      ],
+    } as UIMessage;
+    const { container } = await render(AssistantTurn, {
+      message, timing: { status: "completed", startedAt: 1_000, endedAt: 49_000, stepCount: 0 }, onRefine: vi.fn(),
+    });
+    await page.getByText("Thought for 48s", { exact: true }).click();
+    const summary = container.querySelector<HTMLElement>("[data-reasoning-summary]")!;
+    await expect.element(page.elementLocator(summary)).toBeVisible();
+    expect([...summary.querySelectorAll("p")].map((line) => line.textContent)).toEqual([paragraphs[0]]);
+    expect(container.querySelector("[data-turn-headline]")).toBeNull();
+    await page.getByRole("button", { name: "Show all thinking" }).click();
+    expect([...summary.querySelectorAll("p")].map((line) => line.textContent)).toEqual([
+      paragraphs[0],
+      paragraphs[1],
+      "Now I'll prepare the edits, two separate edits.",
+    ]);
+    await page.getByRole("button", { name: "Show less" }).click();
+    expect(summary.querySelectorAll("p")).toHaveLength(1);
   });
 
   it("shows the summary under Thinking while it streams, and marks the answer busy", async () => {
@@ -501,7 +531,8 @@ describe("task 6: reasoning summaries and announcements", () => {
     });
     // Owner, 2026-10-21 (as Claude shows its thought process): the block is
     // folded while live, showing only its first line; opening it shows the
-    // newest reasoning heading beside the clock, then the reasoning as text.
+    // newest reasoning heading beside the clock, then the newest paragraph,
+    // with the rest one click away.
     const summary = container.querySelector("[data-reasoning-summary]")!;
     const headline = container.querySelector<HTMLElement>("[data-turn-headline]")!;
     await expect.element(page.elementLocator(summary)).not.toBeVisible();
@@ -510,6 +541,10 @@ describe("task 6: reasoning summaries and announcements", () => {
     await expect.element(page.elementLocator(summary)).toBeVisible();
     await expect.element(page.elementLocator(headline)).toBeVisible();
     expect(headline.textContent?.trim()).toBe("Planning the edits");
+    expect([...summary.querySelectorAll("p")].map((line) => line.textContent)).toEqual([
+      "I will list the deviations in Line 244 first.",
+    ]);
+    await page.getByRole("button", { name: "Show all thinking" }).click();
     expect([...summary.querySelectorAll("p")].map((line) => line.textContent)).toEqual([
       "Planning the edits",
       "I will list the deviations in Line 244 first.",

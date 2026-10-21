@@ -1432,9 +1432,11 @@ default with no chip (owner, 2026-10-21). A reply shows one full-width
 thought block, as Claude does: a muted first line (the live label with a
 shimmer, `text-shimmer` in `layout.css`, and no timer; "Thought for 4s" once
 done). Closed, that line is all it shows. Opened, a line beside a clock
-gives the newest reasoning heading (or a short form of the first sentence:
-its first clause, at most 64 characters), then the full reasoning as plain
-text with each step as a row. Opening or closing it (or a step inside it) never moves it: the
+gives the newest reasoning heading when the summary has one (at most 64
+characters; none otherwise, since it would repeat the first sentence), then
+one paragraph of the reasoning (the first, or the newest while it streams)
+with "Show all thinking" for the rest, and each step without a card as a
+row. The reasoning reads tool names as plain words ("the edits"). Opening or closing it (or a step inside it) never moves it: the
 chat holds the bar where it was on screen through the change
 (`keepInPlace` on the chat container), at the bottom of the chat or
 mid-thread. It opens and closes with the layout ease
