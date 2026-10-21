@@ -93,6 +93,18 @@ describe("Esc on the preview report page", () => {
     await escape();
     await expect.poll(assistantOpen).toBe("false");
   });
+
+  // Fable review F3 P3-1: a message option set for the next message is unsent
+  // work too, so Esc keeps the Assistant open while Brain is on.
+  it("leaves the Assistant open while Brain is on for the next message", async () => {
+    await openAssistant();
+    await page.getByRole("button", { name: "Message options", exact: true }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Use Brain examples for this message" }).click();
+    await escape();
+    (document.activeElement as HTMLElement | null)?.blur();
+    await escape();
+    expect(assistantOpen()).toBe("true");
+  });
 });
 
 describe("Esc on the current report page", () => {

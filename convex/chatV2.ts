@@ -20,6 +20,7 @@ import {
 } from "@convex-dev/agent";
 import {
   getInternalProjectAccessOrNull,
+  requireInternalActor,
   requireInternalProjectAccess,
   requireRole,
 } from "./lib/auth";
@@ -959,6 +960,9 @@ export const sendAlternative = mutation({
   },
   returns: v.object({ threadId: v.string(), messageId: v.string() }),
   handler: async (ctx, args) => {
+    // Fable review F2 P3-4: who is asking first, so an unsigned caller cannot
+    // tell an existing conversation id from a missing one.
+    await requireInternalActor(ctx);
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
     const { user } = await requireInternalProjectAccess(ctx, thread.projectId);
@@ -1057,6 +1061,9 @@ export const setActiveAlternative = mutation({
   args: { threadId: v.string(), promptMessageId: v.string() },
   returns: v.object({ tipPromptMessageId: v.string() }),
   handler: async (ctx, args) => {
+    // Fable review F2 P3-4: who is asking first, so an unsigned caller cannot
+    // tell an existing conversation id from a missing one.
+    await requireInternalActor(ctx);
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
     const { user } = await requireInternalProjectAccess(ctx, thread.projectId);
@@ -1079,6 +1086,9 @@ export const setActiveAlternative = mutation({
 export const abortStreaming = mutation({
   args: { threadId: v.string(), order: v.number() },
   handler: async (ctx, args) => {
+    // Fable review F2 P3-4: who is asking first, so an unsigned caller cannot
+    // tell an existing conversation id from a missing one.
+    await requireInternalActor(ctx);
     const thread = await threadRow(ctx, args.threadId);
     // 2026-10-19 (Phase A): a domain refusal, so the panel explains it and
     // the crash toast stays quiet.
@@ -1618,6 +1628,9 @@ export const setThreadWebSearch = mutation({
   args: { threadId: v.string(), enabled: v.boolean() },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    // Fable review F2 P3-4: who is asking first, so an unsigned caller cannot
+    // tell an existing conversation id from a missing one.
+    await requireInternalActor(ctx);
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
     await requireInternalProjectAccess(ctx, thread.projectId);
@@ -3214,6 +3227,9 @@ export const getChatContextV2 = internalQuery({
 
 /** The conversation, checked against the caller's project access. */
 async function managedThread(ctx: MutationCtx, agentThreadId: string) {
+  // Fable review F2 P3-4: who is asking first, so an unsigned caller cannot
+  // tell an existing conversation id from a missing one.
+  await requireInternalActor(ctx);
   const thread = await threadRow(ctx, agentThreadId);
   if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
   const access = await requireInternalProjectAccess(ctx, thread.projectId);
@@ -3355,10 +3371,19 @@ export const purgeThread = internalMutation({
       return null;
     }
     // Last: the component deletes its thread, messages and streams in its
-    // own pages (the same call as project erasure), then the row goes.
-    await ctx.scheduler.runAfter(0, internal.projects.deleteAgentChatThread, {
-      agentThreadId: args.agentThreadId,
+    // own pages (the same call as project erasure), then the row goes. Fable
+    // review F2 P3-2: the component call runs in this transaction, so if it
+    // fails the row stays (marked deleting) and the stall cron retries; the
+    // row never goes while the component still holds the thread's text. A
+    // thread the component no longer knows needs no call.
+    const componentThread = await ctx.runQuery(components.agent.threads.getThread, {
+      threadId: args.agentThreadId,
     });
+    if (componentThread) {
+      await ctx.runMutation(components.agent.threads.deleteAllForThreadIdAsync, {
+        threadId: args.agentThreadId,
+      });
+    }
     await ctx.db.delete(thread._id);
     return null;
   },

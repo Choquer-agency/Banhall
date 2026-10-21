@@ -54,6 +54,12 @@ describe("isHandledRefusalLog", () => {
     expect(isHandledRefusalLog(convexLog("chatV2:undoProposal", { code: "NOT_AUTHORIZED", message: "x" }))).toBe(true);
     expect(isHandledRefusalLog(convexLog("chatV2:setThreadWebSearch", { code: "NOT_FOUND", message: "x" }))).toBe(true);
     expect(isHandledRefusalLog(convexLog("chatV2:undoProposal", null))).toBe(false);
+    // Phase C: alternatives and conversation actions explain their refusals inline.
+    for (const fn of ["sendAlternative", "setActiveAlternative", "renameThread", "archiveThread", "restoreThread", "deleteThread"]) {
+      expect(isHandledRefusalLog(convexLog(`chatV2:${fn}`, { code: "NOT_FOUND", message: "x" })), fn).toBe(true);
+      expect(isHandledRefusalLog(convexLog(`chatV2:${fn}`, { code: "CHAT_TURN_ACTIVE", message: "x" })), fn).toBe(true);
+      expect(isHandledRefusalLog(convexLog(`chatV2:${fn}`, null)), fn).toBe(false);
+    }
     // NOT_FOUND itself stays a crash signal.
     expect(isHandledRefusalLog(convexLog("intakeDrafts:saveIntakeSource", { code: "NOT_FOUND", message: "x" }))).toBe(false);
   });

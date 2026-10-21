@@ -436,7 +436,7 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
 
   // Chat parity Phase B (2026-10-20): the reading lines of the lane.
   it("says the reading tools open what the evidence lacks, within one reply's allowance", () => {
-    expect(prompt).toContain("the project files and transcripts you open in this reply with readDocument, searchDocuments or readTranscript");
+    expect(prompt).toContain("the project files and transcripts you open in this reply with readDocument, searchDocuments, readTranscript or viewFile, and the files the writer pinned to the message.");
     expect(prompt).toContain("the lists of the project's files and transcripts");
     expect(prompt).toContain("Call no edit tool. When the answer needs a file or transcript the evidence does not show, open it first");
     expect(prompt).toContain(

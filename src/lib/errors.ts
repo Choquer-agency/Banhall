@@ -96,6 +96,14 @@ export const HANDLED_REFUSAL_FUNCTIONS: ReadonlySet<string> = new Set([
   // went wrong where it happened.
   "chatV2:undoProposal",
   "chatV2:setThreadWebSearch",
+  // Chat parity Phase C (Fable review F3 P2-1): Edit, Regenerate, the
+  // switcher and the conversation actions each explain a refusal inline.
+  "chatV2:sendAlternative",
+  "chatV2:setActiveAlternative",
+  "chatV2:renameThread",
+  "chatV2:archiveThread",
+  "chatV2:restoreThread",
+  "chatV2:deleteThread",
 ]);
 
 /** The `reason` detail a domain error carries (for example "DRAFT_COMPLETE"), if any. */

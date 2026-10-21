@@ -218,7 +218,7 @@ describe("FILES IN THIS PROJECT", () => {
       "Never say you checked, read or compared a file you cannot see or did not open in this reply, and never claim to have used \"all the evidence\" when you have not opened everything the question needs."
     );
     expect(CHAT_EVIDENCE_GUIDANCE).toContain(
-      "The writer can pin up to 5 of the project's files to a message. Pinned files come right after the writer's message, in full and in the same marked blocks, so you do not need to open them again in that reply. Files cannot be uploaded in the chat; the assistant reads the files saved in the project's files panel and the project's transcripts."
+      "The writer can pin up to 5 of the project's files to a message. Pinned files come after the evidence for the turn, in full and in the same marked blocks, so you do not need to open them again in that reply. Files cannot be uploaded in the chat; the assistant reads the files saved in the project's files panel and the project's transcripts."
     );
     expect(findDashConnectors(CHAT_EVIDENCE_GUIDANCE)).toEqual([]);
     expect(CHAT_EVIDENCE_GUIDANCE).not.toMatch(/[\u2013\u2014]/);

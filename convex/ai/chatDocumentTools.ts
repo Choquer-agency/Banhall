@@ -75,7 +75,7 @@ import {
   type ChatMediaType,
 } from "../lib/chatMedia";
 import { CHAT_MAX_PINNED_FILES } from "../../shared/chatLimits";
-import { formatCount, neutralizeMarkers, sanitizeFileName } from "./trustedContext";
+import { formatCount, neutralizeMarkers, neutralizeWriterLabel, sanitizeFileName } from "./trustedContext";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
 
 export {
@@ -362,7 +362,7 @@ const MAX_NAME_CHARS = 80;
 
 /** A file name or label, quoted and sanitized like the evidence lists'. */
 function quoted(name: string): string {
-  const safe = neutralizeMarkers(sanitizeFileName(name)).replace(/"/g, "'");
+  const safe = neutralizeWriterLabel(neutralizeMarkers(sanitizeFileName(name))).replace(/"/g, "'");
   return `"${safe.length > MAX_NAME_CHARS ? `${safe.slice(0, MAX_NAME_CHARS - 1)}…` : safe}"`;
 }
 

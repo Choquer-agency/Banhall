@@ -288,7 +288,7 @@ function fileRefList(refs: FileRef[]): string {
 
 /** One file name, quoted, sanitized like a marker line's and bounded. */
 function quotedFileName(name: string): string {
-  const safe = neutralizeMarkers(sanitizeFileName(name)).replace(/"/g, "'");
+  const safe = neutralizeWriterLabel(neutralizeMarkers(sanitizeFileName(name))).replace(/"/g, "'");
   return `"${safe.length > MAX_NOTICE_FILE_NAME_CHARS ? `${safe.slice(0, MAX_NOTICE_FILE_NAME_CHARS - 1)}…` : safe}"`;
 }
 
@@ -471,7 +471,7 @@ export const CHAT_SPEAKER_ROLE_WORDS: Readonly<Record<ChatSpeakerRole, string>> 
 
 /** A label or speaker name, quoted, sanitized like a marker line's and bounded. */
 function quotedLabel(label: string): string {
-  const safe = neutralizeMarkers(sanitizeFileName(label)).replace(/"/g, "'");
+  const safe = neutralizeWriterLabel(neutralizeMarkers(sanitizeFileName(label))).replace(/"/g, "'");
   return `"${safe.length > MAX_TRANSCRIPT_LABEL_CHARS ? `${safe.slice(0, MAX_TRANSCRIPT_LABEL_CHARS - 1)}…` : safe}"`;
 }
 
@@ -507,7 +507,7 @@ function transcriptsListText(transcripts: readonly ChatEvidenceTranscript[], inc
 /** A document block: label plus the sanitized file name in the marker line. */
 function documentBlock(doc: ChatEvidenceDoc, body: string): string {
   const label = ANALYZER_CATEGORY_LABELS[docCategory(doc)];
-  const line = `${label}${D.categoryToFile}${sanitizeFileName(doc.fileName)}${D.lineSuffix}`;
+  const line = `${label}${D.categoryToFile}${neutralizeWriterLabel(sanitizeFileName(doc.fileName))}${D.lineSuffix}`;
   return `${D.beginPrefix}${line}${D.contentPrefix}${neutralizeWriterLabel(body)}${D.contentSuffix}${D.endPrefix}${line}`;
 }
 
@@ -539,13 +539,13 @@ export function openedMediaMarkers(
   place: string
 ): { begin: string; end: string } {
   const label = ANALYZER_CATEGORY_LABELS[docCategory({ ...doc, content: "" })];
-  const line = `${label}${D.categoryToFile}${sanitizeFileName(`${place}, ${doc.fileName}`)}${D.lineSuffix}`;
+  const line = `${label}${D.categoryToFile}${neutralizeWriterLabel(sanitizeFileName(`${place}, ${doc.fileName}`))}${D.lineSuffix}`;
   return { begin: `${D.beginPrefix}${line}`, end: `${D.endPrefix}${line}` };
 }
 
 /** The same for opened transcript text, under the transcript's own label. */
 export function openedTranscriptBlock(label: string, place: string, text: string): string {
-  const line = `${CONTEXT_SCAFFOLDS.transcriptLabel}${CONTEXT_SCAFFOLDS.labelClose} ${sanitizeFileName(`${place}, ${label}`)}${D.lineSuffix}`;
+  const line = `${CONTEXT_SCAFFOLDS.transcriptLabel}${CONTEXT_SCAFFOLDS.labelClose} ${neutralizeWriterLabel(sanitizeFileName(`${place}, ${label}`))}${D.lineSuffix}`;
   return `${D.beginPrefix}${line}${D.contentPrefix}${neutralizeWriterLabel(neutralizeMarkers(text))}${D.contentSuffix}${D.endPrefix}${line}`;
 }
 

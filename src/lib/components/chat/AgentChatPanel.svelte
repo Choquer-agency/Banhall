@@ -1646,7 +1646,9 @@
     <PromptInputActions class="min-w-0 items-center gap-1.5">
       {#if !pendingResearch}
         <DropdownMenu.Root onOpenChange={(open) => { if (open) filePickerWanted = true; }}>
-          <Tooltip text="Message options">
+          <!-- Fable review F3 P3-2: focus returns here when the file picker
+               closes; the tooltip must not then cover the pinned chips. -->
+          <Tooltip text="Message options" ignoreNonKeyboardFocus>
             {#snippet children({ props: tooltipProps })}
               <DropdownMenu.Trigger
                 {...tooltipProps}
@@ -1865,8 +1867,10 @@
 {/snippet}
 
 <!-- data-assistant-draft (Phase A, task 2): the report page's Esc handler
-     keeps the Assistant open while the composer holds unsent text. -->
-<div class="flex h-full flex-col bg-white" data-assistant-panel data-assistant-draft={input.trim() ? "" : undefined}>
+     keeps the Assistant open while the composer holds unsent text. Fable
+     review F3 P3-1: also while files are pinned, Brain is on for the next
+     message, or a card or selection is being refined or researched. -->
+<div class="flex h-full flex-col bg-white" data-assistant-panel data-assistant-draft={input.trim() || pinnedFiles.length || allowBrain || composerContextActive ? "" : undefined}>
   <p class="sr-only" aria-live="polite" aria-atomic="true" data-reply-announcement>{replyAnnouncement}</p>
   <!-- Header (pr-12 clears a host's overlay close button when it has one) -->
   <!-- Board 2.1 header: Aurora mark, "Assistant" and the expand control.

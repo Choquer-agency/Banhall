@@ -103,6 +103,17 @@ async function conversation(s: Setup, title: string, options: { createdAt?: numb
   });
 }
 
+async function errorCode(call: () => Promise<unknown>): Promise<string> {
+  try {
+    await call();
+  } catch (error) {
+    const data = (error as { data?: unknown }).data;
+    if (data && typeof data === "object" && "code" in data) return String((data as { code: unknown }).code);
+    return `untyped: ${String(error)}`;
+  }
+  return "no error";
+}
+
 async function threadRow(s: Setup, threadId: string) {
   return await s.t.run(async (ctx) =>
     await ctx.db.query("agentChatThreads").withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", threadId)).unique()
@@ -347,8 +358,9 @@ describe("delete permanently", () => {
     await fill(s, doomed.threadId, doomed.turnId, doomed.promptMessageId, PURGE_PAGE_ROWS);
     await fill(s, kept.threadId, kept.turnId, kept.promptMessageId, 2);
 
-    for (const actor of [s.writer, s.manager, s.t]) {
-      await expect(actor.mutation(api.chatV2.deleteThread, { threadId: doomed.threadId })).rejects.toThrow();
+    // Fable review F2 P3-5: each refusal is the one it should be.
+    for (const [actor, code] of [[s.writer, "NOT_AUTHORIZED"], [s.manager, "NOT_AUTHORIZED"], [s.t, "NOT_AUTHENTICATED"]] as const) {
+      expect(await errorCode(() => actor.mutation(api.chatV2.deleteThread, { threadId: doomed.threadId }))).toBe(code);
     }
     expect((await keyedRows(s, doomed.threadId)).threads).toHaveLength(1);
 

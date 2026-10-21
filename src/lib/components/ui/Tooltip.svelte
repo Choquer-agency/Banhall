@@ -20,6 +20,7 @@
     side = "top",
     delayDuration = 700,
     hint = null,
+    ignoreNonKeyboardFocus = false,
     children,
   }: {
     text: string;
@@ -28,12 +29,17 @@
     side?: "top" | "right" | "bottom" | "left";
     /** ms before the tooltip opens — default mirrors native `title` timing */
     delayDuration?: number;
+    /**
+     * Open on keyboard focus only, not when focus is moved by code or a
+     * pointer (for a trigger that gets focus back when its menu closes).
+     */
+    ignoreNonKeyboardFocus?: boolean;
     children: Snippet<[{ props: Record<string, unknown> }]>;
   } = $props();
 </script>
 
 <Tooltip.Provider {delayDuration}>
-  <Tooltip.Root>
+  <Tooltip.Root {ignoreNonKeyboardFocus}>
     <Tooltip.Trigger>
       {#snippet child({ props })}
         {@render children({ props })}
