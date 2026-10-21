@@ -33,12 +33,20 @@ When first person is in use, choose voice by what each sentence DOES, never by w
 - This covers every paragraph that carries a mandated opener: the 242 limitations-of-standard-practice paragraph, the 242 technological-objective paragraph, the 244 hypothesis paragraph, and each 246 advancement paragraph that opens with "Through systematic investigation".
 - Before returning one of those paragraphs in a first-person report, check it: does every team-action or interpretation sentence use "we/our", and does every mechanism or principle sentence stay neutral? Fix any mix before returning.`;
 
+/**
+ * The general rule's line on length. Generation still sends it as written;
+ * the chat swaps it for CHAT_LENGTH_RULE (owner, 2026-10-21), since both CRA
+ * limits are Locked and the editor shows a Line over its word cap in red.
+ */
+export const GENERAL_LENGTH_RULE = "- Word count is a guideline; the official constraint is line count. Write in dense, formal paragraphs.";
+export const CHAT_LENGTH_RULE = "- Each Line has two CRA limits, its form lines and its words; stay within both. Write in dense, formal paragraphs.";
+
 export const RULES_GENERAL = `GENERAL RULES:
 - This is a PERSUASIVE ESSAY to convince a CRA auditor. Every sentence must serve the SR&ED argument.
 - Use formal paragraph structure. NO bullet points. NO numbered lists.
 - NEVER hallucinate or fabricate technical details. If information is missing from the analysis, insert a clearly marked placeholder: [GAP: description of what information is needed].
 - Tie every claim back to evidence from the transcript analysis.
-- Word count is a guideline; the official constraint is line count. Write in dense, formal paragraphs.`;
+${GENERAL_LENGTH_RULE}`;
 
 // ─── Waivable blocks (one or two per StyleOverrideKey) ──────────────────────
 

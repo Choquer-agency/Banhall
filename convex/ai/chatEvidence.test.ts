@@ -30,6 +30,7 @@ import {
   neutralizeWriterLabel,
 } from "./trustedContext";
 import { findDashConnectors } from "../../shared/humanProse";
+import { buildTiptapDocument } from "../lib/tiptapReport";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
 
 /**
@@ -586,6 +587,39 @@ describe("chat turn request", () => {
     documents: [doc({ fileName: "a.txt", content: "Doc A.", category: "other" })],
     decisions: [{ state: "applied", target: "t", candidate: "c" }],
     ...over,
+  });
+
+  // Owner, 2026-10-21: the Assistant guessed what "+3 with gaps" meant and
+  // called the CRA word cap a guideline. It now gets the meters' numbers
+  // after the report, and its prompt says what the meters mean.
+  it("sends each Line's meter numbers right after the report, and the prompt explains the meters", () => {
+    const sentence = "The company tested a cantilevered support under cyclic tug loading to find its fatigue limit.";
+    const reportContent = JSON.stringify(buildTiptapDocument(
+      "Test project",
+      sentence,
+      `${sentence} [GAP: the measured displacement at the ramp hinge, from the sea trials] ${sentence}`,
+      sentence,
+    ));
+    const turn = buildChatTurnRequest({ context: context({ reportContent }) });
+    const evidence = evidenceOf(turn);
+    const lengths = blockBody(evidence, `${EVIDENCE_LABELS.lineLengths}]`);
+    expect(lengths).toContain("Line 242:");
+    expect(lengths).toContain("No [GAP] notes.");
+    expect(lengths).toMatch(/The meter shows this as "\(\+\d+ with gaps\)"\./);
+    expect(evidence.indexOf(begin(EVIDENCE_LABELS.lineLengths))).toBeGreaterThan(evidence.indexOf(end(EVIDENCE_LABELS.report)));
+    expect(turn.system).not.toContain("Word count is a guideline");
+    expect(turn.system).toContain("Each Line has two CRA limits, its form lines and its words; stay within both.");
+    expect(turn.system).toContain("## What the writer sees in the editor");
+    expect(turn.system).toContain("It is not a count of gaps or open questions.");
+    expect(turn.system).toContain("## Check what the question assumes");
+    expect(turn.system).toContain("Did you mean Line 244?");
+    expect(turn.system).toContain('Talk to the writer as "you"');
+    expect(turn.system).toContain("Never use internal names: the Self-check");
+  });
+
+  it("sends no meter numbers for a report that is not an editor document", () => {
+    const evidence = evidenceOf(buildChatTurnRequest({ context: context({ reportContent: null }) }));
+    expect(evidence).not.toContain(begin(EVIDENCE_LABELS.lineLengths));
   });
 
   it("keeps all four evidence texts out of the system string", () => {

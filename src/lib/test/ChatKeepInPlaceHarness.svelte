@@ -14,7 +14,7 @@
   } = $props();
 </script>
 
-<div style="height: 420px; width: 420px; display: flex; flex-direction: column;">
+<div style="height: 26.25rem; width: 26.25rem; display: flex; flex-direction: column;">
   <ChatContainer class="min-h-0 flex-1" contentClass="space-y-3">
     {#each Array.from({ length: before }, (_, i) => i) as i (i)}
       <p>Earlier line {i}</p>

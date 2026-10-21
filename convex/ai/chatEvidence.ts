@@ -22,6 +22,7 @@
 // builder.
 
 import type { ModelMessage } from "ai";
+import { lineLengthsText } from "./chatLineLengths";
 import {
   ANALYZER_CATEGORY_LABELS,
   CHARS_PER_TOKEN,
@@ -171,6 +172,9 @@ export const EVIDENCE_LABELS = {
   transcripts: "TRANSCRIPTS IN THIS PROJECT",
   // Heads the per-turn evidence sent after the writer's newest message.
   turnHeading: "# EVIDENCE FOR THIS TURN, CONTINUED",
+  // 2026-10-21: each Line's form lines and words as the editor's meters show
+  // them. Named by the system prompt, so it is a contract, not a caption.
+  lineLengths: "LINE LENGTHS",
 } as const;
 
 /** What the old inline builders emitted when a source was empty. Unchanged. */
@@ -212,6 +216,12 @@ export interface ChatOpenQuestionsOmitted {
 
 export interface ChatEvidenceInput {
   reportText: string;
+  /**
+   * 2026-10-21: one sentence per Line (`lineLengthsText`). Three short
+   * sentences of fixed shape, so it is not charged to the budget; rendered
+   * right after the report. Absent when the report could not be measured.
+   */
+  lineLengths?: string | null;
   analysisText: string;
   documents?: ChatEvidenceDoc[];
   decisions?: ChatEvidenceDecision[];
@@ -1113,6 +1123,9 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   if (reportBody !== null) {
     tailParts.push(labelledBlock(EVIDENCE_LABELS.report, reportBody));
   }
+  if (input.lineLengths) {
+    tailParts.push(labelledBlock(EVIDENCE_LABELS.lineLengths, input.lineLengths));
+  }
   if (decisionsBody !== null) {
     tailParts.push(labelledBlock(EVIDENCE_LABELS.decisions, decisionsBody));
   }
@@ -1214,6 +1227,7 @@ export function buildChatTurnRequest(args: {
   const budget = args.budget ?? args.context.evidenceBudget;
   const { head, tail, report } = buildChatEvidence({
     reportText: extracted.trim() ? extracted : EMPTY_REPORT_TEXT,
+    lineLengths: extracted.trim() ? lineLengthsText(args.context.reportContent) : null,
     analysisText: analysisTextFrom(args.context.agentOutputs),
     documents: args.context.documents,
     decisions: args.context.decisions,
