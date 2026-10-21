@@ -1,26 +1,41 @@
 <script lang="ts">
   import type { ReasoningRenderNode } from "$lib/chat/turnParts";
-  import TraceStepRow from "./TraceStepRow.svelte";
 
   interface Props {
     node: ReasoningRenderNode;
-    open?: boolean;
   }
 
-  let { node, open = $bindable(false) }: Props = $props();
+  let { node }: Props = $props();
 
   const streaming = $derived(node.state === "streaming");
-  // Phase A: the text is Anthropic's summary of the model's thinking (the
-  // server passes nothing else). Summaries mark their headings with **bold**;
-  // the markers are dropped so the plain text does not show asterisks.
-  const summary = $derived(node.text.replace(/\*\*([^*\n]+)\*\*/g, "$1"));
+
+  /**
+   * Phase A: the text is Anthropic's summary of the model's thinking (the
+   * server passes nothing else). Owner, 2026-10-21: it reads as Claude shows
+   * its thought process, as plain text in the open thought block. A line the
+   * summary marks as a **heading** reads a shade stronger; other markers are
+   * dropped so no asterisks show.
+   */
+  const lines = $derived(
+    node.text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const heading = /^\*\*([^*]+)\*\*$/.exec(line);
+        return heading
+          ? { heading: true, text: heading[1].trim() }
+          : { heading: false, text: line.replace(/\*\*([^*\n]+)\*\*/g, "$1") };
+      })
+  );
 </script>
 
-<!-- "Reasoning", not "Thought": a finished trace may already read "Thought". -->
-<TraceStepRow bind:open status={streaming ? "active" : "complete"} statusLabel={streaming ? "Running" : "Done"} label={streaming ? "Thinking…" : "Reasoning"}>
-  <!-- Reasoning is plain text, never markdown: model scratchpad output is
-       not authored prose and stray syntax must not become formatting. -->
-  <div class="max-h-48 overflow-auto border-l border-line pl-3" aria-busy={streaming} data-reasoning-summary>
-    <p class="text-xs leading-relaxed whitespace-pre-wrap break-words text-ink-secondary">{summary}</p>
+<!-- Reasoning is plain text, never markdown: model scratchpad output is not
+     authored prose and stray syntax must not become formatting. -->
+<li class="list-none" data-reasoning-summary aria-busy={streaming}>
+  <div class="flex flex-col gap-1 text-[0.8125rem] leading-relaxed break-words text-ink-muted">
+    {#each lines as line, index (index)}
+      <p class={line.heading ? "font-medium text-ink-secondary" : undefined}>{line.text}</p>
+    {/each}
   </div>
-</TraceStepRow>
+</li>

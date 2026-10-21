@@ -181,7 +181,7 @@ describe("citations and sources", () => {
     (container.querySelector("summary") as HTMLElement).click();
     await expect.element(page.getByText("Searched the web: How does a Coriolis meter drift at low flow?", { exact: true })).toBeVisible();
     // A search that sent nothing keeps the plain label.
-    await expect.element(page.getByText("Searched the web", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("list", { name: "Thought process" }).getByText("Searched the web", { exact: true })).toBeVisible();
   });
 
   it("joins a conversation's searches to their reply in the panel", async () => {

@@ -6,6 +6,7 @@
   import {
     formatTurnSummary,
     holdLabel,
+    turnHeadline,
     thinkingHint,
     type HeldLabel,
     type NormalizedTurn,
@@ -19,7 +20,7 @@
 
   interface Props {
     nodes: (ReasoningRenderNode | ToolRenderNode)[];
-    /** Feeds the summary's outcome ("· 2 suggestions"); not rendered here. */
+    /** The turn's cards; part of the normalized turn, not rendered here. */
     proposalNodes?: ProposalRenderNode[];
     timing?: TurnTiming;
     messageStatus?: UIMessage["status"];
@@ -70,6 +71,8 @@
   });
 
   const summary = $derived(formatTurnSummary(turn, timing, messageStatus));
+  // The second line, beside a clock: the newest reasoning heading or step.
+  const headline = $derived(turnHeadline(nodes));
   const head = $derived(summary ?? "");
 
   // Phase A: each live label stays up for at least LABEL_HOLD_MS, so a fast
@@ -107,9 +110,9 @@
   });
   const hint = $derived(live ? thinkingHint(timing, clock, thinkingSeen?.at) : null);
 
-  // Owner, 2026-10-21 (as Claude and ChatGPT do): the steps stay folded, live
-  // or not. The one status line is the progress signal; the writer opens the
-  // steps when they want them.
+  // Owner, 2026-10-21 (as Claude shows its thought process): the block stays
+  // folded, live or not. Its two lines are the progress signal; the writer
+  // opens it to read the thought process.
   let open = $state(false);
   let wasLive = $state(untrack(() => live));
 
@@ -131,56 +134,66 @@
   const stepOpen = (key: string) => toggled.get(key) ?? false;
 </script>
 
-{#snippet summaryRow(interactive: boolean)}
-  <!-- The live label shimmers instead of counting time (owner, 2026-10-21). -->
-  <span aria-live="polite" data-turn-status class={live ? "text-shimmer" : undefined}>{shownHead}</span>
-  {#if interactive}
-    <!-- Rule 7: the chevron ends the row, which is only as wide as its label. -->
-    <svg
-      class={cn(
-        "h-3 w-3 shrink-0 transition-transform motion-reduce:transition-none",
-        open ? "rotate-180 text-primary" : "text-ink-faint"
-      )}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      stroke-width="2"
-      aria-hidden="true"
-    >
-      <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
-    </svg>
+{#snippet clockIcon()}
+  <svg class="mt-0.5 size-4 shrink-0 text-ink-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" />
+    <path d="M3.5 4.5V9H8" />
+    <path d="M12 7.5V12l3 2" />
+  </svg>
+{/snippet}
+
+{#snippet header(interactive: boolean)}
+  <span class="flex w-full items-center gap-2">
+    <!-- The live label shimmers instead of counting time; a finished one
+         says how long it took (owner, 2026-10-21). -->
+    <span aria-live="polite" data-turn-status class={cn("min-w-0 text-[0.8125rem] leading-5 text-ink-muted", live && "text-shimmer")}>{shownHead}</span>
+    {#if interactive}
+      <!-- Rule 7: the chevron at the row's right edge. -->
+      <svg
+        class={cn(
+          "ml-auto size-3.5 shrink-0 transition-transform motion-reduce:transition-none",
+          open ? "rotate-180 text-primary" : "text-ink-faint"
+        )}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        stroke-width="2"
+        aria-hidden="true"
+      >
+        <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+      </svg>
+    {/if}
+  </span>
+  {#if headline}
+    <!-- Not announced: it is the model's own summary and changes as it thinks. -->
+    <span class="flex w-full items-start gap-2 text-sm leading-5 text-ink-secondary" data-turn-headline>
+      {@render clockIcon()}
+      <span class="min-w-0 line-clamp-2">{headline}</span>
+    </span>
   {/if}
 {/snippet}
 
 {#if summary}
-  {@const rowClass = cn(
-    // As wide as its label, like Claude's and ChatGPT's status line: a quiet
-    // line of text, not a full-width bar.
-    "-ml-2 flex w-fit max-w-full list-none items-center gap-1.5 rounded-lg px-2 text-[0.8125rem] leading-5 transition-colors [&::-webkit-details-marker]:hidden",
-    "min-h-8 pointer-coarse:min-h-11",
-    open ? "text-ink-secondary" : "text-ink-muted"
-  )}
+  {@const blockClass = "-mx-2 flex w-[calc(100%+1rem)] list-none flex-col gap-2 rounded-lg px-2 py-1.5 transition-colors pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden"}
   {#if nodes.length}
+    <!-- The whole block is one accordion, full width, as Claude shows its
+         thought process (owner, 2026-10-21). -->
     <details bind:open class="group/turn">
       <summary
         class={cn(
-          rowClass,
-          "cursor-pointer hover:bg-primary-wash focus-visible:bg-primary-wash focus-visible:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+          blockClass,
+          "cursor-pointer hover:bg-primary-wash focus-visible:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
         )}
       >
-        {@render summaryRow(true)}
+        {@render header(true)}
       </summary>
 
-      <ol class="pt-0.5 pb-1" aria-label="Steps">
+      <!-- The thought process in order: the reasoning as plain text, and each
+           tool step as a row. Indented under the clock's text. -->
+      <ol class="flex flex-col gap-2 pt-1 pb-2 pl-6" aria-label="Thought process">
         {#each nodes as node (node.key)}
           {#if node.kind === "reasoning"}
-            <ReasoningTraceStep
-              {node}
-              bind:open={
-                () => stepOpen(node.key),
-                (value) => toggled.set(node.key, value)
-              }
-            />
+            <ReasoningTraceStep {node} />
           {:else}
             <ToolTraceStep
               {node}
@@ -194,10 +207,10 @@
       </ol>
     </details>
   {:else}
-    <!-- Nothing behind the summary (a queued turn, or a step count that
+    <!-- Nothing behind the header (a queued turn, or a step count that
          outlived its parts across a reload). A disclosure here would be
          focusable and clickable but open onto nothing. -->
-    <div class={rowClass}>{@render summaryRow(false)}</div>
+    <div class={blockClass}>{@render header(false)}</div>
   {/if}
   {#if hint}
     <!-- Quiet, not announced: the live status line already says Thinking. -->

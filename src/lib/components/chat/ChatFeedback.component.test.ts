@@ -38,8 +38,8 @@ it("renders the real chat panel", async () => {
 
 it("shows source chips in the real trace without exposing exemplar bodies or inventing links", async () => {
   await render(AgentChatPanel, { reportId, projectId });
-  await page.getByText(/^Worked through/).click();
-  await page.getByText("Searched The Brain for “uncertainty”", { exact: true }).click();
+  await page.getByText(/^Worked( for \d|$)/).click();
+  await page.getByRole("list", { name: "Thought process" }).getByText("Searched The Brain for “uncertainty”", { exact: true }).click();
   await expect.element(page.getByText("Control systems", { exact: true })).toBeVisible();
   await expect.element(page.getByText("CRA 2.02.01 Software engineering", { exact: true })).toBeVisible();
   expect(document.body.textContent).not.toContain("Private exemplar body");
@@ -209,8 +209,8 @@ it("keeps maximum unbroken source labels inside a mobile viewport", async () => 
     { type: "text", text: "Use measurable comparisons." },
   ] })]);
   await render(AgentChatPanel, { reportId, projectId });
-  await page.getByText(/^Worked through/).click();
-  await page.getByText("Searched The Brain for “uncertainty”", { exact: true }).click();
+  await page.getByText(/^Worked( for \d|$)/).click();
+  await page.getByRole("list", { name: "Thought process" }).getByText("Searched The Brain for “uncertainty”", { exact: true }).click();
   await expect.element(page.getByRole("group", { name: "Brain sources", exact: true })).toBeVisible();
   for (const element of document.querySelectorAll('[aria-label="Brain sources"], [aria-label="Brain sources"] span')) {
     expect(element.getBoundingClientRect().right).toBeLessThanOrEqual(320);
@@ -258,7 +258,7 @@ it.each([null, { _id: "roleless" }, { _id: "anonymous", role: "writer", isAnonym
 it("does not rate a completed turn that has only tool output", async () => {
   __setPaginatedRows("chatV2:listMessages", [answer({ text: "", parts: [{ type: "tool-searchBrain", toolCallId: "search-1", state: "output-available", input: {}, output }] })]);
   await render(AgentChatPanel, { reportId, projectId });
-  await expect.element(page.getByText(/^Worked through/)).toBeVisible();
+  await expect.element(page.getByText(/^Worked( for \d|$)/)).toBeVisible();
   expect(document.querySelector('[aria-label="Mark response helpful"]')).toBeNull();
 });
 

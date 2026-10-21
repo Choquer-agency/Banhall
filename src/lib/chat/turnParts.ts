@@ -15,7 +15,7 @@
  */
 import type { UIMessage } from "@convex-dev/agent";
 import type { Doc } from "../../../convex/_generated/dataModel";
-import { isRecordOnlyProposal, proposalReferences } from "../../../shared/chatProposals";
+import { proposalReferences } from "../../../shared/chatProposals";
 import type { TurnPhaseFields, TurnProgress } from "./turnContracts";
 
 export type ToolPartState =
@@ -715,32 +715,14 @@ export function normalizeTurnParts(
 
 /** `0s`, `59s`, `1m 00s` — mono/tabular so a ticking timer doesn't jitter. */
 
-/**
- * What the turn produced, not how many internal steps it took. A step count is
- * a loop counter a report writer can neither act on nor judge; "2 suggestions"
- * is the same information expressed as an outcome.
- */
-function outcomeSuffix(turn: NormalizedTurn): string {
-  const suggestions = turn.proposalNodes.filter(
-    (node) =>
-      node.proposal.kind !== "references" && !isRecordOnlyProposal(node.proposal)
-  ).length;
-  if (suggestions) {
-    return ` · ${suggestions} ${suggestions === 1 ? "suggestion" : "suggestions"}`;
-  }
-  // DW-135: an all-blocked revision produced findings, not a suggestion; the
-  // card says "Nothing to apply", so the summary must not promise one.
-  if (turn.proposalNodes.some((node) => isRecordOnlyProposal(node.proposal))) {
-    return " · findings recorded";
-  }
-  const found = turn.proposalNodes.filter(
-    (node) => node.proposal.kind === "references"
-  ).length;
-  if (found) return " · found passages";
-  const searchedBrain = turn.traceNodes.some(
-    (node) => node.kind === "tool" && node.toolName === "searchBrain"
-  );
-  return searchedBrain ? " · checked The Brain" : "";
+
+/** "4s", "1m 28s": how long a finished turn took. */
+export function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
 /** Terminal turns report the durable count; a live turn may be ahead of it. */
@@ -750,11 +732,11 @@ function resolveStepCount(turn: NormalizedTurn, timing: TurnTiming | undefined, 
 }
 
 /**
- * The single line a finished turn collapses to ("Worked through 3 steps · 2
- * suggestions"), or the live status while it runs. Returns null when there is
+ * The first line of a turn's thought block, as Claude shows it (owner,
+ * 2026-10-21): the live label while it runs, with no timer, then how long it
+ * took ("Thought for 4s", "Worked for 1m 28s"). Returns null when there is
  * nothing worth showing: a plain answer with no tools and no reasoning gets
- * no trace row at all. Owner, 2026-10-21: no timer and no durations; the
- * live label alone says what is happening, as Claude and ChatGPT do.
+ * no thought block at all.
  */
 export function formatTurnSummary(
   turn: NormalizedTurn,
@@ -773,33 +755,53 @@ export function formatTurnSummary(
   const steps = resolveStepCount(turn, timing, live);
   const hasTrace = turn.traceNodes.length > 0 || steps > 0;
 
-  if (live) {
-    // Phase A: the server writes the turn's phase (`chatTurns.progress`) from
-    // turn state and fixed tool fields, never model text. Without it, one
-    // stable verb covers the whole live phase. TurnTrace holds each label for
-    // at least LABEL_HOLD_MS so a fast phase change never flickers.
-    return progressLabel(timing?.progress);
-  }
+  // Phase A: the server writes the turn's phase (`chatTurns.progress`) from
+  // turn state and fixed tool fields, never model text. TurnTrace holds each
+  // label for at least LABEL_HOLD_MS so a fast phase change never flickers.
+  if (live) return progressLabel(timing?.progress);
 
-  const outcome = outcomeSuffix(turn);
+  const duration =
+    timing?.startedAt !== undefined && timing?.endedAt !== undefined
+      ? formatDuration(Math.max(1000, timing.endedAt - timing.startedAt))
+      : null;
 
-  if (status === "aborted") return "Stopped";
+  if (status === "aborted") return duration ? `Stopped after ${duration}` : "Stopped";
   if (status === "failed" || messageStatus === "failed") {
-    // The answer already carries the apology; the trace stays factual so the
+    // The answer already carries the apology; the header stays factual so the
     // failure isn't announced twice.
-    return timing?.startedAt !== undefined ? "Stopped" : "Didn’t start";
+    return duration ? `Stopped after ${duration}` : "Didn’t start";
   }
   if (!hasTrace) return null;
 
-  // Reasoning with no tool work reads as thought, not work.
-  if (steps === 0 && turn.hasReasoning) return "Thought";
-  // The count matches the rows the writer sees when the steps are opened
-  // (reasoning included); the durable count stands in when none are loaded.
-  const shown = turn.traceNodes.length > 0 ? turn.traceNodes.length : steps;
   // The steps are folded, so one that did not finish is named here too.
   const failed = turn.traceNodes.filter((node) => node.kind === "tool" && node.state === "output-error").length;
   const failedNote = failed ? ` · ${failed} ${failed === 1 ? "step" : "steps"} didn’t finish` : "";
-  return shown > 0 ? `Worked through ${shown} ${shown === 1 ? "step" : "steps"}${outcome}${failedNote}` : null;
+  // Reasoning with no tool work reads as thought, not work.
+  if (steps === 0 && turn.hasReasoning) return duration ? `Thought for ${duration}` : "Thought";
+  return `${duration ? `Worked for ${duration}` : "Worked"}${failedNote}`;
+}
+
+/** The longest second line of a thought block, in characters. */
+const HEADLINE_MAX_CHARS = 140;
+
+/**
+ * The second line of a turn's thought block, beside a clock, as Claude shows
+ * it (owner, 2026-10-21): the newest heading of the model's reasoning summary
+ * ("Drafting the Line 244 revision"), else its first sentence, else the label
+ * of the newest step. Reasoning summaries are already shown in the trace as
+ * plain text (2026-10-19, seventh), so this shows nothing new.
+ */
+export function turnHeadline(nodes: readonly (ReasoningRenderNode | ToolRenderNode)[]): string | null {
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index];
+    if (node.kind !== "reasoning" || !node.text.trim()) continue;
+    const headings = [...node.text.matchAll(/\*\*([^*\n]+)\*\*/g)].map((match) => match[1].trim()).filter(Boolean);
+    const plain = node.text.replace(/\*\*([^*\n]+)\*\*/g, "$1").trim();
+    const text = headings.at(-1) ?? plain.split(/(?<=[.!?])\s|\n/)[0]?.trim() ?? plain;
+    return text.length > HEADLINE_MAX_CHARS ? `${text.slice(0, HEADLINE_MAX_CHARS - 1).trimEnd()}…` : text;
+  }
+  const lastTool = [...nodes].reverse().find((node) => node.kind === "tool");
+  return lastTool ? lastTool.label : null;
 }
 
 // ─── Live progress (Phase A) ────────────────────────────────────────────────

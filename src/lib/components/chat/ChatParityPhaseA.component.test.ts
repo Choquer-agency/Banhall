@@ -336,16 +336,18 @@ describe("task 6: reasoning summaries and announcements", () => {
       timing: { status: "running", startedAt: Date.now(), stepCount: 1 },
       onRefine: vi.fn(),
     });
-    // Owner, 2026-10-21: a live turn's steps stay folded under its status
-    // line until the writer opens them.
-    const step = page.getByText("Thinking…", { exact: true }).last();
-    await expect.element(step).not.toBeVisible();
-    await page.getByText("Working…", { exact: true }).click();
-    await expect.element(step).toBeVisible();
-    await step.click();
+    // Owner, 2026-10-21 (as Claude shows its thought process): the block is
+    // folded while live; its second line is the newest reasoning heading, and
+    // opening it shows the reasoning as plain text.
     const summary = container.querySelector("[data-reasoning-summary]")!;
+    await expect.element(page.elementLocator(summary)).not.toBeVisible();
+    expect(container.querySelector("[data-turn-headline]")?.textContent?.trim()).toBe("Planning the edits");
+    await page.getByText("Working…", { exact: true }).click();
     await expect.element(page.elementLocator(summary)).toBeVisible();
-    expect(summary.textContent).toBe("Planning the edits\nI will list the deviations in Line 244 first.");
+    expect([...summary.querySelectorAll("p")].map((line) => line.textContent)).toEqual([
+      "Planning the edits",
+      "I will list the deviations in Line 244 first.",
+    ]);
     expect(summary.getAttribute("aria-busy")).toBe("true");
     const answer = container.querySelector("[id$='-answer']")!;
     expect(answer.getAttribute("aria-busy")).toBe("true");

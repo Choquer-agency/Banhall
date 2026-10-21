@@ -6,7 +6,9 @@ import {
   correlateProposals,
   associateTurnPrompts,
   canRegenerateTurn,
+  formatDuration,
   formatTurnSummary,
+  turnHeadline,
   normalizeTurnParts,
   toolLabel,
   type TurnTiming,
@@ -665,6 +667,18 @@ describe("correlateProposals", () => {
   });
 });
 
+describe("formatDuration", () => {
+  it("formats boundaries", () => {
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(59_400)).toBe("59s");
+    expect(formatDuration(60_000)).toBe("1m 00s");
+    expect(formatDuration(61_000)).toBe("1m 01s");
+    expect(formatDuration(3_600_000)).toBe("60m 00s");
+  });
+});
+
+// Owner, 2026-10-21: the thought block's first line, as Claude shows it. No
+// timer while it runs; how long it took once it is done; no outcome tail.
 describe("formatTurnSummary", () => {
   const withTools = normalizeTurnParts(
     assistant([toolPart({ toolCallId: "a" }), toolPart({ toolCallId: "b" })])
@@ -692,7 +706,6 @@ describe("formatTurnSummary", () => {
     ).toBe("Starting…");
   });
 
-  // Owner, 2026-10-21: no timer while running.
   it("shows the live label with no timer", () => {
     expect(
       formatTurnSummary(withTools, timing({ status: "running", endedAt: undefined }), "streaming")
@@ -705,135 +718,83 @@ describe("formatTurnSummary", () => {
       assistant([{ type: "reasoning", text: "…", state: "streaming" }])
     );
     expect(
-      formatTurnSummary(
-        thinking,
-        timing({ status: "running", stepCount: 0, endedAt: undefined }),
-        "streaming"
-      )
+      formatTurnSummary(thinking, timing({ status: "running", stepCount: 0, endedAt: undefined }), "streaming")
     ).toBe("Working…");
   });
 
-  it("reports the outcome, not an internal step count", () => {
-    expect(formatTurnSummary(withSuggestions, timing({ stepCount: 1 }), "success")).toBe(
-      "Worked through 1 step · 1 suggestion"
-    );
-    expect(formatTurnSummary(withTools, timing({}), "success")).toBe(
-      "Worked through 2 steps · checked The Brain"
-    );
+  it("says how long a finished turn worked, with no outcome tail", () => {
+    expect(formatTurnSummary(withSuggestions, timing({ stepCount: 1 }), "success")).toBe("Worked for 12s");
+    expect(formatTurnSummary(withTools, timing({ endedAt: 89_000 }), "success")).toBe("Worked for 1m 28s");
   });
 
-  it("pluralizes suggestions", () => {
-    const two = normalizeTurnParts(
-      assistant([
-        toolPart({ type: "tool-proposeEdit", toolCallId: "e1" }),
-        toolPart({ type: "tool-proposeEdit", toolCallId: "e2" }),
-      ]),
-      [proposal({ _id: "p1", toolCallId: "e1" }), proposal({ _id: "p2", toolCallId: "e2" })]
-    );
-    expect(formatTurnSummary(two, timing({ stepCount: 2 }), "success")).toBe(
-      "Worked through 2 steps · 2 suggestions"
-    );
-  });
-
-  it("reports a zero-edit revision as recorded findings, not a suggestion (DW-135)", () => {
-    const recorded = normalizeTurnParts(
-      assistant([toolPart({ type: "tool-proposeBulkEdits", toolCallId: "b1" })]),
-      [
-        proposal({
-          kind: "replacements",
-          replacements: [],
-          requireUniqueTargets: true,
-          state: "applied",
-          toolCallId: "b1",
-        }),
-      ]
-    );
-    expect(formatTurnSummary(recorded, timing({ stepCount: 1 }), "success")).toBe(
-      "Worked through 1 step · findings recorded"
-    );
-  });
-
-  it("reports located passages as a found outcome", () => {
-    const refs = normalizeTurnParts(
-      assistant([toolPart({ type: "tool-highlightPassages", toolCallId: "h1" })]),
-      [proposal({ kind: "references", references: ["a"], toolCallId: "h1" })]
-    );
-    expect(formatTurnSummary(refs, timing({ stepCount: 1 }), "success")).toBe(
-      "Worked through 1 step · found passages"
-    );
-  });
-
-  it("reports reasoning-only turns as thought", () => {
+  it("reports reasoning-only turns as thought, with how long", () => {
     const thought = normalizeTurnParts(
       assistant([{ type: "reasoning", text: "…", state: "done" }])
     );
+    expect(formatTurnSummary(thought, timing({ stepCount: 0, endedAt: 5_000 }), "success")).toBe("Thought for 4s");
+  });
+
+  it("never claims a sub-second turn took 0s", () => {
     expect(
-      formatTurnSummary(thought, timing({ stepCount: 0, endedAt: 6_000 }), "success")
-    ).toBe("Thought");
+      formatTurnSummary(withTools, timing({ startedAt: 1_000, endedAt: 1_200 }), "success")
+    ).toBe("Worked for 1s");
   });
 
-  it("counts the rows the writer sees, reasoning included", () => {
-    const mixed = normalizeTurnParts(
-      assistant([
-        { type: "reasoning", text: "Plan", state: "done" },
-        toolPart({ toolCallId: "a" }),
-        { type: "reasoning", text: "Check", state: "done" },
-        toolPart({ toolCallId: "b" }),
-      ])
-    );
-    expect(formatTurnSummary(mixed, timing({ stepCount: 2 }), "success")).toBe(
-      "Worked through 4 steps · checked The Brain"
-    );
-  });
-
-  // Fable 5.1 review P3-2: the steps are folded, so a step that did not
-  // finish is named on the summary line.
+  // Fable 5.1 review P3-2: the block is folded, so a step that did not
+  // finish is named on its first line.
   it("names a step that did not finish", () => {
     const oneFailed = normalizeTurnParts(
       assistant([toolPart({ toolCallId: "a" }), toolPart({ toolCallId: "b", state: "output-error", errorText: "Unreachable" })])
     );
-    expect(formatTurnSummary(oneFailed, timing({}), "success")).toBe(
-      "Worked through 2 steps · checked The Brain · 1 step didn’t finish"
-    );
-  });
-
-  it("never shows a duration, however long the turn took", () => {
-    for (const endedAt of [1_200, 13_000, 3_601_000]) {
-      expect(formatTurnSummary(withTools, timing({ endedAt }), "success")).not.toMatch(/\d+\s*(s|m)\b/);
-    }
+    expect(formatTurnSummary(oneFailed, timing({}), "success")).toBe("Worked for 12s · 1 step didn’t finish");
   });
 
   it("formats stopped turns", () => {
+    expect(formatTurnSummary(withTools, timing({ status: "aborted", endedAt: 9_000 }), "success")).toBe("Stopped after 8s");
     expect(
-      formatTurnSummary(withTools, timing({ status: "aborted", endedAt: 9_000 }), "success")
-    ).toBe("Stopped");
-    expect(
-      formatTurnSummary(
-        withTools,
-        timing({ status: "aborted", startedAt: undefined, endedAt: undefined }),
-        "success"
-      )
+      formatTurnSummary(withTools, timing({ status: "aborted", startedAt: undefined, endedAt: undefined }), "success")
     ).toBe("Stopped");
   });
 
   it("states a failure factually, leaving the apology to the answer", () => {
-    expect(formatTurnSummary(withTools, timing({ status: "failed" }), "failed")).toBe(
-      "Stopped"
-    );
+    expect(formatTurnSummary(withTools, timing({ status: "failed" }), "failed")).toBe("Stopped after 12s");
     expect(
-      formatTurnSummary(
-        withTools,
-        timing({ status: "failed", startedAt: undefined, endedAt: undefined }),
-        "failed"
-      )
+      formatTurnSummary(withTools, timing({ status: "failed", startedAt: undefined, endedAt: undefined }), "failed")
     ).toBe("Didn’t start");
   });
 
   it("degrades gracefully when timing metadata is missing", () => {
-    expect(formatTurnSummary(withTools, undefined, "success")).toBe(
-      "Worked through 2 steps · checked The Brain"
-    );
+    expect(formatTurnSummary(withTools, undefined, "success")).toBe("Worked");
     expect(formatTurnSummary(plain, undefined, "success")).toBeNull();
+  });
+});
+
+// Owner, 2026-10-21: the thought block's second line, beside a clock.
+describe("turnHeadline", () => {
+  const reasoning = (text: string, key = "r") => ({ kind: "reasoning" as const, key, text, state: "done" as const });
+  const tool = (label: string, key = "t") =>
+    normalizeTurnParts(assistant([toolPart({ toolCallId: key })])).traceNodes.map((node) => ({ ...node, label }))[0];
+
+  it("uses the newest heading of the newest reasoning summary", () => {
+    expect(turnHeadline([
+      reasoning("**Planning the edits**\nFirst I list them."),
+      reasoning("**Checking Line 244**\nThe hypothesis is thin.\n**Drafting the revision**\nTwo edits.", "r2"),
+    ])).toBe("Drafting the revision");
+  });
+
+  it("falls back to the first sentence when the summary has no heading", () => {
+    expect(turnHeadline([reasoning("The draft repeats itself. Line 246 needs a cut.")])).toBe("The draft repeats itself.");
+  });
+
+  it("keeps a long line short", () => {
+    const line = turnHeadline([reasoning("a".repeat(300))]);
+    expect(line?.length).toBe(140);
+    expect(line?.endsWith("…")).toBe(true);
+  });
+
+  it("names the newest step when there is no reasoning, and nothing when empty", () => {
+    expect(turnHeadline([tool("Listed the deviations", "t1"), tool("Suggested a coordinated revision", "t2")])).toBe("Suggested a coordinated revision");
+    expect(turnHeadline([])).toBeNull();
   });
 });
 
