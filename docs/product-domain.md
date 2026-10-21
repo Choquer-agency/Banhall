@@ -3777,6 +3777,14 @@ The lead decisions are reported to the owner and can be reversed:
 - **Touch targets.** Chat controls meet the 44 px coarse-pointer floor; the small chip remove buttons get a larger hit area. The editor's selection toolbar meets it too, Vet and Research included, on touch screens only; each toolbar button is named by `aria-label` and keeps its tooltip. The Message options tooltip opens only on keyboard focus, so it does not cover the pinned chips when focus returns from the file picker.
 - **Esc.** Esc on the report page keeps the Assistant open while files are pinned, Brain is on for the next message, or a card or selection is being refined or researched, as it already does for unsent text.
 
+**Dependency (owner direction 2026-10-21, "do the fixes").** `bits-ui` goes from 2.18.1 to 2.19.5, the only package that changes in `package-lock.json`. Its dependencies and the `svelte ^5.33.0` peer range are unchanged. Versions 2.18.2 to 2.19.3 fix the Svelte `derived_inert` warnings that bits-ui logged when an open popover, menu or tooltip was destroyed: a layer timer is cancelled on teardown, the deferred focus handler is guarded, and layout callbacks after destroy are ignored. The warnings in the three worst test files fell from 247 to 12. `npm ls --all` is clean apart from unmet optional peers that were already there, and `npm audit` reports no new advisory and none for bits-ui. Because 2.19.5 guards its deferred focus, two handoffs that relied on it now do their own:
+- the file picker moves focus to its first file when it opens;
+- the rename field retries focus for a few frames while the conversation menu closes.
+
+**Live browser test (owner request 2026-10-20).** `scripts/chat-live` is an opt-in, billable test of the report chat in a headless browser against the app on localhost and an isolated local Convex backend loaded with a snapshot of the source deployment (read only there).
+- It sets the provider keys and local auth values, then restarts the local backend. A local backend's Node actions (web search, PDF page counts) only see environment values set before they first ran.
+- It checks web search through the Node action before any scenario, and deletes every copy of the snapshot, the throwaway account and the screenshots at the end.
+
 **Migration and compatibility.** Widen only, with no backfill:
 - `projectDocuments.pageCount` and `pageCountStorageId` (the count is trusted only while that file is still the document's original);
 - `chatTurns.parentPromptMessageId`, `alternativeOf`, `alternativeKind`, `refineProposalId`, `writerTextLength` and `pinnedDocumentIds`, with index `by_agentThreadId_and_alternativeOf`;
@@ -3827,7 +3835,6 @@ Conversations with no alternative read their history as before, except when the 
 - In a conversation with alternatives, the open lists re-read up to 200 turns each time a turn changes.
 - PDFs over 30 pages cannot be viewed, only read as text.
 - Delete leaves usage rows and digest references.
-- In the browser tests, bits-ui logs a `derived_inert` warning when its popovers are destroyed while open; no effect on behaviour was found, and a fix needs a bits-ui update.
 
 **Approval.** Product owner, 2026-10-19 (decisions) and 2026-10-20 ("i trust so continue work in dev/localhost").
 
