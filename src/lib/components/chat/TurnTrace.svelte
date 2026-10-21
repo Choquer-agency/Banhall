@@ -176,12 +176,17 @@
       </svg>
     {/if}
   </span>
+{/snippet}
+
+{#snippet headlineRow()}
   {#if headline}
-    <!-- Not announced: it is the model's own summary and changes as it thinks. -->
-    <span class="flex w-full items-start gap-2 text-sm leading-5 text-ink-secondary" data-turn-headline>
+    <!-- Owner, 2026-10-21: the headline belongs to the open block; closed,
+         only the first line shows. Not announced: it is the model's own
+         summary and changes as it thinks. -->
+    <p class="flex w-full items-start gap-2 pt-1 text-sm leading-5 text-ink-secondary" data-turn-headline>
       {@render clockIcon()}
-      <span class="min-w-0 truncate">{headline}</span>
-    </span>
+      <span class="min-w-0">{headline}</span>
+    </p>
   {/if}
 {/snippet}
 
@@ -199,6 +204,8 @@
       >
         {@render header(true)}
       </summary>
+
+      {@render headlineRow()}
 
       <!-- The thought process in order: the reasoning as plain text, and each
            tool step as a row. Indented under the clock's text. -->

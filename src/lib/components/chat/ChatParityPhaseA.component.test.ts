@@ -344,8 +344,8 @@ describe("task 6: reasoning summaries and announcements", () => {
     });
     await expect.element(page.getByText("One item stays blocked: Line 244, paragraph 4, the test count.")).toBeVisible();
     expect(container.querySelector("[data-turn-status]")?.textContent).toBe("Thought for 4s");
-    expect(container.querySelector("[data-turn-headline]")?.textContent?.trim()).toBe("For Line 242, paragraph 4, I am rewriting the first sentence.");
     await page.getByText("Thought for 4s", { exact: true }).click();
+    expect(container.querySelector("[data-turn-headline]")?.textContent?.trim()).toBe("For Line 242, paragraph 4, I am rewriting the first sentence.");
     expect(container.querySelector("[data-reasoning-summary]")?.textContent).toContain("For Line 242, paragraph 4, I am rewriting");
     expect(container.textContent).not.toMatch(/\b[rcx]-\d{3}-\d+-\d+\b/);
   });
@@ -366,7 +366,10 @@ describe("task 6: reasoning summaries and announcements", () => {
       message, timing: { status: "completed", startedAt: 1_000, endedAt: 13_000, stepCount: 0 }, onRefine: vi.fn(),
     });
     await expect.element(page.getByText("Thought for 12s", { exact: true })).toBeVisible();
-    expect(container.querySelector("[data-turn-headline]")?.textContent?.trim()).toBe("All three Lines have been applied");
+    // Closed, only the first line shows; the headline belongs to the open block.
+    const headline = container.querySelector<HTMLElement>("[data-turn-headline]")!;
+    await expect.element(page.elementLocator(headline)).not.toBeVisible();
+    expect(headline.textContent?.trim()).toBe("All three Lines have been applied");
     const status = container.querySelector<HTMLElement>("[data-turn-status]")!;
     const chevron = container.querySelector<SVGElement>("[data-turn-chevron]")!;
     const summaryEl = container.querySelector<HTMLElement>("summary")!;
@@ -377,6 +380,7 @@ describe("task 6: reasoning summaries and announcements", () => {
     await expect.poll(() => getComputedStyle(status).opacity).toBe("1");
     expect(getComputedStyle(summaryEl).backgroundColor).toBe("rgba(0, 0, 0, 0)");
     await page.getByText("Thought for 12s", { exact: true }).click();
+    await expect.element(page.elementLocator(headline)).toBeVisible();
     expect(container.querySelector("[data-reasoning-summary]")?.textContent?.trim()).toBe(long);
   });
 
@@ -388,13 +392,16 @@ describe("task 6: reasoning summaries and announcements", () => {
       onRefine: vi.fn(),
     });
     // Owner, 2026-10-21 (as Claude shows its thought process): the block is
-    // folded while live; its second line is the newest reasoning heading, and
-    // opening it shows the reasoning as plain text.
+    // folded while live, showing only its first line; opening it shows the
+    // newest reasoning heading beside the clock, then the reasoning as text.
     const summary = container.querySelector("[data-reasoning-summary]")!;
+    const headline = container.querySelector<HTMLElement>("[data-turn-headline]")!;
     await expect.element(page.elementLocator(summary)).not.toBeVisible();
-    expect(container.querySelector("[data-turn-headline]")?.textContent?.trim()).toBe("Planning the edits");
+    await expect.element(page.elementLocator(headline)).not.toBeVisible();
     await page.getByText("Working…", { exact: true }).click();
     await expect.element(page.elementLocator(summary)).toBeVisible();
+    await expect.element(page.elementLocator(headline)).toBeVisible();
+    expect(headline.textContent?.trim()).toBe("Planning the edits");
     expect([...summary.querySelectorAll("p")].map((line) => line.textContent)).toEqual([
       "Planning the edits",
       "I will list the deviations in Line 244 first.",
