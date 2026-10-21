@@ -714,13 +714,6 @@ export function normalizeTurnParts(
 // ─── Summary line ────────────────────────────────────────────────────────────
 
 /** `0s`, `59s`, `1m 00s` — mono/tabular so a ticking timer doesn't jitter. */
-export function formatDuration(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
-}
 
 /**
  * What the turn produced, not how many internal steps it took. A step count is
@@ -766,9 +759,7 @@ function resolveStepCount(turn: NormalizedTurn, timing: TurnTiming | undefined, 
 export function formatTurnSummary(
   turn: NormalizedTurn,
   timing: TurnTiming | undefined,
-  messageStatus: UIMessage["status"] | undefined,
-  // Unused since the summary shows no time; kept so older callers still fit.
-  _now?: number
+  messageStatus: UIMessage["status"] | undefined
 ): string | null {
   const status = timing?.status;
   const live =
@@ -805,7 +796,10 @@ export function formatTurnSummary(
   // The count matches the rows the writer sees when the steps are opened
   // (reasoning included); the durable count stands in when none are loaded.
   const shown = turn.traceNodes.length > 0 ? turn.traceNodes.length : steps;
-  return shown > 0 ? `Worked through ${shown} ${shown === 1 ? "step" : "steps"}${outcome}` : null;
+  // The steps are folded, so one that did not finish is named here too.
+  const failed = turn.traceNodes.filter((node) => node.kind === "tool" && node.state === "output-error").length;
+  const failedNote = failed ? ` · ${failed} ${failed === 1 ? "step" : "steps"} didn’t finish` : "";
+  return shown > 0 ? `Worked through ${shown} ${shown === 1 ? "step" : "steps"}${outcome}${failedNote}` : null;
 }
 
 // ─── Live progress (Phase A) ────────────────────────────────────────────────

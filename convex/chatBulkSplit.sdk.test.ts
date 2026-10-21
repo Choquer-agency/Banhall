@@ -421,7 +421,7 @@ describe("turns the output limit does not cut a tool call from", () => {
     const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
     expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY);
     expect(CHAT_STEP_LIMIT_REPLY).toBe(
-      "I stopped at the step limit for one reply, so this revision is not finished. Review the cards above, then ask me to continue with the rest."
+      "I stopped at the step limit for one reply, so this revision is not finished. Review the cards above; the rest can continue from here."
     );
     expect(await f.usageOutputTokens()).toEqual(Array.from({ length: CHAT_MAX_STEPS }, () => 300));
   });
@@ -439,7 +439,7 @@ describe("turns the output limit does not cut a tool call from", () => {
     expect((await f.turn()).status).toBe("completed");
     const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
     expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY_OTHER);
-    expect(CHAT_STEP_LIMIT_REPLY_OTHER).toBe("I stopped at the step limit for one reply. Ask me to continue.");
+    expect(CHAT_STEP_LIMIT_REPLY_OTHER).toBe("I stopped at the step limit for one reply. The rest can continue from here.");
   });
 
   // PR #24 round 2: a failed edit call saves no card, so the note must not

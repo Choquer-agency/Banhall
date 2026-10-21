@@ -1529,7 +1529,8 @@ only; no React). Specimens on `/styleguide`; composed in `AgentChatPanel`.
   well: autogrow textarea capped at 140px, Enter = send / Shift+Enter =
   newline, `pill` snippet + `textIndent` for the highlight chip, action slots
   either side.
-- `Loader` — bouncing-dot typing indicator (`md`/`sm`).
+- `Loader`: the shimmering "Thinking…" line shown until a reply's own status
+  line exists (owner, 2026-10-21; it was a bouncing-dot indicator).
 - `Suggestion` — canned-prompt pill chip (wash hover, one accent rule applies).
 
 - `ChainOfThought` with `ChainOfThoughtStep`, `ChainOfThoughtTrigger`,

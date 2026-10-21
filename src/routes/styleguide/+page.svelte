@@ -499,9 +499,8 @@
       <!-- Loader -->
       <div class="flex items-center gap-6">
         <Loader />
-        <Loader size="sm" />
         <span class="text-xs text-gray-500">
-          <code class="text-data">Loader</code> — md / sm (awaiting-reply dots)
+          <code class="text-data">Loader</code>: awaiting reply, before the turn's own status line
         </span>
       </div>
 

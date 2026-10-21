@@ -51,10 +51,10 @@ describe("progressLabel (Phase A, task 5)", () => {
       status: "running", startedAt: 1_000, stepCount: 1,
       progress: { phase: "tool", tool: "deviationInventory", section: "244", step: 1, since: 4_000 },
     };
-    expect(formatTurnSummary(emptyTurn, timing, "streaming", 49_000)).toBe("Listing the deviations in Line 244…");
-    expect(formatTurnSummary(emptyTurn, { status: "running", startedAt: 1_000, stepCount: 0 }, "streaming", 6_000))
+    expect(formatTurnSummary(emptyTurn, timing, "streaming")).toBe("Listing the deviations in Line 244…");
+    expect(formatTurnSummary(emptyTurn, { status: "running", startedAt: 1_000, stepCount: 0 }, "streaming"))
       .toBe("Working…");
-    expect(formatTurnSummary(emptyTurn, { ...timing, status: "queued" }, undefined, 6_000)).toBe("Starting…");
+    expect(formatTurnSummary(emptyTurn, { ...timing, status: "queued" }, undefined)).toBe("Starting…");
   });
 });
 

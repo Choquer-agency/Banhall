@@ -42,6 +42,19 @@
     return KIND_LABEL[itemId.split("-", 1)[0] ?? ""] ?? null;
   }
 
+  /**
+   * Where the item is: the stored Line and paragraph, or, for an older row
+   * that kept only its id, the Line and paragraph the id names
+   * (`r-244-4-2` is Line 244, paragraph 4). Paragraph 0 means unanchored.
+   */
+  function place(item: Doc<"chatProposalItems">): string | null {
+    const fromId = /^[a-z]-(242|244|246)-(\d+)-\d+$/.exec(item.itemId);
+    const section = item.section ?? fromId?.[1];
+    const paragraph = item.paragraphNumber ?? (fromId && Number(fromId[2]) > 0 ? Number(fromId[2]) : undefined);
+    if (section && paragraph) return `Line ${section}, paragraph ${paragraph}`;
+    return section ? `Line ${section}` : null;
+  }
+
   const counts = $derived.by(() => {
     const tally = { resolved: 0, blocked: 0, conflicting: 0 };
     for (const item of items) tally[item.status] += 1;
@@ -63,13 +76,14 @@
     <ul class="mt-2.5 flex flex-col gap-2.5" aria-label="Findings">
       {#each items as item (item._id)}
         {@const kind = kindLabel(item.itemId)}
+        {@const where = place(item)}
         <li class="border-l-2 border-line pl-2.5" data-checklist-item={item.itemId}>
           <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             {#if kind}
               <span class="text-xs font-medium text-ink">{kind}</span>
             {/if}
-            {#if item.section && item.paragraphNumber}
-              <span class="text-xs text-ink-muted">Line {item.section}, paragraph {item.paragraphNumber}</span>
+            {#if where}
+              <span class="text-xs text-ink-muted">{where}</span>
             {/if}
             <span class="rounded-full bg-chrome px-1.5 py-0.5 text-xs font-medium text-ink-secondary">
               {STATUS_LABEL[item.status]}

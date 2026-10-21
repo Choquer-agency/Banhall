@@ -63,7 +63,7 @@
       <summary
         class={cn(
           rowClass,
-          "cursor-pointer hover:bg-primary-wash hover:text-navy focus-visible:bg-primary-wash focus-visible:text-navy focus-visible:outline-none"
+          "cursor-pointer hover:bg-primary-wash hover:text-navy focus-visible:bg-primary-wash focus-visible:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
         )}
       >
         {@render row()}

@@ -110,8 +110,8 @@
 
 <div class={cn("flex flex-col gap-1.5 py-1 text-xs text-ink-muted", className)}>
   <div class={cn("flex items-center", quiet ? "-ml-1 gap-0.5" : "gap-1.5")}>
-    <span class={quiet ? "sr-only" : "mr-1"} data-feedback-status>{value ? recordedText : title}</span>
     {@render leading?.()}
+    <span class={quiet ? "sr-only" : "mr-1"} data-feedback-status>{value ? recordedText : title}</span>
     <!-- Review R2 P3-4, round 2 N1: a vote made here is announced politely. -->
     <span class="sr-only" aria-live="polite" aria-atomic="true" data-feedback-announcement>{announcement}</span>
 
@@ -126,7 +126,7 @@
           onclick={() => {
             if (!helpfulInactive) vote(1, onHelpful);
           }}
-          class={`flex h-7 w-7 items-center justify-center rounded-md transition-colors aria-disabled:cursor-default pointer-coarse:size-11 ${
+          class={`flex h-7 w-7 items-center justify-center rounded-md transition-colors aria-disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 pointer-coarse:size-11 ${
             value === 1
               ? "bg-primary-wash text-primary-selected"
               : "text-ink-muted hover:bg-primary-wash hover:text-navy aria-disabled:opacity-50"
@@ -150,7 +150,7 @@
           onclick={() => {
             if (!notHelpfulInactive) vote(-1, onNotHelpful);
           }}
-          class={`flex h-7 w-7 items-center justify-center rounded-md transition-colors aria-disabled:cursor-default pointer-coarse:size-11 ${
+          class={`flex h-7 w-7 items-center justify-center rounded-md transition-colors aria-disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 pointer-coarse:size-11 ${
             value === -1
               ? "bg-red-50 text-red-600"
               : "text-ink-muted hover:bg-primary-wash hover:text-navy aria-disabled:opacity-50"

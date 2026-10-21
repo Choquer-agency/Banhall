@@ -7,8 +7,6 @@
    * line the turn shows next, so nothing jumps when the turn takes over.
    */
   interface Props {
-    variant?: "dots";
-    size?: "sm" | "md";
     class?: string;
   }
 

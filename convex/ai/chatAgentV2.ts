@@ -771,11 +771,11 @@ export const CHAT_CUT_OFF_REPLY =
  * edit proposal: a split revision has parts left.
  */
 export const CHAT_STEP_LIMIT_REPLY =
-  "I stopped at the step limit for one reply, so this revision is not finished. Review the cards above, then ask me to continue with the rest.";
+  "I stopped at the step limit for one reply, so this revision is not finished. Review the cards above; the rest can continue from here.";
 
 /** The same, for a turn that saved no edit proposal (PR #24 review P3). */
 export const CHAT_STEP_LIMIT_REPLY_OTHER =
-  "I stopped at the step limit for one reply. Ask me to continue.";
+  "I stopped at the step limit for one reply. The rest can continue from here.";
 
 /**
  * 2026-10-19 (the 2026-10-07 deviation chat failure). In all four failed "address
@@ -829,7 +829,7 @@ export const CHAT_THINKING_CUT_OFF_REPLY =
 
 /** The same, when the turn saved an edit proposal before the step that ran out. */
 export const CHAT_THINKING_CUT_OFF_PARTIAL_REPLY =
-  "I proposed part of this above, then ran out of room before the rest. Review the cards, then ask me to continue.";
+  "I proposed part of this above, then ran out of room before the rest. Review the cards; the rest can continue from here.";
 
 /**
  * Review round 2 N2: a reply that ran out of time after it saved a card. It
@@ -840,7 +840,7 @@ export const CHAT_TIMED_OUT_PARTIAL_REPLY =
 
 /** What the writer reads when the closing text itself hit the limit. */
 export const CHAT_REPLY_CUT_OFF_REPLY =
-  "My reply hit the length limit before it finished. Ask me to continue, or ask for one part at a time.";
+  "My reply hit the length limit before it finished. The rest can continue from here, or ask for one part at a time.";
 
 /** The parts of a finished step `thinkingOnlyCutOff` reads. */
 type ThinkingCutStep = {
