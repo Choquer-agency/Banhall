@@ -200,7 +200,7 @@
   {#if nodes.length}
     <!-- The whole block is one accordion, full width, as Claude shows its
          thought process (owner, 2026-10-21). -->
-    <details bind:open class="group/turn">
+    <details bind:open class="disclosure-ease group/turn">
       <summary
         bind:this={summaryEl}
         onclick={() => summaryEl && chat?.keepInPlace(summaryEl)}

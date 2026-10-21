@@ -63,7 +63,7 @@
 
 <li class="list-none" data-trace-step={status}>
   {#if expandable}
-    <details bind:open class="group/step">
+    <details bind:open class="disclosure-ease group/step">
       <summary
         bind:this={summaryEl}
         onclick={() => summaryEl && chat?.keepInPlace(summaryEl)}

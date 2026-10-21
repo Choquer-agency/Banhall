@@ -1431,7 +1431,10 @@ its first clause, at most 64 characters), then the full reasoning as plain
 text with each step as a row. Opening or closing it (or a step inside it) never moves it: the
 chat holds the bar where it was on screen through the change
 (`keepInPlace` on the chat container), at the bottom of the chat or
-mid-thread. The block has no hover fill: hovering the first line fades its
+mid-thread. It opens and closes with the layout ease
+(`.disclosure-ease`, on the block and its step rows): the content grows
+from the bar down and fades in, using `::details-content`; reduced motion
+opens it at once. The block has no hover fill: hovering the first line fades its
 label from 65% ink to full, and the chevron fades in only then (also on
 keyboard focus, and always on touch). The answer's
 Copy, thumbs and Regenerate are one row of icons. The

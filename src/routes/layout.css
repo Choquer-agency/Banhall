@@ -335,8 +335,30 @@ html {
   to { opacity: 1; }
 }
 .pane-fade-in { animation: pane-fade-in var(--duration-layout) var(--ease-layout) both; }
+/* A disclosure that opens and closes with the layout ease (owner,
+   2026-10-21, the Assistant's thought block and its step rows): the content
+   grows from the summary down and fades in. Browsers without
+   ::details-content open it at once, as before. */
+.disclosure-ease {
+  interpolate-size: allow-keywords;
+}
+.disclosure-ease::details-content {
+  block-size: 0;
+  opacity: 0;
+  overflow: clip;
+  transition:
+    block-size var(--duration-layout) var(--ease-layout),
+    opacity var(--duration-layout) var(--ease-layout),
+    content-visibility var(--duration-layout) allow-discrete;
+}
+.disclosure-ease[open]::details-content {
+  block-size: auto;
+  opacity: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pane-fade-in { animation: none; }
+  .disclosure-ease::details-content { transition: none; }
 }
 
 /* A live status line in the Assistant ("Thinking…", "Reading a transcript…"):

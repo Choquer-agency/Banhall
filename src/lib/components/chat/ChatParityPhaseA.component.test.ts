@@ -434,6 +434,37 @@ describe("task 6: reasoning summaries and announcements", () => {
     }
   });
 
+  // Owner, 2026-10-21: the block opens with a subtle transition (the
+  // content grows from the bar down and fades in, layout ease).
+  it("opens the thought block with a height and fade transition", async () => {
+    await page.viewport(900, 900);
+    const long = Array.from({ length: 10 }, (_, i) => `Reasoning sentence ${i + 1} about Line 244.`).join(" ");
+    const message = {
+      ...row("a", "All done.", 1, "assistant"),
+      parts: [
+        { type: "reasoning", text: long, state: "done" },
+        { type: "text", text: "All done.", state: "done" },
+      ],
+    } as UIMessage;
+    const { container } = await render(AssistantTurn, {
+      message, timing: { status: "completed", startedAt: 1_000, endedAt: 13_000, stepCount: 0 }, onRefine: vi.fn(),
+    });
+    const details = container.querySelector<HTMLDetailsElement>("details")!;
+    const content = getComputedStyle(details, "::details-content");
+    expect(content.transitionDuration).toContain("0.35s");
+    expect(content.transitionTimingFunction).toContain("cubic-bezier(0.16, 1, 0.3, 1)");
+    const closedHeight = details.getBoundingClientRect().height;
+    await page.getByText("Thought for 12s", { exact: true }).click();
+    // Part way through, the block is taller than closed but not yet open.
+    await new Promise((done) => setTimeout(done, 60));
+    const midHeight = details.getBoundingClientRect().height;
+    await new Promise((done) => setTimeout(done, 500));
+    const openHeight = details.getBoundingClientRect().height;
+    expect(midHeight).toBeGreaterThan(closedHeight);
+    expect(midHeight).toBeLessThan(openHeight);
+    expect(Number(getComputedStyle(details, "::details-content").opacity)).toBe(1);
+  });
+
   it("shows the summary under Thinking while it streams, and marks the answer busy", async () => {
     await page.viewport(480, 520);
     const { container, rerender } = await render(AssistantTurn, {
