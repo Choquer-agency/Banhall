@@ -1416,8 +1416,9 @@ composer is a white bordered rounded-2xl box in the Obvious two-row anatomy
 — textarea on top ("What should we work on?"), action row beneath with
 attach left and the round navy send right — pinned to the pane bottom in
 every state including the empty thread. Since 2026-10-19 the left control is
-a "Message options" menu, not attach. It holds the per-message options,
-Brain examples and web search, each shown as a removable chip while on. The
+a "Message options" menu, not attach. It holds the per-message options:
+Brain examples, shown as a removable chip while on, and web search, on by
+default with no chip (owner, 2026-10-21). The
 chat reads only typed text, so the composer must not offer or hint at file
 uploads. The chat header, empty state, and starter suggestions are compact
 (13px scale, medium weights). The right pane's project metadata heading is

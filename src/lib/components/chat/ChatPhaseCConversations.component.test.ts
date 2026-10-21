@@ -50,6 +50,19 @@ const THREADS = [
   { _id: "mapping-2", agentThreadId: "thread-2", title: "Line 244 order", createdAt: 2, startedByCurrentUser: true, webSearch: true },
 ];
 
+/**
+ * Whether a person can see and click a menu item where it is drawn: it is on
+ * top at its own centre. Automation scrolls a clipped item into view before
+ * it clicks, so a click alone does not prove this.
+ */
+function onTop(name: string) {
+  const item = [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((el) => el.textContent?.trim() === name);
+  if (!item) return false;
+  const box = item.getBoundingClientRect();
+  const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+  return Boolean(hit && item.contains(hit));
+}
+
 function seedConversation() {
   __setQueryData("chatV2:listThreads", THREADS);
   __setPaginatedRows("chatV2:listMessages", [
@@ -134,13 +147,6 @@ describe("conversation menu", () => {
     await render(AgentChatPanel, { reportId, projectId });
     await menu().click();
     await userEvent.hover(page.getByRole("menuitem", { name: "Conversation actions", exact: true }).first());
-    const onTop = (name: string) => {
-      const item = [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((el) => el.textContent?.trim() === name);
-      if (!item) return false;
-      const box = item.getBoundingClientRect();
-      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-      return Boolean(hit && item.contains(hit));
-    };
     await expect.poll(() => onTop("Rename"), { timeout: 5000 }).toBe(true);
     expect(onTop("Archive")).toBe(true);
     for (const scroller of document.querySelectorAll<HTMLElement>("[role=menu]")) expect(scroller.scrollLeft).toBe(0);
@@ -225,6 +231,9 @@ describe("conversation menu", () => {
     await page.getByRole("menuitem", { name: "Archived conversations", exact: true }).click();
     await expect.element(page.getByRole("menuitem", { name: "Old prototype notes", exact: true })).toBeVisible();
     await page.screenshot({ path: `${CAPTURES}/archived-conversations.png` });
+    // The archived list renders outside the scrolling menu, as the actions do.
+    await expect.poll(() => onTop("Restore"), { timeout: 5000 }).toBe(true);
+    for (const scroller of document.querySelectorAll<HTMLElement>("[role=menu]")) expect(scroller.scrollLeft).toBe(0);
     await page.getByRole("menuitem", { name: "Restore", exact: true }).click();
     await expect.poll(() => __mutationCalls("chatV2:restoreThread")).toEqual([{ threadId: "thread-9" }]);
   });
