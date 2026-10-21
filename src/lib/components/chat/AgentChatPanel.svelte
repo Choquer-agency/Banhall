@@ -303,10 +303,23 @@
     conversationMenuFocus = focusRenameField;
   }
 
+  /**
+   * The rename row renders as the conversation menu closes, and the menu may
+   * still be handing focus back. Retry for a few frames until the field holds
+   * focus, so Escape and typing always reach it.
+   */
   function focusRenameField() {
-    const field = renameField?.querySelector("input");
-    field?.focus();
-    field?.select();
+    let frames = 0;
+    const attempt = () => {
+      const field = renameField?.querySelector("input");
+      if (field && renaming) {
+        field.focus();
+        field.select();
+        if (document.activeElement === field) return;
+      }
+      if (renaming && ++frames < 10) requestAnimationFrame(attempt);
+    };
+    attempt();
   }
 
   /** Escape anywhere in the rename row (field, Save or Cancel) cancels it. */
@@ -1739,6 +1752,18 @@
               sideOffset={8}
               collisionPadding={8}
               aria-labelledby="chat-file-picker-heading"
+              onOpenAutoFocus={(event) => {
+                // The picker opens as Message options closes. bits-ui 2.19
+                // guards its own deferred focus against that teardown, so the
+                // picker moves focus to its first file itself, a frame later.
+                event.preventDefault();
+                requestAnimationFrame(() => {
+                  const first = document.querySelector<HTMLElement>(
+                    "[data-file-picker] [data-checkbox-root]:not([disabled]), [data-file-picker] button:not([disabled])"
+                  );
+                  first?.focus();
+                });
+              }}
               onCloseAutoFocus={(event) => {
                 event.preventDefault();
                 messageOptionsButton?.focus();
