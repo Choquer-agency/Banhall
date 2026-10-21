@@ -785,6 +785,20 @@ describe("formatTurnSummary", () => {
     ).toBe("Thought");
   });
 
+  it("counts the rows the writer sees, reasoning included", () => {
+    const mixed = normalizeTurnParts(
+      assistant([
+        { type: "reasoning", text: "Plan", state: "done" },
+        toolPart({ toolCallId: "a" }),
+        { type: "reasoning", text: "Check", state: "done" },
+        toolPart({ toolCallId: "b" }),
+      ])
+    );
+    expect(formatTurnSummary(mixed, timing({ stepCount: 2 }), "success", 0)).toBe(
+      "Worked through 4 steps · checked The Brain"
+    );
+  });
+
   it("never shows a duration, however long the turn took", () => {
     for (const endedAt of [1_200, 13_000, 3_601_000]) {
       expect(formatTurnSummary(withTools, timing({ endedAt }), "success", 0)).not.toMatch(/\d+\s*(s|m)\b/);

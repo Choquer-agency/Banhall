@@ -802,7 +802,10 @@ export function formatTurnSummary(
 
   // Reasoning with no tool work reads as thought, not work.
   if (steps === 0 && turn.hasReasoning) return "Thought";
-  return steps > 0 ? `Worked through ${steps} ${steps === 1 ? "step" : "steps"}${outcome}` : null;
+  // The count matches the rows the writer sees when the steps are opened
+  // (reasoning included); the durable count stands in when none are loaded.
+  const shown = turn.traceNodes.length > 0 ? turn.traceNodes.length : steps;
+  return shown > 0 ? `Worked through ${shown} ${shown === 1 ? "step" : "steps"}${outcome}` : null;
 }
 
 // ─── Live progress (Phase A) ────────────────────────────────────────────────
