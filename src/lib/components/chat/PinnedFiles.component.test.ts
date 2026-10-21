@@ -198,6 +198,10 @@ describe("Read a file in full", () => {
     await render(AgentChatPanel, { reportId, projectId });
     await openPicker();
     await expect.element(page.getByText("No files in this project yet. Add them in the Files panel.", { exact: true })).toBeVisible();
+    // Fable 5.1 review P3-2: with nothing to choose, the picker itself takes focus.
+    await expect.poll(() => document.activeElement?.hasAttribute("data-file-picker")).toBe(true);
+    await userEvent.keyboard("{Escape}");
+    await expect.element(options()).toHaveFocus();
   });
 });
 

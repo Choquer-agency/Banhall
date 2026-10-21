@@ -26,6 +26,10 @@ const team = option("--team", "conquerthecrowns");
 const convexProject = option("--convex-project", "banhall-e2e");
 const only = option("--only")?.split(",").map((s) => s.trim()).filter(Boolean) ?? null;
 const keep = flag("--keep-artifacts");
+const serve = flag("--serve");
+const serveHours = Number(option("--serve-hours", "4"));
+if (serve && !(serveHours > 0 && serveHours <= 24)) throw new Error("--serve-hours takes a number of hours from 0 to 24.");
+const skipScenarios = flag("--skip-scenarios");
 
 const git = (...a) => execFileSync("git", a, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 const target = git("rev-parse", "--short", option("--target", "HEAD"));
@@ -46,16 +50,44 @@ const shots = path.join(work, "shots");
 fs.mkdirSync(shots);
 const log = (...a) => console.log(`[chat-live] ${a.join(" ")}`);
 const children = [];
+const browsers = [];
+
+// The Convex CLI and the app read the shell's environment before the
+// worktree's .env.local, so a deployment exported in the shell would win over
+// the local one. Every command in the worktree runs without those values.
+const localEnv = { ...process.env };
+for (const name of [
+  "CONVEX_DEPLOYMENT",
+  "CONVEX_DEPLOY_KEY",
+  "CONVEX_DEPLOYMENT_TOKEN",
+  "CONVEX_SELF_HOSTED_URL",
+  "CONVEX_SELF_HOSTED_ADMIN_KEY",
+  "CONVEX_URL",
+  "CONVEX_SITE_URL",
+  "PUBLIC_CONVEX_URL",
+  "PUBLIC_CONVEX_SITE_URL",
+]) {
+  delete localEnv[name];
+}
 
 /** A command in the temporary worktree, which talks to the local backend only. */
 function local(cmd, cmdArgs, opts = {}) {
-  return execFileSync(cmd, cmdArgs, { cwd: tree, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], ...opts });
+  return execFileSync(cmd, cmdArgs, { cwd: tree, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], env: localEnv, ...opts });
 }
 
 function assertLocalDeployment() {
   const env = fs.readFileSync(path.join(tree, ".env.local"), "utf8");
   if (!/^CONVEX_DEPLOYMENT=local:/m.test(env)) throw new Error("The worktree is not on a local deployment; refusing to continue.");
+  // An older Convex CLI kept a local backend's data in the home folder, where
+  // cleanup would not reach it. The data must live inside the worktree.
+  if (!fs.existsSync(path.join(tree, ".convex", "local", "default", "config.json"))) {
+    throw new Error("The local backend keeps its data outside the worktree (an older Convex CLI layout); refusing to continue.");
+  }
 }
+
+/** The last lines of a log that cleanup is about to delete. */
+const tail = (logPath) =>
+  fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8").trim().split("\n").slice(-15).join("\n") : "(no log)";
 
 function startBackend(logName) {
   const out = fs.openSync(path.join(work, logName), "w");
@@ -67,7 +99,7 @@ function startBackend(logName) {
       detached: true,
       stdio: ["ignore", out, out],
       env: {
-        ...process.env,
+        ...localEnv,
         DATABASE_UDF_USER_TIMEOUT_SECONDS: "10",
         DATABASE_UDF_SYSTEM_TIMEOUT_SECONDS: "60",
         CONVEX_LOCAL_BACKEND_STARTUP_TIMEOUT_SECS: "180",
@@ -83,10 +115,10 @@ async function waitForReady(logPath, after = 0, timeoutMs = 300_000) {
   while (Date.now() - started < timeoutMs) {
     const text = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
     if ((text.match(/Convex functions ready/g) ?? []).length > after) return;
-    if (/✖/.test(text.split("Convex functions ready").at(-1) ?? "")) throw new Error(`Local backend failed; see ${logPath}`);
+    if (/✖/.test(text.split("Convex functions ready").at(-1) ?? "")) throw new Error(`Local backend failed:\n${tail(logPath)}`);
     await new Promise((r) => setTimeout(r, 1000));
   }
-  throw new Error(`Timed out waiting for the local backend (${logPath}).`);
+  throw new Error(`Timed out waiting for the local backend:\n${tail(logPath)}`);
 }
 
 const readyCount = (logPath) => (fs.readFileSync(logPath, "utf8").match(/Convex functions ready/g) ?? []).length;
@@ -124,12 +156,17 @@ const data = (table, component) => {
 };
 
 let failed = false;
-let cleaned = false;
+let cleaning = null;
+
+// A signal and the main flow both clean up; both wait for the same work, so
+// neither exits the process while the other is still deleting.
+const cleanup = () => (cleaning ??= removeEverything());
 
 /** Stops everything and deletes the worktree and the private folder. */
-async function cleanup() {
-  if (cleaned) return;
-  cleaned = true;
+async function removeEverything() {
+  for (const browser of browsers) {
+    await Promise.race([browser.close().catch(() => {}), new Promise((r) => setTimeout(r, 5000))]);
+  }
   for (const child of children) stop(child);
   await new Promise((r) => setTimeout(r, 3000));
   try {
@@ -159,9 +196,18 @@ async function cleanup() {
   }
 }
 
-// An interrupted run cleans up too: the backend and the snapshot hold client data.
+// An interrupted run cleans up too: the backend and the snapshot hold client
+// data. While the app is served, a signal ends the serving and the run then
+// finishes as usual.
+let endServe = null;
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(signal, () => {
+    if (endServe) {
+      log(`${signal}: stopping the app`);
+      endServe();
+      endServe = null;
+      return;
+    }
     console.error(`[chat-live] ${signal}: stopping and cleaning up`);
     cleanup().finally(() => process.exit(130));
   });
@@ -252,6 +298,7 @@ try {
     cwd: tree,
     detached: true,
     stdio: ["ignore", webLog, webLog],
+    env: localEnv,
   });
   children.push(web);
   for (let i = 0; i < 120; i++) {
@@ -298,23 +345,41 @@ try {
   if (!project) throw new Error("--project is not in the snapshot.");
   const report = data("reports").filter((r) => r.projectId === projectId).sort((a, b) => b._creationTime - a._creationTime)[0];
   const other = users.find((u) => u.authId && u._id !== me._id && ["writer", "manager"].includes(u.role));
-  const results = await runScenarios({
-    base: `http://localhost:${port}`,
-    email,
-    password,
-    projectId,
-    reportId: report._id,
-    shots,
-    only,
-    run,
-    me,
-    other,
-    backendLog: backend.log,
-  });
-  fs.writeFileSync(path.join(work, "report.json"), JSON.stringify(results, null, 2));
-  const width = Math.max(...results.map((r) => r.name.length));
-  for (const r of results) console.log(`${r.ok ? "PASS" : "FAIL"}  ${r.name.padEnd(width)}  ${r.detail}`);
-  failed = results.some((r) => !r.ok);
+  if (!skipScenarios) {
+    const results = await runScenarios({
+      base: `http://localhost:${port}`,
+      email,
+      password,
+      projectId,
+      reportId: report._id,
+      shots,
+      only,
+      run,
+      me,
+      other,
+      backendLog: backend.log,
+      onBrowser: (browser) => browsers.push(browser),
+    });
+    fs.writeFileSync(path.join(work, "report.json"), JSON.stringify(results, null, 2));
+    const width = Math.max(...results.map((r) => r.name.length));
+    for (const r of results) console.log(`${r.ok ? "PASS" : "FAIL"}  ${r.name.padEnd(width)}  ${r.detail}`);
+    failed = results.some((r) => !r.ok);
+  }
+
+  // 11. Optionally, the app stays up for a person to try. The test login goes
+  // to a private file, never to the output.
+  if (serve) {
+    const loginFile = path.join(work, "login.txt");
+    fs.writeFileSync(loginFile, `http://localhost:${port}/login\nemail: ${email}\npassword: ${password}\n`, { mode: 0o600 });
+    log(`the app is running at http://localhost:${port}/project/${projectId}`);
+    log(`the test login (an admin) is in ${loginFile}`);
+    log(`stop with Ctrl-C or a SIGTERM; it stops by itself after ${serveHours} h, then deletes everything`);
+    await new Promise((resolve) => {
+      endServe = resolve;
+      setTimeout(resolve, serveHours * 3_600_000);
+    });
+    endServe = null;
+  }
 } catch (error) {
   failed = true;
   console.error(`[chat-live] ${error instanceof Error ? error.message : String(error)}`);

@@ -124,6 +124,23 @@ describe("conversation menu", () => {
     await expect.element(menu()).toHaveFocus();
   });
 
+  // Fable 5.1 review P3-1: the row stayed open, naming the conversation left behind.
+  it("closes the rename row when the writer moves to another conversation", async () => {
+    seedConversation();
+    await render(AgentChatPanel, { reportId, projectId });
+    const name = page.getByRole("textbox", { name: "Conversation name", exact: true });
+    for (const destination of ["Line 244 order", "New conversation"]) {
+      await menu().click();
+      await page.getByRole("menuitem", { name: "Conversation actions", exact: true }).first().click();
+      await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
+      await expect.element(name).toHaveFocus();
+      await menu().click();
+      await page.getByRole("menuitem", { name: destination }).first().click();
+      await expect.poll(() => document.querySelector("[data-rename-conversation]"), { timeout: 5000 }).toBeNull();
+    }
+    expect(__mutationCalls("chatV2:renameThread")).toEqual([]);
+  });
+
   it("leaves a conversation someone else deleted (review R2 P3-2)", async () => {
     seedConversation();
     await render(AgentChatPanel, { reportId, projectId });

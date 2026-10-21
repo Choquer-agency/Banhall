@@ -96,14 +96,22 @@ const SCENARIOS = [
       expect(quiet >= 3, "the job was still running after 15 minutes");
       const text = await transcript(page);
       const cards = await page.getByRole("button", { name: "Apply", exact: true }).count();
-      const chips = (text.match(/Continuing with Line \d+/g) ?? []).length;
+      const chips = await page.locator("[data-auto-continue-chip]").count();
+      const turns = ctx.run("chatV2:listTurns", { threadId: currentThread(ctx).agentThreadId, startOrder: 0, endOrder: 9999 }, ctx.me.authId);
+      const automatic = turns.filter((t) => t.origin === "auto_continue").length;
+      const last = turns.at(-1);
       expect(cards > 0, "no card was proposed");
       expect(/Completion Report/.test(text), "no Completion Report on the cards");
       expect([...labels].some((l) => /writing a reply/.test(l ?? "")), "the launcher never showed the reply running");
       expect(!/couldn.t finish|took too long/i.test(text), "a reply failed");
-      // The job either continued on its own, or finished every Line in one reply.
-      expect(chips > 0 || (cards >= 2 && /complete/i.test(text.slice(-1500))), "the job neither continued on its own nor finished");
-      return `${cards} cards, ${chips} automatic links, ${Math.round((Date.now() - started) / 1000)} s`;
+      // The job either continued on its own (turns the server started), or
+      // finished in one reply with no Continue offer left open.
+      expect(
+        automatic > 0 || (last?.status === "completed" && !last.continuation && !last.autoContinueSkipped),
+        "the job neither continued on its own nor finished"
+      );
+      expect(automatic === 0 || chips > 0, "the job continued, but the writer saw no link to it");
+      return `${cards} cards, ${automatic} automatic turns, ${chips} links shown, ${Math.round((Date.now() - started) / 1000)} s`;
     },
   },
   {
@@ -173,7 +181,9 @@ const SCENARIOS = [
       const counts = await page.getByText(/^\d+ \/ \d+$/).evaluateAll((els) => els.map((e) => e.innerText.trim()));
       expect(counts.includes("2 / 2"), `no 2 / 2 switcher (${counts.join(", ")})`);
       expect(await page.getByText("Edited by you").count(), "no author line on the edit");
-      expect(!/Line 242 (is|covers|describes)/i.test((await transcript(page)).slice(-500)), "the edited reply still saw the original question's answer");
+      // The first question is not on this path, so the reply has no reason to name its Line.
+      const reply = (await transcript(page)).split("earlier in this conversation.").at(-1);
+      expect(!/\b242\b/.test(reply), "the edited reply still saw the original question");
       await page.getByRole("button", { name: "Previous response" }).first().click();
       await page.waitForTimeout(3000);
       const back = await page.getByText(/^\d+ \/ \d+$/).evaluateAll((els) => els.map((e) => e.innerText.trim()));
@@ -205,6 +215,7 @@ const SCENARIOS = [
     async run(page, ctx) {
       const viewsBefore = (backendLog(ctx).match(/chat file view/g) ?? []).length;
       await openPanel(page, ctx);
+      await newConversation(page);
       await send(page, "Look at the image chat-live-chart.png in the project files. Which bar is tallest, and what colour is it? One sentence.");
       await waitIdle(page);
       const text = await transcript(page);
@@ -218,6 +229,7 @@ const SCENARIOS = [
     name: "web-sources",
     async run(page, ctx) {
       await openPanel(page, ctx);
+      await newConversation(page);
       await send(page, "Using a web search, how does the CRA define experimental development for SR&ED? Two sentences, cite your sources.");
       await waitIdle(page);
       expect(!/PROVIDER_NOT_CONFIGURED/.test(backendLog(ctx)), "web search was not configured in the Node action");
@@ -258,10 +270,11 @@ const SCENARIOS = [
     name: "stop-someone-else",
     async run(page, ctx) {
       if (!ctx.other) return "skipped: no other writer in the snapshot";
+      // The other writer starts a new conversation, which this new page opens as the newest.
+      const sent = ctx.run("chatV2:sendMessage", { reportId: ctx.reportId, content: "Write a detailed critique of every paragraph in Line 244.", newThread: true }, ctx.other.authId);
       await openPanel(page, ctx);
-      const thread = currentThread(ctx);
-      ctx.run("chatV2:sendMessage", { reportId: ctx.reportId, content: "Write a detailed critique of every paragraph in Line 244.", threadId: thread.agentThreadId }, ctx.other.authId);
-      await page.waitForTimeout(8000);
+      expect(currentThread(ctx).agentThreadId === sent.threadId, "the other writer's conversation is not the newest");
+      await page.getByRole("button", { name: /^Stop/ }).first().waitFor({ timeout: 30_000 });
       await page.getByRole("button", { name: /^Stop/ }).first().click();
       const dialog = page.getByRole("alertdialog");
       const text = (await dialog.innerText()).replace(/\s+/g, " ");
@@ -269,7 +282,7 @@ const SCENARIOS = [
       expect((await page.evaluate(() => document.activeElement?.innerText?.trim())) === "Keep going", "Keep going is not focused");
       await dialog.getByRole("button", { name: "Stop reply" }).click();
       await page.waitForTimeout(4000);
-      const turns = ctx.run("chatV2:listTurns", { threadId: thread.agentThreadId, startOrder: 0, endOrder: 9999 }, ctx.me.authId);
+      const turns = ctx.run("chatV2:listTurns", { threadId: sent.threadId, startOrder: 0, endOrder: 9999 }, ctx.me.authId);
       expect(turns.at(-1).status === "aborted", "the other writer's reply was not stopped");
       return "asked first, then stopped";
     },
@@ -278,6 +291,7 @@ const SCENARIOS = [
     name: "regenerate-after-stop",
     async run(page, ctx) {
       await openPanel(page, ctx);
+      await newConversation(page);
       await send(page, "Write a long, detailed critique of every paragraph in Line 246.");
       await page.waitForTimeout(10_000);
       await page.getByRole("button", { name: /^Stop/ }).first().click();
@@ -388,7 +402,10 @@ const SCENARIOS = [
 ];
 
 export async function runScenarios(ctx) {
-  const browser = await chromium.launch({ headless: true });
+  // The run handles signals and cleans up; Playwright's own handlers would
+  // exit the process before that finishes.
+  const browser = await chromium.launch({ headless: true, handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
+  ctx.onBrowser?.(browser);
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: ctx.base });
   const results = [];

@@ -252,6 +252,8 @@
   let renameDraft = $state("");
   let renameSaving = $state(false);
   let renameField: HTMLDivElement | null = $state(null);
+  // Moving to another conversation closes an open rename row.
+  $effect(() => { conversationScope; renaming = null; renameDraft = ""; });
   let deleteTarget = $state<ThreadSummary | null>(null);
   let deleteOpen = $state(false);
   // Set by a menu action that places focus itself (Rename): the menu must
@@ -1760,19 +1762,20 @@
                 // The picker opens as Message options closes. bits-ui 2.19
                 // guards its own deferred focus against that teardown, so the
                 // picker moves focus to its first file itself, a frame later.
+                // With no file to choose (loading, or none yet), the picker
+                // itself takes focus.
                 event.preventDefault();
                 requestAnimationFrame(() => {
-                  const first = document.querySelector<HTMLElement>(
-                    "[data-file-picker] [data-checkbox-root]:not([disabled]), [data-file-picker] button:not([disabled])"
-                  );
-                  first?.focus();
+                  const picker = document.querySelector<HTMLElement>("[data-file-picker]");
+                  const first = picker?.querySelector<HTMLElement>("[data-checkbox-root]:not([disabled]), button:not([disabled])");
+                  (first ?? picker)?.focus();
                 });
               }}
               onCloseAutoFocus={(event) => {
                 event.preventDefault();
                 messageOptionsButton?.focus();
               }}
-              class="z-[100] flex max-h-96 w-72 max-w-[calc(100vw-1rem)] flex-col rounded-xl border border-line bg-white p-1 shadow-lg"
+              class="z-[100] flex max-h-96 w-72 max-w-[calc(100vw-1rem)] flex-col rounded-xl border border-line bg-white p-1 shadow-lg outline-none"
               data-file-picker
             >
               <p id="chat-file-picker-heading" class="px-2 pt-1.5 pb-1 text-xs text-ink-muted">
