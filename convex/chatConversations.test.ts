@@ -265,9 +265,11 @@ describe("delete permanently", () => {
       const proposals = await ctx.db.query("chatProposals").withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", threadId)).collect();
       const items = [];
       const events = [];
+      const undoRecords = [];
       for (const proposal of proposals) {
         items.push(...(await ctx.db.query("chatProposalItems").withIndex("by_proposalId", (q) => q.eq("proposalId", proposal._id)).collect()));
         events.push(...(await ctx.db.query("proposalWordingEditEvents").withIndex("by_proposalId", (q) => q.eq("proposalId", proposal._id)).collect()));
+        undoRecords.push(...(await ctx.db.query("chatProposalAppliedChanges").withIndex("by_proposalId", (q) => q.eq("proposalId", proposal._id)).collect()));
       }
       return {
         threads: await ctx.db.query("agentChatThreads").withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", threadId)).collect(),
@@ -275,6 +277,7 @@ describe("delete permanently", () => {
         proposals,
         items,
         events,
+        undoRecords,
         searches: await ctx.db.query("chatWebSearches").withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", threadId)).collect(),
         feedback: await ctx.db.query("chatAnswerFeedback").withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", threadId)).collect(),
       };
@@ -290,10 +293,22 @@ describe("delete permanently", () => {
           projectId: s.projectId,
           reportId: s.reportId,
           kind: "edit",
-          state: "pending",
+          state: card === 0 ? "applied" : "pending",
           newText: `Fictional wording ${card}`,
           createdAt: Date.now(),
         });
+        // The first card was applied and keeps its Undo record.
+        if (card === 0) {
+          const appliedChangeId = await ctx.db.insert("chatProposalAppliedChanges", {
+            proposalId,
+            projectId: s.projectId,
+            revisionNumber: 1,
+            appliedAt: Date.now(),
+            appliedBy: s.writerId,
+            hunks: [{ before: "Fictional before", after: "Fictional after" }],
+          });
+          await ctx.db.patch(proposalId, { appliedChangeId });
+        }
         for (let i = 0; i < items; i += 1) {
           await ctx.db.insert("chatProposalItems", {
             proposalId,
@@ -366,6 +381,8 @@ describe("delete permanently", () => {
 
     await s.writer.mutation(api.chatV2.archiveThread, { threadId: kept.threadId });
     await s.writer.mutation(api.chatV2.restoreThread, { threadId: kept.threadId });
+    const doomedRecords = (await keyedRows(s, doomed.threadId)).undoRecords.map((row) => row._id);
+    expect(doomedRecords).toHaveLength(1);
     await s.admin.mutation(api.chatV2.deleteThread, { threadId: doomed.threadId });
     // The row is marked at once and stays until the purge ends; every read
     // and send treats the conversation as gone.
@@ -397,6 +414,8 @@ describe("delete permanently", () => {
 
     const after = await keyedRows(s, doomed.threadId);
     for (const [table, rows] of Object.entries(after)) expect(rows, table).toEqual([]);
+    // The Undo records went with their cards, none left behind.
+    expect(await s.t.run(async (ctx) => await Promise.all(doomedRecords.map((id) => ctx.db.get(id))))).toEqual([null]);
     const component = await s.t.query(components.agent.messages.listMessagesByThreadId, {
       threadId: doomed.threadId,
       order: "asc",
@@ -412,26 +431,32 @@ describe("delete permanently", () => {
     expect(other.proposals).toHaveLength(3);
     expect(other.items).toHaveLength(6);
     expect(other.events).toHaveLength(3);
+    expect(other.undoRecords).toHaveLength(1);
   });
 
   test("pages a conversation with large applied cards within the transaction limits", async () => {
     const s = await setup({ transactionLimits: true });
     const big = await conversation(s, "Big cards");
-    // Applied cards carry `appliedChange` hunks of up to 600 KB each: 40 of
-    // them are about 24 MB, well past one transaction's read limit.
+    // Applied cards keep Undo records of up to 600 KB each, in their own
+    // rows: 40 of them are about 24 MB, well past one transaction's read limit.
     const hunk = { before: "b".repeat(300_000), after: "a".repeat(300_000) };
+    const bigRecords: Array<Id<"chatProposalAppliedChanges">> = [];
     for (let card = 0; card < 40; card += 1) {
-      await s.t.run(async (ctx) => {
+      bigRecords.push(await s.t.run(async (ctx) => {
         const proposalId = await ctx.db.insert("chatProposals", {
           agentThreadId: big.threadId, projectId: s.projectId, reportId: s.reportId,
           kind: "edit", state: "applied", newText: `Fictional wording ${card}`, createdAt: Date.now(),
-          appliedChange: { revisionNumber: card, appliedAt: Date.now(), appliedBy: s.writerId, hunks: [hunk] },
         });
+        const appliedChangeId = await ctx.db.insert("chatProposalAppliedChanges", {
+          proposalId, projectId: s.projectId, revisionNumber: card, appliedAt: Date.now(), appliedBy: s.writerId, hunks: [hunk],
+        });
+        await ctx.db.patch(proposalId, { appliedChangeId });
         await ctx.db.insert("proposalWordingEditEvents", {
           projectId: s.projectId, reportId: s.reportId, proposalId, userId: s.writerId,
           originalText: "x".repeat(200_000), editedText: "y".repeat(200_000), createdAt: Date.now(),
         });
-      });
+        return appliedChangeId;
+      }));
     }
     // Votes with full stored texts.
     await s.t.run(async (ctx) => {
@@ -460,6 +485,7 @@ describe("delete permanently", () => {
     expect(runs).toBeGreaterThan(Math.ceil((40 * 600_000) / PURGE_MAX_BYTES_READ));
     const left = await keyedRows(s, big.threadId);
     for (const [table, rows] of Object.entries(left)) expect(rows, table).toEqual([]);
+    for (const id of bigRecords) expect(await s.t.run(async (ctx) => await ctx.db.get(id))).toBeNull();
   });
 
   test("a purge run that failed is resumed while the row stands", async () => {
@@ -575,11 +601,20 @@ describe("a conversation being deleted (round 2 N2 to N4)", () => {
     const s = await setup();
     const doomed = await conversation(s, "Doomed cards");
     const ids = await s.t.run(async (ctx) => {
-      const card = (agentThreadId: string, state: "pending" | "applied") => ctx.db.insert("chatProposals", {
-        agentThreadId, projectId: s.projectId, reportId: s.reportId, kind: "edit", state,
-        targetText: "Old wording", newText: "New wording", createdAt: Date.now(),
-        ...(state === "applied" ? { appliedChange: { revisionNumber: 1, appliedAt: Date.now(), appliedBy: s.writerId, hunks: [{ before: "Old wording", after: "New wording" }] } } : {}),
-      });
+      const card = async (agentThreadId: string, state: "pending" | "applied") => {
+        const proposalId = await ctx.db.insert("chatProposals", {
+          agentThreadId, projectId: s.projectId, reportId: s.reportId, kind: "edit", state,
+          targetText: "Old wording", newText: "New wording", createdAt: Date.now(),
+        });
+        if (state === "applied") {
+          const appliedChangeId = await ctx.db.insert("chatProposalAppliedChanges", {
+            proposalId, projectId: s.projectId, revisionNumber: 1, appliedAt: Date.now(), appliedBy: s.writerId,
+            hunks: [{ before: "Old wording", after: "New wording" }],
+          });
+          await ctx.db.patch(proposalId, { appliedChangeId });
+        }
+        return proposalId;
+      };
       const pending = await card(doomed.threadId, "pending");
       const applied = await card(doomed.threadId, "applied");
       const research = await card("research:session-1", "pending");

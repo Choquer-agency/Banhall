@@ -475,6 +475,11 @@ describe("undoProposal write boundary", () => {
         beforeSnapshots
       );
     }
+    // The Undo record is still there for someone who may undo.
+    expect(beforeProposal?.appliedChangeId).toBeDefined();
+    expect(
+      await f.t.run((ctx) => ctx.db.get(beforeProposal!.appliedChangeId!))
+    ).not.toBeNull();
   });
 
   it("undoes for an eligible owner, with the snapshot and revision bump", async () => {

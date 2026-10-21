@@ -3630,6 +3630,7 @@ The lead decisions in the spec (web search on by default, Undo back to pending, 
 
 **Undo for an applied card (new transition: `applied -> pending`)**
 - **Recording a change.** When a card is applied (`applyProposal` or `markProposalApplied`), the server records the changed runs of top-level report blocks before and after (`chatProposals.appliedChange`). Each run is widened with neighbouring blocks until it is unique; runs that touch are merged. The record is kept only when undoing it on the applied report reproduces the original block for block; otherwise no Undo is offered. For a card applied one change at a time (`markProposalApplied`), only the runs the card's own changes touched are kept. The record is capped at 400,000 characters and 600,000 bytes; above that, no Undo is offered.
+- **Where the record lives.** The record has its own table (`chatProposalAppliedChanges`, one row per applied card, with indexes `by_proposalId` and `by_projectId`), and the card holds only a pointer (`chatProposals.appliedChangeId`). Only Undo, conversation delete and project erasure read it; the card lists learn whether a card can be undone from the pointer. Undo deletes the record, and applying the card again writes a new one. `chatProposals.appliedChange` stays in the schema as a deprecated optional field that nothing writes; Undo still reads it if a row has it.
 - **What Undo does.** `chatV2.undoProposal` needs report edit access. It finds each applied run exactly once in the current report, compared in a canonical form that survives the editor saving the text again, and puts the original blocks back, marks included, all or nothing. In one transaction it:
   - takes a `pre_chat_undo` snapshot ("Before undo" in Version history);
   - bumps the revision;
@@ -3773,7 +3774,7 @@ The lead decisions are reported to the owner and can be reversed:
   - The learning snapshot (version 2) carries the reason de-identified with the project's full placeholder map (record names, transcript speakers, the firm's names), and the digest prompt treats reason text as data, never as instructions.
   - The digest reads changed votes as new signals, newest by `updatedAt`, and uses a stated reason as the criticism instead of "never infer which detail a negative vote criticizes".
   - The raw reason stays with the project and is erased with it.
-- **Touch targets.** Chat controls meet the 44 px coarse-pointer floor; the small chip remove buttons get a larger hit area. The Message options tooltip opens only on keyboard focus, so it does not cover the pinned chips when focus returns from the file picker.
+- **Touch targets.** Chat controls meet the 44 px coarse-pointer floor; the small chip remove buttons get a larger hit area. The editor's selection toolbar meets it too, Vet and Research included, on touch screens only; each toolbar button is named by `aria-label` and keeps its tooltip. The Message options tooltip opens only on keyboard focus, so it does not cover the pinned chips when focus returns from the file picker.
 - **Esc.** Esc on the report page keeps the Assistant open while files are pinned, Brain is on for the next message, or a card or selection is being refined or researched, as it already does for unsent text.
 
 **Migration and compatibility.** Widen only, with no backfill:
@@ -3814,6 +3815,7 @@ Conversations with no alternative read their history as before, except when the 
   - `convex/learning.test.ts`
   - `src/lib/components/chat/ChatPhaseCConversations.component.test.ts`
   - `src/lib/components/editor/VetSelection.component.test.ts`
+  - `src/lib/components/editor/EditorToolbarTouchTargets.component.test.ts` (measured sizes under each pointer)
   - `src/lib/components/chat/ChatTouchTargets.component.test.ts` (measured sizes under a coarse pointer)
   - `src/lib/components/chat/ChatFeedback.component.test.ts`
 
@@ -3825,9 +3827,7 @@ Conversations with no alternative read their history as before, except when the 
 - In a conversation with alternatives, the open lists re-read up to 200 turns each time a turn changes.
 - PDFs over 30 pages cannot be viewed, only read as text.
 - Delete leaves usage rows and digest references.
-- An applied card's Undo record (up to 600 KB) sits on the card row, so a conversation with many large applied bulk cards makes the card lists heavier to read; moving it to its own table is a follow-up.
 - In the browser tests, bits-ui logs a `derived_inert` warning when its popovers are destroyed while open; no effect on behaviour was found, and a fix needs a bits-ui update.
-- The Vet button, like the Research button beside it, is a small editor toolbar button without a coarse-pointer floor.
 
 **Approval.** Product owner, 2026-10-19 (decisions) and 2026-10-20 ("i trust so continue work in dev/localhost").
 

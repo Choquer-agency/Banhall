@@ -169,8 +169,11 @@
     blockMenuOpen = false;
     linkEditing = false;
     revision += 1;
+    // The toolbar sits 14 px above the pointer. On a touch screen its
+    // controls keep the 44 px floor, so the bar is 18 px taller.
+    const coarse = window.matchMedia?.("(pointer: coarse)").matches === true;
     coords = {
-      top: mouseY - editorRect.top - 48,
+      top: mouseY - editorRect.top - (coarse ? 66 : 48),
       left: mouseX - editorRect.left,
     };
   }
@@ -241,7 +244,7 @@
     bind:this={menuEl}
     bind:offsetWidth={toolbarWidth}
     data-selection-toolbar
-    class="absolute z-50 flex h-[2.125rem] items-center gap-0.5 whitespace-nowrap rounded-md border border-line bg-surface px-1.5 font-sans shadow-toolbar"
+    class="absolute z-50 flex h-[2.125rem] pointer-coarse:h-[3.25rem] items-center gap-0.5 whitespace-nowrap rounded-md border border-line bg-surface px-1.5 font-sans shadow-toolbar"
     style={`top: ${coords.top}px; left: ${left}px; transform: translateX(-50%);`}
     onmousedown={(e) => {
       // Prevent toolbar clicks from stealing focus from the editor (the link
@@ -259,12 +262,12 @@
         type="url"
         placeholder="Paste or type a link"
         onkeydown={handleLinkKey}
-        class="input-chromeless h-[1.625rem] w-56 bg-transparent px-2 text-xs text-ink placeholder:text-ink-faint"
+        class="input-chromeless h-[1.625rem] pointer-coarse:h-11 w-56 bg-transparent px-2 text-xs text-ink placeholder:text-ink-faint"
       />
       <button
         type="button"
         onclick={applyLink}
-        class="flex h-[1.625rem] items-center rounded-[0.3125rem] px-2 text-xs text-primary-selected transition-colors hover:bg-primary-wash"
+        class="flex h-[1.625rem] pointer-coarse:h-11 items-center rounded-[0.3125rem] px-2 text-xs text-primary-selected transition-colors hover:bg-primary-wash"
       >Add link</button>
     {:else}
       {#if !commentOnly && !active.touchesSectionHeading}
@@ -275,7 +278,7 @@
             aria-expanded={blockMenuOpen}
             title="Block type"
             onclick={() => (blockMenuOpen = !blockMenuOpen)}
-            class="flex h-[1.625rem] items-center gap-1 rounded-[0.3125rem] px-2 text-xs text-ink transition-colors hover:bg-primary-wash"
+            class="flex h-[1.625rem] pointer-coarse:h-11 items-center gap-1 rounded-[0.3125rem] px-2 text-xs text-ink transition-colors hover:bg-primary-wash"
           >
             {blockLabel}
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" class="text-ink-muted" aria-hidden="true">
@@ -297,7 +300,7 @@
                     type.apply(editor);
                     blockMenuOpen = false;
                   }}
-                  class={`flex h-7 items-center rounded-[0.3125rem] px-2 text-left text-xs transition-colors hover:bg-primary-wash ${type.label === blockLabel ? "text-primary-selected" : "text-ink"}`}
+                  class={`flex h-7 pointer-coarse:h-11 items-center rounded-[0.3125rem] px-2 text-left text-xs transition-colors hover:bg-primary-wash ${type.label === blockLabel ? "text-primary-selected" : "text-ink"}`}
                 >{type.label}</button>
               {/each}
             </div>
@@ -347,7 +350,7 @@
           type="button"
           onclick={askAI}
           title="Ask assistant"
-          class="flex h-[1.625rem] items-center gap-1.5 rounded-[0.3125rem] bg-primary-wash px-2 text-xs text-primary-selected transition-colors hover:bg-chrome"
+          class="flex h-[1.625rem] pointer-coarse:h-11 items-center gap-1.5 rounded-[0.3125rem] bg-primary-wash px-2 text-xs text-primary-selected transition-colors hover:bg-chrome"
         >
           <AuroraMark size={14} />
           Ask assistant

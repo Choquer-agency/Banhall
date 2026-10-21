@@ -124,7 +124,7 @@ import {
   turnWebSourcesValidator,
   webSourceValidator,
 } from "./lib/chatWebSearches";
-import { appliedChangeFor, parseReportDocument, undoAppliedHunks } from "./lib/appliedChange";
+import { appliedChangeFor, parseReportDocument, undoAppliedHunks, type AppliedChange } from "./lib/appliedChange";
 // Chat parity Phase C (W2): alternatives and the active path.
 import {
   appendTurnAtTip,
@@ -473,7 +473,10 @@ export const listProposals = query({
     // Same order the by_agentThreadId index yields: creation time, then id.
     // Plain code-point comparison keeps the tie-break locale-independent.
     // Phase B (W3): the applied change stays on the server; the card only
-    // learns whether it can be undone.
+    // learns whether it can be undone. The record lives in its own table, so
+    // this read never loads it: the pointer is enough. A row with the
+    // deprecated on-card record (never deployed; tests and local data) is
+    // still undoable, and that record is never sent either.
     return [...proposalsByTurn.flat(), ...placed]
       .sort((left, right) => {
         const creationTimeDifference = left._creationTime - right._creationTime;
@@ -481,9 +484,10 @@ export const listProposals = query({
         if (left._id === right._id) return 0;
         return left._id < right._id ? -1 : 1;
       })
-      .map(({ appliedChange, ...proposal }) => ({
+      .map(({ appliedChange, appliedChangeId, ...proposal }) => ({
         ...proposal,
-        undoable: proposal.state === "applied" && appliedChange !== undefined,
+        undoable:
+          proposal.state === "applied" && (appliedChangeId !== undefined || appliedChange !== undefined),
       }));
   },
 });
@@ -1130,6 +1134,33 @@ export const abortStreaming = mutation({
   },
 });
 
+/**
+ * Saves an apply's Undo record in its own row (`chatProposalAppliedChanges`)
+ * and marks the card applied, pointing to that row (no pointer when nothing
+ * was kept). The record stays off the card row, so the card lists never
+ * read it. A card
+ * only reaches an apply as pending, and Undo clears the pointer, so a
+ * leftover record is not expected; one is deleted rather than orphaned.
+ */
+async function markAppliedWithRecord(
+  ctx: MutationCtx,
+  proposal: Doc<"chatProposals">,
+  change: AppliedChange | undefined
+): Promise<void> {
+  if (proposal.appliedChangeId !== undefined) {
+    const leftover = await ctx.db.get(proposal.appliedChangeId);
+    if (leftover) await ctx.db.delete(leftover._id);
+  }
+  const appliedChangeId = change
+    ? await ctx.db.insert("chatProposalAppliedChanges", {
+        proposalId: proposal._id,
+        projectId: proposal.projectId,
+        ...change,
+      })
+    : undefined;
+  await ctx.db.patch(proposal._id, { state: "applied", appliedChangeId });
+}
+
 export const applyProposal = mutation({
   args: { proposalId: v.id("chatProposals") },
   handler: async (ctx, args) => {
@@ -1303,7 +1334,7 @@ export const applyProposal = mutation({
           appliedAt: now,
           appliedBy: applier._id,
         });
-    await ctx.db.patch(args.proposalId, { state: "applied", ...(appliedChange ? { appliedChange } : {}) });
+    await markAppliedWithRecord(ctx, proposal, appliedChange);
     await pruneSnapshots(ctx, report._id);
 
     return { applied: true, count };
@@ -1429,7 +1460,7 @@ export const markProposalApplied = mutation({
           // Review R2 P3-1: only the runs this card's pairs touched.
           touchedBy: proposalPairs(proposal),
         });
-    await ctx.db.patch(args.proposalId, { state: "applied", ...(appliedChange ? { appliedChange } : {}) });
+    await markAppliedWithRecord(ctx, proposal, appliedChange);
     await pruneSnapshots(ctx, report._id);
 
     return {
@@ -1554,7 +1585,8 @@ export const PROPOSAL_UNDO_TOO_LONG_MESSAGE =
 /**
  * Chat parity Phase B (W3): Undo an applied chat card. The only new card
  * transition, `applied -> pending`, by a person with report edit access.
- * Each recorded run (`appliedChange.hunks`) must still stand exactly once in
+ * Each recorded run (the hunks of the card's `chatProposalAppliedChanges`
+ * row, or of the deprecated on-card `appliedChange`) must still stand exactly once in
  * the report; then the old blocks go back, all or nothing, with the same
  * transaction shape as an apply: a `pre_chat_undo` snapshot, the content
  * with its hash, the revision bump and its claim record, the deterministic
@@ -1569,7 +1601,16 @@ export const undoProposal = mutation({
     await assertCardConversationLive(ctx, proposal);
     // report.editProse: undoing writes report prose.
     const { user } = await requireReportEditAccess(ctx, proposal.projectId);
-    if (proposal.state !== "applied" || !proposal.appliedChange) {
+    // The record lives in its own row; a row with the deprecated on-card
+    // record (never deployed; tests and local data) still undoes from it.
+    const stored =
+      proposal.state === "applied" && proposal.appliedChangeId !== undefined
+        ? await ctx.db.get(proposal.appliedChangeId)
+        : null;
+    const record = stored && stored.proposalId === proposal._id ? stored : null;
+    const hunks =
+      proposal.state !== "applied" ? undefined : (record?.hunks ?? proposal.appliedChange?.hunks);
+    if (!hunks) {
       domainError("INVALID_STATE", "Only an applied suggestion with a recorded change can be undone.");
     }
     const report = await ctx.db.get(proposal.reportId);
@@ -1578,7 +1619,7 @@ export const undoProposal = mutation({
     }
     const current = parseReportDocument(report.content);
     if (!current) domainError("INVALID_INPUT", "The report content is not valid editor JSON");
-    const undone = undoAppliedHunks(current, proposal.appliedChange.hunks);
+    const undone = undoAppliedHunks(current, hunks);
     if (!undone.ok) domainError("PROPOSAL_UNDO_CONFLICT", PROPOSAL_UNDO_CONFLICT_MESSAGE);
 
     const content = JSON.stringify(undone.doc);
@@ -1609,8 +1650,11 @@ export const undoProposal = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
+    // The record is spent: applying the card again writes a new one.
+    if (record) await ctx.db.delete(record._id);
     await ctx.db.patch(proposal._id, {
       state: "pending",
+      appliedChangeId: undefined,
       appliedChange: undefined,
       undoneAt: now,
       undoneBy: user._id,

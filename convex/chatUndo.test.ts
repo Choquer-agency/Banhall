@@ -2,7 +2,7 @@
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { APPLIED_CHANGE_MAX_CHARS } from "./lib/appliedChange";
@@ -46,8 +46,8 @@ const ORIGINAL = {
 
 type Kind = "edit" | "replacements" | "bulk";
 
-async function setup(doc: unknown = ORIGINAL) {
-  const t = convexTest(schema, modules);
+async function setup(doc: unknown = ORIGINAL, options: { transactionLimits?: boolean } = {}) {
+  const t = convexTest({ schema, modules, transactionLimits: options.transactionLimits ?? false });
   agentTest.register(t);
   const content = JSON.stringify(doc);
   const ids = await t.run(async (ctx) => {
@@ -108,7 +108,25 @@ async function setup(doc: unknown = ORIGINAL) {
     t.run((ctx) => ctx.db.query("reportSnapshots").withIndex("by_reportId", (q) => q.eq("reportId", ids.reportId)).collect());
   const listed = async (id: Id<"chatProposals">) =>
     (await owner.query(api.chatV2.listProposals, { threadId: "undo-thread" })).find((row) => row._id === id)!;
-  return { t, ...ids, content, owner, propose, report, proposal, setContent, snapshots, listed };
+  /** The card's Undo record, through its pointer. */
+  const record = (id: Id<"chatProposals">) =>
+    t.run(async (ctx) => {
+      const card = (await ctx.db.get(id))!;
+      return card.appliedChangeId ? await ctx.db.get(card.appliedChangeId) : null;
+    });
+  /** Every Undo record of a card, by index (a leftover would show here). */
+  const records = (id: Id<"chatProposals">) =>
+    t.run((ctx) =>
+      ctx.db.query("chatProposalAppliedChanges").withIndex("by_proposalId", (q) => q.eq("proposalId", id)).collect()
+    );
+  /** Replaces the hunks of a card's Undo record. */
+  const setHunks = (id: Id<"chatProposals">, hunks: (current: Array<{ before: string; after: string }>) => Array<{ before: string; after: string }>) =>
+    t.run(async (ctx) => {
+      const card = (await ctx.db.get(id))!;
+      const row = (await ctx.db.get(card.appliedChangeId!))!;
+      await ctx.db.patch(row._id, { hunks: hunks(row.hunks) });
+    });
+  return { t, ...ids, content, owner, propose, report, proposal, setContent, snapshots, listed, record, records, setHunks };
 }
 
 async function errorCode(call: () => Promise<unknown>): Promise<string> {
@@ -137,12 +155,17 @@ describe("undoProposal", () => {
     expect(applied.revisionNumber).toBe(1);
     const card = await f.proposal(id);
     expect(card.state).toBe("applied");
-    expect(card.appliedChange).toMatchObject({ revisionNumber: 1, appliedBy: f.ownerId });
-    expect(card.appliedChange!.hunks).toHaveLength(1);
+    // The record sits in its own row; the card holds only the pointer.
+    expect(card.appliedChange).toBeUndefined();
+    expect(card.appliedChangeId).toBeDefined();
+    const record = await f.record(id);
+    expect(record).toMatchObject({ proposalId: id, projectId: f.projectId, revisionNumber: 1, appliedBy: f.ownerId });
+    expect(record!.hunks).toHaveLength(1);
     // The browser learns only whether it can be undone, never the hunks.
     const before = await f.listed(id);
     expect(before.undoable).toBe(true);
     expect(before).not.toHaveProperty("appliedChange");
+    expect(before).not.toHaveProperty("appliedChangeId");
 
     expect(await f.owner.mutation(api.chatV2.undoProposal, { proposalId: id })).toEqual({ undone: true, revisionNumber: 2 });
     const restored = await f.report();
@@ -151,6 +174,9 @@ describe("undoProposal", () => {
     const undone = await f.proposal(id);
     expect(undone.state).toBe("pending");
     expect(undone.appliedChange).toBeUndefined();
+    expect(undone.appliedChangeId).toBeUndefined();
+    // Undo spends the record.
+    expect(await f.records(id)).toEqual([]);
     expect(undone.undoneBy).toBe(f.ownerId);
     expect(typeof undone.undoneAt).toBe("number");
     const after = await f.listed(id);
@@ -224,8 +250,7 @@ describe("undoProposal", () => {
       { find: "The rig ran overnight.", replaceWith: "The rig ran for 14 hours." },
     ]);
     expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id })).toMatchObject({ applied: true, count: 2 });
-    const card = await f.proposal(id);
-    expect(card.appliedChange!.hunks).toHaveLength(2);
+    expect((await f.record(id))!.hunks).toHaveLength(2);
     await f.owner.mutation(api.chatV2.undoProposal, { proposalId: id });
     expect((await f.report()).content).toBe(f.content);
   });
@@ -262,7 +287,7 @@ describe("undoProposal", () => {
     await f.owner.mutation(api.chatV2.markProposalApplied, {
       proposalId: id, content: JSON.stringify(stepped), expectedRevisionNumber: 0,
     });
-    expect((await f.proposal(id)).appliedChange!.hunks).toHaveLength(1);
+    expect((await f.record(id))!.hunks).toHaveLength(1);
     await f.owner.mutation(api.chatV2.undoProposal, { proposalId: id });
     const restored = JSON.parse((await f.report()).content);
     expect(restored.content[2]).toEqual(ORIGINAL.content[2]);
@@ -275,11 +300,9 @@ describe("undoProposal", () => {
     await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id });
     // The applied passage stays; the old text it puts back is large, and the
     // writer has since filled the report close to the limit.
+    const big = JSON.stringify([paragraph(text("x".repeat(300_000)))]);
+    await f.setHunks(id, (hunks) => [{ before: big, after: hunks[0]!.after }]);
     await f.t.run(async (ctx) => {
-      const card = (await ctx.db.get(id))!;
-      const hunk = card.appliedChange!.hunks[0]!;
-      const big = JSON.stringify([paragraph(text("x".repeat(300_000)))]);
-      await ctx.db.patch(id, { appliedChange: { ...card.appliedChange!, hunks: [{ before: big, after: hunk.after }] } });
       const report = (await ctx.db.get(f.reportId))!;
       const doc = JSON.parse(report.content);
       doc.content.push(paragraph(text("y".repeat(800_000))));
@@ -304,11 +327,9 @@ describe("undoProposal", () => {
     await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id });
     // Accented text: about 520,000 characters but over 1,000,000 bytes. The
     // Undo puts back a shorter passage, so the report gets smaller.
+    const small = JSON.stringify([paragraph(text("Short."))]);
+    await f.setHunks(id, (hunks) => [{ before: small, after: hunks[0]!.after }]);
     await f.t.run(async (ctx) => {
-      const card = (await ctx.db.get(id))!;
-      const hunk = card.appliedChange!.hunks[0]!;
-      const small = JSON.stringify([paragraph(text("Short."))]);
-      await ctx.db.patch(id, { appliedChange: { ...card.appliedChange!, hunks: [{ before: small, after: hunk.after }] } });
       const report = (await ctx.db.get(f.reportId))!;
       const doc = JSON.parse(report.content);
       doc.content.push(paragraph(text("é".repeat(520_000))));
@@ -323,10 +344,18 @@ describe("undoProposal", () => {
     const f = await setup();
     const id = await f.propose("edit", [{ find: TARGET, replaceWith: REWRITE }]);
     await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id });
+    const first = (await f.record(id))!._id;
     await f.owner.mutation(api.chatV2.undoProposal, { proposalId: id });
+    expect(await f.records(id)).toEqual([]);
     expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id })).toMatchObject({ applied: true, count: 1 });
     expect((await f.listed(id)).undoable).toBe(true);
+    // A new record, in a new row.
+    const second = await f.records(id);
+    expect(second).toHaveLength(1);
+    expect(second[0]!._id).not.toBe(first);
+    expect((await f.proposal(id)).appliedChangeId).toBe(second[0]!._id);
     await f.owner.mutation(api.chatV2.undoProposal, { proposalId: id });
+    expect(await f.records(id)).toEqual([]);
     expect((await f.report()).content).toBe(f.content);
     expect((await f.report()).revisionNumber).toBe(4);
     // A pending card can also be dismissed after Undo.
@@ -383,7 +412,8 @@ describe("undoProposal", () => {
     const f = await setup({ type: "doc", content: [paragraph(text(`Start. ${long}`))] });
     const id = await f.propose("edit", [{ find: "Start.", replaceWith: "Begin." }]);
     expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id })).toMatchObject({ applied: true });
-    expect((await f.proposal(id)).appliedChange).toBeUndefined();
+    expect((await f.proposal(id)).appliedChangeId).toBeUndefined();
+    expect(await f.records(id)).toEqual([]);
     expect((await f.listed(id)).undoable).toBe(false);
     expect(await errorCode(() => f.owner.mutation(api.chatV2.undoProposal, { proposalId: id }))).toBe("INVALID_STATE");
   });
@@ -395,6 +425,86 @@ describe("undoProposal", () => {
       await ctx.db.patch(id, { agentThreadId: "research:session" });
     });
     await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id });
-    expect((await f.proposal(id)).appliedChange).toBeUndefined();
+    expect((await f.proposal(id)).appliedChangeId).toBeUndefined();
+    expect(await f.records(id)).toEqual([]);
+  });
+
+  it("still undoes a card that holds the deprecated on-card record", async () => {
+    const f = await setup();
+    const id = await f.propose("edit", [{ find: TARGET, replaceWith: REWRITE }]);
+    await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id });
+    await moveRecordOntoCard(f.t, id);
+    const listed = await f.listed(id);
+    expect(listed.undoable).toBe(true);
+    expect(listed).not.toHaveProperty("appliedChange");
+    await f.owner.mutation(api.chatV2.undoProposal, { proposalId: id });
+    expect((await f.report()).content).toBe(f.content);
+    const undone = await f.proposal(id);
+    expect(undone.state).toBe("pending");
+    expect(undone.appliedChange).toBeUndefined();
+  });
+});
+
+/** Puts a card's Undo record back on the card row, as Phase B first stored it. */
+async function moveRecordOntoCard(t: Awaited<ReturnType<typeof setup>>["t"], id: Id<"chatProposals">) {
+  await t.run(async (ctx) => {
+    const card = (await ctx.db.get(id))!;
+    const row = (await ctx.db.get(card.appliedChangeId!))!;
+    const { revisionNumber, appliedAt, appliedBy, hunks } = row;
+    await ctx.db.delete(row._id);
+    await ctx.db.patch(id, { appliedChangeId: undefined, appliedChange: { revisionNumber, appliedAt, appliedBy, hunks } });
+  });
+}
+
+describe("the card lists never read the Undo record", () => {
+  // 40 applied cards with records near the 600 KB cap: about 24 MB of hunks,
+  // well past one transaction's 16 MiB read limit.
+  const CARDS = 40;
+  const hunk = { before: "b".repeat(300_000), after: "a".repeat(300_000) };
+
+  async function bigConversation() {
+    const f = await setup(ORIGINAL, { transactionLimits: true });
+    const ids: Array<Id<"chatProposals">> = [];
+    for (let card = 0; card < CARDS; card += 1) {
+      ids.push(
+        await f.t.run(async (ctx) => {
+          // Bulk cards with a checklist item, so the coverage reads use them.
+          const proposalId = await ctx.db.insert("chatProposals", {
+            agentThreadId: "undo-thread", promptMessageId: "undo-prompt",
+            projectId: f.projectId, reportId: f.reportId,
+            kind: "replacements", replacements: [{ find: `Fictional ${card}`, replaceWith: `Changed ${card}` }],
+            requireUniqueTargets: true, state: "applied", createdAt: Date.now(),
+          });
+          const appliedChangeId = await ctx.db.insert("chatProposalAppliedChanges", {
+            proposalId, projectId: f.projectId, revisionNumber: card + 1, appliedAt: Date.now(), appliedBy: f.ownerId, hunks: [hunk],
+          });
+          await ctx.db.patch(proposalId, { appliedChangeId });
+          await ctx.db.insert("chatProposalItems", {
+            proposalId, projectId: f.projectId, itemId: `item-${card}`, status: "resolved", reason: "Fictional reason", createdAt: Date.now(),
+          });
+          return proposalId;
+        })
+      );
+    }
+    return { ...f, ids };
+  }
+
+  it("lists every undoable card, and the coverage and context reads stay within the limits", async () => {
+    const f = await bigConversation();
+    const listed = await f.owner.query(api.chatV2.listProposals, { threadId: "undo-thread" });
+    expect(listed).toHaveLength(CARDS);
+    expect(listed.every((card) => card.undoable === true)).toBe(true);
+    expect(listed.some((card) => "appliedChangeId" in card || "appliedChange" in card)).toBe(false);
+
+    const coverage = await f.t.query(internal.chatV2.getThreadCoverageState, { agentThreadId: "undo-thread" });
+    expect(coverage.items).toHaveLength(CARDS);
+    expect(await f.t.query(internal.chatV2.getThreadItemCoverage, { agentThreadId: "undo-thread" })).toHaveLength(CARDS);
+    await f.t.query(internal.chatV2.getChatContextV2, { reportId: f.reportId, agentThreadId: "undo-thread" });
+  });
+
+  it("would pass the read limit with the records on the card rows, as before", async () => {
+    const f = await bigConversation();
+    for (const id of f.ids) await moveRecordOntoCard(f.t, id);
+    await expect(f.owner.query(api.chatV2.listProposals, { threadId: "undo-thread" })).rejects.toThrow(/Read too much data/);
   });
 });

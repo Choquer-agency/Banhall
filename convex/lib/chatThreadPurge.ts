@@ -11,8 +11,9 @@ import type { Doc, TableNames } from "../_generated/dataModel";
  * thread and the row itself. `aiUsage` rows stay: they are billing records.
  *
  * Review R2 P2-1: a run deletes at most PURGE_PAGE_ROWS rows and reads
- * about PURGE_MAX_BYTES_READ bytes (one row past it at most) (applied cards carry `appliedChange` of up to
- * 600 KB), the budget project erasure uses. Every run is idempotent: it
+ * about PURGE_MAX_BYTES_READ bytes (one row past it at most), the budget
+ * project erasure uses. An applied card's Undo record
+ * (`chatProposalAppliedChanges`, up to 600 KB) is charged by its own size. Every run is idempotent: it
  * starts from whatever rows are left. While the row stands, a failed run is
  * resumed by `chatV2.resumeStalledThreadPurges`, and project erasure still
  * reaches every child through it.
@@ -101,7 +102,8 @@ async function purgeStep(
         .query("chatTurns")
         .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", agentThreadId)), budget);
     case "proposals": {
-      // A card goes after its checklist items and wording edit events.
+      // A card goes after its checklist items, wording edit events and Undo
+      // record.
       while (!spent(budget)) {
         const proposal = await ctx.db
           .query("chatProposals")
@@ -117,6 +119,10 @@ async function purgeStep(
           .query("proposalWordingEditEvents")
           .withIndex("by_proposalId", (q) => q.eq("proposalId", proposal._id));
         if (!(await deleteRows(ctx, events, budget))) return false;
+        const undoRecords = ctx.db
+          .query("chatProposalAppliedChanges")
+          .withIndex("by_proposalId", (q) => q.eq("proposalId", proposal._id));
+        if (!(await deleteRows(ctx, undoRecords, budget))) return false;
         if (spent(budget)) return false;
         await ctx.db.delete(proposal._id);
         budget.rows -= 1;

@@ -1978,11 +1978,12 @@ export default defineSchema({
       v.literal("stale")
     ),
     createdAt: v.number(),
-    // Chat parity Phase B (W3): what an apply changed, so a human can undo it
-    // (`chatV2.undoProposal`). Runs of top-level Tiptap blocks as JSON
-    // strings, before and after the apply. Absent on cards applied before
-    // this field existed and on changes too large to keep; such cards offer
-    // no Undo. Cleared by Undo. Never sent to the browser.
+    // Deprecated, kept by widen-only discipline. Phase B first kept the Undo
+    // record here, on the card row; it now lives in
+    // `chatProposalAppliedChanges` (the pointer below), so card readers never
+    // load the hunks. Nothing writes this field. `chatV2.undoProposal` still
+    // reads it when a row has it, and `listProposals` never sends it to the
+    // browser.
     appliedChange: v.optional(
       v.object({
         revisionNumber: v.number(),
@@ -1991,6 +1992,10 @@ export default defineSchema({
         hunks: v.array(v.object({ before: v.string(), after: v.string() })),
       })
     ),
+    // The card's Undo record: set by an apply that kept one, cleared by Undo.
+    // Readers learn whether a card can be undone from this pointer alone and
+    // never read the record.
+    appliedChangeId: v.optional(v.id("chatProposalAppliedChanges")),
     undoneAt: v.optional(v.number()),
     undoneBy: v.optional(v.id("users")),
   })
@@ -2060,6 +2065,24 @@ export default defineSchema({
     .index("by_proposalId", ["proposalId"])
     // Enumerating a project's items without a table scan: the AD-19 cascade
     // when it lands, and any later reader of the Completion Report.
+    .index("by_projectId", ["projectId"]),
+
+  // What an apply changed, so a human can undo it (`chatV2.undoProposal`):
+  // runs of top-level Tiptap blocks as JSON strings, before and after the
+  // apply, up to 600 KB. One row per applied card that kept a record, pointed
+  // to by `chatProposals.appliedChangeId`. It sits apart from the card so the
+  // card lists never read it: only Undo, conversation delete and project
+  // erasure do. Undo deletes it; applying the card again writes a new one.
+  // Never sent to the browser.
+  chatProposalAppliedChanges: defineTable({
+    proposalId: v.id("chatProposals"),
+    projectId: v.id("projects"),
+    revisionNumber: v.number(),
+    appliedAt: v.number(),
+    appliedBy: v.id("users"),
+    hunks: v.array(v.object({ before: v.string(), after: v.string() })),
+  })
+    .index("by_proposalId", ["proposalId"])
     .index("by_projectId", ["projectId"]),
 
   // Chat parity Phase B (W3): one row per web search the report chat actually

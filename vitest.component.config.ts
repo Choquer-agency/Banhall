@@ -10,6 +10,8 @@ const pointerSuites = [
   "src/lib/components/workspace/WorkspaceChromePointer.component.test.ts",
   // Chat parity Phase C (W3): the report chat's measured 44 px floors.
   "src/lib/components/chat/ChatTouchTargets.component.test.ts",
+  // The editor's selection toolbar (Vet, Research and the format buttons).
+  "src/lib/components/editor/EditorToolbarTouchTargets.component.test.ts",
 ];
 const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
 
