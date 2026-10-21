@@ -3784,6 +3784,7 @@ The lead decisions are reported to the owner and can be reversed:
 **Live browser test (owner request 2026-10-20).** `scripts/chat-live` is an opt-in, billable test of the report chat in a headless browser against the app on localhost and an isolated local Convex backend loaded with a snapshot of the source deployment (read only there).
 - It sets the provider keys and local auth values, then restarts the local backend. A local backend's Node actions (web search, PDF page counts) only see environment values set before they first ran.
 - It checks web search through the Node action before any scenario, and deletes every copy of the snapshot, the throwaway account and the screenshots at the end.
+- Result 2026-10-21 on `bea99ae2`: all 17 scenarios pass in one run, with web search working on the first try after the restart. Scenarios that wait on a reply use their own conversation. Google's favicon service answers 404, with its default globe image, for a cited site that has no icon; the test ignores that console line only.
 
 **Migration and compatibility.** Widen only, with no backfill:
 - `projectDocuments.pageCount` and `pageCountStorageId` (the count is trusted only while that file is still the document's original);

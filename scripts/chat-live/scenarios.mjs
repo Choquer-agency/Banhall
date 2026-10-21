@@ -6,10 +6,16 @@ import { chromium } from "playwright";
 
 const DEVIATION_REQUEST = "List the deviations in this report, then fix them one Line at a time.";
 
+// The Assistant stays mounted when closed; the page marks its dialog inert.
+async function assistantOpen(page) {
+  const dialog = page.locator("[role=dialog][aria-label='AI assistant']").first();
+  return (await dialog.count()) > 0 && (await dialog.evaluate((el) => !el.inert));
+}
+
 async function openPanel(page, ctx) {
   await page.goto(`${ctx.base}/project/${ctx.projectId}`);
   await page.locator("button[aria-label^='Assistant']").first().waitFor({ timeout: 60_000 });
-  if ((await page.locator("[data-assistant-panel]").count()) === 0) {
+  if (!(await assistantOpen(page))) {
     await page.locator("button[aria-label^='Assistant']").first().click();
   }
   await page.locator("textarea").first().waitFor({ timeout: 30_000 });
@@ -153,15 +159,21 @@ const SCENARIOS = [
   {
     name: "edit-switcher",
     async run(page, ctx) {
+      // Its own conversation, so no other reply is running in it.
       await openPanel(page, ctx);
+      await newConversation(page);
+      await send(page, "In one sentence, what is Line 242 about?");
+      await waitIdle(page);
+      await page.locator("[role=log]").getByText("In one sentence, what is Line 242 about?").first().hover();
       await page.getByRole("button", { name: "Edit", exact: true }).first().click();
       const box = page.getByRole("textbox", { name: "Edit your message" });
-      await box.fill("List the deviations in Line 246 only, and say how many there are. Do not propose edits.");
-      await box.locator("xpath=ancestor::form[1]").getByRole("button", { name: "Send", exact: true }).click();
+      await box.fill("In one sentence, what is Line 246 about? Then say whether I asked you anything else earlier in this conversation.");
+      await page.locator("[data-message-editor]").getByRole("button", { name: "Send", exact: true }).click();
       await waitIdle(page);
       const counts = await page.getByText(/^\d+ \/ \d+$/).evaluateAll((els) => els.map((e) => e.innerText.trim()));
       expect(counts.includes("2 / 2"), `no 2 / 2 switcher (${counts.join(", ")})`);
       expect(await page.getByText("Edited by you").count(), "no author line on the edit");
+      expect(!/Line 242 (is|covers|describes)/i.test((await transcript(page)).slice(-500)), "the edited reply still saw the original question's answer");
       await page.getByRole("button", { name: "Previous response" }).first().click();
       await page.waitForTimeout(3000);
       const back = await page.getByText(/^\d+ \/ \d+$/).evaluateAll((els) => els.map((e) => e.innerText.trim()));
@@ -285,8 +297,8 @@ const SCENARIOS = [
       await openPanel(page, ctx);
       await page.waitForTimeout(3000);
       await page.locator("button[aria-label^='Assistant']").first().click();
-      const thread = currentThread(ctx);
-      ctx.run("chatV2:sendMessage", { reportId: ctx.reportId, content: "In one short sentence, what is Line 242 about?", threadId: thread.agentThreadId }, ctx.me.authId);
+      // A new conversation started outside this page, so nothing else runs in it.
+      ctx.run("chatV2:sendMessage", { reportId: ctx.reportId, content: "In one short sentence, what is Line 242 about?", newThread: true }, ctx.me.authId);
       let label = "";
       for (let i = 0; i < 24 && !/ready/.test(label); i++) {
         await page.waitForTimeout(5000);
@@ -316,41 +328,58 @@ const SCENARIOS = [
   {
     name: "esc-keeps-options",
     async run(page, ctx) {
+      // A new, unsaved conversation: nothing is running, so the options are enabled.
       await openPanel(page, ctx);
-      await page.getByRole("button", { name: "Message options" }).click();
-      await page.getByRole("menuitemcheckbox", { name: "Use Brain examples for this message" }).click();
+      await newConversation(page);
+      const toggleBrain = async () => {
+        await page.getByRole("button", { name: "Message options" }).click();
+        await page.getByRole("menuitemcheckbox", { name: "Use Brain examples for this message" }).click();
+        await page.waitForTimeout(300);
+        if (await page.getByRole("menu").count()) await page.keyboard.press("Escape");
+        await page.evaluate(() => document.activeElement?.blur());
+      };
+      await toggleBrain();
+      expect(await page.locator("[data-assistant-draft]").count(), "Brain on did not count as a pending choice");
       await page.keyboard.press("Escape");
-      await page.evaluate(() => document.activeElement?.blur());
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(800);
-      expect(await page.locator("[data-assistant-panel]").count(), "Esc closed the Assistant while Brain was on");
+      await page.waitForTimeout(1500);
+      expect(await assistantOpen(page), "Esc closed the Assistant while Brain was on");
       // The negative control: with Brain off and nothing typed, Esc closes it.
-      await page.getByRole("button", { name: "Message options" }).click();
-      await page.getByRole("menuitemcheckbox", { name: "Use Brain examples for this message" }).click();
+      await toggleBrain();
       await page.keyboard.press("Escape");
-      await page.evaluate(() => document.activeElement?.blur());
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(800);
-      expect((await page.locator("[data-assistant-panel]").count()) === 0, "Esc did not close the Assistant with nothing pending");
+      let open = true;
+      for (let i = 0; i < 10 && open; i++) {
+        await page.waitForTimeout(500);
+        open = await assistantOpen(page);
+      }
+      expect(!open, "Esc did not close the Assistant with nothing pending");
       return "Esc keeps the Assistant open while Brain is on, and closes it otherwise";
     },
   },
   {
     name: "admin-delete",
     async run(page, ctx) {
+      // A conversation whose reply has finished, past the 10 s wait after its action ended.
+      const sent = ctx.run("chatV2:sendMessage", { reportId: ctx.reportId, content: "Reply with one short sentence about Line 246.", newThread: true }, ctx.me.authId);
+      for (let i = 0; i < 36; i++) {
+        await new Promise((r) => setTimeout(r, 5000));
+        const turns = ctx.run("chatV2:listTurns", { threadId: sent.threadId, startOrder: 0, endOrder: 9999 }, ctx.me.authId);
+        if (turns.length && turns.every((t) => !["queued", "running"].includes(t.status))) break;
+      }
+      await new Promise((r) => setTimeout(r, 12_000));
+      const title = ctx.run("chatV2:listThreads", { reportId: ctx.reportId }, ctx.me.authId).find((t) => t.agentThreadId === sent.threadId)?.title;
       await openPanel(page, ctx);
-      const thread = currentThread(ctx);
-      await page.waitForTimeout(11_000);
       await page.getByRole("button", { name: /Conversation menu/i }).first().click();
       await page.getByRole("menuitem", { name: /Conversation actions/i }).first().hover();
       await page.getByRole("menuitem", { name: "Delete permanently" }).first().click();
       const dialog = page.getByRole("alertdialog");
-      expect(/Delete this conversation for everyone\? This can't be undone\./.test(await dialog.innerText()), "wrong delete dialog");
+      const text = await dialog.innerText();
+      expect(/Delete this conversation for everyone\? This can't be undone\./.test(text), "wrong delete dialog");
+      expect(title && text.includes(title.slice(0, 30)), "the dialog names a different conversation");
       await dialog.getByRole("button", { name: "Delete", exact: true }).click();
       let status = "";
       for (let i = 0; i < 12 && status !== "missing"; i++) {
         await page.waitForTimeout(5000);
-        status = ctx.run("chatV2:threadStatus", { threadId: thread.agentThreadId }, ctx.me.authId);
+        status = ctx.run("chatV2:threadStatus", { threadId: sent.threadId }, ctx.me.authId);
       }
       expect(status === "missing", `conversation status after delete: ${status}`);
       return "deleted through its dialog";
@@ -372,13 +401,36 @@ export async function runScenarios(ctx) {
     await login.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 60_000 });
     await login.close();
     results.push({ name: "sign-in", ok: true, detail: "signed in through the login page" });
+    // A fresh worktree's dev server bundles dependencies as pages first ask
+    // for them, and answers requests made before a rebundle with 504
+    // "Outdated Optimize Dep". Open the report, the Assistant and its menu
+    // until a load is clean, so no scenario sees that dev-only error.
+    const warm = await context.newPage();
+    for (let attempt = 0; attempt < 4; attempt++) {
+      let outdated = false;
+      const onResponse = (r) => { if (r.status() === 504) outdated = true; };
+      warm.on("response", onResponse);
+      await openPanel(warm, ctx).catch(() => {});
+      await warm.getByRole("button", { name: "Message options" }).click({ timeout: 10_000 }).catch(() => {});
+      await warm.keyboard.press("Escape");
+      await warm.waitForTimeout(3000);
+      warm.off("response", onResponse);
+      if (!outdated) break;
+    }
+    await warm.close();
     for (const scenario of SCENARIOS) {
       if (ctx.only && !ctx.only.includes(scenario.name)) continue;
       const page = await context.newPage();
       const errors = [];
       page.on("pageerror", (e) => errors.push(e.message.slice(0, 160)));
       page.on("console", (m) => {
-        if (m.type() === "error") errors.push(m.text().slice(0, 160));
+        if (m.type() !== "error") return;
+        const url = m.location()?.url ?? "";
+        // Google's favicon service answers 404, with its default globe image
+        // as the body, for a source site that has no icon. The writer still
+        // sees an icon; only the browser console notes the status.
+        if (/^https:\/\/(www\.google\.com\/s2\/favicons|t\d\.gstatic\.com\/faviconV2)\?/.test(url)) return;
+        errors.push(`${m.text().slice(0, 160)}${url ? ` (${url.slice(0, 120)})` : ""}`);
       });
       try {
         const detail = await scenario.run(page, ctx);
