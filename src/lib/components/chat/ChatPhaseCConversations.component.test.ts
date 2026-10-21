@@ -79,6 +79,10 @@ afterEach(() => {
 
 describe("conversation menu", () => {
   it("renames inline: Enter saves, Escape cancels", async () => {
+    // The capture size is set before anything is focused: resizing the test
+    // frame between focusing the field and pressing a key can move keyboard
+    // focus out of the frame in a long suite run.
+    await page.viewport(480, 760);
     seedConversation();
     await render(AgentChatPanel, { reportId, projectId });
     await menu().click();
@@ -87,7 +91,6 @@ describe("conversation menu", () => {
     const name = page.getByRole("textbox", { name: "Conversation name", exact: true });
     await expect.element(name).toHaveValue("Kiln drying review");
     await expect.element(name).toHaveFocus();
-    await page.viewport(480, 760);
     await page.screenshot({ path: `${CAPTURES}/rename-inline.png` });
     await userEvent.keyboard("{Escape}");
     // The viewport change and capture above can keep a busy browser behind
