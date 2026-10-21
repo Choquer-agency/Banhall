@@ -675,13 +675,22 @@ export const CHAT_THINKING = {
 };
 
 /**
+ * Owner, 2026-10-21: edits must be thorough and realistic, so every chat step
+ * thinks at xhigh, one level above the model default (high on Sonnet 5; an
+ * unset effort would be only medium on Opus 5.5). xhigh is the level Anthropic
+ * recommends for multistep tool work. The step after a long list result and
+ * the recovery pass keep their own, lower levels (below).
+ */
+export const CHAT_EFFORT = "xhigh" as const;
+
+/**
  * Anthropic options for every chat step: thinking as above, plus automatic
  * prompt caching (a top-level cache_control) that follows the end of the
  * request, so step two of a tool turn reads step one's prefix. It is the
  * fourth breakpoint beside the three `arrangeChatContext` places.
  */
 export const CHAT_PROVIDER_OPTIONS = {
-  anthropic: { ...CHAT_THINKING, cacheControl: CHAT_CACHE_CONTROL.toolSteps },
+  anthropic: { ...CHAT_THINKING, effort: CHAT_EFFORT, cacheControl: CHAT_CACHE_CONTROL.toolSteps },
 };
 
 /**
@@ -690,9 +699,11 @@ export const CHAT_PROVIDER_OPTIONS = {
  * worst case for one turn in a chat rail. Sonnet 5 defaults to high effort and
  * adaptive thinking can eat a tight budget, truncating the reply with
  * finishReason "length" — so this leaves real headroom for a dense report edit
- * rather than trimming to the smallest plausible number.
+ * rather than trimming to the smallest plausible number. 2026-10-21: 32768,
+ * up from 16384, so steps at xhigh (CHAT_EFFORT) can think deeply and still
+ * reach their tool call or answer.
  */
-export const CHAT_MAX_OUTPUT_TOKENS = 16384;
+export const CHAT_MAX_OUTPUT_TOKENS = 32768;
 
 /**
  * Model requests per pass. Phase B (2026-10-20): 8, up from 5, because the
@@ -712,10 +723,12 @@ export const CHAT_RECOVERY_MAX_STEPS = 5;
  * Phase B (2026-10-20): a new step does not start with less than this left
  * in the action window. A pass stopped for time ends exactly like the step
  * limit: the closing note and a `step_limit` Continue offer. Review R1 P2-1:
- * 150 seconds, the same as `CHAT_RECOVERY_MIN_REMAINING_MS`, because a step
- * that thinks to the output limit took 140 to 168 seconds.
+ * 150 seconds, because a step that thinks to the output limit took 140 to
+ * 168 seconds. 2026-10-21: 300 seconds, since the limit doubled to 32768
+ * tokens and steps think at xhigh. The low-effort recovery pass keeps its
+ * own 150 seconds (CHAT_RECOVERY_MIN_REMAINING_MS): it plans briefly.
  */
-export const CHAT_MIN_STEP_REMAINING_MS = 150_000;
+export const CHAT_MIN_STEP_REMAINING_MS = 300_000;
 
 /**
  * The stop condition for time: true once less than CHAT_MIN_STEP_REMAINING_MS
@@ -785,8 +798,11 @@ export const CHAT_STEP_LIMIT_REPLY_OTHER =
  * call) never fired and the writer read a generic "Try again". A step that
  * follows a list result now thinks at medium effort, and a step that still
  * thinks to the limit gets one recovery pass (see `streamChatReply`).
+ * 2026-10-21 (owner: edits thorough and realistic): high, up from medium,
+ * one level under the other steps' xhigh, with the output limit doubled to
+ * 32768 so the deeper planning has room to reach its tool call.
  */
-export const CHAT_LIST_STEP_EFFORT = "medium" as const;
+export const CHAT_LIST_STEP_EFFORT = "high" as const;
 
 /** The read-only tools whose long result the next step has to plan over. */
 const LIST_TOOLS: ReadonlySet<string> = new Set(["deviationInventory", "compareReferencePd"]);
@@ -806,7 +822,7 @@ export const CHAT_LIST_STEP_PROVIDER_OPTIONS = {
  * The recovery pass thinks at low effort, with the same cache breakpoints. A
  * change of effort between requests rewrites the cached message prefix (the
  * tools and system prompt stay cached), so a recovered turn pays one more
- * cache write; so does the medium-effort step after a list result.
+ * cache write; so does the step after a list result, at its own effort.
  */
 export const CHAT_RECOVERY_PROVIDER_OPTIONS = {
   anthropic: { ...CHAT_PROVIDER_OPTIONS.anthropic, effort: "low" as const },
@@ -2076,7 +2092,7 @@ export const streamChatReply = internalAction({
 
       const runPass = async (pass: {
         messages: ModelMessage[];
-        providerOptions: typeof CHAT_PROVIDER_OPTIONS;
+        providerOptions: typeof CHAT_PROVIDER_OPTIONS | typeof CHAT_RECOVERY_PROVIDER_OPTIONS;
         listStepProviderOptions: typeof CHAT_LIST_STEP_PROVIDER_OPTIONS | undefined;
         /** The effort the pass's steps are sent with, for the usage rows. */
         effort: string;
@@ -2291,7 +2307,7 @@ export const streamChatReply = internalAction({
         messages: turnMessages,
         providerOptions: CHAT_PROVIDER_OPTIONS,
         listStepProviderOptions: CHAT_LIST_STEP_PROVIDER_OPTIONS,
-        effort: "default",
+        effort: CHAT_EFFORT,
         maxSteps: CHAT_MAX_STEPS,
       });
       // A timer that fires after a tool step leaves the last step's finish

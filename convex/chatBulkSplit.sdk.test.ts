@@ -486,7 +486,7 @@ describe("a step that thinks to the output limit", () => {
   const thinkingSignatures = (body: Body) =>
     JSON.stringify(body.messages).match(/sig-msg_\d+/g) ?? [];
 
-  test("plans at medium effort after the inventory, then recovers with one low-effort pass", async () => {
+  test("plans at high effort after the inventory, then recovers with one low-effort pass", async () => {
     const f = await setup();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
@@ -507,10 +507,10 @@ describe("a step that thinks to the output limit", () => {
       (passes.mock.calls[call]?.[3] as { contextOptions?: { recentMessages?: number } } | undefined)
         ?.contextOptions?.recentMessages;
     expect(windowOf(1)).toBe((windowOf(0) ?? 0) + 1);
-    // The first step keeps the model's default effort; the step that plans
-    // over the inventory thinks at medium; the recovery pass at low.
-    expect(effortOf(sent[0]!)).toBeUndefined();
-    expect(effortOf(sent[1]!)).toBe("medium");
+    // 2026-10-21 (owner: thorough edits): the first step thinks at xhigh;
+    // the step that plans over the inventory at high; the recovery pass at low.
+    expect(effortOf(sent[0]!)).toBe("xhigh");
+    expect(effortOf(sent[1]!)).toBe("high");
     expect(effortOf(sent[2]!)).toBe("low");
     expect(effortOf(sent[3]!)).toBe("low");
     // The recovery pass is told what happened and to do the first part, and
@@ -615,7 +615,7 @@ describe("step limit and time stop", () => {
     expect(CHAT_MAX_STEPS).toBe(8);
     expect(CHAT_RECOVERY_MAX_STEPS).toBe(5);
     // Review R1 P2-1: as much as the recovery pass needs.
-    expect(CHAT_MIN_STEP_REMAINING_MS).toBe(150_000);
+    expect(CHAT_MIN_STEP_REMAINING_MS).toBe(300_000);
   });
 
   test("a pass stopped for time ends exactly like the step limit", async () => {

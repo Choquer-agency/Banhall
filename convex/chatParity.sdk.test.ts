@@ -320,7 +320,7 @@ describe("Stop while the model thinks", () => {
       stopReason: "aborted",
       inputTokens: 900,
       outputTokens: Math.ceil("Planning the Line 244 revision.".length / 3),
-      effort: "default",
+      effort: "xhigh",
     });
   });
 });
@@ -457,8 +457,8 @@ describe("progress and measurement", () => {
 
     const rows = (await f.usageRows()).sort((left, right) => (left.durationMs ?? 0) - (right.durationMs ?? 0));
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ durationMs: 300, firstTokenMs: 300, stopReason: "end_turn", effort: "medium" });
-    expect(rows[1]).toMatchObject({ durationMs: 700, firstTokenMs: 700, stopReason: "tool_use", effort: "default" });
+    expect(rows[0]).toMatchObject({ durationMs: 300, firstTokenMs: 300, stopReason: "end_turn", effort: "high" });
+    expect(rows[1]).toMatchObject({ durationMs: 700, firstTokenMs: 700, stopReason: "tool_use", effort: "xhigh" });
     expect(rows.every((row) => row.partial === undefined)).toBe(true);
 
     const timing = info.mock.calls.filter((call) => call[0] === "chat step timing").map((call) => call[1]);
@@ -821,7 +821,7 @@ describe("review P3-4: measurements belong to their own step", () => {
     const held = rows.find((row) => row.outputTokens === CHAT_MAX_OUTPUT_TOKENS);
     const stopped = rows.find((row) => row.partial === true);
     expect(rows).toHaveLength(2);
-    expect(held).toMatchObject({ stopReason: "max_tokens", effort: "default" });
+    expect(held).toMatchObject({ stopReason: "max_tokens", effort: "xhigh" });
     expect(held?.partial).toBeUndefined();
     expect(stopped).toMatchObject({ stopReason: "aborted", outputTokens: Math.ceil("Splitting the revision.".length / 3) });
   });

@@ -151,9 +151,12 @@ afterEach(() => {
 });
 
 describe("the time stop", () => {
-  test("needs as much of the window as the recovery pass", () => {
-    expect(CHAT_MIN_STEP_REMAINING_MS).toBe(150_000);
-    expect(CHAT_MIN_STEP_REMAINING_MS).toBe(CHAT_RECOVERY_MIN_REMAINING_MS);
+  // 2026-10-21: a step at xhigh may think to the doubled 32768-token limit,
+  // so it needs 300 seconds; the low-effort recovery pass plans briefly and
+  // keeps 150.
+  test("needs room for a step that thinks to the limit, more than the recovery pass", () => {
+    expect(CHAT_MIN_STEP_REMAINING_MS).toBe(300_000);
+    expect(CHAT_RECOVERY_MIN_REMAINING_MS).toBe(150_000);
   });
 });
 
