@@ -210,6 +210,18 @@ describe("Completion Report items name their place, never their id", () => {
     expect(container.querySelector('[data-checklist-item="r-244-4-2"]')).not.toBeNull();
   });
 
+  // Fable 5.1 review (thought block round) P3-1: the model writes the reason
+  // and the missing fact with ids allowed in tool calls; they show as places.
+  it("shows an id in the model's own text as the place it names", async () => {
+    __setQueryData("chatV2:listProposalItems", [
+      item({ _id: "item-i" as Id<"chatProposalItems">, section: "244", paragraphNumber: 2, reason: "Overlaps the rewrite of r-244-2-1.", missingFact: "The count behind c-246-3-1." }),
+    ]);
+    const { container } = await render(ProposalCard, { proposal: zeroEditProposal });
+    await expect.element(page.getByText("Overlaps the rewrite of Line 244, paragraph 2.", { exact: true })).toBeVisible();
+    expect(container.textContent).toContain("The count behind Line 246, paragraph 3.");
+    expect(container.textContent).not.toMatch(/\b[rcx]-\d{3}-\d+-\d+\b/);
+  });
+
   // Fable 5.1 review P3-3: an older row that kept only its id still says
   // where it is, from the Line and paragraph the id names.
   it("names the place an older row's id holds", async () => {

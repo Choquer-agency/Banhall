@@ -796,6 +796,11 @@ describe("turnHeadline", () => {
     ])).toBe("Drafting the revision");
   });
 
+  // Fable 5.1 review P3-2: no asterisks while a heading streams in.
+  it("treats a heading still streaming in as the newest heading", () => {
+    expect(turnHeadline([{ ...reasoning("**Planning the edits**\nFirst I list them.\n**Drafting the Li"), state: "streaming" as const }])).toBe("Drafting the Li");
+  });
+
   it("falls back to the first sentence when the summary has no heading", () => {
     expect(turnHeadline([reasoning("The draft repeats itself. Line 246 needs a cut.")])).toBe("The draft repeats itself.");
   });

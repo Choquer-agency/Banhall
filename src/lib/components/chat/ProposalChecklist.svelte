@@ -2,6 +2,7 @@
   import { useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Doc, Id } from "../../../../convex/_generated/dataModel";
+  import { humanizeItemIds } from "$lib/chat/turnParts";
 
   /**
    * A coordinated revision's Completion Report: every finding the model
@@ -75,14 +76,14 @@
               {STATUS_LABEL[item.status]}
             </span>
           </div>
-          <p class="mt-0.5 text-sm leading-relaxed text-ink-secondary">{item.reason}</p>
+          <p class="mt-0.5 text-sm leading-relaxed text-ink-secondary">{humanizeItemIds(item.reason)}</p>
           {#if item.status === "blocked"}
             <p class="text-xs leading-relaxed text-ink-muted">
-              Missing fact: {item.missingFact} Expected from: {item.missingFactSource}
+              Missing fact: {humanizeItemIds(item.missingFact ?? "")} Expected from: {humanizeItemIds(item.missingFactSource ?? "")}
             </p>
           {:else if item.status === "conflicting"}
             <p class="text-xs leading-relaxed text-ink-muted">
-              Locked Rule: {item.lockedRule} Alternative: {item.alternative}
+              Locked Rule: {humanizeItemIds(item.lockedRule ?? "")} Alternative: {humanizeItemIds(item.alternative ?? "")}
             </p>
           {/if}
         </li>

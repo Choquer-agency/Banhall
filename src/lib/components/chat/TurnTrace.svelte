@@ -10,7 +10,6 @@
     thinkingHint,
     type HeldLabel,
     type NormalizedTurn,
-    type ProposalRenderNode,
     type ReasoningRenderNode,
     type ToolRenderNode,
     type TurnTiming,
@@ -20,8 +19,6 @@
 
   interface Props {
     nodes: (ReasoningRenderNode | ToolRenderNode)[];
-    /** The turn's cards; part of the normalized turn, not rendered here. */
-    proposalNodes?: ProposalRenderNode[];
     timing?: TurnTiming;
     messageStatus?: UIMessage["status"];
     /** Test/story override for the component clock. */
@@ -30,7 +27,7 @@
     paused?: boolean;
   }
 
-  let { nodes, proposalNodes = [], timing, messageStatus, now, paused = false }: Props = $props();
+  let { nodes, timing, messageStatus, now, paused = false }: Props = $props();
 
   const live = $derived(
     timing?.status === "queued" ||
@@ -56,14 +53,15 @@
   });
 
   /**
-   * `formatTurnSummary` reads the trace nodes plus the turn's proposals (it
-   * summarizes what the turn produced), but never its answer text.
+   * `formatTurnSummary` reads the trace nodes and the timing, never the
+   * answer text or the cards.
    */
   const turn = $derived<NormalizedTurn>({
     nodes,
     text: "",
     traceNodes: nodes,
-    proposalNodes,
+    // The header carries no outcome since 2026-10-21; the cards follow it.
+    proposalNodes: [],
     toolCount: new Set(
       nodes.filter((node) => node.kind === "tool").map((node) => node.toolCallId)
     ).size,

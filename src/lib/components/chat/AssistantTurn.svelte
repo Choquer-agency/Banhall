@@ -194,7 +194,6 @@
 <Message role="assistant" class="group">
   <TurnTrace
     nodes={traceNodes}
-    proposalNodes={turn.proposalNodes}
     {timing}
     {paused}
     messageStatus={message?.status}

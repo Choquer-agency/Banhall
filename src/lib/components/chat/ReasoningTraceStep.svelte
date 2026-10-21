@@ -22,10 +22,11 @@
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => {
-        const heading = /^\*\*([^*]+)\*\*$/.exec(line);
+        // A heading may still be streaming in, with no closing marker yet.
+        const heading = /^\*\*([^*]+?)(\*\*)?$/.exec(line);
         return heading
           ? { heading: true, text: heading[1].trim() }
-          : { heading: false, text: line.replace(/\*\*([^*\n]+)\*\*/g, "$1") };
+          : { heading: false, text: line.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/\*\*/g, "") };
       })
   );
 </script>

@@ -713,9 +713,6 @@ export function normalizeTurnParts(
 
 // ─── Summary line ────────────────────────────────────────────────────────────
 
-/** `0s`, `59s`, `1m 00s` — mono/tabular so a ticking timer doesn't jitter. */
-
-
 /** "4s", "1m 28s": how long a finished turn took. */
 export function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -808,7 +805,10 @@ export function turnHeadline(nodes: readonly (ReasoningRenderNode | ToolRenderNo
     const node = nodes[index];
     if (node.kind !== "reasoning" || !node.text.trim()) continue;
     const headings = [...node.text.matchAll(/\*\*([^*\n]+)\*\*/g)].map((match) => match[1].trim()).filter(Boolean);
-    const plain = node.text.replace(/\*\*([^*\n]+)\*\*/g, "$1").trim();
+    // A heading still streaming in ("**Planning the ed") counts as the newest.
+    const opening = /^\*\*([^*\n]+)$/.exec(node.text.split("\n").at(-1)?.trim() ?? "");
+    if (opening) headings.push(opening[1].trim());
+    const plain = node.text.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/\*\*/g, "").trim();
     const text = humanizeItemIds(headings.at(-1) ?? plain.split(/(?<=[.!?])\s|\n/)[0]?.trim() ?? plain);
     return text.length > HEADLINE_MAX_CHARS ? `${text.slice(0, HEADLINE_MAX_CHARS - 1).trimEnd()}…` : text;
   }
