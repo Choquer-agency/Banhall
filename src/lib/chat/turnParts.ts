@@ -791,14 +791,37 @@ export function humanizeItemIds(text: string): string {
 }
 
 /** The longest second line of a thought block, in characters. */
-const HEADLINE_MAX_CHARS = 140;
+const HEADLINE_MAX_CHARS = 64;
+
+/**
+ * Where a sentence's first clause ends: a comma before a joining word, a
+ * semicolon, a colon, an opening bracket or a spaced hyphen.
+ */
+const CLAUSE_BREAK = /,\s+(?:but|so|and|because|since|which|while|though|then)\b|;|:|\s\(|\s-\s/;
+
+/**
+ * A short headline from a reasoning sentence (owner, 2026-10-21): its first
+ * clause, when that clause says something on its own (three words or more),
+ * then no longer than HEADLINE_MAX_CHARS, cut at a word.
+ */
+function shortHeadline(sentence: string): string {
+  const first = sentence.split(CLAUSE_BREAK)[0]?.trim() ?? "";
+  // A cut clause loses its trailing comma; a whole sentence keeps its stop.
+  const clause = first.length < sentence.length ? first.replace(/[,;:]+$/, "") : first;
+  const text = clause.split(/\s+/).length >= 3 ? clause : sentence;
+  if (text.length <= HEADLINE_MAX_CHARS) return text;
+  const cut = text.slice(0, HEADLINE_MAX_CHARS - 1);
+  const atWord = cut.lastIndexOf(" ") > HEADLINE_MAX_CHARS / 2 ? cut.slice(0, cut.lastIndexOf(" ")) : cut;
+  return `${atWord.replace(/[,.;:]+$/, "").trimEnd()}…`;
+}
 
 /**
  * The second line of a turn's thought block, beside a clock, as Claude shows
  * it (owner, 2026-10-21): the newest heading of the model's reasoning summary
- * ("Drafting the Line 244 revision"), else its first sentence, else the label
- * of the newest step. Reasoning summaries are already shown in the trace as
- * plain text (2026-10-19, seventh), so this shows nothing new.
+ * ("Drafting the Line 244 revision"), else a short form of its first sentence
+ * (its first clause, at most 64 characters), else the label of the newest
+ * step. The full reasoning shows when the block is opened (2026-10-19,
+ * seventh), so this shows nothing new.
  */
 export function turnHeadline(nodes: readonly (ReasoningRenderNode | ToolRenderNode)[]): string | null {
   for (let index = nodes.length - 1; index >= 0; index -= 1) {
@@ -809,8 +832,10 @@ export function turnHeadline(nodes: readonly (ReasoningRenderNode | ToolRenderNo
     const opening = /^\*\*([^*\n]+)$/.exec(node.text.split("\n").at(-1)?.trim() ?? "");
     if (opening) headings.push(opening[1].trim());
     const plain = node.text.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/\*\*/g, "").trim();
-    const text = humanizeItemIds(headings.at(-1) ?? plain.split(/(?<=[.!?])\s|\n/)[0]?.trim() ?? plain);
-    return text.length > HEADLINE_MAX_CHARS ? `${text.slice(0, HEADLINE_MAX_CHARS - 1).trimEnd()}…` : text;
+    const heading = headings.at(-1);
+    if (heading) return shortHeadline(humanizeItemIds(heading));
+    const sentence = plain.split(/(?<=[.!?])\s|\n/)[0]?.trim() || plain;
+    return shortHeadline(humanizeItemIds(sentence));
   }
   const lastTool = [...nodes].reverse().find((node) => node.kind === "tool");
   return lastTool ? lastTool.label : null;

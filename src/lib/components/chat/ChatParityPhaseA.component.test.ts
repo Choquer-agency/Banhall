@@ -350,6 +350,36 @@ describe("task 6: reasoning summaries and announcements", () => {
     expect(container.textContent).not.toMatch(/\b[rcx]-\d{3}-\d+-\d+\b/);
   });
 
+  // Owner, 2026-10-21: a short headline when closed, the full reasoning when
+  // opened; hovering the status row fades the label up and shows the chevron,
+  // with no fill.
+  it("keeps the closed headline short, and hover is an opacity change with the chevron", async () => {
+    const long = "All three Lines have been applied, but one item (Line 244, paragraph 4) remains blocked since the evidence does not support it.";
+    const message = {
+      ...row("a", "All done.", 1, "assistant"),
+      parts: [
+        { type: "reasoning", text: long, state: "done" },
+        { type: "text", text: "All done.", state: "done" },
+      ],
+    } as UIMessage;
+    const { container } = await render(AssistantTurn, {
+      message, timing: { status: "completed", startedAt: 1_000, endedAt: 13_000, stepCount: 0 }, onRefine: vi.fn(),
+    });
+    await expect.element(page.getByText("Thought for 12s", { exact: true })).toBeVisible();
+    expect(container.querySelector("[data-turn-headline]")?.textContent?.trim()).toBe("All three Lines have been applied");
+    const status = container.querySelector<HTMLElement>("[data-turn-status]")!;
+    const chevron = container.querySelector<SVGElement>("[data-turn-chevron]")!;
+    const summaryEl = container.querySelector<HTMLElement>("summary")!;
+    expect(getComputedStyle(chevron).opacity).toBe("0");
+    expect(Number(getComputedStyle(status).opacity)).toBeCloseTo(0.65, 2);
+    await userEvent.hover(status);
+    await expect.poll(() => getComputedStyle(chevron).opacity).toBe("1");
+    await expect.poll(() => getComputedStyle(status).opacity).toBe("1");
+    expect(getComputedStyle(summaryEl).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    await page.getByText("Thought for 12s", { exact: true }).click();
+    expect(container.querySelector("[data-reasoning-summary]")?.textContent?.trim()).toBe(long);
+  });
+
   it("shows the summary under Thinking while it streams, and marks the answer busy", async () => {
     await page.viewport(480, 520);
     const { container, rerender } = await render(AssistantTurn, {

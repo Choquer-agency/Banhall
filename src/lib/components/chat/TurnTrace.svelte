@@ -141,16 +141,30 @@
 {/snippet}
 
 {#snippet header(interactive: boolean)}
-  <span class="flex w-full items-center gap-2">
+  <!-- Owner, 2026-10-21: hovering this row is a plain opacity change on the
+       label and the chevron, no fill. Ink at 65% keeps the resting label
+       above 4.5:1 on white. The chevron shows only on hover (and
+       on keyboard focus, and always on touch, which has no hover). -->
+  <span class="group/status flex w-full items-center gap-2">
     <!-- The live label shimmers instead of counting time; a finished one
          says how long it took (owner, 2026-10-21). -->
-    <span aria-live="polite" data-turn-status class={cn("min-w-0 text-[0.8125rem] leading-5 text-ink-muted", live && "text-shimmer")}>{shownHead}</span>
+    <span
+      aria-live="polite"
+      data-turn-status
+      class={cn(
+        "min-w-0 text-[0.8125rem] leading-5 text-ink",
+        interactive
+          ? "opacity-65 transition-opacity group-hover/status:opacity-100 group-focus-visible/summary:opacity-100 motion-reduce:transition-none"
+          : "opacity-65",
+        live && "text-shimmer"
+      )}>{shownHead}</span>
     {#if interactive}
       <!-- Rule 7: the chevron at the row's right edge. -->
       <svg
+        data-turn-chevron
         class={cn(
-          "ml-auto size-3.5 shrink-0 transition-transform motion-reduce:transition-none",
-          open ? "rotate-180 text-primary" : "text-ink-faint"
+          "ml-auto size-3.5 shrink-0 text-ink-muted opacity-0 transition-[opacity,transform] group-hover/status:opacity-100 group-focus-visible/summary:opacity-100 pointer-coarse:opacity-100 motion-reduce:transition-none",
+          open && "rotate-180"
         )}
         fill="none"
         viewBox="0 0 24 24"
@@ -172,7 +186,7 @@
 {/snippet}
 
 {#if summary}
-  {@const blockClass = "-mx-2 flex w-[calc(100%+1rem)] list-none flex-col gap-2 rounded-lg px-2 py-1.5 transition-colors pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden"}
+  {@const blockClass = "-mx-2 flex w-[calc(100%+1rem)] list-none flex-col gap-2 rounded-lg px-2 py-1.5 pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden"}
   {#if nodes.length}
     <!-- The whole block is one accordion, full width, as Claude shows its
          thought process (owner, 2026-10-21). -->
@@ -180,7 +194,7 @@
       <summary
         class={cn(
           blockClass,
-          "cursor-pointer hover:bg-primary-wash focus-visible:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+          "group/summary cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
         )}
       >
         {@render header(true)}

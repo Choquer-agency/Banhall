@@ -807,8 +807,22 @@ describe("turnHeadline", () => {
 
   it("keeps a long line short", () => {
     const line = turnHeadline([reasoning("a".repeat(300))]);
-    expect(line?.length).toBe(140);
+    expect(line?.length).toBe(64);
     expect(line?.endsWith("…")).toBe(true);
+  });
+
+  // Owner, 2026-10-21: the closed block carries a short headline; opening it
+  // shows the reasoning in full.
+  it("shortens a long first sentence to its first clause", () => {
+    expect(turnHeadline([reasoning(
+      "All three Lines have been applied, but one item (Line 244, paragraph 4, the access-platform configuration conflict) remains blocked since the evidence doesn't support resolving it, so that needs client follow-up. The writer's question is a status check."
+    )])).toBe("All three Lines have been applied");
+    expect(turnHeadline([reasoning("Checking Line 244: the hypothesis is thin.")])).toBe("Checking Line 244");
+  });
+
+  it("keeps a clause too short to say anything on its own, and cuts at a word", () => {
+    expect(turnHeadline([reasoning("Done, but the second Line still needs the client's dates before it can be drafted in full detail.")]))
+      .toBe("Done, but the second Line still needs the client's dates…");
   });
 
   it("names the newest step when there is no reasoning, and nothing when empty", () => {

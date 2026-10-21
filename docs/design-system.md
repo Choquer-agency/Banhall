@@ -1425,8 +1425,12 @@ Brain examples, shown as a removable chip while on, and web search, on by
 default with no chip (owner, 2026-10-21). A reply shows one full-width
 thought block, as Claude does: a muted first line (the live label with a
 shimmer, `text-shimmer` in `layout.css`, and no timer; "Thought for 4s" once
-done), a second line beside a clock with the newest reasoning heading, and,
-opened, the reasoning as plain text with each step as a row. The answer's
+done), a second line beside a clock with the newest reasoning heading (or
+a short form of the first sentence: its first clause, at most 64
+characters), and, opened, the full reasoning as plain text with each step
+as a row. The block has no hover fill: hovering the first line fades its
+label from 65% ink to full, and the chevron fades in only then (also on
+keyboard focus, and always on touch). The answer's
 Copy, thumbs and Regenerate are one row of icons. The
 chat reads only typed text, so the composer must not offer or hint at file
 uploads. The chat header, empty state, and starter suggestions are compact
