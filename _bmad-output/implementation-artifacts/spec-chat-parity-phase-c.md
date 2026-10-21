@@ -2,8 +2,8 @@
 title: 'Report chat parity, Phase C: PDFs and images, pinned files, edit and alternatives, conversations, Vet, copy and feedback'
 type: 'feature'
 created: '2026-10-20'
-status: 'in-progress'
-review_loop_iteration: 0
+status: 'done'
+review_loop_iteration: 3
 baseline_commit: '0aff7cf3'
 context:
   - '{project-root}/_bmad-output/planning-artifacts/research/chat-parity-plan-2026-10-19.md'
@@ -358,3 +358,43 @@ All three start from `0aff7cf3`. Shared hot files are `convex/schema.ts`, `conve
     - web search with sources (with the OpenRouter key copied to the local backend);
     - client data deleted afterwards.
 - **Amendment:** `2026-10-20 (second)` in `docs/product-domain.md`.
+
+## Verification record (2026-10-20)
+- **Reviews.** Three rounds, all by Claude Opus 5.5 at high effort.
+  - Round 1, two reviewers (engine; product and screens):
+    - P2: when the history read failed, sibling replies reached the model.
+    - P2: parallel views over-reserved the media allowance.
+    - P2: the image cap was above some routes' limit (now 3.75 MB and 8000 px).
+    - P2: an unbounded delete removed the row first.
+    - 16 P3s.
+  - Round 2: all round 1 findings fixed, and five new P3s (vote announcements on load, list-based deletion detection, card actions while deleting, untested guards, the settle timing), all fixed.
+  - Round 3 (the writer-message label and round 2 fixes):
+    - P2: the note could point at a spoofed label. Fixed: the note now says "outside every marked block", and chat data neutralizes the label.
+    - P3s fixed or recorded.
+- **Real replay.** An isolated local backend with a dev snapshot. Client files were not exported: two fictional files (a 3-page PDF and a PNG chart) were uploaded through the app's own path.
+  - viewFile, image: answered correctly.
+  - viewFile, PDF:
+    - the model saw the pages;
+    - the page count was worked out with pdf.js in the Node runtime and stored with its storage id.
+  - A pinned file was summarized, and the turn stored the pin.
+  - Alternatives:
+    - an Edit made a sibling, and the edited reply said no earlier question had been asked (no leak);
+    - after switching back, a new message saw the original path;
+    - Regenerate made a third alternative.
+  - Regenerate after Stop worked.
+  - Rename, archive, restore and status worked. Delete was refused for a non-admin and finished for an admin.
+  - Web search, on by default:
+    - one record with the stripped query and two numbered canada.ca sources;
+    - the reply cited [1] and [2].
+  - The replay found that plain requests could be read as text inside the evidence. Fixed with a request-only label on writer messages, plus neutralization. Requests that read like an injection test can still be declined; realistic requests were answered.
+  - The snapshot, the local database, the scripts and the worktree were deleted afterwards.
+- **Contract changes after review.**
+  - `CHAT_VIEW_MAX_IMAGE_BYTES` is 3,750,000 (not 5,000,000), plus an 8000 px limit.
+  - New fields:
+    - `projectDocuments.pageCountStorageId`
+    - `agentChatThreads.deletingAt`, `deletingBy` and `purgeHeartbeatAt`
+    - `chatTurns.actionEndedAt`
+  - New query: `chatV2.threadStatus`.
+  - New cron: `resumeStalledThreadPurges`.
+- **Gate.** `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` on the final commit; the result is recorded in the handoff.
+
