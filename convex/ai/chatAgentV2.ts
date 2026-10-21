@@ -521,11 +521,12 @@ export async function runProposeBulkEdits(
   // report is unchanged and there is no card to apply, so the reply must not
   // open with "Proposed".
   // Phase A (2026-10-19, CAP-13 change): the card shows the checklist, so the
-  // model gets counts and the ids that need the writer, not a list to retype.
+  // model gets counts and where the items that need the writer sit (Line and
+  // paragraph, never ids: owner direction 2026-10-21), not a list to retype.
   if (nothingToApply(input)) {
-    return `Nothing to apply: every item is blocked or conflicting, so no revision was proposed and the report is unchanged. The findings were recorded for the writer's decision, and the card shows them as a Completion Report checklist: ${completionReportCounts(input.findings)}. Do not repeat the checklist; name the decisions or missing facts the writer needs.`;
+    return `Nothing to apply: every item is blocked or conflicting, so no revision was proposed and the report is unchanged. The findings were recorded for the writer's decision, and the card shows them as a Completion Report checklist that names each item by its Line and paragraph: ${completionReportCounts(input.findings)}. Do not repeat the checklist; name the decisions or missing facts the writer needs. Refer to each item by its Line and paragraph and briefly what it is about, never by its id.`;
   }
-  return `Coordinated revision proposed for writer review, not applied. The card shows the writer its Completion Report checklist with every item's id, status and reason: ${completionReportCounts(input.findings)}. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision.`;
+  return `Coordinated revision proposed for writer review, not applied. The card shows the writer its Completion Report checklist, with each item's Line and paragraph, status and reason: ${completionReportCounts(input.findings)}. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision. Refer to each item by its Line and paragraph and briefly what it is about, never by its id.`;
 }
 
 const deviationInventory = createTool({
@@ -820,7 +821,7 @@ export const CHAT_RECOVERY_MIN_REMAINING_MS = 150_000;
 
 /** The instruction the recovery pass gets after the writer's message. */
 export const CHAT_THINKING_RECOVERY_INSTRUCTION =
-  "Your previous attempt at this request spent its whole output allowance planning and wrote nothing, so nothing was proposed. Plan briefly this time, then act. If the request covers more than one Line or a long list, do only the first Line it concerns, in build order 242, 244, 246: for deviations, call deviationInventory with that section, then propose that Line's revision. Close by naming what is left, so the writer can ask you to continue.";
+  "Your previous attempt at this request spent its whole output allowance planning and wrote nothing, so nothing was proposed. Plan briefly this time, then act. If the request covers more than one Line or a long list, do only the first Line it concerns, in build order 242, 244, 246: for deviations, call deviationInventory with that section, then propose that Line's revision. Close by naming the Lines still to do. Do not tell the writer to say continue or how to move on.";
 
 /** What the writer reads when a step thought to the limit and nothing was saved. */
 export const CHAT_THINKING_CUT_OFF_REPLY =

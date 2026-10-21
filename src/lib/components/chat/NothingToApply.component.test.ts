@@ -101,9 +101,14 @@ describe("zero-edit proposal card (DW-135)", () => {
       .element(page.getByText("These findings need a writer's decision.", { exact: false }))
       .toBeVisible();
 
-    // Every finding, its id verbatim, its status and its evidence.
-    await expect.element(page.getByText("c-246-3-1", { exact: true })).toBeVisible();
-    await expect.element(page.getByText("x-246-4-1", { exact: true })).toBeVisible();
+    // Every finding, its kind and place, its status and its evidence. The id
+    // is internal (owner direction 2026-10-21): only the test hook keeps it.
+    await expect.element(page.getByText("Your request", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Reference PD", { exact: true })).toBeVisible();
+    expect(container.textContent).not.toContain("c-246-3-1");
+    expect(container.textContent).not.toContain("x-246-4-1");
+    expect(container.querySelector('[data-checklist-item="c-246-3-1"]')).not.toBeNull();
+    expect(container.querySelector('[data-checklist-item="x-246-4-1"]')).not.toBeNull();
     await expect.element(page.getByText("Blocked", { exact: true })).toBeVisible();
     await expect.element(page.getByText("Conflicting", { exact: true })).toBeVisible();
     expect(container.textContent).toContain("The number of fatigue cycles run in 2025.");
@@ -170,5 +175,55 @@ describe("zero-edit proposal card (DW-135)", () => {
     });
     await expect.element(page.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
     expect(page.getByText("Nothing to apply", { exact: true }).elements()).toHaveLength(0);
+  });
+});
+
+/**
+ * Owner direction 2026-10-21: a writer asked what "r-244-4-2" was. Item ids
+ * are internal, so a checklist line shows a plain kind ("Rule", "Your
+ * request", "Reference PD") next to its Line and paragraph instead.
+ */
+describe("Completion Report items name their kind and place, never their id", () => {
+  const item = (overrides: Partial<Doc<"chatProposalItems">>): Doc<"chatProposalItems"> => ({
+    _id: "item-x" as Id<"chatProposalItems">,
+    _creationTime: 1,
+    proposalId,
+    projectId: "project" as Id<"projects">,
+    itemId: "r-244-4-2",
+    status: "blocked",
+    reason: "The draft cannot name the fictional test rig.",
+    missingFact: "The rig's model number.",
+    missingFactSource: "The April interview transcript.",
+    createdAt: 1,
+    ...overrides,
+  });
+
+  it("shows Rule and Line 244, paragraph 4, and not the id text", async () => {
+    __setQueryData("chatV2:listProposalItems", [
+      item({ _id: "item-r" as Id<"chatProposalItems">, section: "244", paragraphNumber: 4, kind: "rule" }),
+    ]);
+    const { container } = await render(ProposalCard, { proposal: zeroEditProposal });
+    await expect.element(page.getByText("Rule", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Line 244, paragraph 4", { exact: true })).toBeVisible();
+    expect(container.textContent).not.toContain("r-244-4-2");
+    expect(container.querySelector('[data-checklist-item="r-244-4-2"]')).not.toBeNull();
+  });
+
+  it("shows the kind alone without a place, and no label for an unknown prefix", async () => {
+    __setQueryData("chatV2:listProposalItems", [
+      item({ _id: "item-c" as Id<"chatProposalItems">, itemId: "c-246-2-1" }),
+      item({ _id: "item-q" as Id<"chatProposalItems">, itemId: "q-246-3-1", reason: "A fictional item of another shape." }),
+    ]);
+    const { container } = await render(ProposalCard, { proposal: zeroEditProposal });
+    await expect.element(page.getByText("Your request", { exact: true })).toBeVisible();
+    expect(container.textContent).not.toContain("Line 246");
+    const unknown = container.querySelector('[data-checklist-item="q-246-3-1"]');
+    expect(unknown).not.toBeNull();
+    expect(unknown?.textContent).not.toContain("q-246-3-1");
+    for (const label of ["Rule", "Your request", "Reference PD"]) {
+      expect(unknown?.textContent).not.toContain(label);
+    }
+    expect(unknown?.textContent).toContain("Blocked");
+    expect(container.textContent).not.toContain("c-246-2-1");
   });
 });

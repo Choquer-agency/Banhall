@@ -3788,6 +3788,13 @@ The lead decisions are reported to the owner and can be reversed:
 - Owner hand test 2026-10-21: a conversation's actions (the three dots) and the archived list did nothing when clicked, because their submenus were drawn inside the scrolling conversation menu, which clipped them out of sight. They now render outside it. Automation scrolls a clipped item into view before clicking, so the tests now also check that an item is on top where a person sees it: the component tests for Rename, Archive and Restore from the archived list, and the live test for Rename, Archive and Delete permanently.
 - Result 2026-10-21 on `3bbc5813`, after a second Claude Fable 5.1 review: all 17 scenarios pass again. An interrupted or crashed run finishes deleting before it exits. Every Convex command ignores deployment values exported in the shell, so the snapshot comes from the deployment the checkout's `.env.local` names and the worktree reaches only its local one. With `--serve` the app stays up after the scenarios for a person to try; the test login goes to a private file, and the run cleans up when stopped or after `--serve-hours`.
 
+**Owner direction 2026-10-21 (item ids and "continue").** A reply on a real report named an item by its id ("r-244-4-2"), and the owner asked what it was. The same reply ended by asking the writer to say "continue", though the next Line starts by itself.
+- Item ids are internal. Writers never see them, on the card or in a reply. The Completion Report card shows a plain kind instead: "Rule" (`r-`), "Your request" (`c-`) or "Reference PD" (`x-`), next to "Line N, paragraph M". The id stays only on the card's test hook.
+- The proposeBulkEdits result names the items that need the writer by Line and paragraph ("Line 244, paragraph 4", or "an item in Line 244" when the paragraph is unknown), not by id.
+- The chat prompt says ids stay in tool calls only. A reply names an item by its Line and paragraph and briefly what it is about.
+- The reply never asks the writer to say "continue" or explains how to move on. The app starts the next Line by itself, or shows a Continue button when it cannot. The reply may say what comes next ("Line 244 is next.").
+- Only what the model is told changes. Auto-continue itself is unchanged.
+
 **Migration and compatibility.** Widen only, with no backfill:
 - `projectDocuments.pageCount` and `pageCountStorageId` (the count is trusted only while that file is still the document's original);
 - `chatTurns.parentPromptMessageId`, `alternativeOf`, `alternativeKind`, `refineProposalId`, `writerTextLength` and `pinnedDocumentIds`, with index `by_agentThreadId_and_alternativeOf`;

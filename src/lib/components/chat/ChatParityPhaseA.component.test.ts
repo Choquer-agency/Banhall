@@ -693,8 +693,14 @@ describe("task 12: bulk card Completion Report", () => {
     expect(report.querySelector("summary")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Completion Report 1 resolved, 1 blocked");
     expect(report.open).toBe(false);
     await page.getByText("Completion Report", { exact: true }).click();
-    await expect.element(page.getByText("r-244-2-1", { exact: true })).toBeVisible();
-    await expect.element(page.getByText("c-244-3-1", { exact: true })).toBeVisible();
+    // Owner direction 2026-10-21: the kind and the place, never the id.
+    await expect.element(page.getByText("Rule", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Line 244, paragraph 2", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Your request", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Line 244, paragraph 3", { exact: true })).toBeVisible();
+    expect(container.textContent).not.toContain("r-244-2-1");
+    expect(container.textContent).not.toContain("c-244-3-1");
+    expect(container.querySelector('[data-checklist-item="r-244-2-1"]')).not.toBeNull();
     expect(container.textContent).toContain("Paragraph 2 now names the measured result.");
     expect(container.textContent).toContain("Missing fact: The number of fatigue cycles.");
     await page.screenshot({ path: `${CAPTURES}/bulk-completion-report.png` });

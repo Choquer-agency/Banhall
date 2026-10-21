@@ -518,7 +518,8 @@ describe("runProposeBulkEdits", () => {
   };
 
   // Phase A (2026-10-19, CAP-13 change): the card shows the checklist, so the
-  // result gives counts and the ids that need the writer, never the checklist.
+  // result gives counts and where the items that need the writer sit, never
+  // the checklist. Owner direction 2026-10-21: never the ids either.
   test("persists the Completion Report and leaves the checklist to the card", async () => {
     const f = await setup();
     const reply = await runProposeBulkEdits(f.ctx, input, {
@@ -526,8 +527,9 @@ describe("runProposeBulkEdits", () => {
       bannedWordsWaived: false,
     });
     expect(reply).toBe(
-      "Coordinated revision proposed for writer review, not applied. The card shows the writer its Completion Report checklist with every item's id, status and reason: 1 resolved, 1 blocked (c-242-2-1), 0 conflicting. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision."
+      "Coordinated revision proposed for writer review, not applied. The card shows the writer its Completion Report checklist, with each item's Line and paragraph, status and reason: 1 resolved, 1 blocked (Line 242, paragraph 2), 0 conflicting. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision. Refer to each item by its Line and paragraph and briefly what it is about, never by its id."
     );
+    expect(reply).not.toMatch(/\b[rcx]-24[246]-\d+-\d+\b/);
     expect(reply).not.toContain("Report this Completion Report checklist");
     expect(reply).not.toContain("r-242-1-1: resolved:");
 
@@ -598,7 +600,9 @@ describe("runProposeBulkEdits", () => {
     );
     expect(reply).toMatch(/^Nothing to apply/);
     expect(reply).not.toContain("Coordinated revision proposed");
-    expect(reply).toContain("0 resolved, 1 blocked (c-242-2-1), 1 conflicting (x-242-3-1)");
+    expect(reply).toContain("0 resolved, 1 blocked (Line 242, paragraph 2), 1 conflicting (Line 242, paragraph 3)");
+    expect(reply).toContain("Refer to each item by its Line and paragraph and briefly what it is about, never by its id.");
+    expect(reply).not.toMatch(/\b[rcx]-24[246]-\d+-\d+\b/);
     expect(reply).toContain("Do not repeat the checklist; name the decisions or missing facts the writer needs.");
     expect(reply).not.toContain("c-242-2-1: blocked:");
 

@@ -492,10 +492,12 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     expect(BULK_EDIT_SIZE_RULE).toContain("Put every blocked and conflicting item in the first call");
     expect(BULK_EDIT_SIZE_RULE).toContain("Make at most 3 proposeBulkEdits calls in one reply.");
     // Phase A (2026-10-19): the writer continues from a button, and the
-    // reply does not retype the ids the card already shows.
+    // reply does not retype the ids the card already shows. Owner direction
+    // 2026-10-21: the reply never tells the writer to say continue.
     expect(BULK_EDIT_SIZE_RULE).toContain(
-      "If items are still left after that, say in one sentence how many are left and in which Lines, then stop, so the writer can ask you to continue."
+      "If items are still left after that, say in one sentence how many are left and in which Lines, then stop. Do not tell the writer to say continue or how to move on."
     );
+    expect(BULK_EDIT_SIZE_RULE).not.toContain("ask you to continue");
     expect(BULK_EDIT_SIZE_RULE).not.toContain("name their ids");
     expect(prompt).toContain(`when they fit in one call. ${BULK_EDIT_SIZE_RULE} ${BULK_EDIT_REFINE_RULE}`);
     // PR #24 round 2: a bulk card applies as a whole, so a refinement
@@ -569,13 +571,16 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
   // Report checklist, so the reply summarizes instead of retyping it.
   it("leaves the Completion Report checklist to the card", () => {
     expect(prompt).toContain(
-      "For a bulk revision, the card also shows the writer its Completion Report checklist, every item's original ID with its status and reason, so do not repeat the checklist: say in a sentence or two what the proposal covers and which items need the writer's decision."
+      "For a bulk revision, the card also shows the writer its Completion Report checklist, which names each item by its Line and paragraph with its status and reason, so do not repeat the checklist: say in a sentence or two what the proposal covers and which items need the writer's decision."
     );
+    expect(prompt).not.toContain("every item's original ID");
     expect(prompt).toContain("leave the checklist to the card");
     expect(prompt).not.toContain("include the Completion Report checklist returned by each proposeBulkEdits call verbatim");
     expect(prompt).not.toContain("keep the checklist");
     expect(prompt).not.toContain("ask the writer to say continue");
-    expect(prompt).toContain('which sends "Continue with Line N.": read that message as the same request for Line N.');
+    expect(prompt).toContain(
+      'The app continues a long job by itself, or the writer presses the Continue button under your reply; either way the message is "Continue with Line N.": read it as the same request for Line N.'
+    );
     // Review P3-1: no rule promises a button that may not appear.
     expect(BULK_EDIT_SIZE_RULE).not.toContain("Continue button");
     // Review P2-2 and round 2 N1: marked items are skipped by default, and
@@ -592,6 +597,26 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     );
     expect(prompt).toContain("When refining a pending proposeBulkEdits card, propose its whole set again, marked items included.");
     expect(prompt).not.toContain("never propose a HANDLED item again");
+  });
+
+  // Owner direction 2026-10-21: a reply named "r-244-4-2" and ended with
+  // "say 'continue' for Line 244". Ids stay in tool calls only, and the app
+  // moves on by itself.
+  it("keeps item ids out of the reply and names items by Line and paragraph", () => {
+    expect(prompt).toContain(
+      "Item ids (such as r-244-4-2, c-242-1-1 or x-246-3-1) are internal: never write one in a reply. Keep using them in tool calls, where proposeBulkEdits findings reuse the ids deviationInventory and compareReferencePd gave. In the reply, refer to an item by its Line and paragraph and briefly what it is about"
+    );
+    // The tool calls still reuse the inventory ids.
+    expect(prompt).toContain("Use its ids verbatim as the finding ids");
+    expect(prompt).toContain("Preserve the list and its ids in your tool calls");
+  });
+
+  it("never asks the writer to say continue", () => {
+    expect(prompt).toContain(
+      'Never ask the writer to say or type "continue", and never explain how to move on. The app starts the next Line by itself, or shows a Continue button when it cannot. You may say what comes next, for example "Line 244 is next."'
+    );
+    expect(prompt).not.toContain("ask you to continue");
+    expect(prompt).not.toContain("ask me to continue");
   });
 
   // Phase A (2026-10-19): both outside-source tools are always offered and

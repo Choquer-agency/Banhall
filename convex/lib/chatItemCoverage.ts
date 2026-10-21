@@ -294,7 +294,7 @@ export const MAX_WAITING_ITEMS = 60;
 
 /** The instruction that goes with waiting items, in the per-turn note and in the inventory. */
 export const WAITING_ITEMS_INSTRUCTION =
-  "These items sit in paragraphs a pending card already rewrites, so do not rewrite those paragraphs again. Name them in your closing so the writer can refine that card or ask for them after applying it.";
+  "These items sit in paragraphs a pending card already rewrites, so do not rewrite those paragraphs again. Name them in your closing by Line and paragraph, so the writer can refine that card or ask for them after applying it.";
 
 /**
  * The per-turn note line for the current job's waiting items (ids and

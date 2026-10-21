@@ -529,7 +529,7 @@ describe("items waiting on a pending card (helpers)", () => {
       { itemId: "r-242-1-4", section: "242", paragraph: 1 },
       { itemId: "c-242-4-2", section: "242", paragraph: 4 },
     ])).toBe(
-      "Deviations waiting on a pending card: r-242-1-4 (Line 242, paragraph 1), c-242-4-2 (Line 242, paragraph 4). These items sit in paragraphs a pending card already rewrites, so do not rewrite those paragraphs again. Name them in your closing so the writer can refine that card or ask for them after applying it."
+      "Deviations waiting on a pending card: r-242-1-4 (Line 242, paragraph 1), c-242-4-2 (Line 242, paragraph 4). These items sit in paragraphs a pending card already rewrites, so do not rewrite those paragraphs again. Name them in your closing by Line and paragraph, so the writer can refine that card or ask for them after applying it."
     );
   });
 });

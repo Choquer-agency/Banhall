@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CHAT_CONTEXT_LOSS_NOTE,
   CHAT_THINKING,
+  CHAT_THINKING_RECOVERY_INSTRUCTION,
   CHAT_TOOL_NAMES,
   ChatTurnMeter,
   TurnProgressWriter,
@@ -23,7 +24,7 @@ import {
   isContinuePrompt,
   itemCoverage,
 } from "../lib/chatItemCoverage";
-import { completionReportCounts } from "../lib/completionReport";
+import { completionReportCounts, type CompletionReportFinding } from "../lib/completionReport";
 import { findDashConnectors } from "../../shared/humanProse";
 
 /** Report chat parity, Phase A (2026-10-19): the engine's pure pieces. */
@@ -218,14 +219,49 @@ describe("Continue and the Completion Report", () => {
     expect(continuationReasonForFailure("CHAT_REPLY_CUT_OFF")).toBeNull();
   });
 
-  it("counts the Completion Report by status with the ids that need the writer", () => {
-    expect(completionReportCounts([
-      { id: "r-242-1-1", status: "resolved" },
-      { id: "c-242-2-1", status: "blocked" },
-      { id: "x-244-1-1", status: "conflicting" },
-      { id: "r-244-2-1", status: "blocked" },
-    ])).toBe("1 resolved, 2 blocked (c-242-2-1, r-244-2-1), 1 conflicting (x-244-1-1)");
+  // Owner direction 2026-10-21: item ids are internal, so the counts name
+  // the items that need the writer by Line and paragraph, never by id.
+  it("counts the Completion Report by status with the Line and paragraph of each item that needs the writer", () => {
+    const counts = completionReportCounts([
+      { status: "resolved", section: "242", paragraph: 1 },
+      { status: "blocked", section: "242", paragraph: 2 },
+      { status: "conflicting", section: "244", paragraph: 1 },
+      { status: "blocked", section: "244", paragraph: 4 },
+    ]);
+    expect(counts).toBe(
+      "1 resolved, 2 blocked (Line 242, paragraph 2; Line 244, paragraph 4), 1 conflicting (Line 244, paragraph 1)"
+    );
+    expect(counts).not.toMatch(/\b[rcx]-\d/);
     expect(completionReportCounts([])).toBe("0 resolved, 0 blocked, 0 conflicting");
+  });
+
+  it("names a full finding by its place, never by its id", () => {
+    const findings: CompletionReportFinding[] = [
+      { id: "r-244-4-2", status: "blocked", section: "244", paragraph: 4, kind: "rule", rule: "A fictional rule.",
+        reason: "A fictional reason.", missingFact: "A fictional fact.", missingFactSource: "A fictional interview." },
+      { id: "c-244-4-3", status: "blocked", section: "244", paragraph: 4, kind: "content",
+        reason: "A fictional reason.", missingFact: "A fictional fact.", missingFactSource: "A fictional interview." },
+      { id: "x-246-2-1", status: "conflicting", section: "246", paragraph: 2, kind: "reference",
+        reason: "A fictional reason.", lockedRule: "Line 246 line cap.", alternative: "A fictional alternative." },
+    ];
+    const counts = completionReportCounts(findings);
+    expect(counts).toBe("0 resolved, 2 blocked (Line 244, paragraph 4 (2 items)), 1 conflicting (Line 246, paragraph 2)");
+    for (const id of ["r-244-4-2", "c-244-4-3", "x-246-2-1"]) expect(counts).not.toContain(id);
+  });
+
+  it("the recovery pass names what is left and never tells the writer to say continue", () => {
+    expect(CHAT_THINKING_RECOVERY_INSTRUCTION).not.toContain("ask you to continue");
+    expect(CHAT_THINKING_RECOVERY_INSTRUCTION).toContain(
+      "Close by naming the Lines still to do. Do not tell the writer to say continue or how to move on."
+    );
+  });
+
+  it("falls back to the Line alone when the paragraph is unknown", () => {
+    expect(completionReportCounts([
+      { status: "blocked", section: "244" },
+      { status: "conflicting", section: "246" },
+      { status: "conflicting", section: "246" },
+    ])).toBe("0 resolved, 1 blocked (an item in Line 244), 2 conflicting (2 items in Line 246)");
   });
 });
 

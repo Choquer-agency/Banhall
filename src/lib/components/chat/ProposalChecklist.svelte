@@ -5,8 +5,8 @@
 
   /**
    * A coordinated revision's Completion Report: every finding the model
-   * recorded with the proposal (`chatProposalItems`), with its id, status and
-   * reason. DW-135's "Nothing to apply" card lists it inline; since Phase A
+   * recorded with the proposal (`chatProposalItems`), with its kind, Line and
+   * paragraph, status and reason. DW-135's "Nothing to apply" card lists it inline; since Phase A
    * (2026-10-19, CAP-13) a bulk suggestion card shows it too, behind a
    * disclosure, so the reply no longer retypes the checklist.
    */
@@ -26,6 +26,21 @@
     blocked: "Blocked",
     conflicting: "Conflicting",
   };
+
+  /**
+   * Owner direction 2026-10-21: item ids (r-244-4-2) are internal and never
+   * shown. The id's prefix gives the kind the writer reads instead; the id
+   * stays only on `data-checklist-item` for tests.
+   */
+  const KIND_LABEL: Record<string, string> = {
+    r: "Rule",
+    c: "Your request",
+    x: "Reference PD",
+  };
+
+  function kindLabel(itemId: string): string | null {
+    return KIND_LABEL[itemId.split("-", 1)[0] ?? ""] ?? null;
+  }
 
   const counts = $derived.by(() => {
     const tally = { resolved: 0, blocked: 0, conflicting: 0 };
@@ -47,15 +62,18 @@
   {:else}
     <ul class="mt-2.5 flex flex-col gap-2.5" aria-label="Findings">
       {#each items as item (item._id)}
+        {@const kind = kindLabel(item.itemId)}
         <li class="border-l-2 border-line pl-2.5" data-checklist-item={item.itemId}>
           <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span class="text-data text-ink">{item.itemId}</span>
-            <span class="rounded-full bg-chrome px-1.5 py-0.5 text-xs font-medium text-ink-secondary">
-              {STATUS_LABEL[item.status]}
-            </span>
+            {#if kind}
+              <span class="text-xs font-medium text-ink">{kind}</span>
+            {/if}
             {#if item.section && item.paragraphNumber}
               <span class="text-xs text-ink-muted">Line {item.section}, paragraph {item.paragraphNumber}</span>
             {/if}
+            <span class="rounded-full bg-chrome px-1.5 py-0.5 text-xs font-medium text-ink-secondary">
+              {STATUS_LABEL[item.status]}
+            </span>
           </div>
           <p class="mt-0.5 text-sm leading-relaxed text-ink-secondary">{item.reason}</p>
           {#if item.status === "blocked"}

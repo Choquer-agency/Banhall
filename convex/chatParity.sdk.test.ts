@@ -1118,7 +1118,7 @@ describe("items waiting on a pending card", () => {
     await f.t.action(internal.ai.chatAgentV2.streamChatReply, {
       agentThreadId: next.threadId, promptMessageId: next.messageId, reportId: f.reportId, userId: f.userId,
     });
-    const note = `Deviations waiting on a pending card: ${missed} (Line 242, paragraph 1). These items sit in paragraphs a pending card already rewrites, so do not rewrite those paragraphs again. Name them in your closing so the writer can refine that card or ask for them after applying it.`;
+    const note = `Deviations waiting on a pending card: ${missed} (Line 242, paragraph 1). These items sit in paragraphs a pending card already rewrites, so do not rewrite those paragraphs again. Name them in your closing by Line and paragraph, so the writer can refine that card or ask for them after applying it.`;
     // In the per-turn tail (the last user message), never in the cached head.
     expect(lastUserText(second[0]!)).toContain(note);
     expect(JSON.stringify(second[0]!.system ?? "")).not.toContain("waiting on a pending card");
