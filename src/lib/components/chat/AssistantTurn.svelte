@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { UIMessage } from "@convex-dev/agent";
   import type { Doc } from "../../../../convex/_generated/dataModel";
-  import { normalizeTurnParts, type TurnTiming } from "$lib/chat/turnParts";
+  import { humanizeItemIds, normalizeTurnParts, type TurnTiming } from "$lib/chat/turnParts";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import { Message, MessageContent, MessageActions, FeedbackBar, ActionButton } from "./primitives";
   import TurnTrace from "./TurnTrace.svelte";
@@ -115,6 +115,10 @@
     }
   }
 
+  // Owner, 2026-10-21: an item id in an answer (an older reply, or a slip)
+  // shows as the place it names, and is copied that way.
+  const answerText = $derived(humanizeItemIds(turn.text));
+
   // The thumbs show on a finished answer only; they share the action row.
   const showFeedback = $derived(
     !!turn.text && message?.status === "success" && timing?.status === "completed"
@@ -139,7 +143,7 @@
         <button
           {...props}
           type="button"
-          onclick={() => onCopy?.(id, turn.text, document.getElementById(answerElementId))}
+          onclick={() => onCopy?.(id, answerText, document.getElementById(answerElementId))}
           aria-label={copied ? "Copied" : copyFailed ? "Couldn't copy. Try again." : "Copy"}
           class="flex h-7 w-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 pointer-coarse:size-11"
         >
@@ -201,7 +205,7 @@
     <!-- Announced once on failure; a live region here would re-announce the
          answer on every streaming token. Busy while it streams (Phase A). -->
     <div id={answerElementId} role={failed ? "alert" : undefined} aria-busy={streaming}>
-      <MessageContent markdown text={turn.text} citations={webSources} class={failed ? "text-red-500" : undefined} />
+      <MessageContent markdown text={answerText} citations={webSources} class={failed ? "text-red-500" : undefined} />
     </div>
   {/if}
   {#if showSources}

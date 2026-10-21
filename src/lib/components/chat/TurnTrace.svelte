@@ -168,7 +168,7 @@
     <!-- Not announced: it is the model's own summary and changes as it thinks. -->
     <span class="flex w-full items-start gap-2 text-sm leading-5 text-ink-secondary" data-turn-headline>
       {@render clockIcon()}
-      <span class="min-w-0 line-clamp-2">{headline}</span>
+      <span class="min-w-0 truncate">{headline}</span>
     </span>
   {/if}
 {/snippet}

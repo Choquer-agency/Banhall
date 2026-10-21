@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ReasoningRenderNode } from "$lib/chat/turnParts";
+  import { humanizeItemIds, type ReasoningRenderNode } from "$lib/chat/turnParts";
 
   interface Props {
     node: ReasoningRenderNode;
@@ -17,7 +17,7 @@
    * dropped so no asterisks show.
    */
   const lines = $derived(
-    node.text
+    humanizeItemIds(node.text)
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean)

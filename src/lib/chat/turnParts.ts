@@ -781,6 +781,18 @@ export function formatTurnSummary(
   return `${duration ? `Worked for ${duration}` : "Worked"}${failedNote}`;
 }
 
+/**
+ * Owner, 2026-10-21: item ids (`r-244-4-2`) are internal and never shown. A
+ * reply written before the prompt said so, or the model's own reasoning, may
+ * still carry one; it shows as the place it names ("Line 244, paragraph 4";
+ * paragraph 0 is unanchored, so the Line alone).
+ */
+export function humanizeItemIds(text: string): string {
+  return text.replace(/\b[rcx]-(242|244|246)-(\d+)-\d+\b/g, (_match, section: string, paragraph: string) =>
+    Number(paragraph) > 0 ? `Line ${section}, paragraph ${Number(paragraph)}` : `Line ${section}`
+  );
+}
+
 /** The longest second line of a thought block, in characters. */
 const HEADLINE_MAX_CHARS = 140;
 
@@ -797,7 +809,7 @@ export function turnHeadline(nodes: readonly (ReasoningRenderNode | ToolRenderNo
     if (node.kind !== "reasoning" || !node.text.trim()) continue;
     const headings = [...node.text.matchAll(/\*\*([^*\n]+)\*\*/g)].map((match) => match[1].trim()).filter(Boolean);
     const plain = node.text.replace(/\*\*([^*\n]+)\*\*/g, "$1").trim();
-    const text = headings.at(-1) ?? plain.split(/(?<=[.!?])\s|\n/)[0]?.trim() ?? plain;
+    const text = humanizeItemIds(headings.at(-1) ?? plain.split(/(?<=[.!?])\s|\n/)[0]?.trim() ?? plain);
     return text.length > HEADLINE_MAX_CHARS ? `${text.slice(0, HEADLINE_MAX_CHARS - 1).trimEnd()}…` : text;
   }
   const lastTool = [...nodes].reverse().find((node) => node.kind === "tool");

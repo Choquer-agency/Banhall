@@ -8,6 +8,7 @@ import {
   canRegenerateTurn,
   formatDuration,
   formatTurnSummary,
+  humanizeItemIds,
   turnHeadline,
   normalizeTurnParts,
   toolLabel,
@@ -766,6 +767,19 @@ describe("formatTurnSummary", () => {
   it("degrades gracefully when timing metadata is missing", () => {
     expect(formatTurnSummary(withTools, undefined, "success")).toBe("Worked");
     expect(formatTurnSummary(plain, undefined, "success")).toBeNull();
+  });
+});
+
+describe("humanizeItemIds", () => {
+  it("shows an item id as the place it names", () => {
+    expect(humanizeItemIds("One item stays blocked: r-244-4-2, the test count.")).toBe(
+      "One item stays blocked: Line 244, paragraph 4, the test count."
+    );
+    expect(humanizeItemIds("c-242-0-1 and x-246-12-3")).toBe("Line 242 and Line 246, paragraph 12");
+  });
+
+  it("leaves other text alone", () => {
+    for (const text of ["r-245-4-2", "Ar-244-4-2x", "r-244-4", "Line 244"]) expect(humanizeItemIds(text)).toBe(text);
   });
 });
 

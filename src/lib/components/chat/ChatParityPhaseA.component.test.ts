@@ -329,6 +329,27 @@ describe("task 6: reasoning summaries and announcements", () => {
     ],
   }) as UIMessage;
 
+  // Owner, 2026-10-21: an item id never shows, in the answer, the thought
+  // block's second line or the reasoning; the place it names shows instead.
+  it("shows item ids as the places they name", async () => {
+    const message = {
+      ...row("a", "One item stays blocked: r-244-4-2, the test count.", 1, "assistant"),
+      parts: [
+        { type: "reasoning", text: "For r-242-4-1, I am rewriting the first sentence.", state: "done" },
+        { type: "text", text: "One item stays blocked: r-244-4-2, the test count.", state: "done" },
+      ],
+    } as UIMessage;
+    const { container } = await render(AssistantTurn, {
+      message, timing: { status: "completed", startedAt: 1_000, endedAt: 5_000, stepCount: 0 }, onRefine: vi.fn(),
+    });
+    await expect.element(page.getByText("One item stays blocked: Line 244, paragraph 4, the test count.")).toBeVisible();
+    expect(container.querySelector("[data-turn-status]")?.textContent).toBe("Thought for 4s");
+    expect(container.querySelector("[data-turn-headline]")?.textContent?.trim()).toBe("For Line 242, paragraph 4, I am rewriting the first sentence.");
+    await page.getByText("Thought for 4s", { exact: true }).click();
+    expect(container.querySelector("[data-reasoning-summary]")?.textContent).toContain("For Line 242, paragraph 4, I am rewriting");
+    expect(container.textContent).not.toMatch(/\b[rcx]-\d{3}-\d+-\d+\b/);
+  });
+
   it("shows the summary under Thinking while it streams, and marks the answer busy", async () => {
     await page.viewport(480, 520);
     const { container, rerender } = await render(AssistantTurn, {
