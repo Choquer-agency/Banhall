@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { cn } from "$lib/utils";
+  import { getChatContainerContext } from "./primitives/context";
 
   /**
    * One step of an Assistant turn's trace (owner, 2026-10-21, after Claude's
@@ -20,6 +21,9 @@
   }
 
   let { label, status, statusLabel, open = $bindable(false), expandable = true, children }: Props = $props();
+  // Opening a step holds it under the pointer, as the thought block does.
+  const chat = getChatContainerContext();
+  let summaryEl: HTMLElement | null = $state(null);
 
   const rowClass =
     "-ml-2 flex w-fit max-w-full list-none items-center gap-2 rounded-lg px-2 py-1 text-xs leading-4 text-ink-muted transition-colors pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden";
@@ -61,6 +65,8 @@
   {#if expandable}
     <details bind:open class="group/step">
       <summary
+        bind:this={summaryEl}
+        onclick={() => summaryEl && chat?.keepInPlace(summaryEl)}
         class={cn(
           rowClass,
           "cursor-pointer hover:bg-primary-wash hover:text-navy focus-visible:bg-primary-wash focus-visible:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"

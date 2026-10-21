@@ -1428,7 +1428,10 @@ shimmer, `text-shimmer` in `layout.css`, and no timer; "Thought for 4s" once
 done). Closed, that line is all it shows. Opened, a line beside a clock
 gives the newest reasoning heading (or a short form of the first sentence:
 its first clause, at most 64 characters), then the full reasoning as plain
-text with each step as a row. The block has no hover fill: hovering the first line fades its
+text with each step as a row. Opening or closing it (or a step inside it) never moves it: the
+chat holds the bar where it was on screen through the change
+(`keepInPlace` on the chat container), at the bottom of the chat or
+mid-thread. The block has no hover fill: hovering the first line fades its
 label from 65% ink to full, and the chevron fades in only then (also on
 keyboard focus, and always on touch). The answer's
 Copy, thumbs and Regenerate are one row of icons. The

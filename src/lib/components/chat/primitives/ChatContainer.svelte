@@ -59,6 +59,21 @@
   let suppressScrollUntil = 0;
   let anchoredDist = 0;
 
+  /** How long a kept-in-place element holds through follow-up reflows. */
+  const KEEP_IN_PLACE_MS = 600;
+  /**
+   * The element the writer just opened or closed, and where it was on
+   * screen. While set, resizes keep it there instead of following the
+   * bottom or keeping the distance from it (both moved the control out
+   * from under the pointer).
+   */
+  let kept: { el: Element; top: number; until: number } | null = null;
+
+  export function keepInPlace(el: Element): void {
+    if (!viewportEl) return;
+    kept = { el, top: el.getBoundingClientRect().top, until: performance.now() + KEEP_IN_PLACE_MS };
+  }
+
   function distanceFromBottom(el: HTMLElement): number {
     return el.scrollHeight - el.scrollTop - el.clientHeight;
   }
@@ -100,6 +115,7 @@
       return hasUnseen;
     },
     scrollToBottom,
+    keepInPlace,
   });
 
   // Stick-to-bottom: pin on mount, then follow content growth (streaming
@@ -125,6 +141,17 @@
         isAtBottom = true;
         hasUnseen = false;
         vp.scrollTop = vp.scrollHeight;
+        return;
+      }
+      if (kept && (performance.now() > kept.until || !kept.el.isConnected)) kept = null;
+      if (kept) {
+        // The writer opened or closed something: hold it where it was, and
+        // follow the bottom again only if it is still in reach.
+        vp.scrollTop += kept.el.getBoundingClientRect().top - kept.top;
+        const dist = distanceFromBottom(vp);
+        isAtBottom = dist <= threshold;
+        anchoredDist = dist;
+        if (isAtBottom) hasUnseen = false;
         return;
       }
       if (isAtBottom) {

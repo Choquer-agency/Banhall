@@ -15,6 +15,7 @@
     type TurnTiming,
   } from "$lib/chat/turnParts";
   import ReasoningTraceStep from "./ReasoningTraceStep.svelte";
+  import { getChatContainerContext } from "./primitives/context";
   import ToolTraceStep from "./ToolTraceStep.svelte";
 
   interface Props {
@@ -112,6 +113,10 @@
   // folded, live or not. Its two lines are the progress signal; the writer
   // opens it to read the thought process.
   let open = $state(false);
+  // Opening or closing must not move the bar under the pointer: the chat
+  // holds it in place through the change (owner, 2026-10-21).
+  const chat = getChatContainerContext();
+  let summaryEl: HTMLElement | null = $state(null);
   let wasLive = $state(untrack(() => live));
 
   $effect(() => {
@@ -197,6 +202,8 @@
          thought process (owner, 2026-10-21). -->
     <details bind:open class="group/turn">
       <summary
+        bind:this={summaryEl}
+        onclick={() => summaryEl && chat?.keepInPlace(summaryEl)}
         class={cn(
           blockClass,
           "group/summary cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"

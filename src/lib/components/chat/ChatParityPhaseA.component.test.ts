@@ -28,6 +28,7 @@ import AgentChatPanel from "./AgentChatPanel.svelte";
 import AssistantTurn from "./AssistantTurn.svelte";
 import ProposalCard from "./ProposalCard.svelte";
 import TurnTrace from "./TurnTrace.svelte";
+import ChatKeepInPlaceHarness from "$lib/test/ChatKeepInPlaceHarness.svelte";
 
 const sonner = vi.hoisted(() => ({
   error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn(), dismiss: vi.fn(),
@@ -382,6 +383,55 @@ describe("task 6: reasoning summaries and announcements", () => {
     await page.getByText("Thought for 12s", { exact: true }).click();
     await expect.element(page.elementLocator(headline)).toBeVisible();
     expect(container.querySelector("[data-reasoning-summary]")?.textContent?.trim()).toBe(long);
+  });
+
+  // Owner, 2026-10-21: opening the thought block opens it from where it is;
+  // nothing moves the bar out from under the pointer, at the bottom of the
+  // chat or mid-thread.
+  it.each([
+    ["at the bottom of the chat", 0],
+    ["mid-thread", 30],
+  ])("opens and closes the thought block without moving it, %s", async (_where, after) => {
+    // Its own window, so the page itself never scrolls; positions are read
+    // against the chat's viewport.
+    await page.viewport(900, 900);
+    const long = Array.from({ length: 12 }, (_, i) => `Reasoning sentence ${i + 1} about Line 244 and its evidence.`).join(" ");
+    const message = {
+      ...row("a", "All done.", 1, "assistant"),
+      parts: [
+        { type: "reasoning", text: long, state: "done" },
+        { type: "text", text: "All done.", state: "done" },
+      ],
+    } as UIMessage;
+    await render(ChatKeepInPlaceHarness, {
+      message, timing: { status: "completed", startedAt: 1_000, endedAt: 13_000, stepCount: 0 }, after,
+    });
+    const bar = page.getByText("Thought for 12s", { exact: true });
+    await expect.element(bar).toBeInTheDocument();
+    const summaryEl = (bar.element() as HTMLElement).closest("summary")!;
+    const viewport = summaryEl.closest<HTMLElement>('[role="log"]')!;
+    // Let the chat's first pin to the bottom settle before scrolling up.
+    await new Promise((done) => setTimeout(done, 300));
+    if (after > 0) {
+      viewport.scrollTop += summaryEl.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 80;
+      await new Promise((done) => setTimeout(done, 300));
+    }
+    // The bar is on screen, where the writer can click it.
+    expect(summaryEl.getBoundingClientRect().top).toBeGreaterThanOrEqual(viewport.getBoundingClientRect().top);
+    expect(summaryEl.getBoundingClientRect().bottom).toBeLessThanOrEqual(viewport.getBoundingClientRect().bottom);
+    const offset = () => summaryEl.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+    const before = offset();
+    await bar.click();
+    await expect.element(page.elementLocator(document.querySelector("[data-reasoning-summary]")!)).toBeVisible();
+    await new Promise((done) => setTimeout(done, 100));
+    expect(Math.abs(offset() - before)).toBeLessThan(1);
+    if (after > 0) {
+      // Closing mid-thread holds it too (at the very bottom the browser must
+      // pull the content down as it shrinks).
+      await bar.click();
+      await new Promise((done) => setTimeout(done, 100));
+      expect(Math.abs(offset() - before)).toBeLessThan(1);
+    }
   });
 
   it("shows the summary under Thinking while it streams, and marks the answer busy", async () => {
