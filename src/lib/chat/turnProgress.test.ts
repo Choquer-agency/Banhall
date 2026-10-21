@@ -45,14 +45,15 @@ describe("progressLabel (Phase A, task 5)", () => {
     expect(progressLabel({ phase: "tool", tool: "viewFile", step: 1, since: 0 })).toBe("Looking at a project file…");
   });
 
-  it("feeds the live summary, with the turn's elapsed time", () => {
+  // Owner, 2026-10-21: the live summary is the label alone, with no timer.
+  it("feeds the live summary, with no elapsed time", () => {
     const timing: TurnTiming = {
       status: "running", startedAt: 1_000, stepCount: 1,
       progress: { phase: "tool", tool: "deviationInventory", section: "244", step: 1, since: 4_000 },
     };
-    expect(formatTurnSummary(emptyTurn, timing, "streaming", 49_000)).toBe("Listing the deviations in Line 244… · 48s");
+    expect(formatTurnSummary(emptyTurn, timing, "streaming", 49_000)).toBe("Listing the deviations in Line 244…");
     expect(formatTurnSummary(emptyTurn, { status: "running", startedAt: 1_000, stepCount: 0 }, "streaming", 6_000))
-      .toBe("Working… · 5s");
+      .toBe("Working…");
     expect(formatTurnSummary(emptyTurn, { ...timing, status: "queued" }, undefined, 6_000)).toBe("Starting…");
   });
 });
