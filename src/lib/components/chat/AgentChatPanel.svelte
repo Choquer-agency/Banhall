@@ -304,18 +304,22 @@
   }
 
   /**
-   * The rename row renders as the conversation menu closes, and the menu may
-   * still be handing focus back. Retry for a few frames until the field holds
-   * focus, so Escape and typing always reach it.
+   * The rename row renders as the conversation menu (and its "Conversation
+   * actions" submenu) closes, and a menu can hand focus back to its trigger a
+   * moment later. For a few frames, put focus on the field whenever it is on
+   * the menu button or nowhere; focus the writer moved elsewhere is left
+   * alone. Escape and typing then always reach the field.
    */
   function focusRenameField() {
     let frames = 0;
+    let selected = false;
     const attempt = () => {
       const field = renameField?.querySelector("input");
-      if (field && renaming) {
+      const active = document.activeElement;
+      if (field && renaming && active !== field && (!active || active === document.body || active === conversationMenuButton || !selected)) {
         field.focus();
-        field.select();
-        if (document.activeElement === field) return;
+        if (!selected) field.select();
+        selected = true;
       }
       if (renaming && ++frames < 10) requestAnimationFrame(attempt);
     };

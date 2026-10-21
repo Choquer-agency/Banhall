@@ -124,6 +124,49 @@ const data = (table, component) => {
 };
 
 let failed = false;
+let cleaned = false;
+
+/** Stops everything and deletes the worktree and the private folder. */
+async function cleanup() {
+  if (cleaned) return;
+  cleaned = true;
+  for (const child of children) stop(child);
+  await new Promise((r) => setTimeout(r, 3000));
+  try {
+    git("worktree", "remove", "--force", tree);
+  } catch {
+    // never created, or removed below
+  }
+  if (fs.existsSync(tree)) fs.rmSync(tree, { recursive: true, force: true });
+  try {
+    git("worktree", "prune");
+  } catch {
+    // nothing to prune
+  }
+  if (keep) {
+    for (const entry of fs.readdirSync(work)) {
+      if (!["shots", "report.json"].includes(entry)) fs.rmSync(path.join(work, entry), { recursive: true, force: true });
+    }
+    log(`kept screenshots and the report in ${work}; they hold client data, delete them when done`);
+  } else {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+  if (fs.existsSync(tree) || (!keep && fs.existsSync(work))) {
+    console.error(`[chat-live] CLEANUP INCOMPLETE: delete ${fs.existsSync(tree) ? tree : work} by hand; it holds client data.`);
+    failed = true;
+  } else if (!keep) {
+    log("deleted the worktree, the snapshot, screenshots and credentials");
+  }
+}
+
+// An interrupted run cleans up too: the backend and the snapshot hold client data.
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(signal, () => {
+    console.error(`[chat-live] ${signal}: stopping and cleaning up`);
+    cleanup().finally(() => process.exit(130));
+  });
+}
+
 try {
   log(`target ${target}, base ${base}, source ${sourceDeployment.split(":")[0]}, work dir ${work}`);
 
@@ -160,12 +203,26 @@ try {
   log("target code pushed");
 
   // 4. Keys (copied, never printed), local auth values, fresh auth keys.
+  // A failed command's error message repeats its arguments, so a secret is
+  // set through setSecret, which replaces any error with a plain one.
+  const setSecret = (key, value) => {
+    try {
+      local("npx", ["convex", "env", "set", key, value]);
+    } catch {
+      throw new Error(`Setting ${key} on the local backend failed.`);
+    }
+  };
   for (const key of ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"]) {
-    const value = execFileSync("npx", ["convex", "env", "get", key], { cwd: repo, encoding: "utf8" }).trim();
+    let value = "";
+    try {
+      value = execFileSync("npx", ["convex", "env", "get", key], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    } catch {
+      throw new Error(`Reading ${key} from the source deployment failed.`);
+    }
     if (!value) throw new Error(`${key} is not set on the source deployment.`);
-    local("npx", ["convex", "env", "set", key, value]);
+    setSecret(key, value);
   }
-  local("npx", ["convex", "env", "set", "BETTER_AUTH_SECRET", crypto.randomBytes(32).toString("hex")]);
+  setSecret("BETTER_AUTH_SECRET", crypto.randomBytes(32).toString("hex"));
   local("npx", ["convex", "env", "set", "SITE_URL", `http://localhost:${port}`]);
   local("npx", ["convex", "env", "set", "BETTER_AUTH_TRUSTED_ORIGINS", `http://localhost:${port}`]);
   const emptyFile = path.join(work, "empty.jsonl");
@@ -262,22 +319,6 @@ try {
   failed = true;
   console.error(`[chat-live] ${error instanceof Error ? error.message : String(error)}`);
 } finally {
-  for (const child of children) stop(child);
-  await new Promise((r) => setTimeout(r, 3000));
-  try {
-    git("worktree", "remove", "--force", tree);
-  } catch {
-    // never created
-  }
-  git("worktree", "prune");
-  if (keep) {
-    for (const entry of fs.readdirSync(work)) {
-      if (!["shots", "report.json"].includes(entry)) fs.rmSync(path.join(work, entry), { recursive: true, force: true });
-    }
-    log(`kept screenshots and the report in ${work}; they hold client data, delete them when done`);
-  } else {
-    fs.rmSync(work, { recursive: true, force: true });
-    log("deleted the worktree, the snapshot, screenshots and credentials");
-  }
+  await cleanup();
   process.exit(failed ? 1 : 0);
 }

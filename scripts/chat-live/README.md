@@ -11,7 +11,7 @@
 6. **Test account.** It creates a throwaway admin account through the app's own invite and sign-up path.
 7. **App.** It starts the app on `--port` (default 5180, never 3001).
 8. **Scenarios.** It runs the browser scenarios in `scenarios.mjs` and writes a JSON report.
-9. **Cleanup.** It always stops everything and deletes the worktree and every copy of the snapshot, screenshots and credentials. With `--keep-artifacts` it keeps the screenshots and report and prints where they are. They contain client data, so delete them when you are done.
+9. **Cleanup.** It always stops everything and deletes the worktree and every copy of the snapshot, screenshots and credentials, including when the run fails or is interrupted (Ctrl-C). If a deletion fails, it says which folder to delete by hand. Secrets never appear in its output: a failed key copy reports only which key failed. With `--keep-artifacts` it keeps the screenshots and report and prints where they are. They contain client data, so delete them when you are done.
 
 ## Options
 - `--project <id>` (required): a project from the snapshot with a report to work on.

@@ -90,7 +90,9 @@ describe("conversation menu", () => {
     await page.viewport(480, 760);
     await page.screenshot({ path: `${CAPTURES}/rename-inline.png` });
     await userEvent.keyboard("{Escape}");
-    await expect.poll(() => document.querySelector("[data-rename-conversation]")).toBeNull();
+    // The viewport change and capture above can keep a busy browser behind
+    // the key for over a second in the full suite; the wait allows for it.
+    await expect.poll(() => document.querySelector("[data-rename-conversation]"), { timeout: 5000 }).toBeNull();
     expect(__mutationCalls("chatV2:renameThread")).toEqual([]);
     // Review R2 P3-3: focus returns to the menu button, never the page.
     await expect.element(menu()).toHaveFocus();
@@ -100,8 +102,8 @@ describe("conversation menu", () => {
     await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
     await name.fill("  Kiln   moisture review ");
     await userEvent.keyboard("{Enter}");
-    await expect.poll(() => __mutationCalls("chatV2:renameThread")).toEqual([{ threadId: "thread-1", title: "Kiln moisture review" }]);
-    await expect.poll(() => document.querySelector("[data-rename-conversation]")).toBeNull();
+    await expect.poll(() => __mutationCalls("chatV2:renameThread"), { timeout: 5000 }).toEqual([{ threadId: "thread-1", title: "Kiln moisture review" }]);
+    await expect.poll(() => document.querySelector("[data-rename-conversation]"), { timeout: 5000 }).toBeNull();
     await expect.element(menu()).toHaveFocus();
   });
 

@@ -95,6 +95,8 @@ const SCENARIOS = [
       expect(/Completion Report/.test(text), "no Completion Report on the cards");
       expect([...labels].some((l) => /writing a reply/.test(l ?? "")), "the launcher never showed the reply running");
       expect(!/couldn.t finish|took too long/i.test(text), "a reply failed");
+      // The job either continued on its own, or finished every Line in one reply.
+      expect(chips > 0 || (cards >= 2 && /complete/i.test(text.slice(-1500))), "the job neither continued on its own nor finished");
       return `${cards} cards, ${chips} automatic links, ${Math.round((Date.now() - started) / 1000)} s`;
     },
   },
@@ -322,7 +324,15 @@ const SCENARIOS = [
       await page.keyboard.press("Escape");
       await page.waitForTimeout(800);
       expect(await page.locator("[data-assistant-panel]").count(), "Esc closed the Assistant while Brain was on");
-      return "Esc keeps the Assistant open while Brain is on";
+      // The negative control: with Brain off and nothing typed, Esc closes it.
+      await page.getByRole("button", { name: "Message options" }).click();
+      await page.getByRole("menuitemcheckbox", { name: "Use Brain examples for this message" }).click();
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => document.activeElement?.blur());
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(800);
+      expect((await page.locator("[data-assistant-panel]").count()) === 0, "Esc did not close the Assistant with nothing pending");
+      return "Esc keeps the Assistant open while Brain is on, and closes it otherwise";
     },
   },
   {
