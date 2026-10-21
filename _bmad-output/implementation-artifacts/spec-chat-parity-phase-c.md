@@ -450,7 +450,8 @@ All three start from `0aff7cf3`. Shared hot files are `convex/schema.ts`, `conve
 - **Reviewers.** Claude Fable 5.1 at default effort, two reviewers: one on the product code of `14aa81e7..eabcd77c`, one on `186d04e8`, `bea99ae2` and `eabcd77c`. A third Fable 5.1 pass at default effort checked the fixes in `3bbc5813`.
 - **Product code:** no P1 or P2. Fixed P3s, each with a test that fails without the fix:
   - moving to another conversation closes an open rename row;
-  - a file picker with nothing to choose takes focus itself.
+  - a file picker with nothing to choose takes focus itself;
+  - the picker's focus step does nothing once Esc has closed it. bits-ui can run that step twice as the picker opens, and a second run after a fast Esc used to leave focus on the page. The new test failed 3 of 5 runs from this race and passes 8 of 8 with the fix; Fable 5.1 confirmed the cause.
 
   Not changed: a card whose Undo pointer has no record would show Undo and then refuse it. No path creates that state (purge and erasure remove the card with its record), and a throwing mutation cannot clear the pointer, so a fix would need a different Undo result or a record read in the card list.
 - **Live test (P1, P2 and P3s), all fixed:**

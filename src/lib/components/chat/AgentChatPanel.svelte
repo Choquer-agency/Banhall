@@ -1763,9 +1763,11 @@
                 // guards its own deferred focus against that teardown, so the
                 // picker moves focus to its first file itself, a frame later.
                 // With no file to choose (loading, or none yet), the picker
-                // itself takes focus.
+                // itself takes focus. bits-ui can run this twice as the picker
+                // opens; a frame that arrives after Esc closed it does nothing.
                 event.preventDefault();
                 requestAnimationFrame(() => {
+                  if (!filePickerOpen) return;
                   const picker = document.querySelector<HTMLElement>("[data-file-picker]");
                   const first = picker?.querySelector<HTMLElement>("[data-checkbox-root]:not([disabled]), button:not([disabled])");
                   (first ?? picker)?.focus();
