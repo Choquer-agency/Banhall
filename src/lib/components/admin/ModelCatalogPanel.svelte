@@ -1,8 +1,10 @@
 <!--
-  Admin model catalog (owner decision 21): the kill switch, the evaluation
-  budget, each role's model with its history, rollback and cost cap, recent
-  evaluations, and the catalog itself. Presentational: the route owns every
-  query and mutation and passes data and callbacks in.
+  Admin model catalog (owner decision 21, amended 2026-10-22: models follow
+  the newest version of their tier). The kill switch, the seven tiers with
+  their current and previous model and a "Move back" action, each role's
+  tier and cost cap, the update log, the catalog itself and the last
+  evaluations that ran before they ended. Presentational: the route owns
+  every query and mutation and passes data and callbacks in.
 
   Benchmark scores are Artificial Analysis data. They appear only here, on an
   admin-only page, with the attribution line; never on a client surface.
@@ -19,75 +21,72 @@
     formatUsd,
     formatUsdPerMTok,
     statusLabel,
-    switchReason,
     type CostCapInput,
     type ModelAdminRole,
     type ModelAdminState,
+    type ModelAdminTrack,
   } from "$lib/modelCatalogAdmin";
 
   let {
     admin,
     busy = null,
     onToggleAutoSwitch,
-    onRollback,
+    onMoveBack,
     onSaveCap,
-    onSaveBudget,
     onRefresh,
   }: {
     admin: ModelAdminState;
     /** Which action is in flight, to disable its control. */
     busy?: string | null;
     onToggleAutoSwitch: (enabled: boolean) => void;
-    onRollback: (role: ModelAdminRole["role"]) => void;
+    onMoveBack: (track: ModelAdminTrack["track"]) => void;
     onSaveCap: (role: ModelAdminRole["role"], cap: CostCapInput) => void;
-    onSaveBudget: (monthlyUsd: number) => void;
     onRefresh: () => void;
   } = $props();
 
   // Editable drafts, seeded from the server state and reset when it changes.
-  let capDrafts = $state<Record<string, { input: string; output: string; ratio: string }>>({});
-  let budgetDraft = $state("");
-  let openHistory = $state<Record<string, boolean>>({});
+  let capDrafts = $state<Record<string, { input: string; output: string }>>({});
+  let evaluationsOpen = $state(false);
 
   $effect(() => {
-    const next: Record<string, { input: string; output: string; ratio: string }> = {};
+    const next: Record<string, { input: string; output: string }> = {};
     for (const role of admin.roles) {
       next[role.role] = {
         input: String(role.cap.maxInputUsdPerMTok),
         output: String(role.cap.maxOutputUsdPerMTok),
-        ratio: String(role.cap.maxCostRatio),
       };
     }
     capDrafts = next;
-    budgetDraft = String(admin.evalBudget.monthlyUsd);
   });
 
-  function parsedCap(role: string): CostCapInput | null {
-    const draft = capDrafts[role];
+  function parsedCap(role: ModelAdminRole): CostCapInput | null {
+    const draft = capDrafts[role.role];
     if (!draft) return null;
     const cap = {
       maxInputUsdPerMTok: Number(draft.input),
       maxOutputUsdPerMTok: Number(draft.output),
-      maxCostRatio: Number(draft.ratio),
+      // Only evaluations read the ratio, and they have ended: keep it.
+      maxCostRatio: role.cap.maxCostRatio,
     };
     return Object.values(cap).every((value) => Number.isFinite(value) && value > 0) ? cap : null;
   }
 
-  const budgetValue = $derived(Number(budgetDraft));
-  const budgetValid = $derived(budgetDraft.trim() !== "" && Number.isFinite(budgetValue) && budgetValue >= 0);
   const hasScores = $derived(admin.catalog.some((row) => row.score !== null));
+  const errorPercent = $derived(Math.round(admin.thresholds.maxErrorRate * 100));
 </script>
 
 <section class="mt-6 flex flex-col gap-6" aria-label="Model catalog">
-  <!-- Automatic switching -->
+  <!-- Automatic updates -->
   <div class="card p-5">
     <div class="flex flex-wrap items-start justify-between gap-4">
       <div class="max-w-xl">
-        <h2 class="text-sm font-medium text-gray-900">Automatic switching</h2>
+        <h2 class="text-sm font-medium text-gray-900">Automatic updates</h2>
         <p class="mt-1 text-sm text-gray-600">
-          Each day the app checks for better models, tests at most {admin.thresholds.maxEvaluationsPerRun}
-          on real interview material, and switches a role only when a model passes every test and stays
-          within the role's cost cap. Turning this off stops every automatic switch and rollback.
+          Each morning the app looks for a newer version of each tier below. A newer version gets two
+          small test requests first, and every role on that tier moves to it once they pass. A
+          generation already running keeps the models it started with. A tier moves back on its own
+          when its new model fails more than {errorPercent} percent of at least
+          {admin.thresholds.errorMinCalls} calls in a day. Turning this off stops every update and move back.
         </p>
       </div>
       <label class="flex items-center gap-3 text-sm text-gray-800">
@@ -96,7 +95,7 @@
           checked={admin.autoSwitch}
           disabled={busy === "autoSwitch"}
           onCheckedChange={(checked) => onToggleAutoSwitch(checked)}
-          aria-label="Switch models automatically"
+          aria-label="Update models automatically"
           class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full bg-gray-300 transition-colors data-[state=checked]:bg-primary disabled:opacity-60"
         >
           <Switch.Thumb
@@ -105,94 +104,79 @@
         </Switch.Root>
       </label>
     </div>
-    <div class="mt-5 grid gap-4 border-t border-gray-100 pt-4 sm:grid-cols-2">
-      <div>
-        <p class="text-label">Evaluation budget this month</p>
-        <p class="text-data mt-1 text-gray-800">
-          {formatUsd(admin.evalBudget.spentUsd)} of {formatUsd(admin.evalBudget.monthlyUsd)} used
-        </p>
-        <form
-          class="mt-2 flex items-end gap-2"
-          onsubmit={(event) => {
-            event.preventDefault();
-            if (budgetValid) onSaveBudget(budgetValue);
-          }}
-        >
-          <Input
-            id="eval-budget"
-            label="Monthly budget, USD"
-            type="text"
-            inputmode="decimal"
-            bind:value={budgetDraft}
-            class="w-28"
-          />
-          <Button type="submit" size="xs" variant="ghost" disabled={!budgetValid || busy === "budget"}>
-            Save budget
-          </Button>
-        </form>
-      </div>
-      <div>
-        <p class="text-label">Catalog</p>
-        <p class="mt-1 text-sm text-gray-700">
-          {admin.catalogSize} models, last refreshed {formatDate(admin.lastRefreshAt)}.
-        </p>
-        <Button class="mt-2" size="xs" variant="ghost" disabled={busy === "refresh"} onclick={onRefresh}>
-          Refresh now
-        </Button>
-      </div>
+    <div class="mt-5 border-t border-gray-100 pt-4">
+      <p class="text-label">Catalog</p>
+      <p class="mt-1 text-sm text-gray-700">
+        {admin.catalogSize} models, last refreshed {formatDate(admin.lastRefreshAt)}.
+      </p>
+      <Button class="mt-2" size="xs" variant="ghost" disabled={busy === "refresh"} onclick={onRefresh}>
+        Refresh now
+      </Button>
     </div>
+  </div>
+
+  <!-- Tiers -->
+  <div>
+    <h2 class="text-sm font-medium text-gray-900">Tiers</h2>
+    <p class="mt-1 text-sm text-gray-500">
+      Writers pick from these seven models. Each tier always runs its newest version.
+    </p>
+    <ul class="mt-3 flex flex-col gap-3">
+      {#each admin.tracks as track (track.track)}
+        <li class="card p-4" data-track={track.track}>
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-gray-900">{track.name}</p>
+              <p class="mt-1 text-sm text-gray-800">
+                <span class="text-gray-500">Now:</span> {track.modelLabel}
+                <span class="text-data text-gray-400">{track.modelId}</span>
+              </p>
+              {#if track.previousLabel}
+                <p class="text-sm text-gray-700">
+                  <span class="text-gray-500">Before:</span> {track.previousLabel}
+                </p>
+              {/if}
+              <p class="mt-1 text-xs text-gray-500">
+                {track.switchedAt === null ? "Not moved yet." : `Moved on ${formatDate(track.switchedAt)}.`}
+                Last checked {formatDate(track.lastCheckedAt)}.{#if track.lastCheckNote}
+                  {" "}{track.lastCheckNote}{/if}
+              </p>
+              {#if track.rolledBackFrom.length > 0}
+                <p class="text-xs text-gray-500" data-testid="rolled-back-from">
+                  Never used again on this tier: {track.rolledBackFrom.join(", ")}.
+                </p>
+              {/if}
+            </div>
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={!track.previousModelId || busy === `moveBack:${track.track}`}
+              onclick={() => onMoveBack(track.track)}
+            >
+              {track.previousLabel ? `Move back to ${track.previousLabel}` : "Nothing to move back to"}
+            </Button>
+          </div>
+        </li>
+      {/each}
+    </ul>
   </div>
 
   <!-- Roles -->
   <div>
     <h2 class="text-sm font-medium text-gray-900">Roles</h2>
     <p class="mt-1 text-sm text-gray-500">
-      Every generation keeps the models it started with. A switch reaches the next generation only.
+      Each role follows a tier and runs its newest version. The cost caps limit what an OpenRouter
+      model may charge per million tokens.
     </p>
     <ul class="mt-3 flex flex-col gap-3">
       {#each admin.roles as role (role.role)}
-        {@const cap = parsedCap(role.role)}
-        {@const historyId = `role-history-${role.role}`}
+        {@const cap = parsedCap(role)}
         <li class="card p-4" data-role={role.role}>
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div class="min-w-0">
-              <p class="text-sm font-medium text-gray-900">{role.label}</p>
-              <p class="text-xs text-gray-500">{role.description}</p>
-              <p class="mt-2 text-sm text-gray-800">
-                <span class="text-gray-500">Model:</span> {role.modelLabel}
-                {#if role.previousLabel}
-                  <span class="text-gray-500">(before: {role.previousLabel})</span>
-                {/if}
-              </p>
-              <p class="text-xs text-gray-500">
-                {#if role.assignedAt === null}
-                  Default model, never switched.
-                {:else if role.carriedOverFrom}
-                  Carried over from {role.carriedOverFrom} when roles were split.
-                {:else}
-                  {role.assignedBy === "system" ? "Switched automatically" : "Set by an admin"} on {formatDate(role.assignedAt)}.
-                {/if}
-                {#if role.autoSwitch}
-                  <span class="mt-1 block" data-testid="auto-switch-tasks">
-                    Switches on its own after passing its evaluation on: {role.evaluatedOn.join(", ")}.
-                  </span>
-                {:else}
-                  <span class="mt-1 block" data-testid="manual-only-reason">
-                    Never switches on its own: {role.manualOnlyReason}
-                  </span>
-                {/if}
-              </p>
-            </div>
-            <Button
-              size="xs"
-              variant="ghost"
-              disabled={!role.previousModelId || busy === `rollback:${role.role}`}
-              onclick={() => onRollback(role.role)}
-            >
-              {role.previousLabel ? `Roll back to ${role.previousLabel}` : "Nothing to roll back"}
-            </Button>
-          </div>
-
+          <p class="text-sm font-medium text-gray-900">{role.label}</p>
+          <p class="text-xs text-gray-500">{role.description}</p>
+          <p class="mt-2 text-sm text-gray-800" data-testid="role-track">
+            Follows {role.trackName}, now {role.modelLabel}{role.chosenByAdmin ? " (chosen by an admin)" : ""}.
+          </p>
           <form
             class="mt-3 flex flex-wrap items-end gap-3"
             onsubmit={(event) => {
@@ -217,108 +201,33 @@
                 bind:value={capDrafts[role.role].output}
                 class="w-28"
               />
-              <Input
-                id={`cap-ratio-${role.role}`}
-                label="Max cost vs current"
-                type="text"
-                inputmode="decimal"
-                bind:value={capDrafts[role.role].ratio}
-                class="w-24"
-              />
               <Button type="submit" size="xs" variant="ghost" disabled={!cap || busy === `cap:${role.role}`}>
                 Save cap
               </Button>
             {/if}
           </form>
-
-          {#if role.history.length > 0}
-            <button
-              type="button"
-              class="mt-3 flex w-full items-center justify-between gap-2 rounded-md py-1 text-left text-xs font-medium text-gray-600 hover:text-gray-900"
-              aria-expanded={openHistory[role.role] === true}
-              aria-controls={historyId}
-              onclick={() => (openHistory[role.role] = !openHistory[role.role])}
-            >
-              History ({role.history.length})
-              <DisclosureChevron open={openHistory[role.role] === true} />
-            </button>
-            <Disclosure id={historyId} open={openHistory[role.role] === true}>
-              <ol class="mt-2 flex flex-col gap-1.5">
-                {#each role.history as event (event.id)}
-                  <li class="text-xs text-gray-600">
-                    <span class="text-data text-gray-400">{formatDate(event.at)}</span>
-                    {event.fromLabel ? `From ${event.fromLabel} to ${event.toLabel}` : `To ${event.toLabel}`},
-                    {switchReason(event.reason)}{event.actor === "system" ? " (automatic)" : ""}.
-                    {#if event.rubric}
-                      Rubric {event.rubric.candidate.toFixed(1)} vs {event.rubric.incumbent.toFixed(1)}.
-                    {/if}
-                    {#if event.errorRate !== null}
-                      {Math.round(event.errorRate * 100)} percent of calls failed.
-                    {/if}
-                  </li>
-                {/each}
-              </ol>
-            </Disclosure>
-          {/if}
         </li>
       {/each}
     </ul>
   </div>
 
-  <!-- Evaluations -->
+  <!-- Update log -->
   <div>
-    <h2 class="text-sm font-medium text-gray-900">Evaluations</h2>
+    <h2 class="text-sm font-medium text-gray-900">Update log</h2>
     <p class="mt-1 text-sm text-gray-500">
-      A candidate must return valid structured output every time, match the current model's contract pass
-      rate, beat its judged score by {admin.thresholds.rubricMargin} and stay within the cost cap.
+      Every tier move, move back and catalog notice. Only admins see this log.
     </p>
-    {#if admin.evaluations.length === 0}
-      <p class="card mt-3 px-4 py-6 text-center text-sm text-gray-500">No evaluations yet.</p>
+    {#if admin.log.length === 0}
+      <p class="card mt-3 px-4 py-6 text-center text-sm text-gray-500">Nothing logged yet.</p>
     {:else}
-      <div class="card mt-3 overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="text-label border-b border-gray-100 text-left">
-              <th class="px-4 py-2.5 font-medium">Date</th>
-              <th class="px-4 py-2.5 font-medium">Role</th>
-              <th class="px-4 py-2.5 font-medium">Candidate</th>
-              <th class="px-4 py-2.5 font-medium">Against</th>
-              <th class="px-4 py-2.5 font-medium">Status</th>
-              <th class="px-4 py-2.5 font-medium">Result</th>
-              <th class="px-4 py-2.5 text-right font-medium">Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each admin.evaluations as evaluation (evaluation.id)}
-              <tr class="border-b border-gray-50 last:border-0">
-                <td class="text-data px-4 py-2.5 text-gray-500">{formatDate(evaluation.createdAt)}</td>
-                <td class="px-4 py-2.5 text-gray-700">{evaluation.roleLabel}</td>
-                <td class="px-4 py-2.5 text-gray-900">{evaluation.modelLabel}</td>
-                <td class="px-4 py-2.5 text-gray-700">{evaluation.incumbentLabel}</td>
-                <td class="px-4 py-2.5 text-gray-700">{statusLabel(evaluation.status)}</td>
-                <td class="px-4 py-2.5 text-xs text-gray-600">
-                  {#if evaluation.error}
-                    {evaluation.error}
-                  {:else if evaluation.outcome}
-                    {evaluation.outcome}
-                  {:else}
-                    Waiting
-                  {/if}
-                  {#if evaluation.candidate && evaluation.incumbent}
-                    <span class="block text-gray-400">
-                      Rubric {evaluation.candidate.rubricScore.toFixed(1)} vs {evaluation.incumbent.rubricScore.toFixed(1)},
-                      valid {Math.round(evaluation.candidate.schemaValidity * 100)} percent
-                    </span>
-                  {/if}
-                </td>
-                <td class="text-data px-4 py-2.5 text-right text-gray-700">
-                  {formatUsd(evaluation.evalCostUsd ?? evaluation.estimatedCostUsd)}
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
+      <ol class="card mt-3 flex flex-col divide-y divide-gray-100" data-testid="model-log">
+        {#each admin.log as line (line.id)}
+          <li class="px-4 py-2.5 text-sm text-gray-700">
+            <span class="text-data mr-2 text-gray-400">{formatDate(line.at)}</span>
+            {line.text}{line.kind !== "notice" && line.automatic ? " (automatic)" : ""}
+          </li>
+        {/each}
+      </ol>
     {/if}
   </div>
 
@@ -374,4 +283,56 @@
       </p>
     {/if}
   </div>
+
+  <!-- Earlier evaluations (ended 2026-10-22) -->
+  {#if admin.evaluations.length > 0}
+    <div>
+      <button
+        type="button"
+        class="flex w-full items-center justify-between gap-2 rounded-md py-1 text-left text-sm font-medium text-gray-900 hover:text-gray-700"
+        aria-expanded={evaluationsOpen}
+        aria-controls="model-evaluations"
+        onclick={() => (evaluationsOpen = !evaluationsOpen)}
+      >
+        Earlier evaluations ({admin.evaluations.length})
+        <DisclosureChevron open={evaluationsOpen} />
+      </button>
+      <Disclosure id="model-evaluations" open={evaluationsOpen}>
+        <p class="mt-1 text-sm text-gray-500">
+          Evaluations ended on 2026-10-22, when tiers began following their newest version. These are the last
+          ones that ran. None of them changes a model now.
+        </p>
+        <div class="card mt-3 overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-label border-b border-gray-100 text-left">
+                <th class="px-4 py-2.5 font-medium">Date</th>
+                <th class="px-4 py-2.5 font-medium">Role</th>
+                <th class="px-4 py-2.5 font-medium">Candidate</th>
+                <th class="px-4 py-2.5 font-medium">Against</th>
+                <th class="px-4 py-2.5 font-medium">Status</th>
+                <th class="px-4 py-2.5 font-medium">Result</th>
+                <th class="px-4 py-2.5 text-right font-medium">Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each admin.evaluations as evaluation (evaluation.id)}
+                <tr class="border-b border-gray-50 last:border-0">
+                  <td class="text-data px-4 py-2.5 text-gray-500">{formatDate(evaluation.createdAt)}</td>
+                  <td class="px-4 py-2.5 text-gray-700">{evaluation.roleLabel}</td>
+                  <td class="px-4 py-2.5 text-gray-900">{evaluation.modelLabel}</td>
+                  <td class="px-4 py-2.5 text-gray-700">{evaluation.incumbentLabel}</td>
+                  <td class="px-4 py-2.5 text-gray-700">{statusLabel(evaluation.status)}</td>
+                  <td class="px-4 py-2.5 text-xs text-gray-600">{evaluation.error ?? evaluation.outcome ?? ""}</td>
+                  <td class="text-data px-4 py-2.5 text-right text-gray-700">
+                    {formatUsd(evaluation.evalCostUsd ?? evaluation.estimatedCostUsd)}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </Disclosure>
+    </div>
+  {/if}
 </section>

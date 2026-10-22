@@ -7,6 +7,8 @@ import type { adminStateRef } from "../../convex/lib/modelCatalogRefs";
 
 export type ModelAdminState = NonNullable<FunctionReturnType<typeof adminStateRef>>;
 export type ModelAdminRole = ModelAdminState["roles"][number];
+export type ModelAdminTrack = ModelAdminState["tracks"][number];
+export type ModelAdminLogLine = ModelAdminState["log"][number];
 export type ModelAdminEvaluation = ModelAdminState["evaluations"][number];
 export type ModelAdminCatalogRow = ModelAdminState["catalog"][number];
 
@@ -40,17 +42,6 @@ export function formatDate(at: number | null): string {
     month: "short",
     day: "numeric",
   });
-}
-
-const REASONS: Record<string, string> = {
-  evaluation_passed: "passed every evaluation gate",
-  production_error_rate: "too many failed calls",
-  admin_rollback: "rolled back by an admin",
-  admin_choice: "chosen by an admin",
-};
-
-export function switchReason(reason: string): string {
-  return REASONS[reason] ?? reason.replace(/_/g, " ");
 }
 
 const STATUS_LABELS: Record<string, string> = {
