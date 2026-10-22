@@ -160,14 +160,16 @@ describe("Check again when the AI provider answers 429 (2026-10-13)", () => {
     expect(await t.run((ctx) => ctx.db.query("modelCallOutcomes").collect())).toEqual([]);
   });
 
-  it("says the same when an OpenRouter model is still rate limited after its retry", async () => {
-    answer = (url) => (url === OPENROUTER_URL ? openRouter429() : anthropicAnswer("claude-sonnet-5"));
+  // 2026-10-22 (second): roles follow their tier, so the 2026-10-12
+  // evaluation switch to xiaomi/mimo-v2.6-pro no longer applies.
+  it("sends the check to the Sonnet tier even with the old evaluation switch stored", async () => {
+    answer = (url) => (url === ANTHROPIC_URL ? anthropicAnswer("claude-sonnet-5-5") : openRouter429());
     const { writer } = await setup({ onOpenRouter: true });
 
-    await expect(check(writer)).rejects.toMatchObject({
-      data: { code: "PROVIDER_UNAVAILABLE", message: STYLE_CHECK_BUSY_MESSAGE },
-    });
-    expect(seen.map((request) => request.url)).toEqual([OPENROUTER_URL, OPENROUTER_URL]);
+    const result = await check(writer);
+
+    expect(result.categories.sentenceConstruction).toEqual({ addressed: true, evidence: "Short sentences" });
+    expect(seen.map((request) => request.url)).toEqual([ANTHROPIC_URL]);
   });
 
   it("stores the answer when the provider answers", async () => {
@@ -180,11 +182,12 @@ describe("Check again when the AI provider answers 429 (2026-10-13)", () => {
   });
 
   it("throws any other failure as before", async () => {
-    answer = (url) =>
-      url === OPENROUTER_URL
-        ? Response.json({ error: { code: 400, message: "Bad request" } }, { status: 400 })
-        : anthropicAnswer("claude-sonnet-5");
-    const { writer } = await setup({ onOpenRouter: true });
+    answer = () =>
+      Response.json(
+        { type: "error", error: { type: "invalid_request_error", message: "Bad request" } },
+        { status: 400, headers: { "request-id": "req_bad" } },
+      );
+    const { writer } = await setup();
 
     const error = await check(writer).then(
       () => null,
@@ -193,6 +196,5 @@ describe("Check again when the AI provider answers 429 (2026-10-13)", () => {
 
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toHaveProperty("data.code", "PROVIDER_UNAVAILABLE");
-    expect(seen.map((request) => request.url)).toEqual([OPENROUTER_URL]);
   });
 });
