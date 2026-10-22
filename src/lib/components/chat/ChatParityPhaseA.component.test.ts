@@ -474,8 +474,10 @@ describe("task 6: reasoning summaries and announcements", () => {
         { type: "text", text: "Proposed dropping the gap note.", state: "done" },
       ],
     } as UIMessage;
-    const { container } = await render(AssistantTurn, {
-      message, timing: { status: "completed", startedAt: 1_000, endedAt: 5_000, stepCount: 2 }, onRefine: vi.fn(),
+    const timing = { status: "completed" as const, startedAt: 1_000, endedAt: 5_000, stepCount: 2 };
+    const { container, unmount } = await render(AssistantTurn, {
+      message, timing, onRefine: vi.fn(),
+      proposals: [proposal({ toolCallId: "edit-1", promptMessageId: "m-1" })],
     });
     const bar = container.querySelector<HTMLElement>("[data-turn-status]")!;
     await expect.element(page.elementLocator(bar)).toBeVisible();
@@ -487,6 +489,17 @@ describe("task 6: reasoning summaries and announcements", () => {
     const trace = container.querySelector('[aria-label="Thought process"]')!;
     expect(trace.textContent).not.toContain("Suggested an edit");
     expect(trace.querySelectorAll("[data-trace-step]")).toHaveLength(1);
+    await unmount();
+
+    // Review 2026-10-21: an edit step that made no card ("Proposal NOT
+    // created") stays, as the failure it was.
+    const refused = await render(AssistantTurn, { message, timing, onRefine: vi.fn(), proposals: [] });
+    const refusedBar = refused.container.querySelector<HTMLElement>("[data-turn-status]")!;
+    await expect.element(page.elementLocator(refusedBar)).toBeVisible();
+    refusedBar.click();
+    const refusedTrace = refused.container.querySelector('[aria-label="Thought process"]')!;
+    await expect.poll(() => refusedTrace.querySelectorAll("[data-trace-step]").length).toBe(2);
+    expect(refusedTrace.textContent).toContain("Couldn\u2019t write that suggestion");
   });
 
   // Owner, 2026-10-21: a long thinking summary shows one paragraph, with

@@ -149,8 +149,10 @@
   <!-- Owner, 2026-10-21: hovering this row is a plain opacity change on the
        label and the chevron, no fill. Ink at 65% keeps the resting label
        above 4.5:1 on white. The chevron shows only on hover (and
-       on keyboard focus, and always on touch, which has no hover). -->
-  <span class="group/status flex w-full items-center gap-2">
+       on keyboard focus, and always on touch, which has no hover). The
+       hover is the whole summary's, its padding included (review
+       2026-10-21). -->
+  <span class="flex w-full items-center gap-2">
     <!-- The live label shimmers instead of counting time; a finished one
          says how long it took (owner, 2026-10-21). -->
     <span
@@ -159,7 +161,7 @@
       class={cn(
         "min-w-0 text-[0.8125rem] leading-[calc(20/13)] text-ink",
         interactive
-          ? "opacity-65 transition-opacity group-hover/status:opacity-100 group-focus-visible/summary:opacity-100 motion-reduce:transition-none"
+          ? "opacity-65 transition-opacity group-hover/summary:opacity-100 group-focus-visible/summary:opacity-100 motion-reduce:transition-none"
           : "opacity-65",
         live && "text-shimmer"
       )}>{shownHead}</span>
@@ -168,7 +170,7 @@
       <svg
         data-turn-chevron
         class={cn(
-          "ml-auto size-3.5 shrink-0 text-ink-muted opacity-0 transition-[opacity,transform] group-hover/status:opacity-100 group-focus-visible/summary:opacity-100 pointer-coarse:opacity-100 motion-reduce:transition-none",
+          "ml-auto size-3.5 shrink-0 text-ink-muted opacity-0 transition-[opacity,rotate] group-hover/summary:opacity-100 group-focus-visible/summary:opacity-100 pointer-coarse:opacity-100 motion-reduce:transition-none",
           open && "rotate-180"
         )}
         fill="none"

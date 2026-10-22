@@ -98,7 +98,15 @@
   // back the reply's citations and the Sources row.
   // The thought block leaves out steps whose card is already under the
   // reply (owner, 2026-10-21).
-  const traceNodes = $derived(thoughtTraceNodes(withWebSearchLabels(turn.traceNodes, webSearches)));
+  // Review 2026-10-21: once the reply settles, a card step with no card
+  // under it stays, as the failed attempt it was.
+  const traceNodes = $derived(
+    thoughtTraceNodes(withWebSearchLabels(turn.traceNodes, webSearches), {
+      toolCallIds: new Set(turn.proposalNodes.flatMap((node) => (node.toolCallId ? [node.toolCallId] : []))),
+      legacy: turn.proposalNodes.some((node) => node.association === "legacy"),
+      settled: !(message?.status === "streaming" || message?.status === "pending") && timing?.status !== "running" && timing?.status !== "queued",
+    })
+  );
   const webSources = $derived(turnWebSources(webSearches));
 
   const failed = $derived(message?.status === "failed" || timing?.status === "failed");

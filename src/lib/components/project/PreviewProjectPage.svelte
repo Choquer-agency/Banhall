@@ -2545,7 +2545,7 @@
               data-report-width={workspaceMaximized ? "full" : "reading"}
               class={`pt-11 pb-10 transition-[padding,max-width] ${layoutMotion} ${reportColumn(workspaceMaximized, sidePanelOpen)}`}
             >
-              <!-- Board 2.1: the report opens on its serif title. The top bar
+              <!-- Board 2.1: the report opens on its title (sans since 2026-10-21). The top bar
                    holds the page h1; the document's own title heading stays
                    hidden in the editor. -->
               <h2 data-report-title class="mb-0.5 text-display font-normal">

@@ -165,15 +165,24 @@
     });
     ro.observe(ct);
     ro.observe(vp);
+    // A real gesture also ends a held position (review 2026-10-21): the
+    // writer's own scroll wins over keepInPlace for the rest of its window.
     const cancelAnimating = () => {
       animating = false;
+      kept = null;
+    };
+    const scrollKeys = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+    const onKey = (event: KeyboardEvent) => {
+      if (scrollKeys.has(event.key)) kept = null;
     };
     vp.addEventListener("wheel", cancelAnimating, { passive: true });
     vp.addEventListener("touchstart", cancelAnimating, { passive: true });
+    vp.addEventListener("keydown", onKey);
     return () => {
       ro.disconnect();
       vp.removeEventListener("wheel", cancelAnimating);
       vp.removeEventListener("touchstart", cancelAnimating);
+      vp.removeEventListener("keydown", onKey);
     };
   });
 </script>

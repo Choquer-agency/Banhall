@@ -2556,7 +2556,7 @@
           layout === "phone"
             ? "h-11 text-[0.9375rem]! leading-[calc(4/3)]!"
             : layout === "tablet"
-              ? "h-8 leading-[calc(20/13)]! pointer-coarse:h-11"
+              ? "h-8 leading-[calc(10/7)]! pointer-coarse:h-11"
               : "h-9 text-[0.8125rem]! leading-[calc(18/13)]! pointer-coarse:h-11"
         }`}
         onclick={cancel}

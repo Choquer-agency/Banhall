@@ -1,11 +1,15 @@
 <script lang="ts">
   import { readableReasoning, type ReasoningRenderNode } from "$lib/chat/turnParts";
+  import { getChatContainerContext } from "./primitives/context";
 
   interface Props {
     node: ReasoningRenderNode;
   }
 
   let { node }: Props = $props();
+
+  const chat = getChatContainerContext();
+  let itemEl: HTMLLIElement | null = $state(null);
 
   const streaming = $derived(node.state === "streaming");
 
@@ -44,7 +48,7 @@
 
 <!-- Reasoning is plain text, never markdown: model scratchpad output is not
      authored prose and stray syntax must not become formatting. -->
-<li class="list-none" data-reasoning-summary aria-busy={streaming}>
+<li bind:this={itemEl} class="list-none" data-reasoning-summary aria-busy={streaming}>
   <div class="flex flex-col gap-1 text-[0.8125rem] leading-relaxed break-words text-ink-muted">
     {#each shown as line, index (index)}
       <p class={line.heading ? "font-medium text-ink-secondary" : undefined}>{line.text}</p>
@@ -54,7 +58,13 @@
         type="button"
         data-reasoning-show-all
         aria-expanded={showAll}
-        onclick={() => (showAll = !showAll)}
+        onclick={() => {
+          // Review 2026-10-21: the thinking grows down from where it is; the
+          // chat would otherwise keep its distance from the bottom and push
+          // the paragraph being read up out of view.
+          if (itemEl) chat?.keepInPlace(itemEl);
+          showAll = !showAll;
+        }}
         class="-mx-1 w-fit rounded px-1 text-xs leading-[calc(5/3)] text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none"
       >{showAll ? "Show less" : "Show all thinking"}</button>
     {/if}

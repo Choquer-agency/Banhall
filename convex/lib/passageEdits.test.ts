@@ -92,8 +92,39 @@ describe("editPassages", () => {
     const target = "First paragraph, long.\n\nThird paragraph, long.";
     expect(editPassages(target, "One merged paragraph.")).toEqual({
       ok: false,
-      reason: "targetText has 2 paragraphs but newText has 1. Give newText one paragraph for each paragraph of targetText, in the same order, separated by a blank line.",
+      reason: "targetText has 2 paragraphs but newText has 1. A proposal keeps the paragraph count: give newText one paragraph for each paragraph of targetText, in the same order, separated by a blank line.",
     });
     expect(editPassages(target, target).ok).toBe(false);
+  });
+
+  // Review 2026-10-21: a blank line inside one paragraph's new text would
+  // only put a line break in that paragraph.
+  it("refuses splitting one paragraph into two", () => {
+    expect(editPassages("First paragraph, long.", "First half.\n\nSecond half.")).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining("targetText has 1 paragraph but newText has 2"),
+    });
+  });
+
+  it("reads Windows line breaks and trims a one-paragraph target", () => {
+    expect(editPassages("First paragraph, long.\r\n\r\nThird paragraph, long.", "First.\r\n\r\nThird.")).toEqual({
+      ok: true,
+      pairs: [
+        { find: "First paragraph, long.", replaceWith: "First." },
+        { find: "Third paragraph, long.", replaceWith: "Third." },
+      ],
+    });
+    expect(editPassages("First paragraph, long.\n", "First paragraph.\n")).toEqual({
+      ok: true,
+      pairs: [{ find: "First paragraph, long.", replaceWith: "First paragraph." }],
+    });
+  });
+
+  it("treats a paragraph retyped with plain quotes and dashes as unchanged", () => {
+    const target = "The \u201ckiln\u201d test \u2014 run once.\n\nThird paragraph, long.";
+    expect(editPassages(target, "The \"kiln\" test - run once.\n\nThird.")).toEqual({
+      ok: true,
+      pairs: [{ find: "Third paragraph, long.", replaceWith: "Third." }],
+    });
   });
 });

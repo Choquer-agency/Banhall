@@ -34,7 +34,18 @@ const skipScenarios = flag("--skip-scenarios");
 // Tailscale IP. The app and the local backend are then reached through it,
 // not localhost, so a browser elsewhere can load the report.
 const publicHost = option("--public-host");
-if (publicHost && !/^[A-Za-z0-9.-]+$/.test(publicHost)) throw new Error("--public-host takes a host name or IP address.");
+// Review 2026-10-21: only an address this machine holds, so the app answers
+// on that one interface. A wildcard (0.0.0.0) or a name would open it, with
+// its admin login and copied keys, to every network the machine is on.
+if (publicHost) {
+  const local = Object.values(os.networkInterfaces())
+    .flat()
+    .filter((entry) => entry && entry.family === "IPv4" && !entry.internal)
+    .map((entry) => entry.address);
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(publicHost) || publicHost === "0.0.0.0" || !local.includes(publicHost)) {
+    throw new Error(`--public-host takes an IPv4 address this machine holds, such as its Tailscale IP. This machine has: ${local.join(", ") || "none"}.`);
+  }
+}
 const appOrigin = `http://${publicHost ?? "localhost"}:${port}`;
 
 const git = (...a) => execFileSync("git", a, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();

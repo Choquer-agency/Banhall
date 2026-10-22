@@ -322,14 +322,14 @@
         {#each editedWording as wording, index (index)}
           <label class="block">
             {#if editedWording.length > 1}
-              <span class="text-label mb-1.5 block">Replacement {index + 1}</span>
+              <span class="text-label mb-1.5 block">{passages ? `Passage ${index + 1}` : `Replacement ${index + 1}`}</span>
             {/if}
             <textarea
               value={wording}
               oninput={(event) => {
                 editedWording[index] = event.currentTarget.value;
               }}
-              aria-label={`Edit replacement wording ${index + 1}`}
+              aria-label={passages ? `Edit passage ${index + 1} wording` : `Edit replacement wording ${index + 1}`}
               rows={Math.min(7, Math.max(3, wording.split("\n").length + 1))}
               class="field-control w-full resize-y rounded-md px-2.5 py-2 font-serif text-sm leading-relaxed text-ink"
             ></textarea>
@@ -349,7 +349,7 @@
           <div class="border-l-2 border-primary/20 pl-2.5">
             {#if diffInCard}
               <p
-                aria-label={`Replacement ${changeIndex + 1} changes`}
+                aria-label={passages ? `Passage ${changeIndex + 1} changes` : `Replacement ${changeIndex + 1} changes`}
                 class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink"
               >
                 {#each diffGroups[changeIndex] ?? [] as part, partIndex (partIndex)}

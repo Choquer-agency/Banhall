@@ -32,7 +32,8 @@ import { PD_SECTION_HEADINGS } from "../../../../shared/pdSubsections";
 /** Limit meter data a node decoration hands to a Section heading view. */
 export interface ReportLimitMeterSpec {
   reportLimitMeter: {
-    state: "warning" | "over";
+    /** Only "over" shows a meter (owner, 2026-10-21). */
+    state: "over";
     /** "96 / 100 lines, 668 / 700 words" */
     text: string;
     /** Full sentence for assistive technology and the tooltip. */

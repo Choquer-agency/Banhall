@@ -346,6 +346,9 @@ html {
   block-size: 0;
   opacity: 0;
   overflow: clip;
+  /* Focus rings of rows inside reach a little past the edge (review
+     2026-10-21). */
+  overflow-clip-margin: 0.25rem;
   transition:
     block-size var(--duration-layout) var(--ease-layout),
     opacity var(--duration-layout) var(--ease-layout),
@@ -1134,6 +1137,11 @@ textarea.input-chromeless:focus-visible {
 .report-reading .tiptap-editor p {
   margin-bottom: 0;
 }
+/* On a Light body the browser's bolder is only 400; bold reads as 500, the
+   heaviest weight the app uses (review 2026-10-21). */
+.report-reading .tiptap-editor :is(strong, b) {
+  font-weight: 500;
+}
 /* Blocks carry their hover wash in the gutter so text never shifts. */
 .report-reading .tiptap-editor > p:not(.not-drafted-placeholder) {
   margin-inline: -0.5rem;
@@ -1209,9 +1217,8 @@ textarea.input-chromeless:focus-visible {
   height: 100%;
   border-radius: 9999px;
 }
-/* Band colours from the contract's score bands: orange near, red over. */
-.report-limit-meter[data-limit-state="warning"] { color: #C2410C; }
-.report-limit-meter[data-limit-state="warning"] .report-limit-meter__fill { background-color: #F59E0B; }
+/* Band colour from the contract's score bands: red over. The heading meter
+   shows only over a CRA limit (owner, 2026-10-21). */
 .report-limit-meter[data-limit-state="over"] { color: #B91C1C; }
 .report-limit-meter[data-limit-state="over"] .report-limit-meter__fill { background-color: #DC2626; }
 .report-reading .tiptap-editor mark[data-color="#FEF3C7"] {

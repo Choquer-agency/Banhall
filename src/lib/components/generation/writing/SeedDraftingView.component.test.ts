@@ -115,7 +115,9 @@ describe("SeedDraftingView", () => {
     expect(paragraphs).toHaveLength(6);
     expect(paragraphs.every((p) => p.classList.contains("fade-rise"))).toBe(true);
     expect(paragraphs.map((p) => p.style.animationDelay)).toEqual(["0ms", "60ms", "120ms", "180ms", "240ms", "240ms"]);
-    expect(getComputedStyle(paragraphs[0]).fontFamily).toMatch(/Georgia|serif/i);
+    // The draft reads like the report it becomes: sans Light (2026-10-21).
+    expect(getComputedStyle(paragraphs[0]).fontFamily).toContain("Geist");
+    expect(getComputedStyle(paragraphs[0]).fontWeight).toBe("300");
 
     const writing = q('[data-section-status="writing"]')!;
     expect(writing.querySelectorAll('[data-skeleton-line="writing"]')).toHaveLength(4);

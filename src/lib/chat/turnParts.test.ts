@@ -805,6 +805,13 @@ describe("plainReasoningDashes", () => {
     expect(plainReasoningDashes("a -- b")).toBe("a, b");
     expect(plainReasoningDashes("10-20 trials of wall-to-batch transfer in 2019-2024")).toBe("10-20 trials of wall-to-batch transfer in 2019-2024");
   });
+
+  // Review 2026-10-21: ranges, sums and bullet lists keep their meaning.
+  it("keeps number ranges, arithmetic and bullet lines", () => {
+    expect(plainReasoningDashes("Lines 242\u2013246, pages 10 \u2013 12")).toBe("Lines 242-246, pages 10-12");
+    expect(plainReasoningDashes("5 - 3 kN")).toBe("5 - 3 kN");
+    expect(plainReasoningDashes("I need to:\n- cut P2\n- merge 3 and 4")).toBe("I need to:\n- cut P2\n- merge 3 and 4");
+  });
 });
 
 describe("readableReasoning", () => {
@@ -813,8 +820,9 @@ describe("readableReasoning", () => {
       "Now I'll prepare the edits, two of them for Line 242, paragraph 3."
     );
     expect(readableReasoning("I'll use proposeEdit for this one, after deviationInventory.")).toBe(
-      "I'll use edit for this one, after deviation list."
+      "I'll use an edit for this one, after deviation list."
     );
+    expect(readableReasoning("Then a proposeEdit, or calling deviationInventory.")).toBe("Then an edit, or calling a deviation list.");
   });
 });
 
@@ -830,6 +838,19 @@ describe("thoughtTraceNodes", () => {
       tool("proposeReplacements", "output-error", "failed"),
     ];
     expect(thoughtTraceNodes(nodes).map((node: { key: string }) => node.key)).toEqual(["r", "readDocument", "failed"]);
+  });
+
+  // Review 2026-10-21: "Proposal NOT created: ..." is ordinary output.
+  it("keeps a finished edit step with no card once the reply has settled, as a failure", () => {
+    const nodes = [tool("proposeEdit", "output-available", "made"), tool("proposeEdit", "output-available", "refused")];
+    const cards = { toolCallIds: new Set(["made"]), legacy: false };
+    expect(thoughtTraceNodes(nodes, { ...cards, settled: false })).toEqual([]);
+    const settled = thoughtTraceNodes(nodes, { ...cards, settled: true }) as unknown as Array<{ key: string; label: string; accessibleStatus: string }>;
+    expect(settled.map((node) => [node.key, node.label, node.accessibleStatus])).toEqual([
+      ["refused", "Couldn\u2019t write that suggestion", "Didn\u2019t finish"],
+    ]);
+    // A card matched only by older rules hides every edit step, as before.
+    expect(thoughtTraceNodes(nodes, { toolCallIds: new Set(), legacy: true, settled: true })).toEqual([]);
   });
 });
 

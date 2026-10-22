@@ -368,13 +368,18 @@ export function excerptBlock(highlightText: string): string {
   return `\n\n[Writer highlighted this excerpt from the report]:\n"""${highlightText}"""`;
 }
 
-/** The refinement block `sendMessage` appends for a card being refined. */
+/**
+ * The refinement block `sendMessage` appends for a card being refined. A
+ * card's passages are joined by a blank line (review 2026-10-21), the form
+ * proposeEdit splits a multi-paragraph target on, so the target copied back
+ * verbatim matches again.
+ */
 export function refinementBlock(proposal: Doc<"chatProposals">): string {
   const pairs = proposalPairs(proposal);
   return `\n\n[Writer is refining suggestion ${proposal._id}. Keep this exact canonical report target:]
-"""${pairs.map((pair) => pair.find).join("\n---\n")}"""
+"""${pairs.map((pair) => pair.find).join("\n\n")}"""
 [Current candidate wording:]
-"""${pairs.map((pair) => pair.replaceWith).join("\n---\n")}"""`;
+"""${pairs.map((pair) => pair.replaceWith).join("\n\n")}"""`;
 }
 
 /**

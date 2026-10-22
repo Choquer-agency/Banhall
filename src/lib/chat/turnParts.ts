@@ -803,10 +803,18 @@ export function humanizeItemIds(text: string): string {
  * as a comma. Ranges and compounds (10-20, wall-to-batch) keep their hyphen.
  */
 export function plainReasoningDashes(text: string): string {
-  return text
-    .replace(/\s*[\u2014\u2013\u2015]\s*/g, ", ")
-    .replace(/\s+-{1,2}\s+/g, ", ")
-    .replace(/,\s*,/g, ",");
+  return (
+    text
+      // Review 2026-10-21: an en dash between numbers is a range
+      // ("242\u2013246"), which reads with a plain hyphen.
+      .replace(/(\d)[ \t]*\u2013[ \t]*(?=\d)/g, "$1-")
+      // Within a line only, so a bullet ("\n- cut P2") keeps its own line.
+      .replace(/[ \t]*[\u2014\u2013\u2015][ \t]*/g, ", ")
+      // A spaced hyphen between words; never one between numbers ("5 - 3"),
+      // nor a bullet at the start of a line.
+      .replace(/(?<=[^\s\d])[ \t]+-{1,2}[ \t]+(?=[^\s\d])/g, ", ")
+      .replace(/,[ \t]*,/g, ",")
+  );
 }
 
 /** Tool names as the writer would say them, singular and plural. */
@@ -831,10 +839,25 @@ const TOOL_NAME_RE = new RegExp(`\\b(${Object.keys(TOOL_WORDS).join("|")})\\b(\\
  * proposeEdit calls"); on screen they read as plain words ("the edits").
  */
 export function plainToolNames(text: string): string {
-  return text.replace(TOOL_NAME_RE, (_match, tool: string, _suffix: string | undefined, noun: string | undefined) => {
-    const [one, many] = TOOL_WORDS[tool];
-    return noun === "calls" || noun === "tools" ? many : one;
-  });
+  return (
+    text
+      .replace(
+        TOOL_NAME_RE,
+        (_match, tool: string, _suffix: string | undefined, noun: string | undefined, offset: number, whole: string) => {
+          const [one, many] = TOOL_WORDS[tool];
+          if (noun === "calls" || noun === "tools") return many;
+          // Review 2026-10-21: "I'll use proposeEdit" reads "I'll use an
+          // edit", not "I'll use edit".
+          const before = whole.slice(Math.max(0, offset - 12), offset);
+          if (/\b(?:use|using|call|calling|try|trying|run|running)\s+$/i.test(before)) {
+            return `${/^[aeiou]/i.test(one) ? "an" : "a"} ${one}`;
+          }
+          return one;
+        }
+      )
+      // "a proposeEdit" became "a edit"; it reads "an edit".
+      .replace(/\b([Aa]) (?=edit\b)/g, "$1n ")
+  );
 }
 
 /**
@@ -852,11 +875,29 @@ export function readableReasoning(text: string): string {
  */
 const CARD_TOOLS = new Set(["proposeEdit", "proposeReplacements", "proposeBulkEdits"]);
 
-/** The steps a thought block shows: its reasoning and every step without a card. */
-export function thoughtTraceNodes<T extends TraceRenderNode>(nodes: readonly T[]): T[] {
-  return nodes.filter(
-    (node) => !(node.kind === "tool" && CARD_TOOLS.has(node.toolName) && node.state !== "output-error")
-  );
+/**
+ * The steps a thought block shows: its reasoning and every step without a
+ * card. Review 2026-10-21: a card tool answers "Proposal NOT created: ..." as
+ * ordinary output, so its state alone cannot tell a failure. Once the reply
+ * has settled, a finished card step with no card under the reply stays, and
+ * reads as the failure it was.
+ */
+export function thoughtTraceNodes<T extends TraceRenderNode>(
+  nodes: readonly T[],
+  cards: { toolCallIds: ReadonlySet<string>; legacy: boolean; settled: boolean } = {
+    toolCallIds: new Set(),
+    legacy: true,
+    settled: false,
+  }
+): T[] {
+  return nodes.flatMap((node): T[] => {
+    if (node.kind !== "tool" || !CARD_TOOLS.has(node.toolName) || node.state === "output-error") return [node];
+    const noCard =
+      cards.settled && node.state === "output-available" && !cards.legacy && !cards.toolCallIds.has(node.toolCallId);
+    if (!noCard) return [];
+    const copy = TOOL_COPY[node.toolName];
+    return [{ ...node, label: copy?.error ?? node.label, accessibleStatus: "Didn’t finish" } as T];
+  });
 }
 
 /** The longest second line of a thought block, in characters. */

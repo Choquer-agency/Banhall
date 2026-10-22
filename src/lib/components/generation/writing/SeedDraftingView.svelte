@@ -180,7 +180,7 @@
 
   <article class="flex w-full flex-col gap-[1.375rem] pt-2" data-drafting-report>
     <!-- The page's single h1 is the top bar title; the draft's title is h2. -->
-    <h2 id={headingId} tabindex="-1" class="font-serif text-[1.875rem] font-normal leading-[1.2] text-ink outline-none">{reportTitle}</h2>
+    <h2 id={headingId} tabindex="-1" class="text-display font-normal outline-none">{reportTitle}</h2>
 
     {#each sections as section (section.key)}
       {@const queued = section.status === "queued"}
@@ -206,7 +206,7 @@
           <div class="flex flex-col gap-3">
             {#each section.paragraphs as paragraph, index (index)}
               <p
-                class="fade-rise font-serif text-base leading-[1.625] text-ink"
+                class="fade-rise text-[0.9375rem] font-light leading-[calc(5/3)] text-ink"
                 style={`animation-delay:${revealDelayMs(index)}ms`}
                 data-revealed-paragraph
               >

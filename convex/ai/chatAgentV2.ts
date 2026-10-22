@@ -103,7 +103,7 @@ import { openRouterAnthropicCharge, openRouterAnthropicRequestId } from "../../s
 const makeProposeEdit = (bannedWordsWaived: boolean) =>
   createTool({
     description:
-      "Propose one change as one suggestion card: a rewrite of one passage, or of several paragraphs at once (a trim or a tightening across a Line). Copy each paragraph you change into targetText exactly as the current report has it, separated by a blank line; newText has the same paragraphs in the same order.",
+      "Propose one change as one suggestion card: a rewrite of one passage, or of several paragraphs at once (a trim or a tightening across a Line). Copy each paragraph you change into targetText exactly as the current report has it, separated by a blank line; newText has the same number of paragraphs in the same order. It cannot merge, split, add or remove a paragraph.",
     inputSchema: z.object({
       targetText: z
         .string()
@@ -115,7 +115,7 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
         .string()
         .min(1)
         .describe(
-          "The replacement text, fully compliant with the writing rules. For several paragraphs, one new paragraph for each, in the same order, separated by a blank line."
+          "The replacement text, fully compliant with the writing rules, with exactly as many paragraphs as targetText: for several paragraphs, one new paragraph for each, in the same order, separated by a blank line."
         ),
     }),
     execute: async (ctx, input, options): Promise<string> => {
@@ -543,7 +543,9 @@ export async function runProposeBulkEdits(
   if (nothingToApply(input)) {
     return `Nothing to apply: every item is blocked or conflicting, so no revision was proposed and the report is unchanged. The findings were recorded for the writer's decision, and the card shows them as a Completion Report checklist that names each item by its Line and paragraph: ${completionReportCounts(input.findings)}. Do not repeat the checklist; name the decisions or missing facts the writer needs. Refer to each item by its Line and paragraph and briefly what it is about, never by its id.`;
   }
-  return `Coordinated revision proposed for writer review, not applied. The card shows the writer its Completion Report checklist, with each item's Line and paragraph, status and reason: ${completionReportCounts(input.findings)}. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision. Refer to each item by its Line and paragraph and briefly what it is about, never by its id.`;
+  // Review 2026-10-21: the meters once applied, as the other edit tools give.
+  const lengths = result.lengths ? ` ${result.lengths}` : "";
+  return `Coordinated revision proposed for writer review, not applied. The card shows the writer its Completion Report checklist, with each item's Line and paragraph, status and reason: ${completionReportCounts(input.findings)}. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision. Refer to each item by its Line and paragraph and briefly what it is about, never by its id.${lengths}`;
 }
 
 const deviationInventory = createTool({
@@ -748,18 +750,20 @@ export const CHAT_RECOVERY_MAX_STEPS = 5;
 export const CHAT_MIN_STEP_REMAINING_MS = 300_000;
 
 /**
- * The stop condition for time: true once less than CHAT_MIN_STEP_REMAINING_MS
- * is left of the window that began at `startedAt`. The AI SDK checks stop
- * conditions only before it would start another step, so `onStop` runs only
- * when this ends the pass.
+ * The stop condition for time: true once less than `minRemainingMs` (the
+ * pass's own threshold: CHAT_MIN_STEP_REMAINING_MS, or the recovery pass's
+ * CHAT_RECOVERY_MIN_REMAINING_MS) is left of the window that began at
+ * `startedAt`. The AI SDK checks stop conditions only before it would start
+ * another step, so `onStop` runs only when this ends the pass.
  */
 export function stopBeforeWindowEnds(
   startedAt: number,
   onStop: () => void,
-  now: () => number = Date.now
+  now: () => number = Date.now,
+  minRemainingMs: number = CHAT_MIN_STEP_REMAINING_MS
 ): () => boolean {
   return () => {
-    const tooLate = startedAt + ACTION_REQUEST_WINDOW_MS - now() < CHAT_MIN_STEP_REMAINING_MS;
+    const tooLate = startedAt + ACTION_REQUEST_WINDOW_MS - now() < minRemainingMs;
     if (tooLate) onStop();
     return tooLate;
   };
@@ -776,7 +780,7 @@ export function stopBeforeWindowEnds(
 export const CHAT_CUT_OFF_INSTRUCTIONS: Readonly<Record<string, string>> = Object.freeze({
   proposeBulkEdits: `Your proposeBulkEdits call was cut off at the output limit before it finished, so nothing was proposed. Split the revision into smaller proposeBulkEdits calls made one at a time: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text each, about four paragraphs, one per Line or per few paragraphs. Make the first call now.`,
   proposeEdit:
-    "Your proposeEdit call was cut off at the output limit before it finished, so nothing was proposed. Call it again for one passage only, with targetText and newText kept to that passage. For changes across several passages, use proposeBulkEdits calls made one at a time.",
+    "Your proposeEdit call was cut off at the output limit before it finished, so nothing was proposed. Call proposeEdit again with only the paragraphs that change, and keep each one to the words that need to change.",
   proposeReplacements:
     "Your proposeReplacements call was cut off at the output limit before it finished, so nothing was proposed. Call it again with fewer find and replace pairs, each only as long as it needs to be to stay specific.",
   highlightPassages:
@@ -802,6 +806,27 @@ export const CHAT_CUT_OFF_REPLY =
  */
 export const CHAT_STEP_LIMIT_REPLY =
   "I stopped at the step limit for one reply, so this revision is not finished. Review the cards above; the rest can continue from here.";
+
+/**
+ * Review 2026-10-21: the time stop ended the pass right after a one-card edit
+ * (proposeEdit or proposeReplacements, no deviation job), so the change is
+ * complete; only the model's closing line was skipped.
+ */
+export const CHAT_TIME_STOP_EDIT_REPLY = "Proposed the change in the card above.";
+
+/** Card tools whose one call is a whole answer to the request. */
+const ONE_CARD_TOOLS: ReadonlySet<string> = new Set(["proposeEdit", "proposeReplacements"]);
+
+/** The tools the last finished step called. */
+function lastStepToolNames(steps: ReadonlyArray<CutOffStep>): string[] {
+  const last = steps.at(-1);
+  if (!last) return [];
+  return last.content.flatMap((part) =>
+    typeof part === "object" && part !== null && "type" in part && part.type === "tool-call" && "toolName" in part
+      ? [String(part.toolName)]
+      : []
+  );
+}
 
 /** The same, for a turn that saved no edit proposal (PR #24 review P3). */
 export const CHAT_STEP_LIMIT_REPLY_OTHER =
@@ -2116,6 +2141,12 @@ export const streamChatReply = internalAction({
         contextOptions?: ContextOptions;
         /** The pass's own step limit (the recovery pass keeps 5). */
         maxSteps: number;
+        /**
+         * Review 2026-10-21: no new step with less than this left. The
+         * recovery pass starts with as little as 150 seconds, so the main
+         * pass's 300 would stop it after its first step.
+         */
+        minStepRemainingMs: number;
       }) => {
         passMaxSteps = pass.maxSteps;
         passStoppedForTime = false;
@@ -2167,9 +2198,14 @@ export const streamChatReply = internalAction({
               stopWhen: [
                 stepCountIs(pass.maxSteps),
                 stopAfterSecondCutOff,
-                stopBeforeWindowEnds(startedAt, () => {
-                  passStoppedForTime = true;
-                }),
+                stopBeforeWindowEnds(
+                  startedAt,
+                  () => {
+                    passStoppedForTime = true;
+                  },
+                  Date.now,
+                  pass.minStepRemainingMs
+                ),
               ],
               prepareStep: async ({ steps, messages }) => {
                 // PR #24 review P3: once the agent stopped streaming, check the
@@ -2326,6 +2362,7 @@ export const streamChatReply = internalAction({
         listStepProviderOptions: CHAT_LIST_STEP_PROVIDER_OPTIONS,
         effort: CHAT_EFFORT,
         maxSteps: CHAT_MAX_STEPS,
+        minStepRemainingMs: CHAT_MIN_STEP_REMAINING_MS,
       });
       // A timer that fires after a tool step leaves the last step's finish
       // reason in place, so the reply would read as complete (review r2 P3).
@@ -2358,6 +2395,7 @@ export const streamChatReply = internalAction({
           listStepProviderOptions: undefined,
           effort: CHAT_RECOVERY_PROVIDER_OPTIONS.anthropic.effort,
           maxSteps: CHAT_RECOVERY_MAX_STEPS,
+          minStepRemainingMs: CHAT_RECOVERY_MIN_REMAINING_MS,
           // Review P3-3: the first pass stored one thinking-only row on the
           // prompt's order. It fills a history slot before
           // `withoutThinkingOnlyReplies` drops it, so the window gets one
@@ -2386,7 +2424,17 @@ export const streamChatReply = internalAction({
       // Review P2-2: the step limit ended the turn on a tool call, so the
       // model never wrote its closing text. Phase B: a pass the time stop
       // ended reads exactly the same.
+      const lastTools = lastStepToolNames(finishedSteps);
+      const endedOnOneCardEdit =
+        finishReason === "tool-calls" &&
+        passStoppedForTime &&
+        finishedSteps.length < passMaxSteps &&
+        lastTools.length > 0 &&
+        lastTools.every((name) => ONE_CARD_TOOLS.has(name)) &&
+        ![...meter.toolNames].some((name) => DEVIATION_TOOLS.has(name)) &&
+        (await ctx.runQuery(internal.chatV2.turnSavedEditProposal, turnKey));
       const endedOnStepLimit =
+        !endedOnOneCardEdit &&
         finishReason === "tool-calls" &&
         (finishedSteps.length >= passMaxSteps || passStoppedForTime);
       if (passStoppedForTime && finishReason === "tool-calls") {
@@ -2414,6 +2462,14 @@ export const streamChatReply = internalAction({
         stepCount: toolCallIds.size,
       });
       reachedFinish = finished.status === "completed";
+      if (endedOnOneCardEdit && finished.status === "completed") {
+        await saveMessage(ctx, components.agent, {
+          threadId: args.agentThreadId,
+          agentName: "report-editor",
+          promptMessageId: args.promptMessageId,
+          message: { role: "assistant", content: CHAT_TIME_STOP_EDIT_REPLY },
+        });
+      }
       // Say what is left.
       if (endedOnStepLimit && finished.status === "completed") {
         // PR #24 round 2: only a saved proposal means there are cards to
