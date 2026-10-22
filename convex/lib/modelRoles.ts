@@ -24,6 +24,7 @@ import {
 import {
   MODEL_TRACKS,
   MODEL_TRACK_IDS,
+  TRACK_PRE_DEPLOY_MODEL_IDS,
   TRACK_SEED_MODEL_IDS,
   trackLabelFor,
   trackOf,
@@ -106,10 +107,14 @@ export async function ensureTrackRow(
 ): Promise<Doc<"modelTracks">> {
   const existing = await trackRow(ctx, track);
   if (existing) return existing;
+  // Review 2026-10-22: a track the deploy moved keeps the model it ran
+  // before as its previous one, from the first write.
+  const previousModelId = TRACK_PRE_DEPLOY_MODEL_IDS[track];
   const id = await ctx.db.insert("modelTracks", {
     track,
     modelId: TRACK_SEED_MODEL_IDS[track],
     rolledBackFrom: [],
+    ...(previousModelId ? { previousModelId, switchedAt: Date.now() } : {}),
   });
   const inserted = await ctx.db.get(id);
   if (!inserted) throw new Error(`Track ${track} could not be written`);

@@ -203,12 +203,24 @@ export async function checkReadiness(
   try {
     const response = await client.messages.create(forcedRequest(candidate.toModelId));
     const called = response.content.some((block) => block.type === "tool_use");
-    return called
-      ? { plainOk: true, forcedToolChoice: true, forcedRejected: false }
-      : { plainOk: true, forcedToolChoice: false, forcedRejected: false, failure: "the forced tool request came back without a tool call" };
+    if (!called) {
+      return { plainOk: true, forcedToolChoice: false, forcedRejected: false, failure: "the forced tool request came back without a tool call" };
+    }
   } catch (error) {
     if (statusOf(error) === 400) return { plainOk: true, forcedToolChoice: false, forcedRejected: true };
     return { plainOk: true, forcedToolChoice: false, forcedRejected: false, failure: `the tool request failed (${errorText(error)})` };
+  }
+  if (!anthropic) return { plainOk: true, forcedToolChoice: true, forcedRejected: false };
+  // Review 2026-10-22: a direct model that takes forced calls is sent
+  // thinking disabled for section drafts. One that refuses it (as Sonnet 5.5
+  // and Opus 5.5 do) is treated like a model that refuses forced calls, so
+  // it gets the unforced path with low effort instead.
+  try {
+    await client.messages.create({ ...plainRequest(candidate.toModelId, false), thinking: { type: "disabled" } } as GenerationMessageParams);
+    return { plainOk: true, forcedToolChoice: true, forcedRejected: false };
+  } catch (error) {
+    if (statusOf(error) === 400) return { plainOk: true, forcedToolChoice: false, forcedRejected: true };
+    return { plainOk: true, forcedToolChoice: false, forcedRejected: false, failure: `the request with thinking off failed (${errorText(error)})` };
   }
 }
 

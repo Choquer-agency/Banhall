@@ -1009,7 +1009,10 @@ export function refreshedFields(
   void _modelId;
   void _gateway;
   const refreshed: Partial<CatalogFields> = { ...rest };
-  if (row.source !== "seed") {
+  // Review 2026-10-22: a direct Anthropic row a track upgrade wrote keeps
+  // the name, reasoning and output cap it was written with; the OpenRouter
+  // listing describes the OpenRouter route, not the direct one.
+  if (row.source !== "seed" && row.gateway === "openrouter") {
     refreshed.reasoning = reasoning;
     if (maxCompletionTokens !== undefined) refreshed.maxCompletionTokens = maxCompletionTokens;
     refreshed.displayName = displayName;

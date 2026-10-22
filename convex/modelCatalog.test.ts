@@ -546,6 +546,31 @@ describe("track upgrades and rollback", () => {
     expect(await trackRow(t, "gpt-sol")).toMatchObject({ modelId: "openai/gpt-6.1-sol", rolledBackFrom: ["openai/gpt-6.2-sol"] });
     expect(await t.mutation(planTrackUpgradesRef, {})).toEqual([]);
   });
+
+  // Review 2026-10-22: the deploy moves Sonnet 5 to 5.5 in code, not through
+  // a track upgrade; the first track rows still record what ran before.
+  it("can undo the deploy-day move: the error check and Move back return a tier to its pre-deploy model", async () => {
+    const { t, admin } = await setup(parsed);
+    await t.mutation(pointRolesAtTracksRef, {});
+    expect(await trackRow(t, "claude-sonnet")).toMatchObject({ modelId: "claude-sonnet-5-5", previousModelId: "claude-sonnet-5" });
+    expect(await trackRow(t, "claude-haiku")).toMatchObject({ modelId: "claude-haiku-5-5", previousModelId: "claude-haiku-4-5-20251001" });
+    expect((await trackRow(t, "claude-opus"))?.previousModelId).toBeUndefined();
+    for (let i = 0; i < 20; i += 1) {
+      await t.mutation(recordCallOutcomeRef, {
+        model: "claude-sonnet-5-5",
+        callSite: "generation:analyzer",
+        outcome: i % 4 === 0 ? "failure" : "success",
+        code: "malformed_output",
+      });
+    }
+    expect(await t.mutation(checkProductionErrorsRef, {})).toContainEqual(
+      { track: "claude-sonnet", modelId: "claude-sonnet-5-5", rolledBack: true },
+    );
+    expect(await trackRow(t, "claude-sonnet")).toMatchObject({ modelId: "claude-sonnet-5", rolledBackFrom: ["claude-sonnet-5-5"] });
+    await admin.mutation(moveTrackBackRef, { track: "claude-haiku" });
+    expect((await trackRow(t, "claude-haiku"))?.modelId).toBe("claude-haiku-4-5-20251001");
+    expect(await errorReports(t)).toEqual([]);
+  });
 });
 
 // ─── The admin log and the alerts board ─────────────────────────────────────

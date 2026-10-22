@@ -130,6 +130,19 @@ export const TRACK_SEED_MODEL_IDS: Readonly<Record<ModelTrackId, string>> = {
   "gemini-flash": "google/gemini-3.8-flash",
 };
 
+/**
+ * Review 2026-10-22: the model each track ran before the 2026-10-22 deploy,
+ * for the tracks the deploy moves. The first track row records it as the
+ * previous model, so the production error rollback and "Move back" can
+ * undo the deploy-day move like any later one. Every id stays a runnable seed.
+ */
+export const TRACK_PRE_DEPLOY_MODEL_IDS: Readonly<Partial<Record<ModelTrackId, string>>> = {
+  "claude-sonnet": "claude-sonnet-5",
+  "claude-haiku": "claude-haiku-4-5-20251001",
+  "gpt-sol": "openai/gpt-6-sol",
+  "gemini-flash": "google/gemini-3.5-flash",
+};
+
 /** A version: major, then minor (0 when the id has none). */
 export type TrackVersion = { major: number; minor: number; hasMinor: boolean };
 

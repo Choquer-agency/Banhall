@@ -167,6 +167,17 @@ describe("catalog diffing", () => {
     expect(direct.inputUsdPerMTok).toBeUndefined();
     expect(direct.requestId).toBeUndefined();
     expect(direct.benchmarks?.length).toBeGreaterThan(0);
+    // Review 2026-10-22: a direct row a track upgrade wrote (not a seed)
+    // keeps its own name, reasoning and output cap too.
+    const upgraded = refreshedFields({ source: "openrouter", gateway: "anthropic", modelId: "claude-sonnet-5" }, sonnet);
+    expect(upgraded.reasoning).toBeUndefined();
+    expect(upgraded.maxCompletionTokens).toBeUndefined();
+    expect(upgraded.displayName).toBeUndefined();
+    expect(upgraded.inputUsdPerMTok).toBeUndefined();
+    // An OpenRouter row found by the refresh still takes the listing's.
+    const listed = refreshedFields({ source: "openrouter", gateway: "openrouter", modelId: gemini.openRouterId }, gemini);
+    expect(listed.reasoning).toBe(gemini.reasoning);
+    expect(listed.displayName).toBe(gemini.displayName);
   });
 });
 

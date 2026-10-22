@@ -258,6 +258,35 @@ describe("upgradeTracks", () => {
       const row = await ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", "claude-opus-6")).first();
       expect(row?.forcedToolChoice).toBeUndefined();
     });
+    // Review 2026-10-22: it was also sent thinking disabled, as section drafts send it.
+    const direct = captured.filter((item) => item.url === "https://api.anthropic.com/v1/messages");
+    expect(direct.map((item) => item.body?.thinking ?? null)).toEqual([{ type: "adaptive" }, null, { type: "disabled" }]);
+  });
+
+  it("treats a model that takes forced calls but refuses thinking disabled as one that refuses forced calls", async () => {
+    messagesReply = (body) => {
+      if ((body.thinking as { type?: string } | undefined)?.type === "disabled") {
+        return anthropicError(400, "thinking: type \"disabled\" is not supported for this model.");
+      }
+      return (body.tool_choice as { type?: string } | undefined)?.type === "tool"
+        ? Response.json({
+            id: "msg_tool",
+            type: "message",
+            role: "assistant",
+            model: "claude-opus-6",
+            content: [{ type: "tool_use", id: "toolu_1", name: "report_ready", input: { ready: true } }],
+            stop_reason: "tool_use",
+            stop_sequence: null,
+            usage: { input_tokens: 20, output_tokens: 5 },
+          })
+        : anthropicText();
+    };
+    const t = await setup([OPUS_6]);
+    expect(await t.action(upgradeTracksRef, {})).toEqual([{ track: "claude-opus", outcome: "moved" }]);
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", "claude-opus-6")).first();
+      expect(row?.forcedToolChoice).toBe(false);
+    });
   });
 
   it("sends nothing while automatic updates are off", async () => {
