@@ -84,7 +84,7 @@
   const focusRing =
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
   const primaryClass =
-    "inline-flex h-[2.375rem] shrink-0 items-center rounded-[0.5625rem] bg-primary-selected px-4 text-[0.9375rem] font-medium leading-5 text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-60 motion-reduce:transition-none pointer-coarse:h-11";
+    "inline-flex h-[2.375rem] shrink-0 items-center rounded-[0.5625rem] bg-primary-selected px-4 text-[0.9375rem] font-medium leading-[calc(4/3)] text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-60 motion-reduce:transition-none pointer-coarse:h-11";
 </script>
 
 <header
@@ -113,10 +113,10 @@
     <WorkspaceShellControls {tone} {onOpenNavigation} />
   {/if}
   {#if variant === "phone"}
-    <h1 class="min-w-0 flex-1 truncate text-base leading-[1.375rem] font-medium text-ink">{title}</h1>
+    <h1 class="min-w-0 flex-1 truncate text-base leading-[1.375] font-medium text-ink">{title}</h1>
   {:else if breadcrumb}
     <!-- B3: "Admin /" is one muted run, then the bar gap, then the page. -->
-    <nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-2.5 text-xl leading-[1.625rem]">
+    <nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-2.5 text-xl leading-[1.3]">
       <span class="shrink-0 whitespace-pre text-ink-muted"><a
           href={breadcrumb.href}
           data-page-breadcrumb
@@ -125,12 +125,12 @@
       <h1 aria-current="page" class="min-w-0 truncate font-medium text-ink">{title}</h1>
     </nav>
   {:else}
-    <h1 class="min-w-0 shrink truncate text-xl font-medium leading-[1.625rem] text-ink">{title}</h1>
+    <h1 class="min-w-0 shrink truncate text-xl font-medium leading-[1.3] text-ink">{title}</h1>
     {#if count !== null && count !== undefined && count !== ""}
-      <span data-page-count class="shrink-0 text-sm leading-5 text-ink-muted">{count}</span>
+      <span data-page-count class="shrink-0 text-sm leading-[calc(10/7)] text-ink-muted">{count}</span>
     {/if}
     {#if subtitle}
-      <p data-page-subtitle class="min-w-0 truncate text-sm leading-5 text-ink-muted max-sm:hidden">{subtitle}</p>
+      <p data-page-subtitle class="min-w-0 truncate text-sm leading-[calc(10/7)] text-ink-muted max-sm:hidden">{subtitle}</p>
     {/if}
   {/if}
   {#if variant !== "phone"}<div class="flex-1"></div>{/if}

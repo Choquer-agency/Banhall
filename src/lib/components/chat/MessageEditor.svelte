@@ -63,7 +63,7 @@
     {onkeydown}
     aria-label="Edit your message"
     rows={Math.min(8, Math.max(2, text.split("\n").length))}
-    class="field-control w-full resize-y rounded-md px-2.5 py-2 text-[0.8125rem] leading-[1.125rem] text-ink"
+    class="field-control w-full resize-y rounded-md px-2.5 py-2 text-[0.8125rem] leading-[calc(18/13)] text-ink"
   ></textarea>
   {#if tooLong}
     <p class="text-xs text-red-600" role="alert">

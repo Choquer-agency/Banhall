@@ -14,7 +14,7 @@
 </script>
 
 <div
-  class={cn("flex min-h-8 items-center text-[0.8125rem] leading-5", className)}
+  class={cn("flex min-h-8 items-center text-[0.8125rem] leading-[calc(20/13)]", className)}
   role="status"
   aria-label="Assistant is responding"
 >

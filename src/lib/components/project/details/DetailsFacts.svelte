@@ -223,11 +223,11 @@
 
 {#snippet errorFor(field: string)}
   {#if fieldError?.field === field}
-    <dd class="col-start-2 pb-1.5 text-xs leading-[1.125rem] text-red-700" role="alert">{fieldError.message}</dd>
+    <dd class="col-start-2 pb-1.5 text-xs leading-[1.5] text-red-700" role="alert">{fieldError.message}</dd>
   {/if}
 {/snippet}
 
-<dl data-details-facts class="flex flex-col text-[0.8125rem] leading-[1.125rem]">
+<dl data-details-facts class="flex flex-col text-[0.8125rem] leading-[calc(18/13)]">
   <div class={editable && !editingIndustry ? editableRow : row}>
     <dt class="text-ink-muted">Industry</dt>
     <dd data-details-fact="industry" class="flex min-h-[2.125rem] min-w-0 items-center text-ink">
@@ -299,7 +299,7 @@
       {#snippet scienceValue()}
         <span class="flex min-w-0 flex-1 items-center gap-1.5">
           {#if science}
-            <span class="min-w-0 truncate">{science.label}</span> <span class="shrink-0 font-mono text-xs leading-[1.125rem] text-ink-muted">{science.code}</span>
+            <span class="min-w-0 truncate">{science.label}</span> <span class="shrink-0 font-mono text-xs leading-[1.5] text-ink-muted">{science.code}</span>
           {:else}
             {@render notSet()}
           {/if}
@@ -331,7 +331,7 @@
     </dd>
     {@render errorFor("science")}
     {#if suggestionNote}
-      <dd class="col-start-2 pb-1.5 text-xs leading-[1.125rem] text-ink-muted" aria-live="polite">{suggestionNote}</dd>
+      <dd class="col-start-2 pb-1.5 text-xs leading-[1.5] text-ink-muted" aria-live="polite">{suggestionNote}</dd>
     {/if}
   </div>
 
@@ -349,7 +349,7 @@
           aria-invalid={numberError ? "true" : undefined}
           aria-describedby={numberError ? numberErrorId : undefined}
           placeholder="Not set"
-          class="field-control h-[1.625rem] w-full min-w-0 rounded-md px-2 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint"
+          class="field-control h-[1.625rem] w-full min-w-0 rounded-md px-2 text-[0.8125rem] leading-[calc(18/13)] text-ink placeholder:text-ink-faint"
         />
       {:else if editable}
         <button bind:this={numberButton} type="button" class={valueButton} aria-label="Edit project number" onclick={beginNumber}>
@@ -363,7 +363,7 @@
       {/if}
     </dd>
     {#if numberError}
-      <dd id={numberErrorId} class="col-start-2 pb-1.5 text-xs leading-[1.125rem] text-red-700" role="alert">
+      <dd id={numberErrorId} class="col-start-2 pb-1.5 text-xs leading-[1.5] text-red-700" role="alert">
         {numberError}{#if closeBlocked}{" "}Fix the number, or press Escape to discard it.{/if}
       </dd>
     {/if}
@@ -384,7 +384,7 @@
 
 <div aria-hidden="true" class="mx-2 my-2.5 h-px bg-line-soft"></div>
 
-<dl class="flex flex-col text-[0.8125rem] leading-[1.125rem] text-ink-secondary">
+<dl class="flex flex-col text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">
   <div class={row}>
     <dt class="text-ink-muted">Created</dt>
     <dd data-details-fact="created" class="flex min-h-[2.125rem] items-center">{formatCreated(data.createdAt)}</dd>

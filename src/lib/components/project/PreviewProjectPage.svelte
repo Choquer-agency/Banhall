@@ -2564,7 +2564,7 @@
                   />
                 </div>
               {:else if reportReadOnly}
-                <p class="mt-4 text-[0.8125rem] leading-5 text-ink-secondary" role="status" data-redraft-status>
+                <p class="mt-4 text-[0.8125rem] leading-[calc(20/13)] text-ink-secondary" role="status" data-redraft-status>
                   Drafting the missing sections. Editing resumes when they are in.
                 </p>
               {/if}

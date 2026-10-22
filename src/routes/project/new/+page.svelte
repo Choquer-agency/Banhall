@@ -2242,12 +2242,12 @@
     layout === "phone" ? "h-11 rounded-[0.625rem] px-3" : "h-9 rounded-lg px-2.5 pointer-coarse:h-11"
   );
   const fieldClass = $derived(
-    `field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint ${fieldSize}`
+    `field-control w-full text-sm leading-[calc(10/7)] text-ink placeholder:text-ink-faint ${fieldSize}`
   );
   const labelClass = $derived(
     layout === "phone"
-      ? "text-[0.8125rem] leading-[1.125rem] font-medium text-ink-secondary"
-      : "text-xs leading-4 font-medium text-ink-secondary"
+      ? "text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink-secondary"
+      : "text-xs leading-[calc(4/3)] font-medium text-ink-secondary"
   );
   // bits-ui select fields (Industry, Interviewer) draw a 44px input; the
   // board field is 36px with a 14px 1.8 chevron in faint ink (E1).
@@ -2264,7 +2264,7 @@
     {#if mode === "review"}
       <!-- E4 draws a select; the review model is read-only (decision 56),
            so the field has no chevron. -->
-      <div data-review-model class="flex h-9 items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-sm leading-5 text-ink">
+      <div data-review-model class="flex h-9 items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-sm leading-[calc(10/7)] text-ink">
         <AuroraMark size={18} />
         <span class="truncate">{capabilities?.pdReviewModelLabel ?? "The review model"}</span>
       </div>
@@ -2301,7 +2301,7 @@
               if (!locked) mode = opt.id;
             }}
             class={`flex items-center justify-center rounded-[0.4375rem] px-3 font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir pointer-coarse:h-11 ${
-              fullWidth ? "h-9 flex-1 text-sm leading-[1.125rem]" : layout === "tablet" ? "h-8 text-[0.8125rem] leading-[1.125rem]" : "h-[1.875rem] text-[0.8125rem] leading-[1.125rem]"
+              fullWidth ? "h-9 flex-1 text-sm leading-[calc(9/7)]" : layout === "tablet" ? "h-8 text-[0.8125rem] leading-[calc(18/13)]" : "h-[1.875rem] text-[0.8125rem] leading-[calc(18/13)]"
             } ${
               mode === opt.id
                 ? "bg-primary-selected text-white"
@@ -2322,13 +2322,13 @@
   <!-- Decision 65, stage 2: a transcript still on its way to the intake
        draft, or one that did not reach it, says so; saved ones stay quiet. -->
   {#if key && intake.receipts.get(key) === "saving"}
-    <span class="shrink-0 text-xs leading-4 text-ink-muted" data-save-receipt="saving">Saving</span>
+    <span class="shrink-0 text-xs leading-[calc(4/3)] text-ink-muted" data-save-receipt="saving">Saving</span>
   {:else if key && intake.receipts.get(key) !== "failed" && intake.originals.get(key) === "missing"}
     <!-- 2026-09-27 (fourth): a reload brought it back without its original. -->
-    <span class="shrink-0 text-xs leading-4 text-ink-muted" data-save-receipt="original-missing">Original not saved; the text is kept</span>
+    <span class="shrink-0 text-xs leading-[calc(4/3)] text-ink-muted" data-save-receipt="original-missing">Original not saved; the text is kept</span>
   {:else if key && (intake.receipts.get(key) === "failed" || intake.originals.get(key) === "failed")}
     <span class="relative z-10 flex shrink-0 items-center gap-2" role="status">
-      <span class="text-xs leading-4 text-danger-ink-muted" data-save-receipt="failed">
+      <span class="text-xs leading-[calc(4/3)] text-danger-ink-muted" data-save-receipt="failed">
         {intake.receipts.get(key) === "failed"
           ? (intake.messages.get(key) ?? "Not saved yet")
           : "The original file was not saved"}
@@ -2337,7 +2337,7 @@
         type="button"
         data-save-retry
         onclick={() => intake.retry(key)}
-        class="text-xs leading-4 font-medium text-danger-ink underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-danger pointer-coarse:min-h-11"
+        class="text-xs leading-[calc(4/3)] font-medium text-danger-ink underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-danger pointer-coarse:min-h-11"
       >
         Try again
       </button>
@@ -2364,13 +2364,13 @@
               <!-- The whole row toggles the tick box (review D-6). -->
               <Label.Root
                 for={`copy-transcript-${item.id}`}
-                class={`block min-w-0 truncate text-[0.8125rem] font-medium text-ink ${layout === "phone" ? "leading-[1.125rem]" : "leading-[1.1875rem]"} ${STRETCHED_LABEL}`}
+                class={`block min-w-0 truncate text-[0.8125rem] font-medium text-ink ${layout === "phone" ? "leading-[calc(18/13)]" : "leading-[calc(19/13)]"} ${STRETCHED_LABEL}`}
               >{item.label}</Label.Root>
             {:else}
-              <span data-transcript-name class={`block min-w-0 truncate text-[0.8125rem] font-medium text-ink ${layout === "phone" ? "leading-[1.125rem]" : "leading-[1.1875rem]"}`}>{item.label}</span>
+              <span data-transcript-name class={`block min-w-0 truncate text-[0.8125rem] font-medium text-ink ${layout === "phone" ? "leading-[calc(18/13)]" : "leading-[calc(19/13)]"}`}>{item.label}</span>
             {/if}
             {#if layout !== "phone"}<span class="grow"></span>{/if}
-            <span class={`shrink-0 text-ink-muted ${layout === "phone" ? "text-xs leading-4" : "text-[0.8125rem] leading-[1.1875rem]"}`} data-transcript-format>
+            <span class={`shrink-0 text-ink-muted ${layout === "phone" ? "text-xs leading-[calc(4/3)]" : "text-[0.8125rem] leading-[calc(19/13)]"}`} data-transcript-format>
               {item.wordCount.toLocaleString("en-US")} words
             </span>
             {@render transcriptSaveReceipt(transcriptReceipt(item))}
@@ -2439,7 +2439,7 @@
     }`}>
       <div class="flex flex-col gap-1.5">
         <label for="projectNumber" class={labelClass}>Project number</label>
-        <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} aria-invalid={!projectNumberValid} />
+        <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class={`field-control w-full text-sm leading-[calc(10/7)] text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} aria-invalid={!projectNumberValid} />
         {#if !projectNumberValid}
           <p class="text-xs text-danger-ink-muted" role="alert">Use 1 to 20, a letter a to z, or both, like 2a.</p>
         {/if}
@@ -2554,10 +2554,10 @@
         size="sm"
         class={`px-3.5! py-0! ${
           layout === "phone"
-            ? "h-11 text-[0.9375rem]! leading-5!"
+            ? "h-11 text-[0.9375rem]! leading-[calc(4/3)]!"
             : layout === "tablet"
-              ? "h-8 leading-5! pointer-coarse:h-11"
-              : "h-9 text-[0.8125rem]! leading-[1.125rem]! pointer-coarse:h-11"
+              ? "h-8 leading-[calc(20/13)]! pointer-coarse:h-11"
+              : "h-9 text-[0.8125rem]! leading-[calc(18/13)]! pointer-coarse:h-11"
         }`}
         onclick={cancel}
         data-new-project-cancel>Cancel</Button
@@ -2583,7 +2583,7 @@
                   data-section-chip={chip.id}
                   aria-current={current ? "true" : undefined}
                   onclick={() => jumpTo(chip.id)}
-                  class={`flex h-[1.875rem] shrink-0 items-center gap-1.5 rounded-full px-3 text-[0.8125rem] leading-[1.125rem] font-medium transition-colors pointer-coarse:h-11 ${
+                  class={`flex h-[1.875rem] shrink-0 items-center gap-1.5 rounded-full px-3 text-[0.8125rem] leading-[calc(18/13)] font-medium transition-colors pointer-coarse:h-11 ${
                     current
                       ? "border-[1.5px] border-primary-selected bg-surface text-ink"
                       : chip.done
@@ -2616,8 +2616,8 @@
                    stays for screen readers and the mode switch leads. -->
               <header class={layout === "phone" ? "flex flex-col" : "flex flex-row items-end gap-4"}>
                 <div class={layout === "phone" ? "sr-only" : "flex min-w-0 flex-1 flex-col gap-1"}>
-                  <h1 class="font-serif text-[1.75rem] leading-[2.125rem] text-ink">New project</h1>
-                  <p class="text-sm leading-5 text-ink-muted" data-new-project-subtitle>
+                  <h1 class="font-serif text-[1.75rem] leading-[calc(17/14)] text-ink">New project</h1>
+                  <p class="text-sm leading-[calc(10/7)] text-ink-muted" data-new-project-subtitle>
                     {mode === "review" ? "Add the draft and the basics." : "Add the interview and the basics."}{layout === "desktop" ? " You become the project Owner." : ""}
                   </p>
                 </div>
@@ -2666,7 +2666,7 @@
                       bind:value={title}
                       required
                       placeholder="Project title"
-                      class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`}
+                      class={`field-control w-full text-sm leading-[calc(10/7)] text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`}
                       data-same-name={sameProject ? "true" : undefined}
                       style={sameProject ? "box-shadow: inset 0 0 0 1.5px var(--color-same-name-line)" : undefined}
                     />
@@ -2753,19 +2753,19 @@
                     {#if layout !== "desktop" && !transcriptProblems.length}
                       {#if transcriptCountForSubmit > 0}
                         <!-- H1, H2: the count sits where the helper was. -->
-                        <span data-interview-status="ready" class="text-[0.8125rem] leading-[1.1875rem] text-ink-muted">
+                        <span data-interview-status="ready" class="text-[0.8125rem] leading-[calc(19/13)] text-ink-muted">
                           {layout === "phone"
                             ? `${transcriptWordCount.toLocaleString("en-US")} words`
                             : `${transcriptCountForSubmit} ${transcriptCountForSubmit === 1 ? "transcript" : "transcripts"}, ${transcriptWordCount.toLocaleString("en-US")} words`}
                         </span>
                       {/if}
                     {:else if transcriptProblems.length}
-                      <span data-interview-status="problem" class="flex items-center gap-[0.3125rem] text-[0.8125rem] leading-[1.1875rem] font-medium text-danger-ink-muted">
+                      <span data-interview-status="problem" class="flex items-center gap-[0.3125rem] text-[0.8125rem] leading-[calc(19/13)] font-medium text-danger-ink-muted">
                         <IconAlertCircle size={13} strokeWidth={2} class="text-danger" />
                         {transcriptCountForSubmit} of {transcriptCountForSubmit + transcriptProblems.length} can be read
                       </span>
                     {:else if transcriptCountForSubmit > 0}
-                      <span data-interview-status="ready" class="flex items-center gap-[0.3125rem] text-[0.8125rem] leading-[1.1875rem] font-medium text-success-ink-muted">
+                      <span data-interview-status="ready" class="flex items-center gap-[0.3125rem] text-[0.8125rem] leading-[calc(19/13)] font-medium text-success-ink-muted">
                         <IconCheck size={13} strokeWidth={2.2} />
                         {transcriptWordCount.toLocaleString("en-US")} words
                       </span>
@@ -2788,10 +2788,10 @@
                       class="flex min-h-12 w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-[0.625rem] border-[1.5px] border-dashed border-danger-line bg-surface px-3.5 py-2 text-left"
                     >
                       <IconAlertCircle size={16} strokeWidth={1.7} class="shrink-0 text-danger-ink-muted" />
-                      <span role="alert" class="text-[0.8125rem] leading-[1.1875rem] font-medium text-danger-ink">
+                      <span role="alert" class="text-[0.8125rem] leading-[calc(19/13)] font-medium text-danger-ink">
                         {wrongTranscriptFile.video ? `${wrongTranscriptFile.name} is a video.` : `${wrongTranscriptFile.name} is not a transcript file.`}
                       </span>
-                      <span class="text-[0.8125rem] leading-[1.1875rem] text-danger-body">Add transcripts as Word, VTT, SRT or text.</span>
+                      <span class="text-[0.8125rem] leading-[calc(19/13)] text-danger-body">Add transcripts as Word, VTT, SRT or text.</span>
                     </button>
                   {:else}
                     <div
@@ -2816,11 +2816,11 @@
                           Reading {parsingTranscript}...
                         </span>
                       {:else}
-                        <button type="button" onclick={() => transcriptInput?.click()} class="flex items-center gap-3 rounded-md text-[0.8125rem] leading-[1.1875rem] font-medium text-ink hover:underline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:min-h-11">
+                        <button type="button" onclick={() => transcriptInput?.click()} class="flex items-center gap-3 rounded-md text-[0.8125rem] leading-[calc(19/13)] font-medium text-ink hover:underline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:min-h-11">
                           <IconUpload size={16} strokeWidth={1.6} class="text-primary-selected" />
                           Drop transcripts
                         </button>
-                        <button type="button" data-open-paste onclick={() => (pasteOpen = !pasteOpen)} class="rounded-md text-[0.8125rem] leading-[1.1875rem] text-ink-muted hover:text-ink hover:underline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:min-h-11">
+                        <button type="button" data-open-paste onclick={() => (pasteOpen = !pasteOpen)} class="rounded-md text-[0.8125rem] leading-[calc(19/13)] text-ink-muted hover:text-ink hover:underline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:min-h-11">
                           or paste the text
                         </button>
                       {/if}
@@ -2844,9 +2844,9 @@
                   {/if}
                   {@render transcriptRows()}
                   {#if intakeActive && intake.notice}
-                    <p data-intake-notice class="text-xs leading-4 text-ink-muted">{intake.notice}</p>
+                    <p data-intake-notice class="text-xs leading-[calc(4/3)] text-ink-muted">{intake.notice}</p>
                   {:else if intakeActive}
-                    <p data-intake-note class="text-xs leading-4 text-ink-muted">
+                    <p data-intake-note class="text-xs leading-[calc(4/3)] text-ink-muted">
                       Files are read while you finish setting up. Setups you don't finish are deleted after 24 hours.
                     </p>
                   {/if}
@@ -2866,7 +2866,7 @@
                         }`}
                       >
                         {#each interviewees as name, i (name)}
-                          <span data-interviewee-chip class="inline-flex h-6 items-center gap-1 rounded-md bg-chrome px-2 text-xs leading-4 font-medium text-ink-secondary">
+                          <span data-interviewee-chip class="inline-flex h-6 items-center gap-1 rounded-md bg-chrome px-2 text-xs leading-[calc(4/3)] font-medium text-ink-secondary">
                             {name}
                             <button type="button" aria-label={`Remove ${name}`} onclick={() => removeInterviewee(i)} class="-mr-1 flex size-4 items-center justify-center text-ink-faint hover:text-danger-ink">
                               <IconClose size={12} strokeWidth={1.8} />
@@ -2885,7 +2885,7 @@
                             }
                           }}
                           onblur={addInterviewee}
-                          class="input-chromeless h-7 min-w-24 flex-1 bg-transparent text-sm leading-5 text-ink placeholder:text-ink-faint"
+                          class="input-chromeless h-7 min-w-24 flex-1 bg-transparent text-sm leading-[calc(10/7)] text-ink placeholder:text-ink-faint"
                         />
                       </div>
                     </div>
@@ -2895,7 +2895,7 @@
                 <NewProjectSection id="section-interview" number="02" title="Written PD" helper={layout === "phone" ? undefined : "The draft you want reviewed"} compact={layout === "phone"} gap={layout === "phone" ? "10px" : "14px"}>
                   {#snippet status()}
                     {#if pdDoc}
-                      <span data-written-pd-status class="flex items-center gap-[0.3125rem] text-[0.8125rem] leading-[1.1875rem] font-medium text-success-ink-muted">
+                      <span data-written-pd-status class="flex items-center gap-[0.3125rem] text-[0.8125rem] leading-[calc(19/13)] font-medium text-success-ink-muted">
                         <IconCheck size={13} strokeWidth={2.2} /> Ready to review
                       </span>
                     {/if}
@@ -2936,8 +2936,8 @@
                           Reading {parsingPd}...
                         </span>
                       {:else}
-                        <span class="text-[0.8125rem] leading-[1.125rem] font-medium text-ink">Drop the written PD</span>
-                        <span class="text-xs leading-4 text-ink-muted">Word, PDF or text</span>
+                        <span class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">Drop the written PD</span>
+                        <span class="text-xs leading-[calc(4/3)] text-ink-muted">Word, PDF or text</span>
                       {/if}
                     </button>
                   {/if}
@@ -2957,7 +2957,7 @@
                       </button>
                     </div>
                   {/if}
-                  <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">Add the interview under Supporting documents if you want facts checked against it.</p>
+                  <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">Add the interview under Supporting documents if you want facts checked against it.</p>
                   {@render transcriptRows()}
                 </NewProjectSection>
               {/if}
@@ -2972,17 +2972,17 @@
               >
                 {#snippet action()}
                   <DropdownMenu.Root>
-                    <DropdownMenu.Trigger data-add-supporting class="flex h-[1.875rem] items-center gap-1.5 rounded-[0.4375rem] bg-chrome px-2.5 text-[0.8125rem] leading-[1.125rem] font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:h-11">
+                    <DropdownMenu.Trigger data-add-supporting class="flex h-[1.875rem] items-center gap-1.5 rounded-[0.4375rem] bg-chrome px-2.5 text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:h-11">
                       <IconPlus size={12} strokeWidth={2} /> Add <IconChevronDown size={11} strokeWidth={2.2} stroke-linejoin="miter" class="text-ink-muted" />
                     </DropdownMenu.Trigger>
                     <DropdownMenu.Portal>
                       <DropdownMenu.Content align="end" sideOffset={26} data-add-menu class="z-[130] w-[18.75rem] rounded-xl border border-line bg-surface p-1.5 shadow-menu">
-                        <DropdownMenu.Item onSelect={() => docsInput?.click()} data-add-upload class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[1.1875rem] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11">
+                        <DropdownMenu.Item onSelect={() => docsInput?.click()} data-add-upload class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[calc(19/13)] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11">
                           <IconUpload size={15} strokeWidth={1.5} />
                           <span class="flex-1">Upload files</span>
-                          <span class="text-xs leading-4 text-ink-faint">PDF, Word, Excel</span>
+                          <span class="text-xs leading-[calc(4/3)] text-ink-faint">PDF, Word, Excel</span>
                         </DropdownMenu.Item>
-                        <DropdownMenu.Item onSelect={() => (docPasteOpen = true)} data-add-paste class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[1.1875rem] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11">
+                        <DropdownMenu.Item onSelect={() => (docPasteOpen = true)} data-add-paste class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[calc(19/13)] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11">
                           <IconBook size={15} strokeWidth={1.5} />
                           <span class="flex-1">Paste text or notes</span>
                         </DropdownMenu.Item>
@@ -3058,8 +3058,8 @@
                       docsDragOver ? "border-primary-selected bg-primary-wash" : "border-line bg-new-project-canvas hover:bg-primary-wash"
                     }`}
                   >
-                    <span class="text-[0.8125rem] leading-[1.125rem] font-medium text-ink">{docs.items.length ? "Drop more files" : "Drop files"}</span>
-                    <span class="text-xs leading-4 text-ink-muted">PDF, Word, Excel, text or email</span>
+                    <span class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">{docs.items.length ? "Drop more files" : "Drop files"}</span>
+                    <span class="text-xs leading-[calc(4/3)] text-ink-muted">PDF, Word, Excel, text or email</span>
                   </button>
                   {/if}
                 </div>
@@ -3075,7 +3075,7 @@
                           value={yearNotes.get(year) ?? ""}
                           oninput={(e) => yearNotes.set(year, e.currentTarget.value)}
                           placeholder="For example, what changed since last year's claim"
-                          class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint ${fieldSize}`}
+                          class={`field-control w-full text-sm leading-[calc(10/7)] text-ink placeholder:text-ink-faint ${fieldSize}`}
                         />
                       </label>
                     {/each}
@@ -3089,8 +3089,8 @@
               {#if layout !== "desktop"}
               <section id="section-mode" data-new-project-section="section-mode" class={`flex scroll-mt-4 flex-col border-b border-line-soft ${layout === "phone" ? "gap-2.5 pb-[1.125rem]" : "gap-3.5 pb-[1.375rem]"}`} aria-labelledby="section-mode-title">
                 <div class="flex items-baseline gap-2.5">
-                  <span class="font-mono text-xs leading-[1.375rem] text-ink-faint" aria-hidden="true">04</span>
-                  <h2 id="section-mode-title" class="text-[0.9375rem] leading-[1.375rem] font-medium text-ink">
+                  <span class="font-mono text-xs leading-[calc(11/6)] text-ink-faint" aria-hidden="true">04</span>
+                  <h2 id="section-mode-title" class="text-[0.9375rem] leading-[calc(22/15)] font-medium text-ink">
                     {layout === "phone"
                       ? mode === "review" ? "How to review it" : "How to write it"
                       : mode === "review" ? "How should we review it?" : "How should we write it?"}
@@ -3125,7 +3125,7 @@
                    blocks the start or a start is under way, so a disabled
                    button always says why. -->
               {#if layout !== "phone" || firstBlocking || (progress && committing)}
-                <p class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-[1.125rem] ${firstBlocking ? "text-danger-ink" : "text-ink-secondary"}`} data-bottom-summary>
+                <p class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(18/13)] ${firstBlocking ? "text-danger-ink" : "text-ink-secondary"}`} data-bottom-summary>
                   {progress && committing ? progress : firstBlocking ? firstBlocking.text : readySummary}
                 </p>
               {/if}
@@ -3136,7 +3136,7 @@
                 disabled={blocked || committing}
                 onclick={() => openStart(bottomStartButton)}
                 class={`flex shrink-0 items-center justify-center gap-2 bg-fir font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fir focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-                  layout === "phone" ? "h-12 w-full rounded-[0.625rem] text-base leading-5" : "h-9 rounded-lg px-4 text-sm leading-5 pointer-coarse:h-11"
+                  layout === "phone" ? "h-12 w-full rounded-[0.625rem] text-base leading-[1.25]" : "h-9 rounded-lg px-4 text-sm leading-[calc(10/7)] pointer-coarse:h-11"
                 }`}
               >
                 {startLabel}
@@ -3149,7 +3149,7 @@
           {#if layout === "desktop"}
           <aside data-right-column aria-label={mode === "review" ? "How should we review it?" : "How should we write it?"} class="flex w-[22.5rem] shrink-0 flex-col gap-3 border-l border-line-soft bg-new-project-canvas px-6 pt-7 pb-6">
             <div class="sticky top-7 flex flex-col gap-3">
-              <h2 class="text-[0.9375rem] leading-[1.375rem] font-medium text-ink">{mode === "review" ? "How should we review it?" : "How should we write it?"}</h2>
+              <h2 class="text-[0.9375rem] leading-[calc(22/15)] font-medium text-ink">{mode === "review" ? "How should we review it?" : "How should we write it?"}</h2>
               {#if mode === "generate"}
                 <WriteModeCards bind:value={candidateMode} />
               {/if}

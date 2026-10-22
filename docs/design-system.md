@@ -48,7 +48,7 @@ final=primary. Errors/destructive=red-500/600.
 
 ## Type
 
-Faces: **Geist** (UI — default sans since 2026-08-10, replacing DM Sans), **Georgia** (report prose only), **Geist Mono**
+Faces: **Geist** (UI — default sans since 2026-08-10, replacing DM Sans), **Geist Light** (report prose, since 2026-10-21; it was Georgia), **Geist Mono**
 (data). Roles — use these before ad-hoc sizes:
 
 | Utility | Spec | Use |
@@ -63,6 +63,16 @@ Supporting sizes stay Tailwind (`text-xs`/`text-sm`). Where a board needs an
 exact size, write it in rem (`text-[0.8125rem]` for 13px), never px; see the
 next section.
 
+**Line heights are unitless (2026-10-21).** Every line height is a ratio of
+its own font size, never a length such as `leading-5`, `leading-[1.125rem]`
+or `line-height: 1.25rem`. To match a board, divide the line by the size:
+20px on 16px text is `leading-[1.25]`. When the ratio does not end (18px on
+13px text), write the exact fraction, `leading-[calc(18/13)]` or
+`line-height: calc(18 / 13)`, so the line lands on the board's pixel instead
+of a rounded 1.3846. Tailwind's named ratios (`leading-tight`,
+`leading-relaxed`) are fine. `tests/unitlessLineHeight.test.ts` fails on any
+fixed line height in `src/`.
+
 ## Sizes scale with the root (2026-09-28, laptop density 2026-09-29)
 
 The boards are drawn at 1440 wide with a 16px root. On a 27 inch screen
@@ -70,10 +80,11 @@ The boards are drawn at 1440 wide with a 16px root. On a 27 inch screen
 laptop they read a little loose, so every size is rem and the root follows
 the window:
 
-- **Sizes are rem.** Font sizes, line heights, widths, heights, padding,
+- **Sizes are rem.** Font sizes, widths, heights, padding,
   margins, gaps, insets and radii are rem at 16px per rem (13px is
-  `0.8125rem`), in classes (`text-[0.8125rem]`, `leading-[1.125rem]`,
-  `w-[8.5rem]`), in CSS and in style attributes. Tailwind's own scale
+  `0.8125rem`), in classes (`text-[0.8125rem]`, `w-[8.5rem]`), in CSS and
+  in style attributes. Line heights are the exception: they are unitless
+  ratios (see Type). Tailwind's own scale
   (`h-11`, `p-4`, `max-w-7xl`) is already rem.
 - **The root follows the window.** `html` in `layout.css` is 16px on
   phones and tablets (below 1280px, or any width with a touch screen as the

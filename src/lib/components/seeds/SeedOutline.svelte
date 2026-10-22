@@ -139,8 +139,8 @@
 
 <aside aria-label="Seed outline" class="flex h-full min-h-0 flex-col bg-surface">
   <header class="flex h-12 shrink-0 items-center gap-2 px-5">
-    <h2 class="min-w-0 flex-1 text-[0.8125rem] leading-[1.125rem] font-medium text-ink">Outline</h2>
-    <span class="inline-flex h-[1.625rem] items-center gap-1.5 px-1 text-[0.6875rem] leading-[0.875rem] text-ink-secondary" data-outline-progress={`${decided}/${total}`}>
+    <h2 class="min-w-0 flex-1 text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">Outline</h2>
+    <span class="inline-flex h-[1.625rem] items-center gap-1.5 px-1 text-[0.6875rem] leading-[calc(14/11)] text-ink-secondary" data-outline-progress={`${decided}/${total}`}>
       <svg viewBox="0 0 24 24" class="size-5 -rotate-90" aria-hidden="true">
         <circle cx="12" cy="12" r="9" fill="none" stroke="var(--color-line-soft)" stroke-width="2.5" />
         {#if decided > 0}
@@ -160,11 +160,11 @@
     </span>
   </header>
   {#if usageNotice}
-    <p class="mx-5 mb-1 w-fit rounded-full bg-gap-bg px-2 py-0.5 text-[0.6875rem] leading-[0.875rem] text-gap-text!">{usageNotice}</p>
+    <p class="mx-5 mb-1 w-fit rounded-full bg-gap-bg px-2 py-0.5 text-[0.6875rem] leading-[calc(14/11)] text-gap-text!">{usageNotice}</p>
   {/if}
   <nav aria-label="PD subsections" class="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-3 pb-3">
     {#each sections as section, sectionIndex (section.id)}
-      <p class={`flex shrink-0 items-end px-2 pb-1.5 text-[0.6875rem] leading-[0.875rem] text-ink-faint ${sectionIndex === 0 ? "h-7" : "h-8"}`}>{section.label}</p>
+      <p class={`flex shrink-0 items-end px-2 pb-1.5 text-[0.6875rem] leading-[calc(14/11)] text-ink-faint ${sectionIndex === 0 ? "h-7" : "h-8"}`}>{section.label}</p>
       {#each rows.filter((row) => row.section === section.id) as row (row.roleId)}
         {@const active = row.roleId === activeRoleId}
         {@const kind = iconOf(row)}
@@ -188,7 +188,7 @@
             {@render stateIcon(kind, active)}
           {/if}
           <span
-            class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-[1.125rem] ${
+            class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(18/13)] ${
               active || writing !== null
                 ? "font-medium text-ink"
                 : row.state === "skipped"
@@ -198,14 +198,14 @@
           >{pdSubsectionOutlineLabel(row.roleId)}</span>
           <span class="sr-only">, {stateText(row)}</span>
           {#if writing !== null}
-            <span class="shrink-0 pr-1 text-[0.6875rem] leading-[0.875rem] text-ink-muted" data-row-progress>{writing}%</span>
+            <span class="shrink-0 pr-1 text-[0.6875rem] leading-[calc(14/11)] text-ink-muted" data-row-progress>{writing}%</span>
           {:else if row.stale}
-            <span class="inline-flex shrink-0 items-center gap-1 text-[0.6875rem] leading-[0.875rem] text-gap-text!" aria-hidden="true" data-row-marker="review">
+            <span class="inline-flex shrink-0 items-center gap-1 text-[0.6875rem] leading-[calc(14/11)] text-gap-text!" aria-hidden="true" data-row-marker="review">
               <span class="size-1.5 rounded-full bg-stale-dot"></span>Needs review
             </span>
           {:else if count}
             <span
-              class={`shrink-0 text-[0.6875rem] leading-[0.875rem] ${active ? "text-primary-selected" : "text-ink-faint"}`}
+              class={`shrink-0 text-[0.6875rem] leading-[calc(14/11)] ${active ? "text-primary-selected" : "text-ink-faint"}`}
               aria-hidden="true"
               data-counts-complete={row.countsComplete}
             >{count}</span>

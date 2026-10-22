@@ -82,7 +82,7 @@
   {:else if shownScore !== null && colors}
     <span
       data-qa-chip
-      class="flex h-[1.125rem] min-w-5 items-center justify-center rounded-full px-[0.3125rem] text-[0.6875rem] font-medium leading-[0.875rem] tabular-nums"
+      class="flex h-[1.125rem] min-w-5 items-center justify-center rounded-full px-[0.3125rem] text-[0.6875rem] font-medium leading-[calc(14/11)] tabular-nums"
       style={`background:${colors.chipBg};color:${colors.chipText}`}
     >{shownScore}</span>
   {/if}

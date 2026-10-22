@@ -51,12 +51,12 @@
 {#if readonly}
   {#if fiscalYearEnd}
     {@const d = new Date(fiscalYearEnd)}
-    <p class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-5 text-gray-800">
+    <p class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-[calc(5/3)] text-gray-800">
       <span>{d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</span>
       <span class="text-[0.6875rem] text-gray-400">(Fiscal {d.getFullYear()})</span>
     </p>
   {:else}
-    <p class="text-xs leading-5 italic text-gray-400">Not set</p>
+    <p class="text-xs leading-[calc(5/3)] italic text-gray-400">Not set</p>
   {/if}
 {:else if editing}
   <div
@@ -89,14 +89,14 @@
       value = "";
       editing = true;
     }}
-    class="inline-flex min-h-7 max-w-full items-center gap-1 text-left text-xs font-medium leading-4 text-primary transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir pointer-coarse:min-h-11"
+    class="inline-flex min-h-7 max-w-full items-center gap-1 text-left text-xs font-medium leading-[calc(4/3)] text-primary transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir pointer-coarse:min-h-11"
   >
     <PlusIcon size="0.8125rem" weight="regular" aria-hidden="true" class="shrink-0" />
     Set fiscal year-end
   </button>
 {:else}
   {@const d = new Date(fiscalYearEnd)}
-  <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-5 text-gray-800">
+  <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-[calc(5/3)] text-gray-800">
     <span>{d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</span>
     <span class="text-[0.6875rem] text-gray-400">(Fiscal {d.getFullYear()})</span>
     <button

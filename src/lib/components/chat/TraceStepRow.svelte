@@ -26,7 +26,7 @@
   let summaryEl: HTMLElement | null = $state(null);
 
   const rowClass =
-    "-ml-2 flex w-fit max-w-full list-none items-center gap-2 rounded-lg px-2 py-1 text-xs leading-4 text-ink-muted transition-colors pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden";
+    "-ml-2 flex w-fit max-w-full list-none items-center gap-2 rounded-lg px-2 py-1 text-xs leading-[calc(4/3)] text-ink-muted transition-colors pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden";
 </script>
 
 {#snippet row()}

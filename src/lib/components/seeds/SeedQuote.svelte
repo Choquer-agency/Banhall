@@ -190,19 +190,19 @@
       style={`top:${position.top}px;left:${position.left}px;width:min(${boardRem(CARD_WIDTH)}, calc(100vw - 16px))`}
       onpointerenter={clearTimer}
       onpointerleave={scheduleHide}
-    ><span class="block font-serif text-[0.8125rem] leading-[1.125rem] text-ink" data-quote-text>“{citation.exactExcerpt}”</span>{#if citation.needsSpeakerCheck}<span
-        class="block text-[0.6875rem] leading-[0.875rem] text-ink-muted"
+    ><span class="block font-serif text-[0.8125rem] leading-[calc(18/13)] text-ink" data-quote-text>“{citation.exactExcerpt}”</span>{#if citation.needsSpeakerCheck}<span
+        class="block text-[0.6875rem] leading-[calc(14/11)] text-ink-muted"
         data-quote-speaker-check>{SPEAKER_CHECK_NOTE}</span>{/if}{#if citation.needsQuoteCheck}<span
-        class="block text-[0.6875rem] leading-[0.875rem] text-ink-muted"
+        class="block text-[0.6875rem] leading-[calc(14/11)] text-ink-muted"
         data-quote-support-check>{QUOTE_CHECK_NOTE}</span>{#if onUseQuotes}<button
           type="button"
-          class="shrink-0 rounded text-[0.6875rem] leading-[0.875rem] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:text-ink-faint disabled:no-underline self-start"
+          class="shrink-0 rounded text-[0.6875rem] leading-[calc(14/11)] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:text-ink-faint disabled:no-underline self-start"
           data-quote-use-anyway
           onclick={() => {
             hide();
             onUseQuotes();
           }}>{QUOTE_USE_ANYWAY}</button>{/if}{/if}<span
-        class="flex items-end gap-3 text-[0.6875rem] leading-[0.875rem]"
+        class="flex items-end gap-3 text-[0.6875rem] leading-[calc(14/11)]"
       ><span class="min-w-0 flex-1 text-ink-faint">{#if speakerLine && source.attributed}<span
               data-quote-speaker>{speakerLine}</span> in <span
               data-quote-source
@@ -213,7 +213,7 @@
               data-quote-source
               data-attributed={source.attributed}>{source.label}</span>{/if}</span>{#if onOpenSource}<button
             type="button"
-            class="shrink-0 rounded text-[0.6875rem] leading-[0.875rem] text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            class="shrink-0 rounded text-[0.6875rem] leading-[calc(14/11)] text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             onclick={() => {
               hide();
               onOpenSource(citation);

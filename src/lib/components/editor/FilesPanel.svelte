@@ -965,7 +965,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                 href={url}
                 target="_blank"
                 rel="noopener noreferrer"
-                class="h-8 rounded-lg bg-gray-100 px-3 text-xs font-medium leading-8 text-gray-700 transition-colors hover:bg-gray-200"
+                class="h-8 rounded-lg bg-gray-100 px-3 text-xs font-medium leading-[calc(8/3)] text-gray-700 transition-colors hover:bg-gray-200"
               >
                 Open in tab
               </a>

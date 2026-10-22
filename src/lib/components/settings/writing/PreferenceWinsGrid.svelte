@@ -16,9 +16,9 @@
 
 <section data-preference-wins class="flex flex-col gap-3">
   <div class="flex flex-col gap-1">
-    <h2 class="text-base leading-[1.375rem] font-medium text-ink">Where your preferences win</h2>
-    <p data-switch-meaning class="text-[0.8125rem] leading-[1.125rem] text-ink-secondary">On: your instructions win over the house rule. Off: the house rule wins.</p>
-    <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">Banhall uses your instructions either way. CRA line and word limits always apply.</p>
+    <h2 class="text-base leading-[1.375] font-medium text-ink">Where your preferences win</h2>
+    <p data-switch-meaning class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">On: your instructions win over the house rule. Off: the house rule wins.</p>
+    <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">Banhall uses your instructions either way. CRA line and word limits always apply.</p>
   </div>
   <div class="grid grid-cols-1 gap-3 min-[900px]:grid-cols-3">
     {#each WRITING_AREAS as area (area.key)}
@@ -26,13 +26,13 @@
       <div data-win-card={area.key} class={`flex items-center gap-3 rounded-xl border border-line-soft bg-surface px-3.5 py-3 ${locked ? "opacity-75" : ""}`}>
         <div class="flex min-w-0 flex-1 flex-col gap-px">
           <span class="flex items-center gap-1.5">
-            <span id={`win-${area.key}`} class="text-[0.8125rem] leading-[1.125rem] font-medium text-ink">{area.label}</span>
+            <span id={`win-${area.key}`} class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">{area.label}</span>
             <AreaInfo {area} mode={modes[area.key]} />
           </span>
-          <span class="text-xs leading-4 text-ink-muted">{area.summary}</span>
+          <span class="text-xs leading-[calc(4/3)] text-ink-muted">{area.summary}</span>
         </div>
         {#if locked}
-          <span data-locked class="flex shrink-0 items-center gap-[0.3125rem] text-xs leading-4 text-ink-muted">
+          <span data-locked class="flex shrink-0 items-center gap-[0.3125rem] text-xs leading-[calc(4/3)] text-ink-muted">
             <IconLock size={11} strokeWidth={2.2} />Set by your organization
           </span>
         {:else}

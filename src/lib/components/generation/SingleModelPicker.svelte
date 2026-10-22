@@ -51,7 +51,7 @@
     >
       {#if size === "field"}
         <AuroraMark size={18} />
-        <span class="min-w-0 flex-1 truncate text-sm leading-5 text-ink" title={label}>{label}</span>
+        <span class="min-w-0 flex-1 truncate text-sm leading-[calc(10/7)] text-ink" title={label}>{label}</span>
         <IconChevronDown size={14} strokeWidth={1.8} class="shrink-0 text-ink-faint" />
       {:else}
         <ModelLogo provider={selected.provider} size={size === "md" ? "sm" : "md"} />

@@ -512,7 +512,7 @@
   {#if side}
     <!-- Board 2.2 header: "QA score", Re-run and close; no icon. -->
     <div class="flex h-7 shrink-0 items-center gap-2" data-qa-panel-header>
-      <h2 class="min-w-0 flex-1 text-sm leading-[1.125rem] font-medium text-ink">{title}</h2>
+      <h2 class="min-w-0 flex-1 text-sm leading-[calc(9/7)] font-medium text-ink">{title}</h2>
       {#if onRunQa && scorecard}
         {@render rerunButton("Re-run")}
       {/if}
@@ -533,16 +533,16 @@
   {/if}
 
   {#if runQaError}
-    <p class="text-xs leading-4 text-red-700" role="alert" data-qa-run-error>{runQaError}</p>
+    <p class="text-xs leading-[calc(4/3)] text-red-700" role="alert" data-qa-run-error>{runQaError}</p>
   {/if}
 
   {#if lineLimitBreaches.length > 0}
     <!-- Locked CRA limits: shown with or without a scorecard. -->
     <div class="flex flex-col gap-2" data-qa-line-limits>
-      <p class="text-[0.6875rem] leading-4 font-medium text-ink-muted">Line limits</p>
+      <p class="text-[0.6875rem] leading-[calc(16/11)] font-medium text-ink-muted">Line limits</p>
       <ul class="flex flex-col gap-1.5">
         {#each lineLimitBreaches as breach (breach.line)}
-          <li class="rounded-md bg-red-100 px-3 py-2 text-xs leading-[1.125rem] text-red-700" data-qa-line-limit={breach.line}>
+          <li class="rounded-md bg-red-100 px-3 py-2 text-xs leading-[1.5] text-red-700" data-qa-line-limit={breach.line}>
             Line {breach.line} is over the CRA limit: {breach.words} of {breach.wordCap} words, {breach.lines} of {breach.limit} lines. Shorten it before filing.
           </li>
         {/each}
@@ -556,8 +556,8 @@
     <div class="flex items-start gap-3.5">
       <div class="flex min-w-0 flex-1 flex-col gap-2" data-qa-score-line>
         <p class="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-          <span class="text-sm leading-5 font-medium tabular-nums text-ink-secondary" data-qa-overall>{overall}/100</span>
-          <span class="text-xs leading-4 text-ink-muted" data-qa-score-meta>AI QA score{lastRunLabel ? `, ${lastRunLabel}` : ""}</span>
+          <span class="text-sm leading-[calc(10/7)] font-medium tabular-nums text-ink-secondary" data-qa-overall>{overall}/100</span>
+          <span class="text-xs leading-[calc(4/3)] text-ink-muted" data-qa-score-meta>AI QA score{lastRunLabel ? `, ${lastRunLabel}` : ""}</span>
           {#if myReview}
             <span class="ml-auto inline-flex items-center rounded-full bg-chrome px-2 py-0.5 text-[0.6875rem] text-ink-secondary">
               You: {myReview.score}
@@ -573,7 +573,7 @@
         </div>
         {#if postQaStatus === "failed"}
           <!-- A failed re-run keeps the earlier scorecard (review f2 #1). -->
-          <p class="text-xs leading-4 text-red-700" data-qa-last-run-failed>
+          <p class="text-xs leading-[calc(4/3)] text-red-700" data-qa-last-run-failed>
             The last run failed. This score is from an earlier run.
           </p>
         {/if}
@@ -586,7 +586,7 @@
 
     <!-- Per-section breakdown -->
     <div class="flex flex-col gap-2">
-      <p class="text-[0.6875rem] leading-4 font-medium text-ink-muted">Sections</p>
+      <p class="text-[0.6875rem] leading-[calc(16/11)] font-medium text-ink-muted">Sections</p>
       {#each Object.entries(scorecard.section_scores) as [key, section] (key)}
         {@const sectionScore = adjustedScores.sections[key] ?? section.score}
         {@const noteCount = section.issues.length + section.strengths.length}
@@ -600,19 +600,19 @@
             aria-expanded={open}
             class="flex h-9 w-full items-center gap-2.5 px-2.5 text-left transition-colors hover:bg-gray-50 disabled:hover:bg-transparent"
           >
-            <span class="w-[1.625rem] flex-none text-xs leading-4 font-medium tabular-nums text-ink">{key}</span>
+            <span class="w-[1.625rem] flex-none text-xs leading-[calc(4/3)] font-medium tabular-nums text-ink">{key}</span>
             <span class="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-line-soft" aria-hidden="true">
               <span data-qa-section-bar class="block h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none" style={`width: ${sectionScore}%; background: ${qaBandColors(sectionScore).bar}`}></span>
             </span>
-            <span class="w-[1.375rem] flex-none text-right text-xs leading-4 font-medium tabular-nums text-ink">{sectionScore}</span>
+            <span class="w-[1.375rem] flex-none text-right text-xs leading-[calc(4/3)] font-medium tabular-nums text-ink">{sectionScore}</span>
             <span class="flex w-11 flex-none items-center gap-1.5">
               {#if section.issues.length > 0}
-                <span class="flex items-center gap-[0.1875rem] text-[0.625rem] leading-3 tabular-nums text-ink-muted" title={`${section.issues.length} issue${section.issues.length === 1 ? "" : "s"}`}>
+                <span class="flex items-center gap-[0.1875rem] text-[0.625rem] leading-[1.2] tabular-nums text-ink-muted" title={`${section.issues.length} issue${section.issues.length === 1 ? "" : "s"}`}>
                   <span class="h-[0.3125rem] w-[0.3125rem] rounded-full bg-red-500" aria-hidden="true"></span>{section.issues.length}
                 </span>
               {/if}
               {#if section.strengths.length > 0}
-                <span class="flex items-center gap-[0.1875rem] text-[0.625rem] leading-3 tabular-nums text-ink-muted" title={`${section.strengths.length} strength${section.strengths.length === 1 ? "" : "s"}`}>
+                <span class="flex items-center gap-[0.1875rem] text-[0.625rem] leading-[1.2] tabular-nums text-ink-muted" title={`${section.strengths.length} strength${section.strengths.length === 1 ? "" : "s"}`}>
                   <span class="h-[0.3125rem] w-[0.3125rem] rounded-full bg-green-500" aria-hidden="true"></span>{section.strengths.length}
                 </span>
               {/if}
@@ -628,8 +628,8 @@
             <ul class="flex flex-col gap-2 px-2.5 pt-0.5 pb-3">
               {#each qaGroups as group, groupIndex (group.key)}
                 <li class={`flex items-center gap-1.5 ${groupIndex > 0 ? "pt-1" : ""}`}>
-                  <span class={`text-[0.625rem] leading-3 font-medium uppercase tracking-[0.06em] ${group.key === "issues" ? "text-red-700" : group.key === "warnings" ? "text-yellow-700" : "text-green-700"}`}>{group.label}</span>
-                  <span class={`inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full px-1 text-[0.625rem] leading-3 font-medium tabular-nums ${group.key === "issues" ? "bg-red-100 text-red-700" : group.key === "warnings" ? "bg-gap-bg text-yellow-700" : "bg-green-100 text-green-700"}`}>{group.items.length}</span>
+                  <span class={`text-[0.625rem] leading-[1.2] font-medium uppercase tracking-[0.06em] ${group.key === "issues" ? "text-red-700" : group.key === "warnings" ? "text-yellow-700" : "text-green-700"}`}>{group.label}</span>
+                  <span class={`inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full px-1 text-[0.625rem] leading-[1.2] font-medium tabular-nums ${group.key === "issues" ? "bg-red-100 text-red-700" : group.key === "warnings" ? "bg-gap-bg text-yellow-700" : "bg-green-100 text-green-700"}`}>{group.items.length}</span>
                 </li>
                 {#each group.items as row (`${row.kind}-${row.originalIndex}`)}
                   {#if row.kind === "issue"}
@@ -639,7 +639,7 @@
                     {@const severity = effectiveSeverity(issue, itemKey)}
                     {@const warning = severity === "warning"}
                     {@const feedback = itemFeedback.get(itemKey)}
-                  <li class={`group relative rounded border py-2 pr-9 pl-2.5 text-xs leading-4 transition-colors ${warning ? "border-amber-200 bg-amber-50" : "border-red-200 bg-red-50"}`}>
+                  <li class={`group relative rounded border py-2 pr-9 pl-2.5 text-xs leading-[calc(4/3)] transition-colors ${warning ? "border-amber-200 bg-amber-50" : "border-red-200 bg-red-50"}`}>
                     <Tooltip.Root>
                       <Tooltip.Trigger>
                         {#snippet child({ props })}
@@ -745,7 +745,7 @@
                     {@const i = row.originalIndex}
                     {@const itemKey = qaItemKey("strength", key, i)}
                     {@const feedback = itemFeedback.get(itemKey)}
-                  <li class="group relative rounded border border-line-soft bg-surface py-2 pr-9 pl-2.5 text-xs leading-4 text-ink-secondary transition-colors">
+                  <li class="group relative rounded border border-line-soft bg-surface py-2 pr-9 pl-2.5 text-xs leading-[calc(4/3)] text-ink-secondary transition-colors">
                     <div class="flex w-full items-start gap-2 text-left">
                       <span class="mt-[0.34375rem] h-[0.3125rem] w-[0.3125rem] flex-none rounded-full bg-green-500"></span>
                       <span class="min-w-0 flex-1">{str}</span>
@@ -796,12 +796,12 @@
     <!-- CRA compliance: green check or red cross chips. -->
     {#if Object.keys(scorecard.cra_compliance).length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-[0.6875rem] leading-4 font-medium text-ink-muted">CRA compliance</p>
+        <p class="text-[0.6875rem] leading-[calc(16/11)] font-medium text-ink-muted">CRA compliance</p>
         <ul class="flex flex-wrap gap-1.5">
           {#each Object.entries(scorecard.cra_compliance) as [key, value] (key)}
             <li
               data-qa-compliance={value ? "pass" : "fail"}
-              class={`inline-flex h-[1.375rem] items-center gap-[0.3125rem] rounded-full px-2 text-[0.6875rem] leading-[0.875rem] ${
+              class={`inline-flex h-[1.375rem] items-center gap-[0.3125rem] rounded-full px-2 text-[0.6875rem] leading-[calc(14/11)] ${
                 value ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
               }`}
             >
@@ -825,18 +825,18 @@
     <!-- Language flags: typed rows, not pills; flags are phrases and wrap badly in pills. -->
     {#if scorecard.ai_language_flags.length > 0 || scorecard.superlative_flags.length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-[0.6875rem] leading-4 font-medium text-ink-muted">Language flags</p>
+        <p class="text-[0.6875rem] leading-[calc(16/11)] font-medium text-ink-muted">Language flags</p>
         <ul class="flex flex-col gap-2">
           {#each scorecard.ai_language_flags as flag, i (`ai-${i}`)}
             <li class="flex items-start gap-2">
-              <span class="flex h-[1.125rem] flex-none items-center rounded bg-gap-bg px-1.5 text-[0.625rem] leading-3 font-medium text-gap-text">AI</span>
-              <span class="min-w-0 text-xs leading-[1.125rem] text-ink-secondary">{flag}</span>
+              <span class="flex h-[1.125rem] flex-none items-center rounded bg-gap-bg px-1.5 text-[0.625rem] leading-[1.2] font-medium text-gap-text">AI</span>
+              <span class="min-w-0 text-xs leading-[1.5] text-ink-secondary">{flag}</span>
             </li>
           {/each}
           {#each scorecard.superlative_flags as flag, i (`sup-${i}`)}
             <li class="flex items-start gap-2">
-              <span class="flex h-[1.125rem] flex-none items-center rounded bg-red-100 px-1.5 text-[0.625rem] leading-3 font-medium text-red-700">Superlative</span>
-              <span class="min-w-0 text-xs leading-[1.125rem] text-ink-secondary">{flag}</span>
+              <span class="flex h-[1.125rem] flex-none items-center rounded bg-red-100 px-1.5 text-[0.625rem] leading-[1.2] font-medium text-red-700">Superlative</span>
+              <span class="min-w-0 text-xs leading-[1.5] text-ink-secondary">{flag}</span>
             </li>
           {/each}
         </ul>
@@ -846,18 +846,18 @@
     <!-- Client follow-ups: one simple row each, tagged "244, P2". -->
     {#if followUps.length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-[0.6875rem] leading-4 font-medium text-ink-muted">Client follow-ups</p>
+        <p class="text-[0.6875rem] leading-[calc(16/11)] font-medium text-ink-muted">Client follow-ups</p>
         <ul class="flex flex-col gap-2">
           {#each followUps as gap, i (`${gap.section}-${gap.paragraph}-${i}`)}
             <li class="flex flex-col gap-2 rounded-md border border-line-soft px-3 py-2.5" data-qa-follow-up>
-              <span class="flex h-[1.125rem] w-max items-center rounded border border-line px-1.5 font-mono text-[0.625rem] leading-3 text-ink-secondary">{followUpTag(gap)}</span>
-              <span class="text-xs leading-[1.125rem] text-ink">{gap.question}</span>
+              <span class="flex h-[1.125rem] w-max items-center rounded border border-line px-1.5 font-mono text-[0.625rem] leading-[1.2] text-ink-secondary">{followUpTag(gap)}</span>
+              <span class="text-xs leading-[1.5] text-ink">{gap.question}</span>
               {#if onLocateGap}
                 {@const locate = onLocateGap}
                 <button
                   type="button"
                   onclick={() => locate({ section: gap.section, paragraph: gap.paragraph ?? null })}
-                  class="w-max text-xs leading-4 text-primary-selected transition-colors hover:text-primary-dark hover:underline"
+                  class="w-max text-xs leading-[calc(4/3)] text-primary-selected transition-colors hover:text-primary-dark hover:underline"
                 >{gap.paragraph != null ? "Jump to paragraph" : "Jump to section"}</button>
               {/if}
             </li>
@@ -869,10 +869,10 @@
     <!-- Suggested improvements -->
     {#if scorecard.suggested_improvements.length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-[0.6875rem] leading-4 font-medium text-ink-muted">Suggested improvements</p>
+        <p class="text-[0.6875rem] leading-[calc(16/11)] font-medium text-ink-muted">Suggested improvements</p>
         <ul class="flex flex-col gap-1.5">
           {#each scorecard.suggested_improvements as imp, i (i)}
-            <li class="flex items-start gap-2 text-xs leading-[1.125rem] text-ink-secondary">
+            <li class="flex items-start gap-2 text-xs leading-[1.5] text-ink-secondary">
               <span class="mt-[0.4375rem] h-1 w-1 flex-none rounded-full bg-gray-400" aria-hidden="true"></span>
               {imp}
             </li>

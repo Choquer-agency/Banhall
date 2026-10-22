@@ -818,7 +818,7 @@
   }
 
   // Step header chips (boards 3.2, 3.7): 20px pills, 11px medium text.
-  const chip = "inline-flex h-5 items-center rounded-full px-2 text-[0.6875rem] leading-[0.875rem] font-medium";
+  const chip = "inline-flex h-5 items-center rounded-full px-2 text-[0.6875rem] leading-[calc(14/11)] font-medium";
 
   let moreOpen = $state(false);
   // "Brief" in the More menu: the drawer opens once the menu has closed (the
@@ -932,7 +932,7 @@
     data-feedback-group={group.requestId}
     data-feedback-status={group.status}
   >
-    <div class="flex flex-col gap-0.5 text-[0.6875rem] leading-[0.875rem]">
+    <div class="flex flex-col gap-0.5 text-[0.6875rem] leading-[calc(14/11)]">
       <div class="flex items-start gap-3">
         <p class="min-w-0 flex-1 font-medium text-ink-secondary">Revised seeds ({revisions.length})</p>
         {#if group.status === "active" && canEdit}
@@ -957,7 +957,7 @@
       {/if}
     </div>
     {#if revisions.length === 0}
-      <p class="flex items-center gap-2 text-[0.75rem] leading-4 text-ink-muted">
+      <p class="flex items-center gap-2 text-[0.75rem] leading-[calc(4/3)] text-ink-muted">
         {#if group.status === "active" && data.pendingBatchId && (!group.batchId || group.batchId === data.pendingBatchId)}
           <Spinner size="sm" /> Writing revised seeds…
         {:else}
@@ -1040,7 +1040,7 @@
     <header class={`flex flex-col ${compact ? "gap-2 pt-4" : "gap-2.5 pt-5"}`}>
       <div class={`group/stephead relative flex items-center gap-2.5 ${compact ? "min-h-[0.875rem]" : "min-h-9"}`}>
         <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
-          <span class="font-mono text-[0.6875rem] leading-[0.875rem] text-ink-muted" data-section-eyebrow>Section {sectionNumber}</span>
+          <span class="font-mono text-[0.6875rem] leading-[calc(14/11)] text-ink-muted" data-section-eyebrow>Section {sectionNumber}</span>
           {#if kind === "multiple"}
             <span class={`${chip} gap-[0.3125rem] bg-primary-wash text-primary-selected!`} data-step-chip="multiple">
               <svg class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l4 4L20 6" /><path d="M4 18h6" /></svg>Select all that apply
@@ -1063,7 +1063,7 @@
           {#if hasPreviousBatch}
             <button
               type="button"
-              class="hidden rounded px-1 text-[0.75rem] leading-4 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:inline"
+              class="hidden rounded px-1 text-[0.75rem] leading-[calc(4/3)] text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:inline"
               onclick={loadHistory}
               disabled={historyLoading}
             >Previous batch</button>
@@ -1147,14 +1147,14 @@
           id={`seed-title-${data.roleId}`}
           tabindex="-1"
           class={`rounded-md font-serif font-normal text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
-            compact ? "text-[1.25rem] leading-[1.625rem]" : "text-[1.5rem] leading-[1.875rem]"
+            compact ? "text-[1.25rem] leading-[1.3]" : "text-[1.5rem] leading-[1.25]"
           }`}
         >{stepHeadingTitle(title)}</h2>
-        <p class={`text-ink-muted ${compact ? "text-[0.75rem] leading-[1.0625rem]" : "text-[0.8125rem] leading-[1.1875rem]"}`} data-step-objective>{objective}</p>
+        <p class={`text-ink-muted ${compact ? "text-[0.75rem] leading-[calc(17/12)]" : "text-[0.8125rem] leading-[calc(19/13)]"}`} data-step-objective>{objective}</p>
       </div>
       <p
         class={`flex gap-2 text-ink-secondary ${
-          compact ? "items-start text-[0.8125rem] leading-[1.125rem]" : "items-center border-b border-line-soft pb-2.5 text-[0.75rem] leading-4"
+          compact ? "items-start text-[0.8125rem] leading-[calc(18/13)]" : "items-center border-b border-line-soft pb-2.5 text-[0.75rem] leading-[calc(4/3)]"
         }`}
         data-step-helper
       >
@@ -1196,7 +1196,7 @@
           {/if}
         </div>
       {:else if olderIdeasNote}
-        <p class="text-[0.75rem] leading-4 text-ink-muted" data-older-ideas-note>{olderIdeasNote}</p>
+        <p class="text-[0.75rem] leading-[calc(4/3)] text-ink-muted" data-older-ideas-note>{olderIdeasNote}</p>
       {/if}
       {#if linkNoticeText}
         <p class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status" data-link-notice={data.linkNotice?.kind}>{linkNoticeText}</p>
@@ -1306,7 +1306,7 @@
         <div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" data-seed-progress>
           <div class="flex min-w-0 flex-1 items-center gap-2.5">
             <AuroraMark size={20} />
-            <p class="min-w-0 text-[0.8125rem] leading-[1.125rem] text-ink-secondary" data-seed-progress-line aria-live="polite">
+            <p class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary" data-seed-progress-line aria-live="polite">
               {seedProgressLine(pendingProgress, afterPicks)}
             </p>
           </div>

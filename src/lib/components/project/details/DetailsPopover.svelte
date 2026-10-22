@@ -99,7 +99,7 @@
       onpointerleave={scheduleClose}
       data-details-popover
       aria-label="Details"
-      class="z-[120] w-[22.5rem] max-w-[calc(100vw-1.5rem)] rounded-xl border border-line bg-surface px-2 pb-2.5 pt-3 text-[0.8125rem] leading-[1.125rem] shadow-popover outline-none"
+      class="z-[120] w-[22.5rem] max-w-[calc(100vw-1.5rem)] rounded-xl border border-line bg-surface px-2 pb-2.5 pt-3 text-[0.8125rem] leading-[calc(18/13)] shadow-popover outline-none"
     >
       <Popover.Arrow>
         {#snippet child({ props })}
@@ -155,7 +155,7 @@
               open = false;
               onOpenAll();
             }}
-            class="mt-2 rounded-md text-[0.8125rem] font-medium leading-[1.125rem] text-primary-selected transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
+            class="mt-2 rounded-md text-[0.8125rem] font-medium leading-[calc(18/13)] text-primary-selected transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
           >
             Open all details
           </button>

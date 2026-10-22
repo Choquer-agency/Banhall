@@ -139,8 +139,8 @@
         valueText={detail}
       >
         <AuroraMark size={22} />
-        <span class="text-sm font-medium leading-[1.125rem] text-ink" aria-live="polite" data-pill-headline>{headline}</span>
-        <span class="text-[0.8125rem] leading-[1.125rem] text-ink-muted" data-pill-detail>{detail}</span>
+        <span class="text-sm font-medium leading-[calc(9/7)] text-ink" aria-live="polite" data-pill-headline>{headline}</span>
+        <span class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" data-pill-detail>{detail}</span>
         {#if progress.phase === "drafting" && onStop}
           <button
             type="button"
@@ -180,7 +180,7 @@
 
   <article class="flex w-full flex-col gap-[1.375rem] pt-2" data-drafting-report>
     <!-- The page's single h1 is the top bar title; the draft's title is h2. -->
-    <h2 id={headingId} tabindex="-1" class="font-serif text-[1.875rem] font-normal leading-[2.25rem] text-ink outline-none">{reportTitle}</h2>
+    <h2 id={headingId} tabindex="-1" class="font-serif text-[1.875rem] font-normal leading-[1.2] text-ink outline-none">{reportTitle}</h2>
 
     {#each sections as section (section.key)}
       {@const queued = section.status === "queued"}
@@ -193,11 +193,11 @@
         <!-- Owner, 2026-10-21: the same one-line all-caps label as the
              finished report (report-section-heading__title), no CRA question. -->
         <header class="flex items-center gap-2">
-          <h3 class="font-sans text-[0.8125rem] font-medium uppercase leading-[1.125rem] tracking-[0.04em] text-[color-mix(in_srgb,var(--color-ink-muted),var(--color-ink-faint))]">{section.number} {section.title}</h3>
+          <h3 class="font-sans text-[0.8125rem] font-medium uppercase leading-[calc(18/13)] tracking-[0.04em] text-[color-mix(in_srgb,var(--color-ink-muted),var(--color-ink-faint))]">{section.number} {section.title}</h3>
           {#if section.status === "not_drafted"}
             <span
               data-not-drafted-marker
-              class="rounded-full border border-dashed border-line px-2 py-px text-[0.6875rem] leading-4 text-ink-muted"
+              class="rounded-full border border-dashed border-line px-2 py-px text-[0.6875rem] leading-[calc(16/11)] text-ink-muted"
             >Not drafted</span>
           {/if}
         </header>
@@ -206,7 +206,7 @@
           <div class="flex flex-col gap-3">
             {#each section.paragraphs as paragraph, index (index)}
               <p
-                class="fade-rise font-serif text-base leading-[1.625rem] text-ink"
+                class="fade-rise font-serif text-base leading-[1.625] text-ink"
                 style={`animation-delay:${revealDelayMs(index)}ms`}
                 data-revealed-paragraph
               >

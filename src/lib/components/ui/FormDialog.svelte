@@ -119,9 +119,9 @@
             >
               <header class="flex shrink-0 items-start gap-2 px-6 pt-[1.375rem]">
                 <div class="flex min-w-0 flex-1 flex-col gap-1">
-                  <Dialog.Title class="text-lg leading-6 font-medium text-ink" data-form-dialog-title>{title}</Dialog.Title>
+                  <Dialog.Title class="text-lg leading-[calc(4/3)] font-medium text-ink" data-form-dialog-title>{title}</Dialog.Title>
                   {#if description}
-                    <Dialog.Description class="text-sm leading-5 text-ink-secondary">{description}</Dialog.Description>
+                    <Dialog.Description class="text-sm leading-[calc(10/7)] text-ink-secondary">{description}</Dialog.Description>
                   {:else if srDescription}
                     <Dialog.Description class="sr-only">{srDescription}</Dialog.Description>
                   {/if}

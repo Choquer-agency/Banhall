@@ -131,7 +131,7 @@
   );
   const option =
     "flex h-10 w-full items-center gap-2.5 rounded-lg border bg-gray-50 px-3 text-left outline-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
-  const errorBox = "rounded-lg border border-danger-line bg-danger-surface px-3 py-2.5 text-sm leading-5 text-danger-ink-muted";
+  const errorBox = "rounded-lg border border-danger-line bg-danger-surface px-3 py-2.5 text-sm leading-[calc(10/7)] text-danger-ink-muted";
 </script>
 
 {#snippet radio(checked: boolean)}
@@ -172,8 +172,8 @@
           >
             {#snippet children({ checked })}
               {@render radio(checked)}
-              <span class="min-w-0 flex-1 truncate text-sm leading-5 text-ink">{client.name}</span>
-              <span class="shrink-0 text-[0.8125rem] leading-4 text-ink-muted">{projectsLabel(client.projectCount)}</span>
+              <span class="min-w-0 flex-1 truncate text-sm leading-[calc(10/7)] text-ink">{client.name}</span>
+              <span class="shrink-0 text-[0.8125rem] leading-[calc(16/13)] text-ink-muted">{projectsLabel(client.projectCount)}</span>
             {/snippet}
           </RadioGroup.Item>
         {/each}
@@ -208,19 +208,19 @@
     </div>
 
     {#if preview && preview.nameConflict === null && !preview.tooMany}
-      <p data-merge-summary class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">
+      <p data-merge-summary class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">
         {mergeSummaryText(preview.projectCount, preview.keptName, clients.length - 1)}
       </p>
     {/if}
     {#if preview && preview.numberCollisions.length > 0 && preview.nameConflict === null && !preview.tooMany}
-      <ul data-merge-collisions class="flex flex-col gap-1 rounded-lg bg-gap-bg px-3 py-2.5 text-sm leading-5 text-gap-text">
+      <ul data-merge-collisions class="flex flex-col gap-1 rounded-lg bg-gap-bg px-3 py-2.5 text-sm leading-[calc(10/7)] text-gap-text">
         {#each preview.numberCollisions as collision (`${collision.fiscalYear}:${collision.projectNumber}`)}
           <li>{mergeCollisionText(collision)}</li>
         {/each}
       </ul>
     {/if}
     {#if preview?.collisionCheckIncomplete && preview.nameConflict === null && !preview.tooMany}
-      <p data-merge-collisions-incomplete class="rounded-lg bg-gap-bg px-3 py-2.5 text-sm leading-5 text-gap-text">
+      <p data-merge-collisions-incomplete class="rounded-lg bg-gap-bg px-3 py-2.5 text-sm leading-[calc(10/7)] text-gap-text">
         Some project numbers could not be checked. Look for repeated numbers after the merge.
       </p>
     {/if}

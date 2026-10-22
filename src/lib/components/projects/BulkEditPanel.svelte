@@ -210,9 +210,9 @@
 
 {#snippet footerNote()}
   {#if escapeNote}
-    <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted" role="status" data-bulk-escape-note>Apply the changes, or use Cancel to discard them.</p>
+    <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" role="status" data-bulk-escape-note>Apply the changes, or use Cancel to discard them.</p>
   {:else if note}
-    <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted" data-bulk-skip-note>{note}</p>
+    <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" data-bulk-skip-note>{note}</p>
   {/if}
 {/snippet}
 
@@ -279,7 +279,7 @@
             <IconCalendar size={15} strokeWidth={1.5} class="shrink-0 text-ink-muted" />
             {#if fyShown === "set" && setDate !== null}
               <span class="min-w-0 flex-1 truncate">{formatYearEnd(setDate)}</span>
-              <span class="shrink-0 text-[0.8125rem] leading-4 text-ink-muted">FY {dashboardFiscalYear(setDate)}</span>
+              <span class="shrink-0 text-[0.8125rem] leading-[calc(16/13)] text-ink-muted">FY {dashboardFiscalYear(setDate)}</span>
             {:else if fyShown === "clear"}
               <span class="min-w-0 flex-1 truncate">Not set</span>
             {:else}

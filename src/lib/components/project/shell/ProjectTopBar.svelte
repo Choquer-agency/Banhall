@@ -148,12 +148,12 @@
     />
   </div>
   {@render leading?.()}
-  <div class="flex min-w-0 flex-1 items-center gap-2.5 text-sm leading-5">
+  <div class="flex min-w-0 flex-1 items-center gap-2.5 text-sm leading-[calc(10/7)]">
     <span class="shrink-0 text-ink-muted max-sm:hidden" data-top-bar-breadcrumb>
       <a href={projectsHref} class="rounded-sm transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir">Projects</a>
       <span aria-hidden="true">/</span>
     </span>
-    <h1 data-project-heading class="min-w-0 truncate font-medium text-ink max-sm:text-base max-sm:leading-[1.375rem]">{title}</h1>
+    <h1 data-project-heading class="min-w-0 truncate font-medium text-ink max-sm:text-base max-sm:leading-[1.375]">{title}</h1>
   </div>
   <div class="flex shrink-0 items-center gap-2.5">
     {@render status?.()}

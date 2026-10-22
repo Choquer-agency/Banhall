@@ -66,7 +66,7 @@
         >
           {#if size === "field"}
             <AuroraMark size={18} />
-            <span class="min-w-0 flex-1 truncate text-sm leading-5 text-ink" title={labelFor(id)}>{labelFor(id)}</span>
+            <span class="min-w-0 flex-1 truncate text-sm leading-[calc(10/7)] text-ink" title={labelFor(id)}>{labelFor(id)}</span>
           {:else}
             <ModelLogo provider={providerFor(id)} size={logoSize} />
             <span class={`min-w-0 flex-1 truncate ${slotText} font-semibold tracking-tight`} title={labelFor(id)}>

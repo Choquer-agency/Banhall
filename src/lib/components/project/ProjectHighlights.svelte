@@ -93,13 +93,13 @@
         <dt class="text-[0.6875rem] font-medium leading-none text-ink-muted">Owner</dt>
         {#if header.owner}
           <dd class="mt-1 min-w-0">
-            <p class="truncate text-[0.8125rem] font-medium leading-5 text-ink">{header.owner.label}</p>
+            <p class="truncate text-[0.8125rem] font-medium leading-[calc(20/13)] text-ink">{header.owner.label}</p>
             {#if header.ownerNeedsReview}
               <p class="truncate text-[0.6875rem] text-ink-muted">Ownership under review</p>
             {/if}
           </dd>
         {:else}
-          <dd class="mt-1 text-[0.8125rem] leading-5 text-ink-faint">No owner recorded</dd>
+          <dd class="mt-1 text-[0.8125rem] leading-[calc(20/13)] text-ink-faint">No owner recorded</dd>
         {/if}
       </div>
 
@@ -107,22 +107,22 @@
         <dt class="text-[0.6875rem] font-medium leading-none text-ink-muted">With</dt>
         {#if currentHandoff}
           <dd class="mt-1 min-w-0">
-            <p class="truncate text-[0.8125rem] font-medium leading-5 text-ink">{currentHandoff.assignee.label}</p>
+            <p class="truncate text-[0.8125rem] font-medium leading-[calc(20/13)] text-ink">{currentHandoff.assignee.label}</p>
             <p class="truncate text-[0.6875rem] text-ink-muted" title={handoffDue?.absolute}>
               {WORK_ITEM_KIND_LABELS[currentHandoff.kind] ?? currentHandoff.kind}{#if handoffDue}{", "}<span class={handoffDue.overdue ? "font-medium text-red-700" : ""}>{handoffDue.relative}</span>{/if}
             </p>
           </dd>
         {:else}
-          <dd class="mt-1 text-[0.8125rem] leading-5 text-ink-faint">Nothing in flight</dd>
+          <dd class="mt-1 text-[0.8125rem] leading-[calc(20/13)] text-ink-faint">Nothing in flight</dd>
         {/if}
       </div>
 
       <div data-project-highlight="claim-period" class="highlight-claim min-w-0">
         <dt class="text-[0.6875rem] font-medium leading-none text-ink-muted">Claim period</dt>
         {#if claimPeriod(fiscalYearEnd)}
-          <dd class="mt-1 text-[0.8125rem] font-medium leading-5 text-ink">FYE {claimPeriod(fiscalYearEnd)}</dd>
+          <dd class="mt-1 text-[0.8125rem] font-medium leading-[calc(20/13)] text-ink">FYE {claimPeriod(fiscalYearEnd)}</dd>
         {:else}
-          <dd class="mt-1 text-[0.8125rem] leading-5 text-ink-faint">No fiscal year-end</dd>
+          <dd class="mt-1 text-[0.8125rem] leading-[calc(20/13)] text-ink-faint">No fiscal year-end</dd>
         {/if}
       </div>
     </dl>

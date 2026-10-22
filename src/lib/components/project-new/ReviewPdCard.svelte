@@ -58,15 +58,15 @@
     {/each}
   </div>
   <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-    <p class="truncate text-sm leading-5 font-medium text-ink">{name}</p>
-    <p class="text-xs leading-4 text-ink-muted" data-review-pd-uploaded>
+    <p class="truncate text-sm leading-[calc(10/7)] font-medium text-ink">{name}</p>
+    <p class="text-xs leading-[calc(4/3)] text-ink-muted" data-review-pd-uploaded>
       {titleFromFileName
         ? "Uploaded just now. We filled the project title from the file name."
         : "Uploaded just now."}
     </p>
     <ul class="flex flex-col pt-2">
       {#each rows as row (row.key)}
-        <li data-review-section={row.number} data-found={row.found} class="flex h-[1.875rem] items-center gap-2 text-[0.8125rem] leading-[1.125rem]">
+        <li data-review-section={row.number} data-found={row.found} class="flex h-[1.875rem] items-center gap-2 text-[0.8125rem] leading-[calc(18/13)]">
           {#if row.found}
             <IconCheck size={13} strokeWidth={2.2} class="shrink-0 text-success" />
           {:else}

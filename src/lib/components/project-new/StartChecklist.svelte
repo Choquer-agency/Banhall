@@ -65,7 +65,7 @@
     : "flex flex-col gap-3.5 rounded-[0.875rem] border border-line-soft bg-surface p-[1.125rem]"}
 >
   {#if !plain}
-    <p class="text-xs leading-4 font-medium text-ink-muted">Before you start</p>
+    <p class="text-xs leading-[calc(4/3)] font-medium text-ink-muted">Before you start</p>
   {/if}
   {#if shownRows.length}
     <ul class="flex flex-col gap-1.5">
@@ -79,7 +79,7 @@
             <IconClock size={16} strokeWidth={1.8} class={`shrink-0 ${iconColor[row.state]}`} />
           {/if}
           <span
-            class={`min-w-0 flex-1 text-[0.8125rem] leading-[1.1875rem] ${
+            class={`min-w-0 flex-1 text-[0.8125rem] leading-[calc(19/13)] ${
               row.state === "danger" || row.state === "warning"
                 ? "text-ink"
                 : row.state === "pending" || row.state === "reading"
@@ -94,7 +94,7 @@
               type="button"
               data-checklist-action={row.action.target}
               onclick={() => onAction(row.action!.target)}
-              class={`shrink-0 rounded px-1 text-[0.8125rem] leading-[1.125rem] font-medium hover:underline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:min-h-11 ${actionColor[row.state]}`}
+              class={`shrink-0 rounded px-1 text-[0.8125rem] leading-[calc(18/13)] font-medium hover:underline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:min-h-11 ${actionColor[row.state]}`}
             >
               {row.action.label}
             </button>
@@ -109,7 +109,7 @@
     data-start-button
     disabled={blocked || busy}
     onclick={onStart}
-    class={`flex shrink-0 items-center justify-center gap-2 bg-fir text-sm leading-5 font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fir focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
+    class={`flex shrink-0 items-center justify-center gap-2 bg-fir text-sm leading-[calc(10/7)] font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fir focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
       plain ? "h-9 w-full rounded-lg px-4" : "mt-1 h-[2.625rem] rounded-[0.625rem]"
     }`}
   >
@@ -119,6 +119,6 @@
   <p
     data-start-note
     role={busyLabel ? "status" : undefined}
-    class={`text-center text-xs text-ink-muted ${plain ? "leading-4" : "leading-[1.0625rem]"}`}
+    class={`text-center text-xs text-ink-muted ${plain ? "leading-[calc(4/3)]" : "leading-[calc(17/12)]"}`}
   >{busyLabel ?? note}</p>
 </div>

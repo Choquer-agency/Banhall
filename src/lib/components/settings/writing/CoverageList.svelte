@@ -51,13 +51,13 @@
 <section data-coverage-list class="flex flex-col gap-0.5 rounded-xl border border-line-soft bg-canvas p-4">
   <div class="flex items-center gap-2 pb-1">
     <AuroraMark size={16} />
-    <h3 class="flex-1 text-sm leading-5 font-medium text-ink">What they cover</h3>
+    <h3 class="flex-1 text-sm leading-[calc(10/7)] font-medium text-ink">What they cover</h3>
     <button
       type="button"
       data-check-again
       disabled={checking || !canCheck}
       onclick={onCheck}
-      class="rounded text-xs leading-4 font-medium text-primary-selected hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+      class="rounded text-xs leading-[calc(4/3)] font-medium text-primary-selected hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
     >{checking ? "Checking..." : "Check again"}</button>
   </div>
   {#each WRITING_AREAS as area (area.key)}
@@ -71,16 +71,16 @@
       {/if}
       <div class="flex min-w-0 flex-col gap-px">
         <span class="flex items-center gap-1.5">
-          <span class={`text-[0.8125rem] leading-[1.125rem] font-medium ${category?.addressed ? "text-ink" : "text-ink-muted"}`}>{area.label}</span>
+          <span class={`text-[0.8125rem] leading-[calc(18/13)] font-medium ${category?.addressed ? "text-ink" : "text-ink-muted"}`}>{area.label}</span>
           <AreaInfo {area} {mode} />
         </span>
         {#if category?.addressed}
-          {#if category.evidence}<span class="text-xs leading-4 text-ink-muted [overflow-wrap:anywhere]">"{short(category.evidence)}"</span>{/if}
+          {#if category.evidence}<span class="text-xs leading-[calc(4/3)] text-ink-muted [overflow-wrap:anywhere]">"{short(category.evidence)}"</span>{/if}
         {:else}
-          <span data-coverage-status class="text-xs leading-4 text-ink-muted">{unchecked && !category ? "Not checked yet" : "Not in your instructions"}</span>
+          <span data-coverage-status class="text-xs leading-[calc(4/3)] text-ink-muted">{unchecked && !category ? "Not checked yet" : "Not in your instructions"}</span>
         {/if}
         {#if mode !== "writer_choice"}
-          <span data-coverage-locked class="flex items-center gap-[0.3125rem] text-xs leading-4 text-ink-muted">
+          <span data-coverage-locked class="flex items-center gap-[0.3125rem] text-xs leading-[calc(4/3)] text-ink-muted">
             <IconLock size={11} strokeWidth={2.2} />{LOCKED_NOTE[mode]}
           </span>
         {/if}
@@ -88,7 +88,7 @@
     </div>
   {/each}
   {#if error}
-    <p role="alert" class="pt-2 text-xs leading-4 text-danger-ink-muted">{error}</p>
+    <p role="alert" class="pt-2 text-xs leading-[calc(4/3)] text-danger-ink-muted">{error}</p>
   {/if}
   {#if conflicts.length}
     <div class="pt-2">
@@ -98,7 +98,7 @@
         aria-expanded={conflictsOpen}
         aria-controls="locked-conflicts"
         onclick={() => (conflictsOpen = !conflictsOpen)}
-        class="flex w-full items-center justify-between gap-2 rounded text-left text-xs leading-4 font-medium text-ink-secondary hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        class="flex w-full items-center justify-between gap-2 rounded text-left text-xs leading-[calc(4/3)] font-medium text-ink-secondary hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         Some instructions can't be followed
         <DisclosureChevron open={conflictsOpen} />
@@ -106,7 +106,7 @@
       <Disclosure id="locked-conflicts" open={conflictsOpen}>
         <ul class="flex flex-col gap-1 pt-2">
           {#each conflicts as conflict, index (index)}
-            <li class="text-xs leading-4 text-ink-muted">"{short(conflict.excerpt)}" <span class="text-ink-faint">({conflict.rule})</span></li>
+            <li class="text-xs leading-[calc(4/3)] text-ink-muted">"{short(conflict.excerpt)}" <span class="text-ink-faint">({conflict.rule})</span></li>
           {/each}
         </ul>
       </Disclosure>

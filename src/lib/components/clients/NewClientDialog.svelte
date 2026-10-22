@@ -183,9 +183,9 @@
   }
 
   const notice = "flex items-center gap-2.5 rounded-lg bg-gap-bg px-3 py-2.5";
-  const noticeText = "min-w-0 flex-1 text-sm leading-5 text-gap-text";
+  const noticeText = "min-w-0 flex-1 text-sm leading-[calc(10/7)] text-gap-text";
   const noticeAction =
-    "shrink-0 rounded-md text-sm leading-5 font-medium text-gap-text hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy pointer-coarse:min-h-11";
+    "shrink-0 rounded-md text-sm leading-[calc(10/7)] font-medium text-gap-text hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy pointer-coarse:min-h-11";
 </script>
 
 {#snippet footer()}
@@ -275,7 +275,7 @@
             onValueChange={() => (filledFromProject = false)}
           />
         </div>
-        <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted" data-year-end-helper>
+        <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" data-year-end-helper>
           {yearEndIncomplete
             ? "Pick both a month and a day, or leave both empty."
             : filledFromProject

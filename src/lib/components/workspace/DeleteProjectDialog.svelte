@@ -92,14 +92,14 @@
         data-keep-project
         disabled={busy}
         onclick={() => (open = false)}
-        class="h-9 rounded-lg bg-chrome px-3.5 text-sm leading-5 font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+        class="h-9 rounded-lg bg-chrome px-3.5 text-sm leading-[calc(10/7)] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
       >Keep project</button>
       <button
         type="button"
         data-confirm-delete-project
         disabled={busy || errorMessage !== null}
         onclick={() => void confirm()}
-        class="h-9 rounded-lg bg-danger-action px-4 text-sm leading-5 font-medium text-white hover:bg-danger-action-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2 disabled:opacity-50"
+        class="h-9 rounded-lg bg-danger-action px-4 text-sm leading-[calc(10/7)] font-medium text-white hover:bg-danger-action-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2 disabled:opacity-50"
       >{busy ? "Deleting..." : "Delete project"}</button>
     </div>
   {/snippet}

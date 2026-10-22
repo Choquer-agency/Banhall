@@ -318,7 +318,7 @@
 {/snippet}
 
 {#snippet readRow(label: string, value: string | null, attr: string)}
-  <div class="flex min-h-9 items-start gap-3 py-2 text-sm leading-5" data-edit-readonly={attr}>
+  <div class="flex min-h-9 items-start gap-3 py-2 text-sm leading-[calc(10/7)]" data-edit-readonly={attr}>
     <dt class="w-[8.75rem] shrink-0 text-ink-secondary">{label}</dt>
     <dd class="min-w-0 flex-1 break-words text-ink">{#if value}{value}{:else}<span class="text-ink-muted">Not set</span>{/if}</dd>
   </div>
@@ -326,7 +326,7 @@
 
 {#snippet footerNote()}
   {#if escapeNote}
-    <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted" role="status" data-edit-escape-note>Save your changes, or use Cancel to discard them.</p>
+    <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" role="status" data-edit-escape-note>Save your changes, or use Cancel to discard them.</p>
   {/if}
 {/snippet}
 
@@ -366,12 +366,12 @@
       {/each}
     </div>
   {:else if unavailable || !draft || !details}
-    <p class="text-sm leading-5 text-ink-secondary" role="alert" data-edit-unavailable>
+    <p class="text-sm leading-[calc(10/7)] text-ink-secondary" role="alert" data-edit-unavailable>
       This project's details could not be loaded. Close this and try again.
     </p>
   {:else if !canEdit}
     <div class="flex flex-col gap-3">
-      <p class="rounded-lg bg-gray-50 px-3 py-2.5 text-sm leading-5 text-ink-secondary" role="status" data-edit-read-only>
+      <p class="rounded-lg bg-gray-50 px-3 py-2.5 text-sm leading-[calc(10/7)] text-ink-secondary" role="status" data-edit-read-only>
         {READ_ONLY_REASON}
       </p>
       <dl class="flex flex-col">
@@ -476,7 +476,7 @@
                   <IconCalendar size={15} strokeWidth={1.5} class="shrink-0 text-ink-muted" />
                   {#if fiscal}
                     <span class="min-w-0 flex-1 truncate">{fiscal.date}</span>
-                    <span class="shrink-0 text-[0.8125rem] leading-4 text-ink-muted" data-edit-fiscal-year>FY {fiscal.year}</span>
+                    <span class="shrink-0 text-[0.8125rem] leading-[calc(16/13)] text-ink-muted" data-edit-fiscal-year>FY {fiscal.year}</span>
                   {:else}
                     <span class="min-w-0 flex-1 truncate text-ink-muted">Choose the year end</span>
                   {/if}

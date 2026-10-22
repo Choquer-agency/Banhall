@@ -62,7 +62,7 @@
   }
 
   const itemClass =
-    "flex min-h-[1.875rem] w-full cursor-default items-center gap-2.5 rounded-md px-2 py-1 text-left text-[0.8125rem] leading-[1.125rem] text-ink outline-none data-[selected]:bg-primary-wash";
+    "flex min-h-[1.875rem] w-full cursor-default items-center gap-2.5 rounded-md px-2 py-1 text-left text-[0.8125rem] leading-[calc(18/13)] text-ink outline-none data-[selected]:bg-primary-wash";
 </script>
 
 <Popover.Root bind:open>
@@ -95,7 +95,7 @@
           <Command.Viewport>
             {#each groups as group (group.field)}
               <Command.Group>
-                <Command.GroupHeading class="px-2 pb-1 pt-2 text-[0.6875rem] font-medium uppercase leading-[1.125rem] tracking-[0.04em] text-ink-muted">{group.field}</Command.GroupHeading>
+                <Command.GroupHeading class="px-2 pb-1 pt-2 text-[0.6875rem] font-medium uppercase leading-[calc(18/11)] tracking-[0.04em] text-ink-muted">{group.field}</Command.GroupHeading>
                 <Command.GroupItems>
                   {#each group.items as item (item.code)}
                     <Command.Item

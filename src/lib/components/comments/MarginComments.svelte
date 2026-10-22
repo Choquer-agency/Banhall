@@ -361,7 +361,7 @@
                   </button>
                 </div>
                 {#if acceptErrors[comment._id]}
-                  <p class="mt-1 text-[0.6875rem] leading-4 text-red-700" role="alert">{acceptErrors[comment._id]}</p>
+                  <p class="mt-1 text-[0.6875rem] leading-[calc(16/11)] text-red-700" role="alert">{acceptErrors[comment._id]}</p>
                 {/if}
               {/if}
             </div>

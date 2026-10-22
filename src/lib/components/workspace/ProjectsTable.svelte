@@ -230,7 +230,7 @@
                         class="z-[100] w-72 rounded-xl border border-line bg-surface p-3.5 shadow-md outline-none"
                       >
                         <div class="flex min-w-0 items-start justify-between gap-2">
-                          <p class="min-w-0 text-sm font-medium leading-5 text-ink">{row.title}</p>
+                          <p class="min-w-0 text-sm font-medium leading-[calc(10/7)] text-ink">{row.title}</p>
                           {#if row.projectNumber}
                             <span class="text-data shrink-0 rounded bg-chrome px-1 py-px text-ink-muted">#{row.projectNumber}</span>
                           {/if}

@@ -40,16 +40,16 @@
       class="fixed left-1/2 top-1/2 z-[130] w-[calc(100%-2rem)] max-w-[25rem] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-line bg-surface shadow-dialog"
     >
       <div class="flex flex-col gap-1.5 px-6 pt-6">
-        <AlertDialog.Title class="text-lg leading-6 font-medium text-ink">Delete this conversation for everyone? This can't be undone.</AlertDialog.Title>
+        <AlertDialog.Title class="text-lg leading-[calc(4/3)] font-medium text-ink">Delete this conversation for everyone? This can't be undone.</AlertDialog.Title>
         {#if title}
-          <AlertDialog.Description class="truncate text-sm leading-5 text-ink-muted">{title}</AlertDialog.Description>
+          <AlertDialog.Description class="truncate text-sm leading-[calc(10/7)] text-ink-muted">{title}</AlertDialog.Description>
         {/if}
       </div>
       <div class="flex items-center justify-end gap-2 px-6 pt-5 pb-5">
         <AlertDialog.Cancel
           bind:ref={keepButton}
           data-keep-conversation
-          class="h-9 rounded-lg bg-chrome px-3.5 text-sm leading-5 font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary pointer-coarse:h-11"
+          class="h-9 rounded-lg bg-chrome px-3.5 text-sm leading-[calc(10/7)] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary pointer-coarse:h-11"
         >Keep</AlertDialog.Cancel>
         <AlertDialog.Action
           data-confirm-delete-conversation
@@ -57,7 +57,7 @@
             open = false;
             onConfirm();
           }}
-          class="h-9 rounded-lg bg-danger-action px-4 text-sm leading-5 font-medium text-white hover:bg-danger-action-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2 pointer-coarse:h-11"
+          class="h-9 rounded-lg bg-danger-action px-4 text-sm leading-[calc(10/7)] font-medium text-white hover:bg-danger-action-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2 pointer-coarse:h-11"
         >Delete</AlertDialog.Action>
       </div>
     </AlertDialog.Content>

@@ -84,8 +84,8 @@
 
 {#snippet field(label: string, value: string, attr: string)}
   <div class="flex min-w-0 gap-2" data-card-field={attr}>
-    <span class="w-[3.125rem] shrink-0 text-[0.6875rem] leading-4 text-ink-muted">{label}</span>
-    <span class="min-w-0 flex-1 truncate text-xs leading-4 text-ink">{value}</span>
+    <span class="w-[3.125rem] shrink-0 text-[0.6875rem] leading-[calc(16/11)] text-ink-muted">{label}</span>
+    <span class="min-w-0 flex-1 truncate text-xs leading-[calc(4/3)] text-ink">{value}</span>
   </div>
 {/snippet}
 
@@ -118,10 +118,10 @@
         >{@render checkmark()}</button>
       {/if}
     </span>
-    <span class={`min-w-0 truncate text-[0.8125rem] leading-4 font-medium ${tone.label}`} data-card-stage>{stageLabel}</span>
+    <span class={`min-w-0 truncate text-[0.8125rem] leading-[calc(16/13)] font-medium ${tone.label}`} data-card-stage>{stageLabel}</span>
     <span class="flex-1"></span>
     {#if row.projectNumber}
-      <span data-card-project-number class="shrink-0 font-mono text-xs leading-4 text-ink-muted"><span class="sr-only">Project number </span>#{row.projectNumber}</span>
+      <span data-card-project-number class="shrink-0 font-mono text-xs leading-[calc(4/3)] text-ink-muted"><span class="sr-only">Project number </span>#{row.projectNumber}</span>
     {/if}
     {#if actions && !selectionActive}
       {@render actions()}
@@ -132,7 +132,7 @@
 
   <div class="px-3.5 py-3">
     {#if showCompany}
-      <p data-card-field="client" class="truncate pb-0.5 text-xs leading-4 text-ink-secondary">{row.clientName || "No company name"}</p>
+      <p data-card-field="client" class="truncate pb-0.5 text-xs leading-[calc(4/3)] text-ink-secondary">{row.clientName || "No company name"}</p>
     {/if}
     {#if selectable && selectionActive}
       <!-- Something is ticked: the stretched title is a checkbox for the whole card. -->
@@ -142,7 +142,7 @@
         aria-checked={selected}
         data-card-select={row.id}
         onclick={() => onToggleSelect?.()}
-        class="block w-full rounded-md text-left text-sm leading-[1.125rem] font-medium text-ink line-clamp-2 after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+        class="block w-full rounded-md text-left text-sm leading-[calc(9/7)] font-medium text-ink line-clamp-2 after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
       >{row.title}</button>
     {:else}
       <a
@@ -150,7 +150,7 @@
         data-recent-title={row.title}
         data-recent-stage={row.workflowStage ?? undefined}
         data-recent-client={row.clientName || undefined}
-        class="block rounded-md text-sm leading-[1.125rem] font-medium text-ink line-clamp-2 after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+        class="block rounded-md text-sm leading-[calc(9/7)] font-medium text-ink line-clamp-2 after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
       >{row.title}</a>
     {/if}
   </div>
@@ -169,7 +169,7 @@
       {:else}
         <span aria-hidden="true" class="size-[0.4375rem] shrink-0 rounded-full bg-gray-300"></span>
       {/if}
-      <span class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[1.125rem] text-ink" data-generation-activity={row.generationActivity ?? undefined}>{status.text}</span>
+      <span class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(18/13)] text-ink" data-generation-activity={row.generationActivity ?? undefined}>{status.text}</span>
     </div>
   {/if}
 </article>

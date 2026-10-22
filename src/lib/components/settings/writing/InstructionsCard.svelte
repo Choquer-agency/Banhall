@@ -11,14 +11,14 @@
 
 <section data-instructions-card class="flex flex-col gap-2.5 rounded-xl border border-line-soft bg-surface p-4">
   <div class="flex items-center">
-    <h3 class="flex-1 text-sm leading-5 font-medium text-ink">Your instructions</h3>
+    <h3 class="flex-1 text-sm leading-[calc(10/7)] font-medium text-ink">Your instructions</h3>
     {#if text.trim()}
-      <button type="button" data-instructions-edit onclick={onEdit} class="rounded text-xs leading-4 font-medium text-primary-selected hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Edit</button>
+      <button type="button" data-instructions-edit onclick={onEdit} class="rounded text-xs leading-[calc(4/3)] font-medium text-primary-selected hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Edit</button>
     {/if}
   </div>
   {#if text.trim()}
-    <p data-instructions-excerpt class="font-serif text-[0.8125rem] leading-5 text-ink-secondary [overflow-wrap:anywhere]">"{instructionsExcerpt(text)}"</p>
-    <p data-instructions-count class={`text-xs leading-4 ${tooLong ? "text-danger-ink-muted" : "text-ink-faint"}`} aria-live={tooLong ? "polite" : "off"}>
+    <p data-instructions-excerpt class="font-serif text-[0.8125rem] leading-[calc(20/13)] text-ink-secondary [overflow-wrap:anywhere]">"{instructionsExcerpt(text)}"</p>
+    <p data-instructions-count class={`text-xs leading-[calc(4/3)] ${tooLong ? "text-danger-ink-muted" : "text-ink-faint"}`} aria-live={tooLong ? "polite" : "off"}>
       {#if tooLong}
         {count} of {max} characters. Shorten your instructions to save them.
       {:else}
@@ -26,10 +26,10 @@
       {/if}
     </p>
   {:else}
-    <p data-instructions-empty class="text-[0.8125rem] leading-5 text-ink-muted">No instructions yet. Paste how you write, or a sample of your writing.</p>
+    <p data-instructions-empty class="text-[0.8125rem] leading-[calc(20/13)] text-ink-muted">No instructions yet. Paste how you write, or a sample of your writing.</p>
     <button type="button" onclick={onEdit} class="self-start rounded-lg bg-chrome px-3 py-1.5 text-[0.8125rem] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Add instructions</button>
   {/if}
   {#if notice}
-    <p role="status" data-prefill-notice class="text-[0.8125rem] leading-5 text-ink-secondary">{notice}</p>
+    <p role="status" data-prefill-notice class="text-[0.8125rem] leading-[calc(20/13)] text-ink-secondary">{notice}</p>
   {/if}
 </section>

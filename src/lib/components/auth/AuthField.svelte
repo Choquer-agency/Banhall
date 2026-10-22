@@ -29,7 +29,7 @@
 
 <div class={`flex flex-col gap-1.5 ${className}`}>
   <div class="flex items-center justify-between gap-3">
-    <label for={id} class="text-[0.8125rem] leading-[1.125rem] font-medium text-ink-secondary">{label}</label>
+    <label for={id} class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink-secondary">{label}</label>
     {@render labelAction?.()}
   </div>
   <div
@@ -43,7 +43,7 @@
       bind:value
       aria-invalid={invalid ? "true" : undefined}
       {...rest}
-      class="input-chromeless h-full min-w-0 flex-1 bg-transparent p-0 text-[0.9375rem] leading-5 text-ink placeholder:text-ink-faint disabled:opacity-60"
+      class="input-chromeless h-full min-w-0 flex-1 bg-transparent p-0 text-[0.9375rem] leading-[calc(4/3)] text-ink placeholder:text-ink-faint disabled:opacity-60"
     />
     {@render trailing?.()}
   </div>

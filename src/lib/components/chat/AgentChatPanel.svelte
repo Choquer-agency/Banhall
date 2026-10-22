@@ -1566,7 +1566,7 @@
     <PromptInputTextarea
       bind:ref={textareaEl}
       wrapperClass="py-0"
-      class="min-h-[1.125rem] px-0 text-[0.8125rem] leading-[1.125rem] text-ink placeholder:text-ink-faint md:text-[0.8125rem]"
+      class="min-h-[1.125rem] px-0 text-[0.8125rem] leading-[calc(18/13)] text-ink placeholder:text-ink-faint md:text-[0.8125rem]"
       aria-label="Message the report assistant"
       textIndent={composerContextActive ? pillWidth : undefined}
       placeholder={pendingResearch?.preset === "vet"
@@ -1901,7 +1901,7 @@
         bind:ref={conversationMenuButton}
         aria-label="Conversation menu"
         title="Conversations"
-        class="group -ml-1.5 flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-[0.8125rem] leading-[1.125rem] font-medium text-ink transition-colors hover:bg-chrome/60 data-[state=open]:bg-chrome/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
+        class="group -ml-1.5 flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink transition-colors hover:bg-chrome/60 data-[state=open]:bg-chrome/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
       >
         Assistant
         <svg class="size-3 shrink-0 text-ink-faint opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[state=open]:rotate-180 group-data-[state=open]:opacity-100 motion-reduce:transition-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -2186,14 +2186,14 @@
             <!-- Phase B: a link the server started carries the job on; it is
                  not something a person wrote. -->
             <div class="flex justify-center" data-auto-continue-chip>
-              <span class="rounded-full bg-chrome px-2.5 py-0.5 text-[0.6875rem] leading-4 text-ink-muted">{chip}</span>
+              <span class="rounded-full bg-chrome px-2.5 py-0.5 text-[0.6875rem] leading-[calc(16/11)] text-ink-muted">{chip}</span>
             </div>
           {:else}
             {@const footer = writerFooter(m.order)}
             <div class="group flex flex-col gap-1" data-writer-order={m.order}>
               {#if author}
                 <!-- Phase B: who wrote it, when more than one person wrote here. -->
-                <p class="text-right text-[0.6875rem] leading-4 text-ink-muted" data-message-author>{author}</p>
+                <p class="text-right text-[0.6875rem] leading-[calc(16/11)] text-ink-muted" data-message-author>{author}</p>
               {/if}
               {#if editingOrder === m.order}
                 <!-- Phase C (W2): Enter sends an alternative, Escape cancels. -->

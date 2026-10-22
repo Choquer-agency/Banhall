@@ -35,23 +35,23 @@
       collisionPadding={16}
       class="z-[110] flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 shadow-md outline-none"
     >
-      <p id={titleId} class="text-sm leading-5 font-medium text-ink">{area.label}</p>
+      <p id={titleId} class="text-sm leading-[calc(10/7)] font-medium text-ink">{area.label}</p>
       <dl class="flex flex-col gap-2.5">
         <div class="flex flex-col gap-0.5">
-          <dt class="text-xs leading-4 font-medium text-ink-muted">House rule</dt>
-          <dd data-area-info-rule class="text-[0.8125rem] leading-5 text-ink-secondary">{area.houseRule}</dd>
+          <dt class="text-xs leading-[calc(4/3)] font-medium text-ink-muted">House rule</dt>
+          <dd data-area-info-rule class="text-[0.8125rem] leading-[calc(20/13)] text-ink-secondary">{area.houseRule}</dd>
         </div>
         <div class="flex flex-col gap-0.5">
-          <dt class="text-xs leading-4 font-medium text-ink-muted">Example</dt>
-          <dd data-area-info-example class="text-[0.8125rem] leading-5 text-ink-secondary">{area.example}</dd>
+          <dt class="text-xs leading-[calc(4/3)] font-medium text-ink-muted">Example</dt>
+          <dd data-area-info-example class="text-[0.8125rem] leading-[calc(20/13)] text-ink-secondary">{area.example}</dd>
         </div>
         <div class="flex flex-col gap-0.5">
-          <dt class="text-xs leading-4 font-medium text-ink-muted">When your switch is on</dt>
-          <dd data-area-info-on class="text-[0.8125rem] leading-5 text-ink-secondary">{area.whenOn}</dd>
+          <dt class="text-xs leading-[calc(4/3)] font-medium text-ink-muted">When your switch is on</dt>
+          <dd data-area-info-on class="text-[0.8125rem] leading-[calc(20/13)] text-ink-secondary">{area.whenOn}</dd>
         </div>
       </dl>
       {#if note}
-        <p data-area-info-mode class="border-t border-line-soft pt-2.5 text-xs leading-4 text-ink-muted">{note}</p>
+        <p data-area-info-mode class="border-t border-line-soft pt-2.5 text-xs leading-[calc(4/3)] text-ink-muted">{note}</p>
       {/if}
     </Popover.Content>
   </Popover.Portal>

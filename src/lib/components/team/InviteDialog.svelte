@@ -106,7 +106,7 @@
     </div>
   {:else}
     <div class="flex flex-col gap-1.5 px-7 pt-[1.125rem]">
-      <label for="invite-emails" class="text-xs font-medium leading-4 text-ink-secondary">Email addresses</label>
+      <label for="invite-emails" class="text-xs font-medium leading-[calc(4/3)] text-ink-secondary">Email addresses</label>
       <InviteEmailChips bind:this={chipInput} bind:chips disabled={sending} />
       {#if tooMany}
         <p class="text-xs text-danger-ink-muted">Invite at most {MAX_INVITE_EMAILS} people at a time.</p>
@@ -115,7 +115,7 @@
     <!-- C3: the Role label 16px under the email box and 8px above the
          options (a <legend> ignores the fieldset's flex gap and padding). -->
     <div role="radiogroup" aria-labelledby="invite-role-label" data-invite-roles class="flex flex-col gap-2 px-7 pb-[1.125rem] pt-4">
-      <p id="invite-role-label" data-invite-role-label class="text-xs font-medium leading-4 text-ink-secondary">Role</p>
+      <p id="invite-role-label" data-invite-role-label class="text-xs font-medium leading-[calc(4/3)] text-ink-secondary">Role</p>
       {#each options as option (option.role)}
         <label
           data-role-option={option.role}
@@ -127,7 +127,7 @@
             class={`h-4 w-4 shrink-0 rounded-full bg-surface peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 ${role === option.role ? "border-[5px] border-primary-selected" : "border-[1.5px] border-line"}`}
           ></span>
           <RoleChip role={option.role} radius={4} />
-          <span class="truncate text-[0.8125rem] leading-[1.125rem] text-ink-muted">{option.line}</span>
+          <span class="truncate text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{option.line}</span>
         </label>
       {/each}
     </div>
@@ -139,16 +139,16 @@
     <div class="flex items-center gap-2 border-t border-line-soft py-4 pl-7 pr-5">
       {#if results}
         <span class="flex-1"></span>
-        <button type="button" onclick={() => (open = false)} class="h-9 rounded-lg bg-fir px-4 text-sm leading-5 font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Done</button>
+        <button type="button" onclick={() => (open = false)} class="h-9 rounded-lg bg-fir px-4 text-sm leading-[calc(10/7)] font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Done</button>
       {:else}
-        <p class="flex-1 text-xs leading-4 text-ink-muted">Each link works for 7 days. You can resend it from Team.</p>
-        <button type="button" disabled={sending} onclick={() => (open = false)} class="h-9 shrink-0 rounded-lg bg-destructive-soft px-3.5 text-sm leading-5 font-medium text-destructive-soft-ink hover:bg-destructive-soft-hover hover:text-destructive-soft-ink-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:opacity-50">Cancel</button>
+        <p class="flex-1 text-xs leading-[calc(4/3)] text-ink-muted">Each link works for 7 days. You can resend it from Team.</p>
+        <button type="button" disabled={sending} onclick={() => (open = false)} class="h-9 shrink-0 rounded-lg bg-destructive-soft px-3.5 text-sm leading-[calc(10/7)] font-medium text-destructive-soft-ink hover:bg-destructive-soft-hover hover:text-destructive-soft-ink-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:opacity-50">Cancel</button>
         <button
           type="button"
           data-send-invites
           disabled={sending || validCount === 0 || tooMany}
           onclick={send}
-          class="h-9 shrink-0 rounded-lg bg-fir px-4 text-sm leading-5 font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          class="h-9 shrink-0 rounded-lg bg-fir px-4 text-sm leading-[calc(10/7)] font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >{sending ? "Sending..." : sendLabel(validCount)}</button>
       {/if}
     </div>

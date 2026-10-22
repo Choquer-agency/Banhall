@@ -31,7 +31,7 @@
   } = $props();
 
   const chipClass =
-    "flex h-6 items-center gap-1 rounded-md bg-chrome px-2 text-xs leading-4 font-medium text-ink-secondary";
+    "flex h-6 items-center gap-1 rounded-md bg-chrome px-2 text-xs leading-[calc(4/3)] font-medium text-ink-secondary";
 
   const PREVIEW_CHARS = 1200;
   let canvas = $state<HTMLCanvasElement | null>(null);
@@ -96,7 +96,7 @@
       {#if doc}
         <div class="flex items-start gap-3 border-b border-line-soft pt-[1.375rem] pr-5 pb-4 pl-7">
           <div class="flex min-w-0 flex-1 flex-col gap-2">
-            <Dialog.Title class="truncate text-[1.0625rem] leading-6 font-medium text-ink">{doc.name}</Dialog.Title>
+            <Dialog.Title class="truncate text-[1.0625rem] leading-[calc(24/17)] font-medium text-ink">{doc.name}</Dialog.Title>
             <div class="flex flex-wrap items-center gap-2">
               {#if categories && onCategory}
                 <DropdownMenu.Root>
@@ -114,7 +114,7 @@
                         {#each categories as category (category)}
                           <DropdownMenu.RadioItem
                             value={category}
-                            class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[1.1875rem] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11"
+                            class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[calc(19/13)] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11"
                           >
                             {#snippet children({ checked })}
                               <span class="min-w-0 flex-1">{CATEGORY_LABELS[category]}</span>
@@ -129,7 +129,7 @@
               {:else}
                 <span class={chipClass} data-preview-category>{CATEGORY_LABELS[doc.category]}</span>
               {/if}
-              <Dialog.Description class="text-xs leading-4 text-ink-muted">{sizeLine}</Dialog.Description>
+              <Dialog.Description class="text-xs leading-[calc(4/3)] text-ink-muted">{sizeLine}</Dialog.Description>
             </div>
           </div>
           <Dialog.Close
@@ -145,34 +145,34 @@
             {#if isPdf && pdfState !== "failed"}
               <figure class="flex w-[23.75rem] max-w-full flex-col items-center gap-3 rounded-[0.25rem] bg-surface pb-4 shadow-preview-page">
                 <canvas bind:this={canvas} data-pdf-page class="w-full" aria-label={`Page 1 of ${doc.name}`}></canvas>
-                <figcaption class="text-[0.6875rem] leading-[0.875rem] text-ink-faint">Page 1 of {pageCount ?? 1}</figcaption>
+                <figcaption class="text-[0.6875rem] leading-[calc(14/11)] text-ink-faint">Page 1 of {pageCount ?? 1}</figcaption>
               </figure>
             {:else}
               <div data-preview-text class="w-[23.75rem] max-w-full rounded-[0.25rem] bg-surface px-[2.125rem] py-9 shadow-preview-page">
-                <p class="font-serif text-[0.8125rem] leading-[1.25rem] whitespace-pre-wrap text-ink-secondary">{text.slice(0, PREVIEW_CHARS)}{text.length > PREVIEW_CHARS ? "..." : ""}</p>
+                <p class="font-serif text-[0.8125rem] leading-[calc(20/13)] whitespace-pre-wrap text-ink-secondary">{text.slice(0, PREVIEW_CHARS)}{text.length > PREVIEW_CHARS ? "..." : ""}</p>
               </div>
             {/if}
           </div>
 
           {#if doc.category === "previous_pd"}
             <div class="flex flex-col gap-1.5 px-7 py-5" data-found-list>
-              <p class="text-xs leading-4 font-medium text-ink-muted">What we found</p>
+              <p class="text-xs leading-[calc(4/3)] font-medium text-ink-muted">What we found</p>
               {#if doc.sections.length === 0}
-                <p class="py-2 text-[0.8125rem] leading-[1.125rem] text-ink-secondary" data-no-sections>We did not find Lines 242, 244 or 246 in this file.</p>
+                <p class="py-2 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary" data-no-sections>We did not find Lines 242, 244 or 246 in this file.</p>
               {:else}
                 <ul class="flex flex-col">
                   {#each doc.sections as section (section.section)}
                     <li data-found-section={section.number} class="flex h-10 items-center gap-2.5 border-b border-line-soft">
                       <IconCheck size={14} strokeWidth={2} class="shrink-0 text-success" />
-                      <span class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[1.125rem] font-medium text-ink">{section.number} {section.title}</span>
+                      <span class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">{section.number} {section.title}</span>
                       {#if section.pageStart}
-                        <span class="shrink-0 text-xs leading-4 text-ink-muted">{pageRangeLabel(section.pageStart, section.pageEnd ?? section.pageStart)}</span>
+                        <span class="shrink-0 text-xs leading-[calc(4/3)] text-ink-muted">{pageRangeLabel(section.pageStart, section.pageEnd ?? section.pageStart)}</span>
                       {/if}
                     </li>
                   {/each}
                 </ul>
               {/if}
-              <p data-previous-year-note class="mt-2 flex gap-2.5 rounded-[0.625rem] bg-canvas px-3.5 py-3 text-[0.8125rem] leading-[1.1875rem] text-ink-secondary">
+              <p data-previous-year-note class="mt-2 flex gap-2.5 rounded-[0.625rem] bg-canvas px-3.5 py-3 text-[0.8125rem] leading-[calc(19/13)] text-ink-secondary">
                 <IconShieldCheck size={15} strokeWidth={1.6} class="shrink-0 text-ink-muted" />
                 We use this to check facts and match last year's claim. It is never copied into the new PD.
               </p>

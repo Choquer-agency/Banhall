@@ -42,8 +42,8 @@
   };
 
   const sizeStyles = {
-    md: "h-5 rounded-[0.3125rem] px-[0.4375rem] text-xs leading-4",
-    sm: "h-4 rounded-[0.25rem] px-[0.3125rem] text-[0.625rem] leading-[0.875rem]",
+    md: "h-5 rounded-[0.3125rem] px-[0.4375rem] text-xs leading-[calc(4/3)]",
+    sm: "h-4 rounded-[0.25rem] px-[0.3125rem] text-[0.625rem] leading-[1.4]",
   } as const;
 </script>
 

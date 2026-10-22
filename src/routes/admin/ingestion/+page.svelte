@@ -654,7 +654,7 @@
                   </p>
                 {/if}
                 {#if reviewTarget.text}
-                  <pre class="whitespace-pre-wrap font-sans text-sm leading-6 text-ink-secondary">{reviewTarget.text}</pre>
+                  <pre class="whitespace-pre-wrap font-sans text-sm leading-[calc(12/7)] text-ink-secondary">{reviewTarget.text}</pre>
                 {:else}
                   <div class="flex min-h-64 flex-col items-center justify-center text-center">
                     <WarningCircleIcon size="1.5rem" class="text-amber-700" aria-hidden="true" />

@@ -1283,7 +1283,7 @@
       <!-- Always mounted, so the live region announces its message. -->
       <div class="pointer-events-none fixed inset-x-0 bottom-6 z-[85] flex justify-center px-4" role="status" aria-live="polite" data-heading-notice>
         {#if headingNotice}
-          <p class="rounded-lg bg-navy px-4 py-2 font-sans text-[0.8125rem] leading-5 text-white shadow-popover">
+          <p class="rounded-lg bg-navy px-4 py-2 font-sans text-[0.8125rem] leading-[calc(20/13)] text-white shadow-popover">
             {headingNotice === "paste"
               ? "Section headings were left out of the paste."
               : "Section headings stay as they are. Edit the text under them."}

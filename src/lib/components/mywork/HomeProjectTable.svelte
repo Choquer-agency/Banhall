@@ -61,7 +61,7 @@
          layout reads the first row) and stay in the accessibility tree. -->
     <tr
       data-home-column-header
-      class={columnHeader ? "h-9 border-b border-line-soft text-[0.6875rem] leading-4 text-ink-muted" : "text-[0px] leading-[0px]"}
+      class={columnHeader ? "h-9 border-b border-line-soft text-[0.6875rem] leading-[calc(16/11)] text-ink-muted" : "text-[0px] leading-[0]"}
     >
       <th scope="col" class="pl-2 font-normal">Name</th>
       <th scope="col" class="w-[8.5rem] font-normal max-sm:hidden">Client</th>
@@ -87,9 +87,9 @@
         {:else}
           <IconClockSmall size={14} strokeWidth={1.3} class="shrink-0 text-ink-secondary" />
         {/if}
-        <span id={`${id}-label`} class="text-[0.8125rem] font-medium leading-[1.125rem] text-ink">{label}</span>
+        <span id={`${id}-label`} class="text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink">{label}</span>
         {#if count}
-          <span data-home-table-count class="text-xs leading-[1.125rem] text-ink-muted">{count}</span>
+          <span data-home-table-count class="text-xs leading-[1.5] text-ink-muted">{count}</span>
         {/if}
         <IconChevronDownSmall
           size={12}
@@ -112,7 +112,7 @@
           {/each}
         </div>
       {:else if rows.length === 0 && emptyLayout === "line"}
-        <div data-home-table-empty class="border-b border-line-soft px-2 py-3.5 text-xs leading-5 text-ink-muted">
+        <div data-home-table-empty class="border-b border-line-soft px-2 py-3.5 text-xs leading-[calc(5/3)] text-ink-muted">
           {@render empty()}
         </div>
       {:else if rows.length === 0}
@@ -135,14 +135,14 @@
                     <span
                       aria-hidden="true"
                       data-home-client-mark
-                      class={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[0.5625rem] font-medium leading-3 ${clientTone(row.clientName)}`}
+                      class={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[0.5625rem] font-medium leading-[calc(4/3)] ${clientTone(row.clientName)}`}
                     >{clientInitial(row.clientName)}</span>
                     <a
                       href={resolve("/project/[id]", { id: row.projectId })}
                       data-recent-title={row.title}
                       data-recent-stage={row.stage}
                       data-recent-client={row.clientName || undefined}
-                      class="min-w-0 truncate text-[0.8125rem] font-medium leading-[1.125rem] text-ink outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-fir"
+                      class="min-w-0 truncate text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-fir"
                     >{row.title}</a>
                     <DuplicateProjectButton projectId={row.projectId} projectTitle={row.title} deleting={row.deleting} class="ml-auto" />
                     <DeleteProjectButton projectId={row.projectId} projectTitle={row.title} createdBy={row.createdBy} deleting={row.deleting} />
@@ -150,11 +150,11 @@
                 </td>
                 <td class="pr-3 max-sm:hidden">
                   {#if row.clientName.trim()}
-                    <span class="inline-block max-w-full truncate rounded border border-line px-[0.4375rem] py-0.5 align-middle text-xs leading-4 text-ink">{row.clientName}</span>
+                    <span class="inline-block max-w-full truncate rounded border border-line px-[0.4375rem] py-0.5 align-middle text-xs leading-[calc(4/3)] text-ink">{row.clientName}</span>
                   {/if}
                 </td>
                 <td class="pr-3"><HomeStageChip stage={row.stage} /></td>
-                <td class="truncate text-xs leading-4 text-ink-secondary max-sm:hidden">
+                <td class="truncate text-xs leading-[calc(4/3)] text-ink-secondary max-sm:hidden">
                   {row.editedAt ? formatEdited(row.editedAt, now) : ""}
                 </td>
               </tr>

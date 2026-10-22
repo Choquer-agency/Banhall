@@ -17,7 +17,7 @@
 
 {#if sources.length}
   <section aria-labelledby={titleId} class="pt-1" data-web-sources>
-    <p id={titleId} class="pb-1 text-[0.6875rem] leading-4 text-ink-muted">Sources</p>
+    <p id={titleId} class="pb-1 text-[0.6875rem] leading-[calc(16/11)] text-ink-muted">Sources</p>
     <ol class="flex flex-wrap gap-1.5">
       {#each sources as source (source.n)}
         {@const favicon = faviconUrlFor(source.url)}

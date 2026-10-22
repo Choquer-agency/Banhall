@@ -161,13 +161,13 @@
       </div>
     {:else if !realCanView}
       <div data-team-no-access class="mx-auto flex max-w-[26.25rem] flex-col items-center gap-3 py-20 text-center">
-        <p class="font-serif text-2xl leading-[1.875rem] text-ink">Team is for Managers and Admins.</p>
+        <p class="font-serif text-2xl leading-[1.25] text-ink">Team is for Managers and Admins.</p>
         <a href={resolve("/my-work")} class="inline-flex h-9 items-center rounded-[0.625rem] bg-chrome px-3.5 text-sm font-medium text-ink hover:bg-primary-wash">Back to Home</a>
       </div>
     {:else if !canView}
       <ViewAsHiddenPage pageName="Team" />
     {:else}
-      <p data-team-subtitle class="text-sm leading-5 text-ink-muted">{subtitle}</p>
+      <p data-team-subtitle class="text-sm leading-[calc(10/7)] text-ink-muted">{subtitle}</p>
       {#if membersQ.data === undefined}
         <div data-team-loading class="flex flex-col overflow-hidden rounded-[0.625rem] border border-line-soft" aria-busy="true">
           {#each [0, 1, 2, 3] as row (row)}

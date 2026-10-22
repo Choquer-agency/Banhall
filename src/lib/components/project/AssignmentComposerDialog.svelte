@@ -232,11 +232,11 @@
                 <p class={noteTooLong ? "-mt-4 text-right text-xs font-medium text-red-700" : "-mt-4 text-right text-xs text-ink-muted"}>{instructions.length.toLocaleString("en-CA")} / {MAX_WORK_ITEM_INSTRUCTIONS_CHARS.toLocaleString("en-CA")}</p>
 
                 {#if variant === "full"}
-                  <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-line px-3 py-3 hover:bg-primary-wash"><input type="checkbox" bind:checked={blocking} onchange={() => (blockingTouched = true)} disabled={busy} class="mt-0.5 size-5 accent-primary-selected disabled:opacity-50" /><span><span class="block text-sm font-semibold text-ink">Blocking handoff</span><span class="mt-0.5 block text-xs leading-5 text-ink-muted">{selectedAssignee?.label ?? "The assignee"} will be shown as having the project's next action.</span></span></label>
+                  <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-line px-3 py-3 hover:bg-primary-wash"><input type="checkbox" bind:checked={blocking} onchange={() => (blockingTouched = true)} disabled={busy} class="mt-0.5 size-5 accent-primary-selected disabled:opacity-50" /><span><span class="block text-sm font-semibold text-ink">Blocking handoff</span><span class="mt-0.5 block text-xs leading-[calc(5/3)] text-ink-muted">{selectedAssignee?.label ?? "The assignee"} will be shown as having the project's next action.</span></span></label>
                 {/if}
 
                 {#if variant === "review"}
-                  <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-line px-3 py-3 hover:bg-primary-wash"><input type="checkbox" bind:checked={changeStage} disabled={busy} class="mt-0.5 size-5 accent-primary-selected disabled:opacity-50" /><span><span class="block text-sm font-semibold text-ink">Also move Stage to Internal review</span><span class="mt-0.5 block text-xs leading-5 text-ink-muted">The assignment and Stage change will be recorded together.</span></span></label>
+                  <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-line px-3 py-3 hover:bg-primary-wash"><input type="checkbox" bind:checked={changeStage} disabled={busy} class="mt-0.5 size-5 accent-primary-selected disabled:opacity-50" /><span><span class="block text-sm font-semibold text-ink">Also move Stage to Internal review</span><span class="mt-0.5 block text-xs leading-[calc(5/3)] text-ink-muted">The assignment and Stage change will be recorded together.</span></span></label>
                 {/if}
 
                 {#if stale}

@@ -100,12 +100,12 @@
   }
 
   const fieldTrigger =
-    "field-control flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[0.8125rem] leading-[1.125rem] text-ink data-[state=open]:shadow-[inset_0_0_0_1px_var(--color-primary)]!";
-  const fieldLabel = "text-xs font-medium leading-[1.125rem] text-ink-secondary";
+    "field-control flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[0.8125rem] leading-[calc(18/13)] text-ink data-[state=open]:shadow-[inset_0_0_0_1px_var(--color-primary)]!";
+  const fieldLabel = "text-xs font-medium leading-[1.5] text-ink-secondary";
   const menu =
     "z-[120] w-[var(--bits-popover-anchor-width)] min-w-56 overflow-hidden rounded-xl border border-line bg-surface shadow-popover outline-none";
   const optionRow =
-    "flex min-h-[2.125rem] w-full cursor-default items-center gap-2.5 rounded-md px-2 text-left text-[0.8125rem] leading-[1.125rem] text-ink outline-none";
+    "flex min-h-[2.125rem] w-full cursor-default items-center gap-2.5 rounded-md px-2 text-left text-[0.8125rem] leading-[calc(18/13)] text-ink outline-none";
 </script>
 
 <form
@@ -239,7 +239,7 @@
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
-    <p class="text-xs leading-[1.125rem] text-ink-muted">
+    <p class="text-xs leading-[1.5] text-ink-muted">
       {#if stage === currentStage}
         The stage stays {WORKFLOW_STAGE_LABELS[currentStage]}.
       {:else if canKeepStage}
@@ -256,7 +256,7 @@
       id="hand-off-note"
       bind:value={note}
       rows="3"
-      class="field-control h-[4.5rem] w-full resize-none rounded-lg px-2.5 py-2 text-[0.8125rem] leading-[1.125rem] text-ink"
+      class="field-control h-[4.5rem] w-full resize-none rounded-lg px-2.5 py-2 text-[0.8125rem] leading-[calc(18/13)] text-ink"
     ></textarea>
     {#if note.length > MAX_WORKFLOW_NOTE_CHARS}
       <p class="text-xs text-red-700" role="alert">Keep the note under {MAX_WORKFLOW_NOTE_CHARS} characters.</p>
@@ -264,7 +264,7 @@
   </div>
 
   {#if assignee}
-    <p data-hand-off-helper class="text-xs leading-[1.125rem] text-ink-muted">
+    <p data-hand-off-helper class="text-xs leading-[1.5] text-ink-muted">
       {assignee.isYou ? "You see" : `${firstName(assignee.label)} sees`} it under With you on {assignee.isYou ? "your" : "their"} home page.
     </p>
   {/if}

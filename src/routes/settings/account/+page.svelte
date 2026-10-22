@@ -176,7 +176,7 @@
     }
   }
 
-  const fieldLabel = "text-xs font-medium leading-4 text-ink-secondary";
+  const fieldLabel = "text-xs font-medium leading-[calc(4/3)] text-ink-secondary";
 </script>
 
 <svelte:head><title>Account - Settings</title></svelte:head>
@@ -201,17 +201,17 @@
         <div class="grid gap-2 sm:grid-cols-2">
           <label class="flex flex-col gap-1.5">
             <span class={fieldLabel}>First</span>
-            <input id="firstName" data-settings-name-input class="field-control settings-name-input h-9 w-full rounded-lg px-2.5 text-sm leading-5 text-ink placeholder:text-ink-faint disabled:opacity-60" bind:value={firstName} autocomplete="given-name" disabled={saving} />
+            <input id="firstName" data-settings-name-input class="field-control settings-name-input h-9 w-full rounded-lg px-2.5 text-sm leading-[calc(10/7)] text-ink placeholder:text-ink-faint disabled:opacity-60" bind:value={firstName} autocomplete="given-name" disabled={saving} />
           </label>
           <label class="flex flex-col gap-1.5">
             <span class={fieldLabel}>Last</span>
-            <input id="lastName" data-settings-name-input class="field-control settings-name-input h-9 w-full rounded-lg px-2.5 text-sm leading-5 text-ink placeholder:text-ink-faint disabled:opacity-60" bind:value={lastName} autocomplete="family-name" disabled={saving} />
+            <input id="lastName" data-settings-name-input class="field-control settings-name-input h-9 w-full rounded-lg px-2.5 text-sm leading-[calc(10/7)] text-ink placeholder:text-ink-faint disabled:opacity-60" bind:value={lastName} autocomplete="family-name" disabled={saving} />
           </label>
         </div>
       </SettingsRow>
 
       <SettingsRow label="Email" hint="Managed by your sign-in.">
-        <p data-settings-email class="text-sm leading-5 text-ink">{me?.email ?? ""}</p>
+        <p data-settings-email class="text-sm leading-[calc(10/7)] text-ink">{me?.email ?? ""}</p>
       </SettingsRow>
 
       <SettingsRow label="Role" hint="Set by an Admin in Team.">

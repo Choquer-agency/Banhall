@@ -306,7 +306,7 @@
      Apply (primary) and Dismiss (quiet). Edit wording and Refine live in the
      card's More menu. -->
 <div bind:this={cardEl} class="mt-2 flex flex-col rounded-[0.625rem] bg-gray-50 px-4 py-3.5" data-proposed-edit>
-  <p class="text-[0.6875rem] leading-4 text-ink-muted" data-proposed-edit-label>
+  <p class="text-[0.6875rem] leading-[calc(16/11)] text-ink-muted" data-proposed-edit-label>
     {editing
       ? "Edit suggestion"
       : replacements && replacements.length > 0 && !passages
@@ -341,7 +341,7 @@
     {#if replacements && replacements.length > 0}
       <div class="flex flex-col gap-2">
         {#if !passages}
-          <p class="text-[0.6875rem] leading-4 text-ink-muted">
+          <p class="text-[0.6875rem] leading-[calc(16/11)] text-ink-muted">
             {changes.length} replacement{changes.length === 1 ? "" : "s"}, applied to every occurrence
           </p>
         {/if}
@@ -350,7 +350,7 @@
             {#if diffInCard}
               <p
                 aria-label={`Replacement ${changeIndex + 1} changes`}
-                class="whitespace-pre-wrap font-serif text-sm leading-[1.375rem] text-ink"
+                class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink"
               >
                 {#each diffGroups[changeIndex] ?? [] as part, partIndex (partIndex)}
                   {#if part.type === "removed"}
@@ -363,7 +363,7 @@
                 {/each}
               </p>
             {:else if change.after}
-              <p class="whitespace-pre-wrap font-serif text-sm leading-[1.375rem] text-ink">
+              <p class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink">
                 {change.after}
               </p>
             {:else}
@@ -375,7 +375,7 @@
     {:else if diffInCard && changes.length === 1}
       <p
         aria-label="Proposed changes"
-        class="whitespace-pre-wrap font-serif text-sm leading-[1.375rem] text-ink"
+        class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink"
       >
         {#each diffGroups[0] ?? [] as part, i (i)}
           {#if part.type === "removed"}
@@ -388,7 +388,7 @@
         {/each}
       </p>
     {:else if newText}
-      <p class="whitespace-pre-wrap font-serif text-sm leading-[1.375rem] text-ink">
+      <p class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink">
         {newText}
       </p>
     {:else}
@@ -402,7 +402,7 @@
     <div class="flex items-center gap-3.5 pt-3">
       <ActionButton
         variant="primary"
-        class="min-h-0 rounded-md px-3 py-1.5 leading-[1.125rem] pointer-coarse:min-h-11"
+        class="min-h-0 rounded-md px-3 py-1.5 leading-[1.5] pointer-coarse:min-h-11"
         onclick={saveWording}
         disabled={busy}
         loading={busy}
@@ -410,7 +410,7 @@
       >
         Save & apply
       </ActionButton>
-      <button type="button" class="text-xs leading-[1.125rem] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={cancelEditing} disabled={busy}>Cancel</button>
+      <button type="button" class="text-xs leading-[1.5] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={cancelEditing} disabled={busy}>Cancel</button>
     </div>
   {:else if changes.length > 0 && !onPreviewInDoc}
     <!-- Card-local diff toggle — only when there's no live report preview
@@ -430,13 +430,13 @@
         Stepping through in the document…
       </span>
     {:else if editState === "pending" && applyAccess === "denied"}
-      <p class="text-xs leading-[1.125rem] text-ink-muted" data-apply-unavailable>
+      <p class="text-xs leading-[1.5] text-ink-muted" data-apply-unavailable>
         Only people who can edit this report can apply or dismiss suggestions.
       </p>
     {:else if editState === "pending" && canAct}
       <ActionButton
         variant="primary"
-        class="min-h-0 rounded-md px-3 py-1.5 leading-[1.125rem] pointer-coarse:min-h-11"
+        class="min-h-0 rounded-md px-3 py-1.5 leading-[1.5] pointer-coarse:min-h-11"
         onclick={() => handle(onReplace)}
         disabled={busy}
         loading={busy}
@@ -446,11 +446,11 @@
         {onReviewOneByOne ? "Apply all" : "Apply"}
       </ActionButton>
       {#if onReviewOneByOne}
-        <button type="button" class="text-xs leading-[1.125rem] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={onReviewOneByOne} disabled={busy}>
+        <button type="button" class="text-xs leading-[1.5] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={onReviewOneByOne} disabled={busy}>
           Review individually
         </button>
       {/if}
-      <button type="button" class="text-xs leading-[1.125rem] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={() => handle(onReject)} disabled={busy}>
+      <button type="button" class="text-xs leading-[1.5] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={() => handle(onReject)} disabled={busy}>
         Dismiss
       </button>
     {/if}

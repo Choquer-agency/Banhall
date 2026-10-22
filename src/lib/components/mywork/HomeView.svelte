@@ -97,8 +97,8 @@
        panel's left edge, which sits 12px from the rail. -->
   <header data-workspace-page-header data-home-top-bar class="flex h-16 shrink-0 items-center gap-2.5 px-5">
     <WorkspaceShellControls tone="light" {onOpenNavigation} />
-    <h1 class="shrink-0 text-xl font-medium leading-[1.625rem] text-ink">Home</h1>
-    <p data-home-greeting class="min-w-0 truncate text-sm leading-5 text-ink-muted max-sm:hidden">{greeting}</p>
+    <h1 class="shrink-0 text-xl font-medium leading-[1.3] text-ink">Home</h1>
+    <p data-home-greeting class="min-w-0 truncate text-sm leading-[calc(10/7)] text-ink-muted max-sm:hidden">{greeting}</p>
     <div class="flex-1"></div>
     <a
       href={resolve("/changelog")}
@@ -114,7 +114,7 @@
     <a
       href={resolve("/project/new")}
       data-home-new-project
-      class="inline-flex h-[2.375rem] shrink-0 items-center rounded-[0.5625rem] bg-primary-selected px-4 text-[0.9375rem] font-medium leading-5 text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
+      class="inline-flex h-[2.375rem] shrink-0 items-center rounded-[0.5625rem] bg-primary-selected px-4 text-[0.9375rem] font-medium leading-[calc(4/3)] text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
     >
       New project
     </a>
@@ -142,15 +142,15 @@
           emptyLayout="block"
         >
           {#snippet empty()}
-            <p class="text-sm font-medium leading-5 text-ink">No projects with you yet</p>
-            <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">Start one, or a Manager can hand one to you.</p>
+            <p class="text-sm font-medium leading-[calc(10/7)] text-ink">No projects with you yet</p>
+            <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">Start one, or a Manager can hand one to you.</p>
           {/snippet}
           {#snippet footer()}
             <div class="flex flex-wrap items-center gap-4">
               <a
                 href={resolve("/project/new")}
                 data-home-add-new
-                class={`inline-flex items-center gap-2 rounded-md px-2 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${withYou?.length === 0 ? "h-10 text-[0.8125rem] leading-[1.125rem]" : "h-9 text-xs leading-4"}`}
+                class={`inline-flex items-center gap-2 rounded-md px-2 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${withYou?.length === 0 ? "h-10 text-[0.8125rem] leading-[calc(18/13)]" : "h-9 text-xs leading-[calc(4/3)]"}`}
               >
                 {#if withYou?.length === 0}
                   <IconPlus size={14} strokeWidth={2} class="shrink-0" />

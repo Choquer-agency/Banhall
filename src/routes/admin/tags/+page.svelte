@@ -277,7 +277,7 @@
         {tag.name}
       </span>
       <span
-        class={`rounded-full px-2 py-0.5 text-[0.6875rem] leading-4 ${KIND_STYLES[tag.kind ?? "custom"] ?? KIND_STYLES.custom}`}
+        class={`rounded-full px-2 py-0.5 text-[0.6875rem] leading-[calc(16/11)] ${KIND_STYLES[tag.kind ?? "custom"] ?? KIND_STYLES.custom}`}
       >
         {tag.kind ?? "custom"}
       </span>

@@ -15,7 +15,7 @@
   >
     {#if met}<IconCheck size={9} strokeWidth={3.2} />{/if}
   </span>
-  <span class={`text-xs leading-4 ${met ? "text-success-ink" : "text-ink-muted"}`}>
+  <span class={`text-xs leading-[calc(4/3)] ${met ? "text-success-ink" : "text-ink-muted"}`}>
     {label}<span class="sr-only">{met ? ", done" : ", not yet"}</span>
   </span>
 </div>

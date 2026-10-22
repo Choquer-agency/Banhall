@@ -137,7 +137,7 @@
   data-tag-field
 >
   {#each selectedTags as tag (tag._id)}
-    <span data-tag-chip class="inline-flex h-6 items-center gap-1 rounded-md bg-chrome px-2 text-xs leading-4 font-medium text-ink-secondary">
+    <span data-tag-chip class="inline-flex h-6 items-center gap-1 rounded-md bg-chrome px-2 text-xs leading-[calc(4/3)] font-medium text-ink-secondary">
       {tag.name}
       {#if !readonly}
         <button
@@ -154,7 +154,7 @@
   {#if !readonly}
     <Popover.Trigger
       aria-label="Add tags"
-      class={`flex h-6 items-center gap-1.5 rounded-md text-sm leading-5 text-ink-faint transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir ${
+      class={`flex h-6 items-center gap-1.5 rounded-md text-sm leading-[calc(10/7)] text-ink-faint transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir ${
         selectedTags.length ? "w-6 justify-center hover:bg-primary-wash" : "flex-1"
       }`}
     >

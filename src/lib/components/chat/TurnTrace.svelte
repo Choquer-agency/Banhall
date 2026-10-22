@@ -157,7 +157,7 @@
       aria-live="polite"
       data-turn-status
       class={cn(
-        "min-w-0 text-[0.8125rem] leading-5 text-ink",
+        "min-w-0 text-[0.8125rem] leading-[calc(20/13)] text-ink",
         interactive
           ? "opacity-65 transition-opacity group-hover/status:opacity-100 group-focus-visible/summary:opacity-100 motion-reduce:transition-none"
           : "opacity-65",
@@ -188,7 +188,7 @@
     <!-- Owner, 2026-10-21: the headline belongs to the open block; closed,
          only the first line shows. Not announced: it is the model's own
          summary and changes as it thinks. -->
-    <p class="flex w-full items-start gap-2 pt-1 text-sm leading-5 text-ink-secondary" data-turn-headline>
+    <p class="flex w-full items-start gap-2 pt-1 text-sm leading-[calc(10/7)] text-ink-secondary" data-turn-headline>
       {@render clockIcon()}
       <span class="min-w-0">{headline}</span>
     </p>

@@ -89,10 +89,10 @@
   const inline = $derived(layout === "inline");
   const focusRing = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
   const primaryClass = $derived(
-    `inline-flex h-8 shrink-0 items-center justify-center rounded-lg px-3.5 text-sm leading-5 font-medium text-white transition-colors motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 ${focusRing} ${styles.primary}`
+    `inline-flex h-8 shrink-0 items-center justify-center rounded-lg px-3.5 text-sm leading-[calc(10/7)] font-medium text-white transition-colors motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 ${focusRing} ${styles.primary}`
   );
   const secondaryClass = $derived(
-    `inline-flex h-8 shrink-0 items-center rounded-md px-1.5 text-[0.8125rem] leading-[1.125rem] font-medium underline decoration-1 underline-offset-2 transition-colors hover:decoration-2 motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 ${focusRing} ${styles.secondary}`
+    `inline-flex h-8 shrink-0 items-center rounded-md px-1.5 text-[0.8125rem] leading-[calc(18/13)] font-medium underline decoration-1 underline-offset-2 transition-colors hover:decoration-2 motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 ${focusRing} ${styles.secondary}`
   );
 </script>
 
@@ -127,10 +127,10 @@
 
   <div class="flex min-w-0 flex-1 flex-col gap-0.5">
     {#if title}
-      <p class={`font-medium ${inline ? "text-[0.8125rem] leading-[1.125rem]" : "text-sm leading-5"} ${styles.title}`}>{title}</p>
+      <p class={`font-medium ${inline ? "text-[0.8125rem] leading-[calc(18/13)]" : "text-sm leading-[calc(10/7)]"} ${styles.title}`}>{title}</p>
     {/if}
     {#if children}
-      <div class={`${inline ? "text-xs leading-4" : "text-[0.8125rem] leading-[1.125rem]"} ${styles.body}`}>
+      <div class={`${inline ? "text-xs leading-[calc(4/3)]" : "text-[0.8125rem] leading-[calc(18/13)]"} ${styles.body}`}>
         {@render children()}
       </div>
     {/if}

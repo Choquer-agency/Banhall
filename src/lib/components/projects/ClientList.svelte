@@ -69,11 +69,11 @@
   const rowBase =
     "flex h-[1.875rem] w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left outline-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
   const footerRow =
-    "flex h-[1.875rem] w-full items-center gap-2 rounded-lg px-2.5 text-left text-[0.8125rem] leading-4 text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
+    "flex h-[1.875rem] w-full items-center gap-2 rounded-lg px-2.5 text-left text-[0.8125rem] leading-[calc(16/13)] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
 </script>
 
 {#snippet countCell(count: number | string)}
-  <span class="shrink-0 text-right text-xs leading-4 text-ink-muted">{count}</span>
+  <span class="shrink-0 text-right text-xs leading-[calc(4/3)] text-ink-muted">{count}</span>
 {/snippet}
 
 <!-- Paper Z3d and Z7e (2026-10-16): 240 wide, 14px padding, 32px rows,
@@ -94,14 +94,14 @@
           query = "";
         }
       }}
-      class="field-control h-[2.375rem] w-full rounded-lg pl-[2.125rem] pr-3 text-sm leading-[1.125rem] text-ink placeholder:text-ink-muted pointer-coarse:h-11"
+      class="field-control h-[2.375rem] w-full rounded-lg pl-[2.125rem] pr-3 text-sm leading-[calc(9/7)] text-ink placeholder:text-ink-muted pointer-coarse:h-11"
     />
   </div>
 
   <div class="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 pt-2" data-client-list-scroll>
     {#if failed}
       <div class="px-2.5 py-3" role="alert">
-        <p class="text-sm leading-5 text-ink">Companies could not be loaded.</p>
+        <p class="text-sm leading-[calc(10/7)] text-ink">Companies could not be loaded.</p>
         <button
           type="button"
           onclick={onRetry}
@@ -109,7 +109,7 @@
         >Try again</button>
       </div>
     {:else if mergeMode}
-      <p class="px-1 pb-2 pt-1 text-[0.8125rem] leading-[1.125rem] text-ink-secondary" data-merge-header>Tick the names that are the same company.</p>
+      <p class="px-1 pb-2 pt-1 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary" data-merge-header>Tick the names that are the same company.</p>
       <ul aria-label="Companies to merge" class="flex flex-col gap-0.5">
         {#each visible as client (client.key)}
           {@const checked = mergeSet.has(client.key)}
@@ -130,7 +130,7 @@
                   <svg class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10" /></svg>
                 {/if}
               </span>
-              <span class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-4 ${checked ? "text-ink" : "text-ink-secondary"}`}>{client.name}</span>
+              <span class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(16/13)] ${checked ? "text-ink" : "text-ink-secondary"}`}>{client.name}</span>
               {@render countCell(client.projectCount)}
             </button>
           </li>
@@ -147,7 +147,7 @@
               onclick={(event) => navigate(event, null)}
               class={`${rowBase} ${selectedKey === null ? "bg-primary-wash" : "hover:bg-primary-wash"}`}
             >
-              <span class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-4 ${selectedKey === null ? "font-medium text-primary-selected" : "text-ink-secondary"}`}>All companies</span>
+              <span class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(16/13)] ${selectedKey === null ? "font-medium text-primary-selected" : "text-ink-secondary"}`}>All companies</span>
               {#if totalLabel}{@render countCell(totalLabel)}{/if}
             </a>
           </li>
@@ -168,7 +168,7 @@
                   onclick={(event) => navigate(event, client.key)}
                   class={`${rowBase} ${active ? "bg-primary-wash" : "hover:bg-primary-wash"}`}
                 >
-                  <span class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-4 ${active ? "font-medium text-primary-selected" : "text-ink-secondary"}`}>{client.name}</span>
+                  <span class={`min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(16/13)] ${active ? "font-medium text-primary-selected" : "text-ink-secondary"}`}>{client.name}</span>
                   {@render countCell(client.projectCount)}
                 </a>
               </li>
@@ -180,19 +180,19 @@
 
     {#if !loading && !failed}
       {#if visible.length === 0}
-        <p class="px-2.5 py-2 text-[0.8125rem] leading-[1.125rem] text-ink-muted" role="status">
+        <p class="px-2.5 py-2 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" role="status">
           {query.trim() ? `No company matches "${query.trim()}".` : "No companies yet."}
         </p>
       {/if}
       {#if truncated}
-        <p data-clients-truncated class="px-2.5 pt-3 text-[0.8125rem] leading-[1.125rem] text-ink-muted">Some companies are not shown. The list stops partway through the alphabet.</p>
+        <p data-clients-truncated class="px-2.5 pt-3 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">Some companies are not shown. The list stops partway through the alphabet.</p>
       {/if}
     {/if}
   </div>
 
   {#if mergeMode}
     <div class="flex shrink-0 flex-col gap-2 border-t border-line-soft pt-2.5" data-merge-bar>
-      <p class="px-1 text-[0.8125rem] leading-4 text-ink-muted" aria-live="polite">
+      <p class="px-1 text-[0.8125rem] leading-[calc(16/13)] text-ink-muted" aria-live="polite">
         {mergeKeys.length === 1 ? "1 company ticked" : `${mergeKeys.length} companies ticked`}
       </p>
       <div class="flex gap-2">
@@ -201,13 +201,13 @@
           data-merge-open
           disabled={mergeKeys.length < 2}
           onclick={onMerge}
-          class="flex h-9 min-w-0 flex-1 items-center justify-center whitespace-nowrap rounded-lg bg-primary-selected px-2.5 text-[0.8125rem] leading-[1.125rem] font-medium text-white transition-colors hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 pointer-coarse:h-11"
+          class="flex h-9 min-w-0 flex-1 items-center justify-center whitespace-nowrap rounded-lg bg-primary-selected px-2.5 text-[0.8125rem] leading-[calc(18/13)] font-medium text-white transition-colors hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 pointer-coarse:h-11"
         >{mergeKeys.length >= 2 ? `Merge ${mergeKeys.length} companies` : "Merge"}</button>
         <button
           type="button"
           data-merge-done
           onclick={onEndMerge}
-          class="flex h-9 shrink-0 items-center rounded-lg border border-line bg-surface px-2.5 text-[0.8125rem] leading-[1.125rem] font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:h-11"
+          class="flex h-9 shrink-0 items-center rounded-lg border border-line bg-surface px-2.5 text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:h-11"
         >Cancel</button>
       </div>
     </div>

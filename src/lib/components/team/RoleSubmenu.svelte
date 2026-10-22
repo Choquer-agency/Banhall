@@ -35,7 +35,7 @@
   </DropdownMenu.SubTrigger>
   <DropdownMenu.SubContent align="start" alignOffset={-5} sideOffset={12} class={`z-[110] w-56 ${MENU_CONTENT}`}>
     <DropdownMenu.Group>
-      <DropdownMenu.GroupHeading class="px-2 pb-1 pt-1.5 text-xs leading-4 text-ink-muted">{heading}</DropdownMenu.GroupHeading>
+      <DropdownMenu.GroupHeading class="px-2 pb-1 pt-1.5 text-xs leading-[calc(4/3)] text-ink-muted">{heading}</DropdownMenu.GroupHeading>
       {#each roles as role (role)}
         <DropdownMenu.Item
           data-role-choice={role}

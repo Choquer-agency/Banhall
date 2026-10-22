@@ -87,11 +87,11 @@
   ></span>
   <div class="relative flex h-10 items-center gap-2.5 rounded-full bg-surface pl-2.5 pr-1.5">
     <AuroraMark size={22} glyph="check" />
-    <span class="text-sm font-medium leading-[1.125rem] text-ink">Your draft is ready</span>
+    <span class="text-sm font-medium leading-[calc(9/7)] text-ink">Your draft is ready</span>
     {#if qaRunning}
       <span class="flex items-center gap-1.5" data-toast-qa-running>
         <AuroraRingSpinner size={12} />
-        <span class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">QA is checking it</span>
+        <span class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">QA is checking it</span>
       </span>
     {/if}
     <button

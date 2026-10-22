@@ -83,7 +83,7 @@
            title here; the description stays as one muted line. -->
       {#if description}
         <header data-admin-page-heading class={flush ? "px-4 pt-5 sm:px-6" : ""}>
-          <p data-admin-page-description class="text-sm leading-5 text-ink-muted">{description}</p>
+          <p data-admin-page-description class="text-sm leading-[calc(10/7)] text-ink-muted">{description}</p>
         </header>
       {/if}
       <div class={description ? "pt-5" : ""}>

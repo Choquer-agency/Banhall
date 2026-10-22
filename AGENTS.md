@@ -32,6 +32,7 @@ SR&ED report generation for a consulting firm. SvelteKit 2 + Svelte 5 runes, Tai
 - No JSX, React hooks, or Next.js APIs; Svelte 5 runes only.
 - Use design-system type roles and the remapped gray ramp; never ad-hoc hex values.
 - Max font weight 500 in new or redesigned UI; hierarchy via size and ink color, not bold.
+- Line heights are unitless ratios of the font size (`leading-[1.5]`, or the exact `leading-[calc(18/13)]` when the decimal does not end), never lengths like `leading-5` or `leading-[1.125rem]`.
 - Use bits-ui/shadcn-svelte primitives over native `<select>`/`<input>` controls.
 - Active tab = primary fill + white text; inactive hover = primary wash.
 - Writing or rewriting any copy (UI text, design copy, docs, prompts, PR text, commit messages): invoke the `dashfix` skill (plain hyphen only; no em or en dashes) and the `copywriting` skill's plain-language rules. The AI's own writing (Seeds, PD prose, rewrites) gets the same rules from `shared/humanProse.ts`; change them there, not per prompt.

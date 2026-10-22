@@ -24,10 +24,10 @@
         <IconEye size={20} strokeWidth={1.6} />
       </span>
       <div class="flex flex-col items-center gap-1.5">
-        <h2 class="font-serif text-2xl font-normal leading-[1.875rem] text-ink">
+        <h2 class="font-serif text-2xl font-normal leading-[1.25] text-ink">
           {pageName} is hidden in {VIEW_AS_LABELS[role]} view
         </h2>
-        <p class="text-sm leading-5 text-ink-muted">
+        <p class="text-sm leading-[calc(10/7)] text-ink-muted">
           {VIEW_AS_PLURALS[role]} cannot open {pageName}, so this is what they would see. Exit the view to get back to it.
         </p>
       </div>

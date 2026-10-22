@@ -182,7 +182,7 @@
   const focusRing =
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
   const rowBase = $derived(
-    `${rowHeight} workspace-rail-row flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[0.9375rem] leading-5 transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none`
+    `${rowHeight} workspace-rail-row flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[0.9375rem] leading-[calc(4/3)] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none`
   );
   // Collapsed: 40 by 36 tiles, radius 8.
   const iconRow = `workspace-rail-row relative flex h-9 w-10 shrink-0 items-center justify-center rounded-lg transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none`;
@@ -225,7 +225,7 @@
   <span
     aria-hidden="true"
     data-rail-brand-tile
-    class="flex size-[1.375rem] shrink-0 items-center justify-center rounded-md bg-fir text-[0.6875rem] font-medium leading-3 text-white"
+    class="flex size-[1.375rem] shrink-0 items-center justify-center rounded-md bg-fir text-[0.6875rem] font-medium leading-[calc(12/11)] text-white"
   >B</span>
 {/snippet}
 
@@ -273,12 +273,12 @@
     {@render itemIcon(item.id)}
     <span class="min-w-0 flex-1 truncate">{item.label}</span>
     {#if count}
-      <span data-rail-count class="shrink-0 text-[0.8125rem] font-normal leading-4 text-ink-muted">{count}</span>
+      <span data-rail-count class="shrink-0 text-[0.8125rem] font-normal leading-[calc(16/13)] text-ink-muted">{count}</span>
     {/if}
     {#if item.badge}
       <span
         data-rail-badge={item.badge.tone}
-        class={`flex h-[1.125rem] min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[0.6875rem] font-medium leading-3 text-white ${item.badge.tone === "danger" ? "bg-danger" : "bg-primary-selected"}`}
+        class={`flex h-[1.125rem] min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[0.6875rem] font-medium leading-[calc(12/11)] text-white ${item.badge.tone === "danger" ? "bg-danger" : "bg-primary-selected"}`}
       >{badgeLabel(item.badge.count)}</span>
     {/if}
   </a>
@@ -319,7 +319,7 @@
           data-admin-link={route.href}
           aria-current={current ? "page" : undefined}
           onclick={() => onNavigate?.()}
-          class={`${variant === "rail" ? "h-8" : "min-h-11"} workspace-rail-row flex items-center gap-2 rounded-lg pl-9 pr-2.5 text-sm leading-[1.125rem] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none ${current ? selectedRow : idleRow}`}
+          class={`${variant === "rail" ? "h-8" : "min-h-11"} workspace-rail-row flex items-center gap-2 rounded-lg pl-9 pr-2.5 text-sm leading-[calc(9/7)] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none ${current ? selectedRow : idleRow}`}
         >
           <span class="min-w-0 flex-1 truncate">{route.label}</span>
           {#if route.href === ADMIN_INGESTION_PATH && attention.ingestionFailed > 0}
@@ -418,9 +418,9 @@
           aria-label={`${userName}, account menu`}
           class={`flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-1.5 text-left transition-colors ${focusRing} motion-reduce:transition-none ${variant === "drawer" ? "min-h-12 justify-center" : ""} ${open ? "bg-workspace-rail-selected" : "hover:bg-workspace-rail-hover"}`}
         >
-          <span data-rail-identity-name class="truncate text-sm font-medium leading-[1.125rem] text-ink">{userName}</span>
+          <span data-rail-identity-name class="truncate text-sm font-medium leading-[calc(9/7)] text-ink">{userName}</span>
           {#if roleLabel}
-            <span data-rail-identity-role class="truncate text-[0.8125rem] leading-4 text-ink-muted">{roleLabel}</span>
+            <span data-rail-identity-role class="truncate text-[0.8125rem] leading-[calc(16/13)] text-ink-muted">{roleLabel}</span>
           {/if}
         </button>
       {/if}
@@ -496,7 +496,7 @@
         class={`flex min-w-0 items-center gap-2 rounded-md ${focusRing}`}
       >
         {@render brandTile()}
-        <span aria-hidden="true" class="truncate text-base font-medium leading-5 text-ink">Banhall</span>
+        <span aria-hidden="true" class="truncate text-base font-medium leading-[1.25] text-ink">Banhall</span>
       </a>
       <div class="flex-1"></div>
       {#if showToggle}{@render toggleButton()}{/if}
@@ -507,7 +507,7 @@
       data-rail-search
       aria-keyshortcuts={platform === "mac" ? "Meta+K" : "Control+K"}
       onclick={onFocusSearch}
-      class={`mt-1.5 flex h-9 w-full shrink-0 items-center gap-2 rounded-lg border border-line-soft bg-surface px-2.5 text-left text-sm leading-[1.125rem] text-ink-muted transition-colors hover:border-line hover:text-ink-secondary ${focusRing} motion-reduce:transition-none ${variant === "drawer" ? "pointer-coarse:h-11" : ""}`}
+      class={`mt-1.5 flex h-9 w-full shrink-0 items-center gap-2 rounded-lg border border-line-soft bg-surface px-2.5 text-left text-sm leading-[calc(9/7)] text-ink-muted transition-colors hover:border-line hover:text-ink-secondary ${focusRing} motion-reduce:transition-none ${variant === "drawer" ? "pointer-coarse:h-11" : ""}`}
     >
       <RailIcon name="search" />
       <span class="min-w-0 flex-1 truncate">Search</span>
@@ -522,13 +522,13 @@
 
       {#if recent.length > 0}
         <div data-rail-recent class="flex flex-col gap-0.5 pt-5">
-          <p data-rail-recent-label class="px-2.5 pb-1 text-[0.8125rem] leading-4 text-ink-muted">Recent companies</p>
+          <p data-rail-recent-label class="px-2.5 pb-1 text-[0.8125rem] leading-[calc(16/13)] text-ink-muted">Recent companies</p>
           {#each recent as company (company.key)}
             <a
               href={recentCompanyHref(projectsHref, company.key)}
               data-rail-recent-company={company.key}
               onclick={() => onNavigate?.()}
-              class={`${variant === "rail" ? "h-[2.125rem]" : "min-h-11"} workspace-rail-row flex items-center rounded-lg px-2.5 text-sm leading-[1.125rem] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none ${idleRow}`}
+              class={`${variant === "rail" ? "h-[2.125rem]" : "min-h-11"} workspace-rail-row flex items-center rounded-lg px-2.5 text-sm leading-[calc(9/7)] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none ${idleRow}`}
             >
               <span class="min-w-0 flex-1 truncate">{company.name}</span>
             </a>

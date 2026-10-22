@@ -302,9 +302,9 @@
   });
 
   const quietButton =
-    "flex h-[1.875rem] shrink-0 items-center rounded-[0.4375rem] border border-line px-2.5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
+    "flex h-[1.875rem] shrink-0 items-center rounded-[0.4375rem] border border-line px-2.5 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
   const textButton =
-    "shrink-0 rounded-md text-xs leading-4 font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11";
+    "shrink-0 rounded-md text-xs leading-[calc(4/3)] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11";
   // Cards adjust to the space (owner, 2026-10-19): three a row on a 13 inch
   // MacBook (1440 or 1280), four around 1680, five at 1920, two on a
   // tablet, one on a phone. Each card stays at least 264px wide.
@@ -366,16 +366,16 @@
           class="flex min-w-0 flex-1 items-baseline gap-2.5 rounded-md text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
         >
           {#if group.fiscalYear === null || group.yearEnd === null}
-            <span class="text-sm leading-5 font-medium text-ink">No fiscal year</span>
+            <span class="text-sm leading-[calc(10/7)] font-medium text-ink">No fiscal year</span>
           {:else}
-            <span class="shrink-0 text-sm leading-5 font-medium text-ink">FY {group.fiscalYear}</span>
-            <span class="truncate text-[0.8125rem] leading-[1.125rem] text-ink-muted">{formatYearEnd(group.yearEnd)}</span>
+            <span class="shrink-0 text-sm leading-[calc(10/7)] font-medium text-ink">FY {group.fiscalYear}</span>
+            <span class="truncate text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{formatYearEnd(group.yearEnd)}</span>
             {#if group.shortYearMonths !== null}
-              <span data-short-year class="flex h-5 shrink-0 items-center self-center rounded-[0.3125rem] bg-gray-50 px-[0.4375rem] text-xs leading-4 text-ink-secondary">{shortYearLabel(group.shortYearMonths)}</span>
+              <span data-short-year class="flex h-5 shrink-0 items-center self-center rounded-[0.3125rem] bg-gray-50 px-[0.4375rem] text-xs leading-[calc(4/3)] text-ink-secondary">{shortYearLabel(group.shortYearMonths)}</span>
             {/if}
           {/if}
           <span class="flex-1"></span>
-          <span class="shrink-0 text-xs leading-4 text-ink-muted" data-fy-count>{projectCountLabel(group.rows.length, group.more)}</span>
+          <span class="shrink-0 text-xs leading-[calc(4/3)] text-ink-muted" data-fy-count>{projectCountLabel(group.rows.length, group.more)}</span>
           <svg class={`size-3.5 shrink-0 self-center text-ink-secondary transition-transform motion-reduce:transition-none ${open ? "" : "rotate-180"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
         </button>
       </h3>
@@ -408,9 +408,9 @@
     <!-- Paper Z3d: the company name at 20/500 with its project count, the
          search on the right, 28px above the first fiscal year. -->
     <div class="flex flex-wrap items-center gap-3 pb-7 pt-5 max-md:pt-1" data-client-header>
-      <h2 data-client-title tabindex="-1" class="min-w-0 truncate text-lg leading-6 font-medium text-ink outline-none">{displayName}</h2>
+      <h2 data-client-title tabindex="-1" class="min-w-0 truncate text-lg leading-[calc(4/3)] font-medium text-ink outline-none">{displayName}</h2>
       {#if countLabel !== null && !gone}
-        <span class="shrink-0 text-sm leading-5 text-ink-muted" data-client-count>{countLabel === "1" ? "1 project" : `${countLabel} projects`}</span>
+        <span class="shrink-0 text-sm leading-[calc(10/7)] text-ink-muted" data-client-count>{countLabel === "1" ? "1 project" : `${countLabel} projects`}</span>
       {/if}
       <div class="flex-1"></div>
       {#if selecting}
@@ -435,14 +435,14 @@
               event.currentTarget.blur();
             }
           }}
-          class="field-control h-9 w-full rounded-lg pl-[2.125rem] pr-3 text-sm leading-[1.125rem] text-ink placeholder:text-ink-muted pointer-coarse:h-11"
+          class="field-control h-9 w-full rounded-lg pl-[2.125rem] pr-3 text-sm leading-[calc(9/7)] text-ink placeholder:text-ink-muted pointer-coarse:h-11"
         />
       </div>
     </div>
 
     {#if activeQ.error}
       <div class="flex flex-col items-start gap-2 py-10" role="alert" data-projects-error>
-        <p class="text-[0.8125rem] leading-[1.125rem] text-ink">Projects could not be loaded.</p>
+        <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink">Projects could not be loaded.</p>
         <button type="button" onclick={onRetry} class={quietButton}>Try again</button>
       </div>
     {:else if loadingFirst}
@@ -459,7 +459,7 @@
     {:else if q}
       <section aria-labelledby="projects-search-results" data-search-results>
         <div class="flex items-baseline gap-3 pb-3.5">
-          <h3 id="projects-search-results" class="text-sm leading-5 font-medium text-ink" role="status">
+          <h3 id="projects-search-results" class="text-sm leading-[calc(10/7)] font-medium text-ink" role="status">
             {raw.length === 0
               ? `No projects match "${q}".`
               : `${raw.length}${hasMore ? "+" : ""} ${raw.length === 1 && !hasMore ? "project matches" : "projects match"}`}
@@ -477,7 +477,7 @@
       </section>
     {:else if gone}
       <div class="flex flex-col items-start gap-3 py-10" data-client-missing>
-        <p class="text-[0.8125rem] leading-[1.125rem] text-ink-secondary">This company is no longer in the company list. It may have been merged.</p>
+        <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">This company is no longer in the company list. It may have been merged.</p>
         <a
           href={allClientsHref}
           data-client-missing-back
@@ -486,12 +486,12 @@
             event.preventDefault();
             onShowAll();
           }}
-          class="text-[0.8125rem] leading-[1.125rem] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11"
+          class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11"
         >Go to All companies</a>
       </div>
     {:else if client && raw.length === 0}
       <div class="flex flex-col items-start gap-3 py-10" data-client-empty>
-        <p class="text-[0.8125rem] leading-[1.125rem] text-ink-secondary">{displayName} has no projects yet.</p>
+        <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">{displayName} has no projects yet.</p>
         {#if canCreate}
           <a
             href={`${resolve("/project/new")}${newProjectSearch(displayName)}`}
@@ -506,7 +506,7 @@
       {/each}
     {:else if raw.length === 0}
       <div class="flex flex-col items-start gap-3 py-10" data-client-empty>
-        <p class="text-[0.8125rem] leading-[1.125rem] text-ink-secondary">No projects yet.</p>
+        <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">No projects yet.</p>
         {#if canCreate}
           <a
             href={resolve("/project/new")}
@@ -517,7 +517,7 @@
     {:else}
       <section aria-labelledby="projects-recent" data-recent-projects>
         <div class="flex items-baseline gap-3">
-          <h3 id="projects-recent" class="text-sm leading-5 font-medium text-ink">Recently updated</h3>
+          <h3 id="projects-recent" class="text-sm leading-[calc(10/7)] font-medium text-ink">Recently updated</h3>
           {#if selecting}{@render selectAllButton(raw, "Select all")}{/if}
         </div>
         <ul class={`${grid} pt-3.5`}>
@@ -544,7 +544,7 @@
   {#if selecting}
     <div class="pointer-events-none absolute inset-x-0 bottom-4 flex flex-col items-center gap-2 px-4">
       {#if limitHit}
-        <p role="status" data-selection-limit class="pointer-events-auto rounded-lg bg-surface px-3 py-1.5 text-xs leading-4 text-ink-secondary shadow-menu">
+        <p role="status" data-selection-limit class="pointer-events-auto rounded-lg bg-surface px-3 py-1.5 text-xs leading-[calc(4/3)] text-ink-secondary shadow-menu">
           You can select up to {PROJECT_SELECTION_LIMIT} projects at a time.
         </p>
       {/if}
@@ -560,15 +560,15 @@
         class="pointer-events-auto flex h-12 w-full max-w-[28.75rem] items-center gap-2 rounded-[0.625rem] bg-fir pl-4 pr-2 shadow-toast-dark"
       >
         <p class="flex min-w-0 items-baseline gap-1.5" aria-live="polite" data-selection-count>
-          <span class="text-sm leading-5 font-medium text-white">{selected.size} selected</span>
-          <span class="text-[0.8125rem] leading-4 text-white/70">of {shownRows.length}{hasMore ? "+" : ""}</span>
+          <span class="text-sm leading-[calc(10/7)] font-medium text-white">{selected.size} selected</span>
+          <span class="text-[0.8125rem] leading-[calc(16/13)] text-white/70">of {shownRows.length}{hasMore ? "+" : ""}</span>
         </p>
         <div class="flex-1"></div>
         <button
           type="button"
           data-selection-edit
           onclick={() => onBulkEdit([...selected.values()])}
-          class="flex h-8 items-center rounded-lg bg-surface px-3 text-[0.8125rem] leading-[1.125rem] font-medium text-fir transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-light motion-reduce:transition-none pointer-coarse:h-11"
+          class="flex h-8 items-center rounded-lg bg-surface px-3 text-[0.8125rem] leading-[calc(18/13)] font-medium text-fir transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-light motion-reduce:transition-none pointer-coarse:h-11"
         >Edit details</button>
         <button
           type="button"
@@ -577,7 +577,7 @@
             clearSelection();
             void keepAreaFocus();
           }}
-          class="flex h-8 items-center rounded-lg px-2.5 text-[0.8125rem] leading-[1.125rem] text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-light motion-reduce:transition-none pointer-coarse:h-11"
+          class="flex h-8 items-center rounded-lg px-2.5 text-[0.8125rem] leading-[calc(18/13)] text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-light motion-reduce:transition-none pointer-coarse:h-11"
         >Clear</button>
       </div>
     </div>

@@ -139,9 +139,9 @@
       onclick={c.onOpen}
       class="min-w-0 flex-1 rounded-md pr-6 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
     >
-      <span class="block text-sm leading-5 font-medium text-ink" data-notification-title>{c.title}</span>
+      <span class="block text-sm leading-[calc(10/7)] font-medium text-ink" data-notification-title>{c.title}</span>
       {#if c.body}
-        <span class="mt-0.5 block text-[0.8125rem] leading-[1.125rem] text-ink-muted" data-notification-body>{c.body}</span>
+        <span class="mt-0.5 block text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" data-notification-body>{c.body}</span>
       {/if}
     </button>
     <button

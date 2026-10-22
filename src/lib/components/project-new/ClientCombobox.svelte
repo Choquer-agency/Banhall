@@ -161,7 +161,7 @@
     </Combobox.Trigger>
   </div>
   {#if listFailed}
-    <p class="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs leading-4 text-danger-ink-muted" role="alert" data-client-list-error>
+    <p class="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs leading-[calc(4/3)] text-danger-ink-muted" role="alert" data-client-list-error>
       The company list could not be loaded.
       <button
         type="button"
@@ -181,8 +181,8 @@
         {#if noMatch}
           <!-- W8: nothing by that name; New client takes the typed text. -->
           <div class="flex flex-col gap-0.5 px-2 pt-2 pb-1.5" data-client-no-match>
-            <p class="text-[0.8125rem] leading-[1.125rem] text-ink">No company named {typed}</p>
-            <p class="text-xs leading-[1.0625rem] text-ink-muted">
+            <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink">No company named {typed}</p>
+            <p class="text-xs leading-[calc(17/12)] text-ink-muted">
               {onNewClient ? "Check the spelling, or add it as a new company." : "Check the spelling."}
             </p>
           </div>
@@ -194,7 +194,7 @@
               value={NEW_CLIENT_VALUE}
               label={typed}
               data-new-client-option
-              class="flex h-8 cursor-default items-center gap-2 rounded-md bg-primary-wash px-2 text-[0.8125rem] leading-[1.125rem] font-medium text-primary-selected outline-none data-highlighted:bg-chrome pointer-coarse:h-11"
+              class="flex h-8 cursor-default items-center gap-2 rounded-md bg-primary-wash px-2 text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected outline-none data-highlighted:bg-chrome pointer-coarse:h-11"
             >
               <IconPlus size={14} strokeWidth={2} class="shrink-0" />
               New company
@@ -206,7 +206,7 @@
               value={client.name}
               label={client.name}
               data-client-option={client.key}
-              class="flex min-h-8 cursor-default items-center rounded-md px-2 text-[0.8125rem] leading-[1.125rem] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:min-h-11"
+              class="flex min-h-8 cursor-default items-center rounded-md px-2 text-[0.8125rem] leading-[calc(18/13)] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:min-h-11"
             >
               {client.name}
             </Combobox.Item>
@@ -217,7 +217,7 @@
               value={NEW_CLIENT_VALUE}
               label={typed}
               data-new-client-option
-              class="flex min-h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[1.125rem] font-medium text-primary-selected outline-none data-highlighted:bg-primary-wash pointer-coarse:min-h-11"
+              class="flex min-h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected outline-none data-highlighted:bg-primary-wash pointer-coarse:min-h-11"
             >
               <IconPlus size={14} strokeWidth={2} class="shrink-0" />
               <span class="min-w-0 break-words">New company "{typed}"</span>

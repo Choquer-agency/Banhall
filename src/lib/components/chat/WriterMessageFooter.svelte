@@ -34,7 +34,7 @@
 </script>
 
 {#if edit || alternatives || authorLine || error}
-  <div class="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[0.6875rem] leading-4 text-ink-muted" data-writer-footer>
+  <div class="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[0.6875rem] leading-[calc(16/11)] text-ink-muted" data-writer-footer>
     {#if authorLine}
       <span data-alternative-author>{authorLine}</span>
     {/if}

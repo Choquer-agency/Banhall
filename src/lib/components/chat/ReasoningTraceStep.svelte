@@ -55,7 +55,7 @@
         data-reasoning-show-all
         aria-expanded={showAll}
         onclick={() => (showAll = !showAll)}
-        class="-mx-1 w-fit rounded px-1 text-xs leading-5 text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none"
+        class="-mx-1 w-fit rounded px-1 text-xs leading-[calc(5/3)] text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none"
       >{showAll ? "Show less" : "Show all thinking"}</button>
     {/if}
   </div>
