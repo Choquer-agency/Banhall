@@ -27,6 +27,7 @@ import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
 import { SEED_PROMPT_PROGRAM, SEED_QUOTE_RULES } from "./ai/promptDefinitions";
 import { RULES_ANALYSIS_FIGURES } from "../shared/humanProse";
 import { withPinnedAdvancementLinkRules, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
+import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import { ActionTimeBudgetError } from "./ai/actionDeadline";
 import { decisionFixture } from "./seedDecision.fixture";
 
@@ -318,8 +319,11 @@ async function requestHashes(
     // Seed request also carries the writer wording rule after the guidance,
     // checked here and then taken out exactly. 2026-10-04 (second, review
     // round 1, P2-4 (a)): so are the analyzer's figure rules for the analysis
-    // request, which holds them exactly once.
-    let json = JSON.stringify(withSharedSeedToolOnly(body));
+    // request, which holds them exactly once. 2026-10-19: Line 242's plain
+    // opening moved the analyzer's company and goal categories, the Company /
+    // Context objective and the Line 242 drafting rules; the old texts are
+    // put back.
+    let json = withPinnedLine242Opening(JSON.stringify(withSharedSeedToolOnly(body)));
     if (name === "submit_seed_batch") {
       const wording = JSON.stringify(SEED_PROMPT_PROGRAM.user.writerWording).slice(1, -1);
       expect(json.split(wording)).toHaveLength(2);

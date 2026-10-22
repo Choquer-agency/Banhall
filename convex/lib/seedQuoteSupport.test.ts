@@ -3,6 +3,7 @@ import {
   canJudgeQuote,
   contentWords,
   excerptSupportsSeed,
+  quoteBacksSeed,
   quoteCheckIssues,
   quotesExcerpt,
   sharedContentWords,
@@ -349,5 +350,101 @@ describe("unbackedBullets (2026-10-04, second, round 3 and its review)", () => {
   it("never names a sentence beside a quote the word check cannot judge", () => {
     const french = { exactExcerpt: "Nous testons les capteurs sur les mâts et les tours." };
     expect(unbackedBullets(["The sensors were tested on masts and towers."], [french, steel])).toEqual([]);
+  });
+});
+
+// 2026-10-19: the false positives of the 2026-10-08 Step-by-step run (52 of
+// 73 ideas marked). The run's quotes were whole spoken turns, so the check
+// counted contractions and fillers as claims, asked a long turn for five to
+// nine shared words, and read a quote behind one sentence of a two-sentence
+// card as unrelated. Fictional Northwind lines in the same shapes.
+describe("spoken quotes and long turns (2026-10-19)", () => {
+  const unmarked = (bullets: string[], excerpt: string) =>
+    quoteCheckIssues([{ bullets, provenance: [{ ...citation("cap"), exactExcerpt: excerpt }] }], { reuse: true });
+
+  it("ignores contractions, negated auxiliaries and filler phrases", () => {
+    expect(contentWords("We didn't, we're not, it's done, isn't it, I'd say, there's the bracket.")).toEqual(["bracket"]);
+    expect(contentWords("It's kind of, you know, a lot of drilling, in essence.")).toEqual(["drill"]);
+    expect(contentWords("Nothing claimed anything, and none of them did something.")).toEqual(["claim"]);
+    const card = ["No load test has been run on the cold-cured brackets at the north mast yet."];
+    const quote = "Honestly, we didn't load-test it, we're not there, but it's holding and I'd say we're happy, isn't that fine?";
+    expect(excerptSupportsSeed(card[0], quote)).toBe(true);
+    expect(unmarked(card, quote)).toEqual([]);
+  });
+
+  it("reads fillers only as written, so a word sharing their stem still counts", () => {
+    expect(contentWords("Sorting is not effective; we sorted the kinds of rights.")).toEqual(["sort", "effectiv", "kind", "right"]);
+    expect(contentWords("sort of right, I think, I guess")).toEqual([]);
+    expect(excerptSupportsSeed("Sorting brackets by resin batch did not cut bond failures.", "Batch sorting is not effective.")).toBe(true);
+  });
+
+  it("reads a spelled-out acronym as the acronym the other text uses", () => {
+    const card = "DSC runs showed the adhesive's cure peak shifting with temperature.";
+    const quote = "we ran differential scanning calorimetry on every batch to see where the cure peak sits";
+    expect(sharedContentWords(card, quote)).toBe(3);
+    expect(excerptSupportsSeed(card, quote)).toBe(true);
+    // Never folded through a function word, and only when one text uses the acronym.
+    expect(sharedContentWords("The DOT rules apply.", "Department of Transportation rules")).toBe(1);
+    expect(sharedContentWords("cure peak data", "differential scanning calorimetry")).toBe(0);
+    // Review round 1, P3-4: two letters are too few to fold.
+    expect(sharedContentWords("ML improved the fit.", "the measured load improved")).toBe(1);
+    expect(sharedContentWords("AI flagged defects.", "automated inspection flagged defects")).toBe(2);
+  });
+
+  it("lets four shared words back a card when a third of the smaller side asks for more", () => {
+    const card = "Cold-cured epoxy brackets on the north mast kept full pull-off strength through two freeze-thaw winters without primer.";
+    const quote = "We checked the north mast last spring and every bracket was still on, the strength numbers looked like the summer ones, and the crew was surprised honestly.";
+    expect(contentWords(card).length).toBeGreaterThanOrEqual(13);
+    expect(contentWords(quote).length).toBeGreaterThanOrEqual(13);
+    expect(sharedContentWords(card, quote)).toBe(4);
+    expect(excerptSupportsSeed(card, quote)).toBe(true);
+  });
+
+  it("does not mark a quote behind one sentence of a two-sentence card", () => {
+    const card = [
+      "Northwind's brackets use a two-part epoxy chosen for low outgassing.",
+      "Cold bonds kept their pull-off strength in the yard tests.",
+    ];
+    const quote = "We spent the winter in the yard with the east mast panels, checking pull-off strength at minus five against the warm control panels.";
+    expect(excerptSupportsSeed(card.join(" "), quote)).toBe(false);
+    expect(quoteBacksSeed(card, quote)).toBe(true);
+    expect(unmarked(card, quote)).toEqual([]);
+    // A quote marked under the older check now backs that sentence: nothing is named.
+    expect(unbackedBullets(card, [{ exactExcerpt: quote, needsQuoteCheck: true }])).toEqual([]);
+  });
+
+  it("review round 1, P2-1: a short sentence or shared numbers cannot carry an unrelated quote on their own", () => {
+    const epoxy = "Northwind developed a cold-cure epoxy formulation that bonds steel brackets to frozen masts without primer.";
+    const audit =
+      "We had a supplier audit that took 12 weeks, honestly the paperwork was the worst part, the testing of their invoices took forever.";
+    const coffee = "The cost of coffee rose again this year, and the office kettle broke twice in the spring.";
+    // Three shared words, but one is a number: not enough for one sentence.
+    expect(sharedContentWords("Testing ran for 12 weeks.", audit)).toBe(3);
+    expect(quoteBacksSeed([epoxy, "Testing ran for 12 weeks."], audit)).toBe(false);
+    expect(unmarked([epoxy, "Testing ran for 12 weeks."], audit)).toEqual([
+      { code: "CITATION_UNRELATED", seedIndex: 0, citationIndex: 0 },
+    ]);
+    // A sentence of two meaningful words never counts on its own.
+    expect(excerptSupportsSeed("Cost rose.", coffee)).toBe(true);
+    expect(quoteBacksSeed([epoxy, "Cost rose."], coffee)).toBe(false);
+    expect(unmarked([epoxy, "Cost rose."], coffee)).toEqual([
+      { code: "CITATION_UNRELATED", seedIndex: 0, citationIndex: 0 },
+    ]);
+  });
+
+  it("still marks a quote that backs no claim on its card, short or a whole turn", () => {
+    const card = [
+      "Cold-cured bonds held 15 MPa in pull-off tests after a week outdoors.",
+      "The bonds kept that strength through three freeze-thaw cycles.",
+    ];
+    const chat = "Honestly, the weather was awful that week and the crew was tired, so we wrapped up early.";
+    const turn =
+      "So the datasheet said room temperature, and we'd basically never bonded below that. I'm like, isn't there a better primer? We went through the shelf stock and the warranty sheets, read the literature, and found nothing for a frozen mast.";
+    for (const quote of [chat, turn]) {
+      expect(quoteBacksSeed(card, quote)).toBe(false);
+      expect(unmarked(card, quote)).toEqual([{ code: "CITATION_UNRELATED", seedIndex: 0, citationIndex: 0 }]);
+      expect(unbackedBullets(card, [{ exactExcerpt: quote, needsQuoteCheck: true }])).toEqual(card);
+    }
+    expect(unmarked([card[0]], chat)).toEqual([{ code: "CITATION_UNRELATED", seedIndex: 0, citationIndex: 0 }]);
   });
 });

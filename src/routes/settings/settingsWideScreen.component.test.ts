@@ -55,11 +55,11 @@ describe("Settings forms on a 2560px screen", () => {
     const panel = document.querySelector<HTMLElement>("[data-work-panel]")!.getBoundingClientRect();
     expect(panel.width).toBeGreaterThan(2200);
     // The heading and tabs sit in the panel, and the content column fills
-    // it between the panel's side padding (56px, 70px at the 20px root).
+    // it between the panel's shared side padding (24px, 30px at the 20px root; owner, 2026-10-19).
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
     expect(rem).toBe(20);
     const content = document.querySelector<HTMLElement>("[data-settings-content]")!.getBoundingClientRect();
-    expect(content.width).toBeCloseTo(panel.width - 2 - 2 * 3.5 * rem, 0);
+    expect(content.width).toBeCloseTo(panel.width - 2 - 2 * 1.5 * rem, 0);
     expect(document.querySelector<HTMLElement>("[data-wide-child]")!.getBoundingClientRect().width).toBe(content.width);
   });
 

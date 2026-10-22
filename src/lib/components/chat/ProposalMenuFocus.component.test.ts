@@ -14,13 +14,14 @@ function row(id: string, text: string, role: UIMessage["role"]): UIMessage {
   return { id, key: id, order: 1, stepOrder: role === "user" ? 0 : 1, role, status: "success", text, _creationTime: 1000, parts: [{ type: "text", text }] };
 }
 beforeEach(() => {
-  __resetConvexStub(); __resetAuthState(); localStorage.clear();
+  __resetConvexStub(); __resetAuthState(); localStorage.clear(); sessionStorage.clear();
   __setQueryData("chatV2:listThreads", [{ _id: "m1", agentThreadId: "thread-1", title: "Conversation" }]);
   __setQueryData("chatV2:listMessages", { streams: { kind: "list", messages: [] } });
   __setPaginatedRows("chatV2:listMessages", [row("q", "Tighten 242.", "user"), row("a", "Here is a tighter version.", "assistant")]);
   __setQueryData("chatV2:listTurns", []);
   __setQueryData("research:listSessions", []);
   __setQueryData("users:getCurrentUser", { _id: "writer-1", role: "writer" });
+  __setQueryData("projects:getProjectEditAccess", { canEditDetails: true });
   __setQueryData("chatV2:listProposals", [{ _id: "proposal-1", _creationTime: 1000, agentThreadId: "thread-1", projectId, reportId, kind: "edit", targetText: "Old wording", newText: "Candidate wording", state: "pending", createdAt: 1000 }]);
 });
 

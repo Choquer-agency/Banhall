@@ -4,8 +4,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Domain error code (convex/lib/contracts.ts) carried by a ConvexError, if any. */
 export function userErrorCode(error: unknown): string | null {
+  const data = userErrorData(error);
+  return data && typeof data.code === "string" ? data.code : null;
+}
+
+/**
+ * The structured data a domain error carries (`{ code, message, ... }`),
+ * from the ConvexError itself or, when only its text survives, from the
+ * "Uncaught ConvexError: {...}" line the Convex client writes.
+ */
+export function userErrorData(error: unknown): Record<string, unknown> | null {
   if (isRecord(error) && isRecord(error.data) && typeof error.data.code === "string") {
-    return error.data.code;
+    return error.data;
   }
   if (error instanceof Error) {
     const marker = "Uncaught ConvexError: ";
@@ -14,7 +24,7 @@ export function userErrorCode(error: unknown): string | null {
       const payload = error.message.slice(markerIndex + marker.length).split("\n", 1)[0];
       try {
         const parsed: unknown = JSON.parse(payload);
-        if (isRecord(parsed) && typeof parsed.code === "string") return parsed.code;
+        if (isRecord(parsed) && typeof parsed.code === "string") return parsed;
       } catch {
         return null;
       }
@@ -44,6 +54,21 @@ export const HANDLED_REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Audit wave 2: a per-user or per-project limit on a paid AI action. The
   // page that started it shows the server's message (with the wait) inline.
   "RATE_LIMITED",
+  // 2026-10-14 saved clients: a client name that already exists. New client
+  // shows the server's message inline next to the name.
+  "CLIENT_EXISTS",
+  // 2026-10-22: the AI provider still rate limits a call after its retry.
+  // Writing preferences says so under Check again.
+  "PROVIDER_UNAVAILABLE",
+  // Chat parity Phase A (2026-10-19): report chat refusals. The composer
+  // explains each in plain words on the unsent message, with Retry.
+  "CHAT_TURN_ACTIVE",
+  "CHAT_SPEND_BUDGET_EXCEEDED",
+  "CHAT_QUEUE_LIMIT_EXCEEDED",
+  "CHAT_MESSAGE_TOO_LONG",
+  // Chat parity Phase B: an Undo whose passage changed after the apply. The
+  // card says so in its own error slot and points to Version history.
+  "PROPOSAL_UNDO_CONFLICT",
 ]);
 
 /**
@@ -55,10 +80,34 @@ export const HANDLED_REFUSAL_CODES: ReadonlySet<string> = new Set([
  * including a refusal with another code, is not one.
  */
 export function isHandledRefusalLog(line: string): boolean {
-  if (!/^\[CONVEX [QMA?]\(/.test(line)) return false;
+  const call = /^\[CONVEX [QMA?]\(([^)]*)\)\]/.exec(line);
+  if (!call) return false;
   const code = userErrorCode(new Error(line));
-  return code !== null && HANDLED_REFUSAL_CODES.has(code);
+  if (code === null) return false;
+  return HANDLED_REFUSAL_CODES.has(code) || HANDLED_REFUSAL_FUNCTIONS.has(call[1]);
 }
+
+/**
+ * Functions whose every domain refusal (any `code`) the caller explains in
+ * its own UI. Chat parity Phase A: Stop (`chatV2.abortStreaming`) says
+ * "The reply could not be stopped" in the panel, so a refused Stop is not a
+ * crash. A failure with no domain code still raises the toast.
+ */
+export const HANDLED_REFUSAL_FUNCTIONS: ReadonlySet<string> = new Set([
+  "chatV2:abortStreaming",
+  // Chat parity Phase B: Undo on a card and the web search switch say what
+  // went wrong where it happened.
+  "chatV2:undoProposal",
+  "chatV2:setThreadWebSearch",
+  // Chat parity Phase C (Fable review F3 P2-1): Edit, Regenerate, the
+  // switcher and the conversation actions each explain a refusal inline.
+  "chatV2:sendAlternative",
+  "chatV2:setActiveAlternative",
+  "chatV2:renameThread",
+  "chatV2:archiveThread",
+  "chatV2:restoreThread",
+  "chatV2:deleteThread",
+]);
 
 /** The `reason` detail a domain error carries (for example "DRAFT_COMPLETE"), if any. */
 export function userErrorReason(error: unknown): string | null {

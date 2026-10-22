@@ -77,7 +77,7 @@ describe("TeamPage", () => {
     await expect.poll(() => document.querySelector("[data-team-subtitle]")?.textContent).toBe(
       "Everyone who works in Banhall. Managers and above can invite. An Admin changes roles.",
     );
-    expect(document.querySelector("[data-open-invite]")).not.toBeNull();
+    expect(document.querySelector("[data-top-bar-primary]")).not.toBeNull();
     const names = [...document.querySelectorAll("[data-member-row]")].map((el) => el.textContent);
     expect(names[0]).toContain("Bryce Choquer");
     expect(names[0]).toContain("Owner");
@@ -109,7 +109,7 @@ describe("TeamPage", () => {
     await expect.poll(() => document.querySelector("[data-team-subtitle]")?.textContent).toBe(
       "Everyone who works in Banhall. You can invite Consultants and Managers. An Admin changes roles.",
     );
-    expect(document.querySelector("[data-open-invite]")).not.toBeNull();
+    expect(document.querySelector("[data-top-bar-primary]")).not.toBeNull();
     expect(document.querySelectorAll("[data-member-menu]")).toHaveLength(0);
     expect(row("boss@banhall.com")?.querySelector("[data-invite-menu]")).toBeNull();
     expect(row("ana.ruiz@banhall.com")?.querySelector("[data-invite-menu]")).not.toBeNull();
@@ -169,7 +169,7 @@ describe("TeamPage", () => {
 
     await expect.poll(() => document.querySelector("[data-view-as-hidden-page]")).not.toBeNull();
     expect(text()).toContain("Team is hidden in Consultant view");
-    expect(document.querySelector("[data-open-invite]")).toBeNull();
+    expect(document.querySelector("[data-top-bar-primary]")).toBeNull();
     expect(document.querySelector("[data-member-row]")).toBeNull();
   });
 
@@ -181,7 +181,7 @@ describe("TeamPage", () => {
       "Team is for Managers and Admins.",
     );
     expect(text()).toContain("Back to Home");
-    expect(document.querySelector("[data-open-invite]")).toBeNull();
+    expect(document.querySelector("[data-top-bar-primary]")).toBeNull();
     expect(__activeQueryCount("team:listMembers")).toBe(0);
     expect(__activeQueryCount("invites:listTeamInvites")).toBe(0);
   });
@@ -193,27 +193,25 @@ describe("TeamPage", () => {
     expect(document.querySelector("[data-member-row]")).toBeNull();
   });
 
-  it("draws C1 at the board sizes: Invite button, page padding, tables, avatars and status dots", async () => {
+  it("draws C1 with the standard header button, the shared panel inset, tables, avatars and status dots", async () => {
     seed(ADMIN);
     await page.viewport(1440, 900);
     try {
       await render(TeamPage, { origin: "https://banhall.app" });
       await expect.poll(() => document.querySelectorAll("[data-member-row]").length).toBe(4);
 
-      const invite = document.querySelector<HTMLElement>("[data-open-invite]")!;
-      expect(invite.getBoundingClientRect().height).toBe(board(30));
-      expect(getComputedStyle(invite).borderRadius).toBe(boardPx(7));
+      // Owner, 2026-10-19: the header's one plain main button, as on Projects, with no icon.
+      const invite = document.querySelector<HTMLElement>("[data-top-bar-primary]")!;
+      expect(invite.textContent?.trim()).toBe("Invite");
+      expect(invite.getBoundingClientRect().height).toBe(board(38));
+      expect(getComputedStyle(invite).borderRadius).toBe(boardPx(9));
       expect(getComputedStyle(invite).backgroundColor).toBe("rgb(8, 122, 117)");
-      const plus = invite.querySelector("svg")!;
-      expect(plus.getAttribute("viewBox")).toBe("0 0 12 12");
-      expect(plus.getAttribute("width")).toBe("12");
-      expect(plus.getAttribute("stroke-width")).toBe("1.5");
-      expect(plus.querySelector("path")?.getAttribute("d")).toBe("M6 2v8M2 6h8");
+      expect(invite.querySelector("svg")).toBeNull();
 
+      // The shared panel inset (20px top, 32px foot, 24px sides) and no second title.
       const body = getComputedStyle(document.querySelector<HTMLElement>("[data-team-page]")!);
-      expect([body.paddingTop, body.paddingBottom, body.paddingLeft, body.paddingRight]).toEqual([boardPx(28), boardPx(28), boardPx(56), boardPx(56)]);
-      const title = getComputedStyle(document.querySelector<HTMLElement>("[data-team-page] h1")!);
-      expect([title.fontSize, title.lineHeight]).toEqual([boardPx(28), boardPx(34)]);
+      expect([body.paddingTop, body.paddingBottom, body.paddingLeft, body.paddingRight]).toEqual([boardPx(20), boardPx(32), boardPx(24), boardPx(24)]);
+      expect(document.querySelector("[data-team-page] h1")).toBeNull();
       const subtitle = getComputedStyle(document.querySelector<HTMLElement>("[data-team-subtitle]")!);
       expect([subtitle.fontSize, subtitle.lineHeight, subtitle.color]).toEqual([boardPx(14), boardPx(20), "rgb(107, 127, 123)"]);
 

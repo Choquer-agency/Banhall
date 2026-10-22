@@ -22,20 +22,13 @@ describe("Settings frame (I1 to I5)", () => {
     __setQueryData("users:getCurrentUser", { _id: "u", role: "writer", firstName: "Ana", lastName: "Ruiz" });
   });
 
-  it("titles the page with the 28/34 serif Settings, 14px above the tabs and 24px above the section", async () => {
+  it("names the page in the top bar only, with the tabs leading the panel 24px above the section", async () => {
     await render(SettingsLayout, { children });
-    await expect.poll(() => document.querySelector("[data-settings-title]")).not.toBeNull();
-    const title = document.querySelector<HTMLElement>("[data-settings-title]")!;
-    const style = getComputedStyle(title);
-    expect([style.fontSize, style.lineHeight, style.fontWeight, style.letterSpacing]).toEqual([
-      "28px",
-      "34px",
-      "400",
-      "normal",
-    ]);
-    expect(style.fontFamily).toContain("Georgia");
-    expect(style.color).toBe("rgb(22, 33, 31)");
-    expect(getComputedStyle(title.parentElement!).rowGap).toBe("14px");
+    await expect.poll(() => document.querySelector('[data-settings-tab="notifications"]')).not.toBeNull();
+    // Owner, 2026-10-19: the standard top bar names the page; no second serif title.
+    expect(document.querySelector("[data-settings-title]")).toBeNull();
+    expect(document.querySelector("[data-page-top-bar] h1")?.textContent).toBe("Settings");
+    expect(document.querySelector("[data-page-subtitle]")).toBeNull();
     const frame = document.querySelector<HTMLElement>("[data-settings-frame]")!;
     expect(getComputedStyle(frame).rowGap).toBe("24px");
     expect(document.querySelector('[data-settings-tab="notifications"]')?.getAttribute("aria-current")).toBe("page");

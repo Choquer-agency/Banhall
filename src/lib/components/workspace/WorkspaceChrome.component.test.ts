@@ -37,7 +37,7 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     __setQueryData("changelog:unseenCount", 0);
   });
 
-  it("draws the 56px top bar with the page tile on the shell background, and the panel owns the scroll", async () => {
+  it("draws the 64px standard top bar on the shell background, 12px between the rail and the panel, and the panel owns the scroll", async () => {
     await browserPage.viewport(1440, 900);
     await render(WorkspaceChrome, { title: "Settings", subtitle: "Account", icon: IconGear, children: tallContent });
 
@@ -46,28 +46,31 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     const panel = root.querySelector<HTMLElement>("[data-work-panel]")!;
     const aside = root.querySelector<HTMLElement>("aside")!;
     expect(Math.round(root.getBoundingClientRect().height)).toBe(window.innerHeight);
-    expect(header.getBoundingClientRect().height).toBe(board(56));
+    expect(header.getBoundingClientRect().height).toBe(board(64));
     expect(header.hasAttribute("data-workspace-page-header")).toBe(true);
-    const tile = header.querySelector<HTMLElement>("[data-page-icon-tile]")!;
-    expect(tile.getBoundingClientRect().width).toBe(board(26));
-    expect(getComputedStyle(tile).backgroundColor).toBe("rgb(227, 244, 241)");
+    expect(header.querySelector("[data-page-icon-tile]")).toBeNull();
     expect(header.querySelector("h1")?.textContent).toBe("Settings");
-    expect(header.querySelector("[data-page-subtitle]")?.textContent).toBe("Account");
+    // Owner, 2026-10-19: the title only, no muted line beside it.
+    expect(header.querySelector("[data-page-subtitle]")).toBeNull();
     // Round 2 shell: the lighter #FAFCFB rail and frame.
     expect(getComputedStyle(aside).backgroundColor).toBe("rgb(250, 252, 251)");
     expect(getComputedStyle(panel.parentElement!).backgroundColor).toBe("rgb(250, 252, 251)");
-    expect(getComputedStyle(panel).borderRadius).toBe(boardPx(10));
+    expect(getComputedStyle(panel).borderRadius).toBe(boardPx(12));
     expect(getComputedStyle(panel).backgroundColor).toBe("rgb(255, 255, 255)");
-    // Panel inset 12px from the frame on the sides and bottom.
+    // Panel 12px from the rail, the right edge and the foot (Rail v3).
     const panelBox = panel.getBoundingClientRect();
+    expect(Math.round(panelBox.left - aside.getBoundingClientRect().right)).toBe(Math.round(board(12)));
+    expect(Math.round(window.innerWidth - panelBox.right)).toBe(Math.round(board(12)));
+    // The title sits 8px inside the panel's left edge.
+    expect(Math.round(header.querySelector("h1")!.getBoundingClientRect().left - panelBox.left)).toBe(Math.round(board(8)));
     expect(Math.round(window.innerHeight - panelBox.bottom)).toBe(Math.round(board(12)));
     expect(panel.scrollHeight).toBeGreaterThan(panel.clientHeight);
     panel.scrollTop = 300;
     expect(panel.scrollTop).toBeGreaterThan(0);
     expect(window.scrollY).toBe(0);
-    // Padded panel: 32px top, 56px sides (Settings, Team).
-    expect(getComputedStyle(panel).paddingTop).toBe(boardPx(32));
-    expect(getComputedStyle(panel).paddingLeft).toBe(boardPx(56));
+    // The shared panel inset on every screen (2026-10-19): 20px top, 24px sides.
+    expect(getComputedStyle(panel).paddingTop).toBe(boardPx(20));
+    expect(getComputedStyle(panel).paddingLeft).toBe(boardPx(24));
   });
 
   it("sends the Team activity heartbeat once on mount and remembers the signed-in account (J3)", async () => {
@@ -88,7 +91,7 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     expect(__mutationCalls("team:markActive")).toHaveLength(0);
   });
 
-  it("renders a breadcrumb link and puts page actions after the bell", async () => {
+  it("shows the title without a trail, puts page actions after the bell, and pads every panel alike", async () => {
     await browserPage.viewport(1440, 900);
     await render(WorkspaceChrome, {
       title: "House rules",
@@ -98,15 +101,13 @@ describe("WorkspaceChrome (round 2 frame)", () => {
       children: tallContent,
     });
     const header = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
-    const crumb = header.querySelector<HTMLAnchorElement>("[data-page-breadcrumb]")!;
-    expect(crumb.textContent).toBe("Admin");
-    expect(crumb.getAttribute("href")).toBe("/admin/house-rules");
+    expect(header.querySelector("[data-page-breadcrumb]")).toBeNull();
     expect(header.querySelector("h1")?.textContent).toBe("House rules");
     const bell = header.querySelector("[data-top-bar-bell]")!;
     const add = header.querySelector("[data-testid=page-action]")!;
     expect(bell.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const panel = document.querySelector<HTMLElement>("[data-work-panel]")!;
-    expect(getComputedStyle(panel).paddingLeft).toBe(boardPx(40));
+    expect(getComputedStyle(panel).paddingLeft).toBe(boardPx(24));
   });
 
   it("keeps the drawer reachable below 1024px", async () => {

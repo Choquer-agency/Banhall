@@ -18,7 +18,7 @@
   style={`width:${boardRem(size)};height:${boardRem(size)};background-image:${ring}`}
 >
   <span
-    class="relative flex items-center justify-center rounded-full bg-surface text-[0.9375rem] leading-[1.125rem] font-medium text-ink"
+    class="relative flex items-center justify-center rounded-full bg-surface text-[0.9375rem] leading-[1.2] font-medium text-ink"
     style={`width:${boardRem(size - 14)};height:${boardRem(size - 14)}`}
   >{covered}/{total}</span>
 </div>

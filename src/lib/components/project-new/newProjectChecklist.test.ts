@@ -14,6 +14,7 @@ import {
 const READY: ChecklistInput = {
   mode: "generate",
   clientName: "Cedarline Systems",
+  clientPicked: true,
   title: "Adaptive cold storage controls",
   transcripts: { count: 2, words: 14_820 },
   unreadableTranscripts: 0,
@@ -34,7 +35,7 @@ const summary = (input: Partial<ChecklistInput>) =>
 describe("buildChecklist", () => {
   it("shows E1's four rows when everything is in place", () => {
     expect(summary({})).toEqual([
-      ["client-title", "done", "Client and title", false],
+      ["client-title", "done", "Company and title", false],
       ["transcripts", "done", "2 transcripts, 14,820 words", false],
       ["fiscal-science", "done", "Fiscal year and science code", false],
       ["supporting", "reading", "3 supporting documents, 1 still reading", false],
@@ -44,8 +45,45 @@ describe("buildChecklist", () => {
 
   it("blocks until the client and title are set", () => {
     const rows = buildChecklist({ ...READY, title: "  " });
-    expect(rows[0]).toMatchObject({ id: "client-title", state: "pending", text: "Add a client and a title", blocking: true });
+    expect(rows[0]).toMatchObject({ id: "client-title", state: "pending", text: "Add a company and a title", blocking: true });
     expect(startBlocked(rows)).toBe(true);
+  });
+
+  it("blocks a client name that is not in the list until one is picked (W8)", () => {
+    const rows = buildChecklist({ ...READY, clientName: "Northwind Robotics", clientPicked: false });
+    expect(rows[0]).toEqual({ id: "client-title", state: "pending", text: "Pick a company from the list", blocking: true });
+    expect(startBlocked(rows)).toBe(true);
+    // The same row asks for the pick whether or not the title is in.
+    expect(buildChecklist({ ...READY, title: "", clientPicked: false })[0]).toMatchObject({
+      text: "Pick a company from the list",
+      blocking: true,
+    });
+  });
+
+  it("says the client list could not be loaded, still blocking, instead of waiting forever", () => {
+    const rows = buildChecklist({ ...READY, clientPicked: false, clientListLoading: true, clientListFailed: true });
+    expect(rows[0]).toEqual({ id: "client-title", state: "pending", text: "We could not load the company list", blocking: true });
+  });
+
+  it("waits quietly while the client list loads, still blocking", () => {
+    const rows = buildChecklist({ ...READY, clientPicked: false, clientListLoading: true });
+    expect(rows[0]).toEqual({ id: "client-title", state: "reading", text: "Checking the company list", blocking: true });
+    expect(startBlocked(rows)).toBe(true);
+  });
+
+  it("asks for a client and a title when the client field is empty, picked or not", () => {
+    expect(buildChecklist({ ...READY, clientName: " ", clientPicked: false })[0]).toMatchObject({
+      text: "Add a company and a title",
+      blocking: true,
+    });
+  });
+
+  it("keeps the pick row next to a same-name warning", () => {
+    const rows = buildChecklist({ ...READY, clientPicked: false, duplicateName: true });
+    expect(rows.slice(0, 2).map((row) => [row.id, row.text])).toEqual([
+      ["duplicate", "Same name as an existing project"],
+      ["client-title", "Pick a company from the list"],
+    ]);
   });
 
   it("uses the singular and hides supporting documents when there are none", () => {

@@ -70,11 +70,12 @@ describe("QaToggle", () => {
     expect(toggle().getAttribute("aria-label")).toBe("QA score 78");
   });
 
-  it("active: #E9F1EF tile and fir icon, pressed", async () => {
+  // Owner, 2026-10-21: the active fill is the page icon green, #E3F4F1.
+  it("active: #E3F4F1 tile and fir icon, pressed", async () => {
     await render(QaToggle, { state: "done", score: 90, active: true, onToggle: vi.fn() });
     const node = toggle();
     expect(node.getAttribute("aria-pressed")).toBe("true");
-    expect(getComputedStyle(node).backgroundColor).toBe("rgb(233, 241, 239)");
+    expect(getComputedStyle(node).backgroundColor).toBe("rgb(227, 244, 241)");
     expect(getComputedStyle(node.querySelector("[data-qa-shield]")!).color).toBe("rgb(10, 58, 56)");
   });
 });

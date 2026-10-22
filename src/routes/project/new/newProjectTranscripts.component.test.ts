@@ -14,7 +14,7 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
-import { fillBasics, openTranscriptPaste, pasteSupportingText, startButton, startFromPage } from "./newProjectTestSupport";
+import { fillBasics, listClients, openTranscriptPaste, pasteSupportingText, startButton, startFromPage } from "./newProjectTestSupport";
 
 /**
  * New project's transcript intake is an ordered list: several .docx files at
@@ -427,6 +427,8 @@ const copiedBox = (label: string) =>
 describe("/project/new duplicate prefill", () => {
   beforeEach(() => {
     __setPageUrl("/project/new?from=project-1");
+    // A duplicate's client is a listed client (2026-10-14: Start needs one).
+    listClients("Acme Labs");
     __setQueryData("projects:getProject", {
       _id: "project-1",
       title: "Existing project",

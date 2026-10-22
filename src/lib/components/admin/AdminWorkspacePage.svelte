@@ -79,12 +79,14 @@
       data-admin-content-flush={flush ? "" : undefined}
       class="flex w-full flex-col"
     >
-      <header data-admin-page-heading class={`flex flex-col gap-1 ${flush ? "px-5 pt-7 md:px-10" : ""}`}>
-        <h2 class="font-serif text-[1.75rem] font-normal leading-[2.125rem] text-ink">{title}</h2>
-        <!-- B3: the description is 14/20 in muted ink (the board, not the spec's 15px). -->
-        {#if description}<p data-admin-page-description class="text-sm leading-5 text-ink-muted">{description}</p>{/if}
-      </header>
-      <div class="pt-5">
+      <!-- Owner, 2026-10-19: the top bar names the page, so no second serif
+           title here; the description stays as one muted line. -->
+      {#if description}
+        <header data-admin-page-heading class={flush ? "px-4 pt-5 sm:px-6" : ""}>
+          <p data-admin-page-description class="text-sm leading-[calc(10/7)] text-ink-muted">{description}</p>
+        </header>
+      {/if}
+      <div class={description ? "pt-5" : ""}>
         {@render children()}
       </div>
     </div>

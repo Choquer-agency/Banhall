@@ -294,3 +294,49 @@ describe("turnSavedEditProposal", () => {
     expect(await saved(f, [{ kind: "replacements", pairs: 0 }, { kind: "replacements", pairs: 2 }])).toBe(true);
   });
 });
+
+// PR #29 review (Greptile P1): the time stop's one-card closing needs every
+// call of the last step to have saved its card. An earlier card in the turn
+// never makes a failed last edit look finished.
+describe("toolCallsSavedEditProposals", () => {
+  async function insert(f: Fixture, toolCallId: string, pairs: number) {
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("chatProposals", {
+        agentThreadId: "thread-a",
+        toolCallId,
+        promptMessageId: "p1",
+        projectId: f.projectId,
+        reportId: f.reportId,
+        kind: "replacements",
+        replacements: Array.from({ length: pairs }, (_, i) => ({ find: `Passage ${i}.`, replaceWith: `Revised ${i}.` })),
+        requireUniqueTargets: true,
+        state: pairs === 0 ? "applied" : "pending",
+        createdAt: T0,
+      });
+    });
+  }
+  const check = (f: Fixture, toolCallIds: string[]) =>
+    f.t.query(internal.chatV2.toolCallsSavedEditProposals, { agentThreadId: "thread-a", toolCallIds });
+
+  test("is true only when each call saved an edit card", async () => {
+    const f = await setup();
+    await insert(f, "call-early", 1);
+    await insert(f, "call-last", 1);
+    expect(await check(f, ["call-last"])).toBe(true);
+    expect(await check(f, ["call-early", "call-last"])).toBe(true);
+  });
+
+  test("an earlier card does not stand in for a last call that saved nothing", async () => {
+    const f = await setup();
+    await insert(f, "call-early", 1);
+    expect(await check(f, ["call-failed"])).toBe(false);
+    expect(await check(f, ["call-early", "call-failed"])).toBe(false);
+    expect(await check(f, [])).toBe(false);
+  });
+
+  test("a record-only revision is not an edit card", async () => {
+    const f = await setup();
+    await insert(f, "call-record", 0);
+    expect(await check(f, ["call-record"])).toBe(false);
+  });
+});

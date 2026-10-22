@@ -16,6 +16,7 @@
     trigger,
     onSelect,
     onSuggest,
+    clearLabel = undefined,
   }: {
     value: string | null;
     open?: boolean;
@@ -24,7 +25,11 @@
     onSelect: (code: string | null) => void | Promise<void>;
     /** Optional AI suggestion; the host saves the suggested code. */
     onSuggest?: () => void | Promise<void>;
+    /** Always offer Clear, with this label (bulk edit: clear on every project). */
+    clearLabel?: string;
   } = $props();
+
+  const showClear = $derived(Boolean(value) || clearLabel !== undefined);
 
   let query = $state("");
   let highlighted = $state("");
@@ -57,7 +62,7 @@
   }
 
   const itemClass =
-    "flex min-h-[1.875rem] w-full cursor-default items-center gap-2.5 rounded-md px-2 py-1 text-left text-[0.8125rem] leading-[1.125rem] text-ink outline-none data-[selected]:bg-primary-wash";
+    "flex min-h-[1.875rem] w-full cursor-default items-center gap-2.5 rounded-md px-2 py-1 text-left text-[0.8125rem] leading-[calc(18/13)] text-ink outline-none data-[selected]:bg-primary-wash";
 </script>
 
 <Popover.Root bind:open>
@@ -90,7 +95,7 @@
           <Command.Viewport>
             {#each groups as group (group.field)}
               <Command.Group>
-                <Command.GroupHeading class="px-2 pb-1 pt-2 text-[0.6875rem] font-medium uppercase leading-[1.125rem] tracking-[0.04em] text-ink-muted">{group.field}</Command.GroupHeading>
+                <Command.GroupHeading class="px-2 pb-1 pt-2 text-[0.6875rem] font-medium uppercase leading-[calc(18/11)] tracking-[0.04em] text-ink-muted">{group.field}</Command.GroupHeading>
                 <Command.GroupItems>
                   {#each group.items as item (item.code)}
                     <Command.Item
@@ -114,7 +119,7 @@
             {/each}
           </Command.Viewport>
         </Command.List>
-        {#if onSuggest || value}
+        {#if onSuggest || showClear}
           <div class="flex shrink-0 items-center gap-1 border-t border-line-soft p-1.5">
             {#if onSuggest}
               <button
@@ -129,13 +134,13 @@
                 Suggest with AI
               </button>
             {/if}
-            {#if value}
+            {#if showClear}
               <button
                 type="button"
                 onclick={() => choose(null)}
                 class="ml-auto flex h-8 items-center rounded-md px-2 text-[0.8125rem] text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
               >
-                Clear
+                {clearLabel ?? "Clear"}
               </button>
             {/if}
           </div>

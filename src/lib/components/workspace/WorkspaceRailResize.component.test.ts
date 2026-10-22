@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { page as browserPage } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
+import { userEvent } from "vitest/browser";
 import WorkspaceDashboard from "./WorkspaceDashboard.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation, goto } from "$lib/test/app-navigation-stub";
@@ -22,8 +23,8 @@ import { board } from "$lib/test/boardScale";
  * Desktop rail ergonomics (2026-09-24 final UI: collapsing leaves an
  * icons-only column, board 1.2): pointer + keyboard
  * resize on the WAI-ARIA window-splitter separator, persistent
- * collapse/expand from the top bar's toggle (owner direction 2026-09-28:
- * the control sits beside the page title in both states), width/hidden persistence
+ * collapse/expand from the rail's own toggle (Rail v3, owner 2026-10-19:
+ * in the rail header expanded, at the rail's foot collapsed), width/hidden persistence
  * (the `hidden` key now means "collapsed"), and expanded-width restore.
  * Mounted through the REAL WorkspaceDashboard host at a desktop viewport.
  */
@@ -75,6 +76,16 @@ describe("Workspace rail resize + hide/show", () => {
     __resetNavigation();
     __resetConvexStub();
     document.body.innerHTML = "";
+  });
+
+  it("keeps keyboard focus on the collapse control as it moves between the header and the foot", async () => {
+    await mountShell();
+    await expect.poll(() => railToggle()).not.toBeNull();
+    railToggle()!.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => document.activeElement?.getAttribute("data-rail-direction")).toBe("expand");
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => document.activeElement?.getAttribute("data-rail-direction")).toBe("collapse");
   });
 
   it("exposes a keyboard separator with truthful aria values and ±8/±32/Home/End steps that persist", async () => {
@@ -161,8 +172,8 @@ describe("Workspace rail resize + hide/show", () => {
     toggle.click();
     await expect.poll(() => root.hasAttribute("data-rail-hidden")).toBe(true);
     // The collapsed rail stays usable (icons only) and the preference
-    // persists under the compatible `hidden` key; the same top bar control
-    // now offers expand.
+    // persists under the compatible `hidden` key; the rail's own control,
+    // now at its foot, offers expand.
     expect(railAside()?.hasAttribute("inert")).toBe(false);
     expect(railAside()?.querySelector("[data-rail-collapsed]")).not.toBeNull();
     expect(storedPrefs()).toEqual({ width: 272, hidden: true, adminOpen: false });
@@ -217,14 +228,14 @@ describe("Workspace rail resize + hide/show", () => {
     const column = () => document.querySelector<HTMLElement>(".workspace-rail-column")!;
     const content = () => column().nextElementSibling as HTMLElement;
 
-    // H1, H3 with the owner's 2026-09-28 move: the expand toggle sits in the
-    // page's top bar, not the icons-only rail.
+    // H1, H3 with Rail v3 (owner, 2026-10-19): the expand toggle sits at the
+    // foot of the icons-only rail, not in the page's top bar.
     await expect.poll(() => railToggle()?.getAttribute("aria-label")).toBe("Expand navigation rail");
     const toggle = railToggle()!;
     expect(toggle.dataset.railDirection).toBe("expand");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(railAside()!.contains(toggle)).toBe(false);
-    expect(toggle.closest("[data-workspace-page-header]")).not.toBeNull();
+    expect(railAside()!.contains(toggle)).toBe(true);
+    expect(toggle.closest("[data-workspace-page-header]")).toBeNull();
     const contentLeft = content().getBoundingClientRect().left;
 
     toggle.click();
@@ -241,7 +252,7 @@ describe("Workspace rail resize + hide/show", () => {
     expect(handle()).toBeNull();
     expect(storedPrefs()).toEqual({ width: 272, hidden: false, adminOpen: false });
 
-    // The same top bar control (keyboard reachable under the overlay) closes it.
+    // The overlaid rail's own header control closes it.
     expect(railToggle()?.getAttribute("aria-label")).toBe("Collapse navigation rail");
     railToggle()!.click();
     await expect.poll(() => railAside()?.querySelector("[data-rail-collapsed]")).not.toBeNull();

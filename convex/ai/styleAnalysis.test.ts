@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildStyleAnalysisPrompt,
   styleAnalysisSchema,
@@ -131,6 +131,107 @@ describe("analyzeMyInstructions persist (round 2, I2)", () => {
     });
     expect((await writer.query(api.writerProfiles.getMyProfile, {}))?.coverage).toBeUndefined();
     expect(providerMocks.create).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("analyzeMyInstructions with long instructions (2026-10-19)", () => {
+  // Fictional instructions of about 61,000 characters, the size of the saved
+  // instructions whose check failed on 2026-10-07.
+  const LONG = Array.from(
+    { length: 1200 },
+    (_, index) => `Rule ${index + 1}: keep sentences short and name the test rig at Pinebrook Labs.`,
+  )
+    .join("\n")
+    .slice(0, 61_000)
+    .trim();
+  const categories = Object.fromEntries(
+    STYLE_OVERRIDE_KEYS.map((key) => [
+      key,
+      key === "sentenceConstruction"
+        ? { addressed: true, evidence: "keep sentences short" }
+        : { addressed: false, evidence: null },
+    ]),
+  );
+  const conflict = { excerpt: "skip the hypothesis", rule: "Hypothesis content" };
+  const answer = (input: unknown) => ({
+    content: [{ type: "tool_use", id: "t1", name: "submit_style_analysis", input }],
+    stop_reason: "tool_use",
+    usage: { input_tokens: 1, output_tokens: 1 },
+  });
+
+  async function setup() {
+    const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
+    await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", { authId: "long-writer", role: "writer" });
+      await ctx.db.insert("writerProfiles", {
+        userId,
+        customInstructions: LONG,
+        enabled: true,
+        updatedBy: userId,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    return { writer: t.withIdentity({ subject: "long-writer" }) };
+  }
+
+  beforeEach(() => {
+    providerMocks.create.mockReset();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.mocked(console.warn).mockRestore();
+    vi.mocked(console.error).mockRestore();
+  });
+
+  it("stores coverage when the answer puts the rest of itself inside categories (the 2026-10-07 failure)", async () => {
+    expect(LONG.length).toBeGreaterThan(60_000);
+    // The categories object, then `, "lockedConflicts": [...]`, all as the
+    // text of `categories`, with no top-level lockedConflicts.
+    const text = `${JSON.stringify(categories)}, "lockedConflicts": ${JSON.stringify([conflict])}`;
+    providerMocks.create.mockResolvedValue(answer({ categories: text }));
+    const { writer } = await setup();
+
+    const result = await writer.action(api.ai.styleAnalysis.analyzeMyInstructions, { text: LONG, persist: true });
+
+    expect(providerMocks.create).toHaveBeenCalledTimes(1);
+    expect(result.lockedConflicts).toEqual([conflict]);
+    const profile = await writer.query(api.writerProfiles.getMyProfile, {});
+    expect(profile?.coverage?.categories).toEqual(categories);
+  });
+
+  it("stores coverage when categories is JSON text and lockedConflicts is left out, and returns no conflicts", async () => {
+    providerMocks.create.mockResolvedValue(answer({ categories: JSON.stringify(categories) }));
+    const { writer } = await setup();
+
+    const result = await writer.action(api.ai.styleAnalysis.analyzeMyInstructions, { text: LONG, persist: true });
+
+    expect(providerMocks.create).toHaveBeenCalledTimes(1);
+    expect(result.lockedConflicts).toEqual([]);
+    expect(console.warn).toHaveBeenCalledWith(
+      "submit_style_analysis: the answer left out lockedConflicts, read as empty",
+    );
+    const profile = await writer.query(api.writerProfiles.getMyProfile, {});
+    expect(profile?.coverage?.categories.sentenceConstruction).toEqual({
+      addressed: true,
+      evidence: "keep sentences short",
+    });
+  });
+
+  it("still fails, and stores nothing, when a category verdict is missing", async () => {
+    const partial = Object.fromEntries(Object.entries(categories).filter(([key]) => key !== "bannedWords"));
+    providerMocks.create.mockResolvedValue(answer({ categories: JSON.stringify(partial), lockedConflicts: [] }));
+    const { writer } = await setup();
+
+    await expect(
+      writer.action(api.ai.styleAnalysis.analyzeMyInstructions, { text: LONG, persist: true }),
+    ).rejects.toThrow(/submit_style_analysis: model returned an unexpected shape/);
+
+    // The answer and its one repair, as before.
+    expect(providerMocks.create).toHaveBeenCalledTimes(2);
+    expect((await writer.query(api.writerProfiles.getMyProfile, {}))?.coverage).toBeUndefined();
   });
 });
 

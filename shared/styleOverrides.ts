@@ -151,39 +151,111 @@ export function resolveEffectiveOverrides(
   return out;
 }
 
-/** Copy for the settings and admin toggle groups. */
-export const STYLE_OVERRIDE_META: Record<
-  StyleOverrideKey,
-  { label: string; description: string }
-> = {
+/**
+ * Copy for each waivable area, the one source for the admin pages and the
+ * writer's Writing preferences page (2026-10-19 meeting fixes: the info
+ * popover there shows houseRule, example and whenOn).
+ */
+export type StyleOverrideMeta = {
+  /**
+   * The admin name. The drafting prompts (convex/ai/prompts.ts) and the
+   * style analysis prompt (convex/ai/styleAnalysis.ts) quote it, so changing
+   * it changes those prompts and their versions.
+   */
+  label: string;
+  /** One line for the admin pages: what waiving the area does. */
+  description: string;
+  /** The writer's name for the area on Writing preferences. */
+  writerLabel: string;
+  /** A few words under the writer's name: what the house rule is about. */
+  summary: string;
+  /** What the house rule checks, in plain words. */
+  houseRule: string;
+  /** One concrete example of the house rule at work. Fictional. */
+  example: string;
+  /** What changes when the writer turns the area's switch on. */
+  whenOn: string;
+};
+
+export const STYLE_OVERRIDE_META: Record<StyleOverrideKey, StyleOverrideMeta> = {
   bannedWords: {
     label: "Banned words and phrases",
     description:
-      "Skip the default banned-word list and automatic replacements; your instructions define the vocabulary rules.",
+      "Skip the house list of words to avoid and its automatic replacements. The writer's instructions set the word rules.",
+    writerLabel: "Word list",
+    summary: "House list of words to avoid",
+    houseRule:
+      'Banhall keeps a list of words drafts must not use, such as "novel", "robust" and "leverage". If one slips into a draft, Banhall swaps it for a plainer word or removes it.',
+    example: 'A draft that says "a novel, robust method" comes out as "a new, reliable method".',
+    whenOn:
+      "The house list and its swaps stop. Your instructions decide which words to avoid, which to prefer and what to use instead.",
   },
   paragraphDensity: {
     label: "Paragraph density",
     description:
-      "Waive the 4–7 sentences / 150-word paragraph rules; your instructions set paragraph length.",
+      "Waive the paragraph rules: 4 to 7 sentences and no more than 150 words. The writer's instructions set paragraph length.",
+    writerLabel: "Paragraph length",
+    summary: "4 to 7 sentences, up to 150 words",
+    houseRule:
+      "Each paragraph has 4 to 7 sentences and no more than 150 words. One-sentence paragraphs are not allowed.",
+    example: "A 9-sentence paragraph about pump failures is split into two paragraphs.",
+    whenOn:
+      "Your instructions set paragraph length. CRA line limits still cap the length of each line.",
   },
   sentenceConstruction: {
     label: "Sentence construction",
     description:
-      "Waive the 40-word sentence cap and sentence-opening variety. The no-dash rule is house policy and stays on.",
+      "Waive the 40-word sentence cap and the sentence-opening rules. The no-dash rule is house policy and stays on.",
+    writerLabel: "Sentence length",
+    summary: "Sentences of 40 words or fewer",
+    houseRule:
+      'No sentence runs over 40 words. Each paragraph opens with its main point. Sentences use active voice with the company as the subject, and no more than two in a row start with "The".',
+    example: "A 55-word sentence about three test runs is split into two shorter sentences.",
+    whenOn:
+      "Your instructions set sentence length, voice and how sentences open. The no-dash rule still applies.",
   },
   repetitionCaps: {
     label: "Phrase repetition caps",
     description:
-      'Waive the usage caps on "systematic investigation", "technological uncertainty", and repeated phrases.',
+      'Waive the caps on "systematic investigation", "technological uncertainty" and other repeated phrases.',
+    writerLabel: "Repeated phrases",
+    summary: "Caps on repeated CRA phrases",
+    houseRule:
+      '"Systematic investigation" can appear 3 times in a report and "technological uncertainty" 4 times. Any other phrase can appear twice. After that, drafts use other wording.',
+    example: 'The fourth "systematic investigation" in a report becomes "the experimental work".',
+    whenOn: "These caps stop. Your instructions decide how often a phrase can repeat.",
   },
   openingClauses: {
     label: "Mandated opening clauses",
     description:
-      "The literal CRA signal phrases that open certain paragraphs. Off by default: the required content still has to appear, in your phrasing. An admin can turn the phrases back on.",
+      "The literal CRA signal phrases that open certain paragraphs. Off by default: the required content still has to appear, in the writer's own words. An admin can turn the phrases back on.",
+    writerLabel: "Opening phrases",
+    summary: "Set CRA phrases that open paragraphs",
+    houseRule:
+      'Some paragraphs must open with a set CRA phrase, such as "The technological objective was to..." in line 242 or "It was hypothesized that if..." in line 244.',
+    example:
+      'The hypothesis paragraph starts "It was hypothesized that if the coating cures at 80 degrees..."',
+    whenOn:
+      "Your instructions decide how those paragraphs open. The content they carry still has to be there.",
   },
   reportSkeleton: {
     label: "Report skeleton and paragraph roles",
     description:
-      "Waive the built-in section skeleton: the content each line must cover, its ordering, and the framing conventions. Your instructions define each line's architecture. The CRA form line/word limits and the no-fabrication rules always stay.",
+      "Waive the built-in section skeleton: the content each line must cover, its order and the framing conventions. The writer's instructions define each line's structure. The CRA line and word limits and the no-fabrication rules always stay.",
+    writerLabel: "Section structure",
+    summary: "What each CRA line covers, in order",
+    houseRule:
+      'Each CRA line covers set content in a set order. Line 242 opens with who the company is and its business goal, then the limits of standard practice, the objective and each uncertainty. Line 244 states the hypothesis as "if ... then ..." with a result you can measure. Line 246 leads with what was learned.',
+    example:
+      'Line 244 says "if the coating cures at 80 degrees, then peel strength rises by 20 percent" before it describes the trials.',
+    whenOn:
+      "Your instructions decide what each line covers and in what order. CRA line limits and the rule against made-up facts still apply.",
   },
 };
+
+/** What the org's mode means for one writer's area, or null when the writer decides. */
+export function houseRuleModeNote(mode: HouseRuleMode): string | null {
+  if (mode === "enforced") return "Your organization always applies this house rule, so its switch is locked.";
+  if (mode === "off") return "Your organization turned this house rule off for everyone, so your instructions already apply here.";
+  return null;
+}

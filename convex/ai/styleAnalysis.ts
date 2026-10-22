@@ -14,9 +14,9 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { domainError, sha256 } from "../lib/contracts";
 import { z } from "zod";
-import { clientForRole } from "./providers";
+import { clientForRole, normalizeProviderError } from "./providers";
 import { generateStructured } from "./structured";
-import { startActionDeadline } from "./actionDeadline";
+import { ActionTimeBudgetError, startActionDeadline, wasStoppedByDeadline } from "./actionDeadline";
 import {
   STYLE_OVERRIDE_KEYS,
   STYLE_OVERRIDE_META,
@@ -27,6 +27,20 @@ import { INSTRUCTIONS_TOO_LONG_MESSAGE, MAX_INSTRUCTIONS_CHARS } from "../../sha
 
 // Same cap as the saved profile so no part of a saved document goes unread.
 const MAX_INPUT_CHARS = MAX_INSTRUCTIONS_CHARS;
+
+/**
+ * 2026-10-22: what the Settings page says when the AI provider still
+ * rate-limits the check after the transport's own retry. Sent as a
+ * PROVIDER_UNAVAILABLE domain error, which the page shows under "Check
+ * again" (src/lib/errors.ts lists it as handled).
+ */
+export const STYLE_CHECK_BUSY_MESSAGE =
+  "The AI service is busy right now. Wait a minute, then select Check again.";
+
+function isProviderRateLimit(error: unknown): boolean {
+  if (error instanceof ActionTimeBudgetError || wasStoppedByDeadline(error)) return false;
+  return normalizeProviderError(error).code === "rate_limited";
+}
 
 export interface StyleAnalysis {
   categories: Record<
@@ -56,6 +70,19 @@ export const lockedConflictSchema = z.object({ excerpt: z.string(), rule: z.stri
 export const styleAnalysisSchema: z.ZodType<StyleAnalysis> = z.object({
   categories: styleAnalysisCategoriesSchema,
   lockedConflicts: z.array(lockedConflictSchema),
+});
+
+/**
+ * 2026-10-19: how the Settings page check (analyzeMyInstructions) reads the
+ * answer. Every category verdict is still required. An absent
+ * `lockedConflicts` reads as empty, as it already does for the settings
+ * document classifier (writerSettings.ts, Round 3), so the categories can
+ * still be stored as coverage. The Locked tier holds whatever the
+ * instructions say, so the list is shown to the writer and decides nothing.
+ */
+export const styleAnalysisAnswerSchema = z.object({
+  categories: styleAnalysisCategoriesSchema,
+  lockedConflicts: z.array(lockedConflictSchema).optional(),
 });
 
 /**
@@ -182,7 +209,7 @@ export const analyzeMyInstructions = action({
         userId: identity.tokenIdentifier,
       });
       const { system, user } = buildStyleAnalysisPrompt(text);
-      result = await generateStructured<StyleAnalysis>(client, {
+      const answer = await generateStructured(client, {
         system,
         user,
         toolName: STYLE_ANALYSIS_REQUEST.toolName,
@@ -190,8 +217,29 @@ export const analyzeMyInstructions = action({
         schema: ANALYSIS_TOOL_SCHEMA,
         maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
         model,
-        validate: styleAnalysisSchema,
+        validate: styleAnalysisAnswerSchema,
+        // 2026-10-19: a writer's 61,000-character instructions were checked
+        // twice on 2026-10-07. Both checks failed validation on both
+        // attempts ("categories: expected object, received string;
+        // lockedConflicts: expected array, received undefined", the Round 3
+        // and Round 4 shapes), so nothing was stored. Read such a field and
+        // validate as usual, as the settings document classifier does. No
+        // request is added.
+        encodedFieldRecovery: true,
+      }).catch((error: unknown) => {
+        // 2026-10-22: a 429 on 2026-10-13 reached the writer as a crash. A
+        // rate limit that outlasts the retry is a plain "try again shortly";
+        // every other failure is thrown as before.
+        if (isProviderRateLimit(error)) {
+          console.warn(`${STYLE_ANALYSIS_REQUEST.toolName}: the AI provider is still rate limiting the check`);
+          domainError("PROVIDER_UNAVAILABLE", STYLE_CHECK_BUSY_MESSAGE);
+        }
+        throw error;
       });
+      if (answer.lockedConflicts === undefined) {
+        console.warn(`${STYLE_ANALYSIS_REQUEST.toolName}: the answer left out lockedConflicts, read as empty`);
+      }
+      result = { categories: answer.categories, lockedConflicts: answer.lockedConflicts ?? [] };
     }
     if (args.persist === true) {
       await ctx.runMutation(internal.writerProfiles.recordMyCoverage, {

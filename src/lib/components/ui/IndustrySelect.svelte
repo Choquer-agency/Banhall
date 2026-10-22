@@ -10,6 +10,11 @@
   Values are kebab-case slugs (must match the Brain namespace strings —
   docs/the-brain.md); labels are the humanized form.
 -->
+<script module lang="ts">
+  /** With `noChangeLabel`: the value that clears the industry (bulk edit). */
+  export const INDUSTRY_CLEAR = "__clear__";
+</script>
+
 <script lang="ts">
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -25,6 +30,9 @@
     disabled = false,
     class: className = "",
     canCreate = false,
+    noChangeLabel = undefined,
+    clearable = true,
+    ariaLabel = undefined,
     onValueChange,
   }: {
     value?: string;
@@ -34,6 +42,16 @@
     disabled?: boolean;
     class?: string;
     canCreate?: boolean;
+    /**
+     * Bulk edit: "" shows this label as the muted placeholder (nothing
+     * changes), and a "Not set" option with the value INDUSTRY_CLEAR clears
+     * the industry.
+     */
+    noChangeLabel?: string;
+    /** With `noChangeLabel`: offer the "Not set" (clear) option. */
+    clearable?: boolean;
+    /** The input's accessible name; without it the placeholder names it. */
+    ariaLabel?: string;
     onValueChange?: (value: string) => void;
   } = $props();
 
@@ -54,10 +72,16 @@
   // Same option list for both variants (base + custom industries); only the
   // "no selection" sentinel differs: "" for pickers, "all" for filters.
   const items = $derived([
-    {
-      value: variant === "picker" ? "" : "all",
-      label: "Not set (all industries)",
-    },
+    ...(noChangeLabel !== undefined && variant === "picker"
+      ? [
+          ...(clearable ? [{ value: INDUSTRY_CLEAR, label: "Not set" }] : []),
+        ]
+      : [
+          {
+            value: variant === "picker" ? "" : "all",
+            label: "Not set (all industries)",
+          },
+        ]),
     ...BASE_INDUSTRIES,
     ...customIndustries.map((slug) => ({ value: slug, label: industryLabel(slug) })),
   ]);
@@ -78,7 +102,8 @@
   bind:value
   {items}
   class={className}
-  placeholder="Not set (all industries)"
+  placeholder={noChangeLabel ?? "Not set (all industries)"}
+  {ariaLabel}
   {onValueChange}
   onCreate={variant === "picker" && canCreate ? addIndustry : undefined}
 />

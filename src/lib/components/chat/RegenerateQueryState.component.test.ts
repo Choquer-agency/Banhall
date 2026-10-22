@@ -18,7 +18,7 @@ const rows: UIMessage[] = (["user", "assistant"] as const).map(role => ({
 const regenerate = () => page.getByRole("button", { name: "Regenerate", exact: true });
 
 beforeEach(() => {
-  __resetConvexStub(); __resetAuthState(); localStorage.clear();
+  __resetConvexStub(); __resetAuthState(); localStorage.clear(); sessionStorage.clear();
   __setQueryData("chatV2:listThreads", [{ agentThreadId: "thread-1", title: "Original conversation" }]);
   __setQueryData("chatV2:listMessages", { streams: { kind: "list", messages: [] } });
   __setPaginatedRows("chatV2:listMessages", rows);
@@ -68,7 +68,7 @@ it.each(["loading", "stale", "error"])("blocks regeneration until %s research da
   expect(__mutationCalls("chatV2:sendMessage")).toEqual([{ reportId, threadId: "thread-1", content: "Stored prompt" }]);
 });
 
-it.each(["queued", "running", "aborted"])("renders one unanswered %s durable turn without a regenerate action", async status => {
+it.each(["queued", "running"])("renders one unanswered %s durable turn without a regenerate action", async status => {
   __setPaginatedRows("chatV2:listMessages", [rows[0]]);
   __setQueryData("chatV2:listTurns", [{ ...timing[0], status }]);
   await render(AgentChatPanel, { reportId, projectId });
@@ -76,5 +76,17 @@ it.each(["queued", "running", "aborted"])("renders one unanswered %s durable tur
   await expect.element(page.getByText(label, { exact: true })).toBeVisible();
   expect(page.getByText(label, { exact: true }).elements()).toHaveLength(1);
   expect(regenerate().elements()).toHaveLength(0);
+  expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+});
+
+// Phase C (W2): Regenerate after Stop, once the turn is no longer streaming.
+it("offers Regenerate on an unanswered stopped turn, as an alternative of it", async () => {
+  __setPaginatedRows("chatV2:listMessages", [rows[0]]);
+  __setQueryData("chatV2:listTurns", [{ ...timing[0], promptMessageId: "user", status: "aborted" }]);
+  __setMutationResult("chatV2:sendAlternative", { threadId: "thread-1", messageId: "again" });
+  await render(AgentChatPanel, { reportId, projectId });
+  await expect.element(page.getByText("Stopped", { exact: true })).toBeVisible();
+  await regenerate().click();
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([{ threadId: "thread-1", ofPromptMessageId: "user", kind: "regenerate" }]);
   expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
 });

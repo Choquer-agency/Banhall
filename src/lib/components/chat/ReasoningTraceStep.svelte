@@ -1,40 +1,72 @@
 <script lang="ts">
-  import type { ReasoningRenderNode } from "$lib/chat/turnParts";
-  import {
-    ChainOfThoughtContent,
-    ChainOfThoughtItem,
-    ChainOfThoughtStep,
-    ChainOfThoughtTrigger,
-  } from "./primitives";
+  import { readableReasoning, type ReasoningRenderNode } from "$lib/chat/turnParts";
+  import { getChatContainerContext } from "./primitives/context";
 
   interface Props {
     node: ReasoningRenderNode;
-    open?: boolean;
   }
 
-  let { node, open = $bindable(false) }: Props = $props();
+  let { node }: Props = $props();
+
+  const chat = getChatContainerContext();
+  let itemEl: HTMLLIElement | null = $state(null);
 
   const streaming = $derived(node.state === "streaming");
+
+  /**
+   * Phase A: the text is Anthropic's summary of the model's thinking (the
+   * server passes nothing else). Owner, 2026-10-21: it reads as Claude shows
+   * its thought process, as plain text in the open thought block. A line the
+   * summary marks as a **heading** reads a shade stronger; other markers are
+   * dropped so no asterisks show.
+   */
+  const lines = $derived(
+    readableReasoning(node.text)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        // A heading may still be streaming in, with no closing marker yet.
+        const heading = /^\*\*([^*]+?)(\*\*)?$/.exec(line);
+        return heading
+          ? { heading: true, text: heading[1].trim() }
+          : { heading: false, text: line.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/\*\*/g, "") };
+      })
+  );
+
+  /**
+   * Owner, 2026-10-21: a long summary (a real editing task can run to a
+   * dozen paragraphs) shows one paragraph until the writer asks for all of
+   * it: the first finished one, or, while it streams, the newest.
+   */
+  let showAll = $state(false);
+  const paragraphs = $derived(lines.filter((line) => !line.heading));
+  const shortLine = $derived(streaming ? lines.at(-1) : (paragraphs[0] ?? lines[0]));
+  const shown = $derived(showAll || lines.length <= 1 || !shortLine ? lines : [shortLine]);
+  const hiddenCount = $derived(lines.length - shown.length);
 </script>
 
-<ChainOfThoughtStep bind:open>
-  <ChainOfThoughtTrigger
-    status={streaming ? "active" : "complete"}
-    statusLabel={streaming ? "Running" : "Done"}
-  >
-    <!-- "Reasoning", not "Thought": the summary above may already read
-         "Thought for 5s", and a row repeating the word inside it reads oddly. -->
-    {streaming ? "Thinking…" : "Reasoning"}
-  </ChainOfThoughtTrigger>
-  <ChainOfThoughtContent>
-    <ChainOfThoughtItem>
-      <!-- Reasoning is plain text, never markdown: model scratchpad output is
-           not authored prose and stray syntax must not become formatting. -->
-      <div class="max-h-32 overflow-auto rounded-lg border border-line-soft bg-chrome p-2.5">
-        <p class="text-xs leading-relaxed whitespace-pre-wrap break-words text-ink-secondary">
-          {node.text}
-        </p>
-      </div>
-    </ChainOfThoughtItem>
-  </ChainOfThoughtContent>
-</ChainOfThoughtStep>
+<!-- Reasoning is plain text, never markdown: model scratchpad output is not
+     authored prose and stray syntax must not become formatting. -->
+<li bind:this={itemEl} class="list-none" data-reasoning-summary aria-busy={streaming}>
+  <div class="flex flex-col gap-1 text-[0.8125rem] leading-relaxed break-words text-ink-muted">
+    {#each shown as line, index (index)}
+      <p class={line.heading ? "font-medium text-ink-secondary" : undefined}>{line.text}</p>
+    {/each}
+    {#if hiddenCount > 0 || (showAll && lines.length > 1)}
+      <button
+        type="button"
+        data-reasoning-show-all
+        aria-expanded={showAll}
+        onclick={() => {
+          // Review 2026-10-21: the thinking grows down from where it is; the
+          // chat would otherwise keep its distance from the bottom and push
+          // the paragraph being read up out of view.
+          if (itemEl) chat?.keepInPlace(itemEl);
+          showAll = !showAll;
+        }}
+        class="-mx-1 w-fit rounded px-1 text-xs leading-[calc(5/3)] text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none"
+      >{showAll ? "Show less" : "Show all thinking"}</button>
+    {/if}
+  </div>
+</li>

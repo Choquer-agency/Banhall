@@ -10,12 +10,16 @@
 //
 // What it converts:
 //   - Tailwind arbitrary values on size utilities in any source file
-//     (text-[13px], leading-[18px], w-[136px], gap-[10px], rounded-[10px],
+//     (text-[13px], w-[136px], gap-[10px], rounded-[10px],
 //     grid-cols-[104px_minmax(0,1fr)], max-h-[min(760px,...)], ...).
 //   - Literal size={N} on icons imported from phosphor-svelte (size="Nrem").
-//   - Size declarations (font-size, line-height, width, padding, margin,
+//   - Size declarations (font-size, width, padding, margin,
 //     gap, inset, border-radius, ...) in .css files, Svelte <style> blocks,
 //     static style="..." attributes and static style:prop="..." directives.
+//
+// What it never touches: line heights (leading-[...], text-x/[...],
+// line-height:), which are unitless ratios of the font size, never rem;
+// tests/unitlessLineHeight.test.ts rejects a fixed one.
 //
 // What it keeps in px:
 //   - 1px and 0.5px hairlines anywhere, 0px, and 9999px pill radii.
@@ -38,11 +42,11 @@ const EXTENSIONS = new Set([".svelte", ".ts", ".js", ".css"]);
 
 /** Tailwind utilities whose arbitrary px values are sizes. */
 const SIZE_UTILITY =
-  /^-?(?:text|leading|tracking|indent|w|h|size|min-w|min-h|max-w|max-h|basis|inset|inset-x|inset-y|top|right|bottom|left|start|end|p|px|py|pt|pr|pb|pl|ps|pe|m|mx|my|mt|mr|mb|ml|ms|me|gap|gap-x|gap-y|space-x|space-y|rounded(?:-(?:t|r|b|l|s|e|tl|tr|br|bl|ss|se|es|ee))?|translate-x|translate-y|scroll-m[trblxyse]?|scroll-p[trblxyse]?|grid-cols|grid-rows|auto-cols|auto-rows|columns)$/;
+  /^-?(?:text|tracking|indent|w|h|size|min-w|min-h|max-w|max-h|basis|inset|inset-x|inset-y|top|right|bottom|left|start|end|p|px|py|pt|pr|pb|pl|ps|pe|m|mx|my|mt|mr|mb|ml|ms|me|gap|gap-x|gap-y|space-x|space-y|rounded(?:-(?:t|r|b|l|s|e|tl|tr|br|bl|ss|se|es|ee))?|translate-x|translate-y|scroll-m[trblxyse]?|scroll-p[trblxyse]?|grid-cols|grid-rows|auto-cols|auto-rows|columns)$/;
 
 /** CSS properties whose px lengths are sizes. */
 const SIZE_PROPERTY =
-  /^(?:font-size|line-height|letter-spacing|text-indent|(?:min-|max-)?(?:width|height|inline-size|block-size)|padding(?:-[a-z-]+)?|margin(?:-[a-z-]+)?|gap|row-gap|column-gap|top|right|bottom|left|inset(?:-[a-z-]+)?|border(?:-[a-z]+)*-radius|flex-basis|grid-template-(?:columns|rows)|grid-auto-(?:columns|rows)|scroll-(?:margin|padding)(?:-[a-z-]+)?)$/;
+  /^(?:font-size|letter-spacing|text-indent|(?:min-|max-)?(?:width|height|inline-size|block-size)|padding(?:-[a-z-]+)?|margin(?:-[a-z-]+)?|gap|row-gap|column-gap|top|right|bottom|left|inset(?:-[a-z-]+)?|border(?:-[a-z]+)*-radius|flex-basis|grid-template-(?:columns|rows)|grid-auto-(?:columns|rows)|scroll-(?:margin|padding)(?:-[a-z-]+)?)$/;
 
 /** Custom properties that name a line, shadow or effect keep px. */
 const KEEP_CUSTOM_PROPERTY = /shadow|ring|outline|border|blur|stroke|hairline|line-width|offset/;
@@ -95,7 +99,9 @@ export function convertClassTokens(text) {
     // Queries inside a value (for example [@media...]) are conditions.
     if (value.includes("@")) return match;
     const next = convertLengths(value);
-    const nextModifier = modifier === undefined ? "" : `/[${convertLengths(modifier)}]`;
+    // The /[...] modifier is a line height, which is unitless and never
+    // converted (tests/unitlessLineHeight.test.ts).
+    const nextModifier = modifier === undefined ? "" : `/[${modifier}]`;
     return `${lead}${utility}-[${next}]${nextModifier}`;
   });
 }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { appendOutbox, takeOutboxFor, type OutboxEntry } from "./attemptOutbox";
+import { appendOutbox, outboxKey, takeOutboxFor, type OutboxEntry } from "./attemptOutbox";
 import {
   ATTEMPT_BATCH_LIMIT,
   UploadTimeoutError,
@@ -129,6 +129,40 @@ describe("flushOutboxFor", () => {
     expect(takeOutboxFor(USER, PROJECT)).toEqual([]);
   });
 
+  it("still sends chat upload failures a browser queued before chat uploads were removed", async () => {
+    // Written as the old chat panel stored it. The chat no longer uploads
+    // (2026-10-19); the project page's flush must still record the entry with
+    // its own origin, then clear it.
+    localStorage.setItem(
+      outboxKey(USER),
+      JSON.stringify([
+        {
+          userId: USER,
+          projectId: PROJECT,
+          attemptKey: KEY_A,
+          fileName: "field-notes.pdf",
+          fileSizeBytes: 2048,
+          origin: "chat_upload",
+          failureCode: "rejected_unsupported",
+          at: Date.now(),
+        },
+      ])
+    );
+    const record = vi.fn().mockResolvedValue(undefined);
+
+    expect(await flushOutboxFor(USER, PROJECT, record)).toBe("flushed");
+    expect(record).toHaveBeenCalledWith([
+      {
+        attemptKey: KEY_A,
+        fileName: "field-notes.pdf",
+        fileSizeBytes: 2048,
+        origin: "chat_upload",
+        failureCode: "rejected_unsupported",
+      },
+    ]);
+    expect(localStorage.getItem(outboxKey(USER))).toBeNull();
+  });
+
   it("keeps entries when the network failed, so nothing is lost", async () => {
     appendOutbox(USER, entry());
     const record = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
@@ -182,9 +216,9 @@ describe("flushOutboxFor", () => {
   });
 
   it("keeps entries queued during a flush instead of clearing them unsent", async () => {
-    // The chat panel flushes opportunistically while uploads are failing, so an
-    // entry can arrive mid-flush. Clearing by key rather than wholesale is what
-    // stops that entry being dropped without ever being sent.
+    // The project page flushes on open while another upload on the page may be
+    // failing, so an entry can arrive mid-flush. Clearing by key rather than
+    // wholesale is what stops that entry being dropped without ever being sent.
     appendOutbox(USER, entry());
     const record = vi.fn().mockImplementation(async () => {
       appendOutbox(USER, entry({ attemptKey: KEY_B }));

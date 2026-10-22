@@ -1,9 +1,10 @@
 /**
  * Reading presentation of the report's Section headings (ui-design-final.md
  * section 8, board 2.1): the stored heading "Line 242 — Scientific/
- * Technological Uncertainty" renders as a small sans label ("242
- * Technological uncertainty") over the serif CRA question, with the limit
- * meter at the right of the label when the Section is near or over a limit.
+ * Technological Uncertainty" renders as one small all-caps sans label ("242
+ * TECHNOLOGICAL UNCERTAINTY"; the CRA question under it was removed by the
+ * owner on 2026-10-21), with the limit meter at the right of the label when
+ * the Section is over a CRA limit.
  *
  * Rendering only. The document keeps its exact "Line 24x" heading nodes, so
  * autosave, export (parseCanonicalReport), QA and section detection read the
@@ -31,7 +32,8 @@ import { PD_SECTION_HEADINGS } from "../../../../shared/pdSubsections";
 /** Limit meter data a node decoration hands to a Section heading view. */
 export interface ReportLimitMeterSpec {
   reportLimitMeter: {
-    state: "warning" | "over";
+    /** Only "over" shows a meter (owner, 2026-10-21). */
+    state: "over";
     /** "96 / 100 lines, 668 / 700 words" */
     text: string;
     /** Full sentence for assistive technology and the tooltip. */
@@ -94,24 +96,26 @@ function sectionHeadingView(
   dom.contentEditable = "false";
   dom.dataset.reportSectionHeading = display.number;
 
-  const label = document.createElement("p");
+  // Owner, 2026-10-21: the Section reads as one small label, "242
+  // TECHNOLOGICAL UNCERTAINTY", with no CRA question under it. The label is
+  // the Section's heading, so screen readers still move by Section.
+  const label = document.createElement("div");
   label.className = "report-section-heading__label";
+  const title = document.createElement("h3");
+  title.className = "report-section-heading__title";
   const number = document.createElement("span");
   number.className = "report-section-heading__number";
   number.textContent = display.number;
   const name = document.createElement("span");
   name.className = "report-section-heading__name";
   name.textContent = display.title;
+  title.append(number, document.createTextNode(" "), name);
   const meter = document.createElement("span");
   meter.className = "report-limit-meter";
   meter.dataset.reportLimitMeter = display.number;
-  label.append(number, document.createTextNode(" "), name, meter);
+  label.append(title, meter);
 
-  const question = document.createElement("h3");
-  question.className = "report-section-heading__question";
-  question.textContent = display.question;
-
-  dom.append(label, question);
+  dom.append(label);
   renderMeter(meter, meterFrom(decorations));
 
   let current = node;

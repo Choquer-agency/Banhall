@@ -266,11 +266,13 @@ export async function pruneSnapshots(
   }
 }
 
-/** The two checkpoints taken immediately before a report edit is written. */
-export type PreEditSnapshotReason = "pre_chat_edit" | "pre_client_edit";
+/** The checkpoints taken immediately before a report edit is written. */
+export type PreEditSnapshotReason = "pre_chat_edit" | "pre_chat_undo" | "pre_client_edit";
 
 const PRE_EDIT_DEFAULT_LABEL: Record<PreEditSnapshotReason, string> = {
   pre_chat_edit: "Before AI edit",
+  // Chat parity Phase B: an applied chat card was undone.
+  pre_chat_undo: "Before undo",
   pre_client_edit: "Before client edit",
 };
 

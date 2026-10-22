@@ -20,7 +20,9 @@ import {
 } from "@convex-dev/agent";
 import {
   getInternalProjectAccessOrNull,
+  requireInternalActor,
   requireInternalProjectAccess,
+  requireRole,
 } from "./lib/auth";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
@@ -39,6 +41,7 @@ import {
 import { getEffectiveWriterStyle } from "./writerProfiles";
 import { selectedCandidateRunId } from "./complianceNotes";
 import { applyPassageEdits } from "./lib/passageEdits";
+import { lineLengthsAfterEdit } from "./ai/chatLineLengths";
 import {
   MAX_COMPLETION_REPORT_FINDINGS,
   completionReportAnchorIssues,
@@ -53,12 +56,45 @@ import type {
   InventoryNote,
   InventorySections,
 } from "./lib/deviationInventory";
-import { publicChatDelta, publicChatMessage } from "./lib/chatPublicOutput";
+import {
+  deltaHasReasoning,
+  messageHasReasoning,
+  publicChatDelta,
+  publicChatMessage,
+} from "./lib/chatPublicOutput";
+import {
+  chatAutoContinueSkipValidator,
+  chatTurnContinuationReasonValidator,
+  chatTurnContinuationValidator,
+  chatTurnProgressValidator,
+  type ChatTurnContinuation,
+} from "./lib/chatTurnState";
+import { sectionNumberValidator } from "./lib/orderedChain";
+import { turnSenders, threadStarter, userNames } from "./lib/chatAuthors";
+import {
+  continueChain as runContinueChain,
+  reportChatActivity as readReportChatActivity,
+  stopChainAfter,
+} from "./lib/chatChain";
+import { INVENTORY_SECTION_ORDER } from "./lib/deviationInventory";
+import {
+  coverageFor,
+  isContinuePrompt,
+  itemCoverage,
+  MAX_WAITING_ITEMS,
+  pendingCardParagraphs,
+  splitWaiting,
+  type LineParagraph,
+  type WaitingItem,
+  type ItemCoverage,
+  type ItemCoverageRow,
+} from "./lib/chatItemCoverage";
 import { safeErrorDetails } from "./lib/safeErrorDetails";
 import { domainError, sha256 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { isRecordOnlyProposal, proposalPairs } from "../shared/chatProposals";
+import { MAX_CHAT_HIGHLIGHT_CHARS, MAX_CHAT_MESSAGE_CHARS } from "../shared/chatLimits";
 import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
 import {
   DEFAULT_CHAT_EVIDENCE_BUDGET,
@@ -69,6 +105,53 @@ import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
 import type { Doc, Id } from "./_generated/dataModel";
 import { outputArtifact, outputsInArtifacts } from "./lib/generationOutputs";
 import { matchProposalTurn } from "./lib/chatProposalTurns";
+import { listProjectTranscripts } from "./lib/transcripts";
+import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
+// Chat parity Phase B (W1): the reading tools' setting and transcript list.
+import { chatDocumentToolsEnabled, chatVisionEnabled } from "./appSettings";
+import { chatTranscriptSummaries } from "./chatDocuments";
+import { checkedPinnedDocumentIds, pinnedFilesByTurn } from "./lib/chatPins";
+import {
+  CHAT_WEB_SEARCH_MAX_QUERY_CHARS,
+  MAX_WEB_SEARCH_SOURCES,
+  prepareWebSearchQuery,
+  webSearchKnownNames,
+  type PreparedChatWebSearch,
+} from "./ai/chatWebSearch";
+import {
+  listThreadWebSources,
+  resolveThreadWebSearch,
+  threadWebSearchOn,
+  turnWebSourcesValidator,
+  webSourceValidator,
+} from "./lib/chatWebSearches";
+import { appliedChangeFor, parseReportDocument, undoAppliedHunks, type AppliedChange } from "./lib/appliedChange";
+// Chat parity Phase C (W2): alternatives and the active path.
+import {
+  appendTurnAtTip,
+  CHAT_PATH_TURN_SCAN,
+  excerptBlock,
+  legacyRefineProposalId,
+  loadChatPath,
+  loadHistoryPath,
+  pathTurnsNewestFirst,
+  readChatPath,
+  refinableProposal,
+  refinementBlock,
+  setChatTip,
+  writerTextOf,
+  type ChatPath,
+} from "./lib/chatPath";
+import {
+  isThreadDeleting,
+  listArchivedThreadRows,
+  listOpenThreads,
+  newestOpenThread,
+  noteThreadSend,
+  renamedThreadTitle,
+  threadTitleFrom,
+} from "./lib/chatThreads";
+import { PURGE_STALL_MS, purgeStepValidator, purgeThreadRows } from "./lib/chatThreadPurge";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -129,31 +212,116 @@ async function loadNewestTurns(
   return turns.reverse();
 }
 
-/** Resolve a component thread id to our mapping row (or null). */
+/**
+ * Phase C review P3-6: the window's turns, from the path's own read when it
+ * already holds them. The path reads the thread's newest
+ * CHAT_PATH_TURN_SCAN (= TURN_WINDOW_LIMIT) turns, so a window that reaches
+ * the newest turn is exactly those at or after its start: one read, not two.
+ */
+async function windowTurns(
+  ctx: QueryCtx,
+  args: { agentThreadId: string; startOrder: number; endOrder: number },
+  path: ChatPath<Doc<"chatTurns">> | null
+) {
+  const newest = path?.turns.at(-1);
+  // The path read every turn (fewer than its scan), or exactly the window's newest.
+  const sameRead = path !== null &&
+    (path.turns.length < CHAT_PATH_TURN_SCAN || CHAT_PATH_TURN_SCAN === TURN_WINDOW_LIMIT);
+  if (path && newest && sameRead && args.endOrder >= newest.order) {
+    return path.turns.filter((turn) => turn.order >= args.startOrder);
+  }
+  return await loadNewestTurns(ctx, args);
+}
+
+/**
+ * Resolve a component thread id to our mapping row (or null). Phase C (W3,
+ * review R2 P2-1): a conversation being deleted resolves to null, so every
+ * read, send and internal write treats it as gone.
+ */
 async function threadRow(ctx: QueryCtx | MutationCtx, agentThreadId: string) {
+  const thread = await anyThreadRow(ctx, agentThreadId);
+  return thread && !isThreadDeleting(thread) ? thread : null;
+}
+
+/**
+ * Round 2 N3: a card whose chat conversation is being deleted takes no
+ * action. Research cards (`research:` thread ids) belong to no chat
+ * conversation and are never affected.
+ */
+async function cardConversationDeleting(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Pick<Doc<"chatProposals">, "agentThreadId">
+): Promise<boolean> {
+  if (proposal.agentThreadId.startsWith("research:")) return false;
+  const thread = await anyThreadRow(ctx, proposal.agentThreadId);
+  return !!thread && isThreadDeleting(thread);
+}
+
+async function assertCardConversationLive(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Pick<Doc<"chatProposals">, "agentThreadId">
+): Promise<void> {
+  if (await cardConversationDeleting(ctx, proposal)) {
+    domainError("NOT_FOUND", "This conversation no longer exists");
+  }
+}
+
+/** The mapping row even while it is being deleted: the purge's own lookup. */
+async function anyThreadRow(ctx: QueryCtx | MutationCtx, agentThreadId: string) {
   return await ctx.db
     .query("agentChatThreads")
     .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", agentThreadId))
     .unique();
 }
 
-// ─── Queries ─────────────────────────────────────────────────────────────────
+/**
+ * The turn orders, among `orders`, whose searchBrain tool ran a search
+ * (`chatTurns.brainSearchedAt`). One indexed read per distinct order.
+ */
+async function brainSearchedOrders(
+  ctx: QueryCtx,
+  agentThreadId: string,
+  orders: number[]
+): Promise<Set<number>> {
+  const flagged = new Set<number>();
+  for (const order of new Set(orders)) {
+    const turn = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_order", (q) =>
+        q.eq("agentThreadId", agentThreadId).eq("order", order)
+      )
+      .first();
+    if (turn?.brainSearchedAt !== undefined) flagged.add(order);
+  }
+  return flagged;
+}
 
-/** The conversation menu lists at most this many, newest first. */
-const THREAD_LIST_LIMIT = 50;
+// ─── Queries ─────────────────────────────────────────────────────────────────
 
 export const listThreads = query({
   args: { reportId: v.id("reports") },
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) return [];
-    if (!(await getInternalProjectAccessOrNull(ctx, report.projectId))) return [];
+    const access = await getInternalProjectAccessOrNull(ctx, report.projectId);
+    if (!access) return [];
 
-    return await ctx.db
-      .query("agentChatThreads")
-      .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
-      .order("desc")
-      .take(THREAD_LIST_LIMIT);
+    // Phase C (W3): open conversations only, by last activity, newest first.
+    const threads = await listOpenThreads(ctx, args.reportId);
+    // Phase B (2026-10-20), W2: who started each conversation, by name only.
+    // W3: each conversation's web search setting, on unless turned off.
+    const starters = await Promise.all(threads.map((thread) => threadStarter(ctx, thread)));
+    const names = await userNames(ctx, starters);
+    return threads.map((thread, index) => {
+      const starter = starters[index] ?? null;
+      const createdByName = starter ? names.get(starter) : undefined;
+      return {
+        ...thread,
+        ...(createdByName ? { createdByName } : {}),
+        startedByCurrentUser: starter === access.user._id,
+        webSearch: threadWebSearchOn(thread),
+      };
+    });
   },
 });
 
@@ -184,12 +352,15 @@ export const listMessages = query({
       paginationOpts: args.paginationOpts,
     });
     let streamArgs = args.streamArgs;
+    // The thread's streams with their orders; read only for a deltas request.
+    const streamOrders = new Map<string, number>();
     if (streamArgs?.kind === "deltas") {
       // The pinned agent component does not verify cursor ownership itself.
       // Include retained finished streams so their final delta can still drain.
       const ownedStreams = await ctx.runQuery(components.agent.streams.list, {
         threadId: args.threadId, statuses: ["streaming", "finished", "aborted"],
       });
+      for (const stream of ownedStreams) streamOrders.set(stream.streamId, stream.order);
       const ownedIds = new Set(ownedStreams.map(stream => stream.streamId));
       streamArgs = { ...streamArgs, cursors: streamArgs.cursors.filter(cursor => ownedIds.has(cursor.streamId)) };
     }
@@ -197,12 +368,35 @@ export const listMessages = query({
       threadId: args.threadId,
       streamArgs,
     });
-    return { ...paginated, page: paginated.page.map(publicChatMessage),
+    // Phase A (2026-10-19): reasoning summaries reach the browser, except for
+    // a turn that ran a Brain search. Looked up only for the orders that
+    // actually carry reasoning.
+    const reasoningStreamOrders = streams?.kind === "deltas"
+      ? streams.deltas.filter(deltaHasReasoning).flatMap((delta) => {
+        const order = streamOrders.get(delta.streamId);
+        return order === undefined ? [] : [order];
+      })
+      : [];
+    const brainOrders = await brainSearchedOrders(ctx, args.threadId, [
+      ...paginated.page.filter(messageHasReasoning).map((message) => message.order),
+      ...reasoningStreamOrders,
+    ]);
+    // Phase C (W2): only the active path's messages and streams. A filtered
+    // page can come back short; the panel loads more.
+    const path = await loadChatPath(ctx, args.threadId, thread);
+    const onPath = (order: number | undefined) => !path || (order !== undefined && path.onPathOrder(order));
+    return { ...paginated,
+      page: paginated.page.filter((message) => onPath(message.order)).map((message) =>
+        publicChatMessage(message, { brainSearched: brainOrders.has(message.order) })),
       streams: streams?.kind === "deltas"
-        ? { ...streams, deltas: streams.deltas.map(publicChatDelta) }
+        ? { ...streams, deltas: streams.deltas.filter((delta) => onPath(streamOrders.get(delta.streamId))).map((delta) => {
+          const order = streamOrders.get(delta.streamId);
+          return publicChatDelta(delta, { brainSearched: order !== undefined && brainOrders.has(order) });
+        }) }
         : streams?.kind === "list"
-          ? { ...streams, messages: streams.messages.map(({ streamId, status, format, order, stepOrder }) =>
-            ({ streamId, status, format, order, stepOrder })) }
+          ? { ...streams, messages: streams.messages.filter((stream) => onPath(stream.order))
+            .map(({ streamId, status, format, order, stepOrder }) =>
+              ({ streamId, status, format, order, stepOrder })) }
           : streams };
   },
 });
@@ -241,12 +435,13 @@ export const listProposals = query({
     const window = resolveTurnWindow(args);
     if (window.startOrder > window.endOrder) return [];
 
-    const turns = await loadNewestTurns(ctx, {
-      agentThreadId: args.threadId,
-      ...window,
-    });
+    // Phase C (W2): only the active path's cards. A card applied on another
+    // path stays there, and a pending one keeps its state, hidden.
+    const path = await loadChatPath(ctx, args.threadId, thread);
+    const turns = await windowTurns(ctx, { agentThreadId: args.threadId, ...window }, path);
+    const onPath = (promptMessageId: string | undefined) => !path || path.onPathPrompt(promptMessageId);
     const promptMessageIds = [
-      ...new Set(turns.map((turn) => turn.promptMessageId)),
+      ...new Set(turns.filter((turn) => onPath(turn.promptMessageId)).map((turn) => turn.promptMessageId)),
     ];
     const proposalsByTurn = await Promise.all(
       promptMessageIds.map(async (promptMessageId) =>
@@ -271,19 +466,30 @@ export const listProposals = query({
       .take(UNANCHORED_PROPOSAL_LIMIT);
     const placed = unanchored.flatMap((proposal) => {
       const match = matchProposalTurn(proposal.createdAt, turns);
-      return match.kind === "match"
+      return match.kind === "match" && onPath(match.turn.promptMessageId)
         ? [{ ...proposal, promptMessageId: match.turn.promptMessageId }]
         : [];
     });
 
     // Same order the by_agentThreadId index yields: creation time, then id.
     // Plain code-point comparison keeps the tie-break locale-independent.
-    return [...proposalsByTurn.flat(), ...placed].sort((left, right) => {
-      const creationTimeDifference = left._creationTime - right._creationTime;
-      if (creationTimeDifference !== 0) return creationTimeDifference;
-      if (left._id === right._id) return 0;
-      return left._id < right._id ? -1 : 1;
-    });
+    // Phase B (W3): the applied change stays on the server; the card only
+    // learns whether it can be undone. The record lives in its own table, so
+    // this read never loads it: the pointer is enough. A row with the
+    // deprecated on-card record (never deployed; tests and local data) is
+    // still undoable, and that record is never sent either.
+    return [...proposalsByTurn.flat(), ...placed]
+      .sort((left, right) => {
+        const creationTimeDifference = left._creationTime - right._creationTime;
+        if (creationTimeDifference !== 0) return creationTimeDifference;
+        if (left._id === right._id) return 0;
+        return left._id < right._id ? -1 : 1;
+      })
+      .map(({ appliedChange, appliedChangeId, ...proposal }) => ({
+        ...proposal,
+        undoable:
+          proposal.state === "applied" && (appliedChangeId !== undefined || appliedChange !== undefined),
+      }));
   },
 });
 
@@ -303,16 +509,184 @@ export const listTurns = query({
 
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) return [];
-    if (!(await getInternalProjectAccessOrNull(ctx, thread.projectId))) return [];
+    const access = await getInternalProjectAccessOrNull(ctx, thread.projectId);
+    if (!access) return [];
 
-    return await loadNewestTurns(ctx, {
-      agentThreadId: args.threadId,
-      ...window,
+    // Phase C (W2): only the active path's turns, each with its place among
+    // its alternatives (`alternatives`, when there is more than one).
+    const path = await loadChatPath(ctx, args.threadId, thread);
+    const turns = (await windowTurns(ctx, { agentThreadId: args.threadId, ...window }, path))
+      .filter((turn) => !path || path.onPathPrompt(turn.promptMessageId));
+    // Phase B (2026-10-20), W2: each turn's sender by name (never an email)
+    // and whether it is the viewer, for author labels and the Stop check.
+    const senders = await turnSenders(ctx, turns);
+    const names = await userNames(ctx, senders.values());
+    // Phase C (W1): the names of the files pinned to each writer message.
+    const pinned = await pinnedFilesByTurn(ctx, turns);
+    // Phase A (2026-10-19): each turn carries `progress`, `continuation` and
+    // `historyStartOrder` when it has them. `brainSearchedAt` and
+    // `chainStoppedAt` stay on the server.
+    return turns.map(({ brainSearchedAt: _serverOnly, chainStoppedAt: _chainOnly, ...turn }) => {
+      const sender = senders.get(turn._id) ?? null;
+      const senderName = sender ? names.get(sender) : undefined;
+      const alternatives = path?.group(turn);
+      const pinnedFiles = pinned.get(turn._id);
+      return {
+        ...turn,
+        ...(senderName ? { senderName } : {}),
+        fromCurrentUser: sender === access.user._id,
+        ...(alternatives ? { alternatives } : {}),
+        ...(turn.alternativeKind && senderName ? { alternativeAuthorName: senderName } : {}),
+        ...(pinnedFiles ? { pinnedFiles } : {}),
+      };
     });
   },
 });
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
+
+const ROLLING_SPEND_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 2026-10-19 (chat parity Phase A): how long until the project's rolling
+ * 24-hour spend falls back to `budgetUnits`, assuming nothing new is spent.
+ * Spend is summed over `[now - 24h, now]` (`projectRollingCostUsdUnits`), so
+ * a row stops counting 1 ms after it is 24 hours old. Walks the same rows
+ * oldest first and returns the wait for the first row whose expiry brings
+ * the sum within the budget; null only when no expiry would (a budget below
+ * zero cannot happen, but the refusal must not depend on it). Read only on
+ * the refusal path, so an admitted send reads nothing more.
+ */
+async function rollingBudgetRetryAfterMs(
+  ctx: Pick<QueryCtx, "db">,
+  projectId: Id<"projects">,
+  now: number,
+  budgetUnits: bigint
+): Promise<number | null> {
+  const rows: Array<{ createdAt: number; units: bigint }> = [];
+  let total = 0n;
+  const window = ctx.db.query("aiUsage").withIndex("by_projectId_and_createdAt", (q) =>
+    q.eq("projectId", projectId).gte("createdAt", now - ROLLING_SPEND_WINDOW_MS).lte("createdAt", now)
+  );
+  for await (const row of window) {
+    const units = usdDecimalUnits(row.costUsd);
+    rows.push({ createdAt: row.createdAt, units });
+    total += units;
+  }
+  for (const row of rows) {
+    total -= row.units;
+    if (total <= budgetUnits) {
+      return Math.max(1, row.createdAt + ROLLING_SPEND_WINDOW_MS + 1 - now);
+    }
+  }
+  return null;
+}
+
+/**
+ * The display name of a chat turn's sender, for the CHAT_TURN_ACTIVE refusal.
+ * Legacy turns carry no `userId`; their prompt message names the sender.
+ * Names only (first and last, then the legacy single name), never an email.
+ */
+async function turnSenderName(
+  ctx: QueryCtx,
+  turn: Doc<"chatTurns">
+): Promise<{ userId: Id<"users"> | null; name: string | undefined }> {
+  let userId: Id<"users"> | null = turn.userId ?? null;
+  if (!userId) {
+    const [prompt] = await ctx.runQuery(components.agent.messages.getMessagesByIds, {
+      messageIds: [turn.promptMessageId],
+    });
+    userId = prompt?.userId ? ctx.db.normalizeId("users", prompt.userId) : null;
+  }
+  const user = userId ? await ctx.db.get(userId) : null;
+  const full = [user?.firstName?.trim(), user?.lastName?.trim()].filter(Boolean).join(" ");
+  return { userId, name: full || user?.name?.trim() || undefined };
+}
+
+function messageTooLong(what: "message" | "highlight", maxChars: number): never {
+  const limit = maxChars.toLocaleString("en-US");
+  domainError(
+    "CHAT_MESSAGE_TOO_LONG",
+    what === "highlight"
+      ? `The highlighted text is limited to ${limit} characters. Highlight a shorter passage.`
+      : `A message is limited to ${limit} characters. Shorten it or send it in parts.`,
+    { maxChars }
+  );
+}
+
+/** How many of a thread's newest turns a regenerated prompt is matched against. */
+const REGENERATE_MATCH_TURNS = 50;
+/** Prompt messages read per batch while matching, newest first. */
+const REGENERATE_MATCH_BATCH = 10;
+
+/**
+ * True when `content` is exactly the stored text of one of the thread's
+ * newest prompts. Regenerate resends a stored prompt whole: the writer's
+ * text plus the highlight and refinement blocks the server added, which can
+ * pass MAX_CHAT_MESSAGE_CHARS together, and prompts stored before the limit
+ * existed can pass it alone. Matching the stored text, rather than parsing
+ * the blocks out of client text, means a client cannot claim a server block
+ * it never got. Read newest first in small batches, and only for content
+ * over the limit.
+ */
+async function isStoredPrompt(
+  ctx: QueryCtx,
+  agentThreadId: string,
+  content: string
+): Promise<boolean> {
+  const turns = await ctx.db
+    .query("chatTurns")
+    .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", agentThreadId))
+    .order("desc")
+    .take(REGENERATE_MATCH_TURNS);
+  for (let i = 0; i < turns.length; i += REGENERATE_MATCH_BATCH) {
+    const prompts = await ctx.runQuery(components.agent.messages.getMessagesByIds, {
+      messageIds: turns.slice(i, i + REGENERATE_MATCH_BATCH).map((turn) => turn.promptMessageId),
+    });
+    const match = prompts.some(
+      (prompt) =>
+        prompt?.threadId === agentThreadId &&
+        prompt.message?.role === "user" &&
+        prompt.message.content === content
+    );
+    if (match) return true;
+  }
+  return false;
+}
+
+/**
+ * 2026-10-19 (chat parity Phase A): the size limits on one message, checked
+ * before anything is written. The writer's text (`content`) is held to
+ * MAX_CHAT_MESSAGE_CHARS and a highlight to MAX_CHAT_HIGHLIGHT_CHARS, both
+ * read from the structured arguments; the highlight and refinement blocks
+ * the server adds are never counted against the writer. The one exception
+ * (review P3-3): content over the limit that is exactly a prompt stored in
+ * the thread named by `threadId`, which is how Regenerate resends it.
+ */
+async function assertChatMessageSize(
+  ctx: QueryCtx,
+  args: {
+    content: string;
+    highlight?: { text: string };
+    threadId?: string;
+    refineProposalId?: Id<"chatProposals">;
+  }
+): Promise<void> {
+  if (args.highlight && args.highlight.text.length > MAX_CHAT_HIGHLIGHT_CHARS) {
+    messageTooLong("highlight", MAX_CHAT_HIGHLIGHT_CHARS);
+  }
+  if (args.content.length <= MAX_CHAT_MESSAGE_CHARS) return;
+  // A regenerate never carries a new highlight or refinement of its own.
+  if (
+    args.threadId &&
+    !args.highlight &&
+    !args.refineProposalId &&
+    (await isStoredPrompt(ctx, args.threadId, args.content))
+  ) {
+    return;
+  }
+  messageTooLong("message", MAX_CHAT_MESSAGE_CHARS);
+}
 
 async function assertChatAdmission(
   ctx: MutationCtx,
@@ -320,13 +694,22 @@ async function assertChatAdmission(
   userId: Id<"users">
 ): Promise<void> {
   const limits = await chatAdmissionLimits(ctx);
-  if (await projectRollingCostUsdUnits(ctx, { projectId, now: Date.now() }) > usdDecimalUnits(limits.dailyBudgetUsd)) {
-    domainError("CHAT_SPEND_BUDGET_EXCEEDED", "Project AI spending budget exceeded; chat is unavailable");
+  const now = Date.now();
+  const budgetUnits = usdDecimalUnits(limits.dailyBudgetUsd);
+  if (await projectRollingCostUsdUnits(ctx, { projectId, now }) > budgetUnits) {
+    const retryAfterMs = await rollingBudgetRetryAfterMs(ctx, projectId, now, budgetUnits);
+    domainError(
+      "CHAT_SPEND_BUDGET_EXCEEDED",
+      "Project AI spending budget exceeded; chat is unavailable",
+      retryAfterMs === null ? undefined : { retryAfterMs }
+    );
   }
   let queued = 0;
   const ownTurns = ctx.db.query("chatTurns")
     .withIndex("by_userId_and_status", (q) => q.eq("userId", userId).eq("status", "queued"));
   for await (const turn of ownTurns) {
+    // Phase B (2026-10-20): a link the server started does not count.
+    if (turn.origin === "auto_continue") continue;
     queued += 1;
     if (queued >= limits.maxQueuedTurns) {
       domainError("CHAT_QUEUE_LIMIT_EXCEEDED", "Your queued chat turn limit has been reached");
@@ -395,12 +778,20 @@ export const sendMessage = mutation({
     /** Force a fresh thread even when the report already has one ("New chat"). */
     newThread: v.optional(v.boolean()),
     allowBrain: v.optional(v.boolean()),
+    /**
+     * 2026-10-19: web search (terms and CRA only). Phase B: the conversation's
+     * setting at send time, written to the conversation when given.
+     */
+    allowWeb: v.optional(v.boolean()),
+    /** Phase C (W1): project files read in full with this message (at most 5). */
+    pinnedDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
   },
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) throw new Error("Report not found");
     const { user } = await requireInternalProjectAccess(ctx, report.projectId);
     requireAnthropicConfigured("chat");
+    const pinnedDocumentIds = await checkedPinnedDocumentIds(ctx, report.projectId, args.pinnedDocumentIds);
     if (!args.content.trim() && !args.highlight) {
       throw new Error("Message is empty");
     }
@@ -409,14 +800,8 @@ export const sendMessage = mutation({
     let refineProposal;
     if (args.refineProposalId) {
       refineProposal = await ctx.db.get(args.refineProposalId);
-      if (
-        !refineProposal ||
-        refineProposal.reportId !== report._id ||
-        refineProposal.projectId !== report.projectId ||
-        refineProposal.kind === "references" ||
-        // DW-135: a record-only revision has no wording to refine.
-        isRecordOnlyProposal(refineProposal)
-      ) {
+      // DW-135: a record-only revision has no wording to refine.
+      if (!refinableProposal(refineProposal, report)) {
         throw new Error("Suggestion not found");
       }
     }
@@ -433,27 +818,32 @@ export const sendMessage = mutation({
         throw new Error("Thread not found");
       }
     } else {
-      const latest = args.newThread
-        ? null
-        : await ctx.db
-            .query("agentChatThreads")
-            .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
-            .order("desc")
-            .first();
+      // Phase C (W3): never an archived conversation.
+      const latest = args.newThread ? null : await newestOpenThread(ctx, args.reportId);
       agentThreadId = latest?.agentThreadId;
     }
 
+    // After the thread check, so a resent stored prompt is matched only in a
+    // thread of this report; before any write.
+    await assertChatMessageSize(ctx, args);
+
     await assertChatAdmission(ctx, report.projectId, userId);
 
-    if (agentThreadId && (await otherActiveTurn(ctx, agentThreadId))) {
+    const activeTurn = agentThreadId ? await otherActiveTurn(ctx, agentThreadId) : null;
+    if (activeTurn) {
+      // 2026-10-19 (chat parity Phase A): its own code, so the composer shows
+      // it quietly, naming whoever is getting the reply. A writer's own turn
+      // (another tab, a double send) is not named back to them.
+      const sender = await turnSenderName(ctx, activeTurn);
       domainError(
-        "INVALID_STATE",
-        "A reply is still being written in this chat. Wait for it to finish, or press Stop if it seems stuck, then send again."
+        "CHAT_TURN_ACTIVE",
+        "A reply is still being written in this chat. Wait for it to finish, or press Stop if it seems stuck, then send again.",
+        sender.name && sender.userId !== userId ? { senderName: sender.name } : undefined
       );
     }
 
     if (!agentThreadId) {
-      const title = args.content.trim().slice(0, 60) || "New chat";
+      const title = threadTitleFrom(args.content);
       agentThreadId = await createThread(ctx, components.agent, { userId, title });
       await ctx.db.insert("agentChatThreads", {
         projectId: report.projectId,
@@ -461,18 +851,12 @@ export const sendMessage = mutation({
         agentThreadId,
         title,
         createdAt: Date.now(),
+        createdBy: userId,
       });
     }
 
-    const excerpt = args.highlight
-      ? `\n\n[Writer highlighted this excerpt from the report]:\n"""${args.highlight.text}"""`
-      : "";
-    const refinement = refineProposal
-      ? `\n\n[Writer is refining suggestion ${refineProposal._id}. Keep this exact canonical report target:]
-"""${proposalPairs(refineProposal).map((pair) => pair.find).join("\n---\n")}"""
-[Current candidate wording:]
-"""${proposalPairs(refineProposal).map((pair) => pair.replaceWith).join("\n---\n")}"""`
-      : "";
+    const excerpt = args.highlight ? excerptBlock(args.highlight.text) : "";
+    const refinement = refineProposal ? refinementBlock(refineProposal) : "";
     const { messageId, message } = await saveMessage(ctx, components.agent, {
       threadId: agentThreadId,
       userId,
@@ -496,7 +880,7 @@ export const sendMessage = mutation({
         .take(50);
       highlight = earlier.find((turn) => turn.highlight?.text === quoted)?.highlight;
     }
-    await ctx.db.insert("chatTurns", {
+    const turnId = await ctx.db.insert("chatTurns", {
       userId,
       agentThreadId,
       promptMessageId: messageId,
@@ -504,7 +888,23 @@ export const sendMessage = mutation({
       status: "queued",
       stepCount: 0,
       ...(highlight ? { highlight } : {}),
+      // Phase C (W2): what Edit and Regenerate rebuild the prompt from.
+      ...(refineProposal ? { refineProposalId: refineProposal._id } : {}),
+      // A resent stored prompt (an older page's Regenerate) carries server
+      // blocks in its text: it is cut at the first block instead.
+      ...(writerTextOf(args.content, undefined) === args.content
+        ? { writerTextLength: args.content.length }
+        : {}),
+      ...(pinnedDocumentIds.length ? { pinnedDocumentIds } : {}),
     });
+    // Phase C (W2): the turn follows the tip, and becomes it.
+    await appendTurnAtTip(ctx, { _id: turnId, agentThreadId, promptMessageId: messageId });
+    // Phase C (W3): activity time, and a send restores an archived conversation.
+    await noteThreadSend(ctx, agentThreadId);
+
+    // Phase B (W3): `allowWeb` is the conversation's setting at send time; the
+    // turn runs with the stored setting.
+    const allowWeb = await resolveThreadWebSearch(ctx, agentThreadId, args.allowWeb);
 
     await ctx.scheduler.runAfter(0, internal.ai.chatAgentV2.streamChatReply, {
       agentThreadId,
@@ -515,9 +915,169 @@ export const sendMessage = mutation({
       // creator) is the wrong writer for later participants.
       userId,
       ...(args.allowBrain === true ? { allowBrain: true } : {}),
+      ...(allowWeb ? { allowWeb: true } : {}),
+      ...(pinnedDocumentIds.length ? { pinnedDocumentIds } : {}),
     });
 
     return { threadId: agentThreadId, messageId };
+  },
+});
+
+/**
+ * Phase C (W2): the CHAT_TURN_ACTIVE refusal `sendMessage` gives, for the
+ * alternative and switcher mutations: one reply runs at a time per thread.
+ */
+async function refuseWhileReplyRuns(
+  ctx: MutationCtx,
+  agentThreadId: string,
+  userId: Id<"users">
+): Promise<void> {
+  const activeTurn = await otherActiveTurn(ctx, agentThreadId);
+  if (!activeTurn) return;
+  const sender = await turnSenderName(ctx, activeTurn);
+  domainError(
+    "CHAT_TURN_ACTIVE",
+    "A reply is still being written in this chat. Wait for it to finish, or press Stop if it seems stuck, then send again.",
+    sender.name && sender.userId !== userId ? { senderName: sender.name } : undefined
+  );
+}
+
+/**
+ * Chat parity Phase C (2026-10-20), W2: Edit and Regenerate make an
+ * alternative, a sibling of a finished turn on the active path
+ * (`convex/lib/chatPath.ts`). The same access and admission as a send, and
+ * CHAT_TURN_ACTIVE while a reply runs. The prompt is rebuilt here from the
+ * source turn, never from client text: the writer's text (`writerTextLength`,
+ * or for an older turn everything before the first server block; an edit
+ * gives new text, held to the message limit), the highlight from
+ * `turn.highlight`, and the refinement block from `turn.refineProposalId`
+ * with the checks a send makes, dropped when that card is no longer pending.
+ * Pinned files are copied. A new prompt is always saved (a promptMessageId is
+ * never reused), the turn takes the source's parent, becomes the tip, and its
+ * reply is scheduled. Brain is off; web search follows the conversation.
+ */
+export const sendAlternative = mutation({
+  args: {
+    threadId: v.string(),
+    ofPromptMessageId: v.string(),
+    kind: v.union(v.literal("edit"), v.literal("regenerate")),
+    content: v.optional(v.string()),
+  },
+  returns: v.object({ threadId: v.string(), messageId: v.string() }),
+  handler: async (ctx, args) => {
+    // Fable review F2 P3-4: who is asking first, so an unsigned caller cannot
+    // tell an existing conversation id from a missing one.
+    await requireInternalActor(ctx);
+    const thread = await threadRow(ctx, args.threadId);
+    if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
+    const { user } = await requireInternalProjectAccess(ctx, thread.projectId);
+    const report = await ctx.db.get(thread.reportId);
+    if (!report || report.projectId !== thread.projectId) throw new Error("Report not found");
+    requireAnthropicConfigured("chat");
+    const userId = user._id;
+    if (args.kind === "edit") {
+      if (args.content === undefined) domainError("INVALID_INPUT", "An edit needs the new message.");
+      if (args.content.length > MAX_CHAT_MESSAGE_CHARS) messageTooLong("message", MAX_CHAT_MESSAGE_CHARS);
+    } else if (args.content !== undefined) {
+      domainError("INVALID_INPUT", "Regenerate resends the message as it was.");
+    }
+    await refuseWhileReplyRuns(ctx, args.threadId, userId);
+
+    const path = await readChatPath(ctx, args.threadId, thread.activeTipPromptMessageId);
+    const source = path.path.find((turn) => turn.promptMessageId === args.ofPromptMessageId);
+    if (!source || source.status === "queued" || source.status === "running") {
+      domainError("NOT_FOUND", "That message is no longer in this conversation.");
+    }
+    if (args.kind === "edit" && source.origin === "auto_continue") {
+      domainError("INVALID_INPUT", "An automatic Continue message cannot be edited.");
+    }
+    await assertChatAdmission(ctx, thread.projectId, userId);
+
+    const [stored] = await ctx.runQuery(components.agent.messages.getMessagesByIds, {
+      messageIds: [source.promptMessageId],
+    });
+    const storedText = stored?.threadId === args.threadId ? promptText(stored) : "";
+    const writerText = args.kind === "edit" ? args.content! : writerTextOf(storedText, source.writerTextLength);
+    // An older turn that kept no highlight positions: its excerpt as stored.
+    const legacyExcerpt = !source.highlight && source.writerTextLength === undefined
+      ? /\[Writer highlighted this excerpt from the report\]:\n"""([\s\S]*?)"""/.exec(storedText)?.[1]
+      : undefined;
+    const excerptText = source.highlight?.text ?? legacyExcerpt;
+    if (!writerText.trim() && excerptText === undefined) throw new Error("Message is empty");
+    // Review P3-2: an older turn that kept no card id names it in the
+    // server's own refinement block; it gets the same checks as a send.
+    const legacyRefineId = source.refineProposalId === undefined && source.writerTextLength === undefined
+      ? legacyRefineProposalId(storedText)
+      : undefined;
+    const refineId = source.refineProposalId ??
+      (legacyRefineId !== undefined ? ctx.db.normalizeId("chatProposals", legacyRefineId) ?? undefined : undefined);
+    const candidate = refineId ? await ctx.db.get(refineId) : null;
+    const refineProposal = refinableProposal(candidate, report) && candidate.state === "pending" ? candidate : null;
+    const content = `${writerText}${excerptText !== undefined ? excerptBlock(excerptText) : ""}${refineProposal ? refinementBlock(refineProposal) : ""}`;
+
+    const { messageId, message } = await saveMessage(ctx, components.agent, {
+      threadId: args.threadId,
+      userId,
+      message: { role: "user", content },
+    });
+    const parentPromptMessageId = source.parentPromptMessageId ?? path.parentOf(source)?.promptMessageId;
+    const pinnedDocumentIds = source.pinnedDocumentIds?.length ? source.pinnedDocumentIds : undefined;
+    await ctx.db.insert("chatTurns", {
+      userId,
+      agentThreadId: args.threadId,
+      promptMessageId: messageId,
+      order: message.order,
+      status: "queued",
+      stepCount: 0,
+      ...(source.highlight ? { highlight: source.highlight } : {}),
+      ...(refineProposal ? { refineProposalId: refineProposal._id } : {}),
+      writerTextLength: writerText.length,
+      ...(pinnedDocumentIds ? { pinnedDocumentIds } : {}),
+      ...(parentPromptMessageId !== undefined ? { parentPromptMessageId } : {}),
+      alternativeOf: source.alternativeOf ?? source.promptMessageId,
+      alternativeKind: args.kind,
+      // Review P3-1: a regenerated automatic link is still a link (Edit of
+      // one is refused above): it shows as a link and stays in its chain.
+      ...(source.origin === "auto_continue" ? { origin: "auto_continue" as const } : {}),
+    });
+    await setChatTip(ctx, args.threadId, messageId);
+    // Phase C (W3): an alternative is activity, and restores an archived
+    // conversation like a send.
+    await noteThreadSend(ctx, args.threadId);
+
+    await ctx.scheduler.runAfter(0, internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: args.threadId,
+      promptMessageId: messageId,
+      reportId: thread.reportId,
+      userId,
+      ...(threadWebSearchOn(thread) ? { allowWeb: true } : {}),
+      ...(pinnedDocumentIds ? { pinnedDocumentIds } : {}),
+    });
+    return { threadId: args.threadId, messageId };
+  },
+});
+
+/**
+ * Phase C (W2): the switcher. Shows another alternative by making the newest
+ * turn under it the tip, for everyone on the conversation. Refused while a
+ * reply runs.
+ */
+export const setActiveAlternative = mutation({
+  args: { threadId: v.string(), promptMessageId: v.string() },
+  returns: v.object({ tipPromptMessageId: v.string() }),
+  handler: async (ctx, args) => {
+    // Fable review F2 P3-4: who is asking first, so an unsigned caller cannot
+    // tell an existing conversation id from a missing one.
+    await requireInternalActor(ctx);
+    const thread = await threadRow(ctx, args.threadId);
+    if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
+    const { user } = await requireInternalProjectAccess(ctx, thread.projectId);
+    await refuseWhileReplyRuns(ctx, args.threadId, user._id);
+    const path = await readChatPath(ctx, args.threadId, thread.activeTipPromptMessageId);
+    const leaf = path.newestLeafUnder(args.promptMessageId);
+    if (!leaf) domainError("NOT_FOUND", "That response is no longer in this conversation.");
+    await setChatTip(ctx, args.threadId, leaf.promptMessageId);
+    return { tipPromptMessageId: leaf.promptMessageId };
   },
 });
 
@@ -531,8 +1091,13 @@ export const sendMessage = mutation({
 export const abortStreaming = mutation({
   args: { threadId: v.string(), order: v.number() },
   handler: async (ctx, args) => {
+    // Fable review F2 P3-4: who is asking first, so an unsigned caller cannot
+    // tell an existing conversation id from a missing one.
+    await requireInternalActor(ctx);
     const thread = await threadRow(ctx, args.threadId);
-    if (!thread) throw new Error("Thread not found");
+    // 2026-10-19 (Phase A): a domain refusal, so the panel explains it and
+    // the crash toast stays quiet.
+    if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
     await requireInternalProjectAccess(ctx, thread.projectId);
 
     const turn = await ctx.db
@@ -549,21 +1114,60 @@ export const abortStreaming = mutation({
         endedAt: Date.now(),
       });
     }
+    // Phase B (2026-10-20), W2: Stop just after a reply that offers Continue
+    // ends its chain (a stopped turn never continues): the next link is not
+    // started, or a link already started from it is stopped.
+    const chainStop = !appTurnStopped && turn ? await stopChainAfter(ctx, turn) : { stopped: false as const };
+    if (chainStop.stopped && chainStop.linkOrder !== undefined) {
+      await abortStream(ctx, components.agent, {
+        threadId: args.threadId,
+        order: chainStop.linkOrder,
+        reason: "Writer pressed stop",
+      });
+    }
 
     const componentStreamStopped = await abortStream(ctx, components.agent, {
       threadId: args.threadId,
       order: args.order,
       reason: "Writer pressed stop",
     });
-    return appTurnStopped || componentStreamStopped;
+    return appTurnStopped || chainStop.stopped || componentStreamStopped;
   },
 });
+
+/**
+ * Saves an apply's Undo record in its own row (`chatProposalAppliedChanges`)
+ * and marks the card applied, pointing to that row (no pointer when nothing
+ * was kept). The record stays off the card row, so the card lists never
+ * read it. A card
+ * only reaches an apply as pending, and Undo clears the pointer, so a
+ * leftover record is not expected; one is deleted rather than orphaned.
+ */
+async function markAppliedWithRecord(
+  ctx: MutationCtx,
+  proposal: Doc<"chatProposals">,
+  change: AppliedChange | undefined
+): Promise<void> {
+  if (proposal.appliedChangeId !== undefined) {
+    const leftover = await ctx.db.get(proposal.appliedChangeId);
+    if (leftover) await ctx.db.delete(leftover._id);
+  }
+  const appliedChangeId = change
+    ? await ctx.db.insert("chatProposalAppliedChanges", {
+        proposalId: proposal._id,
+        projectId: proposal.projectId,
+        ...change,
+      })
+    : undefined;
+  await ctx.db.patch(proposal._id, { state: "applied", appliedChangeId });
+}
 
 export const applyProposal = mutation({
   args: { proposalId: v.id("chatProposals") },
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Proposal not found");
+    await assertCardConversationLive(ctx, proposal);
     if (proposal.kind === "references") {
       domainError("INVALID_INPUT", "Highlights have nothing to apply.");
     }
@@ -720,7 +1324,18 @@ export const applyProposal = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
-    await ctx.db.patch(args.proposalId, { state: "applied" });
+    // Phase B (W3): what changed, so a human can undo it (chat cards only;
+    // a research card's row reaches the browser whole through research).
+    const appliedChange = isResearchProposal(proposal)
+      ? undefined
+      : appliedChangeFor({
+          before: parsed,
+          after: updated,
+          revisionNumber: revisionNumber + 1,
+          appliedAt: now,
+          appliedBy: applier._id,
+        });
+    await markAppliedWithRecord(ctx, proposal, appliedChange);
     await pruneSnapshots(ctx, report._id);
 
     return { applied: true, count };
@@ -773,6 +1388,7 @@ export const markProposalApplied = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Proposal not found");
+    await assertCardConversationLive(ctx, proposal);
     // report.editProse: this path writes the final document content.
     const { user } = await requireReportEditAccess(ctx, proposal.projectId);
     const report = await ctx.db.get(proposal.reportId);
@@ -833,7 +1449,19 @@ export const markProposalApplied = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
-    await ctx.db.patch(args.proposalId, { state: "applied" });
+    // Phase B (W3): what the stepped document changed, for Undo.
+    const appliedChange = isResearchProposal(proposal)
+      ? undefined
+      : appliedChangeFor({
+          before: parseReportDocument(report.content),
+          after: parseReportDocument(args.content),
+          revisionNumber: revisionNumber + 1,
+          appliedAt: now,
+          appliedBy: user._id,
+          // Review R2 P3-1: only the runs this card's pairs touched.
+          touchedBy: proposalPairs(proposal),
+        });
+    await markAppliedWithRecord(ctx, proposal, appliedChange);
     await pruneSnapshots(ctx, report._id);
 
     return {
@@ -855,6 +1483,7 @@ export const updateProposalWording = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Suggestion not found");
+    await assertCardConversationLive(ctx, proposal);
     // The owner applies stored wording as is, so rewording a pending
     // suggestion is editing report prose (audit 2026-09-25, a2 P2-2).
     const { user } = await requireReportEditAccess(ctx, proposal.projectId);
@@ -931,6 +1560,7 @@ export const rejectProposal = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
+    await assertCardConversationLive(ctx, proposal);
     await requireReportEditAccess(ctx, proposal.projectId);
     if (isRecordOnlyProposal(proposal)) {
       domainError("INVALID_INPUT", "This record has nothing to reject.");
@@ -941,6 +1571,134 @@ export const rejectProposal = mutation({
     if (proposal.state !== "rejected") {
       await ctx.db.patch(args.proposalId, { state: "rejected" });
     }
+  },
+});
+
+/** Phase B (W3): the Undo refusal when the applied passage changed since. */
+export const PROPOSAL_UNDO_CONFLICT_MESSAGE =
+  "This passage changed after it was applied, so it can't be undone here. Use Version history to go back.";
+/** The longest report body, the limit `assertEditorDocument` and the editor use. */
+const REPORT_CONTENT_MAX_CHARS = 1_000_000;
+/** Review R2 P3-5: Undo would make the report longer than it may be. */
+export const PROPOSAL_UNDO_TOO_LONG_MESSAGE =
+  "Undoing this would make the report too long to save, so it can't be undone here. Use Version history to go back.";
+
+/**
+ * Chat parity Phase B (W3): Undo an applied chat card. The only new card
+ * transition, `applied -> pending`, by a person with report edit access.
+ * Each recorded run (the hunks of the card's `chatProposalAppliedChanges`
+ * row, or of the deprecated on-card `appliedChange`) must still stand exactly once in
+ * the report; then the old blocks go back, all or nothing, with the same
+ * transaction shape as an apply: a `pre_chat_undo` snapshot, the content
+ * with its hash, the revision bump and its claim record, the deterministic
+ * findings, and the card back to `pending` so it can be applied again or
+ * dismissed. A card applied before the change was recorded has no Undo.
+ */
+export const undoProposal = mutation({
+  args: { proposalId: v.id("chatProposals") },
+  handler: async (ctx, args) => {
+    const proposal = await ctx.db.get(args.proposalId);
+    if (!proposal) domainError("NOT_FOUND", "Suggestion not found");
+    await assertCardConversationLive(ctx, proposal);
+    // report.editProse: undoing writes report prose.
+    const { user } = await requireReportEditAccess(ctx, proposal.projectId);
+    // The record lives in its own row; a row with the deprecated on-card
+    // record (never deployed; tests and local data) still undoes from it.
+    const stored =
+      proposal.state === "applied" && proposal.appliedChangeId !== undefined
+        ? await ctx.db.get(proposal.appliedChangeId)
+        : null;
+    const record = stored && stored.proposalId === proposal._id ? stored : null;
+    const hunks =
+      proposal.state !== "applied" ? undefined : (record?.hunks ?? proposal.appliedChange?.hunks);
+    if (!hunks) {
+      domainError("INVALID_STATE", "Only an applied suggestion with a recorded change can be undone.");
+    }
+    const report = await ctx.db.get(proposal.reportId);
+    if (!report || report.projectId !== proposal.projectId) {
+      domainError("NOT_FOUND", "Report not found");
+    }
+    const current = parseReportDocument(report.content);
+    if (!current) domainError("INVALID_INPUT", "The report content is not valid editor JSON");
+    const undone = undoAppliedHunks(current, hunks);
+    if (!undone.ok) domainError("PROPOSAL_UNDO_CONFLICT", PROPOSAL_UNDO_CONFLICT_MESSAGE);
+
+    const content = JSON.stringify(undone.doc);
+    // Review R2 P3-5: the editor's size limit in characters, refused here
+    // rather than failing the write. Round 2 N3: the byte count guards the
+    // document limit, so it refuses only an Undo that makes the report bigger
+    // than it is now; an Undo that shortens a report is always allowed.
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(content).length;
+    if (
+      content.length > REPORT_CONTENT_MAX_CHARS ||
+      (bytes > REPORT_CONTENT_MAX_CHARS && bytes > encoder.encode(report.content).length)
+    ) {
+      domainError("INVALID_INPUT", PROPOSAL_UNDO_TOO_LONG_MESSAGE);
+    }
+    const revisionNumber = report.revisionNumber ?? 0;
+    const now = Date.now();
+    await writePreEditSnapshot(ctx, report, "pre_chat_undo", { createdAt: now });
+    await ctx.db.patch(report._id, {
+      content,
+      contentHash: await sha256(content),
+      revisionNumber: revisionNumber + 1,
+      provenanceId: await provenanceForEdit(ctx, report, content, {
+        actorId: user._id,
+        nextRevisionNumber: revisionNumber + 1,
+        now,
+      }),
+      updatedAt: now,
+    });
+    await persistDeterministicFindings(ctx, report._id);
+    // The record is spent: applying the card again writes a new one.
+    if (record) await ctx.db.delete(record._id);
+    await ctx.db.patch(proposal._id, {
+      state: "pending",
+      appliedChangeId: undefined,
+      appliedChange: undefined,
+      undoneAt: now,
+      undoneBy: user._id,
+    });
+    await pruneSnapshots(ctx, report._id);
+    return { undone: true as const, revisionNumber: revisionNumber + 1 };
+  },
+});
+
+/**
+ * Phase B (W3): turn web search on or off for one conversation. Anyone who
+ * may send in it may change it, like `sendMessage`.
+ */
+export const setThreadWebSearch = mutation({
+  args: { threadId: v.string(), enabled: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    // Fable review F2 P3-4: who is asking first, so an unsigned caller cannot
+    // tell an existing conversation id from a missing one.
+    await requireInternalActor(ctx);
+    const thread = await threadRow(ctx, args.threadId);
+    if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
+    await requireInternalProjectAccess(ctx, thread.projectId);
+    if (threadWebSearchOn(thread) !== args.enabled) {
+      await ctx.db.patch(thread._id, { webSearch: args.enabled });
+    }
+    return null;
+  },
+});
+
+/**
+ * Phase B (W3): each web search a conversation's replies sent, in creation
+ * order: the query as sent (names removed) and its numbered sources. Empty
+ * for a conversation the caller may not read, like `listTurns`.
+ */
+export const listTurnWebSources = query({
+  args: { threadId: v.string() },
+  returns: v.array(turnWebSourcesValidator),
+  handler: async (ctx, args) => {
+    const thread = await threadRow(ctx, args.threadId);
+    if (!thread) return [];
+    if (!(await getInternalProjectAccessOrNull(ctx, thread.projectId))) return [];
+    return await listThreadWebSources(ctx, args.threadId);
   },
 });
 
@@ -992,6 +1750,49 @@ export const turnSavedEditProposal = internalQuery({
   },
 });
 
+/**
+ * PR #29 review: whether every one of these tool calls saved an edit card.
+ * The time stop's one-card closing reads only the last step's calls, so an
+ * earlier card in the turn never stands in for a last edit that failed.
+ */
+export const toolCallsSavedEditProposals = internalQuery({
+  args: { agentThreadId: v.string(), toolCallIds: v.array(v.string()) },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    if (args.toolCallIds.length === 0) return false;
+    for (const toolCallId of args.toolCallIds) {
+      const row = await ctx.db
+        .query("chatProposals")
+        .withIndex("by_agentThreadId_and_toolCallId", (q) =>
+          q.eq("agentThreadId", args.agentThreadId).eq("toolCallId", toolCallId)
+        )
+        .first();
+      if (!row || row.kind === "references" || isRecordOnlyProposal(row)) return false;
+    }
+    return true;
+  },
+});
+
+/**
+ * 2026-10-19 (review P3-4): whether this turn saved any card at all, a
+ * record-only revision or a highlight included. The recovery pass after a
+ * thinking-only cut cannot see a card the first pass saved, so any card
+ * rules it out, and the writer is pointed to the cards instead.
+ */
+export const turnSavedAnyProposal = internalQuery({
+  args: { agentThreadId: v.string(), promptMessageId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("chatProposals")
+      .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+        q.eq("agentThreadId", args.agentThreadId).eq("promptMessageId", args.promptMessageId)
+      )
+      .first();
+    return row !== null;
+  },
+});
+
 export const markTurnStarted = internalMutation({
   args: {
     agentThreadId: v.string(),
@@ -1029,6 +1830,8 @@ export const markTurnStarted = internalMutation({
       await ctx.db.patch(turn._id, {
         status: "running",
         ...(turn.startedAt === undefined ? { startedAt: args.startedAt } : {}),
+        // Phase A: the reply starts by reading the report and evidence.
+        progress: { phase: "reading", step: 0, since: args.startedAt },
       });
       return { shouldRun: true, status: "running" as const };
     }
@@ -1065,21 +1868,342 @@ export const finishTurn = internalMutation({
     const stepCount = Number.isFinite(args.stepCount)
       ? Math.max(0, Math.floor(args.stepCount))
       : 0;
+    // Round 2 N5: when the chat action really reached its end, whatever the
+    // turn's status. A stopped turn's `endedAt` is the Stop; its action can
+    // run on inside a long tool call. `deleteThread` waits for this.
+    const actionEndedAt = Date.now();
     if (turn.status === "queued" || turn.status === "running") {
       await ctx.db.patch(turn._id, {
         status: args.requestedStatus,
         endedAt: args.endedAt,
         stepCount,
+        actionEndedAt,
       });
       return { status: args.requestedStatus };
     }
     if (turn.status === "aborted") {
-      if (stepCount > turn.stepCount) {
-        await ctx.db.patch(turn._id, { stepCount });
-      }
+      await ctx.db.patch(turn._id, {
+        actionEndedAt,
+        ...(stepCount > turn.stepCount ? { stepCount } : {}),
+      });
       return { status: "aborted" as const };
     }
+    await ctx.db.patch(turn._id, { actionEndedAt });
     return { status: turn.status };
+  },
+});
+
+async function turnByPrompt(
+  ctx: QueryCtx | MutationCtx,
+  agentThreadId: string,
+  promptMessageId: string
+) {
+  return await ctx.db
+    .query("chatTurns")
+    .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+      q.eq("agentThreadId", agentThreadId).eq("promptMessageId", promptMessageId)
+    )
+    .unique();
+}
+
+function turnIsActive(turn: Doc<"chatTurns">): boolean {
+  return turn.status === "queued" || turn.status === "running";
+}
+
+/**
+ * Phase A (2026-10-19): the reply's current phase, written by the chat action
+ * on each phase change. Only while the turn runs: a write that arrives after
+ * Stop or after the turn finished is ignored. Returns whether it was written.
+ */
+export const markTurnProgress = internalMutation({
+  args: {
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    progress: chatTurnProgressValidator,
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
+    if (!turn || !turnIsActive(turn)) return false;
+    await ctx.db.patch(turn._id, { progress: args.progress });
+    return true;
+  },
+});
+
+/**
+ * Phase A (2026-10-19): the oldest message `order` the model reads for this
+ * turn, recorded only when older turns were left out of its history.
+ */
+export const setTurnHistoryStart = internalMutation({
+  args: {
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    historyStartOrder: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
+    if (!turn || !turnIsActive(turn)) return false;
+    await ctx.db.patch(turn._id, { historyStartOrder: args.historyStartOrder });
+    return true;
+  },
+});
+
+/**
+ * Phase C (W2): the active path for the model's history, or null when
+ * nothing is hidden (no alternatives): the message orders on the path, and
+ * the order below which everything counts as on it (older than the turns
+ * read, `convex/lib/chatPath.ts`).
+ */
+export const getChatHistoryPath = internalQuery({
+  args: { agentThreadId: v.string() },
+  returns: v.union(v.null(), v.object({ orders: v.array(v.number()), belowOrder: v.number() })),
+  handler: async (ctx, args) => await loadHistoryPath(ctx, args.agentThreadId),
+});
+
+/**
+ * Phase A (2026-10-19): set by the searchBrain tool before it searches, so
+ * the turn's reasoning summaries are withheld from the browser from then on.
+ * The tool searches nothing when this returns false.
+ */
+export const markTurnBrainSearched = internalMutation({
+  args: { agentThreadId: v.string(), promptMessageId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
+    if (!turn || !turnIsActive(turn)) return false;
+    if (turn.brainSearchedAt === undefined) {
+      await ctx.db.patch(turn._id, { brainSearchedAt: Date.now() });
+    }
+    return true;
+  },
+});
+
+/** Newest proposals of a thread read to find the Deviations already handled. */
+const COVERAGE_PROPOSAL_SCAN = 100;
+
+/** Newest turns read to find where the current job began. */
+const JOB_TURN_SCAN = 50;
+
+function promptText(doc: { text?: string; message?: { content?: unknown } } | null): string {
+  if (!doc) return "";
+  if (typeof doc.text === "string") return doc.text;
+  const content = doc.message?.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .flatMap((part: unknown) =>
+      part && typeof part === "object" && "type" in part && part.type === "text" &&
+      "text" in part && typeof part.text === "string" ? [part.text] : [])
+    .join("\n");
+}
+
+/**
+ * Round 2 (N2): where the current job began. The newest turn whose writer
+ * message is not a Continue prompt starts it, so a Continue chain belongs to
+ * the request it carries on. Returns the turn orders by prompt for the turns
+ * read. When the prompts cannot be read, the job is the newest turn alone.
+ * Round 3 (P2-A): only a card that recorded no fingerprint is scoped this
+ * way; every other content or reference card matches by what the item is.
+ */
+async function currentJob(
+  ctx: QueryCtx | MutationCtx,
+  agentThreadId: string,
+  path?: ChatPath<Doc<"chatTurns">> | null
+): Promise<{ startOrder: number; orderByPrompt: Map<string, number> } | null> {
+  // Phase C (W2): the active path's turns, walked up from the tip.
+  const turns = await pathTurnsNewestFirst(ctx, agentThreadId, JOB_TURN_SCAN, path);
+  if (turns.length === 0) return null;
+  const orderByPrompt = new Map(turns.map((turn) => [turn.promptMessageId, turn.order]));
+  try {
+    const docs = await ctx.runQuery(components.agent.messages.getMessagesByIds, {
+      messageIds: turns.map((turn) => turn.promptMessageId),
+    });
+    const textById = new Map<string, string>();
+    for (const doc of docs) if (doc) textById.set(doc._id, promptText(doc));
+    const start = turns.find((turn) => !isContinuePrompt(textById.get(turn.promptMessageId) ?? ""));
+    return { startOrder: (start ?? turns[turns.length - 1]!).order, orderByPrompt };
+  } catch (error) {
+    console.error("chat job prompts could not be read", safeErrorDetails(error));
+    return { startOrder: turns[0]!.order, orderByPrompt };
+  }
+}
+
+/**
+ * Phase A review P2-2: the Completion Report rows of the thread's newest
+ * proposals with the state of each card, and whether any of them belongs to
+ * `promptMessageId`. Bounded: COVERAGE_PROPOSAL_SCAN proposals, each read up
+ * to the tool's own findings cap, and JOB_TURN_SCAN turns. Round 2 (N2): a
+ * rule item counts from any card of the conversation; a content or
+ * reference item only from a card of the current job (`currentJob`).
+ */
+async function threadCoverageRows(
+  ctx: QueryCtx | MutationCtx,
+  agentThreadId: string,
+  promptMessageId?: string
+): Promise<{ rows: ItemCoverageRow[]; promptSavedReport: boolean }> {
+  // Phase C (W2): the active path's cards, plus cards applied on any path
+  // (the report holds them); pending, rejected and stale cards of another
+  // path are left out.
+  const path = await loadChatPath(ctx, agentThreadId);
+  // Round 3 (P2-A): the job only scopes cards that recorded no fingerprint.
+  const job = await currentJob(ctx, agentThreadId, path);
+  const inCurrentJob = (proposalPrompt: string | undefined) => {
+    if (!job || proposalPrompt === undefined) return false;
+    const order = job.orderByPrompt.get(proposalPrompt);
+    return order !== undefined && order >= job.startOrder;
+  };
+  const proposals = await ctx.db
+    .query("chatProposals")
+    .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", agentThreadId))
+    .order("desc")
+    .take(COVERAGE_PROPOSAL_SCAN);
+  const rows: ItemCoverageRow[] = [];
+  let promptSavedReport = false;
+  for (const proposal of proposals) {
+    if (proposal.kind !== "replacements") continue;
+    if (path && proposal.state !== "applied" && !path.onPathPrompt(proposal.promptMessageId)) continue;
+    const items = await ctx.db
+      .query("chatProposalItems")
+      .withIndex("by_proposalId", (q) => q.eq("proposalId", proposal._id))
+      .take(MAX_COMPLETION_REPORT_FINDINGS);
+    const sameJob = inCurrentJob(proposal.promptMessageId);
+    for (const item of items) {
+      rows.push({
+        itemId: item.itemId,
+        ...(item.section ? { section: item.section } : {}),
+        status: item.status,
+        proposalState: proposal.state,
+        createdAt: item.createdAt,
+        ...(item.fingerprint ? { fingerprint: item.fingerprint } : {}),
+        inCurrentJob: sameJob,
+        ...(item.paragraphNumber !== undefined ? { paragraph: item.paragraphNumber } : {}),
+      });
+    }
+    if (items.length > 0 && promptMessageId !== undefined && proposal.promptMessageId === promptMessageId) {
+      promptSavedReport = true;
+    }
+  }
+  return { rows, promptSavedReport };
+}
+
+const itemCoverageValidator = v.object({
+  itemId: v.string(),
+  section: v.optional(sectionNumberValidator),
+  label: v.string(),
+  handled: v.boolean(),
+  reopen: v.string(),
+  fingerprint: v.optional(v.string()),
+  inCurrentJob: v.boolean(),
+  createdAt: v.number(),
+});
+
+/**
+ * Phase A review P2-2: what this conversation already did with each
+ * Deviation (`convex/lib/chatItemCoverage.ts`), for the inventory tools and
+ * the per-turn note.
+ */
+export const getThreadItemCoverage = internalQuery({
+  args: { agentThreadId: v.string() },
+  returns: v.array(itemCoverageValidator),
+  handler: async (ctx, args): Promise<ItemCoverage[]> =>
+    itemCoverage((await threadCoverageRows(ctx, args.agentThreadId)).rows),
+});
+
+const lineParagraphValidator = v.object({ section: sectionNumberValidator, paragraph: v.number() });
+const waitingItemValidator = v.object({
+  itemId: v.string(),
+  section: sectionNumberValidator,
+  paragraph: v.number(),
+});
+
+/**
+ * Phase B (2026-10-20), W2 round 2: the coverage above, plus the paragraphs
+ * a pending card of the current job already rewrites and the items the job
+ * left waiting on them. `waiting` comes from the newest turn's Continue
+ * offer and is read again against today's cards: an item handled since, or
+ * whose card was applied, rejected or went stale, or that belongs to an
+ * earlier job's card, no longer waits.
+ */
+export const getThreadCoverageState = internalQuery({
+  args: { agentThreadId: v.string() },
+  returns: v.object({
+    items: v.array(itemCoverageValidator),
+    pendingParagraphs: v.array(lineParagraphValidator),
+    waiting: v.array(waitingItemValidator),
+  }),
+  handler: async (ctx, args) => {
+    const { rows } = await threadCoverageRows(ctx, args.agentThreadId);
+    const items = itemCoverage(rows);
+    const pendingParagraphs = pendingCardParagraphs(rows);
+    // Phase C (W2): the newest turn with an offer on the active path.
+    const offered = await pathTurnsNewestFirst(ctx, args.agentThreadId, JOB_TURN_SCAN);
+    const stored: WaitingItem[] = offered.find((turn) => turn.continuation)?.continuation?.waiting ?? [];
+    const stillOpen = stored.filter(
+      (item) => coverageFor(items, { id: item.itemId })?.handled !== true
+    );
+    const { waiting } = splitWaiting(stillOpen, pendingParagraphs);
+    return { items, pendingParagraphs, waiting };
+  },
+});
+
+/**
+ * Phase A (2026-10-19): the structured Continue offer a turn ends with.
+ * `outstanding` is every inventory item the turn worked on (rule, content or
+ * reference, review P3-1), or the stored rule Deviations when it listed
+ * none. Items this conversation already handled (on a pending or applied
+ * card, or blocked or conflicting; review P2-2) are left out, so Continue
+ * moves on instead of returning to a Line already done. "lines_left" is set
+ * only when this turn saved a Completion Report and items remain;
+ * "step_limit" and "cut_off" are always set. Only while the turn runs: a
+ * stopped turn offers nothing. Returns what was stored, or null.
+ */
+export const setTurnContinuation = internalMutation({
+  args: {
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    reason: chatTurnContinuationReasonValidator,
+    outstanding: v.array(v.object({
+      section: sectionNumberValidator,
+      itemId: v.string(),
+      fingerprint: v.optional(v.string()),
+      /** 1-based paragraph; read from the id when absent. */
+      paragraph: v.optional(v.number()),
+    })),
+  },
+  returns: v.union(v.null(), chatTurnContinuationValidator),
+  handler: async (ctx, args): Promise<ChatTurnContinuation | null> => {
+    const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
+    if (!turn || !turnIsActive(turn)) return null;
+
+    let coverage: ItemCoverage[] = [];
+    let pending: LineParagraph[] = [];
+    let turnSavedReport = false;
+    if (args.outstanding.length > 0 || args.reason === "lines_left") {
+      const read = await threadCoverageRows(ctx, args.agentThreadId, args.promptMessageId);
+      turnSavedReport = read.promptSavedReport;
+      coverage = itemCoverage(read.rows);
+      pending = pendingCardParagraphs(read.rows);
+    }
+    // Round 3 (P2-A): the same matching as the inventory's marks.
+    const left = args.outstanding.filter(
+      (item) => coverageFor(coverage, { id: item.itemId, fingerprint: item.fingerprint })?.handled !== true
+    );
+    // Phase B round 2: an item in a paragraph a pending card of this job
+    // already rewrites waits on that card. It is not counted and never sends
+    // the job (or its chain) back to that Line.
+    const { open, waiting } = splitWaiting(left, pending);
+    const nextSection = INVENTORY_SECTION_ORDER.find((section) =>
+      open.some((item) => item.section === section)
+    );
+    if (args.reason === "lines_left" && (!turnSavedReport || !nextSection)) return null;
+    const continuation: ChatTurnContinuation = {
+      reason: args.reason,
+      ...(nextSection ? { nextSection, remaining: open.length } : {}),
+      ...(waiting.length > 0 ? { waiting: waiting.slice(0, MAX_WAITING_ITEMS) } : {}),
+    };
+    await ctx.db.patch(turn._id, { continuation });
+    return continuation;
   },
 });
 
@@ -1125,6 +2249,43 @@ export const failStaleChatTurns = internalMutation({
       }
     }
     return { failed };
+  },
+});
+
+/**
+ * Phase B (2026-10-20), W2: start the next link of a long job, or record why
+ * not (`convex/lib/chatChain.ts`). Called once, at the very end of
+ * `streamChatReply`, after every message of the turn was saved.
+ */
+export const continueChain = internalMutation({
+  args: { agentThreadId: v.string(), promptMessageId: v.string() },
+  returns: v.union(
+    v.object({ kind: v.literal("linked"), promptMessageId: v.string() }),
+    v.object({ kind: v.literal("skipped"), reason: chatAutoContinueSkipValidator }),
+    v.object({ kind: v.literal("none") })
+  ),
+  handler: async (ctx, args) => await runContinueChain(ctx, args),
+});
+
+/**
+ * Phase B (2026-10-20), W2: the report page's reply signal. Whether any
+ * reply on the report runs, whether one of the viewer's does, and when the
+ * viewer's newest reply finished. Quietly idle for a reader without access.
+ */
+export const reportChatActivity = query({
+  args: { reportId: v.id("reports") },
+  returns: v.object({
+    active: v.boolean(),
+    mineActive: v.boolean(),
+    mineLastFinishedAt: v.union(v.number(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const idle = { active: false, mineActive: false, mineLastFinishedAt: null };
+    const report = await ctx.db.get(args.reportId);
+    if (!report) return idle;
+    const access = await getInternalProjectAccessOrNull(ctx, report.projectId);
+    if (!access) return idle;
+    return await readReportChatActivity(ctx, args.reportId, access.user._id);
   },
 });
 
@@ -1312,7 +2473,7 @@ export const saveProposal = internalMutation({
           q.eq("agentThreadId", args.agentThreadId).eq("toolCallId", args.toolCallId)
         )
         .unique();
-      if (existing) return { ok: true as const, proposalId: existing._id };
+      if (existing) return { ok: true as const, proposalId: existing._id, lengths: null };
     }
 
     const report = await ctx.db.get(thread.reportId);
@@ -1457,7 +2618,16 @@ export const saveProposal = internalMutation({
     })) {
       await ctx.db.insert("chatProposalItems", row);
     }
-    return { ok: true as const, proposalId };
+    // Owner 2026-10-21: the meters as they would read once the card is
+    // applied, so the model checks a trim against them instead of counting.
+    let lengths: string | null = null;
+    if (!recordOnly && args.kind !== "references") {
+      const after = args.requireUniqueTargets
+        ? applyPassageEdits(parsed as PMNode, pairs)
+        : { ok: true as const, ...applyReplacements(parsed as PMNode, pairs) };
+      if (after.ok) lengths = lineLengthsAfterEdit(report.content, JSON.stringify(after.doc));
+    }
+    return { ok: true as const, proposalId, lengths };
   },
 });
 
@@ -1472,10 +2642,14 @@ export const listProposalItems = query({
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) return [];
     await requireInternalProjectAccess(ctx, proposal.projectId);
-    return await ctx.db
+    if (await cardConversationDeleting(ctx, proposal)) return [];
+    const rows = await ctx.db
       .query("chatProposalItems")
       .withIndex("by_proposalId", (q) => q.eq("proposalId", args.proposalId))
       .take(MAX_COMPLETION_REPORT_FINDINGS);
+    // Phase A round 4 (N2): the item fingerprint only steers the server's
+    // marks; it never reaches the browser.
+    return rows.map(({ fingerprint: _serverOnly, ...row }) => row);
   },
 });
 
@@ -1490,6 +2664,68 @@ export const getThreadBrainContext = internalQuery({
       industry: project?.industry ?? null,
       scienceCode: normalizeCraScienceCode(project?.scienceCode) ?? null,
     };
+  },
+});
+
+/**
+ * The searchWeb tool's query with every name removed (decision 26), and the
+ * project it bills to. The placeholder map is built whatever the transcript
+ * placeholder setting says: that setting governs what models read, while a
+ * query leaving for a search provider never carries a name (2026-10-19).
+ */
+export const prepareChatWebSearch = internalQuery({
+  args: { agentThreadId: v.string(), query: v.string() },
+  handler: async (ctx, args): Promise<PreparedChatWebSearch | null> => {
+    const thread = await threadRow(ctx, args.agentThreadId);
+    if (!thread || (await isProjectDeleting(ctx, thread.projectId))) return null;
+    const project = await ctx.db.get(thread.projectId);
+    if (!project) return null;
+    const placeholders = await projectPlaceholderMap(
+      ctx,
+      project,
+      await listProjectTranscripts(ctx, project._id)
+    );
+    return {
+      projectId: project._id,
+      ...prepareWebSearchQuery(args.query, {
+        placeholders,
+        knownNames: webSearchKnownNames(project, placeholders),
+      }),
+    };
+  },
+});
+
+/**
+ * Phase B (W3): the searchWeb tool records one search it sent. The project
+ * and report come from the conversation, never from the caller; a deleted
+ * or deleting project records nothing. At most MAX_WEB_SEARCH_SOURCES
+ * sources, already cleaned by `cleanWebSource`; no answer text.
+ */
+export const recordChatWebSearch = internalMutation({
+  args: {
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    toolCallId: v.optional(v.string()),
+    query: v.string(),
+    status: v.union(v.literal("ok"), v.literal("failed")),
+    sources: v.array(webSourceValidator),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const thread = await threadRow(ctx, args.agentThreadId);
+    if (!thread || (await isProjectDeleting(ctx, thread.projectId))) return null;
+    await ctx.db.insert("chatWebSearches", {
+      projectId: thread.projectId,
+      reportId: thread.reportId,
+      agentThreadId: args.agentThreadId,
+      promptMessageId: args.promptMessageId,
+      ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
+      query: args.query.slice(0, CHAT_WEB_SEARCH_MAX_QUERY_CHARS),
+      status: args.status,
+      sources: args.sources.slice(0, MAX_WEB_SEARCH_SOURCES),
+      createdAt: Date.now(),
+    });
+    return null;
   },
 });
 
@@ -1983,7 +3219,11 @@ export const getChatContextV2 = internalQuery({
         // edit decision out of the model's memory. Still bounded and charged.
         .take(24)
     );
+    // Phase C (W2): the active path's cards, plus cards applied on any path.
+    const path = await loadChatPath(ctx, args.agentThreadId);
+    if (path) budget.charge(path.turns);
     const decisions = proposals
+      .filter((p) => !path || p.state === "applied" || path.onPathPrompt(p.promptMessageId))
       // Highlights and record-only revisions (DW-135) carry no edit the writer
       // decided on; listing one as "[Edit N: APPLIED]" with an empty target
       // would hand the model a decision nobody made.
@@ -2002,6 +3242,15 @@ export const getChatContextV2 = internalQuery({
 
     const openQuestions = await openQuestionsFor(ctx, ownGeneration, budget);
 
+    // Chat parity Phase B (2026-10-20): the project's active transcripts,
+    // listed (never sent) in the head so readTranscript can open them, and
+    // the reading tools' admin setting. Read last, so the reads above keep
+    // the budget they had.
+    const transcriptList = await chatTranscriptSummaries(ctx, report.projectId, budget);
+    const documentToolsRead = await budget.read(() => chatDocumentToolsEnabled(ctx), 1024);
+    // Phase C (W1): whether the chat may see PDFs and images.
+    const chatVisionRead = await budget.read(() => chatVisionEnabled(ctx), 1024);
+
     return {
       reportContent: report.content ?? null,
       agentOutputs: agentOutputs ?? null,
@@ -2015,6 +3264,14 @@ export const getChatContextV2 = internalQuery({
           content: d.content,
           ...(d.category ? { category: d.category } : {}),
           ...(d.uploaderRole ? { uploaderRole: d.uploaderRole } : {}),
+          // 2026-10-19 (chat parity Phase A): stored facts for the FILES IN
+          // THIS PROJECT list. The id and the original's presence are for the
+          // later file tools; the list renders name, category, status, size.
+          documentId: d._id,
+          fileType: d.fileType,
+          ...(d.processingStatus ? { processingStatus: d.processingStatus } : {}),
+          textLength: d.content.length,
+          hasOriginal: d.storageId !== undefined,
         })),
       decisions,
       // CAP-14: the unresolved and unreliable Confidence Map facts of THIS
@@ -2031,6 +3288,228 @@ export const getChatContextV2 = internalQuery({
       // Resolved in the query, exactly as `getGenerationInput` resolves the
       // analyzer's: the action sends context, it does not decide policy.
       evidenceBudget,
+      transcripts: transcriptList.transcripts,
+      ...(transcriptList.complete ? {} : { transcriptsIncomplete: true }),
+      // A setting the budget could not read stays on, as the setting does.
+      documentTools: documentToolsRead.ok ? documentToolsRead.value : true,
+      chatVision: chatVisionRead.ok ? chatVisionRead.value : true,
     };
+  },
+});
+
+// ─── Conversation management (chat parity Phase C, W3, 2026-10-20) ──────────
+// Rename, archive and restore are open to anyone with project access; an
+// admin may delete a conversation for everyone. Archiving is reversible and
+// keeps the conversation readable; deletion is permanent (lib/chatThreads.ts).
+
+/** The conversation, checked against the caller's project access. */
+async function managedThread(ctx: MutationCtx, agentThreadId: string) {
+  // Fable review F2 P3-4: who is asking first, so an unsigned caller cannot
+  // tell an existing conversation id from a missing one.
+  await requireInternalActor(ctx);
+  const thread = await threadRow(ctx, agentThreadId);
+  if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
+  const access = await requireInternalProjectAccess(ctx, thread.projectId);
+  return { thread, user: access.user };
+}
+
+export const renameThread = mutation({
+  args: { threadId: v.string(), title: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { thread } = await managedThread(ctx, args.threadId);
+    await ctx.db.patch(thread._id, { title: renamedThreadTitle(args.title) });
+    return null;
+  },
+});
+
+export const archiveThread = mutation({
+  args: { threadId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { thread, user } = await managedThread(ctx, args.threadId);
+    if (thread.archivedAt !== undefined) return null;
+    await ctx.db.patch(thread._id, { archivedAt: Date.now(), archivedBy: user._id });
+    return null;
+  },
+});
+
+export const restoreThread = mutation({
+  args: { threadId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { thread } = await managedThread(ctx, args.threadId);
+    if (thread.archivedAt === undefined) return null;
+    await ctx.db.patch(thread._id, { archivedAt: undefined, archivedBy: undefined });
+    return null;
+  },
+});
+
+export const listArchivedThreads = query({
+  args: { reportId: v.id("reports") },
+  handler: async (ctx, args) => {
+    const report = await ctx.db.get(args.reportId);
+    if (!report) return [];
+    const access = await getInternalProjectAccessOrNull(ctx, report.projectId);
+    if (!access) return [];
+    const threads = await listArchivedThreadRows(ctx, args.reportId);
+    return threads.map((thread) => ({
+      _id: thread._id,
+      agentThreadId: thread.agentThreadId,
+      title: thread.title,
+      createdAt: thread.createdAt,
+      ...(thread.lastActivityAt !== undefined ? { lastActivityAt: thread.lastActivityAt } : {}),
+      archivedAt: thread.archivedAt ?? thread.createdAt,
+      webSearch: threadWebSearchOn(thread),
+    }));
+  },
+});
+
+/**
+ * A reply that ended this recently may still be writing its last rows (a
+ * stopped turn's action runs on for a moment): a delete waits it out
+ * (review R2 P3-1).
+ */
+export const THREAD_DELETE_SETTLE_MS = 10_000;
+/**
+ * Round 2 N5: how long after a turn ended a delete waits for its action to
+ * report its real end (`actionEndedAt`). Past this the action is taken to
+ * have died (the stale-turn reaper ends such turns without one).
+ */
+export const THREAD_DELETE_ACTION_CEILING_MS = 2 * 60 * 1000;
+
+/**
+ * Whether the newest turn's action may still write: until it reported its
+ * real end plus THREAD_DELETE_SETTLE_MS, or, when it never reported one,
+ * until THREAD_DELETE_ACTION_CEILING_MS after the turn ended.
+ */
+function replyStillSettling(turn: Doc<"chatTurns">, now: number): boolean {
+  if (turn.actionEndedAt !== undefined) return now - turn.actionEndedAt < THREAD_DELETE_SETTLE_MS;
+  if (turn.endedAt === undefined) return false;
+  return now - turn.endedAt < THREAD_DELETE_ACTION_CEILING_MS;
+}
+
+/**
+ * Admin only, never while a reply runs or just after one ended. The row is
+ * marked (`deletingAt`) now, so the conversation leaves every menu and
+ * refuses every send at once; `purgeThread` deletes the rest in bounded
+ * pages and the row last (review R2 P2-1).
+ */
+export const deleteThread = mutation({
+  args: { threadId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const admin = await requireRole(ctx, ["admin"]);
+    const { thread } = await managedThread(ctx, args.threadId);
+    if (await otherActiveTurn(ctx, thread.agentThreadId)) {
+      domainError(
+        "CHAT_TURN_ACTIVE",
+        "A reply is still being written in this conversation. Wait for it to finish, or press Stop, then delete it."
+      );
+    }
+    const now = Date.now();
+    const newest = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", thread.agentThreadId))
+      .order("desc")
+      .first();
+    if (newest && replyStillSettling(newest, now)) {
+      domainError(
+        "CHAT_TURN_ACTIVE",
+        "A reply just finished in this conversation. Try again in a few seconds."
+      );
+    }
+    await ctx.db.patch(thread._id, { deletingAt: now, deletingBy: admin._id, purgeHeartbeatAt: now });
+    await ctx.scheduler.runAfter(0, internal.chatV2.purgeThread, {
+      agentThreadId: thread.agentThreadId,
+    });
+    return null;
+  },
+});
+
+/**
+ * One bounded run of a deleting conversation's purge (lib/chatThreadPurge.ts).
+ * Idempotent: it starts from whatever rows are left. When the row is gone
+ * (project erasure took it), there is nothing left to do.
+ */
+export const purgeThread = internalMutation({
+  args: { agentThreadId: v.string(), step: v.optional(purgeStepValidator) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const thread = await anyThreadRow(ctx, args.agentThreadId);
+    if (!thread || !isThreadDeleting(thread)) return null;
+    const next = await purgeThreadRows(ctx, args.agentThreadId, args.step);
+    if (next) {
+      await ctx.db.patch(thread._id, { purgeHeartbeatAt: Date.now() });
+      await ctx.scheduler.runAfter(0, internal.chatV2.purgeThread, {
+        agentThreadId: args.agentThreadId,
+        step: next,
+      });
+      return null;
+    }
+    // Last: the component deletes its thread, messages and streams in its
+    // own pages (the same call as project erasure), then the row goes. Fable
+    // review F2 P3-2: the component call runs in this transaction, so if it
+    // fails the row stays (marked deleting) and the stall cron retries; the
+    // row never goes while the component still holds the thread's text. A
+    // thread the component no longer knows needs no call.
+    const componentThread = await ctx.runQuery(components.agent.threads.getThread, {
+      threadId: args.agentThreadId,
+    });
+    if (componentThread) {
+      await ctx.runMutation(components.agent.threads.deleteAllForThreadIdAsync, {
+        threadId: args.agentThreadId,
+      });
+    }
+    await ctx.db.delete(thread._id);
+    return null;
+  },
+});
+
+/**
+ * Round 2 N2: one conversation's status, by id, for a viewer whose selected
+ * conversation is not in the bounded menu lists. Only `deleting` and
+ * `missing` (gone, or out of the viewer's reach) mean the viewer should
+ * leave it; a conversation can drop out of a 50-row list and still exist.
+ */
+export const threadStatus = query({
+  args: { threadId: v.string() },
+  returns: v.union(v.literal("open"), v.literal("archived"), v.literal("deleting"), v.literal("missing")),
+  handler: async (ctx, args) => {
+    const thread = await anyThreadRow(ctx, args.threadId);
+    if (!thread) return "missing" as const;
+    const access = await getInternalProjectAccessOrNull(ctx, thread.projectId);
+    if (!access) return "missing" as const;
+    if (isThreadDeleting(thread)) return "deleting" as const;
+    return thread.archivedAt !== undefined ? ("archived" as const) : ("open" as const);
+  },
+});
+
+/** Deleting conversations the stalled-purge sweep looks at per run. */
+const PURGE_SWEEP_LIMIT = 20;
+
+/**
+ * Review R2 P2-1: a purge run that failed (a limit error is not retried)
+ * leaves its conversation marked. Every few minutes, a marked conversation
+ * whose purge made no progress for PURGE_STALL_MS is started again from
+ * its first step; the run is idempotent.
+ */
+export const resumeStalledThreadPurges = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const deleting = await ctx.db
+      .query("agentChatThreads")
+      .withIndex("by_deletingAt", (q) => q.gt("deletingAt", 0))
+      .take(PURGE_SWEEP_LIMIT);
+    let resumed = 0;
+    for (const thread of deleting) {
+      if (now - (thread.purgeHeartbeatAt ?? thread.deletingAt ?? now) < PURGE_STALL_MS) continue;
+      await ctx.db.patch(thread._id, { purgeHeartbeatAt: now });
+      await ctx.scheduler.runAfter(0, internal.chatV2.purgeThread, { agentThreadId: thread.agentThreadId });
+      resumed += 1;
+    }
+    return resumed;
   },
 });

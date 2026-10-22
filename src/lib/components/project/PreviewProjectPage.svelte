@@ -19,6 +19,7 @@
   import { overlayFade, modalPop } from "$lib/motion";
   import { boardRem, rootScale } from "$lib/rootScale";
   import { api } from "../../../../convex/_generated/api";
+  import { useReplySignal } from "$lib/chat/replySignal.svelte";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import ProjectStateBadge from "$lib/components/dashboard/ProjectStateBadge.svelte";
   import Button from "$lib/components/ui/Button.svelte";
@@ -1841,6 +1842,12 @@
   // no panel, divider or full screen on the page.
   const sideSurfacesAvailable = $derived(Boolean(report && user && reportActionsVisible));
   const chatShown = $derived(chatOpen && sideSurfacesAvailable);
+  // Phase B (2026-10-20): the reply signal on the Assistant toggle; the panel
+  // is lazy-mounted, so it is read here.
+  const replySignal = useReplySignal(() => ({
+    reportId: reportQ.data?._id,
+    panelOpen: chatShown && sidePanelOnScreen,
+  }));
   const qaShown = $derived(qaOpen && sideSurfacesAvailable);
   // The persisted open state (chatOpen, qaOpen) is a preference. A surface
   // the page does not offer right now (Seed phases, writing, intake) takes
@@ -2058,8 +2065,11 @@
 <svelte:window
   onpopstate={() => (seedSummaryRequested = new URL(window.location.href).searchParams.get("view") === "summary")}
   onkeydown={(e) => {
-    if (e.key === "Escape" && assistantFull && !replaceSession) chatFocus = false;
-    else if (e.key === "Escape" && chatShown && !replaceSession) {
+    // Chat parity Phase A: an Esc a menu or dialog already handled is theirs,
+    // and the Assistant stays open while its composer holds unsent text.
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    if (assistantFull && !replaceSession) chatFocus = false;
+    else if (chatShown && !replaceSession && !document.querySelector("[data-assistant-draft]")) {
       chatOpen = false;
       mobileWorkspaceView = "report";
     }
@@ -2267,6 +2277,7 @@
         showAssistant={reportActionsVisible && !!user}
         showQa={reportActionsVisible && !!user}
         assistantActive={chatShown && sidePanelOnScreen}
+        assistantSignal={replySignal.signal}
         onToggleAssistant={() => {
           assistantIntent();
           void leaveDetailsThen(() => toggleSidePanel("chat"));
@@ -2534,10 +2545,10 @@
               data-report-width={workspaceMaximized ? "full" : "reading"}
               class={`pt-11 pb-10 transition-[padding,max-width] ${layoutMotion} ${reportColumn(workspaceMaximized, sidePanelOpen)}`}
             >
-              <!-- Board 2.1: the report opens on its serif title. The top bar
+              <!-- Board 2.1: the report opens on its title (sans since 2026-10-21). The top bar
                    holds the page h1; the document's own title heading stays
                    hidden in the editor. -->
-              <h2 data-report-title class="mb-0.5 font-serif text-[1.75rem] leading-9 font-normal text-ink [text-wrap:balance]">
+              <h2 data-report-title class="mb-0.5 text-display font-normal">
                 {project.title}
               </h2>
               {#if notDraftedSections.length > 0}
@@ -2553,7 +2564,7 @@
                   />
                 </div>
               {:else if reportReadOnly}
-                <p class="mt-4 text-[0.8125rem] leading-5 text-ink-secondary" role="status" data-redraft-status>
+                <p class="mt-4 text-[0.8125rem] leading-[calc(20/13)] text-ink-secondary" role="status" data-redraft-status>
                   Drafting the missing sections. Editing resumes when they are in.
                 </p>
               {/if}

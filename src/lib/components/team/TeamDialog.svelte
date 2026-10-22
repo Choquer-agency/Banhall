@@ -88,9 +88,9 @@
             >
               <div class="flex items-start gap-4 pl-7 pr-5 pt-6">
                 <div class="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <Dialog.Title class="text-lg leading-6 font-medium text-ink">{title}</Dialog.Title>
+                  <Dialog.Title class="text-lg leading-[calc(4/3)] font-medium text-ink">{title}</Dialog.Title>
                   {#if description}
-                    <Dialog.Description class="text-sm leading-5 text-ink-muted">{description}</Dialog.Description>
+                    <Dialog.Description class="text-sm leading-[calc(10/7)] text-ink-muted">{description}</Dialog.Description>
                   {/if}
                 </div>
                 <Dialog.Close

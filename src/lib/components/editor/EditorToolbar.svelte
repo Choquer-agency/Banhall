@@ -57,12 +57,15 @@
     onComment,
     onAskAI,
     onResearch,
+    onVet,
     commentOnly = false,
   }: {
     editor: Editor;
     onComment?: () => void;
     onAskAI?: () => void;
     onResearch?: () => void;
+    /** Chat parity Phase C: "Vet against public sources" for the selection. */
+    onVet?: () => void;
     commentOnly?: boolean;
   } = $props();
 
@@ -166,8 +169,11 @@
     blockMenuOpen = false;
     linkEditing = false;
     revision += 1;
+    // The toolbar sits 14 px above the pointer. On a touch screen its
+    // controls keep the 44 px floor, so the bar is 18 px taller.
+    const coarse = window.matchMedia?.("(pointer: coarse)").matches === true;
     coords = {
-      top: mouseY - editorRect.top - 48,
+      top: mouseY - editorRect.top - (coarse ? 66 : 48),
       left: mouseX - editorRect.left,
     };
   }
@@ -238,7 +244,7 @@
     bind:this={menuEl}
     bind:offsetWidth={toolbarWidth}
     data-selection-toolbar
-    class="absolute z-50 flex h-[2.125rem] items-center gap-0.5 whitespace-nowrap rounded-md border border-line bg-surface px-1.5 font-sans shadow-toolbar"
+    class="absolute z-50 flex h-[2.125rem] pointer-coarse:h-[3.25rem] items-center gap-0.5 whitespace-nowrap rounded-md border border-line bg-surface px-1.5 font-sans shadow-toolbar"
     style={`top: ${coords.top}px; left: ${left}px; transform: translateX(-50%);`}
     onmousedown={(e) => {
       // Prevent toolbar clicks from stealing focus from the editor (the link
@@ -256,12 +262,12 @@
         type="url"
         placeholder="Paste or type a link"
         onkeydown={handleLinkKey}
-        class="input-chromeless h-[1.625rem] w-56 bg-transparent px-2 text-xs text-ink placeholder:text-ink-faint"
+        class="input-chromeless h-[1.625rem] pointer-coarse:h-11 w-56 bg-transparent px-2 text-xs text-ink placeholder:text-ink-faint"
       />
       <button
         type="button"
         onclick={applyLink}
-        class="flex h-[1.625rem] items-center rounded-[0.3125rem] px-2 text-xs text-primary-selected transition-colors hover:bg-primary-wash"
+        class="flex h-[1.625rem] pointer-coarse:h-11 items-center rounded-[0.3125rem] px-2 text-xs text-primary-selected transition-colors hover:bg-primary-wash"
       >Add link</button>
     {:else}
       {#if !commentOnly && !active.touchesSectionHeading}
@@ -272,7 +278,7 @@
             aria-expanded={blockMenuOpen}
             title="Block type"
             onclick={() => (blockMenuOpen = !blockMenuOpen)}
-            class="flex h-[1.625rem] items-center gap-1 rounded-[0.3125rem] px-2 text-xs text-ink transition-colors hover:bg-primary-wash"
+            class="flex h-[1.625rem] pointer-coarse:h-11 items-center gap-1 rounded-[0.3125rem] px-2 text-xs text-ink transition-colors hover:bg-primary-wash"
           >
             {blockLabel}
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" class="text-ink-muted" aria-hidden="true">
@@ -294,7 +300,7 @@
                     type.apply(editor);
                     blockMenuOpen = false;
                   }}
-                  class={`flex h-7 items-center rounded-[0.3125rem] px-2 text-left text-xs transition-colors hover:bg-primary-wash ${type.label === blockLabel ? "text-primary-selected" : "text-ink"}`}
+                  class={`flex h-7 pointer-coarse:h-11 items-center rounded-[0.3125rem] px-2 text-left text-xs transition-colors hover:bg-primary-wash ${type.label === blockLabel ? "text-primary-selected" : "text-ink"}`}
                 >{type.label}</button>
               {/each}
             </div>
@@ -344,14 +350,14 @@
           type="button"
           onclick={askAI}
           title="Ask assistant"
-          class="flex h-[1.625rem] items-center gap-1.5 rounded-[0.3125rem] bg-primary-wash px-2 text-xs text-primary-selected transition-colors hover:bg-chrome"
+          class="flex h-[1.625rem] pointer-coarse:h-11 items-center gap-1.5 rounded-[0.3125rem] bg-primary-wash px-2 text-xs text-primary-selected transition-colors hover:bg-chrome"
         >
           <AuroraMark size={14} />
           Ask assistant
         </button>
       {/if}
 
-      {#if !commentOnly || onComment || onResearch}
+      {#if !commentOnly || onComment || onResearch || onVet}
         {#if !commentOnly}
           <div class="h-4 w-px shrink-0 bg-line" aria-hidden="true"></div>
           <!-- Kept from the old toolbar (decision 19); quiet, after the board's set. -->
@@ -379,6 +385,14 @@
             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
               <circle cx="11" cy="11" r="7" />
               <path stroke-linecap="round" d="m20 20-3.4-3.4M11 8v6M8 11h6" />
+            </svg>
+          </ToolbarButton>
+        {/if}
+        {#if onVet}
+          <ToolbarButton active={false} onclick={onVet} title="Vet against public sources">
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6l-7-3Z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="m9 12 2 2 4-4" />
             </svg>
           </ToolbarButton>
         {/if}

@@ -49,6 +49,7 @@
     assistantActive = false,
     onToggleAssistant,
     onAssistantIntent,
+    assistantSignal = null,
     qa,
     showQa = true,
   }: {
@@ -71,6 +72,8 @@
     /** A pointer rests on, a finger touches, or the keyboard focuses the
      * Assistant toggle: the page starts loading the Assistant early. */
     onAssistantIntent?: () => void;
+    /** Phase B reply signal: a ring while a reply runs, a dot when yours is ready. */
+    assistantSignal?: "working" | "ready" | null;
     /** The QA toggle slot. */
     qa?: Snippet;
     /** Whether the QA slot renders anything (it draws the divider before it). */
@@ -91,7 +94,7 @@
   const toggleBase =
     "flex size-[1.625rem] shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir pointer-coarse:size-11";
   const toggleClass = (active: boolean) =>
-    `${toggleBase} ${active ? "bg-workspace-rail-selected text-fir" : "text-ink-muted hover:bg-primary-wash hover:text-ink"}`;
+    `${toggleBase} ${active ? "bg-workspace-page-icon text-fir" : "text-ink-muted hover:bg-primary-wash hover:text-ink"}`;
 </script>
 
 <div
@@ -112,7 +115,7 @@
         title={reason}
         aria-describedby={reason ? `panel-tab-reason-${tab.id}` : undefined}
         onclick={() => onSelectTab(tab.id)}
-        class={`relative flex shrink-0 items-center gap-1.5 text-xs leading-4 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir disabled:cursor-default disabled:opacity-50 pointer-coarse:min-h-11 ${active ? "font-medium text-ink" : "text-ink-secondary hover:text-ink"}`}
+        class={`relative flex shrink-0 items-center gap-1.5 text-xs leading-[calc(4/3)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir disabled:cursor-default disabled:opacity-50 pointer-coarse:min-h-11 ${active ? "font-medium text-ink" : "text-ink-secondary hover:text-ink"}`}
       >
         {tab.label}
         {#if tab.done}
@@ -120,10 +123,10 @@
           <span class="sr-only">, done</span>
         {/if}
         {#if tab.status}
-          <span class="rounded bg-primary-wash px-1.5 text-[0.6875rem] leading-4 text-primary-selected">{tab.status}</span>
+          <span class="rounded bg-primary-wash px-1.5 text-[0.6875rem] leading-[calc(16/11)] text-primary-selected">{tab.status}</span>
         {/if}
         {#if tab.count != null}
-          <span class="flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-gray-50 px-1 text-[0.625rem] leading-3 font-normal text-ink-muted tabular-nums">{tab.count}</span>
+          <span class="flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-gray-50 px-1 text-[0.625rem] leading-[1.2] font-normal text-ink-muted tabular-nums">{tab.count}</span>
         {/if}
         {#if active}
           <span aria-hidden="true" class="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-primary-selected"></span>
@@ -180,12 +183,18 @@
             type="button"
             data-panel-toggle="assistant"
             aria-pressed={assistantActive}
-            aria-label="Assistant"
+            aria-label={assistantSignal === "working" ? "Assistant, writing a reply" : assistantSignal === "ready" ? "Assistant, your reply is ready" : "Assistant"}
             onclick={onToggleAssistant}
             {@attach assistantIntent}
-            class={toggleClass(assistantActive)}
+            class={`relative ${toggleClass(assistantActive)}`}
           >
             <AuroraMark size={18} />
+            <!-- The working ring is for a closed panel: an open one shows the reply. -->
+            {#if assistantSignal === "working" && !assistantActive}
+              <span data-assistant-working aria-hidden="true" class="pointer-events-none absolute inset-0 animate-pulse rounded-md ring-2 ring-primary-selected/50 motion-reduce:animate-none"></span>
+            {:else if assistantSignal === "ready"}
+              <span data-assistant-ready-dot aria-hidden="true" class="absolute -right-0.5 -top-0.5 size-2 rounded-full border-2 border-surface bg-primary-selected"></span>
+            {/if}
           </button>
         {/snippet}
       </Tooltip>

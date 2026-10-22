@@ -24,14 +24,14 @@
   {/if}
   <!-- Phones (J9): two lines, "invited you as". -->
   <div class="flex flex-col gap-1 sm:hidden">
-    <p class="flex flex-wrap items-center gap-1.5 text-[0.8125rem] leading-[1.125rem] text-fir">
+    <p class="flex flex-wrap items-center gap-1.5 text-[0.8125rem] leading-[calc(18/13)] text-fir">
       {inviter ? `${inviter.name} invited you as` : "You were invited as"}
       <RoleChip {role} />
     </p>
-    <p data-invite-join-by class="text-xs leading-4 text-invite-banner-muted">{joinBy}</p>
+    <p data-invite-join-by class="text-xs leading-[calc(4/3)] text-invite-banner-muted">{joinBy}</p>
   </div>
   <!-- Wider screens (J5): one centred row. -->
-  <p class="hidden items-center gap-2.5 text-sm leading-5 text-fir sm:flex">
+  <p class="hidden items-center gap-2.5 text-sm leading-[calc(10/7)] text-fir sm:flex">
     {inviter ? `${inviter.name} invited you to join as` : "You were invited to join as"}
     <RoleChip {role} />
     <span data-invite-join-by class="text-invite-banner-muted">{joinBy}</span>

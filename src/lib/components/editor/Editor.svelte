@@ -378,7 +378,9 @@
       const metric = metrics[key];
       const state = limitState(metric);
       const headingRange = headingRanges[key];
-      if (headingMeters && headingRange && state !== "ok") {
+      // Owner, 2026-10-21: the meter shows only once a Section is over a
+      // CRA limit; near the limit, it stays quiet.
+      if (headingMeters && headingRange && state === "over") {
         const spec: ReportLimitMeterSpec = {
           reportLimitMeter: {
             state,
@@ -1003,7 +1005,7 @@
     onAskAI({ from, to, text: text.trim() });
   }
 
-  function handleResearch() {
+  function handleResearch(preset?: "vet") {
     if (!editor || !onResearch) return;
     const { from, to } = editor.state.selection;
     if (from === to) return;
@@ -1026,6 +1028,7 @@
       ]
         .filter(Boolean)
         .join("\n\n"),
+      ...(preset ? { preset } : {}),
     });
   }
 
@@ -1250,7 +1253,8 @@
         {editor}
         onComment={handleComment}
         onAskAI={onAskAI ? handleAskAI : undefined}
-        onResearch={onResearch ? handleResearch : undefined}
+        onResearch={onResearch ? () => handleResearch() : undefined}
+        onVet={onResearch ? () => handleResearch("vet") : undefined}
       />
     {/if}
 
@@ -1279,7 +1283,7 @@
       <!-- Always mounted, so the live region announces its message. -->
       <div class="pointer-events-none fixed inset-x-0 bottom-6 z-[85] flex justify-center px-4" role="status" aria-live="polite" data-heading-notice>
         {#if headingNotice}
-          <p class="rounded-lg bg-navy px-4 py-2 font-sans text-[0.8125rem] leading-5 text-white shadow-popover">
+          <p class="rounded-lg bg-navy px-4 py-2 font-sans text-[0.8125rem] leading-[calc(20/13)] text-white shadow-popover">
             {headingNotice === "paste"
               ? "Section headings were left out of the paste."
               : "Section headings stay as they are. Edit the text under them."}

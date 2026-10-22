@@ -24,6 +24,7 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
+  import { useReplySignal } from "$lib/chat/replySignal.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
   import GenerationStatusChip from "$lib/components/generation/GenerationStatusChip.svelte";
@@ -540,6 +541,12 @@
   // Which card occupies the rail (also while all are closed, for the sink
   // animation and so exactly one card is in flow at a time).
   let railView = $state<"chat" | "qa" | "brief">("chat");
+  // Phase B (2026-10-20): the reply signal on the Assistant pill; the panel
+  // is lazy-mounted, so it is read here.
+  const replySignal = useReplySignal(() => ({
+    reportId: reportQ.data?._id,
+    panelOpen: chatOpen && railView === "chat",
+  }));
   let workspaceEl: HTMLDivElement | null = $state(null);
   let dragging = $state(false);
   // Send any upload failures this user queued while offline. Page-level rather
@@ -1283,7 +1290,10 @@
 <svelte:window
   onpopstate={() => (seedSummaryRequested = new URL(window.location.href).searchParams.get("view") === "summary")}
   onkeydown={(e) => {
-    if (e.key === "Escape" && chatOpen && !replaceSession) chatOpen = false;
+    // Chat parity Phase A: an Esc a menu or dialog already handled is theirs,
+    // and the Assistant stays open while its composer holds unsent text.
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    if (chatOpen && !replaceSession && !document.querySelector("[data-assistant-draft]")) chatOpen = false;
   }}
 />
 
@@ -1915,10 +1925,15 @@
                   chatOpen = true;
                   railView = "chat";
                 }}
-                aria-label="Open AI assistant"
+                aria-label={replySignal.signal === "working" ? "Open AI assistant, writing a reply" : replySignal.signal === "ready" ? "Open AI assistant, your reply is ready" : "Open AI assistant"}
                 class="chat-pill-glow fixed bottom-6 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full bg-navy text-white transition-transform hover:scale-105"
               >
                 <ChatIcon class="h-4.5 w-4.5" />
+                {#if replySignal.signal === "working"}
+                  <span data-assistant-working aria-hidden="true" class="pointer-events-none absolute -inset-1 animate-pulse rounded-full ring-2 ring-primary-selected/60 motion-reduce:animate-none"></span>
+                {:else if replySignal.signal === "ready"}
+                  <span data-assistant-ready-dot aria-hidden="true" class="absolute right-0 top-0 size-2.5 rounded-full border-2 border-white bg-primary-selected"></span>
+                {/if}
               </button>
             {/snippet}
           </Tooltip>

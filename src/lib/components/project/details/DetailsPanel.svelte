@@ -141,9 +141,9 @@
       >
         <CaretLeftIcon size="1rem" aria-hidden="true" />
       </button>
-      <h2 id={`${componentId}-title`} class="text-[0.8125rem] font-medium leading-[1.125rem] text-ink">Hand off</h2>
+      <h2 id={`${componentId}-title`} class="text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink">Hand off</h2>
     {:else}
-      <h2 id={`${componentId}-title`} class="text-[0.8125rem] font-medium leading-[1.125rem] text-ink">Details</h2>
+      <h2 id={`${componentId}-title`} class="text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink">Details</h2>
     {/if}
     <button
       type="button"
@@ -230,7 +230,7 @@
         data-details-confirmation
         in:fly={{ y: 4, duration: motionDuration(200) }}
         out:fade={{ duration: motionDuration(300) }}
-        class="absolute inset-x-0 bottom-0 flex h-10 items-center gap-2.5 rounded-[0.625rem] border border-line bg-surface px-3.5 text-[0.8125rem] leading-[1.125rem] text-ink shadow-toast"
+        class="absolute inset-x-0 bottom-0 flex h-10 items-center gap-2.5 rounded-[0.625rem] border border-line bg-surface px-3.5 text-[0.8125rem] leading-[calc(18/13)] text-ink shadow-toast"
       >
         <CheckIcon size="0.875rem" weight="bold" aria-hidden="true" class="shrink-0 text-primary-selected" />
         <span class="min-w-0 truncate">{shown.text}</span>

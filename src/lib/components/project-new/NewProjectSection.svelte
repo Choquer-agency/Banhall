@@ -43,9 +43,9 @@
   style={`gap:${gap}`}
 >
   <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-    <span class="font-mono text-xs leading-[1.375rem] text-ink-faint" aria-hidden="true">{number}</span>
-    <h2 id={`${id}-title`} class="text-[0.9375rem] leading-[1.375rem] font-medium text-ink">{title}</h2>
-    {#if helper}<p class="text-[0.8125rem] leading-[1.1875rem] text-ink-muted">{helper}</p>{/if}
+    <span class="font-mono text-xs leading-[calc(11/6)] text-ink-faint" aria-hidden="true">{number}</span>
+    <h2 id={`${id}-title`} class="text-[0.9375rem] leading-[calc(22/15)] font-medium text-ink">{title}</h2>
+    {#if helper}<p class="text-[0.8125rem] leading-[calc(19/13)] text-ink-muted">{helper}</p>{/if}
     {#if status && statusInline}{@render status()}{/if}
     <span class="grow"></span>
     {#if status && !statusInline}{@render status()}{/if}

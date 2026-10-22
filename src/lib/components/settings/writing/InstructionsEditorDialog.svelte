@@ -27,8 +27,8 @@
     <div class="pointer-events-none fixed inset-0 z-[130] flex items-end sm:items-center sm:justify-center sm:p-4">
       <Dialog.Content forceMount>{#snippet child({ props, open: isOpen })}{#if isOpen}
         <div {...props} transition:modalPop data-instructions-editor class="pointer-events-auto flex h-[90dvh] w-full flex-col rounded-t-2xl border border-line bg-surface p-6 shadow-popover sm:h-[80dvh] sm:max-w-3xl sm:rounded-2xl">
-          <Dialog.Title class="text-lg leading-6 font-medium text-ink">Your instructions</Dialog.Title>
-          <Dialog.Description class="mt-1.5 text-sm leading-5 text-ink-muted">
+          <Dialog.Title class="text-lg leading-[calc(4/3)] font-medium text-ink">Your instructions</Dialog.Title>
+          <Dialog.Description class="mt-1.5 text-sm leading-[calc(10/7)] text-ink-muted">
             Describe how you like to write, or paste a sample of your writing. Close the editor, then save your preferences.
           </Dialog.Description>
           <textarea

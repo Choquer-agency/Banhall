@@ -1,7 +1,8 @@
 <!--
   Hover block handle (port of src/components/editor/BlockHandle.tsx): a "+"
-  (insert paragraph after block) and drag-dots affordance floated in the left
-  gutter of the hovered top-level block. Rendered by Editor.svelte inside the
+  (insert paragraph after block) floated in the left gutter of the hovered
+  top-level block. The drag grip was removed (owner, 2026-10-21): it never
+  moved a block. Rendered by Editor.svelte inside the
   relative `.group/editor` wrapper.
 -->
 <script lang="ts">
@@ -12,12 +13,11 @@
     compact = false,
   }: {
     editor: Editor;
-    /** Reading presentation (board 2.1): a small + and grip level with the first line. */
+    /** Reading presentation (board 2.1): a small + level with the first line. */
     compact?: boolean;
   } = $props();
 
   let hoveredBlock = $state<{ top: number; pos: number } | null>(null);
-  let dragging = $state(false);
 
   let handleEl = $state<HTMLDivElement | null>(null);
 
@@ -27,7 +27,6 @@
     const editorElement = editor.view.dom; // the `.tiptap-editor` root
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (dragging) return;
       const wrapper = editorElement.parentElement?.closest(".group\\/editor") ?? editorElement.parentElement;
       const target = e.target instanceof Node ? e.target : null;
       if (!wrapper || !target || !wrapper.contains(target)) {
@@ -82,12 +81,13 @@
 </script>
 
 {#if hoveredBlock && compact}
-  <!-- pr-0.5 runs the hit area to the text edge, so the pointer never leaves
-       the editor on its way from a heading to the handle. -->
+  <!-- The + keeps its place 34px left of the text; the right padding runs
+       the hit area to the text edge, so the pointer never leaves the editor
+       on its way from a heading to the handle. -->
   <div
     bind:this={handleEl}
     data-block-handle
-    class="absolute -left-[2.125rem] flex items-center gap-0.5 pr-0.5 opacity-0 transition-opacity group-hover/editor:opacity-100 motion-reduce:transition-none"
+    class="absolute -left-[2.125rem] flex items-center pr-[1.125rem] opacity-0 transition-opacity group-hover/editor:opacity-100 motion-reduce:transition-none"
     style={`top: ${hoveredBlock.top + 3}px;`}
   >
     <button
@@ -101,25 +101,11 @@
         <path d="M6 2v8M2 6h8" />
       </svg>
     </button>
-    <button
-      type="button"
-      class="flex h-5 w-3.5 cursor-grab items-center justify-center rounded text-gray-300 transition-colors hover:text-ink-muted"
-      title="Drag to reorder"
-      aria-label="Drag to reorder"
-      onmousedown={() => (dragging = true)}
-      onmouseup={() => (dragging = false)}
-    >
-      <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden="true">
-        <circle cx="3" cy="3" r="1.3" /><circle cx="7" cy="3" r="1.3" />
-        <circle cx="3" cy="7" r="1.3" /><circle cx="7" cy="7" r="1.3" />
-        <circle cx="3" cy="11" r="1.3" /><circle cx="7" cy="11" r="1.3" />
-      </svg>
-    </button>
   </div>
 {:else if hoveredBlock}
   <div
     bind:this={handleEl}
-    class="absolute -left-10 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/editor:opacity-100"
+    class="absolute -left-10 flex items-center pr-4 opacity-0 transition-opacity group-hover/editor:opacity-100"
     style={`top: ${hoveredBlock.top}px;`}
   >
     <button
@@ -130,22 +116,6 @@
     >
       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-      </svg>
-    </button>
-    <button
-      type="button"
-      class="flex h-6 w-6 cursor-grab items-center justify-center rounded text-gray-300 hover:bg-primary-wash hover:text-gray-500"
-      title="Drag to reorder"
-      onmousedown={() => (dragging = true)}
-      onmouseup={() => (dragging = false)}
-    >
-      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-        <circle cx="9" cy="6" r="1.5" />
-        <circle cx="15" cy="6" r="1.5" />
-        <circle cx="9" cy="12" r="1.5" />
-        <circle cx="15" cy="12" r="1.5" />
-        <circle cx="9" cy="18" r="1.5" />
-        <circle cx="15" cy="18" r="1.5" />
       </svg>
     </button>
   </div>

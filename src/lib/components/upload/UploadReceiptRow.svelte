@@ -15,12 +15,15 @@
   let {
     row,
     busy = false,
+    canAdd = undefined,
     onRetry,
     onReplace,
     onRemove,
   }: {
     row: ReceiptRow;
     busy?: boolean;
+    /** Whether the viewer may add files; advice to add one goes elsewhere when not. */
+    canAdd?: boolean;
     onRetry?: (row: ReceiptRow) => void | Promise<void>;
     onReplace?: (row: ReceiptRow, file: File) => void | Promise<void>;
     onRemove?: (row: ReceiptRow) => void | Promise<void>;
@@ -35,7 +38,7 @@
   const action = $derived(
     quiet
       ? null
-      : statusAction(row.status!, { canRetry: row.canRetry, canReplace: row.canReplace })
+      : statusAction(row.status!, { canRetry: row.canRetry, canReplace: row.canReplace, canAdd })
   );
 
   function handlePick(event: Event) {

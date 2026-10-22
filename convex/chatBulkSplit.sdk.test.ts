@@ -8,10 +8,19 @@ import {
   CHAT_CUT_OFF_REPLY,
   CHAT_MAX_OUTPUT_TOKENS,
   CHAT_MAX_STEPS,
+  CHAT_MIN_STEP_REMAINING_MS,
+  CHAT_RECOVERY_MAX_STEPS,
+  CHAT_RECOVERY_MIN_REMAINING_MS,
+  CHAT_REPLY_CUT_OFF_REPLY,
   CHAT_STEP_LIMIT_REPLY,
   CHAT_STEP_LIMIT_REPLY_OTHER,
+  CHAT_THINKING_CUT_OFF_PARTIAL_REPLY,
+  CHAT_THINKING_CUT_OFF_REPLY,
+  CHAT_THINKING_RECOVERY_INSTRUCTION,
   cutOffInstruction,
+  reportChatAgent,
 } from "./ai/chatAgentV2";
+import { ACTION_REQUEST_WINDOW_MS } from "./ai/actionDeadline";
 import { BULK_EDIT_REFINE_RULE, BULK_EDIT_SIZE_RULE } from "./lib/completionReport";
 import { correlateProposals } from "../src/lib/chat/turnParts";
 
@@ -109,6 +118,20 @@ function textAnswer(id: string, text: string, stop: "end_turn" | "max_tokens" = 
   ]);
 }
 
+/** A step that spends the whole output limit thinking: no tool call, no text. */
+function thinkingOnlyAnswer(id: string) {
+  return sse([
+    messageStart(id),
+    ...thinking(id),
+    {
+      type: "message_delta",
+      delta: { stop_reason: "max_tokens", stop_sequence: null },
+      usage: { output_tokens: CHAT_MAX_OUTPUT_TOKENS },
+    },
+    { type: "message_stop" },
+  ]);
+}
+
 /** Answers each request with the next answer; a request past the list fails the test. */
 function stubAnthropic(answers: Array<() => Response | Promise<Response>>): Body[] {
   const sent: Body[] = [];
@@ -147,6 +170,9 @@ async function setup() {
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const userId = await ctx.db.insert("users", { authId, role: "writer" });
+    // Phase B (2026-10-20): these tests read one turn's own ending, so the
+    // job does not carry on by itself here (convex/chatAutoContinue.test.ts).
+    await ctx.db.insert("appSettings", { key: "ai.chatAutoContinue", value: "off", updatedBy: userId, updatedAt: now });
     const projectId = await ctx.db.insert("projects", {
       title: "Bulk split project", clientName: "Client", status: "review",
       createdBy: userId, ownerId: userId, shareToken: "bulk-split-token", createdAt: now, updatedAt: now,
@@ -395,7 +421,7 @@ describe("turns the output limit does not cut a tool call from", () => {
     const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
     expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY);
     expect(CHAT_STEP_LIMIT_REPLY).toBe(
-      "I stopped at the step limit for one reply, so this revision is not finished. Review the cards above, then ask me to continue with the rest."
+      "I stopped at the step limit for one reply, so this revision is not finished. Review the cards above; the rest can continue from here."
     );
     expect(await f.usageOutputTokens()).toEqual(Array.from({ length: CHAT_MAX_STEPS }, () => 300));
   });
@@ -413,7 +439,7 @@ describe("turns the output limit does not cut a tool call from", () => {
     expect((await f.turn()).status).toBe("completed");
     const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
     expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY_OTHER);
-    expect(CHAT_STEP_LIMIT_REPLY_OTHER).toBe("I stopped at the step limit for one reply. Ask me to continue.");
+    expect(CHAT_STEP_LIMIT_REPLY_OTHER).toBe("I stopped at the step limit for one reply. The rest can continue from here.");
   });
 
   // PR #24 round 2: a failed edit call saves no card, so the note must not
@@ -434,7 +460,8 @@ describe("turns the output limit does not cut a tool call from", () => {
     expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY_OTHER);
   });
 
-  test("a reply cut off in its text keeps the general failure message", async () => {
+  // 2026-10-19: the general "Try again" told the writer nothing to change.
+  test("a reply cut off in its text says to continue", async () => {
     const f = await setup();
     vi.spyOn(console, "error").mockImplementation(() => {});
     const sent = stubAnthropic([() => textAnswer("msg_1", "A very long answer", "max_tokens")]);
@@ -443,6 +470,204 @@ describe("turns the output limit does not cut a tool call from", () => {
     expect(sent).toHaveLength(1);
     expect((await f.turn()).status).toBe("failed");
     const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
-    expect(texts.at(-1)).toBe("I couldn’t finish that response. Try again.");
+    expect(texts.at(-1)).toBe(CHAT_REPLY_CUT_OFF_REPLY);
+  });
+});
+
+/**
+ * 2026-10-19 (the 2026-10-07 deviation chat failure), at the real request/response
+ * boundary. In all four failed "address each itemized deviation" turns the
+ * step after deviationInventory spent the whole output limit thinking: no tool
+ * call and no text, which the 10-01 cut-off rules above never catch.
+ */
+describe("a step that thinks to the output limit", () => {
+  type OutputConfig = { output_config?: { effort?: string } };
+  const effortOf = (body: Body) => (body as OutputConfig).output_config?.effort;
+  const thinkingSignatures = (body: Body) =>
+    JSON.stringify(body.messages).match(/sig-msg_\d+/g) ?? [];
+
+  test("plans at high effort after the inventory, then recovers with one low-effort pass", async () => {
+    const f = await setup();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const sent = stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_inv", "{}", "tool_use", "deviationInventory"),
+      () => thinkingOnlyAnswer("msg_2"),
+      () => toolAnswer("msg_3", "toolu_part1", JSON.stringify(smallInput), "tool_use"),
+      () => textAnswer("msg_4", "Proposed the Line 242 part. Review and apply the proposal when ready."),
+    ]);
+    const passes = vi.spyOn(reportChatAgent, "streamText");
+    await f.run();
+
+    expect(sent).toHaveLength(4);
+    // Review P3-3: the stored thinking-only row takes a history slot before
+    // it is dropped, so the recovery pass reads one more row.
+    expect(passes).toHaveBeenCalledTimes(2);
+    const windowOf = (call: number) =>
+      (passes.mock.calls[call]?.[3] as { contextOptions?: { recentMessages?: number } } | undefined)
+        ?.contextOptions?.recentMessages;
+    expect(windowOf(1)).toBe((windowOf(0) ?? 0) + 1);
+    // 2026-10-21 (owner: thorough edits): the first step thinks at xhigh;
+    // the step that plans over the inventory at high; the recovery pass at low.
+    expect(effortOf(sent[0]!)).toBe("xhigh");
+    expect(effortOf(sent[1]!)).toBe("high");
+    expect(effortOf(sent[2]!)).toBe("low");
+    expect(effortOf(sent[3]!)).toBe("low");
+    // The recovery pass is told what happened and to do the first part, and
+    // the step that only thought is not replayed to it.
+    expect(JSON.stringify(sent[2]!.messages)).toContain(CHAT_THINKING_RECOVERY_INSTRUCTION);
+    expect(JSON.stringify(sent[0]!.messages)).not.toContain(CHAT_THINKING_RECOVERY_INSTRUCTION);
+    expect(thinkingSignatures(sent[2]!)).not.toContain("sig-msg_2");
+
+    expect((await f.turn()).status).toBe("completed");
+    const stored = await f.t.run((ctx) => ctx.db.query("chatProposals").collect());
+    expect(stored.map((row) => row.toolCallId)).toEqual(["toolu_part1"]);
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts.at(-1)).toBe("Proposed the Line 242 part. Review and apply the proposal when ready.");
+  });
+
+  test("says to ask for one part at a time when the recovery pass also thinks to the limit", async () => {
+    const f = await setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const sent = stubAnthropic([
+      () => thinkingOnlyAnswer("msg_1"),
+      () => thinkingOnlyAnswer("msg_2"),
+    ]);
+    await f.run();
+
+    // One recovery pass, never a second.
+    expect(sent).toHaveLength(2);
+    expect((await f.turn()).status).toBe("failed");
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts.at(-1)).toBe(CHAT_THINKING_CUT_OFF_REPLY);
+  });
+
+  test("makes no recovery pass when too little of the window is left", async () => {
+    const f = await setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sent = stubAnthropic([
+      () => {
+        // The thinking took most of the window.
+        vi.setSystemTime(Date.now() + ACTION_REQUEST_WINDOW_MS - CHAT_RECOVERY_MIN_REMAINING_MS + 1_000);
+        return thinkingOnlyAnswer("msg_1");
+      },
+    ]);
+    await f.run();
+
+    expect(sent).toHaveLength(1);
+    expect((await f.turn()).status).toBe("failed");
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts.at(-1)).toBe(CHAT_THINKING_CUT_OFF_REPLY);
+  });
+
+  // Review P3-4: a findings-only card counts too; the recovery pass could not
+  // see it and would record the same findings again.
+  test("makes no recovery pass after a record-only revision", async () => {
+    const f = await setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const recordOnly = {
+      edits: [],
+      findings: [{
+        id: "c-242-1-1", section: "242", paragraph: 1, kind: "content", status: "blocked",
+        reason: "The sources do not say.", missingFact: "The trial count.", missingFactSource: "The transcript.",
+      }],
+    };
+    const sent = stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_rec", JSON.stringify(recordOnly), "tool_use"),
+      () => thinkingOnlyAnswer("msg_2"),
+    ]);
+    await f.run();
+
+    expect(sent).toHaveLength(2);
+    expect((await f.turn()).status).toBe("failed");
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts.at(-1)).toBe(CHAT_THINKING_CUT_OFF_PARTIAL_REPLY);
+  });
+
+  test("points to the saved cards instead of recovering when part of the revision was proposed", async () => {
+    const f = await setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sent = stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_part1", JSON.stringify(smallInput), "tool_use"),
+      () => thinkingOnlyAnswer("msg_2"),
+    ]);
+    await f.run();
+
+    // The recovery pass would not see the saved card, so none is made.
+    expect(sent).toHaveLength(2);
+    expect((await f.turn()).status).toBe("failed");
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts.at(-1)).toBe(CHAT_THINKING_CUT_OFF_PARTIAL_REPLY);
+    const listed = await f.actor.query(api.chatV2.listProposals, { threadId: f.threadId });
+    expect(listed.map((row) => row.toolCallId)).toEqual(["toolu_part1"]);
+  });
+});
+
+// Phase B (2026-10-20), W2: 8 steps per pass, the recovery pass keeps 5, and
+// no step starts with less than CHAT_MIN_STEP_REMAINING_MS of the window left.
+describe("step limit and time stop", () => {
+  test("a pass makes at most 8 requests; the recovery pass keeps 5", () => {
+    expect(CHAT_MAX_STEPS).toBe(8);
+    expect(CHAT_RECOVERY_MAX_STEPS).toBe(5);
+    // Review R1 P2-1: as much as the recovery pass needs.
+    expect(CHAT_MIN_STEP_REMAINING_MS).toBe(300_000);
+  });
+
+  test("a pass stopped for time ends exactly like the step limit", async () => {
+    const f = await setup();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const started = Date.now();
+    const sent = stubAnthropic([
+      () => toolAnswer("msg_1", "toolu_part1", JSON.stringify(smallInput), "tool_use"),
+      () => {
+        // The second request took the window down to under 90 seconds.
+        vi.setSystemTime(started + ACTION_REQUEST_WINDOW_MS - CHAT_MIN_STEP_REMAINING_MS + 1_000);
+        return toolAnswer("msg_2", "toolu_part2", JSON.stringify(smallInput), "tool_use");
+      },
+    ]);
+    await f.run();
+
+    // No third request: it would have started with too little time left.
+    expect(sent).toHaveLength(2);
+    const turn = await f.turn();
+    expect(turn.status).toBe("completed");
+    expect(turn.continuation).toEqual({ reason: "step_limit" });
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY);
+  });
+
+  test("with time left, the pass runs all 8 steps", async () => {
+    const f = await setup();
+    const sent = stubAnthropic(
+      Array.from({ length: CHAT_MAX_STEPS + 1 }, (_, i) => () =>
+        toolAnswer(`msg_${i + 1}`, `toolu_more${i + 1}`, "{}", "tool_use", "deviationInventory"))
+    );
+    await f.run();
+    expect(sent).toHaveLength(8);
+    expect((await f.turn()).continuation).toEqual({ reason: "step_limit" });
+  });
+
+  test("the recovery pass stops at its own limit of 5", async () => {
+    const f = await setup();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const sent = stubAnthropic([
+      () => thinkingOnlyAnswer("msg_1"),
+      ...Array.from({ length: CHAT_MAX_STEPS }, (_, i) => () =>
+        toolAnswer(`msg_r${i + 1}`, `toolu_rec${i + 1}`, "{}", "tool_use", "deviationInventory")),
+    ]);
+    await f.run();
+    expect(sent).toHaveLength(1 + CHAT_RECOVERY_MAX_STEPS);
+    expect(JSON.stringify(sent[1]!.messages)).toContain(CHAT_THINKING_RECOVERY_INSTRUCTION);
+    const turn = await f.turn();
+    expect(turn.status).toBe("completed");
+    expect(turn.continuation).toEqual({ reason: "step_limit" });
+    const texts = (await f.messages()).filter((m) => m.role === "assistant").map((m) => m.text);
+    expect(texts.at(-1)).toBe(CHAT_STEP_LIMIT_REPLY_OTHER);
   });
 });

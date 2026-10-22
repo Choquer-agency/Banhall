@@ -39,8 +39,12 @@ export const QUOTE_USE_ANYWAY = "Use it anyway";
  * 2026-10-04 (second, round 3, owner approved 2026-10-05): the start of the
  * line that names the wording a seed's quotes do not back, when one of its
  * quotes is marked (`unbackedBullets`). The wording itself is never changed.
+ * 2026-10-19 (owner asked to fix the meeting findings): one plain sentence
+ * that says what happened and what the writer can do, in place of the
+ * fragment "Its quotes do not back:".
  */
-export const UNBACKED_NOTE = "Its quotes do not back:";
+export const UNBACKED_NOTE =
+  "The quotes on this idea may not support this wording, so check them or ask the client for a source:";
 
 /**
  * The card's line for wording its quotes do not back, or null: none for a

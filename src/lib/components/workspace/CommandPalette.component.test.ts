@@ -34,13 +34,14 @@ describe("CommandPalette (round 2 additions)", () => {
     viewAs.clear();
   });
 
-  it("a Consultant gets Home, Projects, Settings, Keyboard shortcuts and Flag an issue, no Team or admin pages", async () => {
+  it("a Consultant gets Home, Projects, Settings, Keyboard shortcuts, What's new and Flag an issue, no Team or admin pages", async () => {
     await open({ _id: "c", role: "writer" });
     expect(labels()).toEqual([
       "Home",
       "Projects",
       "Settings",
       "Keyboard shortcuts",
+      "What's new",
       "New project Opens the wizard",
       "Flag an issue",
     ]);

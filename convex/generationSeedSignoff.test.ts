@@ -41,7 +41,7 @@ import {
   MalformedOutputError,
   type GenerationMessageParams,
 } from "./ai/openrouterCore";
-import { currentPromptVersion } from "./ai/promptProgram";
+import { legacyPromptVersion } from "./ai/promptProgram";
 import { buildConsistencyUserMessage, FACTS_NOTHING_SHOWN_REASON, sourceFactsFor, summaryPlanSelfCheckSchemaFor, TARGETS_NOTHING_SHOWN_REASON } from "./ai/selfCheck";
 import { summarizeSlotUsage } from "./ai/instrument";
 import {
@@ -1050,20 +1050,24 @@ function independentOutputReachability(actualItemId: string) {
   );
   type PartialPlan = Omit<OutputPlanLengthState, "section">;
   const combine = (left: readonly PartialPlan[], right: readonly PartialPlan[]) => {
-    const distinct = new Map<string, PartialPlan>();
+    // Keyed by (rows, bytes) as a number, and a witness is built only for a
+    // new key, so the 32,768-byte enumeration stays fast; the first witness
+    // per key is kept, as before.
+    const distinct = new Map<number, PartialPlan>();
     for (const a of left) {
       for (const b of right) {
         const rows = a.rows + b.rows;
         if (rows > maximumEnumeratedPlanRows) continue;
-        const combined = {
+        const rowBytesWithDelimiters =
+          a.rowBytesWithDelimiters + b.rowBytesWithDelimiters;
+        const key = rows * 100_000_000 + rowBytesWithDelimiters;
+        if (distinct.has(key)) continue;
+        distinct.set(key, {
           rows,
-          rowBytesWithDelimiters:
-            a.rowBytesWithDelimiters + b.rowBytesWithDelimiters,
+          rowBytesWithDelimiters,
           groups: [...a.groups, ...b.groups],
           skips: [...a.skips, ...b.skips],
-        };
-        const key = `${combined.rows}|${combined.rowBytesWithDelimiters}`;
-        if (!distinct.has(key)) distinct.set(key, combined);
+        });
       }
     }
     return [...distinct.values()];
@@ -1079,7 +1083,7 @@ function independentOutputReachability(actualItemId: string) {
   for (let role = 0; role < 5; role += 1) {
     section242 = combine(section242, groupOptions);
   }
-  plans.push(...section242.map((state) => ({ ...state, section: "242" as const })));
+  for (const state of section242) plans.push({ ...state, section: "242" as const });
 
   const optional = (roleId: string): PartialPlan[] => [{
     rows: 1,
@@ -1100,7 +1104,7 @@ function independentOutputReachability(actualItemId: string) {
       skips: [],
     })
   ));
-  plans.push(...section244.map((state) => ({ ...state, section: "244" as const })));
+  for (const state of section244) plans.push({ ...state, section: "244" as const });
 
   // Each integer partition is one production-valid complete merge partition
   // for the specific-advancements role. Equal-size group order is irrelevant
@@ -1110,25 +1114,28 @@ function independentOutputReachability(actualItemId: string) {
     const snapshot = [...advancementPartitions];
     const distinct = new Map(
       advancementPartitions.map((state) => [
-        `${state.rows}|${state.rowBytesWithDelimiters}`,
+        state.rows * 100_000_000 + state.rowBytesWithDelimiters,
         state,
       ])
     );
+    const groupRowBytes = groupSize * (utf8Bytes(itemRow(groupSize)) + 1);
     for (const base of snapshot) {
       for (
         let copies = 1;
         base.rows + copies * groupSize <= maximumEnumeratedPlanRows;
         copies += 1
       ) {
-        const state: PartialPlan = {
-          rows: base.rows + copies * groupSize,
-          rowBytesWithDelimiters: base.rowBytesWithDelimiters +
-            copies * groupSize * (utf8Bytes(itemRow(groupSize)) + 1),
+        const rows = base.rows + copies * groupSize;
+        const rowBytesWithDelimiters =
+          base.rowBytesWithDelimiters + copies * groupRowBytes;
+        const key = rows * 100_000_000 + rowBytesWithDelimiters;
+        if (distinct.has(key)) continue;
+        distinct.set(key, {
+          rows,
+          rowBytesWithDelimiters,
           groups: [...base.groups, ...Array.from({ length: copies }, () => groupSize)],
           skips: [],
-        };
-        const key = `${state.rows}|${state.rowBytesWithDelimiters}`;
-        if (!distinct.has(key)) distinct.set(key, state);
+        });
       }
     }
     advancementPartitions = [...distinct.values()];
@@ -1138,7 +1145,7 @@ function independentOutputReachability(actualItemId: string) {
   section246 = combine(section246, advancementPartitions);
   section246 = combine(section246, groupOptions);
   section246 = combine(section246, groupOptions);
-  plans.push(...section246.map((state) => ({ ...state, section: "246" as const })));
+  for (const state of section246) plans.push({ ...state, section: "246" as const });
 
   const ordinaryStates = new Map<string, {
     rowBytes: number;
@@ -1182,25 +1189,35 @@ function independentOutputReachability(actualItemId: string) {
     }
   }
   const reachable = new Set<number>();
-  const distinctPlans = new Map<string, OutputPlanLengthState>();
+  const distinctPlans = new Map<number, OutputPlanLengthState>();
   for (const plan of plans) {
     const planRowsBytes = plan.rowBytesWithDelimiters - 1;
-    distinctPlans.set(`${plan.rows}|${planRowsBytes}`, plan);
+    distinctPlans.set(plan.rows * 100_000_000 + planRowsBytes, plan);
   }
   const boundaryTargets = [
     MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
     MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1,
   ];
+  // envelopeBytes is the plan rows plus the ordinary rows plus a fixed part
+  // for each includeQuestion, so a plan reaches a target when the ordinary
+  // row bytes it needs are among the reachable ones.
+  const ordinaryRowBytes = new Map<boolean, Set<number>>([
+    [false, new Set()],
+    [true, new Set()],
+  ]);
+  for (const ordinary of ordinaryStates.values()) {
+    ordinaryRowBytes.get(ordinary.includeQuestion)!.add(ordinary.rowBytes);
+  }
   for (const target of boundaryTargets) {
     let found = false;
     for (const plan of distinctPlans.values()) {
       const planRowsBytes = plan.rowBytesWithDelimiters - 1;
-      for (const ordinary of ordinaryStates.values()) {
-        if (envelopeBytes(
-          planRowsBytes,
-          ordinary.rowBytes,
-          ordinary.includeQuestion
-        ) === target) {
+      for (const includeQuestion of [false, true]) {
+        const needed = target - envelopeBytes(planRowsBytes, 0, includeQuestion);
+        if (
+          ordinaryRowBytes.get(includeQuestion)!.has(needed) &&
+          envelopeBytes(planRowsBytes, needed, includeQuestion) === target
+        ) {
           reachable.add(target);
           found = true;
           break;
@@ -1237,7 +1254,7 @@ async function frozenS242OracleChecks(
     const items = await ctx.db.query("summaryItems")
       .withIndex("by_summaryVersionId_and_order", (q) =>
         q.eq("summaryVersionId", generation.summaryVersionId!))
-      .take(30);
+      .take(64);
     const sectionItems = items.filter((item) =>
       PD_SUBSECTIONS.some((role) => role.section === "s242" && role.roleId === item.roleId)
     );
@@ -1584,7 +1601,7 @@ async function frozenSectionPlan(
     const items = await ctx.db.query("summaryItems")
       .withIndex("by_summaryVersionId_and_order", (q) =>
         q.eq("summaryVersionId", summary._id))
-      .take(30);
+      .take(64);
     const referencesBySeedId = new Map(
       items.map((item) => [item.seedId, item.bullets] as const)
     );
@@ -2059,7 +2076,7 @@ describe("seed Summary sign-off and recovery", () => {
         .take(3),
     }));
     expect(after.generation?.productionOrder).toEqual(["246", "242", "244"]);
-    expect(after.generation?.promptVersion).toBe(await currentPromptVersion());
+    expect(after.generation?.promptVersion).toBe(await legacyPromptVersion());
     expect(after.generation?.promptVersion).not.toBe("initialization-program");
     expect(after.artifacts).toEqual(initialized.artifacts);
     expect(after.candidates).toHaveLength(1);
@@ -2528,7 +2545,7 @@ describe("seed Summary sign-off and recovery", () => {
       generationId: s.generationId,
       expectedSeedStageVersion: await stageVersion(s),
     });
-    const executingProgram = await currentPromptVersion();
+    const executingProgram = await legacyPromptVersion();
     let providerBoundary: {
       promptVersion?: string;
       candidateIds: string[];
@@ -2927,27 +2944,27 @@ describe("seed Summary sign-off and recovery", () => {
     expect(await signoffWriteFootprint(refused)).toEqual(refusedBefore);
   });
 
-  it("commits the exact reachable 16,384-byte persisted response and rolls 16,385 back with the typed reason", async () => {
-    expect(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES).toBe(16_384);
+  it("commits the exact reachable 32,768-byte persisted response and rolls 32,769 back with the typed reason", async () => {
+    expect(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES).toBe(32_768);
     const selectedShape = {
       extraSelected: {
-        passive_limitations: 1,
-        technological_objective: 5,
-        active_uncertainties: 5,
+        technological_objective: 13,
+        active_uncertainties: 14,
       },
     } as const;
     const accepted = await decisionFixture();
     await makeReady(accepted, selectedShape);
-    // 2026-10-04 (second, round 2 review): Line 242's facts verdict, with
-    // two findings at their limits, is 1,106 bytes with its comma. Nine
-    // confidence labels (293 each), ten Glossary labels (nine of 291, one of
-    // 292) and five rule labels (287) keep the response at exactly 16,384
-    // bytes, and swapping the ninth confidence label (293) for the writer
-    // label (294) still adds exactly one byte.
+    // 2026-10-22 (alerts triage): at the 32,768-byte limit, a Line 242 plan
+    // of 32 items (14 and 15 in its two merged roles), its facts verdict
+    // (1,106 bytes with its comma), nine confidence labels (293 each), ten
+    // Glossary labels (nine of 291, one of 292) and three rule labels (287)
+    // keep the response at exactly 32,768 bytes, and swapping the ninth
+    // confidence label (293) for the writer label (294) still adds exactly
+    // one byte.
     await configureS242Ordinary(accepted, {
       additionalConfidence: 8,
       glossaryTerms: 10,
-      rules: 5,
+      rules: 3,
     });
     const acceptedPersistedShape = await persistedFrozenPlanShape(accepted);
     const acceptedBefore = await signoffWriteFootprint(accepted);
@@ -2958,7 +2975,7 @@ describe("seed Summary sign-off and recovery", () => {
     const checks = await frozenS242OracleChecks(accepted);
     expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
       checks.filter((check) => check.itemId && check.roleId === role.roleId).length
-    )).toEqual([1, 1, 2, 6, 6]);
+    )).toEqual([1, 1, 1, 14, 15]);
     expect(checks.at(-1)?.ruleId).toBe("facts_match_sources");
     expect(new Set(checks.filter((check) => check.itemId).flatMap((check) => [
       utf8Bytes(JSON.stringify(check.itemId)),
@@ -2969,18 +2986,19 @@ describe("seed Summary sign-off and recovery", () => {
       .toBe(true);
     expect(reachability.reachable.has(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1))
       .toBe(true);
-    // Receipt recomputed 2026-09-25 from the independent formula above at
-    // the 16,384-byte limit (the 4,096-byte receipt was 535 plan lengths,
-    // 14/15 enumerated/pruned rows and a 4,337-byte pruning bound).
+    // Receipt recomputed 2026-10-22 from the independent formula above at
+    // the 32,768-byte limit (the 16,384-byte receipt was 41,099 plan
+    // lengths, 56/57 enumerated/pruned rows and a 16,391-byte pruning bound;
+    // the 4,096-byte one 535, 14/15 and 4,337).
     expect(reachability.receipt).toMatchObject({
       actualEscapedIdBytes: 34,
       ordinaryDistributions: 19_871,
       distinctOrdinaryLengths: 4_930,
-      distinctPlanLengths: 41_099,
-      maximumEnumeratedPlanRows: 56,
-      firstPrunedPlanRows: 57,
+      distinctPlanLengths: 359_577,
+      maximumEnumeratedPlanRows: 114,
+      firstPrunedPlanRows: 115,
       persistedPlanRowCap: MAX_SUMMARY_PLAN_VERDICTS,
-      pruningLowerBound: 16_391,
+      pruningLowerBound: 33_037,
     });
     expect(reachability.receipt.maximumEnumeratedPlanRows)
       .toBe(reachability.receipt.firstPrunedPlanRows - 1);
@@ -2990,9 +3008,9 @@ describe("seed Summary sign-off and recovery", () => {
       "storyline",
       ...Array.from({ length: 9 }, (_, index) => `confidence:C${index + 1}`),
       ...Array.from({ length: 10 }, (_, index) => `glossary:G${index + 1}`),
-      ...Array.from({ length: 5 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 3 }, (_, index) => `rule:R${index + 1}`),
     ];
-    expect(acceptedLabels).toHaveLength(25);
+    expect(acceptedLabels).toHaveLength(23);
     const acceptedOracle = literalSummaryResponseOracle({
       ordinaryLabels: acceptedLabels,
       planChecks: checks,
@@ -3038,7 +3056,7 @@ describe("seed Summary sign-off and recovery", () => {
       ...Array.from({ length: 8 }, (_, index) => `confidence:C${index + 1}`),
       ...Array.from({ length: 10 }, (_, index) => `glossary:G${index + 1}`),
       "writer:profile",
-      ...Array.from({ length: 5 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 3 }, (_, index) => `rule:R${index + 1}`),
     ];
     expect(refusedLabels).toHaveLength(acceptedLabels.length);
     const refusedOracle = literalSummaryResponseOracle({
@@ -3064,7 +3082,7 @@ describe("seed Summary sign-off and recovery", () => {
       additionalConfidence: 7,
       glossaryTerms: 10,
       writerFlavor: "Profile",
-      rules: 5,
+      rules: 3,
     });
     const refusedPersistedShape = await persistedFrozenPlanShape(refused);
     expect(refusedPersistedShape).toEqual(acceptedPersistedShape);
@@ -3151,13 +3169,13 @@ describe("seed Summary sign-off and recovery", () => {
     // limit and refuses with nothing written.
     const refused = await decisionFixture();
     await makeReady(refused, {
-      extraSelected: { technological_objective: 7, active_uncertainties: 8 },
+      extraSelected: { technological_objective: 15, active_uncertainties: 16 },
     });
     await configureS242Ordinary(refused, realisticOrdinary);
     const refusedShape = await persistedFrozenPlanShape(refused);
     expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
       refusedShape.core.items.filter((item) => item.roleId === role.roleId).length
-    )).toEqual([1, 1, 1, 8, 9]);
+    )).toEqual([1, 1, 1, 16, 17]);
     const idWidth = checks[0]!.itemId!.length;
     let nextId = 0;
     const refusedChecks: FrozenSummaryPlanCheck[] = PD_SUBSECTIONS
@@ -3197,7 +3215,7 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(await projectedFixtureOutputEnvelope(refused, "242", refusedChecks))
       .toBe(refusedOracle);
-    expect(utf8Bytes(refusedOracle)).toBe(17_990);
+    expect(utf8Bytes(refusedOracle)).toBe(36_838);
     expect(utf8Bytes(refusedOracle)).toBeGreaterThan(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
@@ -3549,7 +3567,7 @@ describe("seed Summary sign-off and recovery", () => {
           generationId: targetGenerationId,
         });
       }
-      await addFrozenS242Items(s, 16);
+      await addFrozenS242Items(s, 25);
       const plan = await frozenSectionPlan(s, "s242");
       const expandedInput = literalPlanChecksOracle(plan.checks);
       const output = await projectedFixtureOutputEnvelope(s, "242", plan.checks);
@@ -3675,7 +3693,7 @@ describe("seed Summary sign-off and recovery", () => {
         generationId: targetGenerationId,
         candidateRunId: actionArgs.candidateRunId,
         section: actionArgs.section,
-        promptVersion: await currentPromptVersion(),
+        promptVersion: await legacyPromptVersion(),
         payload: actionArgs.payload,
         payloadId: actionArgs.payloadId,
       })).rejects.toMatchObject({
@@ -3891,7 +3909,7 @@ describe("seed Summary sign-off and recovery", () => {
       generationId: s.generationId,
       error: "prepare byte-incompatible recovery",
     });
-    await addFrozenS242Items(s, 16);
+    await addFrozenS242Items(s, 25);
     const plan = await frozenSectionPlan(s, "s242");
     expect(plan.checks.length).toBeLessThanOrEqual(MAX_SUMMARY_PLAN_VERDICTS);
     expect(utf8Bytes(literalPlanChecksOracle(plan.checks))).toBeLessThanOrEqual(
@@ -5731,9 +5749,9 @@ describe("seed Summary sign-off and recovery", () => {
 
   it.each([
     {
-      name: "a response over 16,384 bytes",
+      name: "a response over 32,768 bytes",
       mutate: (input: SummaryCheckInput) => {
-        input.verdicts[0]!.reason = "The section matches the Storyline. ".repeat(480);
+        input.verdicts[0]!.reason = "The section matches the Storyline. ".repeat(960);
       },
       detail: () =>
         "response failed validation: (root) Summary Self-check response exceeds its UTF-8 byte budget",
@@ -7110,7 +7128,7 @@ describe("seed Summary sign-off and recovery", () => {
     expect(second?.writerSettings).toEqual(originFrozen.generation?.writerSettings);
     expect(second?.singleModelId).toEqual(originFrozen.generation?.singleModelId);
     expect(second?.lengthTarget).toEqual(originFrozen.generation?.lengthTarget);
-    expect(first?.promptVersion).toBe(await currentPromptVersion());
+    expect(first?.promptVersion).toBe(await legacyPromptVersion());
     const retryArtifacts = await s.t.run(async (ctx) =>
       (await ctx.db.query("generationArtifacts")
         .withIndex("by_generationId_and_kind", (q) => q.eq("generationId", retry1))

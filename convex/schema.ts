@@ -16,6 +16,13 @@ import {
   workItemStatusValidator,
 } from "./lib/contracts";
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
+import { chatFeedbackReasonValidator } from "./lib/chatFeedbackReasons";
+import {
+  chatAutoContinueSkipValidator,
+  chatTurnContinuationValidator,
+  chatTurnOriginValidator,
+  chatTurnProgressValidator,
+} from "./lib/chatTurnState";
 import { styleOverridesValidator } from "./lib/styleOverrides";
 import { writerCoverageValidator } from "./lib/writerCoverage";
 import { brainProvenanceEntryValidator } from "./lib/generationOutputs";
@@ -42,7 +49,9 @@ import {
   evalSummaryValidator,
   gateResultValidator,
   modelFreezeValidator,
+  modelRedirectValidator,
   modelRoleValidator,
+  modelTrackValidator,
 } from "./lib/modelCatalogValidators";
 import { placeholderMapValidator, storedSpeakerNamesValidator } from "./lib/placeholderValidators";
 
@@ -232,6 +241,11 @@ export default defineSchema({
     // projects carry a letter "A".."Z" until converted. Conversion is a
     // label-only change; validation lives in projects.setProjectNumber.
     projectNumber: v.optional(v.string()),
+    // 2026-10-14 amendment (D7 widen): the saved client with the same key as
+    // clientName, written alongside it by every clientName writer (cleared
+    // when no active client has that key). clientName stays the field every
+    // reader groups by; nothing reads clientId for grouping yet.
+    clientId: v.optional(v.id("clients")),
     // PSOS-11 widen phase. These additive fields power bounded dashboard
     // projections without changing canonical project/workflow semantics.
     dashboardCompanyKey: v.optional(v.string()),
@@ -356,10 +370,44 @@ export default defineSchema({
     // Story 0 (AD-19): review projects pointing at a deleted source are
     // detached by the purge's final page through this range.
     .index("by_sourceProjectId", ["sourceProjectId"])
+    // 2026-10-14: the projects linked to one saved client (merge, backfill).
+    .index("by_clientId", ["clientId"])
     .searchIndex("search_dashboardSearchText", {
       searchField: "dashboardSearchText",
-      filterFields: ["workflowStage", "ownerId", "industry", "scienceCode"],
+      // dashboardCompanyKey (2026-10-14): scopes search to one client.
+      filterFields: [
+        "workflowStage",
+        "ownerId",
+        "industry",
+        "scienceCode",
+        "dashboardCompanyKey",
+      ],
     }),
+
+  // 2026-10-14 amendment "Saved clients, client merge, and the Projects page
+  // redesign" (D7 widen). One row per client. nameKey is
+  // dashboardCompanyKey(name), the key that groups projects today. A merge
+  // turns the merged rows into `merged` tombstones that point at the kept
+  // client; at most one `active` row exists per nameKey. dashboardCompanies
+  // stays a projection and is not replaced by this table.
+  clients: defineTable({
+    name: v.string(),
+    nameKey: v.string(),
+    // Usual fiscal year end (month 1 to 12 and a day valid for that month);
+    // both set or both absent.
+    fiscalYearEndMonth: v.optional(v.number()),
+    fiscalYearEndDay: v.optional(v.number()),
+    industry: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("merged")),
+    mergedIntoClientId: v.optional(v.id("clients")),
+    mergedAt: v.optional(v.number()),
+    mergedBy: v.optional(v.id("users")),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_status_and_nameKey", ["status", "nameKey"])
+    .index("by_nameKey", ["nameKey"]),
 
   dashboardBackfillRuns: defineTable({
     runKey: v.string(),
@@ -663,6 +711,11 @@ export default defineSchema({
     // estimated from the characters already received, so the cost is not
     // understated.
     partial: v.optional(v.boolean()),
+    // 2026-10-19 widen (chat parity Phase A): report chat steps record the
+    // effort the step was sent with ("default" when none was set) and the
+    // time from the request to the first output block. Absent elsewhere.
+    effort: v.optional(v.string()),
+    firstTokenMs: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])
@@ -1063,6 +1116,10 @@ export default defineSchema({
     // frozen at reservation. Absent on older rows, which resolve from the
     // seed registry exactly as before.
     modelFreeze: v.optional(modelFreezeValidator),
+    // 2026-10-22 widen (model tracks): frozen models whose provider stopped
+    // listing them, and the track model their calls went to instead. At
+    // most one per frozen model. modelFreeze itself is never rewritten.
+    modelRedirects: v.optional(v.array(modelRedirectValidator)),
     // Compare mode's persisted model pair (exactly 2 ids). Absent on legacy
     // rows, which fall back to the full candidate roster.
     compareModelIds: v.optional(v.array(v.string())),
@@ -1732,10 +1789,41 @@ export default defineSchema({
     agentThreadId: v.string(), // component thread id
     title: v.string(),
     createdAt: v.number(),
+    // Phase B (2026-10-20), widen only: who started the conversation, set
+    // when the row is created. Older rows fall back to the first turn's sender.
+    createdBy: v.optional(v.id("users")),
+    // Chat parity Phase B (W3): the conversation's web search setting.
+    // Absent means on; `chatV2.setThreadWebSearch` and a send's `allowWeb`
+    // write it.
+    webSearch: v.optional(v.boolean()),
+    // Chat parity Phase C (W2), widen only: the newest turn of the path the
+    // conversation shows and the model reads (one shared path per
+    // conversation). Absent means the newest turn (convex/lib/chatPath.ts).
+    activeTipPromptMessageId: v.optional(v.string()),
+    // Chat parity Phase C (W3), widen only. When the conversation last had a
+    // message (a send or an automatic link); the menu sorts by it, falling
+    // back to `createdAt`. Archiving is reversible: an archived conversation
+    // leaves the menu, stays readable, and a send restores it.
+    lastActivityAt: v.optional(v.number()),
+    archivedAt: v.optional(v.number()),
+    archivedBy: v.optional(v.id("users")),
+    // Phase C (W3, review R2 P2-1), widen only. An admin's permanent delete
+    // marks the row first: from then on every read and send treats the
+    // conversation as gone, while `chatV2.purgeThread` deletes its rows in
+    // pages and the row last. `purgeHeartbeatAt` is when a purge run last
+    // finished; a stalled purge is resumed from it.
+    deletingAt: v.optional(v.number()),
+    deletingBy: v.optional(v.id("users")),
+    purgeHeartbeatAt: v.optional(v.number()),
   })
     .index("by_reportId", ["reportId"])
     .index("by_agentThreadId", ["agentThreadId"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    // Phase C (W3): open conversations (`archivedAt` absent) and archived
+    // ones, newest first, without reading the other kind.
+    .index("by_reportId_and_archivedAt", ["reportId", "archivedAt"])
+    // Review R2 P2-1: conversations being deleted, for the stalled-purge sweep.
+    .index("by_deletingAt", ["deletingAt"]),
 
   // The agent UIMessage cannot durably express turn start/end, so app-owned
   // timing keeps queued and terminal states stable across reloads and races.
@@ -1758,6 +1846,46 @@ export default defineSchema({
     // positions. Proposals from the turn that target it are judged by where
     // it sits: a Section heading or the title is never edited.
     highlight: v.optional(v.object({ text: v.string(), from: v.number(), to: v.number() })),
+    // Phase A of report chat parity (2026-10-19), widen only. What the reply
+    // is doing now, written by the chat action on each phase change while the
+    // turn runs (convex/lib/chatTurnState.ts). Absent on older rows.
+    progress: v.optional(chatTurnProgressValidator),
+    // The structured Continue offer the turn ended with, if any.
+    continuation: v.optional(chatTurnContinuationValidator),
+    // The oldest message `order` the model read for this turn. Absent means
+    // it read the whole thread.
+    historyStartOrder: v.optional(v.number()),
+    // Server only, never sent to the browser: when the turn's searchBrain
+    // tool first ran a search. Reasoning summaries of such a turn are not
+    // shown (convex/lib/chatPublicOutput.ts).
+    brainSearchedAt: v.optional(v.number()),
+    // Phase B (2026-10-20), widen only. A turn the server started to carry
+    // on a job on its own (chatV2.continueChain).
+    origin: v.optional(chatTurnOriginValidator),
+    // Why a finished turn with a `continuation` did not continue on its own.
+    autoContinueSkipped: v.optional(chatAutoContinueSkipValidator),
+    // Stop was pressed just after this turn finished: its chain ends here.
+    chainStoppedAt: v.optional(v.number()),
+    // Phase C (W3, round 2 N5), widen only: when the chat action really
+    // reached its end (finishTurn), stopped turns included. A stopped turn's
+    // `endedAt` is the Stop; its action may run on for a while.
+    actionEndedAt: v.optional(v.number()),
+    // Chat parity Phase C (W2), widen only: alternatives (convex/lib/chatPath.ts).
+    // The turn this one follows. Absent means the turn with the next lower
+    // order, or, for an alternative, its group's first turn's parent.
+    parentPromptMessageId: v.optional(v.string()),
+    // The group's first turn (its promptMessageId), set on every later
+    // alternative; Edit and Regenerate make one.
+    alternativeOf: v.optional(v.string()),
+    alternativeKind: v.optional(v.union(v.literal("edit"), v.literal("regenerate"))),
+    // The card a refining send named; the server rebuilds its block from it.
+    refineProposalId: v.optional(v.id("chatProposals")),
+    // The writer's own text length at the start of the stored prompt.
+    writerTextLength: v.optional(v.number()),
+    // Phase C (2026-10-20), W1, widen only. The project files the writer
+    // pinned to this message (at most 5, same project, not archived when
+    // sent). The reply reads them in full; their content is never stored.
+    pinnedDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
   })
     .index("by_agentThreadId_and_promptMessageId", [
       "agentThreadId",
@@ -1769,11 +1897,14 @@ export default defineSchema({
     .index("by_agentThreadId_and_startedAt", ["agentThreadId", "startedAt"])
     // One turn at a time per thread (security wave 1, a4 #17).
     .index("by_agentThreadId_and_status", ["agentThreadId", "status"])
+    // Phase C (W2): the alternatives of one group.
+    .index("by_agentThreadId_and_alternativeOf", ["agentThreadId", "alternativeOf"])
     .index("by_userId_and_status", ["userId", "status"])
     // Stale-turn reaper: sweep queued/running rows regardless of thread.
     .index("by_status", ["status"]),
 
-  // Immutable first vote per viewer and durable completed answer.
+  // One vote per viewer and durable completed answer. Phase C (W3): the voter
+  // may change it; a thumbs down may carry a reason.
   chatAnswerFeedback: defineTable({
     turnId: v.id("chatTurns"),
     userId: v.id("users"),
@@ -1785,15 +1916,28 @@ export default defineSchema({
     promptText: v.string(),
     answerText: v.string(),
     learningSnapshot: v.optional(v.object({
-      version: v.literal(1),
+      // Phase C (W3): version 2 may carry the de-identified reason.
+      version: v.union(v.literal(1), v.literal(2)),
       promptText: v.string(),
       answerText: v.string(),
+      reasonCode: v.optional(chatFeedbackReasonValidator),
+      reasonText: v.optional(v.string()),
     })),
     vote: v.union(v.literal(1), v.literal(-1)),
     createdAt: v.number(),
+    // Phase C (W3), widen only. When the vote or its reason last changed,
+    // and how many times; the learning digest reads a change as a new signal.
+    updatedAt: v.optional(v.number()),
+    changeCount: v.optional(v.number()),
+    // Thumbs down only; cleared when the vote flips to thumbs up.
+    reasonCode: v.optional(chatFeedbackReasonValidator),
+    reasonText: v.optional(v.string()), // at most 500 characters
   })
     .index("by_turnId_and_userId", ["turnId", "userId"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    // Phase C (W3): deleting a conversation, and changed votes for the digest.
+    .index("by_agentThreadId", ["agentThreadId"])
+    .index("by_updatedAt", ["updatedAt"]),
 
   // One row per tool call the assistant makes (proposeEdit / proposeReplacements
   // / highlightPassages). Same lifecycle semantics as chatMessages.proposedEdit.
@@ -1840,6 +1984,26 @@ export default defineSchema({
       v.literal("stale")
     ),
     createdAt: v.number(),
+    // Deprecated, kept by widen-only discipline. Phase B first kept the Undo
+    // record here, on the card row; it now lives in
+    // `chatProposalAppliedChanges` (the pointer below), so card readers never
+    // load the hunks. Nothing writes this field. `chatV2.undoProposal` still
+    // reads it when a row has it, and `listProposals` never sends it to the
+    // browser.
+    appliedChange: v.optional(
+      v.object({
+        revisionNumber: v.number(),
+        appliedAt: v.number(),
+        appliedBy: v.id("users"),
+        hunks: v.array(v.object({ before: v.string(), after: v.string() })),
+      })
+    ),
+    // The card's Undo record: set by an apply that kept one, cleared by Undo.
+    // Readers learn whether a card can be undone from this pointer alone and
+    // never read the record.
+    appliedChangeId: v.optional(v.id("chatProposalAppliedChanges")),
+    undoneAt: v.optional(v.number()),
+    undoneBy: v.optional(v.id("users")),
   })
     .index("by_agentThreadId", ["agentThreadId"])
     // Exact per-turn proposal reads for chatV2.listProposals, which joins
@@ -1897,11 +2061,57 @@ export default defineSchema({
       v.union(v.literal("rule"), v.literal("content"), v.literal("reference"))
     ),
     rule: v.optional(v.string()),
+    // 2026-10-19 widen (chat parity Phase A, round 3): a content or reference
+    // item's fingerprint (kind, Line, paragraph and its normalized
+    // instruction), written once at insert. Absent on rule items, on cards
+    // saved without a list call in their turn, and on older rows.
+    fingerprint: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_proposalId", ["proposalId"])
     // Enumerating a project's items without a table scan: the AD-19 cascade
     // when it lands, and any later reader of the Completion Report.
+    .index("by_projectId", ["projectId"]),
+
+  // What an apply changed, so a human can undo it (`chatV2.undoProposal`):
+  // runs of top-level Tiptap blocks as JSON strings, before and after the
+  // apply, up to 600 KB. One row per applied card that kept a record, pointed
+  // to by `chatProposals.appliedChangeId`. It sits apart from the card so the
+  // card lists never read it: only Undo, conversation delete and project
+  // erasure do. Undo deletes it; applying the card again writes a new one.
+  // Never sent to the browser.
+  chatProposalAppliedChanges: defineTable({
+    proposalId: v.id("chatProposals"),
+    projectId: v.id("projects"),
+    revisionNumber: v.number(),
+    appliedAt: v.number(),
+    appliedBy: v.id("users"),
+    hunks: v.array(v.object({ before: v.string(), after: v.string() })),
+  })
+    .index("by_proposalId", ["proposalId"])
+    .index("by_projectId", ["projectId"]),
+
+  // Chat parity Phase B (W3): one row per web search the report chat actually
+  // sent (a search refused for names, turned off or over its limit writes
+  // nothing). Holds the query as sent, after names were removed, and the
+  // numbered sources the reply may cite. The answer text is never stored.
+  chatWebSearches: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    // The tool call that ran it, so the trace can name its query.
+    toolCallId: v.optional(v.string()),
+    query: v.string(),
+    status: v.union(v.literal("ok"), v.literal("failed")),
+    sources: v.array(
+      v.object({ n: v.number(), url: v.string(), title: v.string(), domain: v.string() })
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_agentThreadId_and_promptMessageId", ["agentThreadId", "promptMessageId"])
+    // Review R2 P3-3: a conversation's newest searches first (creation time).
+    .index("by_agentThreadId", ["agentThreadId"])
     .index("by_projectId", ["projectId"]),
 
   chatMessages: defineTable({
@@ -1979,6 +2189,15 @@ export default defineSchema({
     // Original file bytes in Convex storage (for preview/download).
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),
+    // Phase C of report chat parity (2026-10-20), widen only: a PDF's page
+    // count, worked out on the server the first time the chat views it.
+    pageCount: v.optional(v.number()),
+    // The original the count was taken from. The count is trusted only while
+    // it matches `storageId`: a row whose original is repointed (a project
+    // copy, a later original) is counted again. A plain string on purpose: it
+    // only names the counted file and never holds it (the storage sweep
+    // treats `v.id("_storage")` fields as holders).
+    pageCountStorageId: v.optional(v.string()),
     // BNH-24: archived files stay visible to reviewers but are excluded from
     // AI context (generation + chat).
     archived: v.optional(v.boolean()),
@@ -2103,6 +2322,9 @@ export default defineSchema({
       placeholderMapValidator
     ),
     reportRevisionNumber: v.number(),
+    // Phase C (W3): "vet" when the session is "Vet against public sources";
+    // its instruction was built on the server from a fixed text.
+    preset: v.optional(v.literal("vet")),
     status: v.union(
       v.literal("queued"),
       v.literal("researching"),
@@ -2269,6 +2491,9 @@ export default defineSchema({
     content: v.string(),
     reason: v.union(
       v.literal("pre_chat_edit"),
+      // Chat parity Phase B (W3): taken in the same transaction as
+      // chatV2.undoProposal, before an applied card is undone.
+      v.literal("pre_chat_undo"),
       // Sprint 1 story 4 (CAP-4a): taken in the same transaction as
       // comments.acceptEdit, so accepting a client's suggested edit is
       // restorable to the exact pre-accept text.
@@ -2963,7 +3188,9 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_projectId", ["projectId"])
-    .index("by_userId", ["userId"]),
+    .index("by_userId", ["userId"])
+    // Phase C (W3): deleting a conversation deletes its cards' edit events.
+    .index("by_proposalId", ["proposalId"]),
 
   sectionEditEvents: defineTable({
     projectId: v.id("projects"),
@@ -3911,17 +4138,54 @@ export default defineSchema({
     // history, so a rollback made before the split keeps that model out of
     // this role's evaluations. No switch ever changes it.
     inheritedHistory: v.optional(v.object({ role: modelRoleValidator, until: v.number() })),
+    // 2026-10-22 widen (model tracks): the track an admin pointed this role
+    // at. A row without it (every row written before the tracks) no longer
+    // applies: the role follows its policy track (shared/modelCatalog.ts
+    // ROLE_POLICIES). modelId then records the track's model at the time.
+    track: v.optional(modelTrackValidator),
   }).index("by_role", ["role"]),
 
-  // Append-only audit log of every role switch, automatic or manual.
+  // 2026-10-22 (model tracks): one row per track, the model the track runs
+  // now. Absent rows run the track's 2026-10-22 model
+  // (shared/modelTracks.ts TRACK_SEED_MODEL_IDS) until the first write.
+  // `rolledBackFrom` lists every model the track moved back from (a few per
+  // year at most); the daily job never moves the track to one again.
+  modelTracks: defineTable({
+    track: modelTrackValidator,
+    modelId: v.string(),
+    previousModelId: v.optional(v.string()),
+    switchedAt: v.optional(v.number()),
+    lastCheckedAt: v.optional(v.number()),
+    // What the last daily check found, for the admin page.
+    lastCheckNote: v.optional(v.string()),
+    rolledBackFrom: v.array(v.string()),
+    // Last admin log line about this track's error rate while automatic
+    // updates were off, so it is written at most once a day.
+    errorNoticeAt: v.optional(v.number()),
+  }).index("by_track", ["track"]),
+
+  // 2026-10-22: the admin-only model log on /admin/models. Catalog
+  // problems (a rename, an expiry, a missing endpoint, a held rollback) are
+  // written here instead of the user-facing alerts board.
+  modelAdminNotices: defineTable({
+    message: v.string(),
+    track: v.optional(modelTrackValidator),
+    modelId: v.optional(v.string()),
+    at: v.number(),
+  }).index("by_at", ["at"]),
+
+  // Append-only audit log of every role switch and track move, automatic or
+  // manual. Track moves (2026-10-22 widen) carry `track` and no `role`.
   modelSwitchEvents: defineTable({
-    role: modelRoleValidator,
+    role: v.optional(modelRoleValidator),
+    track: v.optional(modelTrackValidator),
     fromModelId: v.optional(v.string()),
     toModelId: v.string(),
     kind: v.union(
       v.literal("promotion"),
       v.literal("rollback"),
-      v.literal("manual")
+      v.literal("manual"),
+      v.literal("upgrade")
     ),
     reason: v.string(),
     evaluationId: v.optional(v.id("modelEvaluations")),
@@ -3944,7 +4208,9 @@ export default defineSchema({
     .index("by_at", ["at"])
     // Whether a role was ever rolled back from a model (up to a time), read
     // as one row however long the role's history is.
-    .index("by_role_and_kind_and_fromModelId_and_at", ["role", "kind", "fromModelId", "at"]),
+    .index("by_role_and_kind_and_fromModelId_and_at", ["role", "kind", "fromModelId", "at"])
+    // A track's moves, newest first (2026-10-22).
+    .index("by_track_and_at", ["track", "at"]),
 
   // One candidate evaluated for one role against the incumbent on the fixed
   // eval set. Pending rows are queued or running; the rest carry results.

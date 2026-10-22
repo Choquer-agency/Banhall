@@ -16,6 +16,14 @@ export const domainErrorCodes = [
   "GENERATION_ACTIVE",
   "CHAT_SPEND_BUDGET_EXCEEDED",
   "CHAT_QUEUE_LIMIT_EXCEEDED",
+  // 2026-10-19 chat parity Phase A: a reply is still being written in the
+  // thread (may carry `senderName`), and a message or highlight over its size
+  // limit (carries `maxChars`).
+  "CHAT_TURN_ACTIVE",
+  "CHAT_MESSAGE_TOO_LONG",
+  // Chat parity Phase B: an applied card's passage changed after it was
+  // applied, so `chatV2.undoProposal` cannot put the old text back.
+  "PROPOSAL_UNDO_CONFLICT",
   "TRANSCRIPT_PROJECT_MISMATCH",
   "STALE_REVISION",
   "INVALID_TRANSITION",
@@ -41,6 +49,9 @@ export const domainErrorCodes = [
   // Audit wave 2: a per-user or per-project limit on a paid AI action;
   // carries `retryAfter` in seconds.
   "RATE_LIMITED",
+  // 2026-10-14 saved clients: a client with the same key already exists
+  // (create or a merge rename); carries `existingName` and `existingKey`.
+  "CLIENT_EXISTS",
 ] as const;
 
 export type DomainErrorCode = (typeof domainErrorCodes)[number];

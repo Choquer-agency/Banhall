@@ -62,11 +62,11 @@
   const percent = $derived(readingPercent(doc));
   const failed = $derived(doc.status === "failed");
   const chipClass =
-    "flex h-5 max-w-full min-w-0 items-center gap-1 rounded-[0.3125rem] bg-chrome px-1.5 text-[0.6875rem] leading-[0.875rem] font-medium whitespace-nowrap text-ink-secondary transition-colors hover:bg-primary-wash focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:h-8";
+    "flex h-5 max-w-full min-w-0 items-center gap-1 rounded-[0.3125rem] bg-chrome px-1.5 text-[0.6875rem] leading-[calc(14/11)] font-medium whitespace-nowrap text-ink-secondary transition-colors hover:bg-primary-wash focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:h-8";
   const menuClass =
     "z-[130] min-w-[12.5rem] rounded-xl border border-line bg-surface p-1.5 shadow-menu";
   const itemClass =
-    "flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[1.1875rem] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11";
+    "flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] leading-[calc(19/13)] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11";
 </script>
 
 <div
@@ -81,7 +81,7 @@
     <FileIcon name={doc.file?.name ?? (doc.pastedText !== null ? "notes.txt" : doc.name)} size={40} />
   </span>
   <div class={`flex min-w-0 flex-1 flex-col ${compact ? "gap-1" : "gap-1.5"}`}>
-    <p data-supporting-name class={`truncate text-[0.8125rem] leading-[1.125rem] font-medium ${failed ? "text-danger-ink" : "text-ink"}`} title={doc.name}>{doc.name}</p>
+    <p data-supporting-name class={`truncate text-[0.8125rem] leading-[calc(18/13)] font-medium ${failed ? "text-danger-ink" : "text-ink"}`} title={doc.name}>{doc.name}</p>
     <div class="flex min-w-0 flex-wrap items-center gap-1.5">
       <DropdownMenu.Root>
         <DropdownMenu.Trigger class={chipClass} aria-label={`Type: ${CATEGORY_LABELS[doc.category]}. Change type`} data-category-chip>
@@ -145,31 +145,31 @@
             <div class="h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none" style={`width:${percent}%;background:var(--aurora-linear)`}></div>
           {/if}
         </div>
-        <span class="shrink-0 text-xs leading-4 text-ink-muted" data-supporting-meta>
+        <span class="shrink-0 text-xs leading-[calc(4/3)] text-ink-muted" data-supporting-meta>
           {percent === null ? "Reading" : `Reading, ${percent}%`}
         </span>
       </div>
     {:else if failed}
       <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span class="text-xs leading-4 text-danger-ink-muted" data-supporting-meta>We could not read this file.</span>
+        <span class="text-xs leading-[calc(4/3)] text-danger-ink-muted" data-supporting-meta>We could not read this file.</span>
         <button
           type="button"
           data-replace-file
           onclick={onReplace}
-          class="text-xs leading-4 font-medium text-danger-ink underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-danger pointer-coarse:min-h-11"
+          class="text-xs leading-[calc(4/3)] font-medium text-danger-ink underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-danger pointer-coarse:min-h-11"
         >
           Replace file
         </button>
       </div>
     {:else}
-      <span class="truncate text-xs leading-4 text-ink-muted" data-supporting-meta>{supportingMeta(doc)}</span>
+      <span class="truncate text-xs leading-[calc(4/3)] text-ink-muted" data-supporting-meta>{supportingMeta(doc)}</span>
     {/if}
     {#if doc.status !== "reading"}
       {#if saveState === "saving"}
-        <span class="text-xs leading-4 text-ink-muted" data-save-receipt="saving">Saving</span>
+        <span class="text-xs leading-[calc(4/3)] text-ink-muted" data-save-receipt="saving">Saving</span>
       {:else if saveState === "failed" || originalState === "failed"}
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1" role="status">
-          <span class="text-xs leading-4 text-danger-ink-muted" data-save-receipt="failed">
+          <span class="text-xs leading-[calc(4/3)] text-danger-ink-muted" data-save-receipt="failed">
             {saveState === "failed" ? (saveMessage ?? "Not saved yet") : "The original file was not saved"}
           </span>
           {#if onRetrySave}
@@ -177,7 +177,7 @@
               type="button"
               data-save-retry
               onclick={onRetrySave}
-              class="text-xs leading-4 font-medium text-danger-ink underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-danger pointer-coarse:min-h-11"
+              class="text-xs leading-[calc(4/3)] font-medium text-danger-ink underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-danger pointer-coarse:min-h-11"
             >
               Try again
             </button>
@@ -185,7 +185,7 @@
         </div>
       {:else if originalState === "missing"}
         <!-- 2026-09-27 (fourth): a reload brought the file back without its original. -->
-        <span class="text-xs leading-4 text-ink-muted" data-save-receipt="original-missing">Original not saved; the text is kept</span>
+        <span class="text-xs leading-[calc(4/3)] text-ink-muted" data-save-receipt="original-missing">Original not saved; the text is kept</span>
       {/if}
     {/if}
   </div>

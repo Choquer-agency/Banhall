@@ -1,6 +1,7 @@
 import {
   applyReplacements,
   headingEditRefusal,
+  normalizeForMatch,
   type PMNode,
   type ReplacePair,
 } from "./reportEdits";
@@ -48,4 +49,50 @@ export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
     find: markedPairs[i].replaceWith, replaceWith: pair.replaceWith,
   })));
   return { ok: true, doc: restored.doc, count: restored.count };
+}
+
+/**
+ * A blank line between paragraphs, as the CURRENT REPORT block prints them.
+ * A match never crosses a paragraph (`applyReplacements` matches one block at
+ * a time), so a target that spans paragraphs has to be split on these.
+ */
+const PARAGRAPH_BREAK = /\n[ \t]*\n/;
+
+/**
+ * The passages of one proposeEdit call (owner, 2026-10-21). A target inside
+ * one paragraph is one passage, as before. A target of several paragraphs,
+ * such as a trim across a whole Line, never matched anything: the model fell
+ * back to one call per paragraph and the writer got four cards. Now each
+ * paragraph pairs with the matching paragraph of the new text, so the change
+ * lands as one card; unchanged paragraphs are dropped.
+ *
+ * A proposal keeps the paragraph count (review 2026-10-21): text replaces
+ * text inside paragraphs, so it cannot merge, split, add or remove one. A
+ * blank line inside one paragraph's new text would only put a line break in
+ * that paragraph, which every count downstream then reads differently.
+ */
+export function editPassages(targetText: string, newText: string):
+  | { ok: true; pairs: ReplacePair[] }
+  | { ok: false; reason: string } {
+  const paragraphs = (text: string) =>
+    text
+      .replace(/\r\n?/g, "\n")
+      .split(PARAGRAPH_BREAK)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+  const targets = paragraphs(targetText);
+  const replacements = paragraphs(newText);
+  if (replacements.length !== targets.length) {
+    return {
+      ok: false,
+      reason: `targetText has ${targets.length} ${targets.length === 1 ? "paragraph" : "paragraphs"} but newText has ${replacements.length}. A proposal keeps the paragraph count: give newText one paragraph for each paragraph of targetText, in the same order, separated by a blank line.`,
+    };
+  }
+  // A paragraph the model retyped with straight quotes or plain dashes is
+  // unchanged, not an edit that silently swaps the report's typography.
+  const pairs = targets
+    .map((find, i) => ({ find, replaceWith: replacements[i] }))
+    .filter((pair) => normalizeForMatch(pair.find) !== normalizeForMatch(pair.replaceWith));
+  if (pairs.length === 0) return { ok: false, reason: "newText is the same as targetText, so nothing would change." };
+  return { ok: true, pairs };
 }

@@ -48,7 +48,7 @@ final=primary. Errors/destructive=red-500/600.
 
 ## Type
 
-Faces: **Geist** (UI — default sans since 2026-08-10, replacing DM Sans), **Georgia** (report prose only), **Geist Mono**
+Faces: **Geist** (UI — default sans since 2026-08-10, replacing DM Sans), **Geist Light** (report prose, since 2026-10-21; it was Georgia), **Geist Mono**
 (data). Roles — use these before ad-hoc sizes:
 
 | Utility | Spec | Use |
@@ -63,6 +63,16 @@ Supporting sizes stay Tailwind (`text-xs`/`text-sm`). Where a board needs an
 exact size, write it in rem (`text-[0.8125rem]` for 13px), never px; see the
 next section.
 
+**Line heights are unitless (2026-10-21).** Every line height is a ratio of
+its own font size, never a length such as `leading-5`, `leading-[1.125rem]`
+or `line-height: 1.25rem`. To match a board, divide the line by the size:
+20px on 16px text is `leading-[1.25]`. When the ratio does not end (18px on
+13px text), write the exact fraction, `leading-[calc(18/13)]` or
+`line-height: calc(18 / 13)`, so the line lands on the board's pixel instead
+of a rounded 1.3846. Tailwind's named ratios (`leading-tight`,
+`leading-relaxed`) are fine. `tests/unitlessLineHeight.test.ts` fails on any
+fixed line height in `src/`.
+
 ## Sizes scale with the root (2026-09-28, laptop density 2026-09-29)
 
 The boards are drawn at 1440 wide with a 16px root. On a 27 inch screen
@@ -70,10 +80,11 @@ The boards are drawn at 1440 wide with a 16px root. On a 27 inch screen
 laptop they read a little loose, so every size is rem and the root follows
 the window:
 
-- **Sizes are rem.** Font sizes, line heights, widths, heights, padding,
+- **Sizes are rem.** Font sizes, widths, heights, padding,
   margins, gaps, insets and radii are rem at 16px per rem (13px is
-  `0.8125rem`), in classes (`text-[0.8125rem]`, `leading-[1.125rem]`,
-  `w-[8.5rem]`), in CSS and in style attributes. Tailwind's own scale
+  `0.8125rem`), in classes (`text-[0.8125rem]`, `w-[8.5rem]`), in CSS and
+  in style attributes. Line heights are the exception: they are unitless
+  ratios (see Type). Tailwind's own scale
   (`h-11`, `p-4`, `max-w-7xl`) is already rem.
 - **The root follows the window.** `html` in `layout.css` is 16px on
   phones and tablets (below 1280px, or any width with a touch screen as the
@@ -1064,7 +1075,10 @@ Boards A1 to A5, B1 to B3, D1 to D5, I1, I1b, I3 to I5; decision 53. Live at
   Enter, Space, click). Expanded, Admin is a group with a chevron (down
   closed, up open) and eight 28px rows under a left rule; it opens by itself
   on admin pages and otherwise keeps the last choice (`railPreferences`).
-- **Top bar and panel.** `shell/PageTopBar` is the 56px bar: shell controls,
+- **Top bar and panel.** (Owner, 2026-10-21: project pages show no page icon
+  tile, and `workspace-page-icon` is also the active fill of the project
+  panel toggles: full width, Details, Assistant and QA.)
+  `shell/PageTopBar` is the 56px bar: shell controls,
   `PageIconTile` (26px, `workspace-page-icon`, primary icon), title with a
   muted subtitle or an "Admin / Page" breadcrumb, then status, bell and
   actions. `WorkspaceChrome` insets the white work panel 12px on the shell
@@ -1208,6 +1222,17 @@ sizes below are at the 16px root; a laptop renders them at 0.9375x.
   (`src/lib/components/ui/readingColumn.ts`): the report, Sources, Summary
   review, the drafting view, generation progress, intake and the
   full-screen Assistant. Sources also follows Full width.
+- **Section headings (2026-10-21).** In the report, and in the drafting
+  view that becomes it, each Section shows one sans label, all caps, 13px,
+  weight 500, letter-spaced: "242 TECHNOLOGICAL UNCERTAINTY". Its grey is
+  ink-muted with 15% ink-secondary, the lightest that keeps 4.5:1 on white
+  for text this small (owner, 2026-10-22). The CRA question no longer shows under it. The label is the
+  Section's h3. The limit meter sits at its right only while the Section is
+  over a CRA limit; near a limit, nothing shows (owner, 2026-10-21).
+- **Report type (2026-10-21).** The report reads in sans, not serif: the
+  title uses `text-display` at weight 400, and the body is Geist Light
+  (300) at 15px on a 25px line. Sections sit 48px apart, and a Section's
+  label sits 8px above its first paragraph.
 - **Default view (2026-10-06).** A project opens on the report alone, in
   the reading column, with the Assistant and QA closed. Their open state
   and Full width are not remembered between visits; the side panel width
@@ -1239,6 +1264,35 @@ sizes below are at the 16px root; a laptop renders them at 0.9375x.
   pane, the candidate view, the sidebar and disclosures. Full width is
   `max-w-full`, not `max-w-none`, so the width can ease. A tab's page fades
   in with `.pane-fade-in`. Reduced motion turns all of it off.
+
+### 2026-10-19 amendment - form dialogs (owner direction)
+
+- **One frame.** `FormDialog` (`src/lib/components/ui/FormDialog.svelte`) is the frame for the Projects page form dialogs: Edit details (600 wide), bulk edit, New client and Merge clients (520). A centered dialog, radius 12, `shadow-dialog`, over the `form-dialog-scrim`. The header is the 18/24 500 title with an optional 14/20 line under it and a 32px close button; the body scrolls on its own with 24px side padding; the footer is a `gray-50` band with a `line-soft` top line and the actions on the right, Cancel first and the main action last.
+- **Fields.** Labels are 13/16 500 secondary ink; inputs and picker triggers are 36px, radius 8, 14px text. Inside `[data-form-dialog]` every `field-control` reads `gray-50` with a `line-soft` line; hover and focus take the lagoon line. A bulk edit field that will change carries `data-changed` and keeps the selected lagoon line at rest. The shared classes live in `src/lib/components/ui/formDialog.ts`.
+- **Buttons.** Cancel is white with a `line` border; the main action is the `primary-selected` fill. Both are 36px with 14/18 500 text.
+- **Selection bar.** The Projects page selection bar is dark teal for contrast (owner, 2026-10-19): `fir`, radius 10, 48px tall, `shadow-toast-dark`, "N selected" at 14/20 500 in white with "of M" in white at 70%, a white Edit details with `fir` text and a quiet white Clear. It pops in and out with the menus' `popIn`/`popOut` (`$lib/motion/panelMotion`).
+- **Motion.** FormDialog opens and closes with the shared `overlayFade` and `modalPop` (`$lib/motion`), like every other dialog.
+- **Pickers in dialogs.** Every picker list (date, science code, industry, company, tags) is a bits-ui popover or combobox rendered through a portal, so a dialog's scrolling body never clips it; a test checks the list is on top where a person clicks (`elementFromPoint`), since an automated click alone scrolls a clipped list into view. The tag picker moved to this on 2026-10-21.
+- **Filled fields.** A field that holds a value carries `data-filled` and keeps the selected lagoon line at rest, so prefilled values read as set; empty fields keep the soft line.
+- **Bulk edit fields.** Before anything is picked a field shows what the selected projects hold, muted: the shared value, "Not set", or "Varies". Fiscal year end uses the shared date picker, with "Clear on every project" as a small action under the field; Edit details has a "Clear" action in the same place. The date picker itself stays the one every screen uses.
+- **Projects page (Paper Z3d, Z11a).** A white panel (radius 12, `line` border). Company list 240 wide with 14px padding (8px at the foot under New company and Merge companies), a 38px search at 14px, then 30px rows with 13px names and 12px counts (owner, 2026-10-19: smaller than the rest, the search unchanged). Title 18/500 sans with a muted 14px count; 36px search 320 wide. Fiscal year headers: 14/500 "FY 2026", the full year end in muted 13px, the count in muted 12px and a 14px chevron; 32px above each later year, 14px above its cards. Cards: radius 10, `line` border, a 34px stage band (7px dot, 13/500 stage, mono 12 number, 24px menu), a 14/500 title (the company above it at 12px), 11px labels and 12px values for Owner, Created and Updated, and a `canvas` footer line. Hover and selected borders take the stage dot color. Cards are at least 264px wide and fill the row: three on a 13 inch MacBook, four around 1680 to 1920, two on a tablet, one on a phone. On these cards Ready for delivery and Delivered use green, as Paper Z11a draws them; StageBadge elsewhere keeps the lagoon delivery tone.
+
+### 2026-10-19 amendment - Rail v3 and the standard top bar (owner direction)
+
+Source: Paper boards Z11a (1440, rail expanded) and Z11d (1280, rail collapsed). This overrides the 2026-09-28 rail control rule and the round 2 rail layout (boards A1 to A5) where they differ.
+
+- **Rail, expanded.** 224px wide (`RAIL_DEFAULT_WIDTH`; preferences moved to the `banhall.workspaceRail.v3` key, keeping the collapsed and Admin choices), 12px top and bottom, 10px sides. Header row 38px: a 22px `fir` tile with a white "B", "Banhall" at 16/20 500, and on the right the collapse control. Then a 36px search field (white, `line-soft` border, radius 8, "Search" at 14px muted) that opens the command palette. Then Home, Projects and Companies as 36px rows (radius 8, 10px sides, 16px icons at stroke 1.7, 15/20 labels in secondary ink); Projects and Companies show a muted 13px count on the right, on the Projects page only, where the page already holds those reads; other pages add no queries for it. The selected row takes the `primary-wash` fill with a `primary-selected` 500 label. "Recent companies" follows as a muted 13px label over up to three 34px rows at 14px. The foot holds the role's other rows (Team, Admin, Alerts, Feature requests, Settings) above a `line-soft` hairline, then the person's name at 14/18 500 and the role (or "Viewing as ...") at 13/16 muted. The name opens the account menu. No group labels.
+- **Rail, collapsed.** 60px: the B tile on a 38px row (the same row as the expanded header, so it lines up with the top bar title), the expand control right under it (owner, 2026-10-19: easier to find than at the foot), then the search tile and 40 by 36 icon tiles (radius 8, 6px apart) in the same order, and the account menu behind a person icon at the foot.
+- **Collapse control.** It lives in the rail: on the right of the header when expanded, under the B tile when collapsed. A 28px button with the sidebar glyph (16px, stroke 1.8, `ink-secondary`) and no fill, at rest or on hover; only the glyph darkens. Mod \ still toggles the rail, and the tablet overlay works as before. The top bar no longer carries it (this replaces the 2026-09-28 rule).
+- **Recent companies.** The companies the person last opened on the Projects page (`src/lib/workspace/recentCompanies.ts`), most recent first, at most three, stored in this browser per signed-in user so a shared browser never shows another person's companies. The Projects page refreshes the names from the full company list and drops companies that no longer exist. Each row opens the Projects page with that company selected. With none recorded the section is not drawn.
+- **What's new.** It leaves the rail. The top bar bell keeps it one click away on the standard bar, and the command palette lists it ("What's new") on every screen, including the New project frames that draw no bell.
+- **Focus.** The collapse control moves between the header and the foot, so after a toggle from inside the rail focus goes to the control in its new place.
+- **Companies link.** Until a Companies page exists it opens All companies on the Projects page.
+- **Standard top bar.** Every workspace screen uses one bar (`PageTopBar`): 64px, 8px sides, the title at 20/26 500 in ink, a muted 14/20 count (`count`) or muted line after it, then on the right the status slot, the bell, the page actions and one 38px primary button (`primaryAction`; radius 9, 15/20 500, `primary-selected`). No page icon tile. Admin pages keep the breadcrumb ("Admin /" muted, at the title size).
+- **One header everywhere (owner, 2026-10-19).** Every page header is the Projects bar: the title (with its count where there is one), the bell, and one plain filled main button through `primaryAction`. No page icon, no muted line beside the title, no "Admin /" trail, and no icons in header buttons; any other header button uses `topBarSecondary` (`src/lib/components/shell/topBar.ts`). A page does not repeat its title inside the panel; a sentence of context (Team, admin pages) sits at the top of the panel in muted 14px. The loading frame draws the same bar.
+- **One panel inset.** Content in the white panel uses `workPanelPadding` (24px sides, 16px below 640px, 20px top, 32px foot), the same as Projects' main column, whether the frame pads it (`panel="padded"`) or the page does (`panel="flush"`). Pages no longer add their own gutter inside it.
+- **Tablet rail on first paint.** The shell reads the tablet width at once, and a CSS guard keeps the icons-only width in the tablet range, so the rail never spills over the page while it loads.
+- **Work surface.** The page sits in a white panel with a `line` border and radius 12. There is 12px between the rail and the panel, and 12px to the window's right edge and foot; the top bar sits above the panel on the shell background. Each page frame keeps these insets, so the shell adds no gap of its own.
 
 ## Panel motion (2026-08-10)
 
@@ -1384,15 +1438,37 @@ AppNav + PageBar ledger bands.
 - `WorkspaceChrome`'s header title is `font-medium` (max-weight-500 rule).
 
 Workbench density (2026-08-10, Obvious doc-artifact study): the agent
-composer is a white bordered rounded-2xl box in the Obvious two-row anatomy —
-textarea on top ("What should we work on?"), action row beneath with attach
-left and the round navy send right — pinned to the pane bottom in every
-state including the empty thread. The chat header, empty state, and starter
-suggestions are compact (13px scale, medium weights). The right pane's
-project metadata heading is `text-xl font-medium` (EditableText
-`headingClass` override; `text-display` stays the default elsewhere), the
-metadata grid is 13px, and the PD review score card is proportionally
-smaller. The report editor itself already reads at 14px serif.
+composer is a white bordered rounded-2xl box in the Obvious two-row anatomy
+— textarea on top ("What should we work on?"), action row beneath with
+attach left and the round navy send right — pinned to the pane bottom in
+every state including the empty thread. Since 2026-10-19 the left control is
+a "Message options" menu, not attach. It holds the per-message options:
+Brain examples, shown as a removable chip while on, and web search, on by
+default with no chip (owner, 2026-10-21). A reply shows one full-width
+thought block, as Claude does: a muted first line (the live label with a
+shimmer, `text-shimmer` in `layout.css`, and no timer; "Thought for 4s" once
+done). Closed, that line is all it shows. Opened, a line beside a clock
+gives the newest reasoning heading when the summary has one (at most 64
+characters; none otherwise, since it would repeat the first sentence), then
+one paragraph of the reasoning (the first, or the newest while it streams)
+with "Show all thinking" for the rest, and each step without a card as a
+row. The reasoning reads tool names as plain words ("the edits"). Opening or closing it (or a step inside it) never moves it: the
+chat holds the bar where it was on screen through the change
+(`keepInPlace` on the chat container), at the bottom of the chat or
+mid-thread. It opens and closes with the layout ease
+(`.disclosure-ease`, on the block and its step rows): the content grows
+from the bar down and fades in, using `::details-content`; reduced motion
+opens it at once. The block has no hover fill: hovering the first line fades its
+label from 65% ink to full, and the chevron fades in only then (also on
+keyboard focus, and always on touch). The answer's
+Copy, thumbs and Regenerate are one row of icons. The
+chat reads only typed text, so the composer must not offer or hint at file
+uploads. The chat header, empty state, and starter suggestions are compact
+(13px scale, medium weights). The right pane's project metadata heading is
+`text-xl font-medium` (EditableText `headingClass` override; `text-display`
+stays the default elsewhere), the metadata grid is 13px, and the PD review
+score card is proportionally smaller. The report editor reads in sans (2026-10-21; it
+was 14px serif).
 
 Ghost header controls (2026-08-10, measured off Obvious): every workbench
 header control is a ghost — the workflow menu and the chat thread selector
@@ -1489,7 +1565,8 @@ only; no React). Specimens on `/styleguide`; composed in `AgentChatPanel`.
   well: autogrow textarea capped at 140px, Enter = send / Shift+Enter =
   newline, `pill` snippet + `textIndent` for the highlight chip, action slots
   either side.
-- `Loader` — bouncing-dot typing indicator (`md`/`sm`).
+- `Loader`: the shimmering "Thinking…" line shown until a reply's own status
+  line exists (owner, 2026-10-21; it was a bouncing-dot indicator).
 - `Suggestion` — canned-prompt pill chip (wash hover, one accent rule applies).
 
 - `ChainOfThought` with `ChainOfThoughtStep`, `ChainOfThoughtTrigger`,
@@ -1501,9 +1578,14 @@ only; no React). Specimens on `/styleguide`; composed in `AgentChatPanel`.
   favicon plus title/excerpt detail on hover or keyboard focus. Only external
   citations render here; private project documents and Brain writing patterns
   stay out of the web-source row.
-- `FeedbackBar` — helpful/not-helpful response feedback. Research responses send
+- `FeedbackBar`: helpful/not-helpful response feedback. Research responses send
   this signal through the existing admin-reviewed Brain feedback queue; feedback
-  is never learned automatically.
+  is never learned automatically. In the report chat (`changeable`, Phase C,
+  2026-10-20) a vote stays open to change and the bar says "Feedback recorded.
+  You can change it."; a thumbs down offers reason chips from a fixed list
+  (Wrong, Didn't follow my request, Made something up, Too long, Other) and an
+  optional text field, "What went wrong? (optional)", sent with Send. The vote
+  buttons, chips, field and Send each keep a 44px `pointer-coarse:` floor.
 
 ## Cursor contract (2026-08-23)
 

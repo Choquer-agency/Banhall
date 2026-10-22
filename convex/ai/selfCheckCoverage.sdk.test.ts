@@ -344,7 +344,7 @@ describe("Summary plan coverage Self-check through the SDK boundary", () => {
     expect(bodies).toHaveLength(1);
     const body = bodies[0]!;
     expect(body.model).toBe(MODEL);
-    expect(body.max_tokens).toBe(16_384);
+    expect(body.max_tokens).toBe(32_768);
     const system = JSON.stringify(body.system);
     expect(system).toContain("Signed-off content plan (Summary mode)");
     expect(system).toContain("A label nothing in the section bears on still gets its verdict");

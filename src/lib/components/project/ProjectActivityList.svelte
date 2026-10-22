@@ -55,10 +55,10 @@
         </p>
         <p class="mt-0.5 text-sm font-semibold text-ink">{presentation.label}</p>
         {#if presentation.detail}
-          <p class="mt-0.5 text-xs leading-5 text-ink-secondary">{presentation.detail}</p>
+          <p class="mt-0.5 text-xs leading-[calc(5/3)] text-ink-secondary">{presentation.detail}</p>
         {/if}
         {#if presentation.note}
-          <p class="mt-0.5 text-xs leading-5 text-ink-muted">Note: {presentation.note}</p>
+          <p class="mt-0.5 text-xs leading-[calc(5/3)] text-ink-muted">Note: {presentation.note}</p>
         {/if}
       </li>
     {/each}

@@ -21,8 +21,14 @@ import {
 /**
  * Which affordances the row actually renders. Advice that names a button the
  * user cannot see is worse than no advice, so the copy is told what exists.
+ * `canAdd` is whether the viewer may add files to the project; advice to add
+ * a file goes to someone who can when they may not. Left out, it is assumed.
  */
-export type ActionFlags = { canRetry: boolean; canReplace: boolean };
+export type ActionFlags = { canRetry: boolean; canReplace: boolean; canAdd?: boolean };
+
+/** Advice for a viewer who may not add files themselves. */
+const EDITOR = "someone who can edit this report";
+const mayAdd = (flags: ActionFlags) => flags.canAdd !== false;
 
 export type StatusCopy = {
   /** Shown in the badge, always as text — colour is never the only signal. */
@@ -30,10 +36,11 @@ export type StatusCopy = {
   /** What happened, in the user's terms. */
   explanation: string;
   /**
-   * What to do about it. `null` where nothing is needed. Two statuses vary:
-   * `upload_failed`, because after a reload the bytes are gone and "try again"
-   * is advice the user cannot act on; and `could_not_read`, because the live
-   * chat receipt offers no Replace button for a file it already stored.
+   * What to do about it. `null` where nothing is needed. Advice varies with
+   * what the row offers: after a reload the bytes are gone and "try again" is
+   * advice the user cannot act on; a row with no Replace button must not name
+   * one; and advice to add a file goes to someone who can when the viewer
+   * may not.
    */
   action: string | ((flags: ActionFlags) => string) | null;
 };
@@ -48,38 +55,51 @@ export const PROCESSING_STATUS_COPY: Record<ReceiptStatus, StatusCopy> = {
     label: "Ready — text truncated",
     explanation:
       "This file was too long to read completely, so only the first part was captured. Anything after the cut-off won't be used when the report is written or reviewed.",
-    action:
-      "If the later pages matter, split the file and upload that section on its own.",
+    action: (flags) =>
+      mayAdd(flags)
+        ? "If the later pages matter, split the file and upload that section on its own."
+        : `If the later pages matter, ${EDITOR} can split the file and add that section on its own.`,
   },
   reference_only: {
     label: "Reference only",
     explanation:
       "Images are kept for people to open and download. No text is read from them, so the assistant can't use what they show.",
-    action:
-      "If the content matters to the report, describe it in the chat or upload a text version.",
+    action: (flags) =>
+      mayAdd(flags)
+        ? "If the content matters to the report, add a text version from the Files panel."
+        : `If the content matters to the report, ${EDITOR} can add a text version.`,
   },
   could_not_read: {
     label: "Could not read",
     explanation:
       "No readable text was found in this file. It's saved in the project, but the assistant can't use its contents.",
-    action: ({ canReplace }) =>
-      canReplace
-        ? 'This usually means a scan or a photo of a page. Use "Replace file…" with a text-based version, or paste the text into the chat.'
-        : "This usually means a scan or a photo of a page. Upload a text-based version, or paste the text into the chat.",
+    action: (flags) =>
+      flags.canReplace
+        ? 'This usually means a scan or a photo of a page. Use "Replace file…" with a text-based version.'
+        : mayAdd(flags)
+          ? "This usually means a scan or a photo of a page. Add a text-based version from the Files panel."
+          : "This usually means a scan or a photo of a page. Someone who can edit this report can add a text-based version.",
   },
   skipped_unsupported: {
     label: "Skipped — unsupported type",
     explanation:
       "This file type can't be read, so nothing was added to the project.",
-    action: `Supported: ${SUPPORTED_LABEL}. Convert the file, or paste the text into the chat.`,
+    action: (flags) =>
+      mayAdd(flags)
+        ? `Supported: ${SUPPORTED_LABEL}. Convert the file and add it again.`
+        : `Supported: ${SUPPORTED_LABEL}. Someone who can edit this report can convert the file and add it again.`,
   },
   upload_failed: {
     label: "Upload failed",
-    explanation: "This file didn't reach the project — nothing was saved.",
-    action: ({ canRetry }) =>
-      canRetry
+    explanation: "This file didn't reach the project, so nothing was saved.",
+    action: (flags) =>
+      flags.canRetry
         ? "Check your connection and try again."
-        : 'Use "Replace file…" to choose it again and upload it.',
+        : flags.canReplace
+          ? 'Use "Replace file…" to choose it again and upload it.'
+          : mayAdd(flags)
+            ? "Choose it again with Add files."
+            : "Someone who can edit this report can upload it again.",
   },
 };
 
@@ -117,6 +137,11 @@ export const SUMMARY_CLAUSE: Record<ReceiptStatus, string> = {
 /** Summary clause for rows still being read. */
 export const SUMMARY_LOADING_CLAUSE = "still reading";
 export const SUMMARY_UNKNOWN_CLAUSE = "status unavailable";
+
+/** Shown when Add files saves a file the project already has. */
+export function alreadyInProjectCopy(fileName: string): string {
+  return `“${fileName}” is already in this project, so it was not added again.`;
+}
 
 /** Shown when a replacement dedupes into the row it was meant to replace. */
 export const REPLACE_UNCHANGED_COPY =

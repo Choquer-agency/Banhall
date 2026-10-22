@@ -68,12 +68,12 @@
       {/if}
       <span class={row ? "contents" : "flex min-w-0 flex-1 flex-col gap-0.5"}>
         <span class={`flex flex-wrap items-center ${row ? "gap-1.5" : "gap-2"}`}>
-          <span class="text-sm leading-5 font-medium text-ink">{mode.label}</span>
+          <span class="text-sm leading-[calc(10/7)] font-medium text-ink">{mode.label}</span>
           {#if mode.recommended}
             <span
               data-recommended
               class={`flex items-center rounded-[0.3125rem] bg-recommended px-1.5 text-[0.6875rem] font-medium text-recommended-ink ${
-                row ? "h-[1.125rem] leading-[0.875rem]" : "h-5 leading-4"
+                row ? "h-[1.125rem] leading-[calc(14/11)]" : "h-5 leading-[calc(16/11)]"
               }`}
             >
               Recommended
@@ -81,9 +81,9 @@
           {/if}
         </span>
         {#if row}
-          <span data-write-mode-description class="text-xs leading-4 text-ink-muted">{mode.shortHint}</span>
+          <span data-write-mode-description class="text-xs leading-[calc(4/3)] text-ink-muted">{mode.shortHint}</span>
         {:else if layout === "stack" || selected}
-          <span data-write-mode-description class="text-[0.8125rem] leading-[1.125rem] text-ink-secondary">{mode.hint}</span>
+          <span data-write-mode-description class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">{mode.hint}</span>
         {/if}
       </span>
     </button>

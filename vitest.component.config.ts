@@ -5,7 +5,14 @@ import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
 import { reserveCaptureDirectory } from "./src/lib/test/captureReservation";
 
-const pointerSuite = "src/lib/components/workspace/WorkspaceChromePointer.component.test.ts";
+// Suites that run once per pointer (fine and coarse) and inject which.
+const pointerSuites = [
+  "src/lib/components/workspace/WorkspaceChromePointer.component.test.ts",
+  // Chat parity Phase C (W3): the report chat's measured 44 px floors.
+  "src/lib/components/chat/ChatTouchTargets.component.test.ts",
+  // The editor's selection toolbar (Vet, Research and the format buttons).
+  "src/lib/components/editor/EditorToolbarTouchTargets.component.test.ts",
+];
 const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
 
 /**
@@ -111,18 +118,18 @@ export default defineConfig({
           }),
       },
       instances: [
-        { browser: "chromium", exclude: [pointerSuite] },
+        { browser: "chromium", exclude: pointerSuites },
         {
           browser: "chromium",
           name: "component-pointer-fine",
-          include: [pointerSuite],
+          include: pointerSuites,
           provide: { expectedPointer: "fine" },
           provider: playwright({ contextOptions: { hasTouch: false } }),
         },
         {
           browser: "chromium",
           name: "component-pointer-coarse",
-          include: [pointerSuite],
+          include: pointerSuites,
           provide: { expectedPointer: "coarse" },
           provider: playwright({ contextOptions: { hasTouch: true } }),
         },

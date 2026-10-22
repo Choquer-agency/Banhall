@@ -1,0 +1,638 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
+import { render } from "vitest-browser-svelte";
+import ProjectsPage from "./ProjectsPage.svelte";
+import { page as appPage, __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
+import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
+import {
+  __activeQueryArgs,
+  __isQueryActive,
+  __mutationCalls,
+  __queryArgsHistory,
+  __resetConvexStub,
+  __setMutationResult,
+  __setPaginatedRows,
+  __setQueryData,
+  __setQueryError,
+} from "$lib/test/convex-svelte-stub.svelte";
+
+/**
+ * The Projects page (2026-10-14 amendment; Paper W1, V1, V4, W5, W6): the
+ * client list with its URL selection, New client and merge, and the client
+ * area with fiscal year groups, search, the card menu and select mode.
+ */
+const day = (iso: string) => Date.parse(`${iso}T00:00:00Z`);
+const text = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
+const DASHES = /[\u2010-\u2015\u00b7]/;
+
+const CLIENTS = [
+  { key: "acuity insights", clientId: "c1", name: "Acuity Insights", projectCount: 4 },
+  { key: "acuity insights inc", clientId: null, name: "Acuity Insights Inc", projectCount: 2 },
+  { key: "cedarline systems", clientId: "c3", name: "Cedarline Systems", projectCount: 6 },
+  { key: "societe generale", clientId: "c4", name: "Société Générale", projectCount: 1 },
+];
+
+function project(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    _id: id,
+    _creationTime: day("2026-01-01"),
+    title: `Project ${id}`,
+    clientName: "Cedarline Systems",
+    workflowStage: "drafting",
+    status: "draft",
+    ownerId: "u-1",
+    ownerLabel: "Jordan Ellis",
+    createdBy: "u-1",
+    generationActivity: null,
+    createdAt: day("2026-01-01"),
+    updatedAt: day("2026-09-16"),
+    dashboardCompanyKey: "cedarline systems",
+    ...overrides,
+  };
+}
+
+const CEDARLINE = [
+  project("p4", { title: "Adaptive cold storage controls", projectNumber: "4", fiscalYearEnd: day("2026-09-30") }),
+  project("p5", { title: "High-efficiency pump control", projectNumber: "5", fiscalYearEnd: day("2026-09-30") }),
+  project("p6", { title: "Defrost cycle prediction", projectNumber: "6", fiscalYearEnd: day("2026-09-30") }),
+  project("p1", { title: "Evaporator coil frost sensing", projectNumber: "1", fiscalYearEnd: day("2025-09-30") }),
+  project("p2", { title: "Refrigerant leak detection", projectNumber: "2", fiscalYearEnd: day("2025-03-31") }),
+  project("pa", { title: "Compressor vibration damping", projectNumber: "A" }),
+];
+
+function seed(role = "manager") {
+  __setQueryData("users:getCurrentUser", { _id: "u-1", role });
+  __setQueryData("clients:listClients", { clients: CLIENTS, truncated: false });
+  __setQueryData("projects:listIndustries", []);
+  __setQueryData("clients:findSimilarClients", { exact: null, similar: [] });
+}
+
+async function mount(url = "/projects", props: Record<string, unknown> = {}, width = 1440) {
+  __setPageUrl(url);
+  await page.viewport(width, 900);
+  const screen = await render(ProjectsPage, { totalLabel: "13", ...props });
+  screen.container.style.cssText = "display:flex;height:900px;";
+  return screen;
+}
+
+const row = (key: string) => document.querySelector<HTMLAnchorElement>(`[data-client-row="${key}"]`);
+const title = () => document.querySelector<HTMLElement>("[data-client-title]");
+const fyHeaders = () => [...document.querySelectorAll("[data-fy-header]")].map((node) => text(node));
+const selectionCount = () => text(document.querySelector("[data-selection-count]"));
+
+beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
+  __resetPage();
+  __resetNavigation();
+  __resetConvexStub();
+  seed();
+});
+
+describe("Projects page client list", () => {
+  it("lists All companies with the total and one row per client with its count", async () => {
+    await mount();
+    await expect.poll(() => row("cedarline systems")).not.toBeNull();
+    expect(text(row("all"))).toBe("All companies 13");
+    expect(text(row("cedarline systems"))).toBe("Cedarline Systems 6");
+    expect(row("all")?.getAttribute("aria-current")).toBe("page");
+    expect(row("cedarline systems")?.getAttribute("href")).toBe("/projects?client=cedarline+systems");
+    expect(document.querySelector('nav[aria-label="Companies"]')).not.toBeNull();
+  });
+
+  it("filters the loaded list ignoring case and accents", async () => {
+    await mount();
+    await userEvent.fill(page.getByRole("searchbox", { name: "Find a company" }), "SOCIETE");
+    await expect.poll(() => row("acuity insights")).toBeNull();
+    expect(text(row("societe generale"))).toBe("Société Générale 1");
+    await userEvent.fill(page.getByRole("searchbox", { name: "Find a company" }), "zzz");
+    await expect.poll(() => text(document.querySelector("[data-client-list] [role='status']"))).toBe(
+      'No company matches "zzz".'
+    );
+  });
+
+  it("selects a client through the URL with a soft navigation, and back to All companies", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount();
+    await userEvent.click(row("cedarline systems")!);
+    await expect.poll(() => appPage.url.searchParams.get("client")).toBe("cedarline systems");
+    expect(__navigationCalls.at(-1)).toEqual({ kind: "goto", url: "/projects?client=cedarline+systems" });
+    await expect.poll(() => text(title())).toBe("Cedarline Systems");
+    expect(row("cedarline systems")?.getAttribute("aria-current")).toBe("page");
+    expect(row("all")?.getAttribute("aria-current")).toBeNull();
+    expect(__activeQueryArgs("dashboard:listCompanyProjects")).toEqual([
+      { companyKey: "cedarline systems" },
+    ]);
+
+    await userEvent.click(row("all")!);
+    await expect.poll(() => text(title())).toBe("All companies");
+    expect(appPage.url.search).toBe("");
+  });
+
+  it("notes a cut list quietly at the end", async () => {
+    __setQueryData("clients:listClients", { clients: CLIENTS, truncated: true });
+    await mount();
+    await expect.poll(() => document.querySelector("[data-clients-truncated]")).not.toBeNull();
+  });
+
+  it("offers New client to project creators, opens the dialog and selects the created client", async () => {
+    seed("writer");
+    __setMutationResult("clients:createClient", { clientId: "c9", key: "northlake robotics", name: "Northlake Robotics" });
+    await mount();
+    await expect.poll(() => document.querySelector("[data-new-client]")).not.toBeNull();
+    // Consultants may create clients but not merge them.
+    expect(document.querySelector("[data-start-merge]")).toBeNull();
+
+    await userEvent.click(document.querySelector<HTMLElement>("[data-new-client]")!);
+    await expect.element(page.getByRole("dialog", { name: "New company" })).toBeVisible();
+    await userEvent.fill(document.querySelector<HTMLInputElement>("#new-client-name")!, "Northlake Robotics");
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-create-client]")?.disabled).toBe(false);
+    await userEvent.click(document.querySelector<HTMLElement>("[data-create-client]")!);
+
+    await expect.poll(() => __mutationCalls("clients:createClient")).toEqual([{ name: "Northlake Robotics" }]);
+    await expect.poll(() => appPage.url.searchParams.get("client")).toBe("northlake robotics");
+    // Not in the list yet: the title uses the created name, not the key.
+    await expect.poll(() => text(title())).toBe("Northlake Robotics");
+  });
+
+  it("shows no New client or merge actions to a viewer who may do neither", async () => {
+    __setQueryData("users:getCurrentUser", { _id: "u-1", role: "financial" });
+    await mount();
+    await expect.poll(() => row("cedarline systems")).not.toBeNull();
+    expect(document.querySelector("[data-new-client]")).toBeNull();
+    expect(document.querySelector("[data-start-merge]")).toBeNull();
+  });
+});
+
+describe("Merging clients", () => {
+  const PREVIEW = {
+    projectCount: 6,
+    movedCount: 2,
+    tooMany: false,
+    keptName: "Acuity Insights",
+    keptKey: "acuity insights",
+    nameConflict: null,
+    numberCollisions: [],
+    collisionCheckIncomplete: false,
+  };
+
+  async function openMerge() {
+    __setQueryData("clients:previewClientMerge", PREVIEW);
+    await mount();
+    await expect.poll(() => document.querySelector("[data-start-merge]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-start-merge]")!);
+    const merge = () => document.querySelector<HTMLButtonElement>("[data-merge-open]")!;
+    expect(text(document.querySelector("[data-merge-header]"))).toBe("Tick the names that are the same company.");
+    expect(merge().disabled).toBe(true);
+    await userEvent.click(page.getByRole("checkbox", { name: /Acuity Insights Inc/ }));
+    expect(text(document.querySelector("[data-merge-bar]"))).toBe("1 company ticked Merge Cancel");
+    expect(merge().disabled).toBe(true);
+    await userEvent.click(page.getByRole("checkbox", { name: /^Acuity Insights 4$/ }));
+    expect(text(document.querySelector("[data-merge-bar]"))).toBe("2 companies ticked Merge 2 companies Cancel");
+    expect(merge().disabled).toBe(false);
+    await userEvent.click(merge());
+    await expect.element(page.getByRole("dialog", { name: "Merge 2 companies" })).toBeVisible();
+  }
+
+  const dialogText = () => text(document.querySelector('[data-testid="merge-clients-dialog"]'));
+  const confirm = () => document.querySelector<HTMLButtonElement>("[data-confirm-merge]")!;
+
+  it("keeps the client with the most projects by default and states the outcome", async () => {
+    await openMerge();
+    expect(dialogText()).toContain("Pick the name to keep. All 6 projects move to it.");
+    expect(document.querySelector('[data-merge-keep="acuity insights"]')?.getAttribute("aria-checked")).toBe("true");
+    // Focus lands on the kept name, not the close button.
+    await expect.poll(() => document.activeElement?.getAttribute("data-merge-keep")).toBe("acuity insights");
+    await expect.poll(() => text(document.querySelector("[data-merge-summary]"))).toBe(
+      "6 projects will show under Acuity Insights. Their fiscal years stay as they are. The other name is removed from the company list."
+    );
+    expect(__activeQueryArgs("clients:previewClientMerge")).toEqual([
+      { keepKey: "acuity insights", mergeKeys: ["acuity insights inc"] },
+    ]);
+    expect(confirm().disabled).toBe(false);
+    expect(dialogText()).not.toMatch(DASHES);
+  });
+
+  it("switches the kept name with the radio choice", async () => {
+    await openMerge();
+    await userEvent.click(document.querySelector<HTMLElement>('[data-merge-keep="acuity insights inc"]')!);
+    await expect.poll(() => __activeQueryArgs("clients:previewClientMerge")).toEqual([
+      { keepKey: "acuity insights inc", mergeKeys: ["acuity insights"] },
+    ]);
+  });
+
+  it("lists project numbers that now appear twice", async () => {
+    __setQueryData("clients:previewClientMerge", {
+      ...PREVIEW,
+      numberCollisions: [{ fiscalYear: 2025, projectNumber: "1", titles: ["Coil sensing", "Leak detection"] }],
+    });
+    await openMerge();
+    __setQueryData("clients:previewClientMerge", {
+      ...PREVIEW,
+      numberCollisions: [{ fiscalYear: 2025, projectNumber: "1", titles: ["Coil sensing", "Leak detection"] }],
+    });
+    await expect.poll(() => text(document.querySelector("[data-merge-collisions]"))).toBe(
+      "Project number 1 appears twice in FY 2025: Coil sensing, Leak detection. Change one after the merge."
+    );
+    expect(confirm().disabled).toBe(false);
+  });
+
+  it("says when some project numbers could not be checked, and still lets the merge run", async () => {
+    await openMerge();
+    expect(document.querySelector("[data-merge-collisions-incomplete]")).toBeNull();
+    __setQueryData("clients:previewClientMerge", { ...PREVIEW, collisionCheckIncomplete: true });
+    await expect.poll(() => text(document.querySelector("[data-merge-collisions-incomplete]"))).toBe(
+      "Some project numbers could not be checked. Look for repeated numbers after the merge."
+    );
+    expect(confirm().disabled).toBe(false);
+    expect(dialogText()).not.toMatch(DASHES);
+  });
+
+  it("uses a different name, and refuses one that another client has", async () => {
+    await openMerge();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-merge-other-name]")!);
+    expect(document.querySelector('[data-merge-keep="other"]')?.getAttribute("aria-checked")).toBe("true");
+    __setQueryData("clients:previewClientMerge", { ...PREVIEW, keptName: "Cedarline Systems", nameConflict: "Cedarline Systems" });
+    await userEvent.fill(document.querySelector<HTMLInputElement>("[data-merge-other-name]")!, "Cedarline Systems");
+    await expect.poll(() => __activeQueryArgs("clients:previewClientMerge")).toEqual([
+      { keepKey: "acuity insights", mergeKeys: ["acuity insights inc"], name: "Cedarline Systems" },
+    ]);
+    await expect.poll(() => text(document.querySelector('[data-merge-error="name"]'))).toBe(
+      "Cedarline Systems is already a company. Select it in the company list to merge into it, or type another name."
+    );
+    expect(confirm().disabled).toBe(true);
+  });
+
+  it("refuses a merge over 200 projects", async () => {
+    __setQueryData("clients:previewClientMerge", { ...PREVIEW, tooMany: true });
+    await openMerge();
+    __setQueryData("clients:previewClientMerge", { ...PREVIEW, tooMany: true });
+    await expect.poll(() => document.querySelector('[data-merge-error="too-many"]')).not.toBeNull();
+    expect(confirm().disabled).toBe(true);
+  });
+
+  it("merges, leaves select mode and opens the kept client", async () => {
+    __setMutationResult("clients:mergeClients", {
+      moved: 2,
+      keptKey: "acuity insights renamed",
+      keptName: "Acuity Insights Renamed",
+      clientId: "c1",
+    });
+    await openMerge();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-merge-other-name]")!);
+    __setQueryData("clients:previewClientMerge", { ...PREVIEW, keptName: "Acuity Insights Renamed", keptKey: "acuity insights renamed" });
+    await userEvent.fill(document.querySelector<HTMLInputElement>("[data-merge-other-name]")!, "Acuity Insights Renamed");
+    await expect.poll(() => confirm().disabled).toBe(false);
+    await userEvent.click(confirm());
+    await expect.poll(() => __mutationCalls("clients:mergeClients")).toEqual([
+      { keepKey: "acuity insights", mergeKeys: ["acuity insights inc"], name: "Acuity Insights Renamed" },
+    ]);
+    await expect.poll(() => appPage.url.searchParams.get("client")).toBe("acuity insights renamed");
+    expect(document.querySelector("[data-merge-bar]")).toBeNull();
+    await expect.poll(() => text(title())).toBe("Acuity Insights Renamed");
+  });
+});
+
+describe("Projects page client area", () => {
+  it("titles the client with no subtext and groups by fiscal year, short year tagged, no fiscal year last", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => fyHeaders().length).toBe(4);
+    expect(text(title())).toBe("Cedarline Systems");
+    // Paper Z3d: the sans title at 20/500 with the project count beside it.
+    expect(getComputedStyle(title()!).fontFamily).not.toContain("Georgia");
+    expect(text(document.querySelector("[data-client-count]"))).toBe("6 projects");
+    // The header holds the title and its controls, nothing under the title.
+    const header = document.querySelector("[data-client-header]")!;
+    expect(header.querySelectorAll("p")).toHaveLength(0);
+    expect(fyHeaders()).toEqual([
+      "FY 2026 September 30, 2026 3 projects",
+      "FY 2025 September 30, 2025 Short year, 6 months 1 project",
+      "FY 2025 March 31, 2025 1 project",
+      "No fiscal year 1 project",
+    ]);
+    const firstGroup = document.querySelector('[data-fy-group="fy-2026-2026-09-30"]')!;
+    expect(
+      [...firstGroup.querySelectorAll("[data-project-board-card] a")].map((link) => text(link))
+    ).toEqual(["Adaptive cold storage controls", "High-efficiency pump control", "Defrost cycle prediction"]);
+    // Client-scoped cards leave the client line to the title.
+    expect(firstGroup.querySelector('[data-card-field="client"]')).toBeNull();
+    expect(text(document.querySelector('[data-projects-page]'))).not.toMatch(DASHES);
+  });
+
+  it("searches inside the client and clears back to the groups", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    __setPaginatedRows("dashboard:searchProjects", CEDARLINE.slice(0, 2));
+    await mount("/projects?client=cedarline+systems");
+    const search = page.getByRole("searchbox", { name: "Search projects" });
+    await expect.element(search).toBeVisible();
+    await userEvent.fill(search, "pump");
+    await expect.poll(() => __activeQueryArgs("dashboard:searchProjects")).toEqual([
+      { search: "pump", companyKey: "cedarline systems" },
+    ]);
+    expect(__isQueryActive("dashboard:listCompanyProjects")).toBe(false);
+    await expect.poll(() => text(document.querySelector("#projects-search-results"))).toBe("2 projects match");
+    expect(document.querySelectorAll("[data-search-results] [data-project-board-card]")).toHaveLength(2);
+    await userEvent.click(document.querySelector<HTMLElement>("[data-search-clear]")!);
+    await expect.poll(() => fyHeaders().length).toBe(4);
+  });
+
+  it("puts a card menu on each card, reachable from the keyboard, with Edit details, Duplicate and Delete", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    const onEditDetails = vi.fn();
+    await mount("/projects?client=cedarline+systems", { onEditDetails });
+    await expect.poll(() => document.querySelector('[data-card-menu="p5"]')).not.toBeNull();
+    const trigger = document.querySelector<HTMLButtonElement>('[data-card-menu="p5"]')!;
+    expect(trigger.getAttribute("aria-label")).toBe("More actions for High-efficiency pump control");
+    // Always shown in the stage band (Paper Z11a), never hover-only.
+    expect(getComputedStyle(trigger).opacity).toBe("1");
+    const link = page.getByRole("link", { name: "High-efficiency pump control" });
+    (link.element() as HTMLElement).focus();
+    // The menu sits in the stage band above the title, so it comes just before it.
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(document.activeElement).toBe(trigger);
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => document.querySelector('[data-card-menu-content="p5"]')).not.toBeNull();
+    const items = [...document.querySelectorAll("[data-card-menu-item]")].map((item) => text(item));
+    // No Open: a click on the card opens the project.
+    expect(items).toEqual(["Edit details", "Duplicate", "Delete"]);
+    await userEvent.click(document.querySelector<HTMLElement>('[data-card-menu-item="edit"]')!);
+    expect(onEditDetails).toHaveBeenCalledWith("p5");
+  });
+
+  it("opens the delete confirmation from the menu, and hides Delete from someone who may not", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", [
+      ...CEDARLINE.slice(0, 1),
+      project("other", { title: "Someone else's project", createdBy: "u-2", fiscalYearEnd: day("2026-09-30") }),
+    ]);
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => document.querySelector('[data-card-menu="other"]')).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>('[data-card-menu="other"]')!);
+    await expect.poll(() => document.querySelector('[data-card-menu-item="edit"]')).not.toBeNull();
+    expect(document.querySelector('[data-card-menu-item="delete"]')).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector('[data-card-menu-content="other"]')).toBeNull();
+
+    await userEvent.click(document.querySelector<HTMLElement>('[data-card-menu="p4"]')!);
+    await userEvent.click(document.querySelector<HTMLElement>('[data-card-menu-item="delete"]')!);
+    await expect.element(page.getByRole("dialog", { name: "Delete Adaptive cold storage controls?" })).toBeVisible();
+  });
+
+  it("shows a checkbox on hover, a light grey bar once one is ticked, and clears on Escape", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    const onBulkEdit = vi.fn();
+    await mount("/projects?client=cedarline+systems", { onBulkEdit });
+    await expect.poll(() => document.querySelector('[data-card-select-box="p5"]')).not.toBeNull();
+    // No Select button and no bar until something is ticked; the checkbox
+    // waits for hover or focus, in a slot that never moves.
+    expect(document.querySelector("[data-select-start]")).toBeNull();
+    expect(document.querySelector("[data-selection-bar]")).toBeNull();
+    expect(getComputedStyle(document.querySelector('[data-card-select-box="p5"]')!).opacity).toBe("0");
+
+    await userEvent.click(page.getByRole("checkbox", { name: "Select High-efficiency pump control" }));
+    expect(selectionCount()).toBe("1 selected of 6");
+    // Once one is ticked, a click anywhere on another card ticks it.
+    await userEvent.click(page.getByRole("checkbox", { name: "Compressor vibration damping", exact: true }));
+    expect(selectionCount()).toBe("2 selected of 6");
+    expect(document.querySelector('[data-card-select="p5"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(document.querySelector('[data-project-board-card][data-selected="true"]')).not.toBeNull();
+    // The search stays.
+    expect(document.querySelector("[data-client-search]")).not.toBeNull();
+    expect(text(document.querySelector("[data-selection-bar]"))).toBe("2 selected of 6 Edit details Clear");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-selection-edit]")!);
+    expect(onBulkEdit).toHaveBeenCalledTimes(1);
+    expect(onBulkEdit.mock.calls[0][0].map((r: { _id: string }) => r._id)).toEqual(["p5", "pa"]);
+
+    await userEvent.click(document.querySelector<HTMLElement>("[data-selection-clear]")!);
+    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
+    await userEvent.click(page.getByRole("checkbox", { name: "Select Defrost cycle prediction" }));
+    await userEvent.click(page.getByText("Select all 6"));
+    expect(selectionCount()).toBe("6 selected of 6");
+
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
+    expect(document.querySelector("[data-card-select]")).toBeNull();
+  });
+
+  it("keeps keyboard focus on the card when ticking swaps its controls, and on the title after Clear", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => document.querySelector('[data-card-select-box="p5"]')).not.toBeNull();
+    document.querySelector<HTMLElement>('[data-card-select-box="p5"]')!.focus();
+    await userEvent.keyboard(" ");
+    expect(selectionCount()).toBe("1 selected of 6");
+    await expect.poll(() => document.activeElement?.getAttribute("data-card-select")).toBe("p5");
+    await userEvent.keyboard(" ");
+    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
+    await expect.poll(() => document.activeElement?.getAttribute("data-card-select-box")).toBe("p5");
+    await userEvent.keyboard(" ");
+    document.querySelector<HTMLElement>("[data-selection-clear]")!.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
+    await expect.poll(() => document.activeElement?.hasAttribute("data-client-title")).toBe(true);
+  });
+
+  it("opens the bulk edit dialog by default", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => document.querySelector('[data-card-select-box="p6"]')).not.toBeNull();
+    await userEvent.click(page.getByRole("checkbox", { name: "Select Defrost cycle prediction" }));
+    await userEvent.click(document.querySelector<HTMLElement>("[data-selection-edit]")!);
+    await expect.element(page.getByRole("dialog", { name: "Edit 1 project" })).toBeVisible();
+    // The centered dialog (Paper Z7p), not a side panel.
+    expect(document.querySelector('[data-testid="bulk-edit-panel"]')?.hasAttribute("data-form-dialog")).toBe(true);
+  });
+
+  it("offers the checkboxes only to roles that may bulk edit, not to Financial or while the role loads", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    __setQueryData("users:getCurrentUser", { _id: "u-1", role: "financial" });
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => fyHeaders().length).toBe(4);
+    expect(document.querySelector("[data-card-select-box]")).toBeNull();
+    expect(document.querySelector("[data-selection-bar]")).toBeNull();
+
+    __setQueryData("users:getCurrentUser", undefined);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector("[data-card-select-box]")).toBeNull();
+
+    __setQueryData("users:getCurrentUser", { _id: "u-1", role: "writer" });
+    await expect.poll(() => document.querySelector("[data-card-select-box]")).not.toBeNull();
+  });
+
+  it("opens and closes fiscal years, keeps the choice per company, and starts older finished years closed", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", [
+      ...CEDARLINE.slice(0, 3),
+      project("p1", { title: "Evaporator coil frost sensing", projectNumber: "1", fiscalYearEnd: day("2025-09-30"), workflowStage: "delivered" }),
+      project("p0", { title: "Older delivered work", projectNumber: "3", fiscalYearEnd: day("2024-03-31"), workflowStage: "delivered" }),
+    ]);
+    const screen = await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => fyHeaders().length).toBe(3);
+    const toggle = (key: string) => document.querySelector<HTMLButtonElement>(`[data-fy-toggle="${key}"]`)!;
+    const cardsIn = (key: string) => document.querySelectorAll(`[data-fy-group="${key}"] [data-project-board-card]`).length;
+    // Two newest fiscal years open; FY 2024 is finished, so it starts closed.
+    expect(toggle("fy-2026-2026-09-30").getAttribute("aria-expanded")).toBe("true");
+    expect(toggle("fy-2025-2025-09-30").getAttribute("aria-expanded")).toBe("true");
+    expect(toggle("fy-2024-2024-03-31").getAttribute("aria-expanded")).toBe("false");
+    expect(cardsIn("fy-2024-2024-03-31")).toBe(0);
+    // The year is a heading with the toggle inside it.
+    expect(toggle("fy-2026-2026-09-30").closest("h3")).not.toBeNull();
+
+    await userEvent.click(toggle("fy-2026-2026-09-30"));
+    await expect.poll(() => cardsIn("fy-2026-2026-09-30")).toBe(0);
+    await userEvent.click(toggle("fy-2024-2024-03-31"));
+    await expect.poll(() => cardsIn("fy-2024-2024-03-31")).toBe(1);
+
+    // The choice is kept for this company when the page comes back.
+    screen.unmount();
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => fyHeaders().length).toBe(3);
+    expect(toggle("fy-2026-2026-09-30").getAttribute("aria-expanded")).toBe("false");
+    expect(toggle("fy-2024-2024-03-31").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("never selects or keeps projects inside a closed fiscal year", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => fyHeaders().length).toBe(4);
+    await userEvent.click(page.getByRole("checkbox", { name: "Select Refrigerant leak detection" }));
+    expect(selectionCount()).toBe("1 selected of 6");
+    // Closing the section takes its ticked card out of the selection.
+    await userEvent.click(document.querySelector<HTMLElement>('[data-fy-toggle="fy-2025-2025-03-31"]')!);
+    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
+
+    // Select all ticks only what is on screen.
+    await userEvent.click(document.querySelector<HTMLElement>('[data-fy-toggle="fy-2026-2026-09-30"]')!);
+    await userEvent.click(page.getByRole("checkbox", { name: "Select Evaporator coil frost sensing" }));
+    await userEvent.click(page.getByText("Select all 2"));
+    expect(selectionCount()).toBe("2 selected of 2");
+  });
+
+  it("marks every group that may still grow while more projects can load, with no Short year tag yet", async () => {
+    // FY 2025 is the last loaded fiscal year: either of its dates may gain
+    // projects, and an earlier FY 2025 year end may still arrive.
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE, { more: true });
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => fyHeaders().length).toBe(4);
+    expect(fyHeaders()).toEqual([
+      "FY 2026 September 30, 2026 3 projects",
+      "FY 2025 September 30, 2025 1+ projects",
+      "FY 2025 March 31, 2025 1+ projects",
+      "No fiscal year 1+ projects",
+    ]);
+    expect(document.querySelector("[data-short-year]")).toBeNull();
+    expect(document.querySelector("[data-show-more]")).not.toBeNull();
+  });
+
+  it("says a client that is no longer in the list may have been merged, with a way back and no New project", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", []);
+    await mount("/projects?client=old+merged+co");
+    await expect.poll(() => text(document.querySelector("[data-client-missing] p"))).toBe(
+      "This company is no longer in the company list. It may have been merged."
+    );
+    expect(document.querySelector("[data-client-new-project]")).toBeNull();
+    expect(text(title())).toBe("Company not found");
+    const back = document.querySelector<HTMLAnchorElement>("[data-client-missing-back]")!;
+    expect(back.getAttribute("href")).toBe("/projects");
+    await userEvent.click(back);
+    await expect.poll(() => text(title())).toBe("All companies");
+    expect(appPage.url.search).toBe("");
+  });
+
+  it("still says a listed client has no projects yet", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", []);
+    __setQueryData("clients:listClients", { clients: CLIENTS, truncated: true });
+    await mount("/projects?client=old+merged+co");
+    // A cut list cannot prove the client is gone.
+    await expect.poll(() => document.querySelector("[data-client-empty]")).not.toBeNull();
+    expect(document.querySelector("[data-client-missing]")).toBeNull();
+  });
+
+  it("says when a client has no projects, with New project for that client", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", []);
+    await mount("/projects?client=societe+generale");
+    await expect.poll(() => text(document.querySelector("[data-client-empty] p"))).toBe(
+      "Société Générale has no projects yet."
+    );
+    expect(document.querySelector("[data-client-new-project]")?.getAttribute("href")).toBe(
+      "/project/new?client=Soci%C3%A9t%C3%A9+G%C3%A9n%C3%A9rale"
+    );
+  });
+
+  it("keeps the card geometry while loading and offers Try again on an error", async () => {
+    await mount("/projects?client=cedarline+systems");
+    await expect.element(page.getByRole("status", { name: "Loading projects" })).toBeVisible();
+    expect(document.querySelectorAll("[data-projects-loading] .h-40")).toHaveLength(6);
+
+    __setQueryError("dashboard:listCompanyProjects", new Error("boom"));
+    await expect.poll(() => text(document.querySelector("[data-projects-error]"))).toBe(
+      "Projects could not be loaded. Try again"
+    );
+  });
+});
+
+describe("Client list failure", () => {
+  it("Try again drops the failed list subscription and subscribes afresh", async () => {
+    __setQueryError("clients:listClients", new Error("boom"));
+    await mount();
+    await expect.element(page.getByRole("button", { name: "Try again" })).toBeVisible();
+    const before = __queryArgsHistory("clients:listClients").length;
+    await userEvent.click(page.getByRole("button", { name: "Try again" }));
+    // A skip then a fresh subscription, not just a remounted list.
+    await expect.poll(() => __queryArgsHistory("clients:listClients").slice(before)).toEqual(["skip", {}]);
+  });
+});
+
+describe("All companies view", () => {
+  it("shows recently edited projects across clients, each card naming its client", async () => {
+    __setPaginatedRows("dashboard:listFlatProjects", [
+      project("x1", { title: "Pump control", clientName: "Cedarline Systems", fiscalYearEnd: day("2026-09-30") }),
+      project("x2", { title: "Coil sensing", clientName: "Acuity Insights" }),
+    ]);
+    await mount();
+    await expect.poll(() => text(title())).toBe("All companies");
+    expect(__activeQueryArgs("dashboard:listFlatProjects")).toEqual([{ sortBy: "updated" }]);
+    expect(text(document.querySelector("#projects-recent"))).toBe("Recently updated");
+    const clientsShown = [...document.querySelectorAll('[data-recent-projects] [data-card-field="client"]')].map((n) =>
+      text(n)
+    );
+    expect(clientsShown).toEqual(["Cedarline Systems", "Acuity Insights"]);
+    await expect.element(page.getByRole("searchbox", { name: "Search projects" })).toBeVisible();
+  });
+
+  it("searches every client without a client key", async () => {
+    __setPaginatedRows("dashboard:listFlatProjects", []);
+    __setPaginatedRows("dashboard:searchProjects", []);
+    await mount();
+    await userEvent.fill(page.getByRole("searchbox", { name: "Search projects" }), "coil");
+    await expect.poll(() => __activeQueryArgs("dashboard:searchProjects")).toEqual([{ search: "coil" }]);
+    await expect.poll(() => text(document.querySelector("#projects-search-results"))).toBe('No projects match "coil".');
+  });
+
+  it("seeds the search handed over from Home", async () => {
+    __setPaginatedRows("dashboard:searchProjects", []);
+    await mount("/projects", { initialSearch: "pump" });
+    await expect.poll(() => __activeQueryArgs("dashboard:searchProjects")).toEqual([{ search: "pump" }]);
+  });
+});
+
+describe("Small screens", () => {
+  it("shows the client list full width, then the client with a back link", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount("/projects", {}, 600);
+    await expect.poll(() => row("cedarline systems")).not.toBeNull();
+    const area = () => document.querySelector<HTMLElement>("[data-client-area]");
+    const list = document.querySelector<HTMLElement>('aside[aria-label="Companies"]')!;
+    // Full width inside the page panel's 1px border.
+    expect(Math.round(list.getBoundingClientRect().width)).toBe(document.querySelector<HTMLElement>("[data-projects-page]")!.clientWidth);
+    expect(area()?.offsetParent).toBeNull();
+
+    await userEvent.click(row("cedarline systems")!);
+    await expect.poll(() => area()?.offsetParent).not.toBeNull();
+    expect(list.offsetParent).toBeNull();
+    const back = page.getByRole("button", { name: "All companies" });
+    await expect.element(back).toBeVisible();
+    await userEvent.click(back);
+    await expect.poll(() => list.offsetParent).not.toBeNull();
+    expect(appPage.url.search).toBe("");
+  });
+});

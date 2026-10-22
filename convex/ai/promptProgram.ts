@@ -3,7 +3,10 @@
 import { sha256 } from "../lib/contracts";
 import {
   ALWAYS_THINKING_MAX_OUTPUT_TOKENS,
-  MODEL,
+  HAIKU_MODEL,
+  LEGACY_MODEL,
+  LEGACY_RETRIEVAL_BRIEF_MODEL,
+  MODEL as DEFAULT_MODEL,
   REASONING_TOKEN_MULTIPLIER,
   entryAlwaysThinks,
   SECTION_ANSWER_TOKEN_BUDGETS,
@@ -124,9 +127,8 @@ import {
   SUMMARY_PLAN_SERIALIZER_VERSION,
   SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES,
 } from "../lib/seedRevisions";
-import { CANDIDATE_MODE_ROUTING } from "./model";
+import { CANDIDATE_MODE_ROUTING as LIVE_CANDIDATE_MODE_ROUTING } from "./model";
 import {
-  RETRIEVAL_BRIEF_MODEL,
   RETRIEVAL_BRIEF_REQUEST,
   RETRIEVAL_BRIEF_SCHEMA,
   RETRIEVAL_BRIEF_SYSTEM_PROMPT,
@@ -178,6 +180,28 @@ import {
   FACTS_VERSION,
 } from "../lib/transcriptFacts";
 
+
+/**
+ * The program's own model fields (legacy and fallback ids, role defaults)
+ * name the pre-catalog defaults, Sonnet 5 and Haiku 4.5, and never move
+ * (2026-10-22 decision). Every generation's real models are frozen on it
+ * and hashed from there (promptVersionForModels), so the defaults moving to
+ * a newer version of their tier never changes the prompt version of a
+ * generation already reserved.
+ */
+const MODEL = LEGACY_MODEL;
+const RETRIEVAL_BRIEF_MODEL = LEGACY_RETRIEVAL_BRIEF_MODEL;
+const CANDIDATE_MODE_ROUTING = {
+  ...LIVE_CANDIDATE_MODE_ROUTING,
+  single: { ...LIVE_CANDIDATE_MODE_ROUTING.single, fallbackModelId: LEGACY_MODEL },
+  iterative: { ...LIVE_CANDIDATE_MODE_ROUTING.iterative, fallbackModelId: LEGACY_MODEL },
+} as const;
+const LEGACY_ROLE_DEFAULTS = Object.fromEntries(
+  MODEL_ROLES.map((role) => [
+    role,
+    ROLE_POLICIES[role].track === "claude-haiku" ? LEGACY_RETRIEVAL_BRIEF_MODEL : LEGACY_MODEL,
+  ])
+);
 export const PROMPT_PROGRAM_CONTRACT_ID =
   "banhall.generation-prompt-program/v1";
 
@@ -931,9 +955,7 @@ export const generationPromptProgram = {
         policy: GENERATION_STEP_POLICY,
         beforeVersion: "every-step-keeps-its-model-and-request-from-before-step-routing",
       },
-      roleDefaults: Object.fromEntries(
-        MODEL_ROLES.map((role) => [role, ROLE_POLICIES[role].defaultModelId])
-      ),
+      roleDefaults: LEGACY_ROLE_DEFAULTS,
       modeRouting: CANDIDATE_MODE_ROUTING,
       randomComparisonPoolGateway:
         CANDIDATE_MODE_ROUTING.compare.randomPoolGateway,
@@ -1082,6 +1104,20 @@ export async function generationPromptVersion(
  * the default model, every role on its default). Tests and tooling compare
  * against it; runtime code always uses generationPromptVersion.
  */
+/**
+ * The version a generation without a model freeze gets (reserved before
+ * models were frozen, or a test fixture written that way): Sonnet 5 and
+ * Haiku 4.5, whatever today's defaults are (2026-10-22).
+ */
+export function legacyPromptVersion(singleModelId: string = LEGACY_MODEL): Promise<string> {
+  return promptVersionForModels(generationModelFreeze({ singleModelId }));
+}
+
 export function currentPromptVersion(): Promise<string> {
-  return promptVersionForModels(generationModelFreeze({ singleModelId: MODEL }));
+  return promptVersionForModels(
+    generationModelFreeze(
+      { singleModelId: DEFAULT_MODEL },
+      { model: DEFAULT_MODEL, retrievalBriefModel: HAIKU_MODEL }
+    )
+  );
 }

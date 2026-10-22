@@ -1,10 +1,15 @@
 import { describe, expect, test } from "vitest";
 import fixture from "./__fixtures__/openrouter-models-2026-09-24.json";
+import liveFixture from "./__fixtures__/openrouter-models-2026-10-22.json";
 import { CANDIDATE_MODELS } from "./generationModels";
 import { isAnthropicOpenRouterModel } from "./anthropicTransport";
 import {
   AUTOMATION_THRESHOLDS,
+  MODEL_ROLES,
   ROLE_POLICIES,
+  directRowFromListing,
+  readinessAllowsMove,
+  trackUpgradeListing,
   artificialAnalysisScore,
   bestIntelligenceScore,
   diffCatalog,
@@ -162,6 +167,17 @@ describe("catalog diffing", () => {
     expect(direct.inputUsdPerMTok).toBeUndefined();
     expect(direct.requestId).toBeUndefined();
     expect(direct.benchmarks?.length).toBeGreaterThan(0);
+    // Review 2026-10-22: a direct row a track upgrade wrote (not a seed)
+    // keeps its own name, reasoning and output cap too.
+    const upgraded = refreshedFields({ source: "openrouter", gateway: "anthropic", modelId: "claude-sonnet-5" }, sonnet);
+    expect(upgraded.reasoning).toBeUndefined();
+    expect(upgraded.maxCompletionTokens).toBeUndefined();
+    expect(upgraded.displayName).toBeUndefined();
+    expect(upgraded.inputUsdPerMTok).toBeUndefined();
+    // An OpenRouter row found by the refresh still takes the listing's.
+    const listed = refreshedFields({ source: "openrouter", gateway: "openrouter", modelId: gemini.openRouterId }, gemini);
+    expect(listed.reasoning).toBe(gemini.reasoning);
+    expect(listed.displayName).toBe(gemini.displayName);
   });
 });
 
@@ -529,5 +545,148 @@ void _typeCheck;
 describe("planning role description", () => {
   test("names the Writing preferences Preview, which runs on this role", () => {
     expect(ROLE_POLICIES.planning.description).toContain("Writing preferences Preview");
+  });
+});
+
+// ─── Tracks (2026-10-22 decision) ───────────────────────────────────────────
+
+const live = parseOpenRouterModels(liveFixture, NOW).models;
+const liveRow = (id: string) => {
+  const model = live.find((item) => item.openRouterId === id);
+  if (!model) throw new Error(`missing ${id} in the 2026-10-22 fixture`);
+  return { ...model, modelId: model.openRouterId, requestId: model.openRouterId, missingSince: undefined as number | undefined };
+};
+
+describe("roles follow tracks", () => {
+  test("every Sonnet role follows claude-sonnet and the four Haiku roles follow claude-haiku", () => {
+    const haikuRoles = MODEL_ROLES.filter((role) => ROLE_POLICIES[role].track === "claude-haiku").sort();
+    expect(haikuRoles).toEqual(["brain_context", "feedback_summary", "retrieval_brief", "structured_helper"]);
+    for (const role of MODEL_ROLES) {
+      const policy = ROLE_POLICIES[role];
+      expect(policy.track === "claude-haiku" || policy.track === "claude-sonnet", role).toBe(true);
+      expect(policy.defaultModelId, role).toBe(policy.track === "claude-haiku" ? "claude-haiku-5-5" : "claude-sonnet-5-5");
+    }
+  });
+
+  test("seeds the 2026-10-22 track models with prices, limits and OpenRouter slugs", () => {
+    const seeds = seedCatalogModels(NOW);
+    const seed = (id: string) => seeds.find((s) => s.modelId === id)!;
+    expect(seed("claude-sonnet-5-5")).toMatchObject({
+      gateway: "anthropic",
+      displayName: "Sonnet 5.5",
+      forcedToolChoice: false,
+      canonicalSlug: "anthropic/claude-sonnet-5.5-20260928",
+      inputUsdPerMTok: 2,
+      outputUsdPerMTok: 10,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+    });
+    expect(seed("claude-haiku-5-5")).toMatchObject({
+      gateway: "anthropic",
+      displayName: "Haiku 5.5",
+      canonicalSlug: "anthropic/claude-haiku-5.5-20261007",
+      inputUsdPerMTok: 0.1,
+      outputUsdPerMTok: 0.5,
+    });
+    // Haiku 5.5 is not on Anthropic's list of models that refuse a forced
+    // tool call; the readiness check measures any later version.
+    expect(seed("claude-haiku-5-5").forcedToolChoice).toBeUndefined();
+    expect(seed("openai/gpt-6.1-sol")).toMatchObject({ canonicalSlug: "openai/gpt-6.1-sol-20260929", reasoning: true, maxCompletionTokens: 128000 });
+    expect(seed("google/gemini-3.8-flash")).toMatchObject({ canonicalSlug: "google/gemini-3.8-flash-20260902", reasoning: true, maxCompletionTokens: 65536 });
+    // Superseded seeds stay so frozen generations still route and price.
+    for (const id of ["claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5-20251001", "openai/gpt-6-sol", "openai/gpt-5.6-sol", "openai/gpt-5.6-luna", "google/gemini-3.5-flash"]) {
+      expect(seed(id), id).toBeDefined();
+    }
+  });
+
+  test("every seed slug is still listed on 2026-10-22", () => {
+    const slugs = new Set(live.map((model) => model.canonicalSlug));
+    for (const seed of seedCatalogModels(NOW)) expect(slugs.has(seed.canonicalSlug), seed.modelId).toBe(true);
+  });
+});
+
+describe("track upgrades", () => {
+  const rows = [
+    liveRow("anthropic/claude-sonnet-5"),
+    liveRow("anthropic/claude-sonnet-5.5"),
+    liveRow("openai/gpt-6-sol"),
+    liveRow("openai/gpt-6.1-sol"),
+    liveRow("openai/gpt-6.1-sol-pro"),
+    liveRow("google/gemini-3.8-flash"),
+    liveRow("google/gemini-4-argon"),
+  ];
+
+  test("finds the newest listing above the track's model and names the app id", () => {
+    expect(trackUpgradeListing({ track: "claude-sonnet", currentModelId: "claude-sonnet-5", rows, rolledBackFrom: [] })).toMatchObject({
+      listingId: "anthropic/claude-sonnet-5.5",
+      appModelId: "claude-sonnet-5-5",
+    });
+    expect(trackUpgradeListing({ track: "gpt-sol", currentModelId: "openai/gpt-6-sol", rows, rolledBackFrom: [] })).toMatchObject({
+      listingId: "openai/gpt-6.1-sol",
+      appModelId: "openai/gpt-6.1-sol",
+    });
+  });
+
+  test("today's track models are up to date on the 2026-10-22 list", () => {
+    const all = live.map((model) => ({ ...model, modelId: model.openRouterId, requestId: model.openRouterId }));
+    for (const [track, modelId] of [
+      ["claude-opus", "claude-opus-5-5"],
+      ["claude-sonnet", "claude-sonnet-5-5"],
+      ["claude-haiku", "claude-haiku-5-5"],
+      ["gpt-sol", "openai/gpt-6.1-sol"],
+      ["gpt-luna", "openai/gpt-6-luna"],
+      ["gemini-pro", "google/gemini-3.1-pro-preview"],
+      ["gemini-flash", "google/gemini-3.8-flash"],
+    ] as const) {
+      expect(trackUpgradeListing({ track, currentModelId: modelId, rows: all, rolledBackFrom: [] }), track).toBeNull();
+    }
+  });
+
+  test("skips a model the track was moved back from, a missing listing, and a direct row", () => {
+    expect(
+      trackUpgradeListing({ track: "claude-sonnet", currentModelId: "claude-sonnet-5", rows, rolledBackFrom: ["claude-sonnet-5-5"] })
+    ).toBeNull();
+    expect(
+      trackUpgradeListing({
+        track: "gpt-sol",
+        currentModelId: "openai/gpt-6-sol",
+        rows: rows.map((row) => (row.modelId === "openai/gpt-6.1-sol" ? { ...row, missingSince: NOW } : row)),
+        rolledBackFrom: [],
+      })
+    ).toBeNull();
+    expect(
+      trackUpgradeListing({
+        track: "claude-opus",
+        currentModelId: "claude-opus-5-5",
+        rows: [{ ...liveRow("anthropic/claude-opus-5.5"), modelId: "claude-opus-6", gateway: "anthropic" as const, requestId: undefined as unknown as string }],
+        rolledBackFrom: [],
+      })
+    ).toBeNull();
+  });
+
+  test("a readiness check moves the track only on a clean answer", () => {
+    expect(readinessAllowsMove({ plainOk: true, forcedToolChoice: true, forcedRejected: false })).toBe(true);
+    expect(readinessAllowsMove({ plainOk: true, forcedToolChoice: false, forcedRejected: true })).toBe(true);
+    expect(readinessAllowsMove({ plainOk: false, forcedToolChoice: false, forcedRejected: false, failure: "429" })).toBe(false);
+    expect(readinessAllowsMove({ plainOk: true, forcedToolChoice: false, forcedRejected: false, failure: "timeout" })).toBe(false);
+  });
+
+  test("a direct Claude row takes its limits and prices from the OpenRouter listing", () => {
+    const listing = liveRow("anthropic/claude-haiku-5.5");
+    const row = directRowFromListing(listing, "claude-haiku-5-5", "Haiku 5.5", true);
+    expect(row).toMatchObject({
+      modelId: "claude-haiku-5-5",
+      gateway: "anthropic",
+      canonicalSlug: "anthropic/claude-haiku-5.5-20261007",
+      displayName: "Haiku 5.5",
+      provider: "Anthropic",
+      inputUsdPerMTok: 0.1,
+      outputUsdPerMTok: 0.5,
+      contextLength: 1_000_000,
+      maxCompletionTokens: 128_000,
+      reasoning: false,
+    });
+    expect(row.forcedToolChoice).toBeUndefined();
+    expect(directRowFromListing(listing, "claude-haiku-6", "Haiku 6", false).forcedToolChoice).toBe(false);
   });
 });

@@ -12,7 +12,7 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
-import { openTranscriptPaste, startFromPage } from "./newProjectTestSupport";
+import { listClients, openTranscriptPaste, startFromPage } from "./newProjectTestSupport";
 
 /**
  * Opening New project from the command menu while on a duplicate's New
@@ -100,6 +100,8 @@ beforeEach(() => {
   __resetConvexStub();
   takeProjectStart();
   __setQueryData("users:getMyUser", { _id: "user-1", role: "writer", firstName: "Wendy" });
+  // The clients these projects start with are listed (2026-10-14: Start needs one).
+  listClients("Forgeworks Inc.", "New Client Ltd.");
 });
 
 describe("/project/new from the command menu on a duplicate", () => {

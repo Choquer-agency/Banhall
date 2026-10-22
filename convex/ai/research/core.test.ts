@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { buildPlaceholderMap } from "../../lib/deidentify";
 import {
   buildExternalBrief,
   buildOpenRouterRequest,
@@ -102,6 +103,69 @@ describe("Contextual Research core", () => {
     expect(brief).not.toContain("604-555-0199");
     expect(brief).toContain("raspberry");
     expect(brief).toContain("Do not infer or assert");
+  });
+
+  // 2026-10-19: pseudonymizing first turned "tbrandt@larkspur.example" into
+  // "tbrandt@CLIENT_1.example", which no email pattern matched.
+  test("redacts emails and links that carry a hidden name before pseudonymizing", () => {
+    const placeholders = buildPlaceholderMap({
+      clientName: "Larkspur Fluidics Ltd.",
+      firms: [],
+      people: ["Tomas Brandt"],
+      phrases: [],
+    });
+    const brief = buildExternalBrief({
+      selectedText:
+        "Write to tbrandt@larkspur.example or see https://larkspur.example/notes for the PID loop.",
+      // The map's exact case makes "Larkspur" a token inside the address.
+      surroundingContext: "Ask ines@Larkspur.example about https://Larkspur.example/bench.",
+      instruction: "Find the control baseline.",
+      // A one-word known name catches the lowercase domain.
+      knownNames: ["Larkspur", "Tomas Brandt"],
+      placeholders,
+    });
+    for (const hidden of ["tbrandt", "ines", "larkspur", "Larkspur", "/notes", "/bench", "CLIENT_"]) {
+      expect(brief).not.toContain(hidden);
+    }
+    expect(brief).toContain("[redacted email]");
+    expect(brief).toContain("[redacted URL]");
+    expect(brief).toContain("PID loop");
+  });
+
+  // 2026-10-19 (chat web search review round 2): name matching ignores
+  // accents both ways, for composed and decomposed text, and the rest of
+  // the brief keeps its accents. Every name here is fictional.
+  test("redacts names with or without their accents and keeps every other accent", () => {
+    const placeholders = buildPlaceholderMap({
+      clientName: "Systèmes Québécois Ltée",
+      firms: [],
+      people: ["Zoë Lefèvre-Côté", "José Núñez", "Ines Ortega"],
+      phrases: [],
+    });
+    const brief = buildExternalBrief({
+      selectedText:
+        "systemes quebecois ltee and Jose Nunez tuned the Montréal rig; Zoe Lefevre-Cote and Inés Ortega reviewed it.",
+      surroundingContext: "SYSTÈMES QUÉBÉCOIS reported the drift. Núñez logged the café trial.".normalize("NFD"),
+      instruction: "Find the drift baseline for the crème line.",
+      // Research's record names; "José Núñez" is only on the map.
+      knownNames: ["Systèmes Québécois Ltée", "Zoë Lefèvre-Côté", "Ines Ortega"],
+      placeholders,
+    });
+    const folded = brief.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+    for (const hidden of ["systemes", "quebecois", "jose", "nunez", "zoe", "lefevre", "cote", "ines", "ortega"]) {
+      expect(folded, hidden).not.toContain(hidden);
+    }
+    expect(brief).toContain("tuned the Montréal rig");
+    expect(brief).toContain("Find the drift baseline for the crème line.");
+    expect(brief.normalize("NFC")).toContain("logged the café trial");
+  });
+
+  test("matches a name without accents against accented text, and the reverse", () => {
+    expect(redactExternalText("Inés Ortega and INÉS ran it", ["Ines Ortega", "Ines"])).toBe("[redacted] and [redacted] ran it");
+    expect(redactExternalText("Jose Nunez ran it", ["José Núñez"])).toBe("[redacted] ran it");
+    expect(redactExternalText("José Núñez ran it".normalize("NFD"), ["José Núñez"])).toBe("[redacted] ran it");
+    // Whole words still: an accent-free name never matches inside a word.
+    expect(redactExternalText("Inesperado stays", ["Ines"])).toBe("Inesperado stays");
   });
 
   test("uses native GPT search and never configures Exa", () => {

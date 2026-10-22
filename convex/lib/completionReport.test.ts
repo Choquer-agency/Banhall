@@ -198,22 +198,6 @@ describe("bulkEditInputSchema", () => {
         findings: [resolved(1, { editNumbers: [1], paragraph: 0 })],
       }),
     ],
-    [
-      "an id whose kind prefix does not match the finding's own kind",
-      () => ({
-        edits: [{ targetText: "t", newText: "n" }],
-        // The id says content ("c-"), but kind still says rule.
-        findings: [{ ...resolved(1, { editNumbers: [1] }), id: "c-242-1-1" }],
-      }),
-    ],
-    [
-      "an id whose section does not match the finding's own section",
-      () => ({
-        edits: [{ targetText: "t", newText: "n" }],
-        // The id names Line 244, but section still says 242.
-        findings: [{ ...resolved(1, { editNumbers: [1] }), id: "r-244-1-1" }],
-      }),
-    ],
   ];
 
   for (const [label, build] of rejects) {
@@ -222,6 +206,49 @@ describe("bulkEditInputSchema", () => {
       expect(result.success, label).toBe(false);
     });
   }
+
+  // 2026-10-19: the id decides kind and section; a call is no longer refused
+  // for echoing an id with the wrong label.
+  it("takes the kind from the id when the finding labels it otherwise", () => {
+    const result = bulkEditInputSchema.safeParse({
+      edits: [{ targetText: "t", newText: "n" }],
+      // The id says content ("c-"), but kind says rule.
+      findings: [{ ...resolved(1, { editNumbers: [1] }), id: "c-242-1-1" }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.findings[0]).toMatchObject({ id: "c-242-1-1", kind: "content", section: "242" });
+  });
+
+  it("takes the section from the id when the finding names another Line", () => {
+    const result = bulkEditInputSchema.safeParse({
+      edits: [{ targetText: "t", newText: "n" }],
+      // The id names Line 244, but section says 242.
+      findings: [{ ...resolved(1, { editNumbers: [1] }), id: "r-244-1-1" }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.findings[0]).toMatchObject({ id: "r-244-1-1", kind: "rule", section: "244" });
+  });
+
+  it("names the r- ids that carry no rule once the id makes them rule findings", () => {
+    const result = bulkEditInputSchema.safeParse({
+      edits: [{ targetText: "t", newText: "n" }],
+      findings: [{ ...resolved(1, { editNumbers: [1] }), id: "r-242-1-1", kind: "content", rule: undefined }],
+    });
+    expect(result.success).toBe(false);
+    const message = (result as z.ZodSafeParseError<unknown>).error.issues
+      .map((issue) => issue.message)
+      .join(" ");
+    expect(message).toContain("These rule findings name no rule: r-242-1-1.");
+  });
+
+  it("leaves an id in another shape alone", () => {
+    const result = bulkEditInputSchema.safeParse({
+      edits: [{ targetText: "t", newText: "n" }],
+      findings: [{ ...resolved(1, { editNumbers: [1] }), id: "custom-1", kind: "content", rule: undefined }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.findings[0]).toMatchObject({ id: "custom-1", kind: "content" });
+  });
 
   it("names the coverage rule when the mapping is wrong", () => {
     const input = mixedSixteen();

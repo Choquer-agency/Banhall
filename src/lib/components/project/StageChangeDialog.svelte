@@ -163,7 +163,7 @@
                         } ${option.disabledReason || busy ? "cursor-not-allowed border-line-soft bg-gray-50 opacity-70" : ""}`}
                       >
                         <span class="block text-sm font-semibold text-ink">{option.label}</span>
-                        <span class="mt-0.5 block text-xs leading-5 text-ink-muted">{option.description}</span>
+                        <span class="mt-0.5 block text-xs leading-[calc(5/3)] text-ink-muted">{option.description}</span>
                         {#if option.disabledReason}
                           <span id={reasonId} class="mt-1 block text-xs font-medium text-amber-800">{option.disabledReason}</span>
                         {/if}

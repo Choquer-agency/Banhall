@@ -71,7 +71,10 @@ export const recordUploadAttempts = mutation({
       const existing = await findAttempt(ctx, args.projectId, attemptKey);
 
       if (existing) {
-        if (existing.status === "succeeded") continue;
+        // Both are terminal. A dismissed row stays dismissed: a failure this
+        // browser queued earlier and flushes later must not bring back a row
+        // the user removed.
+        if (existing.status === "succeeded" || existing.status === "dismissed") continue;
         await ctx.db.patch(existing._id, {
           status,
           ...(entry.failureCode ? { failureCode: entry.failureCode } : {}),
@@ -112,8 +115,8 @@ export const failUploadAttempt = mutation({
     const attemptKey = requireAttemptKey(args.attemptKey);
     const attempt = await findAttempt(ctx, args.projectId, attemptKey);
     // The upload can win a race against its own failure report; a resolved
-    // attempt is terminal.
-    if (!attempt || attempt.status === "succeeded") return;
+    // attempt is terminal, and so is one the user removed.
+    if (!attempt || attempt.status === "succeeded" || attempt.status === "dismissed") return;
     await ctx.db.patch(attempt._id, {
       status: "failed",
       failureCode: args.failureCode,

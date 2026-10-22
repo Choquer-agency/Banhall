@@ -27,7 +27,7 @@ function seed(status = "completed") {
   __setQueryData("chatFeedback:getViewerVotes", []);
   __setMutationResult("chatFeedback:submitFeedback", 1);
 }
-beforeEach(() => { __resetConvexStub(); __resetAuthState(); localStorage.clear(); seed(); });
+beforeEach(() => { __resetConvexStub(); __resetAuthState(); localStorage.clear(); sessionStorage.clear(); seed(); });
 
 it("renders the real chat panel", async () => {
   await page.viewport(440, 850);
@@ -38,8 +38,8 @@ it("renders the real chat panel", async () => {
 
 it("shows source chips in the real trace without exposing exemplar bodies or inventing links", async () => {
   await render(AgentChatPanel, { reportId, projectId });
-  await page.getByText("Worked", { exact: true }).click();
-  await page.getByText("Searched The Brain for “uncertainty”", { exact: true }).click();
+  await page.getByText(/^Worked( for \d|$)/).click();
+  await page.getByRole("list", { name: "Thought process" }).getByText("Searched The Brain for “uncertainty”", { exact: true }).click();
   await expect.element(page.getByText("Control systems", { exact: true })).toBeVisible();
   await expect.element(page.getByText("CRA 2.02.01 Software engineering", { exact: true })).toBeVisible();
   expect(document.body.textContent).not.toContain("Private exemplar body");
@@ -58,7 +58,7 @@ it.each([1, -1] as const)("saves vote %s once and restores it after remount", as
   await page.getByRole("button", { name: label, exact: true }).click();
   await expect.element(page.getByRole("button", { name: label, exact: true })).toHaveAttribute("aria-pressed", "true");
   expect(__mutationCalls("chatFeedback:submitFeedback")).toEqual([{ turnId: "turn-1", vote }]);
-  await expect.element(page.getByRole("button", { name: label, exact: true })).toBeDisabled();
+  await expect.element(page.getByRole("button", { name: label, exact: true })).toHaveAttribute("aria-disabled", "true");
   await mounted.unmount();
   __setQueryData("chatFeedback:getViewerVotes", [{ turnId: "turn-1", vote }]);
   await render(AgentChatPanel, { reportId, projectId });
@@ -70,13 +70,13 @@ it("keeps feedback disabled while loading and retries a failed vote with the key
   __setQueryData("chatFeedback:getViewerVotes", undefined);
   await render(AgentChatPanel, { reportId, projectId });
   const helpful = page.getByRole("button", { name: "Mark response helpful", exact: true });
-  await expect.element(helpful).toBeDisabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "true");
   __setQueryData("chatFeedback:getViewerVotes", []);
   __setMutationError("chatFeedback:submitFeedback", new Error("SECRET"));
   await helpful.click();
   await expect.element(page.getByRole("alert")).toHaveTextContent("Could not save feedback. Please try again.");
   expect(document.body.textContent).not.toContain("SECRET");
-  await expect.element(helpful).toBeEnabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "false");
   __setMutationResult("chatFeedback:submitFeedback", 1);
   const button = helpful.element();
   if (!(button instanceof HTMLButtonElement)) throw new Error("Missing helpful control");
@@ -150,7 +150,7 @@ it("keeps distinct persisted votes attached to their answers with an unrated thi
   const unhelpful = page.getByRole("button", { name: "Mark response not helpful", exact: true });
   await expect.element(helpful.nth(0)).toHaveAttribute("aria-pressed", "true");
   await expect.element(unhelpful.nth(1)).toHaveAttribute("aria-pressed", "true");
-  await expect.element(helpful.nth(2)).toBeEnabled();
+  await expect.element(helpful.nth(2)).toHaveAttribute("aria-disabled", "false");
   await expect.element(helpful.nth(2)).toHaveAttribute("aria-pressed", "false");
   const answerIds = new Set<string>();
   for (const i of [1, 2, 3]) {
@@ -160,7 +160,8 @@ it("keeps distinct persisted votes attached to their answers with an unrated thi
     if (!labelledBy) throw new Error("Feedback group lacks an answer association");
     answerIds.add(labelledBy);
     expect(document.getElementById(labelledBy)?.textContent).toContain(`Distinct answer ${i}.`);
-    expect(group.element().querySelectorAll('button[aria-pressed]')).toHaveLength(2);
+    // Two vote buttons per answer (a thumbs down also offers its reasons).
+    expect(group.element().querySelectorAll('button[aria-pressed][aria-label^="Mark response"]')).toHaveLength(2);
   }
   expect(answerIds.size).toBe(3);
 });
@@ -171,14 +172,14 @@ it("suppresses duplicate clicks while a vote is pending and isolates a changed v
   await render(AgentChatPanel, { reportId, projectId });
   const helpful = page.getByRole("button", { name: "Mark response helpful", exact: true });
   await helpful.click();
-  await expect.element(helpful).toBeDisabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "true");
   const button = helpful.element();
   if (!(button instanceof HTMLButtonElement)) throw new Error("Missing control");
   button.click();
   expect(__mutationCalls("chatFeedback:submitFeedback")).toHaveLength(1);
   __setQueryData("users:getCurrentUser", { _id: "writer-2", role: "writer" });
   settle(1);
-  await expect.element(helpful).toBeEnabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "false");
   await expect.element(helpful).toHaveAttribute("aria-pressed", "false");
   __setQueryData("users:getCurrentUser", { _id: "writer-1", role: "writer" });
   await expect.element(helpful).toHaveAttribute("aria-pressed", "true");
@@ -188,14 +189,14 @@ it("recovers safely from a vote query error after a page remount", async () => {
   __setQueryError("chatFeedback:getViewerVotes", new Error("SECRET QUERY"));
   const mounted = await render(AgentChatPanel, { reportId, projectId });
   const helpful = page.getByRole("button", { name: "Mark response helpful", exact: true });
-  await expect.element(helpful).toBeDisabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "true");
   await expect.element(page.getByRole("alert")).toHaveTextContent("Feedback is unavailable. Please refresh this page to try again.");
   expect(document.body.textContent).not.toContain("SECRET QUERY");
   const subscriptionsBefore = __activeQueryArgs("chatFeedback:getViewerVotes").length;
   await mounted.unmount();
   __setQueryData("chatFeedback:getViewerVotes", []);
   await render(AgentChatPanel, { reportId, projectId });
-  await expect.element(helpful).toBeEnabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "false");
   expect(__activeQueryArgs("chatFeedback:getViewerVotes").length).toBeGreaterThan(subscriptionsBefore);
   await helpful.click();
   await expect.element(helpful).toHaveAttribute("aria-pressed", "true");
@@ -208,8 +209,8 @@ it("keeps maximum unbroken source labels inside a mobile viewport", async () => 
     { type: "text", text: "Use measurable comparisons." },
   ] })]);
   await render(AgentChatPanel, { reportId, projectId });
-  await page.getByText("Worked", { exact: true }).click();
-  await page.getByText("Searched The Brain for “uncertainty”", { exact: true }).click();
+  await page.getByText(/^Worked( for \d|$)/).click();
+  await page.getByRole("list", { name: "Thought process" }).getByText("Searched The Brain for “uncertainty”", { exact: true }).click();
   await expect.element(page.getByRole("group", { name: "Brain sources", exact: true })).toBeVisible();
   for (const element of document.querySelectorAll('[aria-label="Brain sources"], [aria-label="Brain sources"] span')) {
     expect(element.getBoundingClientRect().right).toBeLessThanOrEqual(320);
@@ -238,7 +239,7 @@ it("does not attach an old pending vote to another conversation", async () => {
   await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
   await page.getByRole("menuitem", { name: "Second conversation", exact: false }).click();
   settle(1);
-  await expect.element(helpful).toBeEnabled();
+  await expect.element(helpful).toHaveAttribute("aria-disabled", "false");
   await expect.element(helpful).toHaveAttribute("aria-pressed", "false");
   expect(__activeQueryArgs("chatFeedback:getViewerVotes")).toEqual([{ reportId, threadId: "thread-2", turnIds: ["turn-2"] }]);
   expect(__mutationCalls("chatFeedback:submitFeedback")).toEqual([{ turnId: "turn-1", vote: 1 }]);
@@ -257,7 +258,7 @@ it.each([null, { _id: "roleless" }, { _id: "anonymous", role: "writer", isAnonym
 it("does not rate a completed turn that has only tool output", async () => {
   __setPaginatedRows("chatV2:listMessages", [answer({ text: "", parts: [{ type: "tool-searchBrain", toolCallId: "search-1", state: "output-available", input: {}, output }] })]);
   await render(AgentChatPanel, { reportId, projectId });
-  await expect.element(page.getByText("Worked", { exact: true })).toBeVisible();
+  await expect.element(page.getByText(/^Worked( for \d|$)/)).toBeVisible();
   expect(document.querySelector('[aria-label="Mark response helpful"]')).toBeNull();
 });
 

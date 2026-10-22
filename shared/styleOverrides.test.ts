@@ -5,6 +5,7 @@ import {
   STYLE_OVERRIDE_KEYS,
   STYLE_OVERRIDE_META,
   hasAnyStyleOverride,
+  houseRuleModeNote,
   normalizeHouseRuleModes,
   normalizeStyleOverrides,
   resolveEffectiveOverrides,
@@ -62,6 +63,51 @@ describe("STYLE_OVERRIDE_META", () => {
       expect(STYLE_OVERRIDE_META[key].label.length).toBeGreaterThan(0);
       expect(STYLE_OVERRIDE_META[key].description.length).toBeGreaterThan(0);
     }
+  });
+
+  it("gives every area the writer's name, a summary, the house rule, an example and what the switch changes (2026-10-19)", () => {
+    for (const key of STYLE_OVERRIDE_KEYS) {
+      const meta = STYLE_OVERRIDE_META[key];
+      for (const field of ["writerLabel", "summary", "houseRule", "example", "whenOn"] as const) {
+        expect(meta[field].trim().length, `${key}.${field}`).toBeGreaterThan(0);
+      }
+    }
+    expect(STYLE_OVERRIDE_META.bannedWords.writerLabel).toBe("Word list");
+    // The operations lead's question: a list of words to avoid, with set replacements.
+    expect(STYLE_OVERRIDE_META.bannedWords.houseRule).toContain("must not use");
+    expect(STYLE_OVERRIDE_META.sentenceConstruction.houseRule).toContain("40 words");
+  });
+
+  it("uses the plain hyphen only, with no em, en or other dashes", () => {
+    for (const key of STYLE_OVERRIDE_KEYS) {
+      for (const [field, value] of Object.entries(STYLE_OVERRIDE_META[key])) {
+        expect(value, `${key}.${field}`).not.toMatch(/[\u2010-\u2015\u2212]/);
+      }
+    }
+  });
+
+  it("keeps the admin labels the prompts quote", () => {
+    // convex/ai/prompts.ts and the style analysis prompt use these labels.
+    expect(STYLE_OVERRIDE_KEYS.map((key) => STYLE_OVERRIDE_META[key].label)).toEqual([
+      "Banned words and phrases",
+      "Paragraph density",
+      "Sentence construction",
+      "Phrase repetition caps",
+      "Mandated opening clauses",
+      "Report skeleton and paragraph roles",
+    ]);
+  });
+});
+
+describe("houseRuleModeNote", () => {
+  it("explains a locked area and says nothing when the writer decides", () => {
+    expect(houseRuleModeNote("writer_choice")).toBeNull();
+    expect(houseRuleModeNote("enforced")).toBe(
+      "Your organization always applies this house rule, so its switch is locked."
+    );
+    expect(houseRuleModeNote("off")).toBe(
+      "Your organization turned this house rule off for everyone, so your instructions already apply here."
+    );
   });
 });
 

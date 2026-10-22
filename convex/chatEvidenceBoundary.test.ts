@@ -21,7 +21,10 @@ describe("chat evidence boundary", () => {
     const source = read("./ai/chatAgentV2.ts");
     expect(source).toContain("buildChatTurnRequest({");
     expect(source).toContain("system: turn.system,");
-    expect(source).toContain("messages: turn.messages,");
+    // Phase A (2026-10-19): the evidence messages, then the per-turn note on
+    // message options and history (`chatTurnNote`), never system text.
+    expect(source).toContain("...turn.messages,");
+    expect(source).toContain("content: chatTurnNote({");
     // A template literal at the `system:` key is the exact shape this story
     // removed: policy with evidence appended to it.
     expect(source).not.toMatch(/system: `/);

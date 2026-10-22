@@ -23,7 +23,7 @@
           href={tab.href}
           aria-current={current ? "page" : undefined}
           data-settings-tab={tab.key}
-          class={`flex h-[1.875rem] items-center whitespace-nowrap rounded-[0.4375rem] px-3 text-[0.8125rem] font-medium leading-[1.125rem] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11 ${
+          class={`flex h-[1.875rem] items-center whitespace-nowrap rounded-[0.4375rem] px-3 text-[0.8125rem] font-medium leading-[calc(18/13)] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11 ${
             current ? "bg-primary-selected text-white" : "text-ink-secondary hover:bg-primary-wash hover:text-ink"
           }`}
         >{tab.label}</a>

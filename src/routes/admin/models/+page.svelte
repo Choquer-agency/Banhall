@@ -11,14 +11,13 @@
   import ModelCatalogPanel from "$lib/components/admin/ModelCatalogPanel.svelte";
   import FirmNamesSetting from "$lib/components/admin/FirmNamesSetting.svelte";
   import { pickerModels, defaultModelIdFor } from "$lib/modelPicker";
-  import type { CostCapInput, ModelAdminRole } from "$lib/modelCatalogAdmin";
+  import type { CostCapInput, ModelAdminRole, ModelAdminTrack } from "$lib/modelCatalogAdmin";
   import { userErrorMessage } from "$lib/errors";
   import {
     adminStateRef,
+    moveTrackBackRef,
     requestCatalogRefreshRef,
-    rollbackRoleRef,
     setAutoSwitchRef,
-    setEvalBudgetRef,
     setRoleCostCapRef,
   } from "../../../../convex/lib/modelCatalogRefs";
 
@@ -42,8 +41,9 @@
 
   const stats = $derived(statsQ.data);
 
-  // The writing role's model (model catalog): used when a writer doesn't
-  // pick one. Choosing here is logged as a manual switch.
+  // The writing role's tier (2026-10-22): its newest version is used when a
+  // writer doesn't pick one. Choosing here points the writing role at that
+  // tier and is logged as a manual switch.
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   const setDefaultModel = useMutation(api.appSettings.setDefaultModel);
   let savingDefault = $state(false);
@@ -53,9 +53,8 @@
   // Model catalog (owner decision 21): admin state and actions.
   const catalogQ = useQuery(adminStateRef, () => (auth.isAuthenticated ? {} : "skip"));
   const setAutoSwitch = useMutation(setAutoSwitchRef);
-  const rollbackRole = useMutation(rollbackRoleRef);
+  const moveTrackBack = useMutation(moveTrackBackRef);
   const setRoleCostCap = useMutation(setRoleCostCapRef);
-  const setEvalBudget = useMutation(setEvalBudgetRef);
   const requestRefresh = useMutation(requestCatalogRefreshRef);
   // The firm's own names, hidden in every AI call (decision 26). The query
   // returns null for anyone but an admin, and the card stays hidden then.
@@ -139,7 +138,7 @@
 {:else}
   <AdminWorkspacePage
     title="Models"
-    description="Which models the app runs, how they switch, and which drafts consultants prefer."
+    description="Which models the app runs, how they stay up to date, and which drafts consultants prefer."
     width="compact"
   >
       {#if catalogError}
@@ -151,12 +150,10 @@
           busy={catalogBusy}
           onToggleAutoSwitch={(enabled: boolean) =>
             runCatalogAction("autoSwitch", () => setAutoSwitch({ enabled }))}
-          onRollback={(role: ModelAdminRole["role"]) =>
-            runCatalogAction(`rollback:${role}`, () => rollbackRole({ role }))}
+          onMoveBack={(track: ModelAdminTrack["track"]) =>
+            runCatalogAction(`moveBack:${track}`, () => moveTrackBack({ track }))}
           onSaveCap={(role: ModelAdminRole["role"], cap: CostCapInput) =>
             runCatalogAction(`cap:${role}`, () => setRoleCostCap({ role, ...cap }))}
-          onSaveBudget={(monthlyUsd: number) =>
-            runCatalogAction("budget", () => setEvalBudget({ monthlyUsd }))}
           onRefresh={() => runCatalogAction("refresh", () => requestRefresh({}))}
         />
       {/if}
@@ -171,7 +168,8 @@
           <div>
             <p class="text-sm font-medium text-gray-900">Default model</p>
             <p class="text-sm text-gray-600">
-              The writing role's model, used whenever a writer doesn't pick one. Choosing here is logged as a manual switch.
+              The tier the report is written on when a writer doesn't pick a model. It always runs that tier's newest
+              version. Choosing here is logged as a manual switch.
             </p>
           </div>
           <span class="flex items-center gap-2">

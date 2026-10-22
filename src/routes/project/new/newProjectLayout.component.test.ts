@@ -91,11 +91,12 @@ describe("E1 desktop layout", () => {
     expect(getComputedStyle(active).color).toBe("rgb(255, 255, 255)");
   });
 
-  it("styles Cancel as the filled destructive button and leaves for My work", async () => {
+  it("styles Cancel as the standard header's secondary button and leaves for My work", async () => {
     await render(NewProjectPage, {});
     const cancel = document.querySelector<HTMLButtonElement>("[data-new-project-cancel]")!;
     expect(text(cancel)).toBe("Cancel");
-    expect(getComputedStyle(cancel).backgroundColor).toBe("rgb(254, 226, 226)");
+    // Owner, 2026-10-19: every header button matches; white with a line border.
+    expect(getComputedStyle(cancel).backgroundColor).toBe("rgb(255, 255, 255)");
     cancel.click();
     await expect.poll(() => __navigationCalls.map((call) => call.url)).toContain("/my-work");
   });
@@ -178,17 +179,17 @@ describe("E1 board values", () => {
     expect([box.paddingTop, box.borderTopLeftRadius]).toEqual([boardPx(18), boardPx(14)]);
   });
 
-  it("sizes Cancel as the board: 36px, 14px sides, radius 8, 13px 500 in #B91C1C", async () => {
+  it("sizes Cancel as the standard header button: 38px, 16px sides, radius 9, 15px 500 in ink", async () => {
     await render(NewProjectPage, {});
     const cancel = getComputedStyle(document.querySelector("[data-new-project-cancel]")!);
     expect([cancel.height, cancel.paddingLeft, cancel.borderTopLeftRadius, cancel.fontSize, cancel.lineHeight, cancel.fontWeight, cancel.color]).toEqual([
-      boardPx(36),
-      boardPx(14),
-      boardPx(8),
-      boardPx(13),
-      boardPx(18),
+      boardPx(38),
+      boardPx(16),
+      boardPx(9),
+      boardPx(15),
+      boardPx(20),
       "500",
-      "rgb(185, 28, 28)",
+      "rgb(22, 33, 31)",
     ]);
   });
 
@@ -248,7 +249,7 @@ describe("H1 tablet (1024)", () => {
     expect(getComputedStyle(bar).paddingLeft).toBe("32px");
     expect(getComputedStyle(bar).position).toBe("sticky");
     // A blocking problem replaces the Ready line in danger ink.
-    expect(text(bar.querySelector("[data-bottom-summary]"))).toBe("Add a client and a title");
+    expect(text(bar.querySelector("[data-bottom-summary]"))).toBe("Add a company and a title");
     expect(document.querySelector<HTMLButtonElement>("[data-bottom-start]")!.disabled).toBe(true);
 
     await fillBasics();
@@ -290,7 +291,9 @@ describe("H1 tablet (1024)", () => {
     expect(bar.dataset.variant).toBe("bleed");
     expect(bar.querySelector("[data-page-icon-tile]")).toBeNull();
     expect(bar.querySelector("[data-top-bar-bell]")).toBeNull();
-    expect(text(bar.querySelector("nav[aria-label=Breadcrumb]"))).toBe("Projects / New project");
+    // The title only, as on every screen (2026-10-19).
+    expect(bar.querySelector("nav[aria-label=Breadcrumb]")).toBeNull();
+    expect(text(bar.querySelector("h1"))).toBe("New project");
     // No inset panel: the page is white from the top bar down, edge to edge.
     const panel = document.querySelector<HTMLElement>("[data-work-panel]")!;
     expect(getComputedStyle(panel).borderTopWidth).toBe("0px");
@@ -353,7 +356,7 @@ describe("H2 phone (390)", () => {
     expect(getComputedStyle(start).height).toBe("48px");
     expect(getComputedStyle(start).fontSize).toBe("16px");
     // H2: the button alone once nothing blocks; the blocking line otherwise.
-    expect(text(document.querySelector("[data-bottom-summary]"))).toBe("Add a client and a title");
+    expect(text(document.querySelector("[data-bottom-summary]"))).toBe("Add a company and a title");
     // 44px fields with radius 10 and 13px labels; the mode switch leads.
     const title = getComputedStyle(document.querySelector("#title")!);
     expect([title.height, title.borderTopLeftRadius, title.paddingLeft]).toEqual(["44px", "10px", "12px"]);

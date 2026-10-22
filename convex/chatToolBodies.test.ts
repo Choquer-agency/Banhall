@@ -265,6 +265,27 @@ describe("runCompareReferencePd", () => {
     expect(reply).toContain("Never answer with a similarity score.");
   });
 
+  // Chat parity round 3 and 4: a reference (x-) item on a card records what
+  // it is, from the turn's latest compareReferencePd call.
+  test("a card records a fingerprint for each reference item the comparison listed", async () => {
+    const f = await setup({
+      documents: [{ fileName: "last-year-pd.docx", content: REFERENCE }],
+    });
+    const messages = [
+      { role: "assistant" as const, content: [{ type: "tool-call" as const, toolCallId: "cmp", toolName: "compareReferencePd", input: {} }] },
+    ];
+    const finding = {
+      id: "x-242-3-1", section: "242" as const, paragraph: 3, kind: "reference" as const, status: "conflicting" as const,
+      reason: "The Reference PD has one fewer trial.", lockedRule: "Line 242 line cap.", alternative: "Keep three trials.",
+    };
+    await runProposeBulkEdits(f.ctx, { edits: [], findings: [finding] }, { toolCallId: "with-list", bannedWordsWaived: false, messages });
+    await runProposeBulkEdits(f.ctx, { edits: [], findings: [finding] }, { toolCallId: "no-list", bannedWordsWaived: false });
+    const rows = await f.t.run((ctx) => ctx.db.query("chatProposalItems").collect());
+    expect(rows.map((row) => row.itemId)).toEqual(["x-242-3-1", "x-242-3-1"]);
+    expect(rows[0]?.fingerprint).toMatch(/^[0-9a-f]{16}$/);
+    expect(rows[1]?.fingerprint).toBeUndefined();
+  });
+
   test("forwards contentDeviations alongside the comparison", async () => {
     const f = await setup({
       documents: [{ fileName: "last-year-pd.docx", content: REFERENCE }],
@@ -496,15 +517,21 @@ describe("runProposeBulkEdits", () => {
     findings,
   };
 
-  test("persists the Completion Report and echoes the checklist", async () => {
+  // Phase A (2026-10-19, CAP-13 change): the card shows the checklist, so the
+  // result gives counts and where the items that need the writer sit, never
+  // the checklist. Owner direction 2026-10-21: never the ids either.
+  test("persists the Completion Report and leaves the checklist to the card", async () => {
     const f = await setup();
     const reply = await runProposeBulkEdits(f.ctx, input, {
       toolCallId: "call-bulk",
       bannedWordsWaived: false,
     });
-    expect(reply).toContain("Coordinated revision proposed for writer review, not applied.");
-    expect(reply).toContain("r-242-1-1: resolved: Line 242 paragraph 1, edit 1.");
-    expect(reply).toContain("c-242-2-1: blocked:");
+    expect(reply).toBe(
+      "Coordinated revision proposed for writer review, not applied. The card shows the writer its Completion Report checklist, with each item's Line and paragraph, status and reason: 1 resolved, 1 blocked (Line 242, paragraph 2), 0 conflicting. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision. Refer to each item by its Line and paragraph and briefly what it is about, never by its id. Once applied, Line 242 would have 19 of 350 words (now 18) and 5 of 50 form lines (now 5), within the CRA limits."
+    );
+    expect(reply).not.toMatch(/\b[rcx]-24[246]-\d+-\d+\b/);
+    expect(reply).not.toContain("Report this Completion Report checklist");
+    expect(reply).not.toContain("r-242-1-1: resolved:");
 
     // Dropping `items:` from the tool leaves zero rows here.
     const state = await itemRows(f);
@@ -573,8 +600,11 @@ describe("runProposeBulkEdits", () => {
     );
     expect(reply).toMatch(/^Nothing to apply/);
     expect(reply).not.toContain("Coordinated revision proposed");
-    expect(reply).toContain("c-242-2-1: blocked:");
-    expect(reply).toContain("x-242-3-1: conflicting:");
+    expect(reply).toContain("0 resolved, 1 blocked (Line 242, paragraph 2), 1 conflicting (Line 242, paragraph 3)");
+    expect(reply).toContain("Refer to each item by its Line and paragraph and briefly what it is about, never by its id.");
+    expect(reply).not.toMatch(/\b[rcx]-24[246]-\d+-\d+\b/);
+    expect(reply).toContain("Do not repeat the checklist; name the decisions or missing facts the writer needs.");
+    expect(reply).not.toContain("c-242-2-1: blocked:");
 
     const state = await itemRows(f);
     expect(state.proposals).toHaveLength(1);

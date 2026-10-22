@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   alignReferenceParagraphs,
   assembleDeviationInventory,
+  isSettingsRecordNote,
   renderInventory,
   type InventoryContentDeviation,
   type InventoryNote,
   type InventorySections,
 } from "./deviationInventory";
 import { STORYLINE_QUESTION_WITHHELD_REASON } from "./storylineQuestionNote";
+import { NOT_CHECKED_ON_FINAL_TEXT } from "./selfCheckRules";
 
 /**
  * Story 5 (CAP-12): "every paragraph appears exactly once" is a property of a
@@ -704,5 +706,107 @@ describe("assembleDeviationInventory Reference PD counterpart alignment (DW-137)
       undefined,
       "Advancement.",
     ]);
+  });
+});
+
+/**
+ * 2026-10-19 (the 2026-10-07 deviation chat failure): 53 items on one live inventory,
+ * of which 12 were settings records and 23 were rules the Self-check never
+ * judged on the final text. Listed as Deviations, they all had to be decided
+ * before the first edit, and the step ran out of output thinking about them.
+ */
+describe("assembleDeviationInventory settings records and unverified rules", () => {
+  const notChecked = (over: Partial<InventoryNote> = {}) =>
+    note({
+      tier: "none",
+      reason: `${NOT_CHECKED_ON_FINAL_TEXT} (the Self-check gave no verdict for it)`,
+      instruction: "Write in the first person plural.",
+      ...over,
+    });
+  const records: InventoryNote[] = [
+    note({ paragraphIndex: undefined, instruction: "House Rule category: Word list", tier: "none", reason: "instruction waived via override" }),
+    note({ paragraphIndex: undefined, instruction: "Writer Profile waiver: Sentence length", tier: "org_enforced", reason: "org-enforced" }),
+    note({ paragraphIndex: undefined, instruction: "Build Order", tier: "none", reason: "fell back" }),
+    note({ paragraphIndex: undefined, instruction: "Writer Profile", tier: "none", reason: "no Writer Profile applied (disabled)" }),
+  ];
+
+  it("recognizes every settings record label and nothing else", () => {
+    for (const record of records) expect(isSettingsRecordNote(record)).toBe(true);
+    expect(isSettingsRecordNote(note())).toBe(false);
+    expect(isSettingsRecordNote(note({ instruction: "Locked Rule: Line 242 holds at most 400 words" }))).toBe(false);
+  });
+
+  it("leaves settings records out of the items and counts them", () => {
+    const result = assembleDeviationInventory({
+      sections: sections(),
+      notes: [...records, note()],
+      rulesStatus: "available",
+    });
+    expect(result.items.map((item) => item.instruction)).toEqual([note().instruction]);
+    expect(result.settingsRecords).toBe(4);
+    expect(result.profileNotAppliedReason).toBe("no Writer Profile applied (disabled)");
+    const text = renderInventory(result);
+    expect(text).not.toContain("House Rule category: Word list");
+    expect(text).toContain("4 settings record(s) are left out");
+    expect(text).toContain("No Writer Profile governed this draft (no Writer Profile applied (disabled))");
+  });
+
+  it("lists rules not checked on the final text apart from the Deviations, ids kept", () => {
+    const result = assembleDeviationInventory({
+      sections: sections(),
+      notes: [note(), notChecked(), notChecked({ section: "244", paragraphIndex: 0 })],
+      rulesStatus: "available",
+    });
+    expect(result.items.map((item) => item.id)).toEqual(["r-242-3-1"]);
+    // Numbered with the paragraph's other rule rows, so ids stay stable.
+    expect(result.unverified.map((item) => item.id)).toEqual(["r-242-3-2", "r-244-1-1"]);
+    expect(result.paragraphs.find((p) => p.section === "244" && p.paragraph === 1)?.items).toEqual([]);
+    const text = renderInventory(result);
+    expect(text).toContain("## Not checked on the final text");
+    expect(text).toContain("- Line 242 paragraph 3: r-242-3-2 Write in the first person plural.");
+    expect(text).toContain("1 Deviation(s) listed, plus 2 not checked.");
+    // The footer no longer asks for one revision, which the size rule splits.
+    expect(text).not.toContain("one coordinated revision");
+  });
+
+  it("keeps an unchecked rule out of the Deviations when its Line has no paragraphs", () => {
+    const result = assembleDeviationInventory({
+      sections: { s242: sectionText("242", 2), s244: "", s246: sectionText("246", 1) },
+      notes: [notChecked({ section: "244", paragraphIndex: 0 })],
+      rulesStatus: "available",
+    });
+    expect(result.unanchored).toEqual([]);
+    expect(result.unverified.map((item) => item.id)).toEqual(["r-244-0-1"]);
+    const text = renderInventory(result);
+    expect(text).not.toContain("## Deviations that could not be anchored");
+    expect(text).toContain("- Line 244 (no paragraphs in the current report): r-244-0-1");
+  });
+
+  it("lists one Line when asked, with the same ids and the other Lines counted", () => {
+    const result = assembleDeviationInventory({
+      sections: sections(),
+      notes: [
+        note(),
+        note({ section: "244", paragraphIndex: 1 }),
+        note({ section: "244", paragraphIndex: 4 }),
+        note({ section: "246", paragraphIndex: 0 }),
+        notChecked({ section: "242", paragraphIndex: 0 }),
+      ],
+      rulesStatus: "available",
+    });
+    const full = renderInventory(result);
+    const scoped = renderInventory(result, { section: "244" });
+    expect(scoped).toContain("Line 244 only: its 7 paragraph(s), each listed once.");
+    expect(scoped).toContain("Deviations in the other Lines: Line 242 has 1, Line 246 has 1.");
+    expect(scoped).not.toContain("## Line 242");
+    expect(scoped).not.toContain("## Line 246");
+    expect(scoped).not.toContain("## Not checked on the final text");
+    for (const id of ["r-244-2-1", "r-244-5-1"]) {
+      expect(scoped).toContain(id);
+      expect(full).toContain(id);
+    }
+    expect(scoped).toContain("2 Deviation(s) listed in Line 244.");
+    // Every paragraph of the Line still appears exactly once.
+    expect(scoped.match(/^### Paragraph /gm)).toHaveLength(7);
   });
 });

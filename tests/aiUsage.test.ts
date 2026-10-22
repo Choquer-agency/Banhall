@@ -5,7 +5,9 @@ import { internal } from "../convex/_generated/api";
 import schema from "../convex/schema";
 import { estimateCostUsd, resolveUsageCost } from "../convex/aiUsage";
 import { voyageTokenCount } from "../convex/ai/providers";
-import { MODEL } from "../convex/ai/model";
+// The prompt program names the pre-catalog default (2026-10-22): see
+// convex/ai/promptProgram.ts.
+import { LEGACY_MODEL as MODEL } from "../shared/generationModels";
 import { sha256 } from "../convex/lib/contracts";
 import { seedToolSchema } from "../convex/lib/seedContract";
 import { PD_SUBSECTIONS } from "../shared/pdSubsections";

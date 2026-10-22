@@ -34,6 +34,9 @@ export const MAX_FILE_NAME_CHARS = 200;
 const ATTEMPT_KEY_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// The chat no longer uploads (2026-10-19), but "chat_upload" stays valid:
+// entries a browser queued before then still flush when the project page
+// opens, and the server still accepts the origin for history.
 const ORIGINS = ["chat_upload", "context_input", "review_pd"] as const;
 const FAILURE_CODES = ["rejected_unsupported", "upload_failed"] as const;
 

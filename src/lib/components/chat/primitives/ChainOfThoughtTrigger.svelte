@@ -42,7 +42,7 @@
   class={cn(
     // -mx-2 keeps the label optically aligned with the connector while the
     // padding gives the hover fill a shape and a comfortable pointer target.
-    "group/trigger -mx-2 flex list-none items-center justify-between gap-1 rounded-lg px-2 py-1.5 text-left text-xs font-medium leading-4 text-ink-muted transition-colors [&::-webkit-details-marker]:hidden",
+    "group/trigger -mx-2 flex list-none items-center justify-between gap-1 rounded-lg px-2 py-1.5 text-left text-xs font-medium leading-[calc(4/3)] text-ink-muted transition-colors [&::-webkit-details-marker]:hidden",
     expandable
       ? "cursor-pointer hover:bg-primary-wash hover:text-navy focus-visible:bg-primary-wash focus-visible:text-navy focus-visible:outline-none"
       : "",

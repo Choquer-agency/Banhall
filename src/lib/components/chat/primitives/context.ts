@@ -14,6 +14,12 @@ export interface ChatContainerContext {
    * clears as soon as the viewport returns to the bottom. */
   readonly hasUnseen: boolean;
   scrollToBottom: (behavior?: ScrollBehavior) => void;
+  /**
+   * Keep `el` where it is on screen through the next layout change: call it
+   * just before the writer opens or closes something, so the control under
+   * their pointer does not move (owner, 2026-10-21).
+   */
+  keepInPlace: (el: Element) => void;
 }
 
 const CHAT_CONTAINER_KEY = Symbol("chat-container");

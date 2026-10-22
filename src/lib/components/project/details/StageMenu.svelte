@@ -55,7 +55,7 @@
 >
   {#each groups as group (group.label)}
     <div role="group" aria-label={group.label}>
-      <p aria-hidden="true" class="px-2 pb-1 pt-2 text-[0.6875rem] font-medium uppercase leading-[1.125rem] tracking-[0.04em] text-ink-muted">{group.label}</p>
+      <p aria-hidden="true" class="px-2 pb-1 pt-2 text-[0.6875rem] font-medium uppercase leading-[calc(18/11)] tracking-[0.04em] text-ink-muted">{group.label}</p>
       {#each group.options as option (option.stage)}
         <button
           type="button"

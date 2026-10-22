@@ -477,7 +477,7 @@
     "inline-flex size-7 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11";
   // Feedback menu rows (board 3.2): 28px, 12px text, 12px muted icons.
   const menuItem =
-    "flex h-7 w-full cursor-default items-center gap-2 rounded-md px-2 text-left text-[0.75rem] leading-4 text-ink outline-none data-[highlighted]:bg-gray-50 data-[disabled]:opacity-50 pointer-coarse:h-11";
+    "flex h-7 w-full cursor-default items-center gap-2 rounded-md px-2 text-left text-[0.75rem] leading-[calc(4/3)] text-ink outline-none data-[highlighted]:bg-gray-50 data-[disabled]:opacity-50 pointer-coarse:h-11";
 </script>
 
 {#snippet bulletText(view: (typeof bulletViews)[number])}
@@ -498,14 +498,14 @@
   {#each tags as tag, index (index)}
     <span
       class={`inline-flex items-center rounded-full font-medium ${
-        nested ? "h-[1.125rem] px-1.5 text-[0.625rem] leading-3" : "h-5 px-[0.4375rem] text-[0.6875rem] leading-[0.875rem]"
+        nested ? "h-[1.125rem] px-1.5 text-[0.625rem] leading-[1.2]" : "h-5 px-[0.4375rem] text-[0.6875rem] leading-[calc(14/11)]"
       }`}
       style={`background:${tag.background};color:${tag.color}`}
       data-seed-tag
     >{tag.label}</span>
   {/each}
   {#if item.support === "writer_asserted"}
-    <span class="text-[0.6875rem] leading-[0.875rem] text-ink-muted" data-seed-marker="writer-asserted">Writer asserted</span>
+    <span class="text-[0.6875rem] leading-[calc(14/11)] text-ink-muted" data-seed-marker="writer-asserted">Writer asserted</span>
   {/if}
 {/snippet}
 
@@ -547,22 +547,22 @@
               data-seed-quotes={item.seedId}
               aria-label="Quoted lines"
             >
-              <p class="text-[0.625rem] leading-3 font-medium tracking-[0.04em] text-ink-faint uppercase">Quoted lines</p>
+              <p class="text-[0.625rem] leading-[1.2] font-medium tracking-[0.04em] text-ink-faint uppercase">Quoted lines</p>
               <div class="mt-2 space-y-3">
                 {#each unmatchedCitations as citation (citation._id)}
                   {@const source = describeSource(sourceAttribution, String(citation.sourceId))}
                   {@const speakerLine = citationSpeakerLine(citation)}
                   <figure>
-                    <blockquote class="font-serif text-[0.8125rem] leading-[1.125rem] text-ink">“{citation.exactExcerpt}”</blockquote>
+                    <blockquote class="font-serif text-[0.8125rem] leading-[calc(18/13)] text-ink">“{citation.exactExcerpt}”</blockquote>
                     <!-- A missing name is labelled by the state of the read, never
                          presented as an attributed source. -->
-                    <figcaption class="mt-1.5 flex items-end gap-3 text-[0.6875rem] leading-[0.875rem]">
+                    <figcaption class="mt-1.5 flex items-end gap-3 text-[0.6875rem] leading-[calc(14/11)]">
                       <span class="min-w-0 flex-1 text-ink-faint">
                         {#if speakerLine}<span class="block">{speakerLine}</span>{/if}
                         {#if citation.needsSpeakerCheck}<span class="block text-ink-muted" data-quote-speaker-check>{SPEAKER_CHECK_NOTE}</span>{/if}
                         {#if citation.needsQuoteCheck}<span class="block text-ink-muted" data-quote-support-check>{QUOTE_CHECK_NOTE}</span>{#if onUseQuotes && canEdit}<button
                             type="button"
-                            class="shrink-0 rounded text-[0.6875rem] leading-[0.875rem] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:text-ink-faint disabled:no-underline"
+                            class="shrink-0 rounded text-[0.6875rem] leading-[calc(14/11)] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:text-ink-faint disabled:no-underline"
                             data-quote-use-anyway
                             disabled={busy || waiting}
                             onclick={() => void onUseQuotes()}
@@ -576,7 +576,7 @@
                       {#if onOpenSource}
                         <button
                           type="button"
-                          class="shrink-0 rounded text-[0.6875rem] leading-[0.875rem] text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                          class="shrink-0 rounded text-[0.6875rem] leading-[calc(14/11)] text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                           onclick={() => {
                             quotesOpen = false;
                             onOpenSource(citation);
@@ -650,7 +650,7 @@
               class="z-[90] w-[12.25rem] rounded-[0.5625rem] border border-line bg-surface p-1 shadow-lg"
               data-seed-feedback-menu={item.seedId}
             >
-              <p class="px-2 pt-1.5 pb-3 text-[0.625rem] leading-3 font-medium tracking-[0.04em] text-ink-faint uppercase" id={`seed-feedback-menu-${uid}`}>Revise this seed</p>
+              <p class="px-2 pt-1.5 pb-3 text-[0.625rem] leading-[1.2] font-medium tracking-[0.04em] text-ink-faint uppercase" id={`seed-feedback-menu-${uid}`}>Revise this seed</p>
               {#each FEEDBACK_PRESETS as preset (preset.label)}
                 <DropdownMenu.Item class={menuItem} disabled={sendingPreset || waiting} onSelect={() => void sendPreset(preset.instruction)}>
                   <svg class="size-3 shrink-0 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -749,7 +749,7 @@
             onkeydown={editKeydown}
             rows="2"
             maxlength={MAX_EDITED_BULLET_CHARS}
-            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[0.875rem] leading-5 text-ink [field-sizing:content]"
+            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[0.875rem] leading-[calc(10/7)] text-ink [field-sizing:content]"
           ></textarea>
           <textarea
             aria-label="Bullet 2, optional"
@@ -761,14 +761,14 @@
             onkeydown={editKeydown}
             rows="2"
             maxlength={MAX_EDITED_BULLET_CHARS}
-            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[0.875rem] leading-5 text-ink [field-sizing:content] placeholder:text-ink-faint"
+            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[0.875rem] leading-[calc(10/7)] text-ink [field-sizing:content] placeholder:text-ink-faint"
           ></textarea>
-          <p class="text-[0.75rem] leading-4 text-ink-muted">Enter to save, Shift+Enter for a new line, Esc to cancel.</p>
+          <p class="text-[0.75rem] leading-[calc(4/3)] text-ink-muted">Enter to save, Shift+Enter for a new line, Esc to cancel.</p>
           {#if discardArmed}
-            <p class="text-[0.75rem] leading-4 text-gap-text!" role="status" data-seed-discard-armed>Press Esc again to discard your changes.</p>
+            <p class="text-[0.75rem] leading-[calc(4/3)] text-gap-text!" role="status" data-seed-discard-armed>Press Esc again to discard your changes.</p>
           {/if}
           {#if editLong}
-            <p class="text-[0.75rem] leading-4 text-gap-text!" aria-live="polite" data-seed-long-note>Long for a seed</p>
+            <p class="text-[0.75rem] leading-[calc(4/3)] text-gap-text!" aria-live="polite" data-seed-long-note>Long for a seed</p>
           {/if}
           {#if editStale}
             <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
@@ -786,7 +786,7 @@
           {/if}
         </div>
       {:else}
-        <ul class="flex flex-col gap-1 text-[0.875rem] leading-5 text-ink">
+        <ul class="flex flex-col gap-1 text-[0.875rem] leading-[calc(10/7)] text-ink">
           {#each bulletViews as view, index (index)}
             <li class="flex items-start gap-2">
               {#if !nested}<span class="mt-2 size-1 shrink-0 rounded-full bg-ink-muted" aria-hidden="true"></span>{/if}
@@ -809,22 +809,22 @@
           {/each}
         </ul>
         {#if showOriginal && item.edited}
-          <p class="text-[0.75rem] leading-4 text-ink-muted">Original wording: {item.originalBullets.join(" ")}</p>
+          <p class="text-[0.75rem] leading-[calc(4/3)] text-ink-muted">Original wording: {item.originalBullets.join(" ")}</p>
         {/if}
         {#if linkLine}
-          <p class={`text-[0.75rem] leading-4 ${linkLine.dropped ? "text-gap-text!" : "text-ink-muted"}`} data-seed-link={linkLine.kind}>{linkLine.text}</p>
+          <p class={`text-[0.75rem] leading-[calc(4/3)] ${linkLine.dropped ? "text-gap-text!" : "text-ink-muted"}`} data-seed-link={linkLine.kind}>{linkLine.text}</p>
         {/if}
         {#if experimentsLine}
-          <p class={`text-[0.75rem] leading-4 ${experimentsLine.dropped ? "text-gap-text!" : "text-ink-muted"}`} data-seed-link-experiments>{experimentsLine.text}</p>
+          <p class={`text-[0.75rem] leading-[calc(4/3)] ${experimentsLine.dropped ? "text-gap-text!" : "text-ink-muted"}`} data-seed-link-experiments>{experimentsLine.text}</p>
         {/if}
         {#if answersLine}
-          <p class={`text-[0.75rem] leading-4 ${answersLine.dropped ? "text-gap-text!" : "text-ink-muted"}`} data-seed-link-answers={answersLine.dropped ? "dropped" : "picked"}>{answersLine.text}</p>
+          <p class={`text-[0.75rem] leading-[calc(4/3)] ${answersLine.dropped ? "text-gap-text!" : "text-ink-muted"}`} data-seed-link-answers={answersLine.dropped ? "dropped" : "picked"}>{answersLine.text}</p>
         {/if}
         {#if statedLine}
-          <p class="text-[0.75rem] leading-4 text-gap-text!" data-seed-states-dropped-result>{statedLine}</p>
+          <p class="text-[0.75rem] leading-[calc(4/3)] text-gap-text!" data-seed-states-dropped-result>{statedLine}</p>
         {/if}
         {#if unbackedLine}
-          <p class="text-[0.75rem] leading-4 text-gap-text!" data-seed-unbacked>{unbackedLine}</p>
+          <p class="text-[0.75rem] leading-[calc(4/3)] text-gap-text!" data-seed-unbacked>{unbackedLine}</p>
         {/if}
       {/if}
 

@@ -168,6 +168,8 @@
      J5/J9 invite banner's inviter avatar and its muted "Join by" line; the
      faded inviter avatar on the expired invite (J6). */
   --color-dialog-scrim: #01050559;
+  /* The darker scrim behind the Projects page form dialogs (Paper Z7m). */
+  --color-form-dialog-scrim: #0A1E1D8C;
   --color-role-option-selected: #F7FCFB;
   --color-invite-banner-avatar: #2E7772;
   --color-invite-banner-muted: #33605B;
@@ -333,8 +335,52 @@ html {
   to { opacity: 1; }
 }
 .pane-fade-in { animation: pane-fade-in var(--duration-layout) var(--ease-layout) both; }
+/* A disclosure that opens and closes with the layout ease (owner,
+   2026-10-21, the Assistant's thought block and its step rows): the content
+   grows from the summary down and fades in. Browsers without
+   ::details-content open it at once, as before. */
+.disclosure-ease {
+  interpolate-size: allow-keywords;
+}
+.disclosure-ease::details-content {
+  block-size: 0;
+  opacity: 0;
+  overflow: clip;
+  /* Focus rings of rows inside reach a little past the edge (review
+     2026-10-21). */
+  overflow-clip-margin: 0.25rem;
+  transition:
+    block-size var(--duration-layout) var(--ease-layout),
+    opacity var(--duration-layout) var(--ease-layout),
+    content-visibility var(--duration-layout) allow-discrete;
+}
+.disclosure-ease[open]::details-content {
+  block-size: auto;
+  opacity: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pane-fade-in { animation: none; }
+  .disclosure-ease::details-content { transition: none; }
+}
+
+/* A live status line in the Assistant ("Thinking…", "Reading a transcript…"):
+   muted text with a soft highlight passing across it, in place of a timer or
+   a spinner. Reduced motion shows the plain muted text. */
+@keyframes text-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+.text-shimmer {
+  background-image: linear-gradient(90deg, var(--color-ink-muted) 0%, var(--color-ink-muted) 35%, var(--color-ink) 50%, var(--color-ink-muted) 65%, var(--color-ink-muted) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: text-shimmer 2.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .text-shimmer { animation: none; background-image: none; color: var(--color-ink-muted); }
 }
 
 :root {
@@ -770,6 +816,59 @@ body {
   box-shadow: inset 0 0 0 2px var(--color-red-600);
 }
 
+/* Form dialogs (FormDialog, Paper Z7m 2026-10-19): every field is light
+   grey with a soft line; hover and focus keep the grey and take the lagoon
+   line. A field that holds a value (`data-filled`) or a bulk edit field
+   that will change (`data-changed`), on the field or a wrapper, keeps the
+   selected lagoon line at rest (owner, 2026-10-19). */
+[data-form-dialog] .field-control,
+[data-form-dialog] .field-control-shell,
+[data-form-dialog] .field-control:hover:not(:focus):not(:disabled),
+[data-form-dialog] .field-control:focus,
+[data-form-dialog] .field-control:focus-visible {
+  background-color: var(--color-gray-50);
+}
+
+[data-form-dialog] .field-control,
+[data-form-dialog] .field-control-shell {
+  box-shadow: inset 0 0 0 1px var(--color-line-soft);
+}
+
+[data-form-dialog] .field-control:focus,
+[data-form-dialog] .field-control:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+[data-form-dialog] .field-control-shell:hover:not(:focus-within),
+[data-form-dialog] .field-control-shell:focus-within {
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+[data-form-dialog] .field-control[data-changed]:not(:focus):not([aria-invalid="true"]),
+[data-form-dialog] [data-changed] .field-control:not(:focus):not([aria-invalid="true"]),
+[data-form-dialog] .field-control[data-filled]:not(:focus):not([aria-invalid="true"]),
+[data-form-dialog] [data-filled] .field-control:not(:focus):not([aria-invalid="true"]) {
+  box-shadow: inset 0 0 0 1px var(--color-primary-selected);
+}
+
+[data-form-dialog] .field-control[aria-invalid="true"] {
+  box-shadow: inset 0 0 0 2px var(--color-red-600);
+}
+
+[data-form-dialog] [data-tag-field] {
+  border-color: var(--color-line-soft);
+  background-color: var(--color-gray-50);
+}
+
+[data-form-dialog] [data-filled] [data-tag-field] {
+  border-color: var(--color-primary-selected);
+}
+
+[data-form-dialog] [data-tag-chip] {
+  background-color: var(--color-surface);
+  box-shadow: inset 0 0 0 1px var(--color-line);
+}
+
 .field-control-shell {
   border: 0;
   background-color: var(--color-surface);
@@ -1018,15 +1117,16 @@ textarea.input-chromeless:focus-visible {
 }
 
 /* ─── Report reading presentation (ui-design-final.md section 8, board 2.1) ──
-   The preview report page renders the editor in the reading style: serif
-   15/25 body in the 660px column, Section headings as a 12px sans label over
-   the serif CRA question (reportSectionHeadings.ts), and a limit meter at the
-   right of the label only when a Section is near or over a CRA limit. The
-   stored document is unchanged. */
+   The preview report page renders the editor in the reading style: sans
+   15/25 body in the reading column (owner, 2026-10-21: no serif), Section
+   headings as a small all-caps sans label (reportSectionHeadings.ts), and a
+   limit meter at the right of the label only when a Section is over a CRA
+   limit. The stored document is unchanged. */
 .report-reading .tiptap-editor {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 0.9375rem;
-  line-height: 1.5625rem;
+  font-weight: 300;
+  line-height: calc(5 / 3);
   color: var(--color-ink);
 }
 /* Blocks carry 2px of hover padding, so 10px here reads as the board's 14px
@@ -1037,6 +1137,11 @@ textarea.input-chromeless:focus-visible {
 .report-reading .tiptap-editor p {
   margin-bottom: 0;
 }
+/* On a Light body the browser's bolder is only 400; bold reads as 500, the
+   heaviest weight the app uses (review 2026-10-21). */
+.report-reading .tiptap-editor :is(strong, b) {
+  font-weight: 500;
+}
 /* Blocks carry their hover wash in the gutter so text never shifts. */
 .report-reading .tiptap-editor > p:not(.not-drafted-placeholder) {
   margin-inline: -0.5rem;
@@ -1044,14 +1149,21 @@ textarea.input-chromeless:focus-visible {
   border-radius: 0.25rem;
   transition: background-color 150ms ease-out;
 }
+/* Owner, 2026-10-21: a lighter wash than gray-50. */
 .report-reading .tiptap-editor[contenteditable="true"] > p:not(.not-drafted-placeholder):hover {
-  background-color: var(--color-gray-50);
+  background-color: color-mix(in srgb, var(--color-gray-50) 55%, var(--color-surface));
 }
+/* Owner, 2026-10-21: more space between Sections, and the label sits a
+   little closer to its first paragraph. */
 .report-reading .tiptap-editor > .report-section-heading {
+  margin-top: 3rem;
+}
+/* The first Section keeps its place under the report title. */
+.report-reading .tiptap-editor > h1 + .report-section-heading {
   margin-top: 1.875rem;
 }
 .report-reading .tiptap-editor > .report-section-heading + * {
-  margin-top: 0.75rem;
+  margin-top: 0.5rem;
 }
 /* The stored rule between Sections is replaced by the heading rhythm. */
 .report-reading .tiptap-editor > hr:has(+ .report-section-heading) {
@@ -1063,21 +1175,22 @@ textarea.input-chromeless:focus-visible {
   gap: 0.5rem;
   margin: 0;
   font-family: var(--font-sans);
-  font-size: 0.75rem;
-  line-height: 1rem;
-  color: var(--color-ink-muted);
   user-select: none;
 }
-.report-reading .tiptap-editor .report-section-heading__question {
-  margin: 0.375rem 0 0;
+/* Owner, 2026-10-21: number and name read as one all-caps label, a little
+   larger than before. Owner, 2026-10-22: the grey is ink-muted with 15%
+   ink-secondary, the lightest that keeps 4.5:1 on white for text this small. */
+.report-reading .tiptap-editor .report-section-heading__title {
+  margin: 0;
   padding: 0;
   border: 0;
-  font-family: var(--font-serif);
-  font-size: 1.125rem;
-  font-weight: 400;
-  line-height: 1.625rem;
-  color: var(--color-ink);
-  text-wrap: balance;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: calc(18 / 13);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-ink-muted) 85%, var(--color-ink-secondary));
 }
 .report-limit-meter {
   margin-left: auto;
@@ -1086,7 +1199,7 @@ textarea.input-chromeless:focus-visible {
   gap: 0.625rem;
   font-size: 0.6875rem;
   font-weight: 500;
-  line-height: 1rem;
+  line-height: calc(16 / 11);
   font-variant-numeric: tabular-nums;
 }
 .report-limit-meter[hidden] {
@@ -1104,16 +1217,15 @@ textarea.input-chromeless:focus-visible {
   height: 100%;
   border-radius: 9999px;
 }
-/* Band colours from the contract's score bands: orange near, red over. */
-.report-limit-meter[data-limit-state="warning"] { color: #C2410C; }
-.report-limit-meter[data-limit-state="warning"] .report-limit-meter__fill { background-color: #F59E0B; }
+/* Band colour from the contract's score bands: red over. The heading meter
+   shows only over a CRA limit (owner, 2026-10-21). */
 .report-limit-meter[data-limit-state="over"] { color: #B91C1C; }
 .report-limit-meter[data-limit-state="over"] .report-limit-meter__fill { background-color: #DC2626; }
 .report-reading .tiptap-editor mark[data-color="#FEF3C7"] {
   font-family: inherit;
   font-size: inherit;
   font-weight: 400;
-  line-height: 1.4375rem;
+  line-height: calc(23 / 15);
   padding: 0.125rem 0.375rem;
   border-radius: 0.1875rem;
   color: var(--color-gap-text);
@@ -1127,7 +1239,7 @@ textarea.input-chromeless:focus-visible {
   margin-top: 0.75rem;
   font-family: var(--font-sans);
   font-size: 0.8125rem;
-  line-height: 1.25rem;
+  line-height: calc(20 / 13);
   /* ink-faint is for placeholders; an always-visible hint needs AA contrast. */
   color: var(--color-ink-muted);
 }
@@ -1220,7 +1332,7 @@ textarea.input-chromeless:focus-visible {
   color: var(--color-ink-muted);
   font-family: var(--font-sans);
   font-size: 0.8125rem;
-  line-height: 1.25rem;
+  line-height: calc(20 / 13);
 }
 .ProseMirror p.not-drafted-placeholder::before {
   content: "Not drafted";
@@ -1231,7 +1343,7 @@ textarea.input-chromeless:focus-visible {
   background-color: var(--color-gray-50);
   color: var(--color-ink-secondary);
   font-size: 0.6875rem;
-  line-height: 1.125rem;
+  line-height: calc(18 / 11);
 }
 
 @keyframes ai-ref-pulse {
@@ -1402,7 +1514,7 @@ html [data-sonner-toaster][data-sonner-theme] {
   border-radius: 0.625rem;
   gap: 0.75rem;
   font-size: 0.8125rem;
-  line-height: 1.1875rem;
+  line-height: calc(19 / 13);
   box-shadow: var(--shadow-toast-dark);
 }
 
@@ -1422,7 +1534,7 @@ html [data-sonner-toaster][data-sonner-theme] {
 /* A one-line toast reads as plain 13/19 text (D3, D5, C1), not a bold title. */
 [data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]):not(:has([data-description])) [data-title] {
   font-weight: 400;
-  line-height: 1.1875rem;
+  line-height: calc(19 / 13);
 }
 
 /* Without an action the card is 14px on both sides (D5, C1). */

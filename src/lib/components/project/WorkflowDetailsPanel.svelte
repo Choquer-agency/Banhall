@@ -164,7 +164,7 @@
       </div>
     {/if}
     {#if stageIsFallback}
-      <p class="mt-2 text-xs leading-5 text-ink-secondary">
+      <p class="mt-2 text-xs leading-[calc(5/3)] text-ink-secondary">
         This project has no stored workflow stage. Changes begin from Intake.
       </p>
     {/if}
@@ -193,7 +193,7 @@
         </div>
       </div>
       {#if !assignable && assignableReason}
-        <p class="mt-2 text-xs leading-5 text-ink-secondary">{assignableReason}</p>
+        <p class="mt-2 text-xs leading-[calc(5/3)] text-ink-secondary">{assignableReason}</p>
       {/if}
     </section>
   {/if}
@@ -227,7 +227,7 @@
                 </div>
                 <p class="mt-0.5 text-xs text-ink-secondary">{WORK_ITEM_KIND_LABELS[item.kind]}</p>
                 {#if item.instructionsPreview}
-                  <p class="mt-1 line-clamp-2 text-xs leading-5 text-ink-muted">{item.instructionsPreview}</p>
+                  <p class="mt-1 line-clamp-2 text-xs leading-[calc(5/3)] text-ink-muted">{item.instructionsPreview}</p>
                 {/if}
                 {#if item.dueAt}
                   {@const due = formatDue(item.dueAt, now)}

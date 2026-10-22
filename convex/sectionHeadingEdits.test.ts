@@ -232,6 +232,26 @@ describe("Ask assistant with a highlight (final round, item 2)", () => {
     expect(await reportContent(f)).toContain("The tests run in phase 2");
   });
 
+  // Owner, 2026-10-21: a trim across paragraphs is one card, and the tool
+  // hands the model the meter it would leave.
+  it("saves a passage set across paragraphs as one card and returns the meter once applied", async () => {
+    const f = await setup(bodyComment);
+    const sent = await askWithHighlight(f, { text: "work performed", ...selection(4, "work performed") });
+    const saved = await f.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: sent.threadId, promptMessageId: sent.messageId, kind: "replacements", requireUniqueTargets: true,
+      replacements: [
+        { find: "The work established the limit.", replaceWith: "The work set the limit." },
+        { find: "The coupons survived 10,000 cycles.", replaceWith: "Coupons survived 10,000 cycles." },
+      ],
+    });
+    if (!saved.ok) throw new Error(`refused: ${"reason" in saved ? saved.reason : ""}`);
+    expect(saved.lengths).toMatch(/^Once applied, Line 246 would have 9 of 350 words \(now 10\) and \d+ of 50 form lines \(now \d+\), within the CRA limits\.$/);
+    expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId: saved.proposalId })).toMatchObject({ applied: true });
+    const content = await reportContent(f);
+    expect(content).toContain("The work set the limit.");
+    expect(content).toContain("Coupons survived 10,000 cycles.");
+  });
+
   it("keeps the highlight's place when the writer regenerates the prompt", async () => {
     const f = await setup(bodyComment);
     const first = await askWithHighlight(f, { text: "Work Performed", ...selection(3, "Work Performed") });

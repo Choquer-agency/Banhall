@@ -72,12 +72,17 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   import { createExtractionScope } from "$lib/extractionScope.svelte";
   import { isParseAbort } from "$lib/spreadsheetClient";
   import { useQuery, useMutation, useConvexClient } from "convex-svelte";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
+  import { tick } from "svelte";
   import { toast } from "svelte-sonner";
   import { api } from "../../../../convex/_generated/api";
-  import { categoryMeta } from "$lib/contextCategories";
+  import { categoryMeta, type ContextCategoryId } from "$lib/contextCategories";
   import { userErrorMessage } from "$lib/errors";
-  import { parseFileToText, SUPPORTED_ACCEPT, normalizeExtractedText } from "$lib/parseDocument";
+  import { SUPPORTED_ACCEPT, normalizeExtractedText } from "$lib/parseDocument";
   import { withUploadTimeout } from "$lib/uploads/outboxFlush";
+  import { storeProjectFile } from "$lib/uploads/storeProjectFile";
+  import { createProjectFileUploads } from "$lib/uploads/projectFileUploads.svelte";
+  import CategoryPicker from "$lib/components/upload/CategoryPicker.svelte";
   import { createRequestId } from "$lib/requestId";
   import Button from "$lib/components/ui/Button.svelte";
   import Disclosure from "$lib/components/ui/Disclosure.svelte";
@@ -93,6 +98,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   import {
     DENIED_COPY,
     REPLACE_UNCHANGED_COPY,
+    alreadyInProjectCopy,
     statusAction,
     statusExplanation,
   } from "$lib/uploads/processingStatus";
@@ -143,6 +149,31 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
   const failUploadAttempt = useMutation(api.uploadAttempts.failUploadAttempt);
 
+  // Add files and Replace file are offered to exactly the people
+  // `documents.uploadDocument` accepts (report edit access), the same answer
+  // the page's own controls read. Hidden while it loads, so neither flashes
+  // for someone who cannot use it.
+  const auth = useAuth();
+  const editAccessQ = useQuery(api.projects.getProjectEditAccess, () =>
+    auth.isAuthenticated ? { projectId } : "skip"
+  );
+  const currentUserQ = useQuery(api.users.getCurrentUser, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
+  const uploads = createProjectFileUploads({
+    projectId: () => projectId,
+    userId: () => currentUserQ.data?._id,
+    capture: () => extractionScope.capture(),
+    generateUploadUrl,
+    uploadDocument: uploadDoc,
+    recordUploadAttempts,
+    dismissUploadAttempt: dismissAttempt,
+    listedDocumentIds: () => new Set((documents ?? []).map((doc) => doc._id)),
+    onAlreadyInProject: (fileName) => toast.info(alreadyInProjectCopy(fileName)),
+  });
+  let addFilesInputEl: HTMLInputElement | null = $state(null);
+  let addFilesActionEl: HTMLDivElement | null = $state(null);
+
   const documents = $derived(documentsQ.data);
   const transcripts = $derived(transcriptsQ.data ?? []);
   const previewTranscript = $derived(
@@ -155,6 +186,10 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   let replaceBusyDocId = $state<Id<"projectDocuments"> | null>(null);
   let replaceTarget = $state<DocRow | null>(null);
   let pendingReplace = $state<{ doc: DocRow; file: File } | null>(null);
+  // A failed upload's replacement waits here for its category: the attempt
+  // row does not know the one the file was added under.
+  type AttemptOrigin = "chat_upload" | "context_input" | "review_pd";
+  let pendingAttemptReplace = $state.raw<{ row: ReceiptRow; file: File; origin: AttemptOrigin } | null>(null);
   let replaceInputEl: HTMLInputElement | null = $state(null);
   const replacementOwner = $derived(projectId);
   $effect(() => {
@@ -163,6 +198,14 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
     // Keep in-flight busy flags until their own finally blocks settle.
     pendingReplace = null;
     replaceTarget = null;
+    pendingAttemptReplace = null;
+  });
+  $effect(() => {
+    // Access withdrawn (or not yet known) closes a staged replacement too.
+    if (canChangeFiles) return;
+    pendingReplace = null;
+    replaceTarget = null;
+    pendingAttemptReplace = null;
   });
 
   const attemptsDenied = $derived(attemptsQ.data === null);
@@ -170,8 +213,24 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   // Documents keep their own rendering below (preview, download, archive,
   // delete); only the failed attempts have no row of their own, so those are
   // the ones drawn with the receipt component.
-  const receiptRows = $derived(buildReceiptRows(documents ?? [], attempts, []));
-  const attemptRows = $derived(receiptRows.filter((row) => row.attemptKey));
+  const receiptRows = $derived(
+    buildReceiptRows(
+      documents ?? [],
+      attempts.filter((attempt) => !uploads.hiddenAttempts.has(attempt.attemptKey)),
+      uploads.entries
+    )
+  );
+  const canChangeFiles = $derived(!attemptsDenied && editAccessQ.data?.canEditDetails === true);
+  $effect(() => {
+    uploads.forgetStored(new Set((documents ?? []).map((doc) => doc._id)));
+  });
+  // A row's copy names "Replace file…" only when the row shows it, so the
+  // permission is folded into the row rather than just hiding the button.
+  const attemptRows = $derived(
+    receiptRows
+      .filter((row) => row.attemptKey)
+      .map((row) => (row.canReplace && !canChangeFiles ? { ...row, canReplace: false } : row))
+  );
   const failureCount = $derived(countReceiptFailures(receiptRows));
   const summary = $derived(summarizeReceipt(receiptRows));
   const docCanReplace = $derived(
@@ -181,7 +240,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
           (row): row is ReceiptRow & { documentId: Id<"projectDocuments"> } =>
             row.documentId !== undefined
         )
-        .map((row) => [row.documentId, row.canReplace])
+        .map((row) => [row.documentId, row.canReplace && canChangeFiles])
     )
   );
 
@@ -218,8 +277,34 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
     const action = statusAction(doc.processingStatus, {
       canRetry: false,
       canReplace: docCanReplace.get(doc._id) ?? false,
+      canAdd: canChangeFiles,
     });
     return action ? `${explanation} ${action}` : explanation;
+  }
+
+  /** Keyboard focus goes back to Add files once the category question closes. */
+  async function returnFocusToAddFiles() {
+    await tick();
+    addFilesActionEl?.querySelector<HTMLButtonElement>("button")?.focus();
+  }
+
+  function pickCategory(category: ContextCategoryId) {
+    void uploads.uploadAs(category);
+    void returnFocusToAddFiles();
+  }
+
+  function cancelAddFiles() {
+    uploads.cancel();
+    void returnFocusToAddFiles();
+  }
+
+  async function removeRow(row: ReceiptRow) {
+    if (!uploads.isLocal(row)) return removeAttempt(row);
+    // The row goes at once, so its Remove button does; keep keyboard focus
+    // in the panel rather than losing it to the page.
+    const removed = uploads.remove(row);
+    void returnFocusToAddFiles();
+    if (!(await removed)) toast.error("Couldn't remove that row. Please try again.");
   }
 
   async function removeAttempt(row: ReceiptRow) {
@@ -267,53 +352,19 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
       console.error("Failed to open replacement attempt", error);
     }
 
-    operation.throwIfAborted();
-    let parsed;
-    let extractionFailed = false;
     try {
-      parsed = await parseFileToText(file, { signal: operation.signal });
-    } catch (error) {
-      if (isParseAbort(error)) throw error;
-      console.error("Replacement parse failed", error);
-      extractionFailed = true;
-      parsed = { fileName: file.name, fileType: "other" as const, content: "" };
-    }
-
-    operation.throwIfAborted();
-    let storageId: Id<"_storage"> | undefined;
-    try {
-      const url = await withUploadTimeout(generateUploadUrl({}));
-      operation.throwIfAborted();
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-        signal: operation.signal,
-      });
-      storageId = ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
-    } catch (error) {
-      if (isParseAbort(error)) throw error;
-      console.error("Replacement file storage upload failed", error);
-    }
-
-    operation.throwIfAborted();
-    try {
-      const documentId = await withUploadTimeout(
-        uploadDoc({
+      const stored = await storeProjectFile(
+        { generateUploadUrl, uploadDocument: uploadDoc },
+        {
           projectId: operationProjectId,
-          fileName: file.name,
-          fileType: parsed.fileType,
-          content: parsed.content,
+          file,
+          attemptKey,
           source: opts.source,
           ...(opts.category ? { category: opts.category } : {}),
-          extractionOutcome: extractionFailed ? "failed" : "ok",
-          attemptKey,
-          ...(storageId ? { storageId } : {}),
-          ...(file.type ? { mimeType: file.type } : {}),
-        })
+          operation,
+        }
       );
-      operation.throwIfAborted();
-      return documentId;
+      return stored.documentId;
     } catch (error) {
       operation.throwIfAborted();
       if (isParseAbort(error)) throw error;
@@ -325,10 +376,36 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   }
 
   async function replaceAttempt(row: ReceiptRow, file: File) {
-    if (!row.attemptKey || busyAttemptKey) return;
-    const origin =
+    if (!row.attemptKey || busyAttemptKey || !canChangeFiles) return;
+    const origin: AttemptOrigin =
       attempts.find((attempt) => attempt.attemptKey === row.attemptKey)?.origin ??
-      "chat_upload";
+      "context_input";
+    // A PD under review carries no category. Every other upload was added
+    // under one, and saving its replacement without it would lose the
+    // category's weight (Writer's notes above all), so ask first.
+    if (origin === "review_pd") return runAttemptReplace(row, file, origin);
+    pendingAttemptReplace = { row, file, origin };
+  }
+
+  function pickReplaceCategory(category: ContextCategoryId) {
+    const pending = pendingAttemptReplace;
+    pendingAttemptReplace = null;
+    if (pending) void runAttemptReplace(pending.row, pending.file, pending.origin, category);
+    void returnFocusToAddFiles();
+  }
+
+  function cancelReplaceCategory() {
+    pendingAttemptReplace = null;
+    void returnFocusToAddFiles();
+  }
+
+  async function runAttemptReplace(
+    row: ReceiptRow,
+    file: File,
+    origin: AttemptOrigin,
+    category?: ContextCategoryId
+  ) {
+    if (!row.attemptKey || busyAttemptKey || !canChangeFiles) return;
     busyAttemptKey = row.attemptKey;
     try {
       await storeReplacement({
@@ -336,6 +413,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
         file,
         origin,
         source: origin,
+        ...(category ? { category } : {}),
       });
     } catch (error) {
       if (isParseAbort(error)) return;
@@ -348,7 +426,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   }
 
   async function runDocumentReplace() {
-    if (!pendingReplace || replaceBusyDocId) return;
+    if (!pendingReplace || replaceBusyDocId || !canChangeFiles) return;
     const { doc, file } = pendingReplace;
     replaceBusyDocId = doc._id;
     try {
@@ -598,25 +676,41 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
         {#if summary}
           <p class="text-data pt-2 pb-1 text-ink-muted">{summary}</p>
         {/if}
+        <!-- Rows added with Add files change from "Reading…" to their outcome
+             on their own; this tells a screen reader user that they did. -->
+        <p class="sr-only" aria-live="polite">{summary}</p>
 
         {#if attemptRows.length > 0}
-          <!-- Uploads that never produced a file. They have no document row of
-               their own, so they are drawn with the shared receipt row. -->
+          <!-- Uploads still in progress in this session, and uploads that never
+               produced a file. They have no document row of their own, so they
+               are drawn with the shared receipt row. -->
           <ul class="divide-y divide-line-soft border-b border-gray-100">
             {#each attemptRows as row (row.key)}
               <UploadReceiptRow
                 {row}
-                busy={busyAttemptKey === row.attemptKey}
-                onRemove={removeAttempt}
+                busy={uploads.busy.has(row.key) || busyAttemptKey === row.attemptKey}
+                canAdd={canChangeFiles}
+                onRetry={uploads.retry}
+                onRemove={removeRow}
                 onReplace={replaceAttempt}
               />
             {/each}
           </ul>
         {/if}
 
+        {#if pendingAttemptReplace}
+          <div class="py-2">
+            <CategoryPicker
+              fileNames={[pendingAttemptReplace.file.name]}
+              onPick={pickReplaceCategory}
+              onCancel={cancelReplaceCategory}
+            />
+          </div>
+        {/if}
+
         {#if count === 0 && attemptRows.length === 0}
           <p class="py-3 text-sm text-gray-400">
-            No supporting files yet. Documents attached in the chat appear here.
+            No supporting files yet.
           </p>
         {:else if count > 0}
         <ul class="divide-y divide-gray-100">
@@ -742,6 +836,51 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
           {/each}
         </ul>
         {/if}
+
+        {#if canChangeFiles}
+          <div bind:this={addFilesActionEl} class="flex flex-col items-start gap-2 pt-2">
+            <!-- aria-disabled, not disabled: focus returns here after the
+                 category is chosen, while the batch is still uploading. -->
+            <Button
+              variant="ghost"
+              size="sm"
+              class="min-h-11 gap-1.5 aria-disabled:opacity-50"
+              aria-disabled={uploads.uploading}
+              aria-busy={uploads.uploading}
+              onclick={() => {
+                if (!uploads.uploading) addFilesInputEl?.click();
+              }}
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" d="M12 5v14M5 12h14" />
+              </svg>
+              Add files
+            </Button>
+            {#if uploads.pendingFiles}
+              <CategoryPicker
+                fileNames={uploads.pendingFiles.map((file) => file.name)}
+                onPick={pickCategory}
+                onCancel={cancelAddFiles}
+              />
+            {/if}
+            <!-- The visible button above is the control; this is only the
+                 mechanism it drives. -->
+            <input
+              bind:this={addFilesInputEl}
+              data-add-files-input
+              type="file"
+              multiple
+              class="hidden"
+              tabindex={-1}
+              accept={SUPPORTED_ACCEPT}
+              onchange={(event) => {
+                const input = event.currentTarget;
+                if (input.files?.length) uploads.select(Array.from(input.files));
+                input.value = "";
+              }}
+            />
+          </div>
+        {/if}
       {/if}
       <input
         bind:this={replaceInputEl}
@@ -826,7 +965,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                 href={url}
                 target="_blank"
                 rel="noopener noreferrer"
-                class="h-8 rounded-lg bg-gray-100 px-3 text-xs font-medium leading-8 text-gray-700 transition-colors hover:bg-gray-200"
+                class="h-8 rounded-lg bg-gray-100 px-3 text-xs font-medium leading-[calc(8/3)] text-gray-700 transition-colors hover:bg-gray-200"
               >
                 Open in tab
               </a>

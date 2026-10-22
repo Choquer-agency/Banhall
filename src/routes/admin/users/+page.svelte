@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { topBarSecondary } from "$lib/components/shell/topBar";
   import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
   import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   import { IconShield } from "$lib/components/icons";
@@ -319,18 +320,7 @@
   >
     {#snippet actions()}
       {#if isAdmin}
-        <button
-          type="button"
-          onclick={openRoleGuide}
-          aria-haspopup="dialog"
-          class="flex h-11 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          <svg aria-hidden="true" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M9.1 9a3 3 0 115.8 1c0 2-2.9 2-2.9 4" />
-            <circle cx="12" cy="12" r="9" />
-          </svg>
-          Role guide
-        </button>
+        <button type="button" onclick={openRoleGuide} aria-haspopup="dialog" class={topBarSecondary}>Role guide</button>
       {/if}
     {/snippet}
       {#if currentUserQ.data === undefined}

@@ -26,7 +26,7 @@ describe("px-to-rem codemod", () => {
     expect(pxToRem(1100)).toBe("68.75rem");
   });
 
-  test("rewrites size utilities and leaves lines, shadows and conditions alone", () => {
+  test("rewrites size utilities and leaves line heights, lines, shadows and conditions alone", () => {
     const before = [
       "text-[13px] leading-[18px] hover:w-[136px] -left-[3px] text-[13px]/[18px]",
       "grid-cols-[104px_minmax(0,1fr)] max-h-[min(760px,calc(100dvh-2rem))]",
@@ -36,7 +36,9 @@ describe("px-to-rem codemod", () => {
     ].join(" ");
     expect(convertClassTokens(before)).toBe(
       [
-        "text-[0.8125rem] leading-[1.125rem] hover:w-[8.5rem] -left-[0.1875rem] text-[0.8125rem]/[1.125rem]",
+        // Line heights are never converted: they are unitless ratios, and the
+        // unitless line-height guard rejects these (2026-10-21).
+        "text-[0.8125rem] leading-[18px] hover:w-[8.5rem] -left-[0.1875rem] text-[0.8125rem]/[18px]",
         "grid-cols-[6.5rem_minmax(0,1fr)] max-h-[min(47.5rem,calc(100dvh-2rem))]",
         "[&>svg]:size-[0.875rem] -translate-y-[calc(50%+0.1875rem)] h-[1px] w-[0.5px]",
         "border-[1.5px] data-[state=checked]:border-[2px] outline-offset-[3px] ring-[3px]",

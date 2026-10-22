@@ -32,6 +32,9 @@ export const AI_RATE_LIMITS = {
   researchPerUser: { kind: "token bucket", rate: 20, period: HOUR },
   scienceCodePerUser: { kind: "token bucket", rate: 30, period: HOUR },
   styleAnalysisPerUser: { kind: "token bucket", rate: 20, period: HOUR },
+  // 2026-10-19: one token per report chat web search the model sends (at
+  // most 3 a reply). Spent by the chat action for the message's sender.
+  webSearchPerUser: { kind: "token bucket", rate: 30, period: HOUR },
 } as const satisfies Record<string, RateLimitConfig>;
 
 /** Generation starts one user may make in one firm day (America/Vancouver). */
@@ -141,7 +144,7 @@ export async function limitGenerationStart(
   ]);
 }
 
-/** One per-user hourly bucket (Seeds, QA, PD reviews, research, science codes, style analysis). */
+/** One per-user hourly bucket (Seeds, QA, PD reviews, research, science codes, style analysis, chat web search). */
 export async function limitUserAction(
   ctx: LimitCtx,
   name: Exclude<HourlyLimit, "generationPerUser" | "generationPerProject">,

@@ -61,7 +61,7 @@
   }
 
   const item =
-    "flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-[0.8125rem] leading-[1.1875rem] text-ink-secondary outline-none transition-colors data-highlighted:bg-chrome data-highlighted:text-ink motion-reduce:transition-none pointer-coarse:h-11";
+    "flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-[0.8125rem] leading-[calc(19/13)] text-ink-secondary outline-none transition-colors data-highlighted:bg-chrome data-highlighted:text-ink motion-reduce:transition-none pointer-coarse:h-11";
 </script>
 
 <DropdownMenu.Root bind:open>
@@ -82,8 +82,8 @@
       <div data-identity-menu-header class="flex items-center gap-2.5 p-2">
         <Avatar {name} {imageUrl} {seed} {tone} size={32} />
         <div class="flex min-w-0 flex-1 flex-col">
-          <p class="truncate text-[0.8125rem] font-medium leading-[1.125rem] text-ink">{name}</p>
-          {#if email}<p class="truncate text-xs leading-4 text-ink-muted">{email}</p>{/if}
+          <p class="truncate text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink">{name}</p>
+          {#if email}<p class="truncate text-xs leading-[calc(4/3)] text-ink-muted">{email}</p>{/if}
         </div>
       </div>
       <DropdownMenu.Separator class="my-1 h-px bg-line-soft" />

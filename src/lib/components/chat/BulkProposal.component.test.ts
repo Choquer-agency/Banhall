@@ -2,10 +2,14 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
-import { __resetConvexStub } from "$lib/test/convex-svelte-stub.svelte";
+import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import ProposalCard from "./ProposalCard.svelte";
 
-beforeEach(() => __resetConvexStub());
+beforeEach(() => {
+  __resetConvexStub();
+  // Phase A: Apply is offered to people with report edit access only.
+  __setQueryData("projects:getProjectEditAccess", { canEditDetails: true });
+});
 
 it.each([false, true])("offers individual review only for ordinary replacement sets, bulk=%s", async bulk => {
   const proposal: Doc<"chatProposals"> = {

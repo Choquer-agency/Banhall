@@ -288,7 +288,7 @@
     <span class="text-ink-muted">Client</span>
     <div class="min-w-0">
       {#if canEditDetails}
-        <EditableText value={project.clientName} placeholder="Set client name" label="client name" required onSave={async (value) => { await updateClientName({ projectId, clientName: value.trim() }); }} />
+        <EditableText value={project.clientName} placeholder="Set company name" label="company name" required onSave={async (value) => { await updateClientName({ projectId, clientName: value.trim() }); }} />
       {:else}
         {@render readonlyValue(project.clientName)}
       {/if}

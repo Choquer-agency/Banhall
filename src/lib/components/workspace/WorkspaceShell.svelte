@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { Snippet } from "svelte";
   import { beforeNavigate } from "$app/navigation";
   import { IconClose } from "$lib/components/icons";
@@ -25,7 +26,6 @@
     loadRailPreferences,
     persistRailPreferences,
   } from "$lib/workspace/railPreferences";
-  import { setRailControl } from "$lib/workspace/railControl";
 
   let {
     kind,
@@ -47,10 +47,10 @@
     navigationOpen?: boolean;
     /**
      * Desktop rail collapse state. Collapsed, the rail keeps an icons-only
-     * column (ui-design-final.md section 2, board 1.2); its expanded width
-     * stays persisted. The shell owns the persisted preference; hosts bind
-     * this so their header toggle stays a plain prop wire. The mobile drawer
-     * is independent and unchanged.
+     * column (Rail v3, board Z11d); its expanded width stays persisted. The
+     * shell owns the persisted preference and the rail draws the control
+     * (2026-10-19); hosts may still bind this to read the state. The mobile
+     * drawer is independent and unchanged.
      */
     railHidden?: boolean;
     displayedView: DashboardView | null;
@@ -132,13 +132,17 @@
   // Tablet widths (1024 to 1279px) keep the icons-only rail on screen
   // (ui-design-final.md section 3, board 3.5); the preference applies from
   // 1280px up.
-  let tablet = $state(false);
-  // H1, H3: the tablet rail keeps an expand toggle (in the top bar). Expanding lays the full
+  // Read at once (not after the first paint): a page loaded at a tablet
+  // width used to draw the full rail over the icons-only column for a
+  // frame, so the loading skeleton slid under it (owner, 2026-10-19).
+  const TABLET_QUERY = "(min-width: 64rem) and (max-width: 79.98rem)";
+  let tablet = $state(typeof window !== "undefined" && window.matchMedia(TABLET_QUERY).matches);
+  // H1, H3: the tablet rail keeps an expand toggle (at the rail's foot). Expanding lays the full
   // rail over the page for the moment (the column stays icons-only, so the
   // content never reflows) and never touches the persisted preference.
   let tabletExpanded = $state(false);
   $effect(() => {
-    const media = window.matchMedia("(min-width: 64rem) and (max-width: 79.98rem)");
+    const media = window.matchMedia(TABLET_QUERY);
     const update = () => {
       tablet = media.matches;
       if (!tablet) tabletExpanded = false;
@@ -150,17 +154,18 @@
   const railCollapsed = $derived(tablet ? !tabletExpanded : railHidden);
   const railOverlay = $derived(tablet && tabletExpanded);
   function toggleRail() {
+    // The toggle moves between the rail header and its foot, so a press
+    // (or the shortcut) from inside the rail would drop focus to the page:
+    // put it on the toggle in its new place.
+    const panel = root?.querySelector<HTMLElement>("[data-rail-panel]");
+    const focusInRail = Boolean(panel && document.activeElement && panel.contains(document.activeElement));
     if (tablet) tabletExpanded = !tabletExpanded;
     else railHidden = !railHidden;
+    if (focusInRail) void tick().then(() => panel?.querySelector<HTMLElement>("[data-rail-toggle]")?.focus());
   }
-  // The collapse and expand control lives in the page's top bar, not the rail
-  // (owner direction 2026-09-28); WorkspaceShellControls reads it from here.
-  setRailControl({
-    get collapsed() {
-      return railCollapsed;
-    },
-    toggle: toggleRail,
-  });
+  // Rail v3 (owner, 2026-10-19, replacing the 2026-09-28 top bar control):
+  // the collapse and expand control lives in the rail itself, in its header
+  // when expanded and at its foot when collapsed.
 
   // The overlaid rail closes on any navigation (links, back and forward),
   // before the page changes under it.
@@ -182,7 +187,7 @@
       if (event.key !== "Escape" || !panel?.contains(document.activeElement)) return;
       tabletExpanded = false;
       // After the frame, so the tooltip of the button that just went away has
-      // closed before the top bar's expand toggle takes focus.
+      // closed before the collapsed rail's expand toggle takes focus.
       requestAnimationFrame(() => shell.querySelector<HTMLElement>("[data-rail-toggle]")?.focus());
     };
     shell.addEventListener("pointerdown", onPointerDown);
@@ -232,6 +237,7 @@
           {myWorkHref}
           {projectsHref}
           onFocusSearch={() => (commandPaletteOpen = true)}
+          onToggleRail={toggleRail}
         />
       </div>
       <!-- Pointer/keyboard resize applies to the expanded desktop rail only. -->
@@ -245,11 +251,11 @@
 
   {#if viewing}
     <!-- D3, D4: the boards centre the pill on the window (not the content
-         column), 10px down inside the 56px top bar; below 1024px a
-         full-width strip under the top bar (not designed, proposed). -->
+         column), inside the 64px top bar; below 1024px a full-width strip
+         under the top bar (not designed, proposed). -->
     <div
       data-view-as-layer
-      class="pointer-events-none absolute z-[60] flex items-center justify-center max-lg:inset-x-3 max-lg:top-14 lg:inset-x-0 lg:top-0 lg:h-14"
+      class="pointer-events-none absolute z-[60] flex items-center justify-center max-lg:inset-x-3 max-lg:top-16 lg:inset-x-0 lg:top-0 lg:h-16"
     >
       <ViewAsPill role={viewing} />
     </div>
@@ -307,12 +313,21 @@
      lineage (it now means "collapsed"). Live pointer drags suspend the track
      transition so the edge follows the pointer 1:1. */
   .workspace-shell-grid {
-    --workspace-rail-col: var(--workspace-rail-width, 17.1875rem);
+    --workspace-rail-col: var(--workspace-rail-width, 14rem);
     transition: grid-template-columns var(--duration-layout) var(--ease-layout);
   }
 
   .workspace-rail-panel {
     transition: width var(--duration-layout) var(--ease-layout);
+  }
+
+  /* The tablet range keeps the icons-only column, so a rail drawn before the
+     page knows its width (server render, first frame) never spills over the
+     content; the overlaid rail is the one exception. */
+  @media (min-width: 64rem) and (max-width: 79.98rem) {
+    .workspace-rail-panel:not([data-rail-overlay]) {
+      width: var(--workspace-rail-collapsed-width) !important;
+    }
   }
 
   .workspace-shell-grid[data-rail-hidden] {

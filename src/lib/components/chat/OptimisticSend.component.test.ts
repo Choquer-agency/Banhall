@@ -36,7 +36,7 @@ async function navigate(name: string) {
 }
 async function writeAndSend(text = prompt) { await composer().fill(text); await send().click(); }
 beforeEach(() => {
-  __resetConvexStub(); __resetAuthState(); localStorage.clear();
+  __resetConvexStub(); __resetAuthState(); localStorage.clear(); sessionStorage.clear();
   __setQueryData("chatV2:listThreads", []);
   __setQueryData("chatV2:listMessages", { streams: { kind: "list", messages: [] } });
   __setPaginatedRows("chatV2:listMessages", []);
@@ -48,10 +48,10 @@ beforeEach(() => {
 it("requires an explicit Brain choice for each message and preserves it only for retry", async () => {
   __setMutationError(sendName, new Error("Connection unavailable"));
   await render(AgentChatPanel, { reportId, projectId });
-  // Board 2.1 tucks the Brain choice into the composer's + menu; a chip shows while it is on.
+  // Board 2.1 tucks the Brain choice into the composer's Message options menu; a chip shows while it is on.
   const brainChip = () => page.getByText("Brain examples", { exact: true });
   const brain = page.getByRole("menuitemcheckbox", { name: "Use Brain examples for this message" });
-  await page.getByRole("button", { name: "Add to message", exact: true }).click();
+  await page.getByRole("button", { name: "Message options", exact: true }).click();
   await expect.element(brain).toHaveAttribute("aria-checked", "false");
   await brain.click();
   await expect.element(brain).toHaveAttribute("aria-checked", "true");

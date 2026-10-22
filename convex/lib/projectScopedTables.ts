@@ -147,7 +147,11 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "chatAnswerFeedback", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "proposalWordingEditEvents", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "chatProposalItems", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // A card's Undo record (up to 600 KB), before the card that points to it.
+  { table: "chatProposalAppliedChanges", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "chatProposals", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // Chat parity Phase B: the report chat's web search records (queries and sources).
+  { table: "chatWebSearches", field: "projectId", disposition: "delete", index: "by_projectId" },
   {
     table: "agentChatThreads",
     field: "projectId",

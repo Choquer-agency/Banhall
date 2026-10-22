@@ -52,7 +52,7 @@ import {
 import { entryFromFrozen } from "../lib/modelRoles";
 import type { PlaceholderMap } from "../lib/deidentify";
 import { withPlaceholders } from "./placeholderClient";
-import type { ModelFreeze } from "../lib/modelCatalogValidators";
+import type { FrozenModelEntry, ModelFreeze } from "../lib/modelCatalogValidators";
 import {
   generationStepOf,
   resolveGenerationStep,
@@ -60,9 +60,11 @@ import {
   type StepRoute,
 } from "../lib/generationSteps";
 import {
+  generationModelRedirectsRef,
   generationModelsRef,
   modelEntryForCallRef,
   recordCallOutcomeRef,
+  recordGenerationModelRedirectsRef,
   roleModelEntryRef,
 } from "../lib/modelCatalogRefs";
 
@@ -248,6 +250,7 @@ const FREEZE_CACHE_LIMIT = 200;
 /** Test seam: forget cached generation freezes (ids repeat across tests). */
 export function resetGenerationModelCache(): void {
   freezeCache.clear();
+  resetModelRedirectCache();
 }
 
 /**
@@ -270,8 +273,67 @@ export async function registerGenerationModels(
     freezeCache.set(generationId, pending);
   }
   const freeze = await pending;
-  if (freeze) registerModelEntries(freeze.entries.map(entryFromFrozen));
+  if (freeze) {
+    registerModelEntries(freeze.entries.map(entryFromFrozen));
+    await registerModelRedirects(ctx, generationId);
+  }
   return freeze;
+}
+
+/** How long one isolate trusts a generation's redirect read. */
+const REDIRECT_CACHE_MS = 10 * 60 * 1000;
+const redirectCache = new Map<string, { at: number; redirects: ModelRedirect[] }>();
+const recordedRedirects = new Set<string>();
+
+type ModelRedirect = { fromModelId: string; toModelId: string; entry: FrozenModelEntry };
+
+/** Test seam: forget cached redirect reads and records. */
+export function resetModelRedirectCache(): void {
+  redirectCache.clear();
+  recordedRedirects.clear();
+}
+
+/**
+ * A frozen model its provider no longer lists runs on its track's current
+ * model (2026-10-22 decision): the frozen id is registered with the
+ * successor's routing, so stored rows, labels and the prompt version stay as
+ * reserved. Recorded once on the generation and in the admin model log when
+ * the caller can write. A superseded model that is still listed is left
+ * alone. Never fails a call: a failed read means no redirect.
+ */
+async function registerModelRedirects(
+  ctx: RunQueryCtx | (RunQueryCtx & Pick<ActionCtx, "runMutation">),
+  generationId: Id<"generations">
+): Promise<void> {
+  const now = Date.now();
+  let cached = redirectCache.get(generationId);
+  if (!cached || now - cached.at > REDIRECT_CACHE_MS) {
+    let redirects: ModelRedirect[] = [];
+    try {
+      const read: unknown = await ctx.runQuery(generationModelRedirectsRef, { generationId });
+      redirects = Array.isArray(read) ? (read as ModelRedirect[]) : [];
+    } catch {
+      redirects = [];
+    }
+    if (redirectCache.size >= FREEZE_CACHE_LIMIT) redirectCache.clear();
+    cached = { at: now, redirects };
+    redirectCache.set(generationId, cached);
+  }
+  if (cached.redirects.length === 0) return;
+  registerModelEntries(cached.redirects.map((redirect) => entryFromFrozen(redirect.entry)));
+  const unrecorded = cached.redirects.filter(
+    (redirect) => !recordedRedirects.has(`${generationId}:${redirect.fromModelId}`)
+  );
+  if (unrecorded.length === 0 || !("runMutation" in ctx)) return;
+  try {
+    await ctx.runMutation(recordGenerationModelRedirectsRef, {
+      generationId,
+      redirects: unrecorded.map(({ fromModelId, toModelId }) => ({ fromModelId, toModelId })),
+    });
+    for (const redirect of unrecorded) recordedRedirects.add(`${generationId}:${redirect.fromModelId}`);
+  } catch (error) {
+    console.warn("Could not record a model redirect", error);
+  }
 }
 
 async function ensureModelRegistered(

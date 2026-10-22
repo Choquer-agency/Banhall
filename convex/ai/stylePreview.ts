@@ -147,6 +147,9 @@ export type StylePreviewResult =
   | { status: "ready"; paragraphs: string[]; cached: boolean }
   | { status: "limit"; message: string };
 
+/** Output ceilings for one preview request, by gateway. */
+export const STYLE_PREVIEW_MAX_TOKENS = { anthropic: 8192, other: 8192 } as const;
+
 export const previewMyStyle = action({
   args: { variant: v.union(v.literal("house"), v.literal("preferences")) },
   returns: v.union(
@@ -185,8 +188,10 @@ export const previewMyStyle = action({
     const response = await client.messages.create({
       model,
       // About 300 output tokens; the headroom covers a reasoning model that
-      // spends its thinking from the same budget.
-      max_tokens: gatewayForModel(model) === "anthropic" ? 2048 : 4096,
+      // spends its thinking from the same budget. 2026-10-19: a writer's
+      // 61,381-character instructions were cut off at the old 2,048, so the
+      // preview failed; the cap is a ceiling, billed only as used.
+      max_tokens: STYLE_PREVIEW_MAX_TOKENS[gatewayForModel(model) === "anthropic" ? "anthropic" : "other"],
       system,
       messages: [{ role: "user", content: user }],
     });

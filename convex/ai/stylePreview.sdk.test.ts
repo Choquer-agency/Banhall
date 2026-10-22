@@ -6,6 +6,7 @@ import { api } from "../_generated/api";
 import { buildStylePreviewPrompt } from "./stylePreview";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
 import { ROLE_POLICIES } from "../../shared/modelCatalog";
+import { alwaysThinkingMaxTokens } from "../../shared/generationModels";
 
 // Keep the model catalog, the Anthropic SDK and Convex persistence real;
 // replace only the HTTP transport (AGENTS pitfall: prove the request body at
@@ -75,6 +76,10 @@ test("sends the house preview request through the real SDK and stores the decode
     model: ROLE_POLICIES.planning.defaultModelId,
     system: expected.system,
     messages: [{ role: "user", content: expected.user }],
+    // 2026-10-19: long writer instructions were cut off at 2,048.
+    // Sonnet 5.5 always thinks, so the direct gateway adds four times the
+    // answer budget as thinking room (alwaysThinkingMaxTokens, 2026-10-22).
+    max_tokens: alwaysThinkingMaxTokens(ROLE_POLICIES.planning.defaultModelId, 8192),
   });
   expect(body).not.toHaveProperty("tools");
   const usage = await t.run((ctx) => ctx.db.query("aiUsage").take(5));

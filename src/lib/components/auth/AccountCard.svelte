@@ -15,13 +15,13 @@
 <div data-account-card class="flex min-h-14 items-center gap-3 rounded-xl border border-line-soft bg-surface px-3 py-2.5">
   <Avatar name={name ?? email} {initials} size={36} weight="medium" />
   <div class="flex min-w-0 flex-1 flex-col">
-    {#if name}<span class="truncate text-sm leading-5 font-medium text-ink">{name}</span>{/if}
-    <span class={`truncate ${name ? "text-xs leading-4 text-ink-muted" : "text-sm leading-5 font-medium text-ink"}`}>{email}</span>
+    {#if name}<span class="truncate text-sm leading-[calc(10/7)] font-medium text-ink">{name}</span>{/if}
+    <span class={`truncate ${name ? "text-xs leading-[calc(4/3)] text-ink-muted" : "text-sm leading-[calc(10/7)] font-medium text-ink"}`}>{email}</span>
   </div>
   <button
     type="button"
     data-use-another-account
     onclick={onUseAnother}
-    class="shrink-0 rounded text-[0.8125rem] leading-[1.125rem] font-medium text-primary-selected hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    class="shrink-0 rounded text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
   >Use another account</button>
 </div>

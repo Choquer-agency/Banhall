@@ -2,7 +2,7 @@
   import type { Snippet } from "svelte";
   import { cn } from "$lib/utils";
 
-  /** Action slot for the composer (attach / send buttons) — an items-end
+  /** Action slot for the composer (message options and send buttons): an items-end
    * cluster so round buttons sit on the composer baseline. */
   let {
     class: className,

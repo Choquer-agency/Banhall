@@ -169,7 +169,7 @@ for (const action of ["Ask assistant", "Research this selection"]) {
     await userEvent.tripleClick(paragraph);
     await page.getByRole("button", { name: action, exact: true }).click();
     await expect.element(composer()).toBeVisible();
-    await expect.element(page.getByRole("button", { name: action.startsWith("Ask") ? "Remove pasted text" : "Remove research selection", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: action.startsWith("Ask") ? "Remove selected text" : "Remove research selection", exact: true })).toBeVisible();
     await expect.element(page.getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-pressed", "true");
   });
 }

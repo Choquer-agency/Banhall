@@ -21,12 +21,12 @@
   class="pointer-events-auto flex h-9 items-center gap-1 rounded-full border border-warning-line bg-warning-surface pl-3 pr-1 max-lg:w-full max-lg:justify-center xl:absolute xl:left-[35rem]"
 >
   <IconEye size={14} strokeWidth={1.7} class="shrink-0 text-warning-ink" />
-  <span class="pl-1 pr-1.5 text-[0.8125rem] leading-[1.125rem] text-warning-ink">Viewing as</span>
+  <span class="pl-1 pr-1.5 text-[0.8125rem] leading-[calc(18/13)] text-warning-ink">Viewing as</span>
   <DropdownMenu.Root bind:open={menuOpen}>
     <DropdownMenu.Trigger
       data-view-as-role-trigger
       aria-label={`Viewing as ${VIEW_AS_LABELS[role]}. Switch role`}
-      class="flex h-[1.625rem] items-center gap-1 rounded-full border border-warning-line bg-surface px-2 text-[0.8125rem] font-medium leading-[1.125rem] text-ink transition-colors hover:bg-warning-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
+      class="flex h-[1.625rem] items-center gap-1 rounded-full border border-warning-line bg-surface px-2 text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink transition-colors hover:bg-warning-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
     >
       {VIEW_AS_LABELS[role]}
       <IconChevronDown size={12} strokeWidth={2} class="shrink-0 text-warning-ink" />
@@ -63,6 +63,6 @@
     type="button"
     data-view-as-pill-exit
     onclick={exitViewAsWithToast}
-    class="flex h-[1.625rem] items-center rounded-full px-2.5 text-[0.8125rem] font-medium leading-[1.125rem] text-warning-ink underline decoration-1 [text-underline-position:from-font] transition-colors hover:bg-warning-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
+    class="flex h-[1.625rem] items-center rounded-full px-2.5 text-[0.8125rem] font-medium leading-[calc(18/13)] text-warning-ink underline decoration-1 [text-underline-position:from-font] transition-colors hover:bg-warning-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
   >Exit</button>
 </div>

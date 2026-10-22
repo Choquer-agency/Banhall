@@ -15,14 +15,20 @@ describe("PageTopBar", () => {
     __resetConvexStub();
   });
 
-  it("shows a title with a muted subtitle, the tile and the unseen dot on the bell", async () => {
+  it("2026-10-19 standard bar: 64px, 8px sides, a 20/26 500 title, a muted 14px line, no page tile, and the unseen dot on the bell", async () => {
     __setQueryData("changelog:unseenCount", 2);
     await render(PageTopBar, { title: "Settings", subtitle: "Account", icon: IconGear, onOpenNavigation: vi.fn() });
     const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
-    expect(bar.getBoundingClientRect().height).toBe(56);
-    expect(bar.querySelector("h1")?.textContent).toBe("Settings");
-    expect(getComputedStyle(bar.querySelector("h1")!).fontWeight).toBe("500");
-    expect(bar.querySelector("[data-page-subtitle]")?.textContent).toBe("Account");
+    expect(bar.getBoundingClientRect().height).toBe(64);
+    expect([getComputedStyle(bar).paddingLeft, getComputedStyle(bar).columnGap]).toEqual(["8px", "10px"]);
+    const title = bar.querySelector("h1")!;
+    expect(title.textContent).toBe("Settings");
+    expect([getComputedStyle(title).fontSize, getComputedStyle(title).lineHeight, getComputedStyle(title).fontWeight]).toEqual(["20px", "26px", "500"]);
+    expect(getComputedStyle(title).color).toBe("rgb(22, 33, 31)");
+    const subtitle = bar.querySelector<HTMLElement>("[data-page-subtitle]")!;
+    expect([subtitle.textContent, getComputedStyle(subtitle).fontSize, getComputedStyle(subtitle).color]).toEqual(["Account", "14px", "rgb(107, 127, 123)"]);
+    expect(bar.querySelector("[data-page-icon-tile]")).toBeNull();
+    expect(bar.querySelector("[data-rail-toggle]")).toBeNull();
     expect(bar.querySelector("[data-page-breadcrumb]")).toBeNull();
     const bell = bar.querySelector<HTMLAnchorElement>("[data-top-bar-bell]")!;
     expect(bell.getAttribute("href")).toBe("/changelog");
@@ -34,6 +40,47 @@ describe("PageTopBar", () => {
     expect(bellIcon.querySelector("path")?.getAttribute("d")).toBe("M5 17h14l-2-3V9a5 5 0 0 0-10 0v5Z M10 21h4");
     await expect.poll(() => bell.querySelector("span.bg-primary")).not.toBeNull();
     expect(bell.getAttribute("aria-label")).toBe("What's new, 2 new updates");
+  });
+
+  it("shows the muted count after the title and the 38px primary button at the right edge", async () => {
+    const onclick = vi.fn();
+    const first = await render(PageTopBar, {
+      title: "Projects",
+      count: "42",
+      primaryAction: { label: "New project", href: "/project/new" },
+      onOpenNavigation: vi.fn(),
+      actions,
+    });
+    const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
+    const count = bar.querySelector<HTMLElement>("[data-page-count]")!;
+    expect([count.textContent, getComputedStyle(count).fontSize, getComputedStyle(count).lineHeight, getComputedStyle(count).color]).toEqual([
+      "42",
+      "14px",
+      "20px",
+      "rgb(107, 127, 123)",
+    ]);
+    const primary = bar.querySelector<HTMLAnchorElement>("[data-top-bar-primary]")!;
+    expect(primary.tagName).toBe("A");
+    expect(primary.getAttribute("href")).toBe("/project/new");
+    expect(primary.textContent?.trim()).toBe("New project");
+    const look = getComputedStyle(primary);
+    expect([primary.getBoundingClientRect().height, look.borderRadius, look.fontSize, look.fontWeight, look.backgroundColor, look.color]).toEqual([
+      38,
+      "9px",
+      "15px",
+      "500",
+      "rgb(8, 122, 117)",
+      "rgb(255, 255, 255)",
+    ]);
+    expect(bar.lastElementChild).toBe(primary);
+    first.unmount();
+
+    await render(PageTopBar, { title: "Team", primaryAction: { label: "Invite", onclick }, onOpenNavigation: vi.fn() });
+    const button = document.querySelector<HTMLButtonElement>("[data-top-bar-primary]")!;
+    expect(button.tagName).toBe("BUTTON");
+    button.click();
+    expect(onclick).toHaveBeenCalledOnce();
+    expect(document.querySelector("[data-page-count]")).toBeNull();
   });
 
   it("shows a breadcrumb instead of a subtitle, then status, bell and actions in that order", async () => {
@@ -59,7 +106,7 @@ describe("PageTopBar", () => {
     expect(order[1].compareDocumentPosition(order[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("bleed (H1): white, a soft line under it, 20px sides, and no tile or bell", async () => {
+  it("bleed (H1): white, 64px, a soft line under it, 20px sides, and no tile or bell", async () => {
     await render(PageTopBar, {
       title: "New project",
       breadcrumb: { label: "Projects", href: "/projects" },
@@ -70,7 +117,7 @@ describe("PageTopBar", () => {
     });
     const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
     const style = getComputedStyle(bar);
-    expect([bar.getBoundingClientRect().height, style.paddingLeft, style.backgroundColor]).toEqual([56, "20px", "rgb(255, 255, 255)"]);
+    expect([bar.getBoundingClientRect().height, style.paddingLeft, style.backgroundColor]).toEqual([64, "20px", "rgb(255, 255, 255)"]);
     expect(style.borderBottomWidth).toBe("1px");
     expect(style.borderBottomColor).toBe("rgb(233, 240, 239)");
     expect(bar.querySelector("[data-page-icon-tile]")).toBeNull();

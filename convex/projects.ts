@@ -85,6 +85,7 @@ import {
 import { transcriptSourceFormatValidator } from "./lib/transcriptValidators";
 import type { TranscriptSourceFormat } from "../shared/transcriptParse";
 import { transcriptPlaceholdersEnabled } from "./appSettings";
+import { activeClientIdForName } from "./lib/clients";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 
 type TranscriptInput =
@@ -176,7 +177,12 @@ async function resolveTranscriptInputs(
   return resolved;
 }
 
-async function validatedIndustry(
+/**
+ * Industry validation shared by the single-project edit, bulk edit, project
+ * creation and createClient (2026-10-14): empty clears, a new industry is
+ * admin-only.
+ */
+export async function validatedIndustry(
   ctx: MutationCtx,
   value: string | undefined
 ): Promise<string | undefined> {
@@ -351,7 +357,9 @@ export const updateProjectClientName = mutation({
     if (!clientName) {
       domainError("INVALID_INPUT", "Company name cannot be empty");
     }
-    const patch = { clientName, updatedAt: Date.now() };
+    // 2026-10-14 dual write: link (or unlink) the saved client by key.
+    const clientId = await activeClientIdForName(ctx, clientName);
+    const patch = { clientName, clientId, updatedAt: Date.now() };
     await ctx.db.patch(args.projectId, patch);
     await syncProjectDashboardFields(ctx, args.projectId, patch);
     // Decision 65: the client name is in the placeholder map.
@@ -665,8 +673,12 @@ export const updateProjectFiscalYear = mutation({
 });
 
 /**
- * Bulk edit from the dashboard selection: set the company name and/or
- * set/clear the fiscal year-end across many projects at once.
+ * Bulk edit from the dashboard selection: set the company name, set/clear
+ * the fiscal year-end, and (2026-10-14) set/clear the industry and science
+ * code across many projects at once. Industry and science code follow the
+ * single-project rules exactly (updateProjectIndustry,
+ * updateProjectScienceCode): an empty value clears, a new industry is
+ * admin-only, an unknown science code is refused.
  *
  * Scope follows the role matrix: a Consultant (writer) edits only projects
  * they currently own (projects.ownerId); Manager and Admin edit all. Rows
@@ -679,6 +691,10 @@ export const bulkUpdateProjects = mutation({
     clientName: v.optional(v.string()),
     // Omitted = leave untouched; null = clear the fiscal year-end.
     fiscalYearEnd: v.optional(v.union(v.number(), v.null())),
+    // Omitted = leave untouched; null (or an empty string) = clear.
+    industry: v.optional(v.union(v.string(), v.null())),
+    // Omitted = leave untouched; null (or an empty string) = clear.
+    scienceCode: v.optional(v.union(v.string(), v.null())),
   },
   returns: v.object({ updated: v.number(), skipped: v.number() }),
   handler: async (ctx, args) => {
@@ -687,7 +703,12 @@ export const bulkUpdateProjects = mutation({
     if (args.clientName !== undefined && !clientName) {
       domainError("INVALID_INPUT", "Company name cannot be empty");
     }
-    if (clientName === undefined && args.fiscalYearEnd === undefined) {
+    if (
+      clientName === undefined &&
+      args.fiscalYearEnd === undefined &&
+      args.industry === undefined &&
+      args.scienceCode === undefined
+    ) {
       domainError("INVALID_INPUT", "Nothing to update");
     }
     const projectIds = [...new Set(args.projectIds)];
@@ -695,8 +716,23 @@ export const bulkUpdateProjects = mutation({
       domainError("INVALID_INPUT", "No projects selected");
     }
     if (projectIds.length > 200) {
-      domainError("INVALID_INPUT", "Too many projects selected — 200 max per edit");
+      domainError("INVALID_INPUT", "Too many projects selected. Edit at most 200 at a time.");
     }
+    // Validated once, before any write, with the single-project rules.
+    const industry =
+      args.industry === undefined
+        ? undefined
+        : await validatedIndustry(ctx, args.industry ?? undefined);
+    let scienceCode: string | undefined;
+    if (args.scienceCode !== undefined && args.scienceCode !== null) {
+      scienceCode = normalizeCraScienceCode(args.scienceCode);
+      if (args.scienceCode.trim() && !scienceCode) {
+        domainError("INVALID_INPUT", "Select a valid CRA science code");
+      }
+    }
+    // 2026-10-14 dual write: one lookup serves every project in the edit.
+    const clientId =
+      clientName === undefined ? undefined : await activeClientIdForName(ctx, clientName);
     const now = Date.now();
     let updated = 0;
     let skipped = 0;
@@ -711,11 +747,16 @@ export const bulkUpdateProjects = mutation({
         skipped++;
         continue;
       }
-      const patch: Record<string, unknown> = { updatedAt: now };
-      if (clientName !== undefined) patch.clientName = clientName;
+      const patch: Partial<Doc<"projects">> = { updatedAt: now };
+      if (clientName !== undefined) {
+        patch.clientName = clientName;
+        patch.clientId = clientId;
+      }
       if (args.fiscalYearEnd !== undefined) {
         patch.fiscalYearEnd = args.fiscalYearEnd ?? undefined;
       }
+      if (args.industry !== undefined) patch.industry = industry;
+      if (args.scienceCode !== undefined) patch.scienceCode = scienceCode;
       await ctx.db.patch(projectId, patch);
       await syncProjectDashboardFields(ctx, projectId, patch);
       updated++;
@@ -1063,6 +1104,9 @@ export async function insertNewProject(
       normalizeProjectNumberInput(args.projectNumber)
     );
     const industry = await validatedIndustry(ctx, args.industry);
+    // 2026-10-14 dual write: createProject keeps accepting any non-empty
+    // name and links the saved client when the key matches.
+    const clientId = await activeClientIdForName(ctx, args.clientName);
 
     const now = Date.now();
     const shareToken = generateShareToken();
@@ -1080,6 +1124,7 @@ export async function insertNewProject(
     const projectId = await ctx.db.insert("projects", {
       title: args.title,
       clientName: args.clientName,
+      ...(clientId ? { clientId } : {}),
       ...dashboardProjection,
       dashboardCompanyCounted: true,
       ...(args.sredTitle ? { sredTitle: args.sredTitle } : {}),

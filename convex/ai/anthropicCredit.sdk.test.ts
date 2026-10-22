@@ -646,9 +646,9 @@ describe("the report chat assistant", () => {
     expect(directTools.length).toBeGreaterThan(0);
     expect(directTools.every((tool) => tool.eager_input_streaming === true)).toBe(true);
     expect(JSON.stringify(routed.body)).not.toContain("eager_input_streaming");
-    // Thinking (display omitted) and the top-level cache_control pass
-    // through unchanged, as on the OpenRouter transport.
-    expect(direct.body.thinking).toEqual({ type: "adaptive", display: "omitted" });
+    // Thinking (display summarized, chat parity Phase A) and the top-level
+    // cache_control pass through unchanged, as on the OpenRouter transport.
+    expect(direct.body.thinking).toEqual({ type: "adaptive", display: "summarized" });
     expect(direct.body.cache_control).toEqual({ type: "ephemeral" });
     expect(routed.body).toEqual({
       ...withoutEagerStreaming(direct.body),

@@ -17,7 +17,11 @@ import ProposalCard from "./ProposalCard.svelte";
  * wording editor, and no mutation is ever sent.
  */
 
-beforeEach(() => __resetConvexStub());
+beforeEach(() => {
+  __resetConvexStub();
+  // Phase A: Apply is offered to people with report edit access only.
+  __setQueryData("projects:getProjectEditAccess", { canEditDetails: true });
+});
 
 const proposalId = "proposal-zero" as Id<"chatProposals">;
 
@@ -97,9 +101,15 @@ describe("zero-edit proposal card (DW-135)", () => {
       .element(page.getByText("These findings need a writer's decision.", { exact: false }))
       .toBeVisible();
 
-    // Every finding, its id verbatim, its status and its evidence.
-    await expect.element(page.getByText("c-246-3-1", { exact: true })).toBeVisible();
-    await expect.element(page.getByText("x-246-4-1", { exact: true })).toBeVisible();
+    // Every finding, its place, its status and its evidence. The id is
+    // internal (owner direction 2026-10-21): only the test hook keeps it.
+    await expect.element(page.getByText("Line 246, paragraph 3", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Line 246, paragraph 4", { exact: true })).toBeVisible();
+    expect(page.getByText("Your request", { exact: true }).elements()).toHaveLength(0);
+    expect(container.textContent).not.toContain("c-246-3-1");
+    expect(container.textContent).not.toContain("x-246-4-1");
+    expect(container.querySelector('[data-checklist-item="c-246-3-1"]')).not.toBeNull();
+    expect(container.querySelector('[data-checklist-item="x-246-4-1"]')).not.toBeNull();
     await expect.element(page.getByText("Blocked", { exact: true })).toBeVisible();
     await expect.element(page.getByText("Conflicting", { exact: true })).toBeVisible();
     expect(container.textContent).toContain("The number of fatigue cycles run in 2025.");
@@ -166,5 +176,74 @@ describe("zero-edit proposal card (DW-135)", () => {
     });
     await expect.element(page.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
     expect(page.getByText("Nothing to apply", { exact: true }).elements()).toHaveLength(0);
+  });
+});
+
+/**
+ * Owner direction 2026-10-21: a writer asked what "r-244-4-2" was. Item ids
+ * are internal, so a checklist line says only where the item is: "Line 244,
+ * paragraph 4".
+ */
+describe("Completion Report items name their place, never their id", () => {
+  const item = (overrides: Partial<Doc<"chatProposalItems">>): Doc<"chatProposalItems"> => ({
+    _id: "item-x" as Id<"chatProposalItems">,
+    _creationTime: 1,
+    proposalId,
+    projectId: "project" as Id<"projects">,
+    itemId: "r-244-4-2",
+    status: "blocked",
+    reason: "The draft cannot name the fictional test rig.",
+    missingFact: "The rig's model number.",
+    missingFactSource: "The April interview transcript.",
+    createdAt: 1,
+    ...overrides,
+  });
+
+  it("shows Line 244, paragraph 4, and not the id text or a kind", async () => {
+    __setQueryData("chatV2:listProposalItems", [
+      item({ _id: "item-r" as Id<"chatProposalItems">, section: "244", paragraphNumber: 4, kind: "rule" }),
+    ]);
+    const { container } = await render(ProposalCard, { proposal: zeroEditProposal });
+    await expect.element(page.getByText("Line 244, paragraph 4", { exact: true })).toBeVisible();
+    expect(page.getByText("Rule", { exact: true }).elements()).toHaveLength(0);
+    expect(container.textContent).not.toContain("r-244-4-2");
+    expect(container.querySelector('[data-checklist-item="r-244-4-2"]')).not.toBeNull();
+  });
+
+  // Fable 5.1 review (thought block round) P3-1: the model writes the reason
+  // and the missing fact with ids allowed in tool calls; they show as places.
+  it("shows an id in the model's own text as the place it names", async () => {
+    __setQueryData("chatV2:listProposalItems", [
+      item({ _id: "item-i" as Id<"chatProposalItems">, section: "244", paragraphNumber: 2, reason: "Overlaps the rewrite of r-244-2-1.", missingFact: "The count behind c-246-3-1." }),
+    ]);
+    const { container } = await render(ProposalCard, { proposal: zeroEditProposal });
+    await expect.element(page.getByText("Overlaps the rewrite of Line 244, paragraph 2.", { exact: true })).toBeVisible();
+    expect(container.textContent).toContain("The count behind Line 246, paragraph 3.");
+    expect(container.textContent).not.toMatch(/\b[rcx]-\d{3}-\d+-\d+\b/);
+  });
+
+  // Fable 5.1 review P3-3: an older row that kept only its id still says
+  // where it is, from the Line and paragraph the id names.
+  it("names the place an older row's id holds", async () => {
+    __setQueryData("chatV2:listProposalItems", [
+      item({ _id: "item-c" as Id<"chatProposalItems">, itemId: "c-246-2-1" }),
+      item({ _id: "item-u" as Id<"chatProposalItems">, itemId: "c-244-0-1", reason: "A fictional unanchored item." }),
+      item({ _id: "item-q" as Id<"chatProposalItems">, itemId: "q-242-3-1", reason: "A fictional item of another shape." }),
+      item({ _id: "item-z" as Id<"chatProposalItems">, itemId: "x-free", reason: "A fictional item with no place." }),
+    ]);
+    const { container } = await render(ProposalCard, { proposal: zeroEditProposal });
+    await expect.element(page.getByText("Line 246, paragraph 2", { exact: true })).toBeVisible();
+    // Paragraph 0 is unanchored: the Line alone.
+    expect(container.querySelector('[data-checklist-item="c-244-0-1"]')?.textContent).toContain("Line 244");
+    expect(container.querySelector('[data-checklist-item="c-244-0-1"]')?.textContent).not.toContain("paragraph");
+    const unknown = container.querySelector('[data-checklist-item="q-242-3-1"]');
+    expect(unknown).not.toBeNull();
+    expect(unknown?.textContent).toContain("Line 242, paragraph 3");
+    expect(unknown?.textContent).toContain("Blocked");
+    // An id that names no place shows the status and the reason only.
+    const free = container.querySelector('[data-checklist-item="x-free"]');
+    expect(free?.textContent).toContain("Blocked");
+    expect(free?.textContent).not.toContain("Line");
+    for (const id of ["c-246-2-1", "c-244-0-1", "q-242-3-1", "x-free"]) expect(container.textContent).not.toContain(id);
   });
 });

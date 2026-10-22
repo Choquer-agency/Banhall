@@ -16,6 +16,7 @@ import {
   upsertDashboardCompany,
 } from "./lib/dashboardProjection";
 import { generateShareToken } from "./projects";
+import { activeClientIdForName } from "./lib/clients";
 import { copyProjectContentBetween } from "./projectDuplication";
 import {
   copyTranscriptRow,
@@ -96,6 +97,8 @@ export const createReviewProjectRecord = internalMutation({
     await limitUserAction(ctx, "pdReviewPerUser", user._id);
 
     const now = Date.now();
+    // 2026-10-14 dual write: link the saved client with the same key.
+    const clientId = await activeClientIdForName(ctx, source.clientName);
     const dashboardProjection = projectDashboardProjectionPatch({
       title: source.title,
       clientName: source.clientName,
@@ -109,6 +112,7 @@ export const createReviewProjectRecord = internalMutation({
     const projectId = await ctx.db.insert("projects", {
       title: source.title,
       clientName: source.clientName,
+      ...(clientId ? { clientId } : {}),
       ...dashboardProjection,
       dashboardCompanyCounted: true,
       ...(source.sredTitle ? { sredTitle: source.sredTitle } : {}),

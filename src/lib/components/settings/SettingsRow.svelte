@@ -29,14 +29,14 @@
 >
   <div class="flex shrink-0 flex-col gap-0.5 md:w-[17.5rem]">
     {#if labelFor}
-      <label for={labelFor} class="text-sm font-medium leading-5 text-ink">{label}</label>
+      <label for={labelFor} class="text-sm font-medium leading-[calc(10/7)] text-ink">{label}</label>
     {:else}
-      <span class="text-sm font-medium leading-5 text-ink">{label}</span>
+      <span class="text-sm font-medium leading-[calc(10/7)] text-ink">{label}</span>
     {/if}
     {#if typeof hint === "function"}
-      <span class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">{@render hint()}</span>
+      <span class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{@render hint()}</span>
     {:else if hint}
-      <span class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">{hint}</span>
+      <span class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{hint}</span>
     {/if}
   </div>
   <!-- The field column stops at 40rem so inputs keep a readable width on a

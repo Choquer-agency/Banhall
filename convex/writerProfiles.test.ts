@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { isSettingsRecordNote } from "./lib/deviationInventory";
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -649,6 +650,14 @@ describe("four-tier precedence: six categories × writer_choice / enforced", () 
         reason: "org-enforced: this House Rule applies regardless of the Writer Profile",
       });
       expect(waiverRows[0].row.instruction).toMatch(/^Writer Profile waiver: /);
+      // 2026-10-19: the Deviation Inventory leaves these rows out as settings
+      // records, recognized by the labels written here.
+      expect(isSettingsRecordNote(waiverRows[0].row)).toBe(true);
+      expect(isSettingsRecordNote(waived!.row)).toBe(true);
+      for (const key of ["profile", "buildOrder"]) {
+        const row = entries.find((entry) => entry.key === key)?.row;
+        if (row) expect(isSettingsRecordNote(row)).toBe(true);
+      }
       // House Rule present: the enforced area is no longer handed over.
       expect(
         buildStyleGuidance(undefined, style.customInstructions ?? undefined, style.styleOverrides)

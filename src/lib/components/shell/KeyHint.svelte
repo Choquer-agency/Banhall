@@ -32,15 +32,15 @@
 </script>
 
 {#if variant === "inline"}
-  <span data-key-hint={id} class={`whitespace-nowrap text-xs leading-4 text-ink-faint ${className}`}>{shortcutHint(id, resolved)}</span>
+  <span data-key-hint={id} class={`whitespace-nowrap text-xs leading-[calc(4/3)] text-ink-faint ${className}`}>{shortcutHint(id, resolved)}</span>
 {:else}
   <span data-key-hint={id} class={`inline-flex items-center gap-1 ${className}`}>
     {#each keys as key, index (index)}
       {#if sequence && index > 0}
-        <span data-key-then class="px-0.5 text-xs leading-4 text-ink-muted">then</span>
+        <span data-key-then class="px-0.5 text-xs leading-[calc(4/3)] text-ink-muted">then</span>
       {/if}
       <kbd
-        class="inline-flex h-6 min-w-6 items-center justify-center rounded-[0.375rem] border border-line bg-surface px-[0.4375rem] font-sans text-xs font-medium leading-4 text-ink shadow-key-chip"
+        class="inline-flex h-6 min-w-6 items-center justify-center rounded-[0.375rem] border border-line bg-surface px-[0.4375rem] font-sans text-xs font-medium leading-[calc(4/3)] text-ink shadow-key-chip"
       >{key}</kbd>
     {/each}
   </span>

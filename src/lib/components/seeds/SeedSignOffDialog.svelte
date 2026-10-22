@@ -97,8 +97,8 @@
             >
               <div class="flex items-start gap-4 border-b border-line-soft pt-[1.625rem] pr-6 pb-5 pl-7">
                 <div class="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <Dialog.Title class="text-title leading-6">Sign off and generate the PD?</Dialog.Title>
-                  <Dialog.Description class="text-body leading-5 text-ink-muted!">
+                  <Dialog.Title class="text-title leading-[calc(4/3)]">Sign off and generate the PD?</Dialog.Title>
+                  <Dialog.Description class="text-body leading-[calc(10/7)] text-ink-muted!">
                     We will draft sections 242, 244 and 246 from this plan. Once you sign off, the plan is locked and later changes happen in the report.
                   </Dialog.Description>
                 </div>
@@ -115,7 +115,7 @@
                   <span class="flex size-5 shrink-0 items-center justify-center rounded-full" style="background:#DCFCE7" aria-hidden="true">
                     <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
                   </span>
-                  <p class="text-body leading-5 text-ink!">All {stepCount} steps decided</p>
+                  <p class="text-body leading-[calc(10/7)] text-ink!">All {stepCount} steps decided</p>
                 </div>
                 {#if editedCount > 0}
                   <div class="flex items-start gap-2.5" data-signoff-row="edited">
@@ -123,16 +123,16 @@
                       <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
                     </span>
                     <div class="flex flex-col gap-0.5">
-                      <p class="text-body leading-5 text-ink!">{editedCount} {editedCount === 1 ? "seed" : "seeds"} edited by hand</p>
-                      <p class="text-[0.8125rem] leading-[1.125rem] text-ink-muted">They are drafted as written, not quoted from the interview.</p>
+                      <p class="text-body leading-[calc(10/7)] text-ink!">{editedCount} {editedCount === 1 ? "seed" : "seeds"} edited by hand</p>
+                      <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">They are drafted as written, not quoted from the interview.</p>
                     </div>
                   </div>
                 {/if}
                 <div class="flex items-start gap-2.5" data-signoff-row="model">
                   <AuroraMark size={20} />
-                  <p class="text-body leading-5 text-ink!">Written by {modelLabel}</p>
+                  <p class="text-body leading-[calc(10/7)] text-ink!">Written by {modelLabel}</p>
                 </div>
-                <p class="mt-1 rounded-[0.625rem] bg-canvas px-3 py-2.5 text-[0.8125rem] leading-[1.125rem] text-ink-secondary">
+                <p class="mt-1 rounded-[0.625rem] bg-canvas px-3 py-2.5 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">
                   Takes about three minutes. You can leave this page; we will let you know when the draft is ready.
                 </p>
                 {#if changedNotice}

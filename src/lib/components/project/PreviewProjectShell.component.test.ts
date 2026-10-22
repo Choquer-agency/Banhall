@@ -147,16 +147,11 @@ describe("PreviewProjectPage final shell", () => {
     expect(header.querySelector("h1")?.textContent).toBe("Adaptive cold storage controls");
     expect(header.textContent).toContain("Projects");
     expect(header.querySelector("[data-top-bar-bell]")).not.toBeNull();
-    // Round 2 top bar (F2): 10px apart, the 26px tile (radius 6, page icon
-    // fill) with the board's document icon, "Projects /" in muted ink, and
-    // the 36px bell (radius 7) with the board's bell.
+    // Round 2 top bar (F2): 10px apart, "Projects /" in muted ink, and the
+    // 36px bell (radius 7) with the board's bell. Owner, 2026-10-21: project
+    // pages have no page icon tile.
     expect(getComputedStyle(header).columnGap).toBe(boardPx(10));
-    const tile = header.querySelector<HTMLElement>("[data-page-icon-tile]")!;
-    expect(tile.getBoundingClientRect().width).toBe(board(26));
-    expect(getComputedStyle(tile).borderRadius).toBe(boardPx(6));
-    expect(getComputedStyle(tile).backgroundColor).toBe("rgb(227, 244, 241)");
-    expect(tile.querySelector("svg path")!.getAttribute("d")).toBe("M6 3h8l4 4v14H6z M14 3v4h4 M9 12h6M9 16h6");
-    expect(tile.querySelector("svg")!.getAttribute("stroke-width")).toBe("1.8");
+    expect(header.querySelector("[data-page-icon-tile]")).toBeNull();
     const crumb = header.querySelector<HTMLElement>("[data-top-bar-breadcrumb]")!;
     expect(crumb.textContent?.replace(/\s+/g, " ").trim()).toBe("Projects /");
     expect(getComputedStyle(crumb).color).toBe("rgb(107, 127, 123)");

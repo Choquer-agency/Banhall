@@ -5,15 +5,18 @@
  * decides something lives here so it tests from fixtures without a
  * deployment.
  *
- * Flow, once a day:
+ * Flow, once a day (amended 2026-10-22: models follow the newest version of
+ * their tier, shared/modelTracks.ts):
  * 1. parseOpenRouterModels + diffCatalog: refresh the catalog, flag new,
  *    renamed, expiring and gone models.
- * 2. prefilterCandidate + selectEvaluations: pick at most a few candidates
- *    per run that could beat a role's current model on paper.
- * 3. summarizeEvalRun + promotionGates: run the candidate and the incumbent
- *    on the same fixed eval set and switch only when every gate passes.
- * 4. productionErrorVerdict: roll a switched role back when its model fails
- *    in production.
+ * 2. trackUpgradeListing + readinessAllowsMove: move each track to its
+ *    newest version once that version passes a readiness check.
+ * 3. productionErrorVerdict: move a track back when its new model fails in
+ *    production.
+ *
+ * The evaluation rules below (prefilterCandidate, selectEvaluations,
+ * promotionGates) no longer run from the daily job; they stay for the
+ * evaluation history the admin page can still read.
  *
  * Artificial Analysis scores (embedded in OpenRouter's catalog, or read with
  * AA_API_KEY) are for internal use only: shown on the admin page with an
@@ -23,6 +26,7 @@ import {
   ALWAYS_THINKING_MAX_OUTPUT_TOKENS,
   CANDIDATE_MODELS,
   FORCED_TOOL_CHOICE_REJECTED_IDS,
+  HAIKU_MODEL,
   MODEL,
   REASONING_TOKEN_MULTIPLIER,
   type ModelEntry,
@@ -30,6 +34,12 @@ import {
 } from "./generationModels";
 import { pricingFor } from "./modelPricing";
 import { OPENROUTER_ANTHROPIC_PROVIDER } from "./anthropicTransport";
+import {
+  appModelIdForListing,
+  isNewerInTrack,
+  newestInTrack,
+  type ModelTrackId,
+} from "./modelTracks";
 
 // ─── Roles ──────────────────────────────────────────────────────────────────
 
@@ -131,6 +141,13 @@ export type CostCap = {
 export type RolePolicy = {
   label: string;
   description: string;
+  /**
+   * The track whose newest version the role runs (2026-10-22 decision):
+   * claude-sonnet for every role that defaulted to Sonnet, claude-haiku for
+   * the four Haiku roles. An admin may point a role at another track.
+   */
+  track: ModelTrackId;
+  /** The track's model on 2026-10-22, used when nothing else resolves. */
   defaultModelId: string;
   gateways: readonly ModelGateway[];
   minContextTokens: number;
@@ -145,7 +162,7 @@ export type RolePolicy = {
   frozenPerGeneration: boolean;
 };
 
-const HAIKU = "claude-haiku-4-5-20251001";
+const HAIKU = HAIKU_MODEL;
 
 export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
   writing: {
@@ -153,6 +170,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     description:
       "Default model a writer picks for the report. It drafts, repairs, shortens and redrafts the Sections.",
     defaultModelId: MODEL,
+    track: "claude-sonnet",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 200_000,
     minOutputTokens: 32_000,
@@ -170,6 +188,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     description:
       "Plans the report: the transcript analysis, the generation Brief and the seed cards, including seed feedback. It also writes the sample paragraphs for the Writing preferences Preview.",
     defaultModelId: MODEL,
+    track: "claude-sonnet",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 200_000,
     minOutputTokens: 32_000,
@@ -185,6 +204,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     description:
       "Checks the drafted report: the Self-check, the consistency pass, the QA scorecard and the chronology.",
     defaultModelId: MODEL,
+    track: "claude-sonnet",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 200_000,
     minOutputTokens: 32_000,
@@ -199,6 +219,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     label: "Release notes",
     description: "The daily changelog summary for writers.",
     defaultModelId: HAIKU,
+    track: "claude-haiku",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 128_000,
     minOutputTokens: 8_000,
@@ -211,6 +232,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     label: "Chat",
     description: "The report chat assistant.",
     defaultModelId: MODEL,
+    track: "claude-sonnet",
     // The chat agent streams through the AI SDK's Anthropic provider with
     // Anthropic thinking and cache controls, so only direct Anthropic models
     // can serve it. No eval covers streamed tool turns, so it never switches
@@ -229,6 +251,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     label: "Condense",
     description: "Condenses long transcripts into digests before drafting.",
     defaultModelId: MODEL,
+    track: "claude-sonnet",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 128_000,
     minOutputTokens: 16_000,
@@ -241,6 +264,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     label: "Retrieval brief",
     description: "Turns a transcript into Brain search queries.",
     defaultModelId: HAIKU,
+    track: "claude-haiku",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 128_000,
     minOutputTokens: 4_000,
@@ -253,6 +277,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     label: "Style analysis",
     description: "Classifies writer settings documents and saved style instructions.",
     defaultModelId: MODEL,
+    track: "claude-sonnet",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 200_000,
     minOutputTokens: 16_000,
@@ -265,6 +290,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     label: "PD review",
     description: "Structured feedback on an uploaded, externally written PD.",
     defaultModelId: MODEL,
+    track: "claude-sonnet",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 200_000,
     minOutputTokens: 16_000,
@@ -277,6 +303,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     label: "Timesheet extraction",
     description: "Reconstructs timesheets from uploaded chat, commit or spreadsheet data.",
     defaultModelId: MODEL,
+    track: "claude-sonnet",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 200_000,
     minOutputTokens: 16_000,
@@ -289,6 +316,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     label: "Brain context",
     description: "Situates each approved PD chunk before it is embedded in the Brain.",
     defaultModelId: HAIKU,
+    track: "claude-haiku",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 128_000,
     minOutputTokens: 4_000,
@@ -301,6 +329,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     label: "Learning digests",
     description: "Distills writer and QA feedback into learned drafting rules.",
     defaultModelId: MODEL,
+    track: "claude-sonnet",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 200_000,
     minOutputTokens: 4_000,
@@ -315,6 +344,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     label: "Science code suggestion",
     description: "Suggests the CRA field of science code for a project.",
     defaultModelId: MODEL,
+    track: "claude-sonnet",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 200_000,
     minOutputTokens: 1_000,
@@ -329,6 +359,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     label: "Feedback summaries",
     description: "Summarizes writers' comments on each model for this page.",
     defaultModelId: HAIKU,
+    track: "claude-haiku",
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 128_000,
     minOutputTokens: 1_000,
@@ -342,11 +373,10 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
 };
 
 /**
- * Roles split out of an older role on 2026-09-24 (review A). Until a split
- * role has an assignment of its own it runs what its predecessor was
- * assigned, and convex/lib/modelRoles.ts ensureRoleSplit copies that
- * assignment before anything can change either role, so an admin's
- * customised choice carries over and the two then move independently.
+ * Roles split out of an older role on 2026-09-24 (review A). Since
+ * 2026-10-22 every role follows a track, so a split role no longer inherits
+ * its predecessor's model; the map stays for the rollback history the older
+ * evaluation rows recorded (convex/lib/modelRoles.ts rolledBackFrom).
  */
 export const ROLE_PREDECESSORS: Readonly<Partial<Record<ModelRole, ModelRole>>> = {
   pd_review: "analysis",
@@ -466,6 +496,11 @@ export type CatalogModel = CatalogFields & {
  * daily refresh can attach benchmark scores and expiration dates to them.
  */
 export const SEED_CANONICAL_SLUGS: Readonly<Record<string, string>> = {
+  // Read from OpenRouter's catalog on 2026-10-22.
+  "claude-sonnet-5-5": "anthropic/claude-sonnet-5.5-20260928",
+  "claude-haiku-5-5": "anthropic/claude-haiku-5.5-20261007",
+  "openai/gpt-6.1-sol": "openai/gpt-6.1-sol-20260929",
+  "google/gemini-3.8-flash": "google/gemini-3.8-flash-20260902",
   "claude-sonnet-5": "anthropic/claude-sonnet-5-20260630",
   // Read from OpenRouter's catalog on 2026-09-25.
   "claude-opus-5-5": "anthropic/claude-opus-5.5-20260921",
@@ -481,6 +516,8 @@ export const SEED_CANONICAL_SLUGS: Readonly<Record<string, string>> = {
 
 /** Seed maximum output for direct Anthropic models (published limits). */
 const ANTHROPIC_SEED_LIMITS: Readonly<Record<string, { context: number; output: number }>> = {
+  "claude-sonnet-5-5": { context: 1_000_000, output: 128_000 },
+  "claude-haiku-5-5": { context: 1_000_000, output: 128_000 },
   "claude-sonnet-5": { context: 1_000_000, output: 128_000 },
   "claude-opus-5-5": { context: 1_000_000, output: 128_000 },
   "claude-opus-4-8": { context: 1_000_000, output: 128_000 },
@@ -972,7 +1009,10 @@ export function refreshedFields(
   void _modelId;
   void _gateway;
   const refreshed: Partial<CatalogFields> = { ...rest };
-  if (row.source !== "seed") {
+  // Review 2026-10-22: a direct Anthropic row a track upgrade wrote keeps
+  // the name, reasoning and output cap it was written with; the OpenRouter
+  // listing describes the OpenRouter route, not the direct one.
+  if (row.source !== "seed" && row.gateway === "openrouter") {
     refreshed.reasoning = reasoning;
     if (maxCompletionTokens !== undefined) refreshed.maxCompletionTokens = maxCompletionTokens;
     refreshed.displayName = displayName;
@@ -1500,4 +1540,105 @@ export function openRouterProviderPreferences(args: {
   if (args.usesTools) preferences.require_parameters = true;
   if (args.maxPrice) preferences.max_price = args.maxPrice;
   return Object.keys(preferences).length > 0 ? preferences : undefined;
+}
+
+// ─── Tracks (2026-10-22 decision) ───────────────────────────────────────────
+
+/** The catalog fields the track upgrade reads from a listing row. */
+export type TrackListingRow = Pick<
+  CatalogModel,
+  "modelId" | "gateway" | "requestId" | "missingSince" | "supportsTools" | "canonicalSlug"
+>;
+
+/**
+ * The newest OpenRouter listing on `track` that the track may move to, or
+ * null: listed today, serving tool calls, newer than the track's current
+ * model, and never rolled back from on this track (by its app id or its
+ * listing id). Only OpenRouter rows count: a direct Anthropic row is the
+ * app's own copy, never a discovery.
+ */
+export function trackUpgradeListing<Row extends TrackListingRow>(args: {
+  track: ModelTrackId;
+  currentModelId: string;
+  rows: readonly Row[];
+  rolledBackFrom: readonly string[];
+}): { row: Row; listingId: string; appModelId: string } | null {
+  const blocked = new Set(args.rolledBackFrom);
+  const eligible = new Map<string, Row>();
+  for (const row of args.rows) {
+    if (row.gateway !== "openrouter" || row.missingSince !== undefined || !row.supportsTools) continue;
+    const listingId = row.requestId ?? row.modelId;
+    const appModelId = appModelIdForListing(args.track, listingId);
+    if (!appModelId || blocked.has(appModelId) || blocked.has(listingId)) continue;
+    if (!isNewerInTrack(listingId, args.currentModelId)) continue;
+    eligible.set(listingId, row);
+  }
+  const newest = newestInTrack(args.track, eligible.keys());
+  if (!newest) return null;
+  const row = eligible.get(newest);
+  const appModelId = appModelIdForListing(args.track, newest);
+  return row && appModelId ? { row, listingId: newest, appModelId } : null;
+}
+
+/** What the readiness check measured about a model before a track moves. */
+export type ReadinessResult = {
+  /** The plain request answered. */
+  plainOk: boolean;
+  /** A forced tool call came back as a tool call. */
+  forcedToolChoice: boolean;
+  /** The forced request was refused as a bad request (a 400). */
+  forcedRejected: boolean;
+  /** Why the track stays put, when it does. */
+  failure?: string;
+};
+
+/**
+ * Whether a track may move after its readiness check: the plain request
+ * must answer, and the forced tool request must either answer with a tool
+ * call or be refused with a 400 (the model then runs on the unforced path,
+ * as Opus 5.5 does). Any other failure (a timeout, a rate limit, a 5xx)
+ * says nothing yet, so the track waits for tomorrow.
+ */
+export function readinessAllowsMove(result: ReadinessResult): boolean {
+  return result.plainOk && (result.forcedToolChoice || result.forcedRejected) && !result.failure;
+}
+
+/**
+ * The catalog row a direct Anthropic track model starts from: the app's
+ * direct id on the anthropic gateway, with context, output cap and prices
+ * taken from its OpenRouter listing (Anthropic bills the direct id at the
+ * same list price), so a discovered version needs no code change.
+ */
+export function directRowFromListing(
+  listing: CatalogFields,
+  appModelId: string,
+  label: string,
+  forcedToolChoice: boolean
+): CatalogFields {
+  return {
+    modelId: appModelId,
+    gateway: "anthropic",
+    canonicalSlug: listing.canonicalSlug,
+    displayName: label,
+    provider: "Anthropic",
+    ...(listing.inputUsdPerMTok !== undefined ? { inputUsdPerMTok: listing.inputUsdPerMTok } : {}),
+    ...(listing.outputUsdPerMTok !== undefined ? { outputUsdPerMTok: listing.outputUsdPerMTok } : {}),
+    ...(listing.cacheReadUsdPerMTok !== undefined ? { cacheReadUsdPerMTok: listing.cacheReadUsdPerMTok } : {}),
+    ...(listing.cacheWriteUsdPerMTok !== undefined ? { cacheWriteUsdPerMTok: listing.cacheWriteUsdPerMTok } : {}),
+    ...(listing.cacheWrite1hUsdPerMTok !== undefined ? { cacheWrite1hUsdPerMTok: listing.cacheWrite1hUsdPerMTok } : {}),
+    ...(listing.contextLength !== undefined ? { contextLength: listing.contextLength } : {}),
+    ...(listing.maxOutputTokens !== undefined ? { maxOutputTokens: listing.maxOutputTokens } : {}),
+    ...(listing.maxCompletionTokens !== undefined ? { maxCompletionTokens: listing.maxCompletionTokens } : {}),
+    // Direct Anthropic entries never take OpenRouter's reasoning headroom;
+    // a model whose thinking is always on is marked by forcedToolChoice.
+    reasoning: false,
+    reasoningEfforts: listing.reasoningEfforts,
+    supportsTools: true,
+    supportsToolChoice: true,
+    ...(forcedToolChoice ? {} : { forcedToolChoice: false }),
+    supportsStructuredOutputs: true,
+    supportsReasoning: listing.supportsReasoning,
+    ...(listing.expirationDate ? { expirationDate: listing.expirationDate } : {}),
+    benchmarks: listing.benchmarks,
+  };
 }

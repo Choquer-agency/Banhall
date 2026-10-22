@@ -5,6 +5,7 @@
   import { DropdownMenu } from "bits-ui";
   import { diffWords, proposedTextChanges } from "$lib/diff";
   import { userErrorMessage } from "$lib/errors";
+  import { proposalUndoErrorMessage } from "$lib/chat/chatRefusals";
 
   interface Props {
     /** Report Section the edit targets ("242"), for "Suggested edit for 242". */
@@ -12,9 +13,25 @@
     newText?: string;
     targetText?: string;
     replacements?: { find: string; replaceWith: string }[];
+    /**
+     * The replacements are passages, each matching one place (a proposeEdit
+     * across several paragraphs, or a coordinated revision), not finds that
+     * replace every occurrence. The card then reads as one edit.
+     */
+    passages?: boolean;
     state: "pending" | "applied" | "rejected" | "stale";
+    /**
+     * Whether the viewer may apply, dismiss or reword (report edit access).
+     * "loading" hides those actions without a note; "denied" says why.
+     */
+    applyAccess?: "allowed" | "loading" | "denied";
     onReplace: () => Promise<void> | void;
     onReject: () => Promise<void> | void;
+    /**
+     * Phase B: undo an applied card (its apply was recorded). Offered on the
+     * applied row to the same people as Apply.
+     */
+    onUndo?: () => Promise<void> | void;
     /** Save writer-authored wording while preserving canonical report targets. */
     onEditWording?: (wording: string[]) => Promise<void> | void;
     /** Continue discussing this suggestion in the shared composer. */
@@ -34,16 +51,23 @@
     newText,
     targetText,
     replacements,
+    passages = false,
     state: editState,
+    applyAccess = "allowed",
     onReplace,
     onReject,
-    onEditWording,
+    onUndo,
+    onEditWording: editWordingHandler,
     onRefine,
     onShowInDoc,
     onReviewOneByOne,
     onPreviewInDoc,
     reviewing,
   }: Props = $props();
+
+  // Only people the server lets apply see Apply, Dismiss and Edit wording.
+  const canAct = $derived(applyAccess === "allowed");
+  const onEditWording = $derived(canAct ? editWordingHandler : undefined);
 
   let busy = $state(false);
   let error = $state<string | null>(null);
@@ -98,6 +122,51 @@
     }
   }
 
+  // Phase B: Undo has its own error slot, since the pending card's alert is
+  // not shown on the applied row. A conflict is a handled refusal.
+  let undoing = $state(false);
+  let undoError = $state<string | null>(null);
+  async function undo() {
+    if (!onUndo || undoing) return;
+    undoing = true;
+    undoError = null;
+    try {
+      await onUndo();
+      // The card is pending again: hand focus to its Apply button.
+      await tick();
+      cardEl?.querySelector<HTMLButtonElement>("[data-proposed-edit-apply]")?.focus();
+    } catch (e) {
+      undoError = proposalUndoErrorMessage(e);
+    } finally {
+      undoing = false;
+    }
+  }
+
+  // Phase C (W3): "Copy wording" copies the card's proposed text, on every
+  // card that has some (pending, applied or stale), and says "Copied".
+  const wordingText = $derived(
+    changes.map((change) => change.after.trim()).filter(Boolean).join("\n\n")
+  );
+  let wordingCopied = $state(false);
+  let copyWordingFailed = $state(false);
+  let copyWordingTimer: ReturnType<typeof setTimeout> | undefined;
+  async function copyWording() {
+    clearTimeout(copyWordingTimer);
+    try {
+      await navigator.clipboard.writeText(wordingText);
+      wordingCopied = true;
+      copyWordingFailed = false;
+    } catch {
+      wordingCopied = false;
+      copyWordingFailed = true;
+    }
+    copyWordingTimer = setTimeout(() => {
+      wordingCopied = false;
+      copyWordingFailed = false;
+    }, 2000);
+  }
+  onMount(() => () => clearTimeout(copyWordingTimer));
+
   async function startEditing() {
     editedWording = changes.map((change) => change.after);
     editing = true;
@@ -131,7 +200,7 @@
       showChanges = !showChanges;
       onPreviewInDoc?.(showChanges);
     }}
-    class={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+    class={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors pointer-coarse:min-h-11 ${
       showChanges ? "bg-primary-wash text-navy" : "text-gray-400 hover:text-gray-600"
     }`}
   >
@@ -150,6 +219,24 @@
   </button>
 {/snippet}
 
+{#snippet copyAnnouncement()}
+  <span class="sr-only" aria-live="polite" aria-atomic="true" data-copy-wording-announcement>
+    {wordingCopied ? "Copied" : copyWordingFailed ? "Couldn't copy. Try again." : ""}
+  </span>
+{/snippet}
+
+{#snippet copyWordingItem()}
+  <DropdownMenu.Item onSelect={() => void copyWording()} data-copy-wording class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">
+    Copy wording
+  </DropdownMenu.Item>
+{/snippet}
+
+{#snippet moreTrigger()}
+  <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <circle cx="5" cy="12" r="1.75" /><circle cx="12" cy="12" r="1.75" /><circle cx="19" cy="12" r="1.75" />
+  </svg>
+{/snippet}
+
 {#if editState !== "pending"}
   <div class={`mt-2 flex items-center gap-1.5 py-1 text-xs ${editState === "stale" ? "text-amber-700" : editState === "applied" ? "text-green-600" : "text-ink-muted"}`}>
     {#if editState === "stale"}
@@ -160,7 +247,7 @@
       {#if onRefine}
         <ActionButton
           variant="ghost"
-          class="ml-1 min-h-7 px-2 py-0.5"
+          class="ml-1 min-h-7 px-2 py-0.5 pointer-coarse:min-h-11"
           onclick={() => handle(onRefine)}
           disabled={busy}
         >
@@ -172,22 +259,57 @@
         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
       </svg>
       <span>Replaced in report</span>
+      {#if onUndo && canAct}
+        <ActionButton
+          variant="ghost"
+          class="ml-1 min-h-7 px-2 py-0.5 text-ink-secondary pointer-coarse:min-h-11"
+          onclick={undo}
+          disabled={undoing}
+          loading={undoing}
+          loadingLabel="Undoing…"
+          data-proposed-edit-undo
+        >
+          Undo
+        </ActionButton>
+      {/if}
     {:else}
       <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
       </svg>
       <span>Suggested edit rejected</span>
     {/if}
+    {#if (editState === "applied" || editState === "stale") && wordingText}
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger
+          aria-label="More actions for this suggestion"
+          title="More actions"
+          class="ml-auto flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink data-[state=open]:bg-chrome/60 motion-reduce:transition-none pointer-coarse:size-11"
+        >
+          {@render moreTrigger()}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="z-[100] w-44 rounded-xl border border-line bg-white p-1 shadow-lg">
+            {@render copyWordingItem()}
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+    {/if}
+    {@render copyAnnouncement()}
   </div>
+  {#if undoError && editState === "applied"}
+    <p class="mt-1 rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-600" role="alert" data-proposed-edit-undo-error>
+      {undoError}
+    </p>
+  {/if}
 {:else}
 <!-- Board 2.1 suggested-edit card: a quiet label, the serif wording, then
      Apply (primary) and Dismiss (quiet). Edit wording and Refine live in the
      card's More menu. -->
 <div bind:this={cardEl} class="mt-2 flex flex-col rounded-[0.625rem] bg-gray-50 px-4 py-3.5" data-proposed-edit>
-  <p class="text-[0.6875rem] leading-4 text-ink-muted" data-proposed-edit-label>
+  <p class="text-[0.6875rem] leading-[calc(16/11)] text-ink-muted" data-proposed-edit-label>
     {editing
       ? "Edit suggestion"
-      : replacements && replacements.length > 0
+      : replacements && replacements.length > 0 && !passages
         ? `${changes.length} suggested replacement${changes.length === 1 ? "" : "s"}${section ? ` in ${section}` : ""}`
         : section
           ? `Suggested edit for ${section}`
@@ -200,14 +322,14 @@
         {#each editedWording as wording, index (index)}
           <label class="block">
             {#if editedWording.length > 1}
-              <span class="text-label mb-1.5 block">Replacement {index + 1}</span>
+              <span class="text-label mb-1.5 block">{passages ? `Passage ${index + 1}` : `Replacement ${index + 1}`}</span>
             {/if}
             <textarea
               value={wording}
               oninput={(event) => {
                 editedWording[index] = event.currentTarget.value;
               }}
-              aria-label={`Edit replacement wording ${index + 1}`}
+              aria-label={passages ? `Edit passage ${index + 1} wording` : `Edit replacement wording ${index + 1}`}
               rows={Math.min(7, Math.max(3, wording.split("\n").length + 1))}
               class="field-control w-full resize-y rounded-md px-2.5 py-2 font-serif text-sm leading-relaxed text-ink"
             ></textarea>
@@ -218,15 +340,17 @@
     <div>
     {#if replacements && replacements.length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-[0.6875rem] leading-4 text-ink-muted">
-          {changes.length} replacement{changes.length === 1 ? "" : "s"}, applied to every occurrence
-        </p>
+        {#if !passages}
+          <p class="text-[0.6875rem] leading-[calc(16/11)] text-ink-muted">
+            {changes.length} replacement{changes.length === 1 ? "" : "s"}, applied to every occurrence
+          </p>
+        {/if}
         {#each changes as change, changeIndex (changeIndex)}
           <div class="border-l-2 border-primary/20 pl-2.5">
             {#if diffInCard}
               <p
-                aria-label={`Replacement ${changeIndex + 1} changes`}
-                class="whitespace-pre-wrap font-serif text-sm leading-[1.375rem] text-ink"
+                aria-label={passages ? `Passage ${changeIndex + 1} changes` : `Replacement ${changeIndex + 1} changes`}
+                class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink"
               >
                 {#each diffGroups[changeIndex] ?? [] as part, partIndex (partIndex)}
                   {#if part.type === "removed"}
@@ -239,7 +363,7 @@
                 {/each}
               </p>
             {:else if change.after}
-              <p class="whitespace-pre-wrap font-serif text-sm leading-[1.375rem] text-ink">
+              <p class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink">
                 {change.after}
               </p>
             {:else}
@@ -251,7 +375,7 @@
     {:else if diffInCard && changes.length === 1}
       <p
         aria-label="Proposed changes"
-        class="whitespace-pre-wrap font-serif text-sm leading-[1.375rem] text-ink"
+        class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink"
       >
         {#each diffGroups[0] ?? [] as part, i (i)}
           {#if part.type === "removed"}
@@ -264,7 +388,7 @@
         {/each}
       </p>
     {:else if newText}
-      <p class="whitespace-pre-wrap font-serif text-sm leading-[1.375rem] text-ink">
+      <p class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink">
         {newText}
       </p>
     {:else}
@@ -278,7 +402,7 @@
     <div class="flex items-center gap-3.5 pt-3">
       <ActionButton
         variant="primary"
-        class="min-h-0 rounded-md px-3 py-1.5 leading-[1.125rem]"
+        class="min-h-0 rounded-md px-3 py-1.5 leading-[1.5] pointer-coarse:min-h-11"
         onclick={saveWording}
         disabled={busy}
         loading={busy}
@@ -286,7 +410,7 @@
       >
         Save & apply
       </ActionButton>
-      <button type="button" class="text-xs leading-[1.125rem] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50" onclick={cancelEditing} disabled={busy}>Cancel</button>
+      <button type="button" class="text-xs leading-[1.5] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={cancelEditing} disabled={busy}>Cancel</button>
     </div>
   {:else if changes.length > 0 && !onPreviewInDoc}
     <!-- Card-local diff toggle — only when there's no live report preview
@@ -305,23 +429,28 @@
         <Spinner size="sm" class="h-3 w-3 border-navy/30 border-t-navy" />
         Stepping through in the document…
       </span>
-    {:else if editState === "pending"}
+    {:else if editState === "pending" && applyAccess === "denied"}
+      <p class="text-xs leading-[1.5] text-ink-muted" data-apply-unavailable>
+        Only people who can edit this report can apply or dismiss suggestions.
+      </p>
+    {:else if editState === "pending" && canAct}
       <ActionButton
         variant="primary"
-        class="min-h-0 rounded-md px-3 py-1.5 leading-[1.125rem]"
+        class="min-h-0 rounded-md px-3 py-1.5 leading-[1.5] pointer-coarse:min-h-11"
         onclick={() => handle(onReplace)}
         disabled={busy}
         loading={busy}
         loadingLabel="Applying…"
+        data-proposed-edit-apply
       >
         {onReviewOneByOne ? "Apply all" : "Apply"}
       </ActionButton>
       {#if onReviewOneByOne}
-        <button type="button" class="text-xs leading-[1.125rem] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50" onclick={onReviewOneByOne} disabled={busy}>
+        <button type="button" class="text-xs leading-[1.5] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={onReviewOneByOne} disabled={busy}>
           Review individually
         </button>
       {/if}
-      <button type="button" class="text-xs leading-[1.125rem] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50" onclick={() => handle(onReject)} disabled={busy}>
+      <button type="button" class="text-xs leading-[1.5] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={() => handle(onReject)} disabled={busy}>
         Dismiss
       </button>
     {/if}
@@ -330,24 +459,22 @@
       {#if onPreviewInDoc && changes.length > 0}
         {@render changesToggle("Show changes")}
       {:else if onShowInDoc}
-        <ActionButton variant="ghost" onclick={onShowInDoc} class="min-h-7 px-2">
+        <ActionButton variant="ghost" onclick={onShowInDoc} class="min-h-7 px-2 pointer-coarse:min-h-11">
           <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
           </svg>
           Show in document
         </ActionButton>
       {/if}
-      {#if editState === "pending" && !reviewing && (onEditWording || onRefine)}
+      {#if editState === "pending" && !reviewing && (onEditWording || onRefine || wordingText)}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger
             aria-label="More actions for this suggestion"
             title="More actions"
             disabled={busy}
-            class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink data-[state=open]:bg-chrome/60 disabled:opacity-50 motion-reduce:transition-none"
+            class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink data-[state=open]:bg-chrome/60 disabled:opacity-50 motion-reduce:transition-none pointer-coarse:size-11"
           >
-            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <circle cx="5" cy="12" r="1.75" /><circle cx="12" cy="12" r="1.75" /><circle cx="19" cy="12" r="1.75" />
-            </svg>
+            {@render moreTrigger()}
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <!-- A chosen action places focus (the composer or the wording
@@ -357,15 +484,18 @@
               menuActionChosen = false;
             }} class="z-[100] w-44 rounded-xl border border-line bg-white p-1 shadow-lg">
               {#if onEditWording}
-                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void startEditing(); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
+                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void startEditing(); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">
                   Edit wording
                 </DropdownMenu.Item>
               {/if}
               {#if onRefine}
                 {@const refine = onRefine}
-                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void handle(refine); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
+                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void handle(refine); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">
                   Refine with AI
                 </DropdownMenu.Item>
+              {/if}
+              {#if wordingText}
+                {@render copyWordingItem()}
               {/if}
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
@@ -380,5 +510,6 @@
       {error}
     </p>
   {/if}
+  {@render copyAnnouncement()}
 </div>
 {/if}

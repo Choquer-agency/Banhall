@@ -74,7 +74,7 @@
       {disabled}
       class="inline-flex h-8 items-center rounded-lg bg-chrome px-3.5 text-sm font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11"
     >Change photo</button>
-    <span data-photo-hint class="text-xs leading-4 text-ink-muted">{PHOTO_HINT}</span>
+    <span data-photo-hint class="text-xs leading-[calc(4/3)] text-ink-muted">{PHOTO_HINT}</span>
     <input
       bind:this={input}
       type="file"
@@ -87,6 +87,6 @@
     />
   </div>
   {#if problem}
-    <p role="alert" data-photo-problem class="text-xs leading-4 text-danger-ink-muted">{problem}</p>
+    <p role="alert" data-photo-problem class="text-xs leading-[calc(4/3)] text-danger-ink-muted">{problem}</p>
   {/if}
 </div>

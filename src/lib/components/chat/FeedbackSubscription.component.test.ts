@@ -17,7 +17,7 @@ function message(order: number, text: string, status: UIMessage["status"]): UIMe
 beforeEach(() => {
   __resetConvexStub();
   __resetAuthState();
-  localStorage.clear();
+  localStorage.clear(); sessionStorage.clear();
 });
 
 it("retains the real feedback subscription while another answer streams, and cleans it up on unmount", async () => {
@@ -38,7 +38,7 @@ it("retains the real feedback subscription while another answer streams, and cle
   __setPaginatedRows("chatV2:listMessages", [completed, message(2, "Starting", "streaming")]);
   const events: Array<"subscribe" | "unsubscribe"> = [];
   const mounted = await render(FeedbackSubscriptionHarness, { props: { reportId, projectId, events } });
-  await expect.element(page.getByRole("button", { name: "Mark response helpful", exact: true })).toBeEnabled();
+  await expect.element(page.getByRole("button", { name: "Mark response helpful", exact: true })).toHaveAttribute("aria-disabled", "false");
   expect(events).toEqual(["subscribe"]);
   for (const text of ["First streamed update", "Second streamed update", "Third streamed update"]) {
     __setPaginatedRows("chatV2:listMessages", [completed, message(2, text, "streaming")]);

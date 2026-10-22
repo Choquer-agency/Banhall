@@ -352,11 +352,19 @@ async function seedProjectRows(
     const turnId = await ctx.db.insert("chatTurns", { agentThreadId, promptMessageId: "p1", order: 0, status: "completed", stepCount: 1 });
     const proposalId = await ctx.db.insert("chatProposals", { agentThreadId, projectId, reportId, kind: "edit", state: "pending", createdAt: now });
     await ctx.db.insert("chatProposalItems", { proposalId, projectId, itemId: "1", status: "resolved", reason: "r", createdAt: now });
+    const appliedChangeId = await ctx.db.insert("chatProposalAppliedChanges", {
+      proposalId, projectId, revisionNumber: 1, appliedAt: now, appliedBy: userId, hunks: [{ before: "b", after: "a" }],
+    });
+    await ctx.db.patch(proposalId, { state: "applied", appliedChangeId });
     await ctx.db.insert("chatAnswerFeedback", {
       turnId, userId, projectId, reportId, agentThreadId, promptMessageId: "p1", answerMessageId: "a1",
       promptText: "q", answerText: "a", vote: 1, createdAt: now,
     });
     await ctx.db.insert("proposalWordingEditEvents", { projectId, reportId, proposalId, userId, originalText: "o", editedText: "e", createdAt: now });
+    await ctx.db.insert("chatWebSearches", {
+      projectId, reportId, agentThreadId, promptMessageId: "p1", query: "q", status: "ok",
+      sources: [{ n: 1, url: "https://example.org/", title: "t", domain: "example.org" }], createdAt: now,
+    });
     const documentId = await ctx.db.insert("projectDocuments", {
       projectId, fileName: "doc.txt", fileType: "txt", content: "doc", storageId, source: "upload", uploadedBy: "u", createdAt: now,
     });

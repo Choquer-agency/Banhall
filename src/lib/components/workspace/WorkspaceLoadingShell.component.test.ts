@@ -61,11 +61,12 @@ describe("round 2 loading shell", () => {
     expect(rail()).not.toBeNull();
     expect(rail()!.querySelector('[data-rail-item="home"]')?.getAttribute("aria-current")).toBe("page");
     expect(topBarTitle()).toBe("Home");
-    expect(document.querySelector("[data-workspace-page-header] [data-page-icon-tile]")).not.toBeNull();
+    // The standard top bar (2026-10-19) draws no page tile.
+    expect(document.querySelector("[data-workspace-page-header] [data-page-icon-tile]")).toBeNull();
     expectQuietSkeleton("home", 5);
     expect(skeleton("home")!.getAttribute("aria-label")).toBe("Checking your session");
-    // The rail's collapse control already sits in the top bar.
-    expect(document.querySelector("[data-workspace-page-header] [data-rail-toggle]")).not.toBeNull();
+    // Rail v3: the collapse control already sits in the rail.
+    expect(rail()!.querySelector("[data-rail-toggle]")).not.toBeNull();
 
     __setAuthState({ isLoading: false, isAuthenticated: true });
     await expect.poll(() => document.querySelector('[data-workspace-gate-pending="decision"]')).not.toBeNull();

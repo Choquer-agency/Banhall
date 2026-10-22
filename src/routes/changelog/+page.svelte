@@ -84,7 +84,9 @@
 </script>
 
 {#snippet changelogContent(showHeading: boolean)}
-    <main class={`w-full flex-1 page-gutter page-gutter-y ${showHeading ? "mx-auto max-w-[var(--container-shell)]" : ""} pb-10`}>
+    <!-- In the workspace the work panel already pads its content (owner,
+         2026-10-19), so the page gutter applies only to the classic page. -->
+    <main class={`w-full flex-1 ${showHeading ? "page-gutter page-gutter-y mx-auto max-w-[var(--container-shell)] pb-10" : ""}`}>
       <div class={`w-full ${showHeading ? "mx-auto max-w-3xl" : ""}`}>
         <div class={`flex flex-wrap items-start gap-4 ${showHeading ? "justify-between" : "justify-end"}`}>
           {#if showHeading}
@@ -95,7 +97,7 @@
               </p>
             </div>
           {/if}
-          {#if isAdmin && !composing}
+          {#if showHeading && isAdmin && !composing}
             <Button onclick={() => (composing = true)}>New entry</Button>
           {/if}
         </div>
@@ -195,7 +197,10 @@
       </div>
     {/snippet}
     {#snippet preview()}
-      <WorkspaceChrome title="What's new" description="Features and fixes shipped to Banhall" icon={IconMegaphone}>
+      <WorkspaceChrome
+        title="What's new"
+        primaryAction={isAdmin && !composing ? { label: "New entry", onclick: () => (composing = true) } : null}
+      >
         {#snippet children()}
           {@render changelogContent(false)}
         {/snippet}

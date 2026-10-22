@@ -298,8 +298,8 @@
             >
               <div class="flex items-start gap-4 pt-6 pr-5 pl-7">
                 <div class="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <Dialog.Title data-start-run-title class="text-[1.125rem] leading-6 font-medium text-ink">{copy.title}</Dialog.Title>
-                  <Dialog.Description class="text-sm leading-5 text-ink-muted">{copy.subtitle}</Dialog.Description>
+                  <Dialog.Title data-start-run-title class="text-[1.125rem] leading-[calc(4/3)] font-medium text-ink">{copy.title}</Dialog.Title>
+                  <Dialog.Description class="text-sm leading-[calc(10/7)] text-ink-muted">{copy.subtitle}</Dialog.Description>
                 </div>
                 <Dialog.Close
                   aria-label="Close"
@@ -341,18 +341,18 @@
                     <div class={`flex min-w-0 flex-1 items-center gap-2.5 transition-opacity motion-reduce:transition-none ${ticked ? "" : "opacity-55"}`} data-start-run-body>
                       <span class="flex size-7 shrink-0 items-center justify-center"><FileIcon name={source.name} size={28} /></span>
                       <div class="flex min-w-0 flex-col">
-                        <span class="truncate text-[0.8125rem] leading-[1.125rem] font-medium text-ink" data-start-run-name>{source.name}</span>
-                        <span data-start-run-meta class="truncate text-xs leading-4 text-ink-muted">
+                        <span class="truncate text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink" data-start-run-name>{source.name}</span>
+                        <span data-start-run-meta class="truncate text-xs leading-[calc(4/3)] text-ink-muted">
                           {source.reading ? readingMeta(source.readingEtaSeconds) : source.meta}
                         </span>
                       </div>
                     </div>
                     {#if source.locked}
-                      <span data-start-run-chip class="flex h-[1.125rem] shrink-0 items-center rounded-[0.25rem] bg-being-reviewed px-1.5 text-[0.6875rem] leading-[0.875rem] font-medium text-fir">
+                      <span data-start-run-chip class="flex h-[1.125rem] shrink-0 items-center rounded-[0.25rem] bg-being-reviewed px-1.5 text-[0.6875rem] leading-[calc(14/11)] font-medium text-fir">
                         Being reviewed
                       </span>
                     {:else}
-                      <span data-start-run-chip class={`flex h-[1.125rem] shrink-0 items-center rounded-[0.25rem] bg-chrome px-1.5 text-[0.6875rem] leading-[0.875rem] font-medium text-ink-secondary ${ticked ? "" : "opacity-55"}`}>
+                      <span data-start-run-chip class={`flex h-[1.125rem] shrink-0 items-center rounded-[0.25rem] bg-chrome px-1.5 text-[0.6875rem] leading-[calc(14/11)] font-medium text-ink-secondary ${ticked ? "" : "opacity-55"}`}>
                         {source.typeLabel}
                       </span>
                     {/if}
@@ -363,11 +363,11 @@
               {#if anyTickedReading}
                 <div class="flex items-start gap-2 px-7 pt-2.5" data-start-run-reading-note>
                   <span class="aurora-spin mt-0.5 size-3.5 shrink-0 rounded-full border-2 border-[var(--aurora-track)] border-t-ink-muted" aria-hidden="true"></span>
-                  <p class="text-xs leading-[1.0625rem] text-ink-muted">Files still being read are used as soon as they are ready. Untick one to start without it.</p>
+                  <p class="text-xs leading-[calc(17/12)] text-ink-muted">Files still being read are used as soon as they are ready. Untick one to start without it.</p>
                 </div>
               {/if}
               {#if problem}
-                <p role="alert" data-start-run-problem class="px-7 pt-2.5 text-xs leading-[1.0625rem] text-danger-ink-muted">{problem}</p>
+                <p role="alert" data-start-run-problem class="px-7 pt-2.5 text-xs leading-[calc(17/12)] text-danger-ink-muted">{problem}</p>
               {/if}
               {#if runCopy}
                 <!-- F6: one run at a time per project. -->
@@ -389,8 +389,8 @@
                 <div class="flex min-w-0 flex-1 items-center gap-2" data-start-run-models>
                   <AuroraMark size={18} />
                   <div class="flex min-w-0 flex-col">
-                    <span class="truncate text-[0.8125rem] leading-[1.125rem] font-medium text-ink" data-start-run-model-title>{models.title}</span>
-                    <span class="truncate text-xs leading-4 text-ink-muted" data-start-run-model-line>{models.line}</span>
+                    <span class="truncate text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink" data-start-run-model-title>{models.title}</span>
+                    <span class="truncate text-xs leading-[calc(4/3)] text-ink-muted" data-start-run-model-line>{models.line}</span>
                   </div>
                 </div>
                 <Dialog.Close>

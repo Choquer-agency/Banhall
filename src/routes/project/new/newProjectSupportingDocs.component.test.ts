@@ -183,7 +183,7 @@ describe("E1 supporting documents on the page", () => {
     // The 26px offset is a measured position and stays px; the 300px menu
     // is a board size and follows the root (board()).
     await expect
-      .poll(() => [Math.abs(menu().top - button.bottom - 26) <= 1, Math.round(menu().right - button.right), Math.round(menu().width)])
+      .poll(() => [Math.abs(menu().top - button.bottom - 26) <= 1, Math.round(Math.abs(menu().right - button.right)), Math.round(menu().width)])
       .toEqual([true, 0, Math.round(board(300))]);
   });
 

@@ -15,7 +15,8 @@
  */
 import type { UIMessage } from "@convex-dev/agent";
 import type { Doc } from "../../../convex/_generated/dataModel";
-import { isRecordOnlyProposal, proposalReferences } from "../../../shared/chatProposals";
+import { proposalReferences } from "../../../shared/chatProposals";
+import type { TurnPhaseFields, TurnProgress } from "./turnContracts";
 
 export type ToolPartState =
   | "input-streaming"
@@ -83,7 +84,7 @@ export type TurnTiming = {
   startedAt?: number;
   endedAt?: number;
   stepCount: number;
-};
+} & TurnPhaseFields;
 
 export type NormalizedTurn = {
   nodes: TurnRenderNode[];
@@ -142,6 +143,35 @@ const TOOL_COPY: Record<string, ToolCopy> = {
     done: "Searched The Brain",
     // The failure mode is reachability, not a bad search.
     error: "Couldn’t reach The Brain",
+  },
+  // 2026-10-19: web search, when the writer turned it on for the message.
+  searchWeb: {
+    running: "Searching the web…",
+    done: "Searched the web",
+    error: "Couldn’t reach web search",
+  },
+  // Chat parity Phase B (2026-10-20): the reading tools. The trace names the
+  // kind of step only, never the file or what it said.
+  readDocument: {
+    running: "Reading a project file…",
+    done: "Read a project file",
+    error: "Couldn’t read that file",
+  },
+  searchDocuments: {
+    running: "Searching project files…",
+    done: "Searched project files",
+    error: "Couldn’t search the project files",
+  },
+  readTranscript: {
+    running: "Reading a transcript…",
+    done: "Read a transcript",
+    error: "Couldn’t read that transcript",
+  },
+  // Phase C (2026-10-20): viewFile looks at a PDF's pages or an image.
+  viewFile: {
+    running: "Looking at a project file…",
+    done: "Looked at a project file",
+    error: "Couldn’t show that file",
   },
 };
 
@@ -683,41 +713,13 @@ export function normalizeTurnParts(
 
 // ─── Summary line ────────────────────────────────────────────────────────────
 
-/** `0s`, `59s`, `1m 00s` — mono/tabular so a ticking timer doesn't jitter. */
+/** "4s", "1m 28s": how long a finished turn took. */
 export function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
-}
-
-/**
- * What the turn produced, not how many internal steps it took. A step count is
- * a loop counter a report writer can neither act on nor judge; "2 suggestions"
- * is the same information expressed as an outcome.
- */
-function outcomeSuffix(turn: NormalizedTurn): string {
-  const suggestions = turn.proposalNodes.filter(
-    (node) =>
-      node.proposal.kind !== "references" && !isRecordOnlyProposal(node.proposal)
-  ).length;
-  if (suggestions) {
-    return ` · ${suggestions} ${suggestions === 1 ? "suggestion" : "suggestions"}`;
-  }
-  // DW-135: an all-blocked revision produced findings, not a suggestion; the
-  // card says "Nothing to apply", so the summary must not promise one.
-  if (turn.proposalNodes.some((node) => isRecordOnlyProposal(node.proposal))) {
-    return " · findings recorded";
-  }
-  const found = turn.proposalNodes.filter(
-    (node) => node.proposal.kind === "references"
-  ).length;
-  if (found) return " · found passages";
-  const searchedBrain = turn.traceNodes.some(
-    (node) => node.kind === "tool" && node.toolName === "searchBrain"
-  );
-  return searchedBrain ? " · checked The Brain" : "";
 }
 
 /** Terminal turns report the durable count; a live turn may be ahead of it. */
@@ -727,16 +729,16 @@ function resolveStepCount(turn: NormalizedTurn, timing: TurnTiming | undefined, 
 }
 
 /**
- * The single line a finished turn collapses to ("Worked for 12s · 2
- * suggestions"), or the live status while it runs. Returns null when there is
- * nothing worth showing — a plain answer with no tools and no reasoning gets
- * no trace row at all.
+ * The first line of a turn's thought block, as Claude shows it (owner,
+ * 2026-10-21): the live label while it runs, with no timer, then how long it
+ * took ("Thought for 4s", "Worked for 1m 28s"). Returns null when there is
+ * nothing worth showing: a plain answer with no tools and no reasoning gets
+ * no thought block at all.
  */
 export function formatTurnSummary(
   turn: NormalizedTurn,
   timing: TurnTiming | undefined,
-  messageStatus: UIMessage["status"] | undefined,
-  now: number
+  messageStatus: UIMessage["status"] | undefined
 ): string | null {
   const status = timing?.status;
   const live =
@@ -750,38 +752,312 @@ export function formatTurnSummary(
   const steps = resolveStepCount(turn, timing, live);
   const hasTrace = turn.traceNodes.length > 0 || steps > 0;
 
-  if (live) {
-    // One stable verb for the whole live phase. Alternating Working/Thinking as
-    // reasoning and tools interleave makes the header flicker while the writer
-    // is watching it.
-    const elapsed =
-      timing?.startedAt !== undefined ? formatDuration(now - timing.startedAt) : null;
-    return elapsed ? `Working… · ${elapsed}` : "Working…";
-  }
+  // Phase A: the server writes the turn's phase (`chatTurns.progress`) from
+  // turn state and fixed tool fields, never model text. TurnTrace holds each
+  // label for at least LABEL_HOLD_MS so a fast phase change never flickers.
+  if (live) return progressLabel(timing?.progress);
 
   const duration =
     timing?.startedAt !== undefined && timing?.endedAt !== undefined
       ? formatDuration(Math.max(1000, timing.endedAt - timing.startedAt))
       : null;
 
-  const outcome = outcomeSuffix(turn);
-
-  if (status === "aborted") {
-    return duration ? `Stopped after ${duration}` : "Stopped";
-  }
+  if (status === "aborted") return duration ? `Stopped after ${duration}` : "Stopped";
   if (status === "failed" || messageStatus === "failed") {
-    // The answer already carries the apology; the trace stays factual so the
+    // The answer already carries the apology; the header stays factual so the
     // failure isn't announced twice.
     return duration ? `Stopped after ${duration}` : "Didn’t start";
   }
   if (!hasTrace) return null;
 
+  // The steps are folded, so one that did not finish is named here too.
+  const failed = turn.traceNodes.filter((node) => node.kind === "tool" && node.state === "output-error").length;
+  const failedNote = failed ? ` · ${failed} ${failed === 1 ? "step" : "steps"} didn’t finish` : "";
   // Reasoning with no tool work reads as thought, not work.
-  if (steps === 0 && turn.hasReasoning) {
-    return duration ? `Thought for ${duration}` : "Thought";
+  if (steps === 0 && turn.hasReasoning) return duration ? `Thought for ${duration}` : "Thought";
+  return `${duration ? `Worked for ${duration}` : "Worked"}${failedNote}`;
+}
+
+/**
+ * Owner, 2026-10-21: item ids (`r-244-4-2`) are internal and never shown. A
+ * reply written before the prompt said so, or the model's own reasoning, may
+ * still carry one; it shows as the place it names ("Line 244, paragraph 4";
+ * paragraph 0 is unanchored, so the Line alone).
+ */
+export function humanizeItemIds(text: string): string {
+  return text
+    .replace(/\b[rcx]-(242|244|246)-(\d+)-\d+\b/g, (_match, section: string, paragraph: string) =>
+      Number(paragraph) > 0 ? `Line ${section}, paragraph ${Number(paragraph)}` : `Line ${section}`
+    )
+    // Owner, 2026-10-21: the bare token "[GAP]" (no colon, no text) is the
+    // model talking about gap notes, never a placeholder ("[GAP: ...]"),
+    // which keeps its brackets; it reads as "gap" ("the gap note").
+    .replace(/\[GAP\](?!:)/g, "gap");
+}
+
+/**
+ * The thinking shown in the thought block is Anthropic's summary, which the
+ * chat's prose rules cannot reach. Owner, 2026-10-21: it follows the same
+ * dash rule as everything else on screen, so a dash used as a pause (an em
+ * or en dash, a bar, a double hyphen or a hyphen with spaces round it) reads
+ * as a comma. Ranges and compounds (10-20, wall-to-batch) keep their hyphen.
+ */
+export function plainReasoningDashes(text: string): string {
+  return (
+    text
+      // Review 2026-10-21: an en dash between numbers is a range
+      // ("242\u2013246"), which reads with a plain hyphen.
+      .replace(/(\d)[ \t]*\u2013[ \t]*(?=\d)/g, "$1-")
+      // Within a line only, so a bullet ("\n- cut P2") keeps its own line.
+      .replace(/[ \t]*[\u2014\u2013\u2015][ \t]*/g, ", ")
+      // A spaced hyphen between words; never one between numbers ("5 - 3"),
+      // nor a bullet at the start of a line.
+      .replace(/(?<=[^\s\d])[ \t]+-{1,2}[ \t]+(?=[^\s\d])/g, ", ")
+      .replace(/,[ \t]*,/g, ",")
+  );
+}
+
+/** Tool names as the writer would say them, singular and plural. */
+const TOOL_WORDS: Record<string, [string, string]> = {
+  proposeEdit: ["edit", "edits"],
+  proposeBulkEdits: ["coordinated edit", "coordinated edits"],
+  proposeReplacements: ["replacement", "replacements"],
+  highlightPassages: ["highlight", "highlights"],
+  deviationInventory: ["deviation list", "deviation lists"],
+  compareReferencePd: ["comparison with the reference PD", "comparisons with the reference PD"],
+  searchBrain: ["Brain search", "Brain searches"],
+  searchWeb: ["web search", "web searches"],
+  readDocument: ["file reading", "file readings"],
+  searchDocuments: ["file search", "file searches"],
+  readTranscript: ["transcript reading", "transcript readings"],
+  viewFile: ["file view", "file views"],
+};
+const TOOL_NAME_RE = new RegExp(`\\b(${Object.keys(TOOL_WORDS).join("|")})\\b(\\s+(calls?|tools?))?`, "g");
+
+/**
+ * Owner, 2026-10-21: the thinking names its tools ("I'll prepare the
+ * proposeEdit calls"); on screen they read as plain words ("the edits").
+ */
+export function plainToolNames(text: string): string {
+  return (
+    text
+      .replace(
+        TOOL_NAME_RE,
+        (_match, tool: string, _suffix: string | undefined, noun: string | undefined, offset: number, whole: string) => {
+          const [one, many] = TOOL_WORDS[tool];
+          if (noun === "calls" || noun === "tools") return many;
+          // Review 2026-10-21: "I'll use proposeEdit" reads "I'll use an
+          // edit", not "I'll use edit".
+          const before = whole.slice(Math.max(0, offset - 12), offset);
+          if (/\b(?:use|using|call|calling|try|trying|run|running)\s+$/i.test(before)) {
+            return `${/^[aeiou]/i.test(one) ? "an" : "a"} ${one}`;
+          }
+          return one;
+        }
+      )
+      // "a proposeEdit" became "a edit"; it reads "an edit".
+      .replace(/\b([Aa]) (?=edit\b)/g, "$1n ")
+  );
+}
+
+/**
+ * The thinking as the open thought block reads it: item ids as places, tool
+ * names as words, and a dash pause as a comma.
+ */
+export function readableReasoning(text: string): string {
+  return plainReasoningDashes(plainToolNames(humanizeItemIds(text)));
+}
+
+/**
+ * Tool steps whose result is a card under the reply (owner, 2026-10-21): the
+ * card already shows the edit, so a "Suggested an edit" row in the thought
+ * block only repeats it. A failed one stays, since it has no card.
+ */
+const CARD_TOOLS = new Set(["proposeEdit", "proposeReplacements", "proposeBulkEdits"]);
+
+/**
+ * The steps a thought block shows: its reasoning and every step without a
+ * card. Review 2026-10-21: a card tool answers "Proposal NOT created: ..." as
+ * ordinary output, so its state alone cannot tell a failure. Once the reply
+ * has settled, a finished card step with no card under the reply stays, and
+ * reads as the failure it was.
+ */
+export function thoughtTraceNodes<T extends TraceRenderNode>(
+  nodes: readonly T[],
+  cards: { toolCallIds: ReadonlySet<string>; legacy: boolean; settled: boolean } = {
+    toolCallIds: new Set(),
+    legacy: true,
+    settled: false,
   }
-  if (duration) return `Worked for ${duration}${outcome}`;
-  return steps > 0 ? `Worked${outcome}` : null;
+): T[] {
+  return nodes.flatMap((node): T[] => {
+    if (node.kind !== "tool" || !CARD_TOOLS.has(node.toolName) || node.state === "output-error") return [node];
+    const noCard =
+      cards.settled && node.state === "output-available" && !cards.legacy && !cards.toolCallIds.has(node.toolCallId);
+    if (!noCard) return [];
+    const copy = TOOL_COPY[node.toolName];
+    return [{ ...node, label: copy?.error ?? node.label, accessibleStatus: "Didn’t finish" } as T];
+  });
+}
+
+/** The longest second line of a thought block, in characters. */
+const HEADLINE_MAX_CHARS = 64;
+
+/**
+ * Where a sentence's first clause ends: a comma before a joining word, a
+ * semicolon, a colon, an opening bracket or a spaced hyphen.
+ */
+const CLAUSE_BREAK = /,\s+(?:but|so|and|because|since|which|while|though|then)\b|;|:|\s\(|\s-\s/;
+
+/**
+ * A short headline from a reasoning sentence (owner, 2026-10-21): its first
+ * clause, when that clause says something on its own (three words or more),
+ * then no longer than HEADLINE_MAX_CHARS, cut at a word.
+ */
+function shortHeadline(sentence: string): string {
+  const first = sentence.split(CLAUSE_BREAK)[0]?.trim() ?? "";
+  // A cut clause loses its trailing comma; a whole sentence keeps its stop.
+  const clause = first.length < sentence.length ? first.replace(/[,;:]+$/, "") : first;
+  const text = clause.split(/\s+/).length >= 3 ? clause : sentence;
+  if (text.length <= HEADLINE_MAX_CHARS) return text;
+  const cut = text.slice(0, HEADLINE_MAX_CHARS - 1);
+  const atWord = cut.lastIndexOf(" ") > HEADLINE_MAX_CHARS / 2 ? cut.slice(0, cut.lastIndexOf(" ")) : cut;
+  return `${atWord.replace(/[,.;:]+$/, "").trimEnd()}…`;
+}
+
+/**
+ * The line beside a clock at the top of an open thought block, as Claude
+ * shows it (owner, 2026-10-21): the newest heading of the model's reasoning
+ * summary ("Drafting the Line 244 revision"), at most 64 characters, or,
+ * with no reasoning, the label of the newest step. A summary with no heading
+ * gives no line: its first sentence already opens the reasoning below it,
+ * and repeating it was noise (owner, 2026-10-21).
+ */
+export function turnHeadline(nodes: readonly (ReasoningRenderNode | ToolRenderNode)[]): string | null {
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index];
+    if (node.kind !== "reasoning" || !node.text.trim()) continue;
+    const headings = [...node.text.matchAll(/\*\*([^*\n]+)\*\*/g)].map((match) => match[1].trim()).filter(Boolean);
+    // A heading still streaming in ("**Planning the ed") counts as the newest.
+    const opening = /^\*\*([^*\n]+)$/.exec(node.text.split("\n").at(-1)?.trim() ?? "");
+    if (opening) headings.push(opening[1].trim());
+    const heading = headings.at(-1);
+    return heading ? shortHeadline(readableReasoning(heading)) : null;
+  }
+  const lastTool = [...nodes].reverse().find((node) => node.kind === "tool");
+  return lastTool ? lastTool.label : null;
+}
+
+// ─── Live progress (Phase A) ────────────────────────────────────────────────
+
+/** The shortest time a live label stays up before the next one replaces it. */
+export const LABEL_HOLD_MS = 1500;
+
+/** One thinking phase this long earns the quiet "ask for one Line" hint. */
+export const THINKING_HINT_AFTER_MS = 60_000;
+
+export const THINKING_HINT =
+  "Big requests can take a few minutes. You can stop and ask for one Line at a time.";
+
+const EDIT_TOOLS = new Set(["proposeEdit", "proposeReplacements", "proposeBulkEdits"]);
+
+/**
+ * The live label for a turn's server-written phase. Built from the phase,
+ * the tool name and the Line only; "Working…" when there is no phase yet.
+ */
+export function progressLabel(progress: TurnProgress | undefined): string {
+  if (!progress) return "Working…";
+  const line = progress.section ? `Line ${progress.section}` : null;
+  switch (progress.phase) {
+    case "reading":
+      return "Reading the report…";
+    case "thinking":
+      return "Thinking…";
+    case "writing":
+      return "Writing the reply…";
+    case "retrying":
+      return "Trying again…";
+    case "tool": {
+      const tool = progress.tool ?? "";
+      if (tool === "deviationInventory") {
+        return line ? `Listing the deviations in ${line}…` : "Listing the deviations…";
+      }
+      if (tool === "compareReferencePd") {
+        return line ? `Comparing ${line} with the reference PD…` : toolCopy(tool).running;
+      }
+      if (EDIT_TOOLS.has(tool) && line) return `Writing suggestions for ${line}…`;
+      return toolCopy(tool).running;
+    }
+  }
+}
+
+/**
+ * The hint under a live turn that has been in one thinking phase for a
+ * minute or more, or null. `seenAt` is the browser time when this phase
+ * (its `progress.since`) was first seen: `since` is server time, and a
+ * browser clock that runs ahead or behind must not move the hint (review P3).
+ * Without `seenAt` there is no hint.
+ */
+export function thinkingHint(timing: TurnTiming | undefined, now: number, seenAt: number | undefined): string | null {
+  const progress = timing?.progress;
+  if (timing?.status !== "running" || progress?.phase !== "thinking" || seenAt === undefined) return null;
+  return now - seenAt >= THINKING_HINT_AFTER_MS ? THINKING_HINT : null;
+}
+
+export type HeldLabel = { shown: string; shownAt: number };
+
+/**
+ * Hold a live label for at least `holdMs`. Returns the label to show now and,
+ * when the newest label must wait, how long until it may replace it.
+ */
+export function holdLabel(
+  held: HeldLabel | null,
+  next: string,
+  now: number,
+  holdMs = LABEL_HOLD_MS
+): { held: HeldLabel; waitMs: number } {
+  if (held && held.shown === next) return { held, waitMs: 0 };
+  if (!held || now - held.shownAt >= holdMs) return { held: { shown: next, shownAt: now }, waitMs: 0 };
+  return { held, waitMs: holdMs - (now - held.shownAt) };
+}
+
+/**
+ * Where the context-loss divider goes (Phase A, task 8): the order of the
+ * first loaded message the model still reads, when anything above it is no
+ * longer read; otherwise null. The newest turn that recorded a history start
+ * decides, since the window only moves forward.
+ */
+export function contextBoundaryOrder(
+  turns: readonly ({ order: number } & TurnPhaseFields)[],
+  messageOrders: readonly number[],
+  hasOlderPages: boolean
+): number | null {
+  let newest: ({ order: number } & TurnPhaseFields) | undefined;
+  for (const turn of turns) {
+    if (turn.historyStartOrder === undefined) continue;
+    if (!newest || turn.order > newest.order) newest = turn;
+  }
+  const start = newest?.historyStartOrder;
+  if (start === undefined) return null;
+  const firstRead = messageOrders.filter((order) => order >= start);
+  if (!firstRead.length) return null;
+  const boundary = Math.min(...firstRead);
+  // Something above must be unread: a loaded older message, or (when the
+  // loaded window starts exactly at the boundary) an older page.
+  const hiddenLoaded = messageOrders.some((order) => order < start);
+  return hiddenLoaded || (hasOlderPages && boundary === start) ? boundary : null;
+}
+
+/** The Continue offer's button label: "Continue with Line 244", or "Continue". */
+export function continueLabel(continuation: TurnPhaseFields["continuation"]): string | null {
+  if (!continuation) return null;
+  return continuation.nextSection ? `Continue with Line ${continuation.nextSection}` : "Continue";
+}
+
+/** The writer message the Continue offer sends through the ordinary send path. */
+export function continueMessage(continuation: TurnPhaseFields["continuation"]): string | null {
+  const label = continueLabel(continuation);
+  return label ? `${label}.` : null;
 }
 
 /** Associate loaded rows from one selected thread by exact prompt order only.
@@ -806,14 +1082,16 @@ export function associateTurnPrompts(messages: readonly UIMessage[]) {
   return { promptByOrder, promptByAssistantId, assistantOrders: new Set(finalAssistantByOrder.keys()) };
 }
 
-/** Explicit live or stopped state always wins over a terminal snapshot. */
+/**
+ * Explicit live state always wins over a terminal snapshot. Phase C (W2): a
+ * stopped turn may be regenerated once it is no longer streaming.
+ */
 export function canRegenerateTurn(
   status: UIMessage["status"] | undefined,
   timing: TurnTiming | undefined,
 ): boolean {
   if (status === "streaming" || status === "pending" ||
-      timing?.status === "queued" || timing?.status === "running" ||
-      timing?.status === "aborted") return false;
+      timing?.status === "queued" || timing?.status === "running") return false;
   return status === "success" || status === "failed" ||
-    timing?.status === "completed" || timing?.status === "failed";
+    timing?.status === "completed" || timing?.status === "failed" || timing?.status === "aborted";
 }

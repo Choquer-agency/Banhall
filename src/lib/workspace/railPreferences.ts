@@ -7,15 +7,15 @@
  * server-side or domain concern.
  *
  * Contract:
- * - width clamps to [RAIL_MIN_WIDTH, RAIL_MAX_WIDTH]; default 200 (the
- *   owner-approved rail of ui-design-final.md, boards 1.1 and 1.2).
+ * - width clamps to [RAIL_MIN_WIDTH, RAIL_MAX_WIDTH]; default 224 (Rail v3,
+ *   Paper board Z11a, 2026-10-19 amendment in docs/design-system.md).
  * - hidden is independent of width: showing the rail restores the previously
  *   persisted expanded width.
  * - parse is fail-closed: any malformed/foreign value yields the defaults.
  */
 
 export const RAIL_MIN_WIDTH = 180;
-export const RAIL_DEFAULT_WIDTH = 200;
+export const RAIL_DEFAULT_WIDTH = 224;
 export const RAIL_MAX_WIDTH = 288;
 
 /**
@@ -33,10 +33,13 @@ export const RAIL_KEYBOARD_STEP_LARGE = 32;
 
 /**
  * v2 (2026-09-25): the default width moved from 275px to the boards' 200px.
- * Every browser had persisted the old default, so widths saved under the
- * legacy key are dropped; only the collapsed choice carries over.
+ * v3 (2026-10-19, Rail v3): the default moved again, to 224px. Every browser
+ * had persisted the old default, so widths saved under an older key are
+ * dropped; the collapsed choice (and, from v2, the Admin group choice)
+ * carries over.
  */
-export const RAIL_PREFERENCES_KEY = "banhall.workspaceRail.v2";
+export const RAIL_PREFERENCES_KEY = "banhall.workspaceRail.v3";
+export const PREVIOUS_RAIL_PREFERENCES_KEY = "banhall.workspaceRail.v2";
 export const LEGACY_RAIL_PREFERENCES_KEY = "banhall.workspaceRail";
 
 export type RailPreferences = {
@@ -93,6 +96,11 @@ export function loadRailPreferences(): RailPreferences {
   try {
     const current = localStorage.getItem(RAIL_PREFERENCES_KEY);
     if (current === null) {
+      const previous = localStorage.getItem(PREVIOUS_RAIL_PREFERENCES_KEY);
+      if (previous !== null) {
+        const carried = parseRailPreferences(previous);
+        return { width: RAIL_DEFAULT_WIDTH, hidden: carried.hidden, adminOpen: carried.adminOpen };
+      }
       const legacy = parseRailPreferences(localStorage.getItem(LEGACY_RAIL_PREFERENCES_KEY));
       return { width: RAIL_DEFAULT_WIDTH, hidden: legacy.hidden, adminOpen: false };
     }

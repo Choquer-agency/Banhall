@@ -332,12 +332,12 @@ describe("ProjectsBoard", () => {
 
     expect(document.body.textContent).toContain("Olivia Owner");
     expect(document.querySelector("[data-owner-unavailable]")?.textContent).toContain("Owner unavailable");
-    expect(document.querySelector("[data-owner-legacy-qualifier]")?.textContent).toContain("Writer · legacy");
-    // No-owner truth is real text: a visible em-dash plus sr-only copy —
-    // never an aria-label on a generic (name-prohibited) span.
-    expect(document.querySelector("[data-owner-none]")?.textContent).toContain("none recorded");
+    expect(document.querySelector("[data-owner-legacy-qualifier]")?.textContent).toContain("legacy writer");
+    // No-owner truth is real, visible text, never an aria-label on a
+    // generic (name-prohibited) span.
+    expect(document.querySelector("[data-owner-none]")?.textContent).toBe("None recorded");
     expect(document.querySelector('[data-generation-activity="generating"]')).not.toBeNull();
-    expect(document.querySelector("[data-legacy-status-qualifier]")?.textContent).toContain("Legacy status · review");
+    expect(document.querySelector("[data-legacy-status-qualifier]")?.textContent).toContain("Legacy status: review");
   });
 
   it("offers no drag-and-drop or rename; interactions are project and creation links", async () => {

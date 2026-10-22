@@ -43,6 +43,7 @@ import { ORDERED_PROMPT_SCAFFOLDS } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { runConsistencyPass } from "./ai/selfCheck";
 import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
+import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -256,7 +257,7 @@ async function draftAndHash(args: {
  * Every request's hash as sent, and without exactly the 2026-09-30 (third)
  * additions, each of which must be in its request once.
  */
-async function hashesOf(sent: Sent[]): Promise<{
+async function hashesOf(asSent: Sent[]): Promise<{
   stages: string[];
   hash: string;
   hashWithoutThirdAmendment: string;
@@ -274,6 +275,20 @@ async function hashesOf(sent: Sent[]): Promise<{
   finalIsFirstCheckOnFinalText: boolean;
   additionsFound: boolean;
 }> {
+  // 2026-10-19 (owner approved): Line 242's plain opening moved the Line 242
+  // drafting and repair rules on purpose; the old texts are put back, and
+  // every other byte is compared as sent.
+  // 2026-10-22 (alerts triage): the Summary-plan Self-check's output
+  // allowance moved from 16,384 to 32,768 tokens on purpose, with its
+  // response byte limit. The pins hash it at the old allowance, so every
+  // other byte of each request is still pinned as before.
+  const sent = asSent.map((request) => {
+    const body = withPinnedLine242Opening(request.body);
+    return {
+      ...request,
+      body: request.stage === "selfCheck" ? body.split('"max_tokens":32768').join('"max_tokens":16384') : body,
+    };
+  });
   let additionsFound = true;
   const withoutAdditions = sent.map((request) =>
     (THIRD_AMENDMENT_ADDITIONS[request.stage] ?? []).reduce((body, addition) => {

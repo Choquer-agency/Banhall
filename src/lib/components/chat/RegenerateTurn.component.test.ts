@@ -18,16 +18,18 @@ function seed(status = "completed", rows = [row("user"), row("assistant")]) {
   __setQueryData("chatV2:listThreads", [{ agentThreadId: "thread-1", title: "Original conversation" }]);
   __setQueryData("chatV2:listMessages", { streams: { kind: "list", messages: [] } });
   __setPaginatedRows("chatV2:listMessages", rows);
-  __setQueryData("chatV2:listTurns", [{ _id: "turn-1", order: 1, status, stepCount: 0 }]);
+  __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "user", order: 1, status, stepCount: 0 }]);
   __setQueryData("chatV2:listProposals", []);
   __setQueryData("research:listSessions", []);
   __setQueryData("users:getCurrentUser", { _id: "writer-1", role: "writer" });
   __setQueryData("chatFeedback:getViewerVotes", []);
   __setMutationResult("chatV2:sendMessage", { threadId: "thread-1", messageId: "new-prompt" });
+  __setMutationResult("chatV2:sendAlternative", { threadId: "thread-1", messageId: "new-prompt" });
 }
 const regenerate = () => page.getByRole("button", { name: "Regenerate", exact: true });
-const expectedSend = { reportId, threadId: "thread-1", content: stored };
-beforeEach(() => { __resetConvexStub(); __resetAuthState(); localStorage.clear(); seed(); });
+// Phase C (W2): Regenerate makes an alternative; the server rebuilds the prompt.
+const expectedSend = { threadId: "thread-1", ofPromptMessageId: "user", kind: "regenerate" };
+beforeEach(() => { __resetConvexStub(); __resetAuthState(); localStorage.clear(); sessionStorage.clear(); seed(); });
 
 it.each(["{Enter}", " "])("resends completed prompt through keyboard %s and retains the transcript", async key => {
   await page.viewport(1100, 850);
@@ -42,7 +44,7 @@ it.each(["{Enter}", " "])("resends completed prompt through keyboard %s and reta
   expect(getComputedStyle(button).boxShadow).not.toBe("none");
   if (key === "{Enter}") await page.screenshot({ path: "__screenshots__/regenerate-keyboard-transient.png" });
   await userEvent.keyboard(key);
-  await expect.poll(() => __mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  await expect.poll(() => __mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
   await expect.element(page.getByText("Original answer remains.")).toBeVisible();
   await expect.poll(() => page.getByText("Original prompt", { exact: true }).elements().length).toBe(2);
   expect(Number(getComputedStyle(button).fontWeight)).toBeLessThanOrEqual(500);
@@ -57,7 +59,7 @@ it.each(["failed-message", "failed-empty", "trailing-failure", "tool-only"])("su
   seed(scenario === "tool-only" ? "completed" : "failed", scenario === "trailing-failure" ? [row("user")] : [row("user"), scenario === "failed-message" ? row("assistant", { status: "failed" }) : assistant]);
   await render(AgentChatPanel, { reportId, projectId });
   await regenerate().click();
-  await expect.poll(() => __mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  await expect.poll(() => __mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
 });
 
 it("places one action after a multi-row answer and uses its matching prompt", async () => {
@@ -65,7 +67,7 @@ it("places one action after a multi-row answer and uses its matching prompt", as
   await render(AgentChatPanel, { reportId, projectId });
   await expect.poll(() => regenerate().elements().length).toBe(1);
   await regenerate().click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
   await expect.element(page.getByText("Original answer remains.Final answer.")).toBeVisible();
 });
 
@@ -74,19 +76,19 @@ it("waits for the exact paginated prompt instead of using an unrelated earlier p
   await render(AgentChatPanel, { reportId, projectId });
   await expect.element(page.getByText("Original answer remains.")).toBeVisible();
   expect(regenerate().elements()).toHaveLength(0);
-  expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+  expect(__mutationCalls("chatV2:sendAlternative")).toHaveLength(0);
   __setPaginatedRows("chatV2:listMessages", [row("user"), row("assistant")]);
   await regenerate().click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
 });
 
-it.each(["queued", "running", "aborted", "streaming", "pending"])("does not regenerate %s", async status => {
+it.each(["queued", "running", "streaming", "pending"])("does not regenerate %s", async status => {
   seed(["streaming", "pending"].includes(status) ? "completed" : status,
     [row("user"), row("assistant", status === "streaming" || status === "pending" ? { status } : {})]);
   await render(AgentChatPanel, { reportId, projectId });
   await expect.element(page.getByText("Original answer remains.")).toBeVisible();
   expect(regenerate().elements()).toHaveLength(0);
-  expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+  expect(__mutationCalls("chatV2:sendAlternative")).toHaveLength(0);
 });
 
 it("preserves draft and current highlight/research context on resend and failure retry", async () => {
@@ -98,13 +100,13 @@ it("preserves draft and current highlight/research context on resend and failure
   });
   const composer = page.getByRole("textbox");
   await composer.fill("Unrelated draft");
-  __setMutationError("chatV2:sendMessage", new Error("Resend unavailable"));
+  __setMutationError("chatV2:sendAlternative", new Error("Resend unavailable"));
   await regenerate().click();
   await expect.element(page.getByRole("alert")).toHaveTextContent("Resend unavailable");
   await expect.element(composer).toHaveValue("Unrelated draft");
-  __setMutationResult("chatV2:sendMessage", { threadId: "thread-1", messageId: "new" });
+  __setMutationResult("chatV2:sendAlternative", { threadId: "thread-1", messageId: "new" });
   await page.getByRole("button", { name: "Retry", exact: true }).click();
-  await expect.poll(() => __mutationCalls("chatV2:sendMessage")).toEqual([expectedSend, expectedSend]);
+  await expect.poll(() => __mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend, expectedSend]);
   await expect.element(composer).toHaveValue("Unrelated draft");
   expect(__mutationCalls("research:startResearch")).toHaveLength(0);
   expect(onClearHighlight).not.toHaveBeenCalled();
@@ -114,24 +116,24 @@ it("preserves draft and current highlight/research context on resend and failure
 
 it("suppresses rapid duplicate activation while the shared send is pending", async () => {
   let settle: (value: { threadId: string; messageId: string }) => void = () => { throw new Error("Missing send"); };
-  __setMutationResult("chatV2:sendMessage", new Promise(resolve => { settle = resolve; }));
+  __setMutationResult("chatV2:sendAlternative", new Promise(resolve => { settle = resolve; }));
   await render(AgentChatPanel, { reportId, projectId });
   await expect.element(regenerate()).toBeVisible();
   const button = regenerate().element();
   if (!(button instanceof HTMLButtonElement)) throw new Error("Missing button");
   button.click(); button.click();
   await expect.element(regenerate()).toBeDisabled();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
   settle({ threadId: "thread-1", messageId: "new-prompt" });
   await expect.element(regenerate()).toBeDisabled();
   button.click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
   __setPaginatedRows("chatV2:listMessages", [row("user"), row("assistant"),
     row("user", { id: "new-prompt", key: "new-prompt", order: 2 }),
     row("assistant", { id: "new-answer", key: "new-answer", order: 2, text: "Regenerated answer.", parts: [{ type: "text", text: "Regenerated answer." }] }),
   ]);
   __setQueryData("chatV2:listTurns", [
-    { _id: "turn-1", order: 1, status: "completed", stepCount: 0 },
+    { _id: "turn-1", promptMessageId: "user", order: 1, status: "completed", stepCount: 0 },
     { _id: "turn-2", promptMessageId: "new-prompt", order: 2, status: "completed", stepCount: 0 },
   ]);
   await expect.element(regenerate().nth(0)).toBeEnabled();
@@ -140,7 +142,7 @@ it("suppresses rapid duplicate activation while the shared send is pending", asy
   await expect.element(page.getByText("Regenerated answer.")).toBeVisible();
   expect(page.getByText("Original prompt", { exact: true }).elements()).toHaveLength(2);
   await regenerate().nth(1).click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend, expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend, { threadId: "thread-1", ofPromptMessageId: "new-prompt", kind: "regenerate" }]);
 });
 
 it.each(["queued", "researching", "reviewing", "streaming"])("disables historical regeneration during another %s operation", async status => {
@@ -151,7 +153,7 @@ it.each(["queued", "researching", "reviewing", "streaming"])("disables historica
   }
   await render(AgentChatPanel, { reportId, projectId });
   await expect.element(regenerate()).toBeDisabled();
-  expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+  expect(__mutationCalls("chatV2:sendAlternative")).toHaveLength(0);
 });
 
 it("preserves an active proposal refinement and its draft", async () => {
@@ -163,7 +165,7 @@ it("preserves an active proposal refinement and its draft", async () => {
   const composer = page.getByRole("textbox");
   await composer.fill("My refinement draft");
   await regenerate().click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
   await expect.element(composer).toHaveValue("My refinement draft");
   await expect.element(page.getByText("Refining suggestion", { exact: true })).toBeVisible();
   await expect.element(page.getByText("Candidate wording", { exact: true })).toBeVisible();
@@ -175,7 +177,7 @@ it("returns to the original thread and waits for loaded idle timing before retry
     { _id: "mapping-2", agentThreadId: "thread-2", title: "Second conversation", createdAt: 2 },
   ]);
   await render(AgentChatPanel, { reportId, projectId });
-  __setMutationError("chatV2:sendMessage", new Error("Please retry resend"));
+  __setMutationError("chatV2:sendAlternative", new Error("Please retry resend"));
   await regenerate().click();
   await expect.element(page.getByRole("alert")).toHaveTextContent("Please retry resend");
   await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
@@ -185,17 +187,17 @@ it("returns to the original thread and waits for loaded idle timing before retry
   expect(__activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-2" }]);
   __setQueryDataForArgs("chatV2:listTurns", { threadId: "thread-1", startOrder: 1, endOrder: 1 }, undefined);
   await page.getByRole("button", { name: "Return to original conversation", exact: true }).click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
   expect(__activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-1" }]);
   const retry = page.getByRole("button", { name: "Retry", exact: true });
   await expect.element(retry).toBeDisabled();
   await expect.element(page.getByRole("textbox")).toHaveValue("Second thread draft");
-  __setQueryDataForArgs("chatV2:listTurns", { threadId: "thread-1", startOrder: 1, endOrder: 1 }, [{ _id: "turn-1", order: 1, status: "running", stepCount: 0 }]);
+  __setQueryDataForArgs("chatV2:listTurns", { threadId: "thread-1", startOrder: 1, endOrder: 1 }, [{ _id: "turn-1", promptMessageId: "user", order: 1, status: "running", stepCount: 0 }]);
   await expect.element(retry).toBeDisabled();
-  __setQueryDataForArgs("chatV2:listTurns", { threadId: "thread-1", startOrder: 1, endOrder: 1 }, [{ _id: "turn-1", order: 1, status: "completed", stepCount: 0 }]);
-  __setMutationResult("chatV2:sendMessage", { threadId: "thread-1", messageId: "retry" });
+  __setQueryDataForArgs("chatV2:listTurns", { threadId: "thread-1", startOrder: 1, endOrder: 1 }, [{ _id: "turn-1", promptMessageId: "user", order: 1, status: "completed", stepCount: 0 }]);
+  __setMutationResult("chatV2:sendAlternative", { threadId: "thread-1", messageId: "retry" });
   await retry.click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend, expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend, expectedSend]);
   await expect.element(page.getByRole("textbox")).toHaveValue("Second thread draft");
 });
 
@@ -219,13 +221,13 @@ it.each(["composer", "research"])("disables regeneration while a %s mutation is 
     __setQueryData("research:listSessions", [{ _id: "research-published", status: "completed", selectedText: "Selected passage", createdAt: 1000 }]);
   } else {
     __setPaginatedRows("chatV2:listMessages", [row("user"), row("assistant"), row("user", { id: "composer-published", key: "composer-published", order: 2 })]);
-    __setQueryData("chatV2:listTurns", [{ _id: "turn-1", order: 1, status: "completed", stepCount: 0 }]);
+    __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "user", order: 1, status: "completed", stepCount: 0 }]);
     await expect.element(regenerate()).toBeDisabled();
-    __setQueryData("chatV2:listTurns", [{ _id: "turn-1", order: 1, status: "completed", stepCount: 0 },
+    __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "user", order: 1, status: "completed", stepCount: 0 },
       { _id: "composer-turn", promptMessageId: "composer-published", order: 2, status: "queued", stepCount: 0 }]);
     await expect.element(regenerate()).toBeDisabled();
     __setPaginatedRows("chatV2:listMessages", [row("user"), row("assistant"), row("user", { id: "composer-published", key: "composer-published", order: 2 }), row("assistant", { id: "composer-answer", key: "composer-answer", order: 2 })]);
-    __setQueryData("chatV2:listTurns", [{ _id: "turn-1", order: 1, status: "completed", stepCount: 0 },
+    __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "user", order: 1, status: "completed", stepCount: 0 },
       { _id: "composer-turn", promptMessageId: "composer-published", order: 2, status: "completed", stepCount: 0 }]);
   }
   await expect.element(regenerate().nth(0)).toBeEnabled();
@@ -237,8 +239,8 @@ it.each(["failed", "completed"])("retains an earlier %s turn without an assistan
   seed(status, [row("user"), row("user", { id: "second-prompt", key: "second-prompt", order: 2, text: secondPrompt, parts: [{ type: "text", text: secondPrompt }] }),
     row("assistant", { order: 2 })]);
   __setQueryData("chatV2:listTurns", [
-    { _id: "turn-1", order: 1, status, stepCount: 0 },
-    { _id: "turn-2", order: 2, status: "completed", stepCount: 0 },
+    { _id: "turn-1", promptMessageId: "user", order: 1, status, stepCount: 0 },
+    { _id: "turn-2", promptMessageId: "second-prompt", order: 2, status: "completed", stepCount: 0 },
   ]);
   await render(AgentChatPanel, { reportId, projectId });
   await expect.poll(() => regenerate().elements().length).toBe(2);
@@ -248,19 +250,19 @@ it.each(["failed", "completed"])("retains an earlier %s turn without an assistan
   const laterPrompt = page.getByText(secondPrompt, { exact: true }).element();
   expect(firstAction.compareDocumentPosition(laterPrompt) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   await regenerate().nth(0).click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
   // Publish its actual prompt/answer before another regeneration can start.
   __setPaginatedRows("chatV2:listMessages", [row("user"), row("user", { id: "second-prompt", key: "second-prompt", order: 2, text: secondPrompt, parts: [{ type: "text", text: secondPrompt }] }),
     row("assistant", { order: 2 }), row("user", { id: "new-prompt", key: "new-prompt", order: 3 }),
     row("assistant", { id: "third-answer", key: "third-answer", order: 3 }),
   ]);
   __setQueryData("chatV2:listTurns", [
-    { _id: "turn-1", order: 1, status, stepCount: 0 },
-    { _id: "turn-2", order: 2, status: "completed", stepCount: 0 },
+    { _id: "turn-1", promptMessageId: "user", order: 1, status, stepCount: 0 },
+    { _id: "turn-2", promptMessageId: "second-prompt", order: 2, status: "completed", stepCount: 0 },
     { _id: "turn-3", promptMessageId: "new-prompt", order: 3, status: "completed", stepCount: 0 },
   ]);
   await regenerate().nth(1).click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend, { reportId, threadId: "thread-1", content: secondPrompt }]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend, { threadId: "thread-1", ofPromptMessageId: "second-prompt", kind: "regenerate" }]);
   expect(regenerate().elements()).toHaveLength(3);
 });
 
@@ -269,10 +271,10 @@ it("waits for durable timing before exposing a partial success snapshot and supp
   await render(AgentChatPanel, { reportId, projectId });
   await expect.element(page.getByText("Original answer remains.")).toBeVisible();
   expect(regenerate().elements()).toHaveLength(0);
-  __setQueryData("chatV2:listTurns", [{ _id: "turn-1", order: 1, status: "running", stepCount: 0 }]);
+  __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "user", order: 1, status: "running", stepCount: 0 }]);
   await expect.element(page.getByText("Working…", { exact: true })).toBeVisible();
   expect(regenerate().elements()).toHaveLength(0);
-  expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+  expect(__mutationCalls("chatV2:sendAlternative")).toHaveLength(0);
   __setQueryData("chatV2:listTurns", []);
   await expect.element(regenerate()).toBeEnabled();
 });
@@ -283,22 +285,24 @@ it.each(["queued", "running"])("blocks a historical completed action solely on a
     row("assistant", { id: "other-answer", key: "other-answer", order: 2 }),
   ]);
   __setQueryData("chatV2:listTurns", [
-    { _id: "turn-1", order: 1, status: "completed", stepCount: 0 },
-    { _id: "turn-2", order: 2, status, stepCount: 0 },
+    { _id: "turn-1", promptMessageId: "user", order: 1, status: "completed", stepCount: 0 },
+    { _id: "turn-2", promptMessageId: "other-user", order: 2, status, stepCount: 0 },
   ]);
   await render(AgentChatPanel, { reportId, projectId });
   await expect.element(regenerate()).toBeDisabled();
-  expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+  expect(__mutationCalls("chatV2:sendAlternative")).toHaveLength(0);
   __setQueryData("chatV2:listTurns", [
-    { _id: "turn-1", order: 1, status: "completed", stepCount: 0 },
-    { _id: "turn-2", order: 2, status: "completed", stepCount: 0 },
+    { _id: "turn-1", promptMessageId: "user", order: 1, status: "completed", stepCount: 0 },
+    { _id: "turn-2", promptMessageId: "other-user", order: 2, status: "completed", stepCount: 0 },
   ]);
   await expect.element(regenerate().nth(0)).toBeEnabled();
   await regenerate().nth(0).click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
 });
 
 it("preserves Copy, proposal contents, Brain sources and feedback after regeneration", async () => {
+  // Phase C (W3): a refused rich copy falls back to the rendered plain text.
+  vi.spyOn(navigator.clipboard, "write").mockRejectedValue(new Error("No rich clipboard"));
   const writeClipboard = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
   const sourceOutput = 'BRAIN_SOURCES_V1:[{"title":"Approved control pattern","scienceCode":"CRA 2.02.01 Software engineering"}]\n--- REFERENCE PATTERN 1 ---\nPrivate exemplar';
   __setPaginatedRows("chatV2:listMessages", [row("user"), row("assistant", { parts: [
@@ -309,15 +313,15 @@ it("preserves Copy, proposal contents, Brain sources and feedback after regenera
   __setQueryData("chatFeedback:getViewerVotes", [{ turnId: "turn-1", vote: 1 }]);
   await render(AgentChatPanel, { reportId, projectId });
   await regenerate().click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
-  await page.getByRole("button", { name: "Copy message", exact: true }).click();
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
+  await page.getByRole("button", { name: "Copy", exact: true }).click();
   expect(writeClipboard).toHaveBeenCalledExactlyOnceWith("Original answer remains.");
   await expect.element(page.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
   await expect.element(page.getByText("Candidate wording", { exact: true })).toBeVisible();
   await expect.element(page.getByRole("button", { name: "More actions for this suggestion", exact: true })).toBeEnabled();
   await expect.element(page.getByRole("button", { name: "Mark response helpful", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await page.getByText("Worked", { exact: true }).click();
-  await page.getByText("Searched The Brain for “controls”", { exact: true }).click();
+  await page.getByText(/^Worked( for \d|$)/).click();
+  await page.getByRole("list", { name: "Thought process" }).getByText("Searched The Brain for “controls”", { exact: true }).click();
   await expect.element(page.getByText("Approved control pattern", { exact: true })).toBeVisible();
   expect(document.body.textContent).not.toContain("Private exemplar");
   expect(__mutationCalls("chatV2:applyProposal")).toHaveLength(0);
@@ -332,14 +336,14 @@ it.each(["completed", "failed", "aborted"])("releases the shared send guard when
   await expect.element(page.getByRole("button", { name: "Send message", exact: true })).toBeDisabled();
   await page.getByRole("textbox").click();
   await userEvent.keyboard("{Enter}");
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
   await expect.element(page.getByRole("textbox")).toHaveValue("Keep this draft");
   __setPaginatedRows("chatV2:listMessages", [row("user"), row("assistant"), row("user", { id: "new-prompt", key: "new-prompt", order: 2 })]);
-  __setQueryData("chatV2:listTurns", [{ _id: "turn-1", order: 1, status: "completed", stepCount: 0 }]);
+  __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "user", order: 1, status: "completed", stepCount: 0 }]);
   await expect.element(regenerate()).toBeDisabled();
   await expect.element(page.getByRole("button", { name: "Stop generating", exact: true })).toBeVisible();
   await userEvent.keyboard("{Enter}");
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
   if (status === "aborted") {
     await page.getByRole("button", { name: "Stop generating", exact: true }).click();
     expect(__mutationCalls("chatV2:abortStreaming")).toEqual([{ threadId: "thread-1", order: 2 }]);
@@ -347,18 +351,19 @@ it.each(["completed", "failed", "aborted"])("releases the shared send guard when
   } else if (status === "completed") {
     __setPaginatedRows("chatV2:listMessages", [row("user"), row("assistant"), row("user", { id: "new-prompt", key: "new-prompt", order: 2 }), row("assistant", { id: "next-answer", key: "next-answer", order: 2 })]);
   }
-  __setQueryData("chatV2:listTurns", [{ _id: "turn-1", order: 1, status: "completed", stepCount: 0 }, { _id: "turn-2", promptMessageId: "new-prompt", order: 2, status, stepCount: 0 }]);
+  __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "user", order: 1, status: "completed", stepCount: 0 }, { _id: "turn-2", promptMessageId: "new-prompt", order: 2, status, stepCount: 0 }]);
   await expect.element(regenerate().nth(0)).toBeEnabled();
   await expect.element(page.getByRole("textbox")).toHaveValue("Keep this draft");
   await expect.element(page.getByRole("button", { name: "Send message", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Send message", exact: true }).click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend, { reportId, threadId: "thread-1", content: "Keep this draft" }]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendMessage")).toEqual([{ reportId, threadId: "thread-1", content: "Keep this draft" }]);
 });
 
 
 it("reconciles a pending send outside the loaded messages after in-flight navigation", async () => {
   let settle: (value: { threadId: string; messageId: string }) => void = () => { throw new Error("Missing send"); };
-  __setMutationResult("chatV2:sendMessage", new Promise(resolve => { settle = resolve; }));
+  __setMutationResult("chatV2:sendAlternative", new Promise(resolve => { settle = resolve; }));
   __setQueryData("chatV2:listThreads", [
     { _id: "mapping-1", agentThreadId: "thread-1", title: "Original conversation" },
     { _id: "mapping-2", agentThreadId: "thread-2", title: "Second conversation" },
@@ -392,13 +397,13 @@ it("reconciles a pending send outside the loaded messages after in-flight naviga
   await expect.poll(() => __activeQueryArgs("chatV2:listTurns")).toEqual([{ threadId: "thread-1", startOrder: 5, endOrder: 5 }]);
   await expect.element(regenerate()).toBeEnabled();
   await expect.element(page.getByRole("textbox")).toHaveValue("");
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
 });
 
 
 it("preserves the visible conversation and draft when an offscreen regeneration rejects", async () => {
   let rejectSend: (reason: Error) => void = () => { throw new Error("Missing send"); };
-  __setMutationResult("chatV2:sendMessage", new Promise((_, reject) => { rejectSend = reject; }));
+  __setMutationResult("chatV2:sendAlternative", new Promise((_, reject) => { rejectSend = reject; }));
   __setQueryData("chatV2:listThreads", [
     { _id: "mapping-1", agentThreadId: "thread-1", title: "Original conversation" },
     { _id: "mapping-2", agentThreadId: "thread-2", title: "Second conversation" },
@@ -413,13 +418,13 @@ it("preserves the visible conversation and draft when an offscreen regeneration 
   expect(__activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-2" }]);
   await expect.element(page.getByRole("textbox")).toHaveValue("Second thread draft");
   expect(page.getByRole("button", { name: "Retry", exact: true }).elements()).toHaveLength(0);
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
   await page.getByRole("button", { name: "Return to original conversation", exact: true }).click();
   expect(__activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-1" }]);
   await expect.element(page.getByRole("textbox")).toHaveValue("Second thread draft");
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
-  __setMutationResult("chatV2:sendMessage", { threadId: "thread-1", messageId: "retried-prompt" });
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend]);
+  __setMutationResult("chatV2:sendAlternative", { threadId: "thread-1", messageId: "retried-prompt" });
   await page.getByRole("button", { name: "Retry", exact: true }).click();
-  expect(__mutationCalls("chatV2:sendMessage")).toEqual([expectedSend, expectedSend]);
+  expect(__mutationCalls("chatV2:sendAlternative")).toEqual([expectedSend, expectedSend]);
   await expect.element(page.getByRole("textbox")).toHaveValue("Second thread draft");
 });

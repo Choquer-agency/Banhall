@@ -19,6 +19,7 @@ import {
   confirmButton,
   openStartDialog,
   startButton,
+  listClients,
   startFromPage,
 } from "./newProjectTestSupport";
 
@@ -140,6 +141,8 @@ beforeEach(async () => {
   __resetConvexStub();
   takeProjectStart();
   __setQueryData("users:getMyUser", { _id: "user-1", role: "writer", firstName: "Wendy" });
+  // A duplicate's client is a listed client (2026-10-14: Start needs one).
+  listClients("Forgeworks Inc.");
 });
 
 describe("/project/new drafts preselection", () => {

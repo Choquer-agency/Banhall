@@ -10,10 +10,15 @@ import {
 } from "../openrouterCore";
 import { NAME_EDGE_BEFORE, pseudonymize, surfacePattern, type PlaceholderMap } from "../../lib/deidentify";
 
+/**
+ * Research models. GPT and the reviewer are the GPT Sol and Claude Sonnet
+ * tracks' models on 2026-10-22 (shared/modelTracks.ts); research is not a
+ * model role, so it names them here.
+ */
 export const RESEARCH_MODELS = {
-  gpt: "openai/gpt-5.6-sol",
+  gpt: "openai/gpt-6.1-sol",
   perplexity: "perplexity/sonar-deep-research",
-  reviewer: "anthropic/claude-sonnet-5",
+  reviewer: "anthropic/claude-sonnet-5.5",
 } as const;
 
 export type ExternalResearchProvider = "gpt" | "perplexity";
@@ -37,12 +42,82 @@ export function cap(value: string, max: number): string {
   return normalized.length <= max ? normalized : `${normalized.slice(0, max - 1)}…`;
 }
 
+/** Letters NFD leaves whole, folded by hand. */
+const UNDECOMPOSED: Readonly<Record<string, string>> = {
+  "ø": "o", "Ø": "O", "ł": "l", "Ł": "L", "đ": "d", "Đ": "D", "ð": "d", "Ð": "D", "ı": "i",
+  "æ": "ae", "Æ": "AE", "œ": "oe", "Œ": "OE", "ß": "ss", "þ": "th", "Þ": "Th",
+};
+const UNDECOMPOSED_LETTER = new RegExp(`[${Object.keys(UNDECOMPOSED).join("")}]`, "gu");
+
+/**
+ * Text with its accents folded (2026-10-19, chat web search review round 2):
+ * compatibility forms first (full-width letters, ligatures), then every mark
+ * a Latin letter carries, composed or not ("Québécois" and its decomposed
+ * form both give "Quebecois"), then the letters NFD leaves whole ("ø", "æ").
+ * Dashes become hyphens. Marks on other scripts stay.
+ */
+export function foldAccents(text: string): string {
+  return text
+    .normalize("NFKC")
+    .normalize("NFD")
+    .replace(/(?<=\p{Script=Latin}\p{M}*)\p{M}/gu, "")
+    .replace(UNDECOMPOSED_LETTER, (letter) => UNDECOMPOSED[letter] ?? letter)
+    .replace(/\p{Pd}/gu, "-")
+    .normalize("NFC");
+}
+
+/**
+ * Each base letter, a to z and A to Z, with every precomposed Latin form of
+ * it in the same case.
+ */
+const LATIN_FORMS: ReadonlyMap<string, string> = (() => {
+  const forms = new Map<string, string>();
+  const add = (base: string, form: string) => forms.set(base, `${forms.get(base) ?? base}${form}`);
+  for (const [start, end] of [[0xc0, 0x24f], [0x1e00, 0x1eff]] as const) {
+    for (let code = start; code <= end; code += 1) {
+      const form = String.fromCodePoint(code);
+      const base = form.normalize("NFD").replace(/\p{M}/gu, "");
+      if (base.length === 1 && /[A-Za-z]/.test(base) && form !== base) add(base, form);
+    }
+  }
+  for (const [form, base] of Object.entries(UNDECOMPOSED)) {
+    if (base.length === 1) add(base, form);
+  }
+  return forms;
+})();
+
+/**
+ * A name's pattern that ignores accents in both directions: the name is
+ * folded, then each letter matches any accented form of it, composed or
+ * followed by combining marks, in the letter's own case (a case-insensitive
+ * regex widens it). "José Núñez" matches "Jose Nunez", and "Ines" matches
+ * "Inés". Spaces match any gap, as in `surfacePattern`.
+ */
+export function accentInsensitivePattern(name: string): string {
+  return foldAccents(name)
+    .split(/ +/)
+    .map((word) =>
+      surfacePattern(word).replace(/[A-Za-z]/g, (letter) => {
+        const forms = LATIN_FORMS.get(letter);
+        return forms ? `[${forms}]\\p{M}*` : letter;
+      })
+    )
+    .join(surfacePattern(" "));
+}
+
 /**
  * Remove direct identifiers before a prompt leaves Banhall. Technical language
- * is retained because it is the point of the research request.
+ * is retained because it is the point of the research request. Names match
+ * whole words, in any case and with or without accents.
  */
 export function redactExternalText(value: string, knownNames: string[]): string {
-  let redacted = value;
+  // 2026-10-19: contact details before names. A name redacted inside an email
+  // or a link ("jane@[redacted].example") broke its pattern, so the mailbox
+  // name or the rest of the link reached the provider.
+  let redacted = value
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted email]")
+    .replace(/(?:\b|(?<!\w))(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b/g, "[redacted phone]")
+    .replace(/https?:\/\/[^\s)\]}>,]+/gi, "[redacted URL]");
   const names = Array.from(
     // One space between words (final privacy round).
     new Set(knownNames.map((name) => name.trim().replace(/\s+/g, " ")).filter((name) => name.length >= 3))
@@ -52,15 +127,44 @@ export function redactExternalText(value: string, knownNames: string[]): string 
     // "ACE" never corrupts "surface".
     redacted = redacted.replace(
       // 2026-09-29 (second, privacy): an escape before a name is an edge.
-      new RegExp(`${NAME_EDGE_BEFORE}${surfacePattern(name)}(?![\\p{L}\\p{N}])`, "giu"),
+      // 2026-10-19 (chat web search review round 2): accents ignored.
+      new RegExp(`${NAME_EDGE_BEFORE}${accentInsensitivePattern(name)}(?![\\p{L}\\p{N}])`, "giu"),
       "[redacted]"
     );
   }
-  redacted = redacted
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted email]")
-    .replace(/(?:\b|(?<!\w))(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b/g, "[redacted phone]")
-    .replace(/https?:\/\/[^\s)\]}>,]+/gi, "[redacted URL]");
   return redacted.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * The placeholder map's names in another accent form than the map holds,
+ * case kept: "Ines" also hides "Inés", and "José Núñez" hides "Jose Nunez"
+ * and its decomposed form. `pseudonymize` matches exact text only.
+ */
+export function redactNameVariants(value: string, names: readonly string[]): string {
+  const sorted = Array.from(new Set(names.map((name) => name.trim()).filter((name) => name.length >= 2))).sort(
+    (a, b) => b.length - a.length
+  );
+  if (sorted.length === 0) return value;
+  const find = new RegExp(
+    `${NAME_EDGE_BEFORE}(?:${sorted.map(accentInsensitivePattern).join("|")})(?![\\p{L}\\p{N}])`,
+    "gu"
+  );
+  return value.replace(find, "[redacted]");
+}
+
+const LEGAL_SUFFIX =
+  /[,\s]+(?:inc|incorporated|ltd|limited|llc|corp|corporation|co|company|plc|gmbh|ulc|lp|llp|ltee|limitee|enr|senc|s\.e\.n\.c|cie)\.?$/i;
+
+/**
+ * A company name without its legal form, accents folded ("Systemes
+ * Quebecois" for "Systèmes Québécois Ltée"), so a name written without it is
+ * still found; name matching ignores accents. The name as it is when it has
+ * none.
+ */
+export function withoutLegalSuffix(name: string): string {
+  const folded = foldAccents(name.trim());
+  const match = LEGAL_SUFFIX.exec(folded);
+  return match ? folded.slice(0, match.index).trim() : name.trim();
 }
 
 export type ExternalBriefInput = {
@@ -82,8 +186,24 @@ export type ExternalBriefInput = {
 };
 
 export function buildExternalBrief(input: ExternalBriefInput): string {
+  // 2026-10-19: contact details first. A placeholder token written into an
+  // email or a link (a client's domain) broke the email and URL patterns, so
+  // the mailbox name and the rest of the link reached the provider.
+  // 2026-10-19 (chat web search review round 2): the map's names in any
+  // accent form (case kept), and the record names without a legal form, in
+  // any case and accent form. The rest of the brief keeps its accents.
+  const mapNames = (input.placeholders ?? [])
+    .filter((entry) => entry.at === undefined)
+    .map((entry) => entry.value);
+  const names = [...input.knownNames, ...input.knownNames.map(withoutLegalSuffix)];
   const redact = (value: string) =>
-    redactExternalText(pseudonymize(value, input.placeholders ?? []), input.knownNames);
+    redactExternalText(
+      redactNameVariants(
+        pseudonymize(redactExternalText(value, []), input.placeholders ?? []),
+        mapNames
+      ),
+      names
+    );
   const metadata = [
     input.projectTitle ? `Project topic: ${redact(input.projectTitle)}` : null,
     input.industry ? `Industry: ${redact(input.industry)}` : null,
@@ -126,7 +246,8 @@ export type ProjectEvidenceExcerpt = {
   score: number;
 };
 
-const STOP_WORDS = new Set([
+/** Shared with the report chat's searchDocuments (chat parity Phase B). */
+export const STOP_WORDS: ReadonlySet<string> = new Set([
   "about",
   "after",
   "again",
@@ -200,6 +321,20 @@ function documentChunks(content: string): string[] {
   return chunks;
 }
 
+/**
+ * How well a lower-cased chunk matches the query terms: each term counts up
+ * to 4 times, a term of 8 or more characters twice. Shared with the report
+ * chat's searchDocuments (chat parity Phase B).
+ */
+export function chunkScore(lowerChunk: string, terms: readonly string[]): number {
+  let score = 0;
+  for (const term of terms) {
+    const matches = lowerChunk.split(term).length - 1;
+    if (matches > 0) score += Math.min(matches, 4) * (term.length >= 8 ? 2 : 1);
+  }
+  return score;
+}
+
 /** Cheap, deterministic project-document retrieval; no extra model/search bill. */
 export function selectProjectEvidence(
   documents: ProjectDocumentInput[],
@@ -211,12 +346,7 @@ export function selectProjectEvidence(
   const candidates: ProjectEvidenceExcerpt[] = [];
   for (const document of documents) {
     for (const chunk of documentChunks(document.content)) {
-      const lower = chunk.toLowerCase();
-      let score = 0;
-      for (const term of terms) {
-        const matches = lower.split(term).length - 1;
-        if (matches > 0) score += Math.min(matches, 4) * (term.length >= 8 ? 2 : 1);
-      }
+      const score = chunkScore(chunk.toLowerCase(), terms);
       if (score > 0) {
         candidates.push({
           documentId: document.id,

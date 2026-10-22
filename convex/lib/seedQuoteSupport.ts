@@ -8,7 +8,8 @@
  * lexical checks catch that after the byte check:
  *
  * - unrelated: the cited words share too few meaningful words with the
- *   Seed's bullets (stop words ignored, light plural and prefix matching);
+ *   Seed's bullets, together or one by one (stop words, fillers and
+ *   contractions ignored, light plural and prefix matching, acronyms);
  * - reused: in a fresh Batch, the same excerpt is cited on more than one
  *   Seed, and this Seed neither owns it nor quotes it word for word.
  *
@@ -17,7 +18,8 @@
 import { findExactQuoteSpans } from "../../shared/exactQuote";
 
 /**
- * Words that carry no claim. Function words, interview fillers, and a few
+ * Words that carry no claim, matched as written and in their folded form
+ * ("others", "worked"): function words, indefinite pronouns, and a few
  * words every SR&ED interview uses about itself ("project", "company",
  * "work"), which would otherwise tie any two lines together.
  */
@@ -32,11 +34,29 @@ const STOP_WORDS: ReadonlySet<string> = new Set(
     "such than that the their theirs them themselves then there these they this those though through thus to " +
     "too under until up upon us very via was we were what when where whether which while who whom whose why " +
     "will with within without would yet you your yours yourself " +
-    "actually basically bit get gets getting got guess kind know lot lots maybe mean okay ok pretty right say " +
-    "said sort stuff sure thing things think yeah yes " +
+    "across along already among anybody anyone anything anywhere besides beyond cannot despite everybody " +
+    "everyone everything everywhere making neither nobody none nothing nowhere perhaps probably regarding somebody someone " +
+    "something sometimes somewhere toward towards unless usually using versus " +
     "company project projects team work worked working"
   ).split(" ")
 );
+
+/**
+ * Spoken fillers, matched only as written (2026-10-19), so a word that folds
+ * to the same stem still counts: "sorting" is not the filler "sort", nor
+ * "rights" the filler "right".
+ */
+const FILLER_WORDS: ReadonlySet<string> = new Set(
+  (
+    "actually basically bit get gets getting got gotten gonna gotta guess guessing hmm kinda know knew knowing " +
+    "knows lot lots maybe mean obviously oh okay ok pretty right say said saying says sorta stuff sure thing " +
+    "things think thinking thinks thought uh um wanna whoa wow yeah yes"
+  ).split(" ")
+);
+
+/** Filler phrases dropped before words are read: "kind of", "sort of", "you know". */
+const FILLER_PHRASES =
+  /\b(?:kind\s+of|sort\s+of|a\s+lot\s+of|lots\s+of|a\s+lot|you\s+know|i\s+mean|in\s+essence|for\s+example)\b/giu;
 
 const WORD = /[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu;
 
@@ -60,11 +80,12 @@ const UNITS: Readonly<Record<string, string>> = {
 /**
  * Spellings the check reads alike: degree signs and percent signs as words,
  * number words as digits ("twelve" and "12", "twenty-three" and "23"), and
- * a number glued to its unit split from it ("15MPa").
+ * a number glued to its unit split from it ("15MPa"). Filler phrases go.
  */
 function normalizeText(text: string): string {
   const one = (word: string) => (word.toLowerCase() === "one" ? 1 : NUMBER_WORDS[word.toLowerCase()]);
   return text
+    .replace(FILLER_PHRASES, " ")
     .replace(/°\s*C\b|℃/gu, " degree celsius ")
     .replace(/°\s*F\b|℉/gu, " degree fahrenheit ")
     .replace(/°/gu, " degree ")
@@ -99,13 +120,29 @@ function normalizeWord(raw: string): string {
   return word;
 }
 
+/**
+ * A word, as written in lower case, that carries no claim: a stop word, a
+ * filler, another language's function word, a negated auxiliary ("doesn't",
+ * "can't") or a contraction of a stop word or filler ("we're", "there's",
+ * "I'd"), which spoken quotes are full of (2026-10-19).
+ */
+function isFunctionWord(lower: string): boolean {
+  if (STOP_WORDS.has(lower) || FILLER_WORDS.has(lower) || FOREIGN_FUNCTION_WORDS.has(lower)) return true;
+  const apostrophe = lower.indexOf("'");
+  if (apostrophe < 0) return false;
+  if (lower.endsWith("n't")) return true;
+  const base = lower.slice(0, apostrophe);
+  return STOP_WORDS.has(base) || FILLER_WORDS.has(base);
+}
+
 /** The meaningful words of `text`, normalized, without repeats. */
 export function contentWords(text: string): string[] {
   const words = new Set<string>();
   for (const match of normalizeText(text).matchAll(WORD)) {
-    const word = normalizeWord(match[0]);
-    const lower = match[0].toLowerCase();
-    if (!STOP_WORDS.has(word) && !STOP_WORDS.has(lower) && !FOREIGN_FUNCTION_WORDS.has(lower)) words.add(word);
+    const lower = match[0].toLowerCase().replace(/’/g, "'");
+    if (isFunctionWord(lower)) continue;
+    const word = normalizeWord(lower);
+    if (!STOP_WORDS.has(word)) words.add(word);
   }
   return [...words];
 }
@@ -194,34 +231,109 @@ export function canJudgeQuote(seedText: string, excerpt: string): boolean {
   return contentWords(excerpt).length > 0;
 }
 
+/**
+ * An all-capitals acronym of three to six letters, with an optional plural
+ * "s". Two letters are too few: "ML" would fold "measured load" (review
+ * round 1, P3-4).
+ */
+const ACRONYM = /\b(\p{Lu}{3,6})s?\b/gu;
+
+/**
+ * Both texts with a spelled-out acronym read as the acronym, when either
+ * text uses it (2026-10-19): "multi-factor authentication" reads "MFA"
+ * beside "MFA", and "large language models" reads "LLM" beside "LLMs".
+ * Every spelled-out word has three or more letters and carries a claim.
+ */
+function withAcronyms(left: string, right: string): [string, string] {
+  const acronyms = new Set(
+    [...`${left} ${right}`.matchAll(ACRONYM)]
+      .map((match) => match[1])
+      .filter((acronym) => !isFunctionWord(acronym.toLowerCase()))
+  );
+  let pair: [string, string] = [left, right];
+  for (const acronym of acronyms) {
+    const run = [...acronym].map((letter) => `${letter}\\p{L}{2,}`).join("[\\s-]+");
+    const spelled = new RegExp(`\\b${run}\\b`, "giu");
+    pair = pair.map((text) =>
+      text.replace(spelled, (match) =>
+        match.split(/[\s-]+/).some((word) => isFunctionWord(word.toLowerCase())) ? match : ` ${acronym} `
+      )
+    ) as [string, string];
+  }
+  return pair;
+}
+
+/** How many meaningful words each side has, and the excerpt's words that appear in the Seed text. */
+function overlap(seedText: string, excerpt: string): { excerptWords: number; seedWords: number; shared: string[] } {
+  const [seed, quote] = withAcronyms(seedText, excerpt);
+  const seedWords = contentWords(seed);
+  const excerptWords = contentWords(quote);
+  return {
+    excerptWords: excerptWords.length,
+    seedWords: seedWords.length,
+    shared: excerptWords.filter((word) => seedWords.some((other) => sameWord(word, other))),
+  };
+}
+
 /** How many of the excerpt's meaningful words appear in the Seed text. */
 export function sharedContentWords(seedText: string, excerpt: string): number {
-  const seedWords = contentWords(seedText);
-  return contentWords(excerpt).filter((word) => seedWords.some((other) => sameWord(word, other))).length;
+  return overlap(seedText, excerpt).shared.length;
 }
 
 /**
  * Meaningful words a citation must share with its Seed: at least two (all
  * of them when the excerpt has fewer), and at least a third of the smaller
- * side's meaningful words. Tuned on the Northwind live-test fixture
- * (convex/lib/seedQuoteSupport.test.ts): every card that cited its own
- * line shared at least 5 words, 40 percent or more of the smaller side, and
- * every card that cited a neighbouring or unrelated line shared at most 3,
- * under 30 percent.
+ * side's meaningful words, though four always suffice. Tuned on the
+ * Northwind live-test fixture (convex/lib/seedQuoteSupport.test.ts): every
+ * card that cited its own line shared at least 5 words, 40 percent or more
+ * of the smaller side, and every card that cited a neighbouring or
+ * unrelated line shared at most 3, under 30 percent. The cap of four
+ * (2026-10-19) is for whole interview turns cited behind two-sentence
+ * cards: a third of the smaller side asked for five to nine shared words
+ * there, and the 2026-10-08 run's related quotes shared four or five.
  */
 export const MIN_SHARED_CONTENT_WORDS = 2;
 export const MIN_SHARED_CONTENT_SHARE = 1 / 3;
+export const ENOUGH_SHARED_CONTENT_WORDS = 4;
+/**
+ * One sentence of a card backs it on its own only when it has at least
+ * four meaningful words and shares at least three with the quote, numbers
+ * aside (review round 1, P2-1): "Cost rose." or "Testing ran for 12
+ * weeks." must not let a quote about something else through.
+ */
+export const MIN_SENTENCE_CONTENT_WORDS = 4;
+export const MIN_SENTENCE_SHARED_WORDS = 3;
 
 /** True when the excerpt shares enough meaningful words with the Seed text. */
 export function excerptSupportsSeed(seedText: string, excerpt: string): boolean {
-  const excerptWords = contentWords(excerpt).length;
+  const { excerptWords, seedWords, shared } = overlap(seedText, excerpt);
   if (excerptWords === 0) return false;
-  const smaller = Math.min(excerptWords, contentWords(seedText).length);
+  const smaller = Math.min(excerptWords, seedWords);
   const required = Math.max(
     Math.min(MIN_SHARED_CONTENT_WORDS, excerptWords),
-    Math.ceil(smaller * MIN_SHARED_CONTENT_SHARE)
+    Math.min(ENOUGH_SHARED_CONTENT_WORDS, Math.ceil(smaller * MIN_SHARED_CONTENT_SHARE))
   );
-  return sharedContentWords(seedText, excerpt) >= required;
+  return shared.length >= required;
+}
+
+/**
+ * True when the excerpt backs the Seed's wording as a whole or one of its
+ * sentences (2026-10-19): a quote behind one sentence of a two-sentence
+ * card is not unrelated to the card. A sentence counts on its own only with
+ * MIN_SENTENCE_CONTENT_WORDS meaningful words, of which the quote shares
+ * MIN_SENTENCE_SHARED_WORDS that are not numbers, besides the usual overlap.
+ */
+export function quoteBacksSeed(bullets: readonly string[], excerpt: string): boolean {
+  if (excerptSupportsSeed(bullets.join(" "), excerpt)) return true;
+  if (bullets.length < 2) return false;
+  return bullets.some((bullet) => {
+    const { seedWords, shared } = overlap(bullet, excerpt);
+    return (
+      seedWords >= MIN_SENTENCE_CONTENT_WORDS &&
+      shared.filter((word) => /\p{L}/u.test(word)).length >= MIN_SENTENCE_SHARED_WORDS &&
+      excerptSupportsSeed(bullet, excerpt)
+    );
+  });
 }
 
 /** True when one of the bullets would underline part of the excerpt. */
@@ -261,7 +373,8 @@ function evidenceKey(citation: QuoteCheckCitation): string {
  * request revise one Seed and may all cite its line.
  *
  * Per Seed, a fact or span is unrelated when none of its quotes shares
- * enough meaningful words with the bullets. A related piece cited by more
+ * enough meaningful words with the bullets, together or one by one
+ * (`quoteBacksSeed`). A related piece cited by more
  * than one Seed belongs to the first Seed that quotes it word for word, or,
  * when none does, to the one sharing the most meaningful words (the
  * earlier on a tie); every other Seed citing it is flagged as reusing it
@@ -294,7 +407,7 @@ export function quoteCheckIssues(
       piece.citationIndexes.push(citationIndex);
       const judged = canJudgeQuote(text, citation.exactExcerpt);
       piece.judged ||= judged;
-      piece.related ||= judged && excerptSupportsSeed(text, citation.exactExcerpt);
+      piece.related ||= judged && quoteBacksSeed(seed.bullets, citation.exactExcerpt);
       piece.quoted ||= quotesExcerpt(seed.bullets, citation.exactExcerpt);
       piece.shared = Math.max(piece.shared, sharedContentWords(text, citation.exactExcerpt));
     });
@@ -342,9 +455,11 @@ export function quoteCheckIssues(
  * sentences.
  *
  * Only a quote marked as unrelated counts as marked here: a marked quote that
- * shares enough words with the Seed's own wording (`seedBullets`) was marked
- * because another Seed reused it, and it backs its sentence like any other
- * quote (round 3 review, P3-2). Every other quote is evidence.
+ * shares enough words with the Seed's own wording (`seedBullets`, together
+ * or one sentence of it, `quoteBacksSeed`) was marked because another Seed
+ * reused it, or under an older, stricter check (2026-10-19), and it backs
+ * its sentence like any other quote (round 3 review, P3-2). Every other
+ * quote is evidence.
  *
  * Every sentence that no evidence quote backs is named (`excerptSupportsSeed`,
  * a quote the check cannot judge counting as backing; Greptile on PR #26 at
@@ -366,7 +481,7 @@ export function unbackedBullets(
   const seedText = seedBullets.join(" ");
   const unrelated = (quote: { exactExcerpt: string; needsQuoteCheck?: boolean }) =>
     quote.needsQuoteCheck === true &&
-    !(canJudgeQuote(seedText, quote.exactExcerpt) && excerptSupportsSeed(seedText, quote.exactExcerpt));
+    !(canJudgeQuote(seedText, quote.exactExcerpt) && quoteBacksSeed(seedBullets, quote.exactExcerpt));
   const marked = quotes.filter(unrelated);
   if (marked.length === 0) return [];
   const evidence = quotes.filter((quote) => !unrelated(quote));

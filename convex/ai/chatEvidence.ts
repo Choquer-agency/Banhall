@@ -22,6 +22,7 @@
 // builder.
 
 import type { ModelMessage } from "ai";
+import { lineLengthsText } from "./chatLineLengths";
 import {
   ANALYZER_CATEGORY_LABELS,
   CHARS_PER_TOKEN,
@@ -30,8 +31,10 @@ import {
   cutToBudget,
   documentTrust,
   effectiveCategory,
+  formatCount,
   isInternalUploaderRole,
   neutralizeMarkers,
+  neutralizeWriterLabel,
   sanitizeFileName,
   tokensForChars,
   omittedMaterialsNotice,
@@ -45,6 +48,13 @@ import {
 import { CHAT_EVIDENCE_GUIDANCE, buildChatSystemPromptV2 } from "./prompts";
 import { extractPlainText } from "../lib/reportEdits";
 import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
+import {
+  chooseSettingsSource,
+  normalizeSettingsText,
+  settingsDocumentText,
+} from "../lib/settingsDocument";
+import type { Doc } from "../_generated/dataModel";
+import { chatViewMedia, type ChatMediaKind } from "../lib/chatMedia";
 import {
   NO_STYLE_OVERRIDES,
   type StyleOverrides,
@@ -61,7 +71,40 @@ export interface ChatEvidenceDoc {
   content: string;
   category?: ContextDocCategory;
   uploaderRole?: string;
+  /**
+   * 2026-10-19 (chat parity Phase A): stored facts for the FILES IN THIS
+   * PROJECT list. All optional, so a caller that has only name and text
+   * (tests, older callers) still builds a turn; an absent status is read
+   * from the text itself. `documentId` and `hasOriginal` are carried for the
+   * later file tools and are not rendered.
+   */
+  documentId?: Doc<"projectDocuments">["_id"];
+  processingStatus?: Doc<"projectDocuments">["processingStatus"];
+  fileType?: Doc<"projectDocuments">["fileType"];
+  /** Characters of extracted text the row stores; `content.length` when absent. */
+  textLength?: number;
+  /** Whether the original file is kept in storage. */
+  hasOriginal?: boolean;
 }
+
+/**
+ * Chat parity Phase B (2026-10-20): one active transcript as the TRANSCRIPTS
+ * IN THIS PROJECT block lists it. Facts only, never the text: the assistant
+ * opens a transcript with readTranscript. Speaker labels are as written.
+ */
+export interface ChatEvidenceTranscript {
+  transcriptId?: Doc<"transcripts">["_id"];
+  label: string;
+  /** Speaker turns the turn build stored; 0 when the text has none. */
+  turnCount: number;
+  chars: number;
+  /** Labels in index order with their evidence role (`evidenceRole`). */
+  speakers: Array<{ label: string; role: ChatSpeakerRole }>;
+  /** Speakers past the ones listed. */
+  moreSpeakers?: number;
+}
+
+export type ChatSpeakerRole = Doc<"transcriptSpeakers">["role"];
 
 export interface ChatEvidenceBudget {
   totalTokens: number;
@@ -121,8 +164,17 @@ export const EVIDENCE_LABELS = {
   // contract, not a caption.
   openQuestions: "OPEN QUESTIONS FOR THE CLIENT",
   documentsHeading: "# ATTACHED CONTEXT DOCUMENTS",
+  // 2026-10-19 (chat parity Phase A): every non-archived project file, named
+  // by the evidence guidance.
+  files: "FILES IN THIS PROJECT",
+  // Chat parity Phase B (2026-10-20): every active transcript with its
+  // handle, opened with readTranscript.
+  transcripts: "TRANSCRIPTS IN THIS PROJECT",
   // Heads the per-turn evidence sent after the writer's newest message.
   turnHeading: "# EVIDENCE FOR THIS TURN, CONTINUED",
+  // 2026-10-21: each Line's form lines and words as the editor's meters show
+  // them. Named by the system prompt, so it is a contract, not a caption.
+  lineLengths: "LINE LENGTHS",
 } as const;
 
 /** What the old inline builders emitted when a source was empty. Unchanged. */
@@ -164,12 +216,38 @@ export interface ChatOpenQuestionsOmitted {
 
 export interface ChatEvidenceInput {
   reportText: string;
+  /**
+   * 2026-10-21: one sentence per Line (`lineLengthsText`). Three short
+   * sentences of fixed shape, so it is not charged to the budget; rendered
+   * right after the report. Absent when the report could not be measured.
+   */
+  lineLengths?: string | null;
   analysisText: string;
   documents?: ChatEvidenceDoc[];
   decisions?: ChatEvidenceDecision[];
   openQuestions?: ChatOpenQuestion[];
   openQuestionsOmitted?: ChatOpenQuestionsOmitted;
   budget?: ChatEvidenceBudget;
+  /**
+   * The sender's saved style preferences, the text `buildChatSystem` already
+   * puts in the system string. A settings document with the same text is not
+   * sent again (generation's `matchesProfile` rule).
+   */
+  profileInstructions?: string | null;
+  /** Phase B: the project's active transcripts, listed in the head. */
+  transcripts?: ChatEvidenceTranscript[];
+  /** Phase B: the transcript list could not be read in full. */
+  transcriptsIncomplete?: boolean;
+  /**
+   * Phase B: the admin setting `ai.chatDocumentTools` is off, so the notices
+   * do not offer readDocument. Absent means on.
+   */
+  readingToolsOff?: boolean;
+  /**
+   * Phase C (2026-10-20): `ai.chatVision` or the reading tools are off, so
+   * the files list and notices do not offer viewFile. Absent means on.
+   */
+  viewingOff?: boolean;
 }
 
 /** The raw grounding row `chatV2.getChatContextV2` returns. */
@@ -182,6 +260,13 @@ export interface ChatTurnContext {
   openQuestions?: ChatOpenQuestion[];
   openQuestionsOmitted?: ChatOpenQuestionsOmitted;
   evidenceBudget?: ChatEvidenceBudget;
+  /** Phase B: the project's active transcripts (facts, never text). */
+  transcripts?: ChatEvidenceTranscript[];
+  transcriptsIncomplete?: boolean;
+  /** Phase B: `ai.chatDocumentTools`; absent means on. */
+  documentTools?: boolean;
+  /** Phase C: `ai.chatVision`; absent means on. */
+  chatVision?: boolean;
 }
 
 const D = CONTEXT_SCAFFOLDS.documentDelimiters;
@@ -189,14 +274,289 @@ const D = CONTEXT_SCAFFOLDS.documentDelimiters;
 /** A block with a label and no file name, delimited like the transcript is. */
 function labelledBlock(label: string, body: string): string {
   const line = `${label}${CONTEXT_SCAFFOLDS.labelClose}${D.lineSuffix}`;
-  return `${D.beginPrefix}${line}${D.contentPrefix}${body}${D.contentSuffix}${D.endPrefix}${line}`;
+  return `${D.beginPrefix}${line}${D.contentPrefix}${neutralizeWriterLabel(body)}${D.contentSuffix}${D.endPrefix}${line}`;
+}
+
+/** At most this many file names in one notice line; the rest are counted. */
+const MAX_NOTICE_FILE_NAMES = 20;
+const MAX_NOTICE_FILE_NAME_CHARS = 80;
+
+/**
+ * File names for a notice line, quoted, sanitized like a marker line's and
+ * bounded. They are the uploader's names, so they are data, not instructions.
+ */
+/** A file a notice names: its handle when the list shows one, and its name. */
+type FileRef = { name: string; handle: string | null };
+
+function fileRefList(refs: FileRef[]): string {
+  const shown = refs
+    .slice(0, MAX_NOTICE_FILE_NAMES)
+    .map((ref) => (ref.handle ? `${ref.handle} ${quotedFileName(ref.name)}` : quotedFileName(ref.name)));
+  const more = refs.length - shown.length;
+  return more > 0 ? `${shown.join(", ")} and ${more} more` : shown.join(", ");
+}
+
+/** One file name, quoted, sanitized like a marker line's and bounded. */
+function quotedFileName(name: string): string {
+  const safe = neutralizeWriterLabel(neutralizeMarkers(sanitizeFileName(name))).replace(/"/g, "'");
+  return `"${safe.length > MAX_NOTICE_FILE_NAME_CHARS ? `${safe.slice(0, MAX_NOTICE_FILE_NAME_CHARS - 1)}…` : safe}"`;
+}
+
+/**
+ * 2026-10-19 (chat parity Phase A): at most this many rows in the FILES IN
+ * THIS PROJECT list; the rest are counted in one line.
+ */
+export const MAX_CHAT_FILE_LIST_ROWS = 60;
+
+/**
+ * 2026-10-19 (chat parity Phase A): the writer settings document's own
+ * allowance, outside the `maxDocuments` slots and the per-document cap. The
+ * same 75,000 characters generation reads of it (`settingsDocumentText`).
+ */
+export const CHAT_SETTINGS_DOCUMENT_CHARS = MAX_INSTRUCTIONS_CHARS;
+
+/**
+ * The index in `documents` of the writer settings document, or null. The one
+ * rule generation and the Brief use (`chooseSettingsSource`): an internal
+ * uploader's document whose file name or first line is a settings title,
+ * Writer's Notes first, then the order given. A role outside the internal
+ * union counts as absent, the trust floor `toContextDoc` applies.
+ */
+export function chatSettingsDocumentIndex(documents: readonly ChatEvidenceDoc[]): number | null {
+  const chosen = chooseSettingsSource(
+    documents.map((doc, index) => ({
+      index,
+      kind: "project_document",
+      label: `${doc.category ?? "other"}:${doc.fileName}`,
+      content: doc.content,
+      ...(isInternalUploaderRole(doc.uploaderRole) ? { uploaderRole: doc.uploaderRole } : {}),
+    }))
+  );
+  return chosen ? chosen.source.index : null;
+}
+
+/** Characters of text a document row carries. */
+function textLengthOf(doc: ChatEvidenceDoc): number {
+  return doc.textLength ?? doc.content.length;
+}
+
+/**
+ * What happened to a file's text, in plain words, from stored facts only (so
+ * the list is byte-stable while the files do not change). A row with no
+ * status is read from its text alone.
+ */
+function fileStatus(doc: ChatEvidenceDoc): string {
+  if (textLengthOf(doc) > 0) {
+    return doc.processingStatus === "ready_truncated" ? "text read, cut short at upload" : "text read";
+  }
+  if (doc.fileType === "image") return "image, no text";
+  switch (doc.processingStatus) {
+    case "could_not_read":
+      return "could not be read, no text";
+    case "skipped_unsupported":
+      return "file type not supported, no text";
+    case "reference_only":
+      return "kept for reference, no text";
+    default:
+      return "no text";
+  }
+}
+
+/**
+ * Chat parity Phase C (2026-10-20): what viewFile can show of a file, from
+ * stored facts only: a PDF or one of the four image types whose original is
+ * kept. Null for every other file.
+ */
+export function chatViewableKind(
+  doc: Pick<ChatEvidenceDoc, "fileName" | "fileType" | "hasOriginal">
+): ChatMediaKind | null {
+  return doc.hasOriginal ? (chatViewMedia(doc.fileName, doc.fileType)?.kind ?? null) : null;
+}
+
+/** The files list's mark for a file viewFile can show. */
+export const VIEWABLE_ROW_MARKS: Readonly<Record<ChatMediaKind, string>> = {
+  pdf: "original PDF kept, viewFile can show its pages",
+  image: "original image kept, viewFile can show it",
+};
+
+/**
+ * Chat parity Phase B (2026-10-20): the handle of the file at `position` in
+ * the FILES IN THIS PROJECT list (`F1` to `F60`), or null past the rows the
+ * list shows. readDocument takes it.
+ */
+export function chatFileHandle(position: number): string | null {
+  return position >= 0 && position < MAX_CHAT_FILE_LIST_ROWS ? `F${position + 1}` : null;
+}
+
+/** The handle of the transcript at `position` in its list (`T1`...). */
+export function chatTranscriptHandle(position: number): string {
+  return `T${position + 1}`;
+}
+
+/** One file in the files list's order, with its index in `documents`. */
+export interface ChatFileEntry {
+  doc: ChatEvidenceDoc;
+  index: number;
+  handle: string | null;
+  /** The writer settings document, which the list shows first. */
+  settings: boolean;
+}
+
+/**
+ * The files list's one order, which the handles follow: the writer settings
+ * document first (`chatSettingsDocumentIndex`), then every other file in
+ * `effectiveCategory` trust order, then insertion order. The documents are
+ * spent in the same order, so a handle is stable while the files do not
+ * change.
+ */
+export function chatFileOrder(documents: readonly ChatEvidenceDoc[]): ChatFileEntry[] {
+  const ordered = documents
+    .map((doc, index) => ({ doc, index }))
+    .sort((a, b) => {
+      const trust =
+        ANALYZER_CATEGORY_ORDER.indexOf(docCategory(a.doc)) -
+        ANALYZER_CATEGORY_ORDER.indexOf(docCategory(b.doc));
+      return trust !== 0 ? trust : a.index - b.index;
+    });
+  const settingsIndex = chatSettingsDocumentIndex(documents);
+  const settingsEntry = ordered.find(({ index }) => index === settingsIndex);
+  const others = ordered.filter(({ index }) => index !== settingsIndex);
+  return [
+    ...(settingsEntry ? [{ ...settingsEntry, settings: true }] : []),
+    ...others.map((entry) => ({ ...entry, settings: false })),
+  ].map((entry, position) => ({ ...entry, handle: chatFileHandle(position) }));
+}
+
+/**
+ * The FILES IN THIS PROJECT list: every document the turn was given (the
+ * query leaves archived files out), in the order their blocks are spent.
+ * One row per file: quoted name, category label, status, text size. Names
+ * are the uploader's, so they go through the same sanitizing as a notice.
+ */
+/** How the settings document's row is marked, when it is one. */
+type SettingsMark = "sent" | "in_preferences" | null;
+
+/** The mark a settings document carries in the files list. */
+export const SETTINGS_ROW_MARKS = {
+  sent: "writer settings document",
+  in_preferences: "writer settings document, same text as the writer's personal style preferences",
+} as const;
+
+function filesListText(
+  rows: ReadonlyArray<{ doc: ChatEvidenceDoc; settings: SettingsMark }>,
+  viewing: boolean
+): string {
+  const lines = rows.slice(0, MAX_CHAT_FILE_LIST_ROWS).map(({ doc, settings }, index) => {
+    // Phase C: marked only while viewing is on, so the list never offers it otherwise.
+    const viewable = viewing ? chatViewableKind(doc) : null;
+    return [
+      chatFileHandle(index) ?? "",
+      quotedFileName(doc.fileName),
+      ANALYZER_CATEGORY_LABELS[docCategory(doc)],
+      fileStatus(doc),
+      `${formatCount(textLengthOf(doc))} characters`,
+      ...(settings ? [SETTINGS_ROW_MARKS[settings]] : []),
+      ...(viewable ? [VIEWABLE_ROW_MARKS[viewable]] : []),
+    ].join(" | ");
+  });
+  const more = rows.length - lines.length;
+  return [
+    `${formatCount(rows.length)} file(s) in this project's files panel, archived files not counted. Each line: handle | name | category | status | text size.`,
+    ...lines,
+    ...(more > 0 ? [`[${formatCount(more)} more file(s) are not listed.]`] : []),
+  ].join("\n");
+}
+
+/** At most this many speakers per transcript row; the rest are counted. */
+export const MAX_CHAT_TRANSCRIPT_SPEAKERS = 12;
+const MAX_TRANSCRIPT_LABEL_CHARS = 80;
+
+/** A speaker role as the transcripts list and readTranscript write it. */
+export const CHAT_SPEAKER_ROLE_WORDS: Readonly<Record<ChatSpeakerRole, string>> = {
+  interviewer: "interviewer",
+  client: "client",
+  other: "other",
+  unknown: "role unknown",
+};
+
+/** A label or speaker name, quoted, sanitized like a marker line's and bounded. */
+function quotedLabel(label: string): string {
+  const safe = neutralizeWriterLabel(neutralizeMarkers(sanitizeFileName(label))).replace(/"/g, "'");
+  return `"${safe.length > MAX_TRANSCRIPT_LABEL_CHARS ? `${safe.slice(0, MAX_TRANSCRIPT_LABEL_CHARS - 1)}…` : safe}"`;
+}
+
+/**
+ * Phase B (2026-10-20): the TRANSCRIPTS IN THIS PROJECT list. One row per
+ * active transcript, in the project's transcript order: handle, label,
+ * speaker turns, text size, and speakers with their roles, names as written.
+ */
+function transcriptsListText(transcripts: readonly ChatEvidenceTranscript[], incomplete: boolean): string {
+  const lines = transcripts.map((transcript, index) => {
+    const shown = transcript.speakers.slice(0, MAX_CHAT_TRANSCRIPT_SPEAKERS);
+    const more = transcript.speakers.length - shown.length + (transcript.moreSpeakers ?? 0);
+    const speakers = shown.length
+      ? `${shown.map((speaker) => `${quotedLabel(speaker.label)} (${CHAT_SPEAKER_ROLE_WORDS[speaker.role]})`).join(", ")}${more > 0 ? ` and ${formatCount(more)} more` : ""}`
+      : "no speaker labels";
+    return [
+      chatTranscriptHandle(index),
+      quotedLabel(transcript.label),
+      transcript.turnCount > 0
+        ? `${formatCount(transcript.turnCount)} speaker turns`
+        : "no speaker turns, read in parts",
+      `${formatCount(transcript.chars)} characters`,
+      speakers,
+    ].join(" | ");
+  });
+  return [
+    `${formatCount(transcripts.length)} transcript(s) in this project, removed and replaced ones not counted. Each line: handle | label | speaker turns | text size | speakers with their roles.`,
+    ...lines,
+    ...(incomplete ? ["[The transcript list could not be read in full in this turn, so more transcripts may exist.]"] : []),
+  ].join("\n");
 }
 
 /** A document block: label plus the sanitized file name in the marker line. */
 function documentBlock(doc: ChatEvidenceDoc, body: string): string {
   const label = ANALYZER_CATEGORY_LABELS[docCategory(doc)];
-  const line = `${label}${D.categoryToFile}${sanitizeFileName(doc.fileName)}${D.lineSuffix}`;
-  return `${D.beginPrefix}${line}${D.contentPrefix}${body}${D.contentSuffix}${D.endPrefix}${line}`;
+  const line = `${label}${D.categoryToFile}${neutralizeWriterLabel(sanitizeFileName(doc.fileName))}${D.lineSuffix}`;
+  return `${D.beginPrefix}${line}${D.contentPrefix}${neutralizeWriterLabel(body)}${D.contentSuffix}${D.endPrefix}${line}`;
+}
+
+/**
+ * Phase B (2026-10-20): text a reading tool opened, in the same markers and
+ * category (trust) label a project document gets in the evidence head. The
+ * marker line names the place first (`F3 part 2`), then the file. The body
+ * is marker-neutralized here.
+ */
+export function openedDocumentBlock(
+  doc: Pick<ChatEvidenceDoc, "fileName" | "category" | "uploaderRole">,
+  place: string,
+  text: string
+): string {
+  return documentBlock(
+    { ...doc, content: "", fileName: `${place}, ${doc.fileName}` },
+    neutralizeMarkers(text)
+  );
+}
+
+/**
+ * Phase C (2026-10-20): the marker lines around a PDF's pages or an image
+ * the chat views or a writer pinned, so the media sits inside the same data
+ * markers and category (trust) label as a document's text. The marker line
+ * names the place first (`F3`, `pinned file`), then the file.
+ */
+export function openedMediaMarkers(
+  doc: Pick<ChatEvidenceDoc, "fileName" | "category" | "uploaderRole">,
+  place: string
+): { begin: string; end: string } {
+  const label = ANALYZER_CATEGORY_LABELS[docCategory({ ...doc, content: "" })];
+  const line = `${label}${D.categoryToFile}${neutralizeWriterLabel(sanitizeFileName(`${place}, ${doc.fileName}`))}${D.lineSuffix}`;
+  return { begin: `${D.beginPrefix}${line}`, end: `${D.endPrefix}${line}` };
+}
+
+/** The same for opened transcript text, under the transcript's own label. */
+export function openedTranscriptBlock(label: string, place: string, text: string): string {
+  const line = `${CONTEXT_SCAFFOLDS.transcriptLabel}${CONTEXT_SCAFFOLDS.labelClose} ${neutralizeWriterLabel(sanitizeFileName(`${place}, ${label}`))}${D.lineSuffix}`;
+  return `${D.beginPrefix}${line}${D.contentPrefix}${neutralizeWriterLabel(neutralizeMarkers(text))}${D.contentSuffix}${D.endPrefix}${line}`;
 }
 
 /**
@@ -408,8 +768,10 @@ function spend(
  * Build the single user-role evidence message plus a report of what the budget
  * kept, cut and dropped.
  *
- * Spend order is fixed: report, analysis, prior decisions, open questions, then documents in
- * `effectiveCategory` trust order then insertion order. Two fixed
+ * Spend order is fixed: report, analysis, prior decisions, open questions,
+ * the FILES IN THIS PROJECT list, the writer settings document (its own
+ * allowance, CHAT_SETTINGS_DOCUMENT_CHARS, outside the document slots), then
+ * documents in `effectiveCategory` trust order then insertion order. Two fixed
  * allowances partition `totalTokens` (cost phase 1): the tail (report first,
  * then decisions, then open questions) spends CHAT_TAIL_SHARE of it and the
  * head (analysis, documents) the rest, so nothing in the tail can move a cut
@@ -417,14 +779,17 @@ function spend(
  * `proposeEdit` requires a verbatim substring of it, so a truncated report
  * silently breaks every edit proposal, and documents can never crowd it out.
  *
- * Every input source appears exactly once in `report.sources`.
+ * Every input source appears exactly once in `report.sources`, except a
+ * settings document whose text is the sender's saved preferences
+ * (`profileInstructions`): it is already in the system string, so it is
+ * listed in the files block and neither sent nor reported as cut.
  */
 export function buildChatEvidence(input: ChatEvidenceInput): {
   /** Every evidence block in render order: `head`, then `tail`. */
   message: string;
   /**
    * The evidence sent BEFORE the conversation history, one cacheable block:
-   * guidance, analysis and documents. See `arrangeChatContext`.
+   * guidance, analysis, the files list and documents. See `arrangeChatContext`.
    */
   head: string;
   /**
@@ -438,6 +803,8 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   const documents = input.documents ?? [];
   const decisions = input.decisions ?? [];
   const openQuestions = input.openQuestions ?? [];
+  // Phase C (2026-10-20): viewFile is offered only while reading and viewing are on.
+  const viewing = input.readingToolsOff !== true && input.viewingOff !== true;
   const sources: TrustedContextSource[] = [];
   const chars = (tokens: number) => Math.max(0, tokens) * CHARS_PER_TOKEN;
 
@@ -457,6 +824,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   let tailRemaining = tailChars;
   const HEAD_KINDS: ReadonlySet<TrustedContextSource["kind"]> = new Set([
     "analysis",
+    "files",
     "document",
   ]);
 
@@ -535,20 +903,105 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   }
 
   // ── Documents, in trust order then insertion order ────────────────────────
-  const ordered = documents
-    .map((doc, index) => ({ doc, index }))
-    .sort((a, b) => {
-      const trust =
-        ANALYZER_CATEGORY_ORDER.indexOf(docCategory(a.doc)) -
-        ANALYZER_CATEGORY_ORDER.indexOf(docCategory(b.doc));
-      return trust !== 0 ? trust : a.index - b.index;
-    });
+  // 2026-10-19 (chat parity Phase A): the writer settings document, found by
+  // the rule generation uses, is spent first with its own allowance and is
+  // listed and rendered first. It never also takes a normal document slot.
+  // Phase B: the same order gives each listed file its handle.
+  const fileOrder = chatFileOrder(documents);
+  const settingsEntry = fileOrder.find((entry) => entry.settings);
+  const others = fileOrder.filter((entry) => !entry.settings);
+  /** Each spent document's handle, keyed by its source row. */
+  const handleOfSource = new Map<TrustedContextSource, string | null>();
+  // Review P3-2: when the sender saved this document as their Writer Profile,
+  // the system string already carries the same text (`writerPreferencesBlock`).
+  // Generation's rule (`matchesProfile`, whitespace-normalized equality of the
+  // 75,000-character text) decides; a match is listed, not sent again. It
+  // takes no source row: nothing was cut to fit the budget.
+  const settingsInPreferences =
+    settingsEntry !== undefined &&
+    Boolean(input.profileInstructions?.trim()) &&
+    normalizeSettingsText(settingsDocumentText(settingsEntry.doc.content)) ===
+      normalizeSettingsText(input.profileInstructions ?? "");
+
+  // ── Files list (head; spent after the analysis, before any document) ──────
+  // Built from stored facts only, so it is byte-stable while the files do not
+  // change. Absent when the project has no files: nothing to list.
+  let filesBody: string | null = null;
+  if (documents.length) {
+    filesBody = soloBody(
+      charge(
+        spend(
+          "files",
+          EVIDENCE_LABELS.files,
+          "client",
+          filesListText([
+            ...(settingsEntry
+              ? [{ doc: settingsEntry.doc, settings: settingsInPreferences ? ("in_preferences" as const) : ("sent" as const) }]
+              : []),
+            ...others.map(({ doc }) => ({ doc, settings: null })),
+          ], viewing),
+          totalChars,
+          headRemaining
+        )
+      )
+    );
+  }
+
+  // ── Transcripts list (head; Phase B, after the files list) ────────────────
+  // Facts only: handle, label, speaker turns, size and speakers with their
+  // roles. Built from stored facts, so it is byte-stable while the
+  // transcripts and their roles do not change.
+  const transcripts = input.transcripts ?? [];
+  let transcriptsBody: string | null = null;
+  if (transcripts.length || input.transcriptsIncomplete) {
+    transcriptsBody = soloBody(
+      charge(
+        spend(
+          "files",
+          EVIDENCE_LABELS.transcripts,
+          "client",
+          transcriptsListText(transcripts, input.transcriptsIncomplete === true),
+          totalChars,
+          headRemaining
+        )
+      )
+    );
+  }
+
   const perDocChars = chars(budget.perDocumentTokens);
   const documentBlocks: string[] = [];
-  ordered.forEach(({ doc }, rank) => {
+
+  // ── Writer settings document (head; its own allowance) ────────────────────
+  if (settingsEntry && !settingsInPreferences) {
+    const doc = settingsEntry.doc;
+    const { body, source } = charge(
+      spend(
+        "document",
+        doc.fileName,
+        docTrust(doc),
+        // Trimmed, as generation reads it (`settingsDocumentText`).
+        doc.content.trim(),
+        CHAT_SETTINGS_DOCUMENT_CHARS,
+        headRemaining,
+        { category: docCategory(doc) }
+      )
+    );
+    handleOfSource.set(source, settingsEntry.handle);
+    if (body !== null) documentBlocks.push(documentBlock(doc, body));
+  }
+
+  // 2026-10-19: only documents with text take one of the `maxDocuments`
+  // slots. An image, a reference-only file or a failed extraction has nothing
+  // to read; on one live project seven images took seven of the twelve slots
+  // and pushed the writer's glossary and settings document out of the turn.
+  let readableRank = 0;
+  // Phase C: the sources whose file viewFile can show.
+  const viewableSources = new Set<TrustedContextSource>();
+  others.forEach(({ doc, handle }) => {
     const extra = { category: docCategory(doc) };
-    if (rank >= budget.maxDocuments) {
-      sources.push({
+    const viewable = viewing && chatViewableKind(doc) !== null;
+    if (doc.content.length > 0 && readableRank++ >= budget.maxDocuments) {
+      const source: TrustedContextSource = {
         kind: "document",
         label: doc.fileName,
         trust: docTrust(doc),
@@ -557,13 +1010,16 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
         included: false,
         truncated: false,
         ...extra,
-      });
+      };
+      sources.push(source);
+      handleOfSource.set(source, handle);
+      if (viewable) viewableSources.add(source);
       return;
     }
     // Documents get no per-document omission notice: with a dozen of them
     // that would be a wall of notices. They are covered collectively below,
     // exactly as the analyzer covers its own attached materials.
-    const { body } = charge(
+    const { body, source } = charge(
       spend(
         "document",
         doc.fileName,
@@ -574,14 +1030,26 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
         extra
       )
     );
+    handleOfSource.set(source, handle);
+    if (viewable) viewableSources.add(source);
     if (body !== null) documentBlocks.push(documentBlock(doc, body));
   });
 
+  const fileRef = (source: TrustedContextSource): FileRef => ({
+    name: source.label,
+    handle: handleOfSource.get(source) ?? null,
+  });
   // Documents that carried text and lost all of it to the budget. Empty rows
   // are not counted: nothing was omitted to fit anything.
-  const droppedDocuments = sources.filter(
-    (source) => source.kind === "document" && !source.included && source.originalLength > 0
-  ).length;
+  const droppedNames = sources
+    .filter((source) => source.kind === "document" && !source.included && source.originalLength > 0)
+    .map(fileRef);
+  const droppedDocuments = droppedNames.length;
+  // Documents with no text at all (see `readableRank`). Phase C: those
+  // viewFile can show are named apart.
+  const noTextSources = sources.filter((source) => source.kind === "document" && source.originalLength === 0);
+  const unreadableNames = noTextSources.filter((source) => !viewableSources.has(source)).map(fileRef);
+  const viewableNoTextNames = noTextSources.filter((source) => viewableSources.has(source)).map(fileRef);
 
   /**
    * Some documents rendered and others did not. The guidance says an absent
@@ -589,9 +1057,31 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
    * writer that a document they can see in the project does not exist. One
    * line, not one notice per document: a dozen dropped rows would otherwise
    * be a wall of notices. Chat-only: the analyzer's bytes are frozen.
+   * 2026-10-19: the line names them, so the assistant can say which file it
+   * could not see instead of claiming it checked "the full evidence set".
    */
-  const furtherOmittedNotice = (count: number): string =>
-    `[${count} further attached document(s) were omitted to fit the context budget.]`;
+  // Phase B (2026-10-20): a file left out by the budget can be opened with
+  // readDocument; a file with no text cannot. With the admin setting off the
+  // notices read as before.
+  const readingOn = input.readingToolsOff !== true;
+  const furtherOmittedNotice = (names: FileRef[]): string =>
+    readingOn
+      ? `[${names.length} further attached document(s) were omitted to fit the context budget, so their text is not shown here; open one with readDocument to read it: ${fileRefList(names)}.]`
+      : `[${names.length} further attached document(s) were omitted to fit the context budget, so you cannot see them in this turn: ${fileRefList(names)}.]`;
+  const unreadableNotice = (names: FileRef[]): string =>
+    readingOn
+      ? `[${names.length} attached file(s) carry no text you can read (for example images or scans), so you cannot see them and readDocument cannot open them: ${fileRefList(names)}.]`
+      : `[${names.length} attached file(s) carry no text you can read (for example images or scans), so you cannot see them: ${fileRefList(names)}.]`;
+  const viewableNotice = (names: FileRef[]): string =>
+    `[${names.length} attached file(s) carry no text, but viewFile can show you their pages or image: ${fileRefList(names)}.]`;
+  const noTextNotices = [
+    ...(unreadableNames.length ? [unreadableNotice(unreadableNames)] : []),
+    ...(viewableNoTextNames.length ? [viewableNotice(viewableNoTextNames)] : []),
+  ];
+  const documentNotices = [
+    ...(droppedDocuments && documentBlocks.length ? [furtherOmittedNotice(droppedNames)] : []),
+    ...noTextNotices,
+  ];
 
   // ── Assembly ──────────────────────────────────────────────────────────────
   // Render order is split for prompt caching (see `arrangeChatContext`). The
@@ -610,23 +1100,31 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   if (analysisBody !== null) {
     stableParts.push(labelledBlock(EVIDENCE_LABELS.analysis, analysisBody));
   }
+  if (filesBody !== null) {
+    stableParts.push(labelledBlock(EVIDENCE_LABELS.files, filesBody));
+  }
+  if (transcriptsBody !== null) {
+    stableParts.push(labelledBlock(EVIDENCE_LABELS.transcripts, transcriptsBody));
+  }
+  const notices = documentNotices.length ? `\n\n${documentNotices.join("\n")}` : "";
   if (documentBlocks.length) {
     const rendered = documentBlocks.join("\n\n");
-    stableParts.push(
-      `${EVIDENCE_LABELS.documentsHeading}\n${rendered}${
-        droppedDocuments ? `\n\n${furtherOmittedNotice(droppedDocuments)}` : ""
-      }`
-    );
+    stableParts.push(`${EVIDENCE_LABELS.documentsHeading}\n${rendered}${notices}`);
   } else if (droppedDocuments) {
     // Documents WERE supplied and the budget kept none of them: keep the
     // heading with a notice rather than implying the project has no documents.
     stableParts.push(
-      `${EVIDENCE_LABELS.documentsHeading}\n${omittedMaterialsNotice(droppedDocuments)}`
+      `${EVIDENCE_LABELS.documentsHeading}\n${omittedMaterialsNotice(droppedDocuments)}\n${furtherOmittedNotice(droppedNames).replace(" further ", " ")}${notices}`
     );
+  } else if (noTextNotices.length) {
+    stableParts.push(`${EVIDENCE_LABELS.documentsHeading}\n${noTextNotices.join("\n")}`);
   }
   const tailParts: string[] = [];
   if (reportBody !== null) {
     tailParts.push(labelledBlock(EVIDENCE_LABELS.report, reportBody));
+  }
+  if (input.lineLengths) {
+    tailParts.push(labelledBlock(EVIDENCE_LABELS.lineLengths, input.lineLengths));
   }
   if (decisionsBody !== null) {
     tailParts.push(labelledBlock(EVIDENCE_LABELS.decisions, decisionsBody));
@@ -729,6 +1227,7 @@ export function buildChatTurnRequest(args: {
   const budget = args.budget ?? args.context.evidenceBudget;
   const { head, tail, report } = buildChatEvidence({
     reportText: extracted.trim() ? extracted : EMPTY_REPORT_TEXT,
+    lineLengths: extracted.trim() ? lineLengthsText(args.context.reportContent) : null,
     analysisText: analysisTextFrom(args.context.agentOutputs),
     documents: args.context.documents,
     decisions: args.context.decisions,
@@ -744,6 +1243,11 @@ export function buildChatTurnRequest(args: {
         }
       : {}),
     ...(budget ? { budget } : {}),
+    profileInstructions: args.customInstructions ?? null,
+    ...(args.context.transcripts?.length ? { transcripts: args.context.transcripts } : {}),
+    ...(args.context.transcriptsIncomplete ? { transcriptsIncomplete: true } : {}),
+    ...(args.context.documentTools === false ? { readingToolsOff: true } : {}),
+    ...(args.context.chatVision === false ? { viewingOff: true } : {}),
   });
   return {
     system: buildChatSystem(styleOverrides, args.customInstructions),
@@ -780,6 +1284,28 @@ export interface ChatContextParts {
  * library's default order put all the evidence after the history, so
  * nothing past the system prompt could ever be read back.
  */
+/**
+ * Phase C replay (2026-10-20): every writer message the model reads, in the
+ * history and the current prompt alike, starts with this label. In a new
+ * conversation the evidence head, the writer's message and the rest of the
+ * evidence reach the model as one user turn, and plain requests were read as
+ * text inside the evidence. The label is added to the request only (stored
+ * messages are unchanged) and in the same bytes on every turn, so the cached
+ * history still matches from turn to turn.
+ */
+export const CHAT_WRITER_MESSAGE_LABEL = "WRITER'S MESSAGE (the request to answer, not data):";
+
+export function labelWriterMessage(message: ModelMessage): ModelMessage {
+  if (message.role !== "user") return message;
+  if (typeof message.content === "string") {
+    return { ...message, content: `${CHAT_WRITER_MESSAGE_LABEL}\n${message.content}` };
+  }
+  return {
+    ...message,
+    content: [{ type: "text" as const, text: CHAT_WRITER_MESSAGE_LABEL }, ...message.content],
+  } as ModelMessage;
+}
+
 export function arrangeChatContext(
   headCount: number,
   parts: ChatContextParts
@@ -787,14 +1313,41 @@ export function arrangeChatContext(
   const head = parts.inputMessages.slice(0, headCount);
   const tail = parts.inputMessages.slice(headCount);
   const prompt = parts.inputPrompt.map((message, index, all) =>
-    index === all.length - 1 ? cached(message) : message
+    index === all.length - 1 ? cached(labelWriterMessage(message)) : labelWriterMessage(message)
   );
   return [
     ...head,
-    ...parts.search,
-    ...parts.recent,
+    ...withoutThinkingOnlyReplies(parts.search),
+    ...withoutThinkingOnlyReplies(parts.recent).map(labelWriterMessage),
     ...prompt,
     ...tail,
-    ...parts.existingResponses,
+    ...withoutThinkingOnlyReplies(parts.existingResponses),
   ];
+}
+
+/**
+ * True for an assistant message with reasoning and nothing else: no text and
+ * no tool call. Only a step cut off at the output limit while thinking leaves
+ * one (a step that calls a tool is a tool row, which the history leaves out,
+ * and a finished reply has text).
+ */
+export function isThinkingOnlyReply(message: ModelMessage): boolean {
+  if (message.role !== "assistant" || typeof message.content === "string") return false;
+  if (message.content.length === 0) return false;
+  return message.content.every(
+    (part) => part.type === "reasoning" || (part.type === "text" && part.text.trim() === "")
+  );
+}
+
+/**
+ * 2026-10-19 (the 2026-10-07 deviation chat failure): a step that thought to the
+ * output limit was saved as such a message and replayed into every later
+ * request of the thread, about 16,500 input tokens per failure (61,539, then
+ * 78,070, then 94,601 on PD13 c). It answered nothing, so it is left out. The
+ * rule is the same on every turn, so the cached history prefix stays stable.
+ */
+export function withoutThinkingOnlyReplies(messages: ModelMessage[]): ModelMessage[] {
+  return messages.some(isThinkingOnlyReply)
+    ? messages.filter((message) => !isThinkingOnlyReply(message))
+    : messages;
 }

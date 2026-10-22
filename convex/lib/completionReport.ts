@@ -54,14 +54,15 @@ export const COMPLETION_REPORT_TARGET_ITEMS = 30;
 export const BULK_EDIT_NEW_WORDS_PER_CALL = 600;
 
 /**
- * Review P2-2: a turn has 5 steps (`CHAT_MAX_STEPS`). The Deviation Inventory,
- * three bulk calls and the closing reply fill them, so a reply makes at most
- * this many bulk calls and names what is left for the next message.
+ * Review P2-2: set when a pass had 5 steps. The Deviation Inventory, three
+ * bulk calls and the closing reply filled them. Phase B (2026-10-20) raised
+ * `CHAT_MAX_STEPS` to 8 for the reading tools; the cap stays 3, so a reply
+ * still revises about one Line and names what is left for the next link.
  */
 export const BULK_EDIT_CALLS_PER_REPLY = 3;
 
 /** The size rule, stated once for the tool description and the chat prompt. */
-export const BULK_EDIT_SIZE_RULE = `Keep each call small enough to finish: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text across its edits, about four rewritten paragraphs. For a larger revision, make several proposeBulkEdits calls one at a time, one per Line or per few paragraphs, and wait for each result before the next call. Each call lands as its own card. Put every blocked and conflicting item in the first call; each call's findings also cover the items its own edits resolve, so the calls together account for every item exactly once. Make at most ${BULK_EDIT_CALLS_PER_REPLY} proposeBulkEdits calls in one reply. If items are still left after that, name their ids in your closing text and ask the writer to tell you to continue.`;
+export const BULK_EDIT_SIZE_RULE = `Keep each call small enough to finish: at most about ${BULK_EDIT_NEW_WORDS_PER_CALL} words of new text across its edits, about four rewritten paragraphs. For a larger revision, make several proposeBulkEdits calls one at a time, one per Line or per few paragraphs, and wait for each result before the next call. Each call lands as its own card. Put every blocked and conflicting item in the first call; each call's findings also cover the items its own edits resolve, so the calls together account for every item exactly once. Make at most ${BULK_EDIT_CALLS_PER_REPLY} proposeBulkEdits calls in one reply. If items are still left after that, say in one sentence how many are left and in which Lines, then stop. Do not tell the writer to say continue or how to move on.`;
 
 /**
  * PR #24 round 2 (lead decision): a bulk card applies as a whole, so a later
@@ -150,33 +151,40 @@ const completionReportFindingUnion = z.discriminatedUnion("status", [
   }),
 ]);
 
+const KIND_BY_ID_PREFIX: Readonly<Record<string, CompletionReportKind>> = Object.freeze(
+  Object.fromEntries(
+    (Object.entries(ID_KIND_PREFIX) as Array<[CompletionReportKind, string]>).map(
+      ([kind, prefix]) => [prefix, kind]
+    )
+  )
+);
+
 /**
- * The id is trusted verbatim as the Deviation Inventory's own key, but nothing
- * else checked that a model echoing it back also kept `kind`/`section`
- * consistent with it. A finding whose id embeds a different kind or section
- * than its own fields is refused here, before it can be persisted as a
- * self-contradictory `chatProposalItems` row.
+ * The id is trusted verbatim as the Deviation Inventory's own key, so a
+ * finding whose `kind` or `section` disagrees with the id it echoes takes the
+ * id's. 2026-10-19 (the 2026-10-07 deviation chat failure): the model labelled r- ids
+ * "content", and refusing the whole call for it threw away three parallel
+ * revisions ("Couldn't write that suggestion") before a retry got through.
+ * The persisted `chatProposalItems` row stays consistent with its id either
+ * way. An id in another shape is left alone. A transform, not a preprocess:
+ * the JSON Schema the model sees is the input side, which is unchanged.
  */
-export const completionReportFindingSchema = completionReportFindingUnion.superRefine(
-  (finding, ctx) => {
-    const match = ID_SHAPE.exec(finding.id);
-    if (!match) return;
-    const [, prefix, idSection] = match;
-    if (prefix !== ID_KIND_PREFIX[finding.kind]) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["id"],
-        message: `${finding.id} does not match kind "${finding.kind}": an id for this kind starts with "${ID_KIND_PREFIX[finding.kind]}-".`,
-      });
-    }
-    if (idSection !== finding.section) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["id"],
-        message: `${finding.id} names Line ${idSection}, but this finding's section is Line ${finding.section}.`,
-      });
-    }
-  }
+export function withKindAndSectionFromId<T extends { id: string; kind: CompletionReportKind; section: CompletionReportSection }>(
+  finding: T
+): T {
+  const match = ID_SHAPE.exec(finding.id);
+  if (!match) return finding;
+  const [, prefix, idSection] = match;
+  const kind = KIND_BY_ID_PREFIX[prefix!];
+  if (!kind) return finding;
+  const section = idSection as CompletionReportSection;
+  return kind === finding.kind && section === finding.section
+    ? finding
+    : { ...finding, kind, section };
+}
+
+export const completionReportFindingSchema = completionReportFindingUnion.transform(
+  (finding) => withKindAndSectionFromId(finding)
 );
 
 export type CompletionReportFinding = z.infer<typeof completionReportFindingSchema>;
@@ -240,7 +248,13 @@ export function coverageIssue(input: {
     input.edits.some((_, i) => !covered.has(i + 1)) ||
     missingRule
   ) {
-    return COVERAGE_RULE_MESSAGE;
+    // Name the ids that lack a rule, so the retry fixes exactly those.
+    const ruleless = input.findings
+      .filter((f) => f.kind === "rule" && !f.rule?.trim())
+      .map((f) => f.id);
+    return ruleless.length
+      ? `${COVERAGE_RULE_MESSAGE} These rule findings name no rule: ${ruleless.join(", ")}.`
+      : COVERAGE_RULE_MESSAGE;
   }
   return null;
 }
@@ -309,6 +323,10 @@ export const completionReportItemValidator = v.object({
   paragraphNumber: v.optional(v.number()),
   kind: v.optional(completionReportKindValidator),
   rule: v.optional(v.string()),
+  // Chat parity Phase A, round 3 (P2-A): what a content or reference item
+  // was (convex/lib/chatItemCoverage.ts, itemFingerprint), so a later list
+  // marks it only when the same item comes back at the same id.
+  fingerprint: v.optional(v.string()),
 });
 export type CompletionReportItem = Infer<typeof completionReportItemValidator>;
 
@@ -420,6 +438,59 @@ export function completionReportChecklist(
   findings: CompletionReportFinding[]
 ): string {
   return findings.map(completionReportLine).join("\n");
+}
+
+/** What `completionReportCounts` reads of a finding. */
+export type CompletionReportCountsFinding = Pick<CompletionReportFinding, "status" | "section"> & {
+  paragraph?: number;
+};
+
+/**
+ * Where the items that need the writer sit, as the writer reads them: "Line
+ * 244, paragraph 4", or "an item in Line 244" when the paragraph is unknown.
+ * Items in the same place are named once with their count. Never an item id.
+ */
+function itemPlaces(findings: ReadonlyArray<CompletionReportCountsFinding>): string {
+  const places = new Map<string, { section: string; paragraph?: number; count: number }>();
+  for (const finding of findings) {
+    const paragraph =
+      finding.paragraph !== undefined && Number.isInteger(finding.paragraph) && finding.paragraph >= 1
+        ? finding.paragraph
+        : undefined;
+    const key = `${finding.section}:${paragraph ?? ""}`;
+    const place = places.get(key);
+    if (place) place.count += 1;
+    else places.set(key, { section: finding.section, paragraph, count: 1 });
+  }
+  return [...places.values()]
+    .map(({ section, paragraph, count }) => {
+      if (paragraph === undefined) {
+        return count === 1 ? `an item in Line ${section}` : `${count} items in Line ${section}`;
+      }
+      const where = `Line ${section}, paragraph ${paragraph}`;
+      return count === 1 ? where : `${where} (${count} items)`;
+    })
+    .join("; ");
+}
+
+/**
+ * Phase A (2026-10-19, CAP-13 change): the card shows the checklist, so the
+ * tool result gives the model only the counts per status, with where the
+ * items that need the writer sit, in place of the checklist to retype.
+ * Owner direction 2026-10-21: item ids are internal and never reach the
+ * writer, so the items are named by Line and paragraph, never by id.
+ */
+export function completionReportCounts(
+  findings: ReadonlyArray<CompletionReportCountsFinding>
+): string {
+  return (["resolved", "blocked", "conflicting"] as const)
+    .map((status) => {
+      const matching = findings.filter((finding) => finding.status === status);
+      return status !== "resolved" && matching.length > 0
+        ? `${matching.length} ${status} (${itemPlaces(matching)})`
+        : `${matching.length} ${status}`;
+    })
+    .join(", ");
 }
 
 // ─── Anchor validation against the current report ───────────────────────────

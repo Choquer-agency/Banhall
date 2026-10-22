@@ -55,8 +55,8 @@
 >
   <AuroraMark size={18} class="mt-px" />
   <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-    <p class="text-xs leading-[1.0625rem] font-medium text-toast-ink">{count} {count === 1 ? "idea is" : "ideas are"} ready</p>
-    <p class="text-[0.6875rem] leading-[0.9375rem] text-toast-muted">Pick what fits, then approve to move on.</p>
+    <p class="text-xs leading-[calc(17/12)] font-medium text-toast-ink">{count} {count === 1 ? "idea is" : "ideas are"} ready</p>
+    <p class="text-[0.6875rem] leading-[calc(15/11)] text-toast-muted">Pick what fits, then approve to move on.</p>
   </div>
   <button
     type="button"

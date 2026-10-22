@@ -8,6 +8,7 @@
     pdSubsectionOutlineLabel,
     pdSubsectionStepSubtitle,
     stepAfterApproval,
+    stepNeedsWriter,
     type PdSubsectionRoleId,
   } from "../../../../shared/pdSubsections";
   import { useStableQuery } from "$lib/stableQuery.svelte";
@@ -501,15 +502,16 @@
     };
   }
 
-  /** After "Approve and continue": the next step in order, or the first open
-   * step before it once the last is done, or the Summary when none is left. */
+  /** After "Approve and continue": the first step after it that is open or
+   * marked for review, else the first such step before it, else the Summary
+   * when none is left. */
   function continueAfterApproval(approvedRoleId: PdSubsectionRoleId) {
     if (disposed || !ownerMatches() || activeRoleId !== approvedRoleId) return;
     // The approve mutation marks a prefetch on this same step as waited on.
-    const next = stepAfterApproval(approvedRoleId, (roleId) => {
-      const row = outline?.rows.find((candidate) => candidate.roleId === roleId);
-      return !row || (row.state !== "approved" && row.state !== "skipped");
-    });
+    // A step marked for review (approved but stale) still needs the writer.
+    const next = stepAfterApproval(approvedRoleId, (roleId) =>
+      stepNeedsWriter(outline?.rows.find((candidate) => candidate.roleId === roleId))
+    );
     if (next) void openRoleFromOutline(next);
     else onOpenSummary();
   }
@@ -1037,14 +1039,14 @@
             class="group relative flex h-11 min-w-0 items-center justify-center rounded-[0.4375rem] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
           >
             <span
-              class={`flex h-[2.125rem] w-full items-center justify-center gap-1.5 rounded-[0.4375rem] border text-[0.8125rem] leading-[1.125rem] transition-colors motion-reduce:transition-none ${
+              class={`flex h-[2.125rem] w-full items-center justify-center gap-1.5 rounded-[0.4375rem] border text-[0.8125rem] leading-[calc(18/13)] transition-colors motion-reduce:transition-none ${
                 pressed
                   ? "border-line bg-surface font-medium text-ink"
                   : "border-transparent text-ink-secondary group-hover:text-ink"
               }`}
             >
               {#if option.pane === "outline"}
-                Outline <span class="text-[0.6875rem] leading-[0.875rem] font-normal text-ink-faint">{decidedCount} / {outline.rows.length}</span>
+                Outline <span class="text-[0.6875rem] leading-[calc(14/11)] font-normal text-ink-faint">{decidedCount} / {outline.rows.length}</span>
               {:else}
                 Seeds
               {/if}

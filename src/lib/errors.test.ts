@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isHandledRefusalLog, userErrorCode } from "./errors";
+import { isHandledRefusalLog, userErrorCode, userErrorData, userErrorMessage } from "./errors";
 
 /** The Convex client's log line for a failed call, as `logForFunction` writes it. */
 function convexLog(path: string, data: Record<string, unknown> | null, kind = "M") {
@@ -38,6 +38,36 @@ describe("isHandledRefusalLog", () => {
     ] as const) {
       expect(isHandledRefusalLog(convexLog(path, limited, kind))).toBe(true);
     }
+    // 2026-10-22: the AI provider still rate limits the Settings check after
+    // its retry; Writing preferences says so under Check again.
+    const busy = {
+      code: "PROVIDER_UNAVAILABLE",
+      message: "The AI service is busy right now. Wait a minute, then select Check again.",
+    };
+    expect(isHandledRefusalLog(convexLog("ai/styleAnalysis:analyzeMyInstructions", busy, "A"))).toBe(true);
+    expect(userErrorMessage(new Error(convexLog("ai/styleAnalysis:analyzeMyInstructions", busy, "A")), "fallback")).toBe(busy.message);
+    // 2026-10-14 saved clients: New client shows the name already in use inline.
+    const exists = { code: "CLIENT_EXISTS", message: "Cedarline Systems already exists.", existingName: "Cedarline Systems" };
+    expect(isHandledRefusalLog(convexLog("clients:createClient", exists))).toBe(true);
+    // Chat parity Phase A: the report chat explains its refusals on the unsent message.
+    for (const code of ["CHAT_TURN_ACTIVE", "CHAT_SPEND_BUDGET_EXCEEDED", "CHAT_QUEUE_LIMIT_EXCEEDED", "CHAT_MESSAGE_TOO_LONG"]) {
+      expect(isHandledRefusalLog(convexLog("chatV2:sendMessage", { code, message: "x" })), code).toBe(true);
+    }
+    // Phase A review: every domain refusal of Stop is explained in the chat panel.
+    expect(isHandledRefusalLog(convexLog("chatV2:abortStreaming", { code: "NOT_AUTHORIZED", message: "x" }))).toBe(true);
+    expect(isHandledRefusalLog(convexLog("chatV2:abortStreaming", null))).toBe(false);
+    expect(isHandledRefusalLog(convexLog("chatV2:applyProposal", { code: "NOT_AUTHORIZED", message: "x" }))).toBe(false);
+    // Phase B: Undo explains its refusals on the card; the web switch says so in the panel.
+    expect(isHandledRefusalLog(convexLog("chatV2:undoProposal", { code: "PROPOSAL_UNDO_CONFLICT", message: "x" }))).toBe(true);
+    expect(isHandledRefusalLog(convexLog("chatV2:undoProposal", { code: "NOT_AUTHORIZED", message: "x" }))).toBe(true);
+    expect(isHandledRefusalLog(convexLog("chatV2:setThreadWebSearch", { code: "NOT_FOUND", message: "x" }))).toBe(true);
+    expect(isHandledRefusalLog(convexLog("chatV2:undoProposal", null))).toBe(false);
+    // Phase C: alternatives and conversation actions explain their refusals inline.
+    for (const fn of ["sendAlternative", "setActiveAlternative", "renameThread", "archiveThread", "restoreThread", "deleteThread"]) {
+      expect(isHandledRefusalLog(convexLog(`chatV2:${fn}`, { code: "NOT_FOUND", message: "x" })), fn).toBe(true);
+      expect(isHandledRefusalLog(convexLog(`chatV2:${fn}`, { code: "CHAT_TURN_ACTIVE", message: "x" })), fn).toBe(true);
+      expect(isHandledRefusalLog(convexLog(`chatV2:${fn}`, null)), fn).toBe(false);
+    }
     // NOT_FOUND itself stays a crash signal.
     expect(isHandledRefusalLog(convexLog("intakeDrafts:saveIntakeSource", { code: "NOT_FOUND", message: "x" }))).toBe(false);
   });
@@ -56,5 +86,13 @@ describe("isHandledRefusalLog", () => {
   it("reads the code the same way callers do", () => {
     const line = convexLog("generations:requestGeneration", { code: "GENERATION_ACTIVE", message: "x" });
     expect(userErrorCode(new Error(line))).toBe("GENERATION_ACTIVE");
+  });
+
+  it("returns the refusal's data from the error or from its log text", () => {
+    const data = { code: "CHAT_MESSAGE_TOO_LONG", message: "x", maxChars: 20000 };
+    expect(userErrorData({ data })).toEqual(data);
+    expect(userErrorData(new Error(convexLog("chatV2:sendMessage", data)))).toEqual(data);
+    expect(userErrorData(new Error("plain failure"))).toBeNull();
+    expect(userErrorData({ data: { message: "no code" } })).toBeNull();
   });
 });

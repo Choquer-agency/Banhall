@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { workPanelPadding } from "$lib/components/shell/topBar";
   // Round 2 Team page (C1-C5; decisions 47, 48, 50, 54). Managers and Admins
   // see members and pending invites; Managers invite Consultants and
   // Managers; only Admins invite Admins, change roles and set temporary
@@ -12,7 +13,6 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
-  import { IconPlusSmall, IconUsers } from "$lib/components/icons";
   import ViewAsHiddenPage from "$lib/components/shell/ViewAsHiddenPage.svelte";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
   import { inviteLink } from "$lib/team/inviteEmails";
@@ -145,20 +145,15 @@
   }
 </script>
 
-<WorkspaceChrome title="Team" icon={IconUsers} panel="flush" viewAsGate="team">
-  {#snippet actions()}
-    {#if user && canView && canInvite}
-      <button
-        type="button"
-        data-open-invite
-        onclick={() => (inviteOpen = true)}
-        class="flex h-[1.875rem] shrink-0 items-center gap-[0.3125rem] rounded-[0.4375rem] bg-primary-selected pl-2.5 pr-3 text-[0.8125rem] leading-[1.125rem] font-medium text-white hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 pointer-coarse:h-11"
-      >
-        <IconPlusSmall size={12} strokeWidth={1.5} class="shrink-0" />Invite
-      </button>
-    {/if}
-  {/snippet}
-  <div data-team-page class="flex flex-col gap-5 px-6 py-7 md:px-14">
+<!-- Owner, 2026-10-19: the standard header (title and one plain main
+     button) and the shared panel inset, as on Projects. -->
+<WorkspaceChrome
+  title="Team"
+  panel="flush"
+  viewAsGate="team"
+  primaryAction={user && canView && canInvite ? { label: "Invite", onclick: () => (inviteOpen = true) } : null}
+>
+  <div data-team-page class={`flex flex-col gap-5 ${workPanelPadding}`}>
     {#if user === undefined}
       <div data-team-loading class="flex flex-col gap-3" aria-busy="true">
         <div class="h-8 w-40 animate-pulse rounded bg-chrome"></div>
@@ -166,16 +161,13 @@
       </div>
     {:else if !realCanView}
       <div data-team-no-access class="mx-auto flex max-w-[26.25rem] flex-col items-center gap-3 py-20 text-center">
-        <p class="font-serif text-2xl leading-[1.875rem] text-ink">Team is for Managers and Admins.</p>
+        <p class="font-serif text-2xl leading-[1.25] text-ink">Team is for Managers and Admins.</p>
         <a href={resolve("/my-work")} class="inline-flex h-9 items-center rounded-[0.625rem] bg-chrome px-3.5 text-sm font-medium text-ink hover:bg-primary-wash">Back to Home</a>
       </div>
     {:else if !canView}
       <ViewAsHiddenPage pageName="Team" />
     {:else}
-      <header class="flex shrink-0 flex-col gap-1">
-        <h1 class="font-serif text-[1.75rem] leading-[2.125rem] text-ink">Team</h1>
-        <p data-team-subtitle class="text-sm leading-5 text-ink-muted">{subtitle}</p>
-      </header>
+      <p data-team-subtitle class="text-sm leading-[calc(10/7)] text-ink-muted">{subtitle}</p>
       {#if membersQ.data === undefined}
         <div data-team-loading class="flex flex-col overflow-hidden rounded-[0.625rem] border border-line-soft" aria-busy="true">
           {#each [0, 1, 2, 3] as row (row)}

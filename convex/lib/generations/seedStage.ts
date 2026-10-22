@@ -370,11 +370,19 @@ export async function createFrozenOrderedChain(
   return { candidateRunId, scheduledJobId };
 }
 
-export function refuseSummaryCapacity(error: unknown): never {
+/**
+ * 2026-10-22 (alerts triage): the refusal names the Line whose checks did
+ * not fit, so the Summary can tell the writer where to untick picks.
+ */
+export function refuseSummaryCapacity(
+  error: unknown,
+  section?: SectionNumber
+): never {
   if (error instanceof SeedContextLimitError) {
     domainError("INVALID_INPUT", error.message, {
       reason: "SUMMARY_CAPACITY_EXCEEDED",
       limit: error.limit,
+      ...(section ? { section } : {}),
     });
   }
   throw error;
@@ -609,8 +617,10 @@ export async function signOffSeedStageHandler(
     return unbacked.length > 0 ? { ...item, quotesDoNotBack: unbacked } : item;
   });
   const payload = await frozenOrderedPayload(ctx, generation, summaryVersionId);
+  let admitting: SectionNumber | undefined;
   try {
     for (const section of ["242", "244", "246"] as const) {
+      admitting = section;
       // 2026-09-30 (first): every Line's LEAVE OUT checks, and Line 246's
       // advancement check with Line 242 at its reserved worst case, are
       // counted, so the runtime requests never exceed what is admitted.
@@ -647,7 +657,7 @@ export async function signOffSeedStageHandler(
       });
     }
   } catch (error) {
-    refuseSummaryCapacity(error);
+    refuseSummaryCapacity(error, admitting);
   }
   await terminateSeedAttempts(ctx, generation._id);
   await bypassSeedEpisodes(ctx, generation._id);
@@ -1453,8 +1463,10 @@ export async function assertFrozenSummaryRuntimeAdmission(
       reason: "SUMMARY_BRIEF_UNREADABLE",
     });
   }
+  let admitting: SectionNumber | undefined;
   try {
     for (const section of ["242", "244", "246"] as const) {
+      admitting = section;
       // 2026-09-30 (first): Line 246's advancement check is admitted with
       // Line 242 at its reserved worst case, as at sign-off; since (second)
       // Line 244's work check too (Rule C).
@@ -1479,7 +1491,7 @@ export async function assertFrozenSummaryRuntimeAdmission(
       });
     }
   } catch (error) {
-    refuseSummaryCapacity(error);
+    refuseSummaryCapacity(error, admitting);
   }
   return loadedBrief;
 }

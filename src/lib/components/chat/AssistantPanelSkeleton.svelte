@@ -57,7 +57,7 @@
     <!-- The real header's box: Aurora mark, the word, and the expand slot. -->
     <div class={`box-content flex h-7 shrink-0 items-center gap-2.5 pt-5 pb-2 ${isFull ? "px-6 lg:px-0" : "pl-6 pr-6"}`} aria-hidden="true">
       <AuroraMark size={20} />
-      <span class="-ml-1.5 px-1.5 text-[0.8125rem] leading-[1.125rem] font-medium text-ink">Assistant</span>
+      <span class="-ml-1.5 px-1.5 text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">Assistant</span>
       <span class="ml-auto size-[1.625rem] shrink-0"></span>
     </div>
     <div class={`flex min-h-0 flex-1 flex-col ${isFull ? "px-6 lg:px-0" : "px-6"}`}>

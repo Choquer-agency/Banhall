@@ -59,6 +59,21 @@
   let suppressScrollUntil = 0;
   let anchoredDist = 0;
 
+  /** How long a kept-in-place element holds through follow-up reflows. */
+  const KEEP_IN_PLACE_MS = 600;
+  /**
+   * The element the writer just opened or closed, and where it was on
+   * screen. While set, resizes keep it there instead of following the
+   * bottom or keeping the distance from it (both moved the control out
+   * from under the pointer).
+   */
+  let kept: { el: Element; top: number; until: number } | null = null;
+
+  export function keepInPlace(el: Element): void {
+    if (!viewportEl) return;
+    kept = { el, top: el.getBoundingClientRect().top, until: performance.now() + KEEP_IN_PLACE_MS };
+  }
+
   function distanceFromBottom(el: HTMLElement): number {
     return el.scrollHeight - el.scrollTop - el.clientHeight;
   }
@@ -76,8 +91,16 @@
     if (isAtBottom) hasUnseen = false;
   }
 
-  export function scrollToBottom(behavior: ScrollBehavior = "smooth"): void {
+  /** A writer who asks for reduced motion gets a jump, never a smooth scroll. */
+  function prefersReducedMotion(): boolean {
+    return typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  export function scrollToBottom(requested: ScrollBehavior = "smooth"): void {
     if (!viewportEl) return;
+    const behavior: ScrollBehavior = requested === "smooth" && prefersReducedMotion() ? "instant" : requested;
     isAtBottom = true;
     hasUnseen = false;
     animating = behavior === "smooth";
@@ -92,6 +115,7 @@
       return hasUnseen;
     },
     scrollToBottom,
+    keepInPlace,
   });
 
   // Stick-to-bottom: pin on mount, then follow content growth (streaming
@@ -119,6 +143,17 @@
         vp.scrollTop = vp.scrollHeight;
         return;
       }
+      if (kept && (performance.now() > kept.until || !kept.el.isConnected)) kept = null;
+      if (kept) {
+        // The writer opened or closed something: hold it where it was, and
+        // follow the bottom again only if it is still in reach.
+        vp.scrollTop += kept.el.getBoundingClientRect().top - kept.top;
+        const dist = distanceFromBottom(vp);
+        isAtBottom = dist <= threshold;
+        anchoredDist = dist;
+        if (isAtBottom) hasUnseen = false;
+        return;
+      }
       if (isAtBottom) {
         vp.scrollTop = vp.scrollHeight;
       } else {
@@ -130,27 +165,38 @@
     });
     ro.observe(ct);
     ro.observe(vp);
+    // A real gesture also ends a held position (review 2026-10-21): the
+    // writer's own scroll wins over keepInPlace for the rest of its window.
     const cancelAnimating = () => {
       animating = false;
+      kept = null;
+    };
+    const scrollKeys = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+    const onKey = (event: KeyboardEvent) => {
+      if (scrollKeys.has(event.key)) kept = null;
     };
     vp.addEventListener("wheel", cancelAnimating, { passive: true });
     vp.addEventListener("touchstart", cancelAnimating, { passive: true });
+    vp.addEventListener("keydown", onKey);
     return () => {
       ro.disconnect();
       vp.removeEventListener("wheel", cancelAnimating);
       vp.removeEventListener("touchstart", cancelAnimating);
+      vp.removeEventListener("keydown", onKey);
     };
   });
 </script>
 
 <div class={cn("relative", className)}>
+  <!-- Phase A (task 6): the transcript is not a live region. A polite log
+       read streaming replies token by token; the turn's own status line
+       announces phase changes and the panel announces a finished reply once. -->
   <div
     bind:this={viewportEl}
     onscroll={handleScroll}
     role="log"
     aria-label="Conversation"
-    aria-live="polite"
-    aria-relevant="additions text"
+    aria-live="off"
     class={cn(
       "h-full w-full overflow-y-auto overscroll-y-contain [overflow-anchor:none]",
       viewportClass

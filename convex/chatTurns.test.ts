@@ -4,8 +4,9 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, components, internal } from "./_generated/api";
 import schema from "./schema";
-import {
+import { CHAT_WRITER_MESSAGE_NOTE,
   CHAT_CONTEXT_OPTIONS,
+  CHAT_REPLY_CUT_OFF_REPLY,
   reportChatAgent,
 } from "./ai/chatAgentV2";
 import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
@@ -179,7 +180,10 @@ describe("bounded chat context", () => {
     const messages = await f.t.run(ctx => reportChatAgent.fetchContextMessages(ctx, {
       userId: f.userId, threadId: result.threadId, contextOptions: CHAT_CONTEXT_OPTIONS,
     }));
-    expect(JSON.stringify(messages)).toContain("Try again.");
+    // 2026-10-19: a reply cut off in its text says to continue.
+    expect(JSON.stringify(messages)).toContain(
+      finishReason === "length" ? CHAT_REPLY_CUT_OFF_REPLY : "Try again."
+    );
   });
   // Review r2 P3 (2026-09-25): a timer that fired after a tool step left the
   // last step's finish reason, so a partial reply was marked completed.
@@ -205,7 +209,9 @@ describe("bounded chat context", () => {
     expect(JSON.stringify(messages)).toContain("took too long");
   });
 
-  test.each([false, true])("loads saved preferences and gates Brain tools with opt-in=%s", async allowBrain => {
+  // Phase A (2026-10-19): searchBrain is offered on every turn, so the tool
+  // list stays the same; the opt-in reaches the tool body and the turn note.
+  test.each([false, true])("loads saved preferences and passes the Brain opt-in=%s to the tool and the note", async allowBrain => {
     const f = await setup();
     await f.t.run(ctx => ctx.db.insert("writerProfiles", {
       userId: f.userId, customInstructions: "Use operating envelope for supported ranges.",
@@ -222,7 +228,9 @@ describe("bounded chat context", () => {
     expect(stream.mock.calls[0]?.[2].system).toContain("Use operating envelope for supported ranges.");
     const tools = stream.mock.calls[0]?.[2].tools;
     expect(tools).toHaveProperty("proposeBulkEdits");
-    expect(tools && "searchBrain" in tools).toBe(allowBrain);
+    expect(tools && "searchBrain" in tools).toBe(true);
+    const sent = (stream.mock.calls[0]?.[2].messages ?? []) as Array<{ content: unknown }>;
+    expect(String(sent.at(-1)?.content)).toContain(`Brain examples are ${allowBrain ? "on" : "off"}`);
   });
 
   test("stops before the provider when the saved profile cannot be loaded", async () => {
@@ -281,18 +289,22 @@ describe("bounded chat context", () => {
 
   test("binds delta cursors to their authorized thread and redacts private stream parts", async () => {
     const f = await setup();
-    const { result } = await sendQueuedTurn(f);
+    const { result, turn } = await sendQueuedTurn(f);
     const foreign = await f.t.run(ctx => reportChatAgent.createThread(ctx, { userId: "other-user" }));
     const makeStream = async (threadId: string, text: string) => {
       const streamId = await f.t.mutation(components.agent.streams.create, {
-        threadId, order: 1, stepOrder: 1, format: "UIMessageChunk",
+        threadId, order: turn.order, stepOrder: 1, format: "UIMessageChunk",
         model: "PRIVATE_MODEL_CANARY", provider: "PRIVATE_PROVIDER_CANARY",
         providerOptions: { anthropic: { test: "PRIVATE_OPTIONS_CANARY" } },
       });
       await f.t.mutation(components.agent.streams.addDelta, {
-        streamId, start: 0, end: 3, parts: [
+        streamId, start: 0, end: 5, parts: [
           { type: "text-delta", id: "t", delta: text },
-          { type: "reasoning-delta", id: "r", delta: "PRIVATE_REASONING_CANARY" },
+          // Phase A (2026-10-19): a thinking summary is public, its signature is not.
+          { type: "reasoning-start", id: "r" },
+          { type: "reasoning-delta", id: "r", delta: "Summary of the plan for Line 244.",
+            providerMetadata: { anthropic: { signature: "PRIVATE_SIGNATURE_CANARY" } } },
+          { type: "reasoning-end", id: "r" },
           { type: "tool-output-available", toolCallId: "c", output: "PRIVATE_RETRIEVAL_CANARY" },
         ],
       });
@@ -311,8 +323,22 @@ describe("bounded chat context", () => {
       streamArgs: { kind: "deltas", cursors: [{ streamId: ownId, cursor: 0 }, { streamId: foreignId, cursor: 0 }] },
     });
     expect(JSON.stringify(visible)).toContain("Visible answer");
+    expect(JSON.stringify(visible)).toContain("Summary of the plan for Line 244.");
     expect(JSON.stringify(visible)).not.toContain("PRIVATE_");
     expect(JSON.stringify(visible)).not.toContain("FOREIGN_STREAM_CANARY");
+
+    // Once the turn ran a Brain search, its summaries stay on the server.
+    await f.t.run(ctx => ctx.db.patch(turn._id, { brainSearchedAt: Date.now() }));
+    const afterBrain = await f.actor.query(api.chatV2.listMessages, {
+      threadId: result.threadId, paginationOpts: { cursor: null, numItems: 0 },
+      streamArgs: { kind: "deltas", cursors: [{ streamId: ownId, cursor: 0 }] },
+    });
+    expect(JSON.stringify(afterBrain)).toContain("Visible answer");
+    expect(JSON.stringify(afterBrain)).not.toContain("Summary of the plan");
+    expect(JSON.stringify(afterBrain)).not.toContain("reasoning");
+    // The flag itself never reaches the browser.
+    const turns = await f.actor.query(api.chatV2.listTurns, { threadId: result.threadId });
+    expect(turns[0]).not.toHaveProperty("brainSearchedAt");
   });
 
   test("keeps the newest 30 non-tool messages without a provider call", async () => {
@@ -534,8 +560,12 @@ describe("bounded chat context", () => {
     if (!call) throw new Error("streamText call missing");
     const system = String(call[2]?.system ?? "");
     const messages = (call[2]?.messages ?? []) as Array<{ role: string; content: unknown }>;
-    // Cached stable head plus the per-turn tail (report, decisions).
-    expect(messages).toHaveLength(2);
+    // Cached stable head, the per-turn tail (report, decisions) and the
+    // per-turn note on message options (Phase A).
+    expect(messages).toHaveLength(3);
+    expect(String(messages[2]?.content)).toBe(
+      `${CHAT_WRITER_MESSAGE_NOTE}\nOptions for this reply: Brain examples are off for this message, web search is off in this conversation.`
+    );
     expect(messages.every((message) => message.role === "user")).toBe(true);
     const evidence = messages.map((message) => String(message.content)).join("\n\n");
 
@@ -622,7 +652,7 @@ describe("bounded chat context", () => {
     // The dropped document is named in the message and in the cut log, so a
     // budget gap never reads as an interview gap.
     expect(evidence).toContain(
-      "[1 further attached document(s) were omitted to fit the context budget.]"
+      '[1 further attached document(s) were omitted to fit the context budget, so their text is not shown here; open one with readDocument to read it: F2 "second.md".]'
     );
     const cutLine = infoLines.find((line) =>
       line.startsWith(`chat evidence ${result.threadId}`)
@@ -864,6 +894,14 @@ describe("chat turn lifecycle", () => {
       endedAt: 2_000,
       stepCount: 2,
     });
+  });
+
+  // 2026-10-19 (Phase A): a domain refusal, so the panel shows it plainly.
+  test("stopping a conversation that no longer exists is a NOT_FOUND refusal", async () => {
+    const setupResult = await setup();
+    await expect(
+      setupResult.actor.mutation(api.chatV2.abortStreaming, { threadId: "missing-thread", order: 0 })
+    ).rejects.toMatchObject({ data: expect.objectContaining({ code: "NOT_FOUND" }) });
   });
 
   test("an abort before start fences the scheduled action", async () => {
@@ -2107,13 +2145,13 @@ describe("one turn at a time per thread (a4 #17)", () => {
         threadId: result.threadId,
       });
 
-    await expect(again()).rejects.toMatchObject({ data: { code: "INVALID_STATE" } });
+    await expect(again()).rejects.toMatchObject({ data: { code: "CHAT_TURN_ACTIVE" } });
     await s.t.mutation(internal.chatV2.markTurnStarted, {
       agentThreadId: result.threadId,
       promptMessageId: result.messageId,
       startedAt: Date.now(),
     });
-    await expect(again()).rejects.toMatchObject({ data: { code: "INVALID_STATE" } });
+    await expect(again()).rejects.toMatchObject({ data: { code: "CHAT_TURN_ACTIVE" } });
     // "New chat" is a new thread, so it is not held up.
     await expect(
       s.actor.mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "Elsewhere.", newThread: true })

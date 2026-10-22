@@ -94,24 +94,30 @@ describe("SeedDraftingView", () => {
     await render(SeedDraftingView, { progress: progress(), reportTitle: "Adaptive cold storage controls" });
 
     // The host's top bar owns the page h1; the draft title is an h2 and each
-    // Section question an h3.
+    // Section's label an h3, as in the finished report (owner, 2026-10-21:
+    // no CRA question).
     expect(q("h1")).toBeNull();
     expect(q("h2")?.textContent).toBe("Adaptive cold storage controls");
     expect(qa("h3").map((heading) => heading.textContent)).toEqual([
-      "What scientific or technological uncertainties did you attempt to overcome?",
-      "What work did you perform to overcome these uncertainties?",
-      "What scientific or technological advancements did you achieve?",
+      "242 Technological uncertainty",
+      "244 Work performed",
+      "246 Technological advancement",
     ]);
+    expect(getComputedStyle(qa("h3")[0]).textTransform).toBe("uppercase");
+    // The finished report's label grey: 85% ink-muted with ink-secondary.
+    const channels = (getComputedStyle(qa("h3")[0]).color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+    expect(channels.every((c) => c <= 1) ? channels.map((c) => Math.round(c * 255)) : channels).toEqual([103, 122, 119]);
     const text = q("[data-drafting-report]")!.textContent!;
-    expect(text).toContain("242 Technological uncertainty");
-    expect(text).toContain("What work did you perform to overcome these uncertainties?");
+    expect(text).not.toContain("What work did you perform to overcome these uncertainties?");
 
     const done = q('[data-section-status="done"]')!;
     const paragraphs = [...done.querySelectorAll<HTMLElement>("[data-revealed-paragraph]")];
     expect(paragraphs).toHaveLength(6);
     expect(paragraphs.every((p) => p.classList.contains("fade-rise"))).toBe(true);
     expect(paragraphs.map((p) => p.style.animationDelay)).toEqual(["0ms", "60ms", "120ms", "180ms", "240ms", "240ms"]);
-    expect(getComputedStyle(paragraphs[0]).fontFamily).toMatch(/Georgia|serif/i);
+    // The draft reads like the report it becomes: sans Light (2026-10-21).
+    expect(getComputedStyle(paragraphs[0]).fontFamily).toContain("Geist");
+    expect(getComputedStyle(paragraphs[0]).fontWeight).toBe("300");
 
     const writing = q('[data-section-status="writing"]')!;
     expect(writing.querySelectorAll('[data-skeleton-line="writing"]')).toHaveLength(4);

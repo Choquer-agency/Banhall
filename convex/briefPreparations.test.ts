@@ -31,6 +31,7 @@ import { expectedBriefMs, DEFAULT_BRIEF_MS } from "./lib/readingFacts";
 import {
   PREPARATION_PROJECT_DAILY_USD,
   PREPARATION_USER_DAILY_STARTS,
+  PREPARATION_USER_DAILY_USD,
   preparationCharge,
 } from "./lib/briefPreparationBudget";
 import { firmDayNumber } from "../shared/firmTime";
@@ -911,7 +912,7 @@ describe("triggers, eligibility and limits", () => {
             });
             await ctx.db.insert("briefPreparations", {
               projectId: other, status: "ready", revision: 1, runAt: 0, triggeredBy: s.userId, triggerReason: "x",
-              createdAt: 0, updatedAt: 0, dispatchedAt: now, firmDay, reservedUsd: 1, usageCostUsd: 4.99, usageCalls: 1,
+              createdAt: 0, updatedAt: 0, dispatchedAt: now, firmDay, reservedUsd: 1, usageCostUsd: PREPARATION_USER_DAILY_USD - 0.01, usageCalls: 1,
             });
           }),
       ],

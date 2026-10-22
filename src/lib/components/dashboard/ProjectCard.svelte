@@ -180,7 +180,7 @@
     <div class="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
       <div class="min-w-0 flex-1">
         <p class="mb-1 text-xs text-ink-faint">Created {createdDate}</p>
-        <h3 class="line-clamp-2 text-sm font-semibold leading-5 text-ink transition-colors duration-300 group-hover:text-navy motion-reduce:transition-none">
+        <h3 class="line-clamp-2 text-sm font-semibold leading-[calc(10/7)] text-ink transition-colors duration-300 group-hover:text-navy motion-reduce:transition-none">
           {project.title}
         </h3>
         <p class="mt-1 truncate text-xs text-ink-muted">{project.clientName}</p>

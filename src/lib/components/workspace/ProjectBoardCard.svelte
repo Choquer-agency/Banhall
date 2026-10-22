@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Shared board card — Obvious light board anatomy (full-markup evidence
+  // Shared board card: Obvious light board anatomy (full-markup evidence
   // 2026-08-10): a column-TINTED outer shell (`bg-category-*-bg` analog via
   // the stage card theme) wrapping a neutral white inset panel; no status
   // chip on the card (the tint + column chip carry stage identity).
@@ -11,6 +11,7 @@
   // current handoff ("With"), generation activity, and available
   // created/updated stamps. No priority is invented. Paused stages keep the
   // dashed-border cue (text label lives on the column chip).
+  import type { Snippet } from "svelte";
   import { resolve } from "$app/paths";
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import DuplicateProjectButton from "$lib/components/workspace/DuplicateProjectButton.svelte";
@@ -29,12 +30,16 @@
     showClient = true,
     showFiscalYear = true,
     showStage = false,
+    actions = undefined,
+    selectable = false,
+    selected = false,
+    onToggleSelect = undefined,
   }: {
     row: ProjectsTableRow;
     /**
      * Render the client supporting line. Client-scoped surfaces (client
      * lanes) pass false because the section header already carries the
-     * client name — repeating it on every card is noise, not context (live
+     * client name; repeating it on every card is noise, not context (live
      * QA 2026-08-07). The flat stage-first board keeps the default: there
      * the card is the only client signal.
      */
@@ -49,9 +54,22 @@
      * Render the labelled stage badge on the card. Stage-column boards keep
      * the default (the column chip is the labelled stage carrier); a
      * column-less surface must pass true so stage identity is never
-     * color-only. No current consumer — kept for that contract.
+     * color-only. No current consumer; kept for that contract.
      */
     showStage?: boolean;
+    /**
+     * Header actions in place of the default Duplicate and Delete buttons
+     * (the Projects page card menu, 2026-10-14). The snippet keeps the same
+     * host contract: `relative z-10`, revealed on hover or focus-within.
+     */
+    actions?: Snippet;
+    /**
+     * Select mode (Paper V4, 2026-10-14): a checkbox sits at the header's
+     * left and the whole card toggles instead of opening the project.
+     */
+    selectable?: boolean;
+    selected?: boolean;
+    onToggleSelect?: () => void;
   } = $props();
 
   const paused = $derived(
@@ -76,9 +94,21 @@
 
 <article
   data-project-board-card
-  class={`group group/project relative flex min-h-40 max-w-full cursor-pointer flex-col overflow-hidden rounded-xl border shadow-sm transition-colors motion-reduce:transition-none ${theme.footerBg} ${paused ? "border-dashed border-violet-300" : "border-transparent"} ${theme.hoverBorder} ${theme.focusWithinBorder}`}
+  data-selected={selectable ? String(selected) : undefined}
+  class={`group group/project relative flex min-h-40 max-w-full cursor-pointer flex-col overflow-hidden rounded-xl border shadow-sm transition-colors motion-reduce:transition-none ${theme.footerBg} ${paused ? "border-dashed border-violet-300" : "border-transparent"} ${theme.hoverBorder} ${theme.focusWithinBorder} ${selectable && selected ? "ring-2 ring-primary-selected" : ""}`}
 >
   <header data-card-header class="flex min-w-0 items-start gap-2 rounded-t-xl px-2.5 py-2">
+    {#if selectable}
+      <span
+        data-card-checkbox
+        aria-hidden="true"
+        class={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[0.25rem] border ${selected ? "border-fir bg-fir text-white" : "border-line bg-surface"}`}
+      >
+        {#if selected}
+          <svg class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10" /></svg>
+        {/if}
+      </span>
+    {/if}
     {#if row.projectNumber}
       <!-- Per-company project number / draft letter (2026-08-11 amendment):
            a distinct stage-tinted identity badge, never a status control. -->
@@ -88,27 +118,43 @@
         class={`text-data inline-flex min-h-5 shrink-0 items-center gap-0.5 rounded-md border bg-surface px-1.5 py-0.5 font-semibold leading-none shadow-[0_1px_1px_rgba(0,0,0,0.04)] ${theme.border} ${theme.headerText}`}
       ><span aria-hidden="true" class="opacity-60">#</span>{row.projectNumber}</span>
     {/if}
-    <a
-      href={resolve("/project/[id]", { id: row.id })}
-      data-recent-title={row.title}
-      data-recent-stage={row.workflowStage ?? undefined}
-      data-recent-client={row.clientName || undefined}
-      class={`block min-w-0 flex-1 truncate rounded-md text-[0.8125rem] font-medium leading-5 ${theme.headerText} after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy`}
-    >{row.title}</a>
-    <!-- Hover or focus reveals Duplicate and Delete; they keep their place
-         in the header either way, so the title never reflows. -->
-    <DuplicateProjectButton projectId={row.id} projectTitle={row.title} deleting={row.deleting} class="-my-1" />
-    <DeleteProjectButton projectId={row.id} projectTitle={row.title} createdBy={row.createdBy} deleting={row.deleting} class="-my-1" />
+    {#if selectable}
+      <!-- Select mode: the stretched title is a checkbox for the whole card. -->
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={selected}
+        data-card-select={row.id}
+        onclick={() => onToggleSelect?.()}
+        class={`block min-w-0 flex-1 truncate rounded-md text-left text-[0.8125rem] font-medium leading-[calc(20/13)] ${theme.headerText} after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy`}
+      >{row.title}</button>
+    {:else}
+      <a
+        href={resolve("/project/[id]", { id: row.id })}
+        data-recent-title={row.title}
+        data-recent-stage={row.workflowStage ?? undefined}
+        data-recent-client={row.clientName || undefined}
+        class={`block min-w-0 flex-1 truncate rounded-md text-[0.8125rem] font-medium leading-[calc(20/13)] ${theme.headerText} after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy`}
+      >{row.title}</a>
+      {#if actions}
+        {@render actions()}
+      {:else}
+        <!-- Hover or focus reveals Duplicate and Delete; they keep their place
+             in the header either way, so the title never reflows. -->
+        <DuplicateProjectButton projectId={row.id} projectTitle={row.title} deleting={row.deleting} class="-my-1" />
+        <DeleteProjectButton projectId={row.id} projectTitle={row.title} createdBy={row.createdBy} deleting={row.deleting} class="-my-1" />
+      {/if}
+    {/if}
   </header>
 
   {#if row.sredTitle}
-    <p data-card-sred-title class="truncate px-2.5 pb-1 text-[0.6875rem] leading-4 text-ink-muted">
+    <p data-card-sred-title class="truncate px-2.5 pb-1 text-[0.6875rem] leading-[calc(16/11)] text-ink-muted">
       <span class="sr-only">SR&amp;ED title: </span>{row.sredTitle}
     </p>
   {/if}
 
   <div data-card-content class="flex flex-1 p-0">
-    <div class="m-0.5 flex-1 space-y-1 overflow-hidden rounded-[0.625rem] bg-surface p-2.5 text-xs leading-[1.15rem] text-ink-secondary shadow-[0_0_1px_0_rgba(0,0,0,0.05)]">
+    <div class="m-0.5 flex-1 space-y-1 overflow-hidden rounded-[0.625rem] bg-surface p-2.5 text-xs leading-[calc(23/15)] text-ink-secondary shadow-[0_0_1px_0_rgba(0,0,0,0.05)]">
       {#if showClient}
         <div data-card-field="client" class="flex min-w-0 items-start gap-2">
           <svg class="mt-0.5 h-3 w-3 shrink-0 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" /></svg>
@@ -140,11 +186,11 @@
         <span class="sr-only">Owner</span>
         <span class="block min-w-0 flex-1 break-words line-clamp-2">
           {#if row.owner.kind === "legacy_writer"}
-            {row.owner.label} <span data-owner-legacy-qualifier class="text-ink-muted">Writer · legacy</span>
+            {row.owner.label}<span data-owner-legacy-qualifier class="text-ink-muted">, legacy writer</span>
           {:else if row.owner.kind === "canonical_unresolved"}
             <span data-owner-unavailable>{ownerLabel}</span>
           {:else if row.owner.kind === "none"}
-            <span aria-hidden="true">—</span><span data-owner-none class="sr-only">none recorded</span>
+            <span data-owner-none class="text-ink-muted">None recorded</span>
           {:else}
             {ownerLabel}
           {/if}
@@ -159,8 +205,7 @@
           <svg class="mt-0.5 h-3 w-3 shrink-0 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.25a7.36 7.36 0 0 1 7.5-7.25 7.36 7.36 0 0 1 4.06 1.19M15 18h6m0 0-2.5-2.5M21 18l-2.5 2.5" /></svg>
           <span class="sr-only">With</span>
           <span class="block min-w-0 flex-1 break-words line-clamp-2">
-            {row.handoff.assigneeLabel}
-            <span class="text-ink-muted">· {row.handoff.kindLabel}{row.handoff.dueDate ? ` · due ${row.handoff.dueDate}` : ""}</span>
+            {row.handoff.assigneeLabel}<span class="text-ink-muted">, {row.handoff.kindLabel}{row.handoff.dueDate ? `, due ${row.handoff.dueDate}` : ""}</span>
           </span>
         </div>
       {/if}
@@ -188,7 +233,7 @@
       {#if !row.workflowStage}
         <div data-card-field="legacy" class="flex min-w-0 items-start gap-2">
           <svg class="mt-0.5 h-3 w-3 shrink-0 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h10" /></svg>
-          <span data-legacy-status-qualifier class="block min-w-0 flex-1 break-words line-clamp-2">Legacy status · {row.legacyStatus}</span>
+          <span data-legacy-status-qualifier class="block min-w-0 flex-1 break-words line-clamp-2">Legacy status: {row.legacyStatus}</span>
         </div>
       {/if}
     </div>

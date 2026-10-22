@@ -71,8 +71,8 @@
             >
               <div class="flex items-start gap-4 pl-7 pr-5 pt-6">
                 <div class="flex flex-1 flex-col gap-1.5">
-                  <Dialog.Title class="text-lg font-medium leading-6 text-ink">View Banhall as another role</Dialog.Title>
-                  <Dialog.Description class="text-sm leading-5 text-ink-muted">
+                  <Dialog.Title class="text-lg font-medium leading-[calc(4/3)] text-ink">View Banhall as another role</Dialog.Title>
+                  <Dialog.Description class="text-sm leading-[calc(10/7)] text-ink-muted">
                     See exactly what they see. Anything you do still uses your Developer access.
                   </Dialog.Description>
                 </div>
@@ -98,7 +98,7 @@
                     <RoleChip kind={card.role} class="self-start" />
                     <span class="flex flex-col gap-1">
                       {#each card.lines as line (line.text)}
-                        <span class="flex items-center gap-1.5 text-xs leading-4">
+                        <span class="flex items-center gap-1.5 text-xs leading-[calc(4/3)]">
                           {#if line.sees}
                             <IconCheck size={11} strokeWidth={2.4} data-view-as-tick class={`shrink-0 ${CHECK_TONE[card.role]}`} />
                             <span class="text-ink-secondary">{line.text}</span>
@@ -114,7 +114,7 @@
               </RadioGroup.Root>
 
               <div class="flex flex-col-reverse gap-2 pb-5 pl-7 pr-5 pt-[1.125rem] sm:flex-row sm:items-center">
-                <p class="flex-1 text-xs leading-4 text-ink-muted">Exit any time from the pill at the top.</p>
+                <p class="flex-1 text-xs leading-[calc(4/3)] text-ink-muted">Exit any time from the pill at the top.</p>
                 <!-- Round 2 filled destructive Cancel (Button variant destructive-soft tokens). -->
                 <Dialog.Close
                   data-view-as-cancel
