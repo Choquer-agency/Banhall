@@ -416,6 +416,14 @@
     if (approved && continueAfter && !destroyed) onApproved?.(approvedRoleId);
   }
 
+  // A skipped step is decided, so Skip moves on as "Approve and continue"
+  // does: to the next open step, or the Summary after the last one.
+  async function skipCurrent() {
+    const skippedRoleId = data.roleId;
+    const skipped = await mutate(() => skip(common()), "Step skipped.");
+    if (skipped && !destroyed) onApproved?.(skippedRoleId);
+  }
+
   // 2026-09-28 (seventh, owner): "Keep as is" approves this step, and "Keep
   // all" every later step an earlier change marked for review, with their
   // picks as they are. The server records the same approval as confirming
@@ -1010,19 +1018,40 @@
             {/snippet}
           </Tooltip>
         {/if}
-        <Tooltip text={approveHint} delayDuration={500}>
-          {#snippet children({ props })}
-            <Button
-              {...props}
-              class={approvalButtonClass(layout)}
-              disabled={approvalDisabled}
-              onclick={approveCurrent}
-              data-approve-step
-              data-keep-step={keepMode || undefined}
-              aria-keyshortcuts={platform === "mac" ? "Meta+Enter" : "Control+Enter"}
-            >{keepMode ? "Keep as is" : isReopened ? "Confirm and approve" : "Approve and continue"}</Button>
-          {/snippet}
-        </Tooltip>
+        {#if kind === "optional" && data.state !== "skipped"}
+          <!-- 2026-10-22 (alerts, two writers): Skip step sat only in the More
+               menu, so an optional step read as one the writer had to answer. -->
+          <Button
+            variant="secondary"
+            class={`shrink-0 ${layout === "bar" ? "h-11 rounded-[0.625rem]" : "h-9"}`}
+            disabled={busy || picksPending}
+            onclick={skipCurrent}
+            data-skip-step
+          >Skip</Button>
+        {/if}
+        {#if data.state === "skipped"}
+          <Button
+            variant="secondary"
+            class={approvalButtonClass(layout)}
+            disabled={busy || picksPending}
+            onclick={() => void mutate(() => unskip(common()), "Step restored.")}
+            data-restore-step
+          >Restore step</Button>
+        {:else}
+          <Tooltip text={approveHint} delayDuration={500}>
+            {#snippet children({ props })}
+              <Button
+                {...props}
+                class={approvalButtonClass(layout)}
+                disabled={approvalDisabled}
+                onclick={approveCurrent}
+                data-approve-step
+                data-keep-step={keepMode || undefined}
+                aria-keyshortcuts={platform === "mac" ? "Meta+Enter" : "Control+Enter"}
+              >{keepMode ? "Keep as is" : isReopened ? "Confirm and approve" : "Approve and continue"}</Button>
+            {/snippet}
+          </Tooltip>
+        {/if}
       </div>
     {/if}
   </div>

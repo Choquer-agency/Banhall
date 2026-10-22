@@ -721,6 +721,32 @@ describe("Seed workspace", () => {
     expect(__mutationCalls("seeds:unskip")[0]).toMatchObject({ roleId: "prior_year_status", expectedSeedStageVersion: 7 });
   });
 
+  // 2026-10-22 (alerts): two writers did not find Skip step in the More menu.
+  it("offers Skip beside the approval on an optional step, moves on after it, and Restore step once skipped", async () => {
+    const onApproved = vi.fn();
+    const optional = { title: "Previous-year status", objective: "Describe prior-year status.", kind: "optional", onApproved };
+    const view = await render(SeedSubsectionPane, paneProps(subsection({
+      roleId: "prior_year_status",
+      items: [seed({ roleId: "prior_year_status" })],
+    }), optional));
+
+    await page.getByRole("button", { name: "Skip", exact: true }).click();
+    expect(__mutationCalls("seeds:skip")[0]).toMatchObject({ roleId: "prior_year_status", expectedSeedStageVersion: 7 });
+    await vi.waitFor(() => expect(onApproved).toHaveBeenCalledWith("prior_year_status"));
+
+    await view.rerender(paneProps(subsection({ roleId: "prior_year_status", state: "skipped", items: [] }), optional));
+    await expect.element(page.getByRole("button", { name: "Skip", exact: true })).not.toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true })).not.toBeInTheDocument();
+    await page.getByRole("button", { name: "Restore step", exact: true }).click();
+    expect(__mutationCalls("seeds:unskip")[0]).toMatchObject({ roleId: "prior_year_status", expectedSeedStageVersion: 7 });
+  });
+
+  it("offers no Skip on a standard step", async () => {
+    await render(SeedSubsectionPane, paneProps(subsection()));
+    await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true })).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Skip", exact: true }).elements()).toHaveLength(0);
+  });
+
   it("says an empty step's last attempt failed and offers a fresh try, and keeps the plain empty text otherwise", async () => {
     const empty = { state: "untouched" as const, items: [], shownBatchId: null, approvalChallenge: null };
     const view = await render(SeedSubsectionPane, paneProps(subsection({ ...empty, lastAttemptFailed: true })));
