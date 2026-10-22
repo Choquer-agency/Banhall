@@ -1751,6 +1751,29 @@ export const turnSavedEditProposal = internalQuery({
 });
 
 /**
+ * PR #29 review: whether every one of these tool calls saved an edit card.
+ * The time stop's one-card closing reads only the last step's calls, so an
+ * earlier card in the turn never stands in for a last edit that failed.
+ */
+export const toolCallsSavedEditProposals = internalQuery({
+  args: { agentThreadId: v.string(), toolCallIds: v.array(v.string()) },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    if (args.toolCallIds.length === 0) return false;
+    for (const toolCallId of args.toolCallIds) {
+      const row = await ctx.db
+        .query("chatProposals")
+        .withIndex("by_agentThreadId_and_toolCallId", (q) =>
+          q.eq("agentThreadId", args.agentThreadId).eq("toolCallId", toolCallId)
+        )
+        .first();
+      if (!row || row.kind === "references" || isRecordOnlyProposal(row)) return false;
+    }
+    return true;
+  },
+});
+
+/**
  * 2026-10-19 (review P3-4): whether this turn saved any card at all, a
  * record-only revision or a highlight included. The recovery pass after a
  * thinking-only cut cannot see a card the first pass saved, so any card

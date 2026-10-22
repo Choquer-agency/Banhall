@@ -817,13 +817,13 @@ export const CHAT_TIME_STOP_EDIT_REPLY = "Proposed the change in the card above.
 /** Card tools whose one call is a whole answer to the request. */
 const ONE_CARD_TOOLS: ReadonlySet<string> = new Set(["proposeEdit", "proposeReplacements"]);
 
-/** The tools the last finished step called. */
-function lastStepToolNames(steps: ReadonlyArray<CutOffStep>): string[] {
+/** The tool calls the last finished step made. */
+function lastStepToolCalls(steps: ReadonlyArray<CutOffStep>): Array<{ toolName: string; toolCallId: string }> {
   const last = steps.at(-1);
   if (!last) return [];
   return last.content.flatMap((part) =>
     typeof part === "object" && part !== null && "type" in part && part.type === "tool-call" && "toolName" in part
-      ? [String(part.toolName)]
+      ? [{ toolName: String(part.toolName), toolCallId: "toolCallId" in part ? String(part.toolCallId) : "" }]
       : []
   );
 }
@@ -2424,15 +2424,20 @@ export const streamChatReply = internalAction({
       // Review P2-2: the step limit ended the turn on a tool call, so the
       // model never wrote its closing text. Phase B: a pass the time stop
       // ended reads exactly the same.
-      const lastTools = lastStepToolNames(finishedSteps);
+      const lastCalls = lastStepToolCalls(finishedSteps);
+      // PR #29 review: every call of the last step must have saved its card;
+      // an earlier card in the turn never makes a failed last edit finished.
       const endedOnOneCardEdit =
         finishReason === "tool-calls" &&
         passStoppedForTime &&
         finishedSteps.length < passMaxSteps &&
-        lastTools.length > 0 &&
-        lastTools.every((name) => ONE_CARD_TOOLS.has(name)) &&
+        lastCalls.length > 0 &&
+        lastCalls.every((call) => ONE_CARD_TOOLS.has(call.toolName) && call.toolCallId !== "") &&
         ![...meter.toolNames].some((name) => DEVIATION_TOOLS.has(name)) &&
-        (await ctx.runQuery(internal.chatV2.turnSavedEditProposal, turnKey));
+        (await ctx.runQuery(internal.chatV2.toolCallsSavedEditProposals, {
+          agentThreadId: args.agentThreadId,
+          toolCallIds: lastCalls.map((call) => call.toolCallId),
+        }));
       const endedOnStepLimit =
         !endedOnOneCardEdit &&
         finishReason === "tool-calls" &&
