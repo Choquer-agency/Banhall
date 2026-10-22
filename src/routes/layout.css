@@ -1178,8 +1178,8 @@ textarea.input-chromeless:focus-visible {
   user-select: none;
 }
 /* Owner, 2026-10-21: number and name read as one all-caps label, a little
-   larger and lighter than before. The grey is halfway between ink-muted and
-   ink-faint, the lightest that keeps 3:1 on white. */
+   larger than before. Owner, 2026-10-22: the grey is ink-muted with 15%
+   ink-secondary, the lightest that keeps 4.5:1 on white for text this small. */
 .report-reading .tiptap-editor .report-section-heading__title {
   margin: 0;
   padding: 0;
@@ -1190,7 +1190,7 @@ textarea.input-chromeless:focus-visible {
   line-height: calc(18 / 13);
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-ink-muted), var(--color-ink-faint));
+  color: color-mix(in srgb, var(--color-ink-muted) 85%, var(--color-ink-secondary));
 }
 .report-limit-meter {
   margin-left: auto;

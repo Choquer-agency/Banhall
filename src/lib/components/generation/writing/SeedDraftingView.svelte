@@ -193,7 +193,7 @@
         <!-- Owner, 2026-10-21: the same one-line all-caps label as the
              finished report (report-section-heading__title), no CRA question. -->
         <header class="flex items-center gap-2">
-          <h3 class="font-sans text-[0.8125rem] font-medium uppercase leading-[calc(18/13)] tracking-[0.04em] text-[color-mix(in_srgb,var(--color-ink-muted),var(--color-ink-faint))]">{section.number} {section.title}</h3>
+          <h3 class="font-sans text-[0.8125rem] font-medium uppercase leading-[calc(18/13)] tracking-[0.04em] text-[color-mix(in_srgb,var(--color-ink-muted)_85%,var(--color-ink-secondary))]">{section.number} {section.title}</h3>
           {#if section.status === "not_drafted"}
             <span
               data-not-drafted-marker

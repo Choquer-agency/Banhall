@@ -85,10 +85,10 @@ describe("Report reading presentation", () => {
     expect(title.textTransform).toBe("uppercase");
     expect(title.fontWeight).toBe("500");
     expect(title.fontFamily).not.toContain("Georgia");
-    // Halfway between ink-muted (107, 127, 123) and ink-faint (147, 165, 161).
+    // 85% ink-muted (107, 127, 123) with ink-secondary (79, 97, 93): 4.5:1 on white.
     const channels = (title.color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
     const rgb = channels.every((c) => c <= 1) ? channels.map((c) => Math.round(c * 255)) : channels;
-    expect(rgb).toEqual([127, 146, 142]);
+    expect(rgb).toEqual([103, 122, 119]);
   });
 
   // Owner, 2026-10-21: the meter shows only once a Section is over a CRA

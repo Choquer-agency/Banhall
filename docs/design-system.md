@@ -1225,8 +1225,8 @@ sizes below are at the 16px root; a laptop renders them at 0.9375x.
 - **Section headings (2026-10-21).** In the report, and in the drafting
   view that becomes it, each Section shows one sans label, all caps, 13px,
   weight 500, letter-spaced: "242 TECHNOLOGICAL UNCERTAINTY". Its grey is
-  halfway between ink-muted and ink-faint, the lightest that keeps 3:1 on
-  white. The CRA question no longer shows under it. The label is the
+  ink-muted with 15% ink-secondary, the lightest that keeps 4.5:1 on white
+  for text this small (owner, 2026-10-22). The CRA question no longer shows under it. The label is the
   Section's h3. The limit meter sits at its right only while the Section is
   over a CRA limit; near a limit, nothing shows (owner, 2026-10-21).
 - **Report type (2026-10-21).** The report reads in sans, not serif: the

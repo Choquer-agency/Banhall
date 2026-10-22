@@ -104,9 +104,9 @@ describe("SeedDraftingView", () => {
       "246 Technological advancement",
     ]);
     expect(getComputedStyle(qa("h3")[0]).textTransform).toBe("uppercase");
-    // The finished report's label grey: halfway between ink-muted and ink-faint.
+    // The finished report's label grey: 85% ink-muted with ink-secondary.
     const channels = (getComputedStyle(qa("h3")[0]).color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
-    expect(channels.every((c) => c <= 1) ? channels.map((c) => Math.round(c * 255)) : channels).toEqual([127, 146, 142]);
+    expect(channels.every((c) => c <= 1) ? channels.map((c) => Math.round(c * 255)) : channels).toEqual([103, 122, 119]);
     const text = q("[data-drafting-report]")!.textContent!;
     expect(text).not.toContain("What work did you perform to overcome these uncertainties?");
 
