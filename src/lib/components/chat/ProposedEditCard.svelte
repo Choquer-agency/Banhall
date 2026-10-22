@@ -13,6 +13,12 @@
     newText?: string;
     targetText?: string;
     replacements?: { find: string; replaceWith: string }[];
+    /**
+     * The replacements are passages, each matching one place (a proposeEdit
+     * across several paragraphs, or a coordinated revision), not finds that
+     * replace every occurrence. The card then reads as one edit.
+     */
+    passages?: boolean;
     state: "pending" | "applied" | "rejected" | "stale";
     /**
      * Whether the viewer may apply, dismiss or reword (report edit access).
@@ -45,6 +51,7 @@
     newText,
     targetText,
     replacements,
+    passages = false,
     state: editState,
     applyAccess = "allowed",
     onReplace,
@@ -302,7 +309,7 @@
   <p class="text-[0.6875rem] leading-4 text-ink-muted" data-proposed-edit-label>
     {editing
       ? "Edit suggestion"
-      : replacements && replacements.length > 0
+      : replacements && replacements.length > 0 && !passages
         ? `${changes.length} suggested replacement${changes.length === 1 ? "" : "s"}${section ? ` in ${section}` : ""}`
         : section
           ? `Suggested edit for ${section}`
@@ -333,9 +340,11 @@
     <div>
     {#if replacements && replacements.length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-[0.6875rem] leading-4 text-ink-muted">
-          {changes.length} replacement{changes.length === 1 ? "" : "s"}, applied to every occurrence
-        </p>
+        {#if !passages}
+          <p class="text-[0.6875rem] leading-4 text-ink-muted">
+            {changes.length} replacement{changes.length === 1 ? "" : "s"}, applied to every occurrence
+          </p>
+        {/if}
         {#each changes as change, changeIndex (changeIndex)}
           <div class="border-l-2 border-primary/20 pl-2.5">
             {#if diffInCard}

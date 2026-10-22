@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyPassageEdits } from "./passageEdits";
+import { applyPassageEdits, editPassages } from "./passageEdits";
+import { applyReplacements } from "./reportEdits";
 
 const doc = (texts: string[]) => ({ type: "doc", content: texts.map(text => ({
   type: "paragraph", content: [{ type: "text", text }],
@@ -55,5 +56,44 @@ describe("independent passage revisions", () => {
       { type: "paragraph", content: [{ type: "text", text: "The work performed in phase 2 cycled coupons." }] },
     ] };
     expect(applyPassageEdits(both, [{ find: "work performed", replaceWith: "tests run" }])).toMatchObject({ ok: true, count: 1 });
+  });
+});
+
+// Owner, 2026-10-21: a trim across a whole Line once failed (a match never
+// crosses a paragraph) and came back as four cards.
+describe("editPassages", () => {
+  const report = doc(["First paragraph, long.", "Second paragraph stays.", "Third paragraph, long."]);
+
+  it("keeps a target inside one paragraph as one passage", () => {
+    expect(editPassages("First paragraph, long.", "First paragraph.")).toEqual({
+      ok: true,
+      pairs: [{ find: "First paragraph, long.", replaceWith: "First paragraph." }],
+    });
+  });
+
+  it("pairs each paragraph of a multi-paragraph target with its rewrite and drops unchanged ones", () => {
+    const target = "First paragraph, long.\n\nSecond paragraph stays.\n\nThird paragraph, long.";
+    // The whole target never matches: matching works one paragraph at a time.
+    expect(applyReplacements(report, [{ find: target, replaceWith: "x" }]).count).toBe(0);
+    const result = editPassages(target, "First paragraph.\n\nSecond paragraph stays.\n \nThird paragraph.");
+    expect(result).toEqual({
+      ok: true,
+      pairs: [
+        { find: "First paragraph, long.", replaceWith: "First paragraph." },
+        { find: "Third paragraph, long.", replaceWith: "Third paragraph." },
+      ],
+    });
+    expect(result.ok && applyPassageEdits(report, result.pairs)).toEqual({
+      ok: true, count: 2, doc: doc(["First paragraph.", "Second paragraph stays.", "Third paragraph."]),
+    });
+  });
+
+  it("refuses a rewrite with a different number of paragraphs, or no change", () => {
+    const target = "First paragraph, long.\n\nThird paragraph, long.";
+    expect(editPassages(target, "One merged paragraph.")).toEqual({
+      ok: false,
+      reason: "targetText has 2 paragraphs but newText has 1. Give newText one paragraph for each paragraph of targetText, in the same order, separated by a blank line.",
+    });
+    expect(editPassages(target, target).ok).toBe(false);
   });
 });

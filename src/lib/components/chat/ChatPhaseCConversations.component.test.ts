@@ -358,6 +358,25 @@ describe("copy", () => {
   });
 });
 
+// Owner, 2026-10-21: a trim across several paragraphs is one edit, not a
+// find-and-replace that touches "every occurrence".
+describe("a passage set reads as one suggested edit", () => {
+  it("labels a paragraph set as one edit and a find set as replacements", async () => {
+    const replacements = [
+      { find: "The kiln dried the birch.", replaceWith: "The kiln dried birch." },
+      { find: "The press shaped the panels.", replaceWith: "The press shaped panels." },
+    ];
+    const base = { section: "Line 242", replacements, state: "pending" as const, onReplace: vi.fn(), onReject: vi.fn() };
+    const set = await render(ProposedEditCard, { ...base, passages: true });
+    await expect.poll(() => document.querySelector("[data-proposed-edit-label]")?.textContent?.trim()).toBe("Suggested edit for Line 242");
+    expect(document.body.textContent).not.toContain("applied to every occurrence");
+    await set.unmount();
+    await render(ProposedEditCard, base);
+    await expect.poll(() => document.querySelector("[data-proposed-edit-label]")?.textContent?.trim()).toBe("2 suggested replacements in Line 242");
+    expect(document.body.textContent).toContain("2 replacements, applied to every occurrence");
+  });
+});
+
 describe("rich copy keeps only text, structure and safe links (review R2 P3-6)", () => {
   it("drops scripts, styles, handlers and unsafe links", () => {
     const answer = document.createElement("div");

@@ -44,3 +44,25 @@ export function lineLengthsText(reportContent: string | null): string | null {
     return `${meter} ${notes} ${plural(extraLines, "form line", "form lines")} and ${plural(extraWords, "word", "words")}.${shown}`;
   }).join("\n");
 }
+
+/**
+ * What an edit would do to the meters (owner, 2026-10-21): one sentence per
+ * Line whose counts change, returned to the model with the edit tool's
+ * result. With it the model checks a trim against the real meter instead of
+ * tallying words in its thinking, which had a trim think for over three
+ * minutes. Null when no meter changes.
+ */
+export function lineLengthsAfterEdit(beforeContent: string, afterContent: string): string | null {
+  const before = reportSectionMetrics(beforeContent);
+  const after = reportSectionMetrics(afterContent);
+  const changed = LINES.flatMap(([key, line]) => {
+    const b = before[key];
+    const a = after[key];
+    if (a.lines === b.lines && a.words === b.words) return [];
+    const verdict = a.lines > a.limit || a.words > a.wordCap ? "over a CRA limit" : "within the CRA limits";
+    return [
+      `Line ${line} would have ${a.words} of ${a.wordCap} words (now ${b.words}) and ${a.lines} of ${a.limit} form lines (now ${b.lines}), ${verdict}.`,
+    ];
+  });
+  return changed.length ? `Once applied, ${changed.join(" ")}` : null;
+}

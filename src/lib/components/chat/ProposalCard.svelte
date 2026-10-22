@@ -81,6 +81,7 @@
   newText={proposal.newText}
   targetText={proposal.targetText}
   replacements={proposal.replacements}
+  passages={proposal.requireUniqueTargets === true}
   state={proposal.state}
   {applyAccess}
   onReplace={async () => {

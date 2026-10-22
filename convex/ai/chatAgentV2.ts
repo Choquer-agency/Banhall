@@ -49,6 +49,7 @@ import {
   type StyleOverrides,
 } from "../../shared/styleOverrides";
 import { scrubBannedWordsUnlessWaived } from "../lib/reportEdits";
+import { editPassages } from "../lib/passageEdits";
 import {
   CHAT_CACHE_CONTROL,
   arrangeChatContext,
@@ -102,30 +103,45 @@ import { openRouterAnthropicCharge, openRouterAnthropicRequestId } from "../../s
 const makeProposeEdit = (bannedWordsWaived: boolean) =>
   createTool({
     description:
-      "Propose replacing ONE specific passage of the report. targetText must be an exact verbatim substring of the current report.",
+      "Propose one change as one suggestion card: a rewrite of one passage, or of several paragraphs at once (a trim or a tightening across a Line). Copy each paragraph you change into targetText exactly as the current report has it, separated by a blank line; newText has the same paragraphs in the same order.",
     inputSchema: z.object({
       targetText: z
         .string()
         .min(1)
         .describe(
-          "The exact substring of the current report to replace, copied character-for-character."
+          "The current report text to replace, copied character-for-character: part of one paragraph, or whole paragraphs separated by a blank line."
         ),
       newText: z
         .string()
         .min(1)
-        .describe("The replacement text, fully compliant with the writing rules."),
+        .describe(
+          "The replacement text, fully compliant with the writing rules. For several paragraphs, one new paragraph for each, in the same order, separated by a blank line."
+        ),
     }),
     execute: async (ctx, input, options): Promise<string> => {
       if (!ctx.threadId) throw new Error("No thread in tool context");
+      const passages = editPassages(input.targetText, input.newText);
+      if (!passages.ok) return `Proposal NOT created: ${passages.reason} Retry the edit tool once.`;
+      const scrub = (text: string) => scrubBannedWordsUnlessWaived(text, bannedWordsWaived);
+      const [single] = passages.pairs;
       const result = await ctx.runMutation(internal.chatV2.saveProposal, {
         agentThreadId: ctx.threadId,
         toolCallId: options.toolCallId,
         promptMessageId: proposalPromptMessageId(ctx),
-        kind: "edit",
-        targetText: input.targetText,
-        newText: scrubBannedWordsUnlessWaived(input.newText, bannedWordsWaived),
+        ...(passages.pairs.length === 1
+          ? { kind: "edit" as const, targetText: single.find, newText: scrub(single.replaceWith) }
+          : {
+              // Several paragraphs: one card that applies them together,
+              // the passage set a coordinated revision uses.
+              kind: "replacements" as const,
+              requireUniqueTargets: true,
+              replacements: passages.pairs.map((pair) => ({ find: pair.find, replaceWith: scrub(pair.replaceWith) })),
+            }),
       });
-      if (result.ok) return "Edit proposed. The writer now sees it as a suggestion card.";
+      if (result.ok) {
+        const lengths = result.lengths ? ` ${result.lengths}` : "";
+        return `Edit proposed. The writer now sees it as one suggestion card.${lengths}`;
+      }
       // A stopped turn is not a recoverable tool error: telling the model to
       // retry would have it work against the writer's explicit stop.
       if (result.stopped) return `Stop requested: ${result.reason} Do not retry.`;
@@ -166,7 +182,8 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
         })),
       });
       if (result.ok) {
-        return "Replacement set proposed. The writer now sees it as a suggestion card.";
+        const lengths = result.lengths ? ` ${result.lengths}` : "";
+        return `Replacement set proposed. The writer now sees it as a suggestion card.${lengths}`;
       }
       if (result.stopped) return `Stop requested: ${result.reason} Do not retry.`;
       return `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry with exact canonical find text.`;

@@ -41,6 +41,7 @@ import {
 import { getEffectiveWriterStyle } from "./writerProfiles";
 import { selectedCandidateRunId } from "./complianceNotes";
 import { applyPassageEdits } from "./lib/passageEdits";
+import { lineLengthsAfterEdit } from "./ai/chatLineLengths";
 import {
   MAX_COMPLETION_REPORT_FINDINGS,
   completionReportAnchorIssues,
@@ -2449,7 +2450,7 @@ export const saveProposal = internalMutation({
           q.eq("agentThreadId", args.agentThreadId).eq("toolCallId", args.toolCallId)
         )
         .unique();
-      if (existing) return { ok: true as const, proposalId: existing._id };
+      if (existing) return { ok: true as const, proposalId: existing._id, lengths: null };
     }
 
     const report = await ctx.db.get(thread.reportId);
@@ -2594,7 +2595,16 @@ export const saveProposal = internalMutation({
     })) {
       await ctx.db.insert("chatProposalItems", row);
     }
-    return { ok: true as const, proposalId };
+    // Owner 2026-10-21: the meters as they would read once the card is
+    // applied, so the model checks a trim against them instead of counting.
+    let lengths: string | null = null;
+    if (!recordOnly && args.kind !== "references") {
+      const after = args.requireUniqueTargets
+        ? applyPassageEdits(parsed as PMNode, pairs)
+        : { ok: true as const, ...applyReplacements(parsed as PMNode, pairs) };
+      if (after.ok) lengths = lineLengthsAfterEdit(report.content, JSON.stringify(after.doc));
+    }
+    return { ok: true as const, proposalId, lengths };
   },
 });
 

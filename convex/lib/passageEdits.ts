@@ -49,3 +49,39 @@ export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
   })));
   return { ok: true, doc: restored.doc, count: restored.count };
 }
+
+/**
+ * A blank line between paragraphs, as the CURRENT REPORT block prints them.
+ * A match never crosses a paragraph (`applyReplacements` matches one block at
+ * a time), so a target that spans paragraphs has to be split on these.
+ */
+const PARAGRAPH_BREAK = /\n[ \t]*\n/;
+
+/**
+ * The passages of one proposeEdit call (owner, 2026-10-21). A target inside
+ * one paragraph is one passage, as before. A target of several paragraphs,
+ * such as a trim across a whole Line, never matched anything: the model fell
+ * back to one call per paragraph and the writer got four cards. Now each
+ * paragraph pairs with the matching paragraph of the new text, so the change
+ * lands as one card; unchanged paragraphs are dropped.
+ */
+export function editPassages(targetText: string, newText: string):
+  | { ok: true; pairs: ReplacePair[] }
+  | { ok: false; reason: string } {
+  const paragraphs = (text: string) =>
+    text.split(PARAGRAPH_BREAK).map((p) => p.trim()).filter((p) => p.length > 0);
+  const targets = paragraphs(targetText);
+  if (targets.length <= 1) return { ok: true, pairs: [{ find: targetText, replaceWith: newText }] };
+  const replacements = paragraphs(newText);
+  if (replacements.length !== targets.length) {
+    return {
+      ok: false,
+      reason: `targetText has ${targets.length} paragraphs but newText has ${replacements.length}. Give newText one paragraph for each paragraph of targetText, in the same order, separated by a blank line.`,
+    };
+  }
+  const pairs = targets
+    .map((find, i) => ({ find, replaceWith: replacements[i] }))
+    .filter((pair) => pair.find !== pair.replaceWith);
+  if (pairs.length === 0) return { ok: false, reason: "newText is the same as targetText, so nothing would change." };
+  return { ok: true, pairs };
+}
