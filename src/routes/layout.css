@@ -1114,13 +1114,13 @@ textarea.input-chromeless:focus-visible {
 }
 
 /* ─── Report reading presentation (ui-design-final.md section 8, board 2.1) ──
-   The preview report page renders the editor in the reading style: serif
-   15/25 body in the 660px column, Section headings as a 12px sans label over
-   the serif CRA question (reportSectionHeadings.ts), and a limit meter at the
-   right of the label only when a Section is near or over a CRA limit. The
-   stored document is unchanged. */
+   The preview report page renders the editor in the reading style: sans
+   15/25 body in the reading column (owner, 2026-10-21: no serif), Section
+   headings as a small all-caps sans label (reportSectionHeadings.ts), and a
+   limit meter at the right of the label only when a Section is over a CRA
+   limit. The stored document is unchanged. */
 .report-reading .tiptap-editor {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 0.9375rem;
   line-height: 1.5625rem;
   color: var(--color-ink);

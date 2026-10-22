@@ -1216,7 +1216,10 @@ sizes below are at the 16px root; a laptop renders them at 0.9375x.
   weight 500, letter-spaced: "242 TECHNOLOGICAL UNCERTAINTY". Its grey is
   halfway between ink-muted and ink-faint, the lightest that keeps 3:1 on
   white. The CRA question no longer shows under it. The label is the
-  Section's h3, and the limit meter sits at its right.
+  Section's h3. The limit meter sits at its right only while the Section is
+  over a CRA limit; near a limit, nothing shows (owner, 2026-10-21).
+- **Report type (2026-10-21).** The report reads in sans, not serif: the
+  title uses `text-display`, and the body is Geist at 15px on a 25px line.
 - **Default view (2026-10-06).** A project opens on the report alone, in
   the reading column, with the Assistant and QA closed. Their open state
   and Full width are not remembered between visits; the side panel width
@@ -1451,8 +1454,8 @@ uploads. The chat header, empty state, and starter suggestions are compact
 (13px scale, medium weights). The right pane's project metadata heading is
 `text-xl font-medium` (EditableText `headingClass` override; `text-display`
 stays the default elsewhere), the metadata grid is 13px, and the PD review
-score card is proportionally smaller. The report editor itself already reads
-at 14px serif.
+score card is proportionally smaller. The report editor reads in sans (2026-10-21; it
+was 14px serif).
 
 Ghost header controls (2026-08-10, measured off Obvious): every workbench
 header control is a ghost — the workflow menu and the chat thread selector

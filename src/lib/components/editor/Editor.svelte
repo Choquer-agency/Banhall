@@ -378,7 +378,9 @@
       const metric = metrics[key];
       const state = limitState(metric);
       const headingRange = headingRanges[key];
-      if (headingMeters && headingRange && state !== "ok") {
+      // Owner, 2026-10-21: the meter shows only once a Section is over a
+      // CRA limit; near the limit, it stays quiet.
+      if (headingMeters && headingRange && state === "over") {
         const spec: ReportLimitMeterSpec = {
           reportLimitMeter: {
             state,

@@ -71,8 +71,9 @@ describe("Report reading presentation", () => {
     // The stored heading wording never shows, and neither does the end-of-Section pill.
     expect(container.textContent).not.toContain("Line 242");
     expect(container.querySelectorAll(".cra-section-end")).toHaveLength(0);
-    // Serif body in the reading column.
+    // Sans body in the reading column (owner, 2026-10-21: no serif).
     const editor = container.querySelector(".tiptap-editor") as HTMLElement;
+    expect(getComputedStyle(editor).fontFamily).toContain("Geist");
     expect(getComputedStyle(editor).fontSize).toBe("15px");
     expect(getComputedStyle(editor).lineHeight).toBe("25px");
     const title = getComputedStyle(headings[0].querySelector("h3")!);
@@ -86,20 +87,30 @@ describe("Report reading presentation", () => {
     expect(rgb).toEqual([127, 146, 142]);
   });
 
-  it("shows the limit meter only on a Section near a CRA limit", async () => {
-    const metrics = reportSectionMetrics(reportContent());
-    const { container } = await mountReading();
+  // Owner, 2026-10-21: the meter shows only once a Section is over a CRA
+  // limit; near the limit, nothing shows.
+  it("shows the limit meter only on a Section over a CRA limit", async () => {
+    const near = await mountReading();
+    const nearMeters = [...near.container.querySelectorAll<HTMLElement>("[data-report-limit-meter]")];
+    expect(nearMeters.map((m) => m.hidden)).toEqual([true, true, true]);
+    await near.unmount();
+
+    const over = `${NEAR_LIMIT_244}\n\n${NEAR_LIMIT_244.split("\n\n")[0]}`;
+    const content = JSON.stringify(buildTiptapDocument("Adaptive cold storage controls", SHORT_242, over, SHORT_246));
+    const metrics = reportSectionMetrics(content);
+    expect(metrics.s244.words).toBeGreaterThan(700);
+    const { container } = await mountReading(content);
     const meters = [...container.querySelectorAll<HTMLElement>("[data-report-limit-meter]")];
     expect(meters.map((m) => m.hidden)).toEqual([true, false, true]);
     const meter = meters[1];
-    expect(["warning", "over"]).toContain(meter.dataset.limitState);
+    expect(meter.dataset.limitState).toBe("over");
     expect(meter.querySelector(".report-limit-meter__text")?.textContent).toBe(
       `${metrics.s244.lines} / 100 lines, ${metrics.s244.words} / 700 words`
     );
     expect(meter.querySelector(".report-limit-meter__bar")).not.toBeNull();
   });
 
-  it("keeps the [GAP] highlight in the serif body", async () => {
+  it("keeps the [GAP] highlight in the body", async () => {
     const { container } = await mountReading();
     const gap = container.querySelector<HTMLElement>('mark[data-color="#FEF3C7"]');
     expect(gap?.textContent).toBe("[GAP: Confirm the test range.]");

@@ -4,7 +4,7 @@
  * Technological Uncertainty" renders as one small all-caps sans label ("242
  * TECHNOLOGICAL UNCERTAINTY"; the CRA question under it was removed by the
  * owner on 2026-10-21), with the limit meter at the right of the label when
- * the Section is near or over a limit.
+ * the Section is over a CRA limit.
  *
  * Rendering only. The document keeps its exact "Line 24x" heading nodes, so
  * autosave, export (parseCanonicalReport), QA and section detection read the
